@@ -1,0 +1,49 @@
+# Node modules
+node_modules/
+
+# Build output
+dist/
+build/
+
+# System files
+.DS_Store
+Thumbs.db
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# dotenv environment variables
+.env.*
+.env.local
+.env.*.local
+.env.production
+
+# IDEs and editors
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+
+# OS-specific
+*.swp
+*.bak
+
+# Testing
+coverage/
+
+# Dependency directories
+.pnp/
+.pnp.js
+
+# Others
+*.log
+*.tgz
+.cache/
+.eslintcache
+*.tsbuildinfo
+nul

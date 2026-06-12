@@ -1,0 +1,676 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  --font-size: 14px;
+  --background: #ffffff;
+  --foreground: oklch(0.145 0 0);
+  --card: #ffffff;
+  --card-foreground: oklch(0.145 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.145 0 0);
+  --primary: #030213;
+  --primary-foreground: oklch(1 0 0);
+  --secondary: oklch(0.95 0.0058 264.53);
+  --secondary-foreground: #030213;
+  --muted: #ececf0;
+  --muted-foreground: #717182;
+  --accent: #e9ebef;
+  --accent-foreground: #030213;
+  --destructive: #d4183d;
+  --destructive-foreground: #ffffff;
+  --border: rgba(0, 0, 0, 0.1);
+  --input: transparent;
+  --input-background: #f3f3f5;
+  --switch-background: #cbced4;
+  --font-weight-medium: 500;
+  --font-weight-normal: 400;
+  --ring: oklch(0.708 0 0);
+  --chart-1: oklch(0.646 0.222 41.116);
+  --chart-2: oklch(0.6 0.118 184.704);
+  --chart-3: oklch(0.398 0.07 227.392);
+  --chart-4: oklch(0.828 0.189 84.429);
+  --chart-5: oklch(0.769 0.188 70.08);
+  --radius: 0.625rem;
+  --sidebar: oklch(0.985 0 0);
+  --sidebar-foreground: oklch(0.145 0 0);
+  --sidebar-primary: #030213;
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.97 0 0);
+  --sidebar-accent-foreground: oklch(0.205 0 0);
+  --sidebar-border: oklch(0.922 0 0);
+  --sidebar-ring: oklch(0.708 0 0);
+}
+
+.dark {
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.145 0 0);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.145 0 0);
+  --popover-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.985 0 0);
+  --primary-foreground: oklch(0.205 0 0);
+  --secondary: oklch(0.269 0 0);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.269 0 0);
+  --muted-foreground: oklch(0.708 0 0);
+  --accent: oklch(0.269 0 0);
+  --accent-foreground: oklch(0.985 0 0);
+  --destructive: oklch(0.396 0.141 25.723);
+  --destructive-foreground: oklch(0.637 0.237 25.331);
+  --border: oklch(0.269 0 0);
+  --input: oklch(0.269 0 0);
+  --ring: oklch(0.439 0 0);
+  --font-weight-medium: 500;
+  --font-weight-normal: 400;
+  --chart-1: oklch(0.488 0.243 264.376);
+  --chart-2: oklch(0.696 0.17 162.48);
+  --chart-3: oklch(0.769 0.188 70.08);
+  --chart-4: oklch(0.627 0.265 303.9);
+  --chart-5: oklch(0.645 0.246 16.439);
+  --sidebar: oklch(0.205 0 0);
+  --sidebar-foreground: oklch(0.985 0 0);
+  --sidebar-primary: oklch(0.488 0.243 264.376);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.269 0 0);
+  --sidebar-accent-foreground: oklch(0.985 0 0);
+  --sidebar-border: oklch(0.269 0 0);
+  --sidebar-ring: oklch(0.439 0 0);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-input-background: var(--input-background);
+  --color-switch-background: var(--switch-background);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+  }
+
+  /* Ensure text selection works globally */
+  *,
+  *::before,
+  *::after {
+    user-select: auto;
+    -webkit-user-select: auto;
+    -moz-user-select: auto;
+    -ms-user-select: auto;
+  }
+
+  /* Specific text selection styling */
+  ::selection {
+    background-color: rgba(59, 130, 246, 0.3);
+    color: rgba(30, 58, 138, 1);
+  }
+
+  ::-moz-selection {
+    background-color: rgba(59, 130, 246, 0.3);
+    color: rgba(30, 58, 138, 1);
+  }
+
+  /* Ensure input fields specifically allow text selection */
+  input,
+  textarea,
+  [contenteditable] {
+    user-select: text !important;
+    -webkit-user-select: text !important;
+    -moz-user-select: text !important;
+    -ms-user-select: text !important;
+    cursor: text;
+  }
+
+  
+  input::selection,
+  textarea::selection,
+  [contenteditable]::selection {
+    background-color: rgba(59, 130, 246, 0.4);
+    color: rgba(30, 58, 138, 1);
+  }
+
+  /* Force text selection for login/signup forms */
+  .login-form input,
+  .signup-form input,
+  .auth-form input {
+    user-select: text !important;
+    -webkit-user-select: text !important;
+    -moz-user-select: text !important;
+    -ms-user-select: text !important;
+
+  }
+
+  @media (max-width: 768px) {
+  input,
+  textarea,
+  select {
+    font-size: 16px;
+  }
+}
+
+  /* Utility class to force text selection */
+  .text-selectable,
+  .text-selectable * {
+    user-select: text !important;
+    -webkit-user-select: text !important;
+    -moz-user-select: text !important;
+    -ms-user-select: text !important;
+  }
+}
+
+/**
+ * Base typography. This is not applied to elements which have an ancestor with a Tailwind text class.
+ */
+@layer base {
+  :where(:not(:has([class*=" text-"]), :not(:has([class^="text-"])))) {
+    h1 {
+      font-size: var(--text-2xl);
+      font-weight: var(--font-weight-medium);
+      line-height: 1.5;
+    }
+
+    h2 {
+      font-size: var(--text-xl);
+      font-weight: var(--font-weight-medium);
+      line-height: 1.5;
+    }
+
+    h3 {
+      font-size: var(--text-lg);
+      font-weight: var(--font-weight-medium);
+      line-height: 1.5;
+    }
+
+    h4 {
+      font-size: var(--text-base);
+      font-weight: var(--font-weight-medium);
+      line-height: 1.5;
+    }
+
+    p {
+      font-size: var(--text-base);
+      font-weight: var(--font-weight-normal);
+      line-height: 1.5;
+    }
+
+    label {
+      font-size: var(--text-base);
+      font-weight: var(--font-weight-medium);
+      line-height: 1.5;
+    }
+
+    button {
+      font-size: var(--text-base);
+      font-weight: var(--font-weight-medium);
+      line-height: 1.5;
+    }
+
+    input {
+      font-size: var(--text-base);
+      font-weight: var(--font-weight-normal);
+      line-height: 1.5;
+    }
+  }
+}
+
+html {
+  font-size: var(--font-size);
+  /* Fix horizontal scroll on iOS Safari */
+  /* overflow-x: hidden !important; */
+  /* Prevent iOS bounce/rubber band effect */
+  overscroll-behavior-y: none;
+}
+
+body {
+  /* Fix horizontal scroll on iOS Safari */
+  /* overflow-x: hidden !important; */
+  /* Better touch scrolling on iOS */
+  -webkit-overflow-scrolling: touch;
+  /* Prevent iOS bounce/rubber band effect */
+  overscroll-behavior-y: none;
+}
+
+/* Ensure root container doesn't overflow */
+#root {
+  /* overflow-x: hidden; */
+  max-width: 100vw;
+  width: 100%;
+  /* Prevent iOS bounce/rubber band effect */
+  overscroll-behavior-y: none;
+}
+
+/* iOS Safari specific fixes */
+@supports (-webkit-touch-callout: none) {
+  html, body {
+    /* overflow-x: hidden; */
+    max-width: 100vw;
+    width: 100%;
+    overscroll-behavior-y: none;
+  }
+}
+
+/* Custom animations for chart */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes slideIn {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+@keyframes slideUpFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(20px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes progressShimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.animate-fadeIn {
+  animation: fadeIn 0.3s ease-out;
+}
+
+.animate-slideIn {
+  animation: slideIn 0.6s ease-out;
+}
+
+.animate-slideUpFadeIn {
+  animation: slideUpFadeIn 0.5s ease-out forwards;
+}
+
+.animate-progressShimmer {
+  background: linear-gradient(
+    90deg,
+    #6C60FF 0%,
+    #8B7FFF 50%,
+    #6C60FF 100%
+  );
+  background-size: 200% 100%;
+  animation: progressShimmer 2s ease-in-out infinite;
+}
+
+/* Custom scrollbar styles */
+.scrollbar-thin {
+  scrollbar-width: thin;
+}
+
+.scrollbar-thin::-webkit-scrollbar {
+  width: 4px;
+}
+
+.scrollbar-thin::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background-color: rgb(209 213 219);
+  border-radius: 2px;
+}
+
+.scrollbar-thin::-webkit-scrollbar-thumb:hover {
+  background-color: rgb(156 163 175);
+}
+
+/* Hide scrollbar */
+.scrollbar-hide {
+  -ms-overflow-style: none;  /* IE and Edge */
+  scrollbar-width: none;  /* Firefox */
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;  /* Chrome, Safari and Opera */
+}
+
+.scrollbar-thumb-gray-300::-webkit-scrollbar-thumb {
+  background-color: rgb(209 213 219);
+}
+
+.scrollbar-thumb-gray-400::-webkit-scrollbar-thumb:hover {
+  background-color: rgb(156 163 175);
+}
+
+.scrollbar-track-transparent::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* Custom styles for native date picker calendar */
+/* WebKit browsers (Chrome, Safari, Edge) */
+input[type="date"]::-webkit-calendar-picker-indicator {
+  cursor: pointer;
+  opacity: 1;
+  transition: opacity 0.2s ease;
+}
+
+input[type="date"]::-webkit-calendar-picker-indicator:hover {
+  opacity: 0.8;
+}
+
+/* Calendar dropdown styling for WebKit browsers */
+input[type="date"]::-webkit-inner-spin-button,
+input[type="date"]::-webkit-clear-button {
+  display: none;
+}
+
+/* Purple accent for date picker when focused */
+input[type="date"]:focus {
+  outline: none;
+  border-color: #7B68EE !important;
+  box-shadow: 0 0 0 2px rgba(123, 104, 238, 0.2) !important;
+}
+
+/* Custom calendar popup styles (limited browser support) */
+input[type="date"]::-webkit-datetime-edit {
+  color: #374151;
+}
+
+input[type="date"]::-webkit-datetime-edit-fields-wrapper {
+  padding: 0;
+}
+
+input[type="date"]::-webkit-datetime-edit-text {
+  color: #6B7280;
+  padding: 0 1px;
+}
+
+input[type="date"]::-webkit-datetime-edit-month-field,
+input[type="date"]::-webkit-datetime-edit-day-field,
+input[type="date"]::-webkit-datetime-edit-year-field {
+  background: transparent;
+  color: #374151;
+  outline: none;
+  border: none;
+  padding: 2px;
+  border-radius: 2px;
+}
+
+input[type="date"]::-webkit-datetime-edit-month-field:focus,
+input[type="date"]::-webkit-datetime-edit-day-field:focus,
+input[type="date"]::-webkit-datetime-edit-year-field:focus {
+  background-color: rgba(123, 104, 238, 0.1);
+  color: #374151;
+}
+
+/* Custom styles for calendar popup selected date */
+/* WebKit calendar popup styling - removed custom icon to use browser default */
+
+/* Calendar popup styles for different browsers */
+input[type="date"]::-webkit-calendar-popup {
+  background-color: white;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+  padding: 8px;
+}
+
+/* Selected date styling in calendar popup */
+input[type="date"]::-webkit-calendar-picker-cell:selected {
+  background-color: #6C60FF !important;
+  color: white !important;
+  border-radius: 4px !important;
+}
+
+input[type="date"]::-webkit-calendar-picker-cell:hover {
+  background-color: rgba(108, 96, 255, 0.1) !important;
+  border-radius: 4px !important;
+}
+
+input[type="date"]::-webkit-calendar-picker-cell:focus {
+  background-color: #6C60FF !important;
+  color: white !important;
+  border-radius: 4px !important;
+  outline: 2px solid rgba(108, 96, 255, 0.3) !important;
+}
+
+/* Today's date highlighting */
+input[type="date"]::-webkit-calendar-picker-cell:today {
+  border: 2px solid #6C60FF !important;
+  border-radius: 4px !important;
+}
+
+/* Month/Year navigation buttons */
+input[type="date"]::-webkit-calendar-picker-month,
+input[type="date"]::-webkit-calendar-picker-year {
+  color: #6C60FF !important;
+  font-weight: 500;
+}
+
+/* Calendar navigation arrows */
+
+/* Additional calendar popup styling for better browser support */
+/* Using browser's default calendar icon */
+
+/* More specific calendar cell styling */
+
+/* Style the calendar popup to show selected dates in purple */
+input[type="date"]::-webkit-calendar-picker-indicator {
+  cursor: pointer;
+}
+
+/* For Webkit browsers - calendar popup styling */
+input::-webkit-datetime-edit {
+  color: #374151;
+  font-size: 14px;
+}
+
+/* Override native date picker calendar styles for WebKit browsers */
+input[type="date"]::-webkit-calendar-picker-indicator {
+  cursor: pointer;
+  opacity: 1;
+}
+
+/* Style for the actual calendar popup - Chrome/Edge specific */
+::-webkit-calendar-picker-indicator:hover {
+  background-color: transparent !important;
+}
+
+/* Selected date cell in calendar - multiple selectors for browser compatibility */
+input[type="date"]::-webkit-datetime-edit-year-field:focus,
+input[type="date"]::-webkit-datetime-edit-month-field:focus,
+input[type="date"]::-webkit-datetime-edit-day-field:focus {
+  background-color: rgba(123, 104, 238, 0.1);
+  border-radius: 2px;
+}
+
+/* Calendar popup date cells */
+::-webkit-date-and-time-value {
+  color: #374151 !important;
+}
+
+/* Selected state styles using pseudo-classes */
+input[type="date"]::-webkit-calendar-picker-indicator:active,
+input[type="date"]::-webkit-calendar-picker-indicator:focus {
+  outline: none;
+}
+
+/* Global styles for any selected date elements */
+[aria-selected="true"],
+[data-selected="true"],
+.selected,
+[selected] {
+  background-color: #7B68EE !important;
+  color: white !important;
+  border-radius: 4px !important;
+}
+
+/* Calendar grid cell selected state */
+[role="gridcell"][aria-selected="true"],
+[role="gridcell"][tabindex="0"],
+[role="gridcell"]:focus {
+  background-color: #7B68EE !important;
+  color: white !important;
+  border-radius: 4px !important;
+}
+
+/* Active/current date */
+[aria-current="date"],
+[data-value][aria-selected="true"],
+.ui-state-active,
+.ui-state-highlight {
+  background-color: #7B68EE !important;
+  color: white !important;
+  border-radius: 4px !important;
+  font-weight: 600 !important;
+}
+
+/* Hover state for calendar dates */
+[role="gridcell"]:hover,
+[data-date]:hover,
+.ui-state-hover {
+  background-color: rgba(123, 104, 238, 0.15) !important;
+  cursor: pointer !important;
+  border-radius: 4px !important;
+}
+
+/* Today's date indicator */
+[aria-label*="today" i],
+.ui-state-today {
+  border: 2px solid #7B68EE !important;
+  border-radius: 4px !important;
+}
+
+/* Force selected date background for all possible selectors */
+td[aria-selected="true"],
+td.selected,
+td.active,
+td.ui-state-active,
+button[aria-selected="true"],
+button.selected,
+a[aria-selected="true"],
+a.ui-state-active {
+  background-color: #7B68EE !important;
+  color: white !important;
+  border-radius: 4px !important;
+}
+
+/* Specific for date input calendar widget */
+input[type="date"] + [role="dialog"] [aria-selected="true"],
+input[type="date"] ~ * [aria-selected="true"] {
+  background-color: #7B68EE !important;
+  color: white !important;
+}
+
+/* Calendar table styling */
+::-webkit-calendar-picker-table {
+  border-collapse: separate !important;
+  border-spacing: 2px !important;
+}
+
+/* Month/year header styling */
+::-webkit-calendar-picker-month-year-header {
+  color: #6C60FF !important;
+  font-weight: 600 !important;
+  background: rgba(108, 96, 255, 0.05) !important;
+  border-radius: 4px !important;
+  padding: 4px 8px !important;
+}
+
+/* Navigation buttons */
+::-webkit-calendar-picker-navigation-button {
+  color: #6C60FF !important;
+  background: transparent !important;
+  border: none !important;
+  border-radius: 4px !important;
+  padding: 4px !important;
+  cursor: pointer !important;
+}
+
+::-webkit-calendar-picker-navigation-button:hover {
+  background-color: rgba(108, 96, 255, 0.1) !important;
+}
+
+/* Week header styling */
+::-webkit-calendar-picker-week-header {
+  color: #6B7280 !important;
+  font-size: 12px !important;
+  font-weight: 500 !important;
+  text-align: center !important;
+  padding: 4px !important;
+}
+
+/* Sonner Toast Notifications - Success styling */
+[data-sonner-toast][data-type="success"] {
+  background-color: #f0fdf4 !important;
+  border: 1px solid #86efac !important;
+  color: #15803d !important;
+}
+
+[data-sonner-toast][data-type="success"] [data-icon] {
+  color: #22c55e !important;
+}
+
+[data-sonner-toast][data-type="success"] [data-content] {
+  color: #15803d !important;
+}
+
+[data-sonner-toast][data-type="success"] [data-title] {
+  color: #15803d !important;
+  font-weight: 500 !important;
+}

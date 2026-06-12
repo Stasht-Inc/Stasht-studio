@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OAuth Callback</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            display: flex;
+            align-items: center;
+            justify-center;
+            min-height: 100vh;
+        }
+        .container {
+            background: white;
+            padding: 40px;
+            border-radius: 12px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+            text-align: center;
+            max-width: 400px;
+        }
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #6C60FF;
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        h2 {
+            color: #333;
+            margin: 0 0 10px;
+            font-size: 24px;
+        }
+        p {
+            color: #666;
+            margin: 0;
+            font-size: 14px;
+        }
+        .status {
+            margin-top: 20px;
+            padding: 12px;
+            border-radius: 6px;
+            font-size: 13px;
+        }
+        .success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="spinner"></div>
+        <h2>Connecting...</h2>
+        <p>Please wait while we complete the connection.</p>
+        <div id="status"></div>
+    </div>
+
+    <script>
+        (function() {
+            console.log('📡 OAuth Callback Page Loaded');
+
+            // Parse URL parameters
+            const urlParams = new URLSearchParams(window.location.search);
+            const code = urlParams.get('code');
+            const state = urlParams.get('state');
+            const error = urlParams.get('error');
+            const errorDescription = urlParams.get('error_description');
+            const service = urlParams.get('service') || 'dropbox';
+
+            console.log('OAuth Parameters:', { service, code, state, error, errorDescription });
+
+            const statusEl = document.getElementById('status');
+
+            function showStatus(message, type) {
+                statusEl.className = 'status ' + type;
+                statusEl.textContent = message;
+            }
+
+            function closeWindow() {
+                setTimeout(() => {
+                    window.close();
+                    // Fallback if window.close() doesn't work
+                    if (!window.closed) {
+                        showStatus('You can close this window now.', 'success');
+                    }
+                }, 1500);
+            }
+
+            if (error) {
+                // OAuth error occurred
+                console.error('❌ OAuth error:', error, errorDescription);
+                showStatus('Connection failed: ' + (errorDescription || error), 'error');
+
+                if (window.opener && !window.opener.closed) {
+                    window.opener.postMessage({
+                        type: 'oauth_error',
+                        service: service,
+                        error: errorDescription || error
+                    }, window.location.origin);
+                }
+
+                closeWindow();
+            } else if (code) {
+                // Success - send code back to parent
+                console.log('✅ OAuth successful, sending message to parent');
+                showStatus('Connection successful! Syncing...', 'success');
+
+                if (window.opener && !window.opener.closed) {
+                    window.opener.postMessage({
+                        type: 'oauth_success',
+                        service: service,
+                        code: code,
+                        state: state
+                    }, window.location.origin);
+
+                    console.log('✅ Message sent to opener window');
+                } else {
+                    console.error('❌ No opener window found');
+                    showStatus('Error: Parent window not found', 'error');
+                }
+
+                closeWindow();
+            } else {
+                console.error('❌ No code or error in OAuth callback');
+                showStatus('No authorization code received', 'error');
+
+                if (window.opener && !window.opener.closed) {
+                    window.opener.postMessage({
+                        type: 'oauth_error',
+                        service: service,
+                        error: 'No authorization code received'
+                    }, window.location.origin);
+                }
+
+                closeWindow();
+            }
+        })();
+    </script>
+</body>
+</html>

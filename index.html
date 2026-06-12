@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/png" href="/pwa-icon-192.png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#6C60FF" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="Stasht" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <title>Stasht Studio</title>
+
+    <!-- Default Open Graph Meta Tags (will be overridden by React Helmet on specific pages) -->
+    <meta property="og:site_name" content="Stasht" />
+    <meta property="og:type" content="website" />
+    <meta name="description" content="Capture and share your precious memories with Stasht" />
+    <meta property="og:title" content="Stasht Studio" />
+    <meta property="og:description" content="Capture and share your precious memories with Stasht" />
+
+    <!-- Twitter Card Meta Tags -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:site" content="@stasht" />
+    <meta name="twitter:title" content="Stasht Studio" />
+    <meta name="twitter:description" content="Capture and share your precious memories with Stasht" />
+    <!-- Capture PWA install prompt BEFORE React loads -->
+    <script>
+      window.deferredInstallPrompt = null;
+      window.addEventListener('beforeinstallprompt', function(e) {
+        e.preventDefault();
+        window.deferredInstallPrompt = e;
+      });
+    </script>
+    <!-- Capture email parameter BEFORE React loads -->
+    <script>
+      console.log('🌟🌟🌟 [INDEX.HTML] EARLIEST POSSIBLE CAPTURE POINT');
+      console.log('🌟 [INDEX.HTML] window.location.href:', window.location.href);
+      console.log('🌟 [INDEX.HTML] window.location.search:', window.location.search);
+
+      const params = new URLSearchParams(window.location.search);
+      const email = params.get('email');
+      const isInviteLink = params.get('invite') === '1';
+
+      console.log('🌟 [INDEX.HTML] Email param:', email);
+      console.log('🌟 [INDEX.HTML] Is invite link:', isInviteLink);
+
+      // For invite links, email= is the OWNER's email, not the collaborator being invited.
+      // Storing it would cause the magic link handler to treat the wrong email as the login target.
+      if (email && !isInviteLink) {
+        console.log('🌟 [INDEX.HTML] ✅✅✅ FOUND EMAIL! Storing in sessionStorage:', email);
+        sessionStorage.setItem('pending_magic_link_email', email);
+        sessionStorage.setItem('magic_link_email', decodeURIComponent(email));
+        console.log('🌟 [INDEX.HTML] Stored both keys for compatibility');
+      } else if (email && isInviteLink) {
+        console.log('🌟 [INDEX.HTML] ⏭️ Skipping email storage - invite link (email is owner, not collaborator)');
+      } else {
+        console.log('🌟 [INDEX.HTML] ❌ No email parameter found');
+      }
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/main.tsx"></script>
+  </body>
+</html>
