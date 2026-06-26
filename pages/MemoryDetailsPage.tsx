@@ -19,7 +19,8 @@ import { getCategoryColorHex, getCategoryIcon, formatDate } from "../utils/memor
 import { getCategoryColor } from "../constants/mediaConstants";
 import { triggerMemoryCountsRefresh } from '../hooks/useMemoryCounts';
 import { useMemoryLimit, recheckMemoryLimit } from '../hooks/useMemoryLimit';
-import { dashboardAPI, tokenUtils, apiRequest, getApiBaseUrl } from "../utils/authUtils";
+import { dashboardAPI, tokenUtils, apiRequest, getApiBaseUrl, userUtils } from "../utils/authUtils";
+import { EditMediaItemPopover } from "../components/EditMediaItemPopover";
 import mediaAPI from "../services/mediaAPI";
 import { aiCreditsAPI } from "../services/aiCreditsAPI";
 import PostCard from "../components/PostCard";
@@ -370,29 +371,156 @@ function TimelinePostCard({ post, subImages, memoryData, onImageClick }: {
 }
 
 // SharedPostCard — used by the shared-with view (raw API data format)
-function SharedPostCard({ post, index, memoryData, onImageClick, onCommentClick }: {
+function SharedPostCard({ post, index, memoryData, onImageClick, onCommentClick, onUpdateItem, onDeletePost, onRefresh }: {
   post: any; index: number; memoryData: any;
   onImageClick: (post: any, index: number) => void;
   onCommentClick?: (post: any, index: number) => void;
+  onUpdateItem?: (id: string, updates: any) => void;
+  onDeletePost?: (postId: string) => void;
+  onRefresh?: () => void;
 }) {
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [isEditOpen, setIsEditOpen] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [isCaptionHidden, setIsCaptionHidden] = useState((post as any).hide_caption === 1 || (post as any).hide_caption === true);
+  const [currentCaption, setCurrentCaption] = useState<string>(post.description || '');
+  const [isEditingCaption, setIsEditingCaption] = useState(false);
+  const [editedCaption, setEditedCaption] = useState<string>('');
+  const [isSavingCaption, setIsSavingCaption] = useState(false);
   const allImages: { src: string; id: string }[] = [{ src: post.image_link || post.master_image_link, id: post.id }];
   if (post.sub_images && Array.isArray(post.sub_images)) {
     post.sub_images.forEach((s: any) => allImages.push({ src: s.image_link || s.master_image_link || s.src, id: s.id }));
   }
   const hasMultiple = allImages.length > 1;
   const cur = allImages[currentImageIndex];
+
+  // Keep local caption state in sync when fresh data arrives after a refresh
+  useEffect(() => { setCurrentCaption(post.description || ''); }, [post.description]);
+  useEffect(() => { setIsCaptionHidden((post as any).hide_caption === 1 || (post as any).hide_caption === true); }, [(post as any).hide_caption]);
+
+  const hasCaption = !!(currentCaption && currentCaption.trim());
+
+  // Only the user who uploaded this moment can edit/delete it
+  const currentUser = userUtils.getStoredUser();
+  const currentUserId = (currentUser as any)?.external_user_id || currentUser?.id;
+  const isPostAuthor = currentUser ? (
+    (post.user?.id && currentUserId && String(currentUserId) === String(post.user.id)) ||
+    (post.user_id && currentUserId && String(currentUserId) === String(post.user_id)) ||
+    (post.user?.email && currentUser.email && post.user.email === currentUser.email) ||
+    (post.user?.name && currentUser.name && post.user.name === currentUser.name)
+  ) : false;
+  const showMenu = isPostAuthor && (!!onUpdateItem || !!onDeletePost);
+
+  const handleDelete = async () => {
+    setIsDeleting(true);
+    try {
+      const res = await dashboardAPI.deletePost(post.id);
+      if (res.success) {
+        toast.success('Post deleted successfully!');
+        onDeletePost?.(String(post.id));
+      } else {
+        toast.error(res.error || 'Failed to delete post');
+      }
+    } catch {
+      toast.error('Failed to delete post');
+    } finally {
+      setIsDeleting(false);
+      setIsMenuOpen(false);
+    }
+  };
+
+  const handleEditCaption = () => {
+    setEditedCaption(currentCaption || '');
+    setIsEditingCaption(true);
+    setIsMenuOpen(false);
+  };
+
+  const handleSaveCaption = async () => {
+    if (!editedCaption.trim()) return;
+    setIsSavingCaption(true);
+    try {
+      await onUpdateItem?.(post.id, { description: editedCaption });
+      setCurrentCaption(editedCaption);
+      setIsEditingCaption(false);
+    } finally {
+      setIsSavingCaption(false);
+    }
+  };
+
+  const handleToggleCaption = async () => {
+    const newHidden = !isCaptionHidden;
+    setIsCaptionHidden(newHidden);
+    setIsMenuOpen(false);
+    try {
+      const res = await dashboardAPI.setCaptionHidden(post.id, newHidden);
+      if (res.success) { onRefresh?.(); }
+      else { setIsCaptionHidden(!newHidden); toast.error(res.error || 'Failed to update caption visibility'); }
+    } catch {
+      setIsCaptionHidden(!newHidden);
+      toast.error('Failed to update caption visibility');
+    }
+  };
+
+  const handleDeleteCaption = async () => {
+    setIsMenuOpen(false);
+    try {
+      const res = await dashboardAPI.deletePostDescription(post.id);
+      if (res.success) {
+        toast.success('Caption deleted successfully!');
+        setCurrentCaption('');
+        onRefresh?.();
+      } else { toast.error(res.error || 'Failed to delete caption'); }
+    } catch {
+      toast.error('Failed to delete caption');
+    }
+  };
+
   return (
     <div className="bg-white rounded-2xl shadow-md overflow-hidden hover:shadow-xl transition-shadow duration-200">
       <div className="relative aspect-[4/3] sm:aspect-[4/5] bg-gray-100 cursor-pointer group rounded-t-2xl overflow-hidden" onClick={() => onImageClick(post, index)}>
         <ImageWithFallback src={cur?.src} alt={post.name || 'Moment'} className="w-full h-full object-cover" />
+        {isEditOpen && (
+          <>
+            <div className="fixed inset-0 z-[100] bg-black/50" onClick={(e) => { e.stopPropagation(); setIsEditOpen(false); }} />
+            <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-[101]" onClick={(e) => e.stopPropagation()}>
+              <EditMediaItemPopover
+                item={{
+                  id: cur?.id || post.id,
+                  name: post.name || '',
+                  title: post.title || '',
+                  thumbnail: cur?.src || '',
+                  image: cur?.src || '',
+                  type: 'image',
+                  size: post.file_size || post.size || '0',
+                  date: post.capture_date || post.uploaded_at || '',
+                  location: typeof post.location === 'string' ? { displayName: post.location } : post.location,
+                  author: { name: post.user?.name || '', avatar: post.user?.profile_image || '', id: post.user?.id?.toString() },
+                  content: post.description || '',
+                  description: post.description || '',
+                  labels: Array.isArray(post.tags) ? post.tags : [],
+                }}
+                trigger={<button className="w-0 h-0 opacity-0" />}
+                onSave={(itemId, updates) => { onUpdateItem?.(itemId, updates); setIsEditOpen(false); }}
+                open={isEditOpen}
+                onOpenChange={setIsEditOpen}
+                memoryOwnerId={memoryData?.user_id?.toString() || memoryData?.user?.id?.toString()}
+                memoryTitle={memoryData?.title}
+                memoryThumbnail={memoryData?.last_update_img}
+                memoryCreatedDate={memoryData?.created_at}
+                memoryImages={[]}
+                storyTags={[]}
+              />
+            </div>
+          </>
+        )}
         {hasMultiple && <div className="absolute top-3 right-3 bg-black/60 text-white text-xs font-medium px-2 py-1 rounded-full">{currentImageIndex + 1}/{allImages.length}</div>}
         {hasMultiple && <>
           <button onClick={(e) => { e.stopPropagation(); setCurrentImageIndex(p => p > 0 ? p - 1 : allImages.length - 1); }} className="absolute left-3 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-white text-gray-700 flex items-center justify-center shadow-md hover:bg-gray-50 border border-gray-100"><ChevronLeft className="w-5 h-5" /></button>
           <button onClick={(e) => { e.stopPropagation(); setCurrentImageIndex(p => p < allImages.length - 1 ? p + 1 : 0); }} className="absolute right-3 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-white text-gray-700 flex items-center justify-center shadow-md hover:bg-gray-50 border border-gray-100"><ChevronRight className="w-5 h-5" /></button>
         </>}
       </div>
-      <div className={`px-4 pt-4 bg-white ${post.description?.trim() ? 'pb-4' : 'pb-2'}`}>
+      <div className={`px-4 pt-4 bg-white ${hasCaption || isEditingCaption ? 'pb-4' : 'pb-2'}`}>
         <div className="flex items-center justify-between gap-2 mb-2">
           <div className="flex items-center gap-2 flex-1">
             <div className="h-[30px] w-[30px] rounded-full overflow-hidden shrink-0 flex items-center justify-center bg-gradient-to-br from-[#6C60FF] to-purple-600 text-white text-sm font-medium relative">
@@ -401,14 +529,109 @@ function SharedPostCard({ post, index, memoryData, onImageClick, onCommentClick 
             </div>
             <p className="text-base font-medium text-gray-900">{post.user?.name || memoryData?.user?.name}</p>
           </div>
-          {post.comments_count != null && <button onClick={(e) => { e.stopPropagation(); onCommentClick?.(post, index); }} className="flex items-center gap-1.5 text-base text-gray-600 hover:text-[#6C60FF] transition-colors"><MessageSquare className="w-5 h-5" /><span>{post.comments_count}</span></button>}
+          <div className="flex items-center gap-2 flex-shrink-0">
+            {post.comments_count != null && <button onClick={(e) => { e.stopPropagation(); onCommentClick?.(post, index); }} className="flex items-center gap-1.5 text-base text-gray-600 hover:text-[#6C60FF] transition-colors"><MessageSquare className="w-5 h-5" /><span>{post.comments_count}</span></button>}
+            {showMenu && (
+              <Popover open={isMenuOpen} onOpenChange={setIsMenuOpen}>
+                <PopoverTrigger asChild>
+                  <Button variant="ghost" size="sm" className="h-6 w-6 p-0 hover:bg-gray-100 rounded-full transition-all duration-200" onClick={(e) => e.stopPropagation()}>
+                    <MoreVertical className="h-4 w-4 text-gray-500" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-48 p-2 bg-white border border-gray-200 shadow-lg" align="end" onClick={(e) => e.stopPropagation()}>
+                  <div className="flex flex-col gap-1">
+                    {/* Caption actions — only show if there's a caption */}
+                    {hasCaption && (
+                      <>
+                        {onUpdateItem && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={handleEditCaption}
+                            className="justify-start text-sm h-8 px-2 hover:bg-gray-100 bg-white"
+                          >
+                            <Edit className="h-3.5 w-3.5 mr-2" />
+                            Edit Caption
+                          </Button>
+                        )}
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleToggleCaption()}
+                          className="justify-start text-sm h-8 px-2 hover:bg-gray-100 bg-white"
+                        >
+                          {isCaptionHidden ? <Eye className="h-3.5 w-3.5 mr-2" /> : <EyeOff className="h-3.5 w-3.5 mr-2" />}
+                          {isCaptionHidden ? 'Show Caption' : 'Hide Caption'}
+                        </Button>
+                        {onUpdateItem && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={handleDeleteCaption}
+                            className="justify-start text-sm h-8 px-2 hover:bg-red-50 hover:text-red-600 bg-white"
+                          >
+                            <Trash2 className="h-3.5 w-3.5 mr-2" />
+                            Delete Caption
+                          </Button>
+                        )}
+                        <div className="border-t border-gray-200 my-1"></div>
+                      </>
+                    )}
+
+                    {/* Edit Moment */}
+                    {onUpdateItem && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => { setIsMenuOpen(false); setIsEditOpen(true); }}
+                        className="justify-start text-sm h-8 px-2 hover:bg-gray-100 bg-white"
+                      >
+                        <Edit className="h-3.5 w-3.5 mr-2" />
+                        Edit Moment
+                      </Button>
+                    )}
+
+                    {/* Delete Moment */}
+                    {onDeletePost && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={handleDelete}
+                        disabled={isDeleting}
+                        className="justify-start text-sm h-8 px-2 hover:bg-red-50 hover:text-red-600 bg-white"
+                      >
+                        <Trash2 className="h-3.5 w-3.5 mr-2" />
+                        {isDeleting ? 'Deleting…' : 'Delete Moment'}
+                      </Button>
+                    )}
+                  </div>
+                </PopoverContent>
+              </Popover>
+            )}
+          </div>
         </div>
         <div className="flex items-center mb-2" style={{ color: '#6A7282', fontSize: '14px', lineHeight: '20px' }}>
           <div className="flex items-center gap-1.5 flex-1 min-w-0 overflow-hidden"><MapPin className="w-4 h-4 flex-shrink-0" /><span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block', minWidth: 0 }}>{post.location || '-'}</span></div>
           {(post.uploaded_at || post.capture_date) && <div className="flex items-center gap-1.5 flex-shrink-0 ml-auto"><Calendar className="w-4 h-4 flex-shrink-0" /><span className="whitespace-nowrap">{new Date(post.uploaded_at || post.capture_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span></div>}
         </div>
         {post.title && <p className="font-medium mb-2" style={{ color: '#364153', fontSize: '16px', lineHeight: '24px' }}>{post.title}</p>}
-        {post.description?.trim() && <p className="whitespace-pre-line" style={{ color: '#364153', fontSize: '16px', lineHeight: '24px', letterSpacing: '-0.15px' }}>{post.description}</p>}
+        {isEditingCaption ? (
+          <div className="mt-1" onClick={(e) => e.stopPropagation()}>
+            <Textarea
+              value={editedCaption}
+              onChange={(e) => setEditedCaption(e.target.value)}
+              rows={3}
+              placeholder="Write a caption..."
+              className="text-sm resize-none"
+            />
+            <div className="flex justify-end gap-2 mt-2">
+              <button onClick={() => setIsEditingCaption(false)} className="px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-100 rounded-md">Cancel</button>
+              <button onClick={handleSaveCaption} disabled={isSavingCaption || !editedCaption.trim()} className="px-3 py-1.5 text-sm text-white bg-[#6C60FF] hover:bg-[#5B50E0] rounded-md disabled:opacity-50">{isSavingCaption ? 'Saving…' : 'Save'}</button>
+            </div>
+          </div>
+        ) : (
+          hasCaption && !isCaptionHidden && <p className="whitespace-pre-line" style={{ color: '#364153', fontSize: '16px', lineHeight: '24px', letterSpacing: '-0.15px' }}>{currentCaption}</p>
+        )}
       </div>
     </div>
   );
@@ -495,6 +718,8 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
   const [updatedCommentCounts, setUpdatedCommentCounts] = useState<{[key: string]: number}>({});
   const [deletedPosts, setDeletedPosts] = useState<Set<string>>(new Set());
   const [apiLabels, setApiLabels] = useState<any[]>([]);
+  // Reveals a free-text input so the user can add a new label even when predefined labels exist
+  const [showCustomLabelInput, setShowCustomLabelInput] = useState(false);
   const [apiCategories, setApiCategories] = useState<any[]>([]);
   const [localMemoryUpdates, setLocalMemoryUpdates] = useState<any>(null);
   const [isPublishing, setIsPublishing] = useState(false);
@@ -3398,6 +3623,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
       admin_approval: post.admin_approval, // Preserve admin_approval field for moderation
       parent_id: post.parent_id || null, // Preserve parent_id field for sub-images
       is_featured: post.is_featured || 0, // Preserve is_featured field (0 or 1) for featured images
+      hide_caption: post.hide_caption || 0, // Preserve hide_caption field (0 or 1)
       crop_data: post.crop_data || null, // Preserve crop_data if available
       is_claim: post.is_claim || null, // Preserve is_claim field for claim status
       claim_user_id: post.claim_user_id || null, // Preserve claim_user_id field
@@ -3826,6 +4052,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
         source: sourcePlatform,
         parent_id: post.parent_id, // Include parent_id so we can detect sub-images
         is_featured: post.is_featured || 0, // Include is_featured for sorting
+        hide_caption: post.hide_caption || 0, // Include hide_caption so the timeline can hide it
         is_new: post.is_new // Include is_new for new badge
       };
 
@@ -4139,6 +4366,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
   };
 
   const handleEdit = async () => {
+    setShowCustomLabelInput(false);
     await fetchCategoriesAndLabels();
     setIsEditPopoverOpen(true);
   };
@@ -4176,7 +4404,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
         title: editData.title,
         category_id: categoryId,
         sub_category_id: apiLabels.length > 0
-          ? (apiLabels.find(label => label.name === editData.label)?.id || null)
+          ? (apiLabels.find(label => label.name === editData.label)?.id || editData.label.trim() || null)
           : (editData.label.trim() || null),
         date_range: dateRange,
         location: editData.location,
@@ -6527,6 +6755,65 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
     const sharedPostsWithSubs = sharedAllPosts.map((p: any) => ({ ...p, sub_images: sharedSubMap[String(p.id)] || [] }));
     const sharedSortedPosts = sharedSortOrder === 'desc' ? [...sharedPostsWithSubs].reverse() : sharedPostsWithSubs;
     const sharedFilteredPosts = sharedSearchQuery ? sharedSortedPosts.filter((p: any) => { const q = sharedSearchQuery.toLowerCase(); return (p.description||'').toLowerCase().includes(q)||(p.title||'').toLowerCase().includes(q)||(p.location||'').toLowerCase().includes(q); }) : sharedSortedPosts;
+
+    // Linked memories — shared-with view must render these too (interleaved with posts per unified_order).
+    const sharedLinkedMemories = (apiMemoryData?.linked_memories || []);
+    const sharedUnifiedItems: Array<{ type: 'post' | 'linked'; data: any }> = (() => {
+      const postById = new Map(sharedFilteredPosts.map((p: any) => [String(p.id), p]));
+      const linkedById = new Map(sharedLinkedMemories.map((lm: any) => [String(lm.id), lm]));
+      const order = Array.isArray(apiMemoryData?.unified_order) && apiMemoryData.unified_order.length > 0
+        ? apiMemoryData.unified_order
+        : [
+            ...sharedLinkedMemories.map((lm: any) => ({ id: lm.id, type: 'linked_memory' })),
+            ...sharedFilteredPosts.map((p: any) => ({ id: p.id, type: 'post' })),
+          ];
+      const items: Array<{ type: 'post' | 'linked'; data: any }> = [];
+      const usedPosts = new Set<string>();
+      const usedLinked = new Set<string>();
+      order.forEach((entry: any) => {
+        if (entry.type === 'linked_memory') {
+          const lm = linkedById.get(String(entry.id));
+          if (lm) { items.push({ type: 'linked', data: lm }); usedLinked.add(String(entry.id)); }
+        } else {
+          const p = postById.get(String(entry.id));
+          if (p) { items.push({ type: 'post', data: p }); usedPosts.add(String(entry.id)); }
+        }
+      });
+      // Append anything not referenced by unified_order (newly added, or filtered list ordering).
+      sharedLinkedMemories.forEach((lm: any) => { if (!usedLinked.has(String(lm.id))) items.push({ type: 'linked', data: lm }); });
+      sharedFilteredPosts.forEach((p: any) => { if (!usedPosts.has(String(p.id))) items.push({ type: 'post', data: p }); });
+      return items;
+    })();
+
+    const renderSharedLinkedCard = (lm: any, keyPrefix: string) => {
+      const lmDateRange = lm.min_uploaded_img_date
+        ? lm.min_uploaded_img_date === lm.max_uploaded_img_date
+          ? new Date(lm.min_uploaded_img_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+          : `${new Date(lm.min_uploaded_img_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} – ${new Date(lm.max_uploaded_img_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
+        : '';
+      return (
+        <div key={`${keyPrefix}-lm-${lm.id}`} className="w-full rounded-2xl overflow-hidden border border-gray-100">
+          <MemoryCard
+            image={lm.cover_image || lm.last_update_img || null}
+            title={lm.title || 'Untitled'}
+            dateRange={lmDateRange}
+            location={typeof lm.location === 'string' ? lm.location : (lm.location?.formatted || '')}
+            category={lm.category?.name || lm.category || ''}
+            photosCount={lm.posts_count || 0}
+            imagesCount={lm.posts_count || 0}
+            published={lm.published}
+            fullName={lm.user?.name || apiMemoryData?.user?.name}
+            avatar={lm.user?.profile_image || apiMemoryData?.user?.profile_image}
+            profileColor={lm.user?.profile_color || apiMemoryData?.user?.profile_color}
+            tags={Array.isArray(lm.tags) ? lm.tags : []}
+            label={lm.sub_category?.name || ''}
+            contributors={Array.isArray(lm.collaborators) ? lm.collaborators.map((c: any) => ({ id: c.id || c.user_id, name: c.name || c.user?.name || '', avatar: c.profile_image || c.user?.profile_image || '', profileColor: c.profile_color || c.user?.profile_color || '' })) : []}
+            whiteFooter={true}
+            onClick={() => onMemorySelect?.(String(lm.id))}
+          />
+        </div>
+      );
+    };
     const sharedMinDate = apiMemoryData?.min_uploaded_img_date ? new Date(apiMemoryData.min_uploaded_img_date) : null;
     const sharedMaxDate = apiMemoryData?.max_uploaded_img_date ? new Date(apiMemoryData.max_uploaded_img_date) : null;
     const sharedFormatDateRange = () => {
@@ -6586,9 +6873,10 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
           <div ref={sharedMobileHeaderImgRef} className="relative w-full" style={{ height: 'calc(75vh - 64px)' }}>
             {(() => {
               const coverSrc = apiMemoryData?.last_update_img || sharedAllPosts[0]?.master_image_link;
-              return coverSrc
-                ? <ImageWithFallback src={coverSrc} alt={apiMemoryData?.title || 'Memory'} className="absolute inset-0 w-full h-full object-cover" />
-                : <div className="absolute inset-0 bg-[#6C60FF] flex items-center justify-center"><span className="text-white font-bold text-6xl uppercase">{apiMemoryData?.title?.charAt(0) || 'M'}</span></div>;
+              if (!coverSrc) return <div className="absolute inset-0 bg-[#6C60FF] flex items-center justify-center"><span className="text-white font-bold text-6xl uppercase">{apiMemoryData?.title?.charAt(0) || 'M'}</span></div>;
+              if (isYoutubeUrl(coverSrc)) return <iframe src={getYoutubeEmbedUrl(coverSrc) || ''} className="absolute inset-0 w-full h-full" allow="accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowFullScreen style={{ border: 'none' }} />;
+              if (isVideoUrl(coverSrc)) return <video src={`${coverSrc}#t=0.1`} className="absolute inset-0 w-full h-full object-cover" controls playsInline preload="metadata" />;
+              return <ImageWithFallback src={coverSrc} alt={apiMemoryData?.title || 'Memory'} className="absolute inset-0 w-full h-full object-cover" />;
             })()}
             <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent pointer-events-none" />
             {/* Back button — absolute on cover image, scrolls away with it */}
@@ -6643,10 +6931,14 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
             {quoteWidgets.filter(w => w.afterPostId === null).map(widget => (
               <div key={widget.id} className="rounded-2xl bg-[#F0EEFF] p-5 border border-gray-100 border-l-4 border-l-[#6C60FF]"><p className="text-lg font-bold text-gray-800 text-center leading-relaxed break-words">{widget.text}</p>{widget.author && <p className="text-sm text-gray-500 text-center mt-2">— {widget.author}</p>}</div>
             ))}
-            {sharedFilteredPosts.length > 0 ? sharedFilteredPosts.map((post: any, index: number) => (
+            {sharedUnifiedItems.length > 0 ? sharedUnifiedItems.map((uItem: any) => {
+              if (uItem.type === 'linked') return renderSharedLinkedCard(uItem.data, 'shared-mobile');
+              const post = uItem.data;
+              const index = sharedFilteredPosts.findIndex((p: any) => String(p.id) === String(post.id));
+              return (
               <React.Fragment key={post.id}>
                 <div ref={(el) => { sharedMobileCardRefs.current[index] = el; }} data-mobile-index={index} className={`bg-white rounded-2xl shadow-sm overflow-hidden transition-all duration-200 ${sharedMobileActiveIdx === index && sharedIsHeaderScrolled ? 'border-2 border-[#6C60FF]' : 'border border-gray-100'}`}>
-                  <SharedPostCard post={post} index={index} memoryData={apiMemoryData} onImageClick={sharedHandleImageClick} onCommentClick={sharedHandleImageClick} />
+                  <SharedPostCard post={post} index={index} memoryData={apiMemoryData} onImageClick={sharedHandleImageClick} onCommentClick={sharedHandleImageClick} onUpdateItem={handleUpdateItem} onDeletePost={handlePostDelete} onRefresh={() => fetchMemoryDetails()} />
                 </div>
                 {htmlWidgets.filter(w => w.afterPostId === post.id?.toString()).map(widget => (
                   <div key={widget.id} className="rounded-2xl bg-white p-4 border border-gray-100"><div className="[&_h1]:text-2xl [&_h1]:font-bold [&_p]:my-2 [&_ul]:list-disc [&_ul]:pl-5 [&_a]:text-[#6C60FF] [&_a]:underline [&_strong]:font-bold" dangerouslySetInnerHTML={{ __html: widget.content }} /></div>
@@ -6660,7 +6952,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                 {/* Plus divider between posts — same as personal memories */}
                 {index < sharedFilteredPosts.length - 1 && renderPlusDivider(`shared-mobile-${index}`, post.id?.toString())}
               </React.Fragment>
-            )) : <div className="text-center py-12 text-gray-500 bg-white rounded-xl"><p>No moments to display</p></div>}
+            ); }) : <div className="text-center py-12 text-gray-500 bg-white rounded-xl"><p>No moments to display</p></div>}
 
             {/* E-Business Card - Shared Mobile */}
             {!!apiMemoryData?.user?.is_business && (
@@ -6774,7 +7066,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                           <svg width="16" height="16" viewBox="0 0 14 14" fill="none" className={`transition-transform duration-200 ${sharedSortOrder === 'asc' ? 'rotate-180' : ''}`}><path d="M1.75 9.33337L4.08333 11.6667L6.41667 9.33337" stroke="currentColor" strokeWidth="1.16667" strokeLinecap="round" strokeLinejoin="round"/><path d="M4.08331 11.6667V2.33337" stroke="currentColor" strokeWidth="1.16667" strokeLinecap="round" strokeLinejoin="round"/><path d="M6.41669 2.33337H12.25" stroke="currentColor" strokeWidth="1.16667" strokeLinecap="round" strokeLinejoin="round"/><path d="M6.41669 4.66663H10.5" stroke="currentColor" strokeWidth="1.16667" strokeLinecap="round" strokeLinejoin="round"/><path d="M6.41669 7H8.75002" stroke="currentColor" strokeWidth="1.16667" strokeLinecap="round" strokeLinejoin="round"/></svg>
                         </button>
                         <div className="relative" ref={sharedShareMenuRef}>
-                          <Button variant="outline" size="sm" className="gap-1.5 border-gray-200 text-gray-900 bg-white hover:bg-gray-50 text-sm h-9" onClick={() => setSharedShowShareMenu(!sharedShowShareMenu)}>
+                          <Button variant="outline" size="sm" disabled={!isOwner} className="gap-1.5 border-gray-200 text-gray-900 bg-white hover:bg-gray-50 text-sm h-9 disabled:opacity-50 disabled:cursor-not-allowed" onClick={() => setSharedShowShareMenu(!sharedShowShareMenu)}>
                             <svg className="w-4 h-4" viewBox="0 0 16 16" fill="none"><g clipPath="url(#sv_share)"><path d="M12 5.33337L7.99998 1.33337M7.99998 1.33337L3.99998 5.33337M7.99998 1.33337V10.6667M14.6667 10.6667V13.3333C14.6667 13.687 14.5262 14.0261 14.2761 14.2761C14.0261 14.5262 13.687 14.6667 13.3333 14.6667H2.66665C2.31302 14.6667 1.97389 14.5262 1.72384 14.2761C1.47379 14.0261 1.33331 13.687 1.33331 13.3333V10.6667" stroke="currentColor" strokeWidth="1.33" strokeLinecap="round" strokeLinejoin="round"/></g><defs><clipPath id="sv_share"><rect width="16" height="16" fill="white"/></clipPath></defs></svg>Share
                           </Button>
                           {sharedShowShareMenu && (
@@ -6828,7 +7120,8 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                       {sharedFilteredPosts.map((post: any, index: number) => {
                         const isActive = activeMemoryIndex === index && sharedIsHeaderScrolled;
                         const postDate = post.capture_date || post.uploaded_at;
-                        const description = post.description || post.title || 'Untitled moment';
+                        const isCaptionHidden = post.hide_caption === 1 || post.hide_caption === true;
+                        const description = (!isCaptionHidden && post.description) ? post.description : (post.title || 'Untitled moment');
                         return (
                           <React.Fragment key={post.id}>
                             <div ref={(el) => { sharedTimelineRefs.current[index] = el; }} className="relative pl-10 pb-4 transition-all duration-200 cursor-pointer" onClick={() => { const el = sharedDesktopCardRefs.current[index]; if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' }); }}>
@@ -6923,9 +7216,10 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                     <div ref={sharedHeaderImgRef} className="relative rounded-3xl overflow-hidden mx-2" style={{ height: 'min(800px, calc(100vh - 80px))' }}>
                       {(() => {
                         const coverSrc = apiMemoryData?.last_update_img || sharedAllPosts[0]?.master_image_link;
-                        return coverSrc
-                          ? <ImageWithFallback src={coverSrc} alt={apiMemoryData?.title || 'Memory'} className="w-full h-full object-cover" />
-                          : <div className="w-full h-full bg-[#6C60FF] flex items-center justify-center"><span className="text-white font-bold text-8xl uppercase">{apiMemoryData?.title?.charAt(0) || 'M'}</span></div>;
+                        if (!coverSrc) return <div className="w-full h-full bg-[#6C60FF] flex items-center justify-center"><span className="text-white font-bold text-8xl uppercase">{apiMemoryData?.title?.charAt(0) || 'M'}</span></div>;
+                        if (isYoutubeUrl(coverSrc)) return <iframe src={getYoutubeEmbedUrl(coverSrc) || ''} className="w-full h-full" allow="accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowFullScreen style={{ border: 'none' }} />;
+                        if (isVideoUrl(coverSrc)) return <video src={`${coverSrc}#t=0.1`} className="w-full h-full object-cover" controls playsInline preload="metadata" />;
+                        return <ImageWithFallback src={coverSrc} alt={apiMemoryData?.title || 'Memory'} className="w-full h-full object-cover" />;
                       })()}
                       <div className="absolute inset-0 pointer-events-none" style={{ background: 'linear-gradient(0deg,rgba(0,0,0,0.80) 11.54%,rgba(0,0,0,0.30) 55.77%,rgba(0,0,0,0.00) 100%)' }} />
                     </div>
@@ -6940,10 +7234,14 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                       {quoteWidgets.filter(w => w.afterPostId === null).map(widget => (
                         <div key={widget.id} ref={(el) => { quoteWidgetCardRefs.current[widget.id] = el; }} className="rounded-2xl bg-[#F0EEFF] p-6 relative border border-gray-100 border-l-4 border-l-[#6C60FF]"><p className="text-xl font-bold text-gray-800 text-center leading-relaxed mt-4 break-words">{widget.text}</p>{widget.author && <p className="text-sm text-gray-500 text-center mt-3">— {widget.author}</p>}</div>
                       ))}
-                      {sharedFilteredPosts.length > 0 ? sharedFilteredPosts.map((post: any, index: number) => (
+                      {sharedUnifiedItems.length > 0 ? sharedUnifiedItems.map((uItem: any) => {
+                        if (uItem.type === 'linked') return renderSharedLinkedCard(uItem.data, 'shared-desktop');
+                        const post = uItem.data;
+                        const index = sharedFilteredPosts.findIndex((p: any) => String(p.id) === String(post.id));
+                        return (
                         <React.Fragment key={post.id}>
                           <div ref={(el) => { sharedDesktopCardRefs.current[index] = el; }} data-index={index} className={`bg-white rounded-2xl shadow-sm overflow-hidden transition-all duration-200 ${activeMemoryIndex === index && sharedIsHeaderScrolled ? 'border-2 border-[#6C60FF]' : 'border border-gray-100'}`}>
-                            <SharedPostCard post={post} index={index} memoryData={apiMemoryData} onImageClick={sharedHandleImageClick} onCommentClick={sharedHandleImageClick} />
+                            <SharedPostCard post={post} index={index} memoryData={apiMemoryData} onImageClick={sharedHandleImageClick} onCommentClick={sharedHandleImageClick} onUpdateItem={handleUpdateItem} onDeletePost={handlePostDelete} onRefresh={() => fetchMemoryDetails()} />
                           </div>
                           {htmlWidgets.filter(w => w.afterPostId === post.id?.toString()).map(widget => (
                             <div key={widget.id} ref={(el) => { htmlWidgetCardRefs.current[widget.id] = el; }} data-widget-id={widget.id} className="rounded-2xl bg-white p-4 border border-gray-100"><div className="[&_h1]:text-2xl [&_h1]:font-bold [&_p]:my-2 [&_ul]:list-disc [&_ul]:pl-5 [&_a]:text-[#6C60FF] [&_a]:underline [&_strong]:font-bold" dangerouslySetInnerHTML={{ __html: widget.content }} /></div>
@@ -6955,7 +7253,8 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                             <div key={widget.id} ref={(el) => { quoteWidgetCardRefs.current[widget.id] = el; }} className="rounded-2xl bg-[#F0EEFF] p-6 relative border border-gray-100 border-l-4 border-l-[#6C60FF]"><p className="text-xl font-bold text-gray-800 text-center leading-relaxed mt-4 break-words">{widget.text}</p>{widget.author && <p className="text-sm text-gray-500 text-center mt-3">— {widget.author}</p>}</div>
                           ))}
                         </React.Fragment>
-                      )) : <div className="text-center py-12 text-gray-500 bg-white rounded-xl"><p>No moments to display</p></div>}
+                        );
+                      }) : <div className="text-center py-12 text-gray-500 bg-white rounded-xl"><p>No moments to display</p></div>}
                       <div className="mt-8 py-6 text-center"><p className="text-base text-gray-500">Powered by <span className="font-semibold text-[#6C60FF]">Stasht</span></p></div>
                     </div>
                   </div>
@@ -8714,7 +9013,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                   variant="outline"
                   size="sm"
                   onClick={() => handlePublish()}
-                  disabled={isPublishing}
+                  disabled={isPublishing || !isOwner}
                   className="flex hover:bg-red-500 hover:text-white border-red-500 text-red-500 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {isPublishing ? (
@@ -8735,7 +9034,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                     <Button
                       variant="outline"
                       size="sm"
-                      disabled={isPublishing}
+                      disabled={isPublishing || !isOwner}
                       className="flex hover:bg-[#6C60FF] hover:text-white border-[#6C60FF] text-[#6C60FF] disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       {isPublishing ? (
@@ -8817,7 +9116,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
               <>
               <Popover open={isEditPopoverOpen && !isMobile} onOpenChange={(open) => { if (!isMobile) setIsEditPopoverOpen(open); }}>
                 <PopoverTrigger asChild>
-                  <Button variant="ghost" size="sm" onClick={handleEdit} className="bg-white hover:bg-gray-50 border border-gray-200 shadow-sm outline-none focus:outline-none focus:ring-0 focus-visible:ring-0">
+                  <Button variant="ghost" size="sm" onClick={handleEdit} disabled={!isOwner} className="bg-white hover:bg-gray-50 border border-gray-200 shadow-sm outline-none focus:outline-none focus:ring-0 focus-visible:ring-0 disabled:opacity-50 disabled:cursor-not-allowed">
                     <Edit className="w-6 h-6 md:w-4 md:h-4 mr-2" />
                     Edit
                   </Button>
@@ -8885,22 +9184,41 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                         Label
                       </label>
                       {apiLabels.length > 0 ? (
-                        <div className="flex flex-wrap gap-2">
-                          {apiLabels.map((label) => (
+                        <>
+                          <div className="flex flex-wrap gap-2">
+                            {apiLabels.map((label) => (
+                              <button
+                                key={label.name}
+                                type="button"
+                                onClick={() => setEditData(prev => ({ ...prev, label: prev.label === label.name ? "" : label.name }))}
+                                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all duration-200 ${
+                                  editData.label === label.name
+                                    ? 'bg-[#ffd460] text-[#393131] border border-[#ffd460]'
+                                    : 'bg-gray-100 text-gray-700 border border-gray-200 hover:bg-[#6C60FF]/10 hover:border-[#6C60FF]/30 hover:text-[#6C60FF]'
+                                }`}
+                              >
+                                {label.name}
+                              </button>
+                            ))}
                             <button
-                              key={label.name}
                               type="button"
-                              onClick={() => setEditData(prev => ({ ...prev, label: prev.label === label.name ? "" : label.name }))}
-                              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all duration-200 ${
-                                editData.label === label.name
-                                  ? 'bg-[#ffd460] text-[#393131] border border-[#ffd460]'
-                                  : 'bg-gray-100 text-gray-700 border border-gray-200 hover:bg-[#6C60FF]/10 hover:border-[#6C60FF]/30 hover:text-[#6C60FF]'
-                              }`}
+                              onClick={() => setShowCustomLabelInput(true)}
+                              className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-medium border border-dashed border-gray-300 text-gray-600 hover:border-[#6C60FF] hover:text-[#6C60FF] transition-all duration-200"
                             >
-                              {label.name}
+                              <Plus className="w-3.5 h-3.5" />
+                              Add
                             </button>
-                          ))}
-                        </div>
+                          </div>
+                          {showCustomLabelInput && (
+                            <Input
+                              value={editData.label}
+                              onChange={(e) => setEditData(prev => ({ ...prev, label: e.target.value }))}
+                              placeholder="Add a label..."
+                              autoFocus
+                              className="w-full mt-2 bg-white border border-gray-200 hover:border-[#6C60FF] focus:border-[#6C60FF] focus:ring-0 transition-all duration-200"
+                            />
+                          )}
+                        </>
                       ) : (
                         <Input
                           value={editData.label}
@@ -9069,7 +9387,8 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                   <Button
                     variant="ghost"
                     onClick={() => setShowDeleteDialog(true)}
-                    className="text-red-600 hover:text-red-700 hover:bg-red-50 flex-shrink-0"
+                    disabled={!isOwner}
+                    className="text-red-600 hover:text-red-700 hover:bg-red-50 flex-shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
                     size="sm"
                   >
                     <Trash2 className="h-4 w-4 mr-2" />
@@ -9168,7 +9487,24 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                             {label.name}
                           </button>
                         ))}
+                        <button
+                          type="button"
+                          onClick={() => setShowCustomLabelInput(true)}
+                          className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-medium border border-dashed border-gray-300 text-gray-600 hover:border-[#6C60FF] hover:text-[#6C60FF] transition-all duration-200"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                          Add
+                        </button>
                       </div>
+                      {showCustomLabelInput && (
+                        <Input
+                          value={editData.label}
+                          onChange={(e) => setEditData(prev => ({ ...prev, label: e.target.value }))}
+                          placeholder="Add a label..."
+                          autoFocus
+                          className="w-full mt-2 bg-white border border-gray-200 hover:border-[#6C60FF] focus:border-[#6C60FF] focus:ring-0 transition-all duration-200"
+                        />
+                      )}
                     </div>
                   )}
 
@@ -9233,7 +9569,8 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                   <Button
                     variant="ghost"
                     onClick={() => setShowDeleteDialog(true)}
-                    className="h-12 md:h-10 px-6 text-[14px] md:text-sm text-red-600 hover:text-red-700 hover:bg-red-50 flex-shrink-0"
+                    disabled={!isOwner}
+                    className="h-12 md:h-10 px-6 text-[14px] md:text-sm text-red-600 hover:text-red-700 hover:bg-red-50 flex-shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     <Trash2 className="h-4 w-4 mr-2" />
                     Delete
@@ -9335,22 +9672,41 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
               <div>
                 <label className="text-[14px] md:text-sm font-medium text-gray-700 block mb-2">Label</label>
                 {apiLabels.length > 0 ? (
-                  <div className="flex flex-wrap gap-2">
-                    {apiLabels.map((label) => (
+                  <>
+                    <div className="flex flex-wrap gap-2">
+                      {apiLabels.map((label) => (
+                        <button
+                          key={label.name}
+                          type="button"
+                          onClick={() => setEditData(prev => ({ ...prev, label: prev.label === label.name ? "" : label.name }))}
+                          className={`px-3 py-1.5 rounded-lg text-[14px] md:text-sm font-medium transition-all duration-200 ${
+                            editData.label === label.name
+                              ? 'bg-[#ffd460] text-[#393131] border border-[#ffd460]'
+                              : 'bg-gray-100 text-gray-700 border border-gray-200 hover:bg-[#6C60FF]/10 hover:border-[#6C60FF]/30 hover:text-[#6C60FF]'
+                          }`}
+                        >
+                          {label.name}
+                        </button>
+                      ))}
                       <button
-                        key={label.name}
                         type="button"
-                        onClick={() => setEditData(prev => ({ ...prev, label: prev.label === label.name ? "" : label.name }))}
-                        className={`px-3 py-1.5 rounded-lg text-[14px] md:text-sm font-medium transition-all duration-200 ${
-                          editData.label === label.name
-                            ? 'bg-[#ffd460] text-[#393131] border border-[#ffd460]'
-                            : 'bg-gray-100 text-gray-700 border border-gray-200 hover:bg-[#6C60FF]/10 hover:border-[#6C60FF]/30 hover:text-[#6C60FF]'
-                        }`}
+                        onClick={() => setShowCustomLabelInput(true)}
+                        className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-[14px] md:text-sm font-medium border border-dashed border-gray-300 text-gray-600 hover:border-[#6C60FF] hover:text-[#6C60FF] transition-all duration-200"
                       >
-                        {label.name}
+                        <Plus className="w-3.5 h-3.5" />
+                        Add
                       </button>
-                    ))}
-                  </div>
+                    </div>
+                    {showCustomLabelInput && (
+                      <Input
+                        value={editData.label}
+                        onChange={(e) => setEditData(prev => ({ ...prev, label: e.target.value }))}
+                        placeholder="Add a label..."
+                        autoFocus
+                        className="w-full mt-2 bg-white border border-gray-200 hover:border-[#6C60FF] focus:border-[#6C60FF] focus:ring-0 transition-all duration-200 text-[14px] md:text-sm !h-[38px]"
+                      />
+                    )}
+                  </>
                 ) : (
                   <Input
                     value={editData.label}
@@ -9422,7 +9778,8 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
               <Button
                 variant="ghost"
                 onClick={() => setShowDeleteDialog(true)}
-                className="h-12 md:h-10 px-6 text-[14px] md:text-sm text-red-600 hover:text-red-700 hover:bg-red-50 flex-shrink-0"
+                disabled={!isOwner}
+                className="h-12 md:h-10 px-6 text-[14px] md:text-sm text-red-600 hover:text-red-700 hover:bg-red-50 flex-shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <Trash2 className="h-4 w-4 mr-2" />
                 Delete
@@ -9513,7 +9870,8 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                     <Button
                       variant="outline"
                       size="sm"
-                      className="flex-shrink-0 h-9 px-3 bg-white hover:bg-green-50 border-green-200 text-green-700"
+                      disabled={!isOwner}
+                      className="flex-shrink-0 h-9 px-3 bg-white hover:bg-green-50 border-green-200 text-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
                       onClick={() => setIsSharePopoverOpen(!isSharePopoverOpen)}
                     >
                       <Share2 className="w-4 h-4 md:mr-1" />
@@ -10008,8 +10366,8 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                               <div className="flex items-center gap-1">
                                 {/* Edit Cover - directly opens file picker on mobile (no intermediate modal) */}
                                 <label
-                                  htmlFor="cover-upload-input"
-                                  className="inline-flex items-center bg-black/50 backdrop-blur-sm border-transparent text-white hover:bg-black/70 hover:text-white shadow-lg text-[14px] !h-auto py-1.5 px-4 rounded-full cursor-pointer"
+                                  htmlFor={isOwner ? "cover-upload-input" : undefined}
+                                  className={`inline-flex items-center bg-black/50 backdrop-blur-sm border-transparent text-white hover:bg-black/70 hover:text-white shadow-lg text-[14px] !h-auto py-1.5 px-4 rounded-full ${isOwner ? 'cursor-pointer' : 'opacity-50 cursor-not-allowed pointer-events-none'}`}
                                 >
                                   <Edit className="w-3 h-3 mr-1" />
                                   Edit Cover
@@ -10018,7 +10376,8 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                 <Button
                                   variant="outline"
                                   size="sm"
-                                  className="bg-black/50 backdrop-blur-sm border-transparent text-white hover:bg-black/70 hover:text-white shadow-lg text-[14px] !h-auto !py-1.5 !px-2 rounded-full"
+                                  disabled={!isOwner}
+                                  className="bg-black/50 backdrop-blur-sm border-transparent text-white hover:bg-black/70 hover:text-white shadow-lg text-[14px] !h-auto !py-1.5 !px-2 rounded-full disabled:opacity-50 disabled:cursor-not-allowed"
                                   onClick={() => setShowEditCoverModal(prev => !prev)}
                                 >
                                   <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg>
@@ -10110,7 +10469,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                     variant="outline"
                                     size="sm"
                                     onClick={() => handlePublish()}
-                                    disabled={isPublishing}
+                                    disabled={isPublishing || !isOwner}
                                     className="bg-black/50 backdrop-blur-sm border-transparent text-white hover:bg-red-500/80 hover:text-white shadow-lg text-[14px] !h-auto !py-1.5 !px-4 rounded-full disabled:opacity-50"
                                   >
                                     <Globe className="w-3.5 h-3.5 mr-1" />
@@ -10122,7 +10481,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                       <Button
                                         variant="outline"
                                         size="sm"
-                                        disabled={isPublishing}
+                                        disabled={isPublishing || !isOwner}
                                         className="bg-black/50 backdrop-blur-sm border-transparent text-white hover:bg-black/70 hover:text-white shadow-lg text-[14px] !h-auto !py-1.5 !px-4 rounded-full disabled:opacity-50"
                                       >
                                         <Globe className="w-3.5 h-3.5 mr-1" />
@@ -10385,7 +10744,8 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                 <Button
                                   variant="outline"
                                   size="sm"
-                                  className="bg-black/50 text-white border-black/50 hover:bg-black/70 hover:text-white rounded-[4px] w-[35px] h-[35px] px-0 py-0 shadow-sm"
+                                  disabled={!isOwner}
+                                  className="bg-black/50 text-white border-black/50 hover:bg-black/70 hover:text-white rounded-[4px] w-[35px] h-[35px] px-0 py-0 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
                                   onClick={() => {
                                     handleEdit();
                                     setIsEditPopoverOpen(true);
@@ -10524,6 +10884,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                             {!isSuggestedCategory && (
                               <>
                                 <DropdownMenuItem
+                                  disabled={!isOwner}
                                   className="flex items-center gap-3 px-4 py-3 text-sm text-[#0A0A0A] hover:bg-gray-50 cursor-pointer rounded-2xl"
                                   onSelect={() => {
                                     setTimeout(() => {
@@ -10549,6 +10910,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                 {isMobile && (apiMemoryData?.published === 1 || apiMemoryData?.published === 2 || apiMemoryData?.published === 3) ? (
                                   /* Mobile + already published → show Unpublish only */
                                   <DropdownMenuItem
+                                    disabled={!isOwner}
                                     className="flex items-center gap-3 px-4 py-3 text-sm text-red-600 hover:bg-red-50 cursor-pointer rounded-2xl"
                                     onClick={() => handlePublish()}
                                   >
@@ -10565,6 +10927,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                   /* Not published or desktop → show all publish options */
                                   <>
                                     <DropdownMenuItem
+                                      disabled={!isOwner}
                                       className="flex items-start gap-3 px-4 py-3 text-sm text-[#0A0A0A] hover:bg-gray-50 cursor-pointer rounded-2xl"
                                       onClick={() => handlePublish(2)}
                                     >
@@ -10578,6 +10941,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                       </div>
                                     </DropdownMenuItem>
                                     <DropdownMenuItem
+                                      disabled={!isOwner}
                                       className="flex items-start gap-3 px-4 py-3 text-sm text-[#0A0A0A] hover:bg-gray-50 cursor-pointer rounded-2xl"
                                       onClick={() => handlePublish(1)}
                                     >
@@ -10592,6 +10956,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                       </div>
                                     </DropdownMenuItem>
                                     <DropdownMenuItem
+                                      disabled={!isOwner}
                                       className="flex items-start gap-3 px-4 py-3 text-sm text-[#0A0A0A] hover:bg-gray-50 cursor-pointer rounded-2xl"
                                       onClick={() => handlePublish(3)}
                                     >
@@ -10790,7 +11155,8 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                         <Button
                           variant="outline"
                           size="sm"
-                          className="gap-1.5 border-gray-200 text-gray-900 bg-white hover:bg-gray-50 text-sm h-9"
+                          disabled={!isOwner}
+                          className="gap-1.5 border-gray-200 text-gray-900 bg-white hover:bg-gray-50 text-sm h-9 disabled:opacity-50 disabled:cursor-not-allowed"
                           onClick={() => setShowTimelineShareMenu(!showTimelineShareMenu)}
                         >
                           <svg className="w-4 h-4" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -11338,7 +11704,10 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                         const post = sortedTimelinePosts[postIndex];
                         const isActive = activeMemoryIndex === postIndex && isHeaderImageScrolled;
                       const postDate = post.capture_date || post.date;
-                      const description = post.description || post.title || 'Untitled moment';
+                      const isCaptionHidden = post.hide_caption === 1 || post.hide_caption === true;
+                      const description = isCaptionHidden
+                        ? (post.title || 'Untitled moment')
+                        : (post.description || post.title || 'Untitled moment');
                       const widgetsAfterThisPost = htmlWidgets.filter(w => w.afterPostId === post.id?.toString());
 
                       return (

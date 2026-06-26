@@ -32,6 +32,14 @@ export interface LeadComment {
   user: LeadCommentUser;
 }
 
+export interface LeadMessageAttachment {
+  id: number;
+  filename: string;
+  content_type: string;
+  url: string;
+  size: number;
+}
+
 export interface LeadMessage {
   id: number;
   parent_message_id: number | null;
@@ -42,6 +50,7 @@ export interface LeadMessage {
   status: string;
   provider_message_id?: string | null;
   sent_at: string;
+  attachments?: LeadMessageAttachment[];
 }
 
 export interface Lead {
@@ -62,6 +71,105 @@ export interface Lead {
 export interface LeadsResponse {
   total: number;
   leads: Lead[];
+}
+
+// Points the lead drawer at a specific message/comment to scroll-to + highlight.
+export interface CommentaryTarget {
+  kind: 'message' | 'comment';
+  id: number;
+}
+
+export interface LeadGroupMember {
+  lead_id: number;
+  status: 'hot' | 'warm' | 'cold' | null;
+  user: {
+    id: number;
+    name: string;
+    email: string | null;
+    profile_image?: string;
+    phone_number?: string | null;
+  };
+  has_email: boolean;
+  has_phone: boolean;
+}
+
+// A past broadcast sent to the group (returned by GET /lead-groups/{id}).
+export interface LeadGroupBroadcast {
+  broadcast_id: string;
+  subject: string;
+  body: string;
+  channels: string[];
+  recipient_count: number;
+  sent_at: string;
+  attachments?: LeadMessageAttachment[];
+}
+
+export interface LeadGroup {
+  id: number;
+  name: string;
+  member_count: number;
+  created_at: string;
+  updated_at: string;
+  members: LeadGroupMember[];
+  messages?: LeadGroupBroadcast[];
+}
+
+// Lightweight member preview included in the GET /lead-groups list response.
+export interface LeadGroupMemberPreview {
+  lead_id: number;
+  name: string;
+  profile_image: string | null;
+}
+
+// Response from POST /lead-groups/{id}/broadcast. Note: sent/skipped_no_channel/
+// failed are arrays of per-lead results; the integer counts live in `summary`.
+export interface BroadcastResult {
+  group_id: number;
+  sent: unknown[];
+  skipped_no_channel: unknown[];
+  failed: unknown[];
+  summary: { total: number; sent: number; skipped: number; failed: number };
+}
+
+// Summary row returned by GET /lead-groups (with a members preview for avatars).
+export interface LeadGroupSummary {
+  id: number;
+  name: string;
+  member_count: number;
+  members: LeadGroupMemberPreview[];
+  created_at: string;
+  updated_at: string;
+}
+
+// ── My Conversations (viewer side) ─────────────────────────────────────────
+export interface ConversationOwner {
+  id: number;
+  name: string;
+  profile_image?: string;
+}
+
+export interface ConversationLastMessage {
+  body: string;
+  from_me: boolean;
+  channel: string;
+  sent_at: string;
+}
+
+export interface Conversation {
+  lead_id: number;
+  owner: ConversationOwner;
+  story: { id: number; title: string };
+  last_message: ConversationLastMessage | null;
+  unread_count: number;
+  last_message_at: string;
+}
+
+export interface ConversationMessage {
+  id?: number;
+  from_me: boolean;
+  channel: string;
+  body: string;
+  sent_at: string;
 }
 
 export const leadsAPI = {
@@ -88,6 +196,91 @@ export const leadsAPI = {
     return apiRequest<{ messages: LeadMessage[] }>(`/leads/${leadId}/messages`, { method: 'GET' });
   },
 
+  // POST /api/react/leads/{id}/ai-suggest — generate a suggested message.
+  // no_credit:true (retry) regenerates without consuming a credit.
+  aiSuggest: async (leadId: number, action: string, noCredit = false) => {
+    return apiRequest<{ message?: string; credits_remaining?: number }>(`/leads/${leadId}/ai-suggest`, {
+      method: 'POST',
+      body: JSON.stringify({ action, no_credit: noCredit }),
+    });
+  },
+
+  // POST /api/react/lead-groups — create a persistent group from selected leads.
+  // lead_ids are leads.id values (the id from GET /leads), not viewer user ids.
+  createLeadGroup: async (name: string, leadIds: number[]) => {
+    return apiRequest<LeadGroup>('/lead-groups', {
+      method: 'POST',
+      body: JSON.stringify({ name, lead_ids: [...new Set(leadIds)] }),
+    });
+  },
+
+  // POST /api/react/lead-groups/ai-suggest — generate a group message.
+  // groupId is sent only when the group already exists (the drawer); the create
+  // modal omits it. no_credit:true = free retry.
+  aiSuggestGroup: async (action: string, noCredit = false, groupId?: number) => {
+    const body: Record<string, unknown> = { action, no_credit: noCredit };
+    if (groupId != null) body.group_id = groupId;
+    return apiRequest<{ message?: string; credits_remaining?: number }>(`/lead-groups/ai-suggest`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+  },
+
+  // GET /api/react/lead-groups — list of groups (summary, no members).
+  getLeadGroups: async () => {
+    return apiRequest<LeadGroupSummary[] | { groups: LeadGroupSummary[] }>('/lead-groups', { method: 'GET' });
+  },
+
+  // GET /api/react/lead-groups/{id} — one group with its members.
+  getLeadGroup: async (id: number) => {
+    return apiRequest<LeadGroup | { group: LeadGroup }>(`/lead-groups/${id}`, { method: 'GET' });
+  },
+
+  // GET /api/react/my-conversations — conversations where I'm the viewer.
+  getMyConversations: async () => {
+    return apiRequest<{ total: number; conversations: Conversation[] }>('/my-conversations', { method: 'GET' });
+  },
+
+  // GET /api/react/my-conversations/{lead_id}/messages — thread (auto-marks read).
+  getConversationMessages: async (leadId: number) => {
+    return apiRequest<{ messages: ConversationMessage[] } | ConversationMessage[]>(
+      `/my-conversations/${leadId}/messages`,
+      { method: 'GET' }
+    );
+  },
+
+  // POST /api/react/my-conversations/{lead_id}/reply — viewer replies in-app.
+  replyToConversation: async (leadId: number, body: string) => {
+    return apiRequest(`/my-conversations/${leadId}/reply`, {
+      method: 'POST',
+      body: JSON.stringify({ body }),
+    });
+  },
+
+  // POST /api/react/my-conversations/{lead_id}/mark-read — mark owner messages read.
+  markConversationRead: async (leadId: number) => {
+    return apiRequest(`/my-conversations/${leadId}/mark-read`, { method: 'POST' });
+  },
+
+  // POST /api/react/lead-groups/{id}/broadcast — send one message to the whole
+  // group; the server fans out to each member (email if available, else SMS).
+  broadcastToGroup: async (
+    groupId: number,
+    message: string,
+    attachments?: { filename: string; data: string }[],
+  ) => {
+    return apiRequest<BroadcastResult>(
+      `/lead-groups/${groupId}/broadcast`,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          body: message,
+          ...(attachments && attachments.length ? { attachments } : {}),
+        }),
+      }
+    );
+  },
+
   sendSMS: async (leadId: number, body: string) => {
     return apiRequest<LeadMessage>(`/leads/${leadId}/messages/sms`, {
       method: 'POST',
@@ -95,10 +288,19 @@ export const leadsAPI = {
     });
   },
 
-  sendEmail: async (leadId: number, subject: string, body: string) => {
+  sendEmail: async (
+    leadId: number,
+    subject: string,
+    body: string,
+    attachments?: { filename: string; data: string }[],
+  ) => {
     return apiRequest<LeadMessage>(`/leads/${leadId}/messages/email`, {
       method: 'POST',
-      body: JSON.stringify({ subject, body }),
+      body: JSON.stringify({
+        subject,
+        body,
+        ...(attachments && attachments.length ? { attachments } : {}),
+      }),
     });
   },
 

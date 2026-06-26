@@ -10,6 +10,7 @@ import PublishedAuthorMemoryPage from './pages/PublishedAuthorMemoryPage'
 import PropertyRegisterPage from './pages/PropertyRegisterPage'
 import PersonalAccountRegisterPage from './pages/PersonalAccountRegisterPage'
 import OAuthCallback from './pages/OAuthCallback'
+import Sso from './pages/Sso'
 import GoogleAuthCallbackWrapper from './pages/GoogleAuthCallbackWrapper'
 import FacebookCallbackPage from './pages/FacebookCallbackPage'
 import AppleAuthCallbackWrapper from './pages/AppleAuthCallbackWrapper'
@@ -52,6 +53,7 @@ createRoot(document.getElementById('root')!).render(
                   <Route path="/published-author-memory/:slug" element={<PublishedAuthorMemoryPage />} />
                   <Route path="/property/register/:token" element={<PropertyRegisterPage />} />
                   <Route path="/account-register" element={<PersonalAccountRegisterPage />} />
+                  <Route path="/sso" element={<Sso />} />
                   <Route path="/auth/google/callback" element={<GoogleAuthCallbackWrapper />} />
                   <Route path="/auth/callback/google" element={<GoogleAuthCallbackWrapper />} />
                   <Route path="/auth/apple/callback" element={<AppleAuthCallbackWrapper />} />

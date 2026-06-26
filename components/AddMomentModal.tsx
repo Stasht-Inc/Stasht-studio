@@ -615,6 +615,10 @@ export function AddMomentModal({
       const newFiles = formData.files.filter((_, i) => i !== index);
       const newPreviews: { [key: number]: string } = {};
       const newImageDetails: { [key: number]: { description: string; date: string; location: string; title?: string; showTitleInput?: boolean } } = {};
+      // uploadedS3Urls / uploadedSizes are keyed by the same desktop-file index, so they
+      // must be reindexed in lockstep — otherwise submit picks the wrong (deleted) image's URL.
+      const newS3Urls: { [index: number]: string } = {};
+      const newSizes: { [index: number]: number } = {};
 
       // Rebuild previews and details for desktop files with new indices
       newFiles.forEach((file, newIndex) => {
@@ -624,6 +628,12 @@ export function AddMomentModal({
         }
         if (imageDetails[oldIndex]) {
           newImageDetails[newIndex] = imageDetails[oldIndex];
+        }
+        if (uploadedS3Urls[oldIndex] !== undefined) {
+          newS3Urls[newIndex] = uploadedS3Urls[oldIndex];
+        }
+        if (uploadedSizes[oldIndex] !== undefined) {
+          newSizes[newIndex] = uploadedSizes[oldIndex];
         }
       });
 
@@ -645,6 +655,8 @@ export function AddMomentModal({
       }));
       setImagePreviews(newPreviews);
       setImageDetails(newImageDetails);
+      setUploadedS3Urls(newS3Urls);
+      setUploadedSizes(newSizes);
     } else {
       // Removing a media library image
       const mlIndex = index - desktopFilesCount;
@@ -955,8 +967,13 @@ export function AddMomentModal({
           console.log('📝 Adding regular moment, checking approval status...');
           if (needsApproval) {
             console.log('✅ Admin approval needed (admin_approval=0) - showing review message');
-            toast.success('Moment added! It will appear on the timeline after admin review.', {
+            toast.warning('Moment added! It will appear on the timeline after admin review.', {
               duration: 5000,
+              style: {
+                background: '#FFFBEB',        // amber-50
+                color: '#92400E',             // amber-800
+                border: '1px solid #FDE68A',  // amber-200
+              },
             });
           } else {
             console.log('❌ No approval needed (admin_approval!=0) - showing success message');

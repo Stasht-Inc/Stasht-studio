@@ -12,8 +12,9 @@ import { toast } from 'sonner';
 
 export interface NotificationItem {
   id: string | number;
-  type: 'invitation' | 'share' | 'comment' | 'mention' | 'like' | 'join' | 'moment' | 'full_access_request' | 'claim_request';
+  type: 'invitation' | 'share' | 'comment' | 'mention' | 'like' | 'join' | 'moment' | 'full_access_request' | 'claim_request' | 'lead_message';
   description: string; // Main notification text
+  lead_id?: number; // For lead_message notifications — the conversation to open
   sender: {
     id: string | number;
     name: string;
@@ -40,10 +41,11 @@ interface NotificationDropdownProps {
   anchorRef: React.RefObject<HTMLElement>;
   onNotificationCountChange?: (count: number) => void;
   onMemorySelect?: (memoryId: string, options?: any) => void;
+  onOpenConversation?: (leadId: number) => void;
   onMarkAllAsReadRef?: (fn: () => Promise<void>) => void;
 }
 
-export function NotificationDropdown({ isOpen, onClose, anchorRef, onNotificationCountChange, onMemorySelect, onMarkAllAsReadRef }: NotificationDropdownProps) {
+export function NotificationDropdown({ isOpen, onClose, anchorRef, onNotificationCountChange, onMemorySelect, onOpenConversation, onMarkAllAsReadRef }: NotificationDropdownProps) {
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -160,6 +162,12 @@ export function NotificationDropdown({ isOpen, onClose, anchorRef, onNotificatio
           // Process notifications - detect type from description first, preserve integer for invitations
           const processedNotifications = notificationsData.map((notification: any) => {
             const desc = notification.description?.toLowerCase() || '';
+
+            // Lead-message notifications keep their type (the body may contain
+            // words like "comment"/"like" that would otherwise mis-detect them).
+            if (notification.type === 'lead_message') {
+              return { ...notification, type: 'lead_message', originalType: notification.type };
+            }
 
             // First, check if type is explicitly "moment"
             if (notification.type === 'moment') {
@@ -549,6 +557,16 @@ export function NotificationDropdown({ isOpen, onClose, anchorRef, onNotificatio
     // Don't mark as read on click - only mark as read when closing dropdown
     console.log('🔔 Notification clicked:', notificationId, 'Will be marked as read on close');
 
+    // Lead-message notification → open the My Conversations thread for this lead.
+    if (notification?.type === 'lead_message') {
+      const leadId = (notification as any).lead_id;
+      if (leadId != null && onOpenConversation) {
+        onOpenConversation(Number(leadId));
+      }
+      onClose();
+      return;
+    }
+
     // Navigate based on notification type and data
     console.log('🔔 After marking as read - checking navigation');
     console.log('🔔 Notification object:', notification);
@@ -871,6 +889,15 @@ export function NotificationDropdown({ isOpen, onClose, anchorRef, onNotificatio
           ),
           color: '#10B981' // Green for claim requests
         };
+      case 'lead_message':
+        return {
+          icon: (
+            <svg className="w-2.5 h-2.5 text-white" fill="currentColor" viewBox="0 0 20 20">
+              <path fillRule="evenodd" d="M18 10c0 3.866-3.582 7-8 7a8.841 8.841 0 01-4.083-.98L2 17l1.338-3.123C2.493 12.767 2 11.434 2 10c0-3.866 3.582-7 8-7s8 3.134 8 7z" clipRule="evenodd"/>
+            </svg>
+          ),
+          color: '#6C60FF' // Purple for lead messages
+        };
       default:
         return {
           icon: (
@@ -980,6 +1007,7 @@ export function NotificationDropdown({ isOpen, onClose, anchorRef, onNotificatio
                 badgeType === 'comment' || badgeType === 'mention' ||
                 badgeType === 'join' || badgeType === 'like' ||
                 badgeType === 'moment' || badgeType === 'full_access_request' ||
+                badgeType === 'lead_message' ||
                 (notification as any).isInvitation) {
               return (
                 <div className="absolute -bottom-1 -right-1 w-5 h-5 bg-white rounded-full border border-gray-200 flex items-center justify-center shadow-sm">

@@ -81,16 +81,31 @@ function Frame193({ user }: { user?: { name?: string; email?: string; phone_numb
   );
 }
 
-function PropertyHeaderInfo({ property }: { property: any }) {
+// Resolve a property's avatar: when the property was invited by a different
+// user/org (e.g. BMW), prefer the inviter's logo from invited_by; otherwise
+// fall back to the property's own image. invited_by may be an object or array.
+function resolvePropertyAvatar(property: any, user?: any) {
+  const invitedByRaw = property?.invited_by;
+  const invitedBy = Array.isArray(invitedByRaw) ? invitedByRaw[0] : invitedByRaw;
+  const showInvitedBy = !!invitedBy &&
+    String(user?.external_user_id ?? '') !== String(invitedBy.external_user_id ?? '');
+  const avatarImage = (showInvitedBy && invitedBy?.profile_image)
+    ? invitedBy.profile_image
+    : property?.image;
+  return { invitedBy, avatarImage };
+}
+
+function PropertyHeaderInfo({ property, user }: { property: any; user?: any }) {
   const displayName = property?.name || 'Property Account';
   const location = property?.location;
+  const { invitedBy, avatarImage } = resolvePropertyAvatar(property, user);
 
   return (
     <div className="flex items-center gap-3 justify-start">
       <div className="box-border content-stretch flex flex-row items-center justify-center p-0 relative shrink-0 w-11">
         <div className="w-[44px] h-[44px] rounded-full overflow-hidden bg-purple-100 flex items-center justify-center">
-          {property?.image ? (
-            <img src={property.image} alt={displayName} className="w-full h-full object-cover" />
+          {avatarImage ? (
+            <img src={avatarImage} alt={displayName} className="w-full h-full object-cover" />
           ) : (
             <svg className="w-5 h-5 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
@@ -102,6 +117,9 @@ function PropertyHeaderInfo({ property }: { property: any }) {
         <div className="flex items-baseline gap-2">
           <p className="block leading-[normal] whitespace-nowrap font-medium">{displayName}</p>
         </div>
+        {invitedBy?.name && (
+          <p className="text-xs text-gray-600 leading-[normal] truncate mt-0.5" title={invitedBy.name}>{invitedBy.name}</p>
+        )}
         <div className="flex items-center gap-1.5 sm:gap-1 mt-1 sm:mt-0.5">
           <span className="px-2 py-0.5 bg-purple-100 text-purple-700 text-[10.5px] font-medium rounded-full">Property</span>
         </div>
@@ -554,6 +572,10 @@ export function ProfileDropdownMenu({ isOpen, onClose, user, onShowProfileSettin
   const displayName = user?.name || 'User';
   const displayEmail = user?.email || user?.phone_number || 'No contact info';
 
+  // Resolve the current property's avatar (inviter's logo via invited_by, else its own image)
+  const { invitedBy: currentPropertyInvitedBy, avatarImage: currentPropertyAvatar } =
+    resolvePropertyAvatar(currentProperty, user);
+
   return (
     <div
       ref={dropdownRef}
@@ -565,8 +587,8 @@ export function ProfileDropdownMenu({ isOpen, onClose, user, onShowProfileSettin
         <div className="px-4 py-3 border-b border-gray-100">
           <div className="flex items-center gap-3">
             <div className="w-11 h-11 rounded-lg overflow-hidden bg-purple-100 flex items-center justify-center flex-shrink-0">
-              {currentProperty.image ? (
-                <img src={currentProperty.image} alt={currentProperty.name} className="w-full h-full object-cover" />
+              {currentPropertyAvatar ? (
+                <img src={currentPropertyAvatar} alt={currentProperty.name} className="w-full h-full object-cover" />
               ) : (
                 <svg className="w-5 h-5 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
@@ -577,6 +599,12 @@ export function ProfileDropdownMenu({ isOpen, onClose, user, onShowProfileSettin
               <p className="text-sm font-medium text-gray-900 truncate">{currentProperty.name || 'Property Account'}</p>
               {currentProperty.location && (
                 <p className="text-xs text-gray-500 truncate">{currentProperty.location}</p>
+              )}
+              {/* Show the name of the user who invited / created this property */}
+              {currentPropertyInvitedBy?.name && (
+                <p className="text-xs text-gray-600 mt-0.5 truncate">
+                  {currentPropertyInvitedBy.name}
+                </p>
               )}
               {/* Show creator name for shared properties only */}
               {currentProperty.is_creator === false && currentProperty.creator && (
@@ -693,7 +721,7 @@ export function ProfileDropdownMenu({ isOpen, onClose, user, onShowProfileSettin
                   Property Accounts ({propertyCounts.total})
                 </div>
                 <div className="text-xs text-gray-500 mt-0.5">
-                  {propertyCounts.owned} owned, {propertyCounts.shared} shared
+                  {propertyCounts.owned} internal, {propertyCounts.shared} external
                 </div>
               </div>
               <svg
@@ -743,6 +771,7 @@ export function ProfileDropdownMenu({ isOpen, onClose, user, onShowProfileSettin
                       {filteredOwnedProperties.map((property, index) => {
                         const propertyName = property.name || `Property ${index + 1}`;
                         const propertyLocation = property.location || '';
+                        const { invitedBy, avatarImage } = resolvePropertyAvatar(property, user);
 
                         return (
                           <button
@@ -759,8 +788,8 @@ export function ProfileDropdownMenu({ isOpen, onClose, user, onShowProfileSettin
                           >
                             <div className="flex items-center gap-3">
                               <div className="w-8 h-8 rounded-lg overflow-hidden bg-purple-100 flex items-center justify-center flex-shrink-0">
-                                {property.image ? (
-                                  <img src={property.image} alt={propertyName} className="w-full h-full object-cover" />
+                                {avatarImage ? (
+                                  <img src={avatarImage} alt={propertyName} className="w-full h-full object-cover" />
                                 ) : (
                                   <svg className="w-4 h-4 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
@@ -773,6 +802,9 @@ export function ProfileDropdownMenu({ isOpen, onClose, user, onShowProfileSettin
                                 </div>
                                 {propertyLocation && (
                                   <div className="text-xs text-gray-500 truncate mt-0.5" title={propertyLocation}>{propertyLocation}</div>
+                                )}
+                                {invitedBy?.name && (
+                                  <div className="text-xs text-gray-600 truncate mt-0.5" title={invitedBy.name}>{invitedBy.name}</div>
                                 )}
                               </div>
                             </div>
@@ -1053,7 +1085,7 @@ export default function ProfileDdwn({ user, onShowProfileSettings, onShowBilling
         <div className="box-border content-stretch flex flex-row gap-6 items-center justify-start px-8 py-0 relative size-full">
           {viewType === 'property' && currentProperty ? (
             /* Show Property Info in Header */
-            <PropertyHeaderInfo property={currentProperty} />
+            <PropertyHeaderInfo property={currentProperty} user={user} />
           ) : (
             /* Show User Info in Header */
             <ProfileInfo user={user} />

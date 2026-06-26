@@ -1,9 +1,10 @@
 ﻿import React, { useState, useEffect, useRef } from 'react';
-import { Mail, Phone, MapPin, Clock, MessageSquare, X, Paperclip, Send, ChevronDown, Smile, RefreshCw, Eye, Sparkles, Search } from 'lucide-react';
+import { Mail, Phone, MapPin, Clock, MessageSquare, X, Paperclip, Send, ChevronDown, Smile, RefreshCw, Eye, Sparkles, Search, Heart, Gift, Calendar, MessageCircle, ThumbsUp, TrendingUp, Lightbulb, FileText } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from './ui/avatar';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
-import { Lead, LeadMessage, leadsAPI } from '../services/leadsAPI';
+import { Lead, LeadMessage, LeadMessageAttachment, leadsAPI, CommentaryTarget } from '../services/leadsAPI';
 import { useAuth } from '../contexts/AuthContext';
+import { useMemoryLimit, recheckMemoryLimit } from '../hooks/useMemoryLimit';
 import { toast } from 'sonner';
 
 const STATUS_STYLES: Record<string, string> = {
@@ -12,9 +13,42 @@ const STATUS_STYLES: Record<string, string> = {
   cold: 'bg-blue-100 text-blue-500 border-blue-200',
 };
 
+// Built-in emoji grid — kept small/lightweight, no external dependency.
+const EMOJIS = [
+  '😀', '😁', '😂', '🤣', '😊', '😍', '😘', '😎',
+  '🤩', '🥳', '🙂', '😉', '😇', '🤔', '😏', '😴',
+  '😢', '😮', '😡', '👍', '👎', '👏', '🙌', '🙏',
+  '💪', '🔥', '✨', '🎉', '🎊', '❤️', '💜', '💙',
+  '💚', '💛', '⭐', '🌟', '💯', '✅', '📅', '📞',
+];
+
+// Attachment constraints — images & PDF only, ~2 MB per file.
+const MAX_ATTACHMENT_BYTES = 2 * 1024 * 1024;
+
+// Read a File as a base64 data URL (e.g. "data:application/pdf;base64,JVBER...").
+function fileToDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+}
+
 function getInitials(name: string): string {
   return name.split(' ').map((n) => n[0]).join('').toUpperCase().slice(0, 2);
 }
+
+// AI Suggest quick actions — each generates a message via the ai-suggest API.
+const AI_ACTIONS: { key: string; icon: typeof Heart; title: string; desc: string }[] = [
+  { key: 'feedback', icon: MessageSquare, title: 'Request Feedback', desc: 'Ask for their thoughts and opinions' },
+  { key: 'thanks', icon: Heart, title: 'Thank You Message', desc: 'Show appreciation for their engagement' },
+  { key: 'related', icon: Gift, title: 'Share Related Content', desc: 'Recommend another campaign they might enjoy' },
+  { key: 'call', icon: Calendar, title: 'Schedule a Call', desc: 'Invite them to discuss the campaign over a call' },
+  { key: 'followup', icon: MessageCircle, title: 'Generate Follow-up', desc: 'Create a thoughtful response to their recent activity' },
+  { key: 'support', icon: ThumbsUp, title: 'Offer Support', desc: "Let them know you're available to help" },
+  { key: 'reengage', icon: TrendingUp, title: 'Re-engagement Message', desc: 'Bring them back with news about updates' },
+];
 
 function getTimeAgo(dateString: string): string {
   if (!dateString) return 'Never';
@@ -36,16 +70,80 @@ function formatShortDate(dateString: string): string {
   return new Date(dateString).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
+function formatFileSize(bytes: number): string {
+  if (!bytes) return '';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.ceil(bytes / 1024)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+// Renders a message's attachments: images as thumbnails, everything else
+// (e.g. PDF) as a compact file chip. All open the S3 url in a new tab.
+function MessageAttachments({
+  attachments,
+  align = 'left',
+}: {
+  attachments: LeadMessageAttachment[];
+  align?: 'left' | 'right';
+}) {
+  if (!attachments?.length) return null;
+  return (
+    <div className={`flex flex-wrap gap-2 mt-2 ${align === 'right' ? 'justify-end' : ''}`}>
+      {attachments.map((att) => {
+        const isImage = att.content_type?.startsWith('image/');
+        if (isImage) {
+          return (
+            <a
+              key={att.id}
+              href={att.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              title={att.filename}
+              className="block h-24 w-24 rounded-lg overflow-hidden border border-gray-200 hover:opacity-90 transition-opacity"
+            >
+              <img src={att.url} alt={att.filename} className="h-full w-full object-cover" />
+            </a>
+          );
+        }
+        return (
+          <a
+            key={att.id}
+            href={att.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            title={att.filename}
+            className="flex items-center gap-2 max-w-[220px] rounded-lg border border-gray-200 bg-white px-2.5 py-2 hover:bg-gray-50 transition-colors"
+          >
+            <span className="h-8 w-8 rounded-md bg-red-50 flex items-center justify-center shrink-0">
+              <FileText className="w-4 h-4 text-red-500" />
+            </span>
+            <span className="min-w-0">
+              <span className="block text-xs font-medium text-gray-700 truncate">{att.filename}</span>
+              {att.size ? <span className="block text-[11px] text-gray-400">{formatFileSize(att.size)}</span> : null}
+            </span>
+          </a>
+        );
+      })}
+    </div>
+  );
+}
+
 interface Props {
   lead: Lead | null;
   open: boolean;
   onClose: () => void;
   onRefreshLead?: () => Promise<void>;
   isArchived?: boolean;
+  highlightTarget?: CommentaryTarget | null;
+  onTargetHandled?: () => void;
 }
 
-export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, isArchived = false }: Props) {
+export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, isArchived = false, highlightTarget, onTargetHandled }: Props) {
   const { user } = useAuth();
+  const { limitData } = useMemoryLimit();
+  const [aiCredits, setAiCredits] = useState<number>(limitData.ai_connects ?? 0);
+  const [generatingAction, setGeneratingAction] = useState<string | null>(null);
+  useEffect(() => { setAiCredits(limitData.ai_connects ?? 0); }, [limitData.ai_connects]);
   const [currentStatus, setCurrentStatus] = useState<'hot' | 'warm' | 'cold' | null>(null);
   const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
   const [messages, setMessages] = useState<LeadMessage[]>([]);
@@ -55,17 +153,28 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
   const [via, setVia] = useState<'email' | 'sms'>('email');
   const [isSending, setIsSending] = useState(false);
   const [showViaDropdown, setShowViaDropdown] = useState(false);
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [attachments, setAttachments] = useState<File[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const composeInputRef = useRef<HTMLTextAreaElement>(null);
   const [replyingToMsgId, setReplyingToMsgId] = useState<number | null>(null);
   const [replyText, setReplyText] = useState('');
   const [isSendingReply, setIsSendingReply] = useState(false);
   const [replyingToCommentId, setReplyingToCommentId] = useState<number | null>(null);
   const [showSearch, setShowSearch] = useState(false);
   const [chatSearch, setChatSearch] = useState('');
+  const [showAiSuggest, setShowAiSuggest] = useState(false);
+  const [autoReply, setAutoReply] = useState(false);
+  const [lastAiAction, setLastAiAction] = useState<string | null>(null);
   const threadBottomRef = useRef<HTMLDivElement>(null);
   const replyInputRef = useRef<HTMLTextAreaElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const isInitialLoad = useRef(true);
   const scrollBodyRef = useRef<HTMLDivElement>(null);
+  // Refs to each message/comment row, keyed "message-<id>" / "comment-<id>",
+  // used to scroll-to + highlight a row when jumping in from Search Group.
+  const rowRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const [highlightedKey, setHighlightedKey] = useState<string | null>(null);
 
   useEffect(() => {
     if (open && lead) {
@@ -76,6 +185,11 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
       setReplyText('');
       setShowSearch(false);
       setChatSearch('');
+      setShowAiSuggest(false);
+      setLastAiAction(null);
+      setHighlightedKey(null);
+      setShowEmojiPicker(false);
+      setAttachments([]);
       isInitialLoad.current = true;
       if (scrollBodyRef.current) scrollBodyRef.current.scrollTop = 0;
       fetchMessages(lead.id);
@@ -87,6 +201,8 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
       setReplyingToMsgId(null);
       setReplyText('');
       setReplyingToCommentId(null);
+      setShowEmojiPicker(false);
+      setAttachments([]);
     }
   }, [open, lead]);
 
@@ -100,6 +216,24 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
       }
     }
   }, [messages]);
+
+  // Jump-to-row: when opened from Search Group with a target, wait for the
+  // thread to render, then scroll the matched message/comment into view and
+  // briefly highlight it.
+  useEffect(() => {
+    if (!open || !highlightTarget || isLoadingMessages) return;
+    const key = `${highlightTarget.kind}-${highlightTarget.id}`;
+    const t = setTimeout(() => {
+      const el = rowRefs.current[key];
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        setHighlightedKey(key);
+        setTimeout(() => setHighlightedKey(null), 2500);
+      }
+      onTargetHandled?.();
+    }, 200);
+    return () => clearTimeout(t);
+  }, [open, highlightTarget, isLoadingMessages, messages, lead?.id]);
 
   const fetchMessages = async (leadId: number) => {
     setIsLoadingMessages(true);
@@ -141,19 +275,30 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
     }
   };
 
+  // Email may carry attachments; SMS is text-only, so a bare attachment with no
+  // text can still be sent over email.
+  const hasAttachments = via === 'email' && attachments.length > 0;
+  const canSend = !!message.trim() || hasAttachments;
+
   const handleSend = async () => {
-    if (!message.trim()) return;
+    if (!canSend) return;
     setIsSending(true);
     try {
       let res;
       if (via === 'sms') {
         res = await leadsAPI.sendSMS(lead!.id, message.trim());
       } else {
-        res = await leadsAPI.sendEmail(lead!.id, subject.trim() || 'Following up', message.trim());
+        const encoded = await Promise.all(
+          attachments.map(async (f) => ({ filename: f.name, data: await fileToDataUrl(f) })),
+        );
+        res = await leadsAPI.sendEmail(lead!.id, subject.trim() || 'Following up', message.trim(), encoded);
       }
       if (res.success) {
         setMessage('');
         setSubject('');
+        setAttachments([]);
+        setShowEmojiPicker(false);
+        setLastAiAction(null);
         toast.success(`${via === 'email' ? 'Email' : 'SMS'} sent successfully.`);
         await refreshAll();
       } else {
@@ -166,10 +311,80 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
     }
   };
 
+  // Insert an emoji at the textarea caret (falls back to appending).
+  const insertEmoji = (emoji: string) => {
+    const el = composeInputRef.current;
+    if (el) {
+      const start = el.selectionStart ?? message.length;
+      const end = el.selectionEnd ?? message.length;
+      const next = message.slice(0, start) + emoji + message.slice(end);
+      setMessage(next);
+      requestAnimationFrame(() => {
+        el.focus();
+        const pos = start + emoji.length;
+        el.setSelectionRange(pos, pos);
+      });
+    } else {
+      setMessage((m) => m + emoji);
+    }
+  };
+
+  // Validate picked files (images/PDF, ≤2 MB) and queue the valid ones.
+  const handleFilesSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const picked = Array.from(e.target.files ?? []);
+    const valid: File[] = [];
+    for (const f of picked) {
+      const isImage = f.type.startsWith('image/');
+      const isPdf = f.type === 'application/pdf';
+      if (!isImage && !isPdf) {
+        toast.error(`${f.name}: only images and PDF files are allowed.`);
+        continue;
+      }
+      if (f.size > MAX_ATTACHMENT_BYTES) {
+        toast.error(`${f.name} is too large (max 2 MB).`);
+        continue;
+      }
+      valid.push(f);
+    }
+    if (valid.length) setAttachments((prev) => [...prev, ...valid]);
+    e.target.value = ''; // allow re-picking the same file
+  };
+
+  const removeAttachment = (index: number) => {
+    setAttachments((prev) => prev.filter((_, i) => i !== index));
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSend();
+    }
+  };
+
+  const handleAiAction = async (action: string, noCredit = false) => {
+    if (!lead || generatingAction) return;
+    setGeneratingAction(action);
+    try {
+      const res = await leadsAPI.aiSuggest(lead.id, action, noCredit);
+      if (res.success && res.data?.message) {
+        setMessage(res.data.message);
+        setLastAiAction(action); // enables the Retry button
+        if (typeof res.data.credits_remaining === 'number') setAiCredits(res.data.credits_remaining);
+        recheckMemoryLimit();
+        setShowAiSuggest(false);
+      } else {
+        const msg = ((res as any).message || res.error || '').toString();
+        if (/out of credits/i.test(msg)) {
+          setAiCredits(0); // surfaces the orange "Buy" banner
+          toast.error('Out of credits');
+        } else {
+          toast.error(msg || 'Failed to generate suggestion.');
+        }
+      }
+    } catch {
+      toast.error('Failed to generate suggestion.');
+    } finally {
+      setGeneratingAction(null);
     }
   };
 
@@ -198,6 +413,11 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
   const firstName = lead.user.name.split(' ')[0];
   const daysAsLead = getDaysAsLead(lead.first_seen_at);
   const unreadCount = lead.unread_count ?? 0;
+
+  const rowHl = (key: string) =>
+    highlightedKey === key
+      ? 'rounded-xl ring-2 ring-[#6C60FF] bg-purple-50 transition-all duration-500 -mx-2 px-2'
+      : '';
 
   const renderMessage = (msg: LeadMessage, isChild = false): React.ReactNode => {
     const isOutbound = msg.direction === 'outbound';
@@ -230,7 +450,11 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
 
     if (isOutbound) {
       return (
-        <div key={`msg-${msg.id}`} className={isChild ? 'ml-4 mt-3' : 'py-3'}>
+        <div
+          key={`msg-${msg.id}`}
+          ref={(el) => { rowRefs.current[`message-${msg.id}`] = el; }}
+          className={`${isChild ? 'ml-4 mt-3' : 'py-3'} ${rowHl(`message-${msg.id}`)}`}
+        >
           <div className="flex flex-col items-end">
             <div className="flex items-center gap-1.5 mb-1">
               <span className="text-xs text-gray-400">{formatShortDate(msg.sent_at)}</span>
@@ -245,9 +469,14 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
             {msg.subject && msg.subject !== 'Following up' && (
               <p className="text-xs font-semibold text-[#6C60FF] mb-1">{msg.subject}</p>
             )}
-            <div className="max-w-[82%] bg-[#6C60FF] text-white rounded-2xl rounded-tr-sm px-4 py-2.5">
-              <p className="text-sm leading-relaxed">{msg.body}</p>
-            </div>
+            {msg.body && (
+              <div className="max-w-[82%] bg-[#6C60FF] text-white rounded-2xl rounded-tr-sm px-4 py-2.5">
+                <p className="text-sm leading-relaxed">{msg.body}</p>
+              </div>
+            )}
+            {msg.attachments && msg.attachments.length > 0 && (
+              <MessageAttachments attachments={msg.attachments} align="right" />
+            )}
             <div className="flex items-center gap-0.5 mt-1">
               <span className="text-[11px] text-gray-400">via {channelLabel}</span>
               <ChevronDown className="w-3 h-3 text-gray-400" />
@@ -259,7 +488,11 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
     }
 
     return (
-      <div key={`msg-${msg.id}`} className={isChild ? 'ml-11 mt-3' : 'py-4'}>
+      <div
+        key={`msg-${msg.id}`}
+        ref={(el) => { rowRefs.current[`message-${msg.id}`] = el; }}
+        className={`${isChild ? 'ml-11 mt-3' : 'py-4'} ${rowHl(`message-${msg.id}`)}`}
+      >
         <div className="flex items-start gap-3">
           {/* Avatar with channel badge */}
           <div className="relative shrink-0 mt-0.5">
@@ -292,9 +525,14 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
               <p className="text-xs font-semibold text-gray-900 mt-1">{msg.subject}</p>
             )}
             {/* Bubble */}
-            <div className="w-fit max-w-[90%] bg-gray-100 rounded-2xl rounded-tl-sm px-4 py-2.5 mt-1">
-              <p className="text-sm text-gray-700 leading-relaxed">{msg.body}</p>
-            </div>
+            {msg.body && (
+              <div className="w-fit max-w-[90%] bg-gray-100 rounded-2xl rounded-tl-sm px-4 py-2.5 mt-1">
+                <p className="text-sm text-gray-700 leading-relaxed">{msg.body}</p>
+              </div>
+            )}
+            {msg.attachments && msg.attachments.length > 0 && (
+              <MessageAttachments attachments={msg.attachments} />
+            )}
 
             {/* Reply button */}
             {!isReplying && !isArchived && (
@@ -462,8 +700,9 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
               const extraCount = (hasEmail ? 1 : 0) + (hasPhone ? 1 : 0);
               const gridCols = extraCount === 2 ? 'grid-cols-3' : extraCount === 1 ? 'grid-cols-2' : 'grid-cols-1';
               return (
-                <div className={`mt-4 grid ${gridCols} gap-2`}>
+                <div className={`relative mt-4 grid ${gridCols} gap-2`}>
                   <button
+                    onClick={() => setShowAiSuggest((v) => !v)}
                     className="flex items-center justify-center gap-1 h-9 px-2 rounded-lg w-full whitespace-nowrap hover:opacity-90 transition-opacity"
                     style={{
                       border: '1.5px solid transparent',
@@ -475,6 +714,97 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
                     <Sparkles className="w-3 h-3 shrink-0 text-[#6C60FF]" />
                     <span className="bg-gradient-to-r from-[#6C60FF] to-[#FF5FAD] bg-clip-text text-transparent text-xs font-medium">AI Suggest</span>
                   </button>
+
+                  {/* AI Suggest panel */}
+                  {showAiSuggest && (
+                    <>
+                      <div className="fixed inset-0 z-40" onClick={() => setShowAiSuggest(false)} />
+                      <div className="absolute left-0 right-0 top-full mt-2 z-50 bg-white rounded-xl shadow-2xl border border-gray-200 overflow-hidden flex flex-col max-h-[70vh]">
+                        {/* Header */}
+                        <div className="flex items-center gap-3 px-4 pt-4 pb-3 border-b border-gray-100">
+                          <span className="h-10 w-10 rounded-xl flex items-center justify-center shrink-0 bg-gradient-to-br from-[#6C60FF] to-[#FF5FAD]">
+                            <Sparkles className="w-5 h-5 text-white" />
+                          </span>
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm font-bold text-gray-900">AI Suggest</p>
+                            <p className="text-xs text-gray-400 truncate">Smart tools for {firstName}</p>
+                          </div>
+                          {aiCredits > 0 && (
+                            <span className="flex items-center gap-1 px-2 h-6 rounded-full bg-purple-100 text-[#6C60FF] text-[11px] font-semibold shrink-0">
+                              <Sparkles className="w-3 h-3" /> 1 credit
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="overflow-y-auto">
+                          {/* Auto-Reply */}
+                          <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-gray-100">
+                            <div className="min-w-0">
+                              <p className="text-sm font-semibold text-gray-900">Auto-Reply</p>
+                              <p className="text-xs text-gray-400">Automatically respond to messages</p>
+                            </div>
+                            <button
+                              onClick={() => setAutoReply((v) => !v)}
+                              className={`relative h-6 w-11 rounded-full transition-colors shrink-0 ${autoReply ? 'bg-[#6C60FF]' : 'bg-gray-200'}`}
+                            >
+                              <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all ${autoReply ? 'left-[22px]' : 'left-0.5'}`} />
+                            </button>
+                          </div>
+
+                          {/* Credits banner — only when the user is out of credits */}
+                          {aiCredits === 0 && (
+                            <div className="mx-4 my-3 rounded-xl border border-orange-200 bg-orange-50 px-3 py-2.5 flex items-center gap-2.5">
+                              <Sparkles className="w-4 h-4 text-orange-500 shrink-0" />
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm font-bold text-gray-900">0 credits</p>
+                                <p className="text-[11px] text-gray-500">1 credit per auto-reply</p>
+                              </div>
+                              <button className="h-7 px-3 rounded-lg border border-orange-300 text-orange-600 text-xs font-semibold hover:bg-orange-100 transition-colors shrink-0">
+                                Buy
+                              </button>
+                            </div>
+                          )}
+
+                          {/* Suggested Actions */}
+                          <div className="px-4 pb-3">
+                            <div className="flex items-center gap-1.5 mb-2">
+                              <Lightbulb className="w-3.5 h-3.5 text-[#6C60FF]" />
+                              <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">Suggested Actions</p>
+                            </div>
+                            <div className="space-y-2">
+                              {AI_ACTIONS.map((a) => {
+                                const Icon = a.icon;
+                                const isGenerating = generatingAction === a.key;
+                                return (
+                                  <button
+                                    key={a.key}
+                                    onClick={() => handleAiAction(a.key)}
+                                    disabled={generatingAction !== null}
+                                    className="w-full text-left flex items-start gap-3 px-3 py-2.5 rounded-lg border border-gray-200 hover:border-[#6C60FF] hover:bg-purple-50/40 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                                  >
+                                    {isGenerating ? (
+                                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-[#6C60FF] shrink-0 mt-0.5" />
+                                    ) : (
+                                      <Icon className="w-4 h-4 text-gray-500 shrink-0 mt-0.5" />
+                                    )}
+                                    <div className="min-w-0">
+                                      <p className="text-sm font-semibold text-gray-900">{a.title}</p>
+                                      <p className="text-xs text-gray-400">{isGenerating ? 'Generating…' : a.desc}</p>
+                                    </div>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Footer */}
+                        <div className="px-4 py-2.5 border-t border-gray-100 bg-gray-50 text-center">
+                          <p className="text-[11px] text-gray-400">AI suggestions based on engagement history</p>
+                        </div>
+                      </div>
+                    </>
+                  )}
                   {hasEmail && (
                     <button
                       onClick={() => window.open(`mailto:${lead.user.email}`)}
@@ -577,7 +907,11 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
                         const c = item.data;
                         const childComments = comments.filter((ch) => ch.parent_id === c.id);
                         return (
-                          <div key={`comment-${c.id}`} className="py-4">
+                          <div
+                            key={`comment-${c.id}`}
+                            ref={(el) => { rowRefs.current[`comment-${c.id}`] = el; }}
+                            className={`py-4 ${rowHl(`comment-${c.id}`)}`}
+                          >
                             {/* Parent comment row */}
                             <div className="flex items-start gap-3">
                               <div className="relative shrink-0 mt-0.5">
@@ -706,20 +1040,83 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
         <div className={`border-t border-gray-200 px-4 pt-3 pb-4 bg-white ${isArchived ? 'hidden' : ''}`}>
           <div className="border border-gray-200 rounded-2xl bg-white px-4 pt-3 pb-3">
             <textarea
+              ref={composeInputRef}
               value={message}
-              onChange={(e) => setMessage(e.target.value)}
+              onChange={(e) => { setMessage(e.target.value); if (e.target.value === '') setLastAiAction(null); }}
               onKeyDown={handleKeyDown}
               placeholder={`Send new message to ${firstName}...`}
               rows={3}
               className="w-full text-sm text-gray-700 placeholder:text-gray-400 resize-none border-none outline-none bg-transparent leading-relaxed"
             />
+
+            {/* Attachment chips (email only) */}
+            {attachments.length > 0 && (
+              <div className="flex flex-wrap gap-2 mt-2">
+                {attachments.map((f, i) => (
+                  <div
+                    key={`${f.name}-${i}`}
+                    className="flex items-center gap-1.5 max-w-[200px] bg-gray-100 rounded-lg px-2 py-1 text-xs text-gray-600"
+                  >
+                    <Paperclip className="w-3 h-3 shrink-0 text-gray-400" />
+                    <span className="truncate">{f.name}</span>
+                    <span className="text-gray-400 shrink-0">{Math.ceil(f.size / 1024)} KB</span>
+                    <button
+                      onClick={() => removeAttachment(i)}
+                      className="text-gray-400 hover:text-gray-600 shrink-0"
+                      title="Remove attachment"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Hidden file input — images & PDF, ≤2 MB each */}
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*,application/pdf"
+              multiple
+              hidden
+              onChange={handleFilesSelected}
+            />
+
             <div className="flex items-center gap-2 mt-2">
-              <button className="p-1.5 text-gray-400 hover:text-gray-600 transition-colors">
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                disabled={via === 'sms'}
+                title={via === 'sms' ? 'Attachments are available for email only' : 'Attach image or PDF (max 2 MB)'}
+                className="p-1.5 text-gray-400 hover:text-gray-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              >
                 <Paperclip className="w-4 h-4" />
               </button>
-              <button className="p-1.5 text-gray-400 hover:text-gray-600 transition-colors">
-                <Smile className="w-4 h-4" />
-              </button>
+
+              <div className="relative">
+                <button
+                  onClick={() => setShowEmojiPicker((v) => !v)}
+                  className={`p-1.5 transition-colors ${showEmojiPicker ? 'text-[#6C60FF]' : 'text-gray-400 hover:text-gray-600'}`}
+                  title="Insert emoji"
+                >
+                  <Smile className="w-4 h-4" />
+                </button>
+                {showEmojiPicker && (
+                  <>
+                    <div className="fixed inset-0 z-40" onClick={() => setShowEmojiPicker(false)} />
+                    <div className="absolute bottom-10 left-0 z-50 w-64 bg-white border border-gray-200 rounded-xl shadow-xl p-2 grid grid-cols-8 gap-1">
+                      {EMOJIS.map((emoji) => (
+                        <button
+                          key={emoji}
+                          onClick={() => insertEmoji(emoji)}
+                          className="text-xl leading-none p-1 rounded-md hover:bg-gray-100 transition-colors"
+                        >
+                          {emoji}
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
 
               <div className="relative">
                 <button
@@ -739,7 +1136,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
                         <button
                           key={option}
                           disabled={isDisabled}
-                          onClick={() => { if (isDisabled) return; setVia(option); setShowViaDropdown(false); if (option === 'sms') setSubject(''); }}
+                          onClick={() => { if (isDisabled) return; setVia(option); setShowViaDropdown(false); if (option === 'sms') { setSubject(''); setAttachments([]); } }}
                           className={`w-full text-left px-3 py-2 text-sm ${isDisabled ? 'opacity-40 cursor-not-allowed text-gray-400' : via === option ? 'text-[#6C60FF] font-medium hover:bg-gray-50' : 'text-gray-700 hover:bg-gray-50'}`}
                         >
                           {option === 'email' ? 'Email' : 'SMS'}
@@ -750,10 +1147,27 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
                 )}
               </div>
 
+              {/* Retry — regenerates the AI message without spending a credit */}
+              {lastAiAction && (
+                <button
+                  onClick={() => handleAiAction(lastAiAction, true)}
+                  disabled={generatingAction !== null}
+                  title="Regenerate (free)"
+                  className="ml-auto flex items-center gap-1.5 h-10 px-3 rounded-xl border border-[#6C60FF] text-[#6C60FF] bg-purple-50 hover:bg-purple-100 text-sm font-medium disabled:opacity-50 transition-colors"
+                >
+                  {generatingAction ? (
+                    <div className="animate-spin rounded-full h-3.5 w-3.5 border-b-2 border-[#6C60FF]" />
+                  ) : (
+                    <RefreshCw className="w-3.5 h-3.5" />
+                  )}
+                  Retry
+                </button>
+              )}
+
               <button
                 onClick={handleSend}
-                disabled={!message.trim() || isSending}
-                className="ml-auto flex items-center gap-2 h-10 px-5 rounded-xl bg-[#6C60FF] hover:bg-[#5A4FE5] text-white text-sm font-medium disabled:opacity-50 transition-colors"
+                disabled={!canSend || isSending}
+                className={`${lastAiAction ? '' : 'ml-auto'} flex items-center gap-2 h-10 px-5 rounded-xl bg-[#6C60FF] hover:bg-[#5A4FE5] text-white text-sm font-medium disabled:opacity-50 transition-colors`}
               >
                 <Send className="w-4 h-4" />
                 {isSending ? 'Sending...' : 'Send'}

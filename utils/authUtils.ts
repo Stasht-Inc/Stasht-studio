@@ -2,8 +2,9 @@
 
 export interface LoginCredentials {
   email?: string;
-  password: string;
+  password?: string;          // optional — passwordless login uses verification_token instead
   phone_number?: string;
+  verification_token?: string; // from /verify-otp, for passwordless login
 }
 
 export interface LoginResponse {
@@ -50,9 +51,12 @@ export interface LoginResponse {
 
 export interface RegisterCredentials {
   email: string;
-  password: string;
+  password?: string;          // optional — OTP-only signup omits it
   name: string;
   phone_number?: string;
+  // Single-use token returned by /verify-otp. When present, backend creates the
+  // account already-activated (no activation email / phone OTP step).
+  verification_token?: string;
 }
 
 export interface ApiResponse<T = any> {
@@ -430,7 +434,7 @@ export const authAPI = {
         // Extract collaborators from response
         const collaborators = data.collaborators || data.data?.collaborators || response.collaborators || [];
 
-        const ownedProperties = data.owned_properties || data.data?.owned_properties || [];
+        const ownedProperties = data.owned_properties || data.data?.owned_properties || (response as any).owned_properties || [];
 
         const sharedProperties = data.shared_properties || data.data?.shared_properties || [];
 
@@ -540,6 +544,7 @@ export const authAPI = {
             user: apiData.user,
             token: apiData.token,
             collaborators: collaborators,
+            owned_properties: apiData.owned_properties || response.data.owned_properties || (response as any).owned_properties || [],
           };
         }
       }
@@ -554,6 +559,7 @@ export const authAPI = {
           user: response.data.user,
           token: response.data.token,
           collaborators: collaborators,
+          owned_properties: response.data.owned_properties || (response as any).owned_properties || [],
         };
       }
 
@@ -568,6 +574,7 @@ export const authAPI = {
           user: responseAny.user,
           token: responseAny.token,
           collaborators: collaborators,
+          owned_properties: responseAny.owned_properties || [],
         };
       }
 
@@ -583,6 +590,7 @@ export const authAPI = {
             user: dataToCheck.user,
             token: dataToCheck.token,
             collaborators: collaborators,
+            owned_properties: dataToCheck.owned_properties || response.data.owned_properties || (response as any).owned_properties || [],
           };
         }
       }
@@ -600,6 +608,7 @@ export const authAPI = {
           },
           token: responseAny.token,
           collaborators: collaborators,
+          owned_properties: responseAny.owned_properties || [],
         };
       }
 
@@ -685,6 +694,18 @@ export const authAPI = {
       });
 
       console.log('authAPI.register: Full API Response:', JSON.stringify(response, null, 2));
+
+      // Robust extraction first — token/user may sit at any of these locations
+      // (covers OTP-verified signup that returns a session token, same as /login)
+      {
+        const d: any = response.data || {};
+        const u = d.user || d.data?.user || (response as any).user;
+        const t = d.token || d.access_token || d.data?.token || d.data?.access_token || (response as any).token;
+        if (response.success && u && t) {
+          console.log('authAPI.register: Found user and token (robust extraction)');
+          return { success: true, user: u, token: t };
+        }
+      }
 
       // Handle your API's specific response structure (same as login)
       if (response.success && response.data && response.data.success && response.data.data) {
@@ -1080,6 +1101,143 @@ export const authAPI = {
         success: false,
         error: 'Network error occurred',
       };
+    }
+  },
+
+  // ============================================================
+  // Verified signup / OTP-based auth (public endpoints)
+  // Flow: sendOtp -> verifyOtp (returns verification_token) -> register/login
+  // ============================================================
+
+  // Send a 6-digit OTP. Pass ONLY one identifier — { email } or { phone_number } (E.164).
+  // purpose: "register" (signup screen) or "login" (login screen).
+  sendOtp: async (
+    identifier: { email?: string; phone_number?: string },
+    purpose: 'register' | 'login' = 'register'
+  ): Promise<{ success: boolean; message?: string; channel?: string; error?: string; alreadyRegistered?: boolean; noAccount?: boolean }> => {
+    try {
+      console.log('📨 authAPI.sendOtp: requesting OTP for', identifier, 'purpose:', purpose);
+      const response: any = await apiRequest<any>('/send-otp', {
+        method: 'POST',
+        body: JSON.stringify({ ...identifier, purpose }),
+      });
+      console.log('📨 authAPI.sendOtp: response', JSON.stringify(response, null, 2));
+
+      if (response.success) {
+        return {
+          success: true,
+          message: response.message,
+          channel: response.channel || response.data?.channel,
+        };
+      }
+
+      const msg = (response.message || response.error || '').toLowerCase();
+      // 409 (register) → already registered → caller should switch to login
+      const alreadyRegistered = msg.includes('already registered');
+      // 404 (login) → no account → caller should switch to registration
+      const noAccount = msg.includes('no account') || msg.includes('not registered') || msg.includes('not found');
+
+      return {
+        success: false,
+        error: response.message || response.error || 'Failed to send OTP. Please try again.',
+        alreadyRegistered,
+        noAccount,
+      };
+    } catch (error) {
+      console.error('❌ authAPI.sendOtp: exception', error);
+      return { success: false, error: 'Network error occurred' };
+    }
+  },
+
+  // Exchange an SSO code (from /sso#code=...) for a session.
+  // Uses the SAME base URL as every other API (route lives under /api/react).
+  ssoExchange: async (
+    code: string
+  ): Promise<{ success: boolean; user?: any; token?: string; error?: string }> => {
+    try {
+      console.log('🔑 authAPI.ssoExchange: exchanging SSO code');
+      // PUBLIC endpoint on the SSO backend — must NOT send an Authorization header
+      // (a stale stasht_token Bearer makes the backend 401 the exchange).
+      // NOTE: this backend returns the USER ONLY (no token). We then run that user
+      // through the normal /login API to obtain a real session token.
+      // Call the SSO backend directly. It returns CORS headers (Access-Control-Allow-Origin: *),
+      // so a direct cross-origin request works in both dev and production. We intentionally do
+      // NOT proxy this through nginx/Apache — that vhost can't reverse-proxy to an HTTPS target
+      // and returns 500.
+      const res = await fetch('https://mobile-api.stasht.com/public/api/sso/exchange', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code }),
+      });
+      const response: any = await res.json().catch(() => ({}));
+      console.log('🔑 authAPI.ssoExchange: response', JSON.stringify(response, null, 2));
+
+      // Exchange returns the user only (may sit flat or nested) — no token here.
+      const user = response.user || response.data?.user || response.data || response;
+      const email = user?.email;
+
+      if (!email) {
+        console.error('❌ authAPI.ssoExchange: no user/email in exchange response');
+        return {
+          success: false,
+          error: response.message || response.error || 'SSO exchange failed: no user',
+        };
+      }
+
+      // Step 2: convert the SSO-verified user into a real session via the normal
+      // login API (fixed SSO password agreed with backend).
+      console.log('🔑 authAPI.ssoExchange: logging in SSO user via /login:', email);
+      const loginRes: any = await authAPI.login({ email, password: 'WorksDelight@2025' });
+
+      if (loginRes.success && loginRes.user && loginRes.token) {
+        return { success: true, user: loginRes.user, token: loginRes.token };
+      }
+
+      return {
+        success: false,
+        error: loginRes.error || loginRes.message || 'SSO login failed',
+      };
+    } catch (error) {
+      console.error('❌ authAPI.ssoExchange: exception', error);
+      return { success: false, error: 'Network error occurred' };
+    }
+  },
+
+  // Verify the OTP code. Send the SAME identifier used in sendOtp plus the otp.
+  // On success returns a single-use verification_token (and user/token if the
+  // backend chooses to log the user in directly).
+  verifyOtp: async (
+    payload: { email?: string; phone_number?: string; otp: string }
+  ): Promise<{ success: boolean; message?: string; channel?: string; verification_token?: string; user?: any; token?: string; error?: string }> => {
+    try {
+      console.log('🔐 authAPI.verifyOtp: verifying', { ...payload, otp: '******' });
+      const response: any = await apiRequest<any>('/verify-otp', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+      console.log('🔐 authAPI.verifyOtp: response', JSON.stringify(response, null, 2));
+
+      const data = response.data?.data || response.data || response;
+      const verification_token = response.verification_token || data?.verification_token;
+
+      if (response.success && verification_token) {
+        return {
+          success: true,
+          message: response.message,
+          channel: response.channel || data?.channel,
+          verification_token,
+          user: data?.user,
+          token: data?.token,
+        };
+      }
+
+      return {
+        success: false,
+        error: response.message || response.error || 'OTP verification failed',
+      };
+    } catch (error) {
+      console.error('❌ authAPI.verifyOtp: exception', error);
+      return { success: false, error: 'Network error occurred' };
     }
   },
 
@@ -2136,6 +2294,20 @@ export const dashboardAPI = {
       body: JSON.stringify({
         image_id: imageId,
         is_featured: isFeatured ? 1 : 0
+      }),
+    });
+  },
+
+  // Hide/show a post's caption (persisted)
+  setCaptionHidden: async (imageId: string, hidden: boolean): Promise<ApiResponse<any>> => {
+    console.log('dashboardAPI.setCaptionHidden: Sending POST request to /memory-images/hide-caption');
+    console.log('Image ID:', imageId, 'Hidden:', hidden);
+
+    return await apiRequest('/memory-images/hide-caption', {
+      method: 'POST',
+      body: JSON.stringify({
+        image_id: imageId,
+        hide_caption: hidden ? 1 : 0
       }),
     });
   },
@@ -4091,6 +4263,20 @@ export const dashboardAPI = {
   registerViaPersonalInvite: async (data: { invite_token: string; name: string; email?: string; phone_number?: string; password: string }): Promise<ApiResponse<any>> => {
     try {
       const response = await fetch(`${API_BASE_URL}/account/register-via-invite`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      });
+      const json = await response.json();
+      return response.ok ? { success: true, data: json } : { success: false, error: json.message || json.error || `HTTP ${response.status}` };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Network error' };
+    }
+  },
+
+  joinViaInvite: async (data: { invite_token: string; email?: string; phone_number?: string }): Promise<ApiResponse<any>> => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/account/join-via-invite`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data),

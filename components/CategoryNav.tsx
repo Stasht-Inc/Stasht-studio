@@ -301,8 +301,13 @@ function EditableCategoryCard({
   categories,
   isLabel = false,
   suggested = false,
-  onCreateMemory
-}: CategoryCardProps & { onDelete?: (name: string) => void; onEdit?: (name: string) => void; isUserCreated?: boolean; admin_id?: string | null; categories?: Category[]; isLabel?: boolean; suggested?: boolean; onCreateMemory?: (categoryName: string) => void }) {
+  onCreateMemory,
+  isOwner,
+  canAddStory
+}: CategoryCardProps & { onDelete?: (name: string) => void; onEdit?: (name: string) => void; isUserCreated?: boolean; admin_id?: string | null; categories?: Category[]; isLabel?: boolean; suggested?: boolean; onCreateMemory?: (categoryName: string) => void; isOwner?: boolean; canAddStory?: boolean }) {
+  // A category is locked for adding campaigns when the API says the user is not the
+  // owner OR explicitly cannot add a story to it.
+  const cannotAddCampaign = isOwner === false || canAddStory === false;
   const categoryColor = isLabel ? '#eab308' : getCategoryColor(name, categories);
   
   // Inline editing state
@@ -510,7 +515,8 @@ function EditableCategoryCard({
               <span className={`text-sm ${isActive ? 'font-bold' : 'font-medium'} text-foreground`}>{name}</span>
             )}
             {/* Edit button for user-created categories only - visible on hover only, not for suggested categories */}
-            {onEdit && !isEditing && !suggested && name !== 'Published' && name !== 'Shared With' && (
+            {/* Hidden when the category is locked (not owner / cannot add story) */}
+            {onEdit && !isEditing && !suggested && name !== 'Published' && name !== 'Shared With' && !cannotAddCampaign && (
               <button
                 onClick={handleEditClick}
                 className="ml-1 p-1 rounded hover:bg-gray-200 transition-all opacity-0 group-hover:opacity-100"
@@ -560,15 +566,23 @@ function EditableCategoryCard({
 
       {/* Add Memory Button - Show for all categories except Shared With, Published, Invites, and Suggested */}
       {/* Shows both when collapsed and expanded (at bottom when expanded) */}
-      {onCreateMemory && name !== 'Shared With' && name !== 'Published' && name !== 'Invites' && !suggested && (
+      {/* Hidden when the category is locked (not owner / cannot add story) */}
+      {onCreateMemory && name !== 'Shared With' && name !== 'Published' && name !== 'Invites' && !suggested && !cannotAddCampaign && (
         <div className={`px-3 ${isActive ? 'pt-0 pb-3' : 'pt-2 pb-3'}`}>
           <button
             onClick={(e) => {
               e.stopPropagation();
+              if (cannotAddCampaign) return;
               onCreateMemory(name);
             }}
-            className="w-full py-2 px-3 rounded-lg border-2 bg-white hover:bg-gray-50 transition-colors flex items-center justify-center gap-2 text-sm font-medium"
-            style={{
+            disabled={cannotAddCampaign}
+            title={cannotAddCampaign ? "You can't add campaigns to this category" : undefined}
+            className="w-full py-2 px-3 rounded-lg border-2 bg-white hover:bg-gray-50 transition-colors flex items-center justify-center gap-2 text-sm font-medium disabled:cursor-not-allowed"
+            style={cannotAddCampaign ? {
+              backgroundColor: '#F3F4F6',
+              borderColor: '#D1D5DB',
+              color: '#9CA3AF'
+            } : {
               backgroundColor: `${categoryColor}0D`,
               borderColor: categoryColor,
               color: categoryColor
@@ -593,6 +607,8 @@ export interface Category {
   admin_id?: string | null;
   color?: string;
   suggested?: boolean;
+  is_owner?: boolean;
+  can_add_story?: boolean;
 }
 
 export interface Label {
@@ -1425,6 +1441,7 @@ interface CategoryNavProps {
   hasUnassignedItems?: boolean; // Whether there are unassigned items
   isPropertyOwner?: boolean; // Whether user is property owner (admin) or visitor (read-only)
   currentPropertyId?: number; // Property ID to send when creating a category on a property account
+  openCreateCategorySignal?: number; // Increment to programmatically open the "New Category" popover
 }
 
 export default function CategoryNav({
@@ -1447,7 +1464,8 @@ export default function CategoryNav({
   showUnassignedInFilter = false,
   hasUnassignedItems = false,
   isPropertyOwner = true,
-  currentPropertyId
+  currentPropertyId,
+  openCreateCategorySignal
 }: CategoryNavProps) {
   // Get user context for profile image and initials fallback
   const { user } = useAuth();
@@ -1496,6 +1514,17 @@ export default function CategoryNav({
   const [editingCategory, setEditingCategory] = useState<{ id: string; name: string } | null>(null);
   const [editCategoryName, setEditCategoryName] = useState("");
   const [showEditCategoryPopover, setShowEditCategoryPopover] = useState(false);
+
+  // Open the "New Category" popover when the parent increments the signal
+  // (used when the user clicks "Create a Campaign" but owns no category yet).
+  useEffect(() => {
+    if (openCreateCategorySignal && isPropertyOwner) {
+      setShowEditCategoryPopover(false);
+      setEditingCategory(null);
+      setEditCategoryName("");
+      setShowCategoryPopover(true);
+    }
+  }, [openCreateCategorySignal, isPropertyOwner]);
   
   // Debug: Monitor edit popup state changes
   useEffect(() => {
@@ -1522,6 +1551,9 @@ export default function CategoryNav({
   if (apiMemoriesData) {
     // Create a map of memory_id -> memory_images from sidebar for enrichment
     const sidebarMemoryImagesMap: { [key: number]: any[] } = {};
+    // Create a map of memory_id -> image_link (cover) from sidebar. The rendered rows
+    // come from all_memories, but the cover image_link lives on the sidebar object.
+    const sidebarImageLinkMap: { [key: number]: string } = {};
 
     // Initialize empty arrays for all categories first
     if (apiMemoriesData.data?.sidebar?.categories?.items) {
@@ -1531,6 +1563,9 @@ export default function CategoryNav({
         apiCategory.memories?.forEach((mem: any) => {
           if (mem.memory_images) {
             sidebarMemoryImagesMap[mem.id] = mem.memory_images;
+          }
+          if (mem.image_link) {
+            sidebarImageLinkMap[mem.id] = mem.image_link;
           }
         });
       });
@@ -1553,10 +1588,13 @@ export default function CategoryNav({
             console.log('⚠️  No sidebar images for memory:', apiMemory.title);
           }
 
+          // Prefer the sidebar object's image_link (the all_memories item may not carry it)
+          const coverImageLink = sidebarImageLinkMap[apiMemory.id] || apiMemory.image_link;
+
           const memoryItem = {
             id: apiMemory.id.toString(),
             title: apiMemory.title,
-            thumbnail: apiMemory?.last_update_img || apiMemory.photos?.preview_images?.[0]?.url || (apiMemory.image_link ? apiMemory.image_link.replace(/\\\//g, '/') : null),
+            thumbnail: coverImageLink ? coverImageLink.replace(/\\\//g, '/') : null,
             imageCount: apiMemory.photos?.count || apiMemory.photos_count || apiMemory.memory_images?.filter((img: any) => !img.parent_id).length || 1,
             date: apiMemory.created_at || new Date().toISOString(),
             type: 'personal' as const,
@@ -1632,7 +1670,7 @@ export default function CategoryNav({
           const memoryItem = {
             id: apiMemory.id.toString(),
             title: apiMemory.title,
-            thumbnail: apiMemory.last_update_img || apiMemory.photos?.preview_images?.[0]?.url || '',
+            thumbnail: apiMemory.image_link ? apiMemory.image_link.replace(/\\\//g, '/') : null,
             imageCount: apiMemory.photos?.count || apiMemory.photos_count || 0,
             date: apiMemory.created_at || new Date().toISOString(),
             type: 'shared' as const,
@@ -1680,7 +1718,7 @@ export default function CategoryNav({
           const categoryMemories = apiCategory.memories?.map((apiMemory: any) => ({
             id: apiMemory.id.toString(),
             title: apiMemory.title,
-            thumbnail: apiMemory.last_update_img || (apiMemory.image_link ? apiMemory.image_link.replace(/\\\//g, '/') : null),
+            thumbnail: apiMemory.image_link ? apiMemory.image_link.replace(/\\\//g, '/') : null,
             imageCount: apiMemory.photos?.count || apiMemory.photos_count || apiMemory.memory_images?.filter((img: any) => !img.parent_id).length || 1,
             date: new Date().toISOString(),
             type: 'personal' as const,
@@ -1779,7 +1817,7 @@ export default function CategoryNav({
       const labelMemories = apiLabel.memories?.map((apiMemory: any) => ({
         id: apiMemory.id.toString(),
         title: apiMemory.title,
-        thumbnail: apiMemory.last_update_img || apiMemory.image_link,
+        thumbnail: apiMemory.image_link ? apiMemory.image_link.replace(/\\\//g, '/') : null,
         imageCount: apiMemory.photos?.count || apiMemory.photos_count || apiMemory.memory_images?.filter((img: any) => !img.parent_id).length || 1,
         date: new Date().toISOString(),
         type: 'personal' as const,
@@ -1920,7 +1958,13 @@ export default function CategoryNav({
           name: trimmedName,
           count: 0,
           isUserCreated: true,
-          color: getRandomColor()
+          color: getRandomColor(),
+          // The user just created this category, so they own it and can add campaigns to it.
+          // Without these flags the optimistic entry fails isAddableOwnCategory (is_owner === true)
+          // in MemoriesPage, so the "Create a Campaign" gate keeps saying "create one first" and
+          // the dropdown stays empty until the server refetch lands.
+          is_owner: true,
+          can_add_story: true,
         };
         
         // Insert new category right after "Personal" category
@@ -2585,7 +2629,8 @@ export default function CategoryNav({
                         {categoryMemories.length}
                       </span>
                       {/* Edit button for user-created categories - Only show for property owners */}
-                      {(category.admin_id !== null && category.admin_id !== undefined && isPropertyOwner) && (
+                      {/* Hidden when the category is locked (not owner / cannot add story) */}
+                      {(category.admin_id !== null && category.admin_id !== undefined && isPropertyOwner) && !(category.is_owner === false || category.can_add_story === false) && (
                         <button
                           onClick={(e) => {
                             console.log('🖊️ Stacked view pencil clicked for:', category.name);
@@ -2663,15 +2708,23 @@ export default function CategoryNav({
 
                     {/* Add Memory Button - Show for all categories except Shared With, Published, Invites, and Suggested */}
                     {/* Shows both when collapsed and expanded (at bottom when expanded) */}
-                    {onCreateMemory && category.name !== 'Shared With' && category.name !== 'Published' && category.name !== 'Invites' && !category.suggested && (
+                    {/* Hidden when the category is locked (not owner / cannot add story) */}
+                    {onCreateMemory && category.name !== 'Shared With' && category.name !== 'Published' && category.name !== 'Invites' && !category.suggested && !(category.is_owner === false || category.can_add_story === false) && (
                       <div className={`w-full ${isExpanded ? 'mt-2 px-2' : 'mt-2 px-1'}`}>
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
+                            if (category.is_owner === false || category.can_add_story === false) return;
                             onCreateMemory(category.name);
                           }}
-                          className="w-full py-1.5 px-2 rounded-lg border-2 bg-white hover:bg-gray-50 transition-colors flex items-center justify-center gap-1.5 text-xs font-medium"
-                          style={{
+                          disabled={category.is_owner === false || category.can_add_story === false}
+                          title={(category.is_owner === false || category.can_add_story === false) ? "You can't add campaigns to this category" : undefined}
+                          className="w-full py-1.5 px-2 rounded-lg border-2 bg-white hover:bg-gray-50 transition-colors flex items-center justify-center gap-1.5 text-xs font-medium disabled:cursor-not-allowed"
+                          style={(category.is_owner === false || category.can_add_story === false) ? {
+                            backgroundColor: '#F3F4F6',
+                            borderColor: '#D1D5DB',
+                            color: '#9CA3AF'
+                          } : {
                             backgroundColor: `${getCategoryColor(category.name, categories)}0D`,
                             borderColor: getCategoryColor(category.name, categories),
                             color: getCategoryColor(category.name, categories)
@@ -2941,6 +2994,8 @@ export default function CategoryNav({
                   
                   // Debug: Log category admin_id for non-stacked view
                   console.log(`Non-stacked Category "${category.name}" admin_id:`, category.admin_id, typeof category.admin_id, 'id:', category.id);
+                  // Debug: Add Campaign gating — verify is_owner / can_add_story values at runtime
+                  console.log(`🛑 AddCampaign gate "${category.name}": is_owner=${category.is_owner} (${typeof category.is_owner}), can_add_story=${category.can_add_story} (${typeof category.can_add_story}) -> disabled=${category.is_owner === false || category.can_add_story === false}`);
                   
                   // Always show categories regardless of memory count - this fixes the media page sidebar display issue
                   return (
@@ -2959,6 +3014,8 @@ export default function CategoryNav({
                       categoryId={category.id}
                       suggested={category.suggested || false}
                       onCreateMemory={onCreateMemory}
+                      isOwner={category.is_owner}
+                      canAddStory={category.can_add_story}
                     >
                       <MemoryTreeView
                         categoryName={category.name}

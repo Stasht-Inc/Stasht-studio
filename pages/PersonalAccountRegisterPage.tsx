@@ -150,18 +150,29 @@ export default function PersonalAccountRegisterPage() {
     setIsSubmitting(true);
     setFormErrors({});
     try {
-      const fullName = lastName.trim() ? `${firstName.trim()} ${lastName.trim()}` : firstName.trim();
-      const payload: any = {
-        invite_token: token,
-        name: fullName,
-        ...(!isExistingUser && { password }),
-      };
-      if (signUpMethod === 'phone') {
-        payload.phone_number = `${countryCode}${phoneNumber}`;
+      let response;
+      if (isExistingUser) {
+        const payload: any = { invite_token: token };
+        if (signUpMethod === 'phone') {
+          payload.phone_number = `${countryCode}${phoneNumber}`;
+        } else {
+          payload.email = emailAddress;
+        }
+        response = await dashboardAPI.joinViaInvite(payload);
       } else {
-        payload.email = emailAddress;
+        const fullName = lastName.trim() ? `${firstName.trim()} ${lastName.trim()}` : firstName.trim();
+        const payload: any = {
+          invite_token: token,
+          name: fullName,
+          password,
+        };
+        if (signUpMethod === 'phone') {
+          payload.phone_number = `${countryCode}${phoneNumber}`;
+        } else {
+          payload.email = emailAddress;
+        }
+        response = await dashboardAPI.registerViaPersonalInvite(payload);
       }
-      const response = await dashboardAPI.registerViaPersonalInvite(payload);
       if (response.success) {
         setRegistrationComplete(true);
         const msg = response.data?.message || response.data?.data?.message ||

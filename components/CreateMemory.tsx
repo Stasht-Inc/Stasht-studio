@@ -35,8 +35,43 @@ export interface CreateMemoryHandle {
   focusTitle: () => void;
 }
 
+// Detect video URLs (same set the stories cards use)
+const isCampaignVideoUrl = (url?: string): boolean => {
+  if (!url) return false;
+  const exts = ['.mp4', '.mov', '.avi', '.webm', '.mkv', '.m4v'];
+  const lower = url.toLowerCase();
+  return exts.some(ext => lower.includes(ext));
+};
+
+// Shows a still frame of a video (no playback) — same approach as the stories cover cards
+function CampaignVideoThumbnail({ src, className }: { src: string; className?: string }) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const [frameReady, setFrameReady] = useState(false);
+
+  useEffect(() => { setFrameReady(false); }, [src]);
+
+  return (
+    <div className="relative w-full h-full">
+      <video
+        ref={videoRef}
+        src={`${src}#t=0.1`}
+        className={`${className} ${frameReady ? 'opacity-100' : 'opacity-0'}`}
+        preload="metadata"
+        muted
+        playsInline
+        onLoadedData={() => {
+          if (videoRef.current && videoRef.current.currentTime === 0) videoRef.current.currentTime = 0.1;
+          setFrameReady(true);
+        }}
+        onSeeked={() => setFrameReady(true)}
+      />
+      {!frameReady && <div className="absolute inset-0 bg-gray-200" />}
+    </div>
+  );
+}
+
 const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function CreateMemory({ open, onOpenChange, onMemoryCreated, onOpenMediaLibrary, selectedMediaLibraryImages, defaultCategory, categories: categoriesProp }, ref) {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, user } = useAuth();
   const { viewType, currentProperty } = useProperty();
   const { isLimitExceeded, limitData, checkLimit } = useMemoryLimit();
   const { openDrivePicker, isPickerLoading: isDrivePickerLoading } = useGoogleDrivePicker();
@@ -60,6 +95,11 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
   const [currentCollaborator, setCurrentCollaborator] = useState('');
   const [collaboratorError, setCollaboratorError] = useState('');
   const [collaboratorMethod, setCollaboratorMethod] = useState<'phone' | 'email'>('phone');
+  // Editable part of the personalized invite message (the author name prefix is fixed/non-editable)
+  const [personalizedMessage, setPersonalizedMessage] = useState('invited you to collaborate on campaign');
+  // Width of the author-name prefix, used to indent only the first line of the message textarea
+  const personalizedNameRef = useRef<HTMLSpanElement>(null);
+  const [personalizedNameWidth, setPersonalizedNameWidth] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
@@ -156,6 +196,14 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
     tags: [] as string[],
     collaborators: [] as string[]
   });
+
+  // Measure the author-name prefix width whenever it (or the box's visibility) changes,
+  // so the first line of the message can be indented past the name.
+  useEffect(() => {
+    if (personalizedNameRef.current) {
+      setPersonalizedNameWidth(personalizedNameRef.current.offsetWidth + 6); // + small gap
+    }
+  }, [user?.name, formData.collaborators.length]);
 
   const [deviceLocation, setDeviceLocation] = useState<string>(''); // Store device location
 
@@ -415,6 +463,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
               const name = (cat.name || '').toLowerCase().trim();
               return !['shared with', 'published', 'shared'].includes(name) && !name.includes('shared');
             })
+            .filter(cat => cat.is_owner !== false && cat.can_add_story !== false)
             .filter((cat, i, self) => self.findIndex(c => c.name === cat.name) === i);
 
           setApiCategories(uniqueCategories);
@@ -521,7 +570,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
       if (categoriesProp && categoriesProp.length > 0) {
         const filtered = categoriesProp.filter((cat: any) => {
           const name = (cat.name || '').toLowerCase().trim();
-          return !['shared with', 'published', 'shared'].includes(name) && !name.includes('shared');
+          return !['shared with', 'published', 'shared'].includes(name) && !name.includes('shared') && cat.is_owner !== false && cat.can_add_story !== false;
         });
         if (filtered.length > 0) {
           setApiCategories(filtered);
@@ -566,6 +615,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
       setCurrentTag('');
       setCurrentCollaborator('');
       setCollaboratorMethod('phone');
+      setPersonalizedMessage('invited you to collaborate on campaign');
       setIntroVideo(null);
       setIntroVideoUrl(null);
       setIsUploadingVideo(false);
@@ -1365,6 +1415,8 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
         location: formData.location || '',
         tags: formData.tags,
         collaborators: formData.collaborators,
+        // Personalized invite message — only relevant when collaborators are added
+        ...(formData.collaborators.length > 0 && { personalize_message: personalizedMessage.trim() }),
         photos_count: photosArray.length,
         photos: photosArray,
         ...(introVideoUrl && { last_update_img: introVideoUrl })
@@ -1435,6 +1487,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
           collaborators: []
         });
         setLabelInput('');
+        setPersonalizedMessage('invited you to collaborate on campaign'); // Reset personalized message
         setMainPhotosArray([]); // Clear the photos metadata array
         setPhotosWithMetadata([]); // Clear photos with metadata
         setCurrentTag('');
@@ -1589,12 +1642,8 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
                       </SelectItem>
                     ))
                   ) : (
-                    // Fallback categories if API fails
-                    ['Personal', 'Travel', 'Family', 'Work'].map((category) => (
-                      <SelectItem key={category} value={category}>
-                        {category}
-                      </SelectItem>
-                    ))
+                    // No categories of your own — don't show fake placeholders
+                    <SelectItem value="__no_category__" disabled>No categories — create one first</SelectItem>
                   )}
                 </SelectContent>
                 </Select>
@@ -1602,7 +1651,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
             </div>
 
             {/* Select from Existing Campaigns */}
-            <div className="!mt-4 !mb-4">
+            <div className="!mt-6 !mb-6">
               <label className="flex items-center gap-2 cursor-pointer select-none">
                 <input
                   type="checkbox"
@@ -1627,7 +1676,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
                       setMemoriesLoading(false);
                     }
                   }}
-                  className="w-4 h-4 rounded accent-[#6C60FF]"
+                  className="w-5 h-5 md:w-4 md:h-4 bg-gray-100 border-gray-300 rounded focus:ring-2 focus:ring-[#6C60FF] accent-[#6C60FF]"
                 />
                 <span className="text-base md:text-sm font-medium text-gray-700">Select from Existing Campaigns</span>
               </label>
@@ -1706,21 +1755,33 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
                           </div>
                         </div>
 
-                        {/* Memory list */}
+                        {/* Memory list — each campaign is its own bordered card */}
                         {pageItems.length === 0 ? (
                           <div className="py-6 text-center text-sm text-gray-400">No campaigns found</div>
                         ) : (
-                          <div className="divide-y divide-gray-100">
+                          <div className="space-y-2 p-3 bg-white">
                             {pageItems.map((m: any) => {
                               const id = String(m.id);
                               const isChecked = selectedMemoryIds.includes(id);
-                              const thumb = m.last_update_img || m.thumbnail || '';
+                              const thumb = m.image_link || m.last_update_img || m.thumbnail || '';
                               const loc = typeof m.location === 'string' ? m.location : (m.location?.formatted || m.location?.address || 'Unknown location');
                               const count = m.posts_count || m.photos?.count || m.photos_count || m.media_count || m.new_images || 0;
+                              // No campaign image → fall back to the author's profile (choice A:
+                              // campaign owner, else the logged-in user). Profile image first,
+                              // otherwise a colored box with the author's initial.
+                              const profile = m.author || m.user || user || {};
+                              const profileImg = profile.profile_image || profile.avatar || '';
+                              const rawColor = profile.profile_color;
+                              const profileColor = rawColor ? (rawColor.startsWith('#') ? rawColor : `#${rawColor}`) : '#6C60FF';
+                              const profileInitial = (profile.name || m.title || 'U').charAt(0).toUpperCase();
                               return (
                                 <div
                                   key={id}
-                                  className="flex items-center gap-3 px-3 py-2.5 hover:bg-gray-50 cursor-pointer transition-colors"
+                                  className={`flex items-center gap-4 px-3 py-3.5 rounded-xl border cursor-pointer transition-colors ${
+                                    isChecked
+                                      ? 'border-[#6C60FF] bg-[#6C60FF]/5'
+                                      : 'border-gray-200 bg-white hover:bg-gray-50'
+                                  }`}
                                   onClick={() => setSelectedMemoryIds(prev =>
                                     prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
                                   )}
@@ -1729,19 +1790,24 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
                                     type="checkbox"
                                     checked={isChecked}
                                     readOnly
-                                    className="w-4 h-4 rounded accent-[#6C60FF] flex-shrink-0"
+                                    className="w-5 h-5 rounded accent-[#6C60FF] flex-shrink-0"
                                   />
-                                  <div className="w-12 h-12 rounded-lg overflow-hidden bg-gray-100 flex-shrink-0">
-                                    {thumb
-                                      ? /\.(mp4|mov|webm|avi|mkv)(\?.*)?$/i.test(thumb)
-                                        ? <video src={thumb} className="w-full h-full object-cover" preload="metadata" muted playsInline />
+                                  <div className="w-16 h-16 rounded-lg overflow-hidden bg-gray-100 flex-shrink-0">
+                                    {thumb ? (
+                                      isCampaignVideoUrl(thumb)
+                                        ? <CampaignVideoThumbnail src={thumb} className="w-full h-full object-cover" />
                                         : <img src={thumb} alt={m.title} className="w-full h-full object-cover" />
-                                      : <div className="w-full h-full flex items-center justify-center"><ImageIcon className="w-5 h-5 text-gray-300" /></div>
-                                    }
+                                    ) : profileImg ? (
+                                      <img src={profileImg} alt={profile.name || m.title} className="w-full h-full object-cover" />
+                                    ) : (
+                                      <div className="w-full h-full flex items-center justify-center" style={{ backgroundColor: profileColor }}>
+                                        <span className="text-white font-bold text-xl uppercase">{profileInitial}</span>
+                                      </div>
+                                    )}
                                   </div>
                                   <div className="flex-1 min-w-0">
-                                    <p className="text-sm font-medium text-gray-900 truncate">{m.title || 'Untitled'}</p>
-                                    <p className="text-xs text-gray-500 truncate">{loc} · {count} images</p>
+                                    <p className="text-base font-medium text-gray-900 truncate">{m.title || 'Untitled'}</p>
+                                    <p className="text-sm text-gray-500 truncate">{loc} · {count} images</p>
                                   </div>
                                 </div>
                               );
@@ -2784,6 +2850,39 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
                         </button>
                       </div>
                     ))}
+                  </div>
+
+                  {/* Personalized message — appears once a collaborator is added.
+                      The author name is a fixed (non-editable) prefix; the rest is editable. */}
+                  <div className="mt-4">
+                    <p className="text-sm font-medium text-gray-700 mb-2">
+                      Personalized Message<span className="text-red-500">*</span>
+                    </p>
+                    <div className="relative border border-gray-300 rounded-lg px-3 py-3 bg-white focus-within:border-gray-400">
+                      {/* Author name: non-editable overlay sitting on the first line */}
+                      <span
+                        ref={personalizedNameRef}
+                        className="absolute left-3 top-3 text-sm font-semibold text-gray-900 whitespace-nowrap pointer-events-none"
+                      >
+                        {user?.name || 'You'}
+                      </span>
+                      <textarea
+                        value={personalizedMessage}
+                        onChange={(e) => setPersonalizedMessage(e.target.value.slice(0, 200))}
+                        onBlur={() => {
+                          // Don't let the message be left empty — restore the default text
+                          if (!personalizedMessage.trim()) {
+                            setPersonalizedMessage('invited you to collaborate on campaign');
+                          }
+                        }}
+                        placeholder="Pre-written message goes here."
+                        rows={4}
+                        maxLength={200}
+                        style={{ textIndent: personalizedNameWidth ? `${personalizedNameWidth}px` : undefined }}
+                        className="w-full h-28 p-0 resize-none text-sm text-gray-800 bg-transparent outline-none border-0 focus:ring-0 placeholder:text-gray-400"
+                      />
+                    </div>
+                    <p className="text-xs text-gray-400 mt-1 text-right">{personalizedMessage.length}/200 characters</p>
                   </div>
                 </div>
               )}

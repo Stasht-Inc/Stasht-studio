@@ -31,6 +31,7 @@ import PublishMemoriesModal from "../components/PublishMemoriesModal";
 import { Popover, PopoverContent, PopoverTrigger } from "../components/ui/popover";
 import AddTagsModal from "../components/AddTagsModal";
 import MergeStoriesModal from "../components/MergeStoriesModal";
+import { UpgradePlanModal } from "../components/UpgradePlanModal";
 const imgSunnyBeach = 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=400&h=300&fit=crop';
 
 interface ApiMemory {
@@ -104,6 +105,25 @@ interface Memory {
   lastVisited: string;
   isSelected: boolean;
 }
+
+// The API provides per-category ownership directly. A category counts as owned unless the
+// API explicitly marks it as someone else's (is_owner === false). We deliberately use
+// `is_owner !== false` (NOT `=== true`) so that a just-created property-owner category — which
+// the backend may return with is_owner undefined/null/1 rather than the boolean true — is still
+// treated as owned. This matches the filter CreateMemory uses (cat.is_owner !== false), so the
+// modal dropdown and the "Create a Campaign" gate can never disagree.
+const deriveCategoryIsOwner = (cat: any): boolean => cat?.is_owner !== false;
+
+// A category the logged-in user can actually add a campaign to. This MUST match the exact
+// filter CreateMemory uses to populate its category dropdown, otherwise the "Create a
+// Campaign" gate and the dropdown disagree (modal opens but dropdown is empty).
+// Conditions: not explicitly someone else's (is_owner !== false), stories allowed
+// (can_add_story !== false), and not a Shared/Published system category.
+const isAddableOwnCategory = (cat: any): boolean => {
+  const name = (cat?.name || '').toLowerCase().trim();
+  const sharedOrPublished = ['shared with', 'published', 'shared'].includes(name) || name.includes('shared');
+  return cat?.is_owner !== false && cat?.can_add_story !== false && !sharedOrPublished;
+};
 
 const mockMemories: Memory[] = [
   {
@@ -259,6 +279,8 @@ interface MemoriesPageProps {
   onPublishedEntryViewChange?: (isViewing: boolean) => void;
   onAIWizardProgress?: (progress: number) => void;
   onAIWizardDone?: () => void;
+  onRequestCreateCategory?: () => void; // Ask the sidebar to open its "New Category" popover
+  createCategorySignal?: number; // Forwarded to the mobile-drawer CategoryNav to open its popover
 }
 
 function MemoriesPageContent({
@@ -280,11 +302,62 @@ function MemoriesPageContent({
   onPublishedEntryViewChange,
   onAIWizardProgress,
   onAIWizardDone,
+  onRequestCreateCategory,
+  createCategorySignal,
 }: MemoriesPageProps) {
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
   const { viewType, currentProperty, switchToProperty } = useProperty();
   const { isLimitExceeded, isAdminLimitExceeded, isServiceSyncLimitExceeded, isAICreditsExceeded, limitData, adminLimitData, serviceSyncLimitData, pendingPropertiesCount, checkLimit } = useMemoryLimit();
   const triggerNotificationsRefresh = useNotificationsRefresh();
+
+  const [trialExpiringProperties, setTrialExpiringProperties] = useState<any[]>([]);
+  const [showTrialEndedModal, setShowTrialEndedModal] = useState(false);
+
+  useEffect(() => {
+    const checkTrialAndPlan = async () => {
+      try {
+        const [propertiesRes, storageRes] = await Promise.all([
+          dashboardAPI.getProperties(),
+          dashboardAPI.getStorageOverview(),
+        ]);
+
+        const d = propertiesRes?.data?.data || propertiesRes?.data || {};
+        const owned: any[] = d.owned_properties || [];
+        const now = new Date();
+        const userRole = String(user?.role ?? '');
+
+        const storageOverview = storageRes?.data?.data?.storage_overview || storageRes?.data?.storage_overview;
+        const planName = (storageOverview?.plan_name || 'starter').toLowerCase();
+        const isStarterPlan = planName === 'starter';
+
+        // Show upgrade modal if:
+        // 1. role === "3" (main account) + has owned properties + still on starter plan
+        // 2. OR any owned property trial has ended + still on starter plan
+        const isMainAccountWithProperties = userRole === '3' && owned.length > 0;
+        const trialEnded = owned.some(p => p.trial_ended === true);
+        if (isStarterPlan && (isMainAccountWithProperties || trialEnded)) {
+          setShowTrialEndedModal(true);
+        }
+
+        // Warn for trials expiring within 7 days (not yet ended)
+        const expiring = owned
+          .filter(p => {
+            if (!p.trial_ends_at || p.trial_ended) return false;
+            const daysLeft = Math.ceil((new Date(p.trial_ends_at).getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+            return daysLeft >= 0 && daysLeft <= 7;
+          })
+          .map(p => ({
+            ...p,
+            daysLeft: Math.ceil((new Date(p.trial_ends_at).getTime() - now.getTime()) / (1000 * 60 * 60 * 24)),
+          }));
+        setTrialExpiringProperties(expiring);
+      } catch {
+        // silent
+      }
+    };
+
+    checkTrialAndPlan();
+  }, [user]);
 
   // Check if user is property owner (admin) or visitor (read-only)
   const isPropertyOwner = useMemo(() => {
@@ -605,7 +678,35 @@ function MemoriesPageContent({
   }, [shouldOpenLatestPublished, publishedEntries]);
 
   const sidebarData = apiMemoriesData?.sidebar || apiMemoriesData?.data?.sidebar || null;
-  
+
+  // Single source of truth for the category list used by the Create Campaign gate and the
+  // dropdowns. The server fetch (sidebarData) and the local `categories` state can briefly
+  // disagree right after creating a category: the new category is added optimistically to
+  // `categories` while sidebarData is still the stale server response. Using
+  // `sidebarData?.categories?.items || categories` short-circuits to the stale server list
+  // (because it exists) and ignores the optimistic add — so a just-created category neither
+  // satisfies the gate nor appears cleanly (it flickers when the refetch lands).
+  // Merge both, de-duped by name, preferring the server entry (it carries is_owner /
+  // can_add_story), and append any local-only categories that the server hasn't returned yet.
+  // Memoized so the array identity only changes when the underlying category data changes —
+  // otherwise the CreateMemory modal's useEffect (which depends on this prop's identity) would
+  // re-run on every parent render and reset its form, making the dropdown blink.
+  const mergedCategories = useMemo(() => {
+    const serverItems = (sidebarData?.categories?.items || []).filter((c: any) => c != null);
+    const localItems = (categories || []).filter((c: any) => c != null);
+    if (serverItems.length === 0) return localItems;
+    const seen = new Set(serverItems.map((c: any) => (c?.name || '').toLowerCase().trim()));
+    const localOnly = localItems.filter((c: any) => !seen.has((c?.name || '').toLowerCase().trim()));
+    return [...serverItems, ...localOnly];
+  }, [sidebarData?.categories?.items, categories]);
+
+  // Stable, ownership-normalized list for the CreateMemory modal. Memoized for the same reason
+  // as mergedCategories — a fresh array each render makes the modal's category dropdown blink.
+  const createMemoryCategories = useMemo(
+    () => mergedCategories?.map((cat: any) => ({ ...cat, is_owner: deriveCategoryIsOwner(cat) })),
+    [mergedCategories]
+  );
+
   // Table-related state (only used when no category is selected)
   const [memories, setMemories] = useState<Memory[]>(mockMemories);
   const [isEditMode, setIsEditMode] = useState(false);
@@ -761,12 +862,33 @@ function MemoriesPageContent({
   };
 
   const handleCreateMemory = async (categoryName?: string) => {
-    // Open modal + focus synchronously (before any await) — only way to open keyboard on iOS
-    if (categoryName) {
-      setSelectedCategoryForCreate(categoryName);
-    } else {
-      setSelectedCategoryForCreate(undefined);
+    // Main "Create a Campaign" button (no specific category): behave exactly like the
+    // left-side CategoryNav create button — auto-pick a valid owned category and preselect
+    // it, so the modal opens ready to use instead of with an empty dropdown.
+    let resolvedCategory = categoryName;
+    // The ownership gate is a PROPERTY-account concept (is_owner / can_add_story come from the
+    // properties API). Personal accounts don't have these flags and must NOT be gated — they
+    // open the modal directly, exactly as before.
+    if (!resolvedCategory && viewType === 'property') {
+      // Use the same category source the Create Campaign modal uses, so the gate and the
+      // dropdown never disagree.
+      const gateCats = mergedCategories;
+      const ownedCats = Array.isArray(gateCats) ? gateCats.filter(isAddableOwnCategory) : [];
+      console.log('🟣 CreateCampaign gate — addable own categories:', ownedCats.map((c: any) => c?.name), 'from', (Array.isArray(gateCats) ? gateCats : []).map((c: any) => `${c?.name}:is_owner=${c?.is_owner},can_add_story=${c?.can_add_story}`));
+      if (ownedCats.length === 0) {
+        // Only when the user truly owns no addable category yet: route them to create one.
+        sonnerToast.info("You don't have your own category yet. Create one first, then add your campaign.");
+        onRequestCreateCategory?.();
+        return;
+      }
+      // Prefer the currently selected category if it's addable, else the first owned one —
+      // same end result as clicking the left-side button on that category.
+      const selectedMatch = ownedCats.find((c: any) => c?.name === selectedCategory);
+      resolvedCategory = selectedMatch?.name || ownedCats[0]?.name;
     }
+
+    // Open modal + focus synchronously (before any await) — only way to open keyboard on iOS
+    setSelectedCategoryForCreate(resolvedCategory);
     proxyInputRef.current?.focus();
     flushSync(() => setShowCreateMemory(true));
     createMemoryRef.current?.focusTitle();
@@ -2026,6 +2148,31 @@ function MemoriesPageContent({
         </div>
       )}
 
+      {/* Trial Expiring Warning */}
+      {trialExpiringProperties.map((prop: any) => (
+        <div key={prop.id} className="bg-yellow-50 border border-yellow-300 rounded-lg p-4 flex items-start gap-3 mr-4">
+          <div className="flex-shrink-0 mt-0.5">
+            <svg className="w-5 h-5 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 15.5c-.77.833.192 2.5 1.732 2.5z" />
+            </svg>
+          </div>
+          <div className="flex-1">
+            <h3 className="text-sm font-medium text-yellow-800 mb-1">
+              Trial Ending Soon
+            </h3>
+            <p className="text-sm text-yellow-700">
+              Your trial for <strong>{prop.name}</strong> {prop.daysLeft === 0 ? 'expires today' : `expires in ${prop.daysLeft} ${prop.daysLeft === 1 ? 'day' : 'days'}`}. Upgrade your plan to keep access.
+              <button
+                onClick={() => { sessionStorage.setItem('billing_open_upgrade', 'true'); onNavigate?.('billing'); }}
+                className="font-medium text-yellow-800 hover:text-yellow-900 underline ml-1 cursor-pointer bg-transparent border-none p-0"
+              >
+                Upgrade now
+              </button>
+            </p>
+          </div>
+        </div>
+      ))}
+
       {/* Conditional Content Based on Category Selection */}
       {false && selectedCategory ? (
         // Disabled: Show category-filtered memories when a category is selected in filter dropdown
@@ -2589,7 +2736,7 @@ function MemoriesPageContent({
 
 
                         return filtered.map((memory) => {
-                      const thumbnailUrl = memory.last_update_img || memory.photos?.preview_images?.[0]?.url || (viewType === 'property' ? currentProperty?.image : undefined);
+                      const thumbnailUrl = memory.last_update_img || memory.photos?.preview_images?.[0]?.url || memory.thumbnail || (viewType === 'property' ? currentProperty?.image : undefined);
                       const contributors = (memory.collaborators || []).map((collab: any) => {
                         // Check if this collaborator is the logged-in user
                         const isCurrentUser = user && (
@@ -2906,7 +3053,7 @@ function MemoriesPageContent({
                                       className="cursor-pointer hover:bg-[#6C60FF]/5"
                                       onClick={() => handleEditMemory(memory)}
                                     >
-                                      Edit Memory 
+                                      Edit Memory
                                     </DropdownMenuItem>
                                     <DropdownMenuItem
                                       className="cursor-pointer hover:bg-[#6C60FF]/5"
@@ -3035,7 +3182,7 @@ function MemoriesPageContent({
         }}
         selectedMediaLibraryImages={selectedMediaLibraryImagesForCreate}
         defaultCategory={selectedCategoryForCreate}
-        categories={sidebarData?.categories?.items || categories}
+        categories={createMemoryCategories}
       />
 
       {/* Memory Limit Dialog */}
@@ -3075,6 +3222,7 @@ function MemoriesPageContent({
                   isStacked={false}
                   onToggleExpansion={() => {}}
                   canToggle={false}
+                  openCreateCategorySignal={createCategorySignal}
                   categories={sidebarData.categories.items.filter((cat: any) => cat != null).map((cat: any) => ({
                     id: cat.id?.toString(),
                     name: cat.name,
@@ -3082,7 +3230,9 @@ function MemoriesPageContent({
                     isUserCreated: cat.admin_id !== null,
                     admin_id: cat.admin_id,
                     color: cat.color,
-                    suggested: cat.suggested || false
+                    suggested: cat.suggested || false,
+                    is_owner: deriveCategoryIsOwner(cat),
+                    can_add_story: cat.can_add_story
                   }))}
                   labels={sidebarData?.labels?.items?.filter((label: any) => label != null).map((label: any) => ({
                     id: label.id?.toString(),
@@ -3594,6 +3744,15 @@ function MemoriesPageContent({
           </div>}
         </>
       )}
+      {/* Trial Ended — auto-open upgrade modal (property accounts only, no starter plan) */}
+      <UpgradePlanModal
+        isOpen={showTrialEndedModal}
+        onClose={() => {}}
+        currentPlan="starter"
+        hideStarter={true}
+        canClose={false}
+        onSuccess={() => setShowTrialEndedModal(false)}
+      />
     </div>
   );
 }

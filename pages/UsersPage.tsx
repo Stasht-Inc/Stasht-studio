@@ -24,7 +24,9 @@ import PublishLandingPagesModal from '../components/PublishLandingPagesModal';
 import TransferMemoryDialog from '../components/TransferMemoryDialog';
 import LeadsTab from '../components/LeadsTab';
 import LeadDetailDrawer from '../components/LeadDetailDrawer';
-import { Lead } from '../services/leadsAPI';
+import GroupDetailDrawer from '../components/GroupDetailDrawer';
+import ConversationDrawer from '../components/ConversationDrawer';
+import { Lead, CommentaryTarget, Conversation, leadsAPI } from '../services/leadsAPI';
 import { toast } from 'sonner';
 
 interface User {
@@ -103,7 +105,12 @@ const getTimeAgo = (dateString?: string): string => {
   return `${Math.floor(diffInDays / 365)} years ago`;
 };
 
-export default function UsersPage() {
+interface UsersPageProps {
+  openConversationLeadId?: number | null;
+  onConversationOpened?: () => void;
+}
+
+export default function UsersPage({ openConversationLeadId, onConversationOpened }: UsersPageProps = {}) {
   const { isAuthenticated, user: currentUser } = useAuth();
   const { switchToProperty } = useProperty();
   const [users, setUsers] = useState<User[]>([]);
@@ -123,11 +130,48 @@ export default function UsersPage() {
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
   const [leadsRefreshTrigger, setLeadsRefreshTrigger] = useState(0);
   const [leadsStatusFilter, setLeadsStatusFilter] = useState('all');
+  const [commentaryTarget, setCommentaryTarget] = useState<CommentaryTarget | null>(null);
+  const [selectedGroupId, setSelectedGroupId] = useState<number | null>(null);
+  const [selectedConversation, setSelectedConversation] = useState<Conversation | null>(null);
 
   // Tab state and shared memories data
   const [activeTab, setActiveTab] = useState<'users' | 'shared-with' | 'properties' | 'leads'>(
     () => sessionStorage.getItem('users_open_tab') === 'properties' ? 'properties' : 'users'
   );
+
+  // Close any open lead/group drawer when leaving the Leads tab, so it doesn't
+  // auto-reopen (via the persisted selection) when returning to the tab.
+  useEffect(() => {
+    if (activeTab !== 'leads') {
+      setSelectedLead(null);
+      setSelectedGroupId(null);
+      setSelectedConversation(null);
+    }
+  }, [activeTab]);
+
+  // Deep-link from a lead_message notification: open the Leads tab and the
+  // matching conversation thread, then clear the pending id so it doesn't reopen.
+  useEffect(() => {
+    if (!openConversationLeadId) return;
+    let cancelled = false;
+    (async () => {
+      setActiveTab('leads');
+      setSelectedLead(null);
+      setSelectedGroupId(null);
+      try {
+        const res = await leadsAPI.getMyConversations();
+        if (!cancelled && res.success && res.data) {
+          const match = (res.data.conversations ?? []).find((c) => c.lead_id === openConversationLeadId);
+          if (match) setSelectedConversation(match);
+        }
+      } catch {
+        // ignore — nothing to open
+      } finally {
+        onConversationOpened?.();
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [openConversationLeadId]);
   const [sharedMemories, setSharedMemories] = useState<any[]>([]);
   const [isRemovingCollaboration, setIsRemovingCollaboration] = useState(false);
   const [isLoadingShared, setIsLoadingShared] = useState(false);
@@ -451,6 +495,7 @@ export default function UsersPage() {
             labels: Array.isArray(prop.labels) && prop.labels.length > 0
               ? prop.labels.map((l: any) => ({ name: l.name, color: l.color }))
               : (prop.label ? [{ name: prop.label.name, color: prop.label.color }] : []),
+            propertyType: prop.property_type || null,
             url: prop.invite_link || null,
             inviteExpiresAt: prop.invite_expires_at,
             inviteUsedCount: prop.invite_used_count || 0,
@@ -1305,7 +1350,7 @@ export default function UsersPage() {
     }
   };
 
-  const isPanelOpen = activeTab === 'leads' && !!selectedLead;
+  const isPanelOpen = activeTab === 'leads' && (!!selectedLead || !!selectedGroupId || !!selectedConversation);
 
 
   return (
@@ -2175,9 +2220,10 @@ export default function UsersPage() {
                       <tr>
                         <th className="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Property</th>
                         <th className="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Location</th>
-                        <th className="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Campaigns</th>
+                        <th className="px-2 sm:px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-20">Campaigns</th>
                         <th className="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Users</th>
                         <th className="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Labels</th>
+                        <th className="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Type</th>
                         <th className="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">URL</th>
                         <th className="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
                         <th className="px-3 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Created</th>
@@ -2187,7 +2233,7 @@ export default function UsersPage() {
                     <tbody className="bg-white divide-y divide-gray-200">
                       {properties.length === 0 ? (
                         <tr>
-                          <td colSpan={9} className="px-3 sm:px-6 py-12 text-center">
+                          <td colSpan={10} className="px-3 sm:px-6 py-12 text-center">
                             <p className="text-gray-600 mb-4">No properties found</p>
                             <Button
                               onClick={() => setShowCreatePropertyModal(true)}
@@ -2223,7 +2269,7 @@ export default function UsersPage() {
                             </span>
                           </div>
                         </td>
-                        <td className="px-3 sm:px-6 py-4 whitespace-nowrap">
+                        <td className="px-2 sm:px-3 py-4 whitespace-nowrap w-20">
                           <div className="flex items-center text-sm text-purple-600 font-medium">
                             {property.memories}
                           </div>
@@ -2264,6 +2310,21 @@ export default function UsersPage() {
                               <span className="text-sm text-gray-400">No labels</span>
                             )}
                           </div>
+                        </td>
+                        <td className="px-3 sm:px-6 py-4 whitespace-nowrap">
+                          {property.propertyType ? (
+                            <Badge
+                              className={`text-xs px-2.5 py-1 font-medium border-0 capitalize ${
+                                String(property.propertyType).toLowerCase() === 'internal'
+                                  ? 'bg-blue-100 text-blue-800'
+                                  : 'bg-purple-100 text-purple-800'
+                              }`}
+                            >
+                              {property.propertyType}
+                            </Badge>
+                          ) : (
+                            <span className="text-sm text-gray-400">—</span>
+                          )}
                         </td>
                         <td className="px-3 sm:px-6 py-4 whitespace-nowrap">
                           {property.status && property.url ? (
@@ -2472,6 +2533,17 @@ export default function UsersPage() {
                             ) : (
                               <span className="text-xs text-gray-400">No labels</span>
                             )}
+                            {property.propertyType && (
+                              <Badge
+                                className={`text-[10px] px-1.5 py-0.5 font-medium border-0 capitalize ${
+                                  String(property.propertyType).toLowerCase() === 'internal'
+                                    ? 'bg-blue-100 text-blue-800'
+                                    : 'bg-purple-100 text-purple-800'
+                                }`}
+                              >
+                                {property.propertyType}
+                              </Badge>
+                            )}
                           </div>
                           <div className="flex items-center gap-1.5 mt-2">
                             {property.status && property.url ? (
@@ -2578,7 +2650,11 @@ export default function UsersPage() {
         {activeTab === 'leads' && (
           <LeadsTab
             selectedLead={selectedLead}
-            onLeadSelect={setSelectedLead}
+            onLeadSelect={(lead) => { setSelectedLead(lead); if (lead) { setSelectedGroupId(null); setSelectedConversation(null); } }}
+            selectedGroupId={selectedGroupId}
+            onGroupSelect={(id) => { setSelectedGroupId(id); if (id) { setSelectedLead(null); setSelectedConversation(null); } }}
+            selectedConversationId={selectedConversation?.lead_id ?? null}
+            onConversationSelect={(conv) => { setSelectedConversation(conv); if (conv) { setSelectedLead(null); setSelectedGroupId(null); } }}
             refreshTrigger={leadsRefreshTrigger}
             compact={isPanelOpen}
             onLeadsRefreshed={(leads) => {
@@ -2588,6 +2664,10 @@ export default function UsersPage() {
               }
             }}
             onFilterChange={setLeadsStatusFilter}
+            onCommentaryJump={(lead, target) => {
+              setSelectedLead(lead);
+              setCommentaryTarget(target);
+            }}
           />
         )}
       </div>{/* closes w-full sm:px-3 */}
@@ -2597,19 +2677,36 @@ export default function UsersPage() {
       {/* RIGHT: lead profile panel */}
       {isPanelOpen && (
         <div className="fixed inset-0 z-[60] bg-white flex flex-col sm:static sm:inset-auto sm:z-auto sm:w-[30%] sm:border-l sm:border-gray-200 sm:sticky sm:top-0 sm:h-screen sm:overflow-hidden">
-          <LeadDetailDrawer
-            lead={selectedLead}
-            open={true}
-            onClose={() => {
-              setSelectedLead(null);
-              setLeadsRefreshTrigger((t) => t + 1);
-              window.dispatchEvent(new CustomEvent('leads-unread-count-refresh'));
-            }}
-            onRefreshLead={async () => {
-              setLeadsRefreshTrigger((t) => t + 1);
-            }}
-            isArchived={leadsStatusFilter === 'archived'}
-          />
+          {selectedLead ? (
+            <LeadDetailDrawer
+              lead={selectedLead}
+              open={true}
+              highlightTarget={commentaryTarget}
+              onTargetHandled={() => setCommentaryTarget(null)}
+              onClose={() => {
+                setSelectedLead(null);
+                setCommentaryTarget(null);
+                setLeadsRefreshTrigger((t) => t + 1);
+                window.dispatchEvent(new CustomEvent('leads-unread-count-refresh'));
+              }}
+              onRefreshLead={async () => {
+                setLeadsRefreshTrigger((t) => t + 1);
+              }}
+              isArchived={leadsStatusFilter === 'archived'}
+            />
+          ) : selectedGroupId ? (
+            <GroupDetailDrawer
+              groupId={selectedGroupId}
+              open={true}
+              onClose={() => setSelectedGroupId(null)}
+            />
+          ) : (
+            <ConversationDrawer
+              conversation={selectedConversation}
+              open={true}
+              onClose={() => setSelectedConversation(null)}
+            />
+          )}
         </div>
       )}
 

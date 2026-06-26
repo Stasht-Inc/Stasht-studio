@@ -65,6 +65,11 @@ export default function SignupPage({ onSignup, onSwitchToLogin }: SignupPageProp
   const [isResendingActivation, setIsResendingActivation] = useState(false);
   const [resendActivationCooldown, setResendActivationCooldown] = useState(0);
   const [resendActivationMessage, setResendActivationMessage] = useState("");
+  // Auth method: passwordless (OTP-only) for now. Kept as a constant so the password
+  // path can be re-enabled later by restoring the toggle.
+  const [authMode] = useState<"password" | "otp">("otp");
+  // Seconds left before the current OTP expires (10 min). 0 = no active OTP.
+  const [otpCountdown, setOtpCountdown] = useState(0);
 
   // Locked collaborator state for invite links
   const [lockedCollaborator, setLockedCollaborator] = useState<string | null>(null);
@@ -333,6 +338,14 @@ export default function SignupPage({ onSignup, onSwitchToLogin }: SignupPageProp
     }
   }, [resendActivationCooldown]);
 
+  // OTP expiry countdown (10 minutes)
+  useEffect(() => {
+    if (otpCountdown > 0) {
+      const timer = setTimeout(() => setOtpCountdown(otpCountdown - 1), 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [otpCountdown]);
+
   const validateForm = () => {
     const newErrors: Record<string, string> = {};
 
@@ -362,18 +375,20 @@ export default function SignupPage({ onSignup, onSwitchToLogin }: SignupPageProp
       }
     }
 
-    // Password validation
-    if (!formData.password) {
-      newErrors.password = 'Password is required';
-    } else if (formData.password.length < 8) {
-      newErrors.password = 'Password must be at least 8 characters long';
-    }
+    // Password validation — skipped entirely in passwordless (OTP) mode
+    if (authMode === "password") {
+      if (!formData.password) {
+        newErrors.password = 'Password is required';
+      } else if (formData.password.length < 8) {
+        newErrors.password = 'Password must be at least 8 characters long';
+      }
 
-    // Confirm Password validation
-    if (!formData.confirmPassword) {
-      newErrors.confirmPassword = 'Please confirm your password';
-    } else if (formData.password !== formData.confirmPassword) {
-      newErrors.confirmPassword = 'Passwords do not match';
+      // Confirm Password validation
+      if (!formData.confirmPassword) {
+        newErrors.confirmPassword = 'Please confirm your password';
+      } else if (formData.password !== formData.confirmPassword) {
+        newErrors.confirmPassword = 'Passwords do not match';
+      }
     }
 
     // Terms agreement validation
@@ -395,9 +410,57 @@ export default function SignupPage({ onSignup, onSwitchToLogin }: SignupPageProp
     }
   };
 
+  // Passwordless signup: validate -> send OTP -> show OTP screen.
+  // Account is actually created later in handleVerifyOtp (with the verification_token).
+  const handleSendOtpForSignup = async () => {
+    if (!validateForm()) {
+      return;
+    }
+
+    setIsSubmitting(true);
+    setErrors({});
+
+    try {
+      const identifier = method === "email"
+        ? { email: formData.email }
+        : { phone_number: `${countryCode}${phoneNumber}` };
+
+      const res = await authAPI.sendOtp(identifier, 'register');
+
+      if (res.success) {
+        setShowOtpScreen(true);
+        setOtp('');
+        setOtpError('');
+        setActivationMessage('');
+        setOtpCountdown(600);      // 10 minute expiry
+        setResendCooldown(60);     // 60s before resend allowed
+      } else if (res.alreadyRegistered) {
+        // 409 → account exists. Stay on signup and show the error under the field.
+        if (method === "email") {
+          setErrors({ email: res.error || 'The email has already been taken.' });
+        } else {
+          setErrors({ phone: res.error || 'The phone number has already been taken.' });
+        }
+      } else {
+        setErrors({ submit: res.error || 'Failed to send OTP. Please try again.' });
+      }
+    } catch (error) {
+      console.error('Send OTP error:', error);
+      setErrors({ submit: 'An error occurred. Please try again.' });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
+    // Passwordless path — no password, verify via OTP instead
+    if (authMode === "otp") {
+      await handleSendOtpForSignup();
+      return;
+    }
+
     if (!validateForm()) {
       return;
     }
@@ -726,6 +789,71 @@ export default function SignupPage({ onSignup, onSwitchToLogin }: SignupPageProp
     setIsVerifyingOtp(true);
     setOtpError('');
 
+    // ===== Passwordless flow: verify-otp -> register with verification_token =====
+    if (authMode === "otp") {
+      try {
+        const identifier = method === "email"
+          ? { email: formData.email }
+          : { phone_number: `${countryCode}${phoneNumber}` };
+
+        const verifyRes = await authAPI.verifyOtp({ ...identifier, otp: otp.trim() });
+
+        if (!verifyRes.success || !verifyRes.verification_token) {
+          setOtpError(verifyRes.error || 'Invalid OTP. Please try again.');
+          setIsVerifyingOtp(false);
+          return;
+        }
+
+        // Create the account (already activated) using the single-use token.
+        const result = await authAPI.register({
+          name: formData.name.trim(),
+          email: method === "email" ? formData.email : "",
+          phone_number: method === "phone" ? `${countryCode}${phoneNumber}` : undefined,
+          // password omitted → OTP-only account
+          verification_token: verifyRes.verification_token,
+        } as any);
+
+        const newUser = (result as any).user;
+        const newToken = (result as any).token;
+
+        if (result.success && newUser && newToken) {
+          // Account created and logged in
+          localStorage.setItem('stasht_user', JSON.stringify(newUser));
+          localStorage.setItem('stasht_token', newToken);
+          localStorage.setItem('is_new_user', 'true');
+
+          const userIdentifier = newUser.email || newUser.phone_number;
+          SessionValidator.initSession(newUser.id, userIdentifier, newToken);
+
+          localStorage.setItem('stasht_session_change', JSON.stringify({
+            userId: newUser.id,
+            email: newUser.email,
+            phone_number: newUser.phone_number,
+            timestamp: Date.now(),
+          }));
+
+          sessionStorage.removeItem('pendingInvite');
+          localStorage.removeItem('pendingInvite');
+          sessionStorage.removeItem('just_logged_out_for_invite');
+
+          window.location.reload();
+        } else if (result.success) {
+          // Account created but backend didn't return a session — send to login
+          setShowOtpScreen(false);
+          setRegistrationComplete(true);
+          setActivationMessage(result.message || 'Account created successfully! Please sign in.');
+        } else {
+          setOtpError((result as any).error || 'Failed to create account. Please try again.');
+        }
+      } catch (error) {
+        console.error('Passwordless signup error:', error);
+        setOtpError('An error occurred. Please try again.');
+      } finally {
+        setIsVerifyingOtp(false);
+      }
+      return;
+    }
+
     try {
       const phoneNumberWithCode = `${countryCode}${phoneNumber}`;
       console.log('🔍🔍🔍 ===== OTP VERIFICATION STARTED =====');
@@ -858,6 +986,32 @@ export default function SignupPage({ onSignup, onSwitchToLogin }: SignupPageProp
     setOtpError('');
     setOtp(''); // Clear the OTP input for fresh entry
 
+    // Passwordless flow: resend = request a fresh OTP via /send-otp (overwrites old code)
+    if (authMode === "otp") {
+      try {
+        const identifier = method === "email"
+          ? { email: formData.email }
+          : { phone_number: `${countryCode}${phoneNumber}` };
+
+        const res = await authAPI.sendOtp(identifier, 'register');
+
+        if (res.success) {
+          setResendMessage(res.message || `OTP has been resent to your ${method === "email" ? "email" : "phone number"}`);
+          setResendCooldown(60);
+          setOtpCountdown(600);
+          setTimeout(() => setResendMessage(''), 5000);
+        } else {
+          setOtpError(res.error || 'Failed to resend OTP. Please try again.');
+        }
+      } catch (error) {
+        console.error('Resend OTP (passwordless) error:', error);
+        setOtpError('An error occurred while resending OTP. Please try again.');
+      } finally {
+        setIsResendingOtp(false);
+      }
+      return;
+    }
+
     try {
       const phoneNumberWithCode = `${countryCode}${phoneNumber}`;
       console.log('🔄🔄🔄 ===== RESEND OTP STARTED =====');
@@ -984,10 +1138,17 @@ export default function SignupPage({ onSignup, onSwitchToLogin }: SignupPageProp
             {/* OTP Verification Screen */}
             <div>
               <CardHeader className="space-y-1 mb-6 p-0">
-                <CardTitle className="text-2xl font-semibold text-center">Verify Your Phone</CardTitle>
+                <CardTitle className="text-2xl font-semibold text-center">
+                  {method === "email" ? "Verify Your Email" : "Verify Your Phone"}
+                </CardTitle>
                 <CardDescription className="text-center">
-                  {activationMessage || `Enter the OTP sent to ${countryCode} ${phoneNumber}`}
+                  {activationMessage || `Enter the OTP sent to ${method === "email" ? formData.email : `${countryCode} ${phoneNumber}`}`}
                 </CardDescription>
+                {authMode === "otp" && otpCountdown > 0 && (
+                  <p className="text-center text-xs text-gray-500 pt-1">
+                    Code expires in {Math.floor(otpCountdown / 60)}:{String(otpCountdown % 60).padStart(2, '0')}
+                  </p>
+                )}
               </CardHeader>
 
               <div className="space-y-6">
@@ -1355,7 +1516,21 @@ export default function SignupPage({ onSignup, onSwitchToLogin }: SignupPageProp
               </div>
             )}
 
+            {/* OTP-based signup — no password, a 6-digit code is sent to verify */}
+            {authMode === "otp" && (
+              <div className="flex items-start gap-2 bg-blue-50 border border-blue-200 rounded-lg p-3">
+                <svg className="w-5 h-5 text-blue-400 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <p className="text-sm text-blue-700">
+                  We'll send a 6-digit code to your {method === "email" ? "email" : "phone number"} to verify your account. No password needed.
+                </p>
+              </div>
+            )}
+
             {/* Password Field */}
+            {authMode === "password" && (
+            <>
             <div>
               <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-1.5">
                 Password <span className="text-red-500">*</span>
@@ -1450,6 +1625,8 @@ export default function SignupPage({ onSignup, onSwitchToLogin }: SignupPageProp
                 <p className="mt-1 text-sm text-red-600">{errors.confirmPassword}</p>
               )}
             </div>
+            </>
+            )}
 
 
             {/* Terms Checkbox */}
@@ -1488,7 +1665,7 @@ export default function SignupPage({ onSignup, onSwitchToLogin }: SignupPageProp
               {isSubmitting ? (
                 <>
                   <Loader2 className="h-5 w-5 animate-spin" />
-                  Creating Account...
+                  {authMode === "otp" ? "Sending OTP..." : "Creating Account..."}
                 </>
               ) : registrationComplete ? (
                 <>
@@ -1496,6 +1673,11 @@ export default function SignupPage({ onSignup, onSwitchToLogin }: SignupPageProp
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                   </svg>
                   Registration Complete
+                </>
+              ) : authMode === "otp" ? (
+                <>
+                  <ArrowRight className="h-5 w-5" />
+                  Send OTP
                 </>
               ) : (
                 <>

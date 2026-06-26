@@ -1,5 +1,5 @@
 ﻿import React, { useState } from 'react';
-import { Eye, EyeOff, Lock, Mail, LogIn, ArrowLeft, Phone, Loader2 } from "lucide-react";
+import { Eye, EyeOff, Lock, Mail, LogIn, ArrowLeft, ArrowRight, Phone, Loader2 } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
@@ -64,6 +64,11 @@ export default function LoginPage({ onLogin, onSwitchToSignup, onSocialLogin }: 
   const [otp, setOtp] = useState("");
   const [isVerifyingOtp, setIsVerifyingOtp] = useState(false);
   const [otpError, setOtpError] = useState("");
+  // Auth method: passwordless (OTP-only) for now. Kept as a constant so the password
+  // path can be re-enabled later by restoring the toggle.
+  const [authMode] = useState<"password" | "otp">("otp");
+  // Seconds left before the current passwordless OTP expires (10 min). 0 = none active.
+  const [otpCountdown, setOtpCountdown] = useState(0);
   const [isRedirecting, setIsRedirecting] = useState(false);
   const [debugResponse, setDebugResponse] = useState<any>(null);
 
@@ -480,6 +485,14 @@ export default function LoginPage({ onLogin, onSwitchToSignup, onSocialLogin }: 
     }
   }, [resendActivationCooldown]);
 
+  // OTP expiry countdown (10 minutes)
+  React.useEffect(() => {
+    if (otpCountdown > 0) {
+      const timer = setTimeout(() => setOtpCountdown(otpCountdown - 1), 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [otpCountdown]);
+
   // Clear fields when method changes to prevent autofill contamination (but not when locked)
   React.useEffect(() => {
     if (!isCollaboratorLocked) {
@@ -508,8 +521,195 @@ export default function LoginPage({ onLogin, onSwitchToSignup, onSocialLogin }: 
     }
   }, [method, phoneNumber, isCollaboratorLocked]);
 
+  // Passwordless login: validate identifier -> send OTP -> show OTP screen.
+  // Verification happens in handleVerifyOtp.
+  const handleSendOtpForLogin = async () => {
+    if (method === "phone" ? !phoneNumber : !email) {
+      setError(method === "phone" ? "Please enter your phone number" : "Please enter your email");
+      return;
+    }
+
+    setIsLoading(true);
+    setError("");
+    setConflictError(null);
+    setShowActivationError(false);
+    setResendActivationMessage("");
+
+    try {
+      const identifier = method === "email"
+        ? { email }
+        : { phone_number: `${countryCode}${phoneNumber}` };
+
+      const res = await authAPI.sendOtp(identifier, 'login');
+
+      if (res.success) {
+        setShowOtpScreen(true);
+        setOtp('');
+        setOtpError('');
+        setOtpCountdown(600);            // 10 minute expiry
+        setResendActivationCooldown(60); // 60s before resend allowed
+      } else {
+        // No account / any failure → stay on login and show the backend message
+        setError(res.error || 'Failed to send OTP. Please try again.');
+      }
+    } catch (err) {
+      console.error('Send OTP (login) error:', err);
+      setError('Failed to send OTP. Please try again.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Shared post-login handling — runs identically for password login and passwordless
+  // OTP login (the response shape from authAPI.login is the same either way).
+  // Handles: account-choice modal, properties, session setup, change-password,
+  // invite-login redirect, deep-link redirect, and the normal redirect.
+  const finalizeLoginSuccess = (response: any) => {
+        console.log('✅ Login successful, storing auth data...');
+
+        // 1. Get admin collaborators (other users' accounts)
+        const collaborators = response.data?.data?.collaborators || response.data?.collaborators || response.collaborators || [];
+        const adminCollaboratorsFromAPI = getAdminCollaborator(collaborators);
+
+        // 1b. Get partial admin access entries and convert to AdminCollaborator format
+        const partialAdminRaw = response.partial_admin_access || response.data?.partial_admin_access || response.data?.data?.partial_admin_access || [];
+        const partialAdminCollaborators: AdminCollaborator[] = partialAdminRaw.map((entry: any) => ({
+          owner_id: String(entry.owner_id),
+          memory_id: null,
+          role: 'partial_admin',
+          user_id: String(entry.owner?.id || entry.owner_id),
+          owner_name: entry.owner?.name || '',
+          owner_email: entry.owner?.email || '',
+          owner: entry.owner,
+          isPartialAdmin: true,
+        }));
+
+        const allAdminCollaborators = [...adminCollaboratorsFromAPI, ...partialAdminCollaborators];
+
+        // 2. Get owned and shared properties from new API structure
+        const ownedProperties = response.data?.owned_properties || response.owned_properties || [];
+        const sharedProperties = response.data?.shared_properties || response.shared_properties || [];
+
+        // 3. Fallback: Get properties from old structure (if owned/shared not available)
+        let allProperties = [...ownedProperties, ...sharedProperties];
+        if (allProperties.length === 0) {
+          const oldProperties = response.data?.data?.properties || response.data?.properties || response.properties || [];
+          allProperties = oldProperties;
+        }
+
+        // 4. Check if user should see account choice modal
+        const hasAdminCollaborators = allAdminCollaborators.length > 0;
+        const hasProperties = ownedProperties.length > 0 || sharedProperties.length > 0;
+        const shouldShowAccountChoice = hasAdminCollaborators || hasProperties;
+
+        console.log('🔐 LoginPage: Account choice check:', { hasAdminCollaborators, hasProperties, shouldShowAccountChoice });
+
+        if (shouldShowAccountChoice) {
+          // If this is an invite login, save flag so App.tsx redirects to /stories after account choice
+          const urlParamsCheck = new URLSearchParams(window.location.search);
+          if (urlParamsCheck.get('invite') === '1' && urlParamsCheck.get('memory_id')) {
+            sessionStorage.setItem('invite_redirect_to_stories', 'true');
+          }
+          // DON'T store auth data yet - wait for user to choose account
+          setPendingLoginUser(response.user);
+          setPendingLoginToken(response.token);
+          setAdminCollaborators(allAdminCollaborators);
+          setOwnedProperties(ownedProperties);
+          setSharedProperties(sharedProperties);
+          setShowAccountChoice(true);
+          setIsLoading(false);
+          setIsVerifyingOtp(false); // stop OTP spinner if we came from the passwordless path
+          return;
+        }
+
+        // No admin collaborator - normal flow
+        // Store auth data directly (same as AuthContext does)
+        localStorage.setItem('stasht_user', JSON.stringify(response.user));
+        localStorage.setItem('stasht_token', response.token);
+
+        // Initialize session validator
+        const userIdentifier = response.user.email || response.user.phone_number;
+        if (response.user.id && userIdentifier) {
+          SessionValidator.initSession(response.user.id, userIdentifier, response.token);
+        }
+
+        // Save login method preference
+        const methodIdentifier = method === "email" ? email : `${countryCode}${phoneNumber}`;
+        localStorage.setItem(`stasht_login_method_${methodIdentifier}`, method);
+        console.log('✅ Saved login method preference:', method);
+
+        // CRITICAL: Set login timestamp in localStorage to prevent ANY logout for 60 seconds
+        localStorage.setItem('last_successful_login_timestamp', String(Date.now()));
+        console.log('🔒 PROTECTED: Set login timestamp to prevent logout for 60 seconds');
+
+        // Check if user needs to change password (temporary password flow)
+        if (response.user.change_password === 1) {
+          // Store the current password they just used (temporary password).
+          // Passwordless (OTP) login has no typed password — we still set the flag.
+          if (password) {
+            sessionStorage.setItem('temp_current_password', password);
+          }
+          sessionStorage.setItem('require_password_change', 'true');
+          console.log('🔑 Set require_password_change flag');
+        }
+
+        // Check if this is an invite login - navigate to invited memory
+        const urlParams = new URLSearchParams(window.location.search);
+        const isInviteLogin = urlParams.get('invite') === '1' && urlParams.get('login') === '1';
+        const inviteMemoryId = urlParams.get('memory_id');
+        const inviteCollaborator = urlParams.get('collaborator');
+
+        // CRITICAL: Clear ALL invite-related data from storage FIRST
+        sessionStorage.removeItem('pendingInvite');
+        localStorage.removeItem('pendingInvite');
+        sessionStorage.removeItem('just_logged_out_for_invite');
+
+        if (isInviteLogin && inviteMemoryId) {
+          // CRITICAL: Set IMMEDIATE protection flags BEFORE any redirect
+          const protectionData = {
+            completed: true,
+            timestamp: Date.now(),
+            userIdentifier: userIdentifier,
+            collaborator: inviteCollaborator,
+            memoryId: inviteMemoryId
+          };
+          localStorage.setItem('invite_login_completed', JSON.stringify(protectionData));
+          sessionStorage.setItem('invite_login_completed', JSON.stringify(protectionData));
+          localStorage.setItem('SKIP_ALL_MISMATCH_CHECKS', 'true');
+          sessionStorage.setItem('SKIP_ALL_MISMATCH_CHECKS', 'true');
+
+          console.log('🔄 Invite login successful - redirecting to campaigns page NOW');
+          window.location.replace('/stories?from_invite_login=1');
+        } else {
+          // Check for pending deep link redirect
+          const pendingDeepLink = sessionStorage.getItem('pendingDeepLink');
+          if (pendingDeepLink) {
+            try {
+              const deepLinkData = JSON.parse(pendingDeepLink);
+              sessionStorage.removeItem('pending_magic_link_email');
+              sessionStorage.removeItem('pending_magic_link_phone');
+              const redirectUrl = `/memories/${deepLinkData.memoryId}?image=${deepLinkData.imageId}&userId=${deepLinkData.userId}`;
+              window.location.replace(redirectUrl);
+            } catch (err) {
+              console.error('❌ Failed to parse pending deep link:', err);
+              sessionStorage.removeItem('pendingDeepLink');
+              window.location.replace('/');
+            }
+          } else {
+            // Regular login - reload page
+            window.location.replace('/');
+          }
+        }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    // Passwordless path — no password, verify via OTP instead
+    if (authMode === "otp") {
+      await handleSendOtpForLogin();
+      return;
+    }
 
     // Validate based on selected method
     if (method === "phone") {
@@ -607,212 +807,10 @@ export default function LoginPage({ onLogin, onSwitchToSignup, onSocialLogin }: 
         return; // Don't continue with login
       }
 
-      // If success, store auth data and reload
+      // If success, hand off to the shared post-login handler
+      // (account choice, properties, redirects) — identical for password & OTP login
       if (response.success && response.user && response.token) {
-        console.log('✅ Login successful, storing auth data...');
-        console.log('🔍 LoginPage: Full response:', response);
-        console.log('🔍 LoginPage: response.data:', response.data);
-        console.log('🔍 LoginPage: response.data.data:', response.data?.data);
-
-        // 1. Get admin collaborators (other users' accounts)
-        const collaborators = response.data?.data?.collaborators || response.data?.collaborators || response.collaborators || [];
-        console.log('🔍 LoginPage: Collaborators from API:', collaborators);
-
-        const adminCollaboratorsFromAPI = getAdminCollaborator(collaborators);
-        console.log('🔍 LoginPage: Admin collaborators found:', adminCollaboratorsFromAPI.length, 'collaborator(s)');
-
-        // 1b. Get partial admin access entries and convert to AdminCollaborator format
-        const partialAdminRaw = response.partial_admin_access || response.data?.partial_admin_access || response.data?.data?.partial_admin_access || [];
-        const partialAdminCollaborators: AdminCollaborator[] = partialAdminRaw.map((entry: any) => ({
-          owner_id: String(entry.owner_id),
-          memory_id: null,
-          role: 'partial_admin',
-          user_id: String(entry.owner?.id || entry.owner_id),
-          owner_name: entry.owner?.name || '',
-          owner_email: entry.owner?.email || '',
-          owner: entry.owner,
-          isPartialAdmin: true,
-        }));
-        console.log('🔍 LoginPage: Partial admin collaborators found:', partialAdminCollaborators.length);
-
-        const allAdminCollaborators = [...adminCollaboratorsFromAPI, ...partialAdminCollaborators];
-
-        // 2. Get owned and shared properties from new API structure
-        const ownedProperties = response.data?.owned_properties || response.owned_properties || [];
-        const sharedProperties = response.data?.shared_properties || response.shared_properties || [];
-
-        console.log('🔍 LoginPage: Owned properties:', ownedProperties);
-        console.log('🔍 LoginPage: Shared properties:', sharedProperties);
-        console.log('🔍 LoginPage: Owned count:', ownedProperties.length);
-        console.log('🔍 LoginPage: Shared count:', sharedProperties.length);
-
-        // 3. Fallback: Get properties from old structure (if owned/shared not available)
-        let allProperties = [...ownedProperties, ...sharedProperties];
-
-        if (allProperties.length === 0) {
-          console.log('🔍 LoginPage: No owned/shared properties, checking old structure...');
-          const oldProperties = response.data?.data?.properties || response.data?.properties || response.properties || [];
-          console.log('🔍 LoginPage: Old structure properties:', oldProperties);
-          allProperties = oldProperties;
-        }
-
-        console.log('🔍 LoginPage: Total properties:', allProperties.length);
-
-        // 4. Check if user should see account choice modal
-        const hasAdminCollaborators = allAdminCollaborators.length > 0;
-        const hasProperties = ownedProperties.length > 0 || sharedProperties.length > 0;
-        const shouldShowAccountChoice = hasAdminCollaborators || hasProperties;
-
-        console.log('🔐 LoginPage: Account choice check:', {
-          hasAdminCollaborators,
-          allAdminCollaboratorsCount: allAdminCollaborators.length,
-          partialAdminCount: partialAdminCollaborators.length,
-          hasOwnedProperties: ownedProperties.length > 0,
-          hasSharedProperties: sharedProperties.length > 0,
-          hasProperties,
-          shouldShowAccountChoice
-        });
-
-        if (shouldShowAccountChoice) {
-          // If this is an invite login, save flag so App.tsx redirects to /stories after account choice
-          const urlParamsCheck = new URLSearchParams(window.location.search);
-          if (urlParamsCheck.get('invite') === '1' && urlParamsCheck.get('memory_id')) {
-            sessionStorage.setItem('invite_redirect_to_stories', 'true');
-          }
-          // DON'T store auth data yet - wait for user to choose account
-          console.log('🔐 LoginPage: ===== SHOWING ACCOUNT CHOICE MODAL =====');
-          console.log('🔐 Setting state with:');
-          console.log('  - pendingLoginUser:', response.user);
-          console.log('  - adminCollaborators:', allAdminCollaborators);
-          console.log('  - ownedProperties:', ownedProperties);
-          console.log('  - sharedProperties:', sharedProperties);
-          console.log('  - showAccountChoice:', true);
-
-          setPendingLoginUser(response.user);
-          setPendingLoginToken(response.token);
-          setAdminCollaborators(allAdminCollaborators);
-          setOwnedProperties(ownedProperties);
-          setSharedProperties(sharedProperties);
-          setShowAccountChoice(true);
-          setIsLoading(false);
-
-          console.log('🔐 State should be set now. Modal should appear.');
-          console.log('🔐 =====================================');
-          return;
-        }
-
-        console.log('🔐 LoginPage: NOT showing account choice modal (shouldShowAccountChoice is false)');
-
-        // No admin collaborator - normal flow
-        // Store auth data directly (same as AuthContext does)
-        localStorage.setItem('stasht_user', JSON.stringify(response.user));
-        localStorage.setItem('stasht_token', response.token);
-
-        // Initialize session validator
-        const userIdentifier = response.user.email || response.user.phone_number;
-        if (response.user.id && userIdentifier) {
-          SessionValidator.initSession(response.user.id, userIdentifier, response.token);
-        }
-
-        // Save login method preference
-        const methodIdentifier = method === "email" ? email : `${countryCode}${phoneNumber}`;
-        localStorage.setItem(`stasht_login_method_${methodIdentifier}`, method);
-        console.log('✅ Saved login method preference:', method);
-
-        // CRITICAL: Set login timestamp in localStorage to prevent ANY logout for 60 seconds
-        const loginTimestamp = Date.now();
-        localStorage.setItem('last_successful_login_timestamp', String(loginTimestamp));
-        console.log('🔒 PROTECTED: Set login timestamp to prevent logout for 60 seconds');
-
-        // Check if user needs to change password (temporary password flow)
-        if (response.user.change_password === 1) {
-          console.log('🔑 User needs to change password - setting up redirect to profile settings');
-          console.log('🔑 Login method:', method);
-          console.log('🔑 Password value:', password ? `[${password.length} chars]` : 'EMPTY');
-
-          // Store the current password they just used (temporary password)
-          if (password) {
-            sessionStorage.setItem('temp_current_password', password);
-            console.log('🔑 ✅ Stored temp password in sessionStorage');
-          } else {
-            console.error('🔑 ❌ ERROR: Password is empty, cannot store!');
-          }
-
-          // Set flag to trigger redirect to profile settings
-          sessionStorage.setItem('require_password_change', 'true');
-          console.log('🔑 Set require_password_change flag');
-
-          // Verify it was stored
-          const stored = sessionStorage.getItem('temp_current_password');
-          console.log('🔑 Verification - stored password:', stored ? `[${stored.length} chars]` : 'NOT FOUND');
-        }
-
-        // Check if this is an invite login - navigate to invited memory
-        const urlParams = new URLSearchParams(window.location.search);
-        const isInviteLogin = urlParams.get('invite') === '1' && urlParams.get('login') === '1';
-        const inviteMemoryId = urlParams.get('memory_id');
-        const inviteCollaborator = urlParams.get('collaborator');
-
-        // CRITICAL: Clear ALL invite-related data from storage FIRST
-        sessionStorage.removeItem('pendingInvite');
-        localStorage.removeItem('pendingInvite');
-        sessionStorage.removeItem('just_logged_out_for_invite');
-        console.log('🗑️ Cleared pending invite params and flag from storage');
-
-        if (isInviteLogin && inviteMemoryId) {
-          // CRITICAL: Set IMMEDIATE protection flags BEFORE any redirect
-          const userIdentifier = response.user.email || response.user.phone_number;
-          const protectionData = {
-            completed: true,
-            timestamp: Date.now(),
-            userIdentifier: userIdentifier,
-            collaborator: inviteCollaborator,
-            memoryId: inviteMemoryId
-          };
-
-          // Set in BOTH localStorage and sessionStorage for maximum protection
-          localStorage.setItem('invite_login_completed', JSON.stringify(protectionData));
-          sessionStorage.setItem('invite_login_completed', JSON.stringify(protectionData));
-          localStorage.setItem('SKIP_ALL_MISMATCH_CHECKS', 'true');
-          sessionStorage.setItem('SKIP_ALL_MISMATCH_CHECKS', 'true');
-
-          console.log('🔒🔒🔒 PROTECTION ENABLED - Set SKIP_ALL_MISMATCH_CHECKS flag');
-          console.log('🔒🔒🔒 User:', userIdentifier, '| Time:', Date.now());
-
-          // Navigate directly to campaigns page - NO DELAY
-          console.log('🔄 Invite login successful - redirecting to campaigns page NOW');
-          window.location.replace('/stories?from_invite_login=1');
-        } else {
-          // Check for pending deep link redirect
-          const pendingDeepLink = sessionStorage.getItem('pendingDeepLink');
-          if (pendingDeepLink) {
-            try {
-              const deepLinkData = JSON.parse(pendingDeepLink);
-              console.log('🔗 Deep link found after login:', deepLinkData);
-
-              // IMPORTANT: Don't clear pendingDeepLink - let App.tsx useEffect handle it after redirect
-              // Only clear the email/phone prefill data
-              sessionStorage.removeItem('pending_magic_link_email');
-              sessionStorage.removeItem('pending_magic_link_phone');
-
-              // Redirect to the memory page with image parameter
-              const redirectUrl = `/memories/${deepLinkData.memoryId}?image=${deepLinkData.imageId}&userId=${deepLinkData.userId}`;
-              console.log('🔗 Redirecting to deep link (keeping pendingDeepLink for App.tsx):', redirectUrl);
-              window.location.replace(redirectUrl);
-            } catch (err) {
-              console.error('❌ Failed to parse pending deep link:', err);
-              // Clear on error
-              sessionStorage.removeItem('pendingDeepLink');
-              // Fallback to regular login
-              console.log('🔄 Reloading page to complete login...');
-              window.location.replace('/');
-            }
-          } else {
-            // Regular login - reload page
-            console.log('🔄 Reloading page to complete login...');
-            window.location.replace('/');
-          }
-        }
+        finalizeLoginSuccess(response);
       } else {
         // Login failed for other reasons
         console.log('❌ Login failed:', response.error);
@@ -1156,6 +1154,42 @@ export default function LoginPage({ onLogin, onSwitchToSignup, onSocialLogin }: 
     setOtpError('');
     setDebugResponse(null);
 
+    // ===== Passwordless login: verify-otp -> /login with verification_token =====
+    if (authMode === "otp") {
+      try {
+        const identifier = method === "email"
+          ? { email }
+          : { phone_number: `${countryCode}${phoneNumber}` };
+
+        const verifyRes = await authAPI.verifyOtp({ ...identifier, otp: otp.trim() });
+
+        if (!verifyRes.success || !verifyRes.verification_token) {
+          setOtpError(verifyRes.error || 'Invalid OTP. Please try again.');
+          setIsVerifyingOtp(false);
+          return;
+        }
+
+        // Exchange the single-use verification_token for a real session
+        const loginRes = await authAPI.login({
+          ...identifier,
+          verification_token: verifyRes.verification_token,
+        } as any);
+
+        if (loginRes.success && loginRes.user && loginRes.token) {
+          // Same post-login handling as password login (account choice, properties, redirects)
+          finalizeLoginSuccess(loginRes);
+        } else {
+          setOtpError(loginRes.error || 'Failed to sign in. Please try again.');
+          setIsVerifyingOtp(false);
+        }
+      } catch (err) {
+        console.error('Passwordless login error:', err);
+        setOtpError('An error occurred. Please try again.');
+        setIsVerifyingOtp(false);
+      }
+      return;
+    }
+
     try {
       const phoneNumberWithCode = `${countryCode}${phoneNumber}`;
       console.log('🔍🔍🔍 ===== STARTING OTP VERIFICATION (LOGIN PAGE) =====');
@@ -1302,6 +1336,32 @@ export default function LoginPage({ onLogin, onSwitchToSignup, onSocialLogin }: 
     setResendActivationMessage('');
     setOtpError('');
     setOtp(''); // Clear OTP input
+
+    // Passwordless flow: resend = request a fresh OTP via /send-otp (overwrites old code)
+    if (authMode === "otp") {
+      try {
+        const identifier = method === "email"
+          ? { email }
+          : { phone_number: `${countryCode}${phoneNumber}` };
+
+        const res = await authAPI.sendOtp(identifier, 'login');
+
+        if (res.success) {
+          setResendActivationMessage(res.message || `OTP has been resent to your ${method === "email" ? "email" : "phone number"}`);
+          setResendActivationCooldown(60);
+          setOtpCountdown(600);
+          setTimeout(() => setResendActivationMessage(''), 5000);
+        } else {
+          setOtpError(res.error || 'Failed to resend OTP. Please try again.');
+        }
+      } catch (err) {
+        console.error('Resend OTP (passwordless) error:', err);
+        setOtpError('Failed to resend OTP. Please try again.');
+      } finally {
+        setIsResendingActivation(false);
+      }
+      return;
+    }
 
     try {
       const phoneNumberWithCode = `${countryCode}${phoneNumber}`;
@@ -1542,10 +1602,17 @@ export default function LoginPage({ onLogin, onSwitchToSignup, onSocialLogin }: 
             // OTP Verification Screen
             <>
               <CardHeader className="space-y-1">
-                <CardTitle className="text-2xl font-semibold text-center">Verify Your Phone</CardTitle>
+                <CardTitle className="text-2xl font-semibold text-center">
+                  {method === "email" ? "Verify Your Email" : "Verify Your Phone"}
+                </CardTitle>
                 <CardDescription className="text-center">
-                  Enter the OTP sent to {countryCode} {phoneNumber}
+                  Enter the OTP sent to {method === "email" ? email : `${countryCode} ${phoneNumber}`}
                 </CardDescription>
+                {authMode === "otp" && otpCountdown > 0 && (
+                  <p className="text-center text-xs text-gray-500 pt-1">
+                    Code expires in {Math.floor(otpCountdown / 60)}:{String(otpCountdown % 60).padStart(2, '0')}
+                  </p>
+                )}
               </CardHeader>
 
               <CardContent className="space-y-6">
@@ -1623,6 +1690,8 @@ export default function LoginPage({ onLogin, onSwitchToSignup, onSocialLogin }: 
                       <Loader2 className="h-5 w-5 animate-spin" />
                       Verifying OTP...
                     </>
+                  ) : authMode === "otp" ? (
+                    'Verify & Sign In'
                   ) : (
                     'Verify OTP & Activate Account'
                   )}
@@ -1850,7 +1919,18 @@ export default function LoginPage({ onLogin, onSwitchToSignup, onSocialLogin }: 
                     </div>
                   )}
 
+                  {/* OTP-based login — no password, a 6-digit code is sent to sign in */}
+                  {authMode === "otp" && (
+                    <div className="flex items-start gap-2 bg-blue-50 border border-blue-200 rounded-lg p-3">
+                      <Lock className="w-4 h-4 text-blue-400 flex-shrink-0 mt-0.5" />
+                      <p className="text-sm text-blue-700">
+                        We'll send a 6-digit code to your {method === "email" ? "email" : "phone number"} to sign you in. No password needed.
+                      </p>
+                    </div>
+                  )}
+
                   {/* Password Field */}
+                  {authMode === "password" && (
                   <div className="space-y-2">
                     <Label htmlFor="password" className="text-sm font-medium text-gray-700">
                       Password
@@ -1877,8 +1957,10 @@ export default function LoginPage({ onLogin, onSwitchToSignup, onSocialLogin }: 
                       </button>
                     </div>
                   </div>
+                  )}
 
                   {/* Remember Me & Forgot Password */}
+                  {authMode === "password" && (
                   <div className="flex items-center justify-between">
                     <div className="flex items-center space-x-2">
                       <Checkbox
@@ -1898,6 +1980,7 @@ export default function LoginPage({ onLogin, onSwitchToSignup, onSocialLogin }: 
                       Forgot password?
                     </button>
                   </div>
+                  )}
 
                   {/* Success Message (Resend Activation) */}
                   {resendActivationMessage && (
@@ -1990,7 +2073,12 @@ export default function LoginPage({ onLogin, onSwitchToSignup, onSocialLogin }: 
                     {isLoading ? (
                       <div className="flex items-center space-x-2">
                         <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                        <span>Signing In...</span>
+                        <span>{authMode === "otp" ? "Sending OTP..." : "Signing In..."}</span>
+                      </div>
+                    ) : authMode === "otp" ? (
+                      <div className="flex items-center space-x-2">
+                        <ArrowRight className="h-4 w-4" />
+                        <span>Send OTP</span>
                       </div>
                     ) : (
                       <div className="flex items-center space-x-2">

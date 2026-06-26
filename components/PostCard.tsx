@@ -155,8 +155,14 @@ export default function PostCard({ post, variant = 'thumbnail', onContentUpdate,
   const [selectedTone, setSelectedTone] = useState<string>('personal');
   const [isRetryingAI, setIsRetryingAI] = useState(false);
   const [hasAISuggestion, setHasAISuggestion] = useState(false);
-  const [isCaptionHidden, setIsCaptionHidden] = useState(false);
+  const [isCaptionHidden, setIsCaptionHidden] = useState(
+    (post as any).hide_caption === 1 || (post as any).hide_caption === true
+  );
   const [isEditMomentOpen, setIsEditMomentOpen] = useState(false);
+  // Keep caption-hidden state in sync with the (refreshed) post data
+  useEffect(() => {
+    setIsCaptionHidden((post as any).hide_caption === 1 || (post as any).hide_caption === true);
+  }, [(post as any).hide_caption]);
   const [imageDimensions, setImageDimensions] = useState<string>('');
   const [imageSize, setImageSize] = useState<string>('');
   const [showMentionDropdown, setShowMentionDropdown] = useState(false);
@@ -1072,6 +1078,27 @@ export default function PostCard({ post, variant = 'thumbnail', onContentUpdate,
     }
   };
 
+  // Toggle + persist caption visibility. Optimistic local update for instant feedback,
+  // then save to the backend and refresh so the left timeline reflects it too.
+  const handleToggleCaptionHidden = async () => {
+    const newHidden = !isCaptionHidden;
+    setIsCaptionHidden(newHidden);
+    setIsTimelineMenuOpen(false);
+    try {
+      const response = await dashboardAPI.setCaptionHidden(currentImageId, newHidden);
+      if (response.success) {
+        if (onRefresh) onRefresh();
+      } else {
+        setIsCaptionHidden(!newHidden); // revert on failure
+        toast.error(response.error || "Failed to update caption visibility");
+      }
+    } catch (error) {
+      console.error('Error toggling caption visibility:', error);
+      setIsCaptionHidden(!newHidden); // revert on failure
+      toast.error("Failed to update caption visibility");
+    }
+  };
+
   const handleDeleteDescription = async () => {
     try {
       console.log('Deleting description for post:', currentImageId);
@@ -1725,14 +1752,23 @@ export default function PostCard({ post, variant = 'thumbnail', onContentUpdate,
                             <Button
                               variant="ghost"
                               size="sm"
-                              onClick={() => {
-                                setIsCaptionHidden(!isCaptionHidden);
-                                setIsTimelineMenuOpen(false);
-                              }}
+                              onClick={() => handleToggleCaptionHidden()}
                               className="justify-start text-sm h-8 px-2 hover:bg-gray-100 bg-white"
                             >
                               <Eye className="h-3.5 w-3.5 mr-2" />
                               {isCaptionHidden ? 'Show Caption' : 'Hide Caption'}
+                            </Button>
+                          )}
+                          {/* Delete Caption - only the uploader (post author) can delete their own caption */}
+                          {isPostAuthor && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={handleDeleteDescription}
+                              className="justify-start text-sm h-8 px-2 hover:bg-red-50 hover:text-red-600 bg-white"
+                            >
+                              <Trash2 className="h-3.5 w-3.5 mr-2" />
+                              Delete Caption
                             </Button>
                           )}
                           {/* Separator */}

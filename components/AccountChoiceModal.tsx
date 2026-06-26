@@ -853,7 +853,7 @@ export function AccountChoiceModal({
                           Properties ({totalPropertiesCount})
                         </h3>
                         <p className="text-xs text-gray-500 mt-0.5">
-                          {ownedPropertyAccounts.length} owned, {sharedPropertyAccounts.length} shared
+                          {ownedPropertyAccounts.length} internal, {sharedPropertyAccounts.length} external
                         </p>
                       </div>
                       <svg
@@ -884,6 +884,15 @@ export function AccountChoiceModal({
                               const propertyName = property.name || `Property ${index + 1}`;
                               const propertyLocation = property.location || '';
                               const isCurrentLoading = loadingType === `property_${property.id}`;
+                              // When a different user invited the logged-in user to this property
+                              // (external_user_id mismatch), use the inviter's logo as the property
+                              // avatar. Otherwise fall back to the property image, then the icon.
+                              const invitedBy = property.invited_by;
+                              const showInvitedBy = !!invitedBy &&
+                                String(personalUser?.external_user_id ?? '') !== String(invitedBy.external_user_id ?? '');
+                              const avatarImage = (showInvitedBy && invitedBy?.profile_image)
+                                ? invitedBy.profile_image
+                                : property.image;
 
                               return (
                                 <button
@@ -902,10 +911,10 @@ export function AccountChoiceModal({
                                   className="w-full p-3 hover:bg-white transition-all duration-200 text-left disabled:opacity-50 disabled:cursor-not-allowed border-b border-gray-200 last:border-b-0"
                                 >
                                   <div className="flex items-center gap-3">
-                                    {property.image ? (
+                                    {avatarImage ? (
                                       <Avatar className="w-10 h-10 flex-shrink-0">
                                         <AvatarImage
-                                          src={property.image}
+                                          src={avatarImage}
                                           alt={propertyName}
                                           className="object-cover"
                                         />
@@ -929,6 +938,11 @@ export function AccountChoiceModal({
                                       {propertyLocation && (
                                         <p className="text-xs text-gray-400 truncate mt-0.5">
                                           {propertyLocation}
+                                        </p>
+                                      )}
+                                      {showInvitedBy && invitedBy?.name && (
+                                        <p className="text-xs text-gray-500 truncate mt-0.5">
+                                          {invitedBy.name}
                                         </p>
                                       )}
                                     </div>

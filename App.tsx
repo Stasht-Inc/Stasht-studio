@@ -1103,9 +1103,18 @@ function MainApp() {
     toggleSubSidebarExpansion,
   } = useAppNavigation();
 
+  // Deep-link target for opening a "My Conversations" thread from a
+  // lead_message notification. Consumed (and cleared) by UsersPage.
+  const [pendingConversationLeadId, setPendingConversationLeadId] = useState<number | null>(null);
+  const handleOpenConversation = useCallback((leadId: number) => {
+    setPendingConversationLeadId(leadId);
+    handleNavigation('users');
+  }, [handleNavigation]);
+
   // State variables (moved up to fix dependency order)
   const [selectedMemoryCategory, setSelectedMemoryCategory] = useState<string | null>(null);
   const [createMemoryTrigger, setCreateMemoryTrigger] = useState<{ category?: string; timestamp: number } | null>(null);
+  const [createCategorySignal, setCreateCategorySignal] = useState(0); // bump to open the sidebar's "New Category" popover
   const [showPlusPopover, setShowPlusPopover] = useState(false);
   const [showAddMomentModal, setShowAddMomentModal] = useState(false);
   const [showBottomNavCamera, setShowBottomNavCamera] = useState(false);
@@ -2951,6 +2960,16 @@ function MainApp() {
               dates: formattedRange ? { formatted_range: formattedRange } : (memory.dates || null),
               // Only substitute property_category when category is null
               category: memory.category || (memory.property_category ? { ...memory.property_category } : null),
+              // Story owner: surface memory.user as the author so cards show the real
+              // story creator (e.g. "BMW - Toronto" with its logo) instead of falling
+              // back to the logged-in property account ("Becks").
+              author: memory.author || (memory.user ? {
+                id: memory.user.id,
+                name: memory.user.name,
+                avatar: memory.user.profile_image,
+                profile_image: memory.user.profile_image,
+                profile_color: memory.user.profile_color,
+              } : memory.author),
             };
           });
 
@@ -2987,8 +3006,12 @@ function MainApp() {
           );
 
           // Find categories present in memories but missing from sidebar (e.g. viewer role)
+          // Also track whether the logged-in user owns any memory in each category.
           const extraCategoriesMap: Record<number, any> = {};
+          const ownedByCatId: Record<number, boolean> = {};
           rawPropertyMemories.forEach((mem: any) => {
+            const catId = mem.property_category?.id ?? mem.property_category_id ?? mem.category_id;
+            if (catId != null && mem.is_owner === true) ownedByCatId[catId] = true;
             if (mem.property_category && !sidebarCategoryIds.has(mem.property_category.id)) {
               extraCategoriesMap[mem.property_category.id] = mem.property_category;
             }
@@ -3002,9 +3025,14 @@ function MainApp() {
             admin_id: null,
             color: '#6C60FF',
             suggested: false,
-            expanded: false
+            expanded: false,
+            is_owner: typeof cat.is_owner === 'boolean' ? cat.is_owner : ownedByCatId[cat.id] === true,
+            can_add_story: cat.can_add_story
           }));
 
+          // The API provides per-category ownership directly: is_owner === true means the
+          // category belongs to the logged-in user. Carry it (and can_add_story) through —
+          // this works for empty categories too, which memory-derivation cannot.
           const propertyCategories = [
             ...(sidebarData.categories?.items || []).map((cat: any) => ({
               id: cat.id?.toString(),
@@ -3014,7 +3042,9 @@ function MainApp() {
               admin_id: cat.admin_id,
               color: cat.color || null,
               suggested: false,
-              expanded: cat.expanded || false
+              expanded: cat.expanded || false,
+              is_owner: cat.is_owner,
+              can_add_story: cat.can_add_story
             })),
             ...extraCategories
           ].sort((a: any, b: any) => (b.memory_count > 0 ? 1 : 0) - (a.memory_count > 0 ? 1 : 0));
@@ -3115,7 +3145,12 @@ function MainApp() {
               isUserCreated: cat.admin_id !== null, // If admin_id is null, it's system category; otherwise, it's user-created
               admin_id: cat.admin_id, // Pass the admin_id directly from API
               color: cat.color,
-              suggested: cat.suggested || false
+              suggested: cat.suggested || false,
+              // Carry ownership flags through so the "Create a Campaign" gate works for property
+              // accounts. The properties API provides these; personal API does not, so they are
+              // simply undefined for personal accounts (unchanged behavior).
+              is_owner: cat.is_owner,
+              can_add_story: cat.can_add_story
             }));
 
           initializeCategoryColors(apiCategories.map(cat => ({
@@ -3776,6 +3811,8 @@ function MainApp() {
           onPublishedEntryViewChange={setIsViewingPublishedEntry}
           onAIWizardProgress={(progress) => setAiProcessing(prev => prev ? { ...prev, progress } : { memoryId: 'wizard', status: 'processing', startTime: Date.now(), progress })}
           onAIWizardDone={() => setAiProcessing(null)}
+          createCategorySignal={createCategorySignal}
+          onRequestCreateCategory={() => setCreateCategorySignal((c) => c + 1)}
         />
       );
     }
@@ -3880,7 +3917,7 @@ function MainApp() {
     }
 
     if (currentPage === "users") {
-      return <UsersPage />;
+      return <UsersPage openConversationLeadId={pendingConversationLeadId} onConversationOpened={() => setPendingConversationLeadId(null)} />;
     }
 
     if (currentPage === "library") {
@@ -4032,6 +4069,7 @@ function MainApp() {
           notificationCount={notificationCount}
           onNotificationsClear={clearNotifications}
           onMemorySelect={handleMemorySelect}
+          onOpenConversation={handleOpenConversation}
           onShowProfileSettings={handleShowProfileSettings}
           onShowBillingPayment={handleShowBillingPayment}
           user={user ? { ...user, credits: limitData.ai_connects || 0 } : undefined}
@@ -4175,10 +4213,11 @@ function MainApp() {
             <div className="h-full w-full overflow-y-auto">
               {currentPage === "memories" ? (
                 apiMemoriesData?.data?.sidebar?.categories?.items ? (
-                  <CategoryNav 
-                    isStacked={!isSubSidebarExpanded} 
+                  <CategoryNav
+                    isStacked={!isSubSidebarExpanded}
                     onToggleExpansion={toggleSubSidebarExpansion}
                     canToggle={true}
+                    openCreateCategorySignal={createCategorySignal}
                     categories={(() => {
                       // Map categories from API
                       const mappedCategories = apiMemoriesData.data.sidebar.categories.items
@@ -4189,7 +4228,10 @@ function MainApp() {
                           isUserCreated: cat.admin_id !== null,
                           admin_id: cat.admin_id,
                           color: cat.color,
-                          suggested: cat.suggested || false
+                          suggested: cat.suggested || false,
+                          // is_owner === true means the category belongs to the logged-in user.
+                          is_owner: cat.is_owner,
+                          can_add_story: cat.can_add_story
                         }));
 
                       // Filter out Suggested category if count is 0
