@@ -158,8 +158,10 @@ export default defineConfig(({ mode }) => ({
     strictPort: true
   },
   server: mode === 'development' ? {
-    port: 5173,
+    port: 5000,
     strictPort: true,
+    host: true,
+    allowedHosts: true,
     proxy: {
       '/api': {
         target: PHP_BACKEND,
