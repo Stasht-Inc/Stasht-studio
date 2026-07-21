@@ -98,7 +98,7 @@ export default defineConfig(({ mode }) => ({
               const title       = esc(data?.title || 'Shared Memory');
               const description = esc(data?.description || 'You have been invited to join a memory on Stasht.');
               const image       = data?.last_update_img || data?.thumbnail || '';
-              const pageUrl     = `http://localhost:5173/s/${token}`;
+              const pageUrl     = `http://localhost:5000/s/${token}`;
 
               const html = `<!DOCTYPE html>
 <html>
