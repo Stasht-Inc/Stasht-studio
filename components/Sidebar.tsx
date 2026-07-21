@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
-import { Plus, LayoutDashboard, BookOpen, FolderOpen, Users, Grid3x3, CheckCircle, Circle, ChevronRight, Upload, FileText, UserPlus, Share, PanelLeft, ShoppingBag } from "lucide-react";
+import { Plus, LayoutDashboard, BookOpen, FolderOpen, Users, Grid3x3, CheckCircle, Circle, ChevronRight, Upload, FileText, UserPlus, Share, PanelLeft, Plug } from "lucide-react";
 import CreateMemory from "./CreateMemory";
 import { useMemoryLimit } from "../hooks/useMemoryLimit";
 import { dashboardAPI, isPartialAdmin, apiRequest } from "../utils/authUtils";
@@ -437,8 +437,8 @@ export default function Sidebar({
 
       items.push({
         id: 'marketplace',
-        label: 'Marketplace',
-        icon: <ShoppingBag className="w-5 h-5" />,
+        label: 'Connectors',
+        icon: <Plug className="w-5 h-5" />,
         count: 0,
       });
     }
@@ -487,8 +487,8 @@ export default function Sidebar({
         };
       case 'marketplace':
         return {
-          icon: <ShoppingBag className="w-5 h-5 text-white" />,
-          title: 'Marketplace',
+          icon: <Plug className="w-5 h-5 text-white" />,
+          title: 'Connectors',
           subtitle: 'Widgets'
         };
       default:

@@ -651,9 +651,9 @@ const additionalMemories: { [key: string]: MemoryDetails } = {
   },
   "mem_11": {
     id: "mem_11",
-    title: "Additional Community Memory",
-    category: "Personal", 
-    description: "Additional community program memory for table navigation.",
+    title: "Additional Community Campaign",
+    category: "Personal",
+    description: "Additional community program campaign for table navigation.",
     thumbnail: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=800&h=600&fit=crop",
     mediaCount: 15,
     createdDate: "2024-11-15T09:00:00Z",

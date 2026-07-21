@@ -108,13 +108,13 @@ export function DocuSignSendModal({ isOpen, onClose, memoryId, postId }: Props) 
             <AlertTriangle className="w-10 h-10 text-amber-400" />
             <div>
               <p className="font-semibold text-gray-900 mb-1">DocuSign Not Connected</p>
-              <p className="text-sm text-gray-500">Connect your DocuSign account in the Marketplace before sending documents for signature.</p>
+              <p className="text-sm text-gray-500">Connect your DocuSign account in the Connectors before sending documents for signature.</p>
             </div>
             <button
               onClick={onClose}
               className="px-6 py-2.5 rounded-xl bg-[#6C60FF] hover:bg-[#5A4FFF] text-white font-semibold text-sm transition-colors"
             >
-              Go to Marketplace
+              Go to Connectors
             </button>
           </div>
         )}

@@ -16,7 +16,11 @@ export function ImageWithFallback(props: ImageWithFallbackProps) {
 
   const { src, alt, style, className, fallback, ...rest } = props
 
-  return didError ? (
+  // Treat an empty/missing src as an error: browsers show a native broken-image
+  // icon for <img src=""> without firing onError, so we surface the fallback here.
+  const isEmptySrc = !src || (typeof src === 'string' && src.trim() === '')
+
+  return (didError || isEmptySrc) ? (
     fallback ? (
       <>{fallback}</>
     ) : (

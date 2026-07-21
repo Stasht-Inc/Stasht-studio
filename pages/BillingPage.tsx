@@ -1164,7 +1164,7 @@ export default function BillingPage({ onNavigateToMemory }: BillingPageProps = {
                                   Credits Used
                                 </th>
                                 <th className="text-left py-3 px-4 text-xs font-semibold text-gray-700 uppercase tracking-wider">
-                                  Memory
+                                  Campaign
                                 </th>
                               </tr>
                             </thead>
@@ -1195,7 +1195,7 @@ export default function BillingPage({ onNavigateToMemory }: BillingPageProps = {
                                         {item.memory_name}
                                       </button>
                                     ) : item.memory_id ? (
-                                      <span className="text-gray-600">{`Memory #${item.memory_id}`}</span>
+                                      <span className="text-gray-600">{`Campaign #${item.memory_id}`}</span>
                                     ) : item.image_id ? (
                                       <span className="text-gray-600">{`Image #${item.image_id}`}</span>
                                     ) : (

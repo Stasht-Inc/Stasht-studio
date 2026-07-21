@@ -316,7 +316,7 @@ export default function AccountActivationPage({ token, onActivationComplete }: A
               onClick={handleManualRedirect}
               className="w-full bg-[#6C60FF] text-white py-3 px-6 rounded-lg hover:bg-[#5A52E6] transition-colors font-medium"
             >
-              {state.redirectUrl === '/login' ? 'Continue to Login' : 'Continue to Memories'}
+              {state.redirectUrl === '/login' ? 'Continue to Login' : 'Continue to Campaigns'}
             </button>
           </>
         ) : (

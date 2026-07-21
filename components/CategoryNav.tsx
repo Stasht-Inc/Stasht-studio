@@ -1308,7 +1308,7 @@ function MemoryTreeView({
               setShowAllMemories(false);
             }}
             className="flex flex-col items-center py-2 px-1 transition-all duration-200 rounded-lg group hover:bg-gray-100"
-            title="Show less memories"
+            title="Show less campaigns"
           >
             <div className="w-8 h-8 rounded-md flex items-center justify-center bg-gray-200 border border-gray-300 group-hover:border-gray-400">
               <ChevronUp className="w-4 h-4 text-gray-600 group-hover:text-gray-800" />

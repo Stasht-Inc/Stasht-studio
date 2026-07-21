@@ -504,7 +504,7 @@ export default function PropertyRegisterPage() {
             <>
               <div className="mb-6">
                 <h2 className="text-2xl font-semibold text-center mb-2">Sign Up</h2>
-                <p className="text-base text-gray-600 text-center">Join the property to start storytelling </p>
+                <p className="text-base text-gray-600 text-center">Join the property to start creating campaigns</p>
               </div>
 
               <form onSubmit={handleCreateAccount} className="space-y-4">

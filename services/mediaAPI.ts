@@ -271,13 +271,13 @@ export const mediaAPI = {
         return {
           success: true,
           data: response.data,
-          message: response.message || 'Images moved to memory successfully'
+          message: response.message || 'Images moved to campaign successfully'
         };
       }
       
       return {
         success: false,
-        error: response.error || 'Failed to move images to memory'
+        error: response.error || 'Failed to move images to campaign'
       };
     } catch (error) {
       console.error('Error moving images to memory:', error);
@@ -311,13 +311,13 @@ export const mediaAPI = {
         return {
           success: true,
           data: response.data,
-          message: response.message || 'Memory created successfully with selected images'
+          message: response.message || 'Campaign created successfully with selected images'
         };
       }
       
       return {
         success: false,
-        error: response.error || 'Failed to create memory with selected images'
+        error: response.error || 'Failed to create campaign with selected images'
       };
     } catch (error) {
       console.error('Error creating memory with selected images:', error);
@@ -524,12 +524,23 @@ export const mediaAPI = {
         currentIndex++;
       });
 
-      // If no files were processed but imageDetails[0] has a description, send it without file/name
-      if (currentIndex === 0 && params.imageDetails[0]?.description) {
-        const imageDetail = params.imageDetails[0];
-        formData.append('description', imageDetail.description);
+      // Image-less moment: no desktop files and no media library images. Send the
+      // moment's details (title/description/date/location/tags) without a file so the
+      // backend still receives them, regardless of which field the user filled.
+      if (currentIndex === 0 && params.files.length === 0 && !(params.mediaLibraryImages && params.mediaLibraryImages.length > 0)) {
+        const imageDetail = params.imageDetails[0] || {} as { description?: string; date?: string; location?: string; title?: string; tags?: string[] };
+        formData.append('name', imageDetail.title || 'Moment');
+        formData.append('description', imageDetail.description || '');
         formData.append('capture_date', imageDetail.date || new Date().toISOString().split('T')[0]);
         formData.append('location', imageDetail.location || '');
+        if (imageDetail.title) {
+          formData.append('title', imageDetail.title);
+        }
+        if (imageDetail.tags && imageDetail.tags.length > 0) {
+          imageDetail.tags.forEach((tag, i) => {
+            formData.append(`tags[${i}]`, tag);
+          });
+        }
       }
 
       // Process media library images
@@ -927,13 +938,13 @@ export const mediaAPI = {
         return {
           success: true,
           data: response.data,
-          message: response.message || 'Memory unpublished successfully'
+          message: response.message || 'Campaign unpublished successfully'
         };
       }
 
       return {
         success: false,
-        error: response.error || 'Failed to unpublish memory'
+        error: response.error || 'Failed to unpublish campaign'
       };
     } catch (error) {
       console.error('Error unpublishing memory:', error);

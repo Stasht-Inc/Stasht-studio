@@ -335,7 +335,7 @@ export default function InviteToMemoryModal({ isOpen, onClose, onInviteSuccess }
   const transformMemoriesData = (memoriesData: any[]): Memory[] =>
     memoriesData.map((memory: any) => ({
       id: memory.id?.toString() || memory.memory_id?.toString(),
-      title: memory.title || memory.name || 'Untitled Memory',
+      title: memory.title || memory.name || 'Untitled Campaign',
       category: memory.category?.name || memory.category || 'Uncategorized',
       thumbnail: memory.last_update_img || memory.photos?.preview_images?.[0]?.url || memory.posts?.[0]?.image_link || memory.image_link?.replace(/\\\//g, '/') || memory.cover_image || memory.thumbnail || null,
       image_count: memory.images_count || memory.image_count || memory.photos?.count || memory.images?.length || 0
@@ -657,7 +657,7 @@ export default function InviteToMemoryModal({ isOpen, onClose, onInviteSuccess }
         if (response.success) {
           const totalInvited = emails.length + phoneNumbers.length;
           toast.success(
-            `Successfully invited ${totalInvited} collaborator${totalInvited > 1 ? 's' : ''} with partial admin access to ${memoryIds.length} stor${memoryIds.length > 1 ? 'ies' : 'y'}!`
+            `Successfully invited ${totalInvited} collaborator${totalInvited > 1 ? 's' : ''} with partial admin access to ${memoryIds.length} campaign${memoryIds.length > 1 ? 's' : ''}!`
           );
           if (onInviteSuccess) onInviteSuccess();
           handleClose();
@@ -689,7 +689,7 @@ export default function InviteToMemoryModal({ isOpen, onClose, onInviteSuccess }
           const memoryCount = selectedMemories.length;
           const collabCount = collaborators.length;
           toast.success(
-            `Successfully invited ${collabCount} collaborator${collabCount > 1 ? 's' : ''} to ${memoryCount} stor${memoryCount > 1 ? 'ies' : 'y'} with ${selectedRole.toLowerCase()} access!`
+            `Successfully invited ${collabCount} collaborator${collabCount > 1 ? 's' : ''} to ${memoryCount} campaign${memoryCount > 1 ? 's' : ''} with ${selectedRole.toLowerCase()} access!`
           );
           if (onInviteSuccess) {
             onInviteSuccess();
@@ -698,7 +698,7 @@ export default function InviteToMemoryModal({ isOpen, onClose, onInviteSuccess }
         }
 
         if (failCount > 0) {
-          toast.error(`Failed to send invitations to ${failCount} stor${failCount > 1 ? 'ies' : 'y'}`);
+          toast.error(`Failed to send invitations to ${failCount} campaign${failCount > 1 ? 's' : ''}`);
         }
       }
     } catch (error) {

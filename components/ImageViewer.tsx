@@ -93,7 +93,7 @@ function MemoryLinkPreview({ memoryId, url, dark = true }: { memoryId: string; u
       .then((res: any) => {
         if (res?.success && res?.data) {
           setData({
-            title: res.data.title || res.data.name || 'Untitled Memory',
+            title: res.data.title || res.data.name || 'Untitled Campaign',
             thumbnail: res.data.last_update_img || res.data.thumbnail || '',
           });
         }
@@ -126,7 +126,7 @@ function MemoryLinkPreview({ memoryId, url, dark = true }: { memoryId: string; u
         </div>
       )}
       <div className="flex-1 py-2 px-3 min-w-0">
-        <p className={`text-xs truncate ${dark ? 'text-gray-400' : 'text-gray-500'}`}>stasht.app · Memory</p>
+        <p className={`text-xs truncate ${dark ? 'text-gray-400' : 'text-gray-500'}`}>stasht.app · Campaign</p>
         <p className={`text-sm font-semibold truncate ${dark ? 'text-white' : 'text-gray-900'}`}>{data.title}</p>
       </div>
     </a>
@@ -2401,8 +2401,8 @@ export function ImageViewer({
           <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-full">
             <ChevronLeft className="w-5 h-5" />
           </button>
-          <div className="flex-1">
-            <h2 className="text-base font-medium leading-tight">
+          <div className="flex-1 min-w-0">
+            <h2 className="text-base font-medium leading-tight truncate">
               {currentFilename || currentTitle}
             </h2>
             {subtitle && (

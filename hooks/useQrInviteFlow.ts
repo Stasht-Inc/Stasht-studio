@@ -101,7 +101,7 @@ export function useQrInviteFlow(): UseQrInviteFlowReturn {
             sessionStorage.setItem(QR_INVITE_STORAGE_KEY, JSON.stringify(params));
             localStorage.setItem(QR_INVITE_STORAGE_KEY, JSON.stringify(params));
             console.log('💾 Stored QR invite in sessionStorage and localStorage');
-            toast.info('Please login or signup to join this memory as a collaborator');
+            toast.info('Please login or signup to join this campaign as a collaborator');
           }
         }
       } else {

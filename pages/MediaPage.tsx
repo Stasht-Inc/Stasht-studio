@@ -4128,7 +4128,7 @@ export default function MediaPage({
         <div className="flex-1 relative">
           <Search className="w-4 h-4 absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
           <Input
-            placeholder="Search media files, memories..."
+            placeholder="Search media files, campaigns..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="pl-10 bg-gray-50 border-gray-200 focus:border-gray-300 focus:ring-0"
@@ -4168,7 +4168,7 @@ export default function MediaPage({
             <SelectItem value="memory">
               <div className="flex items-center gap-2">
                 <FolderOpen className="w-4 h-4" />
-                Sort by Memory
+                Sort by Campaign
               </div>
             </SelectItem>
             <SelectItem value="upload_latest">
@@ -4364,7 +4364,7 @@ export default function MediaPage({
             </div>
             <div className="flex items-center gap-3 sm:gap-4 text-xs sm:text-sm">
               <span className="hidden sm:inline">
-                {filteredItems.filter(item => item.memory).length} with memories
+                {filteredItems.filter(item => item.memory).length} with campaigns
               </span>
               <span className="whitespace-nowrap">
                 Total: {calculateTotalSize(filteredItems)} MB
@@ -4806,7 +4806,7 @@ export default function MediaPage({
             {/* Hierarchy Body */}
             <div className="overflow-y-auto flex-1 py-2">
               {existingMemories.length === 0 ? (
-                <div className="text-center py-10 text-gray-500 text-sm">No memories found</div>
+                <div className="text-center py-10 text-gray-500 text-sm">No campaigns found</div>
               ) : (
                 existingMemories.map((mem: any) => {
                   const memId = String(mem.id || mem.memory_id);
@@ -4830,14 +4830,14 @@ export default function MediaPage({
                         ) : (
                           <div className="w-8 h-8 rounded-lg bg-gray-200 flex-shrink-0" />
                         )}
-                        <span className="text-sm font-semibold text-gray-800 truncate">{mem.title || mem.name || 'Untitled Memory'}</span>
+                        <span className="text-sm font-semibold text-gray-800 truncate">{mem.title || mem.name || 'Untitled Campaign'}</span>
                         {isLoadingMem && <div className="ml-auto w-4 h-4 border-2 border-[#6C60FF] border-t-transparent rounded-full animate-spin flex-shrink-0" />}
                       </button>
 
                       {/* Memory images */}
                       {isMemExpanded && !isLoadingMem && (
                         parentPosts.length === 0 ? (
-                          <p className="pl-14 pr-4 py-2 text-xs text-gray-400">No images in this memory</p>
+                          <p className="pl-14 pr-4 py-2 text-xs text-gray-400">No images in this campaign</p>
                         ) : (
                           parentPosts.map((post: any) => {
                             const postId = String(post.id);

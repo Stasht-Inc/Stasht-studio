@@ -1262,7 +1262,7 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
                 <MessageSquare className="w-6 h-6 text-[#6C60FF]" />
               </span>
               <p className="text-sm font-medium text-gray-700">No conversations yet</p>
-              <p className="text-xs text-gray-400 mt-1">Messages with story owners will appear here.</p>
+              <p className="text-xs text-gray-400 mt-1">Messages with campaign owners will appear here.</p>
             </div>
           ) : (
             <div className="divide-y divide-gray-100">

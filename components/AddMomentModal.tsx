@@ -81,7 +81,7 @@ export function AddMomentModal({
   isOpen,
   onClose,
   memoryId,
-  memoryTitle = "Memory",
+  memoryTitle = "Campaign",
   memoryThumbnail,
   memoryCreatedDate,
   memoryLocation,
@@ -869,6 +869,18 @@ export function AddMomentModal({
         }
       }
 
+      // Image-less moment: no files/media library images, but the user filled in the
+      // moment details. Forward index 0 so mediaAPI.addMoment sends them in the payload.
+      if (formData.files.length === 0 && mediaLibraryImages.length === 0 && imageDetails[0]) {
+        desktopImageDetails[0] = {
+          description: imageDetails[0].description,
+          date: imageDetails[0].date,
+          location: imageDetails[0].location,
+          title: imageDetails[0].title,
+          tags: imageDetails[0].tags || []
+        };
+      }
+
       // Prepare media library images with their details
       const mediaLibraryImagesData = mediaLibraryImages.map((img, index) => {
         const globalIndex = formData.files.length + index;
@@ -1621,7 +1633,7 @@ export function AddMomentModal({
                     </div>
                   ) : (
                     <div className="text-sm text-gray-500 text-center py-4">
-                      No images in this memory yet
+                      No images in this campaign yet
                     </div>
                   )}
                 </div>
@@ -1920,7 +1932,7 @@ export function AddMomentModal({
 
             <Button
               onClick={handleSubmit}
-              disabled={isSubmitting || totalImagesCount === 0}
+              disabled={isSubmitting}
               className="h-12 md:h-10 px-6 text-[14px] md:text-sm font-medium bg-[#7B68EE] hover:bg-[#6B5DD3] text-white disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
             >
               {isSubmitting ? (

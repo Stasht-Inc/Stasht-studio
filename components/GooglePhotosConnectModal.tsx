@@ -132,7 +132,7 @@ export function GooglePhotosConnectModal({
                     Preserve shared albums
                   </h3>
                   <p className="text-xs text-gray-600">
-                    Keep your shared stories in one place
+                    Keep your shared campaigns in one place
                   </p>
                 </div>
               </div>

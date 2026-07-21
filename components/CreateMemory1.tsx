@@ -554,7 +554,7 @@ export default function CreateMemory({ open, onOpenChange, onMemoryCreated }: Cr
         setShowSuccessDialog(true);
       } else {
         // Check if it's a memory limit error
-        const errorMessage = response.error || response.message || 'Failed to create memory';
+        const errorMessage = response.error || response.message || 'Failed to create campaign';
         
         // Check for limit-related keywords in the error message
         if (errorMessage.toLowerCase().includes('limit') || 
@@ -570,7 +570,7 @@ export default function CreateMemory({ open, onOpenChange, onMemoryCreated }: Cr
     } catch (error) {
       console.error('Error creating memory:', error);
       // Only show alert for unexpected errors (not limit errors which are handled above)
-      const errorMessage = error instanceof Error ? error.message : 'Failed to create memory. Please try again.';
+      const errorMessage = error instanceof Error ? error.message : 'Failed to create campaign. Please try again.';
       if (!errorMessage.toLowerCase().includes('limit') && 
           !errorMessage.toLowerCase().includes('maximum') && 
           !errorMessage.toLowerCase().includes('exceeded')) {

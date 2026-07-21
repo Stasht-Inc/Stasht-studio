@@ -353,7 +353,11 @@ export default function MemoryCard({
   // Always show author - use passed author data or fall back to logged-in user
   const displayName = fullName || user?.name || '';
   const displayAvatar = avatar || user?.avatar || '';
-  const displayProfileColor = profileColor || user?.profile_color || '';
+  // Own campaigns → use the logged-in user's own profile_color (from their profile) for the initials.
+  // Shared campaigns → use the memory author/owner's profile_color.
+  const displayProfileColor = isSharedWith
+    ? (profileColor || user?.profile_color || '')
+    : (user?.profile_color || profileColor || '');
   const hasFooterContent = !!displayName || contributors.length > 0 || tags.length > 0;
 
   return (
@@ -372,7 +376,7 @@ export default function MemoryCard({
           onClick?.();
         }
       }}
-      aria-label={isInvite ? `${title} memory invitation` : `View ${title} memory details`}
+      aria-label={isInvite ? `${title} campaign invitation` : `View ${title} campaign details`}
     >
       {/* Image Section with overlay content */}
       <div className="relative bg-gray-200 overflow-hidden rounded-2xl aspect-[3/4] md:aspect-square w-full shadow-[0px_2px_12px_0px_rgba(0,0,0,0.10)]">
@@ -393,7 +397,9 @@ export default function MemoryCard({
             />
           )
         ) : (
-          <UserFallbackAvatar user={user} />
+          // Empty cover → show the memory author/owner's profile image, else their initials + color
+          // (falls back to the logged-in user for own memories via displayName/Avatar/Color)
+          <UserFallbackAvatar user={{ name: displayName, avatar: displayAvatar, profile_color: displayProfileColor }} />
         )}
 
         {/* Dark gradient overlay at bottom for text readability */}
@@ -619,7 +625,7 @@ export default function MemoryCard({
               style={{ width: '35px', height: '35px', borderRadius: '10px', background: '#FFFFFF' }}
               onMouseEnter={(e) => { e.currentTarget.style.background = '#d92c87'; const icon = e.currentTarget.querySelector('svg') as SVGElement; if (icon) icon.style.color = '#FFFFFF'; }}
               onMouseLeave={(e) => { e.currentTarget.style.background = '#FFFFFF'; const icon = e.currentTarget.querySelector('svg') as SVGElement; if (icon) icon.style.color = '#F6339A'; }}
-              title="Add media to this story"
+              title="Add media to this campaign"
             >
               <Plus style={{ width: '20px', height: '20px', flexShrink: 0, color: '#F6339A' }} />
             </button>

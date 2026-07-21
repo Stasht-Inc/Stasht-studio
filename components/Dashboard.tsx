@@ -56,7 +56,7 @@ const getActivityColor = (action: string): string => {
 // Mock user data with avatars - colors match User Activity Metrics
 const activityData = [
   {
-    action: "New memory created",
+    action: "New campaign created",
     user: "Sarah Johnson",
     avatar: "https://images.unsplash.com/photo-1494790108755-2616b612b47c?w=100&h=100&fit=crop&crop=face",
     color: "bg-[#4AD991]", // Matches Memories Created metric
@@ -70,7 +70,7 @@ const activityData = [
     initials: "MC"
   },
   {
-    action: "Memory published",
+    action: "Campaign published",
     user: "Emma Wilson",
     avatar: "https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=100&h=100&fit=crop&crop=face",
     color: "bg-[#FEC53D]", // Matches Memories Published metric
@@ -84,7 +84,7 @@ const activityData = [
     initials: "AJ"
   },
   {
-    action: "Memory collection shared",
+    action: "Campaign collection shared",
     user: "David Smith",
     avatar: "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=100&h=100&fit=crop&crop=face",
     color: "bg-[#FEC53D]", // Matches Memories Published metric (sharing related)

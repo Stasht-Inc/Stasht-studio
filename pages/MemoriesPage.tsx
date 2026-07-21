@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo, useRef } from "react";
 import { flushSync } from "react-dom";
-import { ChevronDown, ChevronUp, MoreHorizontal, MoreVertical, Search, Filter, ArrowUpDown, Plus, Grid3X3, List, X, Image as ImageIcon, Globe, Pencil, Tag, Copy, GitMerge, Trash2, Sparkles, Calendar, ChevronLeft, BookOpen, ArrowLeft, Share2, QrCode, Mail, Facebook, Linkedin, Instagram, Zap } from "lucide-react";
+import { ChevronDown, ChevronUp, MoreHorizontal, MoreVertical, Search, Filter, ArrowUpDown, Plus, Grid3X3, List, X, Image as ImageIcon, Globe, Pencil, Tag, Copy, GitMerge, Trash2, Sparkles, Calendar, ChevronLeft, BookOpen, ArrowLeft, Share2, QrCode, Mail, Facebook, Linkedin, Instagram, Zap, Code } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import { toast as sonnerToast } from "sonner";
 import { Button } from "../components/ui/button";
@@ -281,6 +281,7 @@ interface MemoriesPageProps {
   onAIWizardDone?: () => void;
   onRequestCreateCategory?: () => void; // Ask the sidebar to open its "New Category" popover
   createCategorySignal?: number; // Forwarded to the mobile-drawer CategoryNav to open its popover
+  openPublishedEntrySignal?: { entry: any; nonce: number } | null; // Desktop sidebar asks to open a published-author entry
 }
 
 function MemoriesPageContent({
@@ -304,6 +305,7 @@ function MemoriesPageContent({
   onAIWizardDone,
   onRequestCreateCategory,
   createCategorySignal,
+  openPublishedEntrySignal,
 }: MemoriesPageProps) {
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
   const { viewType, currentProperty, switchToProperty } = useProperty();
@@ -395,6 +397,14 @@ function MemoriesPageContent({
   const [isLoadingPublishedEntry, setIsLoadingPublishedEntry] = useState(false);
   const [isUnpublishing, setIsUnpublishing] = useState(false);
   const [shouldOpenLatestPublished, setShouldOpenLatestPublished] = useState(false);
+  // Published-author cover photo: local preview override + hidden file input + upload state
+  const [publishedCoverPreview, setPublishedCoverPreview] = useState<string | null>(null);
+  const [isUploadingCover, setIsUploadingCover] = useState(false);
+  const publishedCoverInputRef = useRef<HTMLInputElement>(null);
+  // Set when a cover update succeeds, so leaving the viewer refetches the memories screen
+  const coverUpdatedRef = useRef(false);
+  // Sticky/shrinking hero for the published-author viewer
+  const [isPublishedHeaderScrolled, setIsPublishedHeaderScrolled] = useState(false);
   const [showQRModal, setShowQRModal] = useState(false);
   const [qrShareUrl, setQrShareUrl] = useState('');
   const [showAddTagsModal, setShowAddTagsModal] = useState(false);
@@ -677,6 +687,30 @@ function MemoriesPageContent({
     }
   }, [shouldOpenLatestPublished, publishedEntries]);
 
+  // Shrink the published-author hero once the page is scrolled past a small threshold.
+  useEffect(() => {
+    if (!publishedEntryData) { setIsPublishedHeaderScrolled(false); return; }
+    const onScroll = () => setIsPublishedHeaderScrolled(window.scrollY > 50);
+    onScroll(); // sync initial state
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
+  }, [publishedEntryData]);
+
+  // Desktop sidebar (App.tsx) clicked a published-author entry — open it the same way the
+  // main-grid card does: handlePublishedEntryClick(short_url, entry). The nonce guard ensures
+  // exactly one fetch per click (prevents duplicate requests → 429 from re-renders/StrictMode).
+  const lastPublishedEntryNonce = useRef<number | null>(null);
+  useEffect(() => {
+    if (!openPublishedEntrySignal) return;
+    if (lastPublishedEntryNonce.current === openPublishedEntrySignal.nonce) return;
+    lastPublishedEntryNonce.current = openPublishedEntrySignal.nonce;
+    const entry = openPublishedEntrySignal.entry;
+    if (entry?.short_url) {
+      handlePublishedEntryClick(entry.short_url, entry);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openPublishedEntrySignal]);
+
   const sidebarData = apiMemoriesData?.sidebar || apiMemoriesData?.data?.sidebar || null;
 
   // Single source of truth for the category list used by the Create Campaign gate and the
@@ -869,22 +903,26 @@ function MemoriesPageContent({
     // The ownership gate is a PROPERTY-account concept (is_owner / can_add_story come from the
     // properties API). Personal accounts don't have these flags and must NOT be gated — they
     // open the modal directly, exactly as before.
-    if (!resolvedCategory && viewType === 'property') {
+    if (!resolvedCategory) {
       // Use the same category source the Create Campaign modal uses, so the gate and the
       // dropdown never disagree.
-      const gateCats = mergedCategories;
-      const ownedCats = Array.isArray(gateCats) ? gateCats.filter(isAddableOwnCategory) : [];
-      console.log('🟣 CreateCampaign gate — addable own categories:', ownedCats.map((c: any) => c?.name), 'from', (Array.isArray(gateCats) ? gateCats : []).map((c: any) => `${c?.name}:is_owner=${c?.is_owner},can_add_story=${c?.can_add_story}`));
-      if (ownedCats.length === 0) {
-        // Only when the user truly owns no addable category yet: route them to create one.
+      const gateCats = Array.isArray(mergedCategories) ? mergedCategories : [];
+      const ownedCats = gateCats.filter(isAddableOwnCategory);
+      console.log('🟣 CreateCampaign gate — addable own categories:', ownedCats.map((c: any) => c?.name), 'from', gateCats.map((c: any) => `${c?.name}:is_owner=${c?.is_owner},can_add_story=${c?.can_add_story}`));
+      // Ownership gate is a PROPERTY-account concept only: if a property owner has no addable
+      // category yet, route them to create one. Personal accounts are never gated.
+      if (viewType === 'property' && ownedCats.length === 0) {
         sonnerToast.info("You don't have your own category yet. Create one first, then add your campaign.");
         onRequestCreateCategory?.();
         return;
       }
-      // Prefer the currently selected category if it's addable, else the first owned one —
-      // same end result as clicking the left-side button on that category.
-      const selectedMatch = ownedCats.find((c: any) => c?.name === selectedCategory);
-      resolvedCategory = selectedMatch?.name || ownedCats[0]?.name;
+      // Preselect a REAL addable category — exactly like the left-side "+" button, which is
+      // hidden for Invites/Shared/Published. Excluding "Invites" here stops the header button from
+      // falling back to it (isAddableOwnCategory keeps Invites, so it must be dropped separately).
+      const preselectCats = ownedCats.filter((c: any) => (c?.name || '').toLowerCase().trim() !== 'invites');
+      // Prefer the currently selected category if it's addable, else the first addable one.
+      const selectedMatch = preselectCats.find((c: any) => c?.name === selectedCategory);
+      resolvedCategory = selectedMatch?.name || preselectCats[0]?.name;
     }
 
     // Open modal + focus synchronously (before any await) — only way to open keyboard on iOS
@@ -1280,15 +1318,21 @@ function MemoriesPageContent({
           await onRefreshMemories();
         }
 
-        // Auto-open the latest published entry's detail view (author campaigns list)
-        setShouldOpenLatestPublished(true);
+        // Prefer the short_url returned directly in the publish response and hit it.
+        const publishedShortUrl = response.data?.short_url || response.data?.data?.short_url;
+        if (publishedShortUrl) {
+          await handlePublishedEntryClick(publishedShortUrl, response.data?.data || response.data);
+        } else {
+          // Fallback: auto-open the latest published entry's detail view (author campaigns list)
+          setShouldOpenLatestPublished(true);
+        }
       } else {
         throw new Error(response.error || 'Failed to publish memories');
       }
     } catch (error) {
       console.error('❌ Error publishing memories:', error);
       setToast({
-        message: 'Failed to publish memories',
+        message: 'Failed to publish campaigns',
         type: 'error'
       });
     }
@@ -1297,6 +1341,7 @@ function MemoriesPageContent({
   // Handle click on published author card — fetch short_url
   const handlePublishedEntryClick = async (shortUrl: string, entry: any) => {
     setSelectedPublishedEntry(entry);
+    setPublishedCoverPreview(null); // clear any previous cover preview when opening an entry
     setIsLoadingPublishedEntry(true);
     try {
       const token = localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
@@ -1310,11 +1355,67 @@ function MemoriesPageContent({
       const data = await response.json();
       console.log('📖 Published entry data:', data);
       setPublishedEntryData(data);
+      window.scrollTo({ top: 0 }); // open with the hero expanded
     } catch (error) {
       console.error('❌ Error fetching published entry:', error);
     } finally {
       setIsLoadingPublishedEntry(false);
     }
+  };
+
+  // Update the cover (wallpaper) photo of the currently-open published-author page.
+  // Shows an instant local preview, then persists via the published-wallpaper API.
+  const handleUpdatePublishedCover = (file: File | null | undefined) => {
+    if (!file || !file.type.startsWith('image/')) return;
+    const reader = new FileReader();
+    reader.onload = async () => {
+      const base64 = reader.result as string;
+      setPublishedCoverPreview(base64); // optimistic preview
+
+      // Target the whole published set via short_code; fall back to the entry's memory ids.
+      const shortCode = selectedPublishedEntry?.short_code
+        || (typeof selectedPublishedEntry?.short_url === 'string'
+          ? selectedPublishedEntry.short_url.split('?')[0].split('/').filter(Boolean).pop()
+          : undefined);
+      const memoryIds = (publishedEntryData?.data || []).map((m: any) => m.id).filter(Boolean);
+
+      const body: Record<string, any> = { wallpaper_image: base64 };
+      if (shortCode) body.short_code = shortCode;
+      else if (memoryIds.length) body.memory_ids = memoryIds;
+      else {
+        setPublishedCoverPreview(null);
+        setToast({ message: 'Could not determine which published page to update', type: 'error' });
+        return;
+      }
+
+      setIsUploadingCover(true);
+      try {
+        const res = await apiRequest('/memories/published/wallpaper', {
+          method: 'POST',
+          body: JSON.stringify(body),
+        });
+        const newUrl = (res.data as any)?.wallpaper_image;
+        if (res.success && newUrl) {
+          // Persist the new cover so it survives reloads / reopening the entry
+          setSelectedPublishedEntry((prev: any) => (prev ? { ...prev, wallpaper_image: newUrl } : prev));
+          setPublishedCoverPreview(null);
+          coverUpdatedRef.current = true; // refetch memories when leaving the viewer
+          setToast({ message: 'Cover photo updated successfully', type: 'success' });
+        } else if (res.success) {
+          coverUpdatedRef.current = true;
+          setToast({ message: 'Cover photo updated successfully', type: 'success' });
+        } else {
+          setPublishedCoverPreview(null); // revert optimistic preview
+          setToast({ message: res.error || 'Failed to update cover photo', type: 'error' });
+        }
+      } catch {
+        setPublishedCoverPreview(null);
+        setToast({ message: 'Failed to update cover photo', type: 'error' });
+      } finally {
+        setIsUploadingCover(false);
+      }
+    };
+    reader.readAsDataURL(file);
   };
 
   // Transform all memories data to table format for compatibility
@@ -1626,11 +1727,15 @@ function MemoriesPageContent({
   if (publishedEntryData) {
     return (
       <div className="relative w-full min-h-screen bg-white pb-20 lg:pb-0">
-        {/* Hero Section — same as MemoryDetailsPage collaborator view */}
-        <div className="relative w-full h-[196px] sm:h-56 md:h-80">
-          {selectedPublishedEntry?.wallpaper_image ? (
+        {/* Sticky header: hero cover + published-link row pin together under the app header */}
+        <div className="sticky top-20 z-40">
+        {/* Hero Section — content unchanged, height shrinks a little on scroll */}
+        <div className={`relative w-full overflow-hidden transition-all duration-300 ${
+          isPublishedHeaderScrolled ? 'h-[104px] sm:h-32 md:h-44' : 'h-[196px] sm:h-56 md:h-80'
+        }`}>
+          {(publishedCoverPreview || selectedPublishedEntry?.wallpaper_image) ? (
             <img
-              src={selectedPublishedEntry.wallpaper_image}
+              src={publishedCoverPreview || selectedPublishedEntry.wallpaper_image}
               alt="Published"
               className="w-full h-full object-cover"
             />
@@ -1647,17 +1752,52 @@ function MemoriesPageContent({
           {/* Gradient overlay */}
           <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent" />
 
+          {/* Add / Update cover photo — hidden input + overlay button */}
+          <input
+            ref={publishedCoverInputRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={(e) => {
+              handleUpdatePublishedCover(e.target.files?.[0]);
+              e.target.value = ''; // allow re-selecting the same file
+            }}
+          />
+          <button
+            type="button"
+            disabled={isUploadingCover}
+            onClick={() => publishedCoverInputRef.current?.click()}
+            className="absolute top-3 right-3 sm:top-4 sm:right-4 z-30 flex items-center gap-1.5 bg-gray-200/80 hover:bg-gray-300/80 disabled:opacity-70 disabled:cursor-not-allowed text-gray-700 text-xs sm:text-sm px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-lg backdrop-blur-sm transition-colors"
+          >
+            {isUploadingCover ? (
+              <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+              </svg>
+            ) : (
+              <ImageIcon className="w-4 h-4 sm:w-4 sm:h-4" />
+            )}
+            <span>{isUploadingCover ? 'Saving…' : ((publishedCoverPreview || selectedPublishedEntry?.wallpaper_image) ? 'Update cover' : 'Add cover photo')}</span>
+          </button>
+
           {/* Back to Campaigns — same style as MemoryDetailsPage */}
           <div className="absolute top-0 left-0 right-0 z-20">
-            <div className="max-w-7xl mx-auto px-0 sm:px-4 py-3 sm:py-4">
-              <div className="flex items-center mx-4 md:mx-0 my-4">
+            <div className={`max-w-7xl mx-auto px-0 sm:px-4 transition-all duration-300 ${isPublishedHeaderScrolled ? 'py-1 sm:py-1.5' : 'py-3 sm:py-4'}`}>
+              <div className={`flex items-center mx-4 md:mx-0 transition-all duration-300 ${isPublishedHeaderScrolled ? 'my-1' : 'my-4'}`}>
                 <Button
                   variant="ghost"
                   size="sm"
-                  onClick={() => { setPublishedEntryData(null); setSelectedPublishedEntry(null); }}
-                  className="bg-gray-200/80 hover:bg-gray-300/80 text-gray-700 text-xs sm:text-sm px-2 sm:px-3 py-1.5 sm:py-2 rounded-lg backdrop-blur-sm"
+                  onClick={() => {
+                    setPublishedEntryData(null);
+                    setSelectedPublishedEntry(null);
+                    // If the cover was updated in this session, refetch so the memories screen shows it
+                    if (coverUpdatedRef.current) { coverUpdatedRef.current = false; onRefreshMemories?.(); }
+                  }}
+                  className={`bg-gray-200/80 hover:bg-gray-300/80 text-gray-700 rounded-lg backdrop-blur-sm transition-all duration-300 ${
+                    isPublishedHeaderScrolled ? 'text-[11px] sm:text-xs px-2 py-1 h-auto' : 'text-xs sm:text-sm px-2 sm:px-3 py-1.5 sm:py-2'
+                  }`}
                 >
-                  <ArrowLeft className="w-6 h-6 sm:w-4 sm:h-4 mr-1 sm:mr-2" />
+                  <ArrowLeft className={`mr-1 sm:mr-2 transition-all duration-300 ${isPublishedHeaderScrolled ? 'w-3.5 h-3.5' : 'w-6 h-6 sm:w-4 sm:h-4'}`} />
                   <span className="hidden sm:inline">Back to Campaigns</span>
                   <span className="sm:hidden">Back</span>
                 </Button>
@@ -1666,15 +1806,17 @@ function MemoriesPageContent({
           </div>
 
           {/* Bottom overlay: Published badge + author name + date */}
-          <div className="absolute bottom-0 left-0 right-0 z-10 pb-3 sm:pb-4 md:pb-6 pt-20 md:pt-0">
+          <div className={`absolute bottom-0 left-0 right-0 z-10 transition-all duration-300 ${
+            isPublishedHeaderScrolled ? 'pb-2 sm:pb-2 md:pb-3 pt-10 sm:pt-8 md:pt-0' : 'pb-3 sm:pb-4 md:pb-6 pt-20 md:pt-0'
+          }`}>
             <div className="max-w-7xl mx-auto px-3 sm:px-4">
-              <div className="flex items-center gap-1.5 sm:gap-2 md:mb-3">
+              <div className={`flex items-center gap-1.5 sm:gap-2 transition-all duration-300 ${isPublishedHeaderScrolled ? 'mb-1' : 'md:mb-3'}`}>
                 <Badge className="bg-[#9333EA] text-white font-medium px-3 py-1 sm:px-3 sm:py-1.5 md:px-4 md:py-2 text-[12px] sm:text-xs md:text-sm">
                   Published
                 </Badge>
               </div>
-              <div className="flex items-center gap-3 mb-2 md:mb-4">
-                <Avatar className="w-10 h-10 md:w-14 md:h-14 flex-shrink-0">
+              <div className={`flex items-center transition-all duration-300 ${isPublishedHeaderScrolled ? 'gap-2 mb-0.5 md:mb-1' : 'gap-3 mb-2 md:mb-4'}`}>
+                <Avatar className={`flex-shrink-0 transition-all duration-300 ${isPublishedHeaderScrolled ? 'w-7 h-7 md:w-9 md:h-9' : 'w-10 h-10 md:w-14 md:h-14'}`}>
                   <AvatarImage
                     src={publishedEntryData.author?.profile_image || undefined}
                     alt={publishedEntryData.author?.name || selectedPublishedEntry?.author_name}
@@ -1689,7 +1831,11 @@ function MemoriesPageContent({
                 <Popover open={showAuthorPopover} onOpenChange={setShowAuthorPopover}>
                   <PopoverTrigger asChild>
                     <h1
-                      className="font-bold text-white text-2xl sm:text-3xl md:text-[42px] leading-[30px] md:leading-[52px] cursor-pointer hover:underline decoration-white/60"
+                      className={`font-bold text-white cursor-pointer hover:underline decoration-white/60 transition-all duration-300 ${
+                        isPublishedHeaderScrolled
+                          ? 'text-lg sm:text-xl md:text-2xl leading-tight'
+                          : 'text-2xl sm:text-3xl md:text-[42px] leading-[30px] md:leading-[52px]'
+                      }`}
                       onMouseEnter={() => setShowAuthorPopover(true)}
                       onMouseLeave={() => setTimeout(() => setShowAuthorPopover(false), 100)}
                     >
@@ -1779,7 +1925,7 @@ function MemoriesPageContent({
                 </Popover>
               </div>
               {selectedPublishedEntry?.published_at && (
-                <div className="flex items-center gap-1 text-white/90 text-xs sm:text-sm">
+                <div className={`items-center gap-1 text-white/90 text-xs sm:text-sm ${isPublishedHeaderScrolled ? 'hidden' : 'flex'}`}>
                   <Calendar className="w-3 h-3 sm:w-4 sm:h-4" />
                   <span>{new Date(selectedPublishedEntry.published_at).toLocaleDateString()}</span>
                 </div>
@@ -1788,7 +1934,7 @@ function MemoriesPageContent({
           </div>
         </div>
 
-        {/* Memories Timeline Section */}
+        {/* Memories Timeline Section (published-link row — sticky with the hero) */}
         <div className="bg-white shadow-sm border-t border-b border-gray-200">
           <div className="max-w-7xl mx-auto md:px-3 px-0">
             <div className="flex items-center justify-between gap-4 py-3 px-4 md:px-0 sm:py-4 border-b border-gray-100">
@@ -1863,6 +2009,39 @@ function MemoriesPageContent({
                         <Copy className="w-3.5 h-3.5" />
                         Copy
                       </button>
+                      <Popover>
+                        <PopoverTrigger asChild>
+                          <button
+                            className="flex items-center gap-1.5 bg-white hover:bg-gray-50 border border-gray-200 text-gray-700 text-xs font-medium px-3 py-1.5 rounded-lg transition-colors whitespace-nowrap flex-shrink-0"
+                          >
+                            <Code className="w-3.5 h-3.5" />
+                            Embed HTML
+                          </button>
+                        </PopoverTrigger>
+                        <PopoverContent align="end" sideOffset={8} className="w-[360px] p-0 rounded-xl shadow-xl border border-gray-200 bg-white overflow-hidden">
+                          {(() => {
+                            const embedCode = `<!DOCTYPE html>\n<html lang="en">\n<head>\n  <meta charset="UTF-8">\n  <title>${selectedPublishedEntry?.name || selectedPublishedEntry?.title || 'Published Campaign'}</title>\n</head>\n<body>\n  <iframe\n    src="${shareUrl}"\n    width="100%"\n    height="800"\n    frameborder="0"\n  ></iframe>\n</body>\n</html>`;
+                            return (
+                              <>
+                                <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+                                  <h3 className="text-sm font-semibold text-gray-900">HTML Embed Code</h3>
+                                  <button
+                                    onClick={() => {
+                                      navigator.clipboard.writeText(embedCode)
+                                        .then(() => sonnerToast.success('Embed code copied!'))
+                                        .catch(() => sonnerToast.error('Failed to copy embed code'));
+                                    }}
+                                    className="text-[#6C60FF] text-xs font-medium hover:underline"
+                                  >
+                                    Copy code
+                                  </button>
+                                </div>
+                                <pre className="text-xs text-gray-700 bg-gray-50 p-4 overflow-x-auto whitespace-pre leading-relaxed max-h-72"><code>{embedCode}</code></pre>
+                              </>
+                            );
+                          })()}
+                        </PopoverContent>
+                      </Popover>
                       <button
                         onClick={() => {
                           if (navigator.share) {
@@ -1896,7 +2075,7 @@ function MemoriesPageContent({
                         onClick={async () => {
                           const memoryIds = (publishedEntryData?.data || []).map((m: any) => m.id).filter(Boolean);
                           if (memoryIds.length === 0) {
-                            sonnerToast.error('No memories to unpublish');
+                            sonnerToast.error('No campaigns to unpublish');
                             return;
                           }
                           setIsUnpublishing(true);
@@ -1909,6 +2088,7 @@ function MemoriesPageContent({
                               sonnerToast.success(res.data?.message || 'Unpublished successfully');
                               setSelectedPublishedEntry(null);
                               setPublishedEntryData(null);
+                              await onRefreshMemories?.(); // refresh the memories screen so the entry drops off
                             } else {
                               sonnerToast.error(res.error || 'Failed to unpublish');
                             }
@@ -1937,6 +2117,7 @@ function MemoriesPageContent({
             </div>
           </div>
         </div>
+        </div>{/* /sticky header wrapper */}
 
         {/* Memory cards */}
         <div className="max-w-7xl mx-auto px-4 md:px-6 py-6">
@@ -1992,7 +2173,7 @@ function MemoriesPageContent({
               })}
             </div>
           ) : (
-            <div className="text-center py-12 text-gray-500 text-sm">No memories found</div>
+            <div className="text-center py-12 text-gray-500 text-sm">No campaigns found</div>
           )}
         </div>
 
@@ -2215,8 +2396,7 @@ function MemoriesPageContent({
                       label={isSharedWithCategory ? '' : (memory.sub_category?.name || memory.labels?.[0] || (typeof memory.label === 'object' ? memory.label?.name : memory.label) || '')}
                       photosCount={memory.photos?.count || memory.photos_count || 0}
                       imagesCount={memory.photos?.count || memory.photos_count || 0}
-                      avatar={memory.author?.avatar || (memory.type === 'shared' && memory.author ?
-                        "https://images.unsplash.com/photo-1494790108755-2616b612b47c?w=100&h=100&fit=crop&crop=face" : undefined)}
+                      avatar={memory.author?.avatar}
                       fullName={memory.author?.name || (memory.type === 'shared' ? memory.author : undefined)}
                       profileColor={memory.author?.profile_color}
                       tags={Array.isArray(memory.tags) ? memory.tags.map((t: any) => typeof t === 'string' ? t : t.name).filter(Boolean) : []}
@@ -2977,7 +3157,7 @@ function MemoriesPageContent({
                                       className="cursor-pointer hover:bg-[#6C60FF]/5"
                                       onClick={() => handleEditMemory(memory)}
                                     >
-                                      Edit Memory
+                                      Edit Campaign
                                     </DropdownMenuItem>
                                     <DropdownMenuItem
                                       className="cursor-pointer hover:bg-[#6C60FF]/5"
@@ -3053,7 +3233,7 @@ function MemoriesPageContent({
                                       className="cursor-pointer hover:bg-[#6C60FF]/5"
                                       onClick={() => handleEditMemory(memory)}
                                     >
-                                      Edit Memory
+                                      Edit Campaign
                                     </DropdownMenuItem>
                                     <DropdownMenuItem
                                       className="cursor-pointer hover:bg-[#6C60FF]/5"
@@ -3286,7 +3466,7 @@ function MemoriesPageContent({
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg shadow-xl w-full max-w-md mx-4 p-6">
             <h3 className="text-lg font-semibold text-gray-900 mb-4">
-              Delete Memory
+              Delete Campaign
             </h3>
             <p className="text-gray-600 mb-6">
               Are you sure you want to delete "{memoryToDelete.title}"? This action cannot be undone.
@@ -3730,7 +3910,7 @@ function MemoriesPageContent({
                     </div>
                   </div>
                 </div>
-                <p className="text-center text-sm text-gray-600 mb-6">Understanding your memories, emotions, and campaign themes to craft the best narrative.</p>
+                <p className="text-center text-sm text-gray-600 mb-6">Understanding your campaigns, emotions, and campaign themes to craft the best narrative.</p>
                 <div className="w-full bg-gray-100 rounded-full h-2.5">
                   <div
                     className="h-2.5 rounded-full transition-all duration-300"

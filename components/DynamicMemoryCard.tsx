@@ -165,7 +165,7 @@ export function DynamicMemoryCardDemo() {
     <div className="p-8 bg-gray-50 min-h-screen">
       <div className="max-w-7xl mx-auto">
         <h1 className="text-3xl font-bold text-gray-900 mb-8">
-          Dynamic Memory Cards - Intelligent Truncation Demo
+          Dynamic Campaign Cards - Intelligent Truncation Demo
         </h1>
         
         <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">

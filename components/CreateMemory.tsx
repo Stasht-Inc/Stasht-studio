@@ -461,7 +461,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
           const uniqueCategories = categoriesArray
             .filter(cat => {
               const name = (cat.name || '').toLowerCase().trim();
-              return !['shared with', 'published', 'shared'].includes(name) && !name.includes('shared');
+              return !['shared with', 'published', 'shared', 'invites'].includes(name) && !name.includes('shared');
             })
             .filter(cat => cat.is_owner !== false && cat.can_add_story !== false)
             .filter((cat, i, self) => self.findIndex(c => c.name === cat.name) === i);
@@ -570,7 +570,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
       if (categoriesProp && categoriesProp.length > 0) {
         const filtered = categoriesProp.filter((cat: any) => {
           const name = (cat.name || '').toLowerCase().trim();
-          return !['shared with', 'published', 'shared'].includes(name) && !name.includes('shared') && cat.is_owner !== false && cat.can_add_story !== false;
+          return !['shared with', 'published', 'shared', 'invites'].includes(name) && !name.includes('shared') && cat.is_owner !== false && cat.can_add_story !== false;
         });
         if (filtered.length > 0) {
           setApiCategories(filtered);
@@ -586,9 +586,15 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
       }
       fetchProperties();
 
-      // Pick default category: use defaultCategory if it exists in list, else first real category
+      // Pick default category: use defaultCategory if it exists in list, else first real category.
+      // "Real" excludes Invites/Shared/Published so the modal never defaults to Invites when no
+      // defaultCategory is supplied (matches the left-side "+" button, which is hidden for those).
+      const isRealAddableName = (n: any) => {
+        const name = (n || '').toLowerCase().trim();
+        return name !== 'invites' && name !== 'published' && !name.includes('shared');
+      };
       const categoryExists = resolvedCategories.some((c: any) => c.name === defaultCategory);
-      const firstCategory = resolvedCategories[0]?.name || '';
+      const firstCategory = resolvedCategories.find((c: any) => isRealAddableName(c?.name))?.name || resolvedCategories[0]?.name || '';
       const resolvedCategory = categoryExists ? defaultCategory! : (defaultCategory && resolvedCategories.length === 0 ? defaultCategory : firstCategory);
 
       // Reset all states when modal opens fresh
@@ -623,10 +629,17 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
     }
   }, [open, isAuthenticated, defaultCategory, categoriesProp]);
 
-  // Auto-select first category once apiCategories loads (handles async fetch case)
+  // Auto-select first category once apiCategories loads (handles async fetch case).
+  // Prefer the first REAL addable category (not Invites/Shared/Published) so the default
+  // selection never lands on Invites when no defaultCategory was supplied.
   useEffect(() => {
     if (open && apiCategories.length > 0 && !formData.category) {
-      setFormData(prev => ({ ...prev, category: apiCategories[0].name }));
+      const isRealAddableName = (n: any) => {
+        const name = (n || '').toLowerCase().trim();
+        return name !== 'invites' && name !== 'published' && !name.includes('shared');
+      };
+      const firstReal = apiCategories.find((c: any) => isRealAddableName(c?.name))?.name || apiCategories[0].name;
+      setFormData(prev => ({ ...prev, category: firstReal }));
     }
   }, [apiCategories, open]);
 
@@ -1586,7 +1599,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
                 autoFocus
                 value={formData.title}
                 onChange={handleTitleChange}
-                placeholder="Give your memory a meaningful title"
+                placeholder="Give your campaign a meaningful title"
                 className="w-full h-12 md:h-10 text-base md:text-sm bg-gray-50 outline-none focus:outline-none focus-visible:outline-none transition-all duration-300"
                 style={
                   titleError
@@ -1689,7 +1702,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
                       <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
                       <input
                         type="text"
-                        placeholder="Search stories..."
+                        placeholder="Search campaigns..."
                         value={memorySearch}
                         onChange={(e) => { setMemorySearch(e.target.value); setCarouselPage(0); }}
                         className="w-full pl-9 pr-3 py-2 text-sm border border-gray-200 rounded-lg bg-white outline-none focus:border-[#6C60FF]"
@@ -2935,7 +2948,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
                 className="w-72 bg-white rounded-2xl shadow-xl border border-gray-100 p-2 outline-none"
               >
                 {[
-                  { type: 2 as const, icon: <Eye className="w-5 h-5 text-gray-700" />, label: 'View Only', desc: 'Users can only view the memory, no comments allowed' },
+                  { type: 2 as const, icon: <Eye className="w-5 h-5 text-gray-700" />, label: 'View Only', desc: 'Users can only view the campaign, no comments allowed' },
                   { type: 1 as const, icon: <Globe className="w-5 h-5 text-[#7B68EE]" />, label: 'Public', desc: 'Anyone can view and leave comments' },
                   { type: 3 as const, icon: <Lock className="w-5 h-5 text-orange-500" />, label: 'Private', desc: 'Only visible with a valid access token' },
                 ].map(({ type, icon, label, desc }) => (

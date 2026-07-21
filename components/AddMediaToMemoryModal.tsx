@@ -83,7 +83,7 @@ export default function AddMediaToMemoryModal({
         <div className="flex items-center justify-between px-4 py-3 bg-[#6C60FF]">
           <div className="flex-1 min-w-0">
             <h3 className="text-sm font-semibold text-white truncate">Add to {categoryName}</h3>
-            <p className="text-[11px] text-white/90 mt-0.5">Upload & select memory</p>
+            <p className="text-[11px] text-white/90 mt-0.5">Upload & select campaign</p>
           </div>
           <button
             onClick={onClose}
@@ -137,7 +137,7 @@ export default function AddMediaToMemoryModal({
 
           {/* Memory Selection */}
           <div>
-            <div className="text-xs font-medium text-gray-700 mb-2">Select Memory</div>
+            <div className="text-xs font-medium text-gray-700 mb-2">Select Campaign</div>
             <div className="space-y-1.5">
               {memories.map((memory) => (
                 <div key={memory.id} className="border border-gray-200 rounded-lg overflow-hidden">

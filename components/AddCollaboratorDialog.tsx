@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { Search, Shield, Check, X, UserPlus, Send } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "./ui/dialog";
 import { Button } from "./ui/button";
@@ -6,9 +6,12 @@ import { Input } from "./ui/input";
 import { Avatar, AvatarFallback, AvatarImage } from "./ui/avatar";
 import { Badge } from "./ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
-import { Textarea } from "./ui/textarea";
 import { toast } from "sonner";
 import { dashboardAPI } from "../utils/authUtils";
+import { useAuth } from "../contexts/AuthContext";
+
+// Default editable body of the personalized invite message (author-name prefix is fixed/non-editable)
+const DEFAULT_INVITE_MESSAGE = "invited you to collaborate on campaign";
 
 interface Collaborator {
   id: string;
@@ -55,13 +58,20 @@ export default function AddCollaboratorDialog({
   propertyId,
   memoryProperties = []
 }: AddCollaboratorDialogProps) {
+  const { user } = useAuth();
+  // Measure the fixed author-name prefix width (via callback ref, reliable inside the portal dialog)
+  // so the message's first line indents past it instead of overlapping.
+  const [personalizedNameWidth, setPersonalizedNameWidth] = useState(0);
+  const measureNameRef = useCallback((node: HTMLSpanElement | null) => {
+    if (node) setPersonalizedNameWidth(node.offsetWidth + 6); // + small gap
+  }, [user?.name]);
   const [inviteMethod, setInviteMethod] = useState<'email' | 'phone'>('email');
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedEmailCollaborators, setSelectedEmailCollaborators] = useState<ApiUser[]>([]);
   const [selectedPhoneCollaborators, setSelectedPhoneCollaborators] = useState<ApiUser[]>([]);
   const [defaultRole, setDefaultRole] = useState<'view' | 'edit' | 'admin' | 'partial_admin' | 'property_collaborator'>('edit');
   const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
-  const [customMessage, setCustomMessage] = useState("");
+  const [customMessage, setCustomMessage] = useState(DEFAULT_INVITE_MESSAGE);
   const [isInviting, setIsInviting] = useState(false);
   const [searchResults, setSearchResults] = useState<ApiUser[]>([]);
   const [isSearching, setIsSearching] = useState(false);
@@ -164,7 +174,7 @@ export default function AddCollaboratorDialog({
       setSearchQuery("");
       setSelectedEmailCollaborators([]);
       setSelectedPhoneCollaborators([]);
-      setCustomMessage("");
+      setCustomMessage(DEFAULT_INVITE_MESSAGE);
       setSearchResults([]);
       setSearchError(null);
       setInviteMethod('email');
@@ -382,7 +392,8 @@ export default function AddCollaboratorDialog({
           } else {
             response = await dashboardAPI.addMemoryCollaborator(memoryId, {
               emails: emails,
-              role: defaultRole
+              role: defaultRole,
+              personalize_message: customMessage.trim() || undefined
             });
           }
 
@@ -426,7 +437,7 @@ export default function AddCollaboratorDialog({
         // Reset form and close dialog on success
         setSearchQuery("");
         setSelectedEmailCollaborators([]);
-        setCustomMessage("");
+        setCustomMessage(DEFAULT_INVITE_MESSAGE);
         setSearchResults([]);
         onClose();
       }
@@ -486,7 +497,7 @@ export default function AddCollaboratorDialog({
             response = await dashboardAPI.addMemoryCollaboratorByPhone(memoryId, {
               phones: phones,
               role: defaultRole,
-              message: customMessage || undefined
+              personalize_message: customMessage.trim() || undefined
             });
           }
 
@@ -531,7 +542,7 @@ export default function AddCollaboratorDialog({
         // Reset form and close dialog on success
         setSearchQuery("");
         setSelectedPhoneCollaborators([]);
-        setCustomMessage("");
+        setCustomMessage(DEFAULT_INVITE_MESSAGE);
         setSearchResults([]);
         onClose();
       }
@@ -609,7 +620,8 @@ export default function AddCollaboratorDialog({
             } else {
               response = await dashboardAPI.addMemoryCollaborator(memoryId, {
                 emails: emails,
-                role: defaultRole
+                role: defaultRole,
+                personalize_message: customMessage.trim() || undefined
               });
             }
 
@@ -684,7 +696,7 @@ export default function AddCollaboratorDialog({
               response = await dashboardAPI.addMemoryCollaboratorByPhone(memoryId, {
                 phones: phones,
                 role: defaultRole,
-                message: customMessage || undefined
+                personalize_message: customMessage.trim() || undefined
               });
             }
 
@@ -733,7 +745,7 @@ export default function AddCollaboratorDialog({
         setSearchQuery("");
         setSelectedEmailCollaborators([]);
         setSelectedPhoneCollaborators([]);
-        setCustomMessage("");
+        setCustomMessage(DEFAULT_INVITE_MESSAGE);
         setSearchResults([]);
         onClose();
       }
@@ -760,7 +772,7 @@ export default function AddCollaboratorDialog({
             Add Users
           </DialogTitle>
           <DialogDescription>
-            Invite people to users on this story. They'll receive an email invitation with access based on the role you assign.
+            Invite people to users on this campaign. They'll receive an email invitation with access based on the role you assign.
           </DialogDescription>
         </DialogHeader>
 
@@ -1159,7 +1171,7 @@ export default function AddCollaboratorDialog({
               <p><strong>Viewer:</strong> Can view and comment on moments</p>
               <p><strong>Contributor:</strong> Can add moments and comment</p>
               <p><strong>Admin - Partial Access:</strong> Access to selected categories only</p>
-              <p><strong>Admin - Full Access:</strong> Full access to manage collaborators and story settings</p>
+              <p><strong>Admin - Full Access:</strong> Full access to manage collaborators and campaign settings</p>
               {hasProperty && <p><strong>Collaborator:</strong> Added to this property</p>}
             </div>
 
@@ -1266,20 +1278,34 @@ export default function AddCollaboratorDialog({
             )}
           </div>
 
-          {/* Custom Message */}
+          {/* Personalized Message — author name is a fixed (non-editable) prefix; the rest is editable */}
           <div className="space-y-3">
             <label className="text-sm font-medium text-gray-700">Custom Message (Optional)</label>
-            <Textarea
-              placeholder="Add a personal message to the invitation..."
-              value={customMessage}
-              onChange={(e) => setCustomMessage(e.target.value)}
-              rows={2}
-              className={`resize-none bg-gray-50 outline-none focus:outline-none focus-visible:outline-none ring-0 focus:ring-1 focus-visible:ring-1 transition-colors placeholder:text-gray-400 ${
-                customMessage.trim()
-                  ? 'border-black focus:border-black focus:ring-black focus-visible:border-black focus-visible:ring-black'
-                  : 'border-gray-200 focus:border-gray-400 focus:ring-gray-300 focus-visible:border-gray-400 focus-visible:ring-gray-300'
-              }`}
-            />
+            <div className="relative border border-gray-300 rounded-lg px-3 py-3 bg-white focus-within:border-gray-400">
+              {/* Author name: non-editable overlay sitting on the first line */}
+              <span
+                ref={measureNameRef}
+                className="absolute left-3 top-3 text-sm font-semibold text-gray-900 whitespace-nowrap pointer-events-none"
+              >
+                {user?.name || 'You'}
+              </span>
+              <textarea
+                value={customMessage}
+                onChange={(e) => setCustomMessage(e.target.value.slice(0, 200))}
+                onBlur={() => {
+                  // If the user clears the message, restore the default pre-written text
+                  if (!customMessage.trim()) {
+                    setCustomMessage(DEFAULT_INVITE_MESSAGE);
+                  }
+                }}
+                placeholder="Add a personal message to the invitation..."
+                rows={4}
+                maxLength={200}
+                style={{ textIndent: personalizedNameWidth ? `${personalizedNameWidth}px` : undefined }}
+                className="w-full h-28 p-0 resize-none text-sm text-gray-800 bg-transparent outline-none border-0 focus:ring-0 placeholder:text-gray-400"
+              />
+            </div>
+            <p className="text-xs text-gray-400 mt-1 text-right">{customMessage.length}/200 characters</p>
           </div>
 
           {/* Action Buttons */}

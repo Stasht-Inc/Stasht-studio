@@ -2652,6 +2652,7 @@ export const dashboardAPI = {
   addMemoryCollaborator: async (memoryId: string, collaboratorData: {
     emails: string[];
     role: 'view' | 'edit' | 'admin';
+    personalize_message?: string;
   }): Promise<ApiResponse<any>> => {
     console.log(`dashboardAPI.addMemoryCollaborator: Adding collaborator(s) to memory ID ${memoryId}`);
     console.log('Collaborator Data:', collaboratorData);
@@ -2665,10 +2666,15 @@ export const dashboardAPI = {
     };
 
     // Prepare request body in the exact format expected by the API
-    const requestBody = {
+    const requestBody: any = {
       emails: collaboratorData.emails,
       role: roleMapping[collaboratorData.role] || collaboratorData.role
     };
+
+    // Include optional personalized invite message when provided
+    if (collaboratorData.personalize_message) {
+      requestBody.personalize_message = collaboratorData.personalize_message;
+    }
 
     console.log('Final request body:', requestBody);
 
@@ -2683,6 +2689,7 @@ export const dashboardAPI = {
     phones: string[];
     role: 'view' | 'edit' | 'admin';
     message?: string;
+    personalize_message?: string;
   }): Promise<ApiResponse<any>> => {
     console.log(`dashboardAPI.addMemoryCollaboratorByPhone: Adding collaborator(s) by phone to memory ID ${memoryId}`);
     console.log('Collaborator Data:', collaboratorData);
@@ -2704,6 +2711,11 @@ export const dashboardAPI = {
     // Include name if provided (from CSV import) — must be a string
     if ((collaboratorData as any).names) {
       requestBody.name = String((collaboratorData as any).names);
+    }
+
+    // Include optional personalized invite message when provided
+    if (collaboratorData.personalize_message) {
+      requestBody.personalize_message = collaboratorData.personalize_message;
     }
 
     // Add optional message if provided
@@ -3187,6 +3199,13 @@ export const dashboardAPI = {
   // Track a view when someone opens a published memory from a shared link
   trackMemoryView: async (memoryId: string | number): Promise<ApiResponse<any>> => {
     return await apiRequest(`/memories/${memoryId}/track-view`, {
+      method: 'POST',
+    });
+  },
+
+  // Track a click on a CTA widget (public endpoint — increments the widget's click_count)
+  trackWidgetClick: async (memoryId: string | number, widgetId: string | number): Promise<ApiResponse<any>> => {
+    return await apiRequest(`/memories/${memoryId}/widgets/${widgetId}/track-click`, {
       method: 'POST',
     });
   },

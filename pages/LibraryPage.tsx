@@ -153,7 +153,7 @@ function normalizeFace(raw: RawFace, index: number): PersonCard {
     photoCount: raw.total_photos ?? 0,
     memoryCount: raw.memory_count ?? 0,
     coverPhotos: [rep, second].filter(Boolean),
-    tags: (raw.memories ?? []).slice(0, 3).map(m => m.memory_title ?? 'Memory'),
+    tags: (raw.memories ?? []).slice(0, 3).map(m => m.memory_title ?? 'Campaign'),
     bbox,
   };
 }
@@ -519,7 +519,7 @@ function PersonDetailView({
   // ── Local display state (updated optimistically on save) ──
   const [localName, setLocalName] = useState(face.name || `Person ${personNumber}`);
   const [localTags, setLocalTags] = useState<string[]>(
-    (face.memories ?? []).map(m => m.memory_title ?? 'Memory')
+    (face.memories ?? []).map(m => m.memory_title ?? 'Campaign')
   );
   const [localThumbnail, setLocalThumbnail] = useState<string>('');
 

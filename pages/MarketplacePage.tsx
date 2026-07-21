@@ -28,7 +28,7 @@ const widgets: Widget[] = [
     id: 'docusign',
     name: 'DocuSign',
     category: 'Digital Signatures',
-    description: 'Add documents to your stories that can be opened and signed with DocuSign. Perfect for important agreements, contracts, and legal documents that are part of your story.',
+    description: 'Add documents to your campaigns that can be opened and signed with DocuSign. Perfect for important agreements, contracts, and legal documents that are part of your campaign.',
     features: ['Attach signable documents', 'Track signature status', 'Secure document storage'],
     bannerLogo: '/docusign-logo.png',
     iconImage: '/docusign-icon.png',
@@ -38,7 +38,7 @@ const widgets: Widget[] = [
     id: 'autotrader',
     name: 'AutoTrader',
     category: 'Vehicle Marketplace',
-    description: 'Create stories from your vehicle listings and automotive adventures. Track your car collection journey, document restoration projects, and share memorable road trips with rich photo galleries.',
+    description: 'Create campaigns from your vehicle listings and automotive adventures. Track your car collection journey, document restoration projects, and share memorable road trips with rich photo galleries.',
     features: ['Import vehicle photos', 'Import specifications', 'Create product catalogs'],
     bannerLogo: '/autotrader-logo.png',
     iconImage: '/autotrader-icon.png',
@@ -571,7 +571,7 @@ export default function MarketplacePage() {
     <div className="p-6 sm:p-10 max-w-7xl">
       {/* Header */}
       <div className="mb-10">
-        <h1 className="text-3xl sm:text-4xl font-bold text-gray-900">Marketplace</h1>
+        <h1 className="text-3xl sm:text-4xl font-bold text-gray-900">Connectors</h1>
         <p className="text-gray-500 mt-2 text-base">Connect your favorite services and extend Stasht functionality</p>
       </div>
 

@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Avatar, AvatarFallback, AvatarImage } from '../components/ui/avatar';
 import { Badge } from '../components/ui/badge';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '../components/ui/dropdown-menu';
-import { dashboardAPI } from '../utils/authUtils';
+import { dashboardAPI, apiRequest } from '../utils/authUtils';
 import { useAuth } from '../contexts/AuthContext';
 import { useMemoryCounts } from '../hooks/useMemoryCounts';
 import InviteToMemoryModal from '../components/InviteToMemoryModal';
@@ -128,6 +128,7 @@ export default function UsersPage({ openConversationLeadId, onConversationOpened
 
   // Lead profile panel state
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
+  const [leadsUnreadCount, setLeadsUnreadCount] = useState<number>(0);
   const [leadsRefreshTrigger, setLeadsRefreshTrigger] = useState(0);
   const [leadsStatusFilter, setLeadsStatusFilter] = useState('all');
   const [commentaryTarget, setCommentaryTarget] = useState<CommentaryTarget | null>(null);
@@ -148,6 +149,26 @@ export default function UsersPage({ openConversationLeadId, onConversationOpened
       setSelectedConversation(null);
     }
   }, [activeTab]);
+
+  // Fetch the unread leads count for the red badge on the Leads tab (same
+  // source as the Sidebar's Users badge). Refreshes on the shared event so
+  // both stay in sync when leads are read.
+  const fetchLeadsUnreadCount = () => {
+    if (!isAuthenticated) return;
+    apiRequest('/leads/unread-count', { method: 'GET' }).then((data: any) => {
+      const unread = data?.data?.total_unread ?? data?.total_unread ?? 0;
+      setLeadsUnreadCount(typeof unread === 'number' ? unread : 0);
+    }).catch(() => {});
+  };
+
+  useEffect(() => {
+    fetchLeadsUnreadCount();
+  }, [isAuthenticated]);
+
+  useEffect(() => {
+    window.addEventListener('leads-unread-count-refresh', fetchLeadsUnreadCount);
+    return () => window.removeEventListener('leads-unread-count-refresh', fetchLeadsUnreadCount);
+  }, [isAuthenticated]);
 
   // Deep-link from a lead_message notification: open the Leads tab and the
   // matching conversation thread, then clear the pending id so it doesn't reopen.
@@ -1478,7 +1499,14 @@ export default function UsersPage({ openConversationLeadId, onConversationOpened
                     : 'text-gray-600 hover:text-gray-900'
                 }`}
               >
-                Leads
+                <span className="inline-flex items-center gap-1.5">
+                  Leads
+                  {leadsUnreadCount > 0 && (
+                    <span className="flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-lg bg-red-500 text-white text-[10px] font-bold leading-none">
+                      {leadsUnreadCount}
+                    </span>
+                  )}
+                </span>
               </button>
               <button
                 onClick={() => setActiveTab('shared-with')}
@@ -1890,7 +1918,7 @@ export default function UsersPage({ openConversationLeadId, onConversationOpened
                             )}
                             {user.memory?.title && !user.property?.name && (
                               <p className="text-xs text-gray-500 mb-1">
-                                Memory: {user.memory.title}
+                                Campaign: {user.memory.title}
                               </p>
                             )}
                             <p className="text-xs text-gray-500 truncate mb-2">{user.email}</p>

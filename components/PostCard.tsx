@@ -1471,7 +1471,7 @@ export default function PostCard({ post, variant = 'thumbnail', onContentUpdate,
                         onClick={async (e) => {
                           e.stopPropagation();
 
-                          const postTitle = post.title || post.name || 'Check out this memory';
+                          const postTitle = post.title || post.name || 'Check out this campaign';
                           const postDescription = currentContent || post.content || '';
                           const postLocation = post.location || '';
                           const postDate = post.date || post.dateTaken || '';
@@ -1550,7 +1550,7 @@ export default function PostCard({ post, variant = 'thumbnail', onContentUpdate,
                         onClick={async (e) => {
                           e.stopPropagation();
 
-                          const postTitle = post.title || post.name || 'Check out this memory';
+                          const postTitle = post.title || post.name || 'Check out this campaign';
                           const postDescription = currentContent || post.content || '';
                           const postLocation = post.location || (typeof currentImageLocation === 'string' ? currentImageLocation : currentImageLocation?.displayName) || '';
                           const imageUrl = post.image || currentImageData?.src || '';
@@ -1610,7 +1610,7 @@ export default function PostCard({ post, variant = 'thumbnail', onContentUpdate,
                           e.stopPropagation();
 
                           // Prepare post data
-                          const postTitle = post.title || post.name || 'Check out this memory';
+                          const postTitle = post.title || post.name || 'Check out this campaign';
                           const postDescription = currentContent || post.content || '';
                           const postLocation = post.location || (typeof currentImageLocation === 'string' ? currentImageLocation : currentImageLocation?.displayName) || '';
                           const postDate = post.date || post.dateTaken || '';
@@ -1919,7 +1919,7 @@ export default function PostCard({ post, variant = 'thumbnail', onContentUpdate,
                         <Textarea
                           value={editData.content}
                           onChange={(e) => setEditData(prev => ({ ...prev, content: e.target.value }))}
-                          placeholder="Add a description for this memory..."
+                          placeholder="Add a description for this campaign..."
                           rows={3}
                           className="text-sm resize-none"
                         />
@@ -2413,8 +2413,8 @@ export default function PostCard({ post, variant = 'thumbnail', onContentUpdate,
               {(!memoryPublished || memoryPublished === 3) && (
                 <div className="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-lg">
                   <p className="text-sm text-amber-800">
-                    <strong>Note:</strong> To share individual posts, the memory must be published first.
-                    Please publish your memory to enable post sharing.
+                    <strong>Note:</strong> To share individual posts, the campaign must be published first.
+                    Please publish your campaign to enable post sharing.
                   </p>
                 </div>
               )}

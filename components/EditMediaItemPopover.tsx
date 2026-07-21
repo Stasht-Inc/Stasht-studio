@@ -617,7 +617,7 @@ export function EditMediaItemPopover({
                             ) : (
                               <>
                                 <h3 className="text-sm font-medium text-gray-900 truncate">
-                                  {memoryTitle || 'Memory'}
+                                  {memoryTitle || 'Campaign'}
                                 </h3>
                                 <div className="flex items-center gap-2 mt-0.5">
                                   <p className="text-xs text-gray-500">

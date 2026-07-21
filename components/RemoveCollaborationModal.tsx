@@ -41,12 +41,12 @@ export function RemoveCollaborationModal({
 
           {/* Title */}
           <h2 className="text-xl font-semibold text-gray-900 mb-3 text-center">
-            Remove from Memory?
+            Remove from Campaign?
           </h2>
 
           {/* Message */}
           <p className="text-sm text-gray-600 mb-6 leading-relaxed text-center">
-            Are you sure you want to remove yourself from the memory account? This action cannot be undone.
+            Are you sure you want to remove yourself from the campaign account? This action cannot be undone.
           </p>
 
           {/* Buttons */}

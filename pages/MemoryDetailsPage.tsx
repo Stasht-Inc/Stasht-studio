@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { Helmet } from 'react-helmet-async';
-import { ArrowLeft, Calendar, MapPin, Eye, EyeOff, Heart, Edit, Globe, ImageIcon, Clock, MessageSquare, BarChart3, Users, Activity, X, Save, Link, Mail, Copy, Twitter, Facebook, CheckCircle, Shield, UserX, FileText, Plus, Upload, SortAsc, SortDesc, Trash2, Sparkles, UserCircle, Zap, Package, QrCode, Download, Lock, Share2, Linkedin, Code, Send, MoreVertical, Camera, ChevronLeft, ChevronRight, Search, FolderOpen, Type, Play, Pause, HardDrive, Video, Tag, Star, TrendingUp, Mic, Phone, BookOpen } from "lucide-react";
+import { ArrowLeft, Calendar, MapPin, Eye, EyeOff, Heart, Edit, Globe, ImageIcon, Clock, MessageSquare, BarChart3, Users, Activity, X, Save, Link, Mail, Copy, Twitter, Facebook, CheckCircle, Shield, UserX, FileText, Plus, Upload, SortAsc, SortDesc, Trash2, Sparkles, UserCircle, Zap, Pointer, Package, QrCode, Download, Lock, Share2, Linkedin, Code, Send, MoreVertical, Camera, ChevronLeft, ChevronRight, Search, FolderOpen, Type, Play, Pause, HardDrive, Video, Tag, Star, TrendingUp, Mic, Phone, BookOpen, ArrowRight, ExternalLink, ShoppingCart, Gift } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
 import { useProperty } from "../contexts/PropertyContext";
 import WeeklyEngCard from "../imports/WeeklyEngCard";
@@ -245,6 +245,125 @@ interface MemoryDetailsProps {
   onNavigate?: (page: string) => void;
   onMemorySelect?: (memoryId: string) => void;
   initialProperties?: { id: number; name: string; image?: string | null }[];
+}
+
+// ── Call to Action (CTA) widget helpers ──────────────────────────────────────
+// Shape stored in widget_data: { title, buttonText, buttonLink, buttonColor, textColor, icon, iconSize }
+type CtaWidget = {
+  id: string;
+  title: string;
+  buttonText: string;
+  buttonLink: string;
+  buttonColor: string;
+  textColor: string;
+  icon: string;
+  iconSize: number;
+  buttonWidth: number; // 0 = full width (fills card); otherwise fixed width in px
+  fontSize: number;    // button text font size in px
+  borderRadius: number; // button corner radius in px
+  afterPostId: string | null;
+  widget_order: number;
+  createdAt: number;
+};
+
+// Fixed icon set offered for CTA buttons (key must match the imported lucide component)
+const CTA_ICONS: Record<string, React.ComponentType<{ style?: React.CSSProperties; className?: string }>> = {
+  ArrowRight, ExternalLink, Link, ShoppingCart, Phone, Mail, Calendar, Download, Play, Heart, Star, Gift, MapPin, Send,
+};
+const CTA_ICON_KEYS = Object.keys(CTA_ICONS);
+const CTA_DEFAULT_BUTTON_COLOR = '#6C60FF';
+const CTA_DEFAULT_TEXT_COLOR = '#FFFFFF';
+const CTA_DEFAULT_ICON_SIZE = 18;
+const CTA_DEFAULT_FONT_SIZE = 16;
+const CTA_DEFAULT_BUTTON_WIDTH = 0; // 0 = full width (fills card); otherwise fixed width in px
+const CTA_DEFAULT_BORDER_RADIUS = 12; // button corner radius in px (rounded by default)
+
+// Ensure the URL has a scheme so the anchor navigates to an absolute address
+function ctaNormalizeUrl(url: string): string {
+  const u = (url || '').trim();
+  if (!u) return '';
+  return /^https?:\/\//i.test(u) ? u : `https://${u}`;
+}
+// Valid only if it parses as an http(s) URL (scheme optional in input; we prepend https://)
+function ctaIsValidUrl(url: string): boolean {
+  const u = (url || '').trim();
+  if (!u) return false;
+  try {
+    const parsed = new URL(ctaNormalizeUrl(u));
+    return (parsed.protocol === 'http:' || parsed.protocol === 'https:') && !!parsed.hostname && parsed.hostname.includes('.');
+  } catch {
+    return false;
+  }
+}
+
+// Presentational CTA card used in every content panel (owner / shared / mobile).
+// Pass onEdit/onDelete (e.g. on mobile, where there's no sidebar) to show a three-dot menu.
+function CTAWidgetCard({ widget, cardRef, isActive, onEdit, onDelete, memoryId }: {
+  widget: CtaWidget;
+  cardRef?: (el: HTMLDivElement | null) => void;
+  isActive?: boolean;
+  onEdit?: () => void;
+  onDelete?: () => void;
+  memoryId?: string | null;
+}) {
+  const Icon = widget.icon ? CTA_ICONS[widget.icon] : undefined;
+  const size = widget.iconSize || CTA_DEFAULT_ICON_SIZE;
+  const href = ctaNormalizeUrl(widget.buttonLink);
+  // Fire-and-forget click tracking; never block or delay the link from opening
+  const trackCtaClick = () => {
+    if (!memoryId || !widget.id) return;
+    try { dashboardAPI.trackWidgetClick(memoryId, widget.id).catch(() => {}); } catch { /* ignore */ }
+  };
+  return (
+    <div
+      ref={cardRef}
+      data-cta-widget-id={widget.id}
+      className={`relative rounded-2xl bg-white p-6 flex flex-col items-center text-center gap-4 ${isActive ? 'border-2 border-[#6C60FF]' : 'border border-gray-100'}`}
+    >
+      {(onEdit || onDelete) && (
+        <div className="absolute top-2 right-2 z-10">
+          <Popover>
+            <PopoverTrigger asChild>
+              <div className="cursor-pointer p-1" onClick={(e) => e.stopPropagation()}>
+                <MoreVertical className="w-5 h-5 text-[#6C60FF]" />
+              </div>
+            </PopoverTrigger>
+            <PopoverContent side="bottom" align="end" className="w-44 p-1 rounded-lg shadow-lg border border-gray-200 bg-white" sideOffset={4}>
+              {onEdit && (
+                <div className="flex items-center gap-2.5 px-3 py-2 hover:bg-gray-50 cursor-pointer rounded-md transition-colors" onClick={(e) => { e.stopPropagation(); onEdit(); }}>
+                  <Edit className="w-4 h-4 text-[#6C60FF]" /><span className="text-sm text-gray-700">Edit</span>
+                </div>
+              )}
+              {onDelete && (
+                <div className="flex items-center gap-2.5 px-3 py-2 hover:bg-red-50 cursor-pointer rounded-md transition-colors" onClick={(e) => { e.stopPropagation(); onDelete(); }}>
+                  <Trash2 className="w-4 h-4 text-red-500" /><span className="text-sm text-red-500">Delete</span>
+                </div>
+              )}
+            </PopoverContent>
+          </Popover>
+        </div>
+      )}
+      {widget.title && <h3 className="text-xl font-bold text-gray-900 break-words">{widget.title}</h3>}
+      <a
+        href={href || undefined}
+        target="_blank"
+        rel="noopener noreferrer"
+        onClick={(e) => { if (!href) e.preventDefault(); trackCtaClick(); }}
+        className="inline-flex items-center justify-center gap-2 px-6 py-3 font-semibold transition-opacity hover:opacity-90 no-underline"
+        style={{
+          backgroundColor: widget.buttonColor || CTA_DEFAULT_BUTTON_COLOR,
+          color: widget.textColor || CTA_DEFAULT_TEXT_COLOR,
+          fontSize: widget.fontSize || CTA_DEFAULT_FONT_SIZE,
+          borderRadius: `${widget.borderRadius ?? CTA_DEFAULT_BORDER_RADIUS}px`,
+          width: widget.buttonWidth ? `${widget.buttonWidth}px` : '100%',
+          maxWidth: '100%',
+        }}
+      >
+        {Icon && <Icon style={{ width: size, height: size }} />}
+        <span>{widget.buttonText || 'Learn More'}</span>
+      </a>
+    </div>
+  );
 }
 
 // TimelinePostCard - PublishedPostCard-style card for the overview tab scroll view
@@ -686,6 +805,8 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
   // Publish history state
   const [publishHistory, setPublishHistory] = useState<any[]>([]);
   const [isLoadingPublishHistory, setIsLoadingPublishHistory] = useState(false);
+  // CTA widget click analytics — [{ widget_id, title, click_count }]
+  const [ctaAnalytics, setCtaAnalytics] = useState<Array<{ widget_id: string | number; title: string; click_count: number }>>([]);
   
   const isMobile = useIsMobile();
 
@@ -1765,6 +1886,95 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
   const [editingQuoteWidgetId, setEditingQuoteWidgetId] = useState<string | null>(null);
   const [activeQuoteWidgetId, setActiveQuoteWidgetId] = useState<string | null>(null);
   const quoteWidgetCardRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  // Call to Action (CTA) widget state
+  const [isAddCtaModalOpen, setIsAddCtaModalOpen] = useState(false);
+  const [ctaTitle, setCtaTitle] = useState('');
+  const [ctaButtonText, setCtaButtonText] = useState('');
+  const [ctaButtonLink, setCtaButtonLink] = useState('');
+  const [ctaButtonColor, setCtaButtonColor] = useState(CTA_DEFAULT_BUTTON_COLOR);
+  const [ctaTextColor, setCtaTextColor] = useState(CTA_DEFAULT_TEXT_COLOR);
+  const [ctaIcon, setCtaIcon] = useState('');
+  const [ctaIconSize, setCtaIconSize] = useState(CTA_DEFAULT_ICON_SIZE);
+  const [ctaButtonWidth, setCtaButtonWidth] = useState(CTA_DEFAULT_BUTTON_WIDTH);
+  const [ctaFontSize, setCtaFontSize] = useState(CTA_DEFAULT_FONT_SIZE);
+  const [ctaBorderRadius, setCtaBorderRadius] = useState(CTA_DEFAULT_BORDER_RADIUS);
+  const [ctaWidgets, setCtaWidgets] = useState<CtaWidget[]>([]);
+  // Widgets returned by the API with admin_approval === 0 (pending). Kept out of the
+  // timeline and surfaced in the Moderation tab for the owner to approve/deny.
+  const [pendingWidgets, setPendingWidgets] = useState<any[]>([]);
+  const [ctaWidgetAfterPostId, setCtaWidgetAfterPostId] = useState<string | null>(null);
+  const [editingCtaWidgetId, setEditingCtaWidgetId] = useState<string | null>(null);
+  const [activeCtaWidgetId, setActiveCtaWidgetId] = useState<string | null>(null);
+  const ctaWidgetCardRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  // Reset the CTA form back to defaults
+  const resetCtaForm = () => {
+    setCtaTitle(''); setCtaButtonText(''); setCtaButtonLink('');
+    setCtaButtonColor(CTA_DEFAULT_BUTTON_COLOR); setCtaTextColor(CTA_DEFAULT_TEXT_COLOR);
+    setCtaIcon(''); setCtaIconSize(CTA_DEFAULT_ICON_SIZE);
+    setCtaButtonWidth(CTA_DEFAULT_BUTTON_WIDTH); setCtaFontSize(CTA_DEFAULT_FONT_SIZE);
+    setCtaBorderRadius(CTA_DEFAULT_BORDER_RADIUS);
+    setCtaWidgetAfterPostId(null); setEditingCtaWidgetId(null);
+  };
+  // Open the CTA modal pre-filled for editing an existing widget
+  const openEditCta = (widget: CtaWidget) => {
+    setEditingCtaWidgetId(widget.id);
+    setCtaTitle(widget.title);
+    setCtaButtonText(widget.buttonText);
+    setCtaButtonLink(widget.buttonLink);
+    setCtaButtonColor(widget.buttonColor || CTA_DEFAULT_BUTTON_COLOR);
+    setCtaTextColor(widget.textColor || CTA_DEFAULT_TEXT_COLOR);
+    setCtaIcon(widget.icon || '');
+    setCtaIconSize(widget.iconSize || CTA_DEFAULT_ICON_SIZE);
+    setCtaButtonWidth(widget.buttonWidth || CTA_DEFAULT_BUTTON_WIDTH);
+    setCtaFontSize(widget.fontSize || CTA_DEFAULT_FONT_SIZE);
+    setCtaBorderRadius(widget.borderRadius ?? CTA_DEFAULT_BORDER_RADIUS);
+    setIsAddCtaModalOpen(true);
+  };
+  // Delete a CTA widget
+  const deleteCta = (widget: CtaWidget) => {
+    apiRequest(`/memories/${memoryId}/widgets/${widget.id}`, { method: 'DELETE' })
+      .then(() => setCtaWidgets(prev => prev.filter(w => w.id !== widget.id)))
+      .catch(() => toast.error('Failed to delete call to action'));
+    toast.success('Call to action deleted');
+  };
+  // Duplicate a CTA widget – uses the same create API as adding a new CTA
+  const duplicateCta = async (widget: CtaWidget) => {
+    const widget_data = {
+      title: widget.title,
+      buttonText: widget.buttonText,
+      buttonLink: widget.buttonLink,
+      buttonColor: widget.buttonColor,
+      textColor: widget.textColor,
+      icon: widget.icon,
+      iconSize: widget.iconSize,
+      buttonWidth: widget.buttonWidth,
+      fontSize: widget.fontSize,
+      borderRadius: widget.borderRadius,
+    };
+    try {
+      const sameGroup = [...htmlWidgets, ...youtubeWidgets, ...quoteWidgets, ...ctaWidgets].filter(w => w.afterPostId === widget.afterPostId);
+      const widget_order = sameGroup.length > 0 ? Math.max(...sameGroup.map(w => w.widget_order)) + 1 : 0;
+      const res = await apiRequest(`/memories/${memoryId}/widgets`, {
+        method: 'POST',
+        body: JSON.stringify({
+          widget_type: 'cta',
+          after_post_id: widget.afterPostId,
+          widget_order,
+          widget_data,
+        }),
+      });
+      if (!res.success) { toast.error('Failed to duplicate call to action'); return; }
+      const cRaw = res.data?.data || res.data;
+      setCtaWidgets(prev => [...prev, {
+        id: cRaw?.id?.toString() || `cta_${Date.now()}`,
+        ...widget_data,
+        afterPostId: widget.afterPostId,
+        widget_order,
+        createdAt: Date.now(),
+      }]);
+      toast.success('Call to action duplicated');
+    } catch { toast.error('Failed to duplicate call to action'); }
+  };
   const [addHtmlTitle, setAddHtmlTitle] = useState('');
   const [addHtmlContent, setAddHtmlContent] = useState('');
   const [htmlWidgets, setHtmlWidgets] = useState<Array<{ id: string; title: string; content: string; afterPostId: string | null; widget_order: number; createdAt: number; updatedAt: number }>>([]);
@@ -2100,6 +2310,21 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
   const [isSubmittingAddMoment, setIsSubmittingAddMoment] = useState(false);
   const [showDocuSignSendModal, setShowDocuSignSendModal] = useState(false);
   const [docuSignPostId, setDocuSignPostId] = useState<string | null>(null);
+  // DocuSign is only shown in the widget menu when the integration is connected/activated
+  const [docuSignConnected, setDocuSignConnected] = useState(false);
+
+  useEffect(() => {
+    let isMounted = true;
+    (async () => {
+      try {
+        const res = await dashboardAPI.docuSignGetStatus();
+        if (isMounted) setDocuSignConnected(!!res?.data?.connected);
+      } catch {
+        if (isMounted) setDocuSignConnected(false);
+      }
+    })();
+    return () => { isMounted = false; };
+  }, []);
 
   // Drag-and-drop reorder state
   const [mediaCustomOrder, setMediaCustomOrder] = useState<string[]>([]);
@@ -2515,12 +2740,21 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
           ? response.data.data
           : [];
         setPublishHistory(list);
+        // CTA click analytics — may sit at the top level or nested under data
+        const cta = Array.isArray(response.data?.cta_widgets)
+          ? response.data.cta_widgets
+          : Array.isArray(response.data?.data?.cta_widgets)
+          ? response.data.data.cta_widgets
+          : [];
+        setCtaAnalytics(cta);
       } else {
         setPublishHistory([]);
+        setCtaAnalytics([]);
       }
     } catch (error) {
       console.error('Error fetching publish history:', error);
       setPublishHistory([]);
+      setCtaAnalytics([]);
     } finally {
       setIsLoadingPublishHistory(false);
     }
@@ -2533,8 +2767,18 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
       const response = await apiRequest(`/memories/${memoryId}/widgets`, { method: 'GET' });
       if (!response.success) return;
       const raw = response.data?.data || response.data;
-      const widgets = Array.isArray(raw) ? raw : null;
-      if (!widgets) return;
+      const allWidgets = Array.isArray(raw) ? raw : null;
+      if (!allWidgets) return;
+
+      // Pending widgets (admin_approval === 0) are held back from the timeline and
+      // shown in the Moderation tab; only approved widgets populate the display states.
+      const isPending = (w: any) => w.admin_approval === 0 || w.admin_approval === '0';
+      setPendingWidgets(
+        allWidgets
+          .filter((w: any) => isPending(w))
+          .sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+      );
+      const widgets = allWidgets.filter((w: any) => !isPending(w));
 
       setHtmlWidgets(
         widgets
@@ -2574,6 +2818,28 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
             id: w.id?.toString() || `q_${Date.now()}_${Math.random()}`,
             text: w.widget_data?.text || '',
             author: w.widget_data?.author || '',
+            afterPostId: w.after_post_id ? w.after_post_id.toString() : null,
+            widget_order: w.widget_order,
+            createdAt: new Date(w.created_at).getTime(),
+          }))
+      );
+
+      setCtaWidgets(
+        widgets
+          .filter((w: any) => w.widget_type === 'cta')
+          .sort((a: any, b: any) => a.widget_order - b.widget_order)
+          .map((w: any) => ({
+            id: w.id?.toString() || `cta_${Date.now()}_${Math.random()}`,
+            title: w.widget_data?.title || '',
+            buttonText: w.widget_data?.buttonText || '',
+            buttonLink: w.widget_data?.buttonLink || '',
+            buttonColor: w.widget_data?.buttonColor || CTA_DEFAULT_BUTTON_COLOR,
+            textColor: w.widget_data?.textColor || CTA_DEFAULT_TEXT_COLOR,
+            icon: w.widget_data?.icon || '',
+            iconSize: w.widget_data?.iconSize || CTA_DEFAULT_ICON_SIZE,
+            buttonWidth: w.widget_data?.buttonWidth || CTA_DEFAULT_BUTTON_WIDTH,
+            fontSize: w.widget_data?.fontSize || CTA_DEFAULT_FONT_SIZE,
+            borderRadius: w.widget_data?.borderRadius ?? CTA_DEFAULT_BORDER_RADIUS,
             afterPostId: w.after_post_id ? w.after_post_id.toString() : null,
             widget_order: w.widget_order,
             createdAt: new Date(w.created_at).getTime(),
@@ -2739,6 +3005,15 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
     fetchMemoryActivity();
     fetchPublishHistory();
   }, [memoryId]);
+
+  // Refresh Analytics tab data every time the tab is opened so it reflects the
+  // latest server state — publish history (incl. CTA click counts) and recent activity.
+  useEffect(() => {
+    if (activeTab === 'analytics') {
+      fetchPublishHistory();
+      fetchMemoryActivity();
+    }
+  }, [activeTab]);
 
   // After caption save + data refresh, scroll back to the saved post
   useEffect(() => {
@@ -3029,7 +3304,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
       const uniquePhotoUrls = [...new Set(photoUrls)];
 
       if (uniquePhotoUrls.length === 0) {
-        toast.error('No images found in this memory to scan');
+        toast.error('No images found in this campaign to scan');
         setIsAiScanning(false);
         return;
       }
@@ -3293,6 +3568,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
               const widgetId = entry.target.getAttribute('data-widget-id');
               const ytWidgetId = entry.target.getAttribute('data-yt-widget-id');
               const quoteWId = entry.target.getAttribute('data-quote-widget-id');
+              const ctaWId = entry.target.getAttribute('data-cta-widget-id');
               const lmId = entry.target.getAttribute('data-lm-id');
               const index = Number(entry.target.getAttribute('data-index'));
               if (lmId) {
@@ -3301,8 +3577,17 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                 setActiveHtmlWidgetId(null);
                 setActiveYoutubeWidgetId(null);
                 setActiveQuoteWidgetId(null);
+                setActiveCtaWidgetId(null);
               } else if (quoteWId) {
                 setActiveQuoteWidgetId(quoteWId);
+                setActiveYoutubeWidgetId(null);
+                setActiveHtmlWidgetId(null);
+                setActiveCtaWidgetId(null);
+                setActiveMemoryIndex(-1);
+                setActiveLmId(null);
+              } else if (ctaWId) {
+                setActiveCtaWidgetId(ctaWId);
+                setActiveQuoteWidgetId(null);
                 setActiveYoutubeWidgetId(null);
                 setActiveHtmlWidgetId(null);
                 setActiveMemoryIndex(-1);
@@ -3311,12 +3596,14 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                 setActiveYoutubeWidgetId(ytWidgetId);
                 setActiveQuoteWidgetId(null);
                 setActiveHtmlWidgetId(null);
+                setActiveCtaWidgetId(null);
                 setActiveMemoryIndex(-1);
                 setActiveLmId(null);
               } else if (widgetId) {
                 setActiveHtmlWidgetId(widgetId);
                 setActiveYoutubeWidgetId(null);
                 setActiveQuoteWidgetId(null);
+                setActiveCtaWidgetId(null);
                 setActiveMemoryIndex(-1);
                 setActiveLmId(null);
               } else if (!isNaN(index)) {
@@ -3324,6 +3611,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                 setActiveHtmlWidgetId(null);
                 setActiveYoutubeWidgetId(null);
                 setActiveQuoteWidgetId(null);
+                setActiveCtaWidgetId(null);
                 setActiveLmId(null);
               }
             }
@@ -3347,6 +3635,9 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
       Object.values(quoteWidgetCardRefs.current).forEach((ref) => {
         if (ref) observer.observe(ref);
       });
+      Object.values(ctaWidgetCardRefs.current).forEach((ref) => {
+        if (ref) observer.observe(ref);
+      });
       Object.values(linkedMemoryCardRefs.current).forEach((ref) => {
         if (ref) observer.observe(ref);
       });
@@ -3355,7 +3646,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
       cancelAnimationFrame(rafId);
       observer?.disconnect();
     };
-  }, [htmlWidgets, youtubeWidgets, quoteWidgets, apiMemoryData, activeTab, combinedTimeline]);
+  }, [htmlWidgets, youtubeWidgets, quoteWidgets, ctaWidgets, apiMemoryData, activeTab, combinedTimeline]);
 
   // Shared view: scroll listener → shows sticky header once user scrolls past the cover image
   useEffect(() => {
@@ -3389,7 +3680,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
     );
     cards.forEach((ref) => { if (ref) observer.observe(ref); });
     return () => observer.disconnect();
-  }, [apiMemoryData, htmlWidgets, youtubeWidgets, quoteWidgets]);
+  }, [apiMemoryData, htmlWidgets, youtubeWidgets, quoteWidgets, ctaWidgets]);
 
   // Shared view: auto-scroll sidebar timeline item when activeMemoryIndex changes
   useEffect(() => {
@@ -3658,12 +3949,14 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
   // Filter pending posts for moderation (admin_approval = 0) - these should only appear in moderation tab
   const pendingPosts = rawApiPosts ? rawApiPosts.filter((post: any) => post.admin_approval === 0 || post.admin_approval === '0') : [];
   const pendingPostsCount = pendingPosts.length;
+  // Combined moderation count = pending moments + pending widgets (both awaiting approval)
+  const pendingModerationCount = pendingPostsCount + pendingWidgets.length;
 
   // Dynamic tab configuration - all tabs defined here with their conditions
   const tabItems = [
     { key: 'overview', label: 'Timeline', enabled: true, icon: 'clock', badge: 0 },
     { key: 'analytics', label: 'Analytics', enabled: true, icon: 'chart', badge: 0 },
-    { key: 'moderation', label: 'Moderation', enabled: shouldShowModeration, icon: 'shield', badge: shouldShowModeration ? pendingPostsCount : 0 },
+    { key: 'moderation', label: 'Moderation', enabled: shouldShowModeration, icon: 'shield', badge: shouldShowModeration ? pendingModerationCount : 0 },
     { key: 'collaborators', label: 'Users', enabled: true, icon: 'users', badge: 0 },
   ];
 
@@ -5349,6 +5642,34 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
     }
   };
 
+  // Widget moderation — approve makes the widget visible on the timeline; deny hard-deletes it.
+  // Both are POST with no body; afterwards we refetch so pending/approved lists stay in sync.
+  const handleApproveWidget = async (widget: any) => {
+    if (!memoryId || !widget?.id) return;
+    try {
+      const res = await apiRequest(`/memories/${memoryId}/widgets/${widget.id}/approve`, { method: 'POST' });
+      if (!res.success) { toast.error('Failed to approve widget'); return; }
+      toast.success('Widget approved!');
+      await fetchWidgets();
+    } catch (error) {
+      console.error('❌ Error approving widget:', error);
+      toast.error('Failed to approve widget');
+    }
+  };
+
+  const handleDenyWidget = async (widget: any) => {
+    if (!memoryId || !widget?.id) return;
+    try {
+      const res = await apiRequest(`/memories/${memoryId}/widgets/${widget.id}/deny`, { method: 'POST' });
+      if (!res.success) { toast.error('Failed to deny widget'); return; }
+      toast.success('Widget denied!');
+      await fetchWidgets();
+    } catch (error) {
+      console.error('❌ Error denying widget:', error);
+      toast.error('Failed to deny widget');
+    }
+  };
+
   const handleAddCollaborator = async (newCollaborator: Collaborator) => {
     try {
       // The API call is already made in AddCollaboratorDialog component
@@ -6258,7 +6579,8 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
         updateData.title = updates.title;
       }
 
-      if (updates.description !== undefined && updates.description.trim() !== '') {
+      // Send even when empty so the user can clear the description
+      if (updates.description !== undefined) {
         updateData.description = updates.description;
       }
 
@@ -6266,7 +6588,8 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
         updateData.capture_date = updates.capture_date;
       }
 
-      if (updates.location?.displayName !== undefined && updates.location.displayName.trim() !== '') {
+      // Send even when empty so the user can clear the location
+      if (updates.location?.displayName !== undefined) {
         updateData.location = updates.location.displayName;
       }
 
@@ -6611,6 +6934,95 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
   };
 
   // Plus Divider between post cards (mobile only)
+  // Reusable "+" Add-Widget divider used inside desktop sidebar timeline entries (incl. CTA)
+  const renderSidebarAddWidgetPlus = (afterPostId: string | null) => {
+    const items: Array<{ icon: React.ReactNode; label: string; desc: string }> = [
+      { icon: <Clock className="w-5 h-5 text-[#009689]" />, label: 'Moment', desc: 'Add a special moment' },
+      { icon: <Pointer className="w-5 h-5 text-[#6C60FF]" />, label: 'Call to Action', desc: 'Add a button with a link' },
+      { icon: <Mic className="w-5 h-5 text-[#6C60FF]" />, label: 'Voice to Text', desc: 'Create moment captions' },
+      { icon: <Code className="w-5 h-5 text-[#6C60FF]" />, label: 'HTML', desc: 'Add custom HTML content' },
+      { icon: <Video className="w-5 h-5 text-[#FF4444]" />, label: 'Youtube', desc: 'Embed a YouTube link' },
+      { icon: <MessageSquare className="w-5 h-5 text-[#F59E0B]" />, label: 'Quote', desc: 'Add an inspirational quote' },
+      ...(docuSignConnected ? [{ icon: <FileText className="w-5 h-5 text-[#1464A5]" />, label: 'DocuSign', desc: 'Send for signature' }] : []),
+    ];
+    return (
+      <div className="relative mt-8">
+        <div className="border-b border-dashed border-[#6C60FF]/40 group-hover/border:border-[#6C60FF]/40" />
+        <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 opacity-0 group-hover/border:opacity-100 transition-opacity duration-200 z-10">
+          <Popover>
+            <PopoverTrigger asChild>
+              <div className="w-7 h-7 rounded-full border border-[#6C60FF] bg-white hover:bg-[#6C60FF]/10 flex items-center justify-center cursor-pointer transition-colors duration-200">
+                <Plus className="w-4 h-4 text-[#6C60FF]" />
+              </div>
+            </PopoverTrigger>
+            <PopoverContent side="right" align="center" className="w-80 p-0 rounded-xl shadow-lg border border-gray-200 bg-white" sideOffset={8}>
+              <div className="p-4 pb-2">
+                <h4 className="text-base font-semibold text-gray-900">Add Widget</h4>
+                <p className="text-sm text-gray-500">Choose a widget to add to your timeline</p>
+              </div>
+              <div className="max-h-[320px] overflow-y-auto">
+                {items.map((item) => (
+                  <PopoverClose asChild key={item.label}>
+                    <div
+                      className="flex items-center gap-4 px-5 py-4 hover:bg-gray-50 cursor-pointer transition-colors"
+                      onClick={() => {
+                        if (item.label === 'Moment') { insertAfterPostIdRef.current = afterPostId; setInsertAfterPostId(afterPostId); setIsAddMomentModalOpen(true); }
+                        else if (item.label === 'HTML') { setHtmlWidgetAfterPostId(afterPostId); setEditingHtmlWidgetId(null); setIsAddHtmlModalOpen(true); }
+                        else if (item.label === 'Youtube') { setYoutubeWidgetAfterPostId(afterPostId); setIsAddYoutubeModalOpen(true); }
+                        else if (item.label === 'Quote') { setQuoteWidgetAfterPostId(afterPostId); setIsAddQuoteModalOpen(true); }
+                        else if (item.label === 'Call to Action') { setCtaWidgetAfterPostId(afterPostId); setEditingCtaWidgetId(null); setIsAddCtaModalOpen(true); }
+                        else if (item.label === 'Voice to Text') { setVoiceToTextAfterPostId(afterPostId); setIsVoiceToTextOpen(true); }
+                        else if (item.label === 'DocuSign') { setDocuSignPostId(afterPostId); setShowDocuSignSendModal(true); }
+                      }}
+                    >
+                      <div className="w-10 h-10 flex-shrink-0 rounded-[8px] bg-gray-50 flex items-center justify-center">{item.icon}</div>
+                      <div>
+                        <p className="text-sm font-medium text-gray-900">{item.label}</p>
+                        <p className="text-xs text-gray-500">{item.desc}</p>
+                      </div>
+                    </div>
+                  </PopoverClose>
+                ))}
+              </div>
+            </PopoverContent>
+          </Popover>
+        </div>
+      </div>
+    );
+  };
+
+  // Reusable CTA sidebar timeline entry (icon node + title + edit/delete + "+" divider)
+  const renderCtaSidebarEntry = (widget: CtaWidget) => {
+    const isActive = activeCtaWidgetId === widget.id;
+    return (
+      <div
+        key={widget.id}
+        className="relative pl-10 pb-4 transition-all duration-200 cursor-pointer"
+        onClick={() => { const el = ctaWidgetCardRefs.current[widget.id]; if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' }); }}
+      >
+        <div className="absolute left-0 top-7 bottom-8 w-0.5 bg-[#D1D5DC]" style={{ transform: 'translateX(-1px)' }} />
+        <div className={`absolute -left-3.5 top-0 w-7 h-7 rounded-full flex items-center justify-center transition-all ${isActive ? 'bg-[#6C60FF] text-white shadow-md' : 'bg-[#6C60FF]/10 text-[#6C60FF]'}`}>
+          <Pointer className="w-3.5 h-3.5" />
+        </div>
+        <div className="group/border relative pr-6 transition-all duration-200">
+          <div className="absolute top-0 -right-1 z-10">
+            <Popover>
+              <PopoverTrigger asChild><div className="cursor-pointer" onClick={(e) => e.stopPropagation()}><MoreVertical className="w-5 h-5 text-[#6C60FF]" /></div></PopoverTrigger>
+              <PopoverContent side="bottom" align="end" className="w-44 p-1 rounded-lg shadow-lg border border-gray-200 bg-white" sideOffset={4}>
+                <div className="flex items-center gap-2.5 px-3 py-2 hover:bg-gray-50 cursor-pointer rounded-md transition-colors" onClick={(e) => { e.stopPropagation(); openEditCta(widget); }}><Edit className="w-4 h-4 text-[#6C60FF]" /><span className="text-sm text-gray-700">Edit</span></div>
+                <div className="flex items-center gap-2.5 px-3 py-2 hover:bg-gray-50 cursor-pointer rounded-md transition-colors" onClick={(e) => { e.stopPropagation(); duplicateCta(widget); }}><Copy className="w-4 h-4 text-[#6C60FF]" /><span className="text-sm text-gray-700">Duplicate</span></div>
+                <div className="flex items-center gap-2.5 px-3 py-2 hover:bg-red-50 cursor-pointer rounded-md transition-colors" onClick={(e) => { e.stopPropagation(); deleteCta(widget); }}><Trash2 className="w-4 h-4 text-red-500" /><span className="text-sm text-red-500">Delete</span></div>
+              </PopoverContent>
+            </Popover>
+          </div>
+          <p className="leading-snug hover:text-[#6C60FF] cursor-pointer text-[#101828] text-base line-clamp-2">{widget.title || 'Call to Action'}</p>
+          <div className="flex items-center gap-1.5 mt-1 text-gray-400 text-sm"><Pointer className="w-4 h-4" /><span className="line-clamp-1">{widget.buttonText || 'Button'}</span></div>
+          {renderSidebarAddWidgetPlus(widget.afterPostId)}
+        </div>
+      </div>
+    );
+  };
+
   const renderPlusDivider = (key: string, afterPostId?: string) => (
     <div className="relative flex items-center justify-center h-10 md:hidden" style={{ zIndex: 10 }}>
       {/* Purple horizontal line */}
@@ -6737,10 +7149,682 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                 <span className="text-[12px] md:text-xs text-[#6A7282]">Add an inspirational quote</span>
               </div>
             </button>
+            {/* Option 6: Call to Action */}
+            <button
+              type="button"
+              className="w-full flex items-center gap-3 px-4 py-[5px] active:bg-black/5 transition-colors text-left"
+              onClick={() => { setActivePlusDivider(null); setCtaWidgetAfterPostId(afterPostId || null); setEditingCtaWidgetId(null); setIsAddCtaModalOpen(true); }}
+            >
+              <div className="w-[32px] h-[32px] flex-shrink-0 rounded-[8px] bg-[#6C60FF]/10 flex items-center justify-center">
+                <Pointer className="w-[18px] h-[18px] text-[#6C60FF]" />
+              </div>
+              <div className="flex flex-col">
+                <span className="text-[14px] md:text-sm font-medium text-[#101828]">Call to Action</span>
+                <span className="text-[12px] md:text-xs text-[#6A7282]">Add a button with a link</span>
+              </div>
+            </button>
           </div>
         </>
       )}
     </div>
+  );
+
+  // Widget add/edit modals (HTML / YouTube / Quote / CTA). Rendered in both the
+  // shared/collaborator view and the owner view so the "+" add menu works in both.
+  const renderWidgetModals = () => (
+    <>
+      {/* Add/Edit HTML Modal */}
+      <Dialog open={isAddHtmlModalOpen} onOpenChange={(open) => {
+        setIsAddHtmlModalOpen(open);
+        if (!open) {
+          setAddHtmlTitle('');
+          setAddHtmlContent('');
+          setEditingHtmlWidgetId(null);
+          setHtmlWidgetAfterPostId(null);
+        }
+      }}>
+        <DialogContent className="max-w-none md:max-w-[800px] w-full h-full md:h-auto md:w-[calc(100%-30px)] md:max-h-[90vh] bg-white p-0 md:p-6 border-0 shadow-xl md:rounded-lg rounded-none top-0 left-0 translate-x-0 translate-y-0 md:top-[50%] md:left-[50%] md:translate-x-[-50%] md:translate-y-[-50%] flex flex-col [&>button[data-slot=dialog-default-close]]:hidden md:[&>button[data-slot=dialog-default-close]]:flex">
+          {/* Mobile Header with title + close */}
+          <div className="flex md:hidden items-center justify-between px-4 py-3 border-b border-gray-100 flex-shrink-0">
+            <h4 className="font-semibold text-[18px] md:text-lg text-gray-900">{editingHtmlWidgetId ? 'Edit HTML' : 'Add HTML'}</h4>
+            <DialogClose asChild>
+              <Button variant="ghost" size="sm" className="h-10 w-10 p-0 hover:bg-gray-100 rounded-full">
+                <X className="!w-[28px] !h-[28px] text-black" />
+              </Button>
+            </DialogClose>
+          </div>
+          {/* Scrollable form body */}
+          <div className="flex-1 overflow-y-auto px-5 pb-4 md:px-0 md:pt-0 md:pb-0">
+            <div className="space-y-5 md:space-y-4">
+              <DialogHeader className="space-y-1 pb-2 text-left hidden md:block">
+                <DialogTitle className="text-xl md:text-lg font-semibold text-gray-900">{editingHtmlWidgetId ? 'Edit HTML' : 'Add HTML'}</DialogTitle>
+              </DialogHeader>
+              <div>
+                <label className="text-[14px] md:text-sm font-medium text-gray-700">Title (Optional)</label>
+                <input
+                  type="text"
+                  value={addHtmlTitle}
+                  onChange={(e) => setAddHtmlTitle(e.target.value)}
+                  placeholder="Enter a title for this HTML block"
+                  className="mt-1.5 w-full h-12 md:h-10 px-4 md:px-3 border border-gray-300 rounded-lg text-[14px] md:text-sm focus:outline-none focus:ring-2 focus:ring-[#6C60FF]/20 focus:border-[#6C60FF]"
+                />
+              </div>
+              <div>
+                <label className="text-[14px] md:text-sm font-medium text-gray-700">HTML Content</label>
+                <textarea
+                  value={addHtmlContent}
+                  onChange={(e) => setAddHtmlContent(e.target.value)}
+                  placeholder="Paste your HTML code here..."
+                  rows={10}
+                  className="mt-1.5 w-full px-4 md:px-3 py-3 md:py-2.5 border border-gray-300 rounded-lg text-[14px] md:text-sm font-mono resize-y focus:outline-none focus:ring-2 focus:ring-[#6C60FF]/20 focus:border-[#6C60FF]"
+                />
+                <p className="mt-2 text-sm text-gray-500">You can paste any valid HTML code including divs, images, iframes, and more.</p>
+              </div>
+              {addHtmlContent && (
+                <div>
+                  <label className="text-[14px] md:text-sm font-medium text-gray-700">Preview</label>
+                  <div
+                    className="mt-1.5 w-full px-4 py-3 border border-gray-300 rounded-lg min-h-[80px] bg-white overflow-auto [&_h1]:text-2xl [&_h1]:font-bold [&_h2]:text-xl [&_h2]:font-bold [&_h3]:text-lg [&_h3]:font-semibold [&_h4]:text-base [&_h4]:font-semibold [&_h5]:text-sm [&_h5]:font-semibold [&_h6]:text-xs [&_h6]:font-semibold [&_p]:my-2 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:my-1 [&_a]:text-[#6C60FF] [&_a]:underline [&_strong]:font-bold [&_em]:italic [&_blockquote]:border-l-4 [&_blockquote]:border-gray-300 [&_blockquote]:pl-4 [&_blockquote]:italic"
+                    dangerouslySetInnerHTML={{ __html: addHtmlContent }}
+                  />
+                </div>
+              )}
+            </div>
+          </div>
+          {/* Footer action buttons - pinned to bottom on mobile */}
+          <div className="flex-shrink-0 flex justify-end md:justify-end gap-3 px-5 py-3 pb-[50px] md:px-0 md:py-0 md:pb-0 md:pt-4 border-t md:border-t-0 border-gray-100">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setIsAddHtmlModalOpen(false);
+                setAddHtmlTitle('');
+                setAddHtmlContent('');
+                setEditingHtmlWidgetId(null);
+                setHtmlWidgetAfterPostId(null);
+              }}
+              className="h-12 md:h-10 px-6 text-[14px] md:text-sm border-gray-300 text-gray-700 hover:bg-gray-50"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={async () => {
+                if (editingHtmlWidgetId) {
+                  try {
+                    await apiRequest(`/memories/${memoryId}/widgets/${editingHtmlWidgetId}`, {
+                      method: 'PUT',
+                      body: JSON.stringify({ widget_data: { title: addHtmlTitle, content: addHtmlContent } }),
+                    });
+                    setHtmlWidgets(prev => prev.map(w => w.id === editingHtmlWidgetId ? { ...w, title: addHtmlTitle, content: addHtmlContent, updatedAt: Date.now() } : w));
+                    toast.success("HTML block updated");
+                  } catch { toast.error("Failed to update HTML block"); return; }
+                } else {
+                  try {
+                    const sameGroup = [...htmlWidgets, ...youtubeWidgets, ...quoteWidgets, ...ctaWidgets].filter(w => w.afterPostId === htmlWidgetAfterPostId);
+                    const widget_order = sameGroup.length > 0 ? Math.max(...sameGroup.map(w => w.widget_order)) + 1 : 0;
+                    const res = await apiRequest(`/memories/${memoryId}/widgets`, {
+                      method: 'POST',
+                      body: JSON.stringify({
+                        widget_type: 'html',
+                        after_post_id: htmlWidgetAfterPostId,
+                        widget_order,
+                        widget_data: { title: addHtmlTitle, content: addHtmlContent },
+                      }),
+                    });
+                    if (!res.success) { toast.error("Failed to add HTML block"); return; }
+                    const htmlRaw = res.data?.data || res.data;
+                    // Collaborator adds on a shared memory come back pending admin approval
+                    // (admin_approval: 0). Don't show it in the timeline until it's approved.
+                    if (res.pending_approval === true || htmlRaw?.admin_approval === 0 || htmlRaw?.admin_approval === '0') {
+                      toast.warning('HTML block added! It will appear after admin approval.', {
+                        duration: 5000,
+                        style: { background: '#FFFBEB', color: '#92400E', border: '1px solid #FDE68A' },
+                      });
+                    } else {
+                      const now = Date.now();
+                      setHtmlWidgets(prev => [...prev, {
+                        id: htmlRaw?.id?.toString() || `html_${now}`,
+                        title: addHtmlTitle,
+                        content: addHtmlContent,
+                        afterPostId: htmlWidgetAfterPostId,
+                        widget_order,
+                        createdAt: now,
+                        updatedAt: now,
+                      }]);
+                      toast.success("HTML block added");
+                    }
+                  } catch { toast.error("Failed to add HTML block"); return; }
+                }
+                setIsAddHtmlModalOpen(false);
+                setAddHtmlTitle('');
+                setAddHtmlContent('');
+                setEditingHtmlWidgetId(null);
+                setHtmlWidgetAfterPostId(null);
+              }}
+              className="h-12 md:h-10 px-6 text-[14px] md:text-sm bg-[#6C60FF] hover:bg-[#5A52E6] text-white"
+            >
+              {editingHtmlWidgetId ? 'Save Changes' : 'Add HTML'}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Embed YouTube Video Dialog */}
+      <Dialog open={isAddYoutubeModalOpen} onOpenChange={(open) => {
+        setIsAddYoutubeModalOpen(open);
+        if (!open) { setYoutubeUrl(''); setYoutubeTitle(''); setYoutubeWidgetAfterPostId(null); setEditingYoutubeWidgetId(null); }
+      }}>
+        <DialogContent className="max-w-none md:max-w-[480px] w-full h-full md:h-auto md:max-h-[90vh] bg-white p-0 md:p-6 border-0 shadow-xl md:rounded-lg rounded-none top-0 left-0 translate-x-0 translate-y-0 md:top-[50%] md:left-[50%] md:translate-x-[-50%] md:translate-y-[-50%] flex flex-col [&>button[data-slot=dialog-default-close]]:hidden md:[&>button[data-slot=dialog-default-close]]:flex">
+          {/* Mobile Header with title + close */}
+          <div className="flex md:hidden items-center justify-between px-4 py-3 border-b border-gray-100 flex-shrink-0">
+            <h4 className="font-semibold text-[18px] md:text-lg text-gray-900">{editingYoutubeWidgetId ? 'Edit YouTube Video' : 'Embed YouTube Video'}</h4>
+            <DialogClose asChild>
+              <Button variant="ghost" size="sm" className="h-10 w-10 p-0 hover:bg-gray-100 rounded-full">
+                <X className="!w-[28px] !h-[28px] text-black" />
+              </Button>
+            </DialogClose>
+          </div>
+          {/* Scrollable form body */}
+          <div className="flex-1 overflow-y-auto px-5 pb-4 md:px-0 md:pt-0 md:pb-0">
+            <div className="space-y-5 md:space-y-4">
+              <DialogHeader className="space-y-1 pb-2 text-left hidden md:block">
+                <DialogTitle className="text-xl md:text-lg font-semibold text-gray-900">{editingYoutubeWidgetId ? 'Edit YouTube Video' : 'Embed YouTube Video'}</DialogTitle>
+                <p className="text-sm text-gray-500">Enter a YouTube URL to embed in your timeline</p>
+              </DialogHeader>
+              <label className="text-[14px] md:text-sm font-medium text-gray-700 md:hidden">Enter a YouTube URL to embed in your timeline</label>
+              <input
+                type="text"
+                value={youtubeTitle}
+                onChange={(e) => setYoutubeTitle(e.target.value)}
+                placeholder="Video title (optional)"
+                className="w-full h-12 px-4 border-2 border-gray-300 rounded-lg text-[14px] md:text-sm focus:outline-none focus:ring-2 focus:ring-[#6C60FF]/20 focus:border-[#6C60FF]"
+              />
+              <input
+                type="text"
+                value={youtubeUrl}
+                onChange={(e) => setYoutubeUrl(e.target.value)}
+                placeholder="https://www.youtube.com/watch?v=..."
+                className="w-full h-12 px-4 border-2 border-gray-300 rounded-lg text-[14px] md:text-sm focus:outline-none focus:ring-2 focus:ring-[#6C60FF]/20 focus:border-[#6C60FF]"
+              />
+              {(() => {
+                const match = youtubeUrl.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/|youtube\.com\/shorts\/)([a-zA-Z0-9_-]{11})/);
+                const videoId = match ? match[1] : null;
+                return videoId ? (
+                  <div className="w-full rounded-lg overflow-hidden border border-gray-200">
+                    <iframe
+                      width="100%"
+                      height="240"
+                      src={`https://www.youtube.com/embed/${videoId}?autoplay=0`}
+                      allow="accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                      allowFullScreen
+                      className="block"
+                    />
+                  </div>
+                ) : null;
+              })()}
+            </div>
+          </div>
+          {/* Footer action buttons - pinned to bottom on mobile */}
+          <div className="flex-shrink-0 flex justify-end md:justify-end gap-3 px-5 py-3 pb-[50px] md:px-0 md:py-0 md:pb-0 md:pt-4 border-t md:border-t-0 border-gray-100">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setIsAddYoutubeModalOpen(false);
+                setYoutubeUrl('');
+                setYoutubeTitle('');
+                setYoutubeWidgetAfterPostId(null);
+                setEditingYoutubeWidgetId(null);
+              }}
+              className="h-12 md:h-10 px-6 text-[14px] md:text-sm border-gray-300 text-gray-700 hover:bg-gray-50"
+            >
+              Cancel
+            </Button>
+            <Button
+              disabled={!youtubeUrl.trim()}
+              onClick={async () => {
+                const match = youtubeUrl.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/|youtube\.com\/shorts\/)([a-zA-Z0-9_-]{11})/);
+                const videoId = match ? match[1] : null;
+                if (!videoId) {
+                  toast.error('Please enter a valid YouTube URL');
+                  return;
+                }
+                if (editingYoutubeWidgetId) {
+                  try {
+                    await apiRequest(`/memories/${memoryId}/widgets/${editingYoutubeWidgetId}`, {
+                      method: 'PUT',
+                      body: JSON.stringify({ widget_data: { title: youtubeTitle, url: youtubeUrl, videoId } }),
+                    });
+                    setYoutubeWidgets(prev => prev.map(w => w.id === editingYoutubeWidgetId ? { ...w, title: youtubeTitle, url: youtubeUrl, videoId } : w));
+                    toast.success('YouTube video updated');
+                  } catch { toast.error('Failed to update YouTube video'); return; }
+                } else {
+                  try {
+                    const sameGroup = [...htmlWidgets, ...youtubeWidgets, ...quoteWidgets, ...ctaWidgets].filter(w => w.afterPostId === youtubeWidgetAfterPostId);
+                    const widget_order = sameGroup.length > 0 ? Math.max(...sameGroup.map(w => w.widget_order)) + 1 : 0;
+                    const res = await apiRequest(`/memories/${memoryId}/widgets`, {
+                      method: 'POST',
+                      body: JSON.stringify({
+                        widget_type: 'youtube',
+                        after_post_id: youtubeWidgetAfterPostId,
+                        widget_order,
+                        widget_data: { title: youtubeTitle, url: youtubeUrl, videoId },
+                      }),
+                    });
+                    if (!res.success) { toast.error('Failed to add YouTube video'); return; }
+                    const ytRaw = res.data?.data || res.data;
+                    if (res.pending_approval === true || ytRaw?.admin_approval === 0 || ytRaw?.admin_approval === '0') {
+                      toast.warning('YouTube video added! It will appear after admin approval.', {
+                        duration: 5000,
+                        style: { background: '#FFFBEB', color: '#92400E', border: '1px solid #FDE68A' },
+                      });
+                    } else {
+                      setYoutubeWidgets(prev => [...prev, {
+                        id: ytRaw?.id?.toString() || `yt_${Date.now()}`,
+                        title: youtubeTitle,
+                        url: youtubeUrl,
+                        videoId,
+                        afterPostId: youtubeWidgetAfterPostId,
+                        widget_order,
+                        createdAt: Date.now(),
+                      }]);
+                      toast.success('YouTube video added');
+                    }
+                  } catch { toast.error('Failed to add YouTube video'); return; }
+                }
+                setIsAddYoutubeModalOpen(false);
+                setYoutubeUrl('');
+                setYoutubeTitle('');
+                setYoutubeWidgetAfterPostId(null);
+                setEditingYoutubeWidgetId(null);
+              }}
+              className="h-12 md:h-10 px-6 text-[14px] md:text-sm bg-[#6C60FF] hover:bg-[#5A52E6] text-white disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {editingYoutubeWidgetId ? 'Save Changes' : 'Add Video'}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Add Quote Dialog */}
+      <Dialog open={isAddQuoteModalOpen} onOpenChange={(open) => {
+        setIsAddQuoteModalOpen(open);
+        if (!open) { setQuoteText(''); setQuoteAuthor(''); setQuoteWidgetAfterPostId(null); setEditingQuoteWidgetId(null); }
+      }}>
+        <DialogContent className="max-w-none md:max-w-[480px] w-full h-full md:h-auto md:max-h-[90vh] bg-white p-0 md:p-6 border-0 shadow-xl md:rounded-lg rounded-none top-0 left-0 translate-x-0 translate-y-0 md:top-[50%] md:left-[50%] md:translate-x-[-50%] md:translate-y-[-50%] flex flex-col [&>button[data-slot=dialog-default-close]]:hidden md:[&>button[data-slot=dialog-default-close]]:flex">
+          {/* Mobile Header with title + close */}
+          <div className="flex md:hidden items-center justify-between px-4 py-3 border-b border-gray-100 flex-shrink-0">
+            <h4 className="font-semibold text-[18px] md:text-lg text-gray-900">{editingQuoteWidgetId ? 'Edit Quote' : 'Add Quote'}</h4>
+            <DialogClose asChild>
+              <Button variant="ghost" size="sm" className="h-10 w-10 p-0 hover:bg-gray-100 rounded-full">
+                <X className="!w-[28px] !h-[28px] text-black" />
+              </Button>
+            </DialogClose>
+          </div>
+          {/* Scrollable form body */}
+          <div className="flex-1 overflow-y-auto px-5 pb-4 md:px-0 md:pt-0 md:pb-0">
+            <div className="space-y-5 md:space-y-4">
+              <DialogHeader className="space-y-1 pb-2 text-left hidden md:block">
+                <DialogTitle className="text-xl md:text-lg font-semibold text-gray-900">{editingQuoteWidgetId ? 'Edit Quote' : 'Add Quote'}</DialogTitle>
+                <p className="text-sm text-gray-500">Enter a quote and author to add to your timeline</p>
+              </DialogHeader>
+              <label className="text-[14px] md:text-sm font-medium text-gray-700 md:hidden">Enter a quote and author to add to your timeline</label>
+              <textarea
+                value={quoteText}
+                onChange={(e) => setQuoteText(e.target.value)}
+                placeholder="Enter your quote here..."
+                rows={4}
+                className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg text-[14px] md:text-sm resize-y focus:outline-none focus:ring-2 focus:ring-[#6C60FF]/20 focus:border-[#6C60FF]"
+              />
+              <input
+                type="text"
+                value={quoteAuthor}
+                onChange={(e) => setQuoteAuthor(e.target.value)}
+                placeholder="Enter author name here..."
+                className="w-full h-12 px-4 border border-gray-300 rounded-lg text-[14px] md:text-sm focus:outline-none focus:ring-2 focus:ring-[#6C60FF]/20 focus:border-[#6C60FF]"
+              />
+            </div>
+          </div>
+          {/* Footer action buttons - pinned to bottom on mobile */}
+          <div className="flex-shrink-0 flex justify-end md:justify-end gap-3 px-5 py-3 pb-[50px] md:px-0 md:py-0 md:pb-0 md:pt-4 border-t md:border-t-0 border-gray-100">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setIsAddQuoteModalOpen(false);
+                setQuoteText('');
+                setQuoteAuthor('');
+                setQuoteWidgetAfterPostId(null);
+                setEditingQuoteWidgetId(null);
+              }}
+              className="h-12 md:h-10 px-6 text-[14px] md:text-sm border-gray-300 text-gray-700 hover:bg-gray-50"
+            >
+              Cancel
+            </Button>
+            <Button
+              disabled={!quoteText.trim()}
+              onClick={async () => {
+                if (editingQuoteWidgetId) {
+                  try {
+                    await apiRequest(`/memories/${memoryId}/widgets/${editingQuoteWidgetId}`, {
+                      method: 'PUT',
+                      body: JSON.stringify({ widget_data: { text: quoteText, author: quoteAuthor } }),
+                    });
+                    setQuoteWidgets(prev => prev.map(w => w.id === editingQuoteWidgetId ? { ...w, text: quoteText, author: quoteAuthor } : w));
+                    toast.success('Quote updated');
+                  } catch { toast.error('Failed to update quote'); return; }
+                } else {
+                  try {
+                    const sameGroup = [...htmlWidgets, ...youtubeWidgets, ...quoteWidgets, ...ctaWidgets].filter(w => w.afterPostId === quoteWidgetAfterPostId);
+                    const widget_order = sameGroup.length > 0 ? Math.max(...sameGroup.map(w => w.widget_order)) + 1 : 0;
+                    const res = await apiRequest(`/memories/${memoryId}/widgets`, {
+                      method: 'POST',
+                      body: JSON.stringify({
+                        widget_type: 'quote',
+                        after_post_id: quoteWidgetAfterPostId,
+                        widget_order,
+                        widget_data: { text: quoteText, author: quoteAuthor },
+                      }),
+                    });
+                    if (!res.success) { toast.error('Failed to add quote'); return; }
+                    const qRaw = res.data?.data || res.data;
+                    if (res.pending_approval === true || qRaw?.admin_approval === 0 || qRaw?.admin_approval === '0') {
+                      toast.warning('Quote added! It will appear after admin approval.', {
+                        duration: 5000,
+                        style: { background: '#FFFBEB', color: '#92400E', border: '1px solid #FDE68A' },
+                      });
+                    } else {
+                      setQuoteWidgets(prev => [...prev, {
+                        id: qRaw?.id?.toString() || `q_${Date.now()}`,
+                        text: quoteText,
+                        author: quoteAuthor,
+                        afterPostId: quoteWidgetAfterPostId,
+                        widget_order,
+                        createdAt: Date.now(),
+                      }]);
+                      toast.success('Quote added');
+                    }
+                  } catch { toast.error('Failed to add quote'); return; }
+                }
+                setIsAddQuoteModalOpen(false);
+                setQuoteText('');
+                setQuoteAuthor('');
+                setQuoteWidgetAfterPostId(null);
+                setEditingQuoteWidgetId(null);
+              }}
+              className="h-12 md:h-10 px-6 text-[14px] md:text-sm bg-[#6C60FF] hover:bg-[#5A52E6] text-white disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {editingQuoteWidgetId ? 'Save Changes' : 'Add Quote'}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Add / Edit Call to Action Dialog */}
+      <Dialog open={isAddCtaModalOpen} onOpenChange={(open) => {
+        setIsAddCtaModalOpen(open);
+        if (!open) resetCtaForm();
+      }}>
+        <DialogContent className="max-w-none md:max-w-[480px] w-full h-full md:h-auto md:max-h-[90vh] bg-white p-0 md:p-6 border-0 shadow-xl md:rounded-lg rounded-none top-0 left-0 translate-x-0 translate-y-0 md:top-[50%] md:left-[50%] md:translate-x-[-50%] md:translate-y-[-50%] flex flex-col [&>button[data-slot=dialog-default-close]]:hidden md:[&>button[data-slot=dialog-default-close]]:flex">
+          {/* Mobile Header */}
+          <div className="flex md:hidden items-center justify-between px-4 py-3 border-b border-gray-100 flex-shrink-0">
+            <h4 className="font-semibold text-[18px] text-gray-900">{editingCtaWidgetId ? 'Edit Call to Action' : 'Add Call to Action'}</h4>
+            <DialogClose asChild>
+              <Button variant="ghost" size="sm" className="h-10 w-10 p-0 hover:bg-gray-100 rounded-full">
+                <X className="!w-[28px] !h-[28px] text-black" />
+              </Button>
+            </DialogClose>
+          </div>
+          {/* Scrollable form body */}
+          <div className="flex-1 overflow-y-auto px-5 pb-4 md:px-0 md:pt-0 md:pb-0">
+            <div className="space-y-5 md:space-y-4">
+              <DialogHeader className="space-y-1 pb-2 text-left hidden md:block">
+                <DialogTitle className="text-xl md:text-lg font-semibold text-gray-900">{editingCtaWidgetId ? 'Edit Call to Action' : 'Add Call to Action'}</DialogTitle>
+                <p className="text-sm text-gray-500">Add a title and a button that links somewhere</p>
+              </DialogHeader>
+
+              {/* Title */}
+              <div className="space-y-1.5">
+                <label className="text-[14px] md:text-sm font-medium text-gray-700">Title</label>
+                <input
+                  type="text"
+                  value={ctaTitle}
+                  onChange={(e) => setCtaTitle(e.target.value)}
+                  placeholder="e.g. Ready to book your stay?"
+                  className="w-full h-12 px-4 border border-gray-300 rounded-lg text-[14px] md:text-sm focus:outline-none focus:ring-2 focus:ring-[#6C60FF]/20 focus:border-[#6C60FF]"
+                />
+              </div>
+
+              {/* Button text */}
+              <div className="space-y-1.5">
+                <label className="text-[14px] md:text-sm font-medium text-gray-700">Button text</label>
+                <input
+                  type="text"
+                  value={ctaButtonText}
+                  onChange={(e) => setCtaButtonText(e.target.value)}
+                  placeholder="e.g. Book Now"
+                  className="w-full h-12 px-4 border border-gray-300 rounded-lg text-[14px] md:text-sm focus:outline-none focus:ring-2 focus:ring-[#6C60FF]/20 focus:border-[#6C60FF]"
+                />
+              </div>
+
+              {/* Button link */}
+              <div className="space-y-1.5">
+                <label className="text-[14px] md:text-sm font-medium text-gray-700">Button link (URL)</label>
+                <input
+                  type="text"
+                  value={ctaButtonLink}
+                  onChange={(e) => setCtaButtonLink(e.target.value)}
+                  placeholder="https://example.com"
+                  className={`w-full h-12 px-4 border rounded-lg text-[14px] md:text-sm focus:outline-none focus:ring-2 ${
+                    ctaButtonLink.trim() && !ctaIsValidUrl(ctaButtonLink)
+                      ? 'border-red-400 focus:ring-red-200 focus:border-red-400'
+                      : 'border-gray-300 focus:ring-[#6C60FF]/20 focus:border-[#6C60FF]'
+                  }`}
+                />
+                {ctaButtonLink.trim() && !ctaIsValidUrl(ctaButtonLink) && (
+                  <p className="text-xs text-red-500">Please enter a valid URL (e.g. https://example.com)</p>
+                )}
+              </div>
+
+              {/* Colors */}
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <label className="text-[14px] md:text-sm font-medium text-gray-700">Button color</label>
+                  <div className="flex items-center gap-2">
+                    <input type="color" value={ctaButtonColor} onChange={(e) => setCtaButtonColor(e.target.value)} className="h-10 w-12 rounded border border-gray-300 cursor-pointer bg-white p-0.5" />
+                    <input type="text" value={ctaButtonColor} onChange={(e) => setCtaButtonColor(e.target.value)} className="flex-1 h-10 px-2 border border-gray-300 rounded-lg text-[13px] uppercase focus:outline-none focus:ring-2 focus:ring-[#6C60FF]/20 focus:border-[#6C60FF]" />
+                  </div>
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-[14px] md:text-sm font-medium text-gray-700">Text color</label>
+                  <div className="flex items-center gap-2">
+                    <input type="color" value={ctaTextColor} onChange={(e) => setCtaTextColor(e.target.value)} className="h-10 w-12 rounded border border-gray-300 cursor-pointer bg-white p-0.5" />
+                    <input type="text" value={ctaTextColor} onChange={(e) => setCtaTextColor(e.target.value)} className="flex-1 h-10 px-2 border border-gray-300 rounded-lg text-[13px] uppercase focus:outline-none focus:ring-2 focus:ring-[#6C60FF]/20 focus:border-[#6C60FF]" />
+                  </div>
+                </div>
+              </div>
+
+              {/* Icon picker */}
+              <div className="space-y-1.5">
+                <label className="text-[14px] md:text-sm font-medium text-gray-700">Icon</label>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setCtaIcon('')}
+                    className={`h-10 w-10 rounded-lg border flex items-center justify-center text-[11px] text-gray-500 ${ctaIcon === '' ? 'border-[#6C60FF] bg-[#6C60FF]/10' : 'border-gray-300 hover:bg-gray-50'}`}
+                    title="No icon"
+                  >
+                    None
+                  </button>
+                  {CTA_ICON_KEYS.map((key) => {
+                    const Icon = CTA_ICONS[key];
+                    return (
+                      <button
+                        type="button"
+                        key={key}
+                        onClick={() => setCtaIcon(key)}
+                        className={`h-10 w-10 rounded-lg border flex items-center justify-center ${ctaIcon === key ? 'border-[#6C60FF] bg-[#6C60FF]/10 text-[#6C60FF]' : 'border-gray-300 text-gray-600 hover:bg-gray-50'}`}
+                        title={key}
+                      >
+                        <Icon className="w-5 h-5" />
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Icon size */}
+              {ctaIcon && (
+                <div className="space-y-1.5">
+                  <label className="text-[14px] md:text-sm font-medium text-gray-700">Icon size: {ctaIconSize}px</label>
+                  <input
+                    type="range"
+                    min={12}
+                    max={48}
+                    value={ctaIconSize}
+                    onChange={(e) => setCtaIconSize(Number(e.target.value))}
+                    className="w-full accent-[#6C60FF]"
+                  />
+                </div>
+              )}
+
+              {/* Button text size */}
+              <div className="space-y-1.5">
+                <label className="text-[14px] md:text-sm font-medium text-gray-700">Button text size: {ctaFontSize}px</label>
+                <input
+                  type="range"
+                  min={12}
+                  max={32}
+                  value={ctaFontSize}
+                  onChange={(e) => setCtaFontSize(Number(e.target.value))}
+                  className="w-full accent-[#6C60FF]"
+                />
+              </div>
+
+              {/* Button width */}
+              <div className="space-y-1.5">
+                <label className="text-[14px] md:text-sm font-medium text-gray-700">Button width: {ctaButtonWidth ? `${ctaButtonWidth}px` : 'Full width'}</label>
+                <input
+                  type="range"
+                  min={0}
+                  max={480}
+                  step={10}
+                  value={ctaButtonWidth}
+                  onChange={(e) => setCtaButtonWidth(Number(e.target.value))}
+                  className="w-full accent-[#6C60FF]"
+                />
+              </div>
+
+              {/* Round corners */}
+              <div className="space-y-1.5">
+                <label className="text-[14px] md:text-sm font-medium text-gray-700">Round corners: {ctaBorderRadius}px</label>
+                <input
+                  type="range"
+                  min={0}
+                  max={40}
+                  step={2}
+                  value={ctaBorderRadius}
+                  onChange={(e) => setCtaBorderRadius(Number(e.target.value))}
+                  className="w-full accent-[#6C60FF]"
+                />
+              </div>
+
+              {/* Live preview */}
+              <div className="space-y-1.5">
+                <label className="text-[14px] md:text-sm font-medium text-gray-700">Preview</label>
+                <div className="rounded-xl border border-gray-200 bg-gray-50 p-5 flex flex-col items-center text-center gap-3">
+                  {ctaTitle && <p className="text-lg font-bold text-gray-900 break-words">{ctaTitle}</p>}
+                  <span
+                    className="inline-flex items-center justify-center gap-2 px-6 py-3 font-semibold"
+                    style={{
+                      backgroundColor: ctaButtonColor || CTA_DEFAULT_BUTTON_COLOR,
+                      color: ctaTextColor || CTA_DEFAULT_TEXT_COLOR,
+                      fontSize: ctaFontSize,
+                      borderRadius: `${ctaBorderRadius}px`,
+                      width: ctaButtonWidth ? `${ctaButtonWidth}px` : '100%',
+                      maxWidth: '100%',
+                    }}
+                  >
+                    {ctaIcon && CTA_ICONS[ctaIcon] && (() => { const Ic = CTA_ICONS[ctaIcon]; return <Ic style={{ width: ctaIconSize, height: ctaIconSize }} />; })()}
+                    <span>{ctaButtonText || 'Learn More'}</span>
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+          {/* Footer */}
+          <div className="flex-shrink-0 flex justify-end gap-3 px-5 py-3 pb-[50px] md:px-0 md:py-0 md:pb-0 md:pt-4 border-t md:border-t-0 border-gray-100">
+            <Button
+              variant="outline"
+              onClick={() => { setIsAddCtaModalOpen(false); resetCtaForm(); }}
+              className="h-12 md:h-10 px-6 text-[14px] md:text-sm border-gray-300 text-gray-700 hover:bg-gray-50"
+            >
+              Cancel
+            </Button>
+            <Button
+              disabled={!ctaButtonText.trim() || !ctaIsValidUrl(ctaButtonLink)}
+              onClick={async () => {
+                const widget_data = {
+                  title: ctaTitle,
+                  buttonText: ctaButtonText,
+                  buttonLink: ctaNormalizeUrl(ctaButtonLink),
+                  buttonColor: ctaButtonColor,
+                  textColor: ctaTextColor,
+                  icon: ctaIcon,
+                  iconSize: ctaIconSize,
+                  buttonWidth: ctaButtonWidth,
+                  fontSize: ctaFontSize,
+                  borderRadius: ctaBorderRadius,
+                };
+                if (editingCtaWidgetId) {
+                  try {
+                    await apiRequest(`/memories/${memoryId}/widgets/${editingCtaWidgetId}`, {
+                      method: 'PUT',
+                      body: JSON.stringify({ widget_data }),
+                    });
+                    setCtaWidgets(prev => prev.map(w => w.id === editingCtaWidgetId ? { ...w, ...widget_data } : w));
+                    toast.success('Call to action updated');
+                  } catch { toast.error('Failed to update call to action'); return; }
+                } else {
+                  try {
+                    const sameGroup = [...htmlWidgets, ...youtubeWidgets, ...quoteWidgets, ...ctaWidgets].filter(w => w.afterPostId === ctaWidgetAfterPostId);
+                    const widget_order = sameGroup.length > 0 ? Math.max(...sameGroup.map(w => w.widget_order)) + 1 : 0;
+                    const res = await apiRequest(`/memories/${memoryId}/widgets`, {
+                      method: 'POST',
+                      body: JSON.stringify({
+                        widget_type: 'cta',
+                        after_post_id: ctaWidgetAfterPostId,
+                        widget_order,
+                        widget_data,
+                      }),
+                    });
+                    if (!res.success) { toast.error('Failed to add call to action'); return; }
+                    const cRaw = res.data?.data || res.data;
+                    if (res.pending_approval === true || cRaw?.admin_approval === 0 || cRaw?.admin_approval === '0') {
+                      toast.warning('Call to action added! It will appear after admin approval.', {
+                        duration: 5000,
+                        style: { background: '#FFFBEB', color: '#92400E', border: '1px solid #FDE68A' },
+                      });
+                    } else {
+                      setCtaWidgets(prev => [...prev, {
+                        id: cRaw?.id?.toString() || `cta_${Date.now()}`,
+                        ...widget_data,
+                        afterPostId: ctaWidgetAfterPostId,
+                        widget_order,
+                        createdAt: Date.now(),
+                      }]);
+                      toast.success('Call to action added');
+                    }
+                  } catch { toast.error('Failed to add call to action'); return; }
+                }
+                setIsAddCtaModalOpen(false);
+                resetCtaForm();
+              }}
+              className="h-12 md:h-10 px-6 text-[14px] md:text-sm bg-[#6C60FF] hover:bg-[#5A52E6] text-white disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {editingCtaWidgetId ? 'Save Changes' : 'Add Call to Action'}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 
   // If user is a collaborator (contributor/edit or viewer), show simplified collaborator view
@@ -6914,7 +7998,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                   <button onClick={() => setSharedShowAuthorModal(false)}><X className="w-5 h-5 text-gray-400" /></button>
                 </div>
                 <div className="px-4 pb-4 border-t border-gray-100">
-                  <div className="flex justify-between py-2"><span className="text-gray-500 text-sm">Total Memories</span><span className="font-semibold text-sm">{apiMemoryData?.user?.memories_count || sharedFilteredPosts.length}</span></div>
+                  <div className="flex justify-between py-2"><span className="text-gray-500 text-sm">Total Campaigns</span><span className="font-semibold text-sm">{apiMemoryData?.user?.memories_count || sharedFilteredPosts.length}</span></div>
                   <button className="mt-2 flex items-center gap-2 px-5 py-2 border border-gray-300 rounded-full text-sm text-gray-800" onClick={() => window.location.href = `mailto:${apiMemoryData?.user?.email || ''}`}><Mail className="w-4 h-4" />Send Email</button>
                 </div>
               </div>
@@ -6926,10 +8010,22 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
               <button className="px-5 py-2 bg-white text-gray-800 text-base font-medium rounded-lg shadow-sm flex-shrink-0" onClick={() => { const el = sharedMobileCardRefs.current[0]; if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); }}>Continue</button>
             </div>
             {htmlWidgets.filter(w => w.afterPostId === null).map(widget => (
-              <div key={widget.id} className="rounded-2xl bg-white p-4 border border-gray-100"><div className="[&_h1]:text-2xl [&_h1]:font-bold [&_p]:my-2 [&_ul]:list-disc [&_ul]:pl-5 [&_a]:text-[#6C60FF] [&_a]:underline [&_strong]:font-bold" dangerouslySetInnerHTML={{ __html: widget.content }} /></div>
+              <React.Fragment key={widget.id}>
+                <div className="rounded-2xl bg-white p-4 border border-gray-100"><div className="[&_h1]:text-2xl [&_h1]:font-bold [&_p]:my-2 [&_ul]:list-disc [&_ul]:pl-5 [&_a]:text-[#6C60FF] [&_a]:underline [&_strong]:font-bold" dangerouslySetInnerHTML={{ __html: widget.content }} /></div>
+                {renderPlusDivider(`shared-mobile-html-top-div-${widget.id}`)}
+              </React.Fragment>
             ))}
             {quoteWidgets.filter(w => w.afterPostId === null).map(widget => (
-              <div key={widget.id} className="rounded-2xl bg-[#F0EEFF] p-5 border border-gray-100 border-l-4 border-l-[#6C60FF]"><p className="text-lg font-bold text-gray-800 text-center leading-relaxed break-words">{widget.text}</p>{widget.author && <p className="text-sm text-gray-500 text-center mt-2">— {widget.author}</p>}</div>
+              <React.Fragment key={widget.id}>
+                <div className="rounded-2xl bg-[#F0EEFF] p-5 border border-gray-100 border-l-4 border-l-[#6C60FF]"><p className="text-lg font-bold text-gray-800 text-center leading-relaxed break-words">{widget.text}</p>{widget.author && <p className="text-sm text-gray-500 text-center mt-2">— {widget.author}</p>}</div>
+                {renderPlusDivider(`shared-mobile-quote-top-div-${widget.id}`)}
+              </React.Fragment>
+            ))}
+            {ctaWidgets.filter(w => w.afterPostId === null).map(widget => (
+              <React.Fragment key={widget.id}>
+                <CTAWidgetCard widget={widget} memoryId={memoryId} />
+                {renderPlusDivider(`shared-mobile-cta-top-div-${widget.id}`)}
+              </React.Fragment>
             ))}
             {sharedUnifiedItems.length > 0 ? sharedUnifiedItems.map((uItem: any) => {
               if (uItem.type === 'linked') return renderSharedLinkedCard(uItem.data, 'shared-mobile');
@@ -6948,6 +8044,9 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                 ))}
                 {quoteWidgets.filter(w => w.afterPostId === post.id?.toString()).map(widget => (
                   <div key={widget.id} className="rounded-2xl bg-[#F0EEFF] p-5 border border-gray-100 border-l-4 border-l-[#6C60FF]"><p className="text-lg font-bold text-gray-800 text-center leading-relaxed break-words">{widget.text}</p>{widget.author && <p className="text-sm text-gray-500 text-center mt-2">— {widget.author}</p>}</div>
+                ))}
+                {ctaWidgets.filter(w => w.afterPostId === post.id?.toString()).map(widget => (
+                  <CTAWidgetCard key={widget.id} widget={widget} memoryId={memoryId} />
                 ))}
                 {/* Plus divider between posts — same as personal memories */}
                 {index < sharedFilteredPosts.length - 1 && renderPlusDivider(`shared-mobile-${index}`, post.id?.toString())}
@@ -7046,7 +8145,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                             <button className="text-gray-400 hover:text-gray-600 flex-shrink-0" onClick={(e) => { e.stopPropagation(); setSharedShowDesktopAuthorModal(false); }}><X className="w-4 h-4" /></button>
                           </div>
                           <div className="px-4 pb-4">
-                            <div className="flex items-center justify-between py-2 border-t border-b border-gray-100"><span className="text-gray-500 text-sm">Total Memories</span><span className="font-semibold text-gray-900 text-sm">{apiMemoryData?.user?.memories_count || sharedFilteredPosts.length}</span></div>
+                            <div className="flex items-center justify-between py-2 border-t border-b border-gray-100"><span className="text-gray-500 text-sm">Total Campaigns</span><span className="font-semibold text-gray-900 text-sm">{apiMemoryData?.user?.memories_count || sharedFilteredPosts.length}</span></div>
                             <p className="text-gray-400 text-sm mt-2 mb-3">Connect</p>
                             <button className="flex items-center gap-2 px-5 py-2 border border-gray-300 rounded-full text-sm text-gray-800 bg-white hover:bg-gray-50" onClick={() => window.location.href = `mailto:${apiMemoryData?.user?.email || ''}`}><Mail className="w-4 h-4" />Send Email</button>
                           </div>
@@ -7093,7 +8192,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                               <Popover><PopoverTrigger asChild><div className="w-7 h-7 rounded-full border border-[#6C60FF] bg-white hover:bg-[#6C60FF]/10 flex items-center justify-center cursor-pointer"><Plus className="w-4 h-4 text-[#6C60FF]" /></div></PopoverTrigger>
                                 <PopoverContent side="right" align="center" className="w-80 p-0 rounded-xl shadow-lg border border-gray-200 bg-white" sideOffset={8}>
                                   <div className="p-4 pb-2"><h4 className="text-base font-semibold text-gray-900">Add Widget</h4><p className="text-sm text-gray-500">Choose a widget to add to your timeline</p></div>
-                                  <div className="max-h-[320px] overflow-y-auto">{[{label:'Moment',desc:'Add a moment'},{label:'HTML',desc:'Add custom HTML'},{label:'Youtube',desc:'Embed YouTube'},{label:'Quote',desc:'Add a quote'},{label:'Voice to Text',desc:'Create captions'},{label:'DocuSign',desc:'Send for signature'}].map(item=>(<PopoverClose asChild key={item.label}><div className="flex items-center gap-4 px-5 py-4 hover:bg-gray-50 cursor-pointer" onClick={()=>{if(item.label==='Moment'){insertAfterPostIdRef.current=null;setInsertAfterPostId(null);setIsAddMomentModalOpen(true);}else if(item.label==='HTML'){setHtmlWidgetAfterPostId(null);setEditingHtmlWidgetId(null);setIsAddHtmlModalOpen(true);}else if(item.label==='Youtube'){setYoutubeWidgetAfterPostId(null);setIsAddYoutubeModalOpen(true);}else if(item.label==='Quote'){setQuoteWidgetAfterPostId(null);setIsAddQuoteModalOpen(true);}else if(item.label==='Voice to Text'){setVoiceToTextAfterPostId(null);setIsVoiceToTextOpen(true);}else if(item.label==='DocuSign'){setDocuSignPostId(null);setShowDocuSignSendModal(true);}}}><div><p className="text-sm font-medium text-gray-900">{item.label}</p><p className="text-xs text-gray-500">{item.desc}</p></div></div></PopoverClose>))}</div>
+                                  <div className="max-h-[320px] overflow-y-auto">{[{ icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#F0FDFA" fillOpacity="0.4"/><circle cx="17.5" cy="17.5" r="6.5" stroke="#009689" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><polyline points="17.5 13.5 17.5 17.5 20.5 19" stroke="#009689" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/></svg>, label:'Moment',desc:'Add a moment'},{ icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#6C60FF" fillOpacity="0.1"/><polyline points="21 22 25 17.5 21 13" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><polyline points="14 13 10 17.5 14 22" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/></svg>, label:'HTML',desc:'Add custom HTML'},{ icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#FF4444" fillOpacity="0.1"/><path d="M22.5 13H12.5C11.67 13 11 13.67 11 14.5V20.5C11 21.33 11.67 22 12.5 22H22.5C23.33 22 24 21.33 24 20.5V14.5C24 13.67 23.33 13 22.5 13Z" stroke="#FF4444" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><path d="M16 19.5V15.5L20 17.5L16 19.5Z" stroke="#FF4444" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round" fill="none"/></svg>, label:'Youtube',desc:'Embed YouTube'},{ icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#F59E0B" fillOpacity="0.1"/><path d="M19.5 12C19.15 12 18.82 12.14 18.57 12.39C18.32 12.64 18.17 12.98 18.17 13.33V17.33C18.17 17.68 18.32 18.02 18.57 18.27C18.82 18.52 19.15 18.67 19.5 18.67C19.68 18.67 19.85 18.74 19.97 18.86C20.1 18.99 20.17 19.16 20.17 19.33V20C20.17 20.35 20.02 20.69 19.77 20.94C19.52 21.19 19.19 21.33 18.83 21.33C18.65 21.33 18.49 21.4 18.36 21.53C18.24 21.65 18.17 21.82 18.17 22V23.33C18.17 23.51 18.24 23.68 18.36 23.8C18.49 23.93 18.65 24 18.83 24C19.89 24 20.91 23.58 21.66 22.83C22.41 22.08 22.83 21.06 22.83 20V13.33C22.83 12.98 22.69 12.64 22.44 12.39C22.19 12.14 21.85 12 21.5 12H19.5Z" stroke="#F59E0B" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/><path d="M13.17 12C12.81 12 12.47 12.14 12.22 12.39C11.97 12.64 11.83 12.98 11.83 13.33V17.33C11.83 17.68 11.97 18.02 12.22 18.27C12.47 18.52 12.81 18.67 13.17 18.67C13.34 18.67 13.51 18.74 13.64 18.86C13.76 18.99 13.83 19.16 13.83 19.33V20C13.83 20.35 13.69 20.69 13.44 20.94C13.19 21.19 12.85 21.33 12.5 21.33C12.32 21.33 12.16 21.4 12.03 21.53C11.9 21.65 11.83 21.82 11.83 22V23.33C11.83 23.51 11.9 23.68 12.03 23.8C12.16 23.93 12.32 24 12.5 24C13.56 24 14.58 23.58 15.33 22.83C16.08 22.08 16.5 21.06 16.5 20V13.33C16.5 12.98 16.36 12.64 16.11 12.39C15.86 12.14 15.52 12 15.17 12H13.17Z" stroke="#F59E0B" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>, label:'Quote',desc:'Add a quote'},{ icon: <div className="w-full h-full rounded-[8px] bg-[#6C60FF]/10 flex items-center justify-center"><Pointer className="w-5 h-5 text-[#6C60FF]" /></div>, label:'Call to Action',desc:'Add a button with a link'},{ icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#6C60FF" fillOpacity="0.1"/><rect x="14" y="10" width="7" height="10" rx="3.5" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><path d="M11 20.5C11 23.538 13.91 26 17.5 26C21.09 26 24 23.538 24 20.5" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><line x1="17.5" y1="26" x2="17.5" y2="29" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round"/><line x1="14.5" y1="29" x2="20.5" y2="29" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round"/></svg>, label:'Voice to Text',desc:'Create captions'},...(docuSignConnected ? [{ icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#1464A5" fillOpacity="0.1"/><rect x="12" y="10" width="11" height="14" rx="1.5" stroke="#1464A5" strokeWidth="1.45808"/><line x1="14.5" y1="14" x2="20.5" y2="14" stroke="#1464A5" strokeWidth="1.3" strokeLinecap="round"/><line x1="14.5" y1="17" x2="18.5" y2="17" stroke="#1464A5" strokeWidth="1.3" strokeLinecap="round"/></svg>, label:'DocuSign',desc:'Send for signature'}] : [])].map(item=>(<PopoverClose asChild key={item.label}><div className="flex items-center gap-4 px-5 py-4 hover:bg-gray-50 cursor-pointer" onClick={()=>{if(item.label==='Moment'){insertAfterPostIdRef.current=null;setInsertAfterPostId(null);setIsAddMomentModalOpen(true);}else if(item.label==='HTML'){setHtmlWidgetAfterPostId(null);setEditingHtmlWidgetId(null);setIsAddHtmlModalOpen(true);}else if(item.label==='Youtube'){setYoutubeWidgetAfterPostId(null);setIsAddYoutubeModalOpen(true);}else if(item.label==='Quote'){setQuoteWidgetAfterPostId(null);setIsAddQuoteModalOpen(true);}else if(item.label==='Call to Action'){setCtaWidgetAfterPostId(null);setEditingCtaWidgetId(null);setIsAddCtaModalOpen(true);}else if(item.label==='Voice to Text'){setVoiceToTextAfterPostId(null);setIsVoiceToTextOpen(true);}else if(item.label==='DocuSign'){setDocuSignPostId(null);setShowDocuSignSendModal(true);}}}><div className="w-10 h-10 flex-shrink-0">{item.icon}</div><div><p className="text-sm font-medium text-gray-900">{item.label}</p><p className="text-xs text-gray-500">{item.desc}</p></div></div></PopoverClose>))}</div>
                                 </PopoverContent>
                               </Popover>
                             </div>
@@ -7142,7 +8241,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                     <Popover><PopoverTrigger asChild><div className="w-7 h-7 rounded-full border border-[#6C60FF] bg-white hover:bg-[#6C60FF]/10 flex items-center justify-center cursor-pointer"><Plus className="w-4 h-4 text-[#6C60FF]" /></div></PopoverTrigger>
                                       <PopoverContent side="right" align="center" className="w-80 p-0 rounded-xl shadow-lg border border-gray-200 bg-white" sideOffset={8}>
                                         <div className="p-4 pb-2"><h4 className="text-base font-semibold text-gray-900">Add Widget</h4><p className="text-sm text-gray-500">Choose a widget to add to your timeline</p></div>
-                                        <div className="max-h-[320px] overflow-y-auto">{[{label:'Moment',desc:'Add a moment'},{label:'HTML',desc:'Add custom HTML'},{label:'Youtube',desc:'Embed YouTube'},{label:'Quote',desc:'Add a quote'},{label:'Voice to Text',desc:'Create captions'},{label:'DocuSign',desc:'Send for signature'}].map(item=>(<PopoverClose asChild key={item.label}><div className="flex items-center gap-4 px-5 py-4 hover:bg-gray-50 cursor-pointer" onClick={()=>{if(item.label==='Moment'){insertAfterPostIdRef.current=post.id?.toString()||null;setInsertAfterPostId(post.id?.toString()||null);setIsAddMomentModalOpen(true);}else if(item.label==='HTML'){setHtmlWidgetAfterPostId(post.id?.toString());setEditingHtmlWidgetId(null);setIsAddHtmlModalOpen(true);}else if(item.label==='Youtube'){setYoutubeWidgetAfterPostId(post.id?.toString());setIsAddYoutubeModalOpen(true);}else if(item.label==='Quote'){setQuoteWidgetAfterPostId(post.id?.toString());setIsAddQuoteModalOpen(true);}else if(item.label==='Voice to Text'){setVoiceToTextAfterPostId(post.id?.toString()||null);setIsVoiceToTextOpen(true);}else if(item.label==='DocuSign'){setDocuSignPostId(post.id?.toString()||null);setShowDocuSignSendModal(true);}}}><div><p className="text-sm font-medium text-gray-900">{item.label}</p><p className="text-xs text-gray-500">{item.desc}</p></div></div></PopoverClose>))}</div>
+                                        <div className="max-h-[320px] overflow-y-auto">{[{ icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#F0FDFA" fillOpacity="0.4"/><circle cx="17.5" cy="17.5" r="6.5" stroke="#009689" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><polyline points="17.5 13.5 17.5 17.5 20.5 19" stroke="#009689" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/></svg>, label:'Moment',desc:'Add a moment'},{ icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#6C60FF" fillOpacity="0.1"/><polyline points="21 22 25 17.5 21 13" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><polyline points="14 13 10 17.5 14 22" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/></svg>, label:'HTML',desc:'Add custom HTML'},{ icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#FF4444" fillOpacity="0.1"/><path d="M22.5 13H12.5C11.67 13 11 13.67 11 14.5V20.5C11 21.33 11.67 22 12.5 22H22.5C23.33 22 24 21.33 24 20.5V14.5C24 13.67 23.33 13 22.5 13Z" stroke="#FF4444" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><path d="M16 19.5V15.5L20 17.5L16 19.5Z" stroke="#FF4444" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round" fill="none"/></svg>, label:'Youtube',desc:'Embed YouTube'},{ icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#F59E0B" fillOpacity="0.1"/><path d="M19.5 12C19.15 12 18.82 12.14 18.57 12.39C18.32 12.64 18.17 12.98 18.17 13.33V17.33C18.17 17.68 18.32 18.02 18.57 18.27C18.82 18.52 19.15 18.67 19.5 18.67C19.68 18.67 19.85 18.74 19.97 18.86C20.1 18.99 20.17 19.16 20.17 19.33V20C20.17 20.35 20.02 20.69 19.77 20.94C19.52 21.19 19.19 21.33 18.83 21.33C18.65 21.33 18.49 21.4 18.36 21.53C18.24 21.65 18.17 21.82 18.17 22V23.33C18.17 23.51 18.24 23.68 18.36 23.8C18.49 23.93 18.65 24 18.83 24C19.89 24 20.91 23.58 21.66 22.83C22.41 22.08 22.83 21.06 22.83 20V13.33C22.83 12.98 22.69 12.64 22.44 12.39C22.19 12.14 21.85 12 21.5 12H19.5Z" stroke="#F59E0B" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/><path d="M13.17 12C12.81 12 12.47 12.14 12.22 12.39C11.97 12.64 11.83 12.98 11.83 13.33V17.33C11.83 17.68 11.97 18.02 12.22 18.27C12.47 18.52 12.81 18.67 13.17 18.67C13.34 18.67 13.51 18.74 13.64 18.86C13.76 18.99 13.83 19.16 13.83 19.33V20C13.83 20.35 13.69 20.69 13.44 20.94C13.19 21.19 12.85 21.33 12.5 21.33C12.32 21.33 12.16 21.4 12.03 21.53C11.9 21.65 11.83 21.82 11.83 22V23.33C11.83 23.51 11.9 23.68 12.03 23.8C12.16 23.93 12.32 24 12.5 24C13.56 24 14.58 23.58 15.33 22.83C16.08 22.08 16.5 21.06 16.5 20V13.33C16.5 12.98 16.36 12.64 16.11 12.39C15.86 12.14 15.52 12 15.17 12H13.17Z" stroke="#F59E0B" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>, label:'Quote',desc:'Add a quote'},{ icon: <div className="w-full h-full rounded-[8px] bg-[#6C60FF]/10 flex items-center justify-center"><Pointer className="w-5 h-5 text-[#6C60FF]" /></div>, label:'Call to Action',desc:'Add a button with a link'},{ icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#6C60FF" fillOpacity="0.1"/><rect x="14" y="10" width="7" height="10" rx="3.5" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><path d="M11 20.5C11 23.538 13.91 26 17.5 26C21.09 26 24 23.538 24 20.5" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><line x1="17.5" y1="26" x2="17.5" y2="29" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round"/><line x1="14.5" y1="29" x2="20.5" y2="29" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round"/></svg>, label:'Voice to Text',desc:'Create captions'},...(docuSignConnected ? [{ icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#1464A5" fillOpacity="0.1"/><rect x="12" y="10" width="11" height="14" rx="1.5" stroke="#1464A5" strokeWidth="1.45808"/><line x1="14.5" y1="14" x2="20.5" y2="14" stroke="#1464A5" strokeWidth="1.3" strokeLinecap="round"/><line x1="14.5" y1="17" x2="18.5" y2="17" stroke="#1464A5" strokeWidth="1.3" strokeLinecap="round"/></svg>, label:'DocuSign',desc:'Send for signature'}] : [])].map(item=>(<PopoverClose asChild key={item.label}><div className="flex items-center gap-4 px-5 py-4 hover:bg-gray-50 cursor-pointer" onClick={()=>{if(item.label==='Moment'){insertAfterPostIdRef.current=post.id?.toString()||null;setInsertAfterPostId(post.id?.toString()||null);setIsAddMomentModalOpen(true);}else if(item.label==='HTML'){setHtmlWidgetAfterPostId(post.id?.toString());setEditingHtmlWidgetId(null);setIsAddHtmlModalOpen(true);}else if(item.label==='Youtube'){setYoutubeWidgetAfterPostId(post.id?.toString());setIsAddYoutubeModalOpen(true);}else if(item.label==='Quote'){setQuoteWidgetAfterPostId(post.id?.toString());setIsAddQuoteModalOpen(true);}else if(item.label==='Call to Action'){setCtaWidgetAfterPostId(post.id?.toString());setEditingCtaWidgetId(null);setIsAddCtaModalOpen(true);}else if(item.label==='Voice to Text'){setVoiceToTextAfterPostId(post.id?.toString()||null);setIsVoiceToTextOpen(true);}else if(item.label==='DocuSign'){setDocuSignPostId(post.id?.toString()||null);setShowDocuSignSendModal(true);}}}><div className="w-10 h-10 flex-shrink-0">{item.icon}</div><div><p className="text-sm font-medium text-gray-900">{item.label}</p><p className="text-xs text-gray-500">{item.desc}</p></div></div></PopoverClose>))}</div>
                                       </PopoverContent>
                                     </Popover>
                                   </div>
@@ -7169,6 +8268,16 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                 <div className="relative transition-all duration-200">
                                   <div className="absolute top-0 right-0 z-10"><Popover><PopoverTrigger asChild><div className="cursor-pointer" onClick={e => e.stopPropagation()}><MoreVertical className="w-5 h-5 text-[#6C60FF]" /></div></PopoverTrigger><PopoverContent side="bottom" align="end" className="w-44 p-1 rounded-lg shadow-lg border border-gray-200 bg-white" sideOffset={4}><div className="flex items-center gap-2.5 px-3 py-2 hover:bg-gray-50 cursor-pointer rounded-md" onClick={e => { e.stopPropagation(); setEditingQuoteWidgetId(widget.id); setQuoteText(widget.text); setQuoteAuthor(widget.author || ''); setIsAddQuoteModalOpen(true); }}><Edit className="w-4 h-4 text-[#6C60FF]" /><span className="text-sm text-gray-700">Edit Quote</span></div><div className="flex items-center gap-2.5 px-3 py-2 hover:bg-red-50 cursor-pointer rounded-md" onClick={e => { e.stopPropagation(); apiRequest(`/memories/${memoryId}/widgets/${widget.id}`, { method: 'DELETE' }).then(() => setQuoteWidgets(prev => prev.filter(w => w.id !== widget.id))).catch(() => toast.error('Failed')); toast.success('Quote deleted'); }}><Trash2 className="w-4 h-4 text-red-500" /><span className="text-sm text-red-500">Delete</span></div></PopoverContent></Popover></div>
                                   <div className="bg-[#F0EEFF] rounded-xl border-l-[3px] border-l-[#6C60FF] p-4 mt-1"><p className="text-base font-bold text-gray-800 text-center leading-relaxed break-words">{widget.text}</p>{widget.author && <p className="text-sm text-gray-500 text-center mt-2">— {widget.author}</p>}</div>
+                                </div>
+                              </div>
+                            ))}
+                            {ctaWidgets.filter(w => w.afterPostId === post.id?.toString()).map(widget => (
+                              <div key={widget.id} className="relative pl-10 pb-4 cursor-pointer" onClick={() => { const el = ctaWidgetCardRefs.current[widget.id]; if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' }); }}>
+                                <div className="absolute left-0 top-7 bottom-8 w-0.5 bg-[#D1D5DC]" style={{ transform: 'translateX(-1px)' }} />
+                                <div className="absolute -left-3.5 top-0 w-7 h-7 rounded-full flex items-center justify-center bg-[#6C60FF]/10 text-[#6C60FF]"><Pointer className="w-3.5 h-3.5" /></div>
+                                <div className="relative transition-all duration-200">
+                                  <div className="absolute top-0 right-0 z-10"><Popover><PopoverTrigger asChild><div className="cursor-pointer" onClick={e => e.stopPropagation()}><MoreVertical className="w-5 h-5 text-[#6C60FF]" /></div></PopoverTrigger><PopoverContent side="bottom" align="end" className="w-44 p-1 rounded-lg shadow-lg border border-gray-200 bg-white" sideOffset={4}><div className="flex items-center gap-2.5 px-3 py-2 hover:bg-gray-50 cursor-pointer rounded-md" onClick={e => { e.stopPropagation(); openEditCta(widget); }}><Edit className="w-4 h-4 text-[#6C60FF]" /><span className="text-sm text-gray-700">Edit</span></div><div className="flex items-center gap-2.5 px-3 py-2 hover:bg-red-50 cursor-pointer rounded-md" onClick={e => { e.stopPropagation(); deleteCta(widget); }}><Trash2 className="w-4 h-4 text-red-500" /><span className="text-sm text-red-500">Delete</span></div></PopoverContent></Popover></div>
+                                  <div className="bg-[#F0EEFF] rounded-xl border-l-[3px] border-l-[#6C60FF] p-4 mt-1"><p className="text-base font-bold text-gray-800 text-center leading-relaxed break-words">{widget.title || 'Call to Action'}</p><p className="text-sm text-gray-500 text-center mt-1">{widget.buttonText || 'Button'}</p></div>
                                 </div>
                               </div>
                             ))}
@@ -7234,6 +8343,9 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                       {quoteWidgets.filter(w => w.afterPostId === null).map(widget => (
                         <div key={widget.id} ref={(el) => { quoteWidgetCardRefs.current[widget.id] = el; }} className="rounded-2xl bg-[#F0EEFF] p-6 relative border border-gray-100 border-l-4 border-l-[#6C60FF]"><p className="text-xl font-bold text-gray-800 text-center leading-relaxed mt-4 break-words">{widget.text}</p>{widget.author && <p className="text-sm text-gray-500 text-center mt-3">— {widget.author}</p>}</div>
                       ))}
+                      {ctaWidgets.filter(w => w.afterPostId === null).map(widget => (
+                        <CTAWidgetCard key={widget.id} widget={widget} memoryId={memoryId} cardRef={(el) => { ctaWidgetCardRefs.current[widget.id] = el; }} isActive={activeCtaWidgetId === widget.id} />
+                      ))}
                       {sharedUnifiedItems.length > 0 ? sharedUnifiedItems.map((uItem: any) => {
                         if (uItem.type === 'linked') return renderSharedLinkedCard(uItem.data, 'shared-desktop');
                         const post = uItem.data;
@@ -7251,6 +8363,9 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                           ))}
                           {quoteWidgets.filter(w => w.afterPostId === post.id?.toString()).map(widget => (
                             <div key={widget.id} ref={(el) => { quoteWidgetCardRefs.current[widget.id] = el; }} className="rounded-2xl bg-[#F0EEFF] p-6 relative border border-gray-100 border-l-4 border-l-[#6C60FF]"><p className="text-xl font-bold text-gray-800 text-center leading-relaxed mt-4 break-words">{widget.text}</p>{widget.author && <p className="text-sm text-gray-500 text-center mt-3">— {widget.author}</p>}</div>
+                          ))}
+                          {ctaWidgets.filter(w => w.afterPostId === post.id?.toString()).map(widget => (
+                            <CTAWidgetCard key={widget.id} widget={widget} memoryId={memoryId} cardRef={(el) => { ctaWidgetCardRefs.current[widget.id] = el; }} isActive={activeCtaWidgetId === widget.id} />
                           ))}
                         </React.Fragment>
                         );
@@ -7484,6 +8599,19 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                     <div className="flex flex-col">
                       <span className="text-[14px] font-semibold text-[#101828]">Quote</span>
                       <span className="text-[12px] text-[#6A7282]">Add a quote</span>
+                    </div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setShowCameraOptions(false); setShowMoreCameraOptions(false); setCtaWidgetAfterPostId(null); setEditingCtaWidgetId(null); setIsAddCtaModalOpen(true); }}
+                    className="w-full flex items-center gap-3 px-4 py-[6px] active:bg-black/5 transition-colors text-left"
+                  >
+                    <div className="flex-shrink-0 flex items-center justify-center" style={{ width: 44, height: 44, backgroundColor: '#EEF2FF', borderRadius: 16 }}>
+                      <Pointer width={22} height={22} className="text-[#6C60FF]" />
+                    </div>
+                    <div className="flex flex-col">
+                      <span className="text-[14px] font-semibold text-[#101828]">Call to Action</span>
+                      <span className="text-[12px] text-[#6A7282]">Add a button with a link</span>
                     </div>
                   </button>
                   <button
@@ -7868,6 +8996,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
           </div>
           </div>
         )}
+        {renderWidgetModals()}
       </div>
     );
   }
@@ -8192,366 +9321,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
         </DialogContent>
       </Dialog>
 
-      {/* Add/Edit HTML Modal */}
-      <Dialog open={isAddHtmlModalOpen} onOpenChange={(open) => {
-        setIsAddHtmlModalOpen(open);
-        if (!open) {
-          setAddHtmlTitle('');
-          setAddHtmlContent('');
-          setEditingHtmlWidgetId(null);
-          setHtmlWidgetAfterPostId(null);
-        }
-      }}>
-        <DialogContent className="max-w-none md:max-w-[800px] w-full h-full md:h-auto md:w-[calc(100%-30px)] md:max-h-[90vh] bg-white p-0 md:p-6 border-0 shadow-xl md:rounded-lg rounded-none top-0 left-0 translate-x-0 translate-y-0 md:top-[50%] md:left-[50%] md:translate-x-[-50%] md:translate-y-[-50%] flex flex-col [&>button[data-slot=dialog-default-close]]:hidden md:[&>button[data-slot=dialog-default-close]]:flex">
-          {/* Mobile Header with title + close */}
-          <div className="flex md:hidden items-center justify-between px-4 py-3 border-b border-gray-100 flex-shrink-0">
-            <h4 className="font-semibold text-[18px] md:text-lg text-gray-900">{editingHtmlWidgetId ? 'Edit HTML' : 'Add HTML'}</h4>
-            <DialogClose asChild>
-              <Button variant="ghost" size="sm" className="h-10 w-10 p-0 hover:bg-gray-100 rounded-full">
-                <X className="!w-[28px] !h-[28px] text-black" />
-              </Button>
-            </DialogClose>
-          </div>
-          {/* Scrollable form body */}
-          <div className="flex-1 overflow-y-auto px-5 pb-4 md:px-0 md:pt-0 md:pb-0">
-            <div className="space-y-5 md:space-y-4">
-              <DialogHeader className="space-y-1 pb-2 text-left hidden md:block">
-                <DialogTitle className="text-xl md:text-lg font-semibold text-gray-900">{editingHtmlWidgetId ? 'Edit HTML' : 'Add HTML'}</DialogTitle>
-              </DialogHeader>
-              <div>
-                <label className="text-[14px] md:text-sm font-medium text-gray-700">Title (Optional)</label>
-                <input
-                  type="text"
-                  value={addHtmlTitle}
-                  onChange={(e) => setAddHtmlTitle(e.target.value)}
-                  placeholder="Enter a title for this HTML block"
-                  className="mt-1.5 w-full h-12 md:h-10 px-4 md:px-3 border border-gray-300 rounded-lg text-[14px] md:text-sm focus:outline-none focus:ring-2 focus:ring-[#6C60FF]/20 focus:border-[#6C60FF]"
-                />
-              </div>
-              <div>
-                <label className="text-[14px] md:text-sm font-medium text-gray-700">HTML Content</label>
-                <textarea
-                  value={addHtmlContent}
-                  onChange={(e) => setAddHtmlContent(e.target.value)}
-                  placeholder="Paste your HTML code here..."
-                  rows={10}
-                  className="mt-1.5 w-full px-4 md:px-3 py-3 md:py-2.5 border border-gray-300 rounded-lg text-[14px] md:text-sm font-mono resize-y focus:outline-none focus:ring-2 focus:ring-[#6C60FF]/20 focus:border-[#6C60FF]"
-                />
-                <p className="mt-2 text-sm text-gray-500">You can paste any valid HTML code including divs, images, iframes, and more.</p>
-              </div>
-              {addHtmlContent && (
-                <div>
-                  <label className="text-[14px] md:text-sm font-medium text-gray-700">Preview</label>
-                  <div
-                    className="mt-1.5 w-full px-4 py-3 border border-gray-300 rounded-lg min-h-[80px] bg-white overflow-auto [&_h1]:text-2xl [&_h1]:font-bold [&_h2]:text-xl [&_h2]:font-bold [&_h3]:text-lg [&_h3]:font-semibold [&_h4]:text-base [&_h4]:font-semibold [&_h5]:text-sm [&_h5]:font-semibold [&_h6]:text-xs [&_h6]:font-semibold [&_p]:my-2 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:my-1 [&_a]:text-[#6C60FF] [&_a]:underline [&_strong]:font-bold [&_em]:italic [&_blockquote]:border-l-4 [&_blockquote]:border-gray-300 [&_blockquote]:pl-4 [&_blockquote]:italic"
-                    dangerouslySetInnerHTML={{ __html: addHtmlContent }}
-                  />
-                </div>
-              )}
-            </div>
-          </div>
-          {/* Footer action buttons - pinned to bottom on mobile */}
-          <div className="flex-shrink-0 flex justify-end md:justify-end gap-3 px-5 py-3 pb-[50px] md:px-0 md:py-0 md:pb-0 md:pt-4 border-t md:border-t-0 border-gray-100">
-            <Button
-              variant="outline"
-              onClick={() => {
-                setIsAddHtmlModalOpen(false);
-                setAddHtmlTitle('');
-                setAddHtmlContent('');
-                setEditingHtmlWidgetId(null);
-                setHtmlWidgetAfterPostId(null);
-              }}
-              className="h-12 md:h-10 px-6 text-[14px] md:text-sm border-gray-300 text-gray-700 hover:bg-gray-50"
-            >
-              Cancel
-            </Button>
-            <Button
-              onClick={async () => {
-                if (editingHtmlWidgetId) {
-                  try {
-                    await apiRequest(`/memories/${memoryId}/widgets/${editingHtmlWidgetId}`, {
-                      method: 'PUT',
-                      body: JSON.stringify({ widget_data: { title: addHtmlTitle, content: addHtmlContent } }),
-                    });
-                    setHtmlWidgets(prev => prev.map(w => w.id === editingHtmlWidgetId ? { ...w, title: addHtmlTitle, content: addHtmlContent, updatedAt: Date.now() } : w));
-                    toast.success("HTML block updated");
-                  } catch { toast.error("Failed to update HTML block"); return; }
-                } else {
-                  try {
-                    const sameGroup = [...htmlWidgets, ...youtubeWidgets, ...quoteWidgets].filter(w => w.afterPostId === htmlWidgetAfterPostId);
-                    const widget_order = sameGroup.length > 0 ? Math.max(...sameGroup.map(w => w.widget_order)) + 1 : 0;
-                    const res = await apiRequest(`/memories/${memoryId}/widgets`, {
-                      method: 'POST',
-                      body: JSON.stringify({
-                        widget_type: 'html',
-                        after_post_id: htmlWidgetAfterPostId,
-                        widget_order,
-                        widget_data: { title: addHtmlTitle, content: addHtmlContent },
-                      }),
-                    });
-                    if (!res.success) { toast.error("Failed to add HTML block"); return; }
-                    const htmlRaw = res.data?.data || res.data;
-                    const now = Date.now();
-                    setHtmlWidgets(prev => [...prev, {
-                      id: htmlRaw?.id?.toString() || `html_${now}`,
-                      title: addHtmlTitle,
-                      content: addHtmlContent,
-                      afterPostId: htmlWidgetAfterPostId,
-                      widget_order,
-                      createdAt: now,
-                      updatedAt: now,
-                    }]);
-                    toast.success("HTML block added");
-                  } catch { toast.error("Failed to add HTML block"); return; }
-                }
-                setIsAddHtmlModalOpen(false);
-                setAddHtmlTitle('');
-                setAddHtmlContent('');
-                setEditingHtmlWidgetId(null);
-                setHtmlWidgetAfterPostId(null);
-              }}
-              className="h-12 md:h-10 px-6 text-[14px] md:text-sm bg-[#6C60FF] hover:bg-[#5A52E6] text-white"
-            >
-              {editingHtmlWidgetId ? 'Save Changes' : 'Add HTML'}
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* Embed YouTube Video Dialog */}
-      <Dialog open={isAddYoutubeModalOpen} onOpenChange={(open) => {
-        setIsAddYoutubeModalOpen(open);
-        if (!open) { setYoutubeUrl(''); setYoutubeTitle(''); setYoutubeWidgetAfterPostId(null); setEditingYoutubeWidgetId(null); }
-      }}>
-        <DialogContent className="max-w-none md:max-w-[480px] w-full h-full md:h-auto md:max-h-[90vh] bg-white p-0 md:p-6 border-0 shadow-xl md:rounded-lg rounded-none top-0 left-0 translate-x-0 translate-y-0 md:top-[50%] md:left-[50%] md:translate-x-[-50%] md:translate-y-[-50%] flex flex-col [&>button[data-slot=dialog-default-close]]:hidden md:[&>button[data-slot=dialog-default-close]]:flex">
-          {/* Mobile Header with title + close */}
-          <div className="flex md:hidden items-center justify-between px-4 py-3 border-b border-gray-100 flex-shrink-0">
-            <h4 className="font-semibold text-[18px] md:text-lg text-gray-900">{editingYoutubeWidgetId ? 'Edit YouTube Video' : 'Embed YouTube Video'}</h4>
-            <DialogClose asChild>
-              <Button variant="ghost" size="sm" className="h-10 w-10 p-0 hover:bg-gray-100 rounded-full">
-                <X className="!w-[28px] !h-[28px] text-black" />
-              </Button>
-            </DialogClose>
-          </div>
-          {/* Scrollable form body */}
-          <div className="flex-1 overflow-y-auto px-5 pb-4 md:px-0 md:pt-0 md:pb-0">
-            <div className="space-y-5 md:space-y-4">
-              <DialogHeader className="space-y-1 pb-2 text-left hidden md:block">
-                <DialogTitle className="text-xl md:text-lg font-semibold text-gray-900">{editingYoutubeWidgetId ? 'Edit YouTube Video' : 'Embed YouTube Video'}</DialogTitle>
-                <p className="text-sm text-gray-500">Enter a YouTube URL to embed in your timeline</p>
-              </DialogHeader>
-              <label className="text-[14px] md:text-sm font-medium text-gray-700 md:hidden">Enter a YouTube URL to embed in your timeline</label>
-              <input
-                type="text"
-                value={youtubeTitle}
-                onChange={(e) => setYoutubeTitle(e.target.value)}
-                placeholder="Video title (optional)"
-                className="w-full h-12 px-4 border-2 border-gray-300 rounded-lg text-[14px] md:text-sm focus:outline-none focus:ring-2 focus:ring-[#6C60FF]/20 focus:border-[#6C60FF]"
-              />
-              <input
-                type="text"
-                value={youtubeUrl}
-                onChange={(e) => setYoutubeUrl(e.target.value)}
-                placeholder="https://www.youtube.com/watch?v=..."
-                className="w-full h-12 px-4 border-2 border-gray-300 rounded-lg text-[14px] md:text-sm focus:outline-none focus:ring-2 focus:ring-[#6C60FF]/20 focus:border-[#6C60FF]"
-              />
-              {(() => {
-                const match = youtubeUrl.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/|youtube\.com\/shorts\/)([a-zA-Z0-9_-]{11})/);
-                const videoId = match ? match[1] : null;
-                return videoId ? (
-                  <div className="w-full rounded-lg overflow-hidden border border-gray-200">
-                    <iframe
-                      width="100%"
-                      height="240"
-                      src={`https://www.youtube.com/embed/${videoId}?autoplay=0`}
-                      allow="accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                      allowFullScreen
-                      className="block"
-                    />
-                  </div>
-                ) : null;
-              })()}
-            </div>
-          </div>
-          {/* Footer action buttons - pinned to bottom on mobile */}
-          <div className="flex-shrink-0 flex justify-end md:justify-end gap-3 px-5 py-3 pb-[50px] md:px-0 md:py-0 md:pb-0 md:pt-4 border-t md:border-t-0 border-gray-100">
-            <Button
-              variant="outline"
-              onClick={() => {
-                setIsAddYoutubeModalOpen(false);
-                setYoutubeUrl('');
-                setYoutubeTitle('');
-                setYoutubeWidgetAfterPostId(null);
-                setEditingYoutubeWidgetId(null);
-              }}
-              className="h-12 md:h-10 px-6 text-[14px] md:text-sm border-gray-300 text-gray-700 hover:bg-gray-50"
-            >
-              Cancel
-            </Button>
-            <Button
-              disabled={!youtubeUrl.trim()}
-              onClick={async () => {
-                const match = youtubeUrl.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/|youtube\.com\/shorts\/)([a-zA-Z0-9_-]{11})/);
-                const videoId = match ? match[1] : null;
-                if (!videoId) {
-                  toast.error('Please enter a valid YouTube URL');
-                  return;
-                }
-                if (editingYoutubeWidgetId) {
-                  try {
-                    await apiRequest(`/memories/${memoryId}/widgets/${editingYoutubeWidgetId}`, {
-                      method: 'PUT',
-                      body: JSON.stringify({ widget_data: { title: youtubeTitle, url: youtubeUrl, videoId } }),
-                    });
-                    setYoutubeWidgets(prev => prev.map(w => w.id === editingYoutubeWidgetId ? { ...w, title: youtubeTitle, url: youtubeUrl, videoId } : w));
-                    toast.success('YouTube video updated');
-                  } catch { toast.error('Failed to update YouTube video'); return; }
-                } else {
-                  try {
-                    const sameGroup = [...htmlWidgets, ...youtubeWidgets, ...quoteWidgets].filter(w => w.afterPostId === youtubeWidgetAfterPostId);
-                    const widget_order = sameGroup.length > 0 ? Math.max(...sameGroup.map(w => w.widget_order)) + 1 : 0;
-                    const res = await apiRequest(`/memories/${memoryId}/widgets`, {
-                      method: 'POST',
-                      body: JSON.stringify({
-                        widget_type: 'youtube',
-                        after_post_id: youtubeWidgetAfterPostId,
-                        widget_order,
-                        widget_data: { title: youtubeTitle, url: youtubeUrl, videoId },
-                      }),
-                    });
-                    if (!res.success) { toast.error('Failed to add YouTube video'); return; }
-                    const ytRaw = res.data?.data || res.data;
-                    setYoutubeWidgets(prev => [...prev, {
-                      id: ytRaw?.id?.toString() || `yt_${Date.now()}`,
-                      title: youtubeTitle,
-                      url: youtubeUrl,
-                      videoId,
-                      afterPostId: youtubeWidgetAfterPostId,
-                      widget_order,
-                      createdAt: Date.now(),
-                    }]);
-                    toast.success('YouTube video added');
-                  } catch { toast.error('Failed to add YouTube video'); return; }
-                }
-                setIsAddYoutubeModalOpen(false);
-                setYoutubeUrl('');
-                setYoutubeTitle('');
-                setYoutubeWidgetAfterPostId(null);
-                setEditingYoutubeWidgetId(null);
-              }}
-              className="h-12 md:h-10 px-6 text-[14px] md:text-sm bg-[#6C60FF] hover:bg-[#5A52E6] text-white disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {editingYoutubeWidgetId ? 'Save Changes' : 'Add Video'}
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* Add Quote Dialog */}
-      <Dialog open={isAddQuoteModalOpen} onOpenChange={(open) => {
-        setIsAddQuoteModalOpen(open);
-        if (!open) { setQuoteText(''); setQuoteAuthor(''); setQuoteWidgetAfterPostId(null); setEditingQuoteWidgetId(null); }
-      }}>
-        <DialogContent className="max-w-none md:max-w-[480px] w-full h-full md:h-auto md:max-h-[90vh] bg-white p-0 md:p-6 border-0 shadow-xl md:rounded-lg rounded-none top-0 left-0 translate-x-0 translate-y-0 md:top-[50%] md:left-[50%] md:translate-x-[-50%] md:translate-y-[-50%] flex flex-col [&>button[data-slot=dialog-default-close]]:hidden md:[&>button[data-slot=dialog-default-close]]:flex">
-          {/* Mobile Header with title + close */}
-          <div className="flex md:hidden items-center justify-between px-4 py-3 border-b border-gray-100 flex-shrink-0">
-            <h4 className="font-semibold text-[18px] md:text-lg text-gray-900">{editingQuoteWidgetId ? 'Edit Quote' : 'Add Quote'}</h4>
-            <DialogClose asChild>
-              <Button variant="ghost" size="sm" className="h-10 w-10 p-0 hover:bg-gray-100 rounded-full">
-                <X className="!w-[28px] !h-[28px] text-black" />
-              </Button>
-            </DialogClose>
-          </div>
-          {/* Scrollable form body */}
-          <div className="flex-1 overflow-y-auto px-5 pb-4 md:px-0 md:pt-0 md:pb-0">
-            <div className="space-y-5 md:space-y-4">
-              <DialogHeader className="space-y-1 pb-2 text-left hidden md:block">
-                <DialogTitle className="text-xl md:text-lg font-semibold text-gray-900">{editingQuoteWidgetId ? 'Edit Quote' : 'Add Quote'}</DialogTitle>
-                <p className="text-sm text-gray-500">Enter a quote and author to add to your timeline</p>
-              </DialogHeader>
-              <label className="text-[14px] md:text-sm font-medium text-gray-700 md:hidden">Enter a quote and author to add to your timeline</label>
-              <textarea
-                value={quoteText}
-                onChange={(e) => setQuoteText(e.target.value)}
-                placeholder="Enter your quote here..."
-                rows={4}
-                className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg text-[14px] md:text-sm resize-y focus:outline-none focus:ring-2 focus:ring-[#6C60FF]/20 focus:border-[#6C60FF]"
-              />
-              <input
-                type="text"
-                value={quoteAuthor}
-                onChange={(e) => setQuoteAuthor(e.target.value)}
-                placeholder="Enter author name here..."
-                className="w-full h-12 px-4 border border-gray-300 rounded-lg text-[14px] md:text-sm focus:outline-none focus:ring-2 focus:ring-[#6C60FF]/20 focus:border-[#6C60FF]"
-              />
-            </div>
-          </div>
-          {/* Footer action buttons - pinned to bottom on mobile */}
-          <div className="flex-shrink-0 flex justify-end md:justify-end gap-3 px-5 py-3 pb-[50px] md:px-0 md:py-0 md:pb-0 md:pt-4 border-t md:border-t-0 border-gray-100">
-            <Button
-              variant="outline"
-              onClick={() => {
-                setIsAddQuoteModalOpen(false);
-                setQuoteText('');
-                setQuoteAuthor('');
-                setQuoteWidgetAfterPostId(null);
-                setEditingQuoteWidgetId(null);
-              }}
-              className="h-12 md:h-10 px-6 text-[14px] md:text-sm border-gray-300 text-gray-700 hover:bg-gray-50"
-            >
-              Cancel
-            </Button>
-            <Button
-              disabled={!quoteText.trim()}
-              onClick={async () => {
-                if (editingQuoteWidgetId) {
-                  try {
-                    await apiRequest(`/memories/${memoryId}/widgets/${editingQuoteWidgetId}`, {
-                      method: 'PUT',
-                      body: JSON.stringify({ widget_data: { text: quoteText, author: quoteAuthor } }),
-                    });
-                    setQuoteWidgets(prev => prev.map(w => w.id === editingQuoteWidgetId ? { ...w, text: quoteText, author: quoteAuthor } : w));
-                    toast.success('Quote updated');
-                  } catch { toast.error('Failed to update quote'); return; }
-                } else {
-                  try {
-                    const sameGroup = [...htmlWidgets, ...youtubeWidgets, ...quoteWidgets].filter(w => w.afterPostId === quoteWidgetAfterPostId);
-                    const widget_order = sameGroup.length > 0 ? Math.max(...sameGroup.map(w => w.widget_order)) + 1 : 0;
-                    const res = await apiRequest(`/memories/${memoryId}/widgets`, {
-                      method: 'POST',
-                      body: JSON.stringify({
-                        widget_type: 'quote',
-                        after_post_id: quoteWidgetAfterPostId,
-                        widget_order,
-                        widget_data: { text: quoteText, author: quoteAuthor },
-                      }),
-                    });
-                    if (!res.success) { toast.error('Failed to add quote'); return; }
-                    const qRaw = res.data?.data || res.data;
-                    setQuoteWidgets(prev => [...prev, {
-                      id: qRaw?.id?.toString() || `q_${Date.now()}`,
-                      text: quoteText,
-                      author: quoteAuthor,
-                      afterPostId: quoteWidgetAfterPostId,
-                      widget_order,
-                      createdAt: Date.now(),
-                    }]);
-                    toast.success('Quote added');
-                  } catch { toast.error('Failed to add quote'); return; }
-                }
-                setIsAddQuoteModalOpen(false);
-                setQuoteText('');
-                setQuoteAuthor('');
-                setQuoteWidgetAfterPostId(null);
-                setEditingQuoteWidgetId(null);
-              }}
-              className="h-12 md:h-10 px-6 text-[14px] md:text-sm bg-[#6C60FF] hover:bg-[#5A52E6] text-white disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {editingQuoteWidgetId ? 'Save Changes' : 'Add Quote'}
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
+      {renderWidgetModals()}
 
       {/* Generate QR Code Dialog */}
       <Dialog open={isGenerateQROpen} onOpenChange={setIsGenerateQROpen}>
@@ -8600,7 +9370,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                           <Badge className="bg-gray-100 text-gray-700 border-0 text-xs">Viewer</Badge>
                         )}
                       </div>
-                      <p className="text-xs text-gray-600">Can view and comment on the memory</p>
+                      <p className="text-xs text-gray-600">Can view and comment on the campaign</p>
                     </div>
                   </div>
 
@@ -8772,7 +9542,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
             <div className="flex items-center gap-4">
               <div className="flex-1">
                 <div className="flex items-center justify-between mb-2">
-                  <span className="text-sm font-medium text-gray-900">Publishing Memory...</span>
+                  <span className="text-sm font-medium text-gray-900">Publishing Campaign...</span>
                   <span className="text-sm text-gray-500">{publishProgress}%</span>
                 </div>
                 <Progress value={publishProgress} className="h-2" />
@@ -8788,7 +9558,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
         <div className="absolute inset-0 bg-white bg-opacity-80 flex items-center justify-center z-40">
           <div className="flex flex-col items-center gap-3">
             <div className="w-8 h-8 rounded-full border-2 border-[#7B68EE] border-t-transparent animate-spin"></div>
-            <span className="text-[14px] md:text-sm font-medium text-gray-700">Updating memory...</span>
+            <span className="text-[14px] md:text-sm font-medium text-gray-700">Updating campaign...</span>
           </div>
         </div>
       )}
@@ -8816,7 +9586,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                 Memory Published Successfully!
               </DialogTitle>
               <DialogDescription>
-                Your memory is now live and can be shared with others using the link or QR code below.
+                Your campaign is now live and can be shared with others using the link or QR code below.
               </DialogDescription>
             </DialogHeader>
 
@@ -8859,7 +9629,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                   </div>
                 </div>
                 <p className="text-xs text-center text-gray-500">
-                  Scan with your phone to open the memory
+                  Scan with your phone to open the campaign
                 </p>
               </div>
 
@@ -8954,11 +9724,11 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                   <span style={{ color: activeTab === "moderation" ? '#6366f1' : '#6b7280' }}>
                     Moderation
                   </span>
-                  {pendingPostsCount > 0 && (
+                  {pendingModerationCount > 0 && (
                     <Badge
                       className="ml-1 h-5 min-w-[20px] flex items-center justify-center px-1.5 bg-red-500 text-white text-xs"
                     >
-                      {pendingPostsCount}
+                      {pendingModerationCount}
                     </Badge>
                   )}
                 </button>
@@ -9065,7 +9835,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                           <Eye className="w-6 h-6 text-gray-600 flex-shrink-0 mt-0.5" />
                           <div className="flex-1">
                             <h3 className="font-semibold text-gray-900 mb-1">View Only</h3>
-                            <p className="text-sm text-gray-500">Users can only view the memory, no comments allowed</p>
+                            <p className="text-sm text-gray-500">Users can only view the campaign, no comments allowed</p>
                           </div>
                         </div>
                       </button>
@@ -9148,7 +9918,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                       <Input
                         value={editData.title}
                         onChange={(e) => setEditData(prev => ({ ...prev, title: e.target.value }))}
-                        placeholder="Enter memory title..."
+                        placeholder="Enter campaign title..."
                         className="w-full bg-white border border-gray-200 hover:border-[#6C60FF] focus:border-[#6C60FF] focus:ring-0 transition-all duration-200"
                       />
                     </div>
@@ -9440,7 +10210,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                     <Input
                       value={editData.title}
                       onChange={(e) => setEditData(prev => ({ ...prev, title: e.target.value }))}
-                      placeholder="Enter memory title..."
+                      placeholder="Enter campaign title..."
                       className="w-full bg-white border border-gray-200 hover:border-[#6C60FF] focus:border-[#6C60FF] focus:ring-0 transition-all duration-200"
                     />
                   </div>
@@ -9640,7 +10410,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                 <Input
                   value={editData.title}
                   onChange={(e) => setEditData(prev => ({ ...prev, title: e.target.value }))}
-                  placeholder="Enter memory title..."
+                  placeholder="Enter campaign title..."
                   className="w-full bg-white border border-gray-200 hover:border-[#6C60FF] focus:border-[#6C60FF] focus:ring-0 transition-all duration-200 text-[14px] md:text-sm !h-[38px]"
                 />
               </div>
@@ -9777,7 +10547,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
             <div className="flex items-center justify-between px-4 py-3 pb-[50px] md:pb-3 border-t border-gray-100 flex-shrink-0">
               <Button
                 variant="ghost"
-                onClick={() => setShowDeleteDialog(true)}
+                onClick={() => { setIsEditPopoverOpen(false); setShowDeleteDialog(true); }}
                 disabled={!isOwner}
                 className="h-12 md:h-10 px-6 text-[14px] md:text-sm text-red-600 hover:text-red-700 hover:bg-red-50 flex-shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
               >
@@ -10144,7 +10914,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                           </div>
                         </div>
                         <p className="text-xs text-center text-gray-500">
-                          Scan with your phone to open the memory
+                          Scan with your phone to open the campaign
                         </p>
                         <Button
                           variant="outline"
@@ -10229,7 +10999,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                 {/* Memory Wallpaper */}
                 <div>
                   <div className="relative md:rounded-2xl overflow-hidden md:shadow-lg bg-white">
-                    <div className="relative h-[65vh] md:h-[24rem] lg:h-[28rem]">
+                    <div className="relative h-[90vh] md:h-[24rem] lg:h-[28rem]">
                       {(() => {
                         const rawColor = apiMemoryData?.user?.profile_color || (user as any)?.profile_color;
                         const profileColor = rawColor
@@ -10270,9 +11040,9 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                               />
                               <button
                                 onClick={handleToggleCoverVideo}
-                                className="absolute inset-0 z-[5] flex items-start justify-center group"
+                                className="absolute inset-0 z-[5] flex items-center justify-center group"
                               >
-                                <div className="w-14 h-14 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center transition-all duration-200 group-hover:bg-black/60 group-hover:scale-110 mt-[30%]">
+                                <div className="w-14 h-14 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center transition-all duration-200 group-hover:bg-black/60 group-hover:scale-110">
                                   {isCoverVideoPlaying
                                     ? <Pause className="w-6 h-6 text-white" />
                                     : <Play className="w-6 h-6 text-white ml-0.5" />
@@ -10920,7 +11690,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                       <path d="M9.6361 9.63622C8.85599 10.2328 7.94016 10.5783 6.99693 11.0783C5.75557 11.0783 4.54215 10.7097 3.51052 10.0192C2.47889 9.32876 1.67551 8.34753 1.20222 7.19993C1.15362 7.06902 1.15362 6.92502 1.20222 6.7941C1.59612 5.84853 2.23087 5.02 3.03502 4.39" stroke="#DC2626" strokeWidth="1.16617" strokeLinecap="round" strokeLinejoin="round"/>
                                     </svg>
                                     <div>
-                                      <div className="font-medium">Unpublish Memory</div>
+                                      <div className="font-medium">Unpublish Campaign</div>
                                     </div>
                                   </DropdownMenuItem>
                                 ) : (
@@ -11290,11 +12060,11 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                 </div>
                                 <div className="max-h-[320px] overflow-y-auto">
                                   {[
-                                    { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#F0FDFA" fillOpacity="0.4"/><circle cx="17.5" cy="17.5" r="6.5" stroke="#009689" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><polyline points="17.5 13.5 17.5 17.5 20.5 19" stroke="#009689" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/></svg>, label: 'Moment', desc: 'Add a special moment' },
+                                    { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#F0FDFA" fillOpacity="0.4"/><circle cx="17.5" cy="17.5" r="6.5" stroke="#009689" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><polyline points="17.5 13.5 17.5 17.5 20.5 19" stroke="#009689" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/></svg>, label: 'Moment', desc: 'Add a special moment' }, { icon: <div className="w-full h-full rounded-[8px] bg-[#6C60FF]/10 flex items-center justify-center"><Pointer className="w-5 h-5 text-[#6C60FF]" /></div>, label: 'Call to Action', desc: 'Add a button with a link' },
                                     { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#6C60FF" fillOpacity="0.1"/><rect x="14" y="10" width="7" height="10" rx="3.5" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><path d="M11 20.5C11 23.538 13.91 26 17.5 26C21.09 26 24 23.538 24 20.5" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><line x1="17.5" y1="26" x2="17.5" y2="29" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round"/><line x1="14.5" y1="29" x2="20.5" y2="29" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round"/></svg>, label: 'Voice to Text', desc: 'Create moment captions' },
                                     { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#6C60FF" fillOpacity="0.1"/><polyline points="21 22 25 17.5 21 13" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><polyline points="14 13 10 17.5 14 22" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/></svg>, label: 'HTML', desc: 'Add custom HTML content' },
                                     { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#FF4444" fillOpacity="0.1"/><path d="M22.5 13H12.5C11.67 13 11 13.67 11 14.5V20.5C11 21.33 11.67 22 12.5 22H22.5C23.33 22 24 21.33 24 20.5V14.5C24 13.67 23.33 13 22.5 13Z" stroke="#FF4444" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><path d="M16 19.5V15.5L20 17.5L16 19.5Z" stroke="#FF4444" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round" fill="none"/></svg>, label: 'Youtube', desc: 'Embed a YouTube link' },
-                                    { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#F59E0B" fillOpacity="0.1"/><path d="M19.5 12C19.15 12 18.82 12.14 18.57 12.39C18.32 12.64 18.17 12.98 18.17 13.33V17.33C18.17 17.68 18.32 18.02 18.57 18.27C18.82 18.52 19.15 18.67 19.5 18.67C19.68 18.67 19.85 18.74 19.97 18.86C20.1 18.99 20.17 19.16 20.17 19.33V20C20.17 20.35 20.02 20.69 19.77 20.94C19.52 21.19 19.19 21.33 18.83 21.33C18.65 21.33 18.49 21.4 18.36 21.53C18.24 21.65 18.17 21.82 18.17 22V23.33C18.17 23.51 18.24 23.68 18.36 23.8C18.49 23.93 18.65 24 18.83 24C19.89 24 20.91 23.58 21.66 22.83C22.41 22.08 22.83 21.06 22.83 20V13.33C22.83 12.98 22.69 12.64 22.44 12.39C22.19 12.14 21.85 12 21.5 12H19.5Z" stroke="#F59E0B" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/><path d="M13.17 12C12.81 12 12.47 12.14 12.22 12.39C11.97 12.64 11.83 12.98 11.83 13.33V17.33C11.83 17.68 11.97 18.02 12.22 18.27C12.47 18.52 12.81 18.67 13.17 18.67C13.34 18.67 13.51 18.74 13.64 18.86C13.76 18.99 13.83 19.16 13.83 19.33V20C13.83 20.35 13.69 20.69 13.44 20.94C13.19 21.19 12.85 21.33 12.5 21.33C12.32 21.33 12.16 21.4 12.03 21.53C11.9 21.65 11.83 21.82 11.83 22V23.33C11.83 23.51 11.9 23.68 12.03 23.8C12.16 23.93 12.32 24 12.5 24C13.56 24 14.58 23.58 15.33 22.83C16.08 22.08 16.5 21.06 16.5 20V13.33C16.5 12.98 16.36 12.64 16.11 12.39C15.86 12.14 15.52 12 15.17 12H13.17Z" stroke="#F59E0B" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>, label: 'Quote', desc: 'Add an inspirational quote' }, { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#1464A5" fillOpacity="0.1"/><rect x="12" y="10" width="11" height="14" rx="1.5" stroke="#1464A5" strokeWidth="1.45808"/><line x1="14.5" y1="14" x2="20.5" y2="14" stroke="#1464A5" strokeWidth="1.3" strokeLinecap="round"/><line x1="14.5" y1="17" x2="18.5" y2="17" stroke="#1464A5" strokeWidth="1.3" strokeLinecap="round"/></svg>, label: 'DocuSign', desc: 'Send for signature' },
+                                    { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#F59E0B" fillOpacity="0.1"/><path d="M19.5 12C19.15 12 18.82 12.14 18.57 12.39C18.32 12.64 18.17 12.98 18.17 13.33V17.33C18.17 17.68 18.32 18.02 18.57 18.27C18.82 18.52 19.15 18.67 19.5 18.67C19.68 18.67 19.85 18.74 19.97 18.86C20.1 18.99 20.17 19.16 20.17 19.33V20C20.17 20.35 20.02 20.69 19.77 20.94C19.52 21.19 19.19 21.33 18.83 21.33C18.65 21.33 18.49 21.4 18.36 21.53C18.24 21.65 18.17 21.82 18.17 22V23.33C18.17 23.51 18.24 23.68 18.36 23.8C18.49 23.93 18.65 24 18.83 24C19.89 24 20.91 23.58 21.66 22.83C22.41 22.08 22.83 21.06 22.83 20V13.33C22.83 12.98 22.69 12.64 22.44 12.39C22.19 12.14 21.85 12 21.5 12H19.5Z" stroke="#F59E0B" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/><path d="M13.17 12C12.81 12 12.47 12.14 12.22 12.39C11.97 12.64 11.83 12.98 11.83 13.33V17.33C11.83 17.68 11.97 18.02 12.22 18.27C12.47 18.52 12.81 18.67 13.17 18.67C13.34 18.67 13.51 18.74 13.64 18.86C13.76 18.99 13.83 19.16 13.83 19.33V20C13.83 20.35 13.69 20.69 13.44 20.94C13.19 21.19 12.85 21.33 12.5 21.33C12.32 21.33 12.16 21.4 12.03 21.53C11.9 21.65 11.83 21.82 11.83 22V23.33C11.83 23.51 11.9 23.68 12.03 23.8C12.16 23.93 12.32 24 12.5 24C13.56 24 14.58 23.58 15.33 22.83C16.08 22.08 16.5 21.06 16.5 20V13.33C16.5 12.98 16.36 12.64 16.11 12.39C15.86 12.14 15.52 12 15.17 12H13.17Z" stroke="#F59E0B" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>, label: 'Quote', desc: 'Add an inspirational quote' }, ...(docuSignConnected ? [{ icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#1464A5" fillOpacity="0.1"/><rect x="12" y="10" width="11" height="14" rx="1.5" stroke="#1464A5" strokeWidth="1.45808"/><line x1="14.5" y1="14" x2="20.5" y2="14" stroke="#1464A5" strokeWidth="1.3" strokeLinecap="round"/><line x1="14.5" y1="17" x2="18.5" y2="17" stroke="#1464A5" strokeWidth="1.3" strokeLinecap="round"/></svg>, label: 'DocuSign', desc: 'Send for signature' }] : []),
                                   ].map((item) => (
                                     <PopoverClose asChild key={item.label}>
                                     <div
@@ -11313,6 +12083,10 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                         } else if (item.label === 'Quote') {
                                           setQuoteWidgetAfterPostId(null);
                                           setIsAddQuoteModalOpen(true);
+                                        } else if (item.label === 'Call to Action') {
+                                          setCtaWidgetAfterPostId(null);
+                                          setEditingCtaWidgetId(null);
+                                          setIsAddCtaModalOpen(true);
                                         } else if (item.label === 'Voice to Text') {
                                           setVoiceToTextAfterPostId(null);
                                           setIsVoiceToTextOpen(true);
@@ -11413,11 +12187,11 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                     </div>
                                     <div className="max-h-[320px] overflow-y-auto">
                                       {[
-                                        { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#F0FDFA" fillOpacity="0.4"/><circle cx="17.5" cy="17.5" r="6.5" stroke="#009689" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><polyline points="17.5 13.5 17.5 17.5 20.5 19" stroke="#009689" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/></svg>, label: 'Moment', desc: 'Add a special moment' },
+                                        { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#F0FDFA" fillOpacity="0.4"/><circle cx="17.5" cy="17.5" r="6.5" stroke="#009689" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><polyline points="17.5 13.5 17.5 17.5 20.5 19" stroke="#009689" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/></svg>, label: 'Moment', desc: 'Add a special moment' }, { icon: <div className="w-full h-full rounded-[8px] bg-[#6C60FF]/10 flex items-center justify-center"><Pointer className="w-5 h-5 text-[#6C60FF]" /></div>, label: 'Call to Action', desc: 'Add a button with a link' },
                                         { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#6C60FF" fillOpacity="0.1"/><rect x="14" y="10" width="7" height="10" rx="3.5" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><path d="M11 20.5C11 23.538 13.91 26 17.5 26C21.09 26 24 23.538 24 20.5" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><line x1="17.5" y1="26" x2="17.5" y2="29" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round"/><line x1="14.5" y1="29" x2="20.5" y2="29" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round"/></svg>, label: 'Voice to Text', desc: 'Create moment captions' },
                                         { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#6C60FF" fillOpacity="0.1"/><polyline points="21 22 25 17.5 21 13" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><polyline points="14 13 10 17.5 14 22" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/></svg>, label: 'HTML', desc: 'Add custom HTML content' },
                                         { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#FF4444" fillOpacity="0.1"/><path d="M22.5 13H12.5C11.67 13 11 13.67 11 14.5V20.5C11 21.33 11.67 22 12.5 22H22.5C23.33 22 24 21.33 24 20.5V14.5C24 13.67 23.33 13 22.5 13Z" stroke="#FF4444" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><path d="M16 19.5V15.5L20 17.5L16 19.5Z" stroke="#FF4444" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round" fill="none"/></svg>, label: 'Youtube', desc: 'Embed a YouTube link' },
-                                        { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#F59E0B" fillOpacity="0.1"/><path d="M19.5 12C19.15 12 18.82 12.14 18.57 12.39C18.32 12.64 18.17 12.98 18.17 13.33V17.33C18.17 17.68 18.32 18.02 18.57 18.27C18.82 18.52 19.15 18.67 19.5 18.67C19.68 18.67 19.85 18.74 19.97 18.86C20.1 18.99 20.17 19.16 20.17 19.33V20C20.17 20.35 20.02 20.69 19.77 20.94C19.52 21.19 19.19 21.33 18.83 21.33C18.65 21.33 18.49 21.4 18.36 21.53C18.24 21.65 18.17 21.82 18.17 22V23.33C18.17 23.51 18.24 23.68 18.36 23.8C18.49 23.93 18.65 24 18.83 24C19.89 24 20.91 23.58 21.66 22.83C22.41 22.08 22.83 21.06 22.83 20V13.33C22.83 12.98 22.69 12.64 22.44 12.39C22.19 12.14 21.85 12 21.5 12H19.5Z" stroke="#F59E0B" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/><path d="M13.17 12C12.81 12 12.47 12.14 12.22 12.39C11.97 12.64 11.83 12.98 11.83 13.33V17.33C11.83 17.68 11.97 18.02 12.22 18.27C12.47 18.52 12.81 18.67 13.17 18.67C13.34 18.67 13.51 18.74 13.64 18.86C13.76 18.99 13.83 19.16 13.83 19.33V20C13.83 20.35 13.69 20.69 13.44 20.94C13.19 21.19 12.85 21.33 12.5 21.33C12.32 21.33 12.16 21.4 12.03 21.53C11.9 21.65 11.83 21.82 11.83 22V23.33C11.83 23.51 11.9 23.68 12.03 23.8C12.16 23.93 12.32 24 12.5 24C13.56 24 14.58 23.58 15.33 22.83C16.08 22.08 16.5 21.06 16.5 20V13.33C16.5 12.98 16.36 12.64 16.11 12.39C15.86 12.14 15.52 12 15.17 12H13.17Z" stroke="#F59E0B" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>, label: 'Quote', desc: 'Add an inspirational quote' }, { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#1464A5" fillOpacity="0.1"/><rect x="12" y="10" width="11" height="14" rx="1.5" stroke="#1464A5" strokeWidth="1.45808"/><line x1="14.5" y1="14" x2="20.5" y2="14" stroke="#1464A5" strokeWidth="1.3" strokeLinecap="round"/><line x1="14.5" y1="17" x2="18.5" y2="17" stroke="#1464A5" strokeWidth="1.3" strokeLinecap="round"/></svg>, label: 'DocuSign', desc: 'Send for signature' },
+                                        { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#F59E0B" fillOpacity="0.1"/><path d="M19.5 12C19.15 12 18.82 12.14 18.57 12.39C18.32 12.64 18.17 12.98 18.17 13.33V17.33C18.17 17.68 18.32 18.02 18.57 18.27C18.82 18.52 19.15 18.67 19.5 18.67C19.68 18.67 19.85 18.74 19.97 18.86C20.1 18.99 20.17 19.16 20.17 19.33V20C20.17 20.35 20.02 20.69 19.77 20.94C19.52 21.19 19.19 21.33 18.83 21.33C18.65 21.33 18.49 21.4 18.36 21.53C18.24 21.65 18.17 21.82 18.17 22V23.33C18.17 23.51 18.24 23.68 18.36 23.8C18.49 23.93 18.65 24 18.83 24C19.89 24 20.91 23.58 21.66 22.83C22.41 22.08 22.83 21.06 22.83 20V13.33C22.83 12.98 22.69 12.64 22.44 12.39C22.19 12.14 21.85 12 21.5 12H19.5Z" stroke="#F59E0B" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/><path d="M13.17 12C12.81 12 12.47 12.14 12.22 12.39C11.97 12.64 11.83 12.98 11.83 13.33V17.33C11.83 17.68 11.97 18.02 12.22 18.27C12.47 18.52 12.81 18.67 13.17 18.67C13.34 18.67 13.51 18.74 13.64 18.86C13.76 18.99 13.83 19.16 13.83 19.33V20C13.83 20.35 13.69 20.69 13.44 20.94C13.19 21.19 12.85 21.33 12.5 21.33C12.32 21.33 12.16 21.4 12.03 21.53C11.9 21.65 11.83 21.82 11.83 22V23.33C11.83 23.51 11.9 23.68 12.03 23.8C12.16 23.93 12.32 24 12.5 24C13.56 24 14.58 23.58 15.33 22.83C16.08 22.08 16.5 21.06 16.5 20V13.33C16.5 12.98 16.36 12.64 16.11 12.39C15.86 12.14 15.52 12 15.17 12H13.17Z" stroke="#F59E0B" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>, label: 'Quote', desc: 'Add an inspirational quote' }, ...(docuSignConnected ? [{ icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#1464A5" fillOpacity="0.1"/><rect x="12" y="10" width="11" height="14" rx="1.5" stroke="#1464A5" strokeWidth="1.45808"/><line x1="14.5" y1="14" x2="20.5" y2="14" stroke="#1464A5" strokeWidth="1.3" strokeLinecap="round"/><line x1="14.5" y1="17" x2="18.5" y2="17" stroke="#1464A5" strokeWidth="1.3" strokeLinecap="round"/></svg>, label: 'DocuSign', desc: 'Send for signature' }] : []),
                                       ].map((item) => (
                                         <PopoverClose asChild key={item.label}>
                                         <div
@@ -11436,6 +12210,10 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                             } else if (item.label === 'Quote') {
                                               setQuoteWidgetAfterPostId(null);
                                               setIsAddQuoteModalOpen(true);
+                                            } else if (item.label === 'Call to Action') {
+                                              setCtaWidgetAfterPostId(null);
+                                              setEditingCtaWidgetId(null);
+                                              setIsAddCtaModalOpen(true);
                                             } else if (item.label === 'Voice to Text') {
                                               setVoiceToTextAfterPostId(null);
                                               setIsVoiceToTextOpen(true);
@@ -11533,11 +12311,11 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                     </div>
                                     <div className="max-h-[320px] overflow-y-auto">
                                       {[
-                                        { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#F0FDFA" fillOpacity="0.4"/><circle cx="17.5" cy="17.5" r="6.5" stroke="#009689" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><polyline points="17.5 13.5 17.5 17.5 20.5 19" stroke="#009689" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/></svg>, label: 'Moment', desc: 'Add a special moment' },
+                                        { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#F0FDFA" fillOpacity="0.4"/><circle cx="17.5" cy="17.5" r="6.5" stroke="#009689" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><polyline points="17.5 13.5 17.5 17.5 20.5 19" stroke="#009689" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/></svg>, label: 'Moment', desc: 'Add a special moment' }, { icon: <div className="w-full h-full rounded-[8px] bg-[#6C60FF]/10 flex items-center justify-center"><Pointer className="w-5 h-5 text-[#6C60FF]" /></div>, label: 'Call to Action', desc: 'Add a button with a link' },
                                         { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#6C60FF" fillOpacity="0.1"/><rect x="14" y="10" width="7" height="10" rx="3.5" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><path d="M11 20.5C11 23.538 13.91 26 17.5 26C21.09 26 24 23.538 24 20.5" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><line x1="17.5" y1="26" x2="17.5" y2="29" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round"/><line x1="14.5" y1="29" x2="20.5" y2="29" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round"/></svg>, label: 'Voice to Text', desc: 'Create moment captions' },
                                         { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#6C60FF" fillOpacity="0.1"/><polyline points="21 22 25 17.5 21 13" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><polyline points="14 13 10 17.5 14 22" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/></svg>, label: 'HTML', desc: 'Add custom HTML content' },
                                         { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#FF4444" fillOpacity="0.1"/><path d="M22.5 13H12.5C11.67 13 11 13.67 11 14.5V20.5C11 21.33 11.67 22 12.5 22H22.5C23.33 22 24 21.33 24 20.5V14.5C24 13.67 23.33 13 22.5 13Z" stroke="#FF4444" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><path d="M16 19.5V15.5L20 17.5L16 19.5Z" stroke="#FF4444" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round" fill="none"/></svg>, label: 'Youtube', desc: 'Embed a YouTube link' },
-                                        { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#F59E0B" fillOpacity="0.1"/><path d="M19.5 12C19.15 12 18.82 12.14 18.57 12.39C18.32 12.64 18.17 12.98 18.17 13.33V17.33C18.17 17.68 18.32 18.02 18.57 18.27C18.82 18.52 19.15 18.67 19.5 18.67C19.68 18.67 19.85 18.74 19.97 18.86C20.1 18.99 20.17 19.16 20.17 19.33V20C20.17 20.35 20.02 20.69 19.77 20.94C19.52 21.19 19.19 21.33 18.83 21.33C18.65 21.33 18.49 21.4 18.36 21.53C18.24 21.65 18.17 21.82 18.17 22V23.33C18.17 23.51 18.24 23.68 18.36 23.8C18.49 23.93 18.65 24 18.83 24C19.89 24 20.91 23.58 21.66 22.83C22.41 22.08 22.83 21.06 22.83 20V13.33C22.83 12.98 22.69 12.64 22.44 12.39C22.19 12.14 21.85 12 21.5 12H19.5Z" stroke="#F59E0B" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/><path d="M13.17 12C12.81 12 12.47 12.14 12.22 12.39C11.97 12.64 11.83 12.98 11.83 13.33V17.33C11.83 17.68 11.97 18.02 12.22 18.27C12.47 18.52 12.81 18.67 13.17 18.67C13.34 18.67 13.51 18.74 13.64 18.86C13.76 18.99 13.83 19.16 13.83 19.33V20C13.83 20.35 13.69 20.69 13.44 20.94C13.19 21.19 12.85 21.33 12.5 21.33C12.32 21.33 12.16 21.4 12.03 21.53C11.9 21.65 11.83 21.82 11.83 22V23.33C11.83 23.51 11.9 23.68 12.03 23.8C12.16 23.93 12.32 24 12.5 24C13.56 24 14.58 23.58 15.33 22.83C16.08 22.08 16.5 21.06 16.5 20V13.33C16.5 12.98 16.36 12.64 16.11 12.39C15.86 12.14 15.52 12 15.17 12H13.17Z" stroke="#F59E0B" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>, label: 'Quote', desc: 'Add an inspirational quote' }, { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#1464A5" fillOpacity="0.1"/><rect x="12" y="10" width="11" height="14" rx="1.5" stroke="#1464A5" strokeWidth="1.45808"/><line x1="14.5" y1="14" x2="20.5" y2="14" stroke="#1464A5" strokeWidth="1.3" strokeLinecap="round"/><line x1="14.5" y1="17" x2="18.5" y2="17" stroke="#1464A5" strokeWidth="1.3" strokeLinecap="round"/></svg>, label: 'DocuSign', desc: 'Send for signature' },
+                                        { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#F59E0B" fillOpacity="0.1"/><path d="M19.5 12C19.15 12 18.82 12.14 18.57 12.39C18.32 12.64 18.17 12.98 18.17 13.33V17.33C18.17 17.68 18.32 18.02 18.57 18.27C18.82 18.52 19.15 18.67 19.5 18.67C19.68 18.67 19.85 18.74 19.97 18.86C20.1 18.99 20.17 19.16 20.17 19.33V20C20.17 20.35 20.02 20.69 19.77 20.94C19.52 21.19 19.19 21.33 18.83 21.33C18.65 21.33 18.49 21.4 18.36 21.53C18.24 21.65 18.17 21.82 18.17 22V23.33C18.17 23.51 18.24 23.68 18.36 23.8C18.49 23.93 18.65 24 18.83 24C19.89 24 20.91 23.58 21.66 22.83C22.41 22.08 22.83 21.06 22.83 20V13.33C22.83 12.98 22.69 12.64 22.44 12.39C22.19 12.14 21.85 12 21.5 12H19.5Z" stroke="#F59E0B" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/><path d="M13.17 12C12.81 12 12.47 12.14 12.22 12.39C11.97 12.64 11.83 12.98 11.83 13.33V17.33C11.83 17.68 11.97 18.02 12.22 18.27C12.47 18.52 12.81 18.67 13.17 18.67C13.34 18.67 13.51 18.74 13.64 18.86C13.76 18.99 13.83 19.16 13.83 19.33V20C13.83 20.35 13.69 20.69 13.44 20.94C13.19 21.19 12.85 21.33 12.5 21.33C12.32 21.33 12.16 21.4 12.03 21.53C11.9 21.65 11.83 21.82 11.83 22V23.33C11.83 23.51 11.9 23.68 12.03 23.8C12.16 23.93 12.32 24 12.5 24C13.56 24 14.58 23.58 15.33 22.83C16.08 22.08 16.5 21.06 16.5 20V13.33C16.5 12.98 16.36 12.64 16.11 12.39C15.86 12.14 15.52 12 15.17 12H13.17Z" stroke="#F59E0B" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>, label: 'Quote', desc: 'Add an inspirational quote' }, ...(docuSignConnected ? [{ icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#1464A5" fillOpacity="0.1"/><rect x="12" y="10" width="11" height="14" rx="1.5" stroke="#1464A5" strokeWidth="1.45808"/><line x1="14.5" y1="14" x2="20.5" y2="14" stroke="#1464A5" strokeWidth="1.3" strokeLinecap="round"/><line x1="14.5" y1="17" x2="18.5" y2="17" stroke="#1464A5" strokeWidth="1.3" strokeLinecap="round"/></svg>, label: 'DocuSign', desc: 'Send for signature' }] : []),
                                       ].map((item) => (
                                         <PopoverClose asChild key={item.label}>
                                         <div
@@ -11557,6 +12335,10 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                             } else if (item.label === 'Quote') {
                                               setQuoteWidgetAfterPostId(widget.afterPostId);
                                               setIsAddQuoteModalOpen(true);
+                                            } else if (item.label === 'Call to Action') {
+                                              setCtaWidgetAfterPostId(widget.afterPostId);
+                                              setEditingCtaWidgetId(null);
+                                              setIsAddCtaModalOpen(true);
                                             } else if (item.label === 'Voice to Text') {
                                               setVoiceToTextAfterPostId(widget.afterPostId || null);
                                               setIsVoiceToTextOpen(true);
@@ -11585,7 +12367,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                       );
                     })}
 
-                    {/* Quote widget titles added from intro + button */}
+                    {/* Quote widget titles added from intro + button (with insert-below "+" divider) */}
                     {quoteWidgets.filter(w => w.afterPostId === null).map(widget => {
                       const isQActive = activeQuoteWidgetId === widget.id;
                       const widgetTime = new Date(widget.createdAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
@@ -11595,7 +12377,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                           <div className="absolute -left-3.5 top-0 w-7 h-7 rounded-full flex items-center justify-center transition-all bg-[#6C60FF]/10 text-[#6C60FF]">
                             <svg width="12" height="12" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M10.6668 2C10.3132 2 9.97407 2.14048 9.72402 2.39052C9.47397 2.64057 9.3335 2.97971 9.3335 3.33333V7.33333C9.3335 7.68696 9.47397 8.02609 9.72402 8.27614C9.97407 8.52619 10.3132 8.66667 10.6668 8.66667C10.8436 8.66667 11.0132 8.7369 11.1382 8.86193C11.2633 8.98695 11.3335 9.15652 11.3335 9.33333V10C11.3335 10.3536 11.193 10.6928 10.943 10.9428C10.6929 11.1929 10.3538 11.3333 10.0002 11.3333C9.82335 11.3333 9.65378 11.4036 9.52876 11.5286C9.40373 11.6536 9.3335 11.8232 9.3335 12V13.3333C9.3335 13.5101 9.40373 13.6797 9.52876 13.8047C9.65378 13.9298 9.82335 14 10.0002 14C11.061 14 12.0784 13.5786 12.8286 12.8284C13.5787 12.0783 14.0002 11.0609 14.0002 10V3.33333C14.0002 2.97971 13.8597 2.64057 13.6096 2.39052C13.3596 2.14048 13.0205 2 12.6668 2H10.6668Z" stroke="currentColor" strokeWidth="1.33333" strokeLinecap="round" strokeLinejoin="round"/><path d="M3.33333 2C2.97971 2 2.64057 2.14048 2.39052 2.39052C2.14048 2.64057 2 2.97971 2 3.33333V7.33333C2 7.68696 2.14048 8.02609 2.39052 8.27614C2.64057 8.52619 2.97971 8.66667 3.33333 8.66667C3.51014 8.66667 3.67971 8.7369 3.80474 8.86193C3.92976 8.98695 4 9.15652 4 9.33333V10C4 10.3536 3.85952 10.6928 3.60948 10.9428C3.35943 11.1929 3.02029 11.3333 2.66667 11.3333C2.48986 11.3333 2.32029 11.4036 2.19526 11.5286C2.07024 11.6536 2 11.8232 2 12V13.3333C2 13.5101 2.07024 13.6797 2.19526 13.8047C2.32029 13.9298 2.48986 14 2.66667 14C3.72753 14 4.74495 13.5786 5.49509 12.8284C6.24524 12.0783 6.66667 11.0609 6.66667 10V3.33333C6.66667 2.97971 6.52619 2.64057 6.27614 2.39052C6.02609 2.14048 5.68696 2 5.33333 2H3.33333Z" stroke="currentColor" strokeWidth="1.33333" strokeLinecap="round" strokeLinejoin="round"/></svg>
                           </div>
-                          <div className="relative transition-all duration-200">
+                          <div className="group/border relative transition-all duration-200">
                             <div className="absolute top-0 right-0 z-10">
                               <Popover>
                                 <PopoverTrigger asChild>
@@ -11641,10 +12423,77 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                 <svg width="24" height="24" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" className="absolute bottom-4 right-4 text-[#6C60FF]/30 rotate-180"><path d="M10.6668 2C10.3132 2 9.97407 2.14048 9.72402 2.39052C9.47397 2.64057 9.3335 2.97971 9.3335 3.33333V7.33333C9.3335 7.68696 9.47397 8.02609 9.72402 8.27614C9.97407 8.52619 10.3132 8.66667 10.6668 8.66667C10.8436 8.66667 11.0132 8.7369 11.1382 8.86193C11.2633 8.98695 11.3335 9.15652 11.3335 9.33333V10C11.3335 10.3536 11.193 10.6928 10.943 10.9428C10.6929 11.1929 10.3538 11.3333 10.0002 11.3333C9.82335 11.3333 9.65378 11.4036 9.52876 11.5286C9.40373 11.6536 9.3335 11.8232 9.3335 12V13.3333C9.3335 13.5101 9.40373 13.6797 9.52876 13.8047C9.65378 13.9298 9.82335 14 10.0002 14C11.061 14 12.0784 13.5786 12.8286 12.8284C13.5787 12.0783 14.0002 11.0609 14.0002 10V3.33333C14.0002 2.97971 13.8597 2.64057 13.6096 2.39052C13.3596 2.14048 13.0205 2 12.6668 2H10.6668Z" fill="currentColor"/><path d="M3.33333 2C2.97971 2 2.64057 2.14048 2.39052 2.39052C2.14048 2.64057 2 2.97971 2 3.33333V7.33333C2 7.68696 2.14048 8.02609 2.39052 8.27614C2.64057 8.52619 2.97971 8.66667 3.33333 8.66667C3.51014 8.66667 3.67971 8.7369 3.80474 8.86193C3.92976 8.98695 4 9.15652 4 9.33333V10C4 10.3536 3.85952 10.6928 3.60948 10.9428C3.35943 11.1929 3.02029 11.3333 2.66667 11.3333C2.48986 11.3333 2.32029 11.4036 2.19526 11.5286C2.07024 11.6536 2 11.8232 2 12V13.3333C2 13.5101 2.07024 13.6797 2.19526 13.8047C2.32029 13.9298 2.48986 14 2.66667 14C3.72753 14 4.74495 13.5786 5.49509 12.8284C6.24524 12.0783 6.66667 11.0609 6.66667 10V3.33333C6.66667 2.97971 6.52619 2.64057 6.27614 2.39052C6.02609 2.14048 5.68696 2 5.33333 2H3.33333Z" fill="currentColor"/></svg>
                               </div>
                             </div>
+                            <div className="relative mt-8">
+                              <div className="border-b border-dashed border-[#6C60FF]/40 group-hover/border:border-[#6C60FF]/40" />
+                              <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 opacity-0 group-hover/border:opacity-100 transition-opacity duration-200 z-10">
+                                <Popover>
+                                  <PopoverTrigger asChild>
+                                    <div className="w-7 h-7 rounded-full border border-[#6C60FF] bg-white hover:bg-[#6C60FF]/10 flex items-center justify-center cursor-pointer transition-colors duration-200">
+                                      <Plus className="w-4 h-4 text-[#6C60FF]" />
+                                    </div>
+                                  </PopoverTrigger>
+                                  <PopoverContent side="right" align="center" className="w-80 p-0 rounded-xl shadow-lg border border-gray-200 bg-white" sideOffset={8}>
+                                    <div className="p-4 pb-2">
+                                      <h4 className="text-base font-semibold text-gray-900">Add Widget</h4>
+                                      <p className="text-sm text-gray-500">Choose a widget to add to your timeline</p>
+                                    </div>
+                                    <div className="max-h-[320px] overflow-y-auto">
+                                      {[
+                                        { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#F0FDFA" fillOpacity="0.4"/><circle cx="17.5" cy="17.5" r="6.5" stroke="#009689" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><polyline points="17.5 13.5 17.5 17.5 20.5 19" stroke="#009689" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/></svg>, label: 'Moment', desc: 'Add a special moment' }, { icon: <div className="w-full h-full rounded-[8px] bg-[#6C60FF]/10 flex items-center justify-center"><Pointer className="w-5 h-5 text-[#6C60FF]" /></div>, label: 'Call to Action', desc: 'Add a button with a link' },
+                                        { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#6C60FF" fillOpacity="0.1"/><rect x="14" y="10" width="7" height="10" rx="3.5" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><path d="M11 20.5C11 23.538 13.91 26 17.5 26C21.09 26 24 23.538 24 20.5" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><line x1="17.5" y1="26" x2="17.5" y2="29" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round"/><line x1="14.5" y1="29" x2="20.5" y2="29" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round"/></svg>, label: 'Voice to Text', desc: 'Create moment captions' },
+                                        { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#6C60FF" fillOpacity="0.1"/><polyline points="21 22 25 17.5 21 13" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><polyline points="14 13 10 17.5 14 22" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/></svg>, label: 'HTML', desc: 'Add custom HTML content' },
+                                        { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#FF4444" fillOpacity="0.1"/><path d="M22.5 13H12.5C11.67 13 11 13.67 11 14.5V20.5C11 21.33 11.67 22 12.5 22H22.5C23.33 22 24 21.33 24 20.5V14.5C24 13.67 23.33 13 22.5 13Z" stroke="#FF4444" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><path d="M16 19.5V15.5L20 17.5L16 19.5Z" stroke="#FF4444" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round" fill="none"/></svg>, label: 'Youtube', desc: 'Embed a YouTube link' },
+                                        { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#F59E0B" fillOpacity="0.1"/><path d="M19.5 12C19.15 12 18.82 12.14 18.57 12.39C18.32 12.64 18.17 12.98 18.17 13.33V17.33C18.17 17.68 18.32 18.02 18.57 18.27C18.82 18.52 19.15 18.67 19.5 18.67C19.68 18.67 19.85 18.74 19.97 18.86C20.1 18.99 20.17 19.16 20.17 19.33V20C20.17 20.35 20.02 20.69 19.77 20.94C19.52 21.19 19.19 21.33 18.83 21.33C18.65 21.33 18.49 21.4 18.36 21.53C18.24 21.65 18.17 21.82 18.17 22V23.33C18.17 23.51 18.24 23.68 18.36 23.8C18.49 23.93 18.65 24 18.83 24C19.89 24 20.91 23.58 21.66 22.83C22.41 22.08 22.83 21.06 22.83 20V13.33C22.83 12.98 22.69 12.64 22.44 12.39C22.19 12.14 21.85 12 21.5 12H19.5Z" stroke="#F59E0B" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/><path d="M13.17 12C12.81 12 12.47 12.14 12.22 12.39C11.97 12.64 11.83 12.98 11.83 13.33V17.33C11.83 17.68 11.97 18.02 12.22 18.27C12.47 18.52 12.81 18.67 13.17 18.67C13.34 18.67 13.51 18.74 13.64 18.86C13.76 18.99 13.83 19.16 13.83 19.33V20C13.83 20.35 13.69 20.69 13.44 20.94C13.19 21.19 12.85 21.33 12.5 21.33C12.32 21.33 12.16 21.4 12.03 21.53C11.9 21.65 11.83 21.82 11.83 22V23.33C11.83 23.51 11.9 23.68 12.03 23.8C12.16 23.93 12.32 24 12.5 24C13.56 24 14.58 23.58 15.33 22.83C16.08 22.08 16.5 21.06 16.5 20V13.33C16.5 12.98 16.36 12.64 16.11 12.39C15.86 12.14 15.52 12 15.17 12H13.17Z" stroke="#F59E0B" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>, label: 'Quote', desc: 'Add an inspirational quote' }, ...(docuSignConnected ? [{ icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#1464A5" fillOpacity="0.1"/><rect x="12" y="10" width="11" height="14" rx="1.5" stroke="#1464A5" strokeWidth="1.45808"/><line x1="14.5" y1="14" x2="20.5" y2="14" stroke="#1464A5" strokeWidth="1.3" strokeLinecap="round"/><line x1="14.5" y1="17" x2="18.5" y2="17" stroke="#1464A5" strokeWidth="1.3" strokeLinecap="round"/></svg>, label: 'DocuSign', desc: 'Send for signature' }] : []),
+                                      ].map((item) => (
+                                        <PopoverClose asChild key={item.label}>
+                                        <div
+                                          className="group/item flex items-center gap-4 px-5 py-4 hover:bg-gray-50 cursor-pointer transition-colors"
+                                          onClick={() => {
+                                            if (item.label === 'Moment') {
+                                              insertAfterPostIdRef.current = null; setInsertAfterPostId(null);
+                                              setIsAddMomentModalOpen(true);
+                                            } else if (item.label === 'HTML') {
+                                              setHtmlWidgetAfterPostId(null);
+                                              setEditingHtmlWidgetId(null);
+                                              setIsAddHtmlModalOpen(true);
+                                            } else if (item.label === 'Youtube') {
+                                              setYoutubeWidgetAfterPostId(null);
+                                              setIsAddYoutubeModalOpen(true);
+                                            } else if (item.label === 'Quote') {
+                                              setQuoteWidgetAfterPostId(null);
+                                              setIsAddQuoteModalOpen(true);
+                                            } else if (item.label === 'Call to Action') {
+                                              setCtaWidgetAfterPostId(null);
+                                              setEditingCtaWidgetId(null);
+                                              setIsAddCtaModalOpen(true);
+                                            } else if (item.label === 'Voice to Text') {
+                                              setVoiceToTextAfterPostId(null);
+                                              setIsVoiceToTextOpen(true);
+                                            } else {
+                                              if (item.label === 'DocuSign') { setDocuSignPostId(null); setShowDocuSignSendModal(true); } else { toast.info(`${item.label} widget coming soon!`); }
+                                            }
+                                          }}
+                                        >
+                                          <div className="w-10 h-10 flex-shrink-0">
+                                            {item.icon}
+                                          </div>
+                                          <div>
+                                            <p className="text-sm font-medium text-gray-900">{item.label}</p>
+                                            <p className="text-xs text-gray-500">{item.desc}</p>
+                                          </div>
+                                        </div>
+                                        </PopoverClose>
+                                      ))}
+                                    </div>
+                                  </PopoverContent>
+                                </Popover>
+                              </div>
+                            </div>
                           </div>
                         </div>
                       );
                     })}
+                    {ctaWidgets.filter(w => w.afterPostId === null).map(widget => renderCtaSidebarEntry(widget))}
 
                     {(combinedTimeline || [
                       ...(apiMemoryData?.linked_memories || []).map((lm: any) => ({ type: 'linked' as const, id: String(lm.id) })),
@@ -11786,11 +12635,11 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                     </div>
                                     <div className="max-h-[320px] overflow-y-auto">
                                       {[
-                                        { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#F0FDFA" fillOpacity="0.4"/><circle cx="17.5" cy="17.5" r="6.5" stroke="#009689" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><polyline points="17.5 13.5 17.5 17.5 20.5 19" stroke="#009689" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/></svg>, label: 'Moment', desc: 'Add a special moment' },
+                                        { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#F0FDFA" fillOpacity="0.4"/><circle cx="17.5" cy="17.5" r="6.5" stroke="#009689" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><polyline points="17.5 13.5 17.5 17.5 20.5 19" stroke="#009689" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/></svg>, label: 'Moment', desc: 'Add a special moment' }, { icon: <div className="w-full h-full rounded-[8px] bg-[#6C60FF]/10 flex items-center justify-center"><Pointer className="w-5 h-5 text-[#6C60FF]" /></div>, label: 'Call to Action', desc: 'Add a button with a link' },
                                         { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#6C60FF" fillOpacity="0.1"/><rect x="14" y="10" width="7" height="10" rx="3.5" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><path d="M11 20.5C11 23.538 13.91 26 17.5 26C21.09 26 24 23.538 24 20.5" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><line x1="17.5" y1="26" x2="17.5" y2="29" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round"/><line x1="14.5" y1="29" x2="20.5" y2="29" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round"/></svg>, label: 'Voice to Text', desc: 'Create moment captions' },
                                         { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#6C60FF" fillOpacity="0.1"/><polyline points="21 22 25 17.5 21 13" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><polyline points="14 13 10 17.5 14 22" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/></svg>, label: 'HTML', desc: 'Add custom HTML content' },
                                         { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#FF4444" fillOpacity="0.1"/><path d="M22.5 13H12.5C11.67 13 11 13.67 11 14.5V20.5C11 21.33 11.67 22 12.5 22H22.5C23.33 22 24 21.33 24 20.5V14.5C24 13.67 23.33 13 22.5 13Z" stroke="#FF4444" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><path d="M16 19.5V15.5L20 17.5L16 19.5Z" stroke="#FF4444" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round" fill="none"/></svg>, label: 'Youtube', desc: 'Embed a YouTube link' },
-                                        { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#F59E0B" fillOpacity="0.1"/><path d="M19.5 12C19.15 12 18.82 12.14 18.57 12.39C18.32 12.64 18.17 12.98 18.17 13.33V17.33C18.17 17.68 18.32 18.02 18.57 18.27C18.82 18.52 19.15 18.67 19.5 18.67C19.68 18.67 19.85 18.74 19.97 18.86C20.1 18.99 20.17 19.16 20.17 19.33V20C20.17 20.35 20.02 20.69 19.77 20.94C19.52 21.19 19.19 21.33 18.83 21.33C18.65 21.33 18.49 21.4 18.36 21.53C18.24 21.65 18.17 21.82 18.17 22V23.33C18.17 23.51 18.24 23.68 18.36 23.8C18.49 23.93 18.65 24 18.83 24C19.89 24 20.91 23.58 21.66 22.83C22.41 22.08 22.83 21.06 22.83 20V13.33C22.83 12.98 22.69 12.64 22.44 12.39C22.19 12.14 21.85 12 21.5 12H19.5Z" stroke="#F59E0B" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/><path d="M13.17 12C12.81 12 12.47 12.14 12.22 12.39C11.97 12.64 11.83 12.98 11.83 13.33V17.33C11.83 17.68 11.97 18.02 12.22 18.27C12.47 18.52 12.81 18.67 13.17 18.67C13.34 18.67 13.51 18.74 13.64 18.86C13.76 18.99 13.83 19.16 13.83 19.33V20C13.83 20.35 13.69 20.69 13.44 20.94C13.19 21.19 12.85 21.33 12.5 21.33C12.32 21.33 12.16 21.4 12.03 21.53C11.9 21.65 11.83 21.82 11.83 22V23.33C11.83 23.51 11.9 23.68 12.03 23.8C12.16 23.93 12.32 24 12.5 24C13.56 24 14.58 23.58 15.33 22.83C16.08 22.08 16.5 21.06 16.5 20V13.33C16.5 12.98 16.36 12.64 16.11 12.39C15.86 12.14 15.52 12 15.17 12H13.17Z" stroke="#F59E0B" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>, label: 'Quote', desc: 'Add an inspirational quote' }, { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#1464A5" fillOpacity="0.1"/><rect x="12" y="10" width="11" height="14" rx="1.5" stroke="#1464A5" strokeWidth="1.45808"/><line x1="14.5" y1="14" x2="20.5" y2="14" stroke="#1464A5" strokeWidth="1.3" strokeLinecap="round"/><line x1="14.5" y1="17" x2="18.5" y2="17" stroke="#1464A5" strokeWidth="1.3" strokeLinecap="round"/></svg>, label: 'DocuSign', desc: 'Send for signature' },
+                                        { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#F59E0B" fillOpacity="0.1"/><path d="M19.5 12C19.15 12 18.82 12.14 18.57 12.39C18.32 12.64 18.17 12.98 18.17 13.33V17.33C18.17 17.68 18.32 18.02 18.57 18.27C18.82 18.52 19.15 18.67 19.5 18.67C19.68 18.67 19.85 18.74 19.97 18.86C20.1 18.99 20.17 19.16 20.17 19.33V20C20.17 20.35 20.02 20.69 19.77 20.94C19.52 21.19 19.19 21.33 18.83 21.33C18.65 21.33 18.49 21.4 18.36 21.53C18.24 21.65 18.17 21.82 18.17 22V23.33C18.17 23.51 18.24 23.68 18.36 23.8C18.49 23.93 18.65 24 18.83 24C19.89 24 20.91 23.58 21.66 22.83C22.41 22.08 22.83 21.06 22.83 20V13.33C22.83 12.98 22.69 12.64 22.44 12.39C22.19 12.14 21.85 12 21.5 12H19.5Z" stroke="#F59E0B" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/><path d="M13.17 12C12.81 12 12.47 12.14 12.22 12.39C11.97 12.64 11.83 12.98 11.83 13.33V17.33C11.83 17.68 11.97 18.02 12.22 18.27C12.47 18.52 12.81 18.67 13.17 18.67C13.34 18.67 13.51 18.74 13.64 18.86C13.76 18.99 13.83 19.16 13.83 19.33V20C13.83 20.35 13.69 20.69 13.44 20.94C13.19 21.19 12.85 21.33 12.5 21.33C12.32 21.33 12.16 21.4 12.03 21.53C11.9 21.65 11.83 21.82 11.83 22V23.33C11.83 23.51 11.9 23.68 12.03 23.8C12.16 23.93 12.32 24 12.5 24C13.56 24 14.58 23.58 15.33 22.83C16.08 22.08 16.5 21.06 16.5 20V13.33C16.5 12.98 16.36 12.64 16.11 12.39C15.86 12.14 15.52 12 15.17 12H13.17Z" stroke="#F59E0B" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>, label: 'Quote', desc: 'Add an inspirational quote' }, ...(docuSignConnected ? [{ icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#1464A5" fillOpacity="0.1"/><rect x="12" y="10" width="11" height="14" rx="1.5" stroke="#1464A5" strokeWidth="1.45808"/><line x1="14.5" y1="14" x2="20.5" y2="14" stroke="#1464A5" strokeWidth="1.3" strokeLinecap="round"/><line x1="14.5" y1="17" x2="18.5" y2="17" stroke="#1464A5" strokeWidth="1.3" strokeLinecap="round"/></svg>, label: 'DocuSign', desc: 'Send for signature' }] : []),
                                       ].map((item) => (
                                         <PopoverClose asChild key={item.label}>
                                         <div
@@ -11810,6 +12659,10 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                             } else if (item.label === 'Quote') {
                                               setQuoteWidgetAfterPostId(post.id?.toString());
                                               setIsAddQuoteModalOpen(true);
+                                            } else if (item.label === 'Call to Action') {
+                                              setCtaWidgetAfterPostId(post.id?.toString());
+                                              setEditingCtaWidgetId(null);
+                                              setIsAddCtaModalOpen(true);
                                             } else if (item.label === 'Voice to Text') {
                                               setVoiceToTextAfterPostId(post.id?.toString() || null);
                                               setIsVoiceToTextOpen(true);
@@ -11913,11 +12766,11 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                         </div>
                                         <div className="max-h-[320px] overflow-y-auto">
                                           {[
-                                            { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#F0FDFA" fillOpacity="0.4"/><circle cx="17.5" cy="17.5" r="6.5" stroke="#009689" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><polyline points="17.5 13.5 17.5 17.5 20.5 19" stroke="#009689" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/></svg>, label: 'Moment', desc: 'Add a special moment' },
+                                            { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#F0FDFA" fillOpacity="0.4"/><circle cx="17.5" cy="17.5" r="6.5" stroke="#009689" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><polyline points="17.5 13.5 17.5 17.5 20.5 19" stroke="#009689" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/></svg>, label: 'Moment', desc: 'Add a special moment' }, { icon: <div className="w-full h-full rounded-[8px] bg-[#6C60FF]/10 flex items-center justify-center"><Pointer className="w-5 h-5 text-[#6C60FF]" /></div>, label: 'Call to Action', desc: 'Add a button with a link' },
                                             { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#6C60FF" fillOpacity="0.1"/><rect x="14" y="10" width="7" height="10" rx="3.5" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><path d="M11 20.5C11 23.538 13.91 26 17.5 26C21.09 26 24 23.538 24 20.5" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><line x1="17.5" y1="26" x2="17.5" y2="29" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round"/><line x1="14.5" y1="29" x2="20.5" y2="29" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round"/></svg>, label: 'Voice to Text', desc: 'Create moment captions' },
                                             { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#6C60FF" fillOpacity="0.1"/><polyline points="21 22 25 17.5 21 13" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><polyline points="14 13 10 17.5 14 22" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/></svg>, label: 'HTML', desc: 'Add custom HTML content' },
                                             { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#FF4444" fillOpacity="0.1"/><path d="M22.5 13H12.5C11.67 13 11 13.67 11 14.5V20.5C11 21.33 11.67 22 12.5 22H22.5C23.33 22 24 21.33 24 20.5V14.5C24 13.67 23.33 13 22.5 13Z" stroke="#FF4444" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><path d="M16 19.5V15.5L20 17.5L16 19.5Z" stroke="#FF4444" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round" fill="none"/></svg>, label: 'Youtube', desc: 'Embed a YouTube link' },
-                                            { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#F59E0B" fillOpacity="0.1"/><path d="M19.5 12C19.15 12 18.82 12.14 18.57 12.39C18.32 12.64 18.17 12.98 18.17 13.33V17.33C18.17 17.68 18.32 18.02 18.57 18.27C18.82 18.52 19.15 18.67 19.5 18.67C19.68 18.67 19.85 18.74 19.97 18.86C20.1 18.99 20.17 19.16 20.17 19.33V20C20.17 20.35 20.02 20.69 19.77 20.94C19.52 21.19 19.19 21.33 18.83 21.33C18.65 21.33 18.49 21.4 18.36 21.53C18.24 21.65 18.17 21.82 18.17 22V23.33C18.17 23.51 18.24 23.68 18.36 23.8C18.49 23.93 18.65 24 18.83 24C19.89 24 20.91 23.58 21.66 22.83C22.41 22.08 22.83 21.06 22.83 20V13.33C22.83 12.98 22.69 12.64 22.44 12.39C22.19 12.14 21.85 12 21.5 12H19.5Z" stroke="#F59E0B" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/><path d="M13.17 12C12.81 12 12.47 12.14 12.22 12.39C11.97 12.64 11.83 12.98 11.83 13.33V17.33C11.83 17.68 11.97 18.02 12.22 18.27C12.47 18.52 12.81 18.67 13.17 18.67C13.34 18.67 13.51 18.74 13.64 18.86C13.76 18.99 13.83 19.16 13.83 19.33V20C13.83 20.35 13.69 20.69 13.44 20.94C13.19 21.19 12.85 21.33 12.5 21.33C12.32 21.33 12.16 21.4 12.03 21.53C11.9 21.65 11.83 21.82 11.83 22V23.33C11.83 23.51 11.9 23.68 12.03 23.8C12.16 23.93 12.32 24 12.5 24C13.56 24 14.58 23.58 15.33 22.83C16.08 22.08 16.5 21.06 16.5 20V13.33C16.5 12.98 16.36 12.64 16.11 12.39C15.86 12.14 15.52 12 15.17 12H13.17Z" stroke="#F59E0B" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>, label: 'Quote', desc: 'Add an inspirational quote' }, { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#1464A5" fillOpacity="0.1"/><rect x="12" y="10" width="11" height="14" rx="1.5" stroke="#1464A5" strokeWidth="1.45808"/><line x1="14.5" y1="14" x2="20.5" y2="14" stroke="#1464A5" strokeWidth="1.3" strokeLinecap="round"/><line x1="14.5" y1="17" x2="18.5" y2="17" stroke="#1464A5" strokeWidth="1.3" strokeLinecap="round"/></svg>, label: 'DocuSign', desc: 'Send for signature' },
+                                            { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#F59E0B" fillOpacity="0.1"/><path d="M19.5 12C19.15 12 18.82 12.14 18.57 12.39C18.32 12.64 18.17 12.98 18.17 13.33V17.33C18.17 17.68 18.32 18.02 18.57 18.27C18.82 18.52 19.15 18.67 19.5 18.67C19.68 18.67 19.85 18.74 19.97 18.86C20.1 18.99 20.17 19.16 20.17 19.33V20C20.17 20.35 20.02 20.69 19.77 20.94C19.52 21.19 19.19 21.33 18.83 21.33C18.65 21.33 18.49 21.4 18.36 21.53C18.24 21.65 18.17 21.82 18.17 22V23.33C18.17 23.51 18.24 23.68 18.36 23.8C18.49 23.93 18.65 24 18.83 24C19.89 24 20.91 23.58 21.66 22.83C22.41 22.08 22.83 21.06 22.83 20V13.33C22.83 12.98 22.69 12.64 22.44 12.39C22.19 12.14 21.85 12 21.5 12H19.5Z" stroke="#F59E0B" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/><path d="M13.17 12C12.81 12 12.47 12.14 12.22 12.39C11.97 12.64 11.83 12.98 11.83 13.33V17.33C11.83 17.68 11.97 18.02 12.22 18.27C12.47 18.52 12.81 18.67 13.17 18.67C13.34 18.67 13.51 18.74 13.64 18.86C13.76 18.99 13.83 19.16 13.83 19.33V20C13.83 20.35 13.69 20.69 13.44 20.94C13.19 21.19 12.85 21.33 12.5 21.33C12.32 21.33 12.16 21.4 12.03 21.53C11.9 21.65 11.83 21.82 11.83 22V23.33C11.83 23.51 11.9 23.68 12.03 23.8C12.16 23.93 12.32 24 12.5 24C13.56 24 14.58 23.58 15.33 22.83C16.08 22.08 16.5 21.06 16.5 20V13.33C16.5 12.98 16.36 12.64 16.11 12.39C15.86 12.14 15.52 12 15.17 12H13.17Z" stroke="#F59E0B" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>, label: 'Quote', desc: 'Add an inspirational quote' }, ...(docuSignConnected ? [{ icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#1464A5" fillOpacity="0.1"/><rect x="12" y="10" width="11" height="14" rx="1.5" stroke="#1464A5" strokeWidth="1.45808"/><line x1="14.5" y1="14" x2="20.5" y2="14" stroke="#1464A5" strokeWidth="1.3" strokeLinecap="round"/><line x1="14.5" y1="17" x2="18.5" y2="17" stroke="#1464A5" strokeWidth="1.3" strokeLinecap="round"/></svg>, label: 'DocuSign', desc: 'Send for signature' }] : []),
                                           ].map((item) => (
                                             <PopoverClose asChild key={item.label}>
                                             <div
@@ -11937,6 +12790,10 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                                 } else if (item.label === 'Quote') {
                                                   setQuoteWidgetAfterPostId(widget.afterPostId);
                                                   setIsAddQuoteModalOpen(true);
+                                                } else if (item.label === 'Call to Action') {
+                                                  setCtaWidgetAfterPostId(widget.afterPostId);
+                                                  setEditingCtaWidgetId(null);
+                                                  setIsAddCtaModalOpen(true);
                                                 } else if (item.label === 'Voice to Text') {
                                                   setVoiceToTextAfterPostId(widget.afterPostId || null);
                                                   setIsVoiceToTextOpen(true);
@@ -12033,11 +12890,11 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                         </div>
                                         <div className="max-h-[320px] overflow-y-auto">
                                           {[
-                                            { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#F0FDFA" fillOpacity="0.4"/><circle cx="17.5" cy="17.5" r="6.5" stroke="#009689" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><polyline points="17.5 13.5 17.5 17.5 20.5 19" stroke="#009689" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/></svg>, label: 'Moment', desc: 'Add a special moment' },
+                                            { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#F0FDFA" fillOpacity="0.4"/><circle cx="17.5" cy="17.5" r="6.5" stroke="#009689" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><polyline points="17.5 13.5 17.5 17.5 20.5 19" stroke="#009689" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/></svg>, label: 'Moment', desc: 'Add a special moment' }, { icon: <div className="w-full h-full rounded-[8px] bg-[#6C60FF]/10 flex items-center justify-center"><Pointer className="w-5 h-5 text-[#6C60FF]" /></div>, label: 'Call to Action', desc: 'Add a button with a link' },
                                             { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#6C60FF" fillOpacity="0.1"/><rect x="14" y="10" width="7" height="10" rx="3.5" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><path d="M11 20.5C11 23.538 13.91 26 17.5 26C21.09 26 24 23.538 24 20.5" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><line x1="17.5" y1="26" x2="17.5" y2="29" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round"/><line x1="14.5" y1="29" x2="20.5" y2="29" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round"/></svg>, label: 'Voice to Text', desc: 'Create moment captions' },
                                             { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#6C60FF" fillOpacity="0.1"/><polyline points="21 22 25 17.5 21 13" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><polyline points="14 13 10 17.5 14 22" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/></svg>, label: 'HTML', desc: 'Add custom HTML content' },
                                             { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#FF4444" fillOpacity="0.1"/><path d="M22.5 13H12.5C11.67 13 11 13.67 11 14.5V20.5C11 21.33 11.67 22 12.5 22H22.5C23.33 22 24 21.33 24 20.5V14.5C24 13.67 23.33 13 22.5 13Z" stroke="#FF4444" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><path d="M16 19.5V15.5L20 17.5L16 19.5Z" stroke="#FF4444" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round" fill="none"/></svg>, label: 'Youtube', desc: 'Embed a YouTube link' },
-                                            { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#F59E0B" fillOpacity="0.1"/><path d="M19.5 12C19.15 12 18.82 12.14 18.57 12.39C18.32 12.64 18.17 12.98 18.17 13.33V17.33C18.17 17.68 18.32 18.02 18.57 18.27C18.82 18.52 19.15 18.67 19.5 18.67C19.68 18.67 19.85 18.74 19.97 18.86C20.1 18.99 20.17 19.16 20.17 19.33V20C20.17 20.35 20.02 20.69 19.77 20.94C19.52 21.19 19.19 21.33 18.83 21.33C18.65 21.33 18.49 21.4 18.36 21.53C18.24 21.65 18.17 21.82 18.17 22V23.33C18.17 23.51 18.24 23.68 18.36 23.8C18.49 23.93 18.65 24 18.83 24C19.89 24 20.91 23.58 21.66 22.83C22.41 22.08 22.83 21.06 22.83 20V13.33C22.83 12.98 22.69 12.64 22.44 12.39C22.19 12.14 21.85 12 21.5 12H19.5Z" stroke="#F59E0B" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/><path d="M13.17 12C12.81 12 12.47 12.14 12.22 12.39C11.97 12.64 11.83 12.98 11.83 13.33V17.33C11.83 17.68 11.97 18.02 12.22 18.27C12.47 18.52 12.81 18.67 13.17 18.67C13.34 18.67 13.51 18.74 13.64 18.86C13.76 18.99 13.83 19.16 13.83 19.33V20C13.83 20.35 13.69 20.69 13.44 20.94C13.19 21.19 12.85 21.33 12.5 21.33C12.32 21.33 12.16 21.4 12.03 21.53C11.9 21.65 11.83 21.82 11.83 22V23.33C11.83 23.51 11.9 23.68 12.03 23.8C12.16 23.93 12.32 24 12.5 24C13.56 24 14.58 23.58 15.33 22.83C16.08 22.08 16.5 21.06 16.5 20V13.33C16.5 12.98 16.36 12.64 16.11 12.39C15.86 12.14 15.52 12 15.17 12H13.17Z" stroke="#F59E0B" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>, label: 'Quote', desc: 'Add an inspirational quote' }, { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#1464A5" fillOpacity="0.1"/><rect x="12" y="10" width="11" height="14" rx="1.5" stroke="#1464A5" strokeWidth="1.45808"/><line x1="14.5" y1="14" x2="20.5" y2="14" stroke="#1464A5" strokeWidth="1.3" strokeLinecap="round"/><line x1="14.5" y1="17" x2="18.5" y2="17" stroke="#1464A5" strokeWidth="1.3" strokeLinecap="round"/></svg>, label: 'DocuSign', desc: 'Send for signature' },
+                                            { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#F59E0B" fillOpacity="0.1"/><path d="M19.5 12C19.15 12 18.82 12.14 18.57 12.39C18.32 12.64 18.17 12.98 18.17 13.33V17.33C18.17 17.68 18.32 18.02 18.57 18.27C18.82 18.52 19.15 18.67 19.5 18.67C19.68 18.67 19.85 18.74 19.97 18.86C20.1 18.99 20.17 19.16 20.17 19.33V20C20.17 20.35 20.02 20.69 19.77 20.94C19.52 21.19 19.19 21.33 18.83 21.33C18.65 21.33 18.49 21.4 18.36 21.53C18.24 21.65 18.17 21.82 18.17 22V23.33C18.17 23.51 18.24 23.68 18.36 23.8C18.49 23.93 18.65 24 18.83 24C19.89 24 20.91 23.58 21.66 22.83C22.41 22.08 22.83 21.06 22.83 20V13.33C22.83 12.98 22.69 12.64 22.44 12.39C22.19 12.14 21.85 12 21.5 12H19.5Z" stroke="#F59E0B" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/><path d="M13.17 12C12.81 12 12.47 12.14 12.22 12.39C11.97 12.64 11.83 12.98 11.83 13.33V17.33C11.83 17.68 11.97 18.02 12.22 18.27C12.47 18.52 12.81 18.67 13.17 18.67C13.34 18.67 13.51 18.74 13.64 18.86C13.76 18.99 13.83 19.16 13.83 19.33V20C13.83 20.35 13.69 20.69 13.44 20.94C13.19 21.19 12.85 21.33 12.5 21.33C12.32 21.33 12.16 21.4 12.03 21.53C11.9 21.65 11.83 21.82 11.83 22V23.33C11.83 23.51 11.9 23.68 12.03 23.8C12.16 23.93 12.32 24 12.5 24C13.56 24 14.58 23.58 15.33 22.83C16.08 22.08 16.5 21.06 16.5 20V13.33C16.5 12.98 16.36 12.64 16.11 12.39C15.86 12.14 15.52 12 15.17 12H13.17Z" stroke="#F59E0B" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>, label: 'Quote', desc: 'Add an inspirational quote' }, ...(docuSignConnected ? [{ icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#1464A5" fillOpacity="0.1"/><rect x="12" y="10" width="11" height="14" rx="1.5" stroke="#1464A5" strokeWidth="1.45808"/><line x1="14.5" y1="14" x2="20.5" y2="14" stroke="#1464A5" strokeWidth="1.3" strokeLinecap="round"/><line x1="14.5" y1="17" x2="18.5" y2="17" stroke="#1464A5" strokeWidth="1.3" strokeLinecap="round"/></svg>, label: 'DocuSign', desc: 'Send for signature' }] : []),
                                           ].map((item) => (
                                             <PopoverClose asChild key={item.label}>
                                             <div
@@ -12057,6 +12914,10 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                                 } else if (item.label === 'Quote') {
                                                   setQuoteWidgetAfterPostId(widget.afterPostId);
                                                   setIsAddQuoteModalOpen(true);
+                                                } else if (item.label === 'Call to Action') {
+                                                  setCtaWidgetAfterPostId(widget.afterPostId);
+                                                  setEditingCtaWidgetId(null);
+                                                  setIsAddCtaModalOpen(true);
                                                 } else if (item.label === 'Voice to Text') {
                                                   setVoiceToTextAfterPostId(widget.afterPostId || null);
                                                   setIsVoiceToTextOpen(true);
@@ -12094,7 +12955,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                               <div className="absolute -left-3.5 top-0 w-7 h-7 rounded-full flex items-center justify-center transition-all bg-[#6C60FF]/10 text-[#6C60FF]">
                                 <svg width="12" height="12" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M10.6668 2C10.3132 2 9.97407 2.14048 9.72402 2.39052C9.47397 2.64057 9.3335 2.97971 9.3335 3.33333V7.33333C9.3335 7.68696 9.47397 8.02609 9.72402 8.27614C9.97407 8.52619 10.3132 8.66667 10.6668 8.66667C10.8436 8.66667 11.0132 8.7369 11.1382 8.86193C11.2633 8.98695 11.3335 9.15652 11.3335 9.33333V10C11.3335 10.3536 11.193 10.6928 10.943 10.9428C10.6929 11.1929 10.3538 11.3333 10.0002 11.3333C9.82335 11.3333 9.65378 11.4036 9.52876 11.5286C9.40373 11.6536 9.3335 11.8232 9.3335 12V13.3333C9.3335 13.5101 9.40373 13.6797 9.52876 13.8047C9.65378 13.9298 9.82335 14 10.0002 14C11.061 14 12.0784 13.5786 12.8286 12.8284C13.5787 12.0783 14.0002 11.0609 14.0002 10V3.33333C14.0002 2.97971 13.8597 2.64057 13.6096 2.39052C13.3596 2.14048 13.0205 2 12.6668 2H10.6668Z" stroke="currentColor" strokeWidth="1.33333" strokeLinecap="round" strokeLinejoin="round"/><path d="M3.33333 2C2.97971 2 2.64057 2.14048 2.39052 2.39052C2.14048 2.64057 2 2.97971 2 3.33333V7.33333C2 7.68696 2.14048 8.02609 2.39052 8.27614C2.64057 8.52619 2.97971 8.66667 3.33333 8.66667C3.51014 8.66667 3.67971 8.7369 3.80474 8.86193C3.92976 8.98695 4 9.15652 4 9.33333V10C4 10.3536 3.85952 10.6928 3.60948 10.9428C3.35943 11.1929 3.02029 11.3333 2.66667 11.3333C2.48986 11.3333 2.32029 11.4036 2.19526 11.5286C2.07024 11.6536 2 11.8232 2 12V13.3333C2 13.5101 2.07024 13.6797 2.19526 13.8047C2.32029 13.9298 2.48986 14 2.66667 14C3.72753 14 4.74495 13.5786 5.49509 12.8284C6.24524 12.0783 6.66667 11.0609 6.66667 10V3.33333C6.66667 2.97971 6.52619 2.64057 6.27614 2.39052C6.02609 2.14048 5.68696 2 5.33333 2H3.33333Z" stroke="currentColor" strokeWidth="1.33333" strokeLinecap="round" strokeLinejoin="round"/></svg>
                               </div>
-                              <div className="relative transition-all duration-200">
+                              <div className="group/border relative transition-all duration-200">
                                 <div className="absolute top-0 right-0 z-10">
                                   <Popover>
                                     <PopoverTrigger asChild>
@@ -12140,10 +13001,78 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                     <svg width="24" height="24" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" className="absolute bottom-4 right-4 text-[#6C60FF]/30 rotate-180"><path d="M10.6668 2C10.3132 2 9.97407 2.14048 9.72402 2.39052C9.47397 2.64057 9.3335 2.97971 9.3335 3.33333V7.33333C9.3335 7.68696 9.47397 8.02609 9.72402 8.27614C9.97407 8.52619 10.3132 8.66667 10.6668 8.66667C10.8436 8.66667 11.0132 8.7369 11.1382 8.86193C11.2633 8.98695 11.3335 9.15652 11.3335 9.33333V10C11.3335 10.3536 11.193 10.6928 10.943 10.9428C10.6929 11.1929 10.3538 11.3333 10.0002 11.3333C9.82335 11.3333 9.65378 11.4036 9.52876 11.5286C9.40373 11.6536 9.3335 11.8232 9.3335 12V13.3333C9.3335 13.5101 9.40373 13.6797 9.52876 13.8047C9.65378 13.9298 9.82335 14 10.0002 14C11.061 14 12.0784 13.5786 12.8286 12.8284C13.5787 12.0783 14.0002 11.0609 14.0002 10V3.33333C14.0002 2.97971 13.8597 2.64057 13.6096 2.39052C13.3596 2.14048 13.0205 2 12.6668 2H10.6668Z" fill="currentColor"/><path d="M3.33333 2C2.97971 2 2.64057 2.14048 2.39052 2.39052C2.14048 2.64057 2 2.97971 2 3.33333V7.33333C2 7.68696 2.14048 8.02609 2.39052 8.27614C2.64057 8.52619 2.97971 8.66667 3.33333 8.66667C3.51014 8.66667 3.67971 8.7369 3.80474 8.86193C3.92976 8.98695 4 9.15652 4 9.33333V10C4 10.3536 3.85952 10.6928 3.60948 10.9428C3.35943 11.1929 3.02029 11.3333 2.66667 11.3333C2.48986 11.3333 2.32029 11.4036 2.19526 11.5286C2.07024 11.6536 2 11.8232 2 12V13.3333C2 13.5101 2.07024 13.6797 2.19526 13.8047C2.32029 13.9298 2.48986 14 2.66667 14C3.72753 14 4.74495 13.5786 5.49509 12.8284C6.24524 12.0783 6.66667 11.0609 6.66667 10V3.33333C6.66667 2.97971 6.52619 2.64057 6.27614 2.39052C6.02609 2.14048 5.68696 2 5.33333 2H3.33333Z" fill="currentColor"/></svg>
                                   </div>
                                 </div>
+                                <div className="relative mt-8">
+                                  <div className="border-b border-dashed border-[#6C60FF]/40 group-hover/border:border-[#6C60FF]/40" />
+                                  <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 opacity-0 group-hover/border:opacity-100 transition-opacity duration-200 z-10">
+                                    <Popover>
+                                      <PopoverTrigger asChild>
+                                        <div className="w-7 h-7 rounded-full border border-[#6C60FF] bg-white hover:bg-[#6C60FF]/10 flex items-center justify-center cursor-pointer transition-colors duration-200">
+                                          <Plus className="w-4 h-4 text-[#6C60FF]" />
+                                        </div>
+                                      </PopoverTrigger>
+                                      <PopoverContent side="right" align="center" className="w-80 p-0 rounded-xl shadow-lg border border-gray-200 bg-white" sideOffset={8}>
+                                        <div className="p-4 pb-2">
+                                          <h4 className="text-base font-semibold text-gray-900">Add Widget</h4>
+                                          <p className="text-sm text-gray-500">Choose a widget to add to your timeline</p>
+                                        </div>
+                                        <div className="max-h-[320px] overflow-y-auto">
+                                          {[
+                                            { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#F0FDFA" fillOpacity="0.4"/><circle cx="17.5" cy="17.5" r="6.5" stroke="#009689" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><polyline points="17.5 13.5 17.5 17.5 20.5 19" stroke="#009689" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/></svg>, label: 'Moment', desc: 'Add a special moment' }, { icon: <div className="w-full h-full rounded-[8px] bg-[#6C60FF]/10 flex items-center justify-center"><Pointer className="w-5 h-5 text-[#6C60FF]" /></div>, label: 'Call to Action', desc: 'Add a button with a link' },
+                                            { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#6C60FF" fillOpacity="0.1"/><rect x="14" y="10" width="7" height="10" rx="3.5" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><path d="M11 20.5C11 23.538 13.91 26 17.5 26C21.09 26 24 23.538 24 20.5" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><line x1="17.5" y1="26" x2="17.5" y2="29" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round"/><line x1="14.5" y1="29" x2="20.5" y2="29" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round"/></svg>, label: 'Voice to Text', desc: 'Create moment captions' },
+                                            { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#6C60FF" fillOpacity="0.1"/><polyline points="21 22 25 17.5 21 13" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><polyline points="14 13 10 17.5 14 22" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/></svg>, label: 'HTML', desc: 'Add custom HTML content' },
+                                            { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#FF4444" fillOpacity="0.1"/><path d="M22.5 13H12.5C11.67 13 11 13.67 11 14.5V20.5C11 21.33 11.67 22 12.5 22H22.5C23.33 22 24 21.33 24 20.5V14.5C24 13.67 23.33 13 22.5 13Z" stroke="#FF4444" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><path d="M16 19.5V15.5L20 17.5L16 19.5Z" stroke="#FF4444" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round" fill="none"/></svg>, label: 'Youtube', desc: 'Embed a YouTube link' },
+                                            { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#F59E0B" fillOpacity="0.1"/><path d="M19.5 12C19.15 12 18.82 12.14 18.57 12.39C18.32 12.64 18.17 12.98 18.17 13.33V17.33C18.17 17.68 18.32 18.02 18.57 18.27C18.82 18.52 19.15 18.67 19.5 18.67C19.68 18.67 19.85 18.74 19.97 18.86C20.1 18.99 20.17 19.16 20.17 19.33V20C20.17 20.35 20.02 20.69 19.77 20.94C19.52 21.19 19.19 21.33 18.83 21.33C18.65 21.33 18.49 21.4 18.36 21.53C18.24 21.65 18.17 21.82 18.17 22V23.33C18.17 23.51 18.24 23.68 18.36 23.8C18.49 23.93 18.65 24 18.83 24C19.89 24 20.91 23.58 21.66 22.83C22.41 22.08 22.83 21.06 22.83 20V13.33C22.83 12.98 22.69 12.64 22.44 12.39C22.19 12.14 21.85 12 21.5 12H19.5Z" stroke="#F59E0B" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/><path d="M13.17 12C12.81 12 12.47 12.14 12.22 12.39C11.97 12.64 11.83 12.98 11.83 13.33V17.33C11.83 17.68 11.97 18.02 12.22 18.27C12.47 18.52 12.81 18.67 13.17 18.67C13.34 18.67 13.51 18.74 13.64 18.86C13.76 18.99 13.83 19.16 13.83 19.33V20C13.83 20.35 13.69 20.69 13.44 20.94C13.19 21.19 12.85 21.33 12.5 21.33C12.32 21.33 12.16 21.4 12.03 21.53C11.9 21.65 11.83 21.82 11.83 22V23.33C11.83 23.51 11.9 23.68 12.03 23.8C12.16 23.93 12.32 24 12.5 24C13.56 24 14.58 23.58 15.33 22.83C16.08 22.08 16.5 21.06 16.5 20V13.33C16.5 12.98 16.36 12.64 16.11 12.39C15.86 12.14 15.52 12 15.17 12H13.17Z" stroke="#F59E0B" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>, label: 'Quote', desc: 'Add an inspirational quote' }, ...(docuSignConnected ? [{ icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#1464A5" fillOpacity="0.1"/><rect x="12" y="10" width="11" height="14" rx="1.5" stroke="#1464A5" strokeWidth="1.45808"/><line x1="14.5" y1="14" x2="20.5" y2="14" stroke="#1464A5" strokeWidth="1.3" strokeLinecap="round"/><line x1="14.5" y1="17" x2="18.5" y2="17" stroke="#1464A5" strokeWidth="1.3" strokeLinecap="round"/></svg>, label: 'DocuSign', desc: 'Send for signature' }] : []),
+                                          ].map((item) => (
+                                            <PopoverClose asChild key={item.label}>
+                                            <div
+                                              className="group/item flex items-center gap-4 px-5 py-4 hover:bg-gray-50 cursor-pointer transition-colors"
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                if (item.label === 'Moment') {
+                                                  insertAfterPostIdRef.current = widget.afterPostId || null; setInsertAfterPostId(widget.afterPostId || null);
+                                                  setIsAddMomentModalOpen(true);
+                                                } else if (item.label === 'HTML') {
+                                                  setHtmlWidgetAfterPostId(widget.afterPostId);
+                                                  setEditingHtmlWidgetId(null);
+                                                  setIsAddHtmlModalOpen(true);
+                                                } else if (item.label === 'Youtube') {
+                                                  setYoutubeWidgetAfterPostId(widget.afterPostId);
+                                                  setIsAddYoutubeModalOpen(true);
+                                                } else if (item.label === 'Quote') {
+                                                  setQuoteWidgetAfterPostId(widget.afterPostId);
+                                                  setIsAddQuoteModalOpen(true);
+                                                } else if (item.label === 'Call to Action') {
+                                                  setCtaWidgetAfterPostId(widget.afterPostId);
+                                                  setEditingCtaWidgetId(null);
+                                                  setIsAddCtaModalOpen(true);
+                                                } else if (item.label === 'Voice to Text') {
+                                                  setVoiceToTextAfterPostId(widget.afterPostId || null);
+                                                  setIsVoiceToTextOpen(true);
+                                                } else {
+                                                  if (item.label === 'DocuSign') { setDocuSignPostId(widget.afterPostId || null); setShowDocuSignSendModal(true); } else { toast.info(`${item.label} widget coming soon!`); }
+                                                }
+                                              }}
+                                            >
+                                              <div className="w-10 h-10 flex-shrink-0">
+                                                {item.icon}
+                                              </div>
+                                              <div>
+                                                <p className="text-sm font-medium text-gray-900">{item.label}</p>
+                                                <p className="text-xs text-gray-500">{item.desc}</p>
+                                              </div>
+                                            </div>
+                                            </PopoverClose>
+                                          ))}
+                                        </div>
+                                      </PopoverContent>
+                                    </Popover>
+                                  </div>
+                                </div>
                               </div>
                             </div>
                           );
                         })}
+                        {ctaWidgets.filter(w => w.afterPostId === post.id?.toString()).map(widget => renderCtaSidebarEntry(widget))}
                         </React.Fragment>
                       );
                       }
@@ -12445,6 +13374,9 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                             <svg width="24" height="24" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" className="absolute bottom-4 right-4 text-[#6C60FF]/30 rotate-180"><path d="M10.6668 2C10.3132 2 9.97407 2.14048 9.72402 2.39052C9.47397 2.64057 9.3335 2.97971 9.3335 3.33333V7.33333C9.3335 7.68696 9.47397 8.02609 9.72402 8.27614C9.97407 8.52619 10.3132 8.66667 10.6668 8.66667C10.8436 8.66667 11.0132 8.7369 11.1382 8.86193C11.2633 8.98695 11.3335 9.15652 11.3335 9.33333V10C11.3335 10.3536 11.193 10.6928 10.943 10.9428C10.6929 11.1929 10.3538 11.3333 10.0002 11.3333C9.82335 11.3333 9.65378 11.4036 9.52876 11.5286C9.40373 11.6536 9.3335 11.8232 9.3335 12V13.3333C9.3335 13.5101 9.40373 13.6797 9.52876 13.8047C9.65378 13.9298 9.82335 14 10.0002 14C11.061 14 12.0784 13.5786 12.8286 12.8284C13.5787 12.0783 14.0002 11.0609 14.0002 10V3.33333C14.0002 2.97971 13.8597 2.64057 13.6096 2.39052C13.3596 2.14048 13.0205 2 12.6668 2H10.6668Z" fill="currentColor"/><path d="M3.33333 2C2.97971 2 2.64057 2.14048 2.39052 2.39052C2.14048 2.64057 2 2.97971 2 3.33333V7.33333C2 7.68696 2.14048 8.02609 2.39052 8.27614C2.64057 8.52619 2.97971 8.66667 3.33333 8.66667C3.51014 8.66667 3.67971 8.7369 3.80474 8.86193C3.92976 8.98695 4 9.15652 4 9.33333V10C4 10.3536 3.85952 10.6928 3.60948 10.9428C3.35943 11.1929 3.02029 11.3333 2.66667 11.3333C2.48986 11.3333 2.32029 11.4036 2.19526 11.5286C2.07024 11.6536 2 11.8232 2 12V13.3333C2 13.5101 2.07024 13.6797 2.19526 13.8047C2.32029 13.9298 2.48986 14 2.66667 14C3.72753 14 4.74495 13.5786 5.49509 12.8284C6.24524 12.0783 6.66667 11.0609 6.66667 10V3.33333C6.66667 2.97971 6.52619 2.64057 6.27614 2.39052C6.02609 2.14048 5.68696 2 5.33333 2H3.33333Z" fill="currentColor"/></svg>
                           </div>
                         ))}
+                        {ctaWidgets.filter(w => w.afterPostId === null).map(widget => (
+                          <CTAWidgetCard key={widget.id} widget={widget} memoryId={memoryId} cardRef={(el) => { ctaWidgetCardRefs.current[widget.id] = el; }} isActive={activeCtaWidgetId === widget.id} />
+                        ))}
 
                         {isLoadingMemory ? (
                           <div className="text-center py-12 bg-white rounded-xl">
@@ -12506,9 +13438,9 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                                 const res = await dashboardAPI.removeLinkedMemory(String(memoryId), String(lm.id));
                                                 if (res.success) {
                                                   setApiMemoryData((prev: any) => prev ? { ...prev, linked_memories: prev.linked_memories.filter((m: any) => m.id !== lm.id) } : prev);
-                                                  toast.success('Linked memory removed');
-                                                } else { toast.error('Failed to remove linked memory'); }
-                                              } catch { toast.error('Failed to remove linked memory'); }
+                                                  toast.success('Linked campaign removed');
+                                                } else { toast.error('Failed to remove linked campaign'); }
+                                              } catch { toast.error('Failed to remove linked campaign'); }
                                             }}
                                             className="flex items-center gap-2 cursor-pointer font-semibold text-red-600 focus:text-red-600"
                                           >
@@ -12695,8 +13627,11 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                       <svg width="24" height="24" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" className="absolute bottom-4 right-4 text-[#6C60FF]/30 rotate-180"><path d="M10.6668 2C10.3132 2 9.97407 2.14048 9.72402 2.39052C9.47397 2.64057 9.3335 2.97971 9.3335 3.33333V7.33333C9.3335 7.68696 9.47407 8.02609 9.72402 8.27614C9.97407 8.52619 10.3132 8.66667 10.6668 8.66667C10.8436 8.66667 11.0132 8.7369 11.1382 8.86193C11.2633 8.98695 11.3335 9.15652 11.3335 9.33333V10C11.3335 10.3536 11.193 10.6928 10.943 10.9428C10.6929 11.1929 10.3538 11.3333 10.0002 11.3333C9.82335 11.3333 9.65378 11.4036 9.52876 11.5286C9.40373 11.6536 9.3335 11.8232 9.3335 12V13.3333C9.3335 13.5101 9.40373 13.6797 9.52876 13.8047C9.65378 13.9298 9.82335 14 10.0002 14C11.061 14 12.0784 13.5786 12.8286 12.8284C13.5787 12.0783 14.0002 11.0609 14.0002 10V3.33333C14.0002 2.97971 13.8597 2.64057 13.6096 2.39052C13.3596 2.14048 13.0205 2 12.6668 2H10.6668Z" fill="currentColor"/><path d="M3.33333 2C2.97971 2 2.64057 2.14048 2.39052 2.39052C2.14048 2.64057 2 2.97971 2 3.33333V7.33333C2 7.68696 2.14048 8.02609 2.39052 8.27614C2.64057 8.52619 2.97971 8.66667 3.33333 8.66667C3.51014 8.66667 3.67971 8.7369 3.80474 8.86193C3.92976 8.98695 4 9.15652 4 9.33333V10C4 10.3536 3.85952 10.6928 3.60948 10.9428C3.35943 11.1929 3.02029 11.3333 2.66667 11.3333C2.48986 11.3333 2.32029 11.4036 2.19526 11.5286C2.07024 11.6536 2 11.8232 2 12V13.3333C2 13.5101 2.07024 13.6797 2.19526 13.8047C2.32029 13.9298 2.48986 14 2.66667 14C3.72753 14 4.74495 13.5786 5.49509 12.8284C6.24524 12.0783 6.66667 11.0609 6.66667 10V3.33333C6.66667 2.97971 6.52619 2.64057 6.27614 2.39052C6.02609 2.14048 5.68696 2 5.33333 2H3.33333Z" fill="currentColor"/></svg>
                                     </div>
                                   ))}
+                                  {ctaWidgets.filter(w => w.afterPostId === post.id?.toString()).map(widget => (
+                                    <CTAWidgetCard key={widget.id} widget={widget} memoryId={memoryId} cardRef={(el) => { ctaWidgetCardRefs.current[widget.id] = el; }} isActive={activeCtaWidgetId === widget.id} />
+                                  ))}
                                   {/* Plus Divider after each card - mobile only, not after last */}
-                                  {postIndex < sortedTimelinePosts.length - 1 && renderPlusDivider(`detail-${postIndex}`, post.id?.toString())}
+                                  {combinedIndex < totalItems - 1 && renderPlusDivider(`detail-${postIndex}`, post.id?.toString())}
                                 </React.Fragment>
                               );
                             }
@@ -12705,7 +13640,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                           <div className="text-center py-12 text-gray-500 bg-white rounded-xl">
                             <Activity className="w-12 h-12 text-gray-400 mx-auto mb-4" />
                             <h3 className="text-lg font-medium text-gray-900 mb-2">No moments yet</h3>
-                            <p className="text-gray-500 mb-4">Start capturing memories by adding your first moment.</p>
+                            <p className="text-gray-500 mb-4">Start capturing campaigns by adding your first moment.</p>
                             <Button
                               onClick={() => setIsAddMomentModalOpen(true)}
                               className="bg-[#6C60FF] hover:bg-[#5A52E6] text-white"
@@ -12906,7 +13841,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                         <ImageIcon className="w-12 h-12 text-gray-300 mx-auto mb-4" />
                         <h4 className="text-lg font-medium text-gray-900 mb-2">No photos yet</h4>
                         <p className="text-gray-600 mb-6">
-                          Start capturing memories by adding your first photo to this memory.
+                          Start capturing campaigns by adding your first photo to this campaign.
                         </p>
                         <Button 
                           className="bg-[#6C60FF] hover:bg-[#5A52E6] text-white disabled:opacity-50 disabled:cursor-not-allowed"
@@ -12967,8 +13902,8 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                     <>
                       {/* HTML widgets before posts (afterPostId === null) */}
                       {htmlWidgets.filter(w => w.afterPostId === null).map(widget => (
+                        <React.Fragment key={`mobile-html-top-${widget.id}`}>
                         <div
-                          key={`mobile-html-top-${widget.id}`}
                           className={`rounded-2xl overflow-hidden bg-white p-4 mx-4 transition-all duration-200 relative ${
                             activeHtmlWidgetId === widget.id ? 'border-2 border-[#6C60FF]' : 'border border-gray-100'
                           }`}
@@ -13013,12 +13948,14 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                           </div>
                           <div className="[&_h1]:text-2xl [&_h1]:font-bold [&_h2]:text-xl [&_h2]:font-bold [&_h3]:text-lg [&_h3]:font-semibold [&_h4]:text-base [&_h4]:font-semibold [&_p]:my-2 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:my-1 [&_a]:text-[#6C60FF] [&_a]:underline [&_strong]:font-bold [&_em]:italic [&_blockquote]:border-l-4 [&_blockquote]:border-gray-300 [&_blockquote]:pl-4 [&_blockquote]:italic" dangerouslySetInnerHTML={{ __html: widget.content }} />
                         </div>
+                          {renderPlusDivider(`mobile-html-top-div-${widget.id}`)}
+                        </React.Fragment>
                       ))}
 
                       {/* YouTube widgets before posts (afterPostId === null) */}
                       {youtubeWidgets.filter(w => w.afterPostId === null).map(widget => (
+                        <React.Fragment key={`mobile-yt-top-${widget.id}`}>
                         <div
-                          key={`mobile-yt-top-${widget.id}`}
                           className={`rounded-2xl overflow-hidden bg-white p-4 mx-4 transition-all duration-200 relative ${
                             activeYoutubeWidgetId === widget.id ? 'border-2 border-[#6C60FF]' : 'border border-gray-100'
                           }`}
@@ -13069,12 +14006,14 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                             className="rounded-lg"
                           />
                         </div>
+                          {renderPlusDivider(`mobile-yt-top-div-${widget.id}`)}
+                        </React.Fragment>
                       ))}
 
                       {/* Quote widgets before posts (afterPostId === null) */}
                       {quoteWidgets.filter(w => w.afterPostId === null).map(widget => (
+                        <React.Fragment key={`mobile-quote-top-${widget.id}`}>
                         <div
-                          key={`mobile-quote-top-${widget.id}`}
                           className={`rounded-2xl overflow-hidden bg-[#F0EEFF] p-5 mx-4 transition-all duration-200 relative border-l-4 border-l-[#6C60FF] ${
                             activeQuoteWidgetId === widget.id ? 'border-2 border-[#6C60FF]' : 'border border-gray-100 border-l-4 border-l-[#6C60FF]'
                           }`}
@@ -13120,6 +14059,16 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                           <p className="text-lg font-bold text-gray-800 text-center leading-relaxed">{widget.text}</p>
                           {widget.author && <p className="text-sm text-gray-500 text-center mt-2">{"\u2014"} {widget.author}</p>}
                         </div>
+                          {renderPlusDivider(`mobile-quote-top-div-${widget.id}`)}
+                        </React.Fragment>
+                      ))}
+                      {ctaWidgets.filter(w => w.afterPostId === null).map(widget => (
+                        <React.Fragment key={`mobile-cta-top-${widget.id}`}>
+                        <div className="mx-4">
+                          <CTAWidgetCard widget={widget} memoryId={memoryId} isActive={activeCtaWidgetId === widget.id} onEdit={() => openEditCta(widget)} onDelete={() => deleteCta(widget)} />
+                        </div>
+                          {renderPlusDivider(`mobile-cta-top-div-${widget.id}`)}
+                        </React.Fragment>
                       ))}
 
                       {(combinedTimeline || []).map((item, combinedIndex) => {
@@ -13176,9 +14125,9 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                             const res = await dashboardAPI.removeLinkedMemory(String(memoryId), String(lm.id));
                                             if (res.success) {
                                               setApiMemoryData((prev: any) => prev ? { ...prev, linked_memories: prev.linked_memories.filter((m: any) => m.id !== lm.id) } : prev);
-                                              toast.success('Linked memory removed');
-                                            } else { toast.error('Failed to remove linked memory'); }
-                                          } catch { toast.error('Failed to remove linked memory'); }
+                                              toast.success('Linked campaign removed');
+                                            } else { toast.error('Failed to remove linked campaign'); }
+                                          } catch { toast.error('Failed to remove linked campaign'); }
                                         }}
                                         className="flex items-center gap-2 cursor-pointer font-semibold text-red-600 focus:text-red-600"
                                       >
@@ -13308,8 +14257,9 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
 
                             {/* HTML widgets after this post */}
                             {htmlWidgets.filter(w => w.afterPostId === post.id?.toString()).map(widget => (
+                              <React.Fragment key={`mobile-html-${widget.id}`}>
+                                {renderPlusDivider(`mobile-html-div-${widget.id}`, post.id?.toString())}
                               <div
-                                key={`mobile-html-${widget.id}`}
                                 className={`rounded-2xl overflow-hidden bg-white p-4 mx-4 transition-all duration-200 relative ${
                                   activeHtmlWidgetId === widget.id ? 'border-2 border-[#6C60FF]' : 'border border-gray-100'
                                 }`}
@@ -13354,11 +14304,13 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                 </div>
                                 <div className="[&_h1]:text-2xl [&_h1]:font-bold [&_h2]:text-xl [&_h2]:font-bold [&_h3]:text-lg [&_h3]:font-semibold [&_h4]:text-base [&_h4]:font-semibold [&_p]:my-2 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:my-1 [&_a]:text-[#6C60FF] [&_a]:underline [&_strong]:font-bold [&_em]:italic [&_blockquote]:border-l-4 [&_blockquote]:border-gray-300 [&_blockquote]:pl-4 [&_blockquote]:italic" dangerouslySetInnerHTML={{ __html: widget.content }} />
                               </div>
+                              </React.Fragment>
                             ))}
                             {/* YouTube widgets after this post */}
                             {youtubeWidgets.filter(w => w.afterPostId === post.id?.toString()).map(widget => (
+                              <React.Fragment key={`mobile-yt-${widget.id}`}>
+                                {renderPlusDivider(`mobile-yt-div-${widget.id}`, post.id?.toString())}
                               <div
-                                key={`mobile-yt-${widget.id}`}
                                 className={`rounded-2xl overflow-hidden bg-white p-4 mx-4 transition-all duration-200 relative ${
                                   activeYoutubeWidgetId === widget.id ? 'border-2 border-[#6C60FF]' : 'border border-gray-100'
                                 }`}
@@ -13409,11 +14361,13 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                   className="rounded-lg"
                                 />
                               </div>
+                              </React.Fragment>
                             ))}
                             {/* Quote widgets after this post */}
                             {quoteWidgets.filter(w => w.afterPostId === post.id?.toString()).map(widget => (
+                              <React.Fragment key={`mobile-quote-${widget.id}`}>
+                                {renderPlusDivider(`mobile-quote-div-${widget.id}`, post.id?.toString())}
                               <div
-                                key={`mobile-quote-${widget.id}`}
                                 className={`rounded-2xl overflow-hidden bg-[#F0EEFF] p-5 mx-4 transition-all duration-200 relative border-l-4 border-l-[#6C60FF] ${
                                   activeQuoteWidgetId === widget.id ? 'border-2 border-[#6C60FF]' : 'border border-gray-100 border-l-4 border-l-[#6C60FF]'
                                 }`}
@@ -13459,9 +14413,18 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                 <p className="text-lg font-bold text-gray-800 text-center leading-relaxed">{widget.text}</p>
                                 {widget.author && <p className="text-sm text-gray-500 text-center mt-2">{"\u2014"} {widget.author}</p>}
                               </div>
+                              </React.Fragment>
+                            ))}
+                            {ctaWidgets.filter(w => w.afterPostId === post.id?.toString()).map(widget => (
+                              <React.Fragment key={`mobile-cta-${widget.id}`}>
+                                {renderPlusDivider(`mobile-cta-div-${widget.id}`, post.id?.toString())}
+                              <div className="mx-4">
+                                <CTAWidgetCard widget={widget} memoryId={memoryId} isActive={activeCtaWidgetId === widget.id} onEdit={() => openEditCta(widget)} onDelete={() => deleteCta(widget)} />
+                              </div>
+                              </React.Fragment>
                             ))}
                             {/* Plus Divider after each card, not after last */}
-                            {postIndex < sortedTimelinePosts.length - 1 && renderPlusDivider(`mobile-${postIndex}`, post.id?.toString())}
+                            {combinedIndex < totalItems - 1 && renderPlusDivider(`mobile-${postIndex}`, post.id?.toString())}
                           </React.Fragment>
                         );
                         }
@@ -13503,7 +14466,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                         <Activity className="w-12 h-12 text-gray-400 mx-auto mb-4" />
                         <h3 className="text-base font-medium text-gray-900 mb-2">No moments yet</h3>
                         <p className="text-sm text-gray-500 mb-4">
-                          Start capturing memories by adding your first moment.
+                          Start capturing campaigns by adding your first moment.
                         </p>
                         <Button
                           onClick={() => setIsAddMomentModalOpen(true)}
@@ -13824,6 +14787,95 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                       </p>
                     </div>
                   )}
+
+                  {/* Pending Widgets List */}
+                  {pendingWidgets.length > 0 && (
+                    <div className="space-y-4">
+                      <div>
+                        <h2 className="text-2xl font-bold text-gray-900">Widget Moderation</h2>
+                        <p className="text-gray-500 mt-1">Review and approve widgets submitted by Users</p>
+                      </div>
+                      {pendingWidgets.map((w: any) => {
+                        const wDate = w.created_at ? new Date(w.created_at) : new Date();
+                        const formattedDate = wDate.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: 'numeric' });
+                        const formattedTime = wDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+                        const d = w.widget_data || {};
+                        const typeMeta: Record<string, { label: string; Icon: any }> = {
+                          html: { label: 'HTML Block', Icon: FileText },
+                          youtube: { label: 'YouTube Video', Icon: Play },
+                          quote: { label: 'Quote', Icon: MessageSquare },
+                          cta: { label: 'Call to Action', Icon: Pointer },
+                        };
+                        const meta = typeMeta[w.widget_type] || { label: 'Widget', Icon: FileText };
+                        const Icon = meta.Icon;
+                        return (
+                          <Card key={`pending-widget-${w.id}`} className="p-4 border border-gray-200">
+                            <div className="flex gap-4">
+                              {/* Type icon tile */}
+                              <div className="flex-shrink-0 w-32 h-24 rounded-lg bg-[#6C60FF]/10 flex items-center justify-center">
+                                <Icon className="w-8 h-8 text-[#6C60FF]" />
+                              </div>
+                              {/* Content preview */}
+                              <div className="flex-1 space-y-2">
+                                <div className="flex items-center gap-2">
+                                  <Badge className="bg-[#6C60FF]/10 text-[#6C60FF] border-0">{meta.label}</Badge>
+                                  <p className="text-xs text-gray-500">{formattedDate}, {formattedTime}</p>
+                                </div>
+
+                                {w.widget_type === 'html' && (
+                                  <>
+                                    {d.title && <p className="text-sm font-medium text-gray-900">{d.title}</p>}
+                                    <div
+                                      className="text-gray-700 text-sm border border-gray-100 rounded-lg p-2 max-h-32 overflow-auto [&_a]:text-[#6C60FF] [&_a]:underline [&_strong]:font-bold"
+                                      dangerouslySetInnerHTML={{ __html: d.content || '<span style="color:#9ca3af">No content</span>' }}
+                                    />
+                                  </>
+                                )}
+
+                                {w.widget_type === 'youtube' && (
+                                  <>
+                                    {d.title && <p className="text-sm font-medium text-gray-900">{d.title}</p>}
+                                    {d.videoId ? (
+                                      <iframe width="240" height="135" src={`https://www.youtube.com/embed/${d.videoId}?autoplay=0`} allow="accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen className="rounded-lg" />
+                                    ) : (
+                                      <p className="text-gray-500 text-sm break-all">{d.url || 'No video'}</p>
+                                    )}
+                                  </>
+                                )}
+
+                                {w.widget_type === 'quote' && (
+                                  <div className="border-l-4 border-l-[#6C60FF] bg-[#F0EEFF] rounded-lg p-3">
+                                    <p className="text-sm font-medium text-gray-800 break-words">{d.text || 'No quote text'}</p>
+                                    {d.author && <p className="text-xs text-gray-500 mt-1">— {d.author}</p>}
+                                  </div>
+                                )}
+
+                                {w.widget_type === 'cta' && (
+                                  <div className="text-sm text-gray-700 space-y-1">
+                                    {d.title && <p className="font-medium text-gray-900">{d.title}</p>}
+                                    <p><span className="text-gray-500">Button:</span> {d.buttonText || 'Learn More'}</p>
+                                    {d.buttonLink && <p className="break-all"><span className="text-gray-500">Link:</span> {d.buttonLink}</p>}
+                                  </div>
+                                )}
+
+                                {/* Action Buttons */}
+                                <div className="flex items-center gap-3 pt-2">
+                                  <Button onClick={() => handleApproveWidget(w)} className="bg-indigo-500 hover:bg-indigo-600 text-white px-6" size="sm">
+                                    <CheckCircle className="w-4 h-4 mr-1" />
+                                    Approve
+                                  </Button>
+                                  <Button onClick={() => handleDenyWidget(w)} variant="outline" className="border-gray-300 text-gray-700 hover:bg-gray-50 px-6" size="sm">
+                                    <X className="w-4 h-4 mr-1" />
+                                    Deny
+                                  </Button>
+                                </div>
+                              </div>
+                            </div>
+                          </Card>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               </TabsContent>
             )}
@@ -14010,6 +15062,51 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                             </tr>
                           );
                         })}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+
+                {/* Call to Action Clicks */}
+                <div className="bg-white rounded-xl border border-gray-200 p-5">
+                  <div className="flex items-center justify-between mb-4 pb-3 border-b border-gray-100">
+                    <div className="flex items-center gap-2">
+                      <Pointer className="w-5 h-5 text-gray-700" />
+                      <h3 className="text-lg font-semibold text-gray-900">Call to Action Clicks</h3>
+                    </div>
+                    {ctaAnalytics.length > 0 && (
+                      <span className="text-sm text-gray-500">
+                        {ctaAnalytics.reduce((sum, c) => sum + (Number(c.click_count) || 0), 0).toLocaleString()} total clicks
+                      </span>
+                    )}
+                  </div>
+                  {ctaAnalytics.length === 0 ? (
+                    <div className="text-center py-8">
+                      <Pointer className="w-10 h-10 text-gray-300 mx-auto mb-2" />
+                      <p className="text-sm text-gray-500">No call-to-action clicks yet</p>
+                    </div>
+                  ) : (
+                    <table className="w-full">
+                      <thead>
+                        <tr>
+                          <th className="text-left text-xs font-semibold text-gray-400 tracking-wider pb-3">CALL TO ACTION</th>
+                          <th className="text-right text-xs font-semibold text-gray-400 tracking-wider pb-3">CLICKS</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {ctaAnalytics.map((cta, index) => (
+                          <tr key={cta.widget_id || index} className={index < ctaAnalytics.length - 1 ? 'border-b border-gray-100' : ''}>
+                            <td className="py-4 text-sm text-gray-700">
+                              <div className="flex items-center gap-2">
+                                <span className="w-7 h-7 rounded-lg bg-[#6C60FF]/10 flex items-center justify-center flex-shrink-0">
+                                  <Pointer className="w-4 h-4 text-[#6C60FF]" />
+                                </span>
+                                <span className="truncate">{cta.title || 'Call to Action'}</span>
+                              </div>
+                            </td>
+                            <td className="py-4 text-sm font-semibold text-gray-900 text-right">{(Number(cta.click_count) || 0).toLocaleString()}</td>
+                          </tr>
+                        ))}
                       </tbody>
                     </table>
                   )}
@@ -15053,7 +16150,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
               <div className="text-center py-12">
                 <ImageIcon className="w-12 h-12 text-gray-300 mx-auto mb-4" />
                 <h4 className="text-lg font-medium text-gray-900 mb-2">No photos yet</h4>
-                <p className="text-gray-600 mb-4 text-sm">Add your first photo to this memory.</p>
+                <p className="text-gray-600 mb-4 text-sm">Add your first photo to this campaign.</p>
                 <Button
                   className="bg-[#6C60FF] hover:bg-[#5A52E6] text-white"
                   onClick={() => setIsAddMomentModalOpen(true)}
@@ -15219,7 +16316,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                 <Sparkles className="w-8 h-8 text-[#6C60FF]" />
               </div>
               <h4 className="text-lg font-semibold text-gray-900 mb-2">Scanning your photos...</h4>
-              <p className="text-sm text-gray-500 text-center">AI is analyzing faces in your memory</p>
+              <p className="text-sm text-gray-500 text-center">AI is analyzing faces in your campaign</p>
             </div>
           ) : selectedPerson ? (
             /* Detail View - Show single person's photos */
@@ -16182,7 +17279,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
 
       {/* Delete Confirmation Dialog */}
       <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
-        <AlertDialogContent className="max-w-none md:max-w-lg w-full h-full md:h-auto bg-white border-0 md:rounded-lg rounded-none top-0 left-0 translate-x-0 translate-y-0 md:top-[50%] md:left-[50%] md:translate-x-[-50%] md:translate-y-[-50%] flex flex-col">
+        <AlertDialogContent className="w-[calc(100%-2rem)] max-w-sm md:max-w-lg bg-white border-0 rounded-2xl shadow-xl">
           <AlertDialogHeader>
             <AlertDialogTitle className="text-[18px] md:text-lg">Delete Campaign</AlertDialogTitle>
             <AlertDialogDescription>
@@ -16191,13 +17288,12 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
               <strong>Campaign to delete: {uiMemory?.title || 'this campaign'}</strong>
             </AlertDialogDescription>
           </AlertDialogHeader>
-          <div className="flex-1" />
-          <AlertDialogFooter className="pb-[50px] md:pb-0">
-            <AlertDialogCancel disabled={isDeleting} className="h-12 md:h-9 text-[14px] md:text-sm">Cancel</AlertDialogCancel>
+          <AlertDialogFooter className="mt-2">
+            <AlertDialogCancel disabled={isDeleting} className="h-11 md:h-9 text-[14px] md:text-sm">Cancel</AlertDialogCancel>
             <AlertDialogAction
               onClick={handleDeleteConfirm}
               disabled={isDeleting}
-              className="h-12 md:h-9 text-[14px] md:text-sm bg-red-600 hover:bg-red-700 text-white"
+              className="h-11 md:h-9 text-[14px] md:text-sm bg-red-600 hover:bg-red-700 text-white"
             >
               {isDeleting ? 'Deleting...' : 'Delete Campaign'}
             </AlertDialogAction>
@@ -16207,22 +17303,21 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
 
       {/* Delete Media Item Confirmation Dialog */}
       <AlertDialog open={showDeleteItemDialog} onOpenChange={setShowDeleteItemDialog}>
-        <AlertDialogContent className="max-w-none md:max-w-lg w-full h-full md:h-auto bg-white border-0 md:rounded-lg rounded-none top-0 left-0 translate-x-0 translate-y-0 md:top-[50%] md:left-[50%] md:translate-x-[-50%] md:translate-y-[-50%] flex flex-col">
+        <AlertDialogContent className="w-[calc(100%-2rem)] max-w-sm md:max-w-lg bg-white border-0 rounded-2xl shadow-xl">
           <AlertDialogHeader>
             <AlertDialogTitle className="text-[18px] md:text-lg">Delete Image</AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to delete this image? This action cannot be undone and will permanently remove the image from this memory.
+              Are you sure you want to delete this image? This action cannot be undone and will permanently remove the image from this campaign.
               <br /><br />
               <strong>This image will be deleted permanently.</strong>
             </AlertDialogDescription>
           </AlertDialogHeader>
-          <div className="flex-1" />
-          <AlertDialogFooter className="pb-[50px] md:pb-0">
-            <AlertDialogCancel disabled={isDeletingItem} className="h-12 md:h-9 text-[14px] md:text-sm">Cancel</AlertDialogCancel>
+          <AlertDialogFooter className="mt-2">
+            <AlertDialogCancel disabled={isDeletingItem} className="h-11 md:h-9 text-[14px] md:text-sm">Cancel</AlertDialogCancel>
             <AlertDialogAction
               onClick={handleDeleteItemConfirm}
               disabled={isDeletingItem}
-              className="h-12 md:h-9 text-[14px] md:text-sm bg-red-600 hover:bg-red-700 text-white"
+              className="h-11 md:h-9 text-[14px] md:text-sm bg-red-600 hover:bg-red-700 text-white"
             >
               {isDeletingItem ? 'Deleting...' : 'Delete Image'}
             </AlertDialogAction>
@@ -16308,7 +17403,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                   Analysing the moments with AI...
                 </h3>
                 <p className="text-gray-600 text-sm">
-                  Understanding your memories, emotions, and campaign themes to craft the best narrative.
+                  Understanding your campaigns, emotions, and campaign themes to craft the best narrative.
                 </p>
                 <p className="text-xs text-gray-400 mt-2">
                   This will move to sidebar shortly...
@@ -16520,7 +17615,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                     <div className="relative">
                       <textarea
                         className="w-full h-40 p-4 bg-gray-100 border-0 rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-purple-500 text-gray-700"
-                        placeholder="Describe what you'd like the AI to help you with for this memory..."
+                        placeholder="Describe what you'd like the AI to help you with for this campaign..."
                         maxLength={1000}
                         value={customPrompt}
                         onChange={(e) => setCustomPrompt(e.target.value)}

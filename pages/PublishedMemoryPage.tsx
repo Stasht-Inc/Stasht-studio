@@ -1,7 +1,7 @@
 ﻿import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { Helmet } from "react-helmet-async";
-import { Calendar, MapPin, MessageSquare, ArrowLeft, Clock, Lock, Circle, X, ChevronLeft, ChevronRight, Send, Link, Facebook, Linkedin, Code, Eye, Globe, ChevronDown, Download, Mail, FileText, Heart, Search, Play, Pause, Phone, Share2, Copy, MoreVertical, BookOpen } from "lucide-react";
+import { Calendar, MapPin, MessageSquare, ArrowLeft, Clock, Lock, Circle, X, ChevronLeft, ChevronRight, Send, Link, Facebook, Linkedin, Code, Eye, Globe, ChevronDown, Download, Mail, FileText, Heart, Search, Play, Pause, Phone, Share2, Copy, MoreVertical, BookOpen, ArrowRight, ExternalLink, ShoppingCart, Star, Gift, Pointer, Quote } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { Badge } from "../components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "../components/ui/avatar";
@@ -33,6 +33,89 @@ const CommentIcon = ({ className = "" }: { className?: string }) => (
     />
   </svg>
 );
+
+// ── Widget rendering (html / youtube / quote / cta) for the published page ──
+// Mirrors the widget markup used in the Studio (MemoryDetailsPage) so the public
+// view matches what the owner sees while composing.
+const PUB_CTA_ICONS: Record<string, React.ComponentType<{ style?: React.CSSProperties; className?: string }>> = {
+  ArrowRight, ExternalLink, Link, ShoppingCart, Phone, Mail, Calendar, Download, Play, Heart, Star, Gift, MapPin, Send,
+};
+const PUB_CTA_DEFAULT_BUTTON_COLOR = '#6C60FF';
+const PUB_CTA_DEFAULT_TEXT_COLOR = '#FFFFFF';
+const PUB_CTA_DEFAULT_ICON_SIZE = 18;
+const PUB_CTA_DEFAULT_FONT_SIZE = 16;
+const PUB_CTA_DEFAULT_BORDER_RADIUS = 12;
+
+// Ensure a CTA link has a scheme so the anchor navigates to an absolute address
+function pubNormalizeUrl(url: string): string {
+  const u = (url || '').trim();
+  if (!u) return '';
+  return /^https?:\/\//i.test(u) ? u : `https://${u}`;
+}
+
+// Renders a single widget by its widget_type. `widget` is the raw API object
+// ({ id, widget_type, widget_data, ... }). memoryId is used for CTA click tracking.
+function PublishedWidget({ widget, memoryId }: { widget: any; memoryId?: string | number | null }) {
+  const data = widget?.widget_data || {};
+  switch (widget?.widget_type) {
+    case 'html':
+      return (
+        <div className="rounded-2xl bg-white p-4 border border-gray-100">
+          <div className="[&_h1]:text-2xl [&_h1]:font-bold [&_p]:my-2 [&_ul]:list-disc [&_ul]:pl-5 [&_a]:text-[#6C60FF] [&_a]:underline [&_strong]:font-bold" dangerouslySetInnerHTML={{ __html: data.content || '' }} />
+        </div>
+      );
+    case 'youtube':
+      if (!data.videoId) return null;
+      return (
+        <div className="rounded-2xl bg-white p-4 border border-gray-100">
+          <iframe width="100%" height="200" src={`https://www.youtube.com/embed/${data.videoId}?autoplay=0`} allow="accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen className="rounded-lg" />
+        </div>
+      );
+    case 'quote':
+      return (
+        <div className="rounded-2xl bg-[#F0EEFF] p-5 border border-gray-100 border-l-4 border-l-[#6C60FF]">
+          <p className="text-lg font-bold text-gray-800 text-center leading-relaxed break-words">{data.text || ''}</p>
+          {data.author && <p className="text-sm text-gray-500 text-center mt-2">— {data.author}</p>}
+        </div>
+      );
+    case 'cta': {
+      const Icon = data.icon ? PUB_CTA_ICONS[data.icon] : undefined;
+      const iconSize = data.iconSize || PUB_CTA_DEFAULT_ICON_SIZE;
+      const href = pubNormalizeUrl(data.buttonLink || '');
+      const buttonWidth = data.buttonWidth || 0; // 0 = full width
+      const trackClick = () => {
+        const mid = widget?.memory_id ?? memoryId;
+        if (!mid || !widget?.id) return;
+        try { dashboardAPI.trackWidgetClick(String(mid), String(widget.id)).catch(() => {}); } catch { /* ignore */ }
+      };
+      return (
+        <div className="relative rounded-2xl bg-white p-6 flex flex-col items-center text-center gap-4 border border-gray-100">
+          {data.title && <h3 className="text-xl font-bold text-gray-900 break-words">{data.title}</h3>}
+          <a
+            href={href || undefined}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(e) => { if (!href) e.preventDefault(); trackClick(); }}
+            className="inline-flex items-center justify-center gap-2 px-6 py-3 font-semibold transition-opacity hover:opacity-90 no-underline"
+            style={{
+              backgroundColor: data.buttonColor || PUB_CTA_DEFAULT_BUTTON_COLOR,
+              color: data.textColor || PUB_CTA_DEFAULT_TEXT_COLOR,
+              fontSize: data.fontSize || PUB_CTA_DEFAULT_FONT_SIZE,
+              borderRadius: `${data.borderRadius ?? PUB_CTA_DEFAULT_BORDER_RADIUS}px`,
+              width: buttonWidth ? `${buttonWidth}px` : '100%',
+              maxWidth: '100%',
+            }}
+          >
+            {Icon && <Icon style={{ width: iconSize, height: iconSize }} />}
+            <span>{data.buttonText || 'Learn More'}</span>
+          </a>
+        </div>
+      );
+    }
+    default:
+      return null;
+  }
+}
 
 // Post Card Component with Carousel for sub-images
 interface PublishedPostCardProps {
@@ -306,6 +389,18 @@ export default function PublishedMemoryPage() {
   const [combinedPublishedTimeline, setCombinedPublishedTimeline] = useState<Array<{type: 'post'|'linked', id: string}> | null>(null);
   const [activePubLmId, setActivePubLmId] = useState<string | null>(null);
   const [memoryHistory, setMemoryHistory] = useState<any[]>([]);
+  // True when this memory is shown inside the embed HTML (iframe) or was opened from an author
+  // page — so we can offer a Back button that returns to that page via browser history.
+  const [cameFromAuthorPage] = useState<boolean>(() => {
+    try {
+      const isEmbedded = window.self !== window.top; // inside an iframe (e.g. the embed HTML)
+      const fromAuthor = document.referrer.includes('/published-author-memory/');
+      return isEmbedded || fromAuthor;
+    } catch {
+      // Cross-origin window.top access implies we are embedded
+      return true;
+    }
+  });
   const [isLoadingSubMemory, setIsLoadingSubMemory] = useState(false);
   const sortedPostsRef = useRef<any[]>([]);
   useEffect(() => {
@@ -408,22 +503,28 @@ export default function PublishedMemoryPage() {
           ...newMemory,
           linked_memories: newMemory?.linked_memories ?? rawData?.linked_memories ?? [],
           unified_order: newMemory?.unified_order ?? rawData?.unified_order ?? null,
+          widgets: newMemory?.widgets ?? rawData?.widgets ?? [],
         });
         setCombinedPublishedTimeline(null);
         setActivePubLmId(null);
         setActiveMemoryIndex(0);
         window.scrollTo({ top: 0, behavior: 'smooth' });
       } else {
-        toast.error('Failed to load memory');
+        toast.error('Failed to load campaign');
       }
     } catch {
-      toast.error('Failed to load memory');
+      toast.error('Failed to load campaign');
     }
     setIsLoadingSubMemory(false);
   };
 
   const handleBackToCampaigns = () => {
     if (memoryHistory.length === 0) {
+      // Public/embedded viewer → return to the previous page (e.g. the author page) via history
+      if (!isAuthenticated && window.history.length > 1) {
+        window.history.back();
+        return;
+      }
       navigate('/stories');
       return;
     }
@@ -449,6 +550,7 @@ export default function PublishedMemoryPage() {
   const [showDesktopAuthorModal, setShowDesktopAuthorModal] = useState(false);
   const [isHeaderCollapsed, setIsHeaderCollapsed] = useState(false);
   const [activeMemoryIndex, setActiveMemoryIndex] = useState(0);
+  const [activeWidgetId, setActiveWidgetId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [isHeaderImageScrolled, setIsHeaderImageScrolled] = useState(false);
 
@@ -523,6 +625,7 @@ export default function PublishedMemoryPage() {
   const headerImageRef = useRef<HTMLDivElement>(null);
   const mobileHeaderImageRef = useRef<HTMLDivElement>(null);
   const timelineItemRefs = useRef<(HTMLDivElement | null)[]>([]);
+  const sidebarWidgetRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const rightScrollContainerRef = useRef<HTMLDivElement>(null);
   const [mobileActiveMemoryIndex, setMobileActiveMemoryIndex] = useState(0);
 
@@ -574,14 +677,21 @@ export default function PublishedMemoryPage() {
       (entries) => {
         entries.forEach((entry) => {
           if (entry.isIntersecting) {
+            const widgetId = entry.target.getAttribute('data-pub-widget-id');
             const lmId = entry.target.getAttribute('data-pub-lm-id');
             const index = Number(entry.target.getAttribute('data-index'));
-            if (lmId) {
+            if (widgetId) {
+              setActiveWidgetId(widgetId);
+              setActiveMemoryIndex(-1);
+              setActivePubLmId(null);
+            } else if (lmId) {
               setActivePubLmId(lmId);
               setActiveMemoryIndex(-1);
+              setActiveWidgetId(null);
             } else if (!isNaN(index)) {
               setActiveMemoryIndex(index);
               setActivePubLmId(null);
+              setActiveWidgetId(null);
             }
           }
         });
@@ -595,8 +705,9 @@ export default function PublishedMemoryPage() {
 
     memoryCardRefs.current.forEach((ref) => { if (ref) observer.observe(ref); });
 
-    // Also observe linked memory cards
+    // Also observe linked memory cards and content widgets
     document.querySelectorAll('[data-pub-lm-id]').forEach((el) => observer.observe(el));
+    document.querySelectorAll('[data-pub-widget-id]').forEach((el) => observer.observe(el));
 
     return () => { observer.disconnect(); };
   }, [memoryData, combinedPublishedTimeline]);
@@ -608,6 +719,15 @@ export default function PublishedMemoryPage() {
       el.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }
   }, [activeMemoryIndex, isHeaderImageScrolled]);
+
+  // Auto-scroll the sidebar to the active widget entry when it changes
+  useEffect(() => {
+    if (!activeWidgetId) return;
+    const el = sidebarWidgetRefs.current[activeWidgetId];
+    if (el && isHeaderImageScrolled) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }, [activeWidgetId, isHeaderImageScrolled]);
 
   // IntersectionObserver for mobile scroll sync - track which memory card is visible
   useEffect(() => {
@@ -778,6 +898,7 @@ export default function PublishedMemoryPage() {
               docusign_documents: memory?.docusign_documents ?? actualData?.docusign_documents,
               linked_memories: memory?.linked_memories ?? actualData?.linked_memories ?? [],
               unified_order: memory?.unified_order ?? actualData?.unified_order ?? null,
+              widgets: memory?.widgets ?? actualData?.widgets ?? [],
             });
             setSortOrder(actualData.order_by || 'asc');
             setRequiresToken(false);
@@ -1077,12 +1198,12 @@ export default function PublishedMemoryPage() {
 
             {/* Title */}
             <h2 className="text-2xl font-bold text-gray-900 text-center mb-2">
-              Private Memory
+              Private Campaign
             </h2>
 
             {/* Description */}
             <p className="text-gray-600 text-center mb-6">
-              This memory requires an access token to view. Please enter the access token provided by the publisher.
+              This campaign requires an access token to view. Please enter the access token provided by the publisher.
             </p>
 
             {/* Access Token Input */}
@@ -1229,6 +1350,79 @@ export default function PublishedMemoryPage() {
     });
   })();
   sortedPostsRef.current = sortedPosts;
+
+  // ── Widgets (html / youtube / quote / cta) from the API response ──
+  // Group visible/approved widgets by after_post_id so each renders after its post,
+  // in widget_order. Widgets with a null/empty after_post_id render at the top.
+  const publishedWidgets = (memoryData?.widgets || [])
+    .filter((w: any) => w && w.is_visible !== false && w.admin_approval !== 0)
+    .slice()
+    .sort((a: any, b: any) => (a.widget_order ?? 0) - (b.widget_order ?? 0));
+  const widgetsByAfterPostId = (() => {
+    const map = new Map<string, any[]>();
+    publishedWidgets.forEach((w: any) => {
+      const key = (w.after_post_id === null || w.after_post_id === undefined || w.after_post_id === '' || w.after_post_id === 0 || w.after_post_id === '0')
+        ? 'top'
+        : String(w.after_post_id);
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push(w);
+    });
+    return map;
+  })();
+  const widgetsAfter = (postId: any): any[] => widgetsByAfterPostId.get(String(postId)) || [];
+  const topWidgetList: any[] = widgetsByAfterPostId.get('top') || [];
+  // Render the widget cards for the content column. On desktop we tag each with
+  // data-pub-widget-id so the left timeline nav can scroll to it (matching how
+  // linked memories use data-pub-lm-id — desktop only, to avoid duplicate anchors).
+  const renderWidgets = (list: any[], withAnchor: boolean) =>
+    list.map((w: any) => (
+      withAnchor
+        ? <div key={`widget-${w.id}`} data-pub-widget-id={w.id}><PublishedWidget widget={w} memoryId={memoryData?.id} /></div>
+        : <PublishedWidget key={`widget-${w.id}`} widget={w} memoryId={memoryData?.id} />
+    ));
+  // Title + subtitle + type icon for a widget's entry in the left timeline nav.
+  // Mirrors the Studio (MemoryDetailsPage) sidebar widget entries.
+  const widgetNodeMeta = (w: any): { title: string; subtitle: string; Icon: React.ComponentType<{ className?: string }> } => {
+    const d = w?.widget_data || {};
+    switch (w?.widget_type) {
+      case 'cta': return { title: d.title || 'Call to Action', subtitle: d.buttonText || 'Button', Icon: Pointer };
+      case 'quote': return { title: d.text || 'Quote', subtitle: d.author ? `— ${d.author}` : '', Icon: Quote };
+      case 'html': return { title: d.title || 'Note', subtitle: '', Icon: FileText };
+      case 'youtube': return { title: d.title || 'Video', subtitle: '', Icon: Play };
+      default: return { title: 'Widget', subtitle: '', Icon: Circle };
+    }
+  };
+  // A left-timeline entry for a widget, styled to match the Studio's widget entries
+  // (purple round type-icon node + title + subtitle). Clicking it scrolls the matching
+  // content widget into view. showBorder draws the connecting rail (kept consistent with
+  // the post nodes above/below so the timeline line aligns).
+  const renderSidebarWidgetNode = (w: any, showBorder: boolean) => {
+    const { title, subtitle, Icon } = widgetNodeMeta(w);
+    const isActive = activeWidgetId === String(w.id) && isHeaderImageScrolled;
+    return (
+      <div
+        key={`sidebar-widget-${w.id}`}
+        ref={(el) => { sidebarWidgetRefs.current[String(w.id)] = el; }}
+        className={`relative pl-8 pb-4 cursor-pointer transition-all duration-200 ml-3 ${showBorder ? 'border-l-2 border-gray-200' : ''}`}
+        onClick={() => {
+          const el = document.querySelector(`[data-pub-widget-id="${w.id}"]`) as HTMLElement | null;
+          if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }}
+      >
+        <div className={`absolute -left-3.5 top-0 w-7 h-7 rounded-full flex items-center justify-center transition-all ${isActive ? 'bg-[#6C60FF] text-white shadow-md' : 'bg-[#6C60FF]/10 text-[#6C60FF]'}`}>
+          <Icon className="w-3.5 h-3.5" />
+        </div>
+        <div className="transition-all duration-200 opacity-100">
+          <p className={`leading-snug hover:text-[#6C60FF] cursor-pointer line-clamp-2 ${isActive ? 'text-xl font-medium text-gray-900' : 'text-[#101828] text-lg'}`}>{title}</p>
+          {subtitle && (
+            <div className="flex items-center gap-1.5 mt-1 text-gray-400 text-sm">
+              <Icon className="w-4 h-4" /><span className="line-clamp-1">{subtitle}</span>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
 
   // Get the memory image for Open Graph tags (ensure it's an absolute URL)
   const getAbsoluteImageUrl = (imageUrl: string | undefined) => {
@@ -1569,7 +1763,7 @@ export default function PublishedMemoryPage() {
       {/* MOBILE LAYOUT */}
       <div className="lg:hidden min-h-screen bg-[#F8F8FA]">
         {/* Header Image with Overlay - shorter height to allow cards to overlap */}
-        <div ref={mobileHeaderImageRef} className="relative" style={{ height: '75vh' }}>
+        <div ref={mobileHeaderImageRef} className="relative" style={{ height: '90vh' }}>
           {(() => {
             const coverSrc = memoryData.last_update_img || allPosts[0]?.master_image_link;
             return isYoutubeUrl(coverSrc) ? (
@@ -1783,7 +1977,7 @@ export default function PublishedMemoryPage() {
                   {/* Stats */}
                   <div className="px-4 pb-3">
                     <div className="flex items-center justify-between py-2 border-t border-b border-white">
-                      <span className="text-gray-600 text-sm">Total Memories</span>
+                      <span className="text-gray-600 text-sm">Total Campaigns</span>
                       <span className="font-semibold text-gray-900">{memoryData.user?.memories_count || sortedPosts.length}</span>
                     </div>
                     <p className="text-gray-500 text-sm mt-2">Connect</p>
@@ -1862,6 +2056,7 @@ export default function PublishedMemoryPage() {
               Continue
             </button>
           </div>
+          {renderWidgets(topWidgetList, false)}
           {(combinedPublishedTimeline || sortedPosts.map((p: any) => ({ type: 'post' as const, id: String(p.id) }))).length > 0 ? (
             (combinedPublishedTimeline || sortedPosts.map((p: any) => ({ type: 'post' as const, id: String(p.id) }))).map((item: any, combinedIndex: number) => {
               if (item.type === 'linked') {
@@ -1945,6 +2140,7 @@ export default function PublishedMemoryPage() {
                       </div>
                     </div>
                   )}
+                  {renderWidgets(widgetsAfter(post.id), false)}
                 </React.Fragment>
               );
             })
@@ -2014,8 +2210,8 @@ export default function PublishedMemoryPage() {
       <div className="hidden lg:block h-screen bg-[#F8F8FA] overflow-y-hidden">
         {/* Main Two-Column Container */}
         <div className="relative max-w-4xl mx-auto px-6 md:px-8 py-6 h-full">
-          {/* Back to Campaigns - show for authenticated users OR when in sub-memory */}
-          {(isAuthenticated || memoryHistory.length > 0) && (
+          {/* Back to Campaigns - show for authenticated users, sub-memory, or when opened from an author page */}
+          {(isAuthenticated || memoryHistory.length > 0 || cameFromAuthorPage) && (
             <button
               className="absolute top-6 -left-2 -translate-x-full flex items-center gap-1.5 border border-gray-500 rounded-full px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-50 bg-white transition-colors whitespace-nowrap z-10"
               onClick={handleBackToCampaigns}
@@ -2120,7 +2316,7 @@ export default function PublishedMemoryPage() {
                       {/* Stats */}
                       <div className="px-4 pb-3">
                         <div className="flex items-center justify-between py-2 border-t border-b border-white">
-                          <span className="text-gray-600 text-sm">Total Memories</span>
+                          <span className="text-gray-600 text-sm">Total Campaigns</span>
                           <span className="font-semibold text-gray-900">{memoryData.user?.memories_count || sortedPosts.length}</span>
                         </div>
                         <p className="text-gray-500 text-sm mt-2">Connect</p>
@@ -2270,6 +2466,7 @@ export default function PublishedMemoryPage() {
                       </div>
                     </div>
 
+                    {topWidgetList.map((w: any) => renderSidebarWidgetNode(w, true))}
                     {(combinedPublishedTimeline || sortedPosts.map((p: any) => ({ type: 'post' as const, id: String(p.id) }))).map((item: any, combinedSidebarIndex: number) => {
                       const totalItems = (combinedPublishedTimeline || sortedPosts).length;
                       if (item.type === 'linked') {
@@ -2309,12 +2506,14 @@ export default function PublishedMemoryPage() {
                       const isActive = activeMemoryIndex === index && isHeaderImageScrolled;
                       const postDate = post.uploaded_at || post.capture_date;
                       const description = post.description || post.title || 'Untitled moment';
+                      const postWidgets = widgetsAfter(post.id);
+                      const isLastItem = combinedSidebarIndex === totalItems - 1;
                       return (
+                        <React.Fragment key={post.id}>
                         <div
-                          key={post.id}
                           ref={(el) => { timelineItemRefs.current[index] = el; }}
                           className={`relative pl-8 pb-4 cursor-pointer transition-all duration-200 ml-3 ${
-                            combinedSidebarIndex === totalItems - 1 ? '' : 'border-l-2 border-gray-200'
+                            (isLastItem && postWidgets.length === 0) ? '' : 'border-l-2 border-gray-200'
                           }`}
                           onClick={() => {
                             const cardElement = memoryCardRefs.current[index];
@@ -2340,6 +2539,8 @@ export default function PublishedMemoryPage() {
                             </div>
                           </div>
                         </div>
+                        {postWidgets.map((w: any, wi: number) => renderSidebarWidgetNode(w, !(isLastItem && wi === postWidgets.length - 1)))}
+                        </React.Fragment>
                       );
                     })}
 
@@ -2479,7 +2680,7 @@ export default function PublishedMemoryPage() {
                       style={{ background: 'linear-gradient(0deg, rgba(0, 0, 0, 0.80) 11.54%, rgba(0, 0, 0, 0.30) 55.77%, rgba(0, 0, 0, 0.00) 100%)' }}
                     />
                     {/* Back Button - Top Left Corner */}
-                    {(isAuthenticated || memoryHistory.length > 0) && (
+                    {(isAuthenticated || memoryHistory.length > 0 || cameFromAuthorPage) && (
                       <div className="absolute top-4 left-4 z-10">
                         <Button
                           variant="outline"
@@ -2525,6 +2726,7 @@ export default function PublishedMemoryPage() {
                         Continue
                       </button>
                     </div>
+                {renderWidgets(topWidgetList, true)}
                 {(combinedPublishedTimeline || sortedPosts.map((p: any) => ({ type: 'post' as const, id: String(p.id) }))).length > 0 ? (
                   (combinedPublishedTimeline || sortedPosts.map((p: any) => ({ type: 'post' as const, id: String(p.id) }))).map((item: any) => {
                     if (item.type === 'linked') {
@@ -2609,6 +2811,7 @@ export default function PublishedMemoryPage() {
                             </div>
                           </div>
                         )}
+                        {renderWidgets(widgetsAfter(post.id), true)}
                       </React.Fragment>
                     );
                   })

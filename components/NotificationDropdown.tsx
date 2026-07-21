@@ -642,9 +642,9 @@ export function NotificationDropdown({ isOpen, onClose, anchorRef, onNotificatio
         // If is_memory = 0, memory is not associated anymore
         if ((notification as any).is_memory === 0) {
           console.log('🔔 Memory is NOT associated (is_memory=0) - showing error message');
-          toast.error('Story is not associated with your account now', {
+          toast.error('Campaign is not associated with your account now', {
             duration: 4000,
-            description: 'This story may have been deleted or you no longer have access to it.'
+            description: 'This campaign may have been deleted or you no longer have access to it.'
           });
           return; // Exit without navigating
         }

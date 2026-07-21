@@ -2863,7 +2863,7 @@ export default function MediaNav({
                         </div>
                         <div>
                           <h3 className="text-xs font-medium text-gray-700">
-                            No {category.name.toLowerCase()} memories
+                            No {category.name.toLowerCase()} campaigns
                           </h3>
                           <p className="text-[10px] text-gray-500 mt-1">
                             Your {category.name.toLowerCase()} campaigns will appear here.
@@ -2950,7 +2950,7 @@ export default function MediaNav({
                           No unassigned media
                         </h3>
                         <p className="text-xs text-gray-500 leading-relaxed">
-                          Media not assigned to any memory will appear here.
+                          Media not assigned to any campaign will appear here.
                         </p>
                       </div>
                       {isPropertyOwner && (
@@ -3431,7 +3431,7 @@ export default function MediaNav({
                                   No unassigned media
                                 </h3>
                                 <p className="text-xs text-gray-500 leading-relaxed">
-                                  Media not assigned to any memory will appear here.
+                                  Media not assigned to any campaign will appear here.
                                 </p>
                               </div>
                               {isPropertyOwner && (

@@ -228,7 +228,7 @@ export function CollaboratorInviteModal({
                 <div className="w-20 h-20 rounded-xl overflow-hidden bg-gray-100 flex-shrink-0 shadow-sm">
                   <img
                     src={inviteParams.image_link}
-                    alt={inviteParams.title || 'Memory'}
+                    alt={inviteParams.title || 'Campaign'}
                     className="w-full h-full object-cover"
                     onError={(e) => {
                       const target = e.target as HTMLImageElement;
@@ -247,10 +247,10 @@ export function CollaboratorInviteModal({
               )}
               <div className="flex-1 min-w-0">
                 <h3 className="font-semibold text-gray-900 text-lg truncate mb-1">
-                  {inviteParams.title || 'Untitled Memory'}
+                  {inviteParams.title || 'Untitled Campaign'}
                 </h3>
                 <p className="text-sm text-gray-500">
-                  Memory ID: {inviteParams.memory_id}
+                  Campaign ID: {inviteParams.memory_id}
                 </p>
               </div>
             </div>

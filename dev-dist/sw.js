@@ -77,11 +77,8 @@ define(['./workbox-afac4cd2'], (function (workbox) { 'use strict';
    * See https://goo.gl/S9QRab
    */
   workbox.precacheAndRoute([{
-    "url": "registerSW.js",
-    "revision": "3ca0b8505b4bec776b69afdba2768812"
-  }, {
     "url": "index.html",
-    "revision": "0.2830t2f98j8"
+    "revision": "0.01ecj165a08"
   }], {});
   workbox.cleanupOutdatedCaches();
   workbox.registerRoute(new workbox.NavigationRoute(workbox.createHandlerBoundToURL("index.html"), {
@@ -89,12 +86,16 @@ define(['./workbox-afac4cd2'], (function (workbox) { 'use strict';
     denylist: [/^\/api/, /^\/s\//]
   }));
   workbox.registerRoute(/^https:\/\/stasht-data\.s3\.us-east-2\.amazonaws\.com\/.*/i, new workbox.CacheFirst({
-    "cacheName": "s3-media-cache",
+    "cacheName": "s3-media-cache-v2",
+    "fetchOptions": {
+      "mode": "cors",
+      "credentials": "omit"
+    },
     plugins: [new workbox.ExpirationPlugin({
       maxEntries: 100,
       maxAgeSeconds: 604800
     }), new workbox.CacheableResponsePlugin({
-      statuses: [0, 200]
+      statuses: [200]
     })]
   }), 'GET');
 

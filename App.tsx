@@ -1115,6 +1115,7 @@ function MainApp() {
   const [selectedMemoryCategory, setSelectedMemoryCategory] = useState<string | null>(null);
   const [createMemoryTrigger, setCreateMemoryTrigger] = useState<{ category?: string; timestamp: number } | null>(null);
   const [createCategorySignal, setCreateCategorySignal] = useState(0); // bump to open the sidebar's "New Category" popover
+  const [openPublishedEntrySignal, setOpenPublishedEntrySignal] = useState<{ entry: any; nonce: number } | null>(null); // set to open a published-author entry from the desktop sidebar
   const [showPlusPopover, setShowPlusPopover] = useState(false);
   const [showAddMomentModal, setShowAddMomentModal] = useState(false);
   const [showBottomNavCamera, setShowBottomNavCamera] = useState(false);
@@ -3813,6 +3814,7 @@ function MainApp() {
           onAIWizardDone={() => setAiProcessing(null)}
           createCategorySignal={createCategorySignal}
           onRequestCreateCategory={() => setCreateCategorySignal((c) => c + 1)}
+          openPublishedEntrySignal={openPublishedEntrySignal}
         />
       );
     }
@@ -4273,7 +4275,20 @@ function MainApp() {
                       (() => { const raw = apiMemoriesData.data?.all_memories?.data || apiMemoriesData.data?.all_memories || apiMemoriesData.data?.latest_memories || []; return Array.isArray(raw) ? raw : (raw?.data || []); })()
                     ) : mediaMemories}
                     apiMemoriesData={apiMemoriesData}
-                    onMemorySelect={handleMemorySelect}
+                    onMemorySelect={(memoryId, options) => {
+                      // Published-author entries carry a `pa-<index>` id — route them to the
+                      // MemoriesPage published-entry viewer (same as the main-grid card) instead
+                      // of the normal memory open. Resolve the entry here and pass it through so
+                      // the viewer opens the exact same short_url the grid card would.
+                      if (typeof memoryId === 'string' && memoryId.startsWith('pa-')) {
+                        const idx = parseInt(memoryId.replace('pa-', ''), 10);
+                        const entries = apiMemoriesData?.published || apiMemoriesData?.data?.published || [];
+                        const entry = !Number.isNaN(idx) ? entries[idx] : undefined;
+                        if (entry?.short_url) setOpenPublishedEntrySignal({ entry, nonce: Date.now() });
+                        return;
+                      }
+                      handleMemorySelect(memoryId, options);
+                    }}
                     selectedCategory={selectedMemoryCategory}
                     onCategorySelect={handleMemoryCategorySelect}
                     expandedCategories={expandedMemoryCategories}
