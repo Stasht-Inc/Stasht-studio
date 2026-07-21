@@ -4,7 +4,7 @@ import path from 'path'
 import axios from 'axios'
 import { VitePWA } from 'vite-plugin-pwa'
 
-const PHP_BACKEND = 'http://localhost/stasht-for-multiple-admins/public';
+const PHP_BACKEND = process.env.PHP_BACKEND_URL || 'https://restapi-stasht.wd-projects.online';
 const API_BASE    = `${PHP_BACKEND}/api/react`;
 
 const BOT_AGENTS = ['whatsapp', 'telegrambot', 'twitterbot', 'facebookexternalhit', 'linkedinbot', 'slackbot', 'googlebot'];

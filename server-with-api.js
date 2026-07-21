@@ -261,7 +261,7 @@ app.get('/memories', async (req, res, next) => {
 });
 
 // Legacy /s/:token route (kept for backward compatibility)
-const PHP_BACKEND_URL = process.env.PHP_BACKEND_URL || 'http://localhost/stasht-for-multiple-admins/public';
+const PHP_BACKEND_URL = process.env.PHP_BACKEND_URL || 'https://restapi-stasht.wd-projects.online';
 
 app.get('/s/:token', async (req, res) => {
   const { token } = req.params;
