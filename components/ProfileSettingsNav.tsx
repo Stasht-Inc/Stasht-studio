@@ -26,7 +26,7 @@ export default function ProfileSettingsNav({
 
     // Add a small delay to ensure DOM is fully loaded
     const setupObserver = () => {
-      const sectionIds = ['personal', 'security', 'storage', 'privacy', 'notifications', 'preferences', 'remove'];
+      const sectionIds = ['personal', 'security', 'storage', 'categories', 'privacy', 'notifications', 'preferences', 'remove'];
       const sectionElements = sectionIds.map(id => document.getElementById(id)).filter(Boolean) as HTMLElement[];
       
       console.log('📍 Found sections:', sectionElements.map(el => el.id)); // Debug log
@@ -114,6 +114,15 @@ export default function ProfileSettingsNav({
       icon: (
         <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" className="w-full h-full">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4" />
+        </svg>
+      )
+    },
+    {
+      id: 'categories',
+      name: 'Categories',
+      icon: (
+        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" className="w-full h-full">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z" />
         </svg>
       )
     },
@@ -214,7 +223,7 @@ export default function ProfileSettingsNav({
       {/* Header */}
       <div className="flex items-center justify-between h-16 px-6 border-b border-gray-100">
         <div className="flex items-center gap-3">
-          <h2 className="text-lg font-semibold text-gray-900">Profile Settings</h2>
+          <h2 className="text-lg font-semibold text-gray-900">Settings</h2>
         </div>
         {canToggle && (
           <button

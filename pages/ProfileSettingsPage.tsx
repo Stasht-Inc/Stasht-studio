@@ -1,4 +1,4 @@
-﻿import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useAuth } from "../contexts/AuthContext";
 import { Avatar, AvatarFallback, AvatarImage } from "../components/ui/avatar";
 import { Checkbox } from "../components/ui/checkbox";
@@ -28,7 +28,7 @@ function SettingsSidebar({ sections, activeSection, onSectionChange }: {
     <div className="w-72 bg-white shadow-sm border-r border-gray-100 sticky top-20 h-[calc(100dvh-5rem)] overflow-y-auto flex-shrink-0">
       <div className="p-6">
         <div className="mb-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-1">Profile Settings</h2>
+          <h2 className="text-lg font-semibold text-gray-900 mb-1">Settings</h2>
           <p className="text-sm text-gray-600">Quick navigation</p>
         </div>
         
@@ -2877,6 +2877,103 @@ function RemoveAccount({ sectionRef }: { sectionRef: React.RefObject<HTMLDivElem
   );
 }
 
+function CategoriesSettings({ sectionRef }: { sectionRef: React.RefObject<HTMLDivElement> }) {
+  const [categories, setCategories] = useState<{ id: string; name: string; color?: string }[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [visibilityToggles, setVisibilityToggles] = useState<Record<string, boolean>>(() => {
+    try {
+      const stored = localStorage.getItem('category_always_visible');
+      return stored ? JSON.parse(stored) : {};
+    } catch {
+      return {};
+    }
+  });
+
+  useEffect(() => {
+    const fetchCategories = async () => {
+      try {
+        const response = await dashboardAPI.getCategoriesLabels();
+        const items = response?.data?.data?.categories?.items || response?.data?.categories?.items;
+        if (response?.success && Array.isArray(items)) {
+          setCategories(items.map((cat: any) => ({
+            id: cat.id?.toString() ?? cat.name,
+            name: cat.name,
+            color: cat.color
+          })));
+        }
+      } catch (error) {
+        console.error('Error fetching categories for settings:', error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    fetchCategories();
+  }, []);
+
+  const handleToggle = (categoryId: string) => {
+    setVisibilityToggles(prev => {
+      const next = { ...prev, [categoryId]: !prev[categoryId] };
+      try {
+        localStorage.setItem('category_always_visible', JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+  };
+
+  return (
+    <div ref={sectionRef} id="categories" className="space-y-6 scroll-mt-8">
+      <div>
+        <h2 className="text-xl font-semibold text-gray-900">Categories</h2>
+        <p className="text-sm text-gray-600 mt-1">Make category always visible in Add new campaigns section</p>
+      </div>
+
+      {isLoading ? (
+        <div className="flex items-center gap-2 text-gray-500 text-sm py-4">
+          <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+          </svg>
+          Loading categories...
+        </div>
+      ) : categories.length === 0 ? (
+        <p className="text-sm text-gray-500 py-4">No categories found on this account.</p>
+      ) : (
+        <div className="divide-y divide-gray-100">
+          {categories.map((category) => {
+            const isOn = !!visibilityToggles[category.id];
+            return (
+              <div key={category.id} className="flex items-center justify-between py-3">
+                <div className="flex items-center gap-3">
+                  <span
+                    className="w-3 h-3 rounded-full flex-shrink-0"
+                    style={{ backgroundColor: category.color || '#6C60FF' }}
+                  />
+                  <span className="text-sm font-medium text-gray-900">{category.name}</span>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={isOn}
+                  onClick={() => handleToggle(category.id)}
+                  className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-[#6C60FF]/40 ${
+                    isOn ? 'bg-[#6C60FF]' : 'bg-gray-200'
+                  }`}
+                >
+                  <span
+                    className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
+                      isOn ? 'translate-x-6' : 'translate-x-1'
+                    }`}
+                  />
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function ProfileSettingsPage() {
   const { user, updateUser } = useAuth();
   const [activeSection, setActiveSection] = useState('personal');
@@ -2973,6 +3070,7 @@ export default function ProfileSettingsPage() {
   const personalRef = useRef<HTMLDivElement>(null);
   const securityRef = useRef<HTMLDivElement>(null);
   const storageRef = useRef<HTMLDivElement>(null);
+  const categoriesRef = useRef<HTMLDivElement>(null);
   const privacyRef = useRef<HTMLDivElement>(null);
   const notificationsRef = useRef<HTMLDivElement>(null);
   const preferencesRef = useRef<HTMLDivElement>(null);
@@ -2982,6 +3080,7 @@ export default function ProfileSettingsPage() {
     personal: personalRef,
     security: securityRef,
     storage: storageRef,
+    categories: categoriesRef,
     privacy: privacyRef,
     notifications: notificationsRef,
     preferences: preferencesRef,
@@ -3028,6 +3127,15 @@ export default function ProfileSettingsPage() {
       icon: (
         <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" className="w-full h-full">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4" />
+        </svg>
+      )
+    },
+    {
+      id: 'categories',
+      name: 'Categories',
+      icon: (
+        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" className="w-full h-full">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z" />
         </svg>
       )
     },
@@ -3097,6 +3205,10 @@ export default function ProfileSettingsPage() {
         
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
           <StorageManagement sectionRef={storageRef} />
+        </div>
+
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+          <CategoriesSettings sectionRef={categoriesRef} />
         </div>
 
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 hidden">
