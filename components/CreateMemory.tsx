@@ -1,4 +1,4 @@
-﻿import React, { useState, useRef, useEffect, useCallback, useImperativeHandle, forwardRef } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useImperativeHandle, forwardRef } from 'react';
 import { createPortal } from 'react-dom';
 import { X, Upload, Calendar, MapPin, Tag, Users, Plus, Camera, Image as ImageIcon, CheckCircle, Loader2, File as FileIcon, Search, Video, Pencil, ChevronLeft, ChevronRight, Globe, Eye, Lock } from 'lucide-react';
 import { Button } from './ui/button';
@@ -424,6 +424,17 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
   }, [open, deviceLocation]);
 
   // Fetch categories, labels and collaborators from API
+  // Categories toggled "always visible" in Settings > Categories (stored by ProfileSettingsPage)
+  const getAlwaysVisibleCategories = (): Record<string, boolean> => {
+    try {
+      return JSON.parse(localStorage.getItem('category_always_visible') || '{}');
+    } catch {
+      return {};
+    }
+  };
+  const isAlwaysVisibleCategory = (cat: any, map: Record<string, boolean>) =>
+    !!map[cat.id?.toString() ?? cat.name];
+
   const fetchCategoriesLabels = async (skipCategories = false) => {
     try {
       setIsLoading(true);
@@ -458,12 +469,13 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
         }
 
         if (categoriesArray.length > 0 && !skipCategories) {
+          const alwaysVisible = getAlwaysVisibleCategories();
           const uniqueCategories = categoriesArray
             .filter(cat => {
               const name = (cat.name || '').toLowerCase().trim();
               return !['shared with', 'published', 'shared', 'invites'].includes(name) && !name.includes('shared');
             })
-            .filter(cat => cat.is_owner !== false && cat.can_add_story !== false)
+            .filter(cat => isAlwaysVisibleCategory(cat, alwaysVisible) || (cat.is_owner !== false && cat.can_add_story !== false))
             .filter((cat, i, self) => self.findIndex(c => c.name === cat.name) === i);
 
           setApiCategories(uniqueCategories);
@@ -568,9 +580,11 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
       // Use categories from prop if available, otherwise fetch from API
       let resolvedCategories: any[] = [];
       if (categoriesProp && categoriesProp.length > 0) {
+        const alwaysVisible = getAlwaysVisibleCategories();
         const filtered = categoriesProp.filter((cat: any) => {
           const name = (cat.name || '').toLowerCase().trim();
-          return !['shared with', 'published', 'shared', 'invites'].includes(name) && !name.includes('shared') && cat.is_owner !== false && cat.can_add_story !== false;
+          const isSystem = ['shared with', 'published', 'shared', 'invites'].includes(name) || name.includes('shared');
+          return !isSystem && (isAlwaysVisibleCategory(cat, alwaysVisible) || (cat.is_owner !== false && cat.can_add_story !== false));
         });
         if (filtered.length > 0) {
           setApiCategories(filtered);
