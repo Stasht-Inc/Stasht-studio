@@ -2895,11 +2895,14 @@ function CategoriesSettings({ sectionRef }: { sectionRef: React.RefObject<HTMLDi
         const response = await dashboardAPI.getCategoriesLabels();
         const items = response?.data?.data?.categories?.items || response?.data?.categories?.items;
         if (response?.success && Array.isArray(items)) {
-          setCategories(items.map((cat: any) => ({
-            id: cat.id?.toString() ?? cat.name,
-            name: cat.name,
-            color: cat.color
-          })));
+          setCategories(items
+            // Only user-created categories (admin_id set); excludes system ones like Shared With / Published
+            .filter((cat: any) => cat.admin_id !== null && cat.admin_id !== undefined)
+            .map((cat: any) => ({
+              id: cat.id?.toString() ?? cat.name,
+              name: cat.name,
+              color: cat.color
+            })));
         }
       } catch (error) {
         console.error('Error fetching categories for settings:', error);
