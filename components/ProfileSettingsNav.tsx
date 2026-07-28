@@ -20,70 +20,63 @@ export default function ProfileSettingsNav({
 }: ProfileSettingsNavProps) {
   const [activeSection, setActiveSection] = useState('personal');
 
-  // Scroll-based section detection using Intersection Observer
+  // Scroll-based section detection: highlight the section whose top is closest
+  // to (but not past) the reading line near the top of the viewport. This works
+  // for short sections (e.g. Categories) that an intersection-ratio approach
+  // would lose to taller neighbors.
   useEffect(() => {
-    let observer: IntersectionObserver | null = null;
+    const sectionIds = ['personal', 'security', 'storage', 'categories', 'privacy', 'notifications', 'preferences', 'remove'];
+    let rafId = 0;
 
-    // Add a small delay to ensure DOM is fully loaded
-    const setupObserver = () => {
-      const sectionIds = ['personal', 'security', 'storage', 'categories', 'privacy', 'notifications', 'preferences', 'remove'];
-      const sectionElements = sectionIds.map(id => document.getElementById(id)).filter(Boolean) as HTMLElement[];
-      
-      console.log('📍 Found sections:', sectionElements.map(el => el.id)); // Debug log
-      
-      if (sectionElements.length === 0) {
-        console.warn('⚠️ No sections found, retrying in 100ms');
-        setTimeout(setupObserver, 100);
-        return;
+    const updateActiveSection = () => {
+      rafId = 0;
+      const readingLine = window.innerHeight * 0.3; // 30% down the viewport
+
+      let currentId: string | null = null;
+      let currentTop = -Infinity;
+      let firstVisibleId: string | null = null;
+      let firstVisibleTop = Infinity;
+
+      for (const id of sectionIds) {
+        const el = document.getElementById(id);
+        if (!el) continue;
+        const rect = el.getBoundingClientRect();
+        if (rect.height === 0) continue;
+        // Last section whose top is above the reading line wins
+        if (rect.top <= readingLine && rect.top > currentTop) {
+          currentTop = rect.top;
+          currentId = id;
+        }
+        // Track topmost section still below the line (fallback when at very top)
+        if (rect.top > readingLine && rect.top < firstVisibleTop) {
+          firstVisibleTop = rect.top;
+          firstVisibleId = id;
+        }
       }
 
-      const observerCallback = (entries: IntersectionObserverEntry[]) => {
-        // Get all visible entries
-        const visibleEntries = entries.filter(entry => entry.intersectionRatio > 0);
-        console.log('👀 Visible entries:', visibleEntries.map(e => ({ id: e.target.id, ratio: e.intersectionRatio })));
-        
-        if (visibleEntries.length === 0) return;
-        
-        // Find the entry with the highest intersection ratio
-        let mostVisible = visibleEntries[0];
-        for (const entry of visibleEntries) {
-          if (entry.intersectionRatio > mostVisible.intersectionRatio) {
-            mostVisible = entry;
-          }
-        }
-        
-        const sectionId = mostVisible.target.id;
-        console.log('🎯 Most visible section:', sectionId, 'with ratio:', mostVisible.intersectionRatio);
-        setActiveSection(prev => {
-          if (prev !== sectionId) {
-            console.log('🔄 Updating active section from', prev, 'to', sectionId);
-            return sectionId;
-          }
-          return prev;
-        });
-      };
-
-      // Create intersection observer with a root margin for better triggering
-      observer = new IntersectionObserver(observerCallback, {
-        root: null,
-        rootMargin: '-20% 0px -40% 0px', // Less aggressive margins for better detection
-        threshold: [0, 0.01, 0.05, 0.1, 0.25, 0.5, 0.75, 1] // More threshold values
-      });
-
-      // Observe all sections
-      sectionElements.forEach(element => {
-        observer!.observe(element);
-      });
+      const nextId = currentId || firstVisibleId;
+      if (nextId) {
+        setActiveSection(prev => (prev === nextId ? prev : nextId));
+      }
     };
 
-    // Start setup with initial delay
-    setTimeout(setupObserver, 100);
-
-    // Cleanup
-    return () => {
-      if (observer) {
-        observer.disconnect();
+    const onScroll = () => {
+      if (!rafId) {
+        rafId = requestAnimationFrame(updateActiveSection);
       }
+    };
+
+    // Capture phase so scrolls inside nested containers are caught too
+    window.addEventListener('scroll', onScroll, true);
+    window.addEventListener('resize', onScroll);
+    // Initial run (delayed slightly so sections have rendered)
+    const initialTimer = setTimeout(updateActiveSection, 150);
+
+    return () => {
+      window.removeEventListener('scroll', onScroll, true);
+      window.removeEventListener('resize', onScroll);
+      if (rafId) cancelAnimationFrame(rafId);
+      clearTimeout(initialTimer);
     };
   }, []);
 
