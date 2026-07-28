@@ -639,7 +639,12 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
         return name !== 'invites' && name !== 'published' && !name.includes('shared');
       };
       const categoryExists = resolvedCategories.some((c: any) => c.name === defaultCategory);
-      const firstCategory = resolvedCategories.find((c: any) => isRealAddableName(c?.name))?.name || resolvedCategories[0]?.name || '';
+      // Prefer a category toggled "always visible" in Settings > Categories over the plain first one
+      const alwaysVisibleMap = getAlwaysVisibleCategories();
+      const toggledCategory = resolvedCategories.find((c: any) =>
+        isRealAddableName(c?.name) && isAlwaysVisibleCategory(c, alwaysVisibleMap)
+      )?.name;
+      const firstCategory = toggledCategory || resolvedCategories.find((c: any) => isRealAddableName(c?.name))?.name || resolvedCategories[0]?.name || '';
       const resolvedCategory = categoryExists ? defaultCategory! : (defaultCategory && resolvedCategories.length === 0 ? defaultCategory : firstCategory);
 
       // Reset all states when modal opens fresh
@@ -683,7 +688,11 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
         const name = (n || '').toLowerCase().trim();
         return name !== 'invites' && name !== 'published' && !name.includes('shared');
       };
-      const firstReal = apiCategories.find((c: any) => isRealAddableName(c?.name))?.name || apiCategories[0].name;
+      const alwaysVisibleMap = getAlwaysVisibleCategories();
+      const toggled = apiCategories.find((c: any) =>
+        isRealAddableName(c?.name) && isAlwaysVisibleCategory(c, alwaysVisibleMap)
+      )?.name;
+      const firstReal = toggled || apiCategories.find((c: any) => isRealAddableName(c?.name))?.name || apiCategories[0].name;
       setFormData(prev => ({ ...prev, category: firstReal }));
     }
   }, [apiCategories, open]);
