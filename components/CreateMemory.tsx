@@ -435,6 +435,37 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
   const isAlwaysVisibleCategory = (cat: any, map: Record<string, boolean>) =>
     !!map[cat.id?.toString() ?? cat.name];
 
+  const loadExistingMemories = async () => {
+    setMemoriesLoading(true);
+    try {
+      const res = await dashboardAPI.getMemories();
+      const actualData = res?.data?.data || res?.data || {};
+      const list =
+        actualData?.all_memories?.data ||
+        (Array.isArray(actualData?.all_memories) ? actualData.all_memories : null) ||
+        actualData?.memories ||
+        actualData?.user_memories ||
+        [];
+      setExistingMemories(Array.isArray(list) ? list : []);
+    } catch {}
+    setMemoriesLoading(false);
+  };
+
+  // Auto-activate "Select from Existing Campaigns" when the chosen category is
+  // toggled on in Settings > Categories
+  useEffect(() => {
+    if (!open || !formData.category) return;
+    const map = getAlwaysVisibleCategories();
+    const selectedCat = apiCategories.find((c: any) => c.name === formData.category);
+    if (selectedCat && isAlwaysVisibleCategory(selectedCat, map)) {
+      setSelectFromExisting(true);
+      setCarouselPage(0);
+      if (existingMemories.length === 0) {
+        loadExistingMemories();
+      }
+    }
+  }, [open, formData.category, apiCategories]);
+
   const fetchCategoriesLabels = async (skipCategories = false) => {
     try {
       setIsLoading(true);
@@ -1688,19 +1719,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
                     setSelectFromExisting(checked);
                     setCarouselPage(0);
                     if (checked && existingMemories.length === 0) {
-                      setMemoriesLoading(true);
-                      try {
-                        const res = await dashboardAPI.getMemories();
-                        const actualData = res?.data?.data || res?.data || {};
-                        const list =
-                          actualData?.all_memories?.data ||
-                          (Array.isArray(actualData?.all_memories) ? actualData.all_memories : null) ||
-                          actualData?.memories ||
-                          actualData?.user_memories ||
-                          [];
-                        setExistingMemories(Array.isArray(list) ? list : []);
-                      } catch {}
-                      setMemoriesLoading(false);
+                      await loadExistingMemories();
                     }
                   }}
                   className="w-5 h-5 md:w-4 md:h-4 bg-gray-100 border-gray-300 rounded focus:ring-2 focus:ring-[#6C60FF] accent-[#6C60FF]"
