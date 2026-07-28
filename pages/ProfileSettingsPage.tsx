@@ -2896,8 +2896,11 @@ function CategoriesSettings({ sectionRef }: { sectionRef: React.RefObject<HTMLDi
         const items = response?.data?.data?.categories?.items || response?.data?.categories?.items;
         if (response?.success && Array.isArray(items)) {
           setCategories(items
-            // Only user-created categories (admin_id set); excludes system ones like Shared With / Published
-            .filter((cat: any) => cat.admin_id !== null && cat.admin_id !== undefined)
+            // Exclude system categories that aren't user-activated (Shared With, Published)
+            .filter((cat: any) => {
+              const name = (cat.name || '').toLowerCase().trim();
+              return name !== 'published' && !name.includes('shared');
+            })
             .map((cat: any) => ({
               id: cat.id?.toString() ?? cat.name,
               name: cat.name,
