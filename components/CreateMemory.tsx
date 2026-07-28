@@ -433,7 +433,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
     }
   };
   const isAlwaysVisibleCategory = (cat: any, map: Record<string, boolean>) =>
-    !!map[cat.id?.toString() ?? cat.name];
+    !!(map[cat.id?.toString()] || map[cat.name]);
 
   const loadExistingMemories = async () => {
     setMemoriesLoading(true);

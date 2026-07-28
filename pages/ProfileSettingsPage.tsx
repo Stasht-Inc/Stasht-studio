@@ -2916,9 +2916,12 @@ function CategoriesSettings({ sectionRef }: { sectionRef: React.RefObject<HTMLDi
     fetchCategories();
   }, []);
 
-  const handleToggle = (categoryId: string) => {
+  const handleToggle = (category: { id: string; name: string }) => {
     setVisibilityToggles(prev => {
-      const next = { ...prev, [categoryId]: !prev[categoryId] };
+      const newValue = !prev[category.id];
+      // Store under both id and name so lookups match regardless of which
+      // API endpoint supplied the category elsewhere in the app
+      const next = { ...prev, [category.id]: newValue, [category.name]: newValue };
       try {
         localStorage.setItem('category_always_visible', JSON.stringify(next));
       } catch {}
@@ -2960,7 +2963,7 @@ function CategoriesSettings({ sectionRef }: { sectionRef: React.RefObject<HTMLDi
                   type="button"
                   role="switch"
                   aria-checked={isOn}
-                  onClick={() => handleToggle(category.id)}
+                  onClick={() => handleToggle(category)}
                   className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-[#6C60FF]/40 ${
                     isOn ? 'bg-[#6C60FF]' : 'bg-gray-200'
                   }`}
