@@ -15,6 +15,7 @@ import { dashboardAPI, getApiBaseUrl } from '../utils/authUtils';
 import { aiCreditsAPI, type CreditCheckResponse } from '../services/aiCreditsAPI';
 import { mediaAPI } from '../services/mediaAPI';
 import { toast } from 'sonner';
+import { mapLimit } from '../utils/requestLimit';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -922,8 +923,10 @@ function PersonDetailView({
     setIsDeletingPhotos(true);
     const successKeys: Set<string> = new Set();
 
-    await Promise.all(
-      localPhotos.map(async ({ photo }, i) => {
+    // Concurrency-capped — a face cluster can hold hundreds of photos.
+    await mapLimit(
+      localPhotos,
+      async ({ photo }, i) => {
         const key = `${localPhotos[i].memory.memory_id}-${i}`;
         if (!selectedPhotos.has(key)) return;
         const photoId = getPhotoId(photo);
@@ -939,7 +942,7 @@ function PersonDetailView({
         } catch {
           toast.error('Error deleting a photo.');
         }
-      })
+      }
     );
 
     setLocalPhotos(prev => prev.filter((_, i) => {

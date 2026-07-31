@@ -90,7 +90,9 @@ export default function ToneSelectionModal({ isOpen, onClose, onToneSelect, butt
       {/* Backdrop */}
       <div
         className="fixed inset-0 bg-black/30"
-        style={{ zIndex: 999998 }}
+        // pointerEvents is forced on because a Radix Dialog sets
+        // pointer-events:none on <body> while open, and this portals to <body>.
+        style={{ zIndex: 999998, pointerEvents: 'auto' }}
         onClick={(e) => {
           e.stopPropagation();
           onClose();
@@ -101,7 +103,7 @@ export default function ToneSelectionModal({ isOpen, onClose, onToneSelect, butt
       <div
         ref={modalRef}
         className="bg-white rounded-xl shadow-2xl overflow-hidden"
-        style={{ position: 'fixed', zIndex: 999999, width: '350px' }}
+        style={{ position: 'fixed', zIndex: 999999, width: '350px', pointerEvents: 'auto' }}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}

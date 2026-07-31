@@ -15,7 +15,7 @@ import { ImageWithFallback } from "../components/figma/ImageWithFallback";
 import { toast } from "sonner";
 import { mockPosts } from "../data/mockPosts";
 import { getMemoryDetails } from "../data/memoryData";
-import { getCategoryColorHex, getCategoryIcon, formatDate } from "../utils/memoryUtils";
+import { getCategoryColorHex, getCategoryIcon, formatDate, sanitizeAiCreatorText } from "../utils/memoryUtils";
 import { getCategoryColor } from "../constants/mediaConstants";
 import { triggerMemoryCountsRefresh } from '../hooks/useMemoryCounts';
 import { useMemoryLimit, recheckMemoryLimit } from '../hooks/useMemoryLimit';
@@ -24,6 +24,8 @@ import { EditMediaItemPopover } from "../components/EditMediaItemPopover";
 import mediaAPI from "../services/mediaAPI";
 import { aiCreditsAPI } from "../services/aiCreditsAPI";
 import PostCard from "../components/PostCard";
+import ShopifyProductCard from "../components/ShopifyProductCard";
+import { sanitizeRichText } from "../utils/shopifyProduct";
 import MemoryCard from "../components/MemoryCard";
 import { useNavigate } from "react-router-dom";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
@@ -32,6 +34,7 @@ import { HoverCard, HoverCardContent, HoverCardTrigger } from "../components/ui/
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "../components/ui/dropdown-menu";
 import { Input } from "../components/ui/input";
 import { Textarea } from "../components/ui/textarea";
+import { Switch } from "../components/ui/switch";
 import GooglePlacesInput from "../components/ui/google-places-input";
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "../components/ui/dialog";
 import {
@@ -58,10 +61,13 @@ import { DocuSignSendModal } from "../components/DocuSignSendModal";
 import { DocuSignEnvelopesSection } from "../components/DocuSignEnvelopesSection";
 import { PdfThumbnail } from "../components/PdfThumbnail";
 import { VoiceToTextModal } from "../components/VoiceToTextModal";
+import ShopifyProductPicker, { ShopifyProduct } from "../components/ShopifyProductPicker";
 import { CameraInterface } from "../components/CameraInterface";
 import { PurchaseCreditsModal } from "../components/PurchaseCreditsModal";
 import { InsufficientCreditsModal } from "../components/InsufficientCreditsModal";
+import RequestMomentModal from "../components/RequestMomentModal";
 import Cropper from 'react-easy-crop';
+import { mapLimit } from "../utils/requestLimit";
 const samanthaAvatar = 'https://images.unsplash.com/photo-1494790108755-2616b612b5bc?w=100&h=100&fit=crop';
 
 // Helper: convert S3 URL to proxied path so auth headers work and canvas doesn't get tainted
@@ -248,12 +254,22 @@ interface MemoryDetailsProps {
 }
 
 // ── Call to Action (CTA) widget helpers ──────────────────────────────────────
-// Shape stored in widget_data: { title, buttonText, buttonLink, buttonColor, textColor, icon, iconSize }
+// Shape stored in widget_data: { title, buttonText, buttonLink, buttonColor, textColor, icon, iconSize, mode }
+//
+// `mode` distinguishes the two things a CTA can be:
+//   'link'           — the normal CTA: the button opens buttonLink
+//   'request_moment' — "Share Request a Moment": the button opens the photo/caption
+//                      submission form on the published page. It has no URL, so the
+//                      link field is hidden and its icon is fixed to Upload.
+// Stored as widget_type 'cta' either way, so the API needs no new widget type.
+export type CtaMode = 'link' | 'request_moment';
+
 type CtaWidget = {
   id: string;
   title: string;
   buttonText: string;
   buttonLink: string;
+  mode: CtaMode;
   buttonColor: string;
   textColor: string;
   icon: string;
@@ -262,21 +278,40 @@ type CtaWidget = {
   fontSize: number;    // button text font size in px
   borderRadius: number; // button corner radius in px
   afterPostId: string | null;
+  // "Share Request a Moment" only: keep this button pinned after the current last
+  // post/item in its timeline, instead of the fixed spot it was inserted at.
+  pinToBottom?: boolean;
   widget_order: number;
   createdAt: number;
 };
 
 // Fixed icon set offered for CTA buttons (key must match the imported lucide component)
 const CTA_ICONS: Record<string, React.ComponentType<{ style?: React.CSSProperties; className?: string }>> = {
-  ArrowRight, ExternalLink, Link, ShoppingCart, Phone, Mail, Calendar, Download, Play, Heart, Star, Gift, MapPin, Send,
+  ArrowRight, ExternalLink, Link, ShoppingCart, Phone, Mail, Calendar, Download, Play, Heart, Star, Gift, MapPin, Send, Upload,
 };
-const CTA_ICON_KEYS = Object.keys(CTA_ICONS);
+// Upload is registered above but kept out of the picker: it is the fixed icon for
+// "Share Request a Moment", whose icon is not user-selectable.
+const CTA_ICON_KEYS = Object.keys(CTA_ICONS).filter((k) => k !== 'Upload');
+// The icon a "Share Request a Moment" button always uses.
+const CTA_REQUEST_MOMENT_ICON = 'Upload';
 const CTA_DEFAULT_BUTTON_COLOR = '#6C60FF';
 const CTA_DEFAULT_TEXT_COLOR = '#FFFFFF';
 const CTA_DEFAULT_ICON_SIZE = 18;
 const CTA_DEFAULT_FONT_SIZE = 16;
 const CTA_DEFAULT_BUTTON_WIDTH = 0; // 0 = full width (fills card); otherwise fixed width in px
 const CTA_DEFAULT_BORDER_RADIUS = 12; // button corner radius in px (rounded by default)
+
+// Nav/sidebar label for a CTA, so a request-moment button is not called
+// "Call to Action" in the timeline.
+function ctaSidebarTitle(widget: { title?: string | null; mode?: CtaMode }): string {
+  return widget.title || (widget.mode === 'request_moment' ? 'Share Request a Moment' : 'Call to Action');
+}
+
+// Heading for the CTA modal, which serves both CTA kinds.
+function ctaModalNoun(isRequestMoment: boolean, isEditing: boolean): string {
+  const noun = isRequestMoment ? 'Share Request a Moment' : 'Call to Action';
+  return `${isEditing ? 'Edit' : 'Add'} ${noun}`;
+}
 
 // Ensure the URL has a scheme so the anchor navigates to an absolute address
 function ctaNormalizeUrl(url: string): string {
@@ -296,19 +331,46 @@ function ctaIsValidUrl(url: string): boolean {
   }
 }
 
+// A linked memory that is actually a car listing (lm.is_car) carries make/model/year/price/
+// mileage/stock_number instead of tags/sub_category, so its card needs its own label/tags.
+function carLinkedMemoryLabel(lm: any): string {
+  const price = typeof lm?.price === 'string' ? parseFloat(lm.price) : lm?.price;
+  return Number.isFinite(price) ? `$${price.toLocaleString()}` : '';
+}
+function carLinkedMemoryTags(lm: any): string[] {
+  const tags: string[] = [];
+  if (lm?.mileage != null && lm.mileage !== '') tags.push(`${Number(lm.mileage).toLocaleString()} mi`);
+  if (lm?.stock_number) tags.push(`Stock #${lm.stock_number}`);
+  return tags;
+}
+
 // Presentational CTA card used in every content panel (owner / shared / mobile).
 // Pass onEdit/onDelete (e.g. on mobile, where there's no sidebar) to show a three-dot menu.
-function CTAWidgetCard({ widget, cardRef, isActive, onEdit, onDelete, memoryId }: {
+function CTAWidgetCard({ widget, cardRef, isActive, onEdit, onDelete, memoryId, onRequestMoment }: {
   widget: CtaWidget;
   cardRef?: (el: HTMLDivElement | null) => void;
   isActive?: boolean;
   onEdit?: () => void;
   onDelete?: () => void;
   memoryId?: string | null;
+  // Supplied only where the submission form exists (the shared/collaborator view).
+  // Where it is absent — the owner view — the button explains itself instead,
+  // since for the owner this card is a preview of what visitors will see.
+  onRequestMoment?: (afterPostId: string | null) => void;
 }) {
-  const Icon = widget.icon ? CTA_ICONS[widget.icon] : undefined;
+  const isRequestMoment = widget.mode === 'request_moment';
+  const iconKey = isRequestMoment ? CTA_REQUEST_MOMENT_ICON : widget.icon;
+  const Icon = iconKey ? CTA_ICONS[iconKey] : undefined;
   const size = widget.iconSize || CTA_DEFAULT_ICON_SIZE;
   const href = ctaNormalizeUrl(widget.buttonLink);
+  const buttonStyle: React.CSSProperties = {
+    backgroundColor: widget.buttonColor || CTA_DEFAULT_BUTTON_COLOR,
+    color: widget.textColor || CTA_DEFAULT_TEXT_COLOR,
+    fontSize: widget.fontSize || CTA_DEFAULT_FONT_SIZE,
+    borderRadius: `${widget.borderRadius ?? CTA_DEFAULT_BORDER_RADIUS}px`,
+    width: widget.buttonWidth ? `${widget.buttonWidth}px` : '100%',
+    maxWidth: '100%',
+  };
   // Fire-and-forget click tracking; never block or delay the link from opening
   const trackCtaClick = () => {
     if (!memoryId || !widget.id) return;
@@ -344,24 +406,85 @@ function CTAWidgetCard({ widget, cardRef, isActive, onEdit, onDelete, memoryId }
         </div>
       )}
       {widget.title && <h3 className="text-xl font-bold text-gray-900 break-words">{widget.title}</h3>}
-      <a
-        href={href || undefined}
-        target="_blank"
-        rel="noopener noreferrer"
-        onClick={(e) => { if (!href) e.preventDefault(); trackCtaClick(); }}
-        className="inline-flex items-center justify-center gap-2 px-6 py-3 font-semibold transition-opacity hover:opacity-90 no-underline"
-        style={{
-          backgroundColor: widget.buttonColor || CTA_DEFAULT_BUTTON_COLOR,
-          color: widget.textColor || CTA_DEFAULT_TEXT_COLOR,
-          fontSize: widget.fontSize || CTA_DEFAULT_FONT_SIZE,
-          borderRadius: `${widget.borderRadius ?? CTA_DEFAULT_BORDER_RADIUS}px`,
-          width: widget.buttonWidth ? `${widget.buttonWidth}px` : '100%',
-          maxWidth: '100%',
-        }}
-      >
-        {Icon && <Icon style={{ width: size, height: size }} />}
-        <span>{widget.buttonText || 'Learn More'}</span>
-      </a>
+      {isRequestMoment ? (
+        // No URL to open — the submission form only exists on the published page,
+        // so in the Studio this is a preview that tells the owner what it does.
+        <button
+          type="button"
+          onClick={() => {
+            if (onRequestMoment) onRequestMoment(widget.afterPostId);
+            else toast.info('This button opens the photo submission form on your published page.');
+          }}
+          className="inline-flex items-center justify-center gap-2 px-6 py-3 font-semibold transition-opacity hover:opacity-90"
+          style={buttonStyle}
+        >
+          {Icon && <Icon style={{ width: size, height: size }} />}
+          <span>{widget.buttonText || 'Share a Moment'}</span>
+        </button>
+      ) : (
+        <a
+          href={href || undefined}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={(e) => { if (!href) e.preventDefault(); trackCtaClick(); }}
+          className="inline-flex items-center justify-center gap-2 px-6 py-3 font-semibold transition-opacity hover:opacity-90 no-underline"
+          style={buttonStyle}
+        >
+          {Icon && <Icon style={{ width: size, height: size }} />}
+          <span>{widget.buttonText || 'Learn More'}</span>
+        </a>
+      )}
+    </div>
+  );
+}
+
+// Shopify product card (widget_type 'product'). widget_data holds a synced snapshot
+// { product_id, title, price, currency, image, description, handle, shop_domain, product_url }.
+// "Buy Now" routes the viewer to the Shopify product page. onDelete shows a remove control.
+function ProductWidgetCard({ widget, cardRef, isActive, onDelete, memoryId }: {
+  widget: any;
+  cardRef?: (el: HTMLDivElement | null) => void;
+  isActive?: boolean;
+  onDelete?: () => void;
+  memoryId?: string | null;
+}) {
+  const productUrl = widget.product_url
+    || (widget.shop_domain && widget.handle ? `https://${widget.shop_domain}/products/${widget.handle}` : '');
+  const priceLabel = widget.price ? (widget.currency ? `${widget.currency} ${widget.price}` : String(widget.price)) : '';
+  const shortDesc = (widget.description || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+  const trackClick = () => {
+    if (!memoryId || !widget.id) return;
+    try { dashboardAPI.trackWidgetClick(memoryId, widget.id).catch(() => {}); } catch { /* ignore */ }
+  };
+  return (
+    <div ref={cardRef} data-product-widget-id={widget.id} className={`relative rounded-2xl bg-white overflow-hidden ${isActive ? 'border-2 border-[#6C60FF]' : 'border border-gray-100'}`}>
+      {onDelete && (
+        <div className="absolute top-2 right-2 z-10">
+          <button onClick={(e) => { e.stopPropagation(); onDelete(); }} className="w-8 h-8 rounded-full bg-white/90 shadow flex items-center justify-center hover:bg-white">
+            <Trash2 className="w-4 h-4 text-red-500" />
+          </button>
+        </div>
+      )}
+      {widget.image && (
+        <div className="aspect-square bg-gray-100">
+          <img src={widget.image} alt={widget.title || 'Product'} className="w-full h-full object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+        </div>
+      )}
+      <div className="p-4 space-y-2">
+        {widget.title && <h3 className="text-lg font-bold text-gray-900 break-words">{widget.title}</h3>}
+        {priceLabel && <p className="text-base font-semibold text-[#6C60FF]">{priceLabel}</p>}
+        {shortDesc && <p className="text-sm text-gray-600 line-clamp-2">{shortDesc}</p>}
+        <a
+          href={productUrl || undefined}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={(e) => { if (!productUrl) e.preventDefault(); trackClick(); }}
+          className="mt-2 inline-flex w-full items-center justify-center gap-2 px-6 py-3 font-semibold text-white bg-[#6C60FF] rounded-xl transition-opacity hover:opacity-90 no-underline"
+        >
+          <ShoppingCart className="w-[18px] h-[18px]" />
+          <span>Buy Now</span>
+        </a>
+      </div>
     </div>
   );
 }
@@ -962,6 +1085,9 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
     isPdf?: boolean;
     user_name?: string;
     user_profile?: string;
+    description?: string;
+    specs?: Array<{ label: string; value: string }>;
+    disableDescriptionEdit?: boolean;
   }>({
     isOpen: false,
     src: '',
@@ -1028,6 +1154,22 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
   const [cropZoom, setCropZoom] = useState(1);
   const [croppedAreaPixels, setCroppedAreaPixels] = useState<any>(null);
   const [isApplyingCrop, setIsApplyingCrop] = useState(false);
+
+  // Shopify collection detail: memoryId arrives as `shopify_collection:<id>` (see CategoryNav).
+  // When set, this page loads a Shopify collection instead of a memory (product = post/image).
+  const SHOPIFY_MARKER = 'shopify_collection:';
+  const isShopifyCollection = typeof memoryId === 'string' && memoryId.startsWith(SHOPIFY_MARKER);
+  // Keep everything after the first colon — the id itself may contain colons (e.g. a Shopify GID).
+  const shopifyCollectionId = isShopifyCollection ? memoryId.slice(SHOPIFY_MARKER.length) : null;
+
+  // Car detail: memoryId arrives as `cars_detail:<id>` (see MemoriesPage car card onClick).
+  // Same idea as the Shopify marker above — loads a car via /cars/{id} instead of a memory.
+  const CARS_MARKER = 'cars_detail:';
+  const isCarDetail = typeof memoryId === 'string' && memoryId.startsWith(CARS_MARKER);
+  const carDetailId = isCarDetail ? memoryId.slice(CARS_MARKER.length) : null;
+  // Raw /cars/{id} response — read by handleTimelineImageView to build the description
+  // and spec grid shown in the image viewer's sidebar for a car's photos.
+  const [carDetailData, setCarDetailData] = useState<any>(null);
 
   // Compute actual memory ID directly - always use memoryId prop if available, otherwise fallback to API data
   const actualMemoryId = memoryId || apiMemoryData?.id?.toString();
@@ -1886,6 +2028,59 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
   const [editingQuoteWidgetId, setEditingQuoteWidgetId] = useState<string | null>(null);
   const [activeQuoteWidgetId, setActiveQuoteWidgetId] = useState<string | null>(null);
   const quoteWidgetCardRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  // AI Creator — generates custom content from a prompt (+ optional reference image)
+  // and inserts the result into the timeline as a plain content item (like Quote/HTML),
+  // not as a reusable/re-editable widget type.
+  const [isAddAiCreatorModalOpen, setIsAddAiCreatorModalOpen] = useState(false);
+  const [aiCreatorWidgetAfterPostId, setAiCreatorWidgetAfterPostId] = useState<string | null>(null);
+  const [aiCreatorPrompt, setAiCreatorPrompt] = useState('');
+  const [aiCreatorPinToBottom, setAiCreatorPinToBottom] = useState(false);
+  const [aiCreatorReferenceImage, setAiCreatorReferenceImage] = useState<File | null>(null);
+  const [aiCreatorReferenceImagePreview, setAiCreatorReferenceImagePreview] = useState<string | null>(null);
+  // Whether the reference image reads as visually "dark" on average — used to flip the
+  // generated preview's text between light/dark so it stays readable over the image.
+  const [aiCreatorImageIsDark, setAiCreatorImageIsDark] = useState<boolean | null>(null);
+  const [aiCreatorIsGenerating, setAiCreatorIsGenerating] = useState(false);
+  const [aiCreatorIsSaving, setAiCreatorIsSaving] = useState(false);
+  const [aiCreatorGeneratedPreview, setAiCreatorGeneratedPreview] = useState<{ text: string; background: string; imageUrl?: string | null; isDark?: boolean | null } | null>(null);
+  const [aiCreatorWidgets, setAiCreatorWidgets] = useState<Array<{ id: string; text: string; background: string; imageUrl?: string | null; isDark?: boolean | null; afterPostId: string | null; widget_order: number; createdAt: number }>>([]);
+  // Samples the image on an offscreen canvas and averages perceptual luminance to
+  // decide whether overlaid text should be light or dark for contrast.
+  const analyzeAiCreatorImageBrightness = (url: string) => {
+    const img = new Image();
+    img.onload = () => {
+      const sampleSize = 32;
+      const canvas = document.createElement('canvas');
+      canvas.width = sampleSize;
+      canvas.height = sampleSize;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) { setAiCreatorImageIsDark(null); return; }
+      ctx.drawImage(img, 0, 0, sampleSize, sampleSize);
+      try {
+        const { data } = ctx.getImageData(0, 0, sampleSize, sampleSize);
+        let total = 0;
+        let count = 0;
+        for (let i = 0; i < data.length; i += 4) {
+          total += 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+          count++;
+        }
+        setAiCreatorImageIsDark(total / count < 140);
+      } catch {
+        setAiCreatorImageIsDark(null);
+      }
+    };
+    img.src = url;
+  };
+  const resetAiCreatorForm = () => {
+    setAiCreatorPrompt('');
+    setAiCreatorPinToBottom(false);
+    setAiCreatorReferenceImage(null);
+    setAiCreatorReferenceImagePreview(null);
+    setAiCreatorImageIsDark(null);
+    setAiCreatorIsGenerating(false);
+    setAiCreatorGeneratedPreview(null);
+    setAiCreatorWidgetAfterPostId(null);
+  };
   // Call to Action (CTA) widget state
   const [isAddCtaModalOpen, setIsAddCtaModalOpen] = useState(false);
   const [ctaTitle, setCtaTitle] = useState('');
@@ -1898,10 +2093,27 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
   const [ctaButtonWidth, setCtaButtonWidth] = useState(CTA_DEFAULT_BUTTON_WIDTH);
   const [ctaFontSize, setCtaFontSize] = useState(CTA_DEFAULT_FONT_SIZE);
   const [ctaBorderRadius, setCtaBorderRadius] = useState(CTA_DEFAULT_BORDER_RADIUS);
+  // "Share Request a Moment" only — keeps the button pinned after the current last item.
+  const [ctaPinToBottom, setCtaPinToBottom] = useState(false);
+  // Which kind of CTA the modal is currently editing — see CtaMode.
+  const [ctaMode, setCtaMode] = useState<CtaMode>('link');
+  // "Share Request a Moment" submission form. Only reachable from the
+  // shared/collaborator view; the owner view shows an explanatory toast instead.
+  const [showSharedRequestMoment, setShowSharedRequestMoment] = useState(false);
+  const [sharedRequestMomentAfterPostId, setSharedRequestMomentAfterPostId] = useState<string | null>(null);
+  const openSharedRequestMoment = (afterPostId: string | null) => {
+    setSharedRequestMomentAfterPostId(afterPostId);
+    setShowSharedRequestMoment(true);
+  };
+  const isRequestMomentCta = ctaMode === 'request_moment';
   const [ctaWidgets, setCtaWidgets] = useState<CtaWidget[]>([]);
   // Widgets returned by the API with admin_approval === 0 (pending). Kept out of the
   // timeline and surfaced in the Moderation tab for the owner to approve/deny.
   const [pendingWidgets, setPendingWidgets] = useState<any[]>([]);
+  // Shopify product widgets (widget_type 'product') + the picker modal state.
+  const [productWidgets, setProductWidgets] = useState<any[]>([]);
+  const [isProductPickerOpen, setIsProductPickerOpen] = useState(false);
+  const [productWidgetAfterPostId, setProductWidgetAfterPostId] = useState<string | null>(null);
   const [ctaWidgetAfterPostId, setCtaWidgetAfterPostId] = useState<string | null>(null);
   const [editingCtaWidgetId, setEditingCtaWidgetId] = useState<string | null>(null);
   const [activeCtaWidgetId, setActiveCtaWidgetId] = useState<string | null>(null);
@@ -1914,6 +2126,19 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
     setCtaButtonWidth(CTA_DEFAULT_BUTTON_WIDTH); setCtaFontSize(CTA_DEFAULT_FONT_SIZE);
     setCtaBorderRadius(CTA_DEFAULT_BORDER_RADIUS);
     setCtaWidgetAfterPostId(null); setEditingCtaWidgetId(null);
+    setCtaMode('link');
+    setCtaPinToBottom(false);
+  };
+
+  // Open the CTA modal in "Share Request a Moment" mode: no URL, fixed Upload icon.
+  const openAddRequestMomentCta = (afterPostId?: string | null) => {
+    resetCtaForm();
+    setCtaWidgetAfterPostId(afterPostId ?? null);
+    setEditingCtaWidgetId(null);
+    setCtaMode('request_moment');
+    setCtaIcon(CTA_REQUEST_MOMENT_ICON);
+    setCtaButtonText('Share a Moment');
+    setIsAddCtaModalOpen(true);
   };
   // Open the CTA modal pre-filled for editing an existing widget
   const openEditCta = (widget: CtaWidget) => {
@@ -1928,6 +2153,8 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
     setCtaButtonWidth(widget.buttonWidth || CTA_DEFAULT_BUTTON_WIDTH);
     setCtaFontSize(widget.fontSize || CTA_DEFAULT_FONT_SIZE);
     setCtaBorderRadius(widget.borderRadius ?? CTA_DEFAULT_BORDER_RADIUS);
+    setCtaMode(widget.mode || 'link');
+    setCtaPinToBottom(!!widget.pinToBottom);
     setIsAddCtaModalOpen(true);
   };
   // Delete a CTA widget
@@ -1943,6 +2170,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
       title: widget.title,
       buttonText: widget.buttonText,
       buttonLink: widget.buttonLink,
+      mode: widget.mode || 'link',
       buttonColor: widget.buttonColor,
       textColor: widget.textColor,
       icon: widget.icon,
@@ -1983,6 +2211,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
   const [activeHtmlWidgetId, setActiveHtmlWidgetId] = useState<string | null>(null);
   const htmlWidgetCardRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const youtubeWidgetCardRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const aiCreatorWidgetCardRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const addMomentButtonRef = useRef<HTMLButtonElement>(null);
 
   // Shared-with view state (PublishedMemoryPage layout)
@@ -2833,6 +3062,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
             title: w.widget_data?.title || '',
             buttonText: w.widget_data?.buttonText || '',
             buttonLink: w.widget_data?.buttonLink || '',
+            mode: (w.widget_data?.mode === 'request_moment' ? 'request_moment' : 'link') as CtaMode,
             buttonColor: w.widget_data?.buttonColor || CTA_DEFAULT_BUTTON_COLOR,
             textColor: w.widget_data?.textColor || CTA_DEFAULT_TEXT_COLOR,
             icon: w.widget_data?.icon || '',
@@ -2840,6 +3070,36 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
             buttonWidth: w.widget_data?.buttonWidth || CTA_DEFAULT_BUTTON_WIDTH,
             fontSize: w.widget_data?.fontSize || CTA_DEFAULT_FONT_SIZE,
             borderRadius: w.widget_data?.borderRadius ?? CTA_DEFAULT_BORDER_RADIUS,
+            pinToBottom: !!w.widget_data?.pinToBottom,
+            afterPostId: w.after_post_id ? w.after_post_id.toString() : null,
+            widget_order: w.widget_order,
+            createdAt: new Date(w.created_at).getTime(),
+          }))
+      );
+
+      setProductWidgets(
+        widgets
+          .filter((w: any) => w.widget_type === 'product')
+          .sort((a: any, b: any) => a.widget_order - b.widget_order)
+          .map((w: any) => ({
+            id: w.id?.toString() || `product_${Date.now()}_${Math.random()}`,
+            ...(w.widget_data || {}),
+            afterPostId: w.after_post_id ? w.after_post_id.toString() : null,
+            widget_order: w.widget_order,
+            createdAt: new Date(w.created_at).getTime(),
+          }))
+      );
+
+      setAiCreatorWidgets(
+        widgets
+          .filter((w: any) => w.widget_type === 'ai_creator')
+          .sort((a: any, b: any) => a.widget_order - b.widget_order)
+          .map((w: any) => ({
+            id: w.id?.toString() || `ai_${Date.now()}_${Math.random()}`,
+            text: w.widget_data?.text || '',
+            background: w.widget_data?.background || 'linear-gradient(135deg, #6C60FF 0%, #F6339A 100%)',
+            imageUrl: w.widget_data?.image_url || null,
+            isDark: typeof w.widget_data?.is_dark === 'boolean' ? w.widget_data.is_dark : null,
             afterPostId: w.after_post_id ? w.after_post_id.toString() : null,
             widget_order: w.widget_order,
             createdAt: new Date(w.created_at).getTime(),
@@ -2853,6 +3113,132 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
   // Function to fetch memory details from API
   const fetchMemoryDetails = async (skipLoadingState = false) => {
     if (!memoryId) return;
+
+    // Car detail: memoryId is a marker `cars_detail:<id>`. Fetch the car via /cars/{id}
+    // and map it into the memory shape so the memory-detail layout renders it
+    // (car = memory/campaign, each of its images = a post).
+    if (isCarDetail) {
+      if (!skipLoadingState) setIsLoadingMemory(true);
+      setApiError(null);
+      try {
+        const res = await dashboardAPI.carsGetDetail(carDetailId!);
+        const car: any = res.data?.data || res.data || {};
+        if (res.success && car && car.id != null) {
+          setCarDetailData(car);
+          // eDealer's CDN encodes resolution as the numeric path segment after the host
+          // (e.g. /2/ ≈ 50KB, /21/ ≈ 2-3KB thumbnail) — /1/ is the full HD original.
+          const toHdImage = (url: string | null | undefined): string | null =>
+            url ? url.replace(/^(https?:\/\/images\.edealer\.ca)\/\d+\//, '$1/1/') : null;
+          const images: any[] = Array.isArray(car.images) ? car.images : [];
+          const sortedImages = images
+            .slice()
+            .sort((a: any, b: any) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
+          // Only the cover image is a top-level post — the rest get parent_id pointing at
+          // it, so they render as sub-images scrollable inside that one card (the app's
+          // existing sub-image mechanism), instead of 26 separate top-level moments.
+          const mainIndex = Math.max(0, sortedImages.findIndex((img: any) => img.is_main));
+          const mainImg = sortedImages[mainIndex];
+          const mainId = mainImg?.id ?? 'car_image_main';
+          const posts = sortedImages.map((img: any, i: number) => ({
+            id: img.id ?? `car_image_${i}`,
+            image_link: toHdImage(img.url),
+            type: 'image',
+            parent_id: i === mainIndex ? null : mainId,
+          }));
+          const coverImg = toHdImage(mainImg?.url) || posts[0]?.image_link || null;
+          const categoryName = car.category ? String(car.category).replace(/\b\w/g, (c: string) => c.toUpperCase()) : 'Other';
+          const priceNum = typeof car.price === 'string' ? parseFloat(car.price) : car.price;
+          // Detail page reads sub_category.name for its label badge (unlike the grid card,
+          // which reads `label` directly) — same price value, different field name.
+          const priceLabel = Number.isFinite(priceNum) ? `$${priceNum.toLocaleString()}` : '';
+          setApiMemoryData({
+            id: memoryId,
+            title: car.title || 'Untitled car',
+            category: { name: categoryName },
+            sub_category: { name: priceLabel },
+            // A car has no backend memory row (and so no real author) — show the logged-in
+            // user, same as any campaign they're viewing/creating shows themselves as author.
+            user: { name: user?.name, avatar: user?.avatar, profile_color: user?.profile_color },
+            posts,
+            last_update_img: coverImg,
+            linked_memories: [],
+            new_images: 0,
+          });
+        } else {
+          setApiError(res.error || 'Failed to fetch car');
+        }
+      } catch (error) {
+        console.error('Error fetching car detail:', error);
+        setApiError('Network error while fetching car');
+      } finally {
+        if (!skipLoadingState) setIsLoadingMemory(false);
+      }
+      return;
+    }
+
+    // Shopify collection detail: memoryId is a marker `shopify_collection:<id>`.
+    // Fetch the collection via /shopify/catalog/{id} and map it into the memory shape
+    // so the memory-detail layout renders it (collection = memory, product = post/image).
+    if (isShopifyCollection) {
+      if (!skipLoadingState) setIsLoadingMemory(true);
+      setApiError(null);
+      try {
+        console.log('🛒 [Shopify] fetching collection detail → /shopify/catalog/' + shopifyCollectionId);
+        const res = await dashboardAPI.shopifyGetCatalogDetail(shopifyCollectionId!);
+        console.log('🛒 [Shopify] catalog detail response:', res);
+        const raw: any = res.data?.data || res.data || {};
+        const collection: any = raw.collection || raw;
+        if (res.success && collection) {
+          const products: any[] = Array.isArray(collection.products) ? collection.products : [];
+          // Resolve the connected store domain so product cards can deep-link to Shopify.
+          let shopDomain: string | null = raw.shop_domain || collection.shop_domain || null;
+          if (!shopDomain) {
+            try {
+              const status = await dashboardAPI.shopifyGetStatus();
+              shopDomain = status.data?.shop_domain || null;
+            } catch { /* domain stays null; card falls back to no link */ }
+          }
+          // Each product becomes an image post (image_link is what the grid reads).
+          const posts = products.map((p: any, i: number) => ({
+            id: p.id ?? `product_${i}`,
+            image_link: p.image || (Array.isArray(p.images) ? p.images[0] : '') || null,
+            title: p.title || '',
+            name: p.title || null,
+            description: p.description || '',
+            type: 'image',
+            price: p.price ?? null,
+            currency: p.currency ?? null,
+            handle: p.handle ?? null,
+            vendor: p.vendor ?? null,
+            category: p.category ?? null,
+            status: p.status ?? null,
+            compare_at_price: p.variants?.[0]?.compare_at_price ?? null,
+            shop_domain: shopDomain,
+            product_url: shopDomain && p.handle ? `https://${shopDomain}/products/${p.handle}` : '',
+            variants: Array.isArray(p.variants) ? p.variants : [],
+            parent_id: null,
+          }));
+          const coverImg = posts.find((p) => p.image_link)?.image_link || null;
+          setApiMemoryData({
+            id: memoryId,
+            title: collection.title || 'Shopify Collection',
+            category: { name: 'Shopify' },
+            posts,
+            last_update_img: coverImg,
+            linked_memories: [],
+            new_images: 0,
+          });
+        } else {
+          setApiError(res.error || 'Failed to fetch collection');
+        }
+      } catch (error) {
+        console.error('Error fetching Shopify collection detail:', error);
+        setApiError('Network error while fetching collection');
+      } finally {
+        if (!skipLoadingState) setIsLoadingMemory(false);
+      }
+      return;
+    }
 
       if (!skipLoadingState) {
         setIsLoadingMemory(true);
@@ -3002,8 +3388,11 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
   // Collaborators are now extracted from the memory detail response
   useEffect(() => {
     fetchMemoryDetails();
-    fetchMemoryActivity();
-    fetchPublishHistory();
+    // These hit memory-only endpoints; skip for a Shopify collection detail.
+    if (!isShopifyCollection) {
+      fetchMemoryActivity();
+      fetchPublishHistory();
+    }
   }, [memoryId]);
 
   // Refresh Analytics tab data every time the tab is opened so it reflects the
@@ -3473,13 +3862,13 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
     setIsDeletingFacePhotos(true);
     try {
       const token = localStorage.getItem('stasht_token');
-      const deletePromises = Array.from(selectedFacePhotoIds).map(photoId =>
+      // Concurrency-capped — a selection can span hundreds of face photos.
+      await mapLimit(Array.from(selectedFacePhotoIds), (photoId) =>
         fetch(`${getApiBaseUrl()}/ai/face-photo/${photoId}`, {
           method: 'DELETE',
           headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
         })
       );
-      await Promise.all(deletePromises);
 
       // Remove deleted photos from aiScanResults in state
       setAiScanResults((prev: any) => {
@@ -3889,6 +4278,15 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
       shares_count: post.shares_count || 0,
       location: post.location || null,
       tags: Array.isArray(post.tags) ? post.tags.map((t: any) => typeof t === 'string' ? t : t?.name).filter(Boolean) : [],
+      // Shopify product fields (present only for Shopify collection products); drives the dedicated product card
+      variants: Array.isArray(post.variants) ? post.variants : undefined,
+      price: post.price ?? null,
+      currency: post.currency ?? null,
+      handle: post.handle ?? null,
+      vendor: post.vendor ?? null,
+      compare_at_price: post.compare_at_price ?? null,
+      shop_domain: post.shop_domain ?? null,
+      product_url: post.product_url ?? null,
       // Enhanced filtering properties based on actual API structure
       type: post.type || 'image', // image, video, text, etc.
       visibility: post.visibility || 'public',
@@ -4153,6 +4551,9 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
 
   const sortedTimelinePosts = getFilteredAndSortedPosts();
   sortedTimelinePostsRef.current = sortedTimelinePosts;
+  // "N moments" in the Timeline header should count linked memories (incl. car listings) too,
+  // not just this memory's own posts — otherwise a memory made entirely of linked items shows 0.
+  const totalMomentsCount = sortedTimelinePosts.length + (apiMemoryData?.linked_memories?.length || 0);
 
   // Client-side search: find which posts contain the active search query (plain value, no hook)
   const searchMatchIndices: number[] = activeSearchQuery.trim()
@@ -5670,6 +6071,101 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
     }
   };
 
+  // Create one 'product' widget per selected Shopify product, then refetch so ordering
+  // and (for collaborators) pending-approval state stay authoritative.
+  const handleAddProductWidgets = async (products: ShopifyProduct[], shopDomain: string | null) => {
+    if (!memoryId || !products?.length) return;
+    const afterPostId = productWidgetAfterPostId;
+    const sameGroup = [...htmlWidgets, ...youtubeWidgets, ...quoteWidgets, ...ctaWidgets, ...productWidgets].filter(w => w.afterPostId === afterPostId);
+    let order = sameGroup.length > 0 ? Math.max(...sameGroup.map(w => w.widget_order)) + 1 : 0;
+    let added = 0, pending = 0;
+    for (const p of products) {
+      const widget_data = {
+        product_id: p.id,
+        title: p.title,
+        description: p.description || '',
+        price: p.price || '',
+        currency: p.currency || '',
+        image: p.image || (Array.isArray(p.images) ? p.images[0] : '') || '',
+        handle: p.handle || '',
+        shop_domain: shopDomain || '',
+        product_url: shopDomain && p.handle ? `https://${shopDomain}/products/${p.handle}` : '',
+        status: p.status || '',
+        vendor: p.vendor || '',
+      };
+      try {
+        const res = await apiRequest(`/memories/${memoryId}/widgets`, {
+          method: 'POST',
+          body: JSON.stringify({ widget_type: 'product', after_post_id: afterPostId, widget_order: order++, widget_data }),
+        });
+        if (res.success) {
+          const raw = res.data?.data || res.data;
+          if (res.pending_approval === true || raw?.admin_approval === 0 || raw?.admin_approval === '0') pending++; else added++;
+        }
+      } catch { /* skip this product */ }
+    }
+    await fetchWidgets();
+    if (added > 0) toast.success(`${added} product${added > 1 ? 's' : ''} added to campaign`);
+    if (pending > 0) {
+      toast.warning(`${pending} product${pending > 1 ? 's' : ''} added! ${pending > 1 ? 'They' : 'It'} will appear after admin approval.`, {
+        duration: 5000,
+        style: { background: '#FFFBEB', color: '#92400E', border: '1px solid #FDE68A' },
+      });
+    }
+  };
+
+  const deleteProductWidget = (w: any) => {
+    if (!memoryId || !w?.id) return;
+    apiRequest(`/memories/${memoryId}/widgets/${w.id}`, { method: 'DELETE' })
+      .then(() => { setProductWidgets(prev => prev.filter(x => x.id !== w.id)); toast.success('Product removed'); })
+      .catch(() => toast.error('Failed to remove product'));
+  };
+
+  // Render the product cards anchored after a given post (null = top of timeline).
+  // The remove control shows only for the memory owner.
+  const renderProductWidgets = (afterPostId: string | null) =>
+    productWidgets.filter((w: any) => w.afterPostId === afterPostId).map((w: any) => (
+      <ProductWidgetCard
+        key={w.id}
+        widget={w}
+        memoryId={memoryId}
+        onDelete={isOwner ? () => deleteProductWidget(w) : undefined}
+      />
+    ));
+
+  const deleteAiCreatorWidget = (w: any) => {
+    if (!memoryId || !w?.id) return;
+    apiRequest(`/memories/${memoryId}/widgets/${w.id}`, { method: 'DELETE' })
+      .then(() => { setAiCreatorWidgets(prev => prev.filter(x => x.id !== w.id)); toast.success('AI Creator content removed'); })
+      .catch(() => toast.error('Failed to remove AI Creator content'));
+  };
+
+  // Render the AI Creator cards anchored after a given post (null = top of timeline).
+  // The remove control shows only for the memory owner.
+  const renderAiCreatorWidgets = (afterPostId: string | null) =>
+    aiCreatorWidgets.filter((w: any) => w.afterPostId === afterPostId).map((w: any) => (
+      <div
+        key={w.id}
+        ref={(el) => { aiCreatorWidgetCardRefs.current[w.id] = el; }}
+        data-widget-id={w.id}
+        className="relative w-full min-h-[160px] rounded-2xl p-6 flex items-center justify-center overflow-hidden bg-cover bg-center"
+        style={w.imageUrl ? { backgroundImage: `url(${w.imageUrl})` } : { background: w.background }}
+      >
+        {w.imageUrl && (
+          <div
+            className="absolute inset-0"
+            style={{ background: w.isDark === false ? 'rgba(255,255,255,0.25)' : 'rgba(0,0,0,0.25)' }}
+          />
+        )}
+        <p
+          className={`relative font-semibold text-center break-words ${
+            w.imageUrl && w.isDark === false ? 'text-gray-900' : 'text-white'
+          }`}
+          dangerouslySetInnerHTML={{ __html: sanitizeAiCreatorText(w.text) }}
+        />
+      </div>
+    ));
+
   const handleAddCollaborator = async (newCollaborator: Collaborator) => {
     try {
       // The API call is already made in AddCollaboratorDialog component
@@ -6101,6 +6597,21 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
     const parentIsFeatured = currentPost?.is_featured === 1 || currentPost?.is_featured === true;
     console.log('🌟 Parent image is_featured:', parentIsFeatured, 'currentPost.is_featured:', currentPost?.is_featured);
 
+    // Car images have no real backend post/comments, so the description and spec grid
+    // come from the /cars/{id} response (carDetailData) instead of the usual mediaAPI fetch.
+    const carSpecs = isCarDetail && carDetailData ? [
+      { label: 'Mileage', value: carDetailData.mileage != null ? `${Number(carDetailData.mileage).toLocaleString()} km` : '' },
+      { label: 'Stock #', value: carDetailData.stock_number || '' },
+      { label: 'Engine', value: carDetailData.engine || '' },
+      { label: 'Body Style', value: carDetailData.body_style || '' },
+      { label: 'Exterior Color', value: carDetailData.exterior_color || '' },
+      { label: 'Interior Color', value: carDetailData.interior_color || '' },
+      { label: 'Fuel Type', value: carDetailData.fuel_type || '' },
+      { label: 'Transmission', value: carDetailData.transmission || '' },
+      { label: 'Drivetrain', value: carDetailData.drivetrain || '' },
+      { label: 'Trim', value: carDetailData.trim_details || '' },
+    ].filter(spec => spec.value) : [];
+
     // Open the ImageViewer modal with proper timeline metadata
     console.log('🔍 handleTimelineImageView - finalImageId:', finalImageId, 'memoryId:', memoryId);
     const viewerData = {
@@ -6120,7 +6631,10 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
       initialSubImageId: subImageId, // Pass the sub-image ID if a sub-image was clicked
       parentImageIsFeatured: parentIsFeatured, // Pass parent's featured status
       focusComments: focusComments, // Scroll to comments on mobile when true
-      tags: Array.isArray(currentPost?.tags) ? currentPost.tags.map((t: any) => typeof t === 'string' ? t : t?.name).filter(Boolean) : []
+      tags: Array.isArray(currentPost?.tags) ? currentPost.tags.map((t: any) => typeof t === 'string' ? t : t?.name).filter(Boolean) : [],
+      description: isCarDetail ? (carDetailData?.description || '') : undefined,
+      specs: carSpecs,
+      disableDescriptionEdit: isCarDetail,
     };
 
     console.log('🎯 VIEWER DATA BEFORE SET:', JSON.stringify({ imageId: viewerData.imageId, memoryId: viewerData.memoryId }));
@@ -6939,10 +7453,12 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
     const items: Array<{ icon: React.ReactNode; label: string; desc: string }> = [
       { icon: <Clock className="w-5 h-5 text-[#009689]" />, label: 'Moment', desc: 'Add a special moment' },
       { icon: <Pointer className="w-5 h-5 text-[#6C60FF]" />, label: 'Call to Action', desc: 'Add a button with a link' },
+      { icon: <Upload className="w-5 h-5 text-[#6C60FF]" />, label: 'Share Request a Moment', desc: 'Allow photos and caption contributions' },
       { icon: <Mic className="w-5 h-5 text-[#6C60FF]" />, label: 'Voice to Text', desc: 'Create moment captions' },
       { icon: <Code className="w-5 h-5 text-[#6C60FF]" />, label: 'HTML', desc: 'Add custom HTML content' },
       { icon: <Video className="w-5 h-5 text-[#FF4444]" />, label: 'Youtube', desc: 'Embed a YouTube link' },
       { icon: <MessageSquare className="w-5 h-5 text-[#F59E0B]" />, label: 'Quote', desc: 'Add an inspirational quote' },
+      { icon: <Sparkles className="w-5 h-5 text-[#6C60FF]" />, label: 'AI Creator', desc: 'Generate content with AI' },
       ...(docuSignConnected ? [{ icon: <FileText className="w-5 h-5 text-[#1464A5]" />, label: 'DocuSign', desc: 'Send for signature' }] : []),
     ];
     return (
@@ -6970,7 +7486,9 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                         else if (item.label === 'HTML') { setHtmlWidgetAfterPostId(afterPostId); setEditingHtmlWidgetId(null); setIsAddHtmlModalOpen(true); }
                         else if (item.label === 'Youtube') { setYoutubeWidgetAfterPostId(afterPostId); setIsAddYoutubeModalOpen(true); }
                         else if (item.label === 'Quote') { setQuoteWidgetAfterPostId(afterPostId); setIsAddQuoteModalOpen(true); }
+                        else if (item.label === 'AI Creator') { setAiCreatorWidgetAfterPostId(afterPostId); setIsAddAiCreatorModalOpen(true); }
                         else if (item.label === 'Call to Action') { setCtaWidgetAfterPostId(afterPostId); setEditingCtaWidgetId(null); setIsAddCtaModalOpen(true); }
+                        else if (item.label === 'Share Request a Moment') { openAddRequestMomentCta(afterPostId); }
                         else if (item.label === 'Voice to Text') { setVoiceToTextAfterPostId(afterPostId); setIsVoiceToTextOpen(true); }
                         else if (item.label === 'DocuSign') { setDocuSignPostId(afterPostId); setShowDocuSignSendModal(true); }
                       }}
@@ -7015,7 +7533,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
               </PopoverContent>
             </Popover>
           </div>
-          <p className="leading-snug hover:text-[#6C60FF] cursor-pointer text-[#101828] text-base line-clamp-2">{widget.title || 'Call to Action'}</p>
+          <p className="leading-snug hover:text-[#6C60FF] cursor-pointer text-[#101828] text-base line-clamp-2">{ctaSidebarTitle(widget)}</p>
           <div className="flex items-center gap-1.5 mt-1 text-gray-400 text-sm"><Pointer className="w-4 h-4" /><span className="line-clamp-1">{widget.buttonText || 'Button'}</span></div>
           {renderSidebarAddWidgetPlus(widget.afterPostId)}
         </div>
@@ -7149,6 +7667,20 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                 <span className="text-[12px] md:text-xs text-[#6A7282]">Add an inspirational quote</span>
               </div>
             </button>
+            {/* Option 5b: AI Creator */}
+            <button
+              type="button"
+              className="w-full flex items-center gap-3 px-4 py-[5px] active:bg-black/5 transition-colors text-left"
+              onClick={() => { setActivePlusDivider(null); setAiCreatorWidgetAfterPostId(afterPostId || null); setIsAddAiCreatorModalOpen(true); }}
+            >
+              <div className="w-[32px] h-[32px] flex-shrink-0 rounded-[8px] bg-[#6C60FF]/10 flex items-center justify-center">
+                <Sparkles className="w-[18px] h-[18px] text-[#6C60FF]" />
+              </div>
+              <div className="flex flex-col">
+                <span className="text-[14px] md:text-sm font-medium text-[#101828]">AI Creator</span>
+                <span className="text-[12px] md:text-xs text-[#6A7282]">Generate content with AI</span>
+              </div>
+            </button>
             {/* Option 6: Call to Action */}
             <button
               type="button"
@@ -7163,6 +7695,37 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                 <span className="text-[12px] md:text-xs text-[#6A7282]">Add a button with a link</span>
               </div>
             </button>
+            {/* Option 7: Share Request a Moment — owner only. This menu is shared
+                with the collaborator view, so it is gated rather than always shown. */}
+            {isOwner && (
+              <button
+                type="button"
+                className="w-full flex items-center gap-3 px-4 py-[5px] active:bg-black/5 transition-colors text-left"
+                onClick={() => { setActivePlusDivider(null); openAddRequestMomentCta(afterPostId || null); }}
+              >
+                <div className="w-[32px] h-[32px] flex-shrink-0 rounded-[8px] bg-[#6C60FF]/10 flex items-center justify-center">
+                  <Upload className="w-[18px] h-[18px] text-[#6C60FF]" />
+                </div>
+                <div className="flex flex-col">
+                  <span className="text-[14px] md:text-sm font-medium text-[#101828]">Share Request a Moment</span>
+                  <span className="text-[12px] md:text-xs text-[#6A7282]">Allow photos and caption contributions</span>
+                </div>
+              </button>
+            )}
+            {/* Option 8: Shopify Product */}
+            <button
+              type="button"
+              className="w-full flex items-center gap-3 px-4 py-[5px] active:bg-black/5 transition-colors text-left"
+              onClick={() => { setActivePlusDivider(null); setProductWidgetAfterPostId(afterPostId || null); setIsProductPickerOpen(true); }}
+            >
+              <div className="w-[32px] h-[32px] flex-shrink-0 rounded-[8px] flex items-center justify-center" style={{ background: 'linear-gradient(145deg, #95BF47, #5E8E3E)' }}>
+                <ShoppingCart className="w-[18px] h-[18px] text-white" />
+              </div>
+              <div className="flex flex-col">
+                <span className="text-[14px] md:text-sm font-medium text-[#101828]">Shopify Product</span>
+                <span className="text-[12px] md:text-xs text-[#6A7282]">Add products from your store</span>
+              </div>
+            </button>
           </div>
         </>
       )}
@@ -7173,6 +7736,18 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
   // shared/collaborator view and the owner view so the "+" add menu works in both.
   const renderWidgetModals = () => (
     <>
+      {/* Contribution form. Inert in the owner view, which never opens it. */}
+      <RequestMomentModal
+        open={showSharedRequestMoment}
+        onOpenChange={setShowSharedRequestMoment}
+        memoryId={memoryId}
+        afterPostId={sharedRequestMomentAfterPostId}
+        variant="authenticated"
+        prefillName={user?.name ?? null}
+        prefillEmail={user?.email ?? null}
+        prefillPhone={(user as any)?.phone_number ?? null}
+        onSubmitted={() => { fetchWidgets(); }}
+      />
       {/* Add/Edit HTML Modal */}
       <Dialog open={isAddHtmlModalOpen} onOpenChange={(open) => {
         setIsAddHtmlModalOpen(open);
@@ -7557,6 +8132,296 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
         </DialogContent>
       </Dialog>
 
+      {/* Add AI Creator Dialog — generates content from a prompt and inserts the
+          result into the timeline as a plain content item (like Quote/HTML). */}
+      <Dialog open={isAddAiCreatorModalOpen} onOpenChange={(open) => {
+        setIsAddAiCreatorModalOpen(open);
+        if (!open) resetAiCreatorForm();
+      }}>
+        <DialogContent className="max-w-none md:max-w-[820px] w-full h-full md:h-auto md:max-h-[90vh] bg-white p-0 md:p-6 border-0 shadow-xl md:rounded-lg rounded-none top-0 left-0 translate-x-0 translate-y-0 md:top-[50%] md:left-[50%] md:translate-x-[-50%] md:translate-y-[-50%] flex flex-col [&>button[data-slot=dialog-default-close]]:hidden md:[&>button[data-slot=dialog-default-close]]:flex">
+          {/* Mobile Header with title + close */}
+          <div className="flex md:hidden items-center justify-between px-4 py-3 border-b border-gray-100 flex-shrink-0">
+            <h4 className="font-semibold text-[18px] md:text-lg text-gray-900">AI Creator</h4>
+            <DialogClose asChild>
+              <Button variant="ghost" size="sm" className="h-10 w-10 p-0 hover:bg-gray-100 rounded-full">
+                <X className="!w-[28px] !h-[28px] text-black" />
+              </Button>
+            </DialogClose>
+          </div>
+          {/* Scrollable form body */}
+          <div className="flex-1 overflow-y-auto px-5 pb-4 md:px-0 md:pt-0 md:pb-0">
+            <DialogHeader className="space-y-1 pb-4 text-left hidden md:flex md:flex-row md:items-center md:gap-3 md:space-y-0">
+              <div className="w-10 h-10 rounded-lg bg-[#6C60FF]/10 flex items-center justify-center flex-shrink-0">
+                <Sparkles className="w-5 h-5 text-[#6C60FF]" />
+              </div>
+              <div>
+                <DialogTitle className="text-lg font-semibold text-gray-900">AI Creator</DialogTitle>
+                <p className="text-sm text-gray-500">Generate custom content with AI</p>
+              </div>
+            </DialogHeader>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Left column: Prompt + options */}
+              <div className="space-y-4">
+                <div>
+                  <label className="text-xs font-semibold tracking-wide text-gray-500 uppercase">Prompt</label>
+                  <textarea
+                    value={aiCreatorPrompt}
+                    onChange={(e) => setAiCreatorPrompt(e.target.value)}
+                    placeholder={"Describe the content you want to create...\n\ne.g. A heartfelt thank you message with a soft purple background"}
+                    rows={5}
+                    className="mt-1.5 w-full px-4 py-3 border border-gray-300 rounded-lg text-[14px] md:text-sm resize-y focus:outline-none focus:ring-2 focus:ring-[#6C60FF]/20 focus:border-[#6C60FF]"
+                  />
+                  <p className="mt-1 text-xs text-gray-400">Be specific for better results</p>
+                </div>
+
+                {/* Pin to bottom */}
+                <div className="flex items-center justify-between gap-3 p-3 rounded-xl bg-gray-50 border border-gray-200">
+                  <div className="flex items-center gap-3">
+                    <div className="h-9 w-9 rounded-lg bg-[#6C60FF]/10 flex items-center justify-center flex-shrink-0">
+                      <Download className="w-4 h-4 text-[#6C60FF]" />
+                    </div>
+                    <div>
+                      <p className="text-[14px] md:text-sm font-medium text-gray-900">Pin to bottom</p>
+                      <p className="text-xs text-gray-500">Fixed at end of campaign</p>
+                    </div>
+                  </div>
+                  <Switch checked={aiCreatorPinToBottom} onCheckedChange={setAiCreatorPinToBottom} />
+                </div>
+
+                {/* Reference image (optional) */}
+                <div>
+                  <label className="text-xs font-semibold tracking-wide text-gray-500 uppercase">Reference Image <span className="normal-case font-normal text-gray-400">(optional)</span></label>
+                  <label className="mt-1.5 flex flex-col items-center justify-center gap-2 border-2 border-dashed border-gray-200 rounded-lg p-4 text-center hover:border-[#6C60FF]/50 hover:bg-[#6C60FF]/5 transition-colors cursor-pointer">
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (!file) return;
+                        const url = URL.createObjectURL(file);
+                        setAiCreatorReferenceImage(file);
+                        setAiCreatorReferenceImagePreview(url);
+                        setAiCreatorImageIsDark(null);
+                        analyzeAiCreatorImageBrightness(url);
+                      }}
+                    />
+                    {aiCreatorReferenceImagePreview ? (
+                      <div className="relative">
+                        <img src={aiCreatorReferenceImagePreview} alt="Reference" className="h-20 w-20 object-cover rounded-lg" />
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            setAiCreatorReferenceImage(null);
+                            setAiCreatorReferenceImagePreview(null);
+                            setAiCreatorImageIsDark(null);
+                          }}
+                          className="absolute -top-2 -right-2 w-5 h-5 rounded-full bg-white border border-gray-300 flex items-center justify-center hover:bg-gray-50"
+                        >
+                          <X className="w-3 h-3 text-gray-600" />
+                        </button>
+                      </div>
+                    ) : (
+                      <>
+                        <ImageIcon className="w-5 h-5 text-gray-400" />
+                        <span className="text-xs text-gray-500">Tap to add image or drag & drop</span>
+                      </>
+                    )}
+                  </label>
+                  <p className="mt-1 text-xs text-gray-400">Used as the background of the generated content — text color adapts to it</p>
+                </div>
+
+                {/* Generate button */}
+                <button
+                  type="button"
+                  disabled={!aiCreatorPrompt.trim() || aiCreatorIsGenerating}
+                  onClick={async () => {
+                    const isRegenerate = aiCreatorGeneratedPreview !== null;
+                    setAiCreatorIsGenerating(true);
+                    setAiCreatorGeneratedPreview(null);
+                    try {
+                      let referenceImageBase64: string | null = null;
+                      let referenceImageMime: string | null = null;
+                      if (aiCreatorReferenceImage) {
+                        referenceImageBase64 = await new Promise<string>((resolve, reject) => {
+                          const reader = new FileReader();
+                          reader.onload = () => resolve(reader.result as string);
+                          reader.onerror = reject;
+                          reader.readAsDataURL(aiCreatorReferenceImage);
+                        });
+                        referenceImageMime = aiCreatorReferenceImage.type;
+                      }
+                      const res = await apiRequest(`/memories/${memoryId}/ai-creator/generate`, {
+                        method: 'POST',
+                        body: JSON.stringify({
+                          prompt: aiCreatorPrompt.trim(),
+                          reference_image_base64: referenceImageBase64,
+                          reference_image_mime: referenceImageMime,
+                          after_post_id: aiCreatorWidgetAfterPostId,
+                          ai_credit: isRegenerate ? 0 : 1,
+                        }),
+                      });
+                      if (!res.success) {
+                        toast.error('Failed to generate content');
+                        return;
+                      }
+                      const data = res.data?.data || res.data;
+                      setAiCreatorGeneratedPreview({
+                        text: data.text,
+                        background: data.background,
+                        imageUrl: aiCreatorReferenceImagePreview,
+                        isDark: typeof data.is_dark === 'boolean' ? data.is_dark : aiCreatorImageIsDark,
+                      });
+                    } catch (error) {
+                      console.error('AI Creator generate error:', error);
+                      toast.error('Failed to generate content');
+                    } finally {
+                      setAiCreatorIsGenerating(false);
+                    }
+                  }}
+                  className="w-full h-11 rounded-lg p-[1.5px] border-0 bg-gradient-to-r from-[#6C60FF] to-[#F6339A] transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <div className="h-full rounded-[7px] bg-white flex items-center justify-center gap-2 text-sm font-medium">
+                    <Sparkles className={`w-4 h-4 text-[#6C60FF] ${aiCreatorIsGenerating ? 'animate-pulse' : ''}`} />
+                    <span
+                      style={{
+                        background: 'linear-gradient(90deg, #6C60FF 0%, #F6339A 100%)',
+                        backgroundClip: 'text',
+                        WebkitBackgroundClip: 'text',
+                        WebkitTextFillColor: 'transparent',
+                      }}
+                    >
+                      {aiCreatorIsGenerating ? 'Generating...' : aiCreatorGeneratedPreview ? 'Regenerate' : 'Generate • 1 credit'}
+                    </span>
+                  </div>
+                </button>
+              </div>
+
+              {/* Right column: Preview */}
+              <div>
+                <label className="text-xs font-semibold tracking-wide text-gray-500 uppercase">Preview</label>
+                <div className="mt-1.5 min-h-[280px] rounded-xl border border-gray-200 bg-gray-50 p-5 flex flex-col items-center justify-center text-center gap-2">
+                  {aiCreatorIsGenerating ? (
+                    <>
+                      <Sparkles className="w-8 h-8 text-[#6C60FF] animate-pulse" />
+                      <p className="text-sm font-medium text-gray-700">Generating...</p>
+                    </>
+                  ) : aiCreatorGeneratedPreview ? (
+                    <div
+                      className="relative w-full min-h-[220px] rounded-xl p-6 flex items-center justify-center overflow-hidden bg-cover bg-center"
+                      style={
+                        aiCreatorGeneratedPreview.imageUrl
+                          ? { backgroundImage: `url(${aiCreatorGeneratedPreview.imageUrl})` }
+                          : { background: aiCreatorGeneratedPreview.background }
+                      }
+                    >
+                      {/* Subtle scrim for legibility — darkens light images, lightens dark ones */}
+                      {aiCreatorGeneratedPreview.imageUrl && (
+                        <div
+                          className="absolute inset-0"
+                          style={{ background: aiCreatorGeneratedPreview.isDark === false ? 'rgba(255,255,255,0.25)' : 'rgba(0,0,0,0.25)' }}
+                        />
+                      )}
+                      <p
+                        className={`relative font-semibold text-center break-words ${
+                          aiCreatorGeneratedPreview.imageUrl && aiCreatorGeneratedPreview.isDark === false
+                            ? 'text-gray-900'
+                            : 'text-white'
+                        }`}
+                        dangerouslySetInnerHTML={{ __html: sanitizeAiCreatorText(aiCreatorGeneratedPreview.text) }}
+                      />
+                    </div>
+                  ) : (
+                    <>
+                      <div className="w-14 h-14 rounded-full bg-[#6C60FF]/10 flex items-center justify-center">
+                        <Sparkles className="w-6 h-6 text-[#6C60FF]" />
+                      </div>
+                      <p className="text-sm font-medium text-gray-700">Your content will appear here</p>
+                      <p className="text-xs text-gray-400">Write a prompt and hit Generate</p>
+                    </>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+          {/* Footer action buttons - pinned to bottom on mobile */}
+          <div className="flex-shrink-0 flex justify-end md:justify-end gap-3 px-5 py-3 pb-[50px] md:px-0 md:py-0 md:pb-0 md:pt-4 border-t md:border-t-0 border-gray-100">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setIsAddAiCreatorModalOpen(false);
+                resetAiCreatorForm();
+              }}
+              className="h-12 md:h-10 px-6 text-[14px] md:text-sm border-gray-300 text-gray-700 hover:bg-gray-50"
+            >
+              Cancel
+            </Button>
+            <Button
+              disabled={!aiCreatorGeneratedPreview || aiCreatorIsSaving}
+              onClick={async () => {
+                if (!aiCreatorGeneratedPreview || !memoryId) return;
+                setAiCreatorIsSaving(true);
+                try {
+                  const sameGroup = [...htmlWidgets, ...youtubeWidgets, ...quoteWidgets, ...ctaWidgets, ...aiCreatorWidgets].filter(w => w.afterPostId === aiCreatorWidgetAfterPostId);
+                  const widget_order = sameGroup.length > 0 ? Math.max(...sameGroup.map(w => w.widget_order)) + 1 : 0;
+                  const widget_data = {
+                    prompt: aiCreatorPrompt.trim(),
+                    text: aiCreatorGeneratedPreview.text,
+                    background: aiCreatorGeneratedPreview.background,
+                    image_url: null,
+                    is_dark: aiCreatorGeneratedPreview.isDark,
+                    pin_to_bottom: aiCreatorPinToBottom,
+                  };
+                  const res = await apiRequest(`/memories/${memoryId}/widgets`, {
+                    method: 'POST',
+                    body: JSON.stringify({
+                      widget_type: 'ai_creator',
+                      after_post_id: aiCreatorWidgetAfterPostId,
+                      widget_order,
+                      widget_data,
+                    }),
+                  });
+                  if (!res.success) { toast.error('Failed to add AI Creator content'); return; }
+                  const raw = res.data?.data || res.data;
+                  setAiCreatorWidgets(prev => [...prev, {
+                    id: raw?.id?.toString() || `ai_${Date.now()}`,
+                    text: aiCreatorGeneratedPreview.text,
+                    background: aiCreatorGeneratedPreview.background,
+                    imageUrl: aiCreatorGeneratedPreview.imageUrl,
+                    isDark: aiCreatorGeneratedPreview.isDark,
+                    afterPostId: aiCreatorWidgetAfterPostId,
+                    widget_order,
+                    createdAt: Date.now(),
+                  }]);
+                  if (res.pending_approval === true || raw?.admin_approval === 0 || raw?.admin_approval === '0') {
+                    toast.warning('AI Creator content added! It will appear after admin approval.', {
+                      duration: 5000,
+                      style: { background: '#FFFBEB', color: '#92400E', border: '1px solid #FDE68A' },
+                    });
+                  } else {
+                    toast.success('AI Creator content added');
+                  }
+                } catch (error) {
+                  console.error('AI Creator save error:', error);
+                  toast.error('Failed to add AI Creator content');
+                  return;
+                } finally {
+                  setAiCreatorIsSaving(false);
+                }
+                setIsAddAiCreatorModalOpen(false);
+                resetAiCreatorForm();
+              }}
+              className="h-12 md:h-10 px-6 text-[14px] md:text-sm bg-[#6C60FF] hover:bg-[#5A52E6] text-white disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {aiCreatorIsSaving ? 'Adding...' : 'Add to Timeline'}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       {/* Add / Edit Call to Action Dialog */}
       <Dialog open={isAddCtaModalOpen} onOpenChange={(open) => {
         setIsAddCtaModalOpen(open);
@@ -7565,7 +8430,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
         <DialogContent className="max-w-none md:max-w-[480px] w-full h-full md:h-auto md:max-h-[90vh] bg-white p-0 md:p-6 border-0 shadow-xl md:rounded-lg rounded-none top-0 left-0 translate-x-0 translate-y-0 md:top-[50%] md:left-[50%] md:translate-x-[-50%] md:translate-y-[-50%] flex flex-col [&>button[data-slot=dialog-default-close]]:hidden md:[&>button[data-slot=dialog-default-close]]:flex">
           {/* Mobile Header */}
           <div className="flex md:hidden items-center justify-between px-4 py-3 border-b border-gray-100 flex-shrink-0">
-            <h4 className="font-semibold text-[18px] text-gray-900">{editingCtaWidgetId ? 'Edit Call to Action' : 'Add Call to Action'}</h4>
+            <h4 className="font-semibold text-[18px] text-gray-900">{ctaModalNoun(isRequestMomentCta, !!editingCtaWidgetId)}</h4>
             <DialogClose asChild>
               <Button variant="ghost" size="sm" className="h-10 w-10 p-0 hover:bg-gray-100 rounded-full">
                 <X className="!w-[28px] !h-[28px] text-black" />
@@ -7576,8 +8441,8 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
           <div className="flex-1 overflow-y-auto px-5 pb-4 md:px-0 md:pt-0 md:pb-0">
             <div className="space-y-5 md:space-y-4">
               <DialogHeader className="space-y-1 pb-2 text-left hidden md:block">
-                <DialogTitle className="text-xl md:text-lg font-semibold text-gray-900">{editingCtaWidgetId ? 'Edit Call to Action' : 'Add Call to Action'}</DialogTitle>
-                <p className="text-sm text-gray-500">Add a title and a button that links somewhere</p>
+                <DialogTitle className="text-xl md:text-lg font-semibold text-gray-900">{ctaModalNoun(isRequestMomentCta, !!editingCtaWidgetId)}</DialogTitle>
+                <p className="text-sm text-gray-500">{isRequestMomentCta ? 'Visitors tap this button to submit a photo and caption' : 'Add a title and a button that links somewhere'}</p>
               </DialogHeader>
 
               {/* Title */}
@@ -7604,24 +8469,27 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                 />
               </div>
 
-              {/* Button link */}
-              <div className="space-y-1.5">
-                <label className="text-[14px] md:text-sm font-medium text-gray-700">Button link (URL)</label>
-                <input
-                  type="text"
-                  value={ctaButtonLink}
-                  onChange={(e) => setCtaButtonLink(e.target.value)}
-                  placeholder="https://example.com"
-                  className={`w-full h-12 px-4 border rounded-lg text-[14px] md:text-sm focus:outline-none focus:ring-2 ${
-                    ctaButtonLink.trim() && !ctaIsValidUrl(ctaButtonLink)
-                      ? 'border-red-400 focus:ring-red-200 focus:border-red-400'
-                      : 'border-gray-300 focus:ring-[#6C60FF]/20 focus:border-[#6C60FF]'
-                  }`}
-                />
-                {ctaButtonLink.trim() && !ctaIsValidUrl(ctaButtonLink) && (
-                  <p className="text-xs text-red-500">Please enter a valid URL (e.g. https://example.com)</p>
-                )}
-              </div>
+              {/* Button link — hidden for Share Request a Moment, which opens a form
+                  rather than navigating anywhere. */}
+              {!isRequestMomentCta && (
+                <div className="space-y-1.5">
+                  <label className="text-[14px] md:text-sm font-medium text-gray-700">Button link (URL)</label>
+                  <input
+                    type="text"
+                    value={ctaButtonLink}
+                    onChange={(e) => setCtaButtonLink(e.target.value)}
+                    placeholder="https://example.com"
+                    className={`w-full h-12 px-4 border rounded-lg text-[14px] md:text-sm focus:outline-none focus:ring-2 ${
+                      ctaButtonLink.trim() && !ctaIsValidUrl(ctaButtonLink)
+                        ? 'border-red-400 focus:ring-red-200 focus:border-red-400'
+                        : 'border-gray-300 focus:ring-[#6C60FF]/20 focus:border-[#6C60FF]'
+                    }`}
+                  />
+                  {ctaButtonLink.trim() && !ctaIsValidUrl(ctaButtonLink) && (
+                    <p className="text-xs text-red-500">Please enter a valid URL (e.g. https://example.com)</p>
+                  )}
+                </div>
+              )}
 
               {/* Colors */}
               <div className="grid grid-cols-2 gap-4">
@@ -7641,7 +8509,9 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                 </div>
               </div>
 
-              {/* Icon picker */}
+              {/* Icon picker — hidden for Share Request a Moment, whose icon is
+                  fixed to Upload. */}
+              {!isRequestMomentCta && (
               <div className="space-y-1.5">
                 <label className="text-[14px] md:text-sm font-medium text-gray-700">Icon</label>
                 <div className="flex flex-wrap gap-2">
@@ -7669,6 +8539,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                   })}
                 </div>
               </div>
+              )}
 
               {/* Icon size */}
               {ctaIcon && (
@@ -7726,6 +8597,24 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                 />
               </div>
 
+              {/* Pin to bottom — Share Request a Moment only. Keeps the button pinned
+                  after the current last item in the timeline, instead of the fixed
+                  spot it was inserted at. */}
+              {isRequestMomentCta && (
+                <div className="flex items-center justify-between gap-3 p-3 rounded-xl bg-gray-50 border border-gray-200">
+                  <div className="flex items-center gap-3">
+                    <div className="h-9 w-9 rounded-lg bg-[#6C60FF]/10 flex items-center justify-center flex-shrink-0">
+                      <Download className="w-4 h-4 text-[#6C60FF]" />
+                    </div>
+                    <div>
+                      <p className="text-[14px] md:text-sm font-medium text-gray-900">Pin to bottom</p>
+                      <p className="text-xs text-gray-500">Fixed at end of campaign</p>
+                    </div>
+                  </div>
+                  <Switch checked={ctaPinToBottom} onCheckedChange={setCtaPinToBottom} />
+                </div>
+              )}
+
               {/* Live preview */}
               <div className="space-y-1.5">
                 <label className="text-[14px] md:text-sm font-medium text-gray-700">Preview</label>
@@ -7743,7 +8632,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                     }}
                   >
                     {ctaIcon && CTA_ICONS[ctaIcon] && (() => { const Ic = CTA_ICONS[ctaIcon]; return <Ic style={{ width: ctaIconSize, height: ctaIconSize }} />; })()}
-                    <span>{ctaButtonText || 'Learn More'}</span>
+                    <span>{ctaButtonText || (isRequestMomentCta ? 'Share a Moment' : 'Learn More')}</span>
                   </span>
                 </div>
               </div>
@@ -7759,12 +8648,14 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
               Cancel
             </Button>
             <Button
-              disabled={!ctaButtonText.trim() || !ctaIsValidUrl(ctaButtonLink)}
+              disabled={!ctaButtonText.trim() || (!isRequestMomentCta && !ctaIsValidUrl(ctaButtonLink))}
               onClick={async () => {
                 const widget_data = {
                   title: ctaTitle,
                   buttonText: ctaButtonText,
-                  buttonLink: ctaNormalizeUrl(ctaButtonLink),
+                  // A request-moment button has no destination.
+                  buttonLink: isRequestMomentCta ? '' : ctaNormalizeUrl(ctaButtonLink),
+                  mode: ctaMode,
                   buttonColor: ctaButtonColor,
                   textColor: ctaTextColor,
                   icon: ctaIcon,
@@ -7772,6 +8663,8 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                   buttonWidth: ctaButtonWidth,
                   fontSize: ctaFontSize,
                   borderRadius: ctaBorderRadius,
+                  // Only meaningful for the request-moment mode, but harmless to include either way.
+                  pinToBottom: ctaPinToBottom,
                 };
                 if (editingCtaWidgetId) {
                   try {
@@ -7819,7 +8712,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
               }}
               className="h-12 md:h-10 px-6 text-[14px] md:text-sm bg-[#6C60FF] hover:bg-[#5A52E6] text-white disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {editingCtaWidgetId ? 'Save Changes' : 'Add Call to Action'}
+              {editingCtaWidgetId ? 'Save Changes' : (isRequestMomentCta ? 'Save' : 'Add Call to Action')}
             </Button>
           </div>
         </DialogContent>
@@ -7839,6 +8732,8 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
     const sharedPostsWithSubs = sharedAllPosts.map((p: any) => ({ ...p, sub_images: sharedSubMap[String(p.id)] || [] }));
     const sharedSortedPosts = sharedSortOrder === 'desc' ? [...sharedPostsWithSubs].reverse() : sharedPostsWithSubs;
     const sharedFilteredPosts = sharedSearchQuery ? sharedSortedPosts.filter((p: any) => { const q = sharedSearchQuery.toLowerCase(); return (p.description||'').toLowerCase().includes(q)||(p.title||'').toLowerCase().includes(q)||(p.location||'').toLowerCase().includes(q); }) : sharedSortedPosts;
+    // Same reasoning as the owner view's totalMomentsCount — count linked memories too.
+    const sharedTotalMomentsCount = sharedFilteredPosts.length + (apiMemoryData?.linked_memories?.length || 0);
 
     // Linked memories — shared-with view must render these too (interleaved with posts per unified_order).
     const sharedLinkedMemories = (apiMemoryData?.linked_memories || []);
@@ -7889,11 +8784,11 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
             fullName={lm.user?.name || apiMemoryData?.user?.name}
             avatar={lm.user?.profile_image || apiMemoryData?.user?.profile_image}
             profileColor={lm.user?.profile_color || apiMemoryData?.user?.profile_color}
-            tags={Array.isArray(lm.tags) ? lm.tags : []}
-            label={lm.sub_category?.name || ''}
+            tags={lm.is_car ? carLinkedMemoryTags(lm) : (Array.isArray(lm.tags) ? lm.tags : [])}
+            label={lm.is_car ? carLinkedMemoryLabel(lm) : (lm.sub_category?.name || '')}
             contributors={Array.isArray(lm.collaborators) ? lm.collaborators.map((c: any) => ({ id: c.id || c.user_id, name: c.name || c.user?.name || '', avatar: c.profile_image || c.user?.profile_image || '', profileColor: c.profile_color || c.user?.profile_color || '' })) : []}
             whiteFooter={true}
-            onClick={() => onMemorySelect?.(String(lm.id))}
+            onClick={() => onMemorySelect?.(lm.is_car ? `cars_detail:${lm.id}` : String(lm.id))}
           />
         </div>
       );
@@ -8006,7 +8901,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
           )}
           <div className="relative px-4 pb-4 -mt-[18rem] space-y-4 z-30">
             <div className="flex items-center justify-between">
-              <div className="text-white text-lg"><span className="font-semibold">Timeline</span><span className="mx-2 text-white/70">•</span><span className="text-white/80">{sharedFilteredPosts.length} moments</span></div>
+              <div className="text-white text-lg"><span className="font-semibold">Timeline</span><span className="mx-2 text-white/70">•</span><span className="text-white/80">{sharedTotalMomentsCount} moments</span></div>
               <button className="px-5 py-2 bg-white text-gray-800 text-base font-medium rounded-lg shadow-sm flex-shrink-0" onClick={() => { const el = sharedMobileCardRefs.current[0]; if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); }}>Continue</button>
             </div>
             {htmlWidgets.filter(w => w.afterPostId === null).map(widget => (
@@ -8015,15 +8910,23 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                 {renderPlusDivider(`shared-mobile-html-top-div-${widget.id}`)}
               </React.Fragment>
             ))}
+            {youtubeWidgets.filter(w => w.afterPostId === null).map(widget => (
+              <React.Fragment key={widget.id}>
+                <div className="rounded-2xl bg-white p-4 border border-gray-100"><iframe width="100%" height="200" src={`https://www.youtube.com/embed/${widget.videoId}?autoplay=0`} allow="accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen className="rounded-lg" /></div>
+                {renderPlusDivider(`shared-mobile-yt-top-div-${widget.id}`)}
+              </React.Fragment>
+            ))}
             {quoteWidgets.filter(w => w.afterPostId === null).map(widget => (
               <React.Fragment key={widget.id}>
                 <div className="rounded-2xl bg-[#F0EEFF] p-5 border border-gray-100 border-l-4 border-l-[#6C60FF]"><p className="text-lg font-bold text-gray-800 text-center leading-relaxed break-words">{widget.text}</p>{widget.author && <p className="text-sm text-gray-500 text-center mt-2">— {widget.author}</p>}</div>
                 {renderPlusDivider(`shared-mobile-quote-top-div-${widget.id}`)}
               </React.Fragment>
             ))}
-            {ctaWidgets.filter(w => w.afterPostId === null).map(widget => (
+            {renderProductWidgets(null)}
+            {renderAiCreatorWidgets(null)}
+            {ctaWidgets.filter(w => w.afterPostId === null && !w.pinToBottom).map(widget => (
               <React.Fragment key={widget.id}>
-                <CTAWidgetCard widget={widget} memoryId={memoryId} />
+                <CTAWidgetCard onRequestMoment={openSharedRequestMoment} widget={widget} memoryId={memoryId} />
                 {renderPlusDivider(`shared-mobile-cta-top-div-${widget.id}`)}
               </React.Fragment>
             ))}
@@ -8045,13 +8948,19 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                 {quoteWidgets.filter(w => w.afterPostId === post.id?.toString()).map(widget => (
                   <div key={widget.id} className="rounded-2xl bg-[#F0EEFF] p-5 border border-gray-100 border-l-4 border-l-[#6C60FF]"><p className="text-lg font-bold text-gray-800 text-center leading-relaxed break-words">{widget.text}</p>{widget.author && <p className="text-sm text-gray-500 text-center mt-2">— {widget.author}</p>}</div>
                 ))}
-                {ctaWidgets.filter(w => w.afterPostId === post.id?.toString()).map(widget => (
-                  <CTAWidgetCard key={widget.id} widget={widget} memoryId={memoryId} />
+                {renderProductWidgets(post.id?.toString())}
+                {renderAiCreatorWidgets(post.id?.toString())}
+                {ctaWidgets.filter(w => w.afterPostId === post.id?.toString() && !w.pinToBottom).map(widget => (
+                  <CTAWidgetCard onRequestMoment={openSharedRequestMoment} key={widget.id} widget={widget} memoryId={memoryId} />
                 ))}
                 {/* Plus divider between posts — same as personal memories */}
                 {index < sharedFilteredPosts.length - 1 && renderPlusDivider(`shared-mobile-${index}`, post.id?.toString())}
               </React.Fragment>
             ); }) : <div className="text-center py-12 text-gray-500 bg-white rounded-xl"><p>No moments to display</p></div>}
+            {/* Pinned "Share Request a Moment" buttons — always after the last item, however long the list grows */}
+            {ctaWidgets.filter(w => w.pinToBottom).map(widget => (
+              <CTAWidgetCard onRequestMoment={openSharedRequestMoment} key={widget.id} widget={widget} memoryId={memoryId} />
+            ))}
 
             {/* E-Business Card - Shared Mobile */}
             {!!apiMemoryData?.user?.is_business && (
@@ -8159,7 +9068,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                   </div>
                   <div className="bg-transparent rounded-xl border border-gray-100 flex-1 flex flex-col overflow-hidden">
                     <div className="flex items-center justify-between pb-4 mb-4 border-b" style={{ borderColor: '#BFBFBF' }}>
-                      <div><h3 className="font-semibold text-gray-900 text-lg">Timeline</h3><p className="text-base text-gray-500">{sharedFilteredPosts.length} moments</p></div>
+                      <div><h3 className="font-semibold text-gray-900 text-lg">Timeline</h3><p className="text-base text-gray-500">{sharedTotalMomentsCount} moments</p></div>
                       <div className="flex items-center gap-2">
                         <button className="flex items-center justify-center w-9 h-9 bg-white border border-gray-200 rounded-lg hover:bg-gray-50" onClick={() => setSharedSortOrder(sharedSortOrder === 'desc' ? 'asc' : 'desc')}>
                           <svg width="16" height="16" viewBox="0 0 14 14" fill="none" className={`transition-transform duration-200 ${sharedSortOrder === 'asc' ? 'rotate-180' : ''}`}><path d="M1.75 9.33337L4.08333 11.6667L6.41667 9.33337" stroke="currentColor" strokeWidth="1.16667" strokeLinecap="round" strokeLinejoin="round"/><path d="M4.08331 11.6667V2.33337" stroke="currentColor" strokeWidth="1.16667" strokeLinecap="round" strokeLinejoin="round"/><path d="M6.41669 2.33337H12.25" stroke="currentColor" strokeWidth="1.16667" strokeLinecap="round" strokeLinejoin="round"/><path d="M6.41669 4.66663H10.5" stroke="currentColor" strokeWidth="1.16667" strokeLinecap="round" strokeLinejoin="round"/><path d="M6.41669 7H8.75002" stroke="currentColor" strokeWidth="1.16667" strokeLinecap="round" strokeLinejoin="round"/></svg>
@@ -8215,6 +9124,38 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                           </div>
                         );
                       })}
+                      {/* Top-level YouTube / Quote / CTA nav entries. The owner sidebar
+                          lists all four widget types here; these three were missing, so a
+                          collaborator saw an incomplete timeline. Markup mirrors the
+                          per-post entries below. */}
+                      {youtubeWidgets.filter(w => w.afterPostId === null).map(widget => (
+                        <div key={widget.id} className="relative pl-10 pb-4 cursor-pointer" onClick={() => { const el = youtubeWidgetCardRefs.current[widget.id]; if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' }); }}>
+                          <div className="absolute left-0 top-7 bottom-8 w-0.5 bg-[#D1D5DC]" style={{ transform: 'translateX(-1px)' }} />
+                          <div className="absolute -left-3.5 top-0 w-7 h-7 rounded-full flex items-center justify-center bg-[#FF4444]/10 text-[#FF4444]"><Video className="w-3.5 h-3.5" /></div>
+                          <div className="relative transition-all duration-200">
+                            <p className="leading-snug hover:text-[#6C60FF] cursor-pointer text-[#101828] text-base line-clamp-2">{widget.title || 'YouTube Video'}</p>
+                          </div>
+                        </div>
+                      ))}
+                      {quoteWidgets.filter(w => w.afterPostId === null).map(widget => (
+                        <div key={widget.id} className="relative pl-10 pb-4 cursor-pointer" onClick={() => { const el = quoteWidgetCardRefs.current[widget.id]; if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' }); }}>
+                          <div className="absolute left-0 top-7 bottom-8 w-0.5 bg-[#D1D5DC]" style={{ transform: 'translateX(-1px)' }} />
+                          <div className="absolute -left-3.5 top-0 w-7 h-7 rounded-full flex items-center justify-center bg-[#F59E0B]/10 text-[#F59E0B]"><MessageSquare className="w-3.5 h-3.5" /></div>
+                          <div className="relative transition-all duration-200">
+                            <div className="bg-[#F0EEFF] rounded-xl border-l-[3px] border-l-[#6C60FF] p-4 mt-1"><p className="text-base font-bold text-gray-800 text-center leading-relaxed break-words">{widget.text}</p>{widget.author && <p className="text-sm text-gray-500 text-center mt-2">— {widget.author}</p>}</div>
+                          </div>
+                        </div>
+                      ))}
+                      {ctaWidgets.filter(w => w.afterPostId === null && !w.pinToBottom).map(widget => (
+                        <div key={widget.id} className="relative pl-10 pb-4 cursor-pointer" onClick={() => { const el = ctaWidgetCardRefs.current[widget.id]; if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' }); }}>
+                          <div className="absolute left-0 top-7 bottom-8 w-0.5 bg-[#D1D5DC]" style={{ transform: 'translateX(-1px)' }} />
+                          <div className="absolute -left-3.5 top-0 w-7 h-7 rounded-full flex items-center justify-center bg-[#6C60FF]/10 text-[#6C60FF]"><Pointer className="w-3.5 h-3.5" /></div>
+                          <div className="relative transition-all duration-200">
+                            <p className="leading-snug hover:text-[#6C60FF] cursor-pointer text-[#101828] text-base line-clamp-2">{ctaSidebarTitle(widget)}</p>
+                            <div className="flex items-center gap-1.5 mt-1 text-gray-400 text-sm"><Pointer className="w-4 h-4" /><span className="line-clamp-1">{widget.buttonText || 'Button'}</span></div>
+                          </div>
+                        </div>
+                      ))}
                       {/* Per-post timeline entries */}
                       {sharedFilteredPosts.map((post: any, index: number) => {
                         const isActive = activeMemoryIndex === index && sharedIsHeaderScrolled;
@@ -8261,6 +9202,15 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                 </div>
                               );
                             })}
+                            {youtubeWidgets.filter(w => w.afterPostId === post.id?.toString()).map(widget => (
+                              <div key={widget.id} className="relative pl-10 pb-4 cursor-pointer" onClick={() => { const el = youtubeWidgetCardRefs.current[widget.id]; if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' }); }}>
+                                <div className="absolute left-0 top-7 bottom-8 w-0.5 bg-[#D1D5DC]" style={{ transform: 'translateX(-1px)' }} />
+                                <div className="absolute -left-3.5 top-0 w-7 h-7 rounded-full flex items-center justify-center bg-[#FF4444]/10 text-[#FF4444]"><Video className="w-3.5 h-3.5" /></div>
+                                <div className="relative transition-all duration-200">
+                                  <p className="leading-snug hover:text-[#6C60FF] cursor-pointer text-[#101828] text-base line-clamp-2">{widget.title || 'YouTube Video'}</p>
+                                </div>
+                              </div>
+                            ))}
                             {quoteWidgets.filter(w => w.afterPostId === post.id?.toString()).map(widget => (
                               <div key={widget.id} className="relative pl-10 pb-4 cursor-pointer" onClick={() => { const el = quoteWidgetCardRefs.current[widget.id]; if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' }); }}>
                                 <div className="absolute left-0 top-7 bottom-8 w-0.5 bg-[#D1D5DC]" style={{ transform: 'translateX(-1px)' }} />
@@ -8271,19 +9221,33 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                 </div>
                               </div>
                             ))}
-                            {ctaWidgets.filter(w => w.afterPostId === post.id?.toString()).map(widget => (
+                            {renderProductWidgets(post.id?.toString())}
+                            {renderAiCreatorWidgets(post.id?.toString())}
+                            {ctaWidgets.filter(w => w.afterPostId === post.id?.toString() && !w.pinToBottom).map(widget => (
                               <div key={widget.id} className="relative pl-10 pb-4 cursor-pointer" onClick={() => { const el = ctaWidgetCardRefs.current[widget.id]; if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' }); }}>
                                 <div className="absolute left-0 top-7 bottom-8 w-0.5 bg-[#D1D5DC]" style={{ transform: 'translateX(-1px)' }} />
                                 <div className="absolute -left-3.5 top-0 w-7 h-7 rounded-full flex items-center justify-center bg-[#6C60FF]/10 text-[#6C60FF]"><Pointer className="w-3.5 h-3.5" /></div>
                                 <div className="relative transition-all duration-200">
                                   <div className="absolute top-0 right-0 z-10"><Popover><PopoverTrigger asChild><div className="cursor-pointer" onClick={e => e.stopPropagation()}><MoreVertical className="w-5 h-5 text-[#6C60FF]" /></div></PopoverTrigger><PopoverContent side="bottom" align="end" className="w-44 p-1 rounded-lg shadow-lg border border-gray-200 bg-white" sideOffset={4}><div className="flex items-center gap-2.5 px-3 py-2 hover:bg-gray-50 cursor-pointer rounded-md" onClick={e => { e.stopPropagation(); openEditCta(widget); }}><Edit className="w-4 h-4 text-[#6C60FF]" /><span className="text-sm text-gray-700">Edit</span></div><div className="flex items-center gap-2.5 px-3 py-2 hover:bg-red-50 cursor-pointer rounded-md" onClick={e => { e.stopPropagation(); deleteCta(widget); }}><Trash2 className="w-4 h-4 text-red-500" /><span className="text-sm text-red-500">Delete</span></div></PopoverContent></Popover></div>
-                                  <div className="bg-[#F0EEFF] rounded-xl border-l-[3px] border-l-[#6C60FF] p-4 mt-1"><p className="text-base font-bold text-gray-800 text-center leading-relaxed break-words">{widget.title || 'Call to Action'}</p><p className="text-sm text-gray-500 text-center mt-1">{widget.buttonText || 'Button'}</p></div>
+                                  <p className="leading-snug hover:text-[#6C60FF] cursor-pointer text-[#101828] text-base line-clamp-2">{ctaSidebarTitle(widget)}</p>
+                            <div className="flex items-center gap-1.5 mt-1 text-gray-400 text-sm"><Pointer className="w-4 h-4" /><span className="line-clamp-1">{widget.buttonText || 'Button'}</span></div>
                                 </div>
                               </div>
                             ))}
                           </React.Fragment>
                         );
                       })}
+                      {/* Pinned "Share Request a Moment" buttons — always after the last item */}
+                      {ctaWidgets.filter(w => w.pinToBottom).map(widget => (
+                        <div key={widget.id} className="relative pl-10 pb-4 cursor-pointer" onClick={() => { const el = ctaWidgetCardRefs.current[widget.id]; if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' }); }}>
+                          <div className="absolute left-0 top-7 bottom-8 w-0.5 bg-[#D1D5DC]" style={{ transform: 'translateX(-1px)' }} />
+                          <div className="absolute -left-3.5 top-0 w-7 h-7 rounded-full flex items-center justify-center bg-[#6C60FF]/10 text-[#6C60FF]"><Pointer className="w-3.5 h-3.5" /></div>
+                          <div className="relative transition-all duration-200">
+                            <p className="leading-snug hover:text-[#6C60FF] cursor-pointer text-[#101828] text-base line-clamp-2">{ctaSidebarTitle(widget)}</p>
+                            <div className="flex items-center gap-1.5 mt-1 text-gray-400 text-sm"><Pointer className="w-4 h-4" /><span className="line-clamp-1">{widget.buttonText || 'Button'}</span></div>
+                          </div>
+                        </div>
+                      ))}
 
                       {/* E-Business Card - Shared Desktop */}
                       {!!apiMemoryData?.user?.is_business && (
@@ -8334,17 +9298,22 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                     </div>
                     <div className="relative z-10 space-y-6 -mt-48 px-4 mx-2">
                       <div className="flex items-center justify-between rounded-2xl">
-                        <div className="text-white text-lg"><span className="font-semibold">Timeline</span><span className="mx-2 text-white">•</span><span className="text-white">{sharedFilteredPosts.length} moments</span></div>
+                        <div className="text-white text-lg"><span className="font-semibold">Timeline</span><span className="mx-2 text-white">•</span><span className="text-white">{sharedTotalMomentsCount} moments</span></div>
                         <button className="px-4 py-2 bg-gray-100 text-gray-800 text-base font-medium rounded-lg hover:bg-gray-200" onClick={() => { const el = sharedDesktopCardRefs.current[0]; if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); }}>Continue</button>
                       </div>
                       {htmlWidgets.filter(w => w.afterPostId === null).map(widget => (
                         <div key={widget.id} ref={(el) => { htmlWidgetCardRefs.current[widget.id] = el; }} data-widget-id={widget.id} className="rounded-2xl bg-white p-4 border border-gray-100"><div className="[&_h1]:text-2xl [&_h1]:font-bold [&_p]:my-2 [&_ul]:list-disc [&_ul]:pl-5 [&_a]:text-[#6C60FF] [&_a]:underline [&_strong]:font-bold" dangerouslySetInnerHTML={{ __html: widget.content }} /></div>
                       ))}
+                      {youtubeWidgets.filter(w => w.afterPostId === null).map(widget => (
+                        <div key={widget.id} ref={(el) => { youtubeWidgetCardRefs.current[widget.id] = el; }} className="rounded-2xl bg-white p-4 border border-gray-100"><iframe width="100%" height="240" src={`https://www.youtube.com/embed/${widget.videoId}?autoplay=0`} allow="accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen className="rounded-lg" /></div>
+                      ))}
                       {quoteWidgets.filter(w => w.afterPostId === null).map(widget => (
                         <div key={widget.id} ref={(el) => { quoteWidgetCardRefs.current[widget.id] = el; }} className="rounded-2xl bg-[#F0EEFF] p-6 relative border border-gray-100 border-l-4 border-l-[#6C60FF]"><p className="text-xl font-bold text-gray-800 text-center leading-relaxed mt-4 break-words">{widget.text}</p>{widget.author && <p className="text-sm text-gray-500 text-center mt-3">— {widget.author}</p>}</div>
                       ))}
-                      {ctaWidgets.filter(w => w.afterPostId === null).map(widget => (
-                        <CTAWidgetCard key={widget.id} widget={widget} memoryId={memoryId} cardRef={(el) => { ctaWidgetCardRefs.current[widget.id] = el; }} isActive={activeCtaWidgetId === widget.id} />
+                      {renderProductWidgets(null)}
+                      {renderAiCreatorWidgets(null)}
+                      {ctaWidgets.filter(w => w.afterPostId === null && !w.pinToBottom).map(widget => (
+                        <CTAWidgetCard onRequestMoment={openSharedRequestMoment} key={widget.id} widget={widget} memoryId={memoryId} cardRef={(el) => { ctaWidgetCardRefs.current[widget.id] = el; }} isActive={activeCtaWidgetId === widget.id} />
                       ))}
                       {sharedUnifiedItems.length > 0 ? sharedUnifiedItems.map((uItem: any) => {
                         if (uItem.type === 'linked') return renderSharedLinkedCard(uItem.data, 'shared-desktop');
@@ -8364,12 +9333,18 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                           {quoteWidgets.filter(w => w.afterPostId === post.id?.toString()).map(widget => (
                             <div key={widget.id} ref={(el) => { quoteWidgetCardRefs.current[widget.id] = el; }} className="rounded-2xl bg-[#F0EEFF] p-6 relative border border-gray-100 border-l-4 border-l-[#6C60FF]"><p className="text-xl font-bold text-gray-800 text-center leading-relaxed mt-4 break-words">{widget.text}</p>{widget.author && <p className="text-sm text-gray-500 text-center mt-3">— {widget.author}</p>}</div>
                           ))}
-                          {ctaWidgets.filter(w => w.afterPostId === post.id?.toString()).map(widget => (
-                            <CTAWidgetCard key={widget.id} widget={widget} memoryId={memoryId} cardRef={(el) => { ctaWidgetCardRefs.current[widget.id] = el; }} isActive={activeCtaWidgetId === widget.id} />
+                          {renderProductWidgets(post.id?.toString())}
+                          {renderAiCreatorWidgets(post.id?.toString())}
+                          {ctaWidgets.filter(w => w.afterPostId === post.id?.toString() && !w.pinToBottom).map(widget => (
+                            <CTAWidgetCard onRequestMoment={openSharedRequestMoment} key={widget.id} widget={widget} memoryId={memoryId} cardRef={(el) => { ctaWidgetCardRefs.current[widget.id] = el; }} isActive={activeCtaWidgetId === widget.id} />
                           ))}
                         </React.Fragment>
                         );
                       }) : <div className="text-center py-12 text-gray-500 bg-white rounded-xl"><p>No moments to display</p></div>}
+                      {/* Pinned "Share Request a Moment" buttons — always after the last item */}
+                      {ctaWidgets.filter(w => w.pinToBottom).map(widget => (
+                        <CTAWidgetCard onRequestMoment={openSharedRequestMoment} key={widget.id} widget={widget} memoryId={memoryId} cardRef={(el) => { ctaWidgetCardRefs.current[widget.id] = el; }} isActive={activeCtaWidgetId === widget.id} />
+                      ))}
                       <div className="mt-8 py-6 text-center"><p className="text-base text-gray-500">Powered by <span className="font-semibold text-[#6C60FF]">Stasht</span></p></div>
                     </div>
                   </div>
@@ -8378,6 +9353,13 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
             </div>
           </div>
         </div>
+
+        {/* Shopify Product Picker */}
+        <ShopifyProductPicker
+          isOpen={isProductPickerOpen}
+          onClose={() => { setIsProductPickerOpen(false); setProductWidgetAfterPostId(null); }}
+          onAdd={handleAddProductWidgets}
+        />
 
         {/* Add Moment Modal */}
         <AddMomentModal
@@ -8667,6 +9649,9 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
           filename={imageViewer.filename}
           dateTaken={imageViewer.dateTaken}
           location={imageViewer.location}
+          description={imageViewer.description}
+          specs={imageViewer.specs}
+          disableDescriptionEdit={imageViewer.disableDescriptionEdit}
           images={imageViewer.images}
           largeSize={true}
           coverContentOnly={false}
@@ -11507,7 +12492,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                             <div className="text-lg">
                               <span className="font-bold text-white">Timeline</span>
                               <span className="mx-2 text-white/70">&#8226;</span>
-                              <span className="text-white/90">{sortedTimelinePosts.length} moments</span>
+                              <span className="text-white/90">{totalMomentsCount} moments</span>
                             </div>
                             <div className="flex items-center gap-2">
                               {!isSuggestedCategory && (
@@ -11917,7 +12902,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                   <div className="flex items-center justify-between pb-4 mb-4 border-b" style={{ borderColor: '#BFBFBF' }}>
                     <div className="flex items-center gap-2">
                       <h3 className="font-semibold text-gray-900 text-lg">Timeline</h3>
-                      <span className="text-base text-gray-500">{sortedTimelinePosts.length} moments</span>
+                      <span className="text-base text-gray-500">{totalMomentsCount} moments</span>
                     </div>
                     <div className="flex items-center gap-2">
                       {/* Share Button */}
@@ -12060,11 +13045,11 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                 </div>
                                 <div className="max-h-[320px] overflow-y-auto">
                                   {[
-                                    { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#F0FDFA" fillOpacity="0.4"/><circle cx="17.5" cy="17.5" r="6.5" stroke="#009689" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><polyline points="17.5 13.5 17.5 17.5 20.5 19" stroke="#009689" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/></svg>, label: 'Moment', desc: 'Add a special moment' }, { icon: <div className="w-full h-full rounded-[8px] bg-[#6C60FF]/10 flex items-center justify-center"><Pointer className="w-5 h-5 text-[#6C60FF]" /></div>, label: 'Call to Action', desc: 'Add a button with a link' },
+                                    { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#F0FDFA" fillOpacity="0.4"/><circle cx="17.5" cy="17.5" r="6.5" stroke="#009689" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><polyline points="17.5 13.5 17.5 17.5 20.5 19" stroke="#009689" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/></svg>, label: 'Moment', desc: 'Add a special moment' }, { icon: <div className="w-full h-full rounded-[8px] bg-[#6C60FF]/10 flex items-center justify-center"><Pointer className="w-5 h-5 text-[#6C60FF]" /></div>, label: 'Call to Action', desc: 'Add a button with a link' }, { icon: <div className="w-full h-full rounded-[8px] bg-[#6C60FF]/10 flex items-center justify-center"><Upload className="w-5 h-5 text-[#6C60FF]" /></div>, label: 'Share Request a Moment', desc: 'Allow photos and caption contributions' },
                                     { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#6C60FF" fillOpacity="0.1"/><rect x="14" y="10" width="7" height="10" rx="3.5" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><path d="M11 20.5C11 23.538 13.91 26 17.5 26C21.09 26 24 23.538 24 20.5" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><line x1="17.5" y1="26" x2="17.5" y2="29" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round"/><line x1="14.5" y1="29" x2="20.5" y2="29" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round"/></svg>, label: 'Voice to Text', desc: 'Create moment captions' },
                                     { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#6C60FF" fillOpacity="0.1"/><polyline points="21 22 25 17.5 21 13" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><polyline points="14 13 10 17.5 14 22" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/></svg>, label: 'HTML', desc: 'Add custom HTML content' },
                                     { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#FF4444" fillOpacity="0.1"/><path d="M22.5 13H12.5C11.67 13 11 13.67 11 14.5V20.5C11 21.33 11.67 22 12.5 22H22.5C23.33 22 24 21.33 24 20.5V14.5C24 13.67 23.33 13 22.5 13Z" stroke="#FF4444" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><path d="M16 19.5V15.5L20 17.5L16 19.5Z" stroke="#FF4444" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round" fill="none"/></svg>, label: 'Youtube', desc: 'Embed a YouTube link' },
-                                    { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#F59E0B" fillOpacity="0.1"/><path d="M19.5 12C19.15 12 18.82 12.14 18.57 12.39C18.32 12.64 18.17 12.98 18.17 13.33V17.33C18.17 17.68 18.32 18.02 18.57 18.27C18.82 18.52 19.15 18.67 19.5 18.67C19.68 18.67 19.85 18.74 19.97 18.86C20.1 18.99 20.17 19.16 20.17 19.33V20C20.17 20.35 20.02 20.69 19.77 20.94C19.52 21.19 19.19 21.33 18.83 21.33C18.65 21.33 18.49 21.4 18.36 21.53C18.24 21.65 18.17 21.82 18.17 22V23.33C18.17 23.51 18.24 23.68 18.36 23.8C18.49 23.93 18.65 24 18.83 24C19.89 24 20.91 23.58 21.66 22.83C22.41 22.08 22.83 21.06 22.83 20V13.33C22.83 12.98 22.69 12.64 22.44 12.39C22.19 12.14 21.85 12 21.5 12H19.5Z" stroke="#F59E0B" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/><path d="M13.17 12C12.81 12 12.47 12.14 12.22 12.39C11.97 12.64 11.83 12.98 11.83 13.33V17.33C11.83 17.68 11.97 18.02 12.22 18.27C12.47 18.52 12.81 18.67 13.17 18.67C13.34 18.67 13.51 18.74 13.64 18.86C13.76 18.99 13.83 19.16 13.83 19.33V20C13.83 20.35 13.69 20.69 13.44 20.94C13.19 21.19 12.85 21.33 12.5 21.33C12.32 21.33 12.16 21.4 12.03 21.53C11.9 21.65 11.83 21.82 11.83 22V23.33C11.83 23.51 11.9 23.68 12.03 23.8C12.16 23.93 12.32 24 12.5 24C13.56 24 14.58 23.58 15.33 22.83C16.08 22.08 16.5 21.06 16.5 20V13.33C16.5 12.98 16.36 12.64 16.11 12.39C15.86 12.14 15.52 12 15.17 12H13.17Z" stroke="#F59E0B" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>, label: 'Quote', desc: 'Add an inspirational quote' }, ...(docuSignConnected ? [{ icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#1464A5" fillOpacity="0.1"/><rect x="12" y="10" width="11" height="14" rx="1.5" stroke="#1464A5" strokeWidth="1.45808"/><line x1="14.5" y1="14" x2="20.5" y2="14" stroke="#1464A5" strokeWidth="1.3" strokeLinecap="round"/><line x1="14.5" y1="17" x2="18.5" y2="17" stroke="#1464A5" strokeWidth="1.3" strokeLinecap="round"/></svg>, label: 'DocuSign', desc: 'Send for signature' }] : []),
+                                    { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#F59E0B" fillOpacity="0.1"/><path d="M19.5 12C19.15 12 18.82 12.14 18.57 12.39C18.32 12.64 18.17 12.98 18.17 13.33V17.33C18.17 17.68 18.32 18.02 18.57 18.27C18.82 18.52 19.15 18.67 19.5 18.67C19.68 18.67 19.85 18.74 19.97 18.86C20.1 18.99 20.17 19.16 20.17 19.33V20C20.17 20.35 20.02 20.69 19.77 20.94C19.52 21.19 19.19 21.33 18.83 21.33C18.65 21.33 18.49 21.4 18.36 21.53C18.24 21.65 18.17 21.82 18.17 22V23.33C18.17 23.51 18.24 23.68 18.36 23.8C18.49 23.93 18.65 24 18.83 24C19.89 24 20.91 23.58 21.66 22.83C22.41 22.08 22.83 21.06 22.83 20V13.33C22.83 12.98 22.69 12.64 22.44 12.39C22.19 12.14 21.85 12 21.5 12H19.5Z" stroke="#F59E0B" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/><path d="M13.17 12C12.81 12 12.47 12.14 12.22 12.39C11.97 12.64 11.83 12.98 11.83 13.33V17.33C11.83 17.68 11.97 18.02 12.22 18.27C12.47 18.52 12.81 18.67 13.17 18.67C13.34 18.67 13.51 18.74 13.64 18.86C13.76 18.99 13.83 19.16 13.83 19.33V20C13.83 20.35 13.69 20.69 13.44 20.94C13.19 21.19 12.85 21.33 12.5 21.33C12.32 21.33 12.16 21.4 12.03 21.53C11.9 21.65 11.83 21.82 11.83 22V23.33C11.83 23.51 11.9 23.68 12.03 23.8C12.16 23.93 12.32 24 12.5 24C13.56 24 14.58 23.58 15.33 22.83C16.08 22.08 16.5 21.06 16.5 20V13.33C16.5 12.98 16.36 12.64 16.11 12.39C15.86 12.14 15.52 12 15.17 12H13.17Z" stroke="#F59E0B" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>, label: 'Quote', desc: 'Add an inspirational quote' }, { icon: <div className="w-full h-full rounded-[8px] bg-[#6C60FF]/10 flex items-center justify-center"><Sparkles className="w-5 h-5 text-[#6C60FF]" /></div>, label: 'AI Creator', desc: 'Generate content with AI' }, ...(docuSignConnected ? [{ icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#1464A5" fillOpacity="0.1"/><rect x="12" y="10" width="11" height="14" rx="1.5" stroke="#1464A5" strokeWidth="1.45808"/><line x1="14.5" y1="14" x2="20.5" y2="14" stroke="#1464A5" strokeWidth="1.3" strokeLinecap="round"/><line x1="14.5" y1="17" x2="18.5" y2="17" stroke="#1464A5" strokeWidth="1.3" strokeLinecap="round"/></svg>, label: 'DocuSign', desc: 'Send for signature' }] : []),
                                   ].map((item) => (
                                     <PopoverClose asChild key={item.label}>
                                     <div
@@ -12083,10 +13068,15 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                         } else if (item.label === 'Quote') {
                                           setQuoteWidgetAfterPostId(null);
                                           setIsAddQuoteModalOpen(true);
+                                        } else if (item.label === 'AI Creator') {
+                                          setAiCreatorWidgetAfterPostId(null);
+                                          setIsAddAiCreatorModalOpen(true);
                                         } else if (item.label === 'Call to Action') {
                                           setCtaWidgetAfterPostId(null);
                                           setEditingCtaWidgetId(null);
                                           setIsAddCtaModalOpen(true);
+                                        } else if (item.label === 'Share Request a Moment') {
+                                          openAddRequestMomentCta(null);
                                         } else if (item.label === 'Voice to Text') {
                                           setVoiceToTextAfterPostId(null);
                                           setIsVoiceToTextOpen(true);
@@ -12187,11 +13177,11 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                     </div>
                                     <div className="max-h-[320px] overflow-y-auto">
                                       {[
-                                        { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#F0FDFA" fillOpacity="0.4"/><circle cx="17.5" cy="17.5" r="6.5" stroke="#009689" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><polyline points="17.5 13.5 17.5 17.5 20.5 19" stroke="#009689" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/></svg>, label: 'Moment', desc: 'Add a special moment' }, { icon: <div className="w-full h-full rounded-[8px] bg-[#6C60FF]/10 flex items-center justify-center"><Pointer className="w-5 h-5 text-[#6C60FF]" /></div>, label: 'Call to Action', desc: 'Add a button with a link' },
+                                        { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#F0FDFA" fillOpacity="0.4"/><circle cx="17.5" cy="17.5" r="6.5" stroke="#009689" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><polyline points="17.5 13.5 17.5 17.5 20.5 19" stroke="#009689" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/></svg>, label: 'Moment', desc: 'Add a special moment' }, { icon: <div className="w-full h-full rounded-[8px] bg-[#6C60FF]/10 flex items-center justify-center"><Pointer className="w-5 h-5 text-[#6C60FF]" /></div>, label: 'Call to Action', desc: 'Add a button with a link' }, { icon: <div className="w-full h-full rounded-[8px] bg-[#6C60FF]/10 flex items-center justify-center"><Upload className="w-5 h-5 text-[#6C60FF]" /></div>, label: 'Share Request a Moment', desc: 'Allow photos and caption contributions' },
                                         { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#6C60FF" fillOpacity="0.1"/><rect x="14" y="10" width="7" height="10" rx="3.5" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><path d="M11 20.5C11 23.538 13.91 26 17.5 26C21.09 26 24 23.538 24 20.5" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><line x1="17.5" y1="26" x2="17.5" y2="29" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round"/><line x1="14.5" y1="29" x2="20.5" y2="29" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round"/></svg>, label: 'Voice to Text', desc: 'Create moment captions' },
                                         { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#6C60FF" fillOpacity="0.1"/><polyline points="21 22 25 17.5 21 13" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><polyline points="14 13 10 17.5 14 22" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/></svg>, label: 'HTML', desc: 'Add custom HTML content' },
                                         { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#FF4444" fillOpacity="0.1"/><path d="M22.5 13H12.5C11.67 13 11 13.67 11 14.5V20.5C11 21.33 11.67 22 12.5 22H22.5C23.33 22 24 21.33 24 20.5V14.5C24 13.67 23.33 13 22.5 13Z" stroke="#FF4444" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><path d="M16 19.5V15.5L20 17.5L16 19.5Z" stroke="#FF4444" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round" fill="none"/></svg>, label: 'Youtube', desc: 'Embed a YouTube link' },
-                                        { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#F59E0B" fillOpacity="0.1"/><path d="M19.5 12C19.15 12 18.82 12.14 18.57 12.39C18.32 12.64 18.17 12.98 18.17 13.33V17.33C18.17 17.68 18.32 18.02 18.57 18.27C18.82 18.52 19.15 18.67 19.5 18.67C19.68 18.67 19.85 18.74 19.97 18.86C20.1 18.99 20.17 19.16 20.17 19.33V20C20.17 20.35 20.02 20.69 19.77 20.94C19.52 21.19 19.19 21.33 18.83 21.33C18.65 21.33 18.49 21.4 18.36 21.53C18.24 21.65 18.17 21.82 18.17 22V23.33C18.17 23.51 18.24 23.68 18.36 23.8C18.49 23.93 18.65 24 18.83 24C19.89 24 20.91 23.58 21.66 22.83C22.41 22.08 22.83 21.06 22.83 20V13.33C22.83 12.98 22.69 12.64 22.44 12.39C22.19 12.14 21.85 12 21.5 12H19.5Z" stroke="#F59E0B" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/><path d="M13.17 12C12.81 12 12.47 12.14 12.22 12.39C11.97 12.64 11.83 12.98 11.83 13.33V17.33C11.83 17.68 11.97 18.02 12.22 18.27C12.47 18.52 12.81 18.67 13.17 18.67C13.34 18.67 13.51 18.74 13.64 18.86C13.76 18.99 13.83 19.16 13.83 19.33V20C13.83 20.35 13.69 20.69 13.44 20.94C13.19 21.19 12.85 21.33 12.5 21.33C12.32 21.33 12.16 21.4 12.03 21.53C11.9 21.65 11.83 21.82 11.83 22V23.33C11.83 23.51 11.9 23.68 12.03 23.8C12.16 23.93 12.32 24 12.5 24C13.56 24 14.58 23.58 15.33 22.83C16.08 22.08 16.5 21.06 16.5 20V13.33C16.5 12.98 16.36 12.64 16.11 12.39C15.86 12.14 15.52 12 15.17 12H13.17Z" stroke="#F59E0B" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>, label: 'Quote', desc: 'Add an inspirational quote' }, ...(docuSignConnected ? [{ icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#1464A5" fillOpacity="0.1"/><rect x="12" y="10" width="11" height="14" rx="1.5" stroke="#1464A5" strokeWidth="1.45808"/><line x1="14.5" y1="14" x2="20.5" y2="14" stroke="#1464A5" strokeWidth="1.3" strokeLinecap="round"/><line x1="14.5" y1="17" x2="18.5" y2="17" stroke="#1464A5" strokeWidth="1.3" strokeLinecap="round"/></svg>, label: 'DocuSign', desc: 'Send for signature' }] : []),
+                                        { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#F59E0B" fillOpacity="0.1"/><path d="M19.5 12C19.15 12 18.82 12.14 18.57 12.39C18.32 12.64 18.17 12.98 18.17 13.33V17.33C18.17 17.68 18.32 18.02 18.57 18.27C18.82 18.52 19.15 18.67 19.5 18.67C19.68 18.67 19.85 18.74 19.97 18.86C20.1 18.99 20.17 19.16 20.17 19.33V20C20.17 20.35 20.02 20.69 19.77 20.94C19.52 21.19 19.19 21.33 18.83 21.33C18.65 21.33 18.49 21.4 18.36 21.53C18.24 21.65 18.17 21.82 18.17 22V23.33C18.17 23.51 18.24 23.68 18.36 23.8C18.49 23.93 18.65 24 18.83 24C19.89 24 20.91 23.58 21.66 22.83C22.41 22.08 22.83 21.06 22.83 20V13.33C22.83 12.98 22.69 12.64 22.44 12.39C22.19 12.14 21.85 12 21.5 12H19.5Z" stroke="#F59E0B" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/><path d="M13.17 12C12.81 12 12.47 12.14 12.22 12.39C11.97 12.64 11.83 12.98 11.83 13.33V17.33C11.83 17.68 11.97 18.02 12.22 18.27C12.47 18.52 12.81 18.67 13.17 18.67C13.34 18.67 13.51 18.74 13.64 18.86C13.76 18.99 13.83 19.16 13.83 19.33V20C13.83 20.35 13.69 20.69 13.44 20.94C13.19 21.19 12.85 21.33 12.5 21.33C12.32 21.33 12.16 21.4 12.03 21.53C11.9 21.65 11.83 21.82 11.83 22V23.33C11.83 23.51 11.9 23.68 12.03 23.8C12.16 23.93 12.32 24 12.5 24C13.56 24 14.58 23.58 15.33 22.83C16.08 22.08 16.5 21.06 16.5 20V13.33C16.5 12.98 16.36 12.64 16.11 12.39C15.86 12.14 15.52 12 15.17 12H13.17Z" stroke="#F59E0B" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>, label: 'Quote', desc: 'Add an inspirational quote' }, { icon: <div className="w-full h-full rounded-[8px] bg-[#6C60FF]/10 flex items-center justify-center"><Sparkles className="w-5 h-5 text-[#6C60FF]" /></div>, label: 'AI Creator', desc: 'Generate content with AI' }, ...(docuSignConnected ? [{ icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#1464A5" fillOpacity="0.1"/><rect x="12" y="10" width="11" height="14" rx="1.5" stroke="#1464A5" strokeWidth="1.45808"/><line x1="14.5" y1="14" x2="20.5" y2="14" stroke="#1464A5" strokeWidth="1.3" strokeLinecap="round"/><line x1="14.5" y1="17" x2="18.5" y2="17" stroke="#1464A5" strokeWidth="1.3" strokeLinecap="round"/></svg>, label: 'DocuSign', desc: 'Send for signature' }] : []),
                                       ].map((item) => (
                                         <PopoverClose asChild key={item.label}>
                                         <div
@@ -12210,10 +13200,15 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                             } else if (item.label === 'Quote') {
                                               setQuoteWidgetAfterPostId(null);
                                               setIsAddQuoteModalOpen(true);
+                                            } else if (item.label === 'AI Creator') {
+                                              setAiCreatorWidgetAfterPostId(null);
+                                              setIsAddAiCreatorModalOpen(true);
                                             } else if (item.label === 'Call to Action') {
                                               setCtaWidgetAfterPostId(null);
                                               setEditingCtaWidgetId(null);
                                               setIsAddCtaModalOpen(true);
+                                            } else if (item.label === 'Share Request a Moment') {
+                                              openAddRequestMomentCta(null);
                                             } else if (item.label === 'Voice to Text') {
                                               setVoiceToTextAfterPostId(null);
                                               setIsVoiceToTextOpen(true);
@@ -12241,6 +13236,47 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                         </div>
                       );
                     })}
+
+                    {/* AI Creator widget titles added from intro + button */}
+                    {aiCreatorWidgets.filter(w => w.afterPostId === null).map(widget => (
+                      <div key={widget.id} className="relative pl-10 pb-4 transition-all duration-200 cursor-pointer" onClick={() => {
+                        const el = aiCreatorWidgetCardRefs.current[widget.id];
+                        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                      }}>
+                        <div className="absolute left-0 top-7 bottom-8 w-0.5 bg-[#D1D5DC]" style={{ transform: 'translateX(-1px)' }} />
+                        <div className="absolute -left-3.5 top-0 w-7 h-7 rounded-full flex items-center justify-center transition-all bg-[#6C60FF]/10 text-[#6C60FF]">
+                          <Sparkles className="w-3.5 h-3.5" />
+                        </div>
+                        <div className="group/border relative pr-6 transition-all duration-200">
+                          <div className="absolute top-0 -right-1 z-10">
+                            <Popover>
+                              <PopoverTrigger asChild>
+                                <div className="cursor-pointer" onClick={(e) => e.stopPropagation()}>
+                                  <MoreVertical className="w-5 h-5 text-[#6C60FF]" />
+                                </div>
+                              </PopoverTrigger>
+                              <PopoverContent side="bottom" align="end" className="w-44 p-1 rounded-lg shadow-lg border border-gray-200 bg-white" sideOffset={4}>
+                                <div
+                                  className="flex items-center gap-2.5 px-3 py-2 hover:bg-red-50 cursor-pointer rounded-md transition-colors"
+                                  onClick={(e) => { e.stopPropagation(); deleteAiCreatorWidget(widget); }}
+                                >
+                                  <Trash2 className="w-4 h-4 text-red-500" />
+                                  <span className="text-sm text-red-500">Delete</span>
+                                </div>
+                              </PopoverContent>
+                            </Popover>
+                          </div>
+                          <p className="leading-snug transition-all duration-200 hover:text-[#6C60FF] cursor-pointer text-[#101828] text-base line-clamp-2">AI Creator</p>
+                          <div className="flex items-center gap-1.5 mt-1 text-gray-400 text-sm">
+                            <Clock className="w-4 h-4" />
+                            <span>{new Date(widget.createdAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}</span>
+                          </div>
+                          <div className="relative mt-8">
+                            <div className="border-b border-dashed border-[#6C60FF]/40 group-hover/border:border-[#6C60FF]/40" />
+                          </div>
+                        </div>
+                      </div>
+                    ))}
 
                     {/* YouTube widget titles added from intro + button */}
                     {youtubeWidgets.filter(w => w.afterPostId === null).map(widget => {
@@ -12311,11 +13347,11 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                     </div>
                                     <div className="max-h-[320px] overflow-y-auto">
                                       {[
-                                        { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#F0FDFA" fillOpacity="0.4"/><circle cx="17.5" cy="17.5" r="6.5" stroke="#009689" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><polyline points="17.5 13.5 17.5 17.5 20.5 19" stroke="#009689" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/></svg>, label: 'Moment', desc: 'Add a special moment' }, { icon: <div className="w-full h-full rounded-[8px] bg-[#6C60FF]/10 flex items-center justify-center"><Pointer className="w-5 h-5 text-[#6C60FF]" /></div>, label: 'Call to Action', desc: 'Add a button with a link' },
+                                        { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#F0FDFA" fillOpacity="0.4"/><circle cx="17.5" cy="17.5" r="6.5" stroke="#009689" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><polyline points="17.5 13.5 17.5 17.5 20.5 19" stroke="#009689" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/></svg>, label: 'Moment', desc: 'Add a special moment' }, { icon: <div className="w-full h-full rounded-[8px] bg-[#6C60FF]/10 flex items-center justify-center"><Pointer className="w-5 h-5 text-[#6C60FF]" /></div>, label: 'Call to Action', desc: 'Add a button with a link' }, { icon: <div className="w-full h-full rounded-[8px] bg-[#6C60FF]/10 flex items-center justify-center"><Upload className="w-5 h-5 text-[#6C60FF]" /></div>, label: 'Share Request a Moment', desc: 'Allow photos and caption contributions' },
                                         { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#6C60FF" fillOpacity="0.1"/><rect x="14" y="10" width="7" height="10" rx="3.5" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><path d="M11 20.5C11 23.538 13.91 26 17.5 26C21.09 26 24 23.538 24 20.5" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><line x1="17.5" y1="26" x2="17.5" y2="29" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round"/><line x1="14.5" y1="29" x2="20.5" y2="29" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round"/></svg>, label: 'Voice to Text', desc: 'Create moment captions' },
                                         { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#6C60FF" fillOpacity="0.1"/><polyline points="21 22 25 17.5 21 13" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><polyline points="14 13 10 17.5 14 22" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/></svg>, label: 'HTML', desc: 'Add custom HTML content' },
                                         { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#FF4444" fillOpacity="0.1"/><path d="M22.5 13H12.5C11.67 13 11 13.67 11 14.5V20.5C11 21.33 11.67 22 12.5 22H22.5C23.33 22 24 21.33 24 20.5V14.5C24 13.67 23.33 13 22.5 13Z" stroke="#FF4444" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><path d="M16 19.5V15.5L20 17.5L16 19.5Z" stroke="#FF4444" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round" fill="none"/></svg>, label: 'Youtube', desc: 'Embed a YouTube link' },
-                                        { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#F59E0B" fillOpacity="0.1"/><path d="M19.5 12C19.15 12 18.82 12.14 18.57 12.39C18.32 12.64 18.17 12.98 18.17 13.33V17.33C18.17 17.68 18.32 18.02 18.57 18.27C18.82 18.52 19.15 18.67 19.5 18.67C19.68 18.67 19.85 18.74 19.97 18.86C20.1 18.99 20.17 19.16 20.17 19.33V20C20.17 20.35 20.02 20.69 19.77 20.94C19.52 21.19 19.19 21.33 18.83 21.33C18.65 21.33 18.49 21.4 18.36 21.53C18.24 21.65 18.17 21.82 18.17 22V23.33C18.17 23.51 18.24 23.68 18.36 23.8C18.49 23.93 18.65 24 18.83 24C19.89 24 20.91 23.58 21.66 22.83C22.41 22.08 22.83 21.06 22.83 20V13.33C22.83 12.98 22.69 12.64 22.44 12.39C22.19 12.14 21.85 12 21.5 12H19.5Z" stroke="#F59E0B" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/><path d="M13.17 12C12.81 12 12.47 12.14 12.22 12.39C11.97 12.64 11.83 12.98 11.83 13.33V17.33C11.83 17.68 11.97 18.02 12.22 18.27C12.47 18.52 12.81 18.67 13.17 18.67C13.34 18.67 13.51 18.74 13.64 18.86C13.76 18.99 13.83 19.16 13.83 19.33V20C13.83 20.35 13.69 20.69 13.44 20.94C13.19 21.19 12.85 21.33 12.5 21.33C12.32 21.33 12.16 21.4 12.03 21.53C11.9 21.65 11.83 21.82 11.83 22V23.33C11.83 23.51 11.9 23.68 12.03 23.8C12.16 23.93 12.32 24 12.5 24C13.56 24 14.58 23.58 15.33 22.83C16.08 22.08 16.5 21.06 16.5 20V13.33C16.5 12.98 16.36 12.64 16.11 12.39C15.86 12.14 15.52 12 15.17 12H13.17Z" stroke="#F59E0B" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>, label: 'Quote', desc: 'Add an inspirational quote' }, ...(docuSignConnected ? [{ icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#1464A5" fillOpacity="0.1"/><rect x="12" y="10" width="11" height="14" rx="1.5" stroke="#1464A5" strokeWidth="1.45808"/><line x1="14.5" y1="14" x2="20.5" y2="14" stroke="#1464A5" strokeWidth="1.3" strokeLinecap="round"/><line x1="14.5" y1="17" x2="18.5" y2="17" stroke="#1464A5" strokeWidth="1.3" strokeLinecap="round"/></svg>, label: 'DocuSign', desc: 'Send for signature' }] : []),
+                                        { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#F59E0B" fillOpacity="0.1"/><path d="M19.5 12C19.15 12 18.82 12.14 18.57 12.39C18.32 12.64 18.17 12.98 18.17 13.33V17.33C18.17 17.68 18.32 18.02 18.57 18.27C18.82 18.52 19.15 18.67 19.5 18.67C19.68 18.67 19.85 18.74 19.97 18.86C20.1 18.99 20.17 19.16 20.17 19.33V20C20.17 20.35 20.02 20.69 19.77 20.94C19.52 21.19 19.19 21.33 18.83 21.33C18.65 21.33 18.49 21.4 18.36 21.53C18.24 21.65 18.17 21.82 18.17 22V23.33C18.17 23.51 18.24 23.68 18.36 23.8C18.49 23.93 18.65 24 18.83 24C19.89 24 20.91 23.58 21.66 22.83C22.41 22.08 22.83 21.06 22.83 20V13.33C22.83 12.98 22.69 12.64 22.44 12.39C22.19 12.14 21.85 12 21.5 12H19.5Z" stroke="#F59E0B" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/><path d="M13.17 12C12.81 12 12.47 12.14 12.22 12.39C11.97 12.64 11.83 12.98 11.83 13.33V17.33C11.83 17.68 11.97 18.02 12.22 18.27C12.47 18.52 12.81 18.67 13.17 18.67C13.34 18.67 13.51 18.74 13.64 18.86C13.76 18.99 13.83 19.16 13.83 19.33V20C13.83 20.35 13.69 20.69 13.44 20.94C13.19 21.19 12.85 21.33 12.5 21.33C12.32 21.33 12.16 21.4 12.03 21.53C11.9 21.65 11.83 21.82 11.83 22V23.33C11.83 23.51 11.9 23.68 12.03 23.8C12.16 23.93 12.32 24 12.5 24C13.56 24 14.58 23.58 15.33 22.83C16.08 22.08 16.5 21.06 16.5 20V13.33C16.5 12.98 16.36 12.64 16.11 12.39C15.86 12.14 15.52 12 15.17 12H13.17Z" stroke="#F59E0B" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>, label: 'Quote', desc: 'Add an inspirational quote' }, { icon: <div className="w-full h-full rounded-[8px] bg-[#6C60FF]/10 flex items-center justify-center"><Sparkles className="w-5 h-5 text-[#6C60FF]" /></div>, label: 'AI Creator', desc: 'Generate content with AI' }, ...(docuSignConnected ? [{ icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#1464A5" fillOpacity="0.1"/><rect x="12" y="10" width="11" height="14" rx="1.5" stroke="#1464A5" strokeWidth="1.45808"/><line x1="14.5" y1="14" x2="20.5" y2="14" stroke="#1464A5" strokeWidth="1.3" strokeLinecap="round"/><line x1="14.5" y1="17" x2="18.5" y2="17" stroke="#1464A5" strokeWidth="1.3" strokeLinecap="round"/></svg>, label: 'DocuSign', desc: 'Send for signature' }] : []),
                                       ].map((item) => (
                                         <PopoverClose asChild key={item.label}>
                                         <div
@@ -12335,10 +13371,15 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                             } else if (item.label === 'Quote') {
                                               setQuoteWidgetAfterPostId(widget.afterPostId);
                                               setIsAddQuoteModalOpen(true);
+                                            } else if (item.label === 'AI Creator') {
+                                              setAiCreatorWidgetAfterPostId(widget.afterPostId);
+                                              setIsAddAiCreatorModalOpen(true);
                                             } else if (item.label === 'Call to Action') {
                                               setCtaWidgetAfterPostId(widget.afterPostId);
                                               setEditingCtaWidgetId(null);
                                               setIsAddCtaModalOpen(true);
+                                            } else if (item.label === 'Share Request a Moment') {
+                                              openAddRequestMomentCta(widget.afterPostId);
                                             } else if (item.label === 'Voice to Text') {
                                               setVoiceToTextAfterPostId(widget.afterPostId || null);
                                               setIsVoiceToTextOpen(true);
@@ -12439,11 +13480,11 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                     </div>
                                     <div className="max-h-[320px] overflow-y-auto">
                                       {[
-                                        { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#F0FDFA" fillOpacity="0.4"/><circle cx="17.5" cy="17.5" r="6.5" stroke="#009689" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><polyline points="17.5 13.5 17.5 17.5 20.5 19" stroke="#009689" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/></svg>, label: 'Moment', desc: 'Add a special moment' }, { icon: <div className="w-full h-full rounded-[8px] bg-[#6C60FF]/10 flex items-center justify-center"><Pointer className="w-5 h-5 text-[#6C60FF]" /></div>, label: 'Call to Action', desc: 'Add a button with a link' },
+                                        { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#F0FDFA" fillOpacity="0.4"/><circle cx="17.5" cy="17.5" r="6.5" stroke="#009689" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><polyline points="17.5 13.5 17.5 17.5 20.5 19" stroke="#009689" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/></svg>, label: 'Moment', desc: 'Add a special moment' }, { icon: <div className="w-full h-full rounded-[8px] bg-[#6C60FF]/10 flex items-center justify-center"><Pointer className="w-5 h-5 text-[#6C60FF]" /></div>, label: 'Call to Action', desc: 'Add a button with a link' }, { icon: <div className="w-full h-full rounded-[8px] bg-[#6C60FF]/10 flex items-center justify-center"><Upload className="w-5 h-5 text-[#6C60FF]" /></div>, label: 'Share Request a Moment', desc: 'Allow photos and caption contributions' },
                                         { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#6C60FF" fillOpacity="0.1"/><rect x="14" y="10" width="7" height="10" rx="3.5" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><path d="M11 20.5C11 23.538 13.91 26 17.5 26C21.09 26 24 23.538 24 20.5" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><line x1="17.5" y1="26" x2="17.5" y2="29" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round"/><line x1="14.5" y1="29" x2="20.5" y2="29" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round"/></svg>, label: 'Voice to Text', desc: 'Create moment captions' },
                                         { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#6C60FF" fillOpacity="0.1"/><polyline points="21 22 25 17.5 21 13" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><polyline points="14 13 10 17.5 14 22" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/></svg>, label: 'HTML', desc: 'Add custom HTML content' },
                                         { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#FF4444" fillOpacity="0.1"/><path d="M22.5 13H12.5C11.67 13 11 13.67 11 14.5V20.5C11 21.33 11.67 22 12.5 22H22.5C23.33 22 24 21.33 24 20.5V14.5C24 13.67 23.33 13 22.5 13Z" stroke="#FF4444" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><path d="M16 19.5V15.5L20 17.5L16 19.5Z" stroke="#FF4444" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round" fill="none"/></svg>, label: 'Youtube', desc: 'Embed a YouTube link' },
-                                        { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#F59E0B" fillOpacity="0.1"/><path d="M19.5 12C19.15 12 18.82 12.14 18.57 12.39C18.32 12.64 18.17 12.98 18.17 13.33V17.33C18.17 17.68 18.32 18.02 18.57 18.27C18.82 18.52 19.15 18.67 19.5 18.67C19.68 18.67 19.85 18.74 19.97 18.86C20.1 18.99 20.17 19.16 20.17 19.33V20C20.17 20.35 20.02 20.69 19.77 20.94C19.52 21.19 19.19 21.33 18.83 21.33C18.65 21.33 18.49 21.4 18.36 21.53C18.24 21.65 18.17 21.82 18.17 22V23.33C18.17 23.51 18.24 23.68 18.36 23.8C18.49 23.93 18.65 24 18.83 24C19.89 24 20.91 23.58 21.66 22.83C22.41 22.08 22.83 21.06 22.83 20V13.33C22.83 12.98 22.69 12.64 22.44 12.39C22.19 12.14 21.85 12 21.5 12H19.5Z" stroke="#F59E0B" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/><path d="M13.17 12C12.81 12 12.47 12.14 12.22 12.39C11.97 12.64 11.83 12.98 11.83 13.33V17.33C11.83 17.68 11.97 18.02 12.22 18.27C12.47 18.52 12.81 18.67 13.17 18.67C13.34 18.67 13.51 18.74 13.64 18.86C13.76 18.99 13.83 19.16 13.83 19.33V20C13.83 20.35 13.69 20.69 13.44 20.94C13.19 21.19 12.85 21.33 12.5 21.33C12.32 21.33 12.16 21.4 12.03 21.53C11.9 21.65 11.83 21.82 11.83 22V23.33C11.83 23.51 11.9 23.68 12.03 23.8C12.16 23.93 12.32 24 12.5 24C13.56 24 14.58 23.58 15.33 22.83C16.08 22.08 16.5 21.06 16.5 20V13.33C16.5 12.98 16.36 12.64 16.11 12.39C15.86 12.14 15.52 12 15.17 12H13.17Z" stroke="#F59E0B" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>, label: 'Quote', desc: 'Add an inspirational quote' }, ...(docuSignConnected ? [{ icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#1464A5" fillOpacity="0.1"/><rect x="12" y="10" width="11" height="14" rx="1.5" stroke="#1464A5" strokeWidth="1.45808"/><line x1="14.5" y1="14" x2="20.5" y2="14" stroke="#1464A5" strokeWidth="1.3" strokeLinecap="round"/><line x1="14.5" y1="17" x2="18.5" y2="17" stroke="#1464A5" strokeWidth="1.3" strokeLinecap="round"/></svg>, label: 'DocuSign', desc: 'Send for signature' }] : []),
+                                        { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#F59E0B" fillOpacity="0.1"/><path d="M19.5 12C19.15 12 18.82 12.14 18.57 12.39C18.32 12.64 18.17 12.98 18.17 13.33V17.33C18.17 17.68 18.32 18.02 18.57 18.27C18.82 18.52 19.15 18.67 19.5 18.67C19.68 18.67 19.85 18.74 19.97 18.86C20.1 18.99 20.17 19.16 20.17 19.33V20C20.17 20.35 20.02 20.69 19.77 20.94C19.52 21.19 19.19 21.33 18.83 21.33C18.65 21.33 18.49 21.4 18.36 21.53C18.24 21.65 18.17 21.82 18.17 22V23.33C18.17 23.51 18.24 23.68 18.36 23.8C18.49 23.93 18.65 24 18.83 24C19.89 24 20.91 23.58 21.66 22.83C22.41 22.08 22.83 21.06 22.83 20V13.33C22.83 12.98 22.69 12.64 22.44 12.39C22.19 12.14 21.85 12 21.5 12H19.5Z" stroke="#F59E0B" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/><path d="M13.17 12C12.81 12 12.47 12.14 12.22 12.39C11.97 12.64 11.83 12.98 11.83 13.33V17.33C11.83 17.68 11.97 18.02 12.22 18.27C12.47 18.52 12.81 18.67 13.17 18.67C13.34 18.67 13.51 18.74 13.64 18.86C13.76 18.99 13.83 19.16 13.83 19.33V20C13.83 20.35 13.69 20.69 13.44 20.94C13.19 21.19 12.85 21.33 12.5 21.33C12.32 21.33 12.16 21.4 12.03 21.53C11.9 21.65 11.83 21.82 11.83 22V23.33C11.83 23.51 11.9 23.68 12.03 23.8C12.16 23.93 12.32 24 12.5 24C13.56 24 14.58 23.58 15.33 22.83C16.08 22.08 16.5 21.06 16.5 20V13.33C16.5 12.98 16.36 12.64 16.11 12.39C15.86 12.14 15.52 12 15.17 12H13.17Z" stroke="#F59E0B" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>, label: 'Quote', desc: 'Add an inspirational quote' }, { icon: <div className="w-full h-full rounded-[8px] bg-[#6C60FF]/10 flex items-center justify-center"><Sparkles className="w-5 h-5 text-[#6C60FF]" /></div>, label: 'AI Creator', desc: 'Generate content with AI' }, ...(docuSignConnected ? [{ icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#1464A5" fillOpacity="0.1"/><rect x="12" y="10" width="11" height="14" rx="1.5" stroke="#1464A5" strokeWidth="1.45808"/><line x1="14.5" y1="14" x2="20.5" y2="14" stroke="#1464A5" strokeWidth="1.3" strokeLinecap="round"/><line x1="14.5" y1="17" x2="18.5" y2="17" stroke="#1464A5" strokeWidth="1.3" strokeLinecap="round"/></svg>, label: 'DocuSign', desc: 'Send for signature' }] : []),
                                       ].map((item) => (
                                         <PopoverClose asChild key={item.label}>
                                         <div
@@ -12462,10 +13503,15 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                             } else if (item.label === 'Quote') {
                                               setQuoteWidgetAfterPostId(null);
                                               setIsAddQuoteModalOpen(true);
+                                            } else if (item.label === 'AI Creator') {
+                                              setAiCreatorWidgetAfterPostId(null);
+                                              setIsAddAiCreatorModalOpen(true);
                                             } else if (item.label === 'Call to Action') {
                                               setCtaWidgetAfterPostId(null);
                                               setEditingCtaWidgetId(null);
                                               setIsAddCtaModalOpen(true);
+                                            } else if (item.label === 'Share Request a Moment') {
+                                              openAddRequestMomentCta(null);
                                             } else if (item.label === 'Voice to Text') {
                                               setVoiceToTextAfterPostId(null);
                                               setIsVoiceToTextOpen(true);
@@ -12493,7 +13539,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                         </div>
                       );
                     })}
-                    {ctaWidgets.filter(w => w.afterPostId === null).map(widget => renderCtaSidebarEntry(widget))}
+                    {ctaWidgets.filter(w => w.afterPostId === null && !w.pinToBottom).map(widget => renderCtaSidebarEntry(widget))}
 
                     {(combinedTimeline || [
                       ...(apiMemoryData?.linked_memories || []).map((lm: any) => ({ type: 'linked' as const, id: String(lm.id) })),
@@ -12608,9 +13654,16 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                 </Popover>
                               </div>
                             )}
-                            <p className={`leading-snug transition-all duration-200 hover:text-[#6C60FF] cursor-pointer text-[#101828] ${
-                              isActive ? 'text-lg font-semibold' : 'text-base line-clamp-2 font-medium'
-                            }`}>{activeSearchQuery ? highlightText(description, activeSearchQuery) : description}</p>
+                            {Array.isArray(post.variants) && !activeSearchQuery ? (
+                              <p
+                                className={`leading-snug transition-all duration-200 hover:text-[#6C60FF] cursor-pointer text-[#101828] ${isActive ? 'text-lg font-semibold' : 'text-base line-clamp-2 font-medium'}`}
+                                dangerouslySetInnerHTML={{ __html: sanitizeRichText(description) }}
+                              />
+                            ) : (
+                              <p className={`leading-snug transition-all duration-200 hover:text-[#6C60FF] cursor-pointer text-[#101828] ${
+                                isActive ? 'text-lg font-semibold' : 'text-base line-clamp-2 font-medium'
+                              }`}>{activeSearchQuery ? highlightText(description, activeSearchQuery) : description}</p>
+                            )}
                             <div className="flex items-center gap-1.5 mt-1 text-gray-400 text-sm">
                               <Calendar className="w-4 h-4" />
                               <span>{postDate ? new Date(postDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '-'}</span>
@@ -12635,11 +13688,11 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                     </div>
                                     <div className="max-h-[320px] overflow-y-auto">
                                       {[
-                                        { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#F0FDFA" fillOpacity="0.4"/><circle cx="17.5" cy="17.5" r="6.5" stroke="#009689" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><polyline points="17.5 13.5 17.5 17.5 20.5 19" stroke="#009689" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/></svg>, label: 'Moment', desc: 'Add a special moment' }, { icon: <div className="w-full h-full rounded-[8px] bg-[#6C60FF]/10 flex items-center justify-center"><Pointer className="w-5 h-5 text-[#6C60FF]" /></div>, label: 'Call to Action', desc: 'Add a button with a link' },
+                                        { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#F0FDFA" fillOpacity="0.4"/><circle cx="17.5" cy="17.5" r="6.5" stroke="#009689" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><polyline points="17.5 13.5 17.5 17.5 20.5 19" stroke="#009689" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/></svg>, label: 'Moment', desc: 'Add a special moment' }, { icon: <div className="w-full h-full rounded-[8px] bg-[#6C60FF]/10 flex items-center justify-center"><Pointer className="w-5 h-5 text-[#6C60FF]" /></div>, label: 'Call to Action', desc: 'Add a button with a link' }, { icon: <div className="w-full h-full rounded-[8px] bg-[#6C60FF]/10 flex items-center justify-center"><Upload className="w-5 h-5 text-[#6C60FF]" /></div>, label: 'Share Request a Moment', desc: 'Allow photos and caption contributions' },
                                         { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#6C60FF" fillOpacity="0.1"/><rect x="14" y="10" width="7" height="10" rx="3.5" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><path d="M11 20.5C11 23.538 13.91 26 17.5 26C21.09 26 24 23.538 24 20.5" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><line x1="17.5" y1="26" x2="17.5" y2="29" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round"/><line x1="14.5" y1="29" x2="20.5" y2="29" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round"/></svg>, label: 'Voice to Text', desc: 'Create moment captions' },
                                         { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#6C60FF" fillOpacity="0.1"/><polyline points="21 22 25 17.5 21 13" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><polyline points="14 13 10 17.5 14 22" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/></svg>, label: 'HTML', desc: 'Add custom HTML content' },
                                         { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#FF4444" fillOpacity="0.1"/><path d="M22.5 13H12.5C11.67 13 11 13.67 11 14.5V20.5C11 21.33 11.67 22 12.5 22H22.5C23.33 22 24 21.33 24 20.5V14.5C24 13.67 23.33 13 22.5 13Z" stroke="#FF4444" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><path d="M16 19.5V15.5L20 17.5L16 19.5Z" stroke="#FF4444" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round" fill="none"/></svg>, label: 'Youtube', desc: 'Embed a YouTube link' },
-                                        { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#F59E0B" fillOpacity="0.1"/><path d="M19.5 12C19.15 12 18.82 12.14 18.57 12.39C18.32 12.64 18.17 12.98 18.17 13.33V17.33C18.17 17.68 18.32 18.02 18.57 18.27C18.82 18.52 19.15 18.67 19.5 18.67C19.68 18.67 19.85 18.74 19.97 18.86C20.1 18.99 20.17 19.16 20.17 19.33V20C20.17 20.35 20.02 20.69 19.77 20.94C19.52 21.19 19.19 21.33 18.83 21.33C18.65 21.33 18.49 21.4 18.36 21.53C18.24 21.65 18.17 21.82 18.17 22V23.33C18.17 23.51 18.24 23.68 18.36 23.8C18.49 23.93 18.65 24 18.83 24C19.89 24 20.91 23.58 21.66 22.83C22.41 22.08 22.83 21.06 22.83 20V13.33C22.83 12.98 22.69 12.64 22.44 12.39C22.19 12.14 21.85 12 21.5 12H19.5Z" stroke="#F59E0B" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/><path d="M13.17 12C12.81 12 12.47 12.14 12.22 12.39C11.97 12.64 11.83 12.98 11.83 13.33V17.33C11.83 17.68 11.97 18.02 12.22 18.27C12.47 18.52 12.81 18.67 13.17 18.67C13.34 18.67 13.51 18.74 13.64 18.86C13.76 18.99 13.83 19.16 13.83 19.33V20C13.83 20.35 13.69 20.69 13.44 20.94C13.19 21.19 12.85 21.33 12.5 21.33C12.32 21.33 12.16 21.4 12.03 21.53C11.9 21.65 11.83 21.82 11.83 22V23.33C11.83 23.51 11.9 23.68 12.03 23.8C12.16 23.93 12.32 24 12.5 24C13.56 24 14.58 23.58 15.33 22.83C16.08 22.08 16.5 21.06 16.5 20V13.33C16.5 12.98 16.36 12.64 16.11 12.39C15.86 12.14 15.52 12 15.17 12H13.17Z" stroke="#F59E0B" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>, label: 'Quote', desc: 'Add an inspirational quote' }, ...(docuSignConnected ? [{ icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#1464A5" fillOpacity="0.1"/><rect x="12" y="10" width="11" height="14" rx="1.5" stroke="#1464A5" strokeWidth="1.45808"/><line x1="14.5" y1="14" x2="20.5" y2="14" stroke="#1464A5" strokeWidth="1.3" strokeLinecap="round"/><line x1="14.5" y1="17" x2="18.5" y2="17" stroke="#1464A5" strokeWidth="1.3" strokeLinecap="round"/></svg>, label: 'DocuSign', desc: 'Send for signature' }] : []),
+                                        { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#F59E0B" fillOpacity="0.1"/><path d="M19.5 12C19.15 12 18.82 12.14 18.57 12.39C18.32 12.64 18.17 12.98 18.17 13.33V17.33C18.17 17.68 18.32 18.02 18.57 18.27C18.82 18.52 19.15 18.67 19.5 18.67C19.68 18.67 19.85 18.74 19.97 18.86C20.1 18.99 20.17 19.16 20.17 19.33V20C20.17 20.35 20.02 20.69 19.77 20.94C19.52 21.19 19.19 21.33 18.83 21.33C18.65 21.33 18.49 21.4 18.36 21.53C18.24 21.65 18.17 21.82 18.17 22V23.33C18.17 23.51 18.24 23.68 18.36 23.8C18.49 23.93 18.65 24 18.83 24C19.89 24 20.91 23.58 21.66 22.83C22.41 22.08 22.83 21.06 22.83 20V13.33C22.83 12.98 22.69 12.64 22.44 12.39C22.19 12.14 21.85 12 21.5 12H19.5Z" stroke="#F59E0B" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/><path d="M13.17 12C12.81 12 12.47 12.14 12.22 12.39C11.97 12.64 11.83 12.98 11.83 13.33V17.33C11.83 17.68 11.97 18.02 12.22 18.27C12.47 18.52 12.81 18.67 13.17 18.67C13.34 18.67 13.51 18.74 13.64 18.86C13.76 18.99 13.83 19.16 13.83 19.33V20C13.83 20.35 13.69 20.69 13.44 20.94C13.19 21.19 12.85 21.33 12.5 21.33C12.32 21.33 12.16 21.4 12.03 21.53C11.9 21.65 11.83 21.82 11.83 22V23.33C11.83 23.51 11.9 23.68 12.03 23.8C12.16 23.93 12.32 24 12.5 24C13.56 24 14.58 23.58 15.33 22.83C16.08 22.08 16.5 21.06 16.5 20V13.33C16.5 12.98 16.36 12.64 16.11 12.39C15.86 12.14 15.52 12 15.17 12H13.17Z" stroke="#F59E0B" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>, label: 'Quote', desc: 'Add an inspirational quote' }, { icon: <div className="w-full h-full rounded-[8px] bg-[#6C60FF]/10 flex items-center justify-center"><Sparkles className="w-5 h-5 text-[#6C60FF]" /></div>, label: 'AI Creator', desc: 'Generate content with AI' }, ...(docuSignConnected ? [{ icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#1464A5" fillOpacity="0.1"/><rect x="12" y="10" width="11" height="14" rx="1.5" stroke="#1464A5" strokeWidth="1.45808"/><line x1="14.5" y1="14" x2="20.5" y2="14" stroke="#1464A5" strokeWidth="1.3" strokeLinecap="round"/><line x1="14.5" y1="17" x2="18.5" y2="17" stroke="#1464A5" strokeWidth="1.3" strokeLinecap="round"/></svg>, label: 'DocuSign', desc: 'Send for signature' }] : []),
                                       ].map((item) => (
                                         <PopoverClose asChild key={item.label}>
                                         <div
@@ -12659,10 +13712,15 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                             } else if (item.label === 'Quote') {
                                               setQuoteWidgetAfterPostId(post.id?.toString());
                                               setIsAddQuoteModalOpen(true);
+                                            } else if (item.label === 'AI Creator') {
+                                              setAiCreatorWidgetAfterPostId(post.id?.toString());
+                                              setIsAddAiCreatorModalOpen(true);
                                             } else if (item.label === 'Call to Action') {
                                               setCtaWidgetAfterPostId(post.id?.toString());
                                               setEditingCtaWidgetId(null);
                                               setIsAddCtaModalOpen(true);
+                                            } else if (item.label === 'Share Request a Moment') {
+                                              openAddRequestMomentCta(post.id?.toString());
                                             } else if (item.label === 'Voice to Text') {
                                               setVoiceToTextAfterPostId(post.id?.toString() || null);
                                               setIsVoiceToTextOpen(true);
@@ -12766,11 +13824,11 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                         </div>
                                         <div className="max-h-[320px] overflow-y-auto">
                                           {[
-                                            { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#F0FDFA" fillOpacity="0.4"/><circle cx="17.5" cy="17.5" r="6.5" stroke="#009689" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><polyline points="17.5 13.5 17.5 17.5 20.5 19" stroke="#009689" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/></svg>, label: 'Moment', desc: 'Add a special moment' }, { icon: <div className="w-full h-full rounded-[8px] bg-[#6C60FF]/10 flex items-center justify-center"><Pointer className="w-5 h-5 text-[#6C60FF]" /></div>, label: 'Call to Action', desc: 'Add a button with a link' },
+                                            { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#F0FDFA" fillOpacity="0.4"/><circle cx="17.5" cy="17.5" r="6.5" stroke="#009689" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><polyline points="17.5 13.5 17.5 17.5 20.5 19" stroke="#009689" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/></svg>, label: 'Moment', desc: 'Add a special moment' }, { icon: <div className="w-full h-full rounded-[8px] bg-[#6C60FF]/10 flex items-center justify-center"><Pointer className="w-5 h-5 text-[#6C60FF]" /></div>, label: 'Call to Action', desc: 'Add a button with a link' }, { icon: <div className="w-full h-full rounded-[8px] bg-[#6C60FF]/10 flex items-center justify-center"><Upload className="w-5 h-5 text-[#6C60FF]" /></div>, label: 'Share Request a Moment', desc: 'Allow photos and caption contributions' },
                                             { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#6C60FF" fillOpacity="0.1"/><rect x="14" y="10" width="7" height="10" rx="3.5" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><path d="M11 20.5C11 23.538 13.91 26 17.5 26C21.09 26 24 23.538 24 20.5" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><line x1="17.5" y1="26" x2="17.5" y2="29" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round"/><line x1="14.5" y1="29" x2="20.5" y2="29" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round"/></svg>, label: 'Voice to Text', desc: 'Create moment captions' },
                                             { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#6C60FF" fillOpacity="0.1"/><polyline points="21 22 25 17.5 21 13" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><polyline points="14 13 10 17.5 14 22" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/></svg>, label: 'HTML', desc: 'Add custom HTML content' },
                                             { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#FF4444" fillOpacity="0.1"/><path d="M22.5 13H12.5C11.67 13 11 13.67 11 14.5V20.5C11 21.33 11.67 22 12.5 22H22.5C23.33 22 24 21.33 24 20.5V14.5C24 13.67 23.33 13 22.5 13Z" stroke="#FF4444" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><path d="M16 19.5V15.5L20 17.5L16 19.5Z" stroke="#FF4444" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round" fill="none"/></svg>, label: 'Youtube', desc: 'Embed a YouTube link' },
-                                            { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#F59E0B" fillOpacity="0.1"/><path d="M19.5 12C19.15 12 18.82 12.14 18.57 12.39C18.32 12.64 18.17 12.98 18.17 13.33V17.33C18.17 17.68 18.32 18.02 18.57 18.27C18.82 18.52 19.15 18.67 19.5 18.67C19.68 18.67 19.85 18.74 19.97 18.86C20.1 18.99 20.17 19.16 20.17 19.33V20C20.17 20.35 20.02 20.69 19.77 20.94C19.52 21.19 19.19 21.33 18.83 21.33C18.65 21.33 18.49 21.4 18.36 21.53C18.24 21.65 18.17 21.82 18.17 22V23.33C18.17 23.51 18.24 23.68 18.36 23.8C18.49 23.93 18.65 24 18.83 24C19.89 24 20.91 23.58 21.66 22.83C22.41 22.08 22.83 21.06 22.83 20V13.33C22.83 12.98 22.69 12.64 22.44 12.39C22.19 12.14 21.85 12 21.5 12H19.5Z" stroke="#F59E0B" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/><path d="M13.17 12C12.81 12 12.47 12.14 12.22 12.39C11.97 12.64 11.83 12.98 11.83 13.33V17.33C11.83 17.68 11.97 18.02 12.22 18.27C12.47 18.52 12.81 18.67 13.17 18.67C13.34 18.67 13.51 18.74 13.64 18.86C13.76 18.99 13.83 19.16 13.83 19.33V20C13.83 20.35 13.69 20.69 13.44 20.94C13.19 21.19 12.85 21.33 12.5 21.33C12.32 21.33 12.16 21.4 12.03 21.53C11.9 21.65 11.83 21.82 11.83 22V23.33C11.83 23.51 11.9 23.68 12.03 23.8C12.16 23.93 12.32 24 12.5 24C13.56 24 14.58 23.58 15.33 22.83C16.08 22.08 16.5 21.06 16.5 20V13.33C16.5 12.98 16.36 12.64 16.11 12.39C15.86 12.14 15.52 12 15.17 12H13.17Z" stroke="#F59E0B" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>, label: 'Quote', desc: 'Add an inspirational quote' }, ...(docuSignConnected ? [{ icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#1464A5" fillOpacity="0.1"/><rect x="12" y="10" width="11" height="14" rx="1.5" stroke="#1464A5" strokeWidth="1.45808"/><line x1="14.5" y1="14" x2="20.5" y2="14" stroke="#1464A5" strokeWidth="1.3" strokeLinecap="round"/><line x1="14.5" y1="17" x2="18.5" y2="17" stroke="#1464A5" strokeWidth="1.3" strokeLinecap="round"/></svg>, label: 'DocuSign', desc: 'Send for signature' }] : []),
+                                            { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#F59E0B" fillOpacity="0.1"/><path d="M19.5 12C19.15 12 18.82 12.14 18.57 12.39C18.32 12.64 18.17 12.98 18.17 13.33V17.33C18.17 17.68 18.32 18.02 18.57 18.27C18.82 18.52 19.15 18.67 19.5 18.67C19.68 18.67 19.85 18.74 19.97 18.86C20.1 18.99 20.17 19.16 20.17 19.33V20C20.17 20.35 20.02 20.69 19.77 20.94C19.52 21.19 19.19 21.33 18.83 21.33C18.65 21.33 18.49 21.4 18.36 21.53C18.24 21.65 18.17 21.82 18.17 22V23.33C18.17 23.51 18.24 23.68 18.36 23.8C18.49 23.93 18.65 24 18.83 24C19.89 24 20.91 23.58 21.66 22.83C22.41 22.08 22.83 21.06 22.83 20V13.33C22.83 12.98 22.69 12.64 22.44 12.39C22.19 12.14 21.85 12 21.5 12H19.5Z" stroke="#F59E0B" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/><path d="M13.17 12C12.81 12 12.47 12.14 12.22 12.39C11.97 12.64 11.83 12.98 11.83 13.33V17.33C11.83 17.68 11.97 18.02 12.22 18.27C12.47 18.52 12.81 18.67 13.17 18.67C13.34 18.67 13.51 18.74 13.64 18.86C13.76 18.99 13.83 19.16 13.83 19.33V20C13.83 20.35 13.69 20.69 13.44 20.94C13.19 21.19 12.85 21.33 12.5 21.33C12.32 21.33 12.16 21.4 12.03 21.53C11.9 21.65 11.83 21.82 11.83 22V23.33C11.83 23.51 11.9 23.68 12.03 23.8C12.16 23.93 12.32 24 12.5 24C13.56 24 14.58 23.58 15.33 22.83C16.08 22.08 16.5 21.06 16.5 20V13.33C16.5 12.98 16.36 12.64 16.11 12.39C15.86 12.14 15.52 12 15.17 12H13.17Z" stroke="#F59E0B" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>, label: 'Quote', desc: 'Add an inspirational quote' }, { icon: <div className="w-full h-full rounded-[8px] bg-[#6C60FF]/10 flex items-center justify-center"><Sparkles className="w-5 h-5 text-[#6C60FF]" /></div>, label: 'AI Creator', desc: 'Generate content with AI' }, ...(docuSignConnected ? [{ icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#1464A5" fillOpacity="0.1"/><rect x="12" y="10" width="11" height="14" rx="1.5" stroke="#1464A5" strokeWidth="1.45808"/><line x1="14.5" y1="14" x2="20.5" y2="14" stroke="#1464A5" strokeWidth="1.3" strokeLinecap="round"/><line x1="14.5" y1="17" x2="18.5" y2="17" stroke="#1464A5" strokeWidth="1.3" strokeLinecap="round"/></svg>, label: 'DocuSign', desc: 'Send for signature' }] : []),
                                           ].map((item) => (
                                             <PopoverClose asChild key={item.label}>
                                             <div
@@ -12790,10 +13848,15 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                                 } else if (item.label === 'Quote') {
                                                   setQuoteWidgetAfterPostId(widget.afterPostId);
                                                   setIsAddQuoteModalOpen(true);
+                                                } else if (item.label === 'AI Creator') {
+                                                  setAiCreatorWidgetAfterPostId(widget.afterPostId);
+                                                  setIsAddAiCreatorModalOpen(true);
                                                 } else if (item.label === 'Call to Action') {
                                                   setCtaWidgetAfterPostId(widget.afterPostId);
                                                   setEditingCtaWidgetId(null);
                                                   setIsAddCtaModalOpen(true);
+                                                } else if (item.label === 'Share Request a Moment') {
+                                                  openAddRequestMomentCta(widget.afterPostId);
                                                 } else if (item.label === 'Voice to Text') {
                                                   setVoiceToTextAfterPostId(widget.afterPostId || null);
                                                   setIsVoiceToTextOpen(true);
@@ -12821,6 +13884,46 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                             </div>
                           );
                         })}
+                        {/* AI Creator widget titles after this post */}
+                        {aiCreatorWidgets.filter(w => w.afterPostId === post.id?.toString()).map(widget => (
+                          <div key={widget.id} className="relative pl-10 pb-4 transition-all duration-200 cursor-pointer" onClick={() => {
+                            const el = aiCreatorWidgetCardRefs.current[widget.id];
+                            if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                          }}>
+                            <div className="absolute left-0 top-7 bottom-8 w-0.5 bg-[#D1D5DC]" style={{ transform: 'translateX(-1px)' }} />
+                            <div className="absolute -left-3.5 top-0 w-7 h-7 rounded-full flex items-center justify-center transition-all bg-[#6C60FF]/10 text-[#6C60FF]">
+                              <Sparkles className="w-3.5 h-3.5" />
+                            </div>
+                            <div className="group/border relative pr-6 transition-all duration-200">
+                              <div className="absolute top-0 -right-1 z-10">
+                                <Popover>
+                                  <PopoverTrigger asChild>
+                                    <div className="cursor-pointer" onClick={(e) => e.stopPropagation()}>
+                                      <MoreVertical className="w-5 h-5 text-[#6C60FF]" />
+                                    </div>
+                                  </PopoverTrigger>
+                                  <PopoverContent side="bottom" align="end" className="w-44 p-1 rounded-lg shadow-lg border border-gray-200 bg-white" sideOffset={4}>
+                                    <div
+                                      className="flex items-center gap-2.5 px-3 py-2 hover:bg-red-50 cursor-pointer rounded-md transition-colors"
+                                      onClick={(e) => { e.stopPropagation(); deleteAiCreatorWidget(widget); }}
+                                    >
+                                      <Trash2 className="w-4 h-4 text-red-500" />
+                                      <span className="text-sm text-red-500">Delete</span>
+                                    </div>
+                                  </PopoverContent>
+                                </Popover>
+                              </div>
+                              <p className="leading-snug transition-all duration-200 hover:text-[#6C60FF] cursor-pointer text-[#101828] text-base line-clamp-2">AI Creator</p>
+                              <div className="flex items-center gap-1.5 mt-1 text-gray-400 text-sm">
+                                <Clock className="w-4 h-4" />
+                                <span>{new Date(widget.createdAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}</span>
+                              </div>
+                              <div className="relative mt-8">
+                                <div className="border-b border-dashed border-[#6C60FF]/40 group-hover/border:border-[#6C60FF]/40" />
+                              </div>
+                            </div>
+                          </div>
+                        ))}
                         {/* YouTube widget titles after this post */}
                         {youtubeWidgets.filter(w => w.afterPostId === post.id?.toString()).map(widget => {
                           const isYtActive = activeYoutubeWidgetId === widget.id;
@@ -12890,11 +13993,11 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                         </div>
                                         <div className="max-h-[320px] overflow-y-auto">
                                           {[
-                                            { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#F0FDFA" fillOpacity="0.4"/><circle cx="17.5" cy="17.5" r="6.5" stroke="#009689" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><polyline points="17.5 13.5 17.5 17.5 20.5 19" stroke="#009689" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/></svg>, label: 'Moment', desc: 'Add a special moment' }, { icon: <div className="w-full h-full rounded-[8px] bg-[#6C60FF]/10 flex items-center justify-center"><Pointer className="w-5 h-5 text-[#6C60FF]" /></div>, label: 'Call to Action', desc: 'Add a button with a link' },
+                                            { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#F0FDFA" fillOpacity="0.4"/><circle cx="17.5" cy="17.5" r="6.5" stroke="#009689" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><polyline points="17.5 13.5 17.5 17.5 20.5 19" stroke="#009689" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/></svg>, label: 'Moment', desc: 'Add a special moment' }, { icon: <div className="w-full h-full rounded-[8px] bg-[#6C60FF]/10 flex items-center justify-center"><Pointer className="w-5 h-5 text-[#6C60FF]" /></div>, label: 'Call to Action', desc: 'Add a button with a link' }, { icon: <div className="w-full h-full rounded-[8px] bg-[#6C60FF]/10 flex items-center justify-center"><Upload className="w-5 h-5 text-[#6C60FF]" /></div>, label: 'Share Request a Moment', desc: 'Allow photos and caption contributions' },
                                             { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#6C60FF" fillOpacity="0.1"/><rect x="14" y="10" width="7" height="10" rx="3.5" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><path d="M11 20.5C11 23.538 13.91 26 17.5 26C21.09 26 24 23.538 24 20.5" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><line x1="17.5" y1="26" x2="17.5" y2="29" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round"/><line x1="14.5" y1="29" x2="20.5" y2="29" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round"/></svg>, label: 'Voice to Text', desc: 'Create moment captions' },
                                             { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#6C60FF" fillOpacity="0.1"/><polyline points="21 22 25 17.5 21 13" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><polyline points="14 13 10 17.5 14 22" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/></svg>, label: 'HTML', desc: 'Add custom HTML content' },
                                             { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#FF4444" fillOpacity="0.1"/><path d="M22.5 13H12.5C11.67 13 11 13.67 11 14.5V20.5C11 21.33 11.67 22 12.5 22H22.5C23.33 22 24 21.33 24 20.5V14.5C24 13.67 23.33 13 22.5 13Z" stroke="#FF4444" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><path d="M16 19.5V15.5L20 17.5L16 19.5Z" stroke="#FF4444" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round" fill="none"/></svg>, label: 'Youtube', desc: 'Embed a YouTube link' },
-                                            { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#F59E0B" fillOpacity="0.1"/><path d="M19.5 12C19.15 12 18.82 12.14 18.57 12.39C18.32 12.64 18.17 12.98 18.17 13.33V17.33C18.17 17.68 18.32 18.02 18.57 18.27C18.82 18.52 19.15 18.67 19.5 18.67C19.68 18.67 19.85 18.74 19.97 18.86C20.1 18.99 20.17 19.16 20.17 19.33V20C20.17 20.35 20.02 20.69 19.77 20.94C19.52 21.19 19.19 21.33 18.83 21.33C18.65 21.33 18.49 21.4 18.36 21.53C18.24 21.65 18.17 21.82 18.17 22V23.33C18.17 23.51 18.24 23.68 18.36 23.8C18.49 23.93 18.65 24 18.83 24C19.89 24 20.91 23.58 21.66 22.83C22.41 22.08 22.83 21.06 22.83 20V13.33C22.83 12.98 22.69 12.64 22.44 12.39C22.19 12.14 21.85 12 21.5 12H19.5Z" stroke="#F59E0B" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/><path d="M13.17 12C12.81 12 12.47 12.14 12.22 12.39C11.97 12.64 11.83 12.98 11.83 13.33V17.33C11.83 17.68 11.97 18.02 12.22 18.27C12.47 18.52 12.81 18.67 13.17 18.67C13.34 18.67 13.51 18.74 13.64 18.86C13.76 18.99 13.83 19.16 13.83 19.33V20C13.83 20.35 13.69 20.69 13.44 20.94C13.19 21.19 12.85 21.33 12.5 21.33C12.32 21.33 12.16 21.4 12.03 21.53C11.9 21.65 11.83 21.82 11.83 22V23.33C11.83 23.51 11.9 23.68 12.03 23.8C12.16 23.93 12.32 24 12.5 24C13.56 24 14.58 23.58 15.33 22.83C16.08 22.08 16.5 21.06 16.5 20V13.33C16.5 12.98 16.36 12.64 16.11 12.39C15.86 12.14 15.52 12 15.17 12H13.17Z" stroke="#F59E0B" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>, label: 'Quote', desc: 'Add an inspirational quote' }, ...(docuSignConnected ? [{ icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#1464A5" fillOpacity="0.1"/><rect x="12" y="10" width="11" height="14" rx="1.5" stroke="#1464A5" strokeWidth="1.45808"/><line x1="14.5" y1="14" x2="20.5" y2="14" stroke="#1464A5" strokeWidth="1.3" strokeLinecap="round"/><line x1="14.5" y1="17" x2="18.5" y2="17" stroke="#1464A5" strokeWidth="1.3" strokeLinecap="round"/></svg>, label: 'DocuSign', desc: 'Send for signature' }] : []),
+                                            { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#F59E0B" fillOpacity="0.1"/><path d="M19.5 12C19.15 12 18.82 12.14 18.57 12.39C18.32 12.64 18.17 12.98 18.17 13.33V17.33C18.17 17.68 18.32 18.02 18.57 18.27C18.82 18.52 19.15 18.67 19.5 18.67C19.68 18.67 19.85 18.74 19.97 18.86C20.1 18.99 20.17 19.16 20.17 19.33V20C20.17 20.35 20.02 20.69 19.77 20.94C19.52 21.19 19.19 21.33 18.83 21.33C18.65 21.33 18.49 21.4 18.36 21.53C18.24 21.65 18.17 21.82 18.17 22V23.33C18.17 23.51 18.24 23.68 18.36 23.8C18.49 23.93 18.65 24 18.83 24C19.89 24 20.91 23.58 21.66 22.83C22.41 22.08 22.83 21.06 22.83 20V13.33C22.83 12.98 22.69 12.64 22.44 12.39C22.19 12.14 21.85 12 21.5 12H19.5Z" stroke="#F59E0B" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/><path d="M13.17 12C12.81 12 12.47 12.14 12.22 12.39C11.97 12.64 11.83 12.98 11.83 13.33V17.33C11.83 17.68 11.97 18.02 12.22 18.27C12.47 18.52 12.81 18.67 13.17 18.67C13.34 18.67 13.51 18.74 13.64 18.86C13.76 18.99 13.83 19.16 13.83 19.33V20C13.83 20.35 13.69 20.69 13.44 20.94C13.19 21.19 12.85 21.33 12.5 21.33C12.32 21.33 12.16 21.4 12.03 21.53C11.9 21.65 11.83 21.82 11.83 22V23.33C11.83 23.51 11.9 23.68 12.03 23.8C12.16 23.93 12.32 24 12.5 24C13.56 24 14.58 23.58 15.33 22.83C16.08 22.08 16.5 21.06 16.5 20V13.33C16.5 12.98 16.36 12.64 16.11 12.39C15.86 12.14 15.52 12 15.17 12H13.17Z" stroke="#F59E0B" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>, label: 'Quote', desc: 'Add an inspirational quote' }, { icon: <div className="w-full h-full rounded-[8px] bg-[#6C60FF]/10 flex items-center justify-center"><Sparkles className="w-5 h-5 text-[#6C60FF]" /></div>, label: 'AI Creator', desc: 'Generate content with AI' }, ...(docuSignConnected ? [{ icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#1464A5" fillOpacity="0.1"/><rect x="12" y="10" width="11" height="14" rx="1.5" stroke="#1464A5" strokeWidth="1.45808"/><line x1="14.5" y1="14" x2="20.5" y2="14" stroke="#1464A5" strokeWidth="1.3" strokeLinecap="round"/><line x1="14.5" y1="17" x2="18.5" y2="17" stroke="#1464A5" strokeWidth="1.3" strokeLinecap="round"/></svg>, label: 'DocuSign', desc: 'Send for signature' }] : []),
                                           ].map((item) => (
                                             <PopoverClose asChild key={item.label}>
                                             <div
@@ -12914,10 +14017,15 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                                 } else if (item.label === 'Quote') {
                                                   setQuoteWidgetAfterPostId(widget.afterPostId);
                                                   setIsAddQuoteModalOpen(true);
+                                                } else if (item.label === 'AI Creator') {
+                                                  setAiCreatorWidgetAfterPostId(widget.afterPostId);
+                                                  setIsAddAiCreatorModalOpen(true);
                                                 } else if (item.label === 'Call to Action') {
                                                   setCtaWidgetAfterPostId(widget.afterPostId);
                                                   setEditingCtaWidgetId(null);
                                                   setIsAddCtaModalOpen(true);
+                                                } else if (item.label === 'Share Request a Moment') {
+                                                  openAddRequestMomentCta(widget.afterPostId);
                                                 } else if (item.label === 'Voice to Text') {
                                                   setVoiceToTextAfterPostId(widget.afterPostId || null);
                                                   setIsVoiceToTextOpen(true);
@@ -13017,11 +14125,11 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                         </div>
                                         <div className="max-h-[320px] overflow-y-auto">
                                           {[
-                                            { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#F0FDFA" fillOpacity="0.4"/><circle cx="17.5" cy="17.5" r="6.5" stroke="#009689" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><polyline points="17.5 13.5 17.5 17.5 20.5 19" stroke="#009689" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/></svg>, label: 'Moment', desc: 'Add a special moment' }, { icon: <div className="w-full h-full rounded-[8px] bg-[#6C60FF]/10 flex items-center justify-center"><Pointer className="w-5 h-5 text-[#6C60FF]" /></div>, label: 'Call to Action', desc: 'Add a button with a link' },
+                                            { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#F0FDFA" fillOpacity="0.4"/><circle cx="17.5" cy="17.5" r="6.5" stroke="#009689" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><polyline points="17.5 13.5 17.5 17.5 20.5 19" stroke="#009689" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/></svg>, label: 'Moment', desc: 'Add a special moment' }, { icon: <div className="w-full h-full rounded-[8px] bg-[#6C60FF]/10 flex items-center justify-center"><Pointer className="w-5 h-5 text-[#6C60FF]" /></div>, label: 'Call to Action', desc: 'Add a button with a link' }, { icon: <div className="w-full h-full rounded-[8px] bg-[#6C60FF]/10 flex items-center justify-center"><Upload className="w-5 h-5 text-[#6C60FF]" /></div>, label: 'Share Request a Moment', desc: 'Allow photos and caption contributions' },
                                             { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#6C60FF" fillOpacity="0.1"/><rect x="14" y="10" width="7" height="10" rx="3.5" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><path d="M11 20.5C11 23.538 13.91 26 17.5 26C21.09 26 24 23.538 24 20.5" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><line x1="17.5" y1="26" x2="17.5" y2="29" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round"/><line x1="14.5" y1="29" x2="20.5" y2="29" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round"/></svg>, label: 'Voice to Text', desc: 'Create moment captions' },
                                             { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#6C60FF" fillOpacity="0.1"/><polyline points="21 22 25 17.5 21 13" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><polyline points="14 13 10 17.5 14 22" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/></svg>, label: 'HTML', desc: 'Add custom HTML content' },
                                             { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#FF4444" fillOpacity="0.1"/><path d="M22.5 13H12.5C11.67 13 11 13.67 11 14.5V20.5C11 21.33 11.67 22 12.5 22H22.5C23.33 22 24 21.33 24 20.5V14.5C24 13.67 23.33 13 22.5 13Z" stroke="#FF4444" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><path d="M16 19.5V15.5L20 17.5L16 19.5Z" stroke="#FF4444" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round" fill="none"/></svg>, label: 'Youtube', desc: 'Embed a YouTube link' },
-                                            { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#F59E0B" fillOpacity="0.1"/><path d="M19.5 12C19.15 12 18.82 12.14 18.57 12.39C18.32 12.64 18.17 12.98 18.17 13.33V17.33C18.17 17.68 18.32 18.02 18.57 18.27C18.82 18.52 19.15 18.67 19.5 18.67C19.68 18.67 19.85 18.74 19.97 18.86C20.1 18.99 20.17 19.16 20.17 19.33V20C20.17 20.35 20.02 20.69 19.77 20.94C19.52 21.19 19.19 21.33 18.83 21.33C18.65 21.33 18.49 21.4 18.36 21.53C18.24 21.65 18.17 21.82 18.17 22V23.33C18.17 23.51 18.24 23.68 18.36 23.8C18.49 23.93 18.65 24 18.83 24C19.89 24 20.91 23.58 21.66 22.83C22.41 22.08 22.83 21.06 22.83 20V13.33C22.83 12.98 22.69 12.64 22.44 12.39C22.19 12.14 21.85 12 21.5 12H19.5Z" stroke="#F59E0B" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/><path d="M13.17 12C12.81 12 12.47 12.14 12.22 12.39C11.97 12.64 11.83 12.98 11.83 13.33V17.33C11.83 17.68 11.97 18.02 12.22 18.27C12.47 18.52 12.81 18.67 13.17 18.67C13.34 18.67 13.51 18.74 13.64 18.86C13.76 18.99 13.83 19.16 13.83 19.33V20C13.83 20.35 13.69 20.69 13.44 20.94C13.19 21.19 12.85 21.33 12.5 21.33C12.32 21.33 12.16 21.4 12.03 21.53C11.9 21.65 11.83 21.82 11.83 22V23.33C11.83 23.51 11.9 23.68 12.03 23.8C12.16 23.93 12.32 24 12.5 24C13.56 24 14.58 23.58 15.33 22.83C16.08 22.08 16.5 21.06 16.5 20V13.33C16.5 12.98 16.36 12.64 16.11 12.39C15.86 12.14 15.52 12 15.17 12H13.17Z" stroke="#F59E0B" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>, label: 'Quote', desc: 'Add an inspirational quote' }, ...(docuSignConnected ? [{ icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#1464A5" fillOpacity="0.1"/><rect x="12" y="10" width="11" height="14" rx="1.5" stroke="#1464A5" strokeWidth="1.45808"/><line x1="14.5" y1="14" x2="20.5" y2="14" stroke="#1464A5" strokeWidth="1.3" strokeLinecap="round"/><line x1="14.5" y1="17" x2="18.5" y2="17" stroke="#1464A5" strokeWidth="1.3" strokeLinecap="round"/></svg>, label: 'DocuSign', desc: 'Send for signature' }] : []),
+                                            { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#F59E0B" fillOpacity="0.1"/><path d="M19.5 12C19.15 12 18.82 12.14 18.57 12.39C18.32 12.64 18.17 12.98 18.17 13.33V17.33C18.17 17.68 18.32 18.02 18.57 18.27C18.82 18.52 19.15 18.67 19.5 18.67C19.68 18.67 19.85 18.74 19.97 18.86C20.1 18.99 20.17 19.16 20.17 19.33V20C20.17 20.35 20.02 20.69 19.77 20.94C19.52 21.19 19.19 21.33 18.83 21.33C18.65 21.33 18.49 21.4 18.36 21.53C18.24 21.65 18.17 21.82 18.17 22V23.33C18.17 23.51 18.24 23.68 18.36 23.8C18.49 23.93 18.65 24 18.83 24C19.89 24 20.91 23.58 21.66 22.83C22.41 22.08 22.83 21.06 22.83 20V13.33C22.83 12.98 22.69 12.64 22.44 12.39C22.19 12.14 21.85 12 21.5 12H19.5Z" stroke="#F59E0B" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/><path d="M13.17 12C12.81 12 12.47 12.14 12.22 12.39C11.97 12.64 11.83 12.98 11.83 13.33V17.33C11.83 17.68 11.97 18.02 12.22 18.27C12.47 18.52 12.81 18.67 13.17 18.67C13.34 18.67 13.51 18.74 13.64 18.86C13.76 18.99 13.83 19.16 13.83 19.33V20C13.83 20.35 13.69 20.69 13.44 20.94C13.19 21.19 12.85 21.33 12.5 21.33C12.32 21.33 12.16 21.4 12.03 21.53C11.9 21.65 11.83 21.82 11.83 22V23.33C11.83 23.51 11.9 23.68 12.03 23.8C12.16 23.93 12.32 24 12.5 24C13.56 24 14.58 23.58 15.33 22.83C16.08 22.08 16.5 21.06 16.5 20V13.33C16.5 12.98 16.36 12.64 16.11 12.39C15.86 12.14 15.52 12 15.17 12H13.17Z" stroke="#F59E0B" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>, label: 'Quote', desc: 'Add an inspirational quote' }, { icon: <div className="w-full h-full rounded-[8px] bg-[#6C60FF]/10 flex items-center justify-center"><Sparkles className="w-5 h-5 text-[#6C60FF]" /></div>, label: 'AI Creator', desc: 'Generate content with AI' }, ...(docuSignConnected ? [{ icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#1464A5" fillOpacity="0.1"/><rect x="12" y="10" width="11" height="14" rx="1.5" stroke="#1464A5" strokeWidth="1.45808"/><line x1="14.5" y1="14" x2="20.5" y2="14" stroke="#1464A5" strokeWidth="1.3" strokeLinecap="round"/><line x1="14.5" y1="17" x2="18.5" y2="17" stroke="#1464A5" strokeWidth="1.3" strokeLinecap="round"/></svg>, label: 'DocuSign', desc: 'Send for signature' }] : []),
                                           ].map((item) => (
                                             <PopoverClose asChild key={item.label}>
                                             <div
@@ -13041,10 +14149,15 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                                 } else if (item.label === 'Quote') {
                                                   setQuoteWidgetAfterPostId(widget.afterPostId);
                                                   setIsAddQuoteModalOpen(true);
+                                                } else if (item.label === 'AI Creator') {
+                                                  setAiCreatorWidgetAfterPostId(widget.afterPostId);
+                                                  setIsAddAiCreatorModalOpen(true);
                                                 } else if (item.label === 'Call to Action') {
                                                   setCtaWidgetAfterPostId(widget.afterPostId);
                                                   setEditingCtaWidgetId(null);
                                                   setIsAddCtaModalOpen(true);
+                                                } else if (item.label === 'Share Request a Moment') {
+                                                  openAddRequestMomentCta(widget.afterPostId);
                                                 } else if (item.label === 'Voice to Text') {
                                                   setVoiceToTextAfterPostId(widget.afterPostId || null);
                                                   setIsVoiceToTextOpen(true);
@@ -13072,11 +14185,13 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                             </div>
                           );
                         })}
-                        {ctaWidgets.filter(w => w.afterPostId === post.id?.toString()).map(widget => renderCtaSidebarEntry(widget))}
+                        {ctaWidgets.filter(w => w.afterPostId === post.id?.toString() && !w.pinToBottom).map(widget => renderCtaSidebarEntry(widget))}
                         </React.Fragment>
                       );
                       }
                     })}
+                    {/* Pinned "Share Request a Moment" buttons — always after the last item */}
+                    {ctaWidgets.filter(w => w.pinToBottom).map(widget => renderCtaSidebarEntry(widget))}
 
                     {/* E-Business Card - desktop only */}
                     {!!apiMemoryData?.user?.is_business && (
@@ -13319,7 +14434,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                           <div className="text-lg">
                             <span className="font-semibold text-white">Timeline</span>
                             <span className="mx-2 text-white">•</span>
-                            <span className="text-white">{sortedTimelinePosts.length} moments</span>
+                            <span className="text-white">{totalMomentsCount} moments</span>
                           </div>
                         </div>
 
@@ -13374,7 +14489,9 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                             <svg width="24" height="24" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" className="absolute bottom-4 right-4 text-[#6C60FF]/30 rotate-180"><path d="M10.6668 2C10.3132 2 9.97407 2.14048 9.72402 2.39052C9.47397 2.64057 9.3335 2.97971 9.3335 3.33333V7.33333C9.3335 7.68696 9.47397 8.02609 9.72402 8.27614C9.97407 8.52619 10.3132 8.66667 10.6668 8.66667C10.8436 8.66667 11.0132 8.7369 11.1382 8.86193C11.2633 8.98695 11.3335 9.15652 11.3335 9.33333V10C11.3335 10.3536 11.193 10.6928 10.943 10.9428C10.6929 11.1929 10.3538 11.3333 10.0002 11.3333C9.82335 11.3333 9.65378 11.4036 9.52876 11.5286C9.40373 11.6536 9.3335 11.8232 9.3335 12V13.3333C9.3335 13.5101 9.40373 13.6797 9.52876 13.8047C9.65378 13.9298 9.82335 14 10.0002 14C11.061 14 12.0784 13.5786 12.8286 12.8284C13.5787 12.0783 14.0002 11.0609 14.0002 10V3.33333C14.0002 2.97971 13.8597 2.64057 13.6096 2.39052C13.3596 2.14048 13.0205 2 12.6668 2H10.6668Z" fill="currentColor"/><path d="M3.33333 2C2.97971 2 2.64057 2.14048 2.39052 2.39052C2.14048 2.64057 2 2.97971 2 3.33333V7.33333C2 7.68696 2.14048 8.02609 2.39052 8.27614C2.64057 8.52619 2.97971 8.66667 3.33333 8.66667C3.51014 8.66667 3.67971 8.7369 3.80474 8.86193C3.92976 8.98695 4 9.15652 4 9.33333V10C4 10.3536 3.85952 10.6928 3.60948 10.9428C3.35943 11.1929 3.02029 11.3333 2.66667 11.3333C2.48986 11.3333 2.32029 11.4036 2.19526 11.5286C2.07024 11.6536 2 11.8232 2 12V13.3333C2 13.5101 2.07024 13.6797 2.19526 13.8047C2.32029 13.9298 2.48986 14 2.66667 14C3.72753 14 4.74495 13.5786 5.49509 12.8284C6.24524 12.0783 6.66667 11.0609 6.66667 10V3.33333C6.66667 2.97971 6.52619 2.64057 6.27614 2.39052C6.02609 2.14048 5.68696 2 5.33333 2H3.33333Z" fill="currentColor"/></svg>
                           </div>
                         ))}
-                        {ctaWidgets.filter(w => w.afterPostId === null).map(widget => (
+                        {renderProductWidgets(null)}
+                        {renderAiCreatorWidgets(null)}
+                        {ctaWidgets.filter(w => w.afterPostId === null && !w.pinToBottom).map(widget => (
                           <CTAWidgetCard key={widget.id} widget={widget} memoryId={memoryId} cardRef={(el) => { ctaWidgetCardRefs.current[widget.id] = el; }} isActive={activeCtaWidgetId === widget.id} />
                         ))}
 
@@ -13408,8 +14525,8 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                     fullName={lm.user?.name || apiMemoryData?.user?.name}
                                     avatar={lm.user?.profile_image || apiMemoryData?.user?.profile_image}
                                     profileColor={lm.user?.profile_color || apiMemoryData?.user?.profile_color}
-                                    tags={Array.isArray(lm.tags) ? lm.tags : []}
-                                    label={lm.sub_category?.name || ''}
+                                    tags={lm.is_car ? carLinkedMemoryTags(lm) : (Array.isArray(lm.tags) ? lm.tags : [])}
+                                    label={lm.is_car ? carLinkedMemoryLabel(lm) : (lm.sub_category?.name || '')}
                                     contributors={Array.isArray(lm.collaborators) ? lm.collaborators.map((c: any) => ({ id: c.id || c.user_id, name: c.name || c.user?.name || '', avatar: c.profile_image || c.user?.profile_image || '', profileColor: c.profile_color || c.user?.profile_color || '' })) : []}
                                     whiteFooter={true}
                                     actionButton={
@@ -13449,7 +14566,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                         </DropdownMenuContent>
                                       </DropdownMenu>
                                     }
-                                    onClick={() => onMemorySelect?.(String(lm.id))}
+                                    onClick={() => onMemorySelect?.(lm.is_car ? `cars_detail:${lm.id}` : String(lm.id))}
                                   />
                                 </div>
                               );
@@ -13505,6 +14622,9 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                         : 'border border-gray-100'
                                     }`}
                                   >
+                                    {Array.isArray(post.variants) ? (
+                                      <ShopifyProductCard post={post} onImageClick={handleTimelineImageView} />
+                                    ) : (
                                     <PostCard
                                       post={post}
                                       variant="card"
@@ -13534,6 +14654,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                         await fetchMemoryDetails(false);
                                       }}
                                     />
+                                    )}
                                   </div>
                                   {/* DocuSign PDF Card */}
                                   {(() => {
@@ -13627,7 +14748,9 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                       <svg width="24" height="24" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" className="absolute bottom-4 right-4 text-[#6C60FF]/30 rotate-180"><path d="M10.6668 2C10.3132 2 9.97407 2.14048 9.72402 2.39052C9.47397 2.64057 9.3335 2.97971 9.3335 3.33333V7.33333C9.3335 7.68696 9.47407 8.02609 9.72402 8.27614C9.97407 8.52619 10.3132 8.66667 10.6668 8.66667C10.8436 8.66667 11.0132 8.7369 11.1382 8.86193C11.2633 8.98695 11.3335 9.15652 11.3335 9.33333V10C11.3335 10.3536 11.193 10.6928 10.943 10.9428C10.6929 11.1929 10.3538 11.3333 10.0002 11.3333C9.82335 11.3333 9.65378 11.4036 9.52876 11.5286C9.40373 11.6536 9.3335 11.8232 9.3335 12V13.3333C9.3335 13.5101 9.40373 13.6797 9.52876 13.8047C9.65378 13.9298 9.82335 14 10.0002 14C11.061 14 12.0784 13.5786 12.8286 12.8284C13.5787 12.0783 14.0002 11.0609 14.0002 10V3.33333C14.0002 2.97971 13.8597 2.64057 13.6096 2.39052C13.3596 2.14048 13.0205 2 12.6668 2H10.6668Z" fill="currentColor"/><path d="M3.33333 2C2.97971 2 2.64057 2.14048 2.39052 2.39052C2.14048 2.64057 2 2.97971 2 3.33333V7.33333C2 7.68696 2.14048 8.02609 2.39052 8.27614C2.64057 8.52619 2.97971 8.66667 3.33333 8.66667C3.51014 8.66667 3.67971 8.7369 3.80474 8.86193C3.92976 8.98695 4 9.15652 4 9.33333V10C4 10.3536 3.85952 10.6928 3.60948 10.9428C3.35943 11.1929 3.02029 11.3333 2.66667 11.3333C2.48986 11.3333 2.32029 11.4036 2.19526 11.5286C2.07024 11.6536 2 11.8232 2 12V13.3333C2 13.5101 2.07024 13.6797 2.19526 13.8047C2.32029 13.9298 2.48986 14 2.66667 14C3.72753 14 4.74495 13.5786 5.49509 12.8284C6.24524 12.0783 6.66667 11.0609 6.66667 10V3.33333C6.66667 2.97971 6.52619 2.64057 6.27614 2.39052C6.02609 2.14048 5.68696 2 5.33333 2H3.33333Z" fill="currentColor"/></svg>
                                     </div>
                                   ))}
-                                  {ctaWidgets.filter(w => w.afterPostId === post.id?.toString()).map(widget => (
+                                  {renderProductWidgets(post.id?.toString())}
+                                  {renderAiCreatorWidgets(post.id?.toString())}
+                                  {ctaWidgets.filter(w => w.afterPostId === post.id?.toString() && !w.pinToBottom).map(widget => (
                                     <CTAWidgetCard key={widget.id} widget={widget} memoryId={memoryId} cardRef={(el) => { ctaWidgetCardRefs.current[widget.id] = el; }} isActive={activeCtaWidgetId === widget.id} />
                                   ))}
                                   {/* Plus Divider after each card - mobile only, not after last */}
@@ -13651,6 +14774,10 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                             </Button>
                           </div>
                         )}
+                        {/* Pinned "Share Request a Moment" buttons — always after the last item */}
+                        {ctaWidgets.filter(w => w.pinToBottom).map(widget => (
+                          <CTAWidgetCard key={widget.id} widget={widget} memoryId={memoryId} cardRef={(el) => { ctaWidgetCardRefs.current[widget.id] = el; }} isActive={activeCtaWidgetId === widget.id} />
+                        ))}
 
                         {/* Bottom spacing */}
                         <div className="pb-8"></div>
@@ -14062,7 +15189,9 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                           {renderPlusDivider(`mobile-quote-top-div-${widget.id}`)}
                         </React.Fragment>
                       ))}
-                      {ctaWidgets.filter(w => w.afterPostId === null).map(widget => (
+                      {renderProductWidgets(null)}
+                      {renderAiCreatorWidgets(null)}
+                      {ctaWidgets.filter(w => w.afterPostId === null && !w.pinToBottom).map(widget => (
                         <React.Fragment key={`mobile-cta-top-${widget.id}`}>
                         <div className="mx-4">
                           <CTAWidgetCard widget={widget} memoryId={memoryId} isActive={activeCtaWidgetId === widget.id} onEdit={() => openEditCta(widget)} onDelete={() => deleteCta(widget)} />
@@ -14095,8 +15224,8 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                 fullName={lm.user?.name || apiMemoryData?.user?.name}
                                 avatar={lm.user?.profile_image || apiMemoryData?.user?.profile_image}
                                 profileColor={lm.user?.profile_color || apiMemoryData?.user?.profile_color}
-                                tags={Array.isArray(lm.tags) ? lm.tags : []}
-                                label={lm.sub_category?.name || ''}
+                                tags={lm.is_car ? carLinkedMemoryTags(lm) : (Array.isArray(lm.tags) ? lm.tags : [])}
+                                label={lm.is_car ? carLinkedMemoryLabel(lm) : (lm.sub_category?.name || '')}
                                 contributors={Array.isArray(lm.collaborators) ? lm.collaborators.map((c: any) => ({ id: c.id || c.user_id, name: c.name || c.user?.name || '', avatar: c.profile_image || c.user?.profile_image || '', profileColor: c.profile_color || c.user?.profile_color || '' })) : []}
                                 whiteFooter={true}
                                 actionButton={
@@ -14136,7 +15265,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                     </DropdownMenuContent>
                                   </DropdownMenu>
                                 }
-                                onClick={() => onMemorySelect?.(String(lm.id))}
+                                onClick={() => onMemorySelect?.(lm.is_car ? `cars_detail:${lm.id}` : String(lm.id))}
                               />
                             </div>
                           );
@@ -14183,6 +15312,9 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
 
                           return (
                           <React.Fragment key={post.id}>
+                            {Array.isArray(post.variants) ? (
+                              <ShopifyProductCard post={post} onImageClick={handleTimelineImageView} />
+                            ) : (
                             <PostCard
                               post={post}
                               variant="card"
@@ -14212,6 +15344,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                 await fetchMemoryDetails(false);
                               }}
                             />
+                            )}
                             {/* DocuSign PDF Card */}
                             {(() => {
                               const doc = apiMemoryData?.docusign_documents?.[post.id?.toString()];
@@ -14415,7 +15548,9 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                               </div>
                               </React.Fragment>
                             ))}
-                            {ctaWidgets.filter(w => w.afterPostId === post.id?.toString()).map(widget => (
+                            {renderProductWidgets(post.id?.toString())}
+                            {renderAiCreatorWidgets(post.id?.toString())}
+                            {ctaWidgets.filter(w => w.afterPostId === post.id?.toString() && !w.pinToBottom).map(widget => (
                               <React.Fragment key={`mobile-cta-${widget.id}`}>
                                 {renderPlusDivider(`mobile-cta-div-${widget.id}`, post.id?.toString())}
                               <div className="mx-4">
@@ -14429,6 +15564,12 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                         );
                         }
                       })}
+                      {/* Pinned "Share Request a Moment" buttons — always after the last item */}
+                      {ctaWidgets.filter(w => w.pinToBottom).map(widget => (
+                        <div key={`mobile-cta-bottom-${widget.id}`} className="mx-4">
+                          <CTAWidgetCard widget={widget} memoryId={memoryId} isActive={activeCtaWidgetId === widget.id} onEdit={() => openEditCta(widget)} onDelete={() => deleteCta(widget)} />
+                        </div>
+                      ))}
 
                       {/* E-Business Card - Real Mobile */}
                       {!!apiMemoryData?.user?.is_business && (
@@ -14805,6 +15946,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                           youtube: { label: 'YouTube Video', Icon: Play },
                           quote: { label: 'Quote', Icon: MessageSquare },
                           cta: { label: 'Call to Action', Icon: Pointer },
+                          product: { label: 'Shopify Product', Icon: ShoppingCart },
                         };
                         const meta = typeMeta[w.widget_type] || { label: 'Widget', Icon: FileText };
                         const Icon = meta.Icon;
@@ -14855,6 +15997,17 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                     {d.title && <p className="font-medium text-gray-900">{d.title}</p>}
                                     <p><span className="text-gray-500">Button:</span> {d.buttonText || 'Learn More'}</p>
                                     {d.buttonLink && <p className="break-all"><span className="text-gray-500">Link:</span> {d.buttonLink}</p>}
+                                  </div>
+                                )}
+
+                                {w.widget_type === 'product' && (
+                                  <div className="flex gap-3">
+                                    {d.image && <img src={d.image} alt={d.title} className="w-16 h-16 rounded-lg object-cover flex-shrink-0" />}
+                                    <div className="text-sm text-gray-700 space-y-0.5">
+                                      {d.title && <p className="font-medium text-gray-900">{d.title}</p>}
+                                      {d.price && <p className="text-[#6C60FF] font-semibold">{d.currency ? `${d.currency} ${d.price}` : d.price}</p>}
+                                      {d.vendor && <p className="text-xs text-gray-500">{d.vendor}</p>}
+                                    </div>
                                   </div>
                                 )}
 
@@ -17008,6 +18161,13 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
         </div>
       )}
 
+      {/* Shopify Product Picker */}
+      <ShopifyProductPicker
+        isOpen={isProductPickerOpen}
+        onClose={() => { setIsProductPickerOpen(false); setProductWidgetAfterPostId(null); }}
+        onAdd={handleAddProductWidgets}
+      />
+
       {/* Add Moment Modal */}
       <AddMomentModal
         isOpen={isAddMomentModalOpen}
@@ -17959,6 +19119,9 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
         filename={imageViewer.filename}
         dateTaken={imageViewer.dateTaken}
         location={imageViewer.location}
+        description={imageViewer.description}
+        specs={imageViewer.specs}
+        disableDescriptionEdit={imageViewer.disableDescriptionEdit}
         images={imageViewer.images}
         largeSize={true}
         coverContentOnly={false}

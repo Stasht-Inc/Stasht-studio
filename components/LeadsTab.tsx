@@ -8,6 +8,7 @@ import { Avatar, AvatarFallback, AvatarImage } from './ui/avatar';
 import { Select, SelectContent, SelectItem, SelectSeparator, SelectTrigger, SelectValue } from './ui/select';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from './ui/dropdown-menu';
 import { leadsAPI, Lead, LeadMessage, CommentaryTarget, LeadGroupSummary, LeadGroup, Conversation } from '../services/leadsAPI';
+import { mapLimit } from '../utils/requestLimit';
 
 const STATUS_TRIGGER_CLASS: Record<string, string> = {
   hot: 'bg-red-100 text-red-600 border-red-200 hover:bg-red-100 focus:ring-0',
@@ -168,18 +169,18 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
         });
       });
 
-      // Messages — one request per lead, run in parallel.
-      const fetched = await Promise.all(
-        leads.map(async (lead) => {
-          try {
-            const res = await leadsAPI.getMessages(lead.id);
-            if (res.success && res.data?.messages) return { lead, messages: res.data.messages };
-          } catch {
-            // ignore — a failed lead simply contributes no messages
-          }
-          return { lead, messages: [] as LeadMessage[] };
-        })
-      );
+      // Messages — one request per lead. Concurrency-capped: `leads` is the full
+      // unpaginated list, so an unbounded Promise.all here fires one request per
+      // lead in the same tick and trips the backend rate limiter on big accounts.
+      const fetched = await mapLimit(leads, async (lead) => {
+        try {
+          const res = await leadsAPI.getMessages(lead.id);
+          if (res.success && res.data?.messages) return { lead, messages: res.data.messages };
+        } catch {
+          // ignore — a failed lead simply contributes no messages
+        }
+        return { lead, messages: [] as LeadMessage[] };
+      });
 
       fetched.forEach(({ lead, messages }) => {
         messages.forEach((m) => {
@@ -342,7 +343,16 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
         status: status ?? statusFilter,
       });
       if (res.success && res.data) {
-        const freshLeads = res.data.leads ?? [];
+        // The API can hand back a lead whose user account no longer exists, but
+        // Lead.user is typed non-nullable so nothing downstream guards it — the
+        // first `l.user.id` read then throws during render. Drop those here so
+        // every consumer can keep relying on user being present.
+        const rawLeads = res.data.leads ?? [];
+        const freshLeads = rawLeads.filter((l) => l && l.user);
+        const dropped = rawLeads.length - freshLeads.length;
+        if (dropped > 0) {
+          console.warn(`LeadsTab: skipped ${dropped} lead(s) returned without a user account.`);
+        }
         setLeads(freshLeads);
         onLeadsRefreshed?.(freshLeads);
       } else {

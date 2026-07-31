@@ -32,6 +32,7 @@ import { dashboardAPI, servicesAPI, isLastSyncOlderThan } from "../utils/authUti
 import { formatFileSize, generateFileId } from "../utils/fileProcessing";
 import { getFacebookAuthUrl } from "../utils/facebookAuthAPI";
 import { openGooglePhotosPicker } from "../utils/googlePhotosPickerUtils";
+import { mapLimit, uploadLimit } from "../utils/requestLimit";
 
 // Helper function to format relative time like "Just now", "5 minutes ago", etc.
 const formatRelativeTime = (dateString?: string): string => {
@@ -2686,8 +2687,12 @@ export default function MediaPage({
       console.log('⚡⚡⚡ PARALLEL UPLOAD START - All files will start NOW:', new Date().toISOString());
       console.log(`⚡ Total files to upload in parallel: ${newUploadItems.length}`);
 
-      await Promise.all(
-        newUploadItems.map(async (item, i) => {
+      // Concurrency-capped at 5 in flight, matching the BATCH_SIZE already used by
+      // AddMomentModal/CreateMemory. Each item makes several sequential API calls,
+      // so an unbounded fan-out here is a large multiple of the file count.
+      await mapLimit(
+        newUploadItems,
+        async (item, i) => {
           const fileStartTime = Date.now();
           console.log(`🚀🚀🚀 [${fileStartTime - startTime}ms] File ${i + 1} STARTED: ${item.name}`);
 
@@ -2857,7 +2862,8 @@ export default function MediaPage({
             // Show error toast
             toast.error(`Failed to upload ${item.name}: ${error instanceof Error ? error.message : 'Unknown error'}`);
           }
-        })
+        },
+        uploadLimit
       );
 
       console.log('✅ All parallel uploads completed');

@@ -19,6 +19,13 @@ const CATEGORY_COLOR_PALETTE = [
   '#059669', // Emerald-600
 ];
 
+// Shopify brand green. Single source of truth: the sidebar catalog box and the memories-page
+// card badges both resolve to this, so they can never drift apart.
+export const SHOPIFY_COLOR = '#95BF47';
+
+// Cars catalog box accent color. Same single-source-of-truth reasoning as SHOPIFY_COLOR above.
+export const CARS_COLOR = '#0EA5E9';
+
 // Fixed colors for system categories
 const SYSTEM_CATEGORY_COLORS: { [key: string]: string } = {
   'Unassigned': '#9CA3AF',   // Gray - for unassigned content
@@ -27,6 +34,12 @@ const SYSTEM_CATEGORY_COLORS: { [key: string]: string } = {
   'Published': '#9333EA',    // Emerald - for Published
   'Invites': '#EC4899',      // Pink - for Invites
   'Suggested': '#9CA3AF',    // Grey - for Suggested
+  // Shopify is connector-owned, not user-created, so it gets a fixed brand colour rather than
+  // a palette slot. Listed here (checked before localStorage) so it also overrides any colour
+  // already auto-assigned and persisted for "Shopify" on existing installs.
+  'Shopify': SHOPIFY_COLOR,
+  // Cars is a read-only inventory feed, not a user-created category — same reasoning as Shopify.
+  'Cars': CARS_COLOR,
 };
 
 // LocalStorage key for storing category colors

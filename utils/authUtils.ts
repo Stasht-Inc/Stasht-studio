@@ -160,6 +160,11 @@ export const getAuthHeaders = (): Record<string, string> => {
 };
 
 // Generic API request handler
+// Rate-limit (429) retry policy, shared by every call that goes through apiRequest.
+const RATE_LIMIT_STATUS = 429;
+const MAX_RATE_LIMIT_RETRIES = 3;
+const MAX_RATE_LIMIT_BACKOFF_MS = 30000;
+
 export const apiRequest = async <T = any>(
   endpoint: string,
   options: RequestInit = {}
@@ -191,14 +196,32 @@ export const apiRequest = async <T = any>(
       finalEndpoint = `${endpoint}${separator}_t=${Date.now()}`;
     }
 
-    const response = await fetch(`${API_BASE_URL}${finalEndpoint}`, {
-      ...options,
-      headers: {
-        ...getAuthHeaders(),
-        ...(options.headers || {}),
-      },
-      credentials: 'same-origin', // Ensure cookies are sent with same-origin requests
-    });
+    // A 429 comes from the throttle middleware, which rejects the request before
+    // it reaches the controller — nothing was processed, so retrying is safe even
+    // for writes. Honour Retry-After when the server sends it, otherwise back off
+    // exponentially with a little jitter so a burst of parallel callers doesn't
+    // retry in lockstep. Capped, so a sustained limit still fails rather than hanging.
+    let response: Response;
+    for (let attempt = 0; ; attempt++) {
+      response = await fetch(`${API_BASE_URL}${finalEndpoint}`, {
+        ...options,
+        headers: {
+          ...getAuthHeaders(),
+          ...(options.headers || {}),
+        },
+        credentials: 'same-origin', // Ensure cookies are sent with same-origin requests
+      });
+
+      if (response.status !== RATE_LIMIT_STATUS || attempt >= MAX_RATE_LIMIT_RETRIES) break;
+
+      const retryAfterSec = Number(response.headers.get('Retry-After'));
+      const waitMs = Number.isFinite(retryAfterSec) && retryAfterSec > 0
+        ? Math.min(retryAfterSec * 1000, MAX_RATE_LIMIT_BACKOFF_MS)
+        : Math.min(1000 * 2 ** attempt, MAX_RATE_LIMIT_BACKOFF_MS) + Math.random() * 250;
+
+      console.warn(`⏳ 429 from ${endpoint} — retrying in ${Math.round(waitMs)}ms (attempt ${attempt + 1}/${MAX_RATE_LIMIT_RETRIES})`);
+      await new Promise((resolve) => setTimeout(resolve, waitMs));
+    }
 
     let data;
     try {
@@ -328,6 +351,19 @@ export const apiRequest = async <T = any>(
     }
 
     if (!response.ok) {
+      // Still throttled after every retry — say so plainly rather than "HTTP 429",
+      // which reads as a crash to the user.
+      if (response.status === RATE_LIMIT_STATUS) {
+        console.warn(`🚦 Rate limited on ${endpoint} after ${MAX_RATE_LIMIT_RETRIES} retries`);
+        return {
+          success: false,
+          error: 'Too many requests right now. Please wait a moment and try again.',
+          message: data?.message,
+          rateLimited: true,
+          statusCode: RATE_LIMIT_STATUS,
+        } as ApiResponse<T>;
+      }
+
       // Handle 409 Conflict specifically for login conflicts
       if (response.status === 409) {
         return {
@@ -1199,6 +1235,74 @@ export const authAPI = {
       };
     } catch (error) {
       console.error('❌ authAPI.ssoExchange: exception', error);
+      return { success: false, error: 'Network error occurred' };
+    }
+  },
+
+  // NEW SSO (single-call): exchange a one-time SSO code for a full session.
+  // POST /api/react/sso/exchange { code } → the standard login-success payload
+  // (same shape as /login: token + user + collaborators + properties). Persist
+  // the returned token exactly like a normal login.
+  //
+  // Uses a RAW fetch (not apiRequest) on purpose: apiRequest auto-redirects to
+  // /login on any 401, but an expired/invalid code returns 401 and we must surface
+  // that to the caller (show an error, no redirect loop). No Authorization header —
+  // the single-use code alone authenticates the exchange.
+  ssoLoginExchange: async (code: string): Promise<LoginResponse> => {
+    try {
+      console.log('🔑 authAPI.ssoLoginExchange: exchanging SSO code (single-call)');
+
+      const res = await fetch(`${API_BASE_URL}/exchange-code-app`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+        body: JSON.stringify({ code }),
+      });
+
+      let response: any = {};
+      try {
+        response = await res.json();
+      } catch {
+        response = {};
+      }
+      console.log('🔑 authAPI.ssoLoginExchange: status', res.status, 'response', JSON.stringify(response, null, 2));
+
+      // Locate user + token wherever the standard payload places them
+      // (mirrors authAPI.login's extraction).
+      const data = response.data || response;
+      const user = data.user || data.data?.user || response.user;
+      const token =
+        data.token || data.access_token || data.data?.token || data.data?.access_token || response.token;
+
+      if (res.ok && user && token) {
+        const collaborators =
+          data.collaborators || data.data?.collaborators || response.collaborators || [];
+        const ownedProperties =
+          data.owned_properties || data.data?.owned_properties || (response as any).owned_properties || [];
+        const sharedProperties =
+          data.shared_properties || data.data?.shared_properties || [];
+
+        console.log('✅ authAPI.ssoLoginExchange: found user and token');
+        return {
+          success: true,
+          user,
+          token,
+          collaborators,
+          owned_properties: ownedProperties,
+          shared_properties: sharedProperties,
+        };
+      }
+
+      // Failure: 401 expired/invalid code, or an unparseable payload.
+      console.warn('❌ authAPI.ssoLoginExchange: exchange failed', res.status);
+      return {
+        success: false,
+        error: response.message || response.error || 'Invalid or expired login link.',
+      };
+    } catch (error) {
+      console.error('❌ authAPI.ssoLoginExchange: exception', error);
       return { success: false, error: 'Network error occurred' };
     }
   },
@@ -3335,6 +3439,54 @@ export const dashboardAPI = {
     return result;
   },
 
+  // Public variant of uploadImageWithMetadata, used by the published memory page
+  // where the visitor may not be signed in. Same FormData payload and same
+  // response shape ({ fileUrl, location, capture_date, originalSizeMB }); only the
+  // route differs, and no Authorization header is ever sent — a stale token would
+  // only risk turning a valid anonymous upload into a 401.
+  // Deliberately separate from uploadImageWithMetadata so the normal-memory
+  // callers of that function are unaffected.
+  uploadImageWithMetadataPublic: async (file: File, name: string, orientation?: number): Promise<ApiResponse<any>> => {
+    const formData = new FormData();
+    formData.append('name', name);
+    formData.append('image', file);
+    formData.append('file', file);
+    formData.append('is_memory', '1');
+    if (orientation !== undefined && orientation > 0) {
+      formData.append('orientation', String(orientation));
+    }
+
+    const endpoint = `${getApiBaseUrl()}/public/upload-image-with-metadata`;
+    console.log('🌐 uploadImageWithMetadataPublic ->', endpoint, { fileName: file.name, size: file.size, type: file.type });
+
+    try {
+      // No headers at all: the browser sets the multipart boundary itself, and
+      // setting Content-Type manually would break the upload.
+      const response = await fetch(endpoint, { method: 'POST', body: formData });
+      const responseText = await response.text();
+
+      let responseData;
+      try {
+        responseData = JSON.parse(responseText);
+      } catch {
+        console.error('🌐 uploadImageWithMetadataPublic: non-JSON response:', responseText);
+        return { success: false, data: null, error: 'Invalid response format from server' };
+      }
+
+      const result = {
+        success: response.ok,
+        data: responseData,
+        error: response.ok ? undefined : responseData?.message || responseData?.error || `HTTP ${response.status}: ${response.statusText}`,
+        statusCode: response.status,
+        statusText: response.statusText,
+      };
+      return result;
+    } catch (err: any) {
+      console.error('🌐 uploadImageWithMetadataPublic: request failed:', err);
+      return { success: false, data: null, error: err?.message || 'Upload failed' };
+    }
+  },
+
   // Upload photo to media without memory (using Laravel route /upload)
   uploadPhotoToMediaWithoutMemory: async (file: File, name: string): Promise<ApiResponse<any>> => {
     console.log(`🔧 dashboardAPI.uploadPhotoToMediaWithoutMemory: Starting upload for "${name}"`);
@@ -4155,6 +4307,9 @@ export const dashboardAPI = {
       comments: boolean;
     };
     moderation_enabled?: boolean;
+    // Real category id, or the literal "shopify"/"cars". Omit or pass null to
+    // leave the previously saved value untouched (the backend won't overwrite it).
+    category_id?: number | string | null;
   }): Promise<ApiResponse<any>> => {
     console.log('📩 Updating notification preferences:', preferences);
     return await apiRequest('/user/notification-preferences', {
@@ -4539,6 +4694,69 @@ export const dashboardAPI = {
 
   docuSignGetEnvelopes: async (memoryId: string): Promise<ApiResponse<{ envelopes: any[] }>> => {
     return await apiRequest(`/docusign/envelopes?memory_id=${memoryId}`, { method: 'GET' });
+  },
+
+  // ============= Shopify API =============
+
+  // Kick off the OAuth flow — returns the Shopify authorize URL to redirect the user to.
+  shopifyGetAuthUrl: async (shop: string): Promise<ApiResponse<{ auth_url: string }>> => {
+    return await apiRequest(`/auth/shopify?shop=${encodeURIComponent(shop)}`, { method: 'GET' });
+  },
+
+  shopifyGetStatus: async (): Promise<ApiResponse<{ connected: boolean; shop_domain?: string; connected_at?: string }>> => {
+    return await apiRequest('/integrations/shopify/status', { method: 'GET' });
+  },
+
+  shopifyDisconnect: async (): Promise<ApiResponse<{ success: boolean; message: string }>> => {
+    return await apiRequest('/integrations/shopify/disconnect', { method: 'DELETE' });
+  },
+
+  // Synced products from Stasht's DB (fast). Optional filters: category, search, status.
+  shopifyGetProducts: async (filters?: { category?: string; search?: string; status?: string }): Promise<ApiResponse<{ success: boolean; count: number; products: any[] }>> => {
+    const params = new URLSearchParams();
+    if (filters?.category) params.set('category', filters.category);
+    if (filters?.search) params.set('search', filters.search);
+    if (filters?.status) params.set('status', filters.status);
+    const qs = params.toString();
+    return await apiRequest(`/shopify/products${qs ? `?${qs}` : ''}`, { method: 'GET' });
+  },
+
+  // Shopify collections (used as category filters).
+  shopifyGetListings: async (): Promise<ApiResponse<{ success: boolean; collections: any[] }>> => {
+    return await apiRequest('/shopify/listings', { method: 'GET' });
+  },
+
+  // Full catalog: collections each with their nested products. Used to render the read-only
+  // "Shopify" box in the memories-page category sidebar (collection = campaign, product = moment).
+  shopifyGetCatalog: async (): Promise<ApiResponse<{ success: boolean; count: number; collections: any[] }>> => {
+    return await apiRequest('/shopify/catalog', { method: 'GET' });
+  },
+
+  // Single collection's detail (its products) — parallel to getMemoryDetail. Used to render
+  // a Shopify collection in the memory-detail page layout (collection = campaign/memory).
+  shopifyGetCatalogDetail: async (collectionId: string): Promise<ApiResponse<{ success: boolean; collection: any }>> => {
+    return await apiRequest(`/shopify/catalog/${encodeURIComponent(collectionId)}`, { method: 'GET' });
+  },
+
+  // Pull new/updated products from Shopify into Stasht. Empty body.
+  shopifySync: async (): Promise<ApiResponse<{ success: boolean; message: string; added: number; updated: number; total: number }>> => {
+    return await apiRequest('/shopify/sync', { method: 'POST' });
+  },
+
+  // ============= Cars API =============
+
+  // Read-only car inventory feed. Used to render the "Cars" box in the memories-page
+  // category sidebar and the Cars cards on the main grid, both grouped by each car's
+  // `category` field (e.g. preowned/hybrid). per_page=100 pulls the whole inventory in one
+  // call since /cars paginates at 20/page by default and grouping needs the full set.
+  carsGetCatalog: async (): Promise<ApiResponse<{ status: number; data: { cars: any[]; pagination: any; filters: any } }>> => {
+    return await apiRequest('/cars?per_page=100', { method: 'GET' });
+  },
+
+  // Single car's detail (full spec + images) — accepts either car.id or car.stock_number.
+  // Used to render a car in the memory-detail page layout (car = campaign, image = post).
+  carsGetDetail: async (id: string | number): Promise<ApiResponse<{ status: number; data: any }>> => {
+    return await apiRequest(`/cars/${encodeURIComponent(String(id))}`, { method: 'GET' });
   },
 
   removeLinkedMemory: async (memoryId: string, linkedMemoryId: string): Promise<ApiResponse<any>> => {

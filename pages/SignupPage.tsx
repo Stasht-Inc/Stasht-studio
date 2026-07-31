@@ -1149,6 +1149,13 @@ export default function SignupPage({ onSignup, onSwitchToLogin }: SignupPageProp
                     Code expires in {Math.floor(otpCountdown / 60)}:{String(otpCountdown % 60).padStart(2, '0')}
                   </p>
                 )}
+                {/* Delivery hint. Wording differs by method: an SMS has no junk
+                    folder, so pointing phone users at one would just confuse them. */}
+                <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
+                  <p className="text-center text-xs text-amber-800">
+                    Can&apos;t find it? Check your {method === "email" ? "spam or junk folder" : "blocked or filtered messages"}.
+                  </p>
+                </div>
               </CardHeader>
 
               <div className="space-y-6">
@@ -1523,7 +1530,16 @@ export default function SignupPage({ onSignup, onSwitchToLogin }: SignupPageProp
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
                 <p className="text-sm text-blue-700">
-                  We'll send a 6-digit code to your {method === "email" ? "email" : "phone number"} to verify your account. No password needed.
+                  {method === "phone" ? (
+                    <>
+                      By requesting this code, you agree to receive a one-time transactional SMS from Stasht to verify your account. No password needed. Msg &amp; data rates may apply. Message frequency varies. Reply STOP to opt out, HELP for help. View our{" "}
+                      <a href="https://www.stasht.com/privacy-policy" target="_blank" rel="noopener noreferrer" className="underline">Privacy Policy</a>
+                      {" "}and{" "}
+                      <a href="https://www.stasht.com/terms-conditions" target="_blank" rel="noopener noreferrer" className="underline">Terms</a>.
+                    </>
+                  ) : (
+                    <>We'll send a 6-digit code to your email to verify your account. No password needed.</>
+                  )}
                 </p>
               </div>
             )}
@@ -1639,9 +1655,9 @@ export default function SignupPage({ onSignup, onSwitchToLogin }: SignupPageProp
               />
               <label htmlFor="terms" className="text-sm text-gray-600">
                 I agree to the{' '}
-                <a href="#" className="text-blue-600 hover:underline">Terms of Service</a>
+                <a href="https://www.stasht.com/terms-conditions" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">Terms of Service</a>
                 {' '}and{' '}
-                <a href="#" className="text-blue-600 hover:underline">Privacy Policy</a>
+                <a href="https://www.stasht.com/privacy-policy" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">Privacy Policy</a>
                 <span className="text-red-500">*</span>
               </label>
             </div>
@@ -1710,7 +1726,12 @@ export default function SignupPage({ onSignup, onSwitchToLogin }: SignupPageProp
 
         {/* Footer */}
         <div className="text-center mt-6 text-xs text-gray-500">
-          <p>By continuing, you agree to our Terms of Service and Privacy Policy</p>
+          <p>
+            By continuing, you agree to our{' '}
+            <a href="https://www.stasht.com/terms-conditions" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">Terms of Service</a>
+            {' '}and{' '}
+            <a href="https://www.stasht.com/privacy-policy" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">Privacy Policy</a>
+          </p>
         </div>
       </div>
 

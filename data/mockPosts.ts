@@ -30,6 +30,16 @@ export interface MockPost {
   is_claim?: number; // 1 if post has been claimed, 0 or undefined otherwise
   claim_user_id?: number | string | null; // ID of user who claimed the post
   tags?: Array<string | { id?: number; name: string }>; // Tags associated with this post
+  variants?: any[]; // Shopify product variants (present only for Shopify collection products) — rendered as tags
+  // Shopify product fields (present only for Shopify collection products) — power the dedicated product card
+  price?: string | number | null;
+  currency?: string | null;
+  handle?: string | null;
+  vendor?: string | null;
+  category?: string | null;
+  compare_at_price?: string | number | null;
+  shop_domain?: string | null;
+  product_url?: string | null;
 }
 
 export const mockPosts: MockPost[] = [

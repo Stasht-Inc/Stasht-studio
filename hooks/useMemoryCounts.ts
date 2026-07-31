@@ -22,6 +22,12 @@ let globalIsLoading = false;
 let globalError: string | null = null;
 // When true, personal account API counts will not override property account counts
 let propertyModeActive = false;
+// Cars + Shopify catalog cards aren't real memory records in the backend, so the
+// /user/memory-counts response never includes them. MemoriesPage reports how many
+// catalog cards it's currently showing here, and we add it on top of the backend
+// total at read time — that way the 30s background refetch of memory-counts can't
+// stomp it back out.
+let globalCatalogCount = 0;
 
 // Subscribers that need to be notified when memory counts change
 const subscribers = new Set<() => void>();
@@ -57,6 +63,13 @@ const memoryCountsManager = {
   // Enable/disable property mode — prevents personal API counts from overriding property counts
   setPropertyMode: (active: boolean) => {
     propertyModeActive = active;
+  },
+
+  // Report how many non-memory catalog cards (Cars, Shopify) are currently displayed
+  setCatalogCount: (count: number) => {
+    if (globalCatalogCount === count) return;
+    globalCatalogCount = count;
+    memoryCountsManager.notify();
   },
 
   // Fetch memory counts from API
@@ -160,8 +173,12 @@ export const useMemoryCounts = (): UseMemoryCountsReturn => {
     await memoryCountsManager.fetchMemoryCounts();
   }, [isAuthenticated]);
 
+  const memoryCounts = globalMemoryCounts
+    ? { ...globalMemoryCounts, total_memories: globalMemoryCounts.total_memories + globalCatalogCount }
+    : globalMemoryCounts;
+
   return {
-    memoryCounts: globalMemoryCounts,
+    memoryCounts,
     isLoading: globalIsLoading,
     error: globalError,
     refreshMemoryCounts
@@ -175,4 +192,10 @@ export { memoryCountsManager };
 export const triggerMemoryCountsRefresh = async (): Promise<void> => {
   console.log('🔄 Triggering memory counts refresh...');
   await memoryCountsManager.fetchMemoryCounts();
+};
+
+// Report the number of Cars/Shopify catalog cards currently shown on the Memories page,
+// so the sidebar total can include them even though the backend doesn't count them.
+export const setCatalogItemsCount = (count: number): void => {
+  memoryCountsManager.setCatalogCount(count);
 };

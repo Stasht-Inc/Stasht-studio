@@ -20,6 +20,7 @@ import { dashboardAPI, userDisplayUtils } from "../utils/authUtils";
 import { recheckMemoryLimit } from "../hooks/useMemoryLimit";
 import { updateCategoryColor } from "../utils/categoryColorManager";
 import AddMediaToMemoryModal from "./AddMediaToMemoryModal";
+import { mapLimit, uploadLimit } from "../utils/requestLimit";
 
 interface MediaImage {
   id: string;
@@ -2461,8 +2462,12 @@ export default function MediaNav({
     setLocalUploadProgress(prev => [...prev, ...newUploadItems]);
 
     try {
-      await Promise.all(
-        newUploadItems.map(async (item, i) => {
+      // Concurrency-capped at 5 in flight, matching the BATCH_SIZE already used by
+      // AddMomentModal/CreateMemory. Each item makes several sequential API calls,
+      // so an unbounded fan-out here is a large multiple of the file count.
+      await mapLimit(
+        newUploadItems,
+        async (item, i) => {
           try {
             setLocalUploadProgress(prev => prev.map(upload =>
               upload.id === item.id ? { ...upload, progress: 10 } : upload
@@ -2544,7 +2549,8 @@ export default function MediaNav({
             ));
             toast.error(`Failed to upload ${item.name}: ${error instanceof Error ? error.message : 'Unknown error'}`);
           }
-        })
+        },
+        uploadLimit
       );
 
       // Reload entire page after local upload completes

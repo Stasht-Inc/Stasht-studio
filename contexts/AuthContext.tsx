@@ -4,6 +4,11 @@ import { initializeAccountCreation } from '../utils/passwordSecurityStorage';
 import SessionValidator from '../utils/sessionValidator';
 import { resetMediaCache } from '../services/mediaAPI';
 import { crossTabAuth } from '../utils/crossTabAuth';
+import StashtLogo from '../components/StashtLogo';
+
+// Module-level guard: survives React StrictMode's double-invoke (and any remount)
+// in the same page load, so a single-use SSO code is exchanged exactly once.
+let ssoExchangeStarted = false;
 
 interface User {
   id: string;
@@ -41,9 +46,95 @@ export function AuthProvider({ children }: AuthProviderProps) {
   // CRITICAL FIX: Fast-path for invite links with login=1 - skip initial loading
   const urlParams = new URLSearchParams(window.location.search);
   const isInviteLoginPage = urlParams.get('invite') === '1' && urlParams.get('login') === '1';
-  const [isLoading, setIsLoading] = useState(!isInviteLoginPage); // Skip loading if invite+login
+  // SSO auto-login: an inbound ?code= must never flash the login page — start in
+  // the loading state so the spinner shows until the exchange resolves.
+  const hasSsoCode = !!urlParams.get('code');
+  const [isLoading, setIsLoading] = useState(hasSsoCode ? true : !isInviteLoginPage); // Skip loading if invite+login
+  const [ssoError, setSsoError] = useState<string | null>(null);
 
   useEffect(() => {
+    // ────────────────────────────────────────────────────────────────────────
+    // SSO AUTO-LOGIN: if a one-time ?code= is present (Flutter app opened
+    // /payment?code=… or /profile?code=…), exchange it for a session BEFORE the
+    // normal localStorage auth check. Runs for any path.
+    //
+    // Guard FIRST: once an exchange has begun this page load, later effect runs
+    // (React StrictMode double-invoke, remount) must do NOTHING — not even the
+    // normal bootstrap — otherwise they'd flash the login page while the async
+    // exchange is still in flight. The single-use code is thus exchanged once.
+    // ────────────────────────────────────────────────────────────────────────
+    if (ssoExchangeStarted) {
+      console.log('🟣 [SSO] guard already set → skipping this effect run');
+      return;
+    }
+
+    const ssoCode = new URLSearchParams(window.location.search).get('code');
+    if (ssoCode) {
+      ssoExchangeStarted = true;
+      console.log('🟣 [SSO] code detected → exchanging before auth bootstrap');
+
+      // Strip ONLY the code from the URL immediately (keep the path — /payment or
+      // /profile — and any other params), so it can never be re-used from history
+      // or the address bar.
+      const stripped = new URLSearchParams(window.location.search);
+      stripped.delete('code');
+      const cleanedUrl =
+        window.location.pathname +
+        (stripped.toString() ? `?${stripped.toString()}` : '') +
+        window.location.hash;
+      window.history.replaceState({}, '', cleanedUrl);
+
+      // Keep the spinner up during the exchange (no login-page flash).
+      setIsLoading(true);
+
+      (async () => {
+        try {
+          // Prefer the fresh code: drop any existing session first, so no stale
+          // Bearer is carried and we re-auth into the intended account.
+          if (localStorage.getItem('stasht_token')) {
+            userUtils.clearAuthData();
+          }
+
+          const res = await authAPI.ssoLoginExchange(ssoCode);
+
+          if (res.success && res.user && res.token) {
+            // Persist EXACTLY like a normal login (same keys AuthContext.login uses).
+            localStorage.setItem('stasht_user', JSON.stringify(res.user));
+            localStorage.setItem('stasht_token', res.token);
+
+            const identifier = res.user.email || (res.user as any).phone_number;
+            if (res.user.id && identifier) {
+              SessionValidator.initSession(String(res.user.id), identifier, res.token);
+            }
+            // Cross-tab session-change broadcast (same as login).
+            localStorage.setItem('stasht_session_change', JSON.stringify({
+              userId: res.user.id,
+              email: res.user.email,
+              phone_number: (res.user as any).phone_number,
+              timestamp: Date.now(),
+            }));
+            // 60-second logout-protection window (same as login).
+            localStorage.setItem('last_successful_login_timestamp', String(Date.now()));
+
+            setUser(res.user as User);
+            dashboardAPI.autoMarkImagesSeen().catch(() => {});
+            setIsLoading(false);
+            console.log('✅ [SSO] auto-login complete — user authenticated');
+          } else {
+            console.error('❌ [SSO] exchange failed:', res.error);
+            setSsoError('This login link has expired, please reopen from the app.');
+            setIsLoading(false);
+          }
+        } catch (e) {
+          console.error('❌ [SSO] exchange error:', e);
+          setSsoError('This login link has expired, please reopen from the app.');
+          setIsLoading(false);
+        }
+      })();
+
+      return; // Do NOT fall through to the normal localStorage bootstrap.
+    }
+
     // FAST PATH: If this is an invite login page, skip LOADING SPINNER but still check auth
     // CRITICAL: We must still check localStorage in case user just logged in
     if (isInviteLoginPage) {
@@ -388,6 +479,18 @@ export function AuthProvider({ children }: AuthProviderProps) {
     logout,
     updateUser,
   };
+
+  // SSO exchange failed (expired / invalid code): show a terminal error screen
+  // instead of the app. Rendering this (not the login page) guarantees no
+  // redirect / login loop — the user must reopen the link from the mobile app.
+  if (ssoError) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 p-4 text-center">
+        <StashtLogo className="h-12 w-auto max-w-[180px] object-contain mb-6" fill="#6C60FF" />
+        <p className="text-base font-medium text-gray-700 max-w-sm">{ssoError}</p>
+      </div>
+    );
+  }
 
   return (
     <AuthContext.Provider value={value}>

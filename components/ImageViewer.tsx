@@ -231,6 +231,8 @@ interface ImageViewerProps {
   initialTags?: string[]; // Pre-populate tags from parent data
   storyTags?: string[]; // All tags in the story for suggestions/autocomplete
   isPdf?: boolean; // Whether the current src is a PDF document
+  specs?: Array<{ label: string; value: string }>; // Read-only key/value grid shown below the description (e.g. car specs)
+  disableDescriptionEdit?: boolean; // Hide edit/delete on the description — for sources with no real post to save changes to (e.g. cars)
 }
 
 export function ImageViewer({
@@ -280,7 +282,9 @@ export function ImageViewer({
   focusComments = false,
   initialTags = [],
   storyTags = [],
-  isPdf = false
+  isPdf = false,
+  specs = [],
+  disableDescriptionEdit = false
 }: ImageViewerProps) {
 
   // Helper function to format profile color
@@ -557,7 +561,13 @@ export function ImageViewer({
 
   // Update state variables when switching between parent and sub-images
   useEffect(() => {
-    if (currentSubImageIndex > 0) {
+    if (disableDescriptionEdit) {
+      // Car listings: description is the car's own description (not per-photo) —
+      // keep it constant across every photo instead of pulling per-image/mediaData values.
+      setCurrentLocation(currentSubImageIndex > 0 ? displayLocation : location);
+      setCurrentDescription(description || '');
+      setEditedDescription(description || '');
+    } else if (currentSubImageIndex > 0) {
       // Viewing a sub-image - update states with sub-image data
       setCurrentLocation(displayLocation);
       setCurrentDescription(displayDescription || '');
@@ -568,7 +578,7 @@ export function ImageViewer({
       setCurrentDescription(mediaData.description || description || '');
       setEditedDescription(mediaData.description || description || '');
     }
-  }, [currentSubImageIndex, displayLocation, displayDescription, location, description, mediaData.description]);
+  }, [currentSubImageIndex, displayLocation, displayDescription, location, description, mediaData.description, disableDescriptionEdit]);
 
   // Detect portrait orientation when currentImageSrc changes (for sub-images)
   useEffect(() => {
@@ -640,10 +650,11 @@ export function ImageViewer({
 
   // Update currentDescription when mediaData or description changes
   useEffect(() => {
+    if (disableDescriptionEdit) return; // Car listings: handled by the sub-image effect above, not mediaData
     const desc = mediaData.description || description || "";
     setCurrentDescription(desc);
     setEditedDescription(desc);
-  }, [mediaData.description, description]);
+  }, [mediaData.description, description, disableDescriptionEdit]);
 
   // Handle modal close effect - refresh data if rotation or description changed
   useEffect(() => {
@@ -2860,6 +2871,20 @@ export function ImageViewer({
                   </p>
                 </div>
               )}
+
+              {specs.length > 0 && (
+                <div className="flex gap-3 mt-3">
+                  <div className="w-10 flex-shrink-0" />
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-3 flex-1">
+                    {specs.map((spec) => (
+                      <div key={spec.label}>
+                        <p className="text-xs text-gray-500 uppercase tracking-wide">{spec.label}</p>
+                        <p className="text-sm text-gray-900 font-medium break-words">{spec.value}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 
@@ -2867,7 +2892,7 @@ export function ImageViewer({
           <div className="hidden md:block p-6 border-b border-gray-800">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-semibold">Description</h3>
-              {currentDescription && (
+              {currentDescription && !disableDescriptionEdit && (
                 <Popover open={isDescriptionMenuOpen} onOpenChange={setIsDescriptionMenuOpen}>
                   <PopoverTrigger asChild>
                     <button
@@ -3026,7 +3051,19 @@ export function ImageViewer({
                 {renderCommentWithMentions(currentDescription)}
               </p>
             ) : null}
-            
+
+            {/* Spec grid (e.g. car mileage/engine/trim) — read-only, shown below the description */}
+            {specs.length > 0 && (
+              <div className="grid grid-cols-2 gap-x-4 gap-y-3 mb-4 pb-4 border-b border-gray-800">
+                {specs.map((spec) => (
+                  <div key={spec.label}>
+                    <p className="text-xs text-gray-500 uppercase tracking-wide">{spec.label}</p>
+                    <p className="text-sm text-gray-200 font-medium break-words">{spec.value}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+
             {/* Metadata */}
             <div className="space-y-2 text-sm text-gray-400">
               {dateTaken && (

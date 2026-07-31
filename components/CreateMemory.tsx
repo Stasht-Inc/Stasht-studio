@@ -1,6 +1,6 @@
-import React, { useState, useRef, useEffect, useCallback, useImperativeHandle, forwardRef } from 'react';
+﻿import React, { useState, useRef, useEffect, useCallback, useImperativeHandle, forwardRef } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Upload, Calendar, MapPin, Tag, Users, Plus, Camera, Image as ImageIcon, CheckCircle, Loader2, File as FileIcon, Search, Video, Pencil, ChevronLeft, ChevronRight, Globe, Eye, Lock } from 'lucide-react';
+import { X, Upload, Calendar, MapPin, Tag, Users, Plus, Camera, Image as ImageIcon, CheckCircle, Loader2, File as FileIcon, Search, Video, Pencil, Globe, Eye, Lock } from 'lucide-react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import GooglePlacesInput from './ui/google-places-input';
@@ -9,6 +9,7 @@ import * as Popover from '@radix-ui/react-popover';
 import { dashboardAPI, getApiBaseUrl } from '../utils/authUtils';
 import exifr from 'exifr';
 import { getCategoryColor } from '../constants/mediaConstants';
+import { SHOPIFY_COLOR } from '../utils/categoryColorManager';
 import { useAuth } from '../contexts/AuthContext';
 import { useProperty } from '../contexts/PropertyContext';
 import { useMemoryLimit, recheckMemoryLimit } from '../hooks/useMemoryLimit';
@@ -95,8 +96,18 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
   const [currentCollaborator, setCurrentCollaborator] = useState('');
   const [collaboratorError, setCollaboratorError] = useState('');
   const [collaboratorMethod, setCollaboratorMethod] = useState<'phone' | 'email'>('phone');
+  // Live user-search dropdown for the collaborator input (matches AddCollaboratorDialog's search UX)
+  const [collaboratorSearchResults, setCollaboratorSearchResults] = useState<any[]>([]);
+  const [isSearchingCollaborators, setIsSearchingCollaborators] = useState(false);
+  const collaboratorSearchRef = useRef<HTMLDivElement>(null);
   // Editable part of the personalized invite message (the author name prefix is fixed/non-editable)
   const [personalizedMessage, setPersonalizedMessage] = useState('invited you to collaborate on campaign');
+  // "Set as my default message" — when checked, personalizedMessage is saved as the user's master
+  // message (via is_master on the create-campaign call) and pre-fills this box on future opens.
+  const [isMasterMessage, setIsMasterMessage] = useState(false);
+  // The master message as last fetched from the profile API — restored into the box whenever the
+  // checkbox is re-checked, so toggling it off and back on doesn't lose the saved text.
+  const [savedMasterMessage, setSavedMasterMessage] = useState('');
   // Width of the author-name prefix, used to indent only the first line of the message textarea
   const personalizedNameRef = useRef<HTMLSpanElement>(null);
   const [personalizedNameWidth, setPersonalizedNameWidth] = useState(0);
@@ -215,9 +226,29 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
   const [memoriesLoading, setMemoriesLoading] = useState(false);
   const [memorySearch, setMemorySearch] = useState('');
   const [memoryCategoryFilter, setMemoryCategoryFilter] = useState('All Categories');
+  // Controls the live suggestions dropdown under the "Search campaigns" box.
+  const [isMemorySearchFocused, setIsMemorySearchFocused] = useState(false);
+  const memorySearchBoxRef = useRef<HTMLDivElement>(null);
   const [selectedMemoryIds, setSelectedMemoryIds] = useState<string[]>([]);
-  const [carouselPage, setCarouselPage] = useState(0);
-  const ITEMS_PER_PAGE = 5;
+  // Shopify: when a store is connected we offer a synthetic "Shopify" category.
+  // Choosing it turns the "existing campaigns" picker into a list of the store's
+  // Shopify collections (from shopifyGetCatalog), all pre-selected.
+  const [shopifyConnected, setShopifyConnected] = useState(false);
+  const [shopifyCollections, setShopifyCollections] = useState<any[]>([]);
+  const [shopifyCollectionsLoading, setShopifyCollectionsLoading] = useState(false);
+  const wasShopifyCategoryRef = useRef(false);
+  // Cars: when the read-only /cars catalog has listings, we offer a synthetic
+  // "Cars" category (same idea as Shopify) so a new campaign can be tagged under it.
+  const [carsAvailable, setCarsAvailable] = useState(false);
+  // Choosing the Cars category turns the "existing campaigns" picker into a list
+  // of the /cars catalog listings, all pre-selected — mirrors shopifyCollections.
+  const [carsForPicker, setCarsForPicker] = useState<any[]>([]);
+  const [carsForPickerLoading, setCarsForPickerLoading] = useState(false);
+  const wasCarsCategoryRef = useRef(false);
+  // How many campaigns are rendered in the "Select from Existing Campaigns" list —
+  // grows as the user scrolls near the bottom (infinite scroll) instead of paging.
+  const CAMPAIGNS_LOAD_BATCH = 10;
+  const [visibleCampaignsCount, setVisibleCampaignsCount] = useState(CAMPAIGNS_LOAD_BATCH);
 
   // Add custom scrollbar styles
   useEffect(() => {
@@ -288,6 +319,16 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
         input[type="date"] {
           color-scheme: light;
           accent-color: #7C3AED !important;
+        }
+
+        /* Some mobile browsers (Android WebView / Samsung Internet) size the native
+           date picker control by its own content instead of respecting the Tailwind
+           width classes, so it can render wider than the box above it and overflow
+           the screen. Force it to match its container like every other input. */
+        input[type="date"] {
+          width: 100% !important;
+          max-width: 100% !important;
+          box-sizing: border-box !important;
         }
 
         /* Override select trigger focus styles */
@@ -423,18 +464,73 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
     }
   }, [open, deviceLocation]);
 
-  // Fetch categories, labels and collaborators from API
-  // Categories toggled "always visible" in Settings > Categories (stored by ProfileSettingsPage)
-  const getAlwaysVisibleCategories = (): Record<string, boolean> => {
-    try {
-      return JSON.parse(localStorage.getItem('category_always_visible') || '{}');
-    } catch {
-      return {};
-    }
-  };
-  const isAlwaysVisibleCategory = (cat: any, map: Record<string, boolean>) =>
-    !!(map[cat.id?.toString()] || map[cat.name]);
+  // ── Shopify category ──────────────────────────────────────────────────────
+  // Sentinel id sent to the backend as category_id when the user picks Shopify.
+  // (The backend resolves it; it is not a real category row.) Match on backend.
+  const SHOPIFY_CATEGORY_NAME = 'Shopify';
+  const SHOPIFY_CATEGORY_ID = 'shopify';
+  const isShopifyCategory = formData.category === SHOPIFY_CATEGORY_NAME;
+  // Sentinel id sent to the backend as category_id when the user picks Cars.
+  // (Mirrors the Shopify sentinel above — not a real category row.)
+  const CARS_CATEGORY_NAME = 'Cars';
+  const CARS_CATEGORY_ID = 'cars';
+  const isCarsCategory = formData.category === CARS_CATEGORY_NAME;
+  // The synthetic Shopify/Cars entries are appended only while available, so they
+  // appear in the dropdown and are findable at submit for their category_id.
+  const categoriesForDropdown = [
+    ...apiCategories,
+    ...(shopifyConnected ? [{ id: SHOPIFY_CATEGORY_ID, name: SHOPIFY_CATEGORY_NAME, __isShopify: true }] : []),
+    ...(carsAvailable ? [{ id: CARS_CATEGORY_ID, name: CARS_CATEGORY_NAME }] : []),
+  ];
 
+  // Shared by the "Select from Existing Campaigns" list and its search-suggestions dropdown.
+  // "All Categories" merges every source (real campaigns + Cars + Shopify) since those two
+  // are pulled from separate catalog APIs, not from the regular campaigns list — without this
+  // they'd never show up unless the user filters specifically to "Cars"/picks it as the category.
+  const existingCampaignsPickerSource = isShopifyCategory
+    ? shopifyCollections
+    : (isCarsCategory || memoryCategoryFilter === CARS_CATEGORY_NAME)
+    ? carsForPicker
+    : memoryCategoryFilter === 'All Categories'
+    ? [...existingMemories, ...carsForPicker, ...shopifyCollections]
+    : existingMemories;
+  const memorySearchSuggestions = memorySearch.trim()
+    ? existingCampaignsPickerSource.filter((m: any) => {
+        const locStr = typeof m.location === 'string' ? m.location : (m.location?.formatted || m.location?.address || '');
+        const matchSearch = (m.title || '').toLowerCase().includes(memorySearch.toLowerCase()) || locStr.toLowerCase().includes(memorySearch.toLowerCase());
+        const matchCat = memoryCategoryFilter === 'All Categories' || (m.category?.name || m.category || '') === memoryCategoryFilter;
+        return matchSearch && matchCat;
+      }).slice(0, 20)
+    : [];
+
+  // Detect a connected store when the modal opens, to gate the Shopify option.
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await dashboardAPI.shopifyGetStatus();
+        if (!cancelled) setShopifyConnected(res?.data?.connected === true);
+      } catch { if (!cancelled) setShopifyConnected(false); }
+    })();
+    return () => { cancelled = true; };
+  }, [open]);
+
+  // Detect whether the Cars catalog has any listings, to gate the Cars option.
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await dashboardAPI.carsGetCatalog();
+        const list = res?.data?.data?.cars || (res?.data as any)?.cars || [];
+        if (!cancelled) setCarsAvailable(res?.success === true && Array.isArray(list) && list.length > 0);
+      } catch { if (!cancelled) setCarsAvailable(false); }
+    })();
+    return () => { cancelled = true; };
+  }, [open]);
+
+  // Pull the user's existing campaigns for the "Select from Existing Campaigns" picker.
   const loadExistingMemories = async () => {
     setMemoriesLoading(true);
     try {
@@ -451,21 +547,113 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
     setMemoriesLoading(false);
   };
 
-  // Auto-activate "Select from Existing Campaigns" when the chosen category is
-  // toggled on in Settings > Categories
+  // "Select from Existing Campaigns" is checked by default whenever the modal opens.
   useEffect(() => {
-    if (!open || !formData.category) return;
-    const map = getAlwaysVisibleCategories();
-    const selectedCat = apiCategories.find((c: any) => c.name === formData.category);
-    if (selectedCat && isAlwaysVisibleCategory(selectedCat, map)) {
-      setSelectFromExisting(true);
-      setCarouselPage(0);
-      if (existingMemories.length === 0) {
-        loadExistingMemories();
-      }
-    }
-  }, [open, formData.category, apiCategories]);
+    if (!open) return;
+    setSelectFromExisting(true);
+    if (existingMemories.length === 0) loadExistingMemories();
+  }, [open]);
 
+  // Pull the store's collections. Normalised into the same shape the existing-campaigns
+  // picker already renders (id/title/count/thumb). Pre-ticks them all only when explicitly
+  // switching into Shopify as the category — a background load for the "All Categories"
+  // merge (see existingCampaignsPickerSource) must NOT silently select everything.
+  const loadShopifyCollections = async (autoSelectAll = true) => {
+    setShopifyCollectionsLoading(true);
+    try {
+      const res = await dashboardAPI.shopifyGetCatalog();
+      const data: any = (res?.data as any)?.data || res?.data || {};
+      const raw = data.collections || data.catalog?.collections || [];
+      const list = (Array.isArray(raw) ? raw : [])
+        .filter((c: any) => c?.id != null)
+        .map((c: any) => ({
+          id: c.id,
+          title: c.title || 'Untitled collection',
+          location: '',
+          category: { name: SHOPIFY_CATEGORY_NAME },
+          last_update_img: c.cover?.image || c.cover?.images?.[0] || c.image || (Array.isArray(c.products) ? c.products[0]?.image : '') || '',
+          posts_count: c.products_count ?? (Array.isArray(c.products) ? c.products.length : 0),
+        }));
+      setShopifyCollections(list);
+      if (autoSelectAll) setSelectedMemoryIds(list.map((c: any) => String(c.id)));
+    } catch { /* leave list empty */ }
+    setShopifyCollectionsLoading(false);
+  };
+
+  // React to the Shopify category being chosen / deselected.
+  useEffect(() => {
+    if (!open) return;
+    if (isShopifyCategory) {
+      setSelectFromExisting(true);
+      if (shopifyCollections.length === 0) loadShopifyCollections();
+      else setSelectedMemoryIds(shopifyCollections.map((c: any) => String(c.id)));
+    } else if (wasShopifyCategoryRef.current) {
+      // Leaving Shopify: the selection held collection ids, not memory ids — drop it.
+      setSelectedMemoryIds([]);
+      setSelectFromExisting(false);
+    }
+    wasShopifyCategoryRef.current = isShopifyCategory;
+  }, [isShopifyCategory, open]);
+
+  // Pull the /cars catalog. Normalised into the same shape the existing-campaigns picker
+  // already renders (id/title/count/thumb). Pre-ticks all listings only when explicitly
+  // switching into Cars as the category — a background load for the "All Categories" merge
+  // (see existingCampaignsPickerSource) must NOT silently select everything.
+  const loadCarsForPicker = async (autoSelectAll = true) => {
+    setCarsForPickerLoading(true);
+    try {
+      const res = await dashboardAPI.carsGetCatalog();
+      const raw = res?.data?.data?.cars || (res?.data as any)?.cars || [];
+      const list = (Array.isArray(raw) ? raw : [])
+        .filter((c: any) => c?.id != null)
+        .map((c: any) => ({
+          id: c.id,
+          title: c.title || 'Untitled car',
+          location: c.location || '',
+          category: { name: CARS_CATEGORY_NAME },
+          last_update_img: c.main_image || '',
+          posts_count: c.images_count || 0,
+        }));
+      setCarsForPicker(list);
+      if (autoSelectAll) setSelectedMemoryIds(list.map((c: any) => String(c.id)));
+    } catch { /* leave list empty */ }
+    setCarsForPickerLoading(false);
+  };
+
+  // React to the Cars category being chosen / deselected. Picking Cars just switches the
+  // picker to show the Cars catalog — it doesn't pre-select any of them anymore.
+  useEffect(() => {
+    if (!open) return;
+    if (isCarsCategory) {
+      setSelectFromExisting(true);
+      if (carsForPicker.length === 0) loadCarsForPicker(false);
+    } else if (wasCarsCategoryRef.current) {
+      // Leaving Cars: the selection held car ids, not memory ids — drop it.
+      setSelectedMemoryIds([]);
+      setSelectFromExisting(false);
+    }
+    wasCarsCategoryRef.current = isCarsCategory;
+  }, [isCarsCategory, open]);
+
+  // Also load the Cars catalog when picked from the existing-campaigns filter
+  // (not just the main Category field) so the picker has something to show.
+  useEffect(() => {
+    if (!open) return;
+    if (memoryCategoryFilter === CARS_CATEGORY_NAME && carsForPicker.length === 0 && !carsForPickerLoading) {
+      loadCarsForPicker(false);
+    }
+  }, [memoryCategoryFilter, open]);
+
+  // Background-load Cars/Shopify (without pre-selecting them) as soon as the
+  // existing-campaigns picker is open, so the "All Categories" merge has them ready
+  // without waiting for the user to specifically switch into either category.
+  useEffect(() => {
+    if (!open || !selectFromExisting) return;
+    if (carsAvailable && carsForPicker.length === 0 && !carsForPickerLoading) loadCarsForPicker(false);
+    if (shopifyConnected && shopifyCollections.length === 0 && !shopifyCollectionsLoading) loadShopifyCollections(false);
+  }, [open, selectFromExisting, carsAvailable, shopifyConnected]);
+
+  // Fetch categories, labels and collaborators from API
   const fetchCategoriesLabels = async (skipCategories = false) => {
     try {
       setIsLoading(true);
@@ -500,13 +688,12 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
         }
 
         if (categoriesArray.length > 0 && !skipCategories) {
-          const alwaysVisible = getAlwaysVisibleCategories();
           const uniqueCategories = categoriesArray
             .filter(cat => {
               const name = (cat.name || '').toLowerCase().trim();
               return !['shared with', 'published', 'shared', 'invites'].includes(name) && !name.includes('shared');
             })
-            .filter(cat => isAlwaysVisibleCategory(cat, alwaysVisible) || (cat.is_owner !== false && cat.can_add_story !== false))
+            .filter(cat => cat.is_owner !== false && cat.can_add_story !== false)
             .filter((cat, i, self) => self.findIndex(c => c.name === cat.name) === i);
 
           setApiCategories(uniqueCategories);
@@ -605,17 +792,33 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
     }
   };
 
+  // Fetch the user's saved "master" personalized message from the profile API,
+  // and pre-fill the Personalized Message box with it if one was set.
+  const fetchMasterMessage = async () => {
+    try {
+      const response = await dashboardAPI.getUserProfile();
+      if (response.success && response.data) {
+        const profile = (response.data as any)?.data?.user || (response.data as any)?.user || response.data;
+        if (profile?.is_master && profile?.message) {
+          setSavedMasterMessage(profile.message);
+          setPersonalizedMessage(profile.message);
+          setIsMasterMessage(true);
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching master message:', error);
+    }
+  };
+
   // Fetch data when modal opens
   useEffect(() => {
     if (open && isAuthenticated) {
       // Use categories from prop if available, otherwise fetch from API
       let resolvedCategories: any[] = [];
       if (categoriesProp && categoriesProp.length > 0) {
-        const alwaysVisible = getAlwaysVisibleCategories();
         const filtered = categoriesProp.filter((cat: any) => {
           const name = (cat.name || '').toLowerCase().trim();
-          const isSystem = ['shared with', 'published', 'shared', 'invites'].includes(name) || name.includes('shared');
-          return !isSystem && (isAlwaysVisibleCategory(cat, alwaysVisible) || (cat.is_owner !== false && cat.can_add_story !== false));
+          return !['shared with', 'published', 'shared', 'invites'].includes(name) && !name.includes('shared') && cat.is_owner !== false && cat.can_add_story !== false;
         });
         if (filtered.length > 0) {
           setApiCategories(filtered);
@@ -639,12 +842,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
         return name !== 'invites' && name !== 'published' && !name.includes('shared');
       };
       const categoryExists = resolvedCategories.some((c: any) => c.name === defaultCategory);
-      // Prefer a category toggled "always visible" in Settings > Categories over the plain first one
-      const alwaysVisibleMap = getAlwaysVisibleCategories();
-      const toggledCategory = resolvedCategories.find((c: any) =>
-        isRealAddableName(c?.name) && isAlwaysVisibleCategory(c, alwaysVisibleMap)
-      )?.name;
-      const firstCategory = toggledCategory || resolvedCategories.find((c: any) => isRealAddableName(c?.name))?.name || resolvedCategories[0]?.name || '';
+      const firstCategory = resolvedCategories.find((c: any) => isRealAddableName(c?.name))?.name || resolvedCategories[0]?.name || '';
       const resolvedCategory = categoryExists ? defaultCategory! : (defaultCategory && resolvedCategories.length === 0 ? defaultCategory : firstCategory);
 
       // Reset all states when modal opens fresh
@@ -671,13 +869,48 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
       setCurrentTag('');
       setCurrentCollaborator('');
       setCollaboratorMethod('phone');
+      setCollaboratorSearchResults([]);
       setPersonalizedMessage('invited you to collaborate on campaign');
+      setIsMasterMessage(false);
+      setSavedMasterMessage('');
+      fetchMasterMessage();
       setIntroVideo(null);
       setIntroVideoUrl(null);
       setIsUploadingVideo(false);
       setVideoUploadProgress(0);
+
+      // Default the new-campaign category (and the existing-campaigns filter) to whatever
+      // category the user pinned in Profile Settings > Categories, overriding the reset
+      // above — but only when a preference is actually set; if the user hasn't pinned one,
+      // the defaultCategory/first-category logic above stands. Fetched here (inside the
+      // same effect as the reset, instead of a separate effect keyed only on [open,
+      // isAuthenticated]) so a mid-session `user` object change — which re-runs this whole
+      // effect — can't re-apply the plain reset without also re-applying this override.
+      let cancelled = false;
+      (async () => {
+        try {
+          const res = await dashboardAPI.getNotificationPreferences();
+          if (cancelled || !res?.success || !res.data) return;
+
+          // apiRequest returns the whole server payload as `data` (i.e. { status, data: {...} }),
+          // it doesn't unwrap the inner `data` — so the real fields are one level deeper.
+          const prefsData = (res.data as any)?.data || res.data;
+
+          const rawCategoryId = prefsData.category_id;
+          let preferredName: string | null = null;
+          if (rawCategoryId === 'shopify') preferredName = SHOPIFY_CATEGORY_NAME;
+          else if (rawCategoryId === 'cars') preferredName = CARS_CATEGORY_NAME;
+          else if (prefsData.category?.name) preferredName = prefsData.category.name;
+
+          if (preferredName) {
+            setFormData(prev => ({ ...prev, category: preferredName as string }));
+            setMemoryCategoryFilter(preferredName);
+          }
+        } catch { /* keep the existing default */ }
+      })();
+      return () => { cancelled = true; };
     }
-  }, [open, isAuthenticated, defaultCategory, categoriesProp]);
+  }, [open, isAuthenticated, defaultCategory, categoriesProp, user]);
 
   // Auto-select first category once apiCategories loads (handles async fetch case).
   // Prefer the first REAL addable category (not Invites/Shared/Published) so the default
@@ -688,11 +921,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
         const name = (n || '').toLowerCase().trim();
         return name !== 'invites' && name !== 'published' && !name.includes('shared');
       };
-      const alwaysVisibleMap = getAlwaysVisibleCategories();
-      const toggled = apiCategories.find((c: any) =>
-        isRealAddableName(c?.name) && isAlwaysVisibleCategory(c, alwaysVisibleMap)
-      )?.name;
-      const firstReal = toggled || apiCategories.find((c: any) => isRealAddableName(c?.name))?.name || apiCategories[0].name;
+      const firstReal = apiCategories.find((c: any) => isRealAddableName(c?.name))?.name || apiCategories[0].name;
       setFormData(prev => ({ ...prev, category: firstReal }));
     }
   }, [apiCategories, open]);
@@ -744,6 +973,59 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
     }
   }, [selectedMediaLibraryImages, open]);
 
+  // Debounced live search for the collaborator input — looks up existing users by
+  // phone/email as you type, same API AddCollaboratorDialog uses (dashboardAPI.searchUsers).
+  useEffect(() => {
+    const query = currentCollaborator.trim();
+    if (query.length < 2) {
+      setCollaboratorSearchResults([]);
+      setIsSearchingCollaborators(false);
+      return;
+    }
+
+    setIsSearchingCollaborators(true);
+    const timeoutId = setTimeout(async () => {
+      try {
+        const response = await dashboardAPI.searchUsers(query, collaboratorMethod);
+        const users = response.success ? (response.data?.data?.users || []) : [];
+        const filtered = users.filter((user: any) => {
+          const value = collaboratorMethod === 'email' ? user.email : user.phone_number;
+          return value && !formData.collaborators.includes(value);
+        });
+        setCollaboratorSearchResults(filtered);
+      } catch (error) {
+        console.error('Error searching collaborators:', error);
+        setCollaboratorSearchResults([]);
+      } finally {
+        setIsSearchingCollaborators(false);
+      }
+    }, 300);
+
+    return () => clearTimeout(timeoutId);
+  }, [currentCollaborator, collaboratorMethod, formData.collaborators]);
+
+  // Click outside the search input/dropdown closes the results
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (collaboratorSearchRef.current && !collaboratorSearchRef.current.contains(event.target as Node)) {
+        setCollaboratorSearchResults([]);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  // Click outside the "Search campaigns" box closes its suggestions dropdown
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (memorySearchBoxRef.current && !memorySearchBoxRef.current.contains(event.target as Node)) {
+        setIsMemorySearchFocused(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
   // Don't return null if we have a success dialog to show
   if (!open && !showSuccessDialog) return null;
 
@@ -774,7 +1056,11 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
     setMemorySearch('');
     setMemoryCategoryFilter('All Categories');
     setSelectedMemoryIds([]);
-    setCarouselPage(0);
+    setShopifyCollections([]);
+    wasShopifyCategoryRef.current = false;
+    setCarsForPicker([]);
+    wasCarsCategoryRef.current = false;
+    setVisibleCampaignsCount(CAMPAIGNS_LOAD_BATCH);
     onOpenChange(false);
   };
 
@@ -1378,6 +1664,19 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
     setTimeout(() => setIsTypingCollaborator(false), 500);
   };
 
+  const handleSelectCollaboratorFromSearch = (user: any) => {
+    const value = collaboratorMethod === 'email' ? user.email : user.phone_number;
+    if (!value) return;
+    if (!formData.collaborators.includes(value)) {
+      setFormData(prev => ({
+        ...prev,
+        collaborators: [...prev.collaborators, value]
+      }));
+    }
+    setCurrentCollaborator('');
+    setCollaboratorSearchResults([]);
+  };
+
   const handleDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setFormData(prev => ({ ...prev, date: e.target.value }));
     setIsTypingDate(true);
@@ -1425,7 +1724,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
     
     try {
       // Find the selected category data
-      const selectedCategoryData = apiCategories.find(cat => cat.name === formData.category);
+      const selectedCategoryData = categoriesForDropdown.find((cat: any) => cat.name === formData.category);
       
       if (!selectedCategoryData) {
         console.error('Selected category not found in API categories');
@@ -1483,7 +1782,10 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
         tags: formData.tags,
         collaborators: formData.collaborators,
         // Personalized invite message — only relevant when collaborators are added
-        ...(formData.collaborators.length > 0 && { personalize_message: personalizedMessage.trim() }),
+        ...(formData.collaborators.length > 0 && {
+          personalize_message: personalizedMessage.trim(),
+          is_master: isMasterMessage
+        }),
         photos_count: photosArray.length,
         photos: photosArray,
         ...(introVideoUrl && { last_update_img: introVideoUrl })
@@ -1494,9 +1796,16 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
         memoryData.published = publishType;
       }
 
-      // Add selected existing memory IDs if any were chosen
+      // Selected items: Shopify collection ids / Cars listing ids go to their own
+      // field (they are not real memory rows); normal campaigns stay on linked_memory_ids.
       if (selectedMemoryIds.length > 0) {
-        memoryData.linked_memory_ids = selectedMemoryIds.map(id => parseInt(id, 10));
+        if (isShopifyCategory) {
+          memoryData.shopify_collection_ids = selectedMemoryIds;
+        } else if (isCarsCategory) {
+          memoryData.car_ids = selectedMemoryIds;
+        } else {
+          memoryData.linked_memory_ids = selectedMemoryIds.map(id => parseInt(id, 10));
+        }
       }
 
       // Add sub_category as array of label names
@@ -1555,11 +1864,13 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
         });
         setLabelInput('');
         setPersonalizedMessage('invited you to collaborate on campaign'); // Reset personalized message
+        setIsMasterMessage(false); // Re-derived from user data next time the modal opens
         setMainPhotosArray([]); // Clear the photos metadata array
         setPhotosWithMetadata([]); // Clear photos with metadata
         setCurrentTag('');
         setCurrentCollaborator('');
         setCollaboratorMethod('phone');
+        setCollaboratorSearchResults([]);
         setShowEndDate(false); // Reset end date visibility
         setDeviceLocation(''); // Reset device location for fresh detection on next open
         setIntroVideo(null);
@@ -1616,7 +1927,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
       onClick={handleBackdropClick}
     >
       <div
-        className="bg-white md:rounded-lg md:shadow-2xl md:w-full md:max-w-md relative flex flex-col h-full md:h-[85vh] md:max-h-[85vh]"
+        className="bg-white md:rounded-lg md:shadow-2xl w-full md:max-w-md relative flex flex-col h-full md:h-[85vh] md:max-h-[85vh] overflow-x-hidden"
         style={{
           zIndex: 100000
         }}
@@ -1639,7 +1950,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
         </div>
 
         {/* Scrollable Form Content */}
-        <div className="flex-1 overflow-y-auto modal-scrollbar">
+        <div className="flex-1 overflow-y-auto overflow-x-hidden modal-scrollbar">
           <div className="p-4 space-y-3">
 
             {/* Memory Title */}
@@ -1696,13 +2007,13 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
                 >
                   {isLoading ? (
                     <SelectItem value="loading" disabled>Loading categories...</SelectItem>
-                  ) : apiCategories.length > 0 ? (
-                    apiCategories.map((category) => (
+                  ) : categoriesForDropdown.length > 0 ? (
+                    categoriesForDropdown.map((category: any) => (
                       <SelectItem key={category.id || category.name} value={category.name}>
                         <div className="flex items-center gap-2">
                           <div
                             className="w-3 h-3 rounded-full"
-                            style={{ backgroundColor: getCategoryColor(category.name) }}
+                            style={{ backgroundColor: category.__isShopify ? SHOPIFY_COLOR : getCategoryColor(category.name) }}
                           />
                           {category.name}
                         </div>
@@ -1723,13 +2034,11 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
                 <input
                   type="checkbox"
                   checked={selectFromExisting}
-                  onChange={async (e) => {
+                  onChange={(e) => {
                     const checked = e.target.checked;
                     setSelectFromExisting(checked);
-                    setCarouselPage(0);
-                    if (checked && existingMemories.length === 0) {
-                      await loadExistingMemories();
-                    }
+                    setVisibleCampaignsCount(CAMPAIGNS_LOAD_BATCH);
+                    if (checked && existingMemories.length === 0) loadExistingMemories();
                   }}
                   className="w-5 h-5 md:w-4 md:h-4 bg-gray-100 border-gray-300 rounded focus:ring-2 focus:ring-[#6C60FF] accent-[#6C60FF]"
                 />
@@ -1740,26 +2049,84 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
                 <div className="mt-3 border border-gray-200 rounded-xl overflow-hidden">
                   {/* Search + Category filter */}
                   <div className="flex gap-2 p-3 bg-gray-50 border-b border-gray-200">
-                    <div className="flex-1 relative">
-                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                    <div className="flex-1 min-w-0 relative" ref={memorySearchBoxRef}>
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
                       <input
                         type="text"
                         placeholder="Search campaigns..."
                         value={memorySearch}
-                        onChange={(e) => { setMemorySearch(e.target.value); setCarouselPage(0); }}
-                        className="w-full pl-9 pr-3 py-2 text-sm border border-gray-200 rounded-lg bg-white outline-none focus:border-[#6C60FF]"
+                        onChange={(e) => { setMemorySearch(e.target.value); setVisibleCampaignsCount(CAMPAIGNS_LOAD_BATCH); }}
+                        onFocus={() => setIsMemorySearchFocused(true)}
+                        className="w-full h-12 pl-10 pr-3 text-base border border-gray-200 rounded-lg bg-white outline-none focus:border-[#6C60FF]"
                       />
+                      {isMemorySearchFocused && memorySearch.trim() && (
+                        <div
+                          className="absolute left-0 right-0 top-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-96 md:max-h-72 overflow-y-auto modal-scrollbar"
+                          style={{ zIndex: 100002 }}
+                        >
+                          {memorySearchSuggestions.length === 0 ? (
+                            <div className="px-3 py-3 text-sm text-gray-400">No campaigns found</div>
+                          ) : (
+                            memorySearchSuggestions.map((m: any) => {
+                              const id = String(m.id);
+                              const isChecked = selectedMemoryIds.includes(id);
+                              const loc = typeof m.location === 'string' ? m.location : (m.location?.formatted || m.location?.address || '');
+                              const thumb = m.image_link || m.last_update_img || m.thumbnail || '';
+                              // No campaign image → fall back to the author's profile, same as the list below.
+                              const profile = m.author || m.user || user || {};
+                              const profileImg = profile.profile_image || profile.avatar || '';
+                              const rawColor = profile.profile_color;
+                              const profileColor = rawColor ? (rawColor.startsWith('#') ? rawColor : `#${rawColor}`) : '#6C60FF';
+                              const profileInitial = (profile.name || m.title || 'U').charAt(0).toUpperCase();
+                              return (
+                                <button
+                                  type="button"
+                                  key={id}
+                                  onClick={() => {
+                                    setSelectedMemoryIds(prev =>
+                                      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+                                    );
+                                    setIsMemorySearchFocused(false);
+                                  }}
+                                  className={`w-full flex items-center gap-3 md:gap-2.5 px-5 py-5 md:px-3 md:py-2.5 text-left border-b border-gray-100 last:border-b-0 transition-colors ${
+                                    isChecked ? 'bg-[#6C60FF]/5' : 'hover:bg-gray-50'
+                                  }`}
+                                >
+                                  <input type="checkbox" checked={isChecked} readOnly className="w-5 h-5 md:w-4 md:h-4 rounded accent-[#6C60FF] flex-shrink-0" />
+                                  <div className="w-14 h-14 md:w-9 md:h-9 rounded-md overflow-hidden bg-gray-100 flex-shrink-0">
+                                    {thumb ? (
+                                      isCampaignVideoUrl(thumb)
+                                        ? <CampaignVideoThumbnail src={thumb} className="w-full h-full object-cover" />
+                                        : <img src={thumb} alt={m.title} className="w-full h-full object-cover" />
+                                    ) : profileImg ? (
+                                      <img src={profileImg} alt={profile.name || m.title} className="w-full h-full object-cover" />
+                                    ) : (
+                                      <div className="w-full h-full flex items-center justify-center" style={{ backgroundColor: profileColor }}>
+                                        <span className="text-white font-bold text-base md:text-xs uppercase">{profileInitial}</span>
+                                      </div>
+                                    )}
+                                  </div>
+                                  <div className="min-w-0">
+                                    <p className="text-base md:text-sm font-medium text-gray-900 truncate">{m.title || 'Untitled'}</p>
+                                    {loc && <p className="text-sm md:text-xs text-gray-500 truncate">{loc}</p>}
+                                  </div>
+                                </button>
+                              );
+                            })
+                          )}
+                        </div>
+                      )}
                     </div>
-                    <div className="create-memory-select">
+                    <div className="create-memory-select w-[22%] max-w-[76px] shrink-0">
                       <Select
                         value={memoryCategoryFilter}
-                        onValueChange={(value) => { setMemoryCategoryFilter(value); setCarouselPage(0); }}
+                        onValueChange={(value) => { setMemoryCategoryFilter(value); setVisibleCampaignsCount(CAMPAIGNS_LOAD_BATCH); }}
                       >
-                        <SelectTrigger className="h-10 text-sm bg-gray-50 border-gray-200 outline-none transition-colors [&:focus-visible]:!border-gray-300 [&:focus-visible]:!ring-gray-300/50 [&:focus-visible]:!ring-2 [&:focus]:!border-gray-300 [&:focus]:!ring-gray-300/50 [&:focus]:!ring-2">
-                          <SelectValue placeholder="All Categories" />
+                        <SelectTrigger className="!h-12 text-base bg-gray-50 border-gray-200 outline-none transition-colors [&:focus-visible]:!border-gray-300 [&:focus-visible]:!ring-gray-300/50 [&:focus-visible]:!ring-2 [&:focus]:!border-gray-300 [&:focus]:!ring-gray-300/50 [&:focus]:!ring-2">
+                          <SelectValue placeholder="All" />
                         </SelectTrigger>
                         <SelectContent style={{ zIndex: 100001, border: '1px solid #e5e7eb', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)' }} className="!border-gray-200 !shadow-md">
-                          <SelectItem value="All Categories">All Categories</SelectItem>
+                          <SelectItem value="All Categories">All</SelectItem>
                           {apiCategories.map((c: any) => (
                             <SelectItem key={c.id || c.name} value={c.name}>
                               <div className="flex items-center gap-2">
@@ -1768,24 +2135,32 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
                               </div>
                             </SelectItem>
                           ))}
+                          {carsAvailable && (
+                            <SelectItem value={CARS_CATEGORY_NAME}>
+                              <div className="flex items-center gap-2">
+                                <div className="w-3 h-3 rounded-full" style={{ backgroundColor: getCategoryColor(CARS_CATEGORY_NAME) }} />
+                                {CARS_CATEGORY_NAME}
+                              </div>
+                            </SelectItem>
+                          )}
                         </SelectContent>
                       </Select>
                     </div>
                   </div>
 
-                  {memoriesLoading ? (
+                  {(memoriesLoading || shopifyCollectionsLoading || carsForPickerLoading) ? (
                     <div className="flex items-center justify-center py-8">
                       <Loader2 className="w-5 h-5 animate-spin text-[#6C60FF]" />
                     </div>
                   ) : (() => {
-                    const filtered = existingMemories.filter((m: any) => {
+                    const pickerSource = existingCampaignsPickerSource;
+                    const filtered = pickerSource.filter((m: any) => {
                       const locStr = typeof m.location === 'string' ? m.location : (m.location?.formatted || m.location?.address || '');
                       const matchSearch = !memorySearch || (m.title || '').toLowerCase().includes(memorySearch.toLowerCase()) || locStr.toLowerCase().includes(memorySearch.toLowerCase());
                       const matchCat = memoryCategoryFilter === 'All Categories' || (m.category?.name || m.category || '') === memoryCategoryFilter;
                       return matchSearch && matchCat;
                     });
-                    const totalPages = Math.ceil(filtered.length / ITEMS_PER_PAGE);
-                    const pageItems = filtered.slice(carouselPage * ITEMS_PER_PAGE, (carouselPage + 1) * ITEMS_PER_PAGE);
+                    const visibleItems = filtered.slice(0, visibleCampaignsCount);
                     const allSelected = filtered.length > 0 && filtered.every((m: any) => selectedMemoryIds.includes(String(m.id)));
 
                     return (
@@ -1810,12 +2185,24 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
                           </div>
                         </div>
 
-                        {/* Memory list — each campaign is its own bordered card */}
-                        {pageItems.length === 0 ? (
+                        {/* Memory list — each campaign is its own bordered card. Fixed-height,
+                            internally scrollable; more items load in as you near the bottom. */}
+                        {visibleItems.length === 0 ? (
                           <div className="py-6 text-center text-sm text-gray-400">No campaigns found</div>
                         ) : (
-                          <div className="space-y-2 p-3 bg-white">
-                            {pageItems.map((m: any) => {
+                          <div
+                            className="space-y-2 p-3 bg-white max-h-80 overflow-y-auto modal-scrollbar"
+                            onScroll={(e) => {
+                              const el = e.currentTarget;
+                              if (
+                                visibleCampaignsCount < filtered.length &&
+                                el.scrollTop + el.clientHeight >= el.scrollHeight - 80
+                              ) {
+                                setVisibleCampaignsCount(prev => Math.min(prev + CAMPAIGNS_LOAD_BATCH, filtered.length));
+                              }
+                            }}
+                          >
+                            {visibleItems.map((m: any) => {
                               const id = String(m.id);
                               const isChecked = selectedMemoryIds.includes(id);
                               const thumb = m.image_link || m.last_update_img || m.thumbnail || '';
@@ -1867,29 +2254,6 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
                                 </div>
                               );
                             })}
-                          </div>
-                        )}
-
-                        {/* Carousel navigation */}
-                        {totalPages > 1 && (
-                          <div className="flex items-center justify-between px-3 py-2 border-t border-gray-100 bg-gray-50">
-                            <button
-                              type="button"
-                              onClick={() => setCarouselPage(p => Math.max(0, p - 1))}
-                              disabled={carouselPage === 0}
-                              className="p-1 rounded-lg hover:bg-gray-200 disabled:opacity-30 transition-colors"
-                            >
-                              <ChevronLeft className="w-4 h-4 text-gray-600" />
-                            </button>
-                            <span className="text-xs text-gray-500">{carouselPage + 1} / {totalPages}</span>
-                            <button
-                              type="button"
-                              onClick={() => setCarouselPage(p => Math.min(totalPages - 1, p + 1))}
-                              disabled={carouselPage === totalPages - 1}
-                              className="p-1 rounded-lg hover:bg-gray-200 disabled:opacity-30 transition-colors"
-                            >
-                              <ChevronRight className="w-4 h-4 text-gray-600" />
-                            </button>
                           </div>
                         )}
                       </>
@@ -2737,18 +3101,52 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
                 </span>
               </div>
               <div className="flex items-stretch gap-2 mb-3">
-                <Input
-                  type={collaboratorMethod === 'phone' ? 'tel' : 'email'}
-                  value={currentCollaborator}
-                  onChange={handleCollaboratorChange}
-                  placeholder={collaboratorMethod === 'phone' ? '+1-493-944-0939' : 'Enter email address...'}
-                  className={`flex-1 text-sm bg-gray-100 border-0 rounded-lg h-10 px-4 outline-none focus:outline-none focus-visible:outline-none ring-0 focus:ring-2 focus-visible:ring-2 transition-all ${
-                    collaboratorError
-                      ? 'focus:ring-red-400 focus-visible:ring-red-400'
-                      : 'focus:ring-gray-300 focus-visible:ring-gray-300'
-                  }`}
-                  onKeyPress={(e) => e.key === 'Enter' && handleAddCollaborator()}
-                />
+                <div className="relative flex-1" ref={collaboratorSearchRef}>
+                  <Input
+                    type={collaboratorMethod === 'phone' ? 'tel' : 'email'}
+                    value={currentCollaborator}
+                    onChange={handleCollaboratorChange}
+                    placeholder={collaboratorMethod === 'phone' ? '+1-493-944-0939' : 'Enter email address...'}
+                    className={`w-full text-sm bg-gray-100 border-0 rounded-lg h-10 px-4 outline-none focus:outline-none focus-visible:outline-none ring-0 focus:ring-2 focus-visible:ring-2 transition-all ${
+                      collaboratorError
+                        ? 'focus:ring-red-400 focus-visible:ring-red-400'
+                        : 'focus:ring-gray-300 focus-visible:ring-gray-300'
+                    }`}
+                    onKeyPress={(e) => e.key === 'Enter' && handleAddCollaborator()}
+                  />
+
+                  {/* Live search dropdown of matching users */}
+                  {currentCollaborator.trim().length >= 2 && (isSearchingCollaborators || collaboratorSearchResults.length > 0) && (
+                    <div className="absolute top-full left-0 right-0 mt-1 border border-gray-200 rounded-lg max-h-60 overflow-y-auto bg-white shadow-lg z-50">
+                      {isSearchingCollaborators ? (
+                        <div className="p-4 text-center text-gray-500 text-sm">
+                          <div className="w-5 h-5 border-2 border-gray-400 border-t-transparent rounded-full animate-spin mx-auto mb-2"></div>
+                          Searching...
+                        </div>
+                      ) : (
+                        <div className="divide-y divide-gray-100">
+                          {collaboratorSearchResults.map((user: any) => (
+                            <div
+                              key={user.id}
+                              className="p-3 flex items-center gap-3 hover:bg-gray-50 cursor-pointer transition-colors"
+                              onClick={() => handleSelectCollaboratorFromSearch(user)}
+                            >
+                              <div className="w-8 h-8 bg-gray-400 rounded-full flex items-center justify-center text-white text-sm font-medium shrink-0">
+                                {user.name ? user.name.charAt(0).toUpperCase() : (collaboratorMethod === 'email' ? user.email?.charAt(0).toUpperCase() : user.phone_number?.charAt(0))}
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <p className="font-medium text-gray-900 text-sm truncate">{user.name || 'User'}</p>
+                                <p className="text-xs text-gray-600 truncate">
+                                  {collaboratorMethod === 'email' ? user.email : user.phone_number}
+                                </p>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
                 <Button
                   type="button"
                   onClick={handleAddCollaborator}
@@ -2913,7 +3311,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
                     <p className="text-sm font-medium text-gray-700 mb-2">
                       Personalized Message<span className="text-red-500">*</span>
                     </p>
-                    <div className="relative border border-gray-300 rounded-lg px-3 py-3 bg-white focus-within:border-gray-400">
+                    <div className={`relative border border-gray-300 rounded-lg px-3 py-3 focus-within:border-gray-400 ${isMasterMessage ? 'bg-gray-100' : 'bg-white'}`}>
                       {/* Author name: non-editable overlay sitting on the first line */}
                       <span
                         ref={personalizedNameRef}
@@ -2933,11 +3331,35 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
                         placeholder="Pre-written message goes here."
                         rows={4}
                         maxLength={200}
+                        disabled={isMasterMessage}
                         style={{ textIndent: personalizedNameWidth ? `${personalizedNameWidth}px` : undefined }}
-                        className="w-full h-28 p-0 resize-none text-sm text-gray-800 bg-transparent outline-none border-0 focus:ring-0 placeholder:text-gray-400"
+                        className={`w-full h-28 p-0 resize-none text-sm bg-transparent outline-none border-0 focus:ring-0 placeholder:text-gray-400 ${isMasterMessage ? 'text-gray-500 cursor-not-allowed' : 'text-gray-800'}`}
                       />
                     </div>
                     <p className="text-xs text-gray-400 mt-1 text-right">{personalizedMessage.length}/200 characters</p>
+                    <label className="flex items-center gap-2 mt-2 cursor-pointer select-none">
+                      <input
+                        type="checkbox"
+                        checked={isMasterMessage}
+                        onChange={(e) => {
+                          const checked = e.target.checked;
+                          setIsMasterMessage(checked);
+                          if (checked) {
+                            // Only restore the previously saved master message if the box still shows
+                            // the plain default (i.e. the user hasn't typed a new message since unchecking).
+                            // If they typed something new, keep it — that becomes the new master on save.
+                            if (savedMasterMessage && personalizedMessage === 'invited you to collaborate on campaign') {
+                              setPersonalizedMessage(savedMasterMessage);
+                            }
+                          } else {
+                            // Turning off the master message reverts the box to the plain default
+                            setPersonalizedMessage('invited you to collaborate on campaign');
+                          }
+                        }}
+                        className="w-4 h-4 rounded border-gray-300 text-[#6C60FF] focus:ring-[#6C60FF]"
+                      />
+                      <span className="text-sm text-gray-700">Set as my default message</span>
+                    </label>
                   </div>
                 </div>
               )}

@@ -1613,6 +1613,13 @@ export default function LoginPage({ onLogin, onSwitchToSignup, onSocialLogin }: 
                     Code expires in {Math.floor(otpCountdown / 60)}:{String(otpCountdown % 60).padStart(2, '0')}
                   </p>
                 )}
+                {/* Delivery hint. Wording differs by method: an SMS has no junk
+                    folder, so pointing phone users at one would just confuse them. */}
+                <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
+                  <p className="text-center text-xs text-amber-800">
+                    Can&apos;t find it? Check your {method === "email" ? "spam or junk folder" : "blocked or filtered messages"}.
+                  </p>
+                </div>
               </CardHeader>
 
               <CardContent className="space-y-6">
@@ -1924,7 +1931,16 @@ export default function LoginPage({ onLogin, onSwitchToSignup, onSocialLogin }: 
                     <div className="flex items-start gap-2 bg-blue-50 border border-blue-200 rounded-lg p-3">
                       <Lock className="w-4 h-4 text-blue-400 flex-shrink-0 mt-0.5" />
                       <p className="text-sm text-blue-700">
-                        We'll send a 6-digit code to your {method === "email" ? "email" : "phone number"} to sign you in. No password needed.
+                        {method === "phone" ? (
+                          <>
+                            By requesting this code, you agree to receive a one-time transactional SMS from Stasht to sign you in. No password needed. Msg &amp; data rates may apply. Message frequency varies. Reply STOP to opt out, HELP for help. View our{" "}
+                            <a href="https://www.stasht.com/privacy-policy" target="_blank" rel="noopener noreferrer" className="underline">Privacy Policy</a>
+                            {" "}and{" "}
+                            <a href="https://www.stasht.com/terms-conditions" target="_blank" rel="noopener noreferrer" className="underline">Terms</a>.
+                          </>
+                        ) : (
+                          <>We'll send a 6-digit code to your email to sign you in. No password needed.</>
+                        )}
                       </p>
                     </div>
                   )}
@@ -2312,7 +2328,12 @@ export default function LoginPage({ onLogin, onSwitchToSignup, onSocialLogin }: 
 
         {/* Footer */}
         <div className="text-center text-xs text-gray-500 mt-6">
-          <p>By signing in, you agree to our Terms of Service and Privacy Policy</p>
+          <p>
+            By signing in, you agree to our{' '}
+            <a href="https://www.stasht.com/terms-conditions" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">Terms of Service</a>
+            {' '}and{' '}
+            <a href="https://www.stasht.com/privacy-policy" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">Privacy Policy</a>
+          </p>
         </div>
       </div>
 

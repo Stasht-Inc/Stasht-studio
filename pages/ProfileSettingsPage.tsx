@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+﻿import { useState, useRef, useEffect } from "react";
 import { useAuth } from "../contexts/AuthContext";
 import { Avatar, AvatarFallback, AvatarImage } from "../components/ui/avatar";
 import { Checkbox } from "../components/ui/checkbox";
@@ -8,6 +8,8 @@ import GooglePlacesInput from "../components/ui/google-places-input";
 import PasswordStrengthIndicator from "../components/PasswordStrengthIndicator";
 import { savePasswordSecurity, getPasswordSecurity } from "../utils/passwordSecurityStorage";
 import UpgradePlanModal from "../components/UpgradePlanModal";
+import { Switch } from "../components/ui/switch";
+import { getCategoryColor } from "../constants/mediaConstants";
 
 // Types
 interface SettingsSection {
@@ -28,7 +30,7 @@ function SettingsSidebar({ sections, activeSection, onSectionChange }: {
     <div className="w-72 bg-white shadow-sm border-r border-gray-100 sticky top-20 h-[calc(100dvh-5rem)] overflow-y-auto flex-shrink-0">
       <div className="p-6">
         <div className="mb-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-1">Settings</h2>
+          <h2 className="text-lg font-semibold text-gray-900 mb-1">Profile Settings</h2>
           <p className="text-sm text-gray-600">Quick navigation</p>
         </div>
         
@@ -1764,6 +1766,202 @@ function StorageManagement({ sectionRef }: { sectionRef: React.RefObject<HTMLDiv
   );
 }
 
+function CategoriesSettings({ sectionRef }: { sectionRef: React.RefObject<HTMLDivElement> }) {
+  const [categories, setCategories] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  // Only one category can be toggled on at a time. Value matches category_id from
+  // the notification-preferences API: a real category's numeric id, or the literal
+  // string "shopify"/"cars".
+  const [selectedCategoryId, setSelectedCategoryId] = useState<number | string | null>(null);
+  // The GET response also resolves category_id to a name (e.g. category_id "2937" ->
+  // category.name "Used Cars"). The categories list here comes from a different endpoint
+  // (getCategoriesLabels) than the one notification-preferences resolves ids against, and
+  // the two don't reliably agree on id — so match on name for real categories, which both
+  // responses always carry, and keep id matching only for the synthetic "shopify"/"cars".
+  const [selectedCategoryName, setSelectedCategoryName] = useState<string | null>(null);
+  // The rest of the notification-preferences payload, kept around so a PUT for
+  // category_id doesn't clobber the user's email/push/moderation settings.
+  const savedPreferencesRef = useRef<{ email_notifications: any; push_notifications: any; moderation_enabled: boolean }>({
+    email_notifications: { new_memories: true, comments: true },
+    push_notifications: { new_memories: true, comments: true },
+    moderation_enabled: true,
+  });
+  // Same synthetic-category gating as the "Add Campaign" modal — tracked as their own
+  // pieces of state (not folded into a single fetch) so the category list re-renders
+  // with Shopify/Cars the moment each check resolves, instead of a one-time snapshot
+  // that could win a race against these two slower calls.
+  const [shopifyConnected, setShopifyConnected] = useState(false);
+  const [carsAvailable, setCarsAvailable] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await dashboardAPI.shopifyGetStatus();
+        if (!cancelled) setShopifyConnected(res?.data?.connected === true);
+      } catch { if (!cancelled) setShopifyConnected(false); }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await dashboardAPI.carsGetCatalog();
+        const list = res?.data?.data?.cars || (res?.data as any)?.cars || [];
+        if (!cancelled) setCarsAvailable(res?.success === true && Array.isArray(list) && list.length > 0);
+      } catch { if (!cancelled) setCarsAvailable(false); }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  // Base list plus the synthetic entries — recomputed every render so it always
+  // reflects the latest shopifyConnected/carsAvailable state.
+  const displayCategories = [
+    ...categories,
+    ...(shopifyConnected ? [{ id: 'shopify', name: 'Shopify' }] : []),
+    ...(carsAvailable ? [{ id: 'cars', name: 'Cars' }] : []),
+  ];
+
+  useEffect(() => {
+    const fetchCategories = async () => {
+      try {
+        setIsLoading(true);
+        const [response, prefsResponse] = await Promise.all([
+          dashboardAPI.getCategoriesLabels(),
+          dashboardAPI.getNotificationPreferences(),
+        ]);
+
+        if (prefsResponse.success && prefsResponse.data) {
+          // apiRequest returns the whole server payload as `data` (i.e. { status, data: {...} }),
+          // it doesn't unwrap the inner `data` — so the real fields are one level deeper.
+          const prefsData = (prefsResponse.data as any)?.data || prefsResponse.data;
+
+          savedPreferencesRef.current = {
+            email_notifications: prefsData.email_notifications || savedPreferencesRef.current.email_notifications,
+            push_notifications: prefsData.push_notifications || savedPreferencesRef.current.push_notifications,
+            moderation_enabled: prefsData.moderation_enabled ?? savedPreferencesRef.current.moderation_enabled,
+          };
+
+          const rawCategoryId = prefsData.category_id;
+          if (rawCategoryId === 'shopify' || rawCategoryId === 'cars') {
+            setSelectedCategoryId(rawCategoryId);
+            setSelectedCategoryName(null);
+          } else if (rawCategoryId != null && !isNaN(Number(rawCategoryId))) {
+            setSelectedCategoryId(Number(rawCategoryId));
+            setSelectedCategoryName(prefsData.category?.name ?? null);
+          } else {
+            setSelectedCategoryId(null);
+            setSelectedCategoryName(null);
+          }
+        }
+
+        if (response.success && response.data) {
+          const actualData = response.data?.data || response.data;
+
+          const candidates = [
+            actualData?.sidebar?.categories?.items,
+            actualData?.data?.sidebar?.categories?.items,
+            actualData?.data?.categories?.items,
+            actualData?.categories?.items,
+            Array.isArray(actualData?.categories) ? actualData.categories : null,
+            Array.isArray(actualData?.data?.categories) ? actualData.data.categories : null,
+          ];
+
+          let categoriesArray: any[] = [];
+          for (const candidate of candidates) {
+            if (Array.isArray(candidate) && candidate.length > 0 && candidate[0]?.name) {
+              categoriesArray = candidate;
+              break;
+            }
+          }
+
+          // Same categories as the Memories page sidebar — only "Shared With" and
+          // "Published" (read-only, not real user categories) are left out. Shopify/Cars
+          // are appended separately in displayCategories once their own checks resolve.
+          const uniqueCategories = categoriesArray
+            .filter(cat => {
+              const name = (cat.name || '').toLowerCase().trim();
+              return name !== 'shared with' && name !== 'published';
+            })
+            .filter((cat, i, self) => self.findIndex(c => c.name === cat.name) === i);
+
+          setCategories(uniqueCategories);
+        }
+      } catch (error) {
+        console.error('Error fetching categories:', error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchCategories();
+  }, []);
+
+  const normalizeCategoryName = (name: any) => (name ?? '').toString().trim().toLowerCase();
+
+  const isCategoryChecked = (cat: any) => {
+    if (cat.id === 'shopify' || cat.id === 'cars') return selectedCategoryId === cat.id;
+    return selectedCategoryName != null && normalizeCategoryName(cat.name) === normalizeCategoryName(selectedCategoryName);
+  };
+
+  const handleToggle = async (cat: any, checked: boolean) => {
+    const newCategoryId = checked ? cat.id : null;
+    const previousCategoryId = selectedCategoryId;
+    const previousCategoryName = selectedCategoryName;
+    setSelectedCategoryId(newCategoryId);
+    setSelectedCategoryName(checked && cat.id !== 'shopify' && cat.id !== 'cars' ? cat.name : null);
+    try {
+      const response = await dashboardAPI.updateNotificationPreferences({
+        ...savedPreferencesRef.current,
+        category_id: newCategoryId,
+      });
+      if (!response.success) throw new Error(response.error || 'Failed to save');
+    } catch (error) {
+      console.error('Error saving category preference:', error);
+      setSelectedCategoryId(previousCategoryId);
+      setSelectedCategoryName(previousCategoryName);
+    }
+  };
+
+  return (
+    <div ref={sectionRef} id="categories" className="space-y-6 scroll-mt-8">
+      <div className="flex items-center gap-3">
+        <svg className="w-6 h-6 text-[#6C60FF]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+        </svg>
+        <div>
+          <h2 className="text-lg font-semibold text-gray-900">Categories</h2>
+          <p className="text-base text-gray-600">Make category always visible in Add new campaigns section</p>
+        </div>
+      </div>
+
+      {isLoading ? (
+        <div className="py-4 text-base text-gray-400">Loading categories...</div>
+      ) : displayCategories.length === 0 ? (
+        <div className="py-4 text-base text-gray-400">No categories found</div>
+      ) : (
+        <div className="divide-y divide-gray-100">
+          {displayCategories.map((cat) => (
+            <div key={cat.id || cat.name} className="flex items-center justify-between py-3">
+              <div className="flex items-center gap-2.5">
+                <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: cat.color || getCategoryColor(cat.name) }} />
+                <span className="text-base font-medium text-gray-900">{cat.name}</span>
+              </div>
+              <Switch
+                className="h-6 w-11 [&>span]:size-5"
+                checked={isCategoryChecked(cat)}
+                onCheckedChange={(checked) => handleToggle(cat, checked)}
+              />
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function PrivacySettings({ sectionRef, isEditing, onEditToggle }: { 
   sectionRef: React.RefObject<HTMLDivElement>;
   isEditing: boolean;
@@ -2042,15 +2240,18 @@ function NotificationPreferences({ sectionRef, isEditing, onEditToggle }: {
         console.log('📩 Loaded notification preferences:', response);
 
         if (response.success && response.data) {
+          // apiRequest returns the whole server payload as `data` (i.e. { status, data: {...} }),
+          // it doesn't unwrap the inner `data` — so the real fields are one level deeper.
+          const prefsData = (response.data as any)?.data || response.data;
           setEmailNotifications({
-            newMemories: response.data.email_notifications?.new_memories ?? true,
-            comments: response.data.email_notifications?.comments ?? true
+            newMemories: prefsData.email_notifications?.new_memories ?? true,
+            comments: prefsData.email_notifications?.comments ?? true
           });
           setPushNotifications({
-            newMemories: response.data.push_notifications?.new_memories ?? true,
-            comments: response.data.push_notifications?.comments ?? true
+            newMemories: prefsData.push_notifications?.new_memories ?? true,
+            comments: prefsData.push_notifications?.comments ?? true
           });
-          setModerationEnabled(response.data.moderation_enabled ?? true);
+          setModerationEnabled(prefsData.moderation_enabled ?? true);
         }
       } catch (error) {
         console.error('Failed to load notification preferences:', error);
@@ -2103,15 +2304,16 @@ function NotificationPreferences({ sectionRef, isEditing, onEditToggle }: {
     // Reload preferences to reset any unsaved changes
     dashboardAPI.getNotificationPreferences().then(response => {
       if (response.success && response.data) {
+        const prefsData = (response.data as any)?.data || response.data;
         setEmailNotifications({
-          newMemories: response.data.email_notifications?.new_memories ?? true,
-          comments: response.data.email_notifications?.comments ?? true
+          newMemories: prefsData.email_notifications?.new_memories ?? true,
+          comments: prefsData.email_notifications?.comments ?? true
         });
         setPushNotifications({
-          newMemories: response.data.push_notifications?.new_memories ?? true,
-          comments: response.data.push_notifications?.comments ?? true
+          newMemories: prefsData.push_notifications?.new_memories ?? true,
+          comments: prefsData.push_notifications?.comments ?? true
         });
-        setModerationEnabled(response.data.moderation_enabled ?? true);
+        setModerationEnabled(prefsData.moderation_enabled ?? true);
       }
     });
   };
@@ -2877,112 +3079,6 @@ function RemoveAccount({ sectionRef }: { sectionRef: React.RefObject<HTMLDivElem
   );
 }
 
-function CategoriesSettings({ sectionRef }: { sectionRef: React.RefObject<HTMLDivElement> }) {
-  const [categories, setCategories] = useState<{ id: string; name: string; color?: string }[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [visibilityToggles, setVisibilityToggles] = useState<Record<string, boolean>>(() => {
-    try {
-      const stored = localStorage.getItem('category_always_visible');
-      return stored ? JSON.parse(stored) : {};
-    } catch {
-      return {};
-    }
-  });
-
-  useEffect(() => {
-    const fetchCategories = async () => {
-      try {
-        const response = await dashboardAPI.getCategoriesLabels();
-        const items = response?.data?.data?.categories?.items || response?.data?.categories?.items;
-        if (response?.success && Array.isArray(items)) {
-          setCategories(items
-            // Exclude system categories that aren't user-activated (Shared With, Published)
-            .filter((cat: any) => {
-              const name = (cat.name || '').toLowerCase().trim();
-              return name !== 'published' && !name.includes('shared');
-            })
-            .map((cat: any) => ({
-              id: cat.id?.toString() ?? cat.name,
-              name: cat.name,
-              color: cat.color
-            })));
-        }
-      } catch (error) {
-        console.error('Error fetching categories for settings:', error);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-    fetchCategories();
-  }, []);
-
-  const handleToggle = (category: { id: string; name: string }) => {
-    setVisibilityToggles(prev => {
-      const newValue = !prev[category.id];
-      // Store under both id and name so lookups match regardless of which
-      // API endpoint supplied the category elsewhere in the app
-      const next = { ...prev, [category.id]: newValue, [category.name]: newValue };
-      try {
-        localStorage.setItem('category_always_visible', JSON.stringify(next));
-      } catch {}
-      return next;
-    });
-  };
-
-  return (
-    <div ref={sectionRef} id="categories" className="space-y-6 scroll-mt-8">
-      <div>
-        <h2 className="text-xl font-semibold text-gray-900">Categories</h2>
-        <p className="text-sm text-gray-600 mt-1">Make category always visible in Add new campaigns section</p>
-      </div>
-
-      {isLoading ? (
-        <div className="flex items-center gap-2 text-gray-500 text-sm py-4">
-          <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
-            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
-          </svg>
-          Loading categories...
-        </div>
-      ) : categories.length === 0 ? (
-        <p className="text-sm text-gray-500 py-4">No categories found on this account.</p>
-      ) : (
-        <div className="divide-y divide-gray-100">
-          {categories.map((category) => {
-            const isOn = !!visibilityToggles[category.id];
-            return (
-              <div key={category.id} className="flex items-center justify-between py-3">
-                <div className="flex items-center gap-3">
-                  <span
-                    className="w-3 h-3 rounded-full flex-shrink-0"
-                    style={{ backgroundColor: category.color || '#6C60FF' }}
-                  />
-                  <span className="text-sm font-medium text-gray-900">{category.name}</span>
-                </div>
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={isOn}
-                  onClick={() => handleToggle(category)}
-                  className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-[#6C60FF]/40 ${
-                    isOn ? 'bg-[#6C60FF]' : 'bg-gray-200'
-                  }`}
-                >
-                  <span
-                    className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
-                      isOn ? 'translate-x-6' : 'translate-x-1'
-                    }`}
-                  />
-                </button>
-              </div>
-            );
-          })}
-        </div>
-      )}
-    </div>
-  );
-}
-
 export default function ProfileSettingsPage() {
   const { user, updateUser } = useAuth();
   const [activeSection, setActiveSection] = useState('personal');
@@ -3144,7 +3240,7 @@ export default function ProfileSettingsPage() {
       name: 'Categories',
       icon: (
         <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" className="w-full h-full">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z" />
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
         </svg>
       )
     },

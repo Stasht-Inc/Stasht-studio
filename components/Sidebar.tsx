@@ -272,6 +272,7 @@ export default function Sidebar({
   const [usersCount, setUsersCount] = useState<number | undefined>(undefined);
   const [usersUnreadCount, setUsersUnreadCount] = useState<number>(0);
   const [appsCount, setAppsCount] = useState<number | undefined>(undefined);
+  const [connectorsCount, setConnectorsCount] = useState<number | undefined>(undefined);
 
   useEffect(() => {
     if (!isAuthenticated) return;
@@ -288,6 +289,20 @@ export default function Sidebar({
         }
       }
     }).catch(() => {});
+  }, [isAuthenticated]);
+
+  // Connectors badge = number of connectors currently connected (DocuSign + Shopify).
+  // Same two status endpoints the Connectors/Marketplace page uses.
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    let cancelled = false;
+    Promise.all([
+      dashboardAPI.docuSignGetStatus().then(r => (r?.success && r.data?.connected ? 1 : 0)).catch(() => 0),
+      dashboardAPI.shopifyGetStatus().then(r => (r?.success && r.data?.connected ? 1 : 0)).catch(() => 0),
+    ]).then(([docusign, shopify]) => {
+      if (!cancelled) setConnectorsCount(docusign + shopify);
+    });
+    return () => { cancelled = true; };
   }, [isAuthenticated]);
 
   const fetchLeadsUnreadCount = () => {
@@ -439,7 +454,7 @@ export default function Sidebar({
         id: 'marketplace',
         label: 'Connectors',
         icon: <Plug className="w-5 h-5" />,
-        count: 0,
+        count: connectorsCount,
       });
     }
 

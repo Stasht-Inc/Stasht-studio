@@ -9,6 +9,7 @@ import { useNotificationsRefreshProvider } from '../hooks/useNotificationsRefres
 import { notificationStore } from '../utils/notificationStore';
 import { useAuth } from '../contexts/AuthContext';
 import { toast } from 'sonner';
+import { mapLimit } from '../utils/requestLimit';
 
 export interface NotificationItem {
   id: string | number;
@@ -83,8 +84,9 @@ export function NotificationDropdown({ isOpen, onClose, anchorRef, onNotificatio
     if (unreadNotifications.length > 0) {
       console.log('🔔 Marking', unreadNotifications.length, 'notifications as read');
 
-      // Mark all as read in parallel
-      const markAsReadPromises = unreadNotifications.map(async (notification: any) => {
+      // Mark all as read, concurrency-capped — a user with a long unread list
+      // would otherwise fire one POST per notification in the same tick.
+      await mapLimit(unreadNotifications, async (notification: any) => {
         try {
           await dashboardAPI.markNotificationAsRead(notification.id.toString());
           console.log(`✅ Marked notification ${notification.id} as read on close`);
@@ -94,9 +96,6 @@ export function NotificationDropdown({ isOpen, onClose, anchorRef, onNotificatio
           return null;
         }
       });
-
-      // Wait for all to complete
-      await Promise.all(markAsReadPromises);
 
       // Update local state to mark all as read
       const updatedNotifications = notifications.map((n: any) => ({

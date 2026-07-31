@@ -4,7 +4,7 @@ import path from 'path'
 import axios from 'axios'
 import { VitePWA } from 'vite-plugin-pwa'
 
-const PHP_BACKEND = process.env.PHP_BACKEND_URL || 'https://restapi-stasht.wd-projects.online';
+const PHP_BACKEND = 'http://localhost/stasht-multiple-admin/public';
 const API_BASE    = `${PHP_BACKEND}/api/react`;
 
 const BOT_AGENTS = ['whatsapp', 'telegrambot', 'twitterbot', 'facebookexternalhit', 'linkedinbot', 'slackbot', 'googlebot'];
@@ -26,8 +26,8 @@ export default defineConfig(({ mode }) => ({
       includeAssets: ['Icon.svg', 'pwa-icon-192.png', 'pwa-icon-512.png', 'apple-touch-icon.png'],
       manifest: {
         name: 'Stasht Studio',
-        short_name: 'Stasht',
-        description: 'Capture and share your precious memories with Stasht',
+        short_name: 'Stasht Studio',
+        description: 'Capture and share your campaigns with Stasht',
         theme_color: '#6C60FF',
         background_color: '#ffffff',
         display: 'standalone',
@@ -61,8 +61,11 @@ export default defineConfig(({ mode }) => ({
         type: 'module',
       },
       workbox: {
-        globPatterns: ['**/*.{js,css,html,svg,png,woff2}'],
-        maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
+        skipWaiting: true,
+        clientsClaim: true,
+        cleanupOutdatedCaches: true,
+        globPatterns: ['**/*.{css,html,svg,png,woff2}'],
+        maximumFileSizeToCacheInBytes: 1 * 1024 * 1024,
         navigateFallback: 'index.html',
         navigateFallbackDenylist: [/^\/api/, /^\/s\//],
         runtimeCaching: [
@@ -70,12 +73,16 @@ export default defineConfig(({ mode }) => ({
             urlPattern: /^https:\/\/stasht-data\.s3\.us-east-2\.amazonaws\.com\/.*/i,
             handler: 'CacheFirst',
             options: {
-              cacheName: 's3-media-cache',
+              cacheName: 's3-media-cache-v2',
+              fetchOptions: {
+                mode: 'cors',
+                credentials: 'omit',
+              },
               expiration: {
                 maxEntries: 100,
                 maxAgeSeconds: 60 * 60 * 24 * 7
               },
-              cacheableResponse: { statuses: [0, 200] }
+              cacheableResponse: { statuses: [200] }
             }
           }
         ]
@@ -95,10 +102,10 @@ export default defineConfig(({ mode }) => ({
             try {
               const apiResp = await axios.get(`${API_BASE}/share-qr/info/${token}`);
               const data = apiResp.data?.data || apiResp.data;
-              const title       = esc(data?.title || 'Shared Memory');
-              const description = esc(data?.description || 'You have been invited to join a memory on Stasht.');
+              const title       = esc(data?.title || 'Shared Campaign');
+              const description = esc(data?.description || 'You have been invited to join a campaign on Stasht.');
               const image       = data?.last_update_img || data?.thumbnail || '';
-              const pageUrl     = `http://localhost:5000/s/${token}`;
+              const pageUrl     = `http://localhost:5173/s/${token}`;
 
               const html = `<!DOCTYPE html>
 <html>
@@ -106,12 +113,12 @@ export default defineConfig(({ mode }) => ({
   <meta charset="UTF-8" />
   <meta property="og:type" content="website" />
   <meta property="og:url" content="${pageUrl}" />
-  <meta property="og:title" content="${title} - Stasht Memory" />
+  <meta property="og:title" content="${title} - Stasht Campaign" />
   <meta property="og:description" content="${description}" />
   ${image ? `<meta property="og:image" content="${image}" />\n  <meta property="og:image:width" content="1200" />\n  <meta property="og:image:height" content="630" />` : ''}
   <meta property="og:site_name" content="Stasht" />
   <meta name="twitter:card" content="summary_large_image" />
-  <meta name="twitter:title" content="${title} - Stasht Memory" />
+  <meta name="twitter:title" content="${title} - Stasht Campaign" />
   <meta name="twitter:description" content="${description}" />
   ${image ? `<meta name="twitter:image" content="${image}" />` : ''}
   <title>${title} - Stasht</title>
@@ -144,11 +151,48 @@ export default defineConfig(({ mode }) => ({
   build: {
     outDir: 'dist',
     sourcemap: false,
+    minify: false,
+    chunkSizeWarningLimit: 10000,
     rollupOptions: {
+      maxParallelFileOps: 1,
       output: {
-        manualChunks: {
-          vendor: ['react', 'react-dom'],
-          utils: ['lucide-react']
+        generatedCode: { compact: true },
+        manualChunks(id) {
+          // Keep react family strictly together
+          if (id.includes('node_modules/react-dom') || id.includes('node_modules/react/') || id.includes('node_modules/scheduler')) {
+            return 'vendor-react';
+          }
+          if (id.includes('node_modules/lucide-react')) {
+            return 'vendor-lucide';
+          }
+          if (id.includes('node_modules/@radix-ui')) {
+            return 'vendor-radix';
+          }
+          if (id.includes('node_modules/@stripe')) {
+            return 'vendor-stripe';
+          }
+          if (id.includes('node_modules/jszip')) {
+            return 'vendor-jszip';
+          }
+          if (id.includes('node_modules')) {
+            return 'vendor-misc';
+          }
+          // Isolate the two largest pages as their own chunks
+          if (id.includes('pages/MemoryDetailsPage')) {
+            return 'page-memory-details';
+          }
+          if (id.includes('pages/MediaPage')) {
+            return 'page-media';
+          }
+          if (id.includes('pages/UsersPage')) {
+            return 'page-users';
+          }
+          if (id.includes('pages/PublishedMemoryPage') || id.includes('pages/PublishedAuthorMemoryPage')) {
+            return 'page-published';
+          }
+          if (id.includes('pages/')) {
+            return 'pages-misc';
+          }
         }
       }
     }
@@ -158,10 +202,8 @@ export default defineConfig(({ mode }) => ({
     strictPort: true
   },
   server: mode === 'development' ? {
-    port: 5000,
+    port: 5173,
     strictPort: true,
-    host: true,
-    allowedHosts: true,
     proxy: {
       '/api': {
         target: PHP_BACKEND,
@@ -173,6 +215,12 @@ export default defineConfig(({ mode }) => ({
           'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
           'Access-Control-Allow-Headers': 'Origin, X-Requested-With, Content-Type, Accept, Authorization'
         }
+      },
+      '/sso-api': {
+        target: 'https://mobile-api.stasht.com/',
+        changeOrigin: true,
+        secure: false,
+        rewrite: (path) => path.replace(/^\/sso-api/, '/public/api'),
       },
       '/s3-proxy': {
         target: 'https://stasht-data.s3.us-east-2.amazonaws.com',

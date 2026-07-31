@@ -58,12 +58,11 @@ const brandInitials: Record<string, string> = {
   autotrader: 'AT',
 };
 
-const shopifySteps = [
-  'Log into your Shopify admin panel',
-  'Navigate to Settings → Apps and sales channels → Develop apps',
-  "Click 'Create an app' and name it 'Stasht Integration'",
-  "Under 'API credentials', generate Admin API access token",
-  'Copy your API Key and Secret and paste them above',
+const shopifyOAuthSteps = [
+  'Enter your Shopify store domain below',
+  'Click "Connect with Shopify" — you\'ll be redirected to Shopify',
+  'Log in and approve the requested permissions',
+  "You'll be returned here and your products will sync automatically",
 ];
 
 const shopifyPermissions = [
@@ -74,7 +73,71 @@ const shopifyPermissions = [
   'Read customer data',
 ];
 
-function ShopifyConnectModal({ onClose }: { onClose: () => void }) {
+// Normalize whatever the user types into a *.myshopify.com domain.
+// Accepts "store", "store.myshopify.com", or a full URL.
+function normalizeShopDomain(input: string): string {
+  let s = (input || '').trim().toLowerCase();
+  if (!s) return '';
+  s = s.replace(/^https?:\/\//, '').replace(/\/.*$/, '');
+  if (!s.includes('.')) s = `${s}.myshopify.com`;
+  return s;
+}
+
+function ShopifyConnectModal({
+  onClose,
+  isConnected,
+  shopDomain,
+  connectedAt,
+  onDisconnect,
+}: {
+  onClose: () => void;
+  isConnected: boolean;
+  shopDomain: string | null;
+  connectedAt: string | null;
+  onDisconnect: () => void;
+}) {
+  const [store, setStore] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const handleConnect = async () => {
+    const shop = normalizeShopDomain(store);
+    if (!shop || !shop.endsWith('.myshopify.com')) {
+      toast.error('Enter a valid store domain, e.g. yourstore.myshopify.com');
+      return;
+    }
+    setLoading(true);
+    try {
+      const res = await dashboardAPI.shopifyGetAuthUrl(shop);
+      if (res.success && res.data?.auth_url) {
+        window.location.href = res.data.auth_url;
+      } else {
+        toast.error(res.error || 'Failed to start Shopify authorization');
+        setLoading(false);
+      }
+    } catch {
+      toast.error('Failed to connect Shopify');
+      setLoading(false);
+    }
+  };
+
+  const handleDisconnect = async () => {
+    setLoading(true);
+    try {
+      const res = await dashboardAPI.shopifyDisconnect();
+      if (res.success) {
+        toast.success('Shopify disconnected successfully');
+        onDisconnect();
+        onClose();
+      } else {
+        toast.error(res.error || 'Failed to disconnect Shopify');
+        setLoading(false);
+      }
+    } catch {
+      toast.error('Failed to disconnect Shopify');
+      setLoading(false);
+    }
+  };
+
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-2xl w-full max-w-lg max-h-[90vh] flex flex-col shadow-2xl">
@@ -88,7 +151,9 @@ function ShopifyConnectModal({ onClose }: { onClose: () => void }) {
               <img src="https://cdn.simpleicons.org/shopify/ffffff" alt="Shopify" className="w-8 h-8 object-contain" />
             </div>
             <div>
-              <h2 className="text-lg font-bold text-gray-900">Connect Shopify</h2>
+              <h2 className="text-lg font-bold text-gray-900">
+                {isConnected ? 'Shopify Connected' : 'Connect Shopify'}
+              </h2>
               <p className="text-sm text-gray-500 mt-0.5 leading-snug">
                 Sync product images, titles, descriptions, and pricing from your Shopify store
               </p>
@@ -101,62 +166,74 @@ function ShopifyConnectModal({ onClose }: { onClose: () => void }) {
 
         {/* Scrollable body */}
         <div className="overflow-y-auto px-6 pb-2 space-y-5 flex-1">
-          {/* Info box */}
-          <div className="bg-blue-50 rounded-xl p-4">
-            <div className="flex items-center gap-2 mb-2.5">
-              <Info className="w-4 h-4 text-blue-500 flex-shrink-0" />
-              <span className="text-blue-700 font-semibold text-sm">Getting Your Shopify API Credentials</span>
+          {isConnected ? (
+            <div className="bg-green-50 rounded-xl p-4">
+              <div className="flex items-center gap-2 mb-1.5">
+                <CheckCircle2 className="w-5 h-5 text-green-600 flex-shrink-0" />
+                <span className="text-green-700 font-semibold text-sm">Shopify is connected</span>
+              </div>
+              {shopDomain && <p className="text-green-600 text-sm">Store: {shopDomain}</p>}
+              {connectedAt && (
+                <p className="text-green-600 text-sm">
+                  Connected on {new Date(connectedAt).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}
+                </p>
+              )}
             </div>
-            <ul className="space-y-1.5">
-              {shopifySteps.map(step => (
-                <li key={step} className="text-blue-600 text-sm leading-snug">{step}</li>
-              ))}
-            </ul>
-          </div>
+          ) : (
+            <>
+              {/* Info box */}
+              <div className="bg-blue-50 rounded-xl p-4">
+                <div className="flex items-center gap-2 mb-2.5">
+                  <Info className="w-4 h-4 text-blue-500 flex-shrink-0" />
+                  <span className="text-blue-700 font-semibold text-sm">How it works</span>
+                </div>
+                <ul className="space-y-1.5">
+                  {shopifyOAuthSteps.map((step, i) => (
+                    <li key={step} className="text-blue-600 text-sm leading-snug">{i + 1}. {step}</li>
+                  ))}
+                </ul>
+              </div>
 
-          {/* Form */}
-          <div>
-            <h3 className="font-bold text-gray-900 mb-4 text-base">Enter Your Shopify Credentials</h3>
-            <div className="space-y-4">
+              {/* Store domain input */}
               <div>
                 <label className="block text-sm font-medium text-gray-800 mb-1.5">
-                  Store URL<span className="text-red-500">*</span>
+                  Store Domain<span className="text-red-500">*</span>
                 </label>
                 <input
                   type="text"
+                  value={store}
+                  onChange={(e) => setStore(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter' && !loading) handleConnect(); }}
                   placeholder="yourstore.myshopify.com"
                   className="w-full bg-gray-100 border border-gray-200 rounded-xl px-4 py-3 text-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-300 focus:border-gray-300"
                 />
-                <p className="text-xs text-gray-400 mt-1">Find this in your Shopify admin URL</p>
+                <p className="text-xs text-gray-400 mt-1">No API keys needed — just your store domain.</p>
+
+                {/* Where to find your store domain */}
+                <div className="mt-3 bg-gray-50 border border-gray-200 rounded-xl p-3">
+                  <p className="text-xs font-semibold text-gray-700 mb-1.5">Where do I find this?</p>
+                  <ol className="space-y-1 text-xs text-gray-600 list-decimal list-inside">
+                    <li>
+                      Log in to your Shopify admin at{' '}
+                      <a href="https://admin.shopify.com" target="_blank" rel="noopener noreferrer" className="text-[#6C60FF] hover:underline">admin.shopify.com</a>
+                    </li>
+                    <li>Look at the address bar — it looks like this:</li>
+                  </ol>
+                  <div className="mt-1.5 bg-white border border-gray-200 rounded-lg px-3 py-2 font-mono text-[11px] text-gray-500 overflow-x-auto">
+                    admin.shopify.com/store/<span className="text-[#6C60FF] font-semibold">yourstore</span>
+                  </div>
+                  <p className="text-xs text-gray-600 mt-1.5">
+                    Take the highlighted part and add <span className="font-mono">.myshopify.com</span> — e.g.{' '}
+                    <span className="font-mono text-gray-800">yourstore.myshopify.com</span>.
+                  </p>
+                </div>
               </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-800 mb-1.5">
-                  API Key<span className="text-red-500">*</span>
-                </label>
-                <input
-                  type="text"
-                  placeholder="shpat_abc123..."
-                  className="w-full bg-gray-100 border border-gray-200 rounded-xl px-4 py-3 text-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-300 focus:border-gray-300"
-                />
-                <p className="text-xs text-gray-400 mt-1">Generate from Shopify Admin → Apps → App Development</p>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-800 mb-1.5">
-                  API Secret<span className="text-red-500">*</span>
-                </label>
-                <input
-                  type="text"
-                  placeholder="shpss_xyz789..."
-                  className="w-full bg-gray-100 border border-gray-200 rounded-xl px-4 py-3 text-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-300 focus:border-gray-300"
-                />
-                <p className="text-xs text-gray-400 mt-1">Created when you generate your API key</p>
-              </div>
-            </div>
-          </div>
+            </>
+          )}
 
           {/* Permissions */}
           <div>
-            <h3 className="font-bold text-gray-900 mb-3 text-base">Required Permissions & Scopes</h3>
+            <h3 className="font-bold text-gray-900 mb-3 text-base">Permissions & Scopes</h3>
             <div className="grid grid-cols-2 gap-y-2.5 gap-x-4">
               {shopifyPermissions.map(perm => (
                 <div key={perm} className="flex items-center gap-2">
@@ -196,11 +273,27 @@ function ShopifyConnectModal({ onClose }: { onClose: () => void }) {
             onClick={onClose}
             className="flex-1 py-3 rounded-xl border border-gray-200 text-gray-700 font-medium text-sm hover:bg-gray-50 transition-colors"
           >
-            Cancel
+            {isConnected ? 'Close' : 'Cancel'}
           </button>
-          <button className="flex-1 py-3 rounded-xl bg-[#6C60FF] hover:bg-[#5A4FFF] text-white font-semibold text-sm transition-colors">
-            Connect Shopify
-          </button>
+          {isConnected ? (
+            <button
+              onClick={handleDisconnect}
+              disabled={loading}
+              className="flex-1 py-3 rounded-xl bg-red-500 hover:bg-red-600 disabled:opacity-50 text-white font-semibold text-sm transition-colors flex items-center justify-center gap-2"
+            >
+              {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Unplug className="w-4 h-4" />}
+              {loading ? 'Disconnecting...' : 'Disconnect'}
+            </button>
+          ) : (
+            <button
+              onClick={handleConnect}
+              disabled={loading}
+              className="flex-1 py-3 rounded-xl bg-[#6C60FF] hover:bg-[#5A4FFF] disabled:opacity-50 text-white font-semibold text-sm transition-colors flex items-center justify-center gap-2"
+            >
+              {loading && <Loader2 className="w-4 h-4 animate-spin" />}
+              {loading ? 'Redirecting...' : 'Connect with Shopify'}
+            </button>
+          )}
         </div>
       </div>
     </div>
@@ -536,6 +629,9 @@ export default function MarketplacePage() {
   const [activeModal, setActiveModal] = useState<string | null>(null);
   const [docusignConnected, setDocusignConnected] = useState(false);
   const [docusignConnectedAt, setDocusignConnectedAt] = useState<string | null>(null);
+  const [shopifyConnected, setShopifyConnected] = useState(false);
+  const [shopifyShopDomain, setShopifyShopDomain] = useState<string | null>(null);
+  const [shopifyConnectedAt, setShopifyConnectedAt] = useState<string | null>(null);
 
   useEffect(() => {
     // Handle OAuth callback result from URL params
@@ -556,12 +652,40 @@ export default function MarketplacePage() {
       window.history.replaceState({}, '', url.toString());
     }
 
+    // Handle Shopify OAuth callback result from URL params
+    const shopifyParam = params.get('shopify');
+    if (shopifyParam === 'connected') {
+      toast.success('Shopify connected successfully');
+      setActiveModal('shopify');
+      const url = new URL(window.location.href);
+      url.searchParams.delete('shopify');
+      window.history.replaceState({}, '', url.toString());
+    } else if (shopifyParam === 'error') {
+      const reason = params.get('reason') || 'unknown_error';
+      toast.error(`Shopify connection failed: ${reason.replace(/_/g, ' ')}`);
+      const url = new URL(window.location.href);
+      url.searchParams.delete('shopify');
+      url.searchParams.delete('reason');
+      window.history.replaceState({}, '', url.toString());
+    }
+
     // Fetch DocuSign connection status
     dashboardAPI.docuSignGetStatus()
       .then(res => {
         if (res.success && res.data) {
           setDocusignConnected(res.data.connected);
           setDocusignConnectedAt(res.data.connected_at || null);
+        }
+      })
+      .catch(() => {});
+
+    // Fetch Shopify connection status
+    dashboardAPI.shopifyGetStatus()
+      .then(res => {
+        if (res.success && res.data) {
+          setShopifyConnected(res.data.connected);
+          setShopifyShopDomain(res.data.shop_domain || null);
+          setShopifyConnectedAt(res.data.connected_at || null);
         }
       })
       .catch(() => {});
@@ -623,7 +747,7 @@ export default function MarketplacePage() {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
                     <h3 className="text-xl font-bold text-gray-900">{widget.name}</h3>
-                    {widget.id === 'docusign' && docusignConnected && (
+                    {((widget.id === 'docusign' && docusignConnected) || (widget.id === 'shopify' && shopifyConnected)) && (
                       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-green-100 text-green-700 text-xs font-semibold">
                         <Check className="w-3 h-3" /> Connected
                       </span>
@@ -647,16 +771,21 @@ export default function MarketplacePage() {
               </ul>
 
               {/* Button */}
-              <button
-                onClick={() => setActiveModal(widget.id)}
-                className={`w-full py-3 rounded-xl text-base font-semibold transition-colors ${
-                  widget.id === 'docusign' && docusignConnected
-                    ? 'bg-gray-100 hover:bg-gray-200 text-gray-700 border border-gray-200'
-                    : 'bg-[#6C60FF] hover:bg-[#5A4FFF] text-white'
-                }`}
-              >
-                {widget.id === 'docusign' && docusignConnected ? 'Manage' : 'Get Widget'}
-              </button>
+              {(() => {
+                const connected = (widget.id === 'docusign' && docusignConnected) || (widget.id === 'shopify' && shopifyConnected);
+                return (
+                  <button
+                    onClick={() => setActiveModal(widget.id)}
+                    className={`w-full py-3 rounded-xl text-base font-semibold transition-colors ${
+                      connected
+                        ? 'bg-gray-100 hover:bg-gray-200 text-gray-700 border border-gray-200'
+                        : 'bg-[#6C60FF] hover:bg-[#5A4FFF] text-white'
+                    }`}
+                  >
+                    {connected ? 'Manage' : 'Get Widget'}
+                  </button>
+                );
+              })()}
             </div>
           </div>
         ))}
@@ -664,7 +793,17 @@ export default function MarketplacePage() {
 
       {/* Shopify Connect Modal */}
       {activeModal === 'shopify' && (
-        <ShopifyConnectModal onClose={() => setActiveModal(null)} />
+        <ShopifyConnectModal
+          onClose={() => setActiveModal(null)}
+          isConnected={shopifyConnected}
+          shopDomain={shopifyShopDomain}
+          connectedAt={shopifyConnectedAt}
+          onDisconnect={() => {
+            setShopifyConnected(false);
+            setShopifyShopDomain(null);
+            setShopifyConnectedAt(null);
+          }}
+        />
       )}
 
       {/* DocuSign Connect Modal */}

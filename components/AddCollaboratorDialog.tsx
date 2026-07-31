@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 import { toast } from "sonner";
 import { dashboardAPI } from "../utils/authUtils";
 import { useAuth } from "../contexts/AuthContext";
+import { mapLimit } from "../utils/requestLimit";
 
 // Default editable body of the personalized invite message (author-name prefix is fixed/non-editable)
 const DEFAULT_INVITE_MESSAGE = "invited you to collaborate on campaign";
@@ -604,15 +605,17 @@ export default function AddCollaboratorDialog({
                 setIsInviting(false);
                 return;
               }
-              const results = await Promise.all(
+              // Concurrency-capped: this is a cartesian product of collaborators ×
+              // properties, so it grows fast enough to trip the rate limiter.
+              const results = await mapLimit(
                 selectedEmailCollaborators.flatMap(user =>
-                  targetPropertyIds.map(pid =>
-                    dashboardAPI.inviteToMemory(pid, {
-                      memory_id: parseInt(memoryId, 10),
-                      email: user.email
-                    })
-                  )
-                )
+                  targetPropertyIds.map(pid => ({ pid, email: user.email }))
+                ),
+                ({ pid, email }) =>
+                  dashboardAPI.inviteToMemory(pid, {
+                    memory_id: parseInt(memoryId, 10),
+                    email
+                  })
               );
               response = results.every(r => r.success)
                 ? { success: true }
@@ -679,15 +682,16 @@ export default function AddCollaboratorDialog({
                 setIsInviting(false);
                 return;
               }
-              const results = await Promise.all(
+              // Concurrency-capped, same cartesian shape as the email path above.
+              const results = await mapLimit(
                 selectedPhoneCollaborators.flatMap(user =>
-                  targetPropertyIds.map(pid =>
-                    dashboardAPI.inviteToMemory(pid, {
-                      memory_id: parseInt(memoryId, 10),
-                      phone_number: user.phone_number
-                    })
-                  )
-                )
+                  targetPropertyIds.map(pid => ({ pid, phone_number: user.phone_number }))
+                ),
+                ({ pid, phone_number }) =>
+                  dashboardAPI.inviteToMemory(pid, {
+                    memory_id: parseInt(memoryId, 10),
+                    phone_number
+                  })
               );
               response = results.every(r => r.success)
                 ? { success: true }

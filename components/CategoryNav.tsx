@@ -17,6 +17,8 @@ import {
 } from "./ui/alert-dialog";
 import { ImageWithFallback } from "./figma/ImageWithFallback";
 import ImageHoverPopover from "./ImageHoverPopover";
+import ShopifyCatalogNav from "./ShopifyCatalogNav";
+import CarsCatalogNav from "./CarsCatalogNav";
 import { getCategoryColor } from "../constants/mediaConstants";
 import { dashboardAPI, userDisplayUtils } from "../utils/authUtils";
 import { useAuth } from "../contexts/AuthContext";
@@ -3029,6 +3031,19 @@ export default function CategoryNav({
                     </EditableCategoryCard>
                   );
                 })}
+
+              {/* Read-only Shopify catalog box — self-contained, only renders when a
+                  Shopify store is connected. Collection = campaign, product = moment. */}
+              {selectedFilter === "all" && (
+                <ShopifyCatalogNav
+                  onCollectionSelect={(collectionId) =>
+                    onMemorySelect?.(`shopify_collection:${collectionId}`)
+                  }
+                />
+              )}
+
+              {/* Read-only Cars catalog box — self-contained, flat inventory feed from GET /cars. */}
+              {selectedFilter === "all" && <CarsCatalogNav />}
             </div>
           </>
         )}

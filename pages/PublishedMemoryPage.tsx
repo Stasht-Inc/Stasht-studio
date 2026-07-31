@@ -1,16 +1,20 @@
 ﻿import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { Helmet } from "react-helmet-async";
-import { Calendar, MapPin, MessageSquare, ArrowLeft, Clock, Lock, Circle, X, ChevronLeft, ChevronRight, Send, Link, Facebook, Linkedin, Code, Eye, Globe, ChevronDown, Download, Mail, FileText, Heart, Search, Play, Pause, Phone, Share2, Copy, MoreVertical, BookOpen, ArrowRight, ExternalLink, ShoppingCart, Star, Gift, Pointer, Quote } from "lucide-react";
+import { Calendar, MapPin, MessageSquare, ArrowLeft, Clock, Lock, Circle, X, ChevronLeft, ChevronRight, Send, Link, Facebook, Linkedin, Code, Eye, Globe, ChevronDown, Download, Mail, FileText, Heart, Search, Play, Pause, Phone, Share2, Copy, MoreVertical, BookOpen, ArrowRight, ExternalLink, ShoppingCart, Star, Gift, Pointer, Quote, Plus, Upload, Loader2, Camera } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { Badge } from "../components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "../components/ui/avatar";
 import { Card } from "../components/ui/card";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "../components/ui/hover-card";
+import { Dialog, DialogContent, DialogTitle } from "../components/ui/dialog";
+import { Popover, PopoverTrigger, PopoverContent, PopoverClose } from "../components/ui/popover";
 import { ImageWithFallback } from "../components/figma/ImageWithFallback";
 import { PdfThumbnail } from "../components/PdfThumbnail";
 import MemoryCard from "../components/MemoryCard";
+import RequestMomentModal from "../components/RequestMomentModal";
 import { toast, Toaster } from "sonner";
+import exifr from "exifr";
 import { dashboardAPI } from "../utils/authUtils";
 import { useAuth } from "../contexts/AuthContext";
 
@@ -38,8 +42,10 @@ const CommentIcon = ({ className = "" }: { className?: string }) => (
 // Mirrors the widget markup used in the Studio (MemoryDetailsPage) so the public
 // view matches what the owner sees while composing.
 const PUB_CTA_ICONS: Record<string, React.ComponentType<{ style?: React.CSSProperties; className?: string }>> = {
-  ArrowRight, ExternalLink, Link, ShoppingCart, Phone, Mail, Calendar, Download, Play, Heart, Star, Gift, MapPin, Send,
+  ArrowRight, ExternalLink, Link, ShoppingCart, Phone, Mail, Calendar, Download, Play, Heart, Star, Gift, MapPin, Send, Upload,
 };
+// Fixed icon for a "Share Request a Moment" CTA (mode === 'request_moment').
+const PUB_CTA_REQUEST_MOMENT_ICON = 'Upload';
 const PUB_CTA_DEFAULT_BUTTON_COLOR = '#6C60FF';
 const PUB_CTA_DEFAULT_TEXT_COLOR = '#FFFFFF';
 const PUB_CTA_DEFAULT_ICON_SIZE = 18;
@@ -55,7 +61,12 @@ function pubNormalizeUrl(url: string): string {
 
 // Renders a single widget by its widget_type. `widget` is the raw API object
 // ({ id, widget_type, widget_data, ... }). memoryId is used for CTA click tracking.
-function PublishedWidget({ widget, memoryId }: { widget: any; memoryId?: string | number | null }) {
+function PublishedWidget({ widget, memoryId, onRequestMoment }: {
+  widget: any;
+  memoryId?: string | number | null;
+  // Invoked by a CTA saved with mode 'request_moment'; opens the submission form.
+  onRequestMoment?: (afterPostId: string | null) => void;
+}) {
   const data = widget?.widget_data || {};
   switch (widget?.widget_type) {
     case 'html':
@@ -79,7 +90,11 @@ function PublishedWidget({ widget, memoryId }: { widget: any; memoryId?: string 
         </div>
       );
     case 'cta': {
-      const Icon = data.icon ? PUB_CTA_ICONS[data.icon] : undefined;
+      // A CTA authored as "Share Request a Moment" opens the submission form
+      // instead of navigating; its icon is fixed rather than author-chosen.
+      const isRequestMoment = data.mode === 'request_moment';
+      const iconKey = isRequestMoment ? PUB_CTA_REQUEST_MOMENT_ICON : data.icon;
+      const Icon = iconKey ? PUB_CTA_ICONS[iconKey] : undefined;
       const iconSize = data.iconSize || PUB_CTA_DEFAULT_ICON_SIZE;
       const href = pubNormalizeUrl(data.buttonLink || '');
       const buttonWidth = data.buttonWidth || 0; // 0 = full width
@@ -88,27 +103,81 @@ function PublishedWidget({ widget, memoryId }: { widget: any; memoryId?: string 
         if (!mid || !widget?.id) return;
         try { dashboardAPI.trackWidgetClick(String(mid), String(widget.id)).catch(() => {}); } catch { /* ignore */ }
       };
+      const ctaButtonStyle: React.CSSProperties = {
+        backgroundColor: data.buttonColor || PUB_CTA_DEFAULT_BUTTON_COLOR,
+        color: data.textColor || PUB_CTA_DEFAULT_TEXT_COLOR,
+        fontSize: data.fontSize || PUB_CTA_DEFAULT_FONT_SIZE,
+        borderRadius: `${data.borderRadius ?? PUB_CTA_DEFAULT_BORDER_RADIUS}px`,
+        width: buttonWidth ? `${buttonWidth}px` : '100%',
+        maxWidth: '100%',
+      };
       return (
         <div className="relative rounded-2xl bg-white p-6 flex flex-col items-center text-center gap-4 border border-gray-100">
           {data.title && <h3 className="text-xl font-bold text-gray-900 break-words">{data.title}</h3>}
-          <a
-            href={href || undefined}
-            target="_blank"
-            rel="noopener noreferrer"
-            onClick={(e) => { if (!href) e.preventDefault(); trackClick(); }}
-            className="inline-flex items-center justify-center gap-2 px-6 py-3 font-semibold transition-opacity hover:opacity-90 no-underline"
-            style={{
-              backgroundColor: data.buttonColor || PUB_CTA_DEFAULT_BUTTON_COLOR,
-              color: data.textColor || PUB_CTA_DEFAULT_TEXT_COLOR,
-              fontSize: data.fontSize || PUB_CTA_DEFAULT_FONT_SIZE,
-              borderRadius: `${data.borderRadius ?? PUB_CTA_DEFAULT_BORDER_RADIUS}px`,
-              width: buttonWidth ? `${buttonWidth}px` : '100%',
-              maxWidth: '100%',
-            }}
-          >
-            {Icon && <Icon style={{ width: iconSize, height: iconSize }} />}
-            <span>{data.buttonText || 'Learn More'}</span>
-          </a>
+          {isRequestMoment ? (
+            <button
+              type="button"
+              onClick={() => {
+                trackClick();
+                const after = widget?.after_post_id;
+                onRequestMoment?.(after === null || after === undefined || after === '' || after === 0 || after === '0' ? null : String(after));
+              }}
+              className="inline-flex items-center justify-center gap-2 px-6 py-3 font-semibold transition-opacity hover:opacity-90"
+              style={ctaButtonStyle}
+            >
+              {Icon && <Icon style={{ width: iconSize, height: iconSize }} />}
+              <span>{data.buttonText || 'Share a Moment'}</span>
+            </button>
+          ) : (
+            <a
+              href={href || undefined}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(e) => { if (!href) e.preventDefault(); trackClick(); }}
+              className="inline-flex items-center justify-center gap-2 px-6 py-3 font-semibold transition-opacity hover:opacity-90 no-underline"
+              style={ctaButtonStyle}
+            >
+              {Icon && <Icon style={{ width: iconSize, height: iconSize }} />}
+              <span>{data.buttonText || 'Learn More'}</span>
+            </a>
+          )}
+        </div>
+      );
+    }
+    case 'product': {
+      // Shopify product card. widget_data holds a snapshot synced from Shopify plus the
+      // product_url (built from shop_domain + handle) so "Buy Now" routes to Shopify.
+      const productUrl = data.product_url
+        || (data.shop_domain && data.handle ? `https://${data.shop_domain}/products/${data.handle}` : '');
+      const priceLabel = data.price ? (data.currency ? `${data.currency} ${data.price}` : String(data.price)) : '';
+      const shortDesc = (data.description || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+      const trackClick = () => {
+        const mid = widget?.memory_id ?? memoryId;
+        if (!mid || !widget?.id) return;
+        try { dashboardAPI.trackWidgetClick(String(mid), String(widget.id)).catch(() => {}); } catch { /* ignore */ }
+      };
+      return (
+        <div className="rounded-2xl bg-white border border-gray-100 overflow-hidden">
+          {data.image && (
+            <div className="aspect-square bg-gray-100">
+              <ImageWithFallback src={data.image} alt={data.title || 'Product'} className="w-full h-full object-cover" />
+            </div>
+          )}
+          <div className="p-4 space-y-2">
+            {data.title && <h3 className="text-lg font-bold text-gray-900 break-words">{data.title}</h3>}
+            {priceLabel && <p className="text-base font-semibold text-[#6C60FF]">{priceLabel}</p>}
+            {shortDesc && <p className="text-sm text-gray-600 line-clamp-2">{shortDesc}</p>}
+            <a
+              href={productUrl || undefined}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(e) => { if (!productUrl) e.preventDefault(); trackClick(); }}
+              className="mt-2 inline-flex w-full items-center justify-center gap-2 px-6 py-3 font-semibold text-white bg-[#6C60FF] rounded-xl transition-opacity hover:opacity-90 no-underline"
+            >
+              <ShoppingCart className="w-[18px] h-[18px]" />
+              <span>Buy Now</span>
+            </a>
+          </div>
         </div>
       );
     }
@@ -145,6 +214,19 @@ const getYoutubeVideoId = (url: string): string | null => {
   const shortsMatch = url.match(/youtube\.com\/shorts\/([a-zA-Z0-9_-]+)/);
   const embedMatch = url.match(/youtube\.com\/embed\/([a-zA-Z0-9_-]+)/);
   return watchMatch?.[1] || shortMatch?.[1] || shortsMatch?.[1] || embedMatch?.[1] || null;
+};
+
+// A linked memory that is actually a car listing (lm.is_car) carries make/model/year/price/
+// mileage/stock_number instead of tags/sub_category, so its card needs its own label/tags.
+const carLinkedMemoryLabel = (lm: any): string => {
+  const price = typeof lm?.price === 'string' ? parseFloat(lm.price) : lm?.price;
+  return Number.isFinite(price) ? `$${price.toLocaleString()}` : '';
+};
+const carLinkedMemoryTags = (lm: any): string[] => {
+  const tags: string[] = [];
+  if (lm?.mileage != null && lm.mileage !== '') tags.push(`${Number(lm.mileage).toLocaleString()} mi`);
+  if (lm?.stock_number) tags.push(`Stock #${lm.stock_number}`);
+  return tags;
 };
 
 function PublishedPostCard({ post, index, memoryData, onImageClick, onCommentClick }: PublishedPostCardProps) {
@@ -554,6 +636,13 @@ export default function PublishedMemoryPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [isHeaderImageScrolled, setIsHeaderImageScrolled] = useState(false);
 
+  // ── "Request a Moment" contribution flow ──────────────────────────────────
+  // Opened by a CTA widget the owner authored with mode 'request_moment', so any
+  // visitor — signed in or not — can offer a photo + caption for review.
+  const [showRequestMomentModal, setShowRequestMomentModal] = useState(false);
+  // Which post the submission should land after; null = top of the timeline.
+  const [requestMomentAfterPostId, setRequestMomentAfterPostId] = useState<string | null>(null);
+
   // Cover video state
   const [isCoverVideoPlaying, setIsCoverVideoPlaying] = useState(false);
   const [isCoverVideoHovered, setIsCoverVideoHovered] = useState(false);
@@ -619,6 +708,12 @@ export default function PublishedMemoryPage() {
   const stickyMenuRef = useRef<HTMLDivElement>(null);
   const memoryCardRefs = useRef<(HTMLDivElement | null)[]>([]);
   const mobileMemoryCardRefs = useRef<(HTMLDivElement | null)[]>([]);
+  // Sentinel placed right before the first rendered content item (widget, post, or linked
+  // memory) so "Continue" always lands on whatever is actually first on screen, regardless
+  // of type — memoryCardRefs/mobileMemoryCardRefs only cover posts, and are keyed by each
+  // post's position in `sortedPosts`, not by its position in the rendered timeline.
+  const firstContentRef = useRef<HTMLDivElement>(null);
+  const mobileFirstContentRef = useRef<HTMLDivElement>(null);
   const mobileScrollContainerRef = useRef<HTMLDivElement>(null);
   const continueJustTappedRef = useRef(false);
   const rightContentRef = useRef<HTMLDivElement>(null);
@@ -1377,9 +1472,23 @@ export default function PublishedMemoryPage() {
   const renderWidgets = (list: any[], withAnchor: boolean) =>
     list.map((w: any) => (
       withAnchor
-        ? <div key={`widget-${w.id}`} data-pub-widget-id={w.id}><PublishedWidget widget={w} memoryId={memoryData?.id} /></div>
-        : <PublishedWidget key={`widget-${w.id}`} widget={w} memoryId={memoryData?.id} />
+        ? <div key={`widget-${w.id}`} data-pub-widget-id={w.id}><PublishedWidget widget={w} memoryId={memoryData?.id} onRequestMoment={openRequestMoment} /></div>
+        : <PublishedWidget key={`widget-${w.id}`} widget={w} memoryId={memoryData?.id} onRequestMoment={openRequestMoment} />
     ));
+  // The combined timeline actually rendered by both feeds. Falls back to a
+  // post-only list before the API's unified_order has been merged in.
+  const publishedTimelineItems: Array<{ type: 'post' | 'linked'; id: string }> =
+    combinedPublishedTimeline || sortedPosts.map((p: any) => ({ type: 'post' as const, id: String(p.id) }));
+
+  // "N moments" in the Timeline header should count linked memories (incl. car listings) too,
+  // not just this memory's own posts — otherwise a memory made entirely of linked items shows 0.
+  const totalMomentsCount = sortedPosts.length + (memoryData?.linked_memories?.length || 0);
+
+  const openRequestMoment = (afterPostId?: string | null) => {
+    setRequestMomentAfterPostId(afterPostId || null);
+    setShowRequestMomentModal(true);
+  };
+
   // Title + subtitle + type icon for a widget's entry in the left timeline nav.
   // Mirrors the Studio (MemoryDetailsPage) sidebar widget entries.
   const widgetNodeMeta = (w: any): { title: string; subtitle: string; Icon: React.ComponentType<{ className?: string }> } => {
@@ -1389,6 +1498,7 @@ export default function PublishedMemoryPage() {
       case 'quote': return { title: d.text || 'Quote', subtitle: d.author ? `— ${d.author}` : '', Icon: Quote };
       case 'html': return { title: d.title || 'Note', subtitle: '', Icon: FileText };
       case 'youtube': return { title: d.title || 'Video', subtitle: '', Icon: Play };
+      case 'product': return { title: d.title || 'Product', subtitle: d.price ? (d.currency ? `${d.currency} ${d.price}` : String(d.price)) : '', Icon: ShoppingCart };
       default: return { title: 'Widget', subtitle: '', Icon: Circle };
     }
   };
@@ -1763,7 +1873,7 @@ export default function PublishedMemoryPage() {
       {/* MOBILE LAYOUT */}
       <div className="lg:hidden min-h-screen bg-[#F8F8FA]">
         {/* Header Image with Overlay - shorter height to allow cards to overlap */}
-        <div ref={mobileHeaderImageRef} className="relative" style={{ height: '90vh' }}>
+        <div ref={mobileHeaderImageRef} className="relative" style={{ height: '78vh' }}>
           {(() => {
             const coverSrc = memoryData.last_update_img || allPosts[0]?.master_image_link;
             return isYoutubeUrl(coverSrc) ? (
@@ -1844,7 +1954,7 @@ export default function PublishedMemoryPage() {
           </div>
 
           {/* Content Overlay at Bottom */}
-          <div className="absolute bottom-20 left-0 right-0 p-4 z-30">
+          <div className="absolute bottom-20 left-0 right-0 p-4 z-40">
             {/* Tags and Stats Row */}
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2">
@@ -1877,25 +1987,25 @@ export default function PublishedMemoryPage() {
                   </button>
                   {showMobileShareMenu && (
                     <div className="absolute top-full right-0 mt-2 w-52 py-1.5 z-50 overflow-hidden" style={{ background: 'rgba(255,255,255,0.75)', backdropFilter: 'blur(16px)', WebkitBackdropFilter: 'blur(16px)', borderRadius: '20px', border: '1px solid rgba(0,0,0,0.1)', boxShadow: '0 2px 8px rgba(0,0,0,0.10), 0 4px 12px rgba(0,0,0,0.10)' }}>
-                      <button onClick={() => { handleCopyLink(); setShowMobileShareMenu(false); }} className="w-full px-4 py-2.5 text-left text-sm font-medium text-[#101828] hover:bg-black/5 flex items-center gap-3">
+                      <button onClick={() => { handleCopyLink(); setShowMobileShareMenu(false); }} className="w-full px-4 py-2.5 text-left text-base font-medium text-[#101828] hover:bg-black/5 flex items-center gap-3">
                         <Copy className="w-4 h-4 text-gray-600 shrink-0" />
                         Copy Link
                       </button>
-                      <button onClick={() => { handleShareLinkedIn(); setShowMobileShareMenu(false); }} className="w-full px-4 py-2.5 text-left text-sm font-medium text-[#101828] hover:bg-black/5 flex items-center gap-3">
+                      <button onClick={() => { handleShareLinkedIn(); setShowMobileShareMenu(false); }} className="w-full px-4 py-2.5 text-left text-base font-medium text-[#101828] hover:bg-black/5 flex items-center gap-3">
                         <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                           <rect width="24" height="24" rx="4" fill="#0A66C2"/>
                           <path d="M7.5 10H5V19H7.5V10ZM6.25 8.75C5.42 8.75 4.75 8.08 4.75 7.25C4.75 6.42 5.42 5.75 6.25 5.75C7.08 5.75 7.75 6.42 7.75 7.25C7.75 8.08 7.08 8.75 6.25 8.75ZM19 19H16.5V14.25C16.5 12.87 15.38 11.75 14 11.75C12.62 11.75 11.5 12.87 11.5 14.25V19H9V10H11.5V11.34C12.18 10.52 13.22 10 14.38 10C16.93 10 19 12.07 19 14.62V19Z" fill="white"/>
                         </svg>
                         Share on Linkedin
                       </button>
-                      <button onClick={() => { handleShareFacebook(); setShowMobileShareMenu(false); }} className="w-full px-4 py-2.5 text-left text-sm font-medium text-[#101828] hover:bg-black/5 flex items-center gap-3">
+                      <button onClick={() => { handleShareFacebook(); setShowMobileShareMenu(false); }} className="w-full px-4 py-2.5 text-left text-base font-medium text-[#101828] hover:bg-black/5 flex items-center gap-3">
                         <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                           <rect width="24" height="24" rx="4" fill="#1877F2"/>
                           <path d="M16 8H13.5C12.95 8 12.5 8.45 12.5 9V11H16L15.5 13.5H12.5V20H10V13.5H8V11H10V9C10 7.34 11.34 6 13 6H16V8Z" fill="white"/>
                         </svg>
                         Share on Facebook
                       </button>
-                      <button onClick={() => { handleShareX(); setShowMobileShareMenu(false); }} className="w-full px-4 py-2.5 text-left text-sm font-medium text-[#101828] hover:bg-black/5 flex items-center gap-3">
+                      <button onClick={() => { handleShareX(); setShowMobileShareMenu(false); }} className="w-full px-4 py-2.5 text-left text-base font-medium text-[#101828] hover:bg-black/5 flex items-center gap-3">
                         <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="black">
                           <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
                         </svg>
@@ -2041,24 +2151,24 @@ export default function PublishedMemoryPage() {
             <div className="text-white text-lg">
               <span className="font-semibold">Timeline</span>
               <span className="mx-2 text-white/70">•</span>
-              <span className="text-white/80">{sortedPosts.length} moments</span>
+              <span className="text-white/80">{totalMomentsCount} moments</span>
             </div>
             <button
               className="px-5 py-2 bg-white text-gray-800 text-base font-medium rounded-lg"
               onClick={(e) => {
                 e.stopPropagation();
-                const el = mobileMemoryCardRefs.current[0] ?? mobileMemoryCardRefs.current[1];
-                if (el) {
-                  el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                if (mobileFirstContentRef.current) {
+                  mobileFirstContentRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
                 }
               }}
             >
               Continue
             </button>
           </div>
+          <div ref={mobileFirstContentRef} />
           {renderWidgets(topWidgetList, false)}
-          {(combinedPublishedTimeline || sortedPosts.map((p: any) => ({ type: 'post' as const, id: String(p.id) }))).length > 0 ? (
-            (combinedPublishedTimeline || sortedPosts.map((p: any) => ({ type: 'post' as const, id: String(p.id) }))).map((item: any, combinedIndex: number) => {
+          {publishedTimelineItems.length > 0 ? (
+            publishedTimelineItems.map((item: any, combinedIndex: number) => {
               if (item.type === 'linked') {
                 const lm = (memoryData?.linked_memories || []).find((l: any) => String(l.id) === item.id);
                 if (!lm) return null;
@@ -2081,8 +2191,8 @@ export default function PublishedMemoryPage() {
                       fullName={lm.user?.name || memoryData?.user?.name}
                       avatar={lm.user?.profile_image || memoryData?.user?.profile_image}
                       profileColor={lm.user?.profile_color || memoryData?.user?.profile_color}
-                      tags={Array.isArray(lm.tags) ? lm.tags : []}
-                      label={lm.sub_category?.name || ''}
+                      tags={lm.is_car ? carLinkedMemoryTags(lm) : (Array.isArray(lm.tags) ? lm.tags : [])}
+                      label={lm.is_car ? carLinkedMemoryLabel(lm) : (lm.sub_category?.name || '')}
                       contributors={Array.isArray(lm.collaborators) ? lm.collaborators.map((c: any) => ({ id: c.id || c.user_id, name: c.name || c.user?.name || '', avatar: c.profile_image || c.user?.profile_image || '', profileColor: c.profile_color || c.user?.profile_color || '' })) : []}
                       whiteFooter={true}
                       onClick={() => handleLinkedMemoryClick(lm)}
@@ -2388,7 +2498,7 @@ export default function PublishedMemoryPage() {
                   <div className="flex items-center justify-between pb-4 mb-4 border-b" style={{ borderColor: '#BFBFBF' }}>
                     <div>
                       <h3 className="font-semibold text-gray-900 text-lg">Timeline</h3>
-                      <p className="text-base text-gray-500">{sortedPosts.length} moments</p>
+                      <p className="text-base text-gray-500">{totalMomentsCount} moments</p>
                     </div>
                     <div className="flex items-center gap-2">
                       {/* Share Button */}
@@ -2467,8 +2577,8 @@ export default function PublishedMemoryPage() {
                     </div>
 
                     {topWidgetList.map((w: any) => renderSidebarWidgetNode(w, true))}
-                    {(combinedPublishedTimeline || sortedPosts.map((p: any) => ({ type: 'post' as const, id: String(p.id) }))).map((item: any, combinedSidebarIndex: number) => {
-                      const totalItems = (combinedPublishedTimeline || sortedPosts).length;
+                    {publishedTimelineItems.map((item: any, combinedSidebarIndex: number) => {
+                      const totalItems = publishedTimelineItems.length;
                       if (item.type === 'linked') {
                         const lm = (memoryData?.linked_memories || []).find((l: any) => String(l.id) === item.id);
                         if (!lm) return null;
@@ -2525,7 +2635,7 @@ export default function PublishedMemoryPage() {
                               <path d="M5 10C4.30833 10 3.65833 9.86875 3.05 9.60625C2.44167 9.34375 1.9125 8.9875 1.4625 8.5375C1.0125 8.0875 0.65625 7.55833 0.39375 6.95C0.13125 6.34167 0 5.69167 0 5C0 4.30833 0.13125 3.65833 0.39375 3.05C0.65625 2.44167 1.0125 1.9125 1.4625 1.4625C1.9125 1.0125 2.44167 0.65625 3.05 0.39375C3.65833 0.13125 4.30833 0 5 0C5.69167 0 6.34167 0.13125 6.95 0.39375C7.55833 0.65625 8.0875 1.0125 8.5375 1.4625C8.9875 1.9125 9.34375 2.44167 9.60625 3.05C9.86875 3.65833 10 4.30833 10 5C10 5.225 9.9875 5.44583 9.9625 5.6625C9.9375 5.87917 9.89583 6.09167 9.8375 6.3C9.72083 6.16667 9.58542 6.05417 9.43125 5.9625C9.27708 5.87083 9.10833 5.80833 8.925 5.775C8.95 5.65 8.96875 5.52292 8.98125 5.39375C8.99375 5.26458 9 5.13333 9 5C9 3.88333 8.6125 2.9375 7.8375 2.1625C7.0625 1.3875 6.11667 1 5 1C3.88333 1 2.9375 1.3875 2.1625 2.1625C1.3875 2.9375 1 3.88333 1 5C1 6.11667 1.3875 7.0625 2.1625 7.8375C2.9375 8.6125 3.88333 9 5 9C5.425 9 5.83125 8.9375 6.21875 8.8125C6.60625 8.6875 6.9625 8.5125 7.2875 8.2875C7.3875 8.42917 7.51042 8.55417 7.65625 8.6625C7.80208 8.77083 7.95833 8.85417 8.125 8.9125C7.7 9.25417 7.22292 9.52083 6.69375 9.7125C6.16458 9.90417 5.6 10 5 10ZM8.625 8C8.45 8 8.30208 7.93958 8.18125 7.81875C8.06042 7.69792 8 7.55 8 7.375C8 7.2 8.06042 7.05208 8.18125 6.93125C8.30208 6.81042 8.45 6.75 8.625 6.75C8.8 6.75 8.94792 6.81042 9.06875 6.93125C9.18958 7.05208 9.25 7.2 9.25 7.375C9.25 7.55 9.18958 7.69792 9.06875 7.81875C8.94792 7.93958 8.8 8 8.625 8ZM6.65 7.35L4.5 5.2V2.5H5.5V4.8L7.35 6.65L6.65 7.35Z" fill="currentColor"/>
                             </svg>
                           </div>
-                          <div className="transition-all duration-200 opacity-100">
+                          <div className="group/border relative pr-6 transition-all duration-200 opacity-100">
                             <p className={`leading-snug transition-all duration-200 hover:text-[#6C60FF] cursor-pointer ${isActive ? 'text-xl font-medium text-gray-900' : 'text-lg text-[#101828] line-clamp-2'}`}>{description}</p>
                             <div className="flex items-center gap-1.5 mt-1 text-gray-400 text-sm">
                               <Calendar className="w-4 h-4" />
@@ -2618,9 +2728,9 @@ export default function PublishedMemoryPage() {
                     <div className="text-gray-900 text-lg">
                       <span className="font-semibold">Timeline</span>
                       <span className="mx-2 text-gray-400">•</span>
-                      <span className="text-gray-500">{sortedPosts.length} moments</span>
+                      <span className="text-gray-500">{totalMomentsCount} moments</span>
                     </div>
-                    <button className="px-4 py-2 bg-gray-100 text-gray-800 text-base font-medium rounded-lg hover:bg-gray-200 transition-colors" onClick={() => { const el = memoryCardRefs.current[0]; if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); }}>
+                    <button className="px-4 py-2 bg-gray-100 text-gray-800 text-base font-medium rounded-lg hover:bg-gray-200 transition-colors" onClick={() => { if (firstContentRef.current) firstContentRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' }); }}>
                       Continue
                     </button>
                   </div>
@@ -2720,15 +2830,16 @@ export default function PublishedMemoryPage() {
                       <div className="text-gray-900 text-lg">
                         <span className="font-semibold text-white">Timeline</span>
                         <span className="mx-2 text-gray-400 text-white">•</span>
-                        <span className="text-gray-500 text-white">{sortedPosts.length} moments</span>
+                        <span className="text-gray-500 text-white">{totalMomentsCount} moments</span>
                       </div>
-                      <button className="px-4 py-2 bg-gray-100 text-gray-800 text-base font-medium rounded-lg hover:bg-gray-200 transition-colors" onClick={() => { const el = memoryCardRefs.current[0]; if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); }}>
+                      <button className="px-4 py-2 bg-gray-100 text-gray-800 text-base font-medium rounded-lg hover:bg-gray-200 transition-colors" onClick={() => { if (firstContentRef.current) firstContentRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' }); }}>
                         Continue
                       </button>
                     </div>
+                <div ref={firstContentRef} />
                 {renderWidgets(topWidgetList, true)}
-                {(combinedPublishedTimeline || sortedPosts.map((p: any) => ({ type: 'post' as const, id: String(p.id) }))).length > 0 ? (
-                  (combinedPublishedTimeline || sortedPosts.map((p: any) => ({ type: 'post' as const, id: String(p.id) }))).map((item: any) => {
+                {publishedTimelineItems.length > 0 ? (
+                  publishedTimelineItems.map((item: any, combinedIndex: number) => {
                     if (item.type === 'linked') {
                       const lm = (memoryData?.linked_memories || []).find((l: any) => String(l.id) === item.id);
                       if (!lm) return null;
@@ -2751,8 +2862,8 @@ export default function PublishedMemoryPage() {
                             fullName={lm.user?.name || memoryData?.user?.name}
                             avatar={lm.user?.profile_image || memoryData?.user?.profile_image}
                             profileColor={lm.user?.profile_color || memoryData?.user?.profile_color}
-                            tags={Array.isArray(lm.tags) ? lm.tags : []}
-                            label={lm.sub_category?.name || ''}
+                            tags={lm.is_car ? carLinkedMemoryTags(lm) : (Array.isArray(lm.tags) ? lm.tags : [])}
+                            label={lm.is_car ? carLinkedMemoryLabel(lm) : (lm.sub_category?.name || '')}
                             contributors={Array.isArray(lm.collaborators) ? lm.collaborators.map((c: any) => ({ id: c.id || c.user_id, name: c.name || c.user?.name || '', avatar: c.profile_image || c.user?.profile_image || '', profileColor: c.profile_color || c.user?.profile_color || '' })) : []}
                             whiteFooter={true}
                             onClick={() => handleLinkedMemoryClick(lm)}
@@ -3623,6 +3734,15 @@ export default function PublishedMemoryPage() {
           </div>
         </>
       )}
+
+      {/* ── Request a Moment submission modal ─────────────────────────────── */}
+      <RequestMomentModal
+        open={showRequestMomentModal}
+        onOpenChange={setShowRequestMomentModal}
+        memoryId={memoryData?.id}
+        afterPostId={requestMomentAfterPostId}
+        variant="public"
+      />
     </>
   );
 }
