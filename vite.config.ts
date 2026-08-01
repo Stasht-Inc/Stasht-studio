@@ -1,11 +1,8 @@
-import { defineConfig } from 'vite'
+import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
 import path from 'path'
 import axios from 'axios'
 import { VitePWA } from 'vite-plugin-pwa'
-
-const PHP_BACKEND = 'http://localhost/stasht-multiple-admin/public';
-const API_BASE    = `${PHP_BACKEND}/api/react`;
 
 const BOT_AGENTS = ['whatsapp', 'telegrambot', 'twitterbot', 'facebookexternalhit', 'linkedinbot', 'slackbot', 'googlebot'];
 
@@ -18,7 +15,12 @@ function esc(text: string) {
   return (text || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
-export default defineConfig(({ mode }) => ({
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, process.cwd(), '');
+  const PHP_BACKEND = env.PHP_BACKEND_URL || 'https://restapi-stasht.wd-projects.online';
+  const API_BASE    = `${PHP_BACKEND}/api/react`;
+
+  return {
   plugins: [
     react(),
     VitePWA({
@@ -230,4 +232,5 @@ export default defineConfig(({ mode }) => ({
       }
     }
   } : {}
-}))
+  };
+})

@@ -1523,27 +1523,6 @@ export default function SignupPage({ onSignup, onSwitchToLogin }: SignupPageProp
               </div>
             )}
 
-            {/* OTP-based signup — no password, a 6-digit code is sent to verify */}
-            {authMode === "otp" && (
-              <div className="flex items-start gap-2 bg-blue-50 border border-blue-200 rounded-lg p-3">
-                <svg className="w-5 h-5 text-blue-400 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-                <p className="text-sm text-blue-700">
-                  {method === "phone" ? (
-                    <>
-                      By requesting this code, you agree to receive a one-time transactional SMS from Stasht to verify your account. No password needed. Msg &amp; data rates may apply. Message frequency varies. Reply STOP to opt out, HELP for help. View our{" "}
-                      <a href="https://www.stasht.com/privacy-policy" target="_blank" rel="noopener noreferrer" className="underline">Privacy Policy</a>
-                      {" "}and{" "}
-                      <a href="https://www.stasht.com/terms-conditions" target="_blank" rel="noopener noreferrer" className="underline">Terms</a>.
-                    </>
-                  ) : (
-                    <>We'll send a 6-digit code to your email to verify your account. No password needed.</>
-                  )}
-                </p>
-              </div>
-            )}
-
             {/* Password Field */}
             {authMode === "password" && (
             <>
@@ -1702,6 +1681,27 @@ export default function SignupPage({ onSignup, onSwitchToLogin }: SignupPageProp
                 </>
               )}
             </button>
+
+            {/* SMS/Email consent disclaimer */}
+            {authMode === "otp" && (
+              <div className="flex items-start gap-2 bg-blue-50 border border-blue-200 rounded-lg p-3">
+                <svg className="w-5 h-5 text-blue-400 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <p className="text-sm text-blue-700">
+                  {method === "phone" ? (
+                    <>
+                      By requesting this code, you agree to receive a one-time transactional SMS from Stasht to verify your account. No password needed. Msg &amp; data rates may apply. Message frequency varies. Reply STOP to opt out, HELP for help. View our{" "}
+                      <a href="https://www.stasht.com/privacy-policy" target="_blank" rel="noopener noreferrer" className="underline">Privacy Policy</a>
+                      {" "}and{" "}
+                      <a href="https://www.stasht.com/terms-conditions" target="_blank" rel="noopener noreferrer" className="underline">Terms</a>.
+                    </>
+                  ) : (
+                    <>We'll send a 6-digit code to your email to verify your account. No password needed.</>
+                  )}
+                </p>
+              </div>
+            )}
 
           </form>
 

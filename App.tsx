@@ -3613,9 +3613,7 @@ function MainApp() {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
-          <div className="mx-auto h-16 w-16 bg-gradient-to-r from-blue-600 to-purple-600 rounded-xl flex items-center justify-center mb-4">
-            <div className="text-white text-2xl font-bold">S</div>
-          </div>
+          <img src="/S-logo.svg" alt="Stasht" className="mx-auto h-16 w-16 object-contain mb-4" />
           <div className="w-8 h-8 border-2 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
           <p className="text-gray-600">Loading Stasht Studio...</p>
         </div>
@@ -3982,9 +3980,7 @@ function MainApp() {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
-          <div className="mx-auto h-16 w-16 bg-gradient-to-r from-blue-600 to-purple-600 rounded-xl flex items-center justify-center mb-4">
-            <div className="text-white text-2xl font-bold">S</div>
-          </div>
+          <img src="/S-logo.svg" alt="Stasht" className="mx-auto h-16 w-16 object-contain mb-4" />
           <div className="w-8 h-8 border-2 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
           <p className="text-gray-600">Loading Stasht Studio...</p>
         </div>
