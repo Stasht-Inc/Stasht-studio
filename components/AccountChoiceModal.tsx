@@ -107,7 +107,26 @@ export const getAdminSwitchData = (): AdminSwitchData | null => {
   const data = localStorage.getItem('admin_switch_data');
   if (!data) return null;
   try {
-    return JSON.parse(data);
+    const parsed: AdminSwitchData = JSON.parse(data);
+
+    // Guard against stale data left behind by a previous account (e.g. signup,
+    // SSO, or a login that never hit "Sign out"). If the currently logged-in
+    // user doesn't match who this admin data was stored for, discard it.
+    const currentUserStr = localStorage.getItem('stasht_user');
+    if (currentUserStr) {
+      const currentUser = JSON.parse(currentUserStr);
+      const storedPersonalUser = parsed.personal_account?.user;
+      const currentId = currentUser?.id ?? currentUser?.email ?? currentUser?.phone_number;
+      const storedId = storedPersonalUser?.id ?? storedPersonalUser?.email ?? storedPersonalUser?.phone_number;
+
+      if (currentId && storedId && String(currentId) !== String(storedId)) {
+        console.log('getAdminSwitchData: Stale data for a different user detected, clearing.');
+        localStorage.removeItem('admin_switch_data');
+        return null;
+      }
+    }
+
+    return parsed;
   } catch {
     return null;
   }

@@ -2895,11 +2895,11 @@ function MemoriesPageContent({
                         </div>
                       ))}
                     </div>
-                  ) : allMemories.length > 0 || sharedWithMemories.length > 0 || publishedEntries.length > 0 || shopifyCards.length > 0 || carsCards.length > 0 ? (
+                  ) : memoriesToFilter.length > 0 || sharedWithMemories.length > 0 || publishedEntries.length > 0 || shopifyCards.length > 0 || carsCards.length > 0 ? (
                     <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-4 gap-3 md:gap-6">
                       {/* Combine and sort all memories by latest update */}
                       {(() => {
-                        const combined = [...allMemories.map(mem => ({...mem, isShared: false})), ...sharedWithMemories.map(mem => ({...mem, isShared: true})), ...shopifyCards, ...carsCards];
+                        const combined = [...memoriesToFilter.map(mem => ({...mem, isShared: false})), ...sharedWithMemories.map(mem => ({...mem, isShared: true})), ...shopifyCards, ...carsCards];
 
                         // Debug: Log to see date fields in both types
                         console.log('🔍 DEBUG: Own memories sample:', allMemories.slice(0, 2).map(m => ({

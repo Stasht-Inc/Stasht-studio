@@ -77,6 +77,15 @@ interface AddMomentModalProps {
   };
 }
 
+// HEIC/HEIF has no browser decoder, so it can never be shown as an <img> preview —
+// neither from a local FileReader read nor from the uploaded file's URL. Detect it
+// by extension (file.type is unreliable/empty for HEIC across browsers) and skip
+// straight to a filename-chip placeholder instead of attempting a broken preview.
+const isHeicFile = (file: File): boolean => {
+  const ext = (file.name.split('.').pop() || '').toLowerCase();
+  return ext === 'heic' || ext === 'heif';
+};
+
 export function AddMomentModal({
   isOpen,
   onClose,
@@ -329,13 +338,16 @@ export function AddMomentModal({
                   }
                 }
 
-                // Create preview
-                const reader = new FileReader();
-                reader.onloadend = () => {
-                  newPreviews[fileIndex] = reader.result as string;
-                  setImagePreviews({ ...newPreviews });
-                };
-                reader.readAsDataURL(file);
+                // Create preview (HEIC/HEIF can't be decoded by the browser, so it
+                // skips straight to the filename-chip placeholder in the render)
+                if (!isHeicFile(file)) {
+                  const reader = new FileReader();
+                  reader.onloadend = () => {
+                    newPreviews[fileIndex] = reader.result as string;
+                    setImagePreviews({ ...newPreviews });
+                  };
+                  reader.readAsDataURL(file);
+                }
 
                 newDetails[fileIndex] = {
                   description: '',
@@ -353,7 +365,7 @@ export function AddMomentModal({
                   upload.id === item.id ? { ...upload, progress: 100, status: 'complete' } : upload
                 ));
                 setUploadedFilesCount(prev => prev + 1);
-                if (file.type.startsWith('image/')) {
+                if (file.type.startsWith('image/') && !isHeicFile(file)) {
                   const reader = new FileReader();
                   reader.onloadend = () => {
                     setImagePreviews(prev => ({ ...prev, [fileIndex]: reader.result as string }));
@@ -535,8 +547,9 @@ export function AddMomentModal({
 
             setUploadedFilesCount(prev => prev + 1);
 
-            // Create image preview
-            if (file.type.startsWith('image/')) {
+            // Create image preview (HEIC/HEIF can't be decoded by the browser, so it
+            // skips straight to the filename-chip placeholder in the render)
+            if (file.type.startsWith('image/') && !isHeicFile(file)) {
               const reader = new FileReader();
               reader.onloadend = () => {
                 setImagePreviews(prev => ({ ...prev, [fileIndex]: reader.result as string }));
@@ -563,7 +576,7 @@ export function AddMomentModal({
               upload.id === item.id ? { ...upload, progress: 100, status: 'complete' } : upload
             ));
             setUploadedFilesCount(prev => prev + 1);
-            if (file.type.startsWith('image/')) {
+            if (file.type.startsWith('image/') && !isHeicFile(file)) {
               const reader = new FileReader();
               reader.onloadend = () => {
                 setImagePreviews(prev => ({ ...prev, [fileIndex]: reader.result as string }));
@@ -1405,39 +1418,72 @@ export function AddMomentModal({
 
                 {/* Current image preview */}
                 <div className="relative">
-                  {imagePreviews[selectedImageIndex] ? (
-                    <div className="relative group">
-                      <img
-                        src={imagePreviews[selectedImageIndex]}
-                        alt={`Preview ${selectedImageIndex + 1}`}
-                        className="w-1/2 md:w-full h-64 object-cover rounded-lg border border-gray-200"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveFile(selectedImageIndex)}
-                        className="absolute top-2 left-[calc(50%-2.5rem)] md:left-auto md:right-2 p-1.5 bg-red-500 text-white rounded-md opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                  ) : (
-                    formData.files[selectedImageIndex] && !formData.files[selectedImageIndex].type.startsWith('image/') && (
-                      <div className="w-full h-48 bg-gray-100 rounded-lg border border-gray-200 flex items-center justify-center relative group">
-                        <div className="text-center">
-                          <Upload className="w-12 h-12 text-gray-400 mx-auto mb-2" />
-                          <p className="text-sm text-gray-600">{formData.files[selectedImageIndex].name}</p>
-                          <p className="text-xs text-gray-500 mt-1">Video file</p>
+                  {(() => {
+                    const selectedFile = formData.files[selectedImageIndex];
+                    const isHeicSelected = selectedFile ? isHeicFile(selectedFile) : false;
+                    const previewSrc = imagePreviews[selectedImageIndex] || uploadedS3Urls[selectedImageIndex];
+
+                    if (previewSrc && !isHeicSelected) {
+                      return (
+                        <div className="relative group">
+                          <img
+                            src={previewSrc}
+                            alt={`Preview ${selectedImageIndex + 1}`}
+                            className="w-1/2 md:w-full h-64 object-cover rounded-lg border border-gray-200"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveFile(selectedImageIndex)}
+                            className="absolute top-2 left-[calc(50%-2.5rem)] md:left-auto md:right-2 p-1.5 bg-red-500 text-white rounded-md opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
                         </div>
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveFile(selectedImageIndex)}
-                          className="absolute top-2 right-2 p-1.5 bg-red-500 text-white rounded-md opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    )
-                  )}
+                      );
+                    }
+
+                    if (selectedFile && isHeicSelected) {
+                      // HEIC/HEIF has no browser decoder, so it can never render as an
+                      // <img> — show a filename chip instead of a blank/broken box.
+                      return (
+                        <div className="w-full h-48 bg-gray-100 rounded-lg border border-gray-200 flex items-center justify-center relative group">
+                          <div className="text-center">
+                            <FileText className="w-12 h-12 text-gray-400 mx-auto mb-2" />
+                            <p className="text-sm text-gray-600">{selectedFile.name}</p>
+                            <p className="text-xs text-gray-500 mt-1">Preview unavailable for this format</p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveFile(selectedImageIndex)}
+                            className="absolute top-2 right-2 p-1.5 bg-red-500 text-white rounded-md opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      );
+                    }
+
+                    if (selectedFile && !selectedFile.type.startsWith('image/')) {
+                      return (
+                        <div className="w-full h-48 bg-gray-100 rounded-lg border border-gray-200 flex items-center justify-center relative group">
+                          <div className="text-center">
+                            <Upload className="w-12 h-12 text-gray-400 mx-auto mb-2" />
+                            <p className="text-sm text-gray-600">{selectedFile.name}</p>
+                            <p className="text-xs text-gray-500 mt-1">Video file</p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveFile(selectedImageIndex)}
+                            className="absolute top-2 right-2 p-1.5 bg-red-500 text-white rounded-md opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      );
+                    }
+
+                    return null;
+                  })()}
                 </div>
 
               </div>
