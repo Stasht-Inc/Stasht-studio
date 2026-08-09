@@ -1682,7 +1682,7 @@ export default function SignupPage({ onSignup, onSwitchToLogin }: SignupPageProp
               )}
             </button>
 
-            {/* OTP-based signup — no password, a 6-digit code is sent to verify */}
+            {/* SMS/Email consent disclaimer */}
             {authMode === "otp" && (
               <div className="flex items-start gap-2 bg-blue-50 border border-blue-200 rounded-lg p-3">
                 <svg className="w-5 h-5 text-blue-400 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

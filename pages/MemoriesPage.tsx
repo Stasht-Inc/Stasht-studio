@@ -2902,7 +2902,7 @@ function MemoriesPageContent({
                         const combined = [...memoriesToFilter.map(mem => ({...mem, isShared: false})), ...sharedWithMemories.map(mem => ({...mem, isShared: true})), ...shopifyCards, ...carsCards];
 
                         // Debug: Log to see date fields in both types
-                        console.log('🔍 DEBUG: Own memories sample:', allMemories.slice(0, 2).map(m => ({
+                        console.log('🔍 DEBUG: Own memories sample:', memoriesToFilter.slice(0, 2).map(m => ({
                           id: m.id,
                           title: m.title,
                           last_updated: m.last_updated,
@@ -2922,7 +2922,7 @@ function MemoriesPageContent({
                           allFields: Object.keys(m).filter(k => k.includes('date') || k.includes('time') || k.includes('update') || k.includes('created') || k.includes('invite'))
                         })));
 
-                        console.log('🔍 DEBUG: Check Invites category:', allMemories.filter(m => m.category?.name === 'Invites').slice(0, 2).map(m => ({
+                        console.log('🔍 DEBUG: Check Invites category:', memoriesToFilter.filter(m => m.category?.name === 'Invites').slice(0, 2).map(m => ({
                           id: m.id,
                           title: m.title,
                           invited_at: m.invited_at,
