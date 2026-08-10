@@ -130,6 +130,11 @@ export function AddMomentModal({
   const [uploadedFilesCount, setUploadedFilesCount] = useState(0);
   const [uploadedS3Urls, setUploadedS3Urls] = useState<{ [index: number]: string }>({});
   const [uploadedSizes, setUploadedSizes] = useState<{ [index: number]: number }>({});
+  // Tracks files whose upload genuinely failed (network/server error), as
+  // distinct from files still in flight — see the catch blocks below and the
+  // !memoryId branch of handleSubmit, which need to tell "still uploading"
+  // apart from "will never finish, please retry".
+  const [uploadErrors, setUploadErrors] = useState<{ [index: number]: boolean }>({});
   const [modalPosition, setModalPosition] = useState({ top: 0, left: 0 });
   const tabsContainerRef = useRef<HTMLDivElement>(null);
   const [isFileMenuOpen, setIsFileMenuOpen] = useState(false);
@@ -218,10 +223,31 @@ export function AddMomentModal({
     }
   }, [isOpen, buttonRef]);
 
-  // Auto-scroll to show active tab
+  // Auto-scroll the pills row. This component is mounted once via createPortal
+  // in the parent and just toggles visibility via `isOpen` (it never remounts),
+  // so any "remember the previous count" ref would go stale after the first
+  // open/close cycle — deliberately avoided here in favor of state already
+  // current on this render. Selecting the last photo (always true right after
+  // adding one, per the add-handlers above) scrolls all the way to the end so
+  // the trailing "+ Add" button stays reachable; otherwise center the active tab.
+  //
+  // `isUploading` is in the dependency array on purpose: the pills row (and
+  // tabsContainerRef) only exists in the DOM once isUploading is false (see the
+  // isUploading && uploadProgress.length > 0 branch below), but the upload
+  // handlers set formData.files/selectedImageIndex BEFORE flipping isUploading
+  // off (behind a setTimeout). Without this dependency, this effect fires while
+  // tabsContainerRef.current is still null — the pills row hasn't mounted yet —
+  // and never re-fires once it does, since selectedImageIndex/totalImagesCount
+  // don't change again after that.
   useEffect(() => {
     if (tabsContainerRef.current && totalImagesCount > 0) {
       const container = tabsContainerRef.current;
+
+      if (selectedImageIndex === totalImagesCount - 1) {
+        container.scrollTo({ left: container.scrollWidth, behavior: 'smooth' });
+        return;
+      }
+
       const activeTab = container.children[0]?.children[selectedImageIndex] as HTMLElement;
 
       if (activeTab) {
@@ -241,7 +267,7 @@ export function AddMomentModal({
         }
       }
     }
-  }, [selectedImageIndex, totalImagesCount]);
+  }, [selectedImageIndex, totalImagesCount, isUploading]);
 
   // Debug: Monitor imageDetails changes
   useEffect(() => {
@@ -315,6 +341,16 @@ export function AddMomentModal({
                 const orientation = exif?.Orientation ?? 1;
                 const metadataResponse = await dashboardAPI.uploadImageWithMetadata(file, file.name, orientation);
 
+                // uploadImageWithMetadata resolves normally (does not throw)
+                // even when the server rejects the upload (auth expiry, size
+                // limit, validation error) — it only throws on network-level
+                // failures. Treat a non-success response as a genuine upload
+                // failure too, or a rejected file silently looks "complete"
+                // with no fileUrl and the "Add all" guard waits forever.
+                if (!metadataResponse?.success) {
+                  throw new Error(metadataResponse?.error || 'Upload failed');
+                }
+
                 setUploadProgress(prev => prev.map(upload =>
                   upload.id === item.id ? { ...upload, progress: 100, status: 'complete' } : upload
                 ));
@@ -360,10 +396,15 @@ export function AddMomentModal({
 
               } catch (error) {
                 console.error(`Error processing ${file.name}:`, error);
-                // Still add file even if metadata extraction failed (common on mobile with poor network)
+                // uploadImageWithMetadata does the actual S3 upload AND
+                // metadata extraction in one call — if it throws, the file
+                // was never uploaded at all (not just a metadata hiccup).
+                // Mark it as a genuine failure so the "Add all" guard can
+                // tell the user to retry instead of waiting forever.
                 setUploadProgress(prev => prev.map(upload =>
-                  upload.id === item.id ? { ...upload, progress: 100, status: 'complete' } : upload
+                  upload.id === item.id ? { ...upload, progress: 100, status: 'error' } : upload
                 ));
+                setUploadErrors(prev => ({ ...prev, [fileIndex]: true }));
                 setUploadedFilesCount(prev => prev + 1);
                 if (file.type.startsWith('image/') && !isHeicFile(file)) {
                   const reader = new FileReader();
@@ -399,6 +440,13 @@ export function AddMomentModal({
         }));
 
         setImageDetails(newDetails);
+
+        // Select the last newly-added image so the pills row's auto-scroll
+        // reveals it (and the trailing "+ Add" button) instead of staying on
+        // whatever was selected before.
+        if (processedFiles.length > 0) {
+          setSelectedImageIndex(currentFileCount + processedFiles.length - 1);
+        }
 
         // Complete upload
         setTimeout(() => {
@@ -522,6 +570,16 @@ export function AddMomentModal({
 
             console.log(`EXIF response for ${file.name}:`, metadataResponse);
 
+            // uploadImageWithMetadata resolves normally (does not throw) even
+            // when the server rejects the upload (auth expiry, size limit,
+            // validation error) — it only throws on network-level failures.
+            // Treat a non-success response as a genuine upload failure too,
+            // or a rejected file silently looks "complete" with no fileUrl
+            // and the "Add all" guard waits forever.
+            if (!metadataResponse?.success) {
+              throw new Error(metadataResponse?.error || 'Upload failed');
+            }
+
             setUploadProgress(prev => prev.map(upload =>
               upload.id === item.id ? { ...upload, progress: 100, status: 'complete' } : upload
             ));
@@ -571,10 +629,14 @@ export function AddMomentModal({
 
           } catch (error) {
             console.error(`Error processing ${file.name}:`, error);
-            // Still add file even if metadata extraction failed (common on mobile with poor network)
+            // uploadImageWithMetadata does the actual S3 upload AND metadata
+            // extraction in one call — if it throws, the file was never
+            // uploaded at all. Mark it as a genuine failure so the "Add all"
+            // guard can tell the user to retry instead of waiting forever.
             setUploadProgress(prev => prev.map(upload =>
-              upload.id === item.id ? { ...upload, progress: 100, status: 'complete' } : upload
+              upload.id === item.id ? { ...upload, progress: 100, status: 'error' } : upload
             ));
+            setUploadErrors(prev => ({ ...prev, [fileIndex]: true }));
             setUploadedFilesCount(prev => prev + 1);
             if (file.type.startsWith('image/') && !isHeicFile(file)) {
               const reader = new FileReader();
@@ -609,9 +671,11 @@ export function AddMomentModal({
       files: [...prev.files, ...processedFiles]
     }));
 
-    // If this is the first set of images (no desktop files and no media library images), set the selected index to 0
-    if (currentTotalCount === 0 && processedFiles.length > 0) {
-      setSelectedImageIndex(0);
+    // Select the last newly-added image so the pills row's existing auto-scroll
+    // (centered on the selected tab) reveals it — and with it, the trailing
+    // "+ Add" button — instead of staying stuck on whatever was selected before.
+    if (processedFiles.length > 0) {
+      setSelectedImageIndex(currentTotalCount + processedFiles.length - 1);
     }
     
     // Complete upload process after a brief delay
@@ -837,6 +901,24 @@ export function AddMomentModal({
     }
 
     if (!memoryId) {
+      // Files finish uploading to S3 in the background after selection
+      // (see the batch-upload effect above), populating uploadedS3Urls per
+      // index. If the user hits "Add all" before that finishes, fileUrl
+      // below would silently fall back to '' and the photo would be added
+      // to the new campaign with no actual file attached. Block instead.
+      // Check genuine failures first — those will never resolve on their
+      // own, so "please wait" would be actively misleading.
+      const hasFailedUpload = formData.files.some((_, index) => uploadErrors[index]);
+      if (hasFailedUpload) {
+        toast.error('One or more photos failed to upload. Please remove them and try again.');
+        return;
+      }
+      const stillUploading = formData.files.some((_, index) => !uploadedS3Urls[index]);
+      if (stillUploading) {
+        toast.error('Still uploading — please wait a moment and try again.');
+        return;
+      }
+
       if (onAddMoment) {
         const photosData = formData.files.map((file, index) => ({
           name: imageDetails[index]?.title || file.name,
@@ -1117,7 +1199,7 @@ export function AddMomentModal({
             <h2 className="text-[18px] md:text-lg font-semibold text-gray-900">Add a Moment</h2>
           </div>
           <button
-            onClick={onClose}
+            onClick={handleCancel}
             className="text-black hover:text-gray-600 p-1 rounded-full hover:bg-gray-100 h-10 w-10 flex items-center justify-center md:h-auto md:w-auto"
           >
             <X className="!w-[28px] !h-[28px] md:!w-4 md:!h-4" />
@@ -1416,74 +1498,56 @@ export function AddMomentModal({
                   </div>
                 </div>
 
-                {/* Current image preview */}
-                <div className="relative">
-                  {(() => {
-                    const selectedFile = formData.files[selectedImageIndex];
-                    const isHeicSelected = selectedFile ? isHeicFile(selectedFile) : false;
-                    const previewSrc = imagePreviews[selectedImageIndex] || uploadedS3Urls[selectedImageIndex];
+                {/* Image previews — a horizontal, scrollable strip of every selected
+                    photo (143x141 each, per the Figma "Moment - Dialog full" spec),
+                    not just the one currently picked via the pills above. Clicking a
+                    thumbnail still selects it, which drives the description form below. */}
+                <div className="flex gap-2 overflow-x-auto pb-1">
+                  {formData.files.map((file, index) => {
+                    const isHeicIndexed = isHeicFile(file);
+                    const previewSrc = imagePreviews[index] || uploadedS3Urls[index];
+                    const isSelected = index === selectedImageIndex;
+                    const boxClass = `relative group flex-shrink-0 w-[143px] h-[141px] rounded-[9px] border transition-colors ${
+                      isSelected ? 'border-[#7B68EE] border-2' : 'border-gray-200'
+                    }`;
 
-                    if (previewSrc && !isHeicSelected) {
-                      return (
-                        <div className="relative group">
+                    return (
+                      <button
+                        key={`preview-${index}`}
+                        type="button"
+                        onClick={() => setSelectedImageIndex(index)}
+                        className={boxClass}
+                      >
+                        {previewSrc && !isHeicIndexed ? (
                           <img
                             src={previewSrc}
-                            alt={`Preview ${selectedImageIndex + 1}`}
-                            className="w-1/2 md:w-full h-64 object-cover rounded-lg border border-gray-200"
+                            alt={`Preview ${index + 1}`}
+                            className="w-full h-full object-cover rounded-[7px]"
                           />
-                          <button
-                            type="button"
-                            onClick={() => handleRemoveFile(selectedImageIndex)}
-                            className="absolute top-2 left-[calc(50%-2.5rem)] md:left-auto md:right-2 p-1.5 bg-red-500 text-white rounded-md opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
-                      );
-                    }
-
-                    if (selectedFile && isHeicSelected) {
-                      // HEIC/HEIF has no browser decoder, so it can never render as an
-                      // <img> — show a filename chip instead of a blank/broken box.
-                      return (
-                        <div className="w-full h-48 bg-gray-100 rounded-lg border border-gray-200 flex items-center justify-center relative group">
-                          <div className="text-center">
-                            <FileText className="w-12 h-12 text-gray-400 mx-auto mb-2" />
-                            <p className="text-sm text-gray-600">{selectedFile.name}</p>
-                            <p className="text-xs text-gray-500 mt-1">Preview unavailable for this format</p>
+                        ) : (
+                          <div className="w-full h-full bg-gray-100 rounded-[7px] flex items-center justify-center">
+                            <div className="text-center px-2">
+                              {file.type.startsWith('image/') ? (
+                                <FileText className="w-8 h-8 text-gray-400 mx-auto mb-1" />
+                              ) : (
+                                <Upload className="w-8 h-8 text-gray-400 mx-auto mb-1" />
+                              )}
+                              <p className="text-xs text-gray-600 truncate">{file.name}</p>
+                            </div>
                           </div>
-                          <button
-                            type="button"
-                            onClick={() => handleRemoveFile(selectedImageIndex)}
-                            className="absolute top-2 right-2 p-1.5 bg-red-500 text-white rounded-md opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
-                      );
-                    }
-
-                    if (selectedFile && !selectedFile.type.startsWith('image/')) {
-                      return (
-                        <div className="w-full h-48 bg-gray-100 rounded-lg border border-gray-200 flex items-center justify-center relative group">
-                          <div className="text-center">
-                            <Upload className="w-12 h-12 text-gray-400 mx-auto mb-2" />
-                            <p className="text-sm text-gray-600">{selectedFile.name}</p>
-                            <p className="text-xs text-gray-500 mt-1">Video file</p>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => handleRemoveFile(selectedImageIndex)}
-                            className="absolute top-2 right-2 p-1.5 bg-red-500 text-white rounded-md opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
-                      );
-                    }
-
-                    return null;
-                  })()}
+                        )}
+                        <span
+                          role="button"
+                          tabIndex={0}
+                          onClick={(e) => { e.stopPropagation(); handleRemoveFile(index); }}
+                          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.stopPropagation(); handleRemoveFile(index); } }}
+                          className="absolute top-1 right-1 p-1.5 bg-red-500 text-white rounded-md opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </span>
+                      </button>
+                    );
+                  })}
                 </div>
 
               </div>
@@ -1978,13 +2042,18 @@ export function AddMomentModal({
 
             <Button
               onClick={handleSubmit}
-              disabled={isSubmitting}
+              disabled={isSubmitting || isUploading}
               className="h-12 md:h-10 px-6 text-[14px] md:text-sm font-medium bg-[#7B68EE] hover:bg-[#6B5DD3] text-white disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
             >
               {isSubmitting ? (
                 <>
                   <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2" />
                   Adding...
+                </>
+              ) : isUploading ? (
+                <>
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2" />
+                  Uploading...
                 </>
               ) : (
                 <>

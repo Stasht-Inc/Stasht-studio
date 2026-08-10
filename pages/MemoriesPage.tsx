@@ -989,9 +989,12 @@ function MemoriesPageContent({
   };
 
   const handleCreateMemory = async (categoryName?: string) => {
-    // Main "Create a Campaign" button (no specific category): behave exactly like the
-    // left-side CategoryNav create button — auto-pick a valid owned category and preselect
-    // it, so the modal opens ready to use instead of with an empty dropdown.
+    // Main "Create a Campaign" button (no specific category): unlike the left-side
+    // CategoryNav create button (which always passes an explicit categoryName), this
+    // deliberately does NOT auto-pick a category — per Profile Settings > Categories
+    // ("Make category always visible" — off by default), no category should be
+    // silently pre-picked here. CreateMemory itself still applies a pinned "always
+    // visible" preference, if one is set, once its own modal-open effect runs.
     let resolvedCategory = categoryName;
     // The ownership gate is a PROPERTY-account concept (is_owner / can_add_story come from the
     // properties API). Personal accounts don't have these flags and must NOT be gated — they
@@ -1009,13 +1012,6 @@ function MemoriesPageContent({
         onRequestCreateCategory?.();
         return;
       }
-      // Preselect a REAL addable category — exactly like the left-side "+" button, which is
-      // hidden for Invites/Shared/Published. Excluding "Invites" here stops the header button from
-      // falling back to it (isAddableOwnCategory keeps Invites, so it must be dropped separately).
-      const preselectCats = ownedCats.filter((c: any) => (c?.name || '').toLowerCase().trim() !== 'invites');
-      // Prefer the currently selected category if it's addable, else the first addable one.
-      const selectedMatch = preselectCats.find((c: any) => c?.name === selectedCategory);
-      resolvedCategory = selectedMatch?.name || preselectCats[0]?.name;
     }
 
     // Open modal + focus synchronously (before any await) — only way to open keyboard on iOS

@@ -547,10 +547,11 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
     setMemoriesLoading(false);
   };
 
-  // "Select from Existing Campaigns" is checked by default whenever the modal opens.
+  // "Select from Existing Campaigns" starts unchecked whenever the modal opens —
+  // still preloads the list in the background so it's ready the moment the user checks it.
   useEffect(() => {
     if (!open) return;
-    setSelectFromExisting(true);
+    setSelectFromExisting(false);
     if (existingMemories.length === 0) loadExistingMemories();
   }, [open]);
 
@@ -834,16 +835,14 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
       }
       fetchProperties();
 
-      // Pick default category: use defaultCategory if it exists in list, else first real category.
-      // "Real" excludes Invites/Shared/Published so the modal never defaults to Invites when no
-      // defaultCategory is supplied (matches the left-side "+" button, which is hidden for those).
-      const isRealAddableName = (n: any) => {
-        const name = (n || '').toLowerCase().trim();
-        return name !== 'invites' && name !== 'published' && !name.includes('shared');
-      };
+      // Pick default category: only pre-select when a specific defaultCategory was
+      // supplied (the sidebar's per-category "+" button). The generic "Create a
+      // Campaign" button passes no defaultCategory, and per Profile Settings >
+      // Categories ("Make category always visible" — off by default), no category
+      // should be silently pre-picked there; the user must choose one, unless a
+      // pinned preference is loaded below.
       const categoryExists = resolvedCategories.some((c: any) => c.name === defaultCategory);
-      const firstCategory = resolvedCategories.find((c: any) => isRealAddableName(c?.name))?.name || resolvedCategories[0]?.name || '';
-      const resolvedCategory = categoryExists ? defaultCategory! : (defaultCategory && resolvedCategories.length === 0 ? defaultCategory : firstCategory);
+      const resolvedCategory = categoryExists ? defaultCategory! : (defaultCategory && resolvedCategories.length === 0 ? defaultCategory : '');
 
       // Reset all states when modal opens fresh
       setFormData({
@@ -905,6 +904,10 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
           if (preferredName) {
             setFormData(prev => ({ ...prev, category: preferredName as string }));
             setMemoryCategoryFilter(preferredName);
+            // Per the "Add from Campaigns Selector" spec: pinning a category as
+            // "always visible" in Profile Settings should also turn on "Select
+            // from Existing Campaigns" here, pre-filtered to that category.
+            setSelectFromExisting(true);
           }
         } catch { /* keep the existing default */ }
       })();
@@ -912,19 +915,18 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
     }
   }, [open, isAuthenticated, defaultCategory, categoriesProp, user]);
 
-  // Auto-select first category once apiCategories loads (handles async fetch case).
-  // Prefer the first REAL addable category (not Invites/Shared/Published) so the default
-  // selection never lands on Invites when no defaultCategory was supplied.
+  // Completes the defaultCategory resolution once apiCategories loads asynchronously
+  // (the sidebar's per-category "+" button case, where categories weren't ready yet
+  // when the modal first opened). Deliberately does NOT fall back to "first category"
+  // when no defaultCategory was supplied — see the resolvedCategory comment above for why.
   useEffect(() => {
-    if (open && apiCategories.length > 0 && !formData.category) {
-      const isRealAddableName = (n: any) => {
-        const name = (n || '').toLowerCase().trim();
-        return name !== 'invites' && name !== 'published' && !name.includes('shared');
-      };
-      const firstReal = apiCategories.find((c: any) => isRealAddableName(c?.name))?.name || apiCategories[0].name;
-      setFormData(prev => ({ ...prev, category: firstReal }));
+    if (open && defaultCategory && apiCategories.length > 0 && !formData.category) {
+      const matched = apiCategories.find((c: any) => c.name === defaultCategory);
+      if (matched) {
+        setFormData(prev => ({ ...prev, category: matched.name }));
+      }
     }
-  }, [apiCategories, open]);
+  }, [apiCategories, open, defaultCategory]);
 
   // Removed the complex useEffect - now completing upload directly
 
