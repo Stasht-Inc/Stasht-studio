@@ -55,7 +55,14 @@ export function useDialogBehavior(opts: {
     panel.addEventListener('keydown', onKeyDown);
     return () => {
       panel.removeEventListener('keydown', onKeyDown);
-      openerRef.current?.focus();
+      // Only restore focus if it's still inside this panel. On a cross-type
+      // drawer swap (e.g. Lead → Group), focus has already moved to the
+      // newly-clicked row before this cleanup runs — yanking it back to the
+      // old opener would both steal focus from the click and cause the next
+      // drawer's mount effect to capture the wrong element as its opener.
+      if (panel.contains(document.activeElement)) {
+        openerRef.current?.focus();
+      }
     };
   }, [opts.open]);
 
