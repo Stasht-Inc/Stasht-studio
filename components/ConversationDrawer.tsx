@@ -72,10 +72,14 @@ export default function ConversationDrawer({ conversation, open, onClose }: Prop
   };
 
   const handleSend = async () => {
+    if (isSending) return; // handler-level guard against double-send races
     const body = reply.trim();
     if (!conversation || !body) return;
     setIsSending(true);
     try {
+      // NOTE: replyToConversation (/my-conversations/{id}/reply) is served by a
+      // different controller than the lead-messaging endpoints and has no
+      // server-side idempotency support — this is a client-side guard only.
       const res = await leadsAPI.replyToConversation(conversation.lead_id, body);
       if (res.success) {
         setReply('');

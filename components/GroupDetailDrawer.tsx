@@ -134,6 +134,10 @@ export default function GroupDetailDrawer({ groupId, open, onClose }: Props) {
   useEffect(() => { setAiCredits(limitData.ai_connects ?? 0); }, [limitData.ai_connects]);
   // Guards against StrictMode's dev double-invoke fetching the same group twice.
   const fetchedIdRef = useRef<number | null>(null);
+  // Idempotency key for the broadcast compose — regenerated only after a
+  // confirmed send, reused on failure/retry so a duplicate request dedupes
+  // server-side (Task B3).
+  const idemKeyRef = useRef<string>(crypto.randomUUID());
 
   const handleAiAction = async (action: string, noCredit = false) => {
     if (!group || generatingAction) return;
@@ -165,6 +169,8 @@ export default function GroupDetailDrawer({ groupId, open, onClose }: Props) {
       setLastAiAction(null);
       setShowEmojiPicker(false);
       setAttachments([]);
+      // Fresh compose session for this group — new idempotency key.
+      idemKeyRef.current = crypto.randomUUID();
       if (fetchedIdRef.current !== groupId) {
         fetchedIdRef.current = groupId;
         setGroup(null);
@@ -214,6 +220,7 @@ export default function GroupDetailDrawer({ groupId, open, onClose }: Props) {
   const canSend = !!message.trim() || attachments.length > 0;
 
   const handleSend = async () => {
+    if (isSending) return; // handler-level guard against double-send races
     const body = message.trim();
     if (!group || !canSend) return;
     setIsSending(true);
@@ -222,8 +229,10 @@ export default function GroupDetailDrawer({ groupId, open, onClose }: Props) {
       const encoded = await Promise.all(
         attachments.map(async (f) => ({ filename: f.name, data: await fileToDataUrl(f) })),
       );
-      const res = await leadsAPI.broadcastToGroup(group.id, body, encoded);
+      const key = idemKeyRef.current;
+      const res = await leadsAPI.broadcastToGroup(group.id, body, encoded, key);
       if (res.success) {
+        idemKeyRef.current = crypto.randomUUID(); // confirmed success → fresh key for the next compose
         const sent = res.data?.summary?.sent ?? 0;
         const skipped = res.data?.summary?.skipped ?? 0;
         toast.success(`Message sent to ${sent} member${sent === 1 ? '' : 's'}${skipped ? `, ${skipped} skipped (no contact)` : ''}.`);
@@ -235,6 +244,7 @@ export default function GroupDetailDrawer({ groupId, open, onClose }: Props) {
         fetchGroup(group.id, true);
       } else {
         toast.error('Failed to send message.');
+        // failure → key intentionally kept for retry
       }
     } finally {
       setIsSending(false);

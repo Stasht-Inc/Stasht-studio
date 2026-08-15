@@ -260,6 +260,11 @@ export const leadsAPI = {
   },
 
   // POST /api/react/my-conversations/{lead_id}/reply — viewer replies in-app.
+  // NOTE: no idempotencyKey param — this route is served by a different
+  // controller (MyConversationsController) than the lead-messaging endpoints
+  // above and does not implement server-side idempotency. Double-send
+  // protection for this call site is a client-side guard only (see
+  // ConversationDrawer.handleSend).
   replyToConversation: async (leadId: number, body: string) => {
     return apiRequest(`/my-conversations/${leadId}/reply`, {
       method: 'POST',
@@ -277,10 +282,13 @@ export const leadsAPI = {
 
   // POST /api/react/lead-groups/{id}/broadcast — send one message to the whole
   // group; the server fans out to each member (email if available, else SMS).
+  // idempotencyKey (optional): when set, sent as idempotency_key so a retried
+  // request (e.g. double Enter/click) is deduped server-side (Task B3).
   broadcastToGroup: async (
     groupId: number,
     message: string,
     attachments?: { filename: string; data: string }[],
+    idempotencyKey?: string,
   ) => {
     return apiRequest<BroadcastResult>(
       `/lead-groups/${groupId}/broadcast`,
@@ -290,23 +298,27 @@ export const leadsAPI = {
           body: message,
           ...(attachments && attachments.length ? { attachments } : {}),
           ...partialAdminBody(),
+          ...(idempotencyKey ? { idempotency_key: idempotencyKey } : {}),
         }),
       }
     );
   },
 
-  sendSMS: async (leadId: number, body: string) => {
+  // idempotencyKey (optional): see broadcastToGroup above.
+  sendSMS: async (leadId: number, body: string, idempotencyKey?: string) => {
     return apiRequest<LeadMessage>(`/leads/${leadId}/messages/sms`, {
       method: 'POST',
-      body: JSON.stringify({ body, ...partialAdminBody() }),
+      body: JSON.stringify({ body, ...partialAdminBody(), ...(idempotencyKey ? { idempotency_key: idempotencyKey } : {}) }),
     });
   },
 
+  // idempotencyKey (optional): see broadcastToGroup above.
   sendEmail: async (
     leadId: number,
     subject: string,
     body: string,
     attachments?: { filename: string; data: string }[],
+    idempotencyKey?: string,
   ) => {
     return apiRequest<LeadMessage>(`/leads/${leadId}/messages/email`, {
       method: 'POST',
@@ -315,6 +327,7 @@ export const leadsAPI = {
         body,
         ...(attachments && attachments.length ? { attachments } : {}),
         ...partialAdminBody(),
+        ...(idempotencyKey ? { idempotency_key: idempotencyKey } : {}),
       }),
     });
   },
@@ -344,13 +357,18 @@ export const leadsAPI = {
     });
   },
 
-  replyToMessage: async (leadId: number, messageId: number, body: string) => {
+  // idempotencyKey (optional): see broadcastToGroup above.
+  replyToMessage: async (leadId: number, messageId: number, body: string, idempotencyKey?: string) => {
     return apiRequest<LeadMessage>(`/leads/${leadId}/messages/${messageId}/reply`, {
       method: 'POST',
-      body: JSON.stringify({ body, ...partialAdminBody() }),
+      body: JSON.stringify({ body, ...partialAdminBody(), ...(idempotencyKey ? { idempotency_key: idempotencyKey } : {}) }),
     });
   },
 
+  // NOTE: no idempotencyKey param — this hits /memory-images/comments (a
+  // non-lead endpoint with no server-side idempotency support). Double-send
+  // protection for this call site is a client-side guard only (see
+  // LeadDetailDrawer.handleCommentReplySubmit).
   replyToComment: async (imageId: number, comment: string, parentId: number) => {
     return apiRequest('/memory-images/comments', {
       method: 'POST',

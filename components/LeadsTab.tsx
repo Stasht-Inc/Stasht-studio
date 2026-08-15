@@ -228,6 +228,10 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
   const [showMgAiActions, setShowMgAiActions] = useState(false);
   const [mgGeneratingAction, setMgGeneratingAction] = useState<string | null>(null);
   const [mgLastAiAction, setMgLastAiAction] = useState<string | null>(null);
+  // Idempotency key for the group broadcast compose — regenerated only after a
+  // confirmed send, reused on failure/retry so a duplicate request dedupes
+  // server-side (Task B3).
+  const mgIdemKeyRef = useRef<string>(crypto.randomUUID());
   const { limitData } = useMemoryLimit();
   const [mgAiCredits, setMgAiCredits] = useState<number>(limitData.ai_connects ?? 0);
   useEffect(() => { setMgAiCredits(limitData.ai_connects ?? 0); }, [limitData.ai_connects]);
@@ -281,6 +285,8 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
     setMgGroupName('');
     setShowMgAiActions(false);
     setMgLastAiAction(null);
+    // Fresh compose session — new idempotency key.
+    mgIdemKeyRef.current = crypto.randomUUID();
   };
 
   const toggleMgSelect = (id: number) => {
@@ -301,6 +307,7 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
   };
 
   const handleSendGroup = async () => {
+    if (mgSending) return; // handler-level guard against double-send races
     const targets = uniqueLeads.filter((l) => mgSelected.has(l.id));
     const body = mgMessage.trim();
     const name = mgGroupName.trim();
@@ -317,13 +324,16 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
       const newGroup = 'id' in created ? created : created.group;
 
       // 2. Broadcast the message to the group (server fans out to email/SMS).
-      const bRes = await leadsAPI.broadcastToGroup(newGroup.id, body);
+      const key = mgIdemKeyRef.current;
+      const bRes = await leadsAPI.broadcastToGroup(newGroup.id, body, undefined, key);
       if (bRes.success) {
+        mgIdemKeyRef.current = crypto.randomUUID(); // confirmed success → fresh key for the next compose
         const sent = bRes.data?.summary?.sent ?? 0;
         const skipped = bRes.data?.summary?.skipped ?? 0;
         toast.success(`Group "${name}" created · sent to ${sent} member${sent === 1 ? '' : 's'}${skipped ? `, ${skipped} skipped (no contact)` : ''}.`);
       } else {
         toast.error('Group created, but the broadcast failed.');
+        // failure → key intentionally kept for retry
       }
       setShowMessageGroup(false);
       // Re-fetch leads + groups so the list reflects the newly created group.

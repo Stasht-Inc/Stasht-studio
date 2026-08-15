@@ -158,6 +158,10 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
   const [attachments, setAttachments] = useState<File[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const composeInputRef = useRef<HTMLTextAreaElement>(null);
+  // Idempotency keys: one per compose site, regenerated only after a confirmed
+  // send, reused on failure/retry so a duplicate request dedupes server-side.
+  const idemKeyRef = useRef<string>(crypto.randomUUID());
+  const replyIdemKeyRef = useRef<string>(crypto.randomUUID());
   const [replyingToMsgId, setReplyingToMsgId] = useState<number | null>(null);
   const [replyText, setReplyText] = useState('');
   const [isSendingReply, setIsSendingReply] = useState(false);
@@ -191,6 +195,9 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
       setShowEmojiPicker(false);
       setAttachments([]);
       isInitialLoad.current = true;
+      // Fresh compose session for this lead — new idempotency keys.
+      idemKeyRef.current = crypto.randomUUID();
+      replyIdemKeyRef.current = crypto.randomUUID();
       if (scrollBodyRef.current) scrollBodyRef.current.scrollTop = 0;
       fetchMessages(lead.id);
       const hasEmail = !!lead.user.email;
@@ -281,19 +288,22 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
   const canSend = !!message.trim() || hasAttachments;
 
   const handleSend = async () => {
+    if (isSending) return; // handler-level guard against double-send races
     if (!canSend) return;
     setIsSending(true);
     try {
+      const key = idemKeyRef.current;
       let res;
       if (via === 'sms') {
-        res = await leadsAPI.sendSMS(lead!.id, message.trim());
+        res = await leadsAPI.sendSMS(lead!.id, message.trim(), key);
       } else {
         const encoded = await Promise.all(
           attachments.map(async (f) => ({ filename: f.name, data: await fileToDataUrl(f) })),
         );
-        res = await leadsAPI.sendEmail(lead!.id, subject.trim() || 'Following up', message.trim(), encoded);
+        res = await leadsAPI.sendEmail(lead!.id, subject.trim() || 'Following up', message.trim(), encoded, key);
       }
       if (res.success) {
+        idemKeyRef.current = crypto.randomUUID(); // confirmed success → fresh key for the next compose
         setMessage('');
         setSubject('');
         setAttachments([]);
@@ -303,9 +313,11 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
         await refreshAll();
       } else {
         toast.error((res as any)?.message || 'Failed to send message.');
+        // failure → key intentionally kept so a retry dedupes with this attempt
       }
     } catch (err: any) {
       toast.error(err?.message || 'Failed to send message.');
+      // unknown outcome → key intentionally kept so a retry dedupes with this attempt
     } finally {
       setIsSending(false);
     }
@@ -389,9 +401,12 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
   };
 
   const handleCommentReplySubmit = async (comment: { id: number; image_id: number }) => {
+    if (isSendingReply) return; // handler-level guard against double-send races
     if (!replyText.trim()) return;
     setIsSendingReply(true);
     try {
+      // NOTE: replyToComment has no server-side idempotency support (non-lead
+      // endpoint) — this is a client-side double-send guard only, no key.
       const res = await leadsAPI.replyToComment(comment.image_id, replyText.trim(), comment.id);
       if (res.success) {
         setReplyingToCommentId(null);
@@ -429,20 +444,25 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
       .sort((a, b) => new Date(a.sent_at).getTime() - new Date(b.sent_at).getTime());
 
     const handleReplySubmit = async () => {
+      if (isSendingReply) return; // handler-level guard against double-send races
       if (!replyText.trim()) return;
       setIsSendingReply(true);
       try {
-        const res = await leadsAPI.replyToMessage(lead!.id, msg.id, replyText.trim());
+        const key = replyIdemKeyRef.current;
+        const res = await leadsAPI.replyToMessage(lead!.id, msg.id, replyText.trim(), key);
         if (res.success) {
+          replyIdemKeyRef.current = crypto.randomUUID(); // confirmed success → fresh key
           setReplyingToMsgId(null);
           setReplyText('');
           toast.success('Reply sent.');
           await refreshAll();
         } else {
           toast.error((res as any)?.message || 'Failed to send reply.');
+          // failure → key intentionally kept for retry
         }
       } catch {
         toast.error('Failed to send reply.');
+        // unknown outcome → key intentionally kept for retry
       } finally {
         setIsSendingReply(false);
       }
