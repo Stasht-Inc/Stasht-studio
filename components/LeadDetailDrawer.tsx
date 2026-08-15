@@ -5,6 +5,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Lead, LeadMessage, LeadMessageAttachment, leadsAPI, CommentaryTarget } from '../services/leadsAPI';
 import { useAuth } from '../contexts/AuthContext';
 import { useMemoryLimit, recheckMemoryLimit } from '../hooks/useMemoryLimit';
+import { useDialogBehavior } from '../hooks/useDialogBehavior';
 import { toast } from 'sonner';
 import { smsSegmentInfo, SMS_MAX_BODY } from '../utils/smsSegments';
 
@@ -186,6 +187,15 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
   // used to scroll-to + highlight a row when jumping in from Search Group.
   const rowRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const [highlightedKey, setHighlightedKey] = useState<string | null>(null);
+
+  // UsersPage only mounts this drawer while the right-hand panel is open
+  // (see pages/UsersPage.tsx ~:2721), so `open` is always true here — the
+  // hook's open/close transition is this component's own mount/unmount.
+  const { panelRef, dialogProps } = useDialogBehavior({
+    open: true,
+    onClose,
+    labelledBy: 'lead-drawer-title',
+  });
 
   useEffect(() => {
     if (open && lead) {
@@ -634,7 +644,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
   };
 
   return (
-    <div className="h-full flex flex-col overflow-hidden bg-white">
+    <div ref={panelRef} {...dialogProps} className="h-full flex flex-col overflow-hidden bg-white">
         {/* Scrollable body — key resets scroll to top on each new lead */}
         <div key={lead.id} ref={scrollBodyRef} className="flex-1 overflow-y-auto">
 
@@ -653,14 +663,14 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
               <div className="flex-1 min-w-0">
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
-                    <p className="text-base font-bold text-gray-900 leading-tight flex items-center gap-1.5">
+                    <h2 id="lead-drawer-title" className="text-base font-bold text-gray-900 leading-tight flex items-center gap-1.5">
                       {leadName}
                       {!lead.user?.id && (
                         <span className="flex items-center gap-1 px-2 h-5 rounded-md bg-blue-50 text-blue-500 border border-blue-200 text-[10px] font-medium shrink-0">
                           <UserRound className="w-2.5 h-2.5" /> Guest
                         </span>
                       )}
-                    </p>
+                    </h2>
                     <Select
                       value={currentStatus ?? 'none'}
                       disabled={isUpdatingStatus || lead.is_rollup}

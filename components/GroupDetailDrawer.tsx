@@ -3,6 +3,7 @@ import { X, Users, AlertCircle, Send, Paperclip, Smile, Sparkles, Lightbulb, Ref
 import { Avatar, AvatarFallback, AvatarImage } from './ui/avatar';
 import { LeadGroup, LeadMessageAttachment, leadsAPI } from '../services/leadsAPI';
 import { useMemoryLimit, recheckMemoryLimit } from '../hooks/useMemoryLimit';
+import { useDialogBehavior } from '../hooks/useDialogBehavior';
 import { toast } from 'sonner';
 import { smsSegmentInfo, SMS_MAX_BODY } from '../utils/smsSegments';
 
@@ -139,6 +140,15 @@ export default function GroupDetailDrawer({ groupId, open, onClose }: Props) {
   // confirmed send, reused on failure/retry so a duplicate request dedupes
   // server-side (Task B3).
   const idemKeyRef = useRef<string>(crypto.randomUUID());
+
+  // UsersPage only mounts this drawer while the right-hand panel is open
+  // (see pages/UsersPage.tsx ~:2739), so `open` is always true here — the
+  // hook's open/close transition is this component's own mount/unmount.
+  const { panelRef, dialogProps } = useDialogBehavior({
+    open: true,
+    onClose,
+    labelledBy: 'group-drawer-title',
+  });
 
   const handleAiAction = async (action: string, noCredit = false) => {
     if (!group || generatingAction) return;
@@ -303,7 +313,7 @@ export default function GroupDetailDrawer({ groupId, open, onClose }: Props) {
   };
 
   return (
-    <div className="h-full flex flex-col overflow-hidden bg-white">
+    <div ref={panelRef} {...dialogProps} className="h-full flex flex-col overflow-hidden bg-white">
       {/* Scrollable body */}
       <div className="flex-1 overflow-y-auto">
         {/* Profile header */}
@@ -315,7 +325,7 @@ export default function GroupDetailDrawer({ groupId, open, onClose }: Props) {
             <div className="flex-1 min-w-0">
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
-                  <p className="text-base font-bold text-gray-900 leading-tight truncate">{group?.name ?? 'Group'}</p>
+                  <h2 id="group-drawer-title" className="text-base font-bold text-gray-900 leading-tight truncate">{group?.name ?? 'Group'}</h2>
                   <p className="text-xs text-gray-400 mt-1">
                     {group ? `${group.member_count} member${group.member_count === 1 ? '' : 's'}` : ' '}
                   </p>

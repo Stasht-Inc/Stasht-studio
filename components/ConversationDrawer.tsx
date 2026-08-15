@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { X, Send, Mail, MessageSquare } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from './ui/avatar';
 import { Conversation, ConversationMessage, leadsAPI } from '../services/leadsAPI';
+import { useDialogBehavior } from '../hooks/useDialogBehavior';
 import { toast } from 'sonner';
 
 function getInitials(name: string): string {
@@ -34,6 +35,15 @@ export default function ConversationDrawer({ conversation, open, onClose }: Prop
   const [isSending, setIsSending] = useState(false);
   const threadBottomRef = useRef<HTMLDivElement>(null);
   const fetchedIdRef = useRef<number | null>(null);
+
+  // UsersPage only mounts this drawer while the right-hand panel is open
+  // (see pages/UsersPage.tsx ~:2745), so `open` is always true here — the
+  // hook's open/close transition is this component's own mount/unmount.
+  const { panelRef, dialogProps } = useDialogBehavior({
+    open: true,
+    onClose,
+    labelledBy: 'conversation-drawer-title',
+  });
 
   useEffect(() => {
     if (open && conversation) {
@@ -106,7 +116,7 @@ export default function ConversationDrawer({ conversation, open, onClose }: Prop
   const sorted = [...messages].sort((a, b) => new Date(a.sent_at).getTime() - new Date(b.sent_at).getTime());
 
   return (
-    <div className="h-full flex flex-col overflow-hidden bg-white">
+    <div ref={panelRef} {...dialogProps} className="h-full flex flex-col overflow-hidden bg-white">
       {/* Header */}
       <div className="px-5 pt-5 pb-4 border-b border-gray-100">
         <div className="flex items-start gap-3">
@@ -117,7 +127,7 @@ export default function ConversationDrawer({ conversation, open, onClose }: Prop
           <div className="flex-1 min-w-0">
             <div className="flex items-start justify-between gap-2">
               <div className="min-w-0">
-                <p className="text-base font-bold text-gray-900 leading-tight truncate">{owner.name}</p>
+                <h2 id="conversation-drawer-title" className="text-base font-bold text-gray-900 leading-tight truncate">{owner.name}</h2>
                 <p className="text-xs text-gray-400 mt-1 truncate">Re: {conversation.story.title}</p>
               </div>
               <button
