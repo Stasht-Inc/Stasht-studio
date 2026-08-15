@@ -1,5 +1,5 @@
 ﻿import React, { useState, useEffect, useRef } from 'react';
-import { Mail, Phone, MapPin, Clock, MessageSquare, X, Paperclip, Send, ChevronDown, Smile, RefreshCw, Eye, Sparkles, Search, Heart, Gift, Calendar, MessageCircle, ThumbsUp, TrendingUp, Lightbulb, FileText } from 'lucide-react';
+import { Mail, Phone, MapPin, Clock, MessageSquare, X, Paperclip, Send, ChevronDown, Smile, RefreshCw, Eye, Sparkles, Search, Heart, Gift, Calendar, MessageCircle, ThumbsUp, TrendingUp, Lightbulb, FileText, UserRound } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from './ui/avatar';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Lead, LeadMessage, LeadMessageAttachment, leadsAPI, CommentaryTarget } from '../services/leadsAPI';
@@ -207,8 +207,8 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
       replyIdemKeyRef.current = crypto.randomUUID();
       if (scrollBodyRef.current) scrollBodyRef.current.scrollTop = 0;
       fetchMessages(lead.id);
-      const hasEmail = !!lead.user.email;
-      const hasPhone = !!(lead.user.phone_number || lead.user.phone);
+      const hasEmail = !!lead.user?.email;
+      const hasPhone = !!(lead.user?.phone_number || lead.user?.phone);
       setVia(hasEmail ? 'email' : hasPhone ? 'sms' : 'email');
     } else {
       setMessages([]);
@@ -267,6 +267,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
   };
 
   const handleStatusChange = async (val: string) => {
+    if (lead?.is_rollup) return; // read-only — backend also 403s this for rollup leads
     const newStatus = val === 'none' ? null : val as 'hot' | 'warm' | 'cold';
     setIsUpdatingStatus(true);
     try {
@@ -297,6 +298,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
   const handleSend = async () => {
     if (isSending) return; // handler-level guard against double-send races
     if (!canSend) return;
+    if (lead?.is_rollup) return; // read-only — composer is hidden, this is a backstop
     setIsSending(true);
     try {
       // Per-channel keys — the backend dedupes on (lead_id, idempotency_key)
@@ -386,6 +388,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
 
   const handleAiAction = async (action: string, noCredit = false) => {
     if (!lead || generatingAction) return;
+    if (lead.is_rollup) return; // read-only — AI Suggest is disabled, this is a backstop
     setGeneratingAction(action);
     try {
       const res = await leadsAPI.aiSuggest(lead.id, action, noCredit);
@@ -414,6 +417,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
   const handleCommentReplySubmit = async (comment: { id: number; image_id: number }) => {
     if (isSendingReply) return; // handler-level guard against double-send races
     if (!replyText.trim()) return;
+    if (lead?.is_rollup) return; // read-only — reply UI is hidden, this is a backstop
     setIsSendingReply(true);
     try {
       // NOTE: replyToComment has no server-side idempotency support (non-lead
@@ -436,7 +440,8 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
 
   if (!lead) return null;
 
-  const firstName = lead.user.name.split(' ')[0];
+  const leadName = lead.user?.name || 'Guest';
+  const firstName = leadName.split(' ')[0];
   const daysAsLead = getDaysAsLead(lead.first_seen_at);
   const unreadCount = lead.unread_count ?? 0;
 
@@ -457,6 +462,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
     const handleReplySubmit = async () => {
       if (isSendingReply) return; // handler-level guard against double-send races
       if (!replyText.trim()) return;
+      if (lead?.is_rollup) return; // read-only — reply UI is hidden, this is a backstop
       setIsSendingReply(true);
       try {
         const key = replyIdemKeyRef.current;
@@ -528,9 +534,9 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
           {/* Avatar with channel badge */}
           <div className="relative shrink-0 mt-0.5">
             <Avatar className="h-9 w-9">
-              <AvatarImage src={lead.user.profile_image} alt={lead.user.name} />
+              <AvatarImage src={lead.user?.profile_image} alt={leadName} />
               <AvatarFallback className="bg-[#6C60FF] text-white text-xs font-semibold">
-                {getInitials(lead.user.name)}
+                {getInitials(leadName)}
               </AvatarFallback>
             </Avatar>
             <div className="absolute -bottom-1 -right-1 h-[18px] w-[18px] rounded-full flex items-center justify-center border-2 border-white bg-[#6C60FF]">
@@ -566,7 +572,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
             )}
 
             {/* Reply button */}
-            {!isReplying && !isArchived && (
+            {!isReplying && !isArchived && !lead.is_rollup && (
               <button
                 onClick={() => {
                   setReplyingToMsgId(msg.id);
@@ -630,19 +636,26 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
             {/* Top row: avatar + name/status + unread + X */}
             <div className="flex items-start gap-3">
               <Avatar className="h-14 w-14 shrink-0">
-                <AvatarImage src={lead.user.profile_image} alt={lead.user.name} />
+                <AvatarImage src={lead.user?.profile_image} alt={leadName} />
                 <AvatarFallback className="bg-[#6C60FF] text-white text-base font-semibold">
-                  {getInitials(lead.user.name)}
+                  {getInitials(leadName)}
                 </AvatarFallback>
               </Avatar>
 
               <div className="flex-1 min-w-0">
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
-                    <p className="text-base font-bold text-gray-900 leading-tight">{lead.user.name}</p>
+                    <p className="text-base font-bold text-gray-900 leading-tight flex items-center gap-1.5">
+                      {leadName}
+                      {!lead.user?.id && (
+                        <span className="flex items-center gap-1 px-2 h-5 rounded-md bg-blue-50 text-blue-500 border border-blue-200 text-[10px] font-medium shrink-0">
+                          <UserRound className="w-2.5 h-2.5" /> Guest
+                        </span>
+                      )}
+                    </p>
                     <Select
                       value={currentStatus ?? 'none'}
-                      disabled={isUpdatingStatus}
+                      disabled={isUpdatingStatus || lead.is_rollup}
                       onValueChange={handleStatusChange}
                     >
                       <SelectTrigger className={`mt-1.5 h-5 text-[11px] font-semibold rounded-md px-2 w-auto min-w-[60px] border shadow-none focus:ring-0 focus:outline-none outline-none ${
@@ -684,19 +697,19 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
 
             {/* Contact info */}
             <div className="mt-4 space-y-2">
-              {lead.user.email && (
+              {lead.user?.email && (
                 <div className="flex items-center gap-2.5 text-sm text-gray-600">
                   <Mail className="w-3.5 h-3.5 text-gray-400 shrink-0" />
                   {lead.user.email}
                 </div>
               )}
-              {(lead.user.phone_number || lead.user.phone) && (
+              {(lead.user?.phone_number || lead.user?.phone) && (
                 <div className="flex items-center gap-2.5 text-sm text-gray-600">
                   <Phone className="w-3.5 h-3.5 text-gray-400 shrink-0" />
                   {lead.user.phone_number || lead.user.phone}
                 </div>
               )}
-              {(lead.user.location || lead.user.city) && (
+              {(lead.user?.location || lead.user?.city) && (
                 <div className="flex items-center gap-2.5 text-sm text-gray-600">
                   <MapPin className="w-3.5 h-3.5 text-gray-400 shrink-0" />
                   {lead.user.location || [lead.user.city, lead.user.country].filter(Boolean).join(', ')}
@@ -726,15 +739,17 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
 
             {/* AI Suggest / Email / Call buttons */}
             {(() => {
-              const hasEmail = !!lead.user.email;
-              const hasPhone = !!(lead.user.phone_number || lead.user.phone);
+              const hasEmail = !!lead.user?.email;
+              const hasPhone = !!(lead.user?.phone_number || lead.user?.phone);
               const extraCount = (hasEmail ? 1 : 0) + (hasPhone ? 1 : 0);
               const gridCols = extraCount === 2 ? 'grid-cols-3' : extraCount === 1 ? 'grid-cols-2' : 'grid-cols-1';
               return (
                 <div className={`relative mt-4 grid ${gridCols} gap-2`}>
                   <button
-                    onClick={() => setShowAiSuggest((v) => !v)}
-                    className="flex items-center justify-center gap-1 h-9 px-2 rounded-lg w-full whitespace-nowrap hover:opacity-90 transition-opacity"
+                    onClick={() => { if (!lead.is_rollup) setShowAiSuggest((v) => !v); }}
+                    disabled={lead.is_rollup}
+                    title={lead.is_rollup ? 'View only — managed by the property owner' : undefined}
+                    className={`flex items-center justify-center gap-1 h-9 px-2 rounded-lg w-full whitespace-nowrap transition-opacity ${lead.is_rollup ? 'opacity-40 cursor-not-allowed' : 'hover:opacity-90'}`}
                     style={{
                       border: '1.5px solid transparent',
                       backgroundImage: 'linear-gradient(white, white), linear-gradient(to right, #6C60FF, #FF5FAD)',
@@ -747,7 +762,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
                   </button>
 
                   {/* AI Suggest panel */}
-                  {showAiSuggest && (
+                  {showAiSuggest && !lead.is_rollup && (
                     <>
                       <div className="fixed inset-0 z-40" onClick={() => setShowAiSuggest(false)} />
                       <div className="absolute left-0 right-0 top-full mt-2 z-50 bg-white rounded-xl shadow-2xl border border-gray-200 overflow-hidden flex flex-col max-h-[70vh]">
@@ -830,7 +845,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
                   )}
                   {hasEmail && (
                     <button
-                      onClick={() => window.open(`mailto:${lead.user.email}`)}
+                      onClick={() => { if (lead.user?.email) window.open(`mailto:${lead.user.email}`); }}
                       className="flex items-center justify-center gap-1.5 h-9 rounded-lg border border-gray-200 text-sm text-gray-900 font-medium hover:bg-gray-50 transition-colors"
                     >
                       <Mail className="w-3.5 h-3.5 text-gray-900" />
@@ -839,7 +854,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
                   )}
                   {hasPhone && (
                     <button
-                      onClick={() => { const p = lead.user.phone_number || lead.user.phone; if (p) window.open(`tel:${p}`); }}
+                      onClick={() => { const p = lead.user?.phone_number || lead.user?.phone; if (p) window.open(`tel:${p}`); }}
                       className="flex items-center justify-center gap-1.5 h-9 rounded-lg border border-gray-200 text-sm text-gray-900 font-medium hover:bg-gray-50 transition-colors"
                     >
                       <Phone className="w-3.5 h-3.5 text-gray-900" />
@@ -961,7 +976,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
                                 </div>
 
                                 {/* Reply button */}
-                                {replyingToCommentId !== c.id && !isArchived && (
+                                {replyingToCommentId !== c.id && !isArchived && !lead.is_rollup && (
                                   <button
                                     onClick={() => {
                                       setReplyingToCommentId(c.id);
@@ -1018,7 +1033,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
 
                             {/* Child comment replies — indented */}
                             {childComments.map((child) => {
-                              const isMyReply = child.user?.id !== lead.user.id;
+                              const isMyReply = child.user?.id !== lead.user?.id;
                               return (
                               <div key={`comment-${child.id}`} className="ml-12 mt-3 flex items-start gap-2">
                                 <Avatar className="h-7 w-7 shrink-0 mt-0.5">
@@ -1055,12 +1070,16 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
         </div>
 
         {/* Compose box — pinned to bottom */}
-        {isArchived && (
+        {lead.is_rollup ? (
+          <div className="border-t border-gray-200 px-4 py-3 bg-gray-50 text-center text-sm text-gray-400">
+            View only — managed by the property owner.
+          </div>
+        ) : isArchived && (
           <div className="border-t border-gray-200 px-4 py-3 bg-gray-50 text-center text-sm text-gray-400">
             This lead is archived. Unarchive to send messages.
           </div>
         )}
-        <div className={`border-t border-gray-200 px-4 pt-3 pb-4 bg-white ${isArchived ? 'hidden' : ''}`}>
+        <div className={`border-t border-gray-200 px-4 pt-3 pb-4 bg-white ${(isArchived || lead.is_rollup) ? 'hidden' : ''}`}>
           <div className="border border-gray-200 rounded-2xl bg-white px-4 pt-3 pb-3">
             <textarea
               ref={composeInputRef}
@@ -1153,8 +1172,8 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
                   <div className="absolute bottom-10 left-0 bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden z-10 w-28">
                     {(['email', 'sms'] as const).map((option) => {
                       const isDisabled = option === 'email'
-                        ? !lead?.user.email
-                        : !(lead?.user.phone_number || lead?.user.phone);
+                        ? !lead?.user?.email
+                        : !(lead?.user?.phone_number || lead?.user?.phone);
                       return (
                         <button
                           key={option}

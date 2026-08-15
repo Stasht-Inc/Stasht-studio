@@ -10,7 +10,10 @@ const partialAdminQuery = (sep: '?' | '&' = '&'): string =>
   isPartialAdmin() ? `${sep}partial_admin_email=${encodeURIComponent(getPartialAdminEmail())}` : '';
 
 export interface LeadUser {
-  id: number;
+  // null for guest leads (photo submitted from a published page, no account) —
+  // the backend still fills name/email/phone from the viewer_* columns on the
+  // lead row, only `id` is absent.
+  id: number | null;
   name: string;
   email: string;
   profile_image?: string;
@@ -64,7 +67,9 @@ export interface LeadMessage {
 
 export interface Lead {
   id: number;
-  user: LeadUser;
+  // null when there's no viewer account AND no guest details on the lead row
+  // (rare/malformed rows); guest leads still populate this from viewer_* columns.
+  user: LeadUser | null;
   story: LeadStory;
   status: 'hot' | 'warm' | 'cold' | null;
   engagement: number;
@@ -75,6 +80,9 @@ export interface Lead {
   comment_unread_count?: number;
   last_engaged_at: string;
   first_seen_at: string;
+  // True when this lead belongs to another owner but rolls up into the
+  // current user's list (main-owner admin view) — read-only in the UI.
+  is_rollup?: boolean;
 }
 
 export interface LeadsResponse {

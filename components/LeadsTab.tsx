@@ -1,5 +1,5 @@
 ﻿import React, { useState, useEffect, useRef } from 'react';
-import { Search, X, MoreHorizontal, MessageSquare, Clock, RefreshCw, Trash2, Archive, Check, Send, Users, ChevronLeft, Sparkles, Heart, Gift, Calendar, MessageCircle, ThumbsUp, TrendingUp, Lightbulb } from 'lucide-react';
+import { Search, X, MoreHorizontal, MessageSquare, Clock, RefreshCw, Trash2, Archive, Check, Send, Users, ChevronLeft, Sparkles, Heart, Gift, Calendar, MessageCircle, ThumbsUp, TrendingUp, Lightbulb, UserRound } from 'lucide-react';
 import { useMemoryLimit, recheckMemoryLimit } from '../hooks/useMemoryLimit';
 import { toast } from 'sonner';
 import { Input } from './ui/input';
@@ -33,6 +33,26 @@ function formatDate(dateString: string): string {
 
 function getInitials(name: string): string {
   return name.split(' ').map((n) => n[0]).join('').toUpperCase().slice(0, 2);
+}
+
+// Guest leads (photo submitted from a published page, no account) carry a
+// `user` block with name/email/phone but a null `id`. Malformed rows can
+// have no `user` at all — fall back to an em-dash placeholder for those.
+function leadDisplayName(lead: Lead): string {
+  return lead.user?.name || '—';
+}
+function leadDisplayEmail(lead: Lead): string {
+  return lead.user?.email || '—';
+}
+
+// Small badge marking a lead with no account (guest submission) — matches
+// GroupDetailDrawer's "No contact info" badge styling.
+function GuestBadge() {
+  return (
+    <span className="flex items-center gap-1 px-2 h-6 rounded-md bg-blue-50 text-blue-500 border border-blue-200 text-[11px] font-medium shrink-0">
+      <UserRound className="w-3 h-3" /> Guest
+    </span>
+  );
 }
 
 // AI Suggest actions for the Message Group composer (same 7 as the lead drawer).
@@ -260,18 +280,21 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
   };
 
   // One row per person — the same user can appear under multiple stories.
+  // Guest leads have no account (user.id is null), so dedupe those by lead id
+  // instead — otherwise every guest would collapse into a single null key.
   const uniqueLeads = (() => {
-    const seen = new Set<number>();
+    const seen = new Set<number | string>();
     return leads.filter((l) => {
-      if (seen.has(l.user.id)) return false;
-      seen.add(l.user.id);
+      const key = l.user?.id ?? `guest-${l.id}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
       return true;
     });
   })();
   const mgQ = mgSearch.toLowerCase().trim();
   const mgFiltered = uniqueLeads.filter(
     (l) =>
-      (!mgQ || l.user.name.toLowerCase().includes(mgQ) || l.user.email.toLowerCase().includes(mgQ)) &&
+      (!mgQ || leadDisplayName(l).toLowerCase().includes(mgQ) || leadDisplayEmail(l).toLowerCase().includes(mgQ)) &&
       (mgStatusFilter === 'all' || l.status === mgStatusFilter)
   );
   const allFilteredSelected = mgFiltered.length > 0 && mgFiltered.every((l) => mgSelected.has(l.id));
@@ -353,16 +376,10 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
         status: status ?? statusFilter,
       });
       if (res.success && res.data) {
-        // The API can hand back a lead whose user account no longer exists, but
-        // Lead.user is typed non-nullable so nothing downstream guards it — the
-        // first `l.user.id` read then throws during render. Drop those here so
-        // every consumer can keep relying on user being present.
+        // Guest leads (no account) and rollup leads are rendered, not dropped —
+        // only guard against genuinely malformed rows (null/undefined entries).
         const rawLeads = res.data.leads ?? [];
-        const freshLeads = rawLeads.filter((l) => l && l.user);
-        const dropped = rawLeads.length - freshLeads.length;
-        if (dropped > 0) {
-          console.warn(`LeadsTab: skipped ${dropped} lead(s) returned without a user account.`);
-        }
+        const freshLeads = rawLeads.filter((l) => l != null);
         setLeads(freshLeads);
         onLeadsRefreshed?.(freshLeads);
       } else {
@@ -678,14 +695,14 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
                         className="w-full text-left px-4 py-3 hover:bg-gray-50 flex gap-3 border-b border-gray-50 last:border-0 transition-colors"
                       >
                         <Avatar className="h-9 w-9 shrink-0">
-                          <AvatarImage src={r.lead.user.profile_image} alt={r.lead.user.name} />
+                          <AvatarImage src={r.lead.user?.profile_image} alt={leadDisplayName(r.lead)} />
                           <AvatarFallback className="bg-[#6C60FF] text-white text-xs font-medium">
-                            {getInitials(r.lead.user.name)}
+                            {getInitials(leadDisplayName(r.lead))}
                           </AvatarFallback>
                         </Avatar>
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center justify-between gap-2">
-                            <span className="text-sm font-semibold text-gray-900 truncate">{r.lead.user.name}</span>
+                            <span className="text-sm font-semibold text-gray-900 truncate">{leadDisplayName(r.lead)}</span>
                             <span className="text-xs text-gray-400 shrink-0">{r.meta}</span>
                           </div>
                           {r.title && (
@@ -853,14 +870,17 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
                               {checked && <Check className="w-3 h-3 text-white" />}
                             </span>
                             <Avatar className="h-8 w-8 shrink-0">
-                              <AvatarImage src={lead.user.profile_image} alt={lead.user.name} />
+                              <AvatarImage src={lead.user?.profile_image} alt={leadDisplayName(lead)} />
                               <AvatarFallback className="bg-[#6C60FF] text-white text-[10px] font-medium">
-                                {getInitials(lead.user.name)}
+                                {getInitials(leadDisplayName(lead))}
                               </AvatarFallback>
                             </Avatar>
                             <div className="flex-1 min-w-0">
-                              <div className="text-sm font-semibold text-gray-900 truncate">{lead.user.name}</div>
-                              <div className="text-xs text-gray-500 truncate">{lead.user.email}</div>
+                              <div className="text-sm font-semibold text-gray-900 truncate flex items-center gap-1.5">
+                                {leadDisplayName(lead)}
+                                {!lead.user?.id && <GuestBadge />}
+                              </div>
+                              <div className="text-xs text-gray-500 truncate">{leadDisplayEmail(lead)}</div>
                             </div>
                             {lead.status && (
                               <span className={`flex items-center justify-center h-6 w-7 rounded-md border shrink-0 ${STATUS_TRIGGER_CLASS[lead.status]}`}>
@@ -995,14 +1015,17 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
                     <td className={`px-4 ${compact ? 'py-1.5' : 'py-2.5'}`}>
                       <div className="flex items-center gap-2.5">
                         <Avatar className={`${compact ? 'h-7 w-7' : 'h-9 w-9'} shrink-0`}>
-                          <AvatarImage src={lead.user.profile_image} alt={lead.user.name} />
+                          <AvatarImage src={lead.user?.profile_image} alt={leadDisplayName(lead)} />
                           <AvatarFallback className="bg-[#6C60FF] text-white text-xs font-medium">
-                            {getInitials(lead.user.name)}
+                            {getInitials(leadDisplayName(lead))}
                           </AvatarFallback>
                         </Avatar>
                         <div>
-                          <div className={`font-semibold text-gray-900 ${compact ? 'text-sm' : 'text-base'}`}>{lead.user.name}</div>
-                          <div className={`text-gray-500 ${compact ? 'text-xs' : 'text-sm'}`}>{lead.user.email}</div>
+                          <div className={`font-semibold text-gray-900 flex items-center gap-1.5 ${compact ? 'text-sm' : 'text-base'}`}>
+                            {leadDisplayName(lead)}
+                            {!lead.user?.id && <GuestBadge />}
+                          </div>
+                          <div className={`text-gray-500 ${compact ? 'text-xs' : 'text-sm'}`}>{leadDisplayEmail(lead)}</div>
                           <div className={`text-gray-400 mt-0.5 ${compact ? 'text-xs' : 'text-sm'}`}>Via: {lead.story.title}</div>
                         </div>
                       </div>
@@ -1097,14 +1120,17 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex items-center gap-3">
                     <Avatar className="h-9 w-9 shrink-0">
-                      <AvatarImage src={lead.user.profile_image} alt={lead.user.name} />
+                      <AvatarImage src={lead.user?.profile_image} alt={leadDisplayName(lead)} />
                       <AvatarFallback className="bg-[#6C60FF] text-white text-xs font-medium">
-                        {getInitials(lead.user.name)}
+                        {getInitials(leadDisplayName(lead))}
                       </AvatarFallback>
                     </Avatar>
                     <div>
-                      <div className="text-sm font-semibold text-gray-900">{lead.user.name}</div>
-                      <div className="text-xs text-gray-500">{lead.user.email}</div>
+                      <div className="text-sm font-semibold text-gray-900 flex items-center gap-1.5">
+                        {leadDisplayName(lead)}
+                        {!lead.user?.id && <GuestBadge />}
+                      </div>
+                      <div className="text-xs text-gray-500">{leadDisplayEmail(lead)}</div>
                       <div className="text-xs text-gray-400 mt-0.5">Via: {lead.story.title}</div>
                     </div>
                   </div>
