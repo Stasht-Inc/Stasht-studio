@@ -335,6 +335,19 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
   // confirmed send, reused on failure/retry so a duplicate request dedupes
   // server-side (Task B3).
   const mgIdemKeyRef = useRef<string>(crypto.randomUUID());
+  // Picker needs every matching lead, not just the current page (final-review
+  // Finding 1, sub-plan #3): `leads` only holds the current page since
+  // pagination landed, which silently dropped recipients >50 leads deep from
+  // the bulk-broadcast picker/search/Select All. Fetched fresh each time the
+  // popover opens, unpaginated (the backend returns the full filtered set
+  // when `page` is omitted) using the same search/status filters as the
+  // main table — independent of the paginated `leads` state.
+  const [mgAllLeads, setMgAllLeads] = useState<Lead[]>([]);
+  const [mgLoading, setMgLoading] = useState(false);
+  const [mgLoadError, setMgLoadError] = useState<string | null>(null);
+  // Sequence guard so a stale in-flight fetch (popover reopened before the
+  // previous fetch resolved) can't clobber a newer response.
+  const mgFetchSeqRef = useRef(0);
   const { limitData } = useMemoryLimit();
   const [mgAiCredits, setMgAiCredits] = useState<number>(limitData.ai_connects ?? 0);
   useEffect(() => { setMgAiCredits(limitData.ai_connects ?? 0); }, [limitData.ai_connects]);
@@ -365,9 +378,11 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
   // One row per person — the same user can appear under multiple stories.
   // Guest leads have no account (user.id is null), so dedupe those by lead id
   // instead — otherwise every guest would collapse into a single null key.
+  // Sourced from mgAllLeads (the unpaginated fetch above), not the paginated
+  // `leads` state, so the picker covers every matching lead.
   const uniqueLeads = (() => {
     const seen = new Set<number | string>();
-    return leads.filter((l) => {
+    return mgAllLeads.filter((l) => {
       const key = l.user?.id ?? `guest-${l.id}`;
       if (seen.has(key)) return false;
       seen.add(key);
@@ -382,6 +397,33 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
   );
   const allFilteredSelected = mgFiltered.length > 0 && mgFiltered.every((l) => mgSelected.has(l.id));
 
+  // Fetches the full (unpaginated) matching-lead set for the Message Group
+  // picker. Guarded against stale responses via mgFetchSeqRef.
+  const loadMgAllLeads = async () => {
+    const seq = ++mgFetchSeqRef.current;
+    setMgLoading(true);
+    setMgLoadError(null);
+    try {
+      const res = await leadsAPI.getLeads({ search: searchQuery, status: statusFilter });
+      if (seq !== mgFetchSeqRef.current) return; // superseded by a newer fetch
+      if (res.success && res.data) {
+        setMgAllLeads((res.data.leads ?? []).filter((l) => l != null));
+      } else {
+        setMgAllLeads([]);
+        const msg = res.error || 'Failed to load leads.';
+        setMgLoadError(msg);
+        toast.error(msg);
+      }
+    } catch {
+      if (seq !== mgFetchSeqRef.current) return;
+      setMgAllLeads([]);
+      setMgLoadError('Failed to load leads.');
+      toast.error('Failed to load leads for the picker.');
+    } finally {
+      if (seq === mgFetchSeqRef.current) setMgLoading(false);
+    }
+  };
+
   const openMessageGroup = () => {
     setShowMessageGroup(true);
     setMgSearch('');
@@ -393,6 +435,7 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
     setMgLastAiAction(null);
     // Fresh compose session — new idempotency key.
     mgIdemKeyRef.current = crypto.randomUUID();
+    loadMgAllLeads();
   };
 
   const toggleMgSelect = (id: number) => {
@@ -826,7 +869,7 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
                   </div>
                   <div className="min-w-0">
                     <p className="text-sm font-bold text-gray-900">Search Group Commentary</p>
-                    <p className="text-xs text-gray-400">Search across all leads' messages and activity</p>
+                    <p className="text-xs text-gray-400">Search messages and activity for the leads on this page</p>
                   </div>
                 </div>
 
@@ -898,7 +941,7 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
                 {/* Footer count */}
                 {groupQ && !isBuildingIndex && (
                   <div className="px-4 py-2.5 border-t border-gray-100 bg-gray-50 text-xs text-gray-500">
-                    {groupResults.length} result{groupResults.length === 1 ? '' : 's'} found across {groupLeadCount} leads
+                    {groupResults.length} result{groupResults.length === 1 ? '' : 's'} found across {groupLeadCount} leads on this page
                   </div>
                 )}
               </div>
@@ -1035,7 +1078,14 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
                 {/* Leads list */}
                 <div className="px-4 py-3">
                   <div className="max-h-[200px] overflow-y-auto rounded-lg border border-gray-100 divide-y divide-gray-50">
-                    {mgFiltered.length === 0 ? (
+                    {mgLoading ? (
+                      <div className="flex items-center justify-center gap-2 py-8">
+                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-[#6C60FF]" />
+                        <span className="text-sm text-gray-400">Loading leads...</span>
+                      </div>
+                    ) : mgLoadError ? (
+                      <p className="text-sm text-red-500 text-center py-8">{mgLoadError}</p>
+                    ) : mgFiltered.length === 0 ? (
                       <p className="text-sm text-gray-400 text-center py-8">No leads found</p>
                     ) : (
                       mgFiltered.map((lead) => {
