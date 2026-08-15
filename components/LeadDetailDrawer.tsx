@@ -136,9 +136,10 @@ interface Props {
   isArchived?: boolean;
   highlightTarget?: CommentaryTarget | null;
   onTargetHandled?: () => void;
+  onNavigate?: (page: string) => void;
 }
 
-export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, isArchived = false, highlightTarget, onTargetHandled }: Props) {
+export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, isArchived = false, highlightTarget, onTargetHandled, onNavigate }: Props) {
   const { user } = useAuth();
   const { limitData } = useMemoryLimit();
   const [aiCredits, setAiCredits] = useState<number>(limitData.ai_connects ?? 0);
@@ -744,7 +745,13 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
                                 <p className="text-sm font-bold text-gray-900">0 credits</p>
                                 <p className="text-[11px] text-gray-500">1 credit per suggestion</p>
                               </div>
-                              <button className="h-7 px-3 rounded-lg border border-orange-300 text-orange-600 text-xs font-semibold hover:bg-orange-100 transition-colors shrink-0">
+                              <button
+                                onClick={() => {
+                                  sessionStorage.setItem('openPurchaseCreditsModal', 'true');
+                                  onNavigate?.('billing');
+                                }}
+                                className="h-7 px-3 rounded-lg border border-orange-300 text-orange-600 text-xs font-semibold hover:bg-orange-100 transition-colors shrink-0"
+                              >
                                 Buy
                               </button>
                             </div>

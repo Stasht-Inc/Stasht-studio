@@ -108,9 +108,10 @@ const getTimeAgo = (dateString?: string): string => {
 interface UsersPageProps {
   openConversationLeadId?: number | null;
   onConversationOpened?: () => void;
+  onNavigate?: (page: string) => void;
 }
 
-export default function UsersPage({ openConversationLeadId, onConversationOpened }: UsersPageProps = {}) {
+export default function UsersPage({ openConversationLeadId, onConversationOpened, onNavigate }: UsersPageProps = {}) {
   const { isAuthenticated, user: currentUser } = useAuth();
   const { switchToProperty } = useProperty();
   const [users, setUsers] = useState<User[]>([]);
@@ -2711,6 +2712,7 @@ export default function UsersPage({ openConversationLeadId, onConversationOpened
               open={true}
               highlightTarget={commentaryTarget}
               onTargetHandled={() => setCommentaryTarget(null)}
+              onNavigate={onNavigate}
               onClose={() => {
                 setSelectedLead(null);
                 setCommentaryTarget(null);

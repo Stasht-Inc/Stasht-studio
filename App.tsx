@@ -3919,7 +3919,7 @@ function MainApp() {
     }
 
     if (currentPage === "users") {
-      return <UsersPage openConversationLeadId={pendingConversationLeadId} onConversationOpened={() => setPendingConversationLeadId(null)} />;
+      return <UsersPage openConversationLeadId={pendingConversationLeadId} onConversationOpened={() => setPendingConversationLeadId(null)} onNavigate={handleNavigation} />;
     }
 
     if (currentPage === "library") {
