@@ -121,7 +121,7 @@ function MessageAttachments({
             </span>
             <span className="min-w-0">
               <span className="block text-xs font-medium text-gray-700 truncate">{att.filename}</span>
-              {att.size ? <span className="block text-[11px] text-gray-400">{formatFileSize(att.size)}</span> : null}
+              {att.size ? <span className="block text-[11px] text-gray-600">{formatFileSize(att.size)}</span> : null}
             </span>
           </a>
         );
@@ -512,7 +512,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
         >
           <div className="flex flex-col items-end">
             <div className="flex items-center gap-1.5 mb-1">
-              <span className="text-xs text-gray-400">{formatShortDate(msg.sent_at)}</span>
+              <span className="text-xs text-gray-600">{formatShortDate(msg.sent_at)}</span>
               <span className="text-xs font-semibold text-gray-700">You</span>
               <Avatar className="h-6 w-6">
                 <AvatarImage src={user?.avatar} alt={user?.name || 'You'} />
@@ -533,7 +533,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
               <MessageAttachments attachments={msg.attachments} align="right" />
             )}
             <div className="flex items-center gap-0.5 mt-1">
-              <span className="text-[11px] text-gray-400">via {channelLabel}</span>
+              <span className="text-[11px] text-gray-600">via {channelLabel}</span>
               <ChevronDown className="w-3 h-3 text-gray-400" />
             </div>
           </div>
@@ -570,9 +570,9 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
             <div className="flex items-center justify-between gap-2">
               <span className="text-xs font-semibold text-gray-800">
                 {firstName}
-                <span className="font-normal text-gray-400"> · {channelLabel}</span>
+                <span className="font-normal text-gray-600"> · {channelLabel}</span>
               </span>
-              <span className="text-xs text-gray-400 shrink-0">{formatShortDate(msg.sent_at)}</span>
+              <span className="text-xs text-gray-600 shrink-0">{formatShortDate(msg.sent_at)}</span>
             </div>
 
             {/* Subject above bubble */}
@@ -614,12 +614,12 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
                   onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleReplySubmit(); } }}
                   placeholder={`Reply to ${firstName}...`}
                   rows={2}
-                  className="w-full text-sm text-gray-700 placeholder:text-gray-400 resize-none border-none outline-none bg-transparent px-3 pt-2.5 pb-1 leading-relaxed"
+                  className="w-full text-sm text-gray-700 placeholder:text-gray-400 resize-none border-none outline-none bg-transparent px-3 pt-2.5 pb-1 leading-relaxed focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#6C60FF]"
                 />
                 <div className="flex items-center justify-end gap-2 px-3 pb-2">
                   <button
                     onClick={() => { setReplyingToMsgId(null); setReplyText(''); }}
-                    className="text-xs text-gray-400 hover:text-gray-600"
+                    className="text-xs text-gray-600 hover:text-gray-700"
                   >
                     Cancel
                   </button>
@@ -676,8 +676,8 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
                       disabled={isUpdatingStatus || lead.is_rollup}
                       onValueChange={handleStatusChange}
                     >
-                      <SelectTrigger className={`mt-1.5 h-5 text-[11px] font-semibold rounded-md px-2 w-auto min-w-[60px] border shadow-none focus:ring-0 focus:outline-none outline-none ${
-                        currentStatus ? STATUS_STYLES[currentStatus] : 'bg-gray-100 text-gray-400 border-gray-200'
+                      <SelectTrigger className={`mt-1.5 h-5 text-[11px] font-semibold rounded-md px-2 w-auto min-w-[60px] border shadow-none focus:ring-0 focus:outline-none outline-none focus-visible:ring-2 focus-visible:ring-[#6C60FF] focus-visible:ring-offset-1 ${
+                        currentStatus ? STATUS_STYLES[currentStatus] : 'bg-gray-100 text-gray-600 border-gray-200'
                       }`}>
                         {currentStatus === 'hot' && <span className="flex items-center gap-1"><img src="/hot-icon.svg" className="w-3 h-3.5" />Hot</span>}
                         {currentStatus === 'warm' && <span className="flex items-center gap-1"><img src="/warm-icon.svg" className="w-2 h-3.5" />Warm</span>}
@@ -702,6 +702,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
                     )}
                     <button
                       onClick={onClose}
+                      aria-label="Close"
                       className="p-1 rounded-md hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors"
                     >
                       <X className="w-4 h-4" />
@@ -709,7 +710,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
                   </div>
                 </div>
 
-                <p className="text-xs text-gray-400 mt-1">Via: {lead.story.title}</p>
+                <p className="text-xs text-gray-600 mt-1">Via: {lead.story.title}</p>
               </div>
             </div>
 
@@ -743,15 +744,15 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
             <div className="mt-5 grid grid-cols-3 gap-2">
               <div className="bg-gray-100 rounded-xl px-3 py-3 text-center">
                 <div className="text-xl font-bold text-gray-900">{lead.engagement}</div>
-                <div className="text-[11px] text-gray-400 mt-1 leading-tight">Campaigns<br/>viewed</div>
+                <div className="text-[11px] text-gray-600 mt-1 leading-tight">Campaigns<br/>viewed</div>
               </div>
               <div className="bg-gray-100 rounded-xl px-3 py-3 text-center">
                 <div className="text-xl font-bold text-gray-900">{lead.sent_count ?? 0}</div>
-                <div className="text-[11px] text-gray-400 mt-1 leading-tight">Messages<br/>sent</div>
+                <div className="text-[11px] text-gray-600 mt-1 leading-tight">Messages<br/>sent</div>
               </div>
               <div className="bg-gray-100 rounded-xl px-3 py-3 text-center">
                 <div className="text-xl font-bold text-gray-900">{daysAsLead}d</div>
-                <div className="text-[11px] text-gray-400 mt-1 leading-tight">Days as<br/>lead</div>
+                <div className="text-[11px] text-gray-600 mt-1 leading-tight">Days as<br/>lead</div>
               </div>
             </div>
 
@@ -791,7 +792,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
                           </span>
                           <div className="min-w-0 flex-1">
                             <p className="text-sm font-bold text-gray-900">AI Suggest</p>
-                            <p className="text-xs text-gray-400 truncate">Smart tools for {firstName}</p>
+                            <p className="text-xs text-gray-600 truncate">Smart tools for {firstName}</p>
                           </div>
                           {aiCredits > 0 && (
                             <span className="flex items-center gap-1 px-2 h-6 rounded-full bg-purple-100 text-[#6C60FF] text-[11px] font-semibold shrink-0">
@@ -807,7 +808,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
                               <Sparkles className="w-4 h-4 text-orange-500 shrink-0" />
                               <div className="flex-1 min-w-0">
                                 <p className="text-sm font-bold text-gray-900">0 credits</p>
-                                <p className="text-[11px] text-gray-500">1 credit per suggestion</p>
+                                <p className="text-[11px] text-gray-600">1 credit per suggestion</p>
                               </div>
                               <button
                                 onClick={() => {
@@ -825,7 +826,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
                           <div className="px-4 pb-3">
                             <div className="flex items-center gap-1.5 mb-2">
                               <Lightbulb className="w-3.5 h-3.5 text-[#6C60FF]" />
-                              <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">Suggested Actions</p>
+                              <p className="text-[11px] font-semibold text-gray-600 uppercase tracking-wider">Suggested Actions</p>
                             </div>
                             <div className="space-y-2">
                               {AI_ACTIONS.map((a) => {
@@ -845,7 +846,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
                                     )}
                                     <div className="min-w-0">
                                       <p className="text-sm font-semibold text-gray-900">{a.title}</p>
-                                      <p className="text-xs text-gray-400">{isGenerating ? 'Generating…' : a.desc}</p>
+                                      <p className="text-xs text-gray-600">{isGenerating ? 'Generating…' : a.desc}</p>
                                     </div>
                                   </button>
                                 );
@@ -856,7 +857,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
 
                         {/* Footer */}
                         <div className="px-4 py-2.5 border-t border-gray-100 bg-gray-50 text-center">
-                          <p className="text-[11px] text-gray-400">AI suggestions based on engagement history</p>
+                          <p className="text-[11px] text-gray-600">AI suggestions based on engagement history</p>
                         </div>
                       </div>
                     </>
@@ -887,7 +888,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
           {/* Correspondence */}
           <div className="px-5 pt-4 pb-0">
             <div className="flex items-center justify-between mb-2">
-              <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">
+              <p className="text-[11px] font-semibold text-gray-600 uppercase tracking-wider">
                 Correspondence
               </p>
               <div className="flex items-center gap-1.5">
@@ -897,6 +898,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
                     setChatSearch('');
                     setTimeout(() => searchInputRef.current?.focus(), 50);
                   }}
+                  aria-label="Search messages"
                   className={`h-6 w-6 flex items-center justify-center rounded-md border transition-colors ${showSearch ? 'border-[#6C60FF] text-[#6C60FF] bg-purple-50' : 'border-gray-200 text-gray-400 hover:text-[#6C60FF] hover:border-[#6C60FF]'}`}
                 >
                   <Search className="w-3 h-3" />
@@ -921,7 +923,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
                   className="w-full h-8 pl-8 pr-3 text-sm border border-gray-200 rounded-lg bg-gray-50 outline-none focus:border-[#6C60FF] transition-colors placeholder:text-gray-400"
                 />
                 {chatSearch && (
-                  <button onClick={() => setChatSearch('')} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+                  <button onClick={() => setChatSearch('')} aria-label="Clear search" className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
                     <X className="w-3.5 h-3.5" />
                   </button>
                 )}
@@ -929,7 +931,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
             )}
 
             {isLoadingMessages ? (
-              <p className="text-sm text-gray-400 text-center py-10">Loading messages...</p>
+              <p className="text-sm text-gray-600 text-center py-10">Loading messages...</p>
             ) : (() => {
               const comments = lead.comments ?? [];
               const topLevelMessages = messages.filter((m) => !m.parent_message_id);
@@ -952,10 +954,10 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
                     <div className="h-6 w-6 rounded-full bg-gray-100 flex items-center justify-center shrink-0">
                       <Eye className="w-3 h-3 text-gray-400" />
                     </div>
-                    <span className="text-xs text-gray-400 flex-1">
-                      {firstName} viewed <span className="font-medium text-gray-500">"{lead.story.title}"</span>
+                    <span className="text-xs text-gray-600 flex-1">
+                      {firstName} viewed <span className="font-medium text-gray-600">"{lead.story.title}"</span>
                     </span>
-                    <span className="text-xs text-gray-400 shrink-0">{formatShortDate(lead.first_seen_at)}</span>
+                    <span className="text-xs text-gray-600 shrink-0">{formatShortDate(lead.first_seen_at)}</span>
                   </div>
 
                   {topLevel.map((item) => {
@@ -985,9 +987,9 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
                                 <div className="flex items-center justify-between gap-2">
                                   <span className="text-xs font-semibold text-gray-800">
                                     {c.user?.name || firstName}
-                                    <span className="font-normal text-gray-400"> · Comment</span>
+                                    <span className="font-normal text-gray-600"> · Comment</span>
                                   </span>
-                                  <span className="text-xs text-gray-400 shrink-0">{formatShortDate(c.created_at)}</span>
+                                  <span className="text-xs text-gray-600 shrink-0">{formatShortDate(c.created_at)}</span>
                                 </div>
                                 <div className="w-fit max-w-[90%] bg-gray-100 rounded-2xl rounded-tl-sm px-4 py-2.5 mt-1">
                                   <p className="text-sm text-gray-700 leading-relaxed">{c.description}</p>
@@ -1025,12 +1027,12 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
                                         onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleCommentReplySubmit(c); } }}
                                         placeholder={`Reply to ${firstName}...`}
                                         rows={2}
-                                        className="w-full text-sm text-gray-700 placeholder:text-gray-400 resize-none border-none outline-none bg-transparent px-3 pt-2.5 pb-1 leading-relaxed"
+                                        className="w-full text-sm text-gray-700 placeholder:text-gray-400 resize-none border-none outline-none bg-transparent px-3 pt-2.5 pb-1 leading-relaxed focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#6C60FF]"
                                       />
                                       <div className="flex items-center justify-end gap-2 px-3 pb-2">
                                         <button
                                           onClick={() => { setReplyingToCommentId(null); setReplyText(''); }}
-                                          className="text-xs text-gray-400 hover:text-gray-600"
+                                          className="text-xs text-gray-600 hover:text-gray-700"
                                         >
                                           Cancel
                                         </button>
@@ -1064,9 +1066,9 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
                                   <div className="flex items-center justify-between gap-2">
                                     <span className="text-xs font-semibold text-gray-800">
                                       {child.user?.name || firstName}
-                                      <span className="font-normal text-gray-400"> · Reply</span>
+                                      <span className="font-normal text-gray-600"> · Reply</span>
                                     </span>
-                                    <span className="text-xs text-gray-400 shrink-0">{formatShortDate(child.created_at)}</span>
+                                    <span className="text-xs text-gray-600 shrink-0">{formatShortDate(child.created_at)}</span>
                                   </div>
                                   <div className={`inline-block rounded-2xl rounded-tl-sm px-4 py-2.5 mt-1 max-w-[90%] ${isMyReply ? 'bg-[#6C60FF]' : 'bg-gray-100'}`}>
                                     <p className={`text-sm leading-relaxed ${isMyReply ? 'text-white' : 'text-gray-700'}`}>{child.description}</p>
@@ -1092,15 +1094,15 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
             the user) > no-contact (nothing to fix from this drawer) — each
             state fully replaces the composer with a single note. */}
         {lead.is_rollup ? (
-          <div className="border-t border-gray-200 px-4 py-3 bg-gray-50 text-center text-sm text-gray-400">
+          <div className="border-t border-gray-200 px-4 py-3 bg-gray-50 text-center text-sm text-gray-600">
             View only — managed by the property owner.
           </div>
         ) : isArchived ? (
-          <div className="border-t border-gray-200 px-4 py-3 bg-gray-50 text-center text-sm text-gray-400">
+          <div className="border-t border-gray-200 px-4 py-3 bg-gray-50 text-center text-sm text-gray-600">
             This lead is archived. Unarchive to send messages.
           </div>
         ) : !hasAnyContact && (
-          <div className="border-t border-gray-200 px-4 py-3 bg-gray-50 text-center text-sm text-gray-400">
+          <div className="border-t border-gray-200 px-4 py-3 bg-gray-50 text-center text-sm text-gray-600">
             No contact info on file for this lead.
           </div>
         )}
@@ -1114,7 +1116,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
               placeholder={`Send new message to ${firstName}...`}
               rows={3}
               maxLength={via === 'sms' ? SMS_MAX_BODY : undefined}
-              className="w-full text-sm text-gray-700 placeholder:text-gray-400 resize-none border-none outline-none bg-transparent leading-relaxed"
+              className="w-full text-sm text-gray-700 placeholder:text-gray-400 resize-none border-none outline-none bg-transparent leading-relaxed focus-visible:ring-2 focus-visible:ring-[#6C60FF] focus-visible:ring-offset-1"
             />
 
             {/* SMS character counter — only when via === 'sms' */}
@@ -1122,7 +1124,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
               const info = smsSegmentInfo(message);
               const isOverLimit = info.chars > SMS_MAX_BODY;
               const isAmber = info.segments > 3;
-              const textColor = isOverLimit ? 'text-red-500' : isAmber ? 'text-amber-500' : 'text-gray-400';
+              const textColor = isOverLimit ? 'text-red-500' : isAmber ? 'text-amber-500' : 'text-gray-600';
               const segmentLabel = info.segments === 1 ? 'SMS segment' : 'SMS segments';
               return (
                 <p className={`text-xs ${textColor} mt-1.5`}>
@@ -1141,11 +1143,12 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
                   >
                     <Paperclip className="w-3 h-3 shrink-0 text-gray-400" />
                     <span className="truncate">{f.name}</span>
-                    <span className="text-gray-400 shrink-0">{Math.ceil(f.size / 1024)} KB</span>
+                    <span className="text-gray-600 shrink-0">{Math.ceil(f.size / 1024)} KB</span>
                     <button
                       onClick={() => removeAttachment(i)}
                       className="text-gray-400 hover:text-gray-600 shrink-0"
                       title="Remove attachment"
+                      aria-label="Remove attachment"
                     >
                       <X className="w-3 h-3" />
                     </button>
@@ -1169,6 +1172,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
                 onClick={() => fileInputRef.current?.click()}
                 disabled={via === 'sms'}
                 title={via === 'sms' ? 'Attachments are available for email only' : 'Attach image or PDF (max 2 MB)'}
+                aria-label="Attach file"
                 className="p-1.5 text-gray-400 hover:text-gray-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 <Paperclip className="w-4 h-4" />
@@ -1179,6 +1183,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
                   onClick={() => setShowEmojiPicker((v) => !v)}
                   className={`p-1.5 transition-colors ${showEmojiPicker ? 'text-[#6C60FF]' : 'text-gray-400 hover:text-gray-600'}`}
                   title="Insert emoji"
+                  aria-label="Insert emoji"
                 >
                   <Smile className="w-4 h-4" />
                 </button>

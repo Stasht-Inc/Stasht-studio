@@ -128,10 +128,11 @@ export default function ConversationDrawer({ conversation, open, onClose }: Prop
             <div className="flex items-start justify-between gap-2">
               <div className="min-w-0">
                 <h2 id="conversation-drawer-title" className="text-base font-bold text-gray-900 leading-tight truncate">{owner.name}</h2>
-                <p className="text-xs text-gray-400 mt-1 truncate">Re: {conversation.story.title}</p>
+                <p className="text-xs text-gray-600 mt-1 truncate">Re: {conversation.story.title}</p>
               </div>
               <button
                 onClick={onClose}
+                aria-label="Close"
                 className="p-1 rounded-md hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors shrink-0"
               >
                 <X className="w-4 h-4" />
@@ -144,9 +145,9 @@ export default function ConversationDrawer({ conversation, open, onClose }: Prop
       {/* Thread */}
       <div className="flex-1 overflow-y-auto px-5 py-4">
         {isLoading ? (
-          <p className="text-sm text-gray-400 text-center py-10">Loading messages...</p>
+          <p className="text-sm text-gray-600 text-center py-10">Loading messages...</p>
         ) : sorted.length === 0 ? (
-          <p className="text-sm text-gray-400 text-center py-10">No messages yet.</p>
+          <p className="text-sm text-gray-600 text-center py-10">No messages yet.</p>
         ) : (
           sorted.map((m, idx) => {
             const isEmail = (m.channel || '').toLowerCase() === 'email';
@@ -154,13 +155,13 @@ export default function ConversationDrawer({ conversation, open, onClose }: Prop
               return (
                 <div key={m.id ?? idx} className="py-2 flex flex-col items-end">
                   <div className="flex items-center gap-1.5 mb-1">
-                    <span className="text-xs text-gray-400">{formatShortDate(m.sent_at)}</span>
+                    <span className="text-xs text-gray-600">{formatShortDate(m.sent_at)}</span>
                     <span className="text-xs font-semibold text-gray-700">You</span>
                   </div>
                   <div className="max-w-[82%] bg-[#6C60FF] text-white rounded-2xl rounded-tr-sm px-4 py-2.5">
                     <p className="text-sm leading-relaxed whitespace-pre-wrap break-words">{m.body}</p>
                   </div>
-                  <span className="text-[11px] text-gray-400 mt-1">via {channelLabel(m.channel)}</span>
+                  <span className="text-[11px] text-gray-600 mt-1">via {channelLabel(m.channel)}</span>
                 </div>
               );
             }
@@ -180,9 +181,9 @@ export default function ConversationDrawer({ conversation, open, onClose }: Prop
                     <div className="flex items-center justify-between gap-2">
                       <span className="text-xs font-semibold text-gray-800">
                         {owner.name}
-                        <span className="font-normal text-gray-400"> · {channelLabel(m.channel)}</span>
+                        <span className="font-normal text-gray-600"> · {channelLabel(m.channel)}</span>
                       </span>
-                      <span className="text-xs text-gray-400 shrink-0">{formatShortDate(m.sent_at)}</span>
+                      <span className="text-xs text-gray-600 shrink-0">{formatShortDate(m.sent_at)}</span>
                     </div>
                     <div className="w-fit max-w-[90%] bg-gray-100 rounded-2xl rounded-tl-sm px-4 py-2.5 mt-1">
                       <p className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap break-words">{m.body}</p>
@@ -205,7 +206,7 @@ export default function ConversationDrawer({ conversation, open, onClose }: Prop
             onKeyDown={handleKeyDown}
             placeholder={`Reply to ${owner.name.split(' ')[0]}...`}
             rows={3}
-            className="w-full text-sm text-gray-700 placeholder:text-gray-400 resize-none border-none outline-none bg-transparent leading-relaxed"
+            className="w-full text-sm text-gray-700 placeholder:text-gray-400 resize-none border-none outline-none bg-transparent leading-relaxed focus-visible:ring-2 focus-visible:ring-[#6C60FF] focus-visible:ring-offset-1"
           />
           <div className="flex items-center justify-end mt-2">
             <button

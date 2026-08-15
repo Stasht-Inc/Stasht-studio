@@ -148,10 +148,10 @@ function StatusSelect({ lead, onUpdate, disabled }: { lead: Lead; onUpdate: (id:
       onValueChange={(val) => onUpdate(lead.id, val === 'none' ? null : val as 'hot' | 'warm' | 'cold')}
     >
       <SelectTrigger
-        className={`h-6 text-xs font-medium rounded-md px-2 w-auto min-w-[68px] border shadow-none outline-none focus:ring-0 focus:outline-none ${
+        className={`h-6 text-xs font-medium rounded-md px-2 w-auto min-w-[68px] border shadow-none outline-none focus:ring-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#6C60FF] focus-visible:ring-offset-1 ${
           lead.status
             ? STATUS_TRIGGER_CLASS[lead.status]
-            : 'bg-white text-gray-500 border-gray-300 hover:bg-gray-50 focus:ring-0'
+            : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50 focus:ring-0'
         }`}
       >
         {lead.status === 'hot' && <span className="flex items-center gap-1.5"><img src="/hot-icon.svg" className="w-3 h-3.5" />Hot</span>}
@@ -201,7 +201,7 @@ function SummaryCardRow({ cards }: { cards: SummaryCardData[] }) {
     <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
       {cards.map((card) => (
         <div key={card.label} className="rounded-xl border border-gray-200 bg-white p-4">
-          <p className="text-xs font-medium text-gray-500">{card.label}</p>
+          <p className="text-xs font-medium text-gray-600">{card.label}</p>
           <p className={`text-2xl font-semibold text-gray-900 mt-1 ${card.valueClassName ?? ''}`}>{card.value}</p>
         </div>
       ))}
@@ -768,13 +768,13 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
       <div className="inline-flex items-center gap-1 bg-gray-100 rounded-lg p-1">
         <button
           onClick={() => { setLeadsView('leads'); onGroupSelect?.(null); onConversationSelect?.(null); }}
-          className={`h-8 px-4 rounded-md text-sm font-medium transition-colors ${leadsView === 'leads' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+          className={`h-8 px-4 rounded-md text-sm font-medium transition-colors ${leadsView === 'leads' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-700'}`}
         >
           Leads
         </button>
         <button
           onClick={() => { setLeadsView('groups'); onGroupSelect?.(null); onLeadSelect(null); onConversationSelect?.(null); }}
-          className={`h-8 px-4 rounded-md text-sm font-medium transition-colors flex items-center gap-1.5 ${leadsView === 'groups' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+          className={`h-8 px-4 rounded-md text-sm font-medium transition-colors flex items-center gap-1.5 ${leadsView === 'groups' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-700'}`}
         >
           Groups
           {leadGroups.length > 0 && (
@@ -785,7 +785,7 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
         </button>
         <button
           onClick={() => { setLeadsView('conversations'); onLeadSelect(null); onGroupSelect?.(null); onConversationSelect?.(null); fetchMyConversations(); }}
-          className={`h-8 px-4 rounded-md text-sm font-medium transition-colors flex items-center gap-1.5 ${leadsView === 'conversations' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+          className={`h-8 px-4 rounded-md text-sm font-medium transition-colors flex items-center gap-1.5 ${leadsView === 'conversations' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-700'}`}
         >
           My Conversations
           {conversationsUnread > 0 && (
@@ -817,7 +817,7 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
 
           {/* Status filter */}
           <Select value={statusFilter} onValueChange={handleStatusFilterChange}>
-            <SelectTrigger className="w-32 bg-white border-gray-200 h-9 text-sm shrink-0 !ring-0 !outline-none !shadow-none focus:!ring-0 focus-visible:!ring-0 focus-visible:!border-gray-200">
+            <SelectTrigger className="w-32 bg-white border-gray-200 h-9 text-sm shrink-0 !ring-0 !outline-none !shadow-none focus:!ring-0 focus-visible:!ring-2 focus-visible:!ring-[#6C60FF] focus-visible:!ring-offset-1">
               {statusFilter === 'hot' && <span className="flex items-center gap-1.5"><img src="/hot-icon.svg" className="w-3 h-3.5" />Hot</span>}
               {statusFilter === 'warm' && <span className="flex items-center gap-1.5"><img src="/warm-icon.svg" className="w-2 h-3.5" />Warm</span>}
               {statusFilter === 'cold' && <span className="flex items-center gap-1.5"><img src="/cold-icon.svg" className="w-3.5 h-3.5" />Cold</span>}
@@ -836,7 +836,7 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
 
           {/* Time filter — leads by first-seen period */}
           <Select value={timeFilter} onValueChange={(v) => setTimeFilter(v as typeof timeFilter)}>
-            <SelectTrigger className="w-32 bg-white border-gray-200 h-9 text-sm shrink-0 !ring-0 !outline-none !shadow-none focus:!ring-0 focus-visible:!ring-0 focus-visible:!border-gray-200">
+            <SelectTrigger className="w-32 bg-white border-gray-200 h-9 text-sm shrink-0 !ring-0 !outline-none !shadow-none focus:!ring-0 focus-visible:!ring-2 focus-visible:!ring-[#6C60FF] focus-visible:!ring-offset-1">
               <SelectValue placeholder="All Time" />
             </SelectTrigger>
             <SelectContent>
@@ -892,7 +892,7 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
                   </div>
                   <div className="min-w-0">
                     <p id="search-group-title" className="text-sm font-bold text-gray-900">Search Group Commentary</p>
-                    <p className="text-xs text-gray-400">Search messages and activity for the leads on this page</p>
+                    <p className="text-xs text-gray-600">Search messages and activity for the leads on this page</p>
                   </div>
                 </div>
 
@@ -910,6 +910,7 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
                     {groupQuery && (
                       <button
                         onClick={() => { setGroupQuery(''); groupInputRef.current?.focus(); }}
+                        aria-label="Clear search"
                         className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
                       >
                         <X className="w-4 h-4" />
@@ -923,12 +924,12 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
                   {isBuildingIndex ? (
                     <div className="flex items-center justify-center gap-2 py-10">
                       <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-[#6C60FF]" />
-                      <span className="text-sm text-gray-400">Loading messages...</span>
+                      <span className="text-sm text-gray-600">Loading messages...</span>
                     </div>
                   ) : !groupQ ? (
-                    <p className="text-sm text-gray-400 text-center py-10">Type to search messages &amp; comments…</p>
+                    <p className="text-sm text-gray-600 text-center py-10">Type to search messages &amp; comments…</p>
                   ) : groupResults.length === 0 ? (
-                    <p className="text-sm text-gray-400 text-center py-10">No results found</p>
+                    <p className="text-sm text-gray-600 text-center py-10">No results found</p>
                   ) : (
                     groupResults.map((r, idx) => (
                       <button
@@ -949,12 +950,12 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center justify-between gap-2">
                             <span className="text-sm font-semibold text-gray-900 truncate">{leadDisplayName(r.lead)}</span>
-                            <span className="text-xs text-gray-400 shrink-0">{r.meta}</span>
+                            <span className="text-xs text-gray-600 shrink-0">{r.meta}</span>
                           </div>
                           {r.title && (
                             <p className="text-xs font-medium text-gray-700 mt-0.5 truncate">{highlightMatch(r.title, groupQuery)}</p>
                           )}
-                          <p className="text-xs text-gray-500 mt-0.5 line-clamp-2">{highlightMatch(r.body, groupQuery)}</p>
+                          <p className="text-xs text-gray-600 mt-0.5 line-clamp-2">{highlightMatch(r.body, groupQuery)}</p>
                         </div>
                       </button>
                     ))
@@ -963,7 +964,7 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
 
                 {/* Footer count */}
                 {groupQ && !isBuildingIndex && (
-                  <div className="px-4 py-2.5 border-t border-gray-100 bg-gray-50 text-xs text-gray-500">
+                  <div className="px-4 py-2.5 border-t border-gray-100 bg-gray-50 text-xs text-gray-600">
                     {groupResults.length} result{groupResults.length === 1 ? '' : 's'} found across {groupLeadCount} leads on this page
                   </div>
                 )}
@@ -987,7 +988,7 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
                   </div>
                   <div className="min-w-0">
                     <p id="message-group-title" className="text-sm font-bold text-gray-900">Message Group</p>
-                    <p className="text-xs text-gray-400">Send a message to multiple leads</p>
+                    <p className="text-xs text-gray-600">Send a message to multiple leads</p>
                   </div>
                 </div>
 
@@ -1028,7 +1029,7 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
                     <span className="truncate">Select All ({mgSelected.size})</span>
                   </button>
                   <Select value={mgStatusFilter} onValueChange={setMgStatusFilter}>
-                    <SelectTrigger className="w-24 h-[42px] bg-white border-gray-200 text-sm shrink-0 !ring-0 !outline-none !shadow-none focus:!ring-0 focus-visible:!ring-0 focus-visible:!border-gray-200">
+                    <SelectTrigger className="w-24 h-[42px] bg-white border-gray-200 text-sm shrink-0 !ring-0 !outline-none !shadow-none focus:!ring-0 focus-visible:!ring-2 focus-visible:!ring-[#6C60FF] focus-visible:!ring-offset-1">
                       {mgStatusFilter === 'hot' && <span className="flex items-center gap-1.5"><img src="/hot-icon.svg" className="w-3 h-3.5" />Hot</span>}
                       {mgStatusFilter === 'warm' && <span className="flex items-center gap-1.5"><img src="/warm-icon.svg" className="w-2 h-3.5" />Warm</span>}
                       {mgStatusFilter === 'cold' && <span className="flex items-center gap-1.5"><img src="/cold-icon.svg" className="w-3.5 h-3.5" />Cold</span>}
@@ -1065,7 +1066,7 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
                         <div className="flex items-center justify-between gap-2 px-3 py-2.5 border-b border-gray-100">
                           <div className="flex items-center gap-1.5">
                             <Lightbulb className="w-3.5 h-3.5 text-[#6C60FF]" />
-                            <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">Suggested Actions</p>
+                            <p className="text-[11px] font-semibold text-gray-600 uppercase tracking-wider">Suggested Actions</p>
                           </div>
                           {mgAiCredits > 0 && (
                             <span className="flex items-center gap-1 px-2 h-6 rounded-full bg-purple-100 text-[#6C60FF] text-[11px] font-semibold shrink-0">
@@ -1091,7 +1092,7 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
                                 )}
                                 <div className="min-w-0">
                                   <p className="text-sm font-semibold text-gray-900">{a.title}</p>
-                                  <p className="text-xs text-gray-400">{isGenerating ? 'Generating…' : a.desc}</p>
+                                  <p className="text-xs text-gray-600">{isGenerating ? 'Generating…' : a.desc}</p>
                                 </div>
                               </button>
                             );
@@ -1108,12 +1109,12 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
                     {mgLoading ? (
                       <div className="flex items-center justify-center gap-2 py-8">
                         <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-[#6C60FF]" />
-                        <span className="text-sm text-gray-400">Loading leads...</span>
+                        <span className="text-sm text-gray-600">Loading leads...</span>
                       </div>
                     ) : mgLoadError ? (
                       <p className="text-sm text-red-500 text-center py-8">{mgLoadError}</p>
                     ) : mgFiltered.length === 0 ? (
-                      <p className="text-sm text-gray-400 text-center py-8">No leads found</p>
+                      <p className="text-sm text-gray-600 text-center py-8">No leads found</p>
                     ) : (
                       mgFiltered.map((lead) => {
                         const checked = mgSelected.has(lead.id);
@@ -1137,13 +1138,16 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
                                 {leadDisplayName(lead)}
                                 {!lead.user?.id && <GuestBadge />}
                               </div>
-                              <div className="text-xs text-gray-500 truncate">{leadDisplayEmail(lead)}</div>
+                              <div className="text-xs text-gray-600 truncate">{leadDisplayEmail(lead)}</div>
                             </div>
                             {lead.status && (
-                              <span className={`flex items-center justify-center h-6 w-7 rounded-md border shrink-0 ${STATUS_TRIGGER_CLASS[lead.status]}`}>
-                                {lead.status === 'hot' && <img src="/hot-icon.svg" className="w-3 h-3.5" />}
-                                {lead.status === 'warm' && <img src="/warm-icon.svg" className="w-2 h-3.5" />}
-                                {lead.status === 'cold' && <img src="/cold-icon.svg" className="w-3.5 h-3.5" />}
+                              <span
+                                aria-label={`${lead.status.charAt(0).toUpperCase()}${lead.status.slice(1)} lead`}
+                                className={`flex items-center justify-center h-6 w-7 rounded-md border shrink-0 ${STATUS_TRIGGER_CLASS[lead.status]}`}
+                              >
+                                {lead.status === 'hot' && <img src="/hot-icon.svg" className="w-3 h-3.5" alt="" />}
+                                {lead.status === 'warm' && <img src="/warm-icon.svg" className="w-2 h-3.5" alt="" />}
+                                {lead.status === 'cold' && <img src="/cold-icon.svg" className="w-3.5 h-3.5" alt="" />}
                               </span>
                             )}
                           </button>
@@ -1208,6 +1212,7 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
             onClick={() => fetchLeads()}
             disabled={isLoading}
             title="Refresh leads"
+            aria-label="Refresh leads"
             className="h-9 w-9 flex items-center justify-center rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 hover:text-[#6C60FF] transition-colors shrink-0 disabled:opacity-40"
           >
             <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
@@ -1238,7 +1243,7 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
                   <td colSpan={7} className="px-6 py-12 text-center">
                     <div className="flex items-center justify-center gap-2">
                       <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-[#6C60FF]" />
-                      <span className="text-sm text-gray-500">Loading leads...</span>
+                      <span className="text-sm text-gray-600">Loading leads...</span>
                     </div>
                   </td>
                 </tr>
@@ -1249,7 +1254,7 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
               ) : displayLeads.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="px-6 py-16 text-center">
-                    <p className="text-sm text-gray-400">No leads found</p>
+                    <p className="text-sm text-gray-600">No leads found</p>
                     {hasActiveFilters && (
                       <button onClick={handleClear} className="mt-2 text-xs text-[#6C60FF] hover:underline">
                         Clear filters
@@ -1282,8 +1287,8 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
                             {leadDisplayName(lead)}
                             {!lead.user?.id && <GuestBadge />}
                           </div>
-                          <div className={`text-gray-500 ${compact ? 'text-xs' : 'text-sm'}`}>{leadDisplayEmail(lead)}</div>
-                          <div className={`text-gray-400 mt-0.5 ${compact ? 'text-xs' : 'text-sm'}`}>Via: {lead.story.title}</div>
+                          <div className={`text-gray-600 ${compact ? 'text-xs' : 'text-sm'}`}>{leadDisplayEmail(lead)}</div>
+                          <div className={`text-gray-600 mt-0.5 ${compact ? 'text-xs' : 'text-sm'}`}>Via: {lead.story.title}</div>
                         </div>
                       </div>
                     </td>
@@ -1331,13 +1336,13 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
                     <td className={`px-4 ${compact ? 'py-1.5' : 'py-2.5'} text-right`} onClick={(e) => e.stopPropagation()}>
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
-                          <button className="p-1.5 rounded-md hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors">
+                          <button aria-label="More actions" className="p-1.5 rounded-md hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors">
                             <MoreHorizontal className="w-4 h-4" />
                           </button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end" className="w-40 bg-white border border-gray-200 shadow-lg">
                           {lead.is_rollup ? (
-                            <DropdownMenuLabel className="text-xs font-normal text-gray-400">View only</DropdownMenuLabel>
+                            <DropdownMenuLabel className="text-xs font-normal text-gray-600">View only</DropdownMenuLabel>
                           ) : (
                             <>
                               <DropdownMenuItem onClick={() => handleArchiveLead(lead.id)} className="cursor-pointer text-sm flex items-center gap-2">
@@ -1365,14 +1370,14 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
             <div className="px-4 py-12 text-center">
               <div className="flex items-center justify-center gap-2">
                 <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-[#6C60FF]" />
-                <span className="text-sm text-gray-500">Loading leads...</span>
+                <span className="text-sm text-gray-600">Loading leads...</span>
               </div>
             </div>
           ) : error ? (
             <div className="px-4 py-8 text-center text-red-500 text-sm">{error}</div>
           ) : displayLeads.length === 0 ? (
             <div className="px-4 py-12 text-center">
-              <p className="text-sm text-gray-400">No leads found</p>
+              <p className="text-sm text-gray-600">No leads found</p>
               {hasActiveFilters && (
                 <button onClick={handleClear} className="mt-2 text-xs text-[#6C60FF] hover:underline">Clear filters</button>
               )}
@@ -1393,19 +1398,19 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
                         {leadDisplayName(lead)}
                         {!lead.user?.id && <GuestBadge />}
                       </div>
-                      <div className="text-xs text-gray-500">{leadDisplayEmail(lead)}</div>
-                      <div className="text-xs text-gray-400 mt-0.5">Via: {lead.story.title}</div>
+                      <div className="text-xs text-gray-600">{leadDisplayEmail(lead)}</div>
+                      <div className="text-xs text-gray-600 mt-0.5">Via: {lead.story.title}</div>
                     </div>
                   </div>
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
-                      <button className="p-1.5 rounded-md hover:bg-gray-100 text-gray-400" onClick={(e) => e.stopPropagation()}>
+                      <button aria-label="More actions" className="p-1.5 rounded-md hover:bg-gray-100 text-gray-400" onClick={(e) => e.stopPropagation()}>
                         <MoreHorizontal className="w-4 h-4" />
                       </button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end" className="w-40 bg-white border border-gray-200 shadow-lg">
                       {lead.is_rollup ? (
-                        <DropdownMenuLabel className="text-xs font-normal text-gray-400">View only</DropdownMenuLabel>
+                        <DropdownMenuLabel className="text-xs font-normal text-gray-600">View only</DropdownMenuLabel>
                       ) : (
                         <>
                           <DropdownMenuItem onClick={() => handleArchiveLead(lead.id)} className="cursor-pointer text-sm flex items-center gap-2">
@@ -1424,7 +1429,7 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
                   <div onClick={(e) => e.stopPropagation()}>
                     <StatusSelect lead={lead} onUpdate={handleUpdateStatus} disabled={updatingId === lead.id || !!lead.is_rollup} />
                   </div>
-                  <span className="text-xs text-gray-500">{lead.engagement} views</span>
+                  <span className="text-xs text-gray-600">{lead.engagement} views</span>
                   <button
                     onClick={() => onLeadSelect(lead)}
                     className="flex items-center gap-1 hover:opacity-75 transition-opacity"
@@ -1439,7 +1444,7 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
                   </button>
                 </div>
 
-                <div className="flex items-center gap-4 text-xs text-gray-500">
+                <div className="flex items-center gap-4 text-xs text-gray-600">
                   <div className="flex items-center gap-1">
                     <Clock className="w-3 h-3" />
                     {getTimeAgo(lead.last_engaged_at)}
@@ -1454,7 +1459,7 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
         {/* Pagination footer */}
         {!isLoading && !error && total > 0 && (
           <div className="flex items-center justify-between gap-3 px-4 sm:px-6 py-3 border-t border-gray-100">
-            <span className="text-xs sm:text-sm text-gray-500">
+            <span className="text-xs sm:text-sm text-gray-600">
               Showing {(page - 1) * perPage + 1}–{Math.min(page * perPage, total)} of {total}
             </span>
             <div className="flex items-center gap-2">
@@ -1465,7 +1470,7 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
               >
                 Prev
               </button>
-              <span className="text-xs text-gray-500 whitespace-nowrap">Page {page} of {totalPages}</span>
+              <span className="text-xs text-gray-600 whitespace-nowrap">Page {page} of {totalPages}</span>
               <button
                 onClick={() => handlePageChange(page + 1)}
                 disabled={page >= totalPages}
@@ -1487,7 +1492,7 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
                 <Users className="w-6 h-6 text-[#6C60FF]" />
               </span>
               <p className="text-sm font-medium text-gray-700">No groups yet</p>
-              <p className="text-xs text-gray-400 mt-1">Create one from the Leads tab using "Message Group".</p>
+              <p className="text-xs text-gray-600 mt-1">Create one from the Leads tab using "Message Group".</p>
             </div>
           ) : (
             <>
@@ -1564,7 +1569,7 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
                         </span>
                         <div className="min-w-0 flex-1">
                           <div className="text-sm font-semibold text-gray-900 truncate">{g.name}</div>
-                          <div className="text-xs text-gray-500 mt-0.5">
+                          <div className="text-xs text-gray-600 mt-0.5">
                             {g.member_count} member{g.member_count === 1 ? '' : 's'} · {formatDate(g.created_at)}
                           </div>
                         </div>
@@ -1595,7 +1600,7 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
           {isLoadingConversations ? (
             <div className="flex items-center justify-center gap-2 py-16">
               <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-[#6C60FF]" />
-              <span className="text-sm text-gray-500">Loading conversations...</span>
+              <span className="text-sm text-gray-600">Loading conversations...</span>
             </div>
           ) : conversations.length === 0 ? (
             <div className="text-center py-16">
@@ -1603,7 +1608,7 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
                 <MessageSquare className="w-6 h-6 text-[#6C60FF]" />
               </span>
               <p className="text-sm font-medium text-gray-700">No conversations yet</p>
-              <p className="text-xs text-gray-400 mt-1">Messages with campaign owners will appear here.</p>
+              <p className="text-xs text-gray-600 mt-1">Messages with campaign owners will appear here.</p>
             </div>
           ) : (
             <div className="divide-y divide-gray-100">
@@ -1624,12 +1629,12 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between gap-2">
                         <span className="text-sm font-semibold text-gray-900 truncate">{c.owner.name}</span>
-                        <span className="text-xs text-gray-400 shrink-0">{getTimeAgo(c.last_message_at)}</span>
+                        <span className="text-xs text-gray-600 shrink-0">{getTimeAgo(c.last_message_at)}</span>
                       </div>
-                      <div className="text-xs text-gray-400 truncate">Re: {c.story.title}</div>
+                      <div className="text-xs text-gray-600 truncate">Re: {c.story.title}</div>
                       {lm && (
-                        <div className="text-xs text-gray-500 truncate mt-0.5">
-                          {lm.from_me && <span className="text-gray-400">You: </span>}{lm.body}
+                        <div className="text-xs text-gray-600 truncate mt-0.5">
+                          {lm.from_me && <span className="text-gray-600">You: </span>}{lm.body}
                         </div>
                       )}
                     </div>
