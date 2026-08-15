@@ -388,6 +388,7 @@ export default function GroupDetailDrawer({ groupId, open, onClose }: Props) {
                   )}
                   {m.status && (
                     <span
+                      role="img"
                       aria-label={`${m.status.charAt(0).toUpperCase()}${m.status.slice(1)} lead`}
                       className={`flex items-center justify-center h-6 w-7 rounded-md border shrink-0 ${STATUS_STYLES[m.status]}`}
                     >

@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useLayoutEffect, useRef } from 'react';
 
 /**
  * Dialog semantics for a hand-rolled panel: Escape-to-close, focus moved into
@@ -16,7 +16,25 @@ export function useDialogBehavior(opts: {
   const onCloseRef = useRef(opts.onClose);
   onCloseRef.current = opts.onClose;
 
-  useEffect(() => {
+  // useLayoutEffect (not useEffect) is load-bearing here, for two reasons:
+  //
+  // 1. Focus-return on close depends on it. React runs useEffect cleanups for
+  //    an unmounting subtree AFTER the DOM has already been detached — by the
+  //    time our cleanup below checks `panel.contains(document.activeElement)`,
+  //    the panel node is gone, the browser has already forced focus back to
+  //    document.body, and the check is always false, silently no-opping
+  //    `openerRef.current?.focus()` on every close path. useLayoutEffect
+  //    cleanups run synchronously during the mutation phase, BEFORE React
+  //    detaches the subtree, so the containment check still sees the real
+  //    DOM and the opener reliably regains focus.
+  // 2. Initial focus-into-panel then also happens pre-paint instead of
+  //    post-paint, which is a strict improvement (no visible flash of focus
+  //    landing on the wrong element).
+  //
+  // Do not "simplify" this back to useEffect — it will silently break focus
+  // return without any visible error, since nothing throws when the guard
+  // is always false.
+  useLayoutEffect(() => {
     if (!opts.open) return;
     openerRef.current = document.activeElement as HTMLElement | null;
 
@@ -26,9 +44,17 @@ export function useDialogBehavior(opts: {
     const focusables = () =>
       Array.from(
         panel.querySelectorAll<HTMLElement>(
-          'a[href], button:not([disabled]), textarea, input, select, [tabindex]:not([tabindex="-1"])'
+          'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
         )
-      );
+      ).filter((el) => el.offsetParent !== null);
+      // offsetParent !== null excludes display:none (and detached) elements —
+      // e.g. LeadDetailDrawer's composer container toggles class `hidden` for
+      // archived/rollup/no-contact leads, which would otherwise leave hidden
+      // buttons as the last DOM matches and let Tab escape the trap after the
+      // last visible control. This treats position:fixed descendants as
+      // "visible enough" too (offsetParent is null for those even when shown),
+      // which is an acceptable false-negative for this panel context since
+      // none of these drawers currently position focusable children fixed.
 
     (focusables()[0] ?? panel).focus();
 

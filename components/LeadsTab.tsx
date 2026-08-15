@@ -1142,6 +1142,7 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
                             </div>
                             {lead.status && (
                               <span
+                                role="img"
                                 aria-label={`${lead.status.charAt(0).toUpperCase()}${lead.status.slice(1)} lead`}
                                 className={`flex items-center justify-center h-6 w-7 rounded-md border shrink-0 ${STATUS_TRIGGER_CLASS[lead.status]}`}
                               >
