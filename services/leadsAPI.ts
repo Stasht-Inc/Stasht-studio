@@ -1,13 +1,25 @@
 import { apiRequest, isPartialAdmin, getPartialAdminEmail } from '../utils/authUtils';
 
+// Fail closed: a session flagged as partial-admin with no email on record is
+// corrupted, not "not partial admin" — sending nothing here would let the
+// request run unscoped as the full owner. Surface it as an error instead of
+// silently escalating access.
+const requirePartialAdminEmail = (): string => {
+  const email = getPartialAdminEmail();
+  if (!email) {
+    throw new Error('Partial admin session is missing its email — please sign in again.');
+  }
+  return email;
+};
+
 // Extra body fields for scoped partial-admin sessions — {} otherwise.
 const partialAdminBody = (): Record<string, string> =>
-  isPartialAdmin() ? { partial_admin_email: getPartialAdminEmail() } : {};
+  isPartialAdmin() ? { partial_admin_email: requirePartialAdminEmail() } : {};
 
 // Query-string suffix ("&partial_admin_email=..." or "?partial_admin_email=..." or "")
 // for GET/DELETE endpoints. Pass '?' when the URL has no existing query string.
 const partialAdminQuery = (sep: '?' | '&' = '&'): string =>
-  isPartialAdmin() ? `${sep}partial_admin_email=${encodeURIComponent(getPartialAdminEmail())}` : '';
+  isPartialAdmin() ? `${sep}partial_admin_email=${encodeURIComponent(requirePartialAdminEmail())}` : '';
 
 export interface LeadUser {
   // null for guest leads (photo submitted from a published page, no account) —
