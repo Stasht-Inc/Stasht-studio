@@ -160,7 +160,13 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
   const composeInputRef = useRef<HTMLTextAreaElement>(null);
   // Idempotency keys: one per compose site, regenerated only after a confirmed
   // send, reused on failure/retry so a duplicate request dedupes server-side.
-  const idemKeyRef = useRef<string>(crypto.randomUUID());
+  // Backend dedup is keyed (lead_id, idempotency_key) — NOT channel-scoped —
+  // so SMS and Email need separate refs; sharing one ref lets an ambiguous
+  // SMS failure's key collide with a later, different-content Email send on
+  // the same lead (the server replays the old SMS row as a 200 for the new
+  // Email request and the new content is silently dropped).
+  const smsIdemKeyRef = useRef<string>(crypto.randomUUID());
+  const emailIdemKeyRef = useRef<string>(crypto.randomUUID());
   const replyIdemKeyRef = useRef<string>(crypto.randomUUID());
   const [replyingToMsgId, setReplyingToMsgId] = useState<number | null>(null);
   const [replyText, setReplyText] = useState('');
@@ -196,7 +202,8 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
       setAttachments([]);
       isInitialLoad.current = true;
       // Fresh compose session for this lead — new idempotency keys.
-      idemKeyRef.current = crypto.randomUUID();
+      smsIdemKeyRef.current = crypto.randomUUID();
+      emailIdemKeyRef.current = crypto.randomUUID();
       replyIdemKeyRef.current = crypto.randomUUID();
       if (scrollBodyRef.current) scrollBodyRef.current.scrollTop = 0;
       fetchMessages(lead.id);
@@ -292,7 +299,9 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
     if (!canSend) return;
     setIsSending(true);
     try {
-      const key = idemKeyRef.current;
+      // Per-channel keys — the backend dedupes on (lead_id, idempotency_key)
+      // with no channel dimension, so SMS and Email must never share one.
+      const key = via === 'sms' ? smsIdemKeyRef.current : emailIdemKeyRef.current;
       let res;
       if (via === 'sms') {
         res = await leadsAPI.sendSMS(lead!.id, message.trim(), key);
@@ -303,7 +312,9 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
         res = await leadsAPI.sendEmail(lead!.id, subject.trim() || 'Following up', message.trim(), encoded, key);
       }
       if (res.success) {
-        idemKeyRef.current = crypto.randomUUID(); // confirmed success → fresh key for the next compose
+        // confirmed success → fresh key for the next compose on THIS channel only
+        if (via === 'sms') smsIdemKeyRef.current = crypto.randomUUID();
+        else emailIdemKeyRef.current = crypto.randomUUID();
         setMessage('');
         setSubject('');
         setAttachments([]);
