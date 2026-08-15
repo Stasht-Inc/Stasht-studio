@@ -13,6 +13,8 @@ export function useDialogBehavior(opts: {
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
   const openerRef = useRef<HTMLElement | null>(null);
+  const onCloseRef = useRef(opts.onClose);
+  onCloseRef.current = opts.onClose;
 
   useEffect(() => {
     if (!opts.open) return;
@@ -33,7 +35,7 @@ export function useDialogBehavior(opts: {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         e.stopPropagation();
-        opts.onClose();
+        onCloseRef.current();
         return;
       }
       if (e.key !== 'Tab') return;
