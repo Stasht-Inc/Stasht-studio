@@ -103,6 +103,42 @@ interface CommentaryEntry {
   date: string;
 }
 
+// Sortable desktop-table column header: a button that cycles asc → desc →
+// default, with an inline chevron on the active column and aria-sort on the
+// <th> for assistive tech (sub-plan #4 builds further accessibility on this).
+function SortableTh({
+  label,
+  field,
+  activeField,
+  direction,
+  onSort,
+}: {
+  label: string;
+  field: 'name' | 'last_engaged' | 'status';
+  activeField: 'name' | 'last_engaged' | 'status' | null;
+  direction: 'asc' | 'desc';
+  onSort: (field: 'name' | 'last_engaged' | 'status') => void;
+}) {
+  const isActive = activeField === field;
+  return (
+    <th
+      className="px-6 py-3 text-left text-sm font-bold text-gray-700"
+      aria-sort={isActive ? (direction === 'asc' ? 'ascending' : 'descending') : 'none'}
+    >
+      <button
+        type="button"
+        onClick={() => onSort(field)}
+        className="flex items-center gap-1 hover:text-[#6C60FF] transition-colors"
+      >
+        {label}
+        <span className={`text-[10px] ${isActive ? 'text-[#6C60FF]' : 'text-gray-300'}`}>
+          {isActive ? (direction === 'asc' ? '▲' : '▼') : '▲'}
+        </span>
+      </button>
+    </th>
+  );
+}
+
 function StatusSelect({ lead, onUpdate, disabled }: { lead: Lead; onUpdate: (id: number, status: 'hot' | 'warm' | 'cold' | null) => void; disabled: boolean }) {
   return (
     <Select
@@ -156,7 +192,16 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
   const [updatingId, setUpdatingId] = useState<number | null>(null);
   const searchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Search Group (global commentary search across all leads)
+  // Sorting + pagination — backend params already exist (Task M1); this state
+  // drives them. `sortField` null = default backend ordering (last_engaged desc).
+  const [sortField, setSortField] = useState<'name' | 'last_engaged' | 'status' | null>(null);
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
+  const [page, setPage] = useState(1);
+  const perPage = 50;
+  const [total, setTotal] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
+
+  // Search Group (commentary search across the currently loaded leads page)
   const [showSearchGroup, setShowSearchGroup] = useState(false);
   const [groupQuery, setGroupQuery] = useState('');
   const [commentaryEntries, setCommentaryEntries] = useState<CommentaryEntry[]>([]);
@@ -189,9 +234,11 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
         });
       });
 
-      // Messages — one request per lead. Concurrency-capped: `leads` is the full
-      // unpaginated list, so an unbounded Promise.all here fires one request per
-      // lead in the same tick and trips the backend rate limiter on big accounts.
+      // Messages — one request per lead. `leads` is now the current page only
+      // (<= per_page, default 50) rather than the full unpaginated list — the
+      // index only covers what's loaded on this page. Still concurrency-capped:
+      // an unbounded Promise.all here would fire up to `per_page` requests in
+      // the same tick and trip the backend rate limiter.
       const fetched = await mapLimit(leads, async (lead) => {
         try {
           const res = await leadsAPI.getMessages(lead.id);
@@ -367,13 +414,25 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
     }
   };
 
-  const fetchLeads = async (search?: string, status?: string) => {
+  const fetchLeads = async (
+    search?: string,
+    status?: string,
+    sort?: 'name' | 'last_engaged' | 'status' | null,
+    direction?: 'asc' | 'desc',
+    pageNum?: number,
+  ) => {
     setIsLoading(true);
     setError(null);
     try {
+      const effectiveSort = sort !== undefined ? sort : sortField;
+      const effectiveDirection = direction ?? sortDirection;
+      const effectivePage = pageNum ?? page;
       const res = await leadsAPI.getLeads({
         search: search ?? searchQuery,
         status: status ?? statusFilter,
+        ...(effectiveSort ? { sort: effectiveSort, direction: effectiveDirection } : {}),
+        page: effectivePage,
+        per_page: perPage,
       });
       if (res.success && res.data) {
         // Guest leads (no account) and rollup leads are rendered, not dropped —
@@ -381,6 +440,8 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
         const rawLeads = res.data.leads ?? [];
         const freshLeads = rawLeads.filter((l) => l != null);
         setLeads(freshLeads);
+        setTotal(res.data.total ?? 0);
+        setTotalPages(res.data.meta?.total_pages ?? 1);
         onLeadsRefreshed?.(freshLeads);
       } else {
         setError(res.error || 'Failed to load leads');
@@ -447,21 +508,49 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
 
   const handleSearchChange = (value: string) => {
     setSearchQuery(value);
+    setPage(1);
     if (searchTimeout.current) clearTimeout(searchTimeout.current);
-    searchTimeout.current = setTimeout(() => fetchLeads(value, statusFilter), 300);
+    searchTimeout.current = setTimeout(() => fetchLeads(value, statusFilter, undefined, undefined, 1), 300);
   };
 
   const handleStatusFilterChange = (value: string) => {
     setStatusFilter(value);
-    fetchLeads(searchQuery, value);
+    setPage(1);
+    fetchLeads(searchQuery, value, undefined, undefined, 1);
     onFilterChange?.(value);
+  };
+
+  // Cycles a column through asc → desc → default (unsorted, back to the
+  // backend's default last_engaged-desc ordering). Sorting always jumps back
+  // to page 1 so the user isn't left staring at an out-of-range page.
+  const handleSort = (field: 'name' | 'last_engaged' | 'status') => {
+    let nextField: 'name' | 'last_engaged' | 'status' | null = field;
+    let nextDirection: 'asc' | 'desc' = 'asc';
+    if (sortField === field) {
+      if (sortDirection === 'asc') {
+        nextDirection = 'desc';
+      } else {
+        nextField = null;
+      }
+    }
+    setSortField(nextField);
+    setSortDirection(nextDirection);
+    setPage(1);
+    fetchLeads(searchQuery, statusFilter, nextField, nextDirection, 1);
+  };
+
+  const handlePageChange = (newPage: number) => {
+    if (newPage < 1 || newPage > totalPages || newPage === page) return;
+    setPage(newPage);
+    fetchLeads(searchQuery, statusFilter, sortField, sortDirection, newPage);
   };
 
   const handleClear = () => {
     setSearchQuery('');
     setStatusFilter('all');
     setTimeFilter('all');
-    fetchLeads('', 'all');
+    setPage(1);
+    fetchLeads('', 'all', sortField, sortDirection, 1);
   };
 
   const handleDeleteLead = async (leadId: number) => {
@@ -966,11 +1055,11 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
           <table className="w-full">
             <thead>
               <tr className="border-b border-gray-100">
-                <th className="px-6 py-3 text-left text-sm font-bold text-gray-700">Lead</th>
-                <th className="px-6 py-3 text-left text-sm font-bold text-gray-700">Status</th>
+                <SortableTh label="Lead" field="name" activeField={sortField} direction={sortDirection} onSort={handleSort} />
+                <SortableTh label="Status" field="status" activeField={sortField} direction={sortDirection} onSort={handleSort} />
                 <th className="px-6 py-3 text-left text-sm font-bold text-gray-700">Viewed Campaigns</th>
                 <th className="px-6 py-3 text-left text-sm font-bold text-gray-700">Messages</th>
-                <th className="px-6 py-3 text-left text-sm font-bold text-gray-700">Last Engaged</th>
+                <SortableTh label="Last Engaged" field="last_engaged" activeField={sortField} direction={sortDirection} onSort={handleSort} />
                 <th className="px-6 py-3 text-left text-sm font-bold text-gray-700">First Seen</th>
                 <th className="px-6 py-3" />
               </tr>
@@ -1193,6 +1282,32 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
             ))
           )}
         </div>
+
+        {/* Pagination footer */}
+        {!isLoading && !error && total > 0 && (
+          <div className="flex items-center justify-between gap-3 px-4 sm:px-6 py-3 border-t border-gray-100">
+            <span className="text-xs sm:text-sm text-gray-500">
+              Showing {(page - 1) * perPage + 1}–{Math.min(page * perPage, total)} of {total}
+            </span>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => handlePageChange(page - 1)}
+                disabled={page <= 1}
+                className="h-8 px-3 rounded-md border border-gray-200 text-gray-600 text-xs font-medium hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent transition-colors"
+              >
+                Prev
+              </button>
+              <span className="text-xs text-gray-500 whitespace-nowrap">Page {page} of {totalPages}</span>
+              <button
+                onClick={() => handlePageChange(page + 1)}
+                disabled={page >= totalPages}
+                className="h-8 px-3 rounded-md border border-gray-200 text-gray-600 text-xs font-medium hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent transition-colors"
+              >
+                Next
+              </button>
+            </div>
+          </div>
+        )}
       </div>
       </>
       ) : leadsView === 'groups' ? (

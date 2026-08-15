@@ -97,9 +97,17 @@ export interface Lead {
   is_rollup?: boolean;
 }
 
+// Present only when the request sent `page` — the backend omits it otherwise.
+export interface LeadsMeta {
+  page: number;
+  per_page: number;
+  total_pages: number;
+}
+
 export interface LeadsResponse {
   total: number;
   leads: Lead[];
+  meta?: LeadsMeta;
 }
 
 // Points the lead drawer at a specific message/comment to scroll-to + highlight.
@@ -202,7 +210,14 @@ export interface ConversationMessage {
 }
 
 export const leadsAPI = {
-  getLeads: async (params?: { search?: string; status?: string }) => {
+  getLeads: async (params?: {
+    search?: string;
+    status?: string;
+    sort?: 'name' | 'last_engaged' | 'first_seen' | 'status';
+    direction?: 'asc' | 'desc';
+    page?: number;
+    per_page?: number;
+  }) => {
     const query = new URLSearchParams();
     if (params?.search?.trim()) query.append('search', params.search.trim());
     if (params?.status === 'archived') {
@@ -210,6 +225,10 @@ export const leadsAPI = {
     } else if (params?.status && params.status !== 'all') {
       query.append('status', params.status);
     }
+    if (params?.sort) query.append('sort', params.sort);
+    if (params?.direction) query.append('direction', params.direction);
+    if (params?.page != null) query.append('page', String(params.page));
+    if (params?.per_page != null) query.append('per_page', String(params.per_page));
     if (isPartialAdmin()) query.append('partial_admin_email', getPartialAdminEmail());
     const url = `/leads${query.toString() ? `?${query.toString()}` : ''}`;
     return apiRequest<LeadsResponse>(url, { method: 'GET' });
