@@ -6,7 +6,7 @@ import { Input } from './ui/input';
 import { Button } from './ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from './ui/avatar';
 import { Select, SelectContent, SelectItem, SelectSeparator, SelectTrigger, SelectValue } from './ui/select';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from './ui/dropdown-menu';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger } from './ui/dropdown-menu';
 import { leadsAPI, Lead, LeadMessage, CommentaryTarget, LeadGroupSummary, LeadGroup, Conversation } from '../services/leadsAPI';
 import { mapLimit } from '../utils/requestLimit';
 
@@ -1033,7 +1033,7 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
 
                     {/* Status */}
                     <td className={`px-4 ${compact ? 'py-1.5' : 'py-2.5'}`} onClick={(e) => e.stopPropagation()}>
-                      <StatusSelect lead={lead} onUpdate={handleUpdateStatus} disabled={updatingId === lead.id} />
+                      <StatusSelect lead={lead} onUpdate={handleUpdateStatus} disabled={updatingId === lead.id || !!lead.is_rollup} />
                     </td>
 
                     {/* Viewed Campaigns */}
@@ -1079,12 +1079,18 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
                           </button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end" className="w-40 bg-white border border-gray-200 shadow-lg">
-                          <DropdownMenuItem onClick={() => handleArchiveLead(lead.id)} className="cursor-pointer text-sm flex items-center gap-2">
-                            <Archive className="w-3.5 h-3.5" />{statusFilter === 'archived' ? 'Unarchive' : 'Archive'}
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => handleDeleteLead(lead.id)} className="cursor-pointer text-sm text-red-600 focus:text-red-600 flex items-center gap-2">
-                            <Trash2 className="w-3.5 h-3.5" />Delete
-                          </DropdownMenuItem>
+                          {lead.is_rollup ? (
+                            <DropdownMenuLabel className="text-xs font-normal text-gray-400">View only</DropdownMenuLabel>
+                          ) : (
+                            <>
+                              <DropdownMenuItem onClick={() => handleArchiveLead(lead.id)} className="cursor-pointer text-sm flex items-center gap-2">
+                                <Archive className="w-3.5 h-3.5" />{statusFilter === 'archived' ? 'Unarchive' : 'Archive'}
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => handleDeleteLead(lead.id)} className="cursor-pointer text-sm text-red-600 focus:text-red-600 flex items-center gap-2">
+                                <Trash2 className="w-3.5 h-3.5" />Delete
+                              </DropdownMenuItem>
+                            </>
+                          )}
                         </DropdownMenuContent>
                       </DropdownMenu>
                     </td>
@@ -1141,19 +1147,25 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
                       </button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end" className="w-40 bg-white border border-gray-200 shadow-lg">
-                      <DropdownMenuItem onClick={() => handleArchiveLead(lead.id)} className="cursor-pointer text-sm flex items-center gap-2">
-                        <Archive className="w-3.5 h-3.5" />{statusFilter === 'archived' ? 'Unarchive' : 'Archive'}
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => handleDeleteLead(lead.id)} className="cursor-pointer text-sm text-red-600 focus:text-red-600 flex items-center gap-2">
-                        <Trash2 className="w-3.5 h-3.5" />Delete
-                      </DropdownMenuItem>
+                      {lead.is_rollup ? (
+                        <DropdownMenuLabel className="text-xs font-normal text-gray-400">View only</DropdownMenuLabel>
+                      ) : (
+                        <>
+                          <DropdownMenuItem onClick={() => handleArchiveLead(lead.id)} className="cursor-pointer text-sm flex items-center gap-2">
+                            <Archive className="w-3.5 h-3.5" />{statusFilter === 'archived' ? 'Unarchive' : 'Archive'}
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => handleDeleteLead(lead.id)} className="cursor-pointer text-sm text-red-600 focus:text-red-600 flex items-center gap-2">
+                            <Trash2 className="w-3.5 h-3.5" />Delete
+                          </DropdownMenuItem>
+                        </>
+                      )}
                     </DropdownMenuContent>
                   </DropdownMenu>
                 </div>
 
                 <div className="flex items-center gap-2 flex-wrap">
                   <div onClick={(e) => e.stopPropagation()}>
-                    <StatusSelect lead={lead} onUpdate={handleUpdateStatus} disabled={updatingId === lead.id} />
+                    <StatusSelect lead={lead} onUpdate={handleUpdateStatus} disabled={updatingId === lead.id || !!lead.is_rollup} />
                   </div>
                   <span className="text-xs text-gray-500">{lead.engagement} views</span>
                   <button
