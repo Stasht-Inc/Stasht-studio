@@ -1,6 +1,7 @@
 ﻿import React, { useState, useEffect, useRef } from 'react';
 import { Search, X, MoreHorizontal, MessageSquare, Clock, RefreshCw, Trash2, Archive, Check, Send, Users, ChevronLeft, Sparkles, Heart, Gift, Calendar, MessageCircle, ThumbsUp, TrendingUp, Lightbulb, UserRound } from 'lucide-react';
 import { useMemoryLimit, recheckMemoryLimit } from '../hooks/useMemoryLimit';
+import { useDialogBehavior } from '../hooks/useDialogBehavior';
 import { toast } from 'sonner';
 import { Input } from './ui/input';
 import { Button } from './ui/button';
@@ -351,6 +352,24 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
   const { limitData } = useMemoryLimit();
   const [mgAiCredits, setMgAiCredits] = useState<number>(limitData.ai_connects ?? 0);
   useEffect(() => { setMgAiCredits(limitData.ai_connects ?? 0); }, [limitData.ai_connects]);
+
+  // Both popovers are conditionally rendered ({showXGroup && (...)}) rather
+  // than always-mounted-but-hidden, so panelRef is null until the panel
+  // actually mounts. That's fine here: React commits the DOM (mounting the
+  // panel) before running effects, so by the time this hook's effect body
+  // runs on the open:false->true transition, panelRef.current is already
+  // set. Two separate hook instances since both popovers live in this one
+  // component — each needs its own ref/focus-trap state.
+  const { panelRef: searchGroupPanelRef, dialogProps: searchGroupDialogProps } = useDialogBehavior({
+    open: showSearchGroup,
+    onClose: () => setShowSearchGroup(false),
+    labelledBy: 'search-group-title',
+  });
+  const { panelRef: messageGroupPanelRef, dialogProps: messageGroupDialogProps } = useDialogBehavior({
+    open: showMessageGroup,
+    onClose: () => setShowMessageGroup(false),
+    labelledBy: 'message-group-title',
+  });
 
   const handleMgAiAction = async (action: string, noCredit = false) => {
     if (mgGeneratingAction) return;
@@ -860,15 +879,19 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
           {/* Search Group Commentary popover */}
           {showSearchGroup && (
             <>
-              <div className="fixed inset-0 z-40" onClick={() => setShowSearchGroup(false)} />
-              <div className="absolute right-0 top-full mt-2 z-50 w-[520px] max-w-[92vw] bg-white rounded-xl shadow-2xl border border-gray-200 overflow-hidden">
+              <div className="fixed inset-0 z-40" aria-hidden="true" onClick={() => setShowSearchGroup(false)} />
+              <div
+                ref={searchGroupPanelRef}
+                {...searchGroupDialogProps}
+                className="absolute right-0 top-full mt-2 z-50 w-[520px] max-w-[92vw] bg-white rounded-xl shadow-2xl border border-gray-200 overflow-hidden"
+              >
                 {/* Header */}
                 <div className="flex items-start gap-3 px-4 pt-4 pb-3">
                   <div className="h-9 w-9 rounded-full bg-purple-100 flex items-center justify-center shrink-0">
                     <Search className="w-4 h-4 text-[#6C60FF]" />
                   </div>
                   <div className="min-w-0">
-                    <p className="text-sm font-bold text-gray-900">Search Group Commentary</p>
+                    <p id="search-group-title" className="text-sm font-bold text-gray-900">Search Group Commentary</p>
                     <p className="text-xs text-gray-400">Search messages and activity for the leads on this page</p>
                   </div>
                 </div>
@@ -951,15 +974,19 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
           {/* Message Group popover */}
           {showMessageGroup && (
             <>
-              <div className="fixed inset-0 z-40" onClick={() => setShowMessageGroup(false)} />
-              <div className="absolute right-0 top-full mt-2 z-50 w-[380px] max-w-[92vw] bg-white rounded-xl shadow-2xl border border-gray-200 overflow-hidden flex flex-col">
+              <div className="fixed inset-0 z-40" aria-hidden="true" onClick={() => setShowMessageGroup(false)} />
+              <div
+                ref={messageGroupPanelRef}
+                {...messageGroupDialogProps}
+                className="absolute right-0 top-full mt-2 z-50 w-[380px] max-w-[92vw] bg-white rounded-xl shadow-2xl border border-gray-200 overflow-hidden flex flex-col"
+              >
                 {/* Header */}
                 <div className="flex items-start gap-3 px-4 pt-4 pb-3">
                   <div className="h-9 w-9 rounded-lg bg-purple-100 flex items-center justify-center shrink-0">
                     <MessageSquare className="w-4 h-4 text-[#6C60FF]" />
                   </div>
                   <div className="min-w-0">
-                    <p className="text-sm font-bold text-gray-900">Message Group</p>
+                    <p id="message-group-title" className="text-sm font-bold text-gray-900">Message Group</p>
                     <p className="text-xs text-gray-400">Send a message to multiple leads</p>
                   </div>
                 </div>
