@@ -290,14 +290,21 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
     }
   };
 
+  // Same email/phone facts the via-dropdown uses to disable an option
+  // (:~1174-1176) — covers guest leads too, since the backend nests guest
+  // contact info straight into `user` (F5). A lead with neither is not
+  // reachable over any channel, so the whole composer gets replaced by a note.
+  const hasAnyContact = !!lead?.user?.email || !!(lead?.user?.phone_number || lead?.user?.phone);
+
   // Email may carry attachments; SMS is text-only, so a bare attachment with no
   // text can still be sent over email.
   const hasAttachments = via === 'email' && attachments.length > 0;
-  const canSend = !!message.trim() || hasAttachments;
+  const canSend = (!!message.trim() || hasAttachments) && hasAnyContact;
 
   const handleSend = async () => {
     if (isSending) return; // handler-level guard against double-send races
     if (!canSend) return;
+    if (!hasAnyContact) return; // no contact info — composer is hidden, this is a backstop
     if (lead?.is_rollup) return; // read-only — composer is hidden, this is a backstop
     setIsSending(true);
     try {
@@ -1069,17 +1076,24 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
           </div>
         </div>
 
-        {/* Compose box — pinned to bottom */}
+        {/* Compose box — pinned to bottom. Precedence when more than one applies:
+            rollup (backend also 403s writes for it) > archived (reversible by
+            the user) > no-contact (nothing to fix from this drawer) — each
+            state fully replaces the composer with a single note. */}
         {lead.is_rollup ? (
           <div className="border-t border-gray-200 px-4 py-3 bg-gray-50 text-center text-sm text-gray-400">
             View only — managed by the property owner.
           </div>
-        ) : isArchived && (
+        ) : isArchived ? (
           <div className="border-t border-gray-200 px-4 py-3 bg-gray-50 text-center text-sm text-gray-400">
             This lead is archived. Unarchive to send messages.
           </div>
+        ) : !hasAnyContact && (
+          <div className="border-t border-gray-200 px-4 py-3 bg-gray-50 text-center text-sm text-gray-400">
+            No contact info on file for this lead.
+          </div>
         )}
-        <div className={`border-t border-gray-200 px-4 pt-3 pb-4 bg-white ${(isArchived || lead.is_rollup) ? 'hidden' : ''}`}>
+        <div className={`border-t border-gray-200 px-4 pt-3 pb-4 bg-white ${(isArchived || lead.is_rollup || !hasAnyContact) ? 'hidden' : ''}`}>
           <div className="border border-gray-200 rounded-2xl bg-white px-4 pt-3 pb-3">
             <textarea
               ref={composeInputRef}
