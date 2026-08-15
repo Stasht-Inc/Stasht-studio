@@ -106,6 +106,13 @@ export interface LeadsMeta {
 
 export interface LeadsResponse {
   total: number;
+  // Additive fields (Task M4): per-status breakdown and combined sent+received
+  // message count across the full filtered/scoped result set — always present,
+  // backend-computed pre-pagination so they're correct even when `leads` only
+  // holds the current page. Optional here defensively (older cached responses,
+  // partial mocks in tests).
+  status_counts?: Partial<Record<'hot' | 'warm' | 'cold', number>>;
+  messages_total?: number;
   leads: Lead[];
   meta?: LeadsMeta;
 }

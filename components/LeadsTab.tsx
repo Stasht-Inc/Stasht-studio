@@ -180,9 +180,35 @@ interface LeadsTabProps {
   onGroupSelect?: (id: number | null) => void;
   selectedConversationId?: number | null;
   onConversationSelect?: (conversation: Conversation | null) => void;
+  // Leads-wide unread breakdown from GET /leads/unread-count, already fetched
+  // once by UsersPage for the sidebar/tab badge — threaded down as a prop
+  // (rather than refetched here) so the Groups sub-tab's unread cards don't
+  // duplicate that call.
+  unreadBreakdown?: { total_unread_messages: number; total_unread_comments: number; total_unread: number } | null;
 }
 
-export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, compact = false, onLeadsRefreshed, onFilterChange, onCommentaryJump, selectedGroupId, onGroupSelect, selectedConversationId, onConversationSelect }: LeadsTabProps) {
+// One summary-card row above the sub-tab content, scoped to whichever
+// sub-tab (Leads / Groups / My Conversations) is currently active.
+interface SummaryCardData {
+  label: string;
+  value: number | string;
+  valueClassName?: string;
+}
+
+function SummaryCardRow({ cards }: { cards: SummaryCardData[] }) {
+  return (
+    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+      {cards.map((card) => (
+        <div key={card.label} className="rounded-xl border border-gray-200 bg-white p-4">
+          <p className="text-xs font-medium text-gray-500">{card.label}</p>
+          <p className={`text-2xl font-semibold text-gray-900 mt-1 ${card.valueClassName ?? ''}`}>{card.value}</p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, compact = false, onLeadsRefreshed, onFilterChange, onCommentaryJump, selectedGroupId, onGroupSelect, selectedConversationId, onConversationSelect, unreadBreakdown }: LeadsTabProps) {
   const [leads, setLeads] = useState<Lead[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -206,6 +232,10 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
   const perPage = 50;
   const [total, setTotal] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
+  // Summary-card data for the Leads sub-tab (Task M4) — backend-computed
+  // across the full filtered/scoped result set, not just the current page.
+  const [statusCounts, setStatusCounts] = useState<Partial<Record<'hot' | 'warm' | 'cold', number>>>({});
+  const [messagesTotal, setMessagesTotal] = useState(0);
 
   // Search Group (commentary search across the currently loaded leads page)
   const [showSearchGroup, setShowSearchGroup] = useState(false);
@@ -447,6 +477,8 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
         const freshLeads = rawLeads.filter((l) => l != null);
         setLeads(freshLeads);
         setTotal(res.data.total ?? 0);
+        setStatusCounts(res.data.status_counts ?? {});
+        setMessagesTotal(res.data.messages_total ?? 0);
         setTotalPages(res.data.meta?.total_pages ?? 1);
         onLeadsRefreshed?.(freshLeads);
       } else {
@@ -617,6 +649,41 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
   const hasActiveFilters = searchQuery.trim() !== '' || (statusFilter !== 'all' && statusFilter !== '') || timeFilter !== 'all';
   const conversationsUnread = conversations.reduce((sum, c) => sum + (c.unread_count ?? 0), 0);
 
+  // Summary cards scoped to the ACTIVE sub-tab only (Task M4 / product
+  // decision): switching sub-tabs swaps the whole card row, it never mixes
+  // metrics from more than one dataset.
+  const summaryCards: SummaryCardData[] = (() => {
+    if (leadsView === 'leads') {
+      return [
+        { label: 'Total Leads', value: total },
+        { label: 'Hot', value: statusCounts.hot ?? 0, valueClassName: 'text-red-600' },
+        { label: 'Warm', value: statusCounts.warm ?? 0, valueClassName: 'text-orange-500' },
+        { label: 'Cold', value: statusCounts.cold ?? 0, valueClassName: 'text-blue-500' },
+        // Messages = sent + received combined (backend messages_total).
+        { label: 'Messages', value: messagesTotal },
+      ];
+    }
+    if (leadsView === 'groups') {
+      const totalMembers = leadGroups.reduce((sum, g) => sum + (g.member_count ?? 0), 0);
+      const cards: SummaryCardData[] = [
+        { label: 'Total Groups', value: leadGroups.length },
+        { label: 'Total Members', value: totalMembers },
+      ];
+      // Only add the unread cards when the breakdown was actually threaded in —
+      // cheap because it rides on UsersPage's existing /leads/unread-count call.
+      if (unreadBreakdown) {
+        cards.push({ label: 'Unread Messages', value: unreadBreakdown.total_unread_messages });
+        cards.push({ label: 'Unread Comments', value: unreadBreakdown.total_unread_comments });
+      }
+      return cards;
+    }
+    // My Conversations
+    return [
+      { label: 'Total Conversations', value: conversations.length },
+      { label: 'Unread', value: conversationsUnread, valueClassName: conversationsUnread > 0 ? 'text-red-600' : undefined },
+    ];
+  })();
+
   // Time filter — show only leads first seen within the selected period (by first_seen_at).
   const displayLeads = (() => {
     if (timeFilter === 'all') return leads;
@@ -666,6 +733,9 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
           )}
         </button>
       </div>
+
+      {/* Summary cards — scoped to the active sub-tab, above its content */}
+      <SummaryCardRow cards={summaryCards} />
 
       {leadsView === 'leads' ? (
       <>

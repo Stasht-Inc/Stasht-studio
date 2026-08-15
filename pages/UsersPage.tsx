@@ -130,6 +130,10 @@ export default function UsersPage({ openConversationLeadId, onConversationOpened
   // Lead profile panel state
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
   const [leadsUnreadCount, setLeadsUnreadCount] = useState<number>(0);
+  // Full breakdown from the same /leads/unread-count call, threaded down to
+  // LeadsTab for the Groups sub-tab's unread summary cards (Task M4) — avoids
+  // a second call for data this page already fetches for the tab badge.
+  const [leadsUnreadBreakdown, setLeadsUnreadBreakdown] = useState<{ total_unread_messages: number; total_unread_comments: number; total_unread: number } | null>(null);
   const [leadsRefreshTrigger, setLeadsRefreshTrigger] = useState(0);
   const [leadsStatusFilter, setLeadsStatusFilter] = useState('all');
   const [commentaryTarget, setCommentaryTarget] = useState<CommentaryTarget | null>(null);
@@ -157,8 +161,14 @@ export default function UsersPage({ openConversationLeadId, onConversationOpened
   const fetchLeadsUnreadCount = () => {
     if (!isAuthenticated) return;
     apiRequest('/leads/unread-count', { method: 'GET' }).then((data: any) => {
-      const unread = data?.data?.total_unread ?? data?.total_unread ?? 0;
+      const payload = data?.data ?? data ?? {};
+      const unread = payload?.total_unread ?? 0;
       setLeadsUnreadCount(typeof unread === 'number' ? unread : 0);
+      setLeadsUnreadBreakdown({
+        total_unread_messages: typeof payload?.total_unread_messages === 'number' ? payload.total_unread_messages : 0,
+        total_unread_comments: typeof payload?.total_unread_comments === 'number' ? payload.total_unread_comments : 0,
+        total_unread: typeof unread === 'number' ? unread : 0,
+      });
     }).catch(() => {});
   };
 
@@ -2686,6 +2696,7 @@ export default function UsersPage({ openConversationLeadId, onConversationOpened
             onConversationSelect={(conv) => { setSelectedConversation(conv); if (conv) { setSelectedLead(null); setSelectedGroupId(null); } }}
             refreshTrigger={leadsRefreshTrigger}
             compact={isPanelOpen}
+            unreadBreakdown={leadsUnreadBreakdown}
             onLeadsRefreshed={(leads) => {
               if (selectedLead) {
                 const updated = leads.find((l) => l.id === selectedLead.id);
