@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Mail, Phone, MapPin, Clock, MessageSquare, X, Paperclip, Send, ChevronDown, Smile, RefreshCw, Eye, Sparkles, Search, Heart, Gift, Calendar, MessageCircle, ThumbsUp, TrendingUp, Lightbulb, FileText, UserRound } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from './ui/avatar';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
@@ -6,6 +6,7 @@ import { Lead, LeadMessage, LeadMessageAttachment, leadsAPI, CommentaryTarget } 
 import { useAuth } from '../contexts/AuthContext';
 import { useMemoryLimit, recheckMemoryLimit } from '../hooks/useMemoryLimit';
 import { toast } from 'sonner';
+import { smsSegmentInfo, SMS_MAX_BODY } from '../utils/smsSegments';
 
 const STATUS_STYLES: Record<string, string> = {
   hot: 'bg-red-100 text-red-600 border-red-200',
@@ -1102,8 +1103,23 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
               onKeyDown={handleKeyDown}
               placeholder={`Send new message to ${firstName}...`}
               rows={3}
+              maxLength={via === 'sms' ? SMS_MAX_BODY : undefined}
               className="w-full text-sm text-gray-700 placeholder:text-gray-400 resize-none border-none outline-none bg-transparent leading-relaxed"
             />
+
+            {/* SMS character counter — only when via === 'sms' */}
+            {via === 'sms' && (() => {
+              const info = smsSegmentInfo(message);
+              const isOverLimit = info.chars > SMS_MAX_BODY;
+              const isAmber = info.segments > 3;
+              const textColor = isOverLimit ? 'text-red-500' : isAmber ? 'text-amber-500' : 'text-gray-400';
+              const segmentLabel = info.segments === 1 ? 'SMS segment' : 'SMS segments';
+              return (
+                <p className={`text-xs ${textColor} mt-1.5`}>
+                  {info.chars}/{SMS_MAX_BODY} · ~{info.segments} {segmentLabel}
+                </p>
+              );
+            })()}
 
             {/* Attachment chips (email only) */}
             {attachments.length > 0 && (
