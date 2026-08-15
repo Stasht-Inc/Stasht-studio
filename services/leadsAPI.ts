@@ -1,4 +1,13 @@
-import { apiRequest } from '../utils/authUtils';
+import { apiRequest, isPartialAdmin, getPartialAdminEmail } from '../utils/authUtils';
+
+// Extra body fields for scoped partial-admin sessions — {} otherwise.
+const partialAdminBody = (): Record<string, string> =>
+  isPartialAdmin() ? { partial_admin_email: getPartialAdminEmail() } : {};
+
+// Query-string suffix ("&partial_admin_email=..." or "?partial_admin_email=..." or "")
+// for GET/DELETE endpoints. Pass '?' when the URL has no existing query string.
+const partialAdminQuery = (sep: '?' | '&' = '&'): string =>
+  isPartialAdmin() ? `${sep}partial_admin_email=${encodeURIComponent(getPartialAdminEmail())}` : '';
 
 export interface LeadUser {
   id: number;
@@ -181,6 +190,7 @@ export const leadsAPI = {
     } else if (params?.status && params.status !== 'all') {
       query.append('status', params.status);
     }
+    if (isPartialAdmin()) query.append('partial_admin_email', getPartialAdminEmail());
     const url = `/leads${query.toString() ? `?${query.toString()}` : ''}`;
     return apiRequest<LeadsResponse>(url, { method: 'GET' });
   },
@@ -188,12 +198,12 @@ export const leadsAPI = {
   updateLeadStatus: async (leadId: number, status: 'hot' | 'warm' | 'cold' | null) => {
     return apiRequest(`/leads/${leadId}`, {
       method: 'PATCH',
-      body: JSON.stringify({ status }),
+      body: JSON.stringify({ status, ...partialAdminBody() }),
     });
   },
 
   getMessages: async (leadId: number) => {
-    return apiRequest<{ messages: LeadMessage[] }>(`/leads/${leadId}/messages`, { method: 'GET' });
+    return apiRequest<{ messages: LeadMessage[] }>(`/leads/${leadId}/messages${partialAdminQuery('?')}`, { method: 'GET' });
   },
 
   // POST /api/react/leads/{id}/ai-suggest — generate a suggested message.
@@ -201,7 +211,7 @@ export const leadsAPI = {
   aiSuggest: async (leadId: number, action: string, noCredit = false) => {
     return apiRequest<{ message?: string; credits_remaining?: number }>(`/leads/${leadId}/ai-suggest`, {
       method: 'POST',
-      body: JSON.stringify({ action, no_credit: noCredit }),
+      body: JSON.stringify({ action, no_credit: noCredit, ...partialAdminBody() }),
     });
   },
 
@@ -210,7 +220,7 @@ export const leadsAPI = {
   createLeadGroup: async (name: string, leadIds: number[]) => {
     return apiRequest<LeadGroup>('/lead-groups', {
       method: 'POST',
-      body: JSON.stringify({ name, lead_ids: [...new Set(leadIds)] }),
+      body: JSON.stringify({ name, lead_ids: [...new Set(leadIds)], ...partialAdminBody() }),
     });
   },
 
@@ -218,7 +228,7 @@ export const leadsAPI = {
   // groupId is sent only when the group already exists (the drawer); the create
   // modal omits it. no_credit:true = free retry.
   aiSuggestGroup: async (action: string, noCredit = false, groupId?: number) => {
-    const body: Record<string, unknown> = { action, no_credit: noCredit };
+    const body: Record<string, unknown> = { action, no_credit: noCredit, ...partialAdminBody() };
     if (groupId != null) body.group_id = groupId;
     return apiRequest<{ message?: string; credits_remaining?: number }>(`/lead-groups/ai-suggest`, {
       method: 'POST',
@@ -228,23 +238,23 @@ export const leadsAPI = {
 
   // GET /api/react/lead-groups — list of groups (summary, no members).
   getLeadGroups: async () => {
-    return apiRequest<LeadGroupSummary[] | { groups: LeadGroupSummary[] }>('/lead-groups', { method: 'GET' });
+    return apiRequest<LeadGroupSummary[] | { groups: LeadGroupSummary[] }>(`/lead-groups${partialAdminQuery('?')}`, { method: 'GET' });
   },
 
   // GET /api/react/lead-groups/{id} — one group with its members.
   getLeadGroup: async (id: number) => {
-    return apiRequest<LeadGroup | { group: LeadGroup }>(`/lead-groups/${id}`, { method: 'GET' });
+    return apiRequest<LeadGroup | { group: LeadGroup }>(`/lead-groups/${id}${partialAdminQuery('?')}`, { method: 'GET' });
   },
 
   // GET /api/react/my-conversations — conversations where I'm the viewer.
   getMyConversations: async () => {
-    return apiRequest<{ total: number; conversations: Conversation[] }>('/my-conversations', { method: 'GET' });
+    return apiRequest<{ total: number; conversations: Conversation[] }>(`/my-conversations${partialAdminQuery('?')}`, { method: 'GET' });
   },
 
   // GET /api/react/my-conversations/{lead_id}/messages — thread (auto-marks read).
   getConversationMessages: async (leadId: number) => {
     return apiRequest<{ messages: ConversationMessage[] } | ConversationMessage[]>(
-      `/my-conversations/${leadId}/messages`,
+      `/my-conversations/${leadId}/messages${partialAdminQuery('?')}`,
       { method: 'GET' }
     );
   },
@@ -253,13 +263,16 @@ export const leadsAPI = {
   replyToConversation: async (leadId: number, body: string) => {
     return apiRequest(`/my-conversations/${leadId}/reply`, {
       method: 'POST',
-      body: JSON.stringify({ body }),
+      body: JSON.stringify({ body, ...partialAdminBody() }),
     });
   },
 
   // POST /api/react/my-conversations/{lead_id}/mark-read — mark owner messages read.
   markConversationRead: async (leadId: number) => {
-    return apiRequest(`/my-conversations/${leadId}/mark-read`, { method: 'POST' });
+    return apiRequest(`/my-conversations/${leadId}/mark-read`, {
+      method: 'POST',
+      body: JSON.stringify({ ...partialAdminBody() }),
+    });
   },
 
   // POST /api/react/lead-groups/{id}/broadcast — send one message to the whole
@@ -276,6 +289,7 @@ export const leadsAPI = {
         body: JSON.stringify({
           body: message,
           ...(attachments && attachments.length ? { attachments } : {}),
+          ...partialAdminBody(),
         }),
       }
     );
@@ -284,7 +298,7 @@ export const leadsAPI = {
   sendSMS: async (leadId: number, body: string) => {
     return apiRequest<LeadMessage>(`/leads/${leadId}/messages/sms`, {
       method: 'POST',
-      body: JSON.stringify({ body }),
+      body: JSON.stringify({ body, ...partialAdminBody() }),
     });
   },
 
@@ -300,37 +314,47 @@ export const leadsAPI = {
         subject,
         body,
         ...(attachments && attachments.length ? { attachments } : {}),
+        ...partialAdminBody(),
       }),
     });
   },
 
   markRead: async (leadId: number) => {
-    return apiRequest<{ marked_read: number }>(`/leads/${leadId}/messages/mark-read`, { method: 'POST' });
+    return apiRequest<{ marked_read: number }>(`/leads/${leadId}/messages/mark-read`, {
+      method: 'POST',
+      body: JSON.stringify({ ...partialAdminBody() }),
+    });
   },
 
   markCommentsRead: async (leadId: number) => {
-    return apiRequest<{ marked_read: number }>(`/leads/${leadId}/comments/mark-read`, { method: 'POST' });
+    return apiRequest<{ marked_read: number }>(`/leads/${leadId}/comments/mark-read`, {
+      method: 'POST',
+      body: JSON.stringify({ ...partialAdminBody() }),
+    });
   },
 
   deleteLead: async (leadId: number) => {
-    return apiRequest<{ message: string }>(`/leads/${leadId}`, { method: 'DELETE' });
+    return apiRequest<{ message: string }>(`/leads/${leadId}${partialAdminQuery('?')}`, { method: 'DELETE' });
   },
 
   archiveLead: async (leadId: number) => {
-    return apiRequest<{ id: number; is_archived: boolean }>(`/leads/${leadId}/archive`, { method: 'POST' });
+    return apiRequest<{ id: number; is_archived: boolean }>(`/leads/${leadId}/archive`, {
+      method: 'POST',
+      body: JSON.stringify({ ...partialAdminBody() }),
+    });
   },
 
   replyToMessage: async (leadId: number, messageId: number, body: string) => {
     return apiRequest<LeadMessage>(`/leads/${leadId}/messages/${messageId}/reply`, {
       method: 'POST',
-      body: JSON.stringify({ body }),
+      body: JSON.stringify({ body, ...partialAdminBody() }),
     });
   },
 
   replyToComment: async (imageId: number, comment: string, parentId: number) => {
     return apiRequest('/memory-images/comments', {
       method: 'POST',
-      body: JSON.stringify({ image_id: imageId, comment, parent_id: parentId }),
+      body: JSON.stringify({ image_id: imageId, comment, parent_id: parentId, ...partialAdminBody() }),
     });
   },
 };
