@@ -197,6 +197,12 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
   const [sortField, setSortField] = useState<'name' | 'last_engaged' | 'status' | null>(null);
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
   const [page, setPage] = useState(1);
+  // "Latest fetch args" ref for effects that register once (`[]` deps, e.g.
+  // the visibilitychange listener below) and would otherwise permanently
+  // close over the search/status/sort/page values from the render they
+  // mounted on. Updated after every render so any []-effect can read the
+  // *current* filter/sort/page state instead of stale mount-time defaults.
+  const fetchArgsRef = useRef({ search: '', status: 'all', sort: null as 'name' | 'last_engaged' | 'status' | null, direction: 'asc' as 'asc' | 'desc', page: 1 });
   const perPage = 50;
   const [total, setTotal] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
@@ -500,8 +506,23 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
   useEffect(() => { fetchLeads(); fetchLeadGroups(); fetchMyConversations(); }, []);
   useEffect(() => { if (refreshTrigger > 0) fetchLeads(); }, [refreshTrigger]);
 
+  // Keep fetchArgsRef current after every render — deliberately no dep array.
   useEffect(() => {
-    const onVisible = () => { if (document.visibilityState === 'visible') fetchLeads(); };
+    fetchArgsRef.current = { search: searchQuery, status: statusFilter, sort: sortField, direction: sortDirection, page };
+  });
+
+  useEffect(() => {
+    // Reads fetchArgsRef instead of closing over searchQuery/statusFilter/
+    // sortField/sortDirection/page directly — this effect only registers once
+    // ([] deps), so a direct closure would freeze at mount-time defaults and
+    // a tab refocus would silently discard the user's current page/sort/
+    // search/status. See task-M2-report.md fix addendum.
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') {
+        const { search, status, sort, direction, page: currentPage } = fetchArgsRef.current;
+        fetchLeads(search, status, sort, direction, currentPage);
+      }
+    };
     document.addEventListener('visibilitychange', onVisible);
     return () => document.removeEventListener('visibilitychange', onVisible);
   }, []);
