@@ -164,7 +164,6 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
   const [showSearch, setShowSearch] = useState(false);
   const [chatSearch, setChatSearch] = useState('');
   const [showAiSuggest, setShowAiSuggest] = useState(false);
-  const [autoReply, setAutoReply] = useState(false);
   const [lastAiAction, setLastAiAction] = useState<string | null>(null);
   const threadBottomRef = useRef<HTMLDivElement>(null);
   const replyInputRef = useRef<HTMLTextAreaElement>(null);
@@ -737,27 +736,13 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
                         </div>
 
                         <div className="overflow-y-auto">
-                          {/* Auto-Reply */}
-                          <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-gray-100">
-                            <div className="min-w-0">
-                              <p className="text-sm font-semibold text-gray-900">Auto-Reply</p>
-                              <p className="text-xs text-gray-400">Automatically respond to messages</p>
-                            </div>
-                            <button
-                              onClick={() => setAutoReply((v) => !v)}
-                              className={`relative h-6 w-11 rounded-full transition-colors shrink-0 ${autoReply ? 'bg-[#6C60FF]' : 'bg-gray-200'}`}
-                            >
-                              <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all ${autoReply ? 'left-[22px]' : 'left-0.5'}`} />
-                            </button>
-                          </div>
-
                           {/* Credits banner — only when the user is out of credits */}
                           {aiCredits === 0 && (
                             <div className="mx-4 my-3 rounded-xl border border-orange-200 bg-orange-50 px-3 py-2.5 flex items-center gap-2.5">
                               <Sparkles className="w-4 h-4 text-orange-500 shrink-0" />
                               <div className="flex-1 min-w-0">
                                 <p className="text-sm font-bold text-gray-900">0 credits</p>
-                                <p className="text-[11px] text-gray-500">1 credit per auto-reply</p>
+                                <p className="text-[11px] text-gray-500">1 credit per suggestion</p>
                               </div>
                               <button className="h-7 px-3 rounded-lg border border-orange-300 text-orange-600 text-xs font-semibold hover:bg-orange-100 transition-colors shrink-0">
                                 Buy
