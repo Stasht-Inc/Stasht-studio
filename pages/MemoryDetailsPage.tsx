@@ -8851,7 +8851,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
           </div>
           <div ref={sharedMobileHeaderImgRef} className="relative w-full" style={{ height: 'calc(75vh - 64px)' }}>
             {(() => {
-              const coverSrc = apiMemoryData?.last_update_img || sharedAllPosts[0]?.master_image_link;
+              const coverSrc = apiMemoryData?.last_update_img || sharedAllPosts[0]?.master_image_link || apiMemoryData?.user?.profile_image;
               if (!coverSrc) return <div className="absolute inset-0 bg-[#6C60FF] flex items-center justify-center"><span className="text-white font-bold text-6xl uppercase">{apiMemoryData?.title?.charAt(0) || 'M'}</span></div>;
               if (isYoutubeUrl(coverSrc)) return <iframe src={getYoutubeEmbedUrl(coverSrc) || ''} className="absolute inset-0 w-full h-full" allow="accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowFullScreen style={{ border: 'none' }} />;
               if (isVideoUrl(coverSrc)) return <video src={`${coverSrc}#t=0.1`} className="absolute inset-0 w-full h-full object-cover" controls playsInline preload="metadata" />;
@@ -9288,7 +9288,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                   <div className="relative">
                     <div ref={sharedHeaderImgRef} className="relative rounded-3xl overflow-hidden mx-2" style={{ height: 'min(800px, calc(100vh - 80px))' }}>
                       {(() => {
-                        const coverSrc = apiMemoryData?.last_update_img || sharedAllPosts[0]?.master_image_link;
+                        const coverSrc = apiMemoryData?.last_update_img || sharedAllPosts[0]?.master_image_link || apiMemoryData?.user?.profile_image;
                         if (!coverSrc) return <div className="w-full h-full bg-[#6C60FF] flex items-center justify-center"><span className="text-white font-bold text-8xl uppercase">{apiMemoryData?.title?.charAt(0) || 'M'}</span></div>;
                         if (isYoutubeUrl(coverSrc)) return <iframe src={getYoutubeEmbedUrl(coverSrc) || ''} className="w-full h-full" allow="accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowFullScreen style={{ border: 'none' }} />;
                         if (isVideoUrl(coverSrc)) return <video src={`${coverSrc}#t=0.1`} className="w-full h-full object-cover" controls playsInline preload="metadata" />;
