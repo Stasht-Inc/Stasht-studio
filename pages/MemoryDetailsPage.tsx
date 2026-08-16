@@ -15025,7 +15025,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                       <div className="w-6 h-6 border-2 border-[#6C60FF] border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
                       <p className="text-gray-500 text-sm">Loading timeline...</p>
                     </div>
-                  ) : sortedTimelinePosts.length > 0 ? (
+                  ) : ((combinedTimeline || []).length > 0 || sortedTimelinePosts.length > 0) ? (
                     <>
                       {/* HTML widgets before posts (afterPostId === null) */}
                       {htmlWidgets.filter(w => w.afterPostId === null).map(widget => (
