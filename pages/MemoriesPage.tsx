@@ -847,11 +847,27 @@ function MemoriesPageContent({
   const [currentPage, setCurrentPage] = useState(1);
 
   // Extract category names from API data, fallback to props if no API data
-  const categoryNames = sidebarData?.categories?.items
+  const baseCategoryNames = sidebarData?.categories?.items
     ? ["All Categories", ...sidebarData.categories.items.filter((cat: any) => cat != null).map((cat: any) => cat.name)]
     : categories && categories.length > 0
       ? ["All Categories", ...categories.filter(cat => cat != null).map(cat => cat.name)]
       : ["All Categories", "BC", "Alberta", "Ontario"];
+
+  // The sidebar list doesn't always cover every category the loaded cards actually
+  // carry (shared campaigns keep their origin category, e.g. "Cars"), which left the
+  // dropdown offering options that matched nothing while omitting ones that would.
+  // Append any category names present on the cards but missing from the sidebar list.
+  const categoryNames = useMemo(() => {
+    const d: any = (apiMemoriesData as any)?.data ?? apiMemoriesData ?? {};
+    const pick = (x: any) => (Array.isArray(x) ? x : x?.data ?? []);
+    const onCards = new Set<string>();
+    [...pick(d.all_memories), ...pick(d.latest_memories), ...(Array.isArray(d.sharedWith) ? d.sharedWith : [])]
+      .forEach((m: any) => { const n = m?.category?.name; if (n) onCards.add(n); });
+    const known = new Set(baseCategoryNames.map((n: string) => n.toLowerCase()));
+    const extras = [...onCards].filter((n) => !known.has(n.toLowerCase())).sort();
+    return [...baseCategoryNames, ...extras];
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [apiMemoriesData, JSON.stringify(baseCategoryNames)]);
 
   // Extract author names from API data
   const apiAuthors = (apiMemoriesData?.filters?.authors || apiMemoriesData?.data?.filters?.authors)
@@ -2963,19 +2979,26 @@ function MemoriesPageContent({
 
                           // Filter based on selectedCategory (filter dropdown) first
                           if (selectedCategory) {
-                            // For shared memories, check if "Shared With" is selected
-                            if (memory.isShared && selectedCategory !== 'Shared With') return false;
-                            // Check if memory matches the selected category from filter dropdown
                             const matchesSelectedCategory = memory.category?.name === selectedCategory || memory.category === selectedCategory;
-                            if (!matchesSelectedCategory) return false;
+                            if (memory.isShared) {
+                              // Shared campaigns match the "Shared With" bucket OR their own
+                              // category name (accounts group shares under per-sharer/origin
+                              // categories — a blanket exclusion made those unselectable).
+                              if (selectedCategory !== 'Shared With' && !matchesSelectedCategory) return false;
+                            } else if (!matchesSelectedCategory) {
+                              return false;
+                            }
                           }
 
                           // Apply "All Categories" filter
                           if (filterCategory !== "All Categories") {
-                            // For shared memories, only show when "Shared With" is selected
-                            if (memory.isShared && filterCategory !== "Shared With") return false;
                             const matchesFilterCategory = memory.category?.name === filterCategory || memory.category === filterCategory;
-                            if (!matchesFilterCategory && !memory.isShared) return false;
+                            if (memory.isShared) {
+                              // Same rule as above: "Shared With" or the campaign's own category.
+                              if (filterCategory !== "Shared With" && !matchesFilterCategory) return false;
+                            } else if (!matchesFilterCategory) {
+                              return false;
+                            }
                           }
 
                           // Apply "All Authors" filter
