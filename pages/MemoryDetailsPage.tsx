@@ -3139,12 +3139,30 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
           // metadata (coverImg below) but no longer gets special treatment in `posts`.
           const mainIndex = Math.max(0, sortedImages.findIndex((img: any) => img.is_main));
           const mainImg = sortedImages[mainIndex];
-          const posts = sortedImages.map((img: any, i: number) => ({
-            id: img.id ?? `car_image_${i}`,
-            image_link: toHdImage(img.url),
-            type: 'image',
-            parent_id: null,
-          }));
+          // Each raw post needs its own `user` (not just the memory-level one below) —
+          // transformApiPosts() builds each post's `author` from post.user (post.author
+          // isn't read at this stage), and a car has no real backend author, so show the
+          // logged-in dealer, same as apiMemoryData.user.
+          const carAuthor = { name: user?.name, avatar: user?.avatar, profile_color: user?.profile_color };
+          // The timeline's default sort ("latest") orders posts by capture_date descending.
+          // Car images have no real capture_date, and leaving it undefined made every
+          // comparison resolve to NaN — an ill-defined comparator that reshuffled the 26
+          // photos on every render instead of leaving sort_order alone. Synthesizing
+          // strictly-decreasing timestamps (index 0 = newest) makes "latest" sort back into
+          // exactly sort_order, the order the dealer intended.
+          const now = Date.now();
+          const posts = sortedImages.map((img: any, i: number) => {
+            const captureDate = new Date(now - i * 1000).toISOString();
+            return {
+              id: img.id ?? `car_image_${i}`,
+              image_link: toHdImage(img.url),
+              type: 'image',
+              parent_id: null,
+              user: carAuthor,
+              capture_date: captureDate,
+              date: captureDate,
+            };
+          });
           const coverImg = toHdImage(mainImg?.url) || posts[0]?.image_link || null;
           const categoryName = car.category ? String(car.category).replace(/\b\w/g, (c: string) => c.toUpperCase()) : 'Other';
           const priceNum = typeof car.price === 'string' ? parseFloat(car.price) : car.price;
@@ -3156,9 +3174,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
             title: car.title || 'Untitled car',
             category: { name: categoryName },
             sub_category: { name: priceLabel },
-            // A car has no backend memory row (and so no real author) — show the logged-in
-            // user, same as any campaign they're viewing/creating shows themselves as author.
-            user: { name: user?.name, avatar: user?.avatar, profile_color: user?.profile_color },
+            user: carAuthor,
             posts,
             last_update_img: coverImg,
             linked_memories: [],
@@ -4328,7 +4344,58 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
 
   // Get posts from API data
   const rawApiPosts = apiMemoryData?.posts;
-  
+
+  // Shared by both ImageViewer instances' onGetSubImages: builds the lightbox's
+  // thumbnail filmstrip for a given opened image.
+  //
+  // Car photos have no parent/sub-image relation (each is its own top-level post,
+  // per the timeline-explosion fix above), so the normal parent_id match would
+  // always return empty. Instead, in car-detail mode, treat every OTHER photo of
+  // the same car as a filmstrip entry — restores the "see all N images" browsing
+  // experience the swipeable card used to give, while each entry still carries the
+  // car's own description so switching between them doesn't blank the panel (specs
+  // stay populated too, since those come from a static prop, not per-image data).
+  const getSubImagesForParent = (parentImageId: string) => {
+    const allPosts = rawApiPosts || [];
+
+    if (isCarDetail) {
+      return allPosts
+        .filter((post: any) => post.id?.toString() !== parentImageId?.toString() && post.image_link)
+        .map((post: any) => ({
+          id: post.id?.toString(),
+          src: post.image_link ? post.image_link.replace(/\\\//g, '/') : (post.image || post.image_url || ''),
+          alt: post.name || post.title || 'Car photo',
+          title: post.name || post.title,
+          description: carDetailData?.description || '',
+          location: '',
+          dateTaken: '',
+          filename: post.name || post.title || 'Car photo',
+          is_featured: 0,
+        }));
+    }
+
+    return allPosts
+      .filter((post: any) => {
+        const postParentId = post.parent_id?.toString();
+        const searchParentId = parentImageId?.toString();
+        const isSubImage = postParentId === searchParentId;
+        // Only show approved sub-images (admin_approval !== 0)
+        const isApproved = post.admin_approval === 1 || post.admin_approval === '1' || post.admin_approval === undefined || post.admin_approval === null;
+        return isSubImage && isApproved;
+      })
+      .map((post: any) => ({
+        id: post.id?.toString(),
+        src: post.image_link ? post.image_link.replace(/\\\//g, '/') : (post.image || post.image_url || ''),
+        alt: post.name || post.title || 'Sub-image',
+        title: post.name || post.title,
+        description: post.description || '',
+        location: post.location || '',
+        dateTaken: post.capture_date || post.created_at || '',
+        filename: post.name || post.title || 'Sub-image',
+        is_featured: post.is_featured || 0,
+      }));
+  };
+
   console.log('=== POST DATA EXTRACTION ===');
   console.log('API Memory Data Keys:', Object.keys(apiMemoryData || {}));
   console.log('Raw API Posts Found:', rawApiPosts);
@@ -9680,27 +9747,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
             await fetchMemoryActivity();
           }}
           onGetSubImages={(parentImageId) => {
-            const allPosts = rawApiPosts || [];
-            const subImages = allPosts
-              .filter((post: any) => {
-                const postParentId = post.parent_id?.toString();
-                const searchParentId = parentImageId?.toString();
-                const isSubImage = postParentId === searchParentId;
-                // Only show approved sub-images (admin_approval !== 0)
-                const isApproved = post.admin_approval === 1 || post.admin_approval === '1' || post.admin_approval === undefined || post.admin_approval === null;
-                return isSubImage && isApproved;
-              })
-              .map((post: any) => ({
-                id: post.id?.toString(),
-                src: post.image_link ? post.image_link.replace(/\\\//g, '/') : (post.image || post.image_url || ''),
-                alt: post.name || post.title || 'Sub-image',
-                title: post.name || post.title,
-                description: post.description || '',
-                location: post.location || '',
-                dateTaken: post.capture_date || post.created_at || '',
-                filename: post.name || post.title || 'Sub-image'
-              }));
-            return subImages;
+            return getSubImagesForParent(parentImageId);
           }}
           initialSubImageId={(imageViewer as any).initialSubImageId}
           initialRotation={imageViewer.rotation_angle}
@@ -19151,42 +19198,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
           await fetchMemoryActivity();
         }}
         onGetSubImages={(parentImageId) => {
-          // Get all sub-images for the given parent image ID from raw API posts
-          const allPosts = rawApiPosts || [];
-          console.log('🔍 onGetSubImages called with parentImageId:', parentImageId);
-          console.log('🔍 All posts count:', allPosts.length);
-          console.log('🔍 Posts with parent_id:', allPosts.filter((p: any) => p.parent_id).map((p: any) => ({ id: p.id, parent_id: p.parent_id, image: p.image_link })));
-
-          const subImages = allPosts
-            .filter((post: any) => {
-              // Convert both to strings for comparison to handle type mismatches
-              const postParentId = post.parent_id?.toString();
-              const searchParentId = parentImageId?.toString();
-              const isSubImage = postParentId === searchParentId;
-
-              // Only show approved sub-images (admin_approval !== 0)
-              const isApproved = post.admin_approval === 1 || post.admin_approval === '1' || post.admin_approval === undefined || post.admin_approval === null;
-
-              if (post.parent_id) {
-                console.log(`🔍 Checking post ${post.id}: parent_id=${postParentId}, searching for=${searchParentId}, isSubImage=${isSubImage}, admin_approval=${post.admin_approval}, isApproved=${isApproved}`);
-              }
-
-              return isSubImage && isApproved;
-            })
-            .map((post: any) => ({
-              id: post.id?.toString(),
-              src: post.image_link ? post.image_link.replace(/\\\//g, '/') : (post.image || post.image_url || ''),
-              alt: post.name || post.title || 'Sub-image',
-              title: post.name || post.title,
-              description: post.description || '',
-              location: post.location || '',
-              dateTaken: post.capture_date || post.created_at || '',
-              filename: post.name || post.title || 'Sub-image',
-              is_featured: post.is_featured || 0
-            }));
-
-          console.log(`📸 Found ${subImages.length} sub-images for parent ${parentImageId}:`, subImages);
-          return subImages;
+          return getSubImagesForParent(parentImageId);
         }}
         initialSubImageId={(imageViewer as any).initialSubImageId}
         initialRotation={imageViewer.rotation_angle}
