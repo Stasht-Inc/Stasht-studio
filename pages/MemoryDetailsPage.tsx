@@ -3133,17 +3133,17 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
           const sortedImages = images
             .slice()
             .sort((a: any, b: any) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
-          // Only the cover image is a top-level post — the rest get parent_id pointing at
-          // it, so they render as sub-images scrollable inside that one card (the app's
-          // existing sub-image mechanism), instead of 26 separate top-level moments.
+          // Every image is its own top-level post (parent_id: null) so each renders as a
+          // separate stacked card on the timeline, instead of being bundled as sub-images
+          // inside one swipeable card. The cover image still determines memory-level
+          // metadata (coverImg below) but no longer gets special treatment in `posts`.
           const mainIndex = Math.max(0, sortedImages.findIndex((img: any) => img.is_main));
           const mainImg = sortedImages[mainIndex];
-          const mainId = mainImg?.id ?? 'car_image_main';
           const posts = sortedImages.map((img: any, i: number) => ({
             id: img.id ?? `car_image_${i}`,
             image_link: toHdImage(img.url),
             type: 'image',
-            parent_id: i === mainIndex ? null : mainId,
+            parent_id: null,
           }));
           const coverImg = toHdImage(mainImg?.url) || posts[0]?.image_link || null;
           const categoryName = car.category ? String(car.category).replace(/\b\w/g, (c: string) => c.toUpperCase()) : 'Other';
@@ -3278,7 +3278,11 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
             new_images: memoryData?.new_images ?? rawData?.new_images,
             total_size: memoryData?.total_size ?? rawData?.total_size ?? response.data?.total_size,
             docusign_documents: memoryData?.docusign_documents ?? rawData?.docusign_documents ?? rawData?.memory?.docusign_documents,
-            linked_memories: memoryData?.linked_memories ?? rawData?.linked_memories ?? [],
+            // Some memory types (e.g. cars attached via pivot) return linked_memories only
+            // at the response root, while the nested `memory` object carries an empty array
+            // for the same field — `??` doesn't fall through on an empty (non-nullish) array,
+            // so prefer whichever side actually has entries.
+            linked_memories: (memoryData?.linked_memories?.length ? memoryData.linked_memories : rawData?.linked_memories) ?? [],
             unified_order: memoryData?.unified_order ?? rawData?.unified_order ?? null,
           };
           setApiMemoryData(mergedMemoryData);
