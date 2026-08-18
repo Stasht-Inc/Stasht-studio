@@ -4355,12 +4355,20 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
   // experience the swipeable card used to give, while each entry still carries the
   // car's own description so switching between them doesn't blank the panel (specs
   // stay populated too, since those come from a static prop, not per-image data).
+  //
+  // The sub-image mechanism always reserves position 0 for whichever image is
+  // "the parent" — it has no notion of an arbitrary starting index. So this
+  // ALWAYS excludes the car's first photo (index 0 in sort_order) regardless of
+  // which photo was actually clicked; handleTimelineImageView pairs this with
+  // initialSubImageId to land on the real clicked position instead of always
+  // showing "Image 1 of N".
   const getSubImagesForParent = (parentImageId: string) => {
     const allPosts = rawApiPosts || [];
 
     if (isCarDetail) {
       return allPosts
-        .filter((post: any) => post.id?.toString() !== parentImageId?.toString() && post.image_link)
+        .slice(1)
+        .filter((post: any) => post.image_link)
         .map((post: any) => ({
           id: post.id?.toString(),
           src: post.image_link ? post.image_link.replace(/\\\//g, '/') : (post.image || post.image_url || ''),
@@ -6664,6 +6672,19 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
     const displayAlt = parentPost ? (parentPost.name || parentPost.title || 'Image') : (currentImage?.alt || alt);
     const displayTitle = parentPost ? (parentPost.name || parentPost.title) : (currentImage?.title || title || currentPost?.title);
 
+    // getSubImagesForParent() (car-detail mode) always excludes the car's first
+    // photo, since the sub-image mechanism has no concept of an arbitrary
+    // starting index — position 0 there is always "the parent". So the
+    // top-level src/title/etc below must point at that same first photo, and
+    // initialSubImageId carries the actually-clicked photo so the viewer lands
+    // on the real position (e.g. "Image 5 of 26") instead of always "1 of 26".
+    const carFirstPost = isCarDetail
+      ? sortedTimelinePosts.filter(post => post.image && !post.parent_id)[0]
+      : null;
+    const carInitialSubImageId = isCarDetail && carFirstPost && currentPost?.id !== carFirstPost.id
+      ? currentPost?.id
+      : undefined;
+
     // Check if parent image is featured
     const parentIsFeatured = currentPost?.is_featured === 1 || currentPost?.is_featured === true;
     console.log('🌟 Parent image is_featured:', parentIsFeatured, 'currentPost.is_featured:', currentPost?.is_featured);
@@ -6687,19 +6708,19 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
     console.log('🔍 handleTimelineImageView - finalImageId:', finalImageId, 'memoryId:', memoryId);
     const viewerData = {
       isOpen: true,
-      src: displaySrc,
-      alt: displayAlt,
-      title: displayTitle,
+      src: carFirstPost ? carFirstPost.image : displaySrc,
+      alt: carFirstPost ? (carFirstPost.name || carFirstPost.title || 'Image') : displayAlt,
+      title: carFirstPost ? (carFirstPost.name || carFirstPost.title) : displayTitle,
       subtitle: `${currentPost?.author?.name || 'Unknown'} • ${getFormattedDate(currentPost?.date)}`,
-      filename: extractFilename(displaySrc, currentPost?.title),
-      dateTaken: getFormattedDate(currentPost?.date),
-      location: getLocationDisplay(currentPost?.location),
+      filename: carFirstPost ? extractFilename(carFirstPost.image, carFirstPost.title) : extractFilename(displaySrc, currentPost?.title),
+      dateTaken: carFirstPost ? getFormattedDate(carFirstPost.date) : getFormattedDate(currentPost?.date),
+      location: carFirstPost ? getLocationDisplay(carFirstPost.location) : getLocationDisplay(currentPost?.location),
       images: allImages,
       currentIndex: Math.max(0, currentIndex),
-      imageId: finalImageId,
+      imageId: carFirstPost ? carFirstPost.id : finalImageId,
       memoryId: memoryId, // CRITICAL FIX: Include memoryId in the viewer state
-      rotation_angle: currentPost?.rotation_angle || 0,
-      initialSubImageId: subImageId, // Pass the sub-image ID if a sub-image was clicked
+      rotation_angle: carFirstPost ? (carFirstPost.rotation_angle || 0) : (currentPost?.rotation_angle || 0),
+      initialSubImageId: isCarDetail ? carInitialSubImageId : subImageId, // Pass the sub-image ID if a sub-image was clicked
       parentImageIsFeatured: parentIsFeatured, // Pass parent's featured status
       focusComments: focusComments, // Scroll to comments on mobile when true
       tags: Array.isArray(currentPost?.tags) ? currentPost.tags.map((t: any) => typeof t === 'string' ? t : t?.name).filter(Boolean) : [],
