@@ -12,7 +12,7 @@ import { useAuth } from "../contexts/AuthContext";
 import { mapLimit } from "../utils/requestLimit";
 
 // Default editable body of the personalized invite message (author-name prefix is fixed/non-editable)
-const DEFAULT_INVITE_MESSAGE = "invited you to collaborate on campaign";
+const DEFAULT_INVITE_MESSAGE = "wants to share this with you!";
 
 interface Collaborator {
   id: string;

@@ -1,5 +1,5 @@
 // Media API service functions
-import { apiRequest } from '../utils/authUtils';
+import { apiRequest, fetchWithRateLimitRetry } from '../utils/authUtils';
 
 // Cache buster for media API to prevent stale data
 let mediaCacheBuster = Date.now();
@@ -612,7 +612,13 @@ export const mediaAPI = {
       }
       // Note: Don't set Content-Type for FormData, browser will set it automatically with boundary
 
-      const response = await fetch(`${import.meta.env.VITE_API_BASE_URL || '/api/react'}${endpoint}`, {
+      // Goes through fetchWithRateLimitRetry, not a plain fetch: this raw call
+      // bypasses apiRequest (needed here for multipart FormData), so without it
+      // a transient 429 from the throttle:api middleware — e.g. from having
+      // another tab logged into the same account also polling in the background,
+      // since the limit is shared per user, not per session — would fail the
+      // whole "add moment" submission outright instead of retrying.
+      const response = await fetchWithRateLimitRetry(`${import.meta.env.VITE_API_BASE_URL || '/api/react'}${endpoint}`, {
         method: 'POST',
         headers,
         body: formData

@@ -625,7 +625,8 @@ export function NotificationDropdown({ isOpen, onClose, anchorRef, onNotificatio
       const isInvitationNotification = notification.type === 'invitation' ||
                                        notification.type === 'invite' ||
                                        desc.includes('invited you to collaborate') ||
-                                       desc.includes('invited you to');
+                                       desc.includes('invited you to') ||
+                                       desc.includes('wants to share this with you');
 
       if (isInvitationNotification) {
         console.log('🔔 Invitation notification - only marking as read, not navigating');

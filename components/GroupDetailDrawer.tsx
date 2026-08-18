@@ -4,6 +4,7 @@ import { Avatar, AvatarFallback, AvatarImage } from './ui/avatar';
 import { LeadGroup, LeadMessageAttachment, leadsAPI } from '../services/leadsAPI';
 import { useMemoryLimit, recheckMemoryLimit } from '../hooks/useMemoryLimit';
 import { toast } from 'sonner';
+import { smsSegmentInfo, SMS_MAX_BODY } from '../utils/smsSegments';
 
 // AI Suggest actions (same 7 as the lead drawer / create modal).
 const AI_ACTIONS: { key: string; icon: typeof Heart; title: string; desc: string }[] = [
@@ -430,9 +431,24 @@ export default function GroupDetailDrawer({ groupId, open, onClose }: Props) {
             onKeyDown={handleKeyDown}
             placeholder={group ? `Send a message to ${group.name}...` : 'Send a message to the group...'}
             rows={3}
+            maxLength={SMS_MAX_BODY}
             disabled={!group}
             className="w-full text-sm text-gray-700 placeholder:text-gray-400 resize-none border-none outline-none bg-transparent leading-relaxed disabled:opacity-50"
           />
+
+          {/* SMS character counter — broadcasts can go as SMS */}
+          {group && (() => {
+            const info = smsSegmentInfo(message);
+            const isOverLimit = info.chars > SMS_MAX_BODY;
+            const isAmber = info.segments > 3;
+            const textColor = isOverLimit ? 'text-red-500' : isAmber ? 'text-amber-500' : 'text-gray-400';
+            const segmentLabel = info.segments === 1 ? 'SMS segment' : 'SMS segments';
+            return (
+              <p className={`text-xs ${textColor} mt-1.5`}>
+                {info.chars}/{SMS_MAX_BODY} · ~{info.segments} {segmentLabel}
+              </p>
+            );
+          })()}
 
           {/* Attachment chips */}
           {attachments.length > 0 && (

@@ -134,9 +134,10 @@ export function AddMomentModal({
   // distinct from files still in flight — see the catch blocks below and the
   // !memoryId branch of handleSubmit, which need to tell "still uploading"
   // apart from "will never finish, please retry".
-  const [uploadErrors, setUploadErrors] = useState<{ [index: number]: boolean }>({});
+  const [uploadErrors, setUploadErrors] = useState<{ [index: number]: string }>({});
   const [modalPosition, setModalPosition] = useState({ top: 0, left: 0 });
   const tabsContainerRef = useRef<HTMLDivElement>(null);
+  const thumbnailsContainerRef = useRef<HTMLDivElement>(null);
   const [isFileMenuOpen, setIsFileMenuOpen] = useState(false);
   const [isAddMoreMenuOpen, setIsAddMoreMenuOpen] = useState(false);
   const [isMemoryDropdownOpen, setIsMemoryDropdownOpen] = useState(false);
@@ -240,33 +241,38 @@ export function AddMomentModal({
   // and never re-fires once it does, since selectedImageIndex/totalImagesCount
   // don't change again after that.
   useEffect(() => {
-    if (tabsContainerRef.current && totalImagesCount > 0) {
-      const container = tabsContainerRef.current;
+    // Pills row: an outer scroll container wrapping one inner flex div, so the
+    // Nth item is container.children[0].children[N]. Thumbnail strip: the
+    // scroll container IS the flex parent, so the Nth item is container.children[N].
+    const scrollToActive = (container: HTMLDivElement | null, getChild: (c: HTMLDivElement) => HTMLElement | undefined) => {
+      if (!container || totalImagesCount === 0) return;
 
       if (selectedImageIndex === totalImagesCount - 1) {
         container.scrollTo({ left: container.scrollWidth, behavior: 'smooth' });
         return;
       }
 
-      const activeTab = container.children[0]?.children[selectedImageIndex] as HTMLElement;
+      const activeItem = getChild(container);
+      if (!activeItem) return;
 
-      if (activeTab) {
-        const containerWidth = container.offsetWidth;
-        const tabLeft = activeTab.offsetLeft;
-        const tabWidth = activeTab.offsetWidth;
-        const scrollLeft = container.scrollLeft;
+      const containerWidth = container.offsetWidth;
+      const itemLeft = activeItem.offsetLeft;
+      const itemWidth = activeItem.offsetWidth;
+      const scrollLeft = container.scrollLeft;
 
-        // Check if tab is not fully visible
-        if (tabLeft < scrollLeft || tabLeft + tabWidth > scrollLeft + containerWidth) {
-          // Center the active tab if possible
-          const targetScroll = tabLeft - (containerWidth / 2) + (tabWidth / 2);
-          container.scrollTo({
-            left: Math.max(0, targetScroll),
-            behavior: 'smooth'
-          });
-        }
+      // Check if item is not fully visible
+      if (itemLeft < scrollLeft || itemLeft + itemWidth > scrollLeft + containerWidth) {
+        // Center the active item if possible
+        const targetScroll = itemLeft - (containerWidth / 2) + (itemWidth / 2);
+        container.scrollTo({
+          left: Math.max(0, targetScroll),
+          behavior: 'smooth'
+        });
       }
-    }
+    };
+
+    scrollToActive(tabsContainerRef.current, (c) => c.children[0]?.children[selectedImageIndex] as HTMLElement);
+    scrollToActive(thumbnailsContainerRef.current, (c) => c.children[selectedImageIndex] as HTMLElement);
   }, [selectedImageIndex, totalImagesCount, isUploading]);
 
   // Debug: Monitor imageDetails changes
@@ -313,13 +319,18 @@ export function AddMomentModal({
 
         setUploadProgress(uploadItems);
 
-        // Process files in batches of 5
-        const BATCH_SIZE = 5;
+        // Process files in small concurrent batches — not all at once. The backend's
+        // PHP-FPM pool runs in "ondemand" mode (no pre-warmed workers), so a burst of
+        // simultaneous uploads forces several cold worker forks at the same moment;
+        // whichever request draws the short straw in that queue can exceed the
+        // connection timeout and fail with a raw network error before any response
+        // ever comes back. A small batch size keeps bursts short enough to avoid that.
+        const BATCH_SIZE = 2;
         const processedFiles: File[] = [];
         const newPreviews: { [key: number]: string } = { ...imagePreviews };
         const newDetails: { [key: number]: { description: string; date: string; location: string; title?: string; showTitleInput?: boolean } } = { ...imageDetails };
 
-        console.log('🚀 Starting BATCH upload of', files.length, 'files (batch size: 5)');
+        console.log('🚀 Starting BATCH upload of', files.length, 'files (batch size: 2)');
 
         for (let batchStart = 0; batchStart < files.length; batchStart += BATCH_SIZE) {
           const batch = files.slice(batchStart, batchStart + BATCH_SIZE);
@@ -399,12 +410,13 @@ export function AddMomentModal({
                 // uploadImageWithMetadata does the actual S3 upload AND
                 // metadata extraction in one call — if it throws, the file
                 // was never uploaded at all (not just a metadata hiccup).
-                // Mark it as a genuine failure so the "Add all" guard can
-                // tell the user to retry instead of waiting forever.
+                // Mark it as a genuine failure (with the real reason, so it's
+                // both shown to the user and debuggable) so the "Add all"
+                // guard can tell the user to retry instead of waiting forever.
                 setUploadProgress(prev => prev.map(upload =>
                   upload.id === item.id ? { ...upload, progress: 100, status: 'error' } : upload
                 ));
-                setUploadErrors(prev => ({ ...prev, [fileIndex]: true }));
+                setUploadErrors(prev => ({ ...prev, [fileIndex]: error instanceof Error ? error.message : 'Upload failed' }));
                 setUploadedFilesCount(prev => prev + 1);
                 if (file.type.startsWith('image/') && !isHeicFile(file)) {
                   const reader = new FileReader();
@@ -542,9 +554,10 @@ export function AddMomentModal({
       setImageDetails(newDetails);
     }
 
-    // Process files in batches of 5
-    const BATCH_SIZE = 5;
-    console.log('🚀 handleFileSelect: Starting BATCH upload of', files.length, 'files (batch size: 5)');
+    // Small concurrent batches, not all at once — see the comment on the other
+    // BATCH_SIZE above for why (PHP-FPM ondemand cold-start under concurrent bursts).
+    const BATCH_SIZE = 2;
+    console.log('🚀 handleFileSelect: Starting BATCH upload of', files.length, 'files (batch size: 2)');
 
     const processedFiles: File[] = [];
 
@@ -631,12 +644,13 @@ export function AddMomentModal({
             console.error(`Error processing ${file.name}:`, error);
             // uploadImageWithMetadata does the actual S3 upload AND metadata
             // extraction in one call — if it throws, the file was never
-            // uploaded at all. Mark it as a genuine failure so the "Add all"
-            // guard can tell the user to retry instead of waiting forever.
+            // uploaded at all. Mark it as a genuine failure (with the real
+            // reason, so it's both shown to the user and debuggable) so the
+            // "Add all" guard can tell the user to retry instead of waiting forever.
             setUploadProgress(prev => prev.map(upload =>
               upload.id === item.id ? { ...upload, progress: 100, status: 'error' } : upload
             ));
-            setUploadErrors(prev => ({ ...prev, [fileIndex]: true }));
+            setUploadErrors(prev => ({ ...prev, [fileIndex]: error instanceof Error ? error.message : 'Upload failed' }));
             setUploadedFilesCount(prev => prev + 1);
             if (file.type.startsWith('image/') && !isHeicFile(file)) {
               const reader = new FileReader();
@@ -908,9 +922,11 @@ export function AddMomentModal({
       // to the new campaign with no actual file attached. Block instead.
       // Check genuine failures first — those will never resolve on their
       // own, so "please wait" would be actively misleading.
-      const hasFailedUpload = formData.files.some((_, index) => uploadErrors[index]);
-      if (hasFailedUpload) {
-        toast.error('One or more photos failed to upload. Please remove them and try again.');
+      const failedIndex = formData.files.findIndex((_, index) => uploadErrors[index]);
+      if (failedIndex !== -1) {
+        const reason = uploadErrors[failedIndex];
+        console.error('Photo upload failed:', { fileName: formData.files[failedIndex]?.name, reason });
+        toast.error(`Photo failed to upload: ${reason}. Please remove it and try again.`);
         return;
       }
       const stillUploading = formData.files.some((_, index) => !uploadedS3Urls[index]);
@@ -1502,7 +1518,7 @@ export function AddMomentModal({
                     photo (143x141 each, per the Figma "Moment - Dialog full" spec),
                     not just the one currently picked via the pills above. Clicking a
                     thumbnail still selects it, which drives the description form below. */}
-                <div className="flex gap-2 overflow-x-auto pb-1">
+                <div ref={thumbnailsContainerRef} className="flex gap-2 overflow-x-auto pb-1">
                   {formData.files.map((file, index) => {
                     const isHeicIndexed = isHeicFile(file);
                     const previewSrc = imagePreviews[index] || uploadedS3Urls[index];

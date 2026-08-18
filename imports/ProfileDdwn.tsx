@@ -8,6 +8,17 @@ import { getAdminSwitchData, switchAccount, clearAdminSwitchData } from "../comp
 import { dashboardAPI } from "../utils/authUtils";
 import { useProperty } from "../contexts/PropertyContext";
 
+// __APP_BUILD_TIME__ is injected at build time (see vite.config.ts's `define`)
+// as the ISO timestamp of when this exact bundle was built.
+function formatBuildVersion(buildTimeIso: string): string {
+  const d = new Date(buildTimeIso);
+  if (isNaN(d.getTime())) return 'Build unknown';
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const date = `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
+  const time = `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`;
+  return `Build ${date} ${time} UTC`;
+}
+
 function MaskGroup({ user }: { user?: { name?: string; email?: string; phone_number?: string; profile_image?: string; avatar?: string; profile_color?: string; plan_name?: string; credits?: number; location?: string } }) {
   const getInitials = (name?: string, email?: string, phone_number?: string) => {
     if (name) {
@@ -1051,6 +1062,12 @@ export function ProfileDropdownMenu({ isOpen, onClose, user, onShowProfileSettin
             </button>
           </>
         )}
+
+        {/* Build version — lets us confirm which build a user is actually
+            running when troubleshooting, without asking them to check DevTools. */}
+        <div className="px-4 pt-2 pb-1 text-[11px] text-gray-400 text-center select-text">
+          {formatBuildVersion(__APP_BUILD_TIME__)}
+        </div>
       </div>
     </div>
   );
