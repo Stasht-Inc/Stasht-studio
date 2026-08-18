@@ -101,7 +101,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
   const [isSearchingCollaborators, setIsSearchingCollaborators] = useState(false);
   const collaboratorSearchRef = useRef<HTMLDivElement>(null);
   // Editable part of the personalized invite message (the author name prefix is fixed/non-editable)
-  const [personalizedMessage, setPersonalizedMessage] = useState('invited you to collaborate on campaign');
+  const [personalizedMessage, setPersonalizedMessage] = useState('wants to share this with you!');
   // "Set as my default message" — when checked, personalizedMessage is saved as the user's master
   // message (via is_master on the create-campaign call) and pre-fills this box on future opens.
   const [isMasterMessage, setIsMasterMessage] = useState(false);
@@ -835,14 +835,14 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
       }
       fetchProperties();
 
-      // Pick default category: only pre-select when a specific defaultCategory was
-      // supplied (the sidebar's per-category "+" button). The generic "Create a
-      // Campaign" button passes no defaultCategory, and per Profile Settings >
-      // Categories ("Make category always visible" — off by default), no category
-      // should be silently pre-picked there; the user must choose one, unless a
-      // pinned preference is loaded below.
+      // Pick default category: prefer a specific defaultCategory when supplied (the
+      // sidebar's per-category "+" button). The generic "Create a Campaign" button
+      // passes no defaultCategory — it falls back to "Personal" (every account's
+      // standard category) so users aren't forced to pick one for the common case,
+      // unless a pinned preference from Profile Settings > Categories is loaded below.
       const categoryExists = resolvedCategories.some((c: any) => c.name === defaultCategory);
-      const resolvedCategory = categoryExists ? defaultCategory! : (defaultCategory && resolvedCategories.length === 0 ? defaultCategory : '');
+      const personalCategory = resolvedCategories.find((c: any) => c.name === 'Personal')?.name || '';
+      const resolvedCategory = categoryExists ? defaultCategory! : (defaultCategory && resolvedCategories.length === 0 ? defaultCategory : personalCategory);
 
       // Reset all states when modal opens fresh
       setFormData({
@@ -869,7 +869,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
       setCurrentCollaborator('');
       setCollaboratorMethod('phone');
       setCollaboratorSearchResults([]);
-      setPersonalizedMessage('invited you to collaborate on campaign');
+      setPersonalizedMessage('wants to share this with you!');
       setIsMasterMessage(false);
       setSavedMasterMessage('');
       fetchMasterMessage();
@@ -915,13 +915,15 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
     }
   }, [open, isAuthenticated, defaultCategory, categoriesProp, user]);
 
-  // Completes the defaultCategory resolution once apiCategories loads asynchronously
-  // (the sidebar's per-category "+" button case, where categories weren't ready yet
-  // when the modal first opened). Deliberately does NOT fall back to "first category"
-  // when no defaultCategory was supplied — see the resolvedCategory comment above for why.
+  // Completes the category resolution once apiCategories loads asynchronously — the
+  // synchronous pass above only sees categories already available via categoriesProp,
+  // so when that prop is empty (categories come from fetchCategoriesLabels() instead,
+  // which resolves after this effect runs), formData.category is still '' at that
+  // point and needs to be filled in here once the fetch actually completes.
   useEffect(() => {
-    if (open && defaultCategory && apiCategories.length > 0 && !formData.category) {
-      const matched = apiCategories.find((c: any) => c.name === defaultCategory);
+    if (open && apiCategories.length > 0 && !formData.category) {
+      const matchName = defaultCategory || 'Personal';
+      const matched = apiCategories.find((c: any) => c.name === matchName);
       if (matched) {
         setFormData(prev => ({ ...prev, category: matched.name }));
       }
@@ -1195,10 +1197,15 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
     const successfullyProcessedFiles: File[] = [...files]; // Copy all files immediately
     console.log(`🔒 GUARANTEED FILE LIST: ${successfullyProcessedFiles.length} files locked in`);
 
-    const BATCH_SIZE = 5;
+    // Small concurrent batches, not all at once — the backend's PHP-FPM pool runs in
+    // "ondemand" mode (no pre-warmed workers), so a burst of simultaneous uploads
+    // forces several cold worker forks at once; whichever request draws the short
+    // straw can exceed the connection timeout and fail with a raw network error
+    // before any response comes back. A small batch size keeps bursts short.
+    const BATCH_SIZE = 2;
 
     try {
-      // Process files in batches of 5 — each batch uploads in parallel
+      // Process files in batches of 2 — each batch uploads in parallel
       for (let batchStart = 0; batchStart < files.length; batchStart += BATCH_SIZE) {
         const batch = files.slice(batchStart, batchStart + BATCH_SIZE);
         console.log(`🚀 Processing batch ${Math.floor(batchStart / BATCH_SIZE) + 1}: files ${batchStart + 1}–${batchStart + batch.length} of ${files.length}`);
@@ -1865,7 +1872,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
           collaborators: []
         });
         setLabelInput('');
-        setPersonalizedMessage('invited you to collaborate on campaign'); // Reset personalized message
+        setPersonalizedMessage('wants to share this with you!'); // Reset personalized message
         setIsMasterMessage(false); // Re-derived from user data next time the modal opens
         setMainPhotosArray([]); // Clear the photos metadata array
         setPhotosWithMetadata([]); // Clear photos with metadata
@@ -2378,7 +2385,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
                   ref={fileInputRef}
                   type="file"
                   multiple
-                  accept=".jpg,.jpeg,.png,image/jpeg,image/png"
+                  accept="image/*,.heic,.heif"
                   onChange={handleFileUpload}
                   className="hidden"
                   id="create-memory-file-upload"
@@ -3327,7 +3334,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
                         onBlur={() => {
                           // Don't let the message be left empty — restore the default text
                           if (!personalizedMessage.trim()) {
-                            setPersonalizedMessage('invited you to collaborate on campaign');
+                            setPersonalizedMessage('wants to share this with you!');
                           }
                         }}
                         placeholder="Pre-written message goes here."
@@ -3350,12 +3357,12 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
                             // Only restore the previously saved master message if the box still shows
                             // the plain default (i.e. the user hasn't typed a new message since unchecking).
                             // If they typed something new, keep it — that becomes the new master on save.
-                            if (savedMasterMessage && personalizedMessage === 'invited you to collaborate on campaign') {
+                            if (savedMasterMessage && personalizedMessage === 'wants to share this with you!') {
                               setPersonalizedMessage(savedMasterMessage);
                             }
                           } else {
                             // Turning off the master message reverts the box to the plain default
-                            setPersonalizedMessage('invited you to collaborate on campaign');
+                            setPersonalizedMessage('wants to share this with you!');
                           }
                         }}
                         className="w-4 h-4 rounded border-gray-300 text-[#6C60FF] focus:ring-[#6C60FF]"

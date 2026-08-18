@@ -10,3 +10,7 @@ interface ImportMetaEnv {
 interface ImportMeta {
   readonly env: ImportMetaEnv;
 }
+
+// Injected at build time by vite.config.ts's `define` — the ISO timestamp of
+// when this bundle was built, shown in the profile menu as the build version.
+declare const __APP_BUILD_TIME__: string;

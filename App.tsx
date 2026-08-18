@@ -3534,13 +3534,12 @@ function MainApp() {
       console.log('🚨🚨🚨 About to call fetchExistingMemories...');
       fetchExistingMemories();
 
-      // Only fetch memories here if NOT in property view.
-      // Use viewTypeRef (not closure viewType) to get the actual current value.
-      // Property view fetching is handled by the viewType useEffect.
-      if (viewTypeRef.current !== 'property') {
-        console.log('🚨🚨🚨 About to call fetchMemoriesData...');
-        fetchMemoriesData();
-      }
+      // NOTE: memories are NOT fetched here. The viewType useEffect below is the
+      // single source of truth for fetching /memories — it also runs on the initial
+      // authenticated mount (isAuthenticated is one of its deps) and covers both
+      // personal and property views. Fetching here as well caused a redundant
+      // double-fetch of /memories on every dashboard load
+      // (see PERFORMANCE_OPTIMIZATION_PLAN.md #3).
     } else {
       console.log('🚨 AUTH CHECK: Not authenticated or still loading', { isAuthenticated, isLoading });
     }

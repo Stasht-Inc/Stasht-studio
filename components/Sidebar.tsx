@@ -6,6 +6,7 @@ import { Plus, LayoutDashboard, BookOpen, FolderOpen, Users, Grid3x3, CheckCircl
 import CreateMemory from "./CreateMemory";
 import { useMemoryLimit } from "../hooks/useMemoryLimit";
 import { dashboardAPI, isPartialAdmin, apiRequest } from "../utils/authUtils";
+import { runWhenIdle } from "../utils/deferIdle";
 import { useAuth } from "../contexts/AuthContext";
 import { useMemoryCounts } from "../hooks/useMemoryCounts";
 import { MemoryLimitDialog } from "./MemoryLimitDialog";
@@ -292,17 +293,21 @@ export default function Sidebar({
   }, [isAuthenticated]);
 
   // Connectors badge = number of connectors currently connected (DocuSign + Shopify).
-  // Same two status endpoints the Connectors/Marketplace page uses.
+  // Same two status endpoints the Connectors/Marketplace page uses. This is a purely
+  // decorative count, so it's deferred to browser-idle time to keep the two status
+  // calls off the initial-load critical path (PERFORMANCE_OPTIMIZATION_PLAN.md #4).
   useEffect(() => {
     if (!isAuthenticated) return;
     let cancelled = false;
-    Promise.all([
-      dashboardAPI.docuSignGetStatus().then(r => (r?.success && r.data?.connected ? 1 : 0)).catch(() => 0),
-      dashboardAPI.shopifyGetStatus().then(r => (r?.success && r.data?.connected ? 1 : 0)).catch(() => 0),
-    ]).then(([docusign, shopify]) => {
-      if (!cancelled) setConnectorsCount(docusign + shopify);
+    const cancelIdle = runWhenIdle(() => {
+      Promise.all([
+        dashboardAPI.docuSignGetStatus().then(r => (r?.success && r.data?.connected ? 1 : 0)).catch(() => 0),
+        dashboardAPI.shopifyGetStatus().then(r => (r?.success && r.data?.connected ? 1 : 0)).catch(() => 0),
+      ]).then(([docusign, shopify]) => {
+        if (!cancelled) setConnectorsCount(docusign + shopify);
+      });
     });
-    return () => { cancelled = true; };
+    return () => { cancelled = true; cancelIdle(); };
   }, [isAuthenticated]);
 
   const fetchLeadsUnreadCount = () => {
@@ -328,12 +333,20 @@ export default function Sidebar({
     return () => clearInterval(interval);
   }, [isAuthenticated]);
 
+  // Apps badge = number of partner API-key "apps". Decorative count for the Apps nav
+  // item, so it's deferred to browser-idle time to keep /user/api-keys off the
+  // initial-load critical path (PERFORMANCE_OPTIMIZATION_PLAN.md #4).
   useEffect(() => {
     if (!isAuthenticated) return;
-    apiRequest('/user/api-keys', { method: 'GET' }).then((data) => {
-      const appsData = data.data?.data?.apps || data.data?.apps || [];
-      setAppsCount(appsData.length);
-    }).catch(() => {});
+    let cancelled = false;
+    const cancelIdle = runWhenIdle(() => {
+      apiRequest('/user/api-keys', { method: 'GET' }).then((data) => {
+        if (cancelled) return;
+        const appsData = data.data?.data?.apps || data.data?.apps || [];
+        setAppsCount(appsData.length);
+      }).catch(() => {});
+    });
+    return () => { cancelled = true; cancelIdle(); };
   }, [isAuthenticated]);
 
   // Note: Memory limit updates now handled by global event system in useMemoryLimit hook

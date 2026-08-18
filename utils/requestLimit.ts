@@ -40,9 +40,13 @@ export const apiLimit = createLimiter(4);
 
 /**
  * Uploads are heavier and slower, so they get their own, smaller budget — this
- * matches the BATCH_SIZE = 5 already used by AddMomentModal and CreateMemory.
+ * matches the BATCH_SIZE = 2 already used by AddMomentModal and CreateMemory.
+ * Kept small deliberately: the backend's PHP-FPM pool runs in "ondemand" mode
+ * (no pre-warmed workers), so a burst of simultaneous uploads forces several
+ * cold worker forks at once, and whichever request draws the short straw can
+ * exceed the connection timeout and fail before any response comes back.
  */
-export const uploadLimit = createLimiter(5);
+export const uploadLimit = createLimiter(2);
 
 /**
  * Drop-in replacement for `Promise.all(items.map(fn))` that respects a limiter.

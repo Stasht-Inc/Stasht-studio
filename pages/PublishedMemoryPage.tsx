@@ -1,7 +1,7 @@
 ﻿import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { Helmet } from "react-helmet-async";
-import { Calendar, MapPin, MessageSquare, ArrowLeft, Clock, Lock, Circle, X, ChevronLeft, ChevronRight, Send, Link, Facebook, Linkedin, Code, Eye, Globe, ChevronDown, Download, Mail, FileText, Heart, Search, Play, Pause, Phone, Share2, Copy, MoreVertical, BookOpen, ArrowRight, ExternalLink, ShoppingCart, Star, Gift, Pointer, Quote, Plus, Upload, Loader2, Camera } from "lucide-react";
+import { Calendar, MapPin, MessageSquare, ArrowLeft, Clock, Lock, Circle, X, ChevronLeft, ChevronRight, Send, Link, Facebook, Linkedin, Code, Eye, Globe, ChevronDown, Download, Mail, FileText, Heart, Search, Play, Pause, Phone, Share2, Copy, MoreVertical, BookOpen, ArrowRight, ExternalLink, ShoppingCart, Star, Gift, Pointer, Quote, Plus, Upload, Loader2, Camera, Image as ImageIcon } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { Badge } from "../components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "../components/ui/avatar";
@@ -572,6 +572,17 @@ export default function PublishedMemoryPage() {
   };
 
   const handleLinkedMemoryClick = async (lm: any) => {
+    // Cars aren't Memory records — they're rows on the memory_cars pivot, so
+    // dashboardAPI.getMemoryDetail(lm.id) below would look up a Memory by that id
+    // (wrong record, or a 404) instead of the car. Every field the detail view
+    // needs is already on the linked_memories entry itself (see
+    // PublishedMemoryController::index()'s $carEntries mapping on the backend),
+    // so just show it directly with no extra request.
+    if (lm.is_car) {
+      setSelectedCarDetail(lm);
+      return;
+    }
+
     setIsLoadingSubMemory(true);
     try {
       const res = await dashboardAPI.getMemoryDetail(String(lm.id));
@@ -642,6 +653,11 @@ export default function PublishedMemoryPage() {
   const [showRequestMomentModal, setShowRequestMomentModal] = useState(false);
   // Which post the submission should land after; null = top of the timeline.
   const [requestMomentAfterPostId, setRequestMomentAfterPostId] = useState<string | null>(null);
+
+  // Car listing detail modal — cars aren't real Memory records (see
+  // handleLinkedMemoryClick below), so clicking one just opens this read-only
+  // panel from the data already on the linked_memories entry, no extra fetch needed.
+  const [selectedCarDetail, setSelectedCarDetail] = useState<any | null>(null);
 
   // Cover video state
   const [isCoverVideoPlaying, setIsCoverVideoPlaying] = useState(false);
@@ -1200,7 +1216,7 @@ export default function PublishedMemoryPage() {
 
   // YouTube IFrame API — autoplay with sound (must be before any early returns)
   useEffect(() => {
-    const coverSrc = memoryData?.last_update_img || memoryData?.posts?.[0]?.master_image_link;
+    const coverSrc = memoryData?.last_update_img || memoryData?.posts?.[0]?.master_image_link || memoryData?.linked_memories?.[0]?.cover_image;
     if (!coverSrc || !isYoutubeUrl(coverSrc)) return;
     const videoId = getYoutubeVideoId(coverSrc);
     if (!videoId) return;
@@ -1557,7 +1573,8 @@ export default function PublishedMemoryPage() {
   // Get the best available image for Open Graph tags
   const memoryImage = memoryData.last_update_img ||
                      allPosts[0]?.master_image_link ||
-                     allPosts[0]?.image_link;
+                     allPosts[0]?.image_link ||
+                     memoryData?.linked_memories?.[0]?.cover_image;
 
   const ogImageUrl = getAbsoluteImageUrl(memoryImage);
 
@@ -1875,7 +1892,7 @@ export default function PublishedMemoryPage() {
         {/* Header Image with Overlay - shorter height to allow cards to overlap */}
         <div ref={mobileHeaderImageRef} className="relative" style={{ height: '78vh' }}>
           {(() => {
-            const coverSrc = memoryData.last_update_img || allPosts[0]?.master_image_link;
+            const coverSrc = memoryData.last_update_img || allPosts[0]?.master_image_link || memoryData?.linked_memories?.[0]?.cover_image;
             return isYoutubeUrl(coverSrc) ? (
               <div id="yt-cover-mobile" className="w-full h-full absolute inset-0 rounded-b-3xl overflow-hidden" />
             ) : isVideoUrl(coverSrc) ? (
@@ -1920,7 +1937,7 @@ export default function PublishedMemoryPage() {
           <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent rounded-b-3xl pointer-events-none" />
 
           {/* Cover Video Play/Pause */}
-          {isVideoUrl(memoryData.last_update_img || allPosts[0]?.master_image_link) && (
+          {isVideoUrl(memoryData.last_update_img || allPosts[0]?.master_image_link || memoryData?.linked_memories?.[0]?.cover_image) && (
             <button
               type="button"
               className="absolute inset-0 w-full h-full flex items-center justify-center bg-transparent border-0 p-0 z-20"
@@ -2744,7 +2761,7 @@ export default function PublishedMemoryPage() {
                   {/* Header Image */}
                   <div ref={headerImageRef} className="relative rounded-3xl overflow-hidden mx-2" style={{ height: 'min(800px, calc(100vh - 80px))' }}>
                     {(() => {
-                      const coverSrc = memoryData.last_update_img || allPosts[0]?.master_image_link;
+                      const coverSrc = memoryData.last_update_img || allPosts[0]?.master_image_link || memoryData?.linked_memories?.[0]?.cover_image;
                       return isYoutubeUrl(coverSrc) ? (
                         <div id="yt-cover-desktop" className="w-full h-full absolute inset-0 overflow-hidden" />
                       ) : isVideoUrl(coverSrc) ? (
@@ -3743,6 +3760,80 @@ export default function PublishedMemoryPage() {
         afterPostId={requestMomentAfterPostId}
         variant="public"
       />
+
+      {/* ── Car listing detail modal ──────────────────────────────────────── */}
+      <Dialog open={!!selectedCarDetail} onOpenChange={(open) => { if (!open) setSelectedCarDetail(null); }}>
+        <DialogContent className="sm:max-w-md p-0 overflow-hidden gap-0 bg-white">
+          <DialogTitle className="sr-only">
+            {selectedCarDetail?.title || 'Vehicle details'}
+          </DialogTitle>
+          {selectedCarDetail && (
+            <>
+              <div className="w-full aspect-[4/3] bg-gray-100">
+                {selectedCarDetail.cover_image ? (
+                  <img
+                    src={selectedCarDetail.cover_image}
+                    alt={selectedCarDetail.title}
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center text-gray-400">
+                    <ImageIcon className="w-10 h-10" />
+                  </div>
+                )}
+              </div>
+              <div className="p-6 space-y-4">
+                <div>
+                  <h3 className="text-lg font-semibold text-[#101828]">{selectedCarDetail.title}</h3>
+                  {selectedCarDetail.location && (
+                    <p className="text-sm text-gray-500 flex items-center gap-1 mt-1">
+                      <MapPin className="w-3.5 h-3.5" /> {selectedCarDetail.location}
+                    </p>
+                  )}
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  {carLinkedMemoryLabel(selectedCarDetail) && (
+                    <div>
+                      <p className="text-xs text-gray-400 uppercase tracking-wide">Price</p>
+                      <p className="text-base font-semibold text-[#101828]">{carLinkedMemoryLabel(selectedCarDetail)}</p>
+                    </div>
+                  )}
+                  {selectedCarDetail.mileage != null && selectedCarDetail.mileage !== '' && (
+                    <div>
+                      <p className="text-xs text-gray-400 uppercase tracking-wide">Mileage</p>
+                      <p className="text-base font-semibold text-[#101828]">{Number(selectedCarDetail.mileage).toLocaleString()} mi</p>
+                    </div>
+                  )}
+                  {selectedCarDetail.stock_number && (
+                    <div>
+                      <p className="text-xs text-gray-400 uppercase tracking-wide">Stock #</p>
+                      <p className="text-base font-semibold text-[#101828]">{selectedCarDetail.stock_number}</p>
+                    </div>
+                  )}
+                  {(selectedCarDetail.year || selectedCarDetail.make || selectedCarDetail.model) && (
+                    <div>
+                      <p className="text-xs text-gray-400 uppercase tracking-wide">Vehicle</p>
+                      <p className="text-base font-semibold text-[#101828]">
+                        {[selectedCarDetail.year, selectedCarDetail.make, selectedCarDetail.model].filter(Boolean).join(' ')}
+                      </p>
+                    </div>
+                  )}
+                </div>
+                {selectedCarDetail.listing_url && (
+                  <a
+                    href={selectedCarDetail.listing_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="block w-full text-center bg-[#6C60FF] hover:bg-[#5b50e6] text-white text-sm font-medium rounded-lg py-2.5 transition-colors"
+                  >
+                    View Full Listing
+                  </a>
+                )}
+              </div>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

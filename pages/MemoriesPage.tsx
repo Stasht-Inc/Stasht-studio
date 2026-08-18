@@ -34,6 +34,7 @@ import AddTagsModal from "../components/AddTagsModal";
 import MergeStoriesModal from "../components/MergeStoriesModal";
 import { UpgradePlanModal } from "../components/UpgradePlanModal";
 import { mapLimit } from "../utils/requestLimit";
+import { runWhenIdle } from "../utils/deferIdle";
 const imgSunnyBeach = 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=400&h=300&fit=crop';
 
 interface ApiMemory {
@@ -757,21 +758,27 @@ function MemoriesPageContent({
   }, [shopifyData]);
 
   // Cars aren't embedded in the /memories response like Shopify — they're a separate
-  // read-only inventory feed (GET /cars), fetched once on mount.
+  // read-only inventory feed (GET /cars). The car cards already render asynchronously
+  // (grid paints first, cards pop in when this resolves), so the fetch is deferred to
+  // browser-idle time to keep /cars off the initial-load critical path where the core
+  // memories/media data is competing (PERFORMANCE_OPTIMIZATION_PLAN.md #4). Identical
+  // UX to before — just later in the frame budget.
   const [carsList, setCarsList] = useState<any[]>([]);
   useEffect(() => {
     let cancelled = false;
-    (async () => {
-      try {
-        const res = await dashboardAPI.carsGetCatalog();
-        if (cancelled) return;
-        const list = res.data?.data?.cars || (res.data as any)?.cars || [];
-        if (res.success && Array.isArray(list)) setCarsList(list);
-      } catch {
-        // Cars is an optional read-only feed, not core memory data — fail silently.
-      }
-    })();
-    return () => { cancelled = true; };
+    const cancelIdle = runWhenIdle(() => {
+      (async () => {
+        try {
+          const res = await dashboardAPI.carsGetCatalog();
+          if (cancelled) return;
+          const list = res.data?.data?.cars || (res.data as any)?.cars || [];
+          if (res.success && Array.isArray(list)) setCarsList(list);
+        } catch {
+          // Cars is an optional read-only feed, not core memory data — fail silently.
+        }
+      })();
+    });
+    return () => { cancelled = true; cancelIdle(); };
   }, []);
 
   // One card per car — each car IS a campaign (unlike Shopify, where the collection is the

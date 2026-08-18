@@ -1,5 +1,16 @@
 // Auth utility functions for API integration
 
+// Dev-only logging. Silenced in production builds so the app ships without the
+// heavy per-request debug spew described in PERFORMANCE_OPTIMIZATION_PLAN.md #5
+// (every apiRequest was decoding the JWT and emitting ~10 console lines). Function
+// declaration (hoisted) so it's safe to call from anywhere in this module.
+// NOTE: console.error / console.warn are intentionally left as-is — real error
+// reporting should still surface in production.
+function devLog(...args: any[]): void {
+  // eslint-disable-next-line no-console
+  if (import.meta.env.DEV) console.log(...args);
+}
+
 export interface LoginCredentials {
   email?: string;
   password?: string;          // optional — passwordless login uses verification_token instead
@@ -137,7 +148,7 @@ export const getApiBaseUrl = () => {
 
   // Development: use proxy
   if (import.meta.env.DEV) {
-    console.log('🔍 Development mode: Using proxy for API requests');
+    devLog('🔍 Development mode: Using proxy for API requests');
     return '/api/react';
   }
 
@@ -165,6 +176,70 @@ const RATE_LIMIT_STATUS = 429;
 const MAX_RATE_LIMIT_RETRIES = 3;
 const MAX_RATE_LIMIT_BACKOFF_MS = 30000;
 
+// Separate, smaller retry budget for raw network-level failures (connection
+// dropped mid-upload, DNS hiccup, etc.) — these throw before any Response
+// exists, so they can't be told apart from a real outage by status code.
+// A short, capped retry catches the common transient case (slow/flaky mobile
+// upload getting cut off) without masking a genuine, sustained failure.
+const MAX_NETWORK_RETRIES = 2;
+const NETWORK_RETRY_BACKOFF_MS = [1000, 3000];
+
+// Browsers report a dropped/failed fetch with different messages: Chrome/Edge
+// throw "Failed to fetch", Firefox "NetworkError when attempting to fetch
+// resource", Safari "Load failed". None of these are HTTP statuses — the
+// request never got a response — so they're matched on the thrown error text.
+const isRetryableNetworkError = (error: unknown): boolean => {
+  if (!(error instanceof TypeError)) return false;
+  const message = error.message.toLowerCase();
+  return message.includes('failed to fetch') ||
+         message.includes('network error') ||
+         message.includes('load failed') ||
+         message.includes('network request failed');
+};
+
+// A 429 comes from the throttle middleware, which rejects the request before it
+// reaches the controller — nothing was processed, so retrying is safe even for
+// writes. Honour Retry-After when the server sends it, otherwise back off
+// exponentially with a little jitter so a burst of parallel callers doesn't
+// retry in lockstep. Capped, so a sustained limit still fails rather than hanging.
+//
+// Also retries genuine network-level failures (connection dropped before any
+// response arrived — e.g. a slow mobile upload getting cut off mid-transfer).
+// Safe to retry even for writes: no response means the server either never
+// received the request or the client never learned the outcome either way,
+// and re-sending the same FormData is a no-op on the wire until it succeeds.
+//
+// Exported so raw fetch() calls that can't go through apiRequest — multipart
+// FormData uploads, where apiRequest's JSON-only body handling doesn't fit
+// (uploadImageWithMetadata, mediaAPI.addMoment) — get the same retry behavior
+// instead of failing outright on a transient rate-limit hit or dropped connection.
+export const fetchWithRateLimitRetry = async (url: string, init: RequestInit): Promise<Response> => {
+  let response: Response;
+  for (let attempt = 0; ; attempt++) {
+    try {
+      response = await fetch(url, init);
+    } catch (error) {
+      if (!isRetryableNetworkError(error) || attempt >= MAX_NETWORK_RETRIES) throw error;
+
+      const waitMs = NETWORK_RETRY_BACKOFF_MS[attempt] ?? NETWORK_RETRY_BACKOFF_MS[NETWORK_RETRY_BACKOFF_MS.length - 1];
+      console.warn(`⚠️ Network error on ${url} (${(error as Error).message}) — retrying in ${waitMs}ms (attempt ${attempt + 1}/${MAX_NETWORK_RETRIES})`);
+      await new Promise((resolve) => setTimeout(resolve, waitMs));
+      continue;
+    }
+
+    if (response.status !== RATE_LIMIT_STATUS || attempt >= MAX_RATE_LIMIT_RETRIES) break;
+
+    const retryAfterSec = Number(response.headers.get('Retry-After'));
+    const waitMs = Number.isFinite(retryAfterSec) && retryAfterSec > 0
+      ? Math.min(retryAfterSec * 1000, MAX_RATE_LIMIT_BACKOFF_MS)
+      : Math.min(1000 * 2 ** attempt, MAX_RATE_LIMIT_BACKOFF_MS) + Math.random() * 250;
+
+    console.warn(`⏳ 429 from ${url} — retrying in ${Math.round(waitMs)}ms (attempt ${attempt + 1}/${MAX_RATE_LIMIT_RETRIES})`);
+    await new Promise((resolve) => setTimeout(resolve, waitMs));
+  }
+  return response;
+};
+
 export const apiRequest = async <T = any>(
   endpoint: string,
   options: RequestInit = {}
@@ -172,7 +247,7 @@ export const apiRequest = async <T = any>(
   try {
     // Check if token is expired before making the request
     const token = tokenUtils.getToken();
-    console.log(`🔍 API Request to ${endpoint}:`, {
+    devLog(`🔍 API Request to ${endpoint}:`, {
       endpoint,
       tokenExists: !!token,
       tokenLength: token?.length || 0,
@@ -181,7 +256,7 @@ export const apiRequest = async <T = any>(
     });
 
     if (token && tokenUtils.isTokenExpired(token)) {
-      console.log('Token expired, clearing auth data');
+      devLog('Token expired, clearing auth data');
       userUtils.clearAuthData();
       return {
         success: false,
@@ -196,45 +271,27 @@ export const apiRequest = async <T = any>(
       finalEndpoint = `${endpoint}${separator}_t=${Date.now()}`;
     }
 
-    // A 429 comes from the throttle middleware, which rejects the request before
-    // it reaches the controller — nothing was processed, so retrying is safe even
-    // for writes. Honour Retry-After when the server sends it, otherwise back off
-    // exponentially with a little jitter so a burst of parallel callers doesn't
-    // retry in lockstep. Capped, so a sustained limit still fails rather than hanging.
-    let response: Response;
-    for (let attempt = 0; ; attempt++) {
-      response = await fetch(`${API_BASE_URL}${finalEndpoint}`, {
-        ...options,
-        headers: {
-          ...getAuthHeaders(),
-          ...(options.headers || {}),
-        },
-        credentials: 'same-origin', // Ensure cookies are sent with same-origin requests
-      });
-
-      if (response.status !== RATE_LIMIT_STATUS || attempt >= MAX_RATE_LIMIT_RETRIES) break;
-
-      const retryAfterSec = Number(response.headers.get('Retry-After'));
-      const waitMs = Number.isFinite(retryAfterSec) && retryAfterSec > 0
-        ? Math.min(retryAfterSec * 1000, MAX_RATE_LIMIT_BACKOFF_MS)
-        : Math.min(1000 * 2 ** attempt, MAX_RATE_LIMIT_BACKOFF_MS) + Math.random() * 250;
-
-      console.warn(`⏳ 429 from ${endpoint} — retrying in ${Math.round(waitMs)}ms (attempt ${attempt + 1}/${MAX_RATE_LIMIT_RETRIES})`);
-      await new Promise((resolve) => setTimeout(resolve, waitMs));
-    }
+    const response = await fetchWithRateLimitRetry(`${API_BASE_URL}${finalEndpoint}`, {
+      ...options,
+      headers: {
+        ...getAuthHeaders(),
+        ...(options.headers || {}),
+      },
+      credentials: 'same-origin', // Ensure cookies are sent with same-origin requests
+    });
 
     let data;
     try {
       const responseText = await response.text();
-      console.log(`🔍 API Response Text for ${endpoint}:`, responseText);
-      console.log(`🔍 Response Status: ${response.status} ${response.statusText}`);
-      console.log(`🔍 Response OK: ${response.ok}`);
+      devLog(`🔍 API Response Text for ${endpoint}:`, responseText);
+      devLog(`🔍 Response Status: ${response.status} ${response.statusText}`);
+      devLog(`🔍 Response OK: ${response.ok}`);
 
       if (responseText.trim() === '') {
-        console.log('🔍 Empty response received');
+        devLog('🔍 Empty response received');
         // Handle specific HTTP error codes
         if (response.status === 500) {
-          console.log('🔍 HTTP 500 with empty response - likely backend server unavailable');
+          devLog('🔍 HTTP 500 with empty response - likely backend server unavailable');
           const isDevelopment = import.meta.env.DEV;
           const devMessage = isDevelopment
             ? ' (Development: Check if the Laravel backend server is running at localhost/stasht-for-multiple-admins/public)'
@@ -245,16 +302,16 @@ export const apiRequest = async <T = any>(
             error: `Backend server is currently unavailable. Please try again later or contact support.${devMessage}`
           };
         } else if (response.status >= 400 && response.status < 500) {
-          console.log('🔍 HTTP 4xx with empty response - client error');
+          devLog('🔍 HTTP 4xx with empty response - client error');
           data = {
             success: false,
             error: `Request failed (${response.status}). Please check your input and try again.`
           };
         } else if (response.ok) {
-          console.log('🔍 Empty response with OK status - treating as successful empty response');
+          devLog('🔍 Empty response with OK status - treating as successful empty response');
           data = { success: true };
         } else {
-          console.log('🔍 Empty response with error status - treating as error');
+          devLog('🔍 Empty response with error status - treating as error');
           data = {
             success: false,
             error: `Server returned empty response with status ${response.status}`
@@ -267,7 +324,7 @@ export const apiRequest = async <T = any>(
           // If JSON parsing fails and response is OK, treat the text as the data itself
           // This handles cases where API returns plain text/URL instead of JSON
           if (response.ok) {
-            console.log('🔍 Response is not JSON but status is OK, treating as plain text data');
+            devLog('🔍 Response is not JSON but status is OK, treating as plain text data');
             data = responseText; // Use the plain text as data
           } else {
             throw jsonError; // Re-throw if response is not OK
@@ -298,8 +355,8 @@ export const apiRequest = async <T = any>(
       if (!isOAuthCallback && !isPublicEndpoint &&
           ((data.message === 'Unauthenticated' && data.error === 'Authentication token is required') ||
           (data.success === false && data.message === 'Unauthenticated'))) {
-        console.log('🔒 Authentication error detected:', data);
-        console.log('Automatically logging out user due to authentication failure');
+        devLog('🔒 Authentication error detected:', data);
+        devLog('Automatically logging out user due to authentication failure');
 
         // Clear all auth data
         userUtils.clearAuthData();
@@ -319,7 +376,7 @@ export const apiRequest = async <T = any>(
 
     // Handle 401 Unauthorized responses
     if (response.status === 401) {
-      console.log('Received 401 Unauthorized for endpoint:', endpoint);
+      devLog('Received 401 Unauthorized for endpoint:', endpoint);
 
       // Skip authentication error handling for OAuth callback endpoints
       const isOAuthCallback = endpoint.includes('/auth/google/callback') ||
@@ -334,14 +391,14 @@ export const apiRequest = async <T = any>(
                                 isOAuthCallback;
 
       if (!isOptionalEndpoint) {
-        console.log('Critical endpoint failed, clearing auth data and reloading');
+        devLog('Critical endpoint failed, clearing auth data and reloading');
         userUtils.clearAuthData();
         // Force page reload to clear all state and redirect to login
         setTimeout(() => {
           window.location.href = '/login'; // Redirect directly to login page
         }, 100);
       } else {
-        console.log('Optional endpoint or OAuth callback failed, not triggering logout');
+        devLog('Optional endpoint or OAuth callback failed, not triggering logout');
       }
 
       return {
@@ -421,7 +478,7 @@ export const authAPI = {
   // Login user
   login: async (credentials: LoginCredentials): Promise<LoginResponse> => {
     try {
-      console.log('authAPI.login: Sending request to /login with credentials:', {
+      devLog('authAPI.login: Sending request to /login with credentials:', {
         email: credentials.email,
         phone_number: credentials.phone_number
       });
@@ -441,7 +498,7 @@ export const authAPI = {
 
       const response = await Promise.race([apiPromise, timeoutPromise]);
 
-      console.log('authAPI.login: Full API Response:', JSON.stringify(response, null, 2));
+      devLog('authAPI.login: Full API Response:', JSON.stringify(response, null, 2));
 
       // NEW DEVICE VERIFICATION: Check if OTP is required before any other checks
       // Check both top level and nested data structure
@@ -449,7 +506,7 @@ export const authAPI = {
       const attemptId = response.attempt_id || response.data?.attempt_id;
 
       if (requiresVerification && attemptId) {
-        console.log('🔐 authAPI.login: Device verification required - OTP sent');
+        devLog('🔐 authAPI.login: Device verification required - OTP sent');
         return {
           success: false,
           requires_verification: true,
@@ -475,10 +532,10 @@ export const authAPI = {
         const sharedProperties = data.shared_properties || data.data?.shared_properties || [];
 
         if (user && token) {
-          console.log('✅ authAPI.login: Found user and token in response!');
-          console.log('✅ authAPI.login: Collaborators found:', collaborators);
-          console.log('✅ authAPI.login: User object:', user);
-          console.log('✅ authAPI.login: User location:', user.location);
+          devLog('✅ authAPI.login: Found user and token in response!');
+          devLog('✅ authAPI.login: Collaborators found:', collaborators);
+          devLog('✅ authAPI.login: User object:', user);
+          devLog('✅ authAPI.login: User location:', user.location);
 
           // Attach is_internal from wherever it appears in the response
           if (!user.is_internal) {
@@ -510,7 +567,7 @@ export const authAPI = {
 
       // Handle 409 Conflict (user already logged in)
       if (response.success === false && response.error && response.error.includes('Already logged in')) {
-        console.log('authAPI.login: Conflict detected - user already logged in');
+        devLog('authAPI.login: Conflict detected - user already logged in');
         return {
           success: false,
           error: response.error,
@@ -551,14 +608,14 @@ export const authAPI = {
       };
 
       const activationError = checkActivationError(response);
-      console.log('🔍 authAPI.login: Checking activation error...');
-      console.log('🔍 authAPI.login: Full response structure:', JSON.stringify(response, null, 2));
-      console.log('🔍 authAPI.login: activationError found:', activationError);
-      console.log('🔍 authAPI.login: response.success:', response.success);
+      devLog('🔍 authAPI.login: Checking activation error...');
+      devLog('🔍 authAPI.login: Full response structure:', JSON.stringify(response, null, 2));
+      devLog('🔍 authAPI.login: activationError found:', activationError);
+      devLog('🔍 authAPI.login: response.success:', response.success);
 
       // Check for activation error - handle cases where success is not explicitly false
       if (activationError) {
-        console.log('🎯 authAPI.login: Account activation required -', activationError);
+        devLog('🎯 authAPI.login: Account activation required -', activationError);
         return {
           success: false,
           error: activationError,
@@ -572,9 +629,9 @@ export const authAPI = {
       if (response.success && response.data && response.data.success && response.data.data) {
         const apiData = response.data.data;
         if (apiData.token && apiData.user) {
-          console.log('authAPI.login: Found user and token in response.data.data');
+          devLog('authAPI.login: Found user and token in response.data.data');
           const collaborators = apiData.collaborators || response.data.collaborators || response.collaborators || [];
-          console.log('authAPI.login: Collaborators found:', collaborators);
+          devLog('authAPI.login: Collaborators found:', collaborators);
           return {
             success: true,
             user: apiData.user,
@@ -587,9 +644,9 @@ export const authAPI = {
 
       // Handle your API's response structure (single nested)
       if (response.success && response.data && response.data.token && response.data.user) {
-        console.log('authAPI.login: Found user and token in response.data');
+        devLog('authAPI.login: Found user and token in response.data');
         const collaborators = response.data.collaborators || response.collaborators || [];
-        console.log('authAPI.login: Collaborators found:', collaborators);
+        devLog('authAPI.login: Collaborators found:', collaborators);
         return {
           success: true,
           user: response.data.user,
@@ -602,9 +659,9 @@ export const authAPI = {
       // Handle direct response (not wrapped in data) - cast to any for legacy support
       const responseAny = response as any;
       if (responseAny.token && responseAny.user) {
-        console.log('authAPI.login: Found user and token at root level');
+        devLog('authAPI.login: Found user and token at root level');
         const collaborators = responseAny.collaborators || [];
-        console.log('authAPI.login: Collaborators found:', collaborators);
+        devLog('authAPI.login: Collaborators found:', collaborators);
         return {
           success: true,
           user: responseAny.user,
@@ -616,11 +673,11 @@ export const authAPI = {
 
       // Handle success flag with data (fallback)
       if (response.success && response.data) {
-        console.log('authAPI.login: Using fallback - returning response.data');
+        devLog('authAPI.login: Using fallback - returning response.data');
         const dataToCheck = response.data.data || response.data;
         if (dataToCheck.token && dataToCheck.user) {
           const collaborators = dataToCheck.collaborators || response.data.collaborators || response.collaborators || [];
-          console.log('authAPI.login: Collaborators found:', collaborators);
+          devLog('authAPI.login: Collaborators found:', collaborators);
           return {
             success: true,
             user: dataToCheck.user,
@@ -634,7 +691,7 @@ export const authAPI = {
       // Handle response with status - cast to any for legacy support
       if (responseAny.status === 'success' && responseAny.token) {
         const collaborators = responseAny.collaborators || [];
-        console.log('authAPI.login: Collaborators found:', collaborators);
+        devLog('authAPI.login: Collaborators found:', collaborators);
         return {
           success: true,
           user: responseAny.user || {
@@ -649,16 +706,16 @@ export const authAPI = {
       }
 
       // Last resort: If response looks successful but we couldn't parse it, log and return failure
-      console.log('❌ authAPI.login: Could not parse login response!');
-      console.log('❌ None of the expected response formats matched');
-      console.log('❌ Response keys:', Object.keys(response));
-      console.log('❌ Response.success:', response.success);
-      console.log('❌ Response.data keys:', response.data ? Object.keys(response.data) : 'no data');
+      devLog('❌ authAPI.login: Could not parse login response!');
+      devLog('❌ None of the expected response formats matched');
+      devLog('❌ Response keys:', Object.keys(response));
+      devLog('❌ Response.success:', response.success);
+      devLog('❌ Response.data keys:', response.data ? Object.keys(response.data) : 'no data');
 
       // Emergency fallback: Try to find user and token anywhere in the response
       if (response.success) {
-        console.log('⚠️ Attempting emergency fallback parsing...');
-        console.log('⚠️ response.data full object:', JSON.stringify(response.data, null, 2));
+        devLog('⚠️ Attempting emergency fallback parsing...');
+        devLog('⚠️ response.data full object:', JSON.stringify(response.data, null, 2));
 
         // Try to extract token and user from anywhere in the response
         let foundToken = null;
@@ -684,15 +741,15 @@ export const authAPI = {
           }
         }
 
-        console.log('⚠️ Emergency search results:');
-        console.log('⚠️ - Found token:', !!foundToken);
-        console.log('⚠️ - Found user:', !!foundUser);
+        devLog('⚠️ Emergency search results:');
+        devLog('⚠️ - Found token:', !!foundToken);
+        devLog('⚠️ - Found user:', !!foundUser);
 
         if (foundToken && foundUser) {
-          console.log('✅ Emergency fallback succeeded! Found token and user');
+          devLog('✅ Emergency fallback succeeded! Found token and user');
           // Try to find collaborators in the response
           const collaborators = response.data?.collaborators || response.collaborators || [];
-          console.log('authAPI.login: Collaborators found:', collaborators);
+          devLog('authAPI.login: Collaborators found:', collaborators);
           return {
             success: true,
             user: foundUser,
@@ -719,7 +776,7 @@ export const authAPI = {
   // Register new user
   register: async (credentials: RegisterCredentials): Promise<LoginResponse> => {
     try {
-      console.log('authAPI.register: Sending request to /signup with credentials:', { 
+      devLog('authAPI.register: Sending request to /signup with credentials:', { 
         name: credentials.name, 
         email: credentials.email 
       });
@@ -729,7 +786,7 @@ export const authAPI = {
         body: JSON.stringify(credentials),
       });
 
-      console.log('authAPI.register: Full API Response:', JSON.stringify(response, null, 2));
+      devLog('authAPI.register: Full API Response:', JSON.stringify(response, null, 2));
 
       // Robust extraction first — token/user may sit at any of these locations
       // (covers OTP-verified signup that returns a session token, same as /login)
@@ -738,7 +795,7 @@ export const authAPI = {
         const u = d.user || d.data?.user || (response as any).user;
         const t = d.token || d.access_token || d.data?.token || d.data?.access_token || (response as any).token;
         if (response.success && u && t) {
-          console.log('authAPI.register: Found user and token (robust extraction)');
+          devLog('authAPI.register: Found user and token (robust extraction)');
           return { success: true, user: u, token: t };
         }
       }
@@ -747,7 +804,7 @@ export const authAPI = {
       if (response.success && response.data && response.data.success && response.data.data) {
         const apiData = response.data.data;
         if (apiData.token && apiData.user) {
-          console.log('authAPI.register: Found user and token in response.data.data');
+          devLog('authAPI.register: Found user and token in response.data.data');
           return {
             success: true,
             user: apiData.user,
@@ -758,7 +815,7 @@ export const authAPI = {
 
       // Handle your API's response structure (single nested)
       if (response.success && response.data && response.data.token && response.data.user) {
-        console.log('authAPI.register: Found user and token in response.data');
+        devLog('authAPI.register: Found user and token in response.data');
         return {
           success: true,
           user: response.data.user,
@@ -769,7 +826,7 @@ export const authAPI = {
       // Handle direct response (not wrapped in data) - cast to any for legacy support
       const responseAny = response as any;
       if (responseAny.token && responseAny.user) {
-        console.log('authAPI.register: Found user and token at root level');
+        devLog('authAPI.register: Found user and token at root level');
         return {
           success: true,
           user: responseAny.user,
@@ -779,11 +836,11 @@ export const authAPI = {
 
       // Handle activation flow (no token, just message)
       if (response.success && response.data && response.data.message) {
-        console.log('authAPI.register: Activation flow detected - user needs to activate account');
+        devLog('authAPI.register: Activation flow detected - user needs to activate account');
         const userData = response.data.data?.user || response.data.user;
         // Extract collaborators from response
         const collaborators = response.data.collaborators || response.data.data?.collaborators || response.collaborators || [];
-        console.log('authAPI.register: Collaborators found:', collaborators);
+        devLog('authAPI.register: Collaborators found:', collaborators);
         return {
           success: true,
           message: response.data.message,
@@ -795,7 +852,7 @@ export const authAPI = {
 
       // Handle case where response.success is true but no data - activation flow without detailed response
       if (response.success && !response.data) {
-        console.log('authAPI.register: Success with no data - likely activation flow');
+        devLog('authAPI.register: Success with no data - likely activation flow');
         return {
           success: true,
           message: 'Registration successful! Please check your email for activation instructions.',
@@ -805,7 +862,7 @@ export const authAPI = {
 
       // Handle success flag with data (fallback for direct login)
       if (response.success && response.data) {
-        console.log('authAPI.register: Using fallback - returning response.data');
+        devLog('authAPI.register: Using fallback - returning response.data');
         const dataToCheck = response.data.data || response.data;
         if (dataToCheck.token && dataToCheck.user) {
           return {
@@ -818,7 +875,7 @@ export const authAPI = {
 
       // Handle validation errors
       if (response.message && response.errors) {
-        console.log('authAPI.register: Validation errors detected:', response.errors);
+        devLog('authAPI.register: Validation errors detected:', response.errors);
         return {
           success: false,
           error: response.message,
@@ -854,12 +911,12 @@ export const authAPI = {
   // Check if user is already authenticated in browser session
   checkAuth: async (): Promise<ApiResponse<{ isAuthenticated: boolean; user?: any }>> => {
     try {
-      console.log('authAPI.checkAuth: Checking authentication status');
+      devLog('authAPI.checkAuth: Checking authentication status');
       const response = await apiRequest<{ isAuthenticated: boolean; user?: any }>('/auth/check', {
         method: 'GET',
       });
 
-      console.log('authAPI.checkAuth: Server response:', response);
+      devLog('authAPI.checkAuth: Server response:', response);
       return response;
     } catch (error) {
       console.error('authAPI.checkAuth: Error checking auth:', error);
@@ -873,8 +930,8 @@ export const authAPI = {
   // Logout user
   logout: async (): Promise<ApiResponse> => {
     try {
-      console.log('authAPI.logout: Calling logout API endpoint');
-      console.log('authAPI.logout: Request details:', {
+      devLog('authAPI.logout: Calling logout API endpoint');
+      devLog('authAPI.logout: Request details:', {
         url: '/user/logout',
         method: 'POST',
         headers: getAuthHeaders(),
@@ -883,7 +940,7 @@ export const authAPI = {
       // Create a timeout promise that resolves after 3 seconds
       const timeoutPromise = new Promise<ApiResponse>((resolve) => {
         setTimeout(() => {
-          console.log('authAPI.logout: Request timed out after 3 seconds, proceeding with local logout');
+          devLog('authAPI.logout: Request timed out after 3 seconds, proceeding with local logout');
           resolve({
             success: true,
             message: 'Logged out locally (server timeout)',
@@ -901,7 +958,7 @@ export const authAPI = {
 
       const response = await Promise.race([apiPromise, timeoutPromise]);
 
-      console.log('authAPI.logout: Server response:', response);
+      devLog('authAPI.logout: Server response:', response);
 
       // Clear auth data regardless of server response
       userUtils.clearAuthData();
@@ -941,8 +998,8 @@ export const authAPI = {
     new_password: string;
     new_password_confirmation: string;
   }): Promise<ApiResponse> => {
-    console.log('authAPI.changePassword: Sending PUT request to /user/change-password');
-    console.log('Request data:', {
+    devLog('authAPI.changePassword: Sending PUT request to /user/change-password');
+    devLog('Request data:', {
       current_password: '[HIDDEN]',
       new_password: '[HIDDEN]', 
       new_password_confirmation: '[HIDDEN]'
@@ -957,11 +1014,11 @@ export const authAPI = {
   // Activate user account
   activateAccount: async (token: string): Promise<any> => {
     try {
-      console.log('🚀 authAPI.activateAccount: Starting activation process');
-      console.log('🔑 Token:', token);
-      console.log('🔑 Token length:', token.length);
-      console.log('🌐 API Base URL:', API_BASE_URL);
-      console.log('🌐 Full URL:', `${API_BASE_URL}/activate-account/${token}`);
+      devLog('🚀 authAPI.activateAccount: Starting activation process');
+      devLog('🔑 Token:', token);
+      devLog('🔑 Token length:', token.length);
+      devLog('🌐 API Base URL:', API_BASE_URL);
+      devLog('🌐 Full URL:', `${API_BASE_URL}/activate-account/${token}`);
       
       const response = await fetch(`${API_BASE_URL}/activate-account/${token}`, {
         method: 'GET',
@@ -971,22 +1028,22 @@ export const authAPI = {
         },
       });
 
-      console.log('📡 HTTP Response Status:', response.status);
-      console.log('📡 HTTP Response OK:', response.ok);
-      console.log('📡 HTTP Response Status Text:', response.statusText);
+      devLog('📡 HTTP Response Status:', response.status);
+      devLog('📡 HTTP Response OK:', response.ok);
+      devLog('📡 HTTP Response Status Text:', response.statusText);
 
       const data = await response.json();
-      console.log('📦 authAPI.activateAccount: Full response received:', JSON.stringify(data, null, 2));
+      devLog('📦 authAPI.activateAccount: Full response received:', JSON.stringify(data, null, 2));
       
       if (data.success && data.data) {
         // Successful activation with user data and token
-        console.log('authAPI.activateAccount: Activation successful');
+        devLog('authAPI.activateAccount: Activation successful');
         // Extract collaborators from response
         const collaborators = data.data.collaborators || data.collaborators || [];
-        console.log('authAPI.activateAccount: Collaborators found:', collaborators);
+        devLog('authAPI.activateAccount: Collaborators found:', collaborators);
         // Extract partial admin access — same field the login API returns
         const partialAdminAccess = data.data.partial_admin_access || data.partial_admin_access || [];
-        console.log('authAPI.activateAccount: Partial admin access found:', partialAdminAccess);
+        devLog('authAPI.activateAccount: Partial admin access found:', partialAdminAccess);
         return {
           success: true,
           message: data.message,
@@ -1023,41 +1080,41 @@ export const authAPI = {
   // Verify phone OTP
   verifyPhoneOtp: async (phone_number: string, otp: string): Promise<LoginResponse> => {
     try {
-      console.log('🚀🚀🚀 ===== authAPI.verifyPhoneOtp: STARTING OTP VERIFICATION =====');
-      console.log('📞 Phone number:', phone_number);
-      console.log('🔢 OTP:', otp);
-      console.log('🌐 API URL:', `${API_BASE_URL}/verify-phone-otp`);
-      console.log('📤 Request body:', JSON.stringify({ phone_number, otp }, null, 2));
+      devLog('🚀🚀🚀 ===== authAPI.verifyPhoneOtp: STARTING OTP VERIFICATION =====');
+      devLog('📞 Phone number:', phone_number);
+      devLog('🔢 OTP:', otp);
+      devLog('🌐 API URL:', `${API_BASE_URL}/verify-phone-otp`);
+      devLog('📤 Request body:', JSON.stringify({ phone_number, otp }, null, 2));
 
       const response = await apiRequest<any>('/verify-phone-otp', {
         method: 'POST',
         body: JSON.stringify({ phone_number, otp }),
       });
 
-      console.log('📡📡📡 ===== authAPI.verifyPhoneOtp: RAW API RESPONSE =====');
-      console.log('🔍 Full Response Object:', JSON.stringify(response, null, 2));
-      console.log('✅ response.success:', response.success);
-      console.log('🗂️ response.data:', response.data);
-      console.log('❌ response.error:', response.error);
-      console.log('📄 response.message:', response.message);
-      console.log('🔍 Response keys:', Object.keys(response));
+      devLog('📡📡📡 ===== authAPI.verifyPhoneOtp: RAW API RESPONSE =====');
+      devLog('🔍 Full Response Object:', JSON.stringify(response, null, 2));
+      devLog('✅ response.success:', response.success);
+      devLog('🗂️ response.data:', response.data);
+      devLog('❌ response.error:', response.error);
+      devLog('📄 response.message:', response.message);
+      devLog('🔍 Response keys:', Object.keys(response));
 
       // Handle successful verification with token and user
       if (response.success && response.data) {
-        console.log('✅ Response has success=true and data field');
+        devLog('✅ Response has success=true and data field');
         const data = response.data.data || response.data;
-        console.log('📦 Extracted data:', JSON.stringify(data, null, 2));
-        console.log('🔑 data.token:', data.token);
-        console.log('👤 data.user:', data.user);
+        devLog('📦 Extracted data:', JSON.stringify(data, null, 2));
+        devLog('🔑 data.token:', data.token);
+        devLog('👤 data.user:', data.user);
 
         if (data.token && data.user) {
-          console.log('✅✅✅ OTP VERIFIED SUCCESSFULLY');
-          console.log('👤 User ID:', data.user.id);
-          console.log('👤 User Email:', data.user.email);
-          console.log('👤 User Name:', data.user.name);
-          console.log('👤 User Role:', data.user.role);
-          console.log('🔑 Token length:', data.token.length);
-          console.log('📤 Returning success response with user and token');
+          devLog('✅✅✅ OTP VERIFIED SUCCESSFULLY');
+          devLog('👤 User ID:', data.user.id);
+          devLog('👤 User Email:', data.user.email);
+          devLog('👤 User Name:', data.user.name);
+          devLog('👤 User Role:', data.user.role);
+          devLog('🔑 Token length:', data.token.length);
+          devLog('📤 Returning success response with user and token');
 
           return {
             success: true,
@@ -1065,20 +1122,20 @@ export const authAPI = {
             token: data.token,
           };
         } else {
-          console.log('❌ Missing token or user in data');
-          console.log('  - data.token exists:', !!data.token);
-          console.log('  - data.user exists:', !!data.user);
+          devLog('❌ Missing token or user in data');
+          devLog('  - data.token exists:', !!data.token);
+          devLog('  - data.user exists:', !!data.user);
         }
       } else {
-        console.log('❌ Response does not have success=true or missing data');
-        console.log('  - response.success:', response.success);
-        console.log('  - response.data exists:', !!response.data);
+        devLog('❌ Response does not have success=true or missing data');
+        devLog('  - response.success:', response.success);
+        devLog('  - response.data exists:', !!response.data);
       }
 
       // Handle error response
-      console.log('❌❌❌ OTP VERIFICATION FAILED');
+      devLog('❌❌❌ OTP VERIFICATION FAILED');
       const errorMsg = response.error || response.message || 'OTP verification failed';
-      console.log('📤 Returning error response:', errorMsg);
+      devLog('📤 Returning error response:', errorMsg);
 
       return {
         success: false,
@@ -1101,31 +1158,31 @@ export const authAPI = {
   // Resend phone OTP
   resendPhoneOtp: async (phone_number: string): Promise<{ success: boolean; message?: string; error?: string }> => {
     try {
-      console.log('🚀🚀🚀 ===== authAPI.resendPhoneOtp: STARTING RESEND OTP =====');
-      console.log('📞 Phone number:', phone_number);
-      console.log('🌐 API URL:', `${API_BASE_URL}/resend-phone-otp`);
-      console.log('📤 Request body:', JSON.stringify({ phone_number }, null, 2));
+      devLog('🚀🚀🚀 ===== authAPI.resendPhoneOtp: STARTING RESEND OTP =====');
+      devLog('📞 Phone number:', phone_number);
+      devLog('🌐 API URL:', `${API_BASE_URL}/resend-phone-otp`);
+      devLog('📤 Request body:', JSON.stringify({ phone_number }, null, 2));
 
       const response = await apiRequest<any>('/resend-phone-otp', {
         method: 'POST',
         body: JSON.stringify({ phone_number }),
       });
 
-      console.log('📡📡📡 ===== authAPI.resendPhoneOtp: RAW API RESPONSE =====');
-      console.log('🔍 Full Response Object:', JSON.stringify(response, null, 2));
-      console.log('✅ response.success:', response.success);
-      console.log('📄 response.message:', response.message);
-      console.log('❌ response.error:', response.error);
+      devLog('📡📡📡 ===== authAPI.resendPhoneOtp: RAW API RESPONSE =====');
+      devLog('🔍 Full Response Object:', JSON.stringify(response, null, 2));
+      devLog('✅ response.success:', response.success);
+      devLog('📄 response.message:', response.message);
+      devLog('❌ response.error:', response.error);
 
       if (response.success) {
-        console.log('✅✅✅ OTP RESENT SUCCESSFULLY');
+        devLog('✅✅✅ OTP RESENT SUCCESSFULLY');
         return {
           success: true,
           message: response.message || 'OTP has been resent to your phone number',
         };
       }
 
-      console.log('❌ RESEND OTP FAILED');
+      devLog('❌ RESEND OTP FAILED');
       return {
         success: false,
         error: response.error || response.message || 'Failed to resend OTP',
@@ -1152,12 +1209,12 @@ export const authAPI = {
     purpose: 'register' | 'login' = 'register'
   ): Promise<{ success: boolean; message?: string; channel?: string; error?: string; alreadyRegistered?: boolean; noAccount?: boolean }> => {
     try {
-      console.log('📨 authAPI.sendOtp: requesting OTP for', identifier, 'purpose:', purpose);
+      devLog('📨 authAPI.sendOtp: requesting OTP for', identifier, 'purpose:', purpose);
       const response: any = await apiRequest<any>('/send-otp', {
         method: 'POST',
         body: JSON.stringify({ ...identifier, purpose }),
       });
-      console.log('📨 authAPI.sendOtp: response', JSON.stringify(response, null, 2));
+      devLog('📨 authAPI.sendOtp: response', JSON.stringify(response, null, 2));
 
       if (response.success) {
         return {
@@ -1191,7 +1248,7 @@ export const authAPI = {
     code: string
   ): Promise<{ success: boolean; user?: any; token?: string; error?: string }> => {
     try {
-      console.log('🔑 authAPI.ssoExchange: exchanging SSO code');
+      devLog('🔑 authAPI.ssoExchange: exchanging SSO code');
       // PUBLIC endpoint on the SSO backend — must NOT send an Authorization header
       // (a stale stasht_token Bearer makes the backend 401 the exchange).
       // NOTE: this backend returns the USER ONLY (no token). We then run that user
@@ -1206,7 +1263,7 @@ export const authAPI = {
         body: JSON.stringify({ code }),
       });
       const response: any = await res.json().catch(() => ({}));
-      console.log('🔑 authAPI.ssoExchange: response', JSON.stringify(response, null, 2));
+      devLog('🔑 authAPI.ssoExchange: response', JSON.stringify(response, null, 2));
 
       // Exchange returns the user only (may sit flat or nested) — no token here.
       const user = response.user || response.data?.user || response.data || response;
@@ -1222,7 +1279,7 @@ export const authAPI = {
 
       // Step 2: convert the SSO-verified user into a real session via the normal
       // login API (fixed SSO password agreed with backend).
-      console.log('🔑 authAPI.ssoExchange: logging in SSO user via /login:', email);
+      devLog('🔑 authAPI.ssoExchange: logging in SSO user via /login:', email);
       const loginRes: any = await authAPI.login({ email, password: 'WorksDelight@2025' });
 
       if (loginRes.success && loginRes.user && loginRes.token) {
@@ -1250,7 +1307,7 @@ export const authAPI = {
   // the single-use code alone authenticates the exchange.
   ssoLoginExchange: async (code: string): Promise<LoginResponse> => {
     try {
-      console.log('🔑 authAPI.ssoLoginExchange: exchanging SSO code (single-call)');
+      devLog('🔑 authAPI.ssoLoginExchange: exchanging SSO code (single-call)');
 
       const res = await fetch(`${API_BASE_URL}/exchange-code-app`, {
         method: 'POST',
@@ -1267,7 +1324,7 @@ export const authAPI = {
       } catch {
         response = {};
       }
-      console.log('🔑 authAPI.ssoLoginExchange: status', res.status, 'response', JSON.stringify(response, null, 2));
+      devLog('🔑 authAPI.ssoLoginExchange: status', res.status, 'response', JSON.stringify(response, null, 2));
 
       // Locate user + token wherever the standard payload places them
       // (mirrors authAPI.login's extraction).
@@ -1284,7 +1341,7 @@ export const authAPI = {
         const sharedProperties =
           data.shared_properties || data.data?.shared_properties || [];
 
-        console.log('✅ authAPI.ssoLoginExchange: found user and token');
+        devLog('✅ authAPI.ssoLoginExchange: found user and token');
         return {
           success: true,
           user,
@@ -1314,12 +1371,12 @@ export const authAPI = {
     payload: { email?: string; phone_number?: string; otp: string }
   ): Promise<{ success: boolean; message?: string; channel?: string; verification_token?: string; user?: any; token?: string; error?: string }> => {
     try {
-      console.log('🔐 authAPI.verifyOtp: verifying', { ...payload, otp: '******' });
+      devLog('🔐 authAPI.verifyOtp: verifying', { ...payload, otp: '******' });
       const response: any = await apiRequest<any>('/verify-otp', {
         method: 'POST',
         body: JSON.stringify(payload),
       });
-      console.log('🔐 authAPI.verifyOtp: response', JSON.stringify(response, null, 2));
+      devLog('🔐 authAPI.verifyOtp: response', JSON.stringify(response, null, 2));
 
       const data = response.data?.data || response.data || response;
       const verification_token = response.verification_token || data?.verification_token;
@@ -1348,31 +1405,31 @@ export const authAPI = {
   // Resend activation link
   resendActivationLink: async (email: string): Promise<{ success: boolean; message?: string; error?: string }> => {
     try {
-      console.log('🚀🚀🚀 ===== authAPI.resendActivationLink: STARTING RESEND ACTIVATION =====');
-      console.log('📧 Email:', email);
-      console.log('🌐 API URL:', `${API_BASE_URL}/resend-activation`);
-      console.log('📤 Request body:', JSON.stringify({ email }, null, 2));
+      devLog('🚀🚀🚀 ===== authAPI.resendActivationLink: STARTING RESEND ACTIVATION =====');
+      devLog('📧 Email:', email);
+      devLog('🌐 API URL:', `${API_BASE_URL}/resend-activation`);
+      devLog('📤 Request body:', JSON.stringify({ email }, null, 2));
 
       const response = await apiRequest<any>('/resend-activation', {
         method: 'POST',
         body: JSON.stringify({ email }),
       });
 
-      console.log('📡📡📡 ===== authAPI.resendActivationLink: RAW API RESPONSE =====');
-      console.log('🔍 Full Response Object:', JSON.stringify(response, null, 2));
-      console.log('✅ response.success:', response.success);
-      console.log('📄 response.message:', response.message);
-      console.log('❌ response.error:', response.error);
+      devLog('📡📡📡 ===== authAPI.resendActivationLink: RAW API RESPONSE =====');
+      devLog('🔍 Full Response Object:', JSON.stringify(response, null, 2));
+      devLog('✅ response.success:', response.success);
+      devLog('📄 response.message:', response.message);
+      devLog('❌ response.error:', response.error);
 
       if (response.success) {
-        console.log('✅✅✅ ACTIVATION LINK RESENT SUCCESSFULLY');
+        devLog('✅✅✅ ACTIVATION LINK RESENT SUCCESSFULLY');
         return {
           success: true,
           message: response.message || 'Activation link has been resent to your email',
         };
       }
 
-      console.log('❌ RESEND ACTIVATION LINK FAILED');
+      devLog('❌ RESEND ACTIVATION LINK FAILED');
       return {
         success: false,
         error: response.error || response.message || 'Failed to resend activation link',
@@ -1399,7 +1456,7 @@ export const authAPI = {
     app_version?: string;
   }): Promise<LoginResponse> => {
     try {
-      console.log('authAPI.socialLogin: Sending request to /social/login with data:', {
+      devLog('authAPI.socialLogin: Sending request to /social/login with data:', {
         provider: socialData.provider,
         provider_id: socialData.provider_id,
         email: socialData.email,
@@ -1412,11 +1469,11 @@ export const authAPI = {
         body: JSON.stringify(socialData),
       });
 
-      console.log('authAPI.socialLogin: Full API Response:', JSON.stringify(response, null, 2));
+      devLog('authAPI.socialLogin: Full API Response:', JSON.stringify(response, null, 2));
 
       // Handle conflict (user already logged in)
       if (response.success === false && response.error && response.error.includes('Already logged in')) {
-        console.log('authAPI.socialLogin: Conflict detected - user already logged in');
+        devLog('authAPI.socialLogin: Conflict detected - user already logged in');
         return {
           success: false,
           error: response.error,
@@ -1426,7 +1483,7 @@ export const authAPI = {
       }
 
       if (!response.success) {
-        console.log('authAPI.socialLogin: Social login failed:', response.error || response.message);
+        devLog('authAPI.socialLogin: Social login failed:', response.error || response.message);
         return {
           success: false,
           error: response.error || response.message || 'Social login failed',
@@ -1437,9 +1494,9 @@ export const authAPI = {
       const userData = response.data?.user || response.data;
       const token = response.data?.token || response.token;
 
-      console.log('authAPI.socialLogin: Login successful');
-      console.log('authAPI.socialLogin: User data:', userData);
-      console.log('authAPI.socialLogin: Token present:', !!token);
+      devLog('authAPI.socialLogin: Login successful');
+      devLog('authAPI.socialLogin: User data:', userData);
+      devLog('authAPI.socialLogin: Token present:', !!token);
 
       return {
         success: true,
@@ -1465,14 +1522,14 @@ export const authAPI = {
   // Verify device OTP
   verifyDeviceOtp: async (data: VerifyDeviceOtpRequest): Promise<VerifyDeviceOtpResponse> => {
     try {
-      console.log('authAPI.verifyDeviceOtp: Verifying OTP for attempt:', data.attempt_id);
+      devLog('authAPI.verifyDeviceOtp: Verifying OTP for attempt:', data.attempt_id);
 
       const response = await apiRequest<any>('/verify-device-otp', {
         method: 'POST',
         body: JSON.stringify(data),
       });
 
-      console.log('authAPI.verifyDeviceOtp: Response:', response);
+      devLog('authAPI.verifyDeviceOtp: Response:', response);
 
       if (response.success && response.data) {
         const user = response.data.user || response.data.data?.user;
@@ -1481,7 +1538,7 @@ export const authAPI = {
         const collaborators = response.data.collaborators || response.data.data?.collaborators || response.collaborators || [];
 
         if (user && token) {
-          console.log('authAPI.verifyDeviceOtp: Collaborators found:', collaborators);
+          devLog('authAPI.verifyDeviceOtp: Collaborators found:', collaborators);
           return {
             success: true,
             user,
@@ -1512,14 +1569,14 @@ export const authAPI = {
   // Resend device OTP
   resendDeviceOtp: async (data: ResendDeviceOtpRequest): Promise<ApiResponse> => {
     try {
-      console.log('authAPI.resendDeviceOtp: Resending OTP for attempt:', data.attempt_id);
+      devLog('authAPI.resendDeviceOtp: Resending OTP for attempt:', data.attempt_id);
 
       const response = await apiRequest<any>('/resend-device-otp', {
         method: 'POST',
         body: JSON.stringify(data),
       });
 
-      console.log('authAPI.resendDeviceOtp: Response:', response);
+      devLog('authAPI.resendDeviceOtp: Response:', response);
 
       return {
         success: response.success || false,
@@ -1538,13 +1595,13 @@ export const authAPI = {
   // Get trusted devices
   getTrustedDevices: async (): Promise<ApiResponse<TrustedDevice[]>> => {
     try {
-      console.log('authAPI.getTrustedDevices: Fetching trusted devices');
+      devLog('authAPI.getTrustedDevices: Fetching trusted devices');
 
       const response = await apiRequest<any>('/user/trusted-devices', {
         method: 'GET',
       });
 
-      console.log('authAPI.getTrustedDevices: Response:', response);
+      devLog('authAPI.getTrustedDevices: Response:', response);
 
       if (response.success && response.data) {
         const devices = response.data.devices || response.data.data?.devices || response.data;
@@ -1572,14 +1629,14 @@ export const authAPI = {
   // Delete user account
   deleteAccount: async (credentials: { password: string; confirmation: string }): Promise<ApiResponse<any>> => {
     try {
-      console.log('authAPI.deleteAccount: Sending request to /user/account');
+      devLog('authAPI.deleteAccount: Sending request to /user/account');
 
       const response = await apiRequest<any>('/user/account', {
         method: 'DELETE',
         body: JSON.stringify(credentials),
       });
 
-      console.log('authAPI.deleteAccount: Response:', response);
+      devLog('authAPI.deleteAccount: Response:', response);
       return response;
     } catch (error) {
       console.error('authAPI.deleteAccount: Error:', error);
@@ -1617,57 +1674,57 @@ export const tokenUtils = {
   isTokenExpired: (token?: string): boolean => {
     const tokenToCheck = token || tokenUtils.getToken();
 
-    console.log('🔑🔑🔑 ===== tokenUtils.isTokenExpired STARTED =====');
-    console.log('🔑 Token to check (first 30 chars):', tokenToCheck?.substring(0, 30));
-    console.log('🔑 Token length:', tokenToCheck?.length);
+    devLog('🔑🔑🔑 ===== tokenUtils.isTokenExpired STARTED =====');
+    devLog('🔑 Token to check (first 30 chars):', tokenToCheck?.substring(0, 30));
+    devLog('🔑 Token length:', tokenToCheck?.length);
 
     if (!tokenToCheck) {
-      console.log('❌ No token found - considering expired');
+      devLog('❌ No token found - considering expired');
       return true;
     }
 
     try {
       // Basic JWT token expiry check (decode payload)
       const parts = tokenToCheck.split('.');
-      console.log('🔑 Token parts count:', parts.length);
+      devLog('🔑 Token parts count:', parts.length);
 
       if (parts.length !== 3) {
-        console.log('❌❌❌ CRITICAL: Token is NOT a valid JWT format (expected 3 parts, got ' + parts.length + ')');
-        console.log('🔑 This might be a session token, not a JWT - treating as non-expiring');
-        console.log('🔑 If backend uses session tokens instead of JWT, we should NOT consider them expired');
+        devLog('❌❌❌ CRITICAL: Token is NOT a valid JWT format (expected 3 parts, got ' + parts.length + ')');
+        devLog('🔑 This might be a session token, not a JWT - treating as non-expiring');
+        devLog('🔑 If backend uses session tokens instead of JWT, we should NOT consider them expired');
 
         // IMPORTANT FIX: If token is not JWT format, assume it's a session token that doesn't expire
         // The backend will reject it if it's invalid
-        console.log('✅ Treating non-JWT token as VALID (not expired)');
+        devLog('✅ Treating non-JWT token as VALID (not expired)');
         return false; // Changed from true to false!
       }
 
       const payload = JSON.parse(atob(parts[1]));
-      console.log('🔑 Decoded JWT payload:', { exp: payload.exp, iat: payload.iat });
+      devLog('🔑 Decoded JWT payload:', { exp: payload.exp, iat: payload.iat });
 
       const currentTime = Date.now() / 1000;
-      console.log('🔑 Current time (seconds):', currentTime);
-      console.log('🔑 Token expiry (seconds):', payload.exp);
-      console.log('🔑 Time until expiry (seconds):', payload.exp - currentTime);
-      console.log('🔑 Time until expiry (minutes):', ((payload.exp - currentTime) / 60).toFixed(2));
+      devLog('🔑 Current time (seconds):', currentTime);
+      devLog('🔑 Token expiry (seconds):', payload.exp);
+      devLog('🔑 Time until expiry (seconds):', payload.exp - currentTime);
+      devLog('🔑 Time until expiry (minutes):', ((payload.exp - currentTime) / 60).toFixed(2));
 
       // Add a buffer of 60 seconds to account for clock skew
       const isExpired = payload.exp < (currentTime + 60);
 
       if (isExpired) {
-        console.log('❌ Token expired or about to expire (within 60 seconds)');
+        devLog('❌ Token expired or about to expire (within 60 seconds)');
       } else {
-        console.log('✅ Token is valid and not expired');
+        devLog('✅ Token is valid and not expired');
       }
 
-      console.log('🔑🔑🔑 ===== tokenUtils.isTokenExpired RESULT:', isExpired, '=====');
+      devLog('🔑🔑🔑 ===== tokenUtils.isTokenExpired RESULT:', isExpired, '=====');
       return isExpired;
     } catch (error) {
       console.error('❌ Error checking token expiry:', error);
       console.error('🔥 Error details:', error);
       // IMPORTANT: If token can't be decoded as JWT, it might be a session token
       // Don't assume it's expired - let the backend validate it
-      console.log('⚠️ Treating unparseable token as VALID (backend will validate)');
+      devLog('⚠️ Treating unparseable token as VALID (backend will validate)');
       return false; // Changed from true to false!
     }
   },
@@ -1697,7 +1754,7 @@ export const userUtils = {
 
   // Clear all auth data
   clearAuthData: (): void => {
-    console.log('🧹🧹🧹 ===== userUtils.clearAuthData STARTED =====');
+    devLog('🧹🧹🧹 ===== userUtils.clearAuthData STARTED =====');
 
     // Clear all localStorage items related to the app
     const localStorageKeysToRemove = [
@@ -1710,7 +1767,7 @@ export const userUtils = {
       'partial_admin_email',
     ];
 
-    console.log('🧹 Clearing localStorage keys:', localStorageKeysToRemove);
+    devLog('🧹 Clearing localStorage keys:', localStorageKeysToRemove);
     localStorageKeysToRemove.forEach(key => {
       localStorage.removeItem(key);
     });
@@ -1723,14 +1780,14 @@ export const userUtils = {
       // Add other app-specific sessionStorage keys here
     ];
 
-    console.log('🧹 Clearing sessionStorage keys:', sessionStorageKeysToRemove);
+    devLog('🧹 Clearing sessionStorage keys:', sessionStorageKeysToRemove);
     sessionStorageKeysToRemove.forEach(key => {
       sessionStorage.removeItem(key);
     });
 
     // DON'T call sessionStorage.clear() as it would remove SessionValidator data
     // The SessionValidator will manage its own cleanup via SessionValidator.clearSession()
-    console.log('🧹 Preserved SessionValidator sessionStorage data');
+    devLog('🧹 Preserved SessionValidator sessionStorage data');
 
     // Clear any cached data
     if ('caches' in window) {
@@ -1741,7 +1798,7 @@ export const userUtils = {
       });
     }
 
-    console.log('🧹🧹🧹 ===== userUtils.clearAuthData COMPLETED =====');
+    devLog('🧹🧹🧹 ===== userUtils.clearAuthData COMPLETED =====');
   },
 };
 
@@ -1853,34 +1910,34 @@ export const dashboardAPI = {
 
   // Memories data - fetch memories with reasonable pagination
   getMemories: async (): Promise<ApiResponse<any>> => {
-    console.log('🚨 DEBUG: Calling /memories API with per_page=50');
+    devLog('🚨 DEBUG: Calling /memories API with per_page=50');
     const response = await apiRequest('/memories?per_page=50&page=1', {
       method: 'GET',
     });
-    console.log('🚨 DEBUG: /memories API raw response:', response);
+    devLog('🚨 DEBUG: /memories API raw response:', response);
     return response;
   },
 
   // Get user categories for memory creation
   getUserCategories: async (): Promise<ApiResponse<any>> => {
-    console.log('🚨 DEBUG: Calling /memory-images/categories API');
+    devLog('🚨 DEBUG: Calling /memory-images/categories API');
     const response = await apiRequest('/memory-images/categories', {
       method: 'GET',
     });
-    console.log('🚨 DEBUG: /memory-images/categories API raw response:', response);
+    devLog('🚨 DEBUG: /memory-images/categories API raw response:', response);
     return response;
   },
   
   // Get existing memories for Add to Memory dialog
   getExistingMemories: async (): Promise<ApiResponse<any>> => {
-    console.log('📌📌📌 Calling /existing-memories API endpoint...');
+    devLog('📌📌📌 Calling /existing-memories API endpoint...');
     try {
       const response = await apiRequest('/existing-memories', {
         method: 'GET',
       });
-      console.log('📌📌📌 /existing-memories API RAW response:', response);
-      console.log('📌📌📌 Response type:', typeof response);
-      console.log('📌📌📌 Response keys:', response ? Object.keys(response) : 'null');
+      devLog('📌📌📌 /existing-memories API RAW response:', response);
+      devLog('📌📌📌 Response type:', typeof response);
+      devLog('📌📌📌 Response keys:', response ? Object.keys(response) : 'null');
       return response;
     } catch (error) {
       console.error('❌❌❌ Error calling /existing-memories:', error);
@@ -1890,14 +1947,14 @@ export const dashboardAPI = {
 
   // Get transferable memories for property transfer
   getTransferableMemories: async (): Promise<ApiResponse<any>> => {
-    console.log('🔄 DEBUG: Calling /memories/transferable API');
+    devLog('🔄 DEBUG: Calling /memories/transferable API');
     try {
       const response = await apiRequest('/memories/transferable', {
         method: 'GET',
       });
-      console.log('🔄 DEBUG: /memories/transferable API raw response:', response);
-      console.log('🔄 DEBUG: Response data structure:', response?.data);
-      console.log('🔄 DEBUG: Sample memory:', response?.data?.data?.[0] || response?.data?.[0]);
+      devLog('🔄 DEBUG: /memories/transferable API raw response:', response);
+      devLog('🔄 DEBUG: Response data structure:', response?.data);
+      devLog('🔄 DEBUG: Sample memory:', response?.data?.data?.[0] || response?.data?.[0]);
       return response;
     } catch (error) {
       console.error('❌ Error calling /memories/transferable:', error);
@@ -1907,9 +1964,9 @@ export const dashboardAPI = {
 
   // Transfer memories to property
   transferMemoriesToProperty: async (memoryIds: number[], propertyId: number): Promise<ApiResponse<any>> => {
-    console.log('🔄 DEBUG: Calling /memories/transfer-to-property API');
-    console.log('🔄 Memory IDs:', memoryIds);
-    console.log('🔄 Property ID:', propertyId);
+    devLog('🔄 DEBUG: Calling /memories/transfer-to-property API');
+    devLog('🔄 Memory IDs:', memoryIds);
+    devLog('🔄 Property ID:', propertyId);
     try {
       const response = await apiRequest('/memories/transfer-to-property', {
         method: 'POST',
@@ -1918,7 +1975,7 @@ export const dashboardAPI = {
           property_id: propertyId
         }),
       });
-      console.log('🔄 DEBUG: /memories/transfer-to-property API response:', response);
+      devLog('🔄 DEBUG: /memories/transfer-to-property API response:', response);
       return response;
     } catch (error) {
       console.error('❌ Error calling /memories/transfer-to-property:', error);
@@ -1935,11 +1992,11 @@ export const dashboardAPI = {
 
   // Get user storage overview
   getStorageOverview: async (): Promise<ApiResponse<any>> => {
-    console.log('🏠 DEBUG: Calling /user/storage-overview API');
+    devLog('🏠 DEBUG: Calling /user/storage-overview API');
     const response = await apiRequest('/user/storage-overview', {
       method: 'GET',
     });
-    console.log('🏠 DEBUG: /user/storage-overview API raw response:', response);
+    devLog('🏠 DEBUG: /user/storage-overview API raw response:', response);
     return response;
   },
 
@@ -1953,17 +2010,17 @@ export const dashboardAPI = {
 
   // Update user profile
   updateProfile: async (profileData: FormData): Promise<ApiResponse<any>> => {
-    console.log('📝 DEBUG: Calling /user/update-profile API');
+    devLog('📝 DEBUG: Calling /user/update-profile API');
     
     // Debug: Log FormData contents
-    console.log('📝 DEBUG: FormData contents being sent:');
+    devLog('📝 DEBUG: FormData contents being sent:');
     for (let [key, value] of profileData.entries()) {
-      console.log(`📝 ${key}:`, value instanceof File ? `File: ${value.name} (${value.size} bytes)` : value);
+      devLog(`📝 ${key}:`, value instanceof File ? `File: ${value.name} (${value.size} bytes)` : value);
     }
     
     // For FormData uploads, we need to handle headers specially
     const token = localStorage.getItem('stasht_token');
-    console.log('📝 DEBUG: Token exists:', !!token);
+    devLog('📝 DEBUG: Token exists:', !!token);
     
     const headers: Record<string, string> = {};
     if (token) {
@@ -1971,12 +2028,12 @@ export const dashboardAPI = {
     }
     // Don't set Content-Type for FormData - let browser set it with boundary
     
-    console.log('📝 DEBUG: Request headers:', headers);
-    console.log('📝 DEBUG: API URL:', `${API_BASE_URL}/user/update-profile`);
+    devLog('📝 DEBUG: Request headers:', headers);
+    devLog('📝 DEBUG: API URL:', `${API_BASE_URL}/user/update-profile`);
     
     // Check if FormData is actually populated
     const hasEntries = Array.from(profileData.entries()).length > 0;
-    console.log('📝 DEBUG: FormData has entries:', hasEntries);
+    devLog('📝 DEBUG: FormData has entries:', hasEntries);
     
     if (!hasEntries) {
       console.error('📝 ERROR: FormData is empty, aborting request');
@@ -1989,18 +2046,18 @@ export const dashboardAPI = {
     try {
       // Many Laravel APIs expect POST with _method override for file uploads
       // Try POST instead of PUT for FormData uploads
-      console.log('📝 DEBUG: Sending POST request with FormData...');
+      devLog('📝 DEBUG: Sending POST request with FormData...');
       const response = await fetch(`${API_BASE_URL}/user/update-profile`, {
         method: 'POST',
         headers,
         body: profileData,
       });
 
-      console.log('📝 DEBUG: Response status:', response.status);
-      console.log('📝 DEBUG: Response headers:', Object.fromEntries(response.headers.entries()));
+      devLog('📝 DEBUG: Response status:', response.status);
+      devLog('📝 DEBUG: Response headers:', Object.fromEntries(response.headers.entries()));
 
       const data = await response.json();
-      console.log('📝 DEBUG: Response data:', data);
+      devLog('📝 DEBUG: Response data:', data);
 
       if (!response.ok) {
         return {
@@ -2010,7 +2067,7 @@ export const dashboardAPI = {
         };
       }
 
-      console.log('📝 DEBUG: /user/update-profile API successful response:', data);
+      devLog('📝 DEBUG: /user/update-profile API successful response:', data);
       return {
         success: true,
         data: data
@@ -2026,7 +2083,7 @@ export const dashboardAPI = {
 
   // Get single memory details by ID
   getMemoryDetails: async (memoryId: string): Promise<ApiResponse<any>> => {
-    console.log(`dashboardAPI.getMemoryDetails: Fetching details for memory ID ${memoryId}`);
+    devLog(`dashboardAPI.getMemoryDetails: Fetching details for memory ID ${memoryId}`);
     return await apiRequest(`/memories/${memoryId}?per_page=500`, {
       method: 'GET',
     });
@@ -2034,8 +2091,8 @@ export const dashboardAPI = {
 
   // Update memory by ID
   updateMemory: async (memoryId: string, memoryData: any): Promise<ApiResponse<any>> => {
-    console.log(`dashboardAPI.updateMemory: Updating memory ID ${memoryId}`);
-    console.log('Update Data:', JSON.stringify(memoryData, null, 2));
+    devLog(`dashboardAPI.updateMemory: Updating memory ID ${memoryId}`);
+    devLog('Update Data:', JSON.stringify(memoryData, null, 2));
     
     return await apiRequest(`/memories/${memoryId}`, {
       method: 'PUT',
@@ -2045,8 +2102,8 @@ export const dashboardAPI = {
 
   // Publish memory by ID
   publishMemory: async (memoryId: string, role?: number): Promise<ApiResponse<any>> => {
-    console.log(`dashboardAPI.publishMemory: Publishing memory ID ${memoryId} with role ${role}`);
-    console.log(`API URL: /memories/${memoryId}/publish`);
+    devLog(`dashboardAPI.publishMemory: Publishing memory ID ${memoryId} with role ${role}`);
+    devLog(`API URL: /memories/${memoryId}/publish`);
 
     return await apiRequest(`/memories/${memoryId}/publish`, {
       method: 'POST',
@@ -2071,8 +2128,8 @@ export const dashboardAPI = {
 
   // Unpublish memory by ID
   unpublishMemory: async (memoryId: string): Promise<ApiResponse<any>> => {
-    console.log(`dashboardAPI.unpublishMemory: Unpublishing memory ID ${memoryId}`);
-    console.log(`API URL: /memory-unpublished`);
+    devLog(`dashboardAPI.unpublishMemory: Unpublishing memory ID ${memoryId}`);
+    devLog(`API URL: /memory-unpublished`);
 
     return await apiRequest('/memory-unpublished', {
       method: 'POST',
@@ -2082,14 +2139,14 @@ export const dashboardAPI = {
 
   // Get published memory by slug (public endpoint - no auth required)
   getPublishedMemory: async (slug: string, accessToken?: string): Promise<ApiResponse<any>> => {
-    console.log(`dashboardAPI.getPublishedMemory: Fetching published memory with slug: ${slug}`);
+    devLog(`dashboardAPI.getPublishedMemory: Fetching published memory with slug: ${slug}`);
 
     // Build URL with optional access_token parameter
     const url = accessToken
       ? `/published-memories?token=${slug}&access_token=${encodeURIComponent(accessToken)}`
       : `/published-memories?token=${slug}`;
 
-    console.log(`API URL: ${url}`);
+    devLog(`API URL: ${url}`);
 
     return await apiRequest(url, {
       method: 'GET',
@@ -2098,8 +2155,8 @@ export const dashboardAPI = {
 
   // Create new category
   createCategory: async (name: string, propertyId?: number): Promise<ApiResponse<any>> => {
-    console.log(`dashboardAPI.createCategory: Creating category with name "${name}"${propertyId ? `, property_id: ${propertyId}` : ''}`);
-    console.log(`API URL: /create-category`);
+    devLog(`dashboardAPI.createCategory: Creating category with name "${name}"${propertyId ? `, property_id: ${propertyId}` : ''}`);
+    devLog(`API URL: /create-category`);
 
     const body: Record<string, any> = { name };
     if (propertyId) body.property_id = propertyId;
@@ -2112,8 +2169,8 @@ export const dashboardAPI = {
 
   // Create new label
   createLabel: async (name: string): Promise<ApiResponse<any>> => {
-    console.log(`dashboardAPI.createLabel: Creating label with name "${name}"`);
-    console.log(`API URL: /create-label`);
+    devLog(`dashboardAPI.createLabel: Creating label with name "${name}"`);
+    devLog(`API URL: /create-label`);
     
     return await apiRequest('/create-label', {
       method: 'POST',
@@ -2123,8 +2180,8 @@ export const dashboardAPI = {
 
   // Edit category by ID
   editCategory: async (categoryId: string, name: string): Promise<ApiResponse<any>> => {
-    console.log(`dashboardAPI.editCategory: Editing category with ID "${categoryId}" to name "${name}"`);
-    console.log(`API URL: /edit-category/${categoryId}`);
+    devLog(`dashboardAPI.editCategory: Editing category with ID "${categoryId}" to name "${name}"`);
+    devLog(`API URL: /edit-category/${categoryId}`);
     
     return await apiRequest(`/edit-category/${categoryId}`, {
       method: 'PUT',
@@ -2134,8 +2191,8 @@ export const dashboardAPI = {
 
   // Delete category by ID
   deleteCategory: async (categoryId: string): Promise<ApiResponse<any>> => {
-    console.log(`dashboardAPI.deleteCategory: Deleting category with ID "${categoryId}"`);
-    console.log(`API URL: /delete-category/${categoryId}`);
+    devLog(`dashboardAPI.deleteCategory: Deleting category with ID "${categoryId}"`);
+    devLog(`API URL: /delete-category/${categoryId}`);
     
     return await apiRequest(`/delete-category/${categoryId}`, {
       method: 'GET',
@@ -2144,8 +2201,8 @@ export const dashboardAPI = {
 
   // Delete label (sub-category) by ID
   deleteLabel: async (subCategoryId: string): Promise<ApiResponse<any>> => {
-    console.log(`dashboardAPI.deleteLabel: Deleting label with ID "${subCategoryId}"`);
-    console.log(`API URL: /delete-sub-category/${subCategoryId}`);
+    devLog(`dashboardAPI.deleteLabel: Deleting label with ID "${subCategoryId}"`);
+    devLog(`API URL: /delete-sub-category/${subCategoryId}`);
     
     return await apiRequest(`/delete-sub-category/${subCategoryId}`, {
       method: 'GET',
@@ -2154,8 +2211,8 @@ export const dashboardAPI = {
 
   // Edit label by ID
   editLabel: async (labelId: string, name: string): Promise<ApiResponse<any>> => {
-    console.log(`dashboardAPI.editLabel: Editing label with ID "${labelId}" to name "${name}"`);
-    console.log(`API URL: /edit-label/${labelId}`);
+    devLog(`dashboardAPI.editLabel: Editing label with ID "${labelId}" to name "${name}"`);
+    devLog(`API URL: /edit-label/${labelId}`);
 
     return await apiRequest(`/edit-label/${labelId}`, {
       method: 'POST',
@@ -2193,9 +2250,9 @@ export const dashboardAPI = {
     tags?: string[];
     parent_image_id?: string | null;
   }): Promise<ApiResponse<any>> => {
-    console.log(`dashboardAPI.updateMemoryImages: Updating post ID "${postId}"`);
-    console.log(`API URL: /memory-images/${postId}`);
-    console.log('Update Data:', updateData);
+    devLog(`dashboardAPI.updateMemoryImages: Updating post ID "${postId}"`);
+    devLog(`API URL: /memory-images/${postId}`);
+    devLog('Update Data:', updateData);
     
     // Create FormData for multipart request
     const formData = new FormData();
@@ -2206,52 +2263,52 @@ export const dashboardAPI = {
     // Add image file if provided
     if (updateData.image) {
       formData.append('image', updateData.image);
-      console.log('Added image to FormData:', updateData.image.name, updateData.image.size);
+      devLog('Added image to FormData:', updateData.image.name, updateData.image.size);
     }
     
     // Add other fields if provided
     if (updateData.name !== undefined) {
       formData.append('name', updateData.name || '');
-      console.log('Added name to FormData:', updateData.name);
+      devLog('Added name to FormData:', updateData.name);
     }
 
     if (updateData.title !== undefined) {
       formData.append('title', updateData.title || '');
-      console.log('Added title to FormData:', updateData.title);
+      devLog('Added title to FormData:', updateData.title);
     }
 
     if (updateData.description !== undefined) {
       formData.append('description', updateData.description || '');
-      console.log('Added description to FormData:', updateData.description);
+      devLog('Added description to FormData:', updateData.description);
     }
 
     if (updateData.capture_date !== undefined) {
       formData.append('capture_date', updateData.capture_date || '');
-      console.log('Added capture_date to FormData:', updateData.capture_date);
+      devLog('Added capture_date to FormData:', updateData.capture_date);
     }
 
     if (updateData.location !== undefined) {
       formData.append('location', updateData.location || '');
-      console.log('Added location to FormData:', updateData.location);
+      devLog('Added location to FormData:', updateData.location);
     }
     
     if (updateData.tags !== undefined) {
       updateData.tags.forEach((tag, index) => {
         formData.append(`tags[${index}]`, tag);
       });
-      console.log('Added tags to FormData:', updateData.tags);
+      devLog('Added tags to FormData:', updateData.tags);
     }
 
     // Add parent_image_id if provided (can be string or null)
     if (updateData.parent_image_id !== undefined) {
       formData.append('parent_image_id', updateData.parent_image_id || '');
-      console.log('Added parent_image_id to FormData:', updateData.parent_image_id);
+      devLog('Added parent_image_id to FormData:', updateData.parent_image_id);
     }
 
     // Debug FormData contents
-    console.log('FormData entries:');
+    devLog('FormData entries:');
     for (let [key, value] of formData.entries()) {
-      console.log(`${key}:`, value instanceof File ? `File(${value.name})` : value);
+      devLog(`${key}:`, value instanceof File ? `File(${value.name})` : value);
     }
     
     // Get auth token for headers (don't include Content-Type, let browser set it for FormData)
@@ -2272,7 +2329,7 @@ export const dashboardAPI = {
 
       // Handle 401 Unauthorized responses
       if (response.status === 401) {
-        console.log('Received 401 Unauthorized, clearing auth data and reloading');
+        devLog('Received 401 Unauthorized, clearing auth data and reloading');
         userUtils.clearAuthData();
         setTimeout(() => {
           window.location.reload();
@@ -2290,7 +2347,7 @@ export const dashboardAPI = {
         };
       }
 
-      console.log('dashboardAPI.updateMemoryImages: Full API Response:', { success: true, data });
+      devLog('dashboardAPI.updateMemoryImages: Full API Response:', { success: true, data });
       return {
         success: true,
         data,
@@ -2306,26 +2363,26 @@ export const dashboardAPI = {
 
   // Create a new memory (POST to same endpoint as getMemories)
   createMemory: async (memoryData: any): Promise<ApiResponse<any>> => {
-    console.log('dashboardAPI.createMemory: Sending POST request to /memories');
-    console.log('Request Headers:', getAuthHeaders());
-    console.log('Request Body:', JSON.stringify(memoryData, null, 2));
+    devLog('dashboardAPI.createMemory: Sending POST request to /memories');
+    devLog('Request Headers:', getAuthHeaders());
+    devLog('Request Body:', JSON.stringify(memoryData, null, 2));
     
     const response = await apiRequest('/memories', {
       method: 'POST',
       body: JSON.stringify(memoryData),
     });
     
-    console.log('dashboardAPI.createMemory: Full API Response:', response);
+    devLog('dashboardAPI.createMemory: Full API Response:', response);
     return response;
   },
 
   // Add description to a post
   addPostDescription: async (postId: string, description: string, mentionedEmails?: string[], mentionedPhones?: string[]): Promise<ApiResponse<any>> => {
-    console.log('dashboardAPI.addPostDescription: Sending POST request to /memories/add-description');
-    console.log('Post ID:', postId);
-    console.log('Description:', description);
-    console.log('Mentioned Emails:', mentionedEmails);
-    console.log('Mentioned Phones:', mentionedPhones);
+    devLog('dashboardAPI.addPostDescription: Sending POST request to /memories/add-description');
+    devLog('Post ID:', postId);
+    devLog('Description:', description);
+    devLog('Mentioned Emails:', mentionedEmails);
+    devLog('Mentioned Phones:', mentionedPhones);
 
     const body: any = {
       post_id: postId,
@@ -2340,7 +2397,7 @@ export const dashboardAPI = {
       body.phones = mentionedPhones;
     }
 
-    console.log('📦 Final request body:', JSON.stringify(body));
+    devLog('📦 Final request body:', JSON.stringify(body));
 
     return await apiRequest('/memories/add-description', {
       method: 'POST',
@@ -2350,11 +2407,11 @@ export const dashboardAPI = {
 
   // Edit post description
   editPostDescription: async (postId: string, description: string, mentionedEmails?: string[], mentionedPhones?: string[]): Promise<ApiResponse<any>> => {
-    console.log('dashboardAPI.editPostDescription: Sending PUT request to /memories/edit-description');
-    console.log('Post ID:', postId);
-    console.log('Description:', description);
-    console.log('Mentioned Emails:', mentionedEmails);
-    console.log('Mentioned Phones:', mentionedPhones);
+    devLog('dashboardAPI.editPostDescription: Sending PUT request to /memories/edit-description');
+    devLog('Post ID:', postId);
+    devLog('Description:', description);
+    devLog('Mentioned Emails:', mentionedEmails);
+    devLog('Mentioned Phones:', mentionedPhones);
 
     const body: any = {
       post_id: postId,
@@ -2377,8 +2434,8 @@ export const dashboardAPI = {
 
   // Delete post description
   deletePostDescription: async (postId: string): Promise<ApiResponse<any>> => {
-    console.log('dashboardAPI.deletePostDescription: Sending DELETE request to /memories/delete-description');
-    console.log('Post ID:', postId);
+    devLog('dashboardAPI.deletePostDescription: Sending DELETE request to /memories/delete-description');
+    devLog('Post ID:', postId);
 
     return await apiRequest('/memories/delete-description', {
       method: 'DELETE',
@@ -2390,8 +2447,8 @@ export const dashboardAPI = {
 
   // Set image as featured
   setImageFeatured: async (imageId: string, isFeatured: boolean): Promise<ApiResponse<any>> => {
-    console.log('dashboardAPI.setImageFeatured: Sending POST request to /memory-images/set-featured');
-    console.log('Image ID:', imageId, 'Is Featured:', isFeatured);
+    devLog('dashboardAPI.setImageFeatured: Sending POST request to /memory-images/set-featured');
+    devLog('Image ID:', imageId, 'Is Featured:', isFeatured);
 
     return await apiRequest('/memory-images/set-featured', {
       method: 'POST',
@@ -2404,8 +2461,8 @@ export const dashboardAPI = {
 
   // Hide/show a post's caption (persisted)
   setCaptionHidden: async (imageId: string, hidden: boolean): Promise<ApiResponse<any>> => {
-    console.log('dashboardAPI.setCaptionHidden: Sending POST request to /memory-images/hide-caption');
-    console.log('Image ID:', imageId, 'Hidden:', hidden);
+    devLog('dashboardAPI.setCaptionHidden: Sending POST request to /memory-images/hide-caption');
+    devLog('Image ID:', imageId, 'Hidden:', hidden);
 
     return await apiRequest('/memory-images/hide-caption', {
       method: 'POST',
@@ -2418,8 +2475,8 @@ export const dashboardAPI = {
 
   // Delete entire post
   deletePost: async (postId: string): Promise<ApiResponse<any>> => {
-    console.log('dashboardAPI.deletePost: Sending DELETE request to /memory-images/' + postId);
-    console.log('Post ID:', postId);
+    devLog('dashboardAPI.deletePost: Sending DELETE request to /memory-images/' + postId);
+    devLog('Post ID:', postId);
 
     return await apiRequest(`/memory-images/${postId}`, {
       method: 'DELETE',
@@ -2428,8 +2485,8 @@ export const dashboardAPI = {
 
   // Claim post - request ownership
   claimPostRequest: async (postId: string): Promise<ApiResponse<any>> => {
-    console.log('dashboardAPI.claimPostRequest: Sending POST request to /memory-images/claim-post');
-    console.log('Post ID:', postId);
+    devLog('dashboardAPI.claimPostRequest: Sending POST request to /memory-images/claim-post');
+    devLog('Post ID:', postId);
 
     return await apiRequest('/memory-images/claim-post', {
       method: 'POST',
@@ -2441,8 +2498,8 @@ export const dashboardAPI = {
 
   // Delete multiple posts
   deleteMultiplePosts: async (imageIds: string[]): Promise<ApiResponse<any>> => {
-    console.log('dashboardAPI.deleteMultiplePosts: Sending POST request to /memory-images/delete-multiple');
-    console.log('Image IDs:', imageIds);
+    devLog('dashboardAPI.deleteMultiplePosts: Sending POST request to /memory-images/delete-multiple');
+    devLog('Image IDs:', imageIds);
 
     return await apiRequest('/memory-images/delete-multiple', {
       method: 'POST',
@@ -2454,10 +2511,10 @@ export const dashboardAPI = {
 
   // Add comment to a post
   addPostComment: async (postId: string, comment: string, parentId?: string): Promise<ApiResponse<any>> => {
-    console.log('dashboardAPI.addPostComment: Sending POST request to add comment');
-    console.log('Post ID (image_id):', postId);
-    console.log('Comment:', comment);
-    console.log('Parent ID:', parentId);
+    devLog('dashboardAPI.addPostComment: Sending POST request to add comment');
+    devLog('Post ID (image_id):', postId);
+    devLog('Comment:', comment);
+    devLog('Parent ID:', parentId);
 
     const requestBody: any = {
       image_id: postId,
@@ -2477,7 +2534,7 @@ export const dashboardAPI = {
 
   // Create a new memory with multipart form data (for file uploads)
   createMemoryMultipart: async (formData: FormData): Promise<ApiResponse<any>> => {
-    console.log('dashboardAPI.createMemoryMultipart: Sending POST request to /memories with multipart data');
+    devLog('dashboardAPI.createMemoryMultipart: Sending POST request to /memories with multipart data');
 
     // Count files in FormData before sending
     let fileCount = 0;
@@ -2488,7 +2545,7 @@ export const dashboardAPI = {
         fileNames.push(value.name);
       }
     }
-    console.log(`📤 API CALL: Sending ${fileCount} files to backend:`, fileNames);
+    devLog(`📤 API CALL: Sending ${fileCount} files to backend:`, fileNames);
 
     // Get auth token for headers (don't include Content-Type, let browser set it for FormData)
     const token = localStorage.getItem('stasht_token');
@@ -2498,9 +2555,9 @@ export const dashboardAPI = {
     }
     
     try {
-      console.log(`🌐 MAKING FETCH REQUEST with ${fileCount} files...`);
-      console.log(`📤 Request URL: ${API_BASE_URL}/memories`);
-      console.log(`📋 Request Headers:`, headers);
+      devLog(`🌐 MAKING FETCH REQUEST with ${fileCount} files...`);
+      devLog(`📤 Request URL: ${API_BASE_URL}/memories`);
+      devLog(`📋 Request Headers:`, headers);
 
       // Log the total size of the FormData
       let totalFormDataSize = 0;
@@ -2511,7 +2568,7 @@ export const dashboardAPI = {
           totalFormDataSize += value.length;
         }
       }
-      console.log(`📦 Total FormData size: ${(totalFormDataSize / 1024 / 1024).toFixed(2)}MB`);
+      devLog(`📦 Total FormData size: ${(totalFormDataSize / 1024 / 1024).toFixed(2)}MB`);
 
       const response = await fetch(`${API_BASE_URL}/memories`, {
         method: 'POST',
@@ -2519,7 +2576,7 @@ export const dashboardAPI = {
         body: formData,
       });
 
-      console.log(`📨 FETCH RESPONSE received:`, {
+      devLog(`📨 FETCH RESPONSE received:`, {
         status: response.status,
         statusText: response.statusText,
         ok: response.ok,
@@ -2530,7 +2587,7 @@ export const dashboardAPI = {
 
       // Handle 401 Unauthorized responses
       if (response.status === 401) {
-        console.log('Received 401 Unauthorized, clearing auth data and reloading');
+        devLog('Received 401 Unauthorized, clearing auth data and reloading');
         userUtils.clearAuthData();
         setTimeout(() => {
           window.location.reload();
@@ -2548,7 +2605,7 @@ export const dashboardAPI = {
         };
       }
 
-      console.log('dashboardAPI.createMemoryMultipart: Full API Response:', { success: true, data });
+      devLog('dashboardAPI.createMemoryMultipart: Full API Response:', { success: true, data });
       return {
         success: true,
         data,
@@ -2564,47 +2621,47 @@ export const dashboardAPI = {
 
   // Check memory limit status
   checkMemoryLimit: async (): Promise<ApiResponse<any>> => {
-    console.log('dashboardAPI.checkMemoryLimit: Sending GET request to /user/check-memory-limit');
-    console.log('Request Headers:', getAuthHeaders());
+    devLog('dashboardAPI.checkMemoryLimit: Sending GET request to /user/check-memory-limit');
+    devLog('Request Headers:', getAuthHeaders());
     
     const response = await apiRequest('/user/check-memory-limit', {
       method: 'GET',
     });
     
-    console.log('dashboardAPI.checkMemoryLimit: Full API Response:', response);
+    devLog('dashboardAPI.checkMemoryLimit: Full API Response:', response);
     return response;
   },
 
   // Get memory counts (total memories, media, published)
   getMemoryCounts: async (): Promise<ApiResponse<any>> => {
-    console.log('dashboardAPI.getMemoryCounts: Sending GET request to /user/memory-counts');
-    console.log('Request Headers:', getAuthHeaders());
+    devLog('dashboardAPI.getMemoryCounts: Sending GET request to /user/memory-counts');
+    devLog('Request Headers:', getAuthHeaders());
     
     const response = await apiRequest('/user/memory-counts', {
       method: 'GET',
     });
     
-    console.log('dashboardAPI.getMemoryCounts: Full API Response:', response);
+    devLog('dashboardAPI.getMemoryCounts: Full API Response:', response);
     return response;
   },
 
   // Delete memory by ID
   deleteMemory: async (memoryId: string): Promise<ApiResponse<any>> => {
-    console.log(`dashboardAPI.deleteMemory: Deleting memory ID ${memoryId}`);
-    console.log('Request Headers:', getAuthHeaders());
+    devLog(`dashboardAPI.deleteMemory: Deleting memory ID ${memoryId}`);
+    devLog('Request Headers:', getAuthHeaders());
     
     const response = await apiRequest(`/memories/${memoryId}`, {
       method: 'DELETE',
     });
     
-    console.log('dashboardAPI.deleteMemory: Full API Response:', response);
+    devLog('dashboardAPI.deleteMemory: Full API Response:', response);
     return response;
   },
 
   // Upload photo to media without memory
   uploadPhotoToMedia: async (file: File, name: string, position: number): Promise<ApiResponse<any>> => {
-    console.log(`🔧 dashboardAPI.uploadPhotoToMedia: Starting upload for "${name}" at position ${position}`);
-    console.log('🔧 File details:', {
+    devLog(`🔧 dashboardAPI.uploadPhotoToMedia: Starting upload for "${name}" at position ${position}`);
+    devLog('🔧 File details:', {
       fileName: file.name,
       fileSize: file.size,
       fileType: file.type,
@@ -2613,8 +2670,8 @@ export const dashboardAPI = {
     
     // Check authentication
     const token = tokenUtils.getToken();
-    console.log('🔧 Auth token exists:', !!token);
-    console.log('🔧 Auth token length:', token?.length || 0);
+    devLog('🔧 Auth token exists:', !!token);
+    devLog('🔧 Auth token length:', token?.length || 0);
     
     if (!token) {
       console.error('🔴 No auth token available!');
@@ -2629,30 +2686,30 @@ export const dashboardAPI = {
     formData.append('file', file);
     formData.append('position', position.toString());
 
-    console.log('=== API REQUEST DETAILS ===');
-    console.log('Endpoint:', `${getApiBaseUrl()}/memory-images/upload`);
-    console.log('Method: POST');
-    console.log('Headers:', getAuthHeaders());
-    console.log('FormData Contents:');
-    console.log('- name:', name);
-    console.log('- file:', {
+    devLog('=== API REQUEST DETAILS ===');
+    devLog('Endpoint:', `${getApiBaseUrl()}/memory-images/upload`);
+    devLog('Method: POST');
+    devLog('Headers:', getAuthHeaders());
+    devLog('FormData Contents:');
+    devLog('- name:', name);
+    devLog('- file:', {
       name: file.name,
       size: file.size,
       type: file.type,
       lastModified: file.lastModified
     });
-    console.log('- position:', position.toString());
+    devLog('- position:', position.toString());
     
     // Log all FormData entries (for debugging)
     for (let [key, value] of formData.entries()) {
       if (value instanceof File) {
-        console.log(`FormData[${key}]:`, {
+        devLog(`FormData[${key}]:`, {
           name: value.name,
           size: value.size,
           type: value.type
         });
       } else {
-        console.log(`FormData[${key}]:`, value);
+        devLog(`FormData[${key}]:`, value);
       }
     }
     
@@ -2666,31 +2723,31 @@ export const dashboardAPI = {
       body: formData
     });
 
-    console.log('=== API RESPONSE STATUS ===');
-    console.log('Status:', response.status);
-    console.log('Status Text:', response.statusText);
-    console.log('OK:', response.ok);
-    console.log('Headers:', Object.fromEntries(response.headers.entries()));
+    devLog('=== API RESPONSE STATUS ===');
+    devLog('Status:', response.status);
+    devLog('Status Text:', response.statusText);
+    devLog('OK:', response.ok);
+    devLog('Headers:', Object.fromEntries(response.headers.entries()));
 
     let responseData;
     try {
       responseData = await response.json();
-      console.log('=== API RESPONSE DATA (PARSED JSON) ===');
-      console.log('Full Response Object:', responseData);
-      console.log('Response Type:', typeof responseData);
-      console.log('Response Keys:', Object.keys(responseData || {}));
+      devLog('=== API RESPONSE DATA (PARSED JSON) ===');
+      devLog('Full Response Object:', responseData);
+      devLog('Response Type:', typeof responseData);
+      devLog('Response Keys:', Object.keys(responseData || {}));
       
       // Log each property of the response
       if (responseData && typeof responseData === 'object') {
         Object.entries(responseData).forEach(([key, value]) => {
-          console.log(`Response.${key}:`, value);
+          devLog(`Response.${key}:`, value);
         });
       }
     } catch (jsonError) {
-      console.log('=== FAILED TO PARSE JSON ===');
+      devLog('=== FAILED TO PARSE JSON ===');
       console.error('JSON Parse Error:', jsonError);
       const responseText = await response.text();
-      console.log('Raw Response Text:', responseText);
+      devLog('Raw Response Text:', responseText);
       responseData = { error: 'Invalid JSON response', rawText: responseText };
     }
     
@@ -2700,18 +2757,18 @@ export const dashboardAPI = {
       error: response.ok ? undefined : responseData?.message || responseData?.error || 'Upload failed'
     };
 
-    console.log('=== FINAL UPLOAD RESULT ===');
-    console.log('Success:', result.success);
-    console.log('Data:', result.data);
-    console.log('Error:', result.error);
-    console.log('=== END UPLOAD PROCESS ===');
+    devLog('=== FINAL UPLOAD RESULT ===');
+    devLog('Success:', result.success);
+    devLog('Data:', result.data);
+    devLog('Error:', result.error);
+    devLog('=== END UPLOAD PROCESS ===');
 
     return result;
   },
 
   // Upload multiple photos to media (calls the single upload API multiple times)
   uploadMultiplePhotosToMedia: async (files: File[]): Promise<ApiResponse<any>[]> => {
-    console.log(`dashboardAPI.uploadMultiplePhotosToMedia: Uploading ${files.length} files`);
+    devLog(`dashboardAPI.uploadMultiplePhotosToMedia: Uploading ${files.length} files`);
     
     const results: ApiResponse<any>[] = [];
     
@@ -2721,7 +2778,7 @@ export const dashboardAPI = {
       const name = file.name;
       
       try {
-        console.log(`Uploading file ${i + 1}/${files.length}: ${name} at position ${position}`);
+        devLog(`Uploading file ${i + 1}/${files.length}: ${name} at position ${position}`);
         const result = await dashboardAPI.uploadPhotoToMedia(file, name, position);
         results.push(result);
         
@@ -2738,14 +2795,14 @@ export const dashboardAPI = {
       }
     }
     
-    console.log(`dashboardAPI.uploadMultiplePhotosToMedia: Completed ${results.length} uploads`);
+    devLog(`dashboardAPI.uploadMultiplePhotosToMedia: Completed ${results.length} uploads`);
     return results;
   },
 
   // Get memory collaborators
   getMemoryCollaborators: async (memoryId: string): Promise<ApiResponse<any>> => {
-    console.log(`dashboardAPI.getMemoryCollaborators: Getting collaborators for memory ID ${memoryId}`);
-    console.log(`API URL: /memories/${memoryId}/collaborators`);
+    devLog(`dashboardAPI.getMemoryCollaborators: Getting collaborators for memory ID ${memoryId}`);
+    devLog(`API URL: /memories/${memoryId}/collaborators`);
     
     return await apiRequest(`/memories/${memoryId}/collaborators`, {
       method: 'GET',
@@ -2758,9 +2815,9 @@ export const dashboardAPI = {
     role: 'view' | 'edit' | 'admin';
     personalize_message?: string;
   }): Promise<ApiResponse<any>> => {
-    console.log(`dashboardAPI.addMemoryCollaborator: Adding collaborator(s) to memory ID ${memoryId}`);
-    console.log('Collaborator Data:', collaboratorData);
-    console.log(`API URL: /memories/${memoryId}/add-collabarators`);
+    devLog(`dashboardAPI.addMemoryCollaborator: Adding collaborator(s) to memory ID ${memoryId}`);
+    devLog('Collaborator Data:', collaboratorData);
+    devLog(`API URL: /memories/${memoryId}/add-collabarators`);
 
     // Map role values to API expected format
     const roleMapping: Record<string, string> = {
@@ -2780,7 +2837,7 @@ export const dashboardAPI = {
       requestBody.personalize_message = collaboratorData.personalize_message;
     }
 
-    console.log('Final request body:', requestBody);
+    devLog('Final request body:', requestBody);
 
     return await apiRequest(`/memories/${memoryId}/add-collabarators`, {
       method: 'POST',
@@ -2795,9 +2852,9 @@ export const dashboardAPI = {
     message?: string;
     personalize_message?: string;
   }): Promise<ApiResponse<any>> => {
-    console.log(`dashboardAPI.addMemoryCollaboratorByPhone: Adding collaborator(s) by phone to memory ID ${memoryId}`);
-    console.log('Collaborator Data:', collaboratorData);
-    console.log(`API URL: /memories/${memoryId}/add-collaborator-by-phone`);
+    devLog(`dashboardAPI.addMemoryCollaboratorByPhone: Adding collaborator(s) by phone to memory ID ${memoryId}`);
+    devLog('Collaborator Data:', collaboratorData);
+    devLog(`API URL: /memories/${memoryId}/add-collaborator-by-phone`);
 
     // Map role values to API expected format
     const roleMapping: Record<string, string> = {
@@ -2827,7 +2884,7 @@ export const dashboardAPI = {
       requestBody.message = collaboratorData.message;
     }
 
-    console.log('Final request body:', requestBody);
+    devLog('Final request body:', requestBody);
 
     return await apiRequest(`/memories/${memoryId}/add-collaborator-by-phone`, {
       method: 'POST',
@@ -2840,9 +2897,9 @@ export const dashboardAPI = {
     collaborators: Array<{email: string; role: 'view' | 'edit' | 'admin'}>;
     message?: string;
   }): Promise<ApiResponse<any>> => {
-    console.log(`dashboardAPI.addCollaboratorsToMemory: Adding collaborators to memory ID ${memoryId}`);
-    console.log('Collaborator Data:', collaboratorData);
-    console.log(`API URL: /memories/${memoryId}/add-collaborators-new`);
+    devLog(`dashboardAPI.addCollaboratorsToMemory: Adding collaborators to memory ID ${memoryId}`);
+    devLog('Collaborator Data:', collaboratorData);
+    devLog(`API URL: /memories/${memoryId}/add-collaborators-new`);
 
     // Map role values to API expected format
     const roleMapping: Record<string, string> = {
@@ -2866,10 +2923,10 @@ export const dashboardAPI = {
     // Add message if provided
     if (collaboratorData.message && collaboratorData.message.trim()) {
       requestBody.message = collaboratorData.message.trim();
-      console.log('Adding custom message to request:', collaboratorData.message.trim());
+      devLog('Adding custom message to request:', collaboratorData.message.trim());
     }
 
-    console.log('Final request body:', requestBody);
+    devLog('Final request body:', requestBody);
 
     return await apiRequest(`/memories/${memoryId}/add-collaborators-new`, {
       method: 'POST',
@@ -2881,15 +2938,15 @@ export const dashboardAPI = {
   addAccountAdmin: async (collaboratorData: {
     collaborators: Array<{email: string}>;
   }): Promise<ApiResponse<any>> => {
-    console.log('dashboardAPI.addAccountAdmin: Adding account admin(s)');
-    console.log('Collaborator Data:', collaboratorData);
-    console.log('API URL: /memories/add-account-admin');
+    devLog('dashboardAPI.addAccountAdmin: Adding account admin(s)');
+    devLog('Collaborator Data:', collaboratorData);
+    devLog('API URL: /memories/add-account-admin');
 
     const requestBody = {
       collaborators: collaboratorData.collaborators
     };
 
-    console.log('Final request body:', requestBody);
+    devLog('Final request body:', requestBody);
 
     return await apiRequest('/memories/add-account-admin', {
       method: 'POST',
@@ -2901,15 +2958,15 @@ export const dashboardAPI = {
   addAccountAdminByPhone: async (collaboratorData: {
     collaborators: Array<{phone_number: string}>;
   }): Promise<ApiResponse<any>> => {
-    console.log('dashboardAPI.addAccountAdminByPhone: Adding account admin(s) by phone');
-    console.log('Collaborator Data:', collaboratorData);
-    console.log('API URL: /memories/add-account-admin-by-phone');
+    devLog('dashboardAPI.addAccountAdminByPhone: Adding account admin(s) by phone');
+    devLog('Collaborator Data:', collaboratorData);
+    devLog('API URL: /memories/add-account-admin-by-phone');
 
     const requestBody = {
       collaborators: collaboratorData.collaborators
     };
 
-    console.log('Final request body:', requestBody);
+    devLog('Final request body:', requestBody);
 
     return await apiRequest('/memories/add-account-admin-by-phone', {
       method: 'POST',
@@ -2922,9 +2979,9 @@ export const dashboardAPI = {
     is_admin: boolean;
     message?: string;
   }>> => {
-    console.log('dashboardAPI.checkAdminEmail: Checking if email is already admin');
-    console.log('Email:', email);
-    console.log('API URL: /user/check-admin-email');
+    devLog('dashboardAPI.checkAdminEmail: Checking if email is already admin');
+    devLog('Email:', email);
+    devLog('API URL: /user/check-admin-email');
 
     return await apiRequest('/user/check-admin-email', {
       method: 'POST',
@@ -2940,9 +2997,9 @@ export const dashboardAPI = {
     token_type: string;
     expires_at: string;
   }>> => {
-    console.log('dashboardAPI.loginAsAdmin: Logging in as admin');
-    console.log('Owner ID:', ownerId);
-    console.log('API URL: /login-as-admin');
+    devLog('dashboardAPI.loginAsAdmin: Logging in as admin');
+    devLog('Owner ID:', ownerId);
+    devLog('API URL: /login-as-admin');
 
     return await apiRequest('/login-as-admin', {
       method: 'POST',
@@ -2971,10 +3028,10 @@ export const dashboardAPI = {
 
   // Remove collaborators from memory
   removeMemoryCollaborators: async (memoryId: string, userIds: string[], isPropertyUser?: boolean): Promise<ApiResponse<any>> => {
-    console.log(`dashboardAPI.removeMemoryCollaborators: Removing collaborators from memory ID ${memoryId}`);
-    console.log('User IDs to remove:', userIds);
-    console.log(`Is property user: ${!!isPropertyUser}`);
-    console.log(`API URL: /memories/${memoryId}/remove-collaborators`);
+    devLog(`dashboardAPI.removeMemoryCollaborators: Removing collaborators from memory ID ${memoryId}`);
+    devLog('User IDs to remove:', userIds);
+    devLog(`Is property user: ${!!isPropertyUser}`);
+    devLog(`API URL: /memories/${memoryId}/remove-collaborators`);
 
     const payload: Record<string, any> = { user_id: userIds };
     if (isPropertyUser) payload.property = 1;
@@ -2987,10 +3044,10 @@ export const dashboardAPI = {
 
   // Edit collaborator role
   editCollaboratorRole: async (memoryId: string, userId: string, role: 'view' | 'edit' | 'admin'): Promise<ApiResponse<any>> => {
-    console.log(`dashboardAPI.editCollaboratorRole: Editing collaborator role for memory ID ${memoryId}`);
-    console.log('User ID:', userId);
-    console.log('New Role:', role);
-    console.log(`API URL: /memories/${memoryId}/edit-collaborator-role`);
+    devLog(`dashboardAPI.editCollaboratorRole: Editing collaborator role for memory ID ${memoryId}`);
+    devLog('User ID:', userId);
+    devLog('New Role:', role);
+    devLog(`API URL: /memories/${memoryId}/edit-collaborator-role`);
     
     return await apiRequest(`/memories/${memoryId}/edit-collaborator-role`, {
       method: 'POST',
@@ -3003,10 +3060,10 @@ export const dashboardAPI = {
 
   // Edit non-user collaborator role
   editNonUserCollaboratorRole: async (email: string, memoryId: string, role: 'view' | 'edit' | 'admin'): Promise<ApiResponse<any>> => {
-    console.log(`dashboardAPI.editNonUserCollaboratorRole: Editing non-user collaborator role for email ${email}`);
-    console.log('Memory ID:', memoryId);
-    console.log('New Role (frontend):', role);
-    console.log(`API URL: /memories/non-user-collaborator/${email}`);
+    devLog(`dashboardAPI.editNonUserCollaboratorRole: Editing non-user collaborator role for email ${email}`);
+    devLog('Memory ID:', memoryId);
+    devLog('New Role (frontend):', role);
+    devLog(`API URL: /memories/non-user-collaborator/${email}`);
 
     // Map frontend role values to backend role values
     const roleMapping: { [key: string]: string } = {
@@ -3016,7 +3073,7 @@ export const dashboardAPI = {
     };
 
     const backendRole = roleMapping[role] || role;
-    console.log('Mapped Role (backend):', backendRole);
+    devLog('Mapped Role (backend):', backendRole);
 
     return await apiRequest(`/memories/non-user-collaborator/${email}`, {
       method: 'PUT',
@@ -3029,10 +3086,10 @@ export const dashboardAPI = {
 
   // Add collaborator by QR code (for anyone who scans the QR code)
   addCollaboratorByQrCode: async (memoryId: string, externalUserId: string, role: 'view' | 'edit' | 'admin'): Promise<ApiResponse<any>> => {
-    console.log(`dashboardAPI.addCollaboratorByQrCode: Adding collaborator via QR code to memory ID ${memoryId}`);
-    console.log('External User ID:', externalUserId);
-    console.log('Role (frontend):', role);
-    console.log(`API URL: /memories/add-collaborator-by-qr-code`);
+    devLog(`dashboardAPI.addCollaboratorByQrCode: Adding collaborator via QR code to memory ID ${memoryId}`);
+    devLog('External User ID:', externalUserId);
+    devLog('Role (frontend):', role);
+    devLog(`API URL: /memories/add-collaborator-by-qr-code`);
 
     // Map frontend role values to backend role values
     const roleMapping: { [key: string]: string } = {
@@ -3042,7 +3099,7 @@ export const dashboardAPI = {
     };
 
     const backendRole = roleMapping[role] || role;
-    console.log('Mapped Role (backend):', backendRole);
+    devLog('Mapped Role (backend):', backendRole);
 
     const requestBody = {
       memory_id: memoryId,
@@ -3050,7 +3107,7 @@ export const dashboardAPI = {
       role: backendRole
     };
 
-    console.log('Final request body:', requestBody);
+    devLog('Final request body:', requestBody);
 
     return await apiRequest(`/memories/add-collaborator-by-qr-code`, {
       method: 'POST',
@@ -3059,7 +3116,7 @@ export const dashboardAPI = {
   },
 
   addSelfAsCollaborator: async (memoryId: string, role: string): Promise<ApiResponse<any>> => {
-    console.log(`dashboardAPI.addSelfAsCollaborator: Joining memory ID ${memoryId} as ${role}`);
+    devLog(`dashboardAPI.addSelfAsCollaborator: Joining memory ID ${memoryId} as ${role}`);
     return await apiRequest(`/memories/add-self-as-collaborator`, {
       method: 'POST',
       body: JSON.stringify({ memory_id: memoryId, role }),
@@ -3068,10 +3125,10 @@ export const dashboardAPI = {
 
   // Edit non-user collaborator role by phone
   editNonUserCollaboratorRoleByPhone: async (phone: string, memoryId: string, role: 'view' | 'edit' | 'admin'): Promise<ApiResponse<any>> => {
-    console.log(`dashboardAPI.editNonUserCollaboratorRoleByPhone: Editing non-user collaborator role for phone ${phone}`);
-    console.log('Memory ID:', memoryId);
-    console.log('New Role (frontend):', role);
-    console.log(`API URL: /memories/non-user-collaborator-by-phone/${encodeURIComponent(phone)}`);
+    devLog(`dashboardAPI.editNonUserCollaboratorRoleByPhone: Editing non-user collaborator role for phone ${phone}`);
+    devLog('Memory ID:', memoryId);
+    devLog('New Role (frontend):', role);
+    devLog(`API URL: /memories/non-user-collaborator-by-phone/${encodeURIComponent(phone)}`);
 
     // Map frontend role values to backend role values
     const roleMapping: { [key: string]: string } = {
@@ -3081,7 +3138,7 @@ export const dashboardAPI = {
     };
 
     const backendRole = roleMapping[role] || role;
-    console.log('Mapped Role (backend):', backendRole);
+    devLog('Mapped Role (backend):', backendRole);
 
     return await apiRequest(`/memories/non-user-collaborator-by-phone/${encodeURIComponent(phone)}`, {
       method: 'PUT',
@@ -3094,8 +3151,8 @@ export const dashboardAPI = {
 
   // Resend invitation
   resendInvitation: async (inviteId: number): Promise<ApiResponse<any>> => {
-    console.log(`dashboardAPI.resendInvitation: Resending invitation for invite ID ${inviteId}`);
-    console.log(`API URL: /invites/${inviteId}/resend`);
+    devLog(`dashboardAPI.resendInvitation: Resending invitation for invite ID ${inviteId}`);
+    devLog(`API URL: /invites/${inviteId}/resend`);
 
     return await apiRequest(`/invites/${inviteId}/resend`, {
       method: 'POST',
@@ -3104,9 +3161,9 @@ export const dashboardAPI = {
 
   // Remove non-user collaborator
   removeNonUserCollaborator: async (email: string, memoryId: string): Promise<ApiResponse<any>> => {
-    console.log(`dashboardAPI.removeNonUserCollaborator: Removing non-user collaborator ${email}`);
-    console.log('Memory ID:', memoryId);
-    console.log(`API URL: /memories/non-user-collaborator/${email}`);
+    devLog(`dashboardAPI.removeNonUserCollaborator: Removing non-user collaborator ${email}`);
+    devLog('Memory ID:', memoryId);
+    devLog(`API URL: /memories/non-user-collaborator/${email}`);
 
     return await apiRequest(`/memories/non-user-collaborator/${email}`, {
       method: 'DELETE',
@@ -3118,9 +3175,9 @@ export const dashboardAPI = {
 
   // Remove non-user collaborator by phone
   removeNonUserCollaboratorByPhone: async (phone: string, memoryId: string): Promise<ApiResponse<any>> => {
-    console.log(`dashboardAPI.removeNonUserCollaboratorByPhone: Removing non-user collaborator ${phone}`);
-    console.log('Memory ID:', memoryId);
-    console.log(`API URL: /memories/non-user-collaborator-by-phone/${encodeURIComponent(phone)}`);
+    devLog(`dashboardAPI.removeNonUserCollaboratorByPhone: Removing non-user collaborator ${phone}`);
+    devLog('Memory ID:', memoryId);
+    devLog(`API URL: /memories/non-user-collaborator-by-phone/${encodeURIComponent(phone)}`);
 
     return await apiRequest(`/memories/non-user-collaborator-by-phone/${encodeURIComponent(phone)}`, {
       method: 'DELETE',
@@ -3132,9 +3189,9 @@ export const dashboardAPI = {
 
   // Generate share link for QR code
   generateShareLink: async (memoryId: string, role: string): Promise<ApiResponse<any>> => {
-    console.log(`dashboardAPI.generateShareLink: Generating share link for memory ID ${memoryId}`);
-    console.log('Role:', role);
-    console.log(`API URL: /share-qr/${memoryId}/${role}`);
+    devLog(`dashboardAPI.generateShareLink: Generating share link for memory ID ${memoryId}`);
+    devLog('Role:', role);
+    devLog(`API URL: /share-qr/${memoryId}/${role}`);
 
     return await apiRequest(`/share-qr/${memoryId}/${role}`, {
       method: 'GET',
@@ -3150,8 +3207,8 @@ export const dashboardAPI = {
 
   // Get user notifications
   getUserNotifications: async (): Promise<ApiResponse<any>> => {
-    console.log('dashboardAPI.getUserNotifications: Getting user notifications');
-    console.log('API URL: /user/notifications');
+    devLog('dashboardAPI.getUserNotifications: Getting user notifications');
+    devLog('API URL: /user/notifications');
     
     return await apiRequest('/user/notifications', {
       method: 'GET',
@@ -3160,8 +3217,8 @@ export const dashboardAPI = {
 
   // Accept notification (for invitations, etc.)
   acceptNotification: async (notificationId: string): Promise<ApiResponse<any>> => {
-    console.log('dashboardAPI.acceptNotification: Accepting notification', notificationId);
-    console.log(`API URL: /user/notifications/${notificationId}/accept`);
+    devLog('dashboardAPI.acceptNotification: Accepting notification', notificationId);
+    devLog(`API URL: /user/notifications/${notificationId}/accept`);
     
     return await apiRequest(`/user/notifications/${notificationId}/accept`, {
       method: 'POST',
@@ -3170,8 +3227,8 @@ export const dashboardAPI = {
 
   // Decline notification (for invitations, etc.)
   declineNotification: async (notificationId: string): Promise<ApiResponse<any>> => {
-    console.log('dashboardAPI.declineNotification: Declining notification', notificationId);
-    console.log(`API URL: /user/notifications/${notificationId}/decline`);
+    devLog('dashboardAPI.declineNotification: Declining notification', notificationId);
+    devLog(`API URL: /user/notifications/${notificationId}/decline`);
     
     return await apiRequest(`/user/notifications/${notificationId}/decline`, {
       method: 'POST',
@@ -3180,8 +3237,8 @@ export const dashboardAPI = {
 
   // Mark notification as read
   markNotificationAsRead: async (notificationId: string): Promise<ApiResponse<any>> => {
-    console.log('dashboardAPI.markNotificationAsRead: Marking notification as read', notificationId);
-    console.log(`API URL: /user/notifications/${notificationId}/read`);
+    devLog('dashboardAPI.markNotificationAsRead: Marking notification as read', notificationId);
+    devLog(`API URL: /user/notifications/${notificationId}/read`);
 
     return await apiRequest(`/user/notifications/${notificationId}/read`, {
       method: 'PUT',
@@ -3190,8 +3247,8 @@ export const dashboardAPI = {
 
   // Delete old notifications (older than 1 week)
   deleteOldNotifications: async (): Promise<ApiResponse<any>> => {
-    console.log('dashboardAPI.deleteOldNotifications: Deleting notifications older than 1 week');
-    console.log('API URL: /user/notifications/delete-old');
+    devLog('dashboardAPI.deleteOldNotifications: Deleting notifications older than 1 week');
+    devLog('API URL: /user/notifications/delete-old');
 
     return await apiRequest('/user/notifications/delete-old', {
       method: 'DELETE',
@@ -3200,9 +3257,9 @@ export const dashboardAPI = {
 
   // Update collaborator role
   updateCollaboratorRole: async (memoryId: string, collaboratorId: string, role: 'view' | 'edit' | 'admin'): Promise<ApiResponse<any>> => {
-    console.log(`dashboardAPI.updateCollaboratorRole: Updating collaborator role for memory ID ${memoryId}, collaborator ID ${collaboratorId}`);
-    console.log('New Role:', role);
-    console.log(`API URL: /memories/${memoryId}/collaborators/${collaboratorId}`);
+    devLog(`dashboardAPI.updateCollaboratorRole: Updating collaborator role for memory ID ${memoryId}, collaborator ID ${collaboratorId}`);
+    devLog('New Role:', role);
+    devLog(`API URL: /memories/${memoryId}/collaborators/${collaboratorId}`);
 
     return await apiRequest(`/memories/${memoryId}/collaborators/${collaboratorId}`, {
       method: 'PUT',
@@ -3212,10 +3269,10 @@ export const dashboardAPI = {
 
   // Update user collaborator role (correct API endpoint for Users page)
   editUserCollaboratorRole: async (collaboratorId: number, role: string, collaboratorType: string = 'user', memoryIds?: (string | number)[], phoneNumber?: string): Promise<ApiResponse<any>> => {
-    console.log(`dashboardAPI.editUserCollaboratorRole: Updating user collaborator role for ID ${collaboratorId}`);
-    console.log('Role:', role);
-    console.log('Collaborator Type:', collaboratorType);
-    console.log(`API URL: /user/edit-collaborator-role`);
+    devLog(`dashboardAPI.editUserCollaboratorRole: Updating user collaborator role for ID ${collaboratorId}`);
+    devLog('Role:', role);
+    devLog('Collaborator Type:', collaboratorType);
+    devLog(`API URL: /user/edit-collaborator-role`);
 
     const body: any = {
       collaborator_id: collaboratorId,
@@ -3242,9 +3299,9 @@ export const dashboardAPI = {
     role: string;
     message?: string;
   }): Promise<ApiResponse<any>> => {
-    console.log(`dashboardAPI.updateCollaborator: Updating collaborator ID ${collaboratorId}`);
-    console.log('Updates:', updates);
-    console.log(`API URL: /user/collaborators/${collaboratorId}`);
+    devLog(`dashboardAPI.updateCollaborator: Updating collaborator ID ${collaboratorId}`);
+    devLog('Updates:', updates);
+    devLog(`API URL: /user/collaborators/${collaboratorId}`);
 
     return await apiRequest(`/user/collaborators/${collaboratorId}`, {
       method: 'PUT',
@@ -3254,8 +3311,8 @@ export const dashboardAPI = {
 
   // Deactivate user
   deactivateUser: async (userId: number): Promise<ApiResponse<any>> => {
-    console.log(`dashboardAPI.deactivateUser: Deactivating user ID ${userId}`);
-    console.log(`API URL: /users/${userId}/deactivate`);
+    devLog(`dashboardAPI.deactivateUser: Deactivating user ID ${userId}`);
+    devLog(`API URL: /users/${userId}/deactivate`);
 
     return await apiRequest(`/users/${userId}/deactivate`, {
       method: 'PUT',
@@ -3265,8 +3322,8 @@ export const dashboardAPI = {
 
   // Remove user
   removeUser: async (userId: number): Promise<ApiResponse<any>> => {
-    console.log(`dashboardAPI.removeUser: Removing user ID ${userId}`);
-    console.log(`API URL: /users/${userId}`);
+    devLog(`dashboardAPI.removeUser: Removing user ID ${userId}`);
+    devLog(`API URL: /users/${userId}`);
 
     return await apiRequest(`/users/${userId}`, {
       method: 'DELETE',
@@ -3275,8 +3332,8 @@ export const dashboardAPI = {
 
   // Remove collaborator from memory
   removeMemoryCollaborator: async (memoryId: string, collaboratorId: string): Promise<ApiResponse<any>> => {
-    console.log(`dashboardAPI.removeMemoryCollaborator: Removing collaborator from memory ID ${memoryId}, collaborator ID ${collaboratorId}`);
-    console.log(`API URL: /memories/${memoryId}/collaborators/${collaboratorId}`);
+    devLog(`dashboardAPI.removeMemoryCollaborator: Removing collaborator from memory ID ${memoryId}, collaborator ID ${collaboratorId}`);
+    devLog(`API URL: /memories/${memoryId}/collaborators/${collaboratorId}`);
     
     return await apiRequest(`/memories/${memoryId}/collaborators/${collaboratorId}`, {
       method: 'DELETE',
@@ -3285,8 +3342,8 @@ export const dashboardAPI = {
 
   // Get memory activity data
   getMemoryActivity: async (memoryId: string): Promise<ApiResponse<any>> => {
-    console.log(`dashboardAPI.getMemoryActivity: Getting activity for memory ID ${memoryId}`);
-    console.log(`API URL: /memories/${memoryId}/activity`);
+    devLog(`dashboardAPI.getMemoryActivity: Getting activity for memory ID ${memoryId}`);
+    devLog(`API URL: /memories/${memoryId}/activity`);
     
     return await apiRequest(`/memories/${memoryId}/activity`, {
       method: 'GET',
@@ -3317,8 +3374,8 @@ export const dashboardAPI = {
   // Search users for collaborator invite
   searchUsers: async (searchQuery: string, searchType: 'email' | 'phone' = 'email'): Promise<ApiResponse<any>> => {
     const paramName = searchType === 'phone' ? 'phone' : 'search';
-    console.log(`dashboardAPI.searchUsers: Searching users with ${searchType} query "${searchQuery}"`);
-    console.log(`API URL: /user/list-of-users?${paramName}=${encodeURIComponent(searchQuery)}`);
+    devLog(`dashboardAPI.searchUsers: Searching users with ${searchType} query "${searchQuery}"`);
+    devLog(`API URL: /user/list-of-users?${paramName}=${encodeURIComponent(searchQuery)}`);
 
     return await apiRequest(`/user/list-of-users?${paramName}=${encodeURIComponent(searchQuery)}`, {
       method: 'GET',
@@ -3327,8 +3384,8 @@ export const dashboardAPI = {
 
   // Upload image with metadata to get location and capture date
   uploadImageWithMetadata: async (file: File, name: string, orientation?: number): Promise<ApiResponse<any>> => {
-    console.log(`🔧 dashboardAPI.uploadImageWithMetadata: Starting upload for "${name}"`);
-    console.log('🔧 File details:', {
+    devLog(`🔧 dashboardAPI.uploadImageWithMetadata: Starting upload for "${name}"`);
+    devLog('🔧 File details:', {
       fileName: file.name,
       fileSize: file.size,
       fileType: file.type
@@ -3336,54 +3393,55 @@ export const dashboardAPI = {
     
     // Check authentication
     const token = tokenUtils.getToken();
-    console.log('🔧 Auth token exists:', !!token);
+    devLog('🔧 Auth token exists:', !!token);
     
     const formData = new FormData();
     formData.append('name', name);
-    formData.append('image', file); // Try 'image' parameter name
-    // Also try 'file' parameter as backup (some APIs expect 'file')
-    formData.append('file', file);
+    // The backend only reads $request->file('image') — an earlier defensive
+    // duplicate append('file', file) was silently doubling every upload's
+    // multipart body size for no functional benefit, removed.
+    formData.append('image', file);
     formData.append('is_memory', '1'); // Add is_memory=1 parameter for create memory modal
     if (orientation !== undefined && orientation > 0) {
       formData.append('orientation', String(orientation));
     }
     
     // Add more file details for debugging
-    console.log('=== DETAILED FILE OBJECT ===');
-    console.log('File is valid object:', file && typeof file === 'object');
-    console.log('File constructor name:', file.constructor ? file.constructor.name : 'unknown');
-    console.log('File details:', {
+    devLog('=== DETAILED FILE OBJECT ===');
+    devLog('File is valid object:', file && typeof file === 'object');
+    devLog('File constructor name:', file.constructor ? file.constructor.name : 'unknown');
+    devLog('File details:', {
       name: file.name,
       size: file.size,
       type: file.type,
       lastModified: file.lastModified
     });
 
-    console.log('=== API REQUEST DETAILS ===');
+    devLog('=== API REQUEST DETAILS ===');
     const endpoint = `${getApiBaseUrl()}/user/upload-image-with-metadata`;
-    console.log('Endpoint:', endpoint);
-    console.log('Full API Base URL:', getApiBaseUrl());
-    console.log('Method: POST');
-    console.log('FormData Contents:');
-    console.log('- name:', name);
-    console.log('- image (file object):', {
+    devLog('Endpoint:', endpoint);
+    devLog('Full API Base URL:', getApiBaseUrl());
+    devLog('Method: POST');
+    devLog('FormData Contents:');
+    devLog('- name:', name);
+    devLog('- image (file object):', {
       name: file.name,
       size: file.size,
       type: file.type
     });
     
     // Log FormData entries for debugging
-    console.log('=== FORMDATA ENTRIES ===');
+    devLog('=== FORMDATA ENTRIES ===');
     for (let [key, value] of formData.entries()) {
       if (value && typeof value === 'object' && value.constructor && value.constructor.name === 'File') {
-        console.log(`FormData[${key}]:`, {
+        devLog(`FormData[${key}]:`, {
           name: value.name,
           size: value.size,
           type: value.type,
           isFile: true
         });
       } else {
-        console.log(`FormData[${key}]:`, value);
+        devLog(`FormData[${key}]:`, value);
       }
     }
 
@@ -3392,25 +3450,29 @@ export const dashboardAPI = {
       headers.Authorization = `Bearer ${token}`;
     }
     
-    console.log('Request Headers:', headers);
+    devLog('Request Headers:', headers);
     
-    // Use fetch directly for FormData upload to avoid JSON content-type header
-    const response = await fetch(endpoint, {
+    // Use fetch directly for FormData upload to avoid JSON content-type header.
+    // Goes through fetchWithRateLimitRetry (not the plain fetch apiRequest itself
+    // uses) so a transient 429 from the throttle middleware doesn't fail the
+    // upload outright — this raw call bypasses apiRequest entirely and would
+    // otherwise get none of its retry behavior.
+    const response = await fetchWithRateLimitRetry(endpoint, {
       method: 'POST',
       headers: headers,
       body: formData
     });
 
-    console.log('🔧 Response status:', response.status, response.statusText);
-    console.log('🔧 Response headers:', Object.fromEntries(response.headers.entries()));
+    devLog('🔧 Response status:', response.status, response.statusText);
+    devLog('🔧 Response headers:', Object.fromEntries(response.headers.entries()));
 
     let responseData;
     const responseText = await response.text();
-    console.log('🔧 Raw response text:', responseText);
+    devLog('🔧 Raw response text:', responseText);
 
     try {
       responseData = JSON.parse(responseText);
-      console.log('🔧 Parsed response data:', responseData);
+      devLog('🔧 Parsed response data:', responseData);
     } catch (e) {
       console.error('🔧 Failed to parse JSON response:', e);
       return {
@@ -3420,11 +3482,11 @@ export const dashboardAPI = {
       };
     }
 
-    console.log('=== FINAL API RESPONSE ===');
-    console.log('dashboardAPI.uploadImageWithMetadata: Full API Response:', responseData);
-    console.log('Response OK:', response.ok);
-    console.log('Response Status:', response.status);
-    console.log('Response Status Text:', response.statusText);
+    devLog('=== FINAL API RESPONSE ===');
+    devLog('dashboardAPI.uploadImageWithMetadata: Full API Response:', responseData);
+    devLog('Response OK:', response.ok);
+    devLog('Response Status:', response.status);
+    devLog('Response Status Text:', response.statusText);
 
     const result = {
       success: response.ok,
@@ -3435,7 +3497,7 @@ export const dashboardAPI = {
       rawResponse: responseData
     };
 
-    console.log('🔧 Final result:', result);
+    devLog('🔧 Final result:', result);
     return result;
   },
 
@@ -3457,12 +3519,14 @@ export const dashboardAPI = {
     }
 
     const endpoint = `${getApiBaseUrl()}/public/upload-image-with-metadata`;
-    console.log('🌐 uploadImageWithMetadataPublic ->', endpoint, { fileName: file.name, size: file.size, type: file.type });
+    devLog('🌐 uploadImageWithMetadataPublic ->', endpoint, { fileName: file.name, size: file.size, type: file.type });
 
     try {
       // No headers at all: the browser sets the multipart boundary itself, and
-      // setting Content-Type manually would break the upload.
-      const response = await fetch(endpoint, { method: 'POST', body: formData });
+      // setting Content-Type manually would break the upload. Still goes through
+      // fetchWithRateLimitRetry — this route sits behind the same throttle:api
+      // middleware (keyed by IP here, since there's no authenticated user).
+      const response = await fetchWithRateLimitRetry(endpoint, { method: 'POST', body: formData });
       const responseText = await response.text();
 
       let responseData;
@@ -3489,8 +3553,8 @@ export const dashboardAPI = {
 
   // Upload photo to media without memory (using Laravel route /upload)
   uploadPhotoToMediaWithoutMemory: async (file: File, name: string): Promise<ApiResponse<any>> => {
-    console.log(`🔧 dashboardAPI.uploadPhotoToMediaWithoutMemory: Starting upload for "${name}"`);
-    console.log('🔧 File details:', {
+    devLog(`🔧 dashboardAPI.uploadPhotoToMediaWithoutMemory: Starting upload for "${name}"`);
+    devLog('🔧 File details:', {
       fileName: file.name,
       fileSize: file.size,
       fileType: file.type
@@ -3498,8 +3562,8 @@ export const dashboardAPI = {
     
     // Check authentication
     const token = tokenUtils.getToken();
-    console.log('🔧 Auth token exists:', !!token);
-    console.log('🔧 Auth token length:', token?.length || 0);
+    devLog('🔧 Auth token exists:', !!token);
+    devLog('🔧 Auth token length:', token?.length || 0);
     
     if (!token) {
       console.error('🔴 No auth token available!');
@@ -3513,12 +3577,12 @@ export const dashboardAPI = {
     formData.append('name', name);
     formData.append('file', file);
 
-    console.log('=== API REQUEST DETAILS ===');
-    console.log('Endpoint:', `${getApiBaseUrl()}/memory-images/upload`);
-    console.log('Method: POST');
-    console.log('FormData Contents:');
-    console.log('- name:', name);
-    console.log('- file:', {
+    devLog('=== API REQUEST DETAILS ===');
+    devLog('Endpoint:', `${getApiBaseUrl()}/memory-images/upload`);
+    devLog('Method: POST');
+    devLog('FormData Contents:');
+    devLog('- name:', name);
+    devLog('- file:', {
       name: file.name,
       size: file.size,
       type: file.type,
@@ -3528,13 +3592,13 @@ export const dashboardAPI = {
     // Log all FormData entries (for debugging)
     for (let [key, value] of formData.entries()) {
       if (value instanceof File) {
-        console.log(`FormData[${key}]:`, {
+        devLog(`FormData[${key}]:`, {
           name: value.name,
           size: value.size,
           type: value.type
         });
       } else {
-        console.log(`FormData[${key}]:`, value);
+        devLog(`FormData[${key}]:`, value);
       }
     }
     
@@ -3544,7 +3608,7 @@ export const dashboardAPI = {
       headers['Authorization'] = `Bearer ${token}`;
     }
     
-    console.log('Request Headers:', headers);
+    devLog('Request Headers:', headers);
     
     // Use fetch directly for FormData upload to avoid JSON content-type header
     const response = await fetch(`${getApiBaseUrl()}/memory-images/upload`, {
@@ -3553,16 +3617,16 @@ export const dashboardAPI = {
       body: formData
     });
 
-    console.log('=== API RESPONSE STATUS ===');
-    console.log('Status:', response.status);
-    console.log('Status Text:', response.statusText);
-    console.log('OK:', response.ok);
-    console.log('Headers:', Object.fromEntries(response.headers.entries()));
+    devLog('=== API RESPONSE STATUS ===');
+    devLog('Status:', response.status);
+    devLog('Status Text:', response.statusText);
+    devLog('OK:', response.ok);
+    devLog('Headers:', Object.fromEntries(response.headers.entries()));
 
     let responseData;
     try {
       const responseText = await response.text();
-      console.log('🔧 Raw response text:', responseText);
+      devLog('🔧 Raw response text:', responseText);
       
       if (responseText) {
         responseData = JSON.parse(responseText);
@@ -3577,8 +3641,8 @@ export const dashboardAPI = {
       };
     }
 
-    console.log('=== FINAL API RESPONSE ===');
-    console.log('dashboardAPI.uploadPhotoToMediaWithoutMemory: Full API Response:', responseData);
+    devLog('=== FINAL API RESPONSE ===');
+    devLog('dashboardAPI.uploadPhotoToMediaWithoutMemory: Full API Response:', responseData);
 
     const result = {
       success: response.ok,
@@ -3586,18 +3650,18 @@ export const dashboardAPI = {
       error: response.ok ? undefined : responseData?.message || responseData?.error || `HTTP ${response.status}: ${response.statusText}`
     };
 
-    console.log('🔧 Final result:', result);
+    devLog('🔧 Final result:', result);
     return result;
   },
 
   // Get user profile data
   getUserProfile: async (): Promise<ApiResponse<any>> => {
-    console.log('🔍 DEBUG: Calling /user/profile API');
+    devLog('🔍 DEBUG: Calling /user/profile API');
     try {
       const response = await apiRequest('/user/profile', {
         method: 'GET',
       });
-      console.log('🔍 DEBUG: /user/profile API response:', response);
+      devLog('🔍 DEBUG: /user/profile API response:', response);
       return response;
     } catch (error) {
       console.error('🔍 ERROR: /user/profile API error:', error);
@@ -3610,8 +3674,8 @@ export const dashboardAPI = {
 
   // Upload photos from media without memory (second API call)
   uploadPhotosFromMediaWithOutMemory: async (file: File, name: string, location?: string, captureDate?: string, title?: string, description?: string): Promise<ApiResponse<any>> => {
-    console.log(`🔧 dashboardAPI.uploadPhotosFromMediaWithOutMemory: Starting upload for "${name}"`);
-    console.log('🔧 File details:', {
+    devLog(`🔧 dashboardAPI.uploadPhotosFromMediaWithOutMemory: Starting upload for "${name}"`);
+    devLog('🔧 File details:', {
       fileName: file.name,
       fileSize: file.size,
       fileType: file.type,
@@ -3621,7 +3685,7 @@ export const dashboardAPI = {
     
     // Check authentication
     const token = tokenUtils.getToken();
-    console.log('🔧 Auth token exists:', !!token);
+    devLog('🔧 Auth token exists:', !!token);
     
     if (!token) {
       console.error('🔴 No auth token available!');
@@ -3644,31 +3708,31 @@ export const dashboardAPI = {
     formData.append('title', title || '');
     formData.append('description', description || '');
     
-    console.log('🔧 DEBUGGING PARAMETER ADDITION:');
-    console.log('🔧 Original location parameter:', location);
-    console.log('🔧 Original captureDate parameter:', captureDate);
-    console.log('🔧 locationToSend:', locationToSend);
-    console.log('🔧 dateTimeToSend:', dateTimeToSend);
-    console.log('🔧 typeof location:', typeof location);
-    console.log('🔧 typeof captureDate:', typeof captureDate);
-    console.log('🔧 location === undefined:', location === undefined);
-    console.log('🔧 captureDate === undefined:', captureDate === undefined);
-    console.log('🔧 location === null:', location === null);
-    console.log('🔧 captureDate === null:', captureDate === null);
+    devLog('🔧 DEBUGGING PARAMETER ADDITION:');
+    devLog('🔧 Original location parameter:', location);
+    devLog('🔧 Original captureDate parameter:', captureDate);
+    devLog('🔧 locationToSend:', locationToSend);
+    devLog('🔧 dateTimeToSend:', dateTimeToSend);
+    devLog('🔧 typeof location:', typeof location);
+    devLog('🔧 typeof captureDate:', typeof captureDate);
+    devLog('🔧 location === undefined:', location === undefined);
+    devLog('🔧 captureDate === undefined:', captureDate === undefined);
+    devLog('🔧 location === null:', location === null);
+    devLog('🔧 captureDate === null:', captureDate === null);
 
-    console.log('=== API REQUEST DETAILS ===');
-    console.log('Endpoint:', `${getApiBaseUrl()}/memory-images/upload`);
-    console.log('Method: POST');
-    console.log('FormData Contents:');
+    devLog('=== API REQUEST DETAILS ===');
+    devLog('Endpoint:', `${getApiBaseUrl()}/memory-images/upload`);
+    devLog('Method: POST');
+    devLog('FormData Contents:');
     for (let [key, value] of formData.entries()) {
       if (value instanceof File) {
-        console.log(`FormData[${key}]:`, {
+        devLog(`FormData[${key}]:`, {
           name: value.name,
           size: value.size,
           type: value.type
         });
       } else {
-        console.log(`FormData[${key}]:`, value);
+        devLog(`FormData[${key}]:`, value);
       }
     }
     
@@ -3678,7 +3742,7 @@ export const dashboardAPI = {
       headers['Authorization'] = `Bearer ${token}`;
     }
     
-    console.log('Request Headers:', headers);
+    devLog('Request Headers:', headers);
     
     try {
       // Use fetch directly for FormData upload to avoid JSON content-type header
@@ -3688,16 +3752,16 @@ export const dashboardAPI = {
         body: formData
       });
 
-      console.log('=== API RESPONSE STATUS ===');
-      console.log('Status:', response.status);
-      console.log('Status Text:', response.statusText);
-      console.log('OK:', response.ok);
-      console.log('Headers:', Object.fromEntries(response.headers.entries()));
+      devLog('=== API RESPONSE STATUS ===');
+      devLog('Status:', response.status);
+      devLog('Status Text:', response.statusText);
+      devLog('OK:', response.ok);
+      devLog('Headers:', Object.fromEntries(response.headers.entries()));
 
       let responseData;
       try {
         const responseText = await response.text();
-        console.log('🔧 Raw response text:', responseText);
+        devLog('🔧 Raw response text:', responseText);
         
         if (responseText) {
           responseData = JSON.parse(responseText);
@@ -3712,8 +3776,8 @@ export const dashboardAPI = {
         };
       }
 
-      console.log('=== FINAL API RESPONSE ===');
-      console.log('dashboardAPI.uploadPhotosFromMediaWithOutMemory: Full API Response:', responseData);
+      devLog('=== FINAL API RESPONSE ===');
+      devLog('dashboardAPI.uploadPhotosFromMediaWithOutMemory: Full API Response:', responseData);
 
       const result = {
         success: response.ok,
@@ -3721,7 +3785,7 @@ export const dashboardAPI = {
         error: response.ok ? undefined : responseData?.message || responseData?.error || `HTTP ${response.status}: ${response.statusText}`
       };
 
-      console.log('🔧 Final result:', result);
+      devLog('🔧 Final result:', result);
       return result;
     } catch (error) {
       console.error('🔧 Network error:', error);
@@ -3740,7 +3804,7 @@ export const dashboardAPI = {
     image?: File;
     memory_id: string;
   }): Promise<ApiResponse<any>> => {
-    console.log('🔍 DEBUG: Adding moment with data:', momentData);
+    devLog('🔍 DEBUG: Adding moment with data:', momentData);
     
     try {
       const formData = new FormData();
@@ -3753,12 +3817,12 @@ export const dashboardAPI = {
         formData.append('image', momentData.image);
       }
 
-      console.log('🔍 DEBUG: FormData contents:');
+      devLog('🔍 DEBUG: FormData contents:');
       for (const [key, value] of formData.entries()) {
         if (value instanceof File) {
-          console.log(`  ${key}: File(${value.name}, ${value.size} bytes, ${value.type})`);
+          devLog(`  ${key}: File(${value.name}, ${value.size} bytes, ${value.type})`);
         } else {
-          console.log(`  ${key}: "${value}"`);
+          devLog(`  ${key}: "${value}"`);
         }
       }
 
@@ -3770,9 +3834,9 @@ export const dashboardAPI = {
       }
       // Do NOT set Content-Type for FormData - browser will set it with boundary
 
-      console.log('🔍 DEBUG: Making request to:', `${API_BASE_URL}/memories/upload-photos-after-creation`);
-      console.log('🔍 DEBUG: Request headers:', headers);
-      console.log('🔍 DEBUG: FormData size:', Array.from(formData.entries()).length, 'entries');
+      devLog('🔍 DEBUG: Making request to:', `${API_BASE_URL}/memories/upload-photos-after-creation`);
+      devLog('🔍 DEBUG: Request headers:', headers);
+      devLog('🔍 DEBUG: FormData size:', Array.from(formData.entries()).length, 'entries');
 
       const response = await fetch(`${API_BASE_URL}/memories/upload-photos-after-creation`, {
         method: 'POST',
@@ -3780,8 +3844,8 @@ export const dashboardAPI = {
         body: formData,
       });
 
-      console.log('🔍 DEBUG: Response status:', response.status, response.statusText);
-      console.log('🔍 DEBUG: Response headers:', Object.fromEntries(response.headers.entries()));
+      devLog('🔍 DEBUG: Response status:', response.status, response.statusText);
+      devLog('🔍 DEBUG: Response headers:', Object.fromEntries(response.headers.entries()));
 
       const responseData = await response.json();
 
@@ -3792,7 +3856,7 @@ export const dashboardAPI = {
         };
       }
 
-      console.log('🔍 DEBUG: Add moment API response:', responseData);
+      devLog('🔍 DEBUG: Add moment API response:', responseData);
       return {
         success: true,
         data: responseData,
@@ -3808,18 +3872,18 @@ export const dashboardAPI = {
 
   // Action on invitation (accept or reject)
   actionOnInvitation: async (memoryId: string, status: 0 | 1, notificationId?: string): Promise<ApiResponse<any>> => {
-    console.log(`dashboardAPI.actionOnInvitation: ${status === 1 ? 'Accepting' : 'Rejecting'} invitation for memory ID ${memoryId}`);
-    console.log('Memory ID:', memoryId);
-    console.log('Status:', status, status === 1 ? '(Accept)' : '(Reject)');
-    console.log('Notification ID:', notificationId);
-    console.log(`API URL: /memories/invitation/action/${memoryId}`);
+    devLog(`dashboardAPI.actionOnInvitation: ${status === 1 ? 'Accepting' : 'Rejecting'} invitation for memory ID ${memoryId}`);
+    devLog('Memory ID:', memoryId);
+    devLog('Status:', status, status === 1 ? '(Accept)' : '(Reject)');
+    devLog('Notification ID:', notificationId);
+    devLog(`API URL: /memories/invitation/action/${memoryId}`);
 
     const requestBody = {
       status: status,
       notification_id: notificationId
     };
 
-    console.log('Request body:', requestBody);
+    devLog('Request body:', requestBody);
 
     return await apiRequest(`/memories/invitation/action/${memoryId}`, {
       method: 'POST',
@@ -3829,8 +3893,8 @@ export const dashboardAPI = {
 
   // Request full access to a memory
   requestFullAccess: async (memoryId: string): Promise<ApiResponse<any>> => {
-    console.log(`dashboardAPI.requestFullAccess: Requesting full access for memory ID ${memoryId}`);
-    console.log(`API URL: /memories/${memoryId}/request-full-access`);
+    devLog(`dashboardAPI.requestFullAccess: Requesting full access for memory ID ${memoryId}`);
+    devLog(`API URL: /memories/${memoryId}/request-full-access`);
 
     return await apiRequest(`/memories/${memoryId}/request-full-access`, {
       method: 'POST',
@@ -3839,8 +3903,8 @@ export const dashboardAPI = {
 
   // Remove shared memory from current user's collection
   removeSharedWithMemory: async (memoryId: string, userId: string): Promise<ApiResponse<any>> => {
-    console.log(`dashboardAPI.removeSharedWithMemory: Removing memory ID ${memoryId} for user ID ${userId}`);
-    console.log(`API URL: /memories/${memoryId}/remove-shared-user`);
+    devLog(`dashboardAPI.removeSharedWithMemory: Removing memory ID ${memoryId} for user ID ${userId}`);
+    devLog(`API URL: /memories/${memoryId}/remove-shared-user`);
 
     return await apiRequest(`/memories/${memoryId}/remove-shared-user`, {
       method: 'DELETE',
@@ -3942,7 +4006,7 @@ export const dashboardAPI = {
 
   // Get collaborators and non-collaborators for Users page
   getUsersCollaboratorsAndNonCollaborators: async (searchQuery?: string, propertyId?: number): Promise<ApiResponse<any>> => {
-    console.log('🚨 DEBUG: Calling /user/collaborators-and-non-collaborators API');
+    devLog('🚨 DEBUG: Calling /user/collaborators-and-non-collaborators API');
 
     // Build URL with search and property_id parameters if provided
     let url = '/user/collaborators-and-non-collaborators';
@@ -3950,12 +4014,12 @@ export const dashboardAPI = {
 
     if (searchQuery && searchQuery.trim()) {
       params.append('search', searchQuery.trim());
-      console.log('🔍 Adding search parameter:', searchQuery.trim());
+      devLog('🔍 Adding search parameter:', searchQuery.trim());
     }
 
     if (propertyId) {
       params.append('property_id', propertyId.toString());
-      console.log('🏠 Adding property_id parameter:', propertyId);
+      devLog('🏠 Adding property_id parameter:', propertyId);
     }
 
     if (params.toString()) {
@@ -3965,14 +4029,14 @@ export const dashboardAPI = {
     const response = await apiRequest(url, {
       method: 'GET',
     });
-    console.log('🚨 DEBUG: /user/collaborators-and-non-collaborators API raw response:', response);
+    devLog('🚨 DEBUG: /user/collaborators-and-non-collaborators API raw response:', response);
     return response;
   },
 
   // Get collaborators for magic link flow (with email and role)
   getCollaboratorsForMagicLink: async (email: string, role: string = 'admin'): Promise<ApiResponse<any>> => {
-    console.log('🔗 DEBUG: Calling magic link collaborators API');
-    console.log('🔗 Email:', email, 'Role:', role);
+    devLog('🔗 DEBUG: Calling magic link collaborators API');
+    devLog('🔗 Email:', email, 'Role:', role);
 
     const params = new URLSearchParams({
       email: email,
@@ -3985,27 +4049,27 @@ export const dashboardAPI = {
       method: 'GET',
     });
 
-    console.log('🔗 DEBUG: Magic link collaborators API response:', response);
+    devLog('🔗 DEBUG: Magic link collaborators API response:', response);
     return response;
   },
 
   // Get my collaboration associations (memories where I'm a collaborator)
   getMyCollaborationAssociations: async (): Promise<ApiResponse<any>> => {
-    console.log('🤝 DEBUG: Calling /memories/my-collaboration-associations API');
+    devLog('🤝 DEBUG: Calling /memories/my-collaboration-associations API');
     const response = await apiRequest('/user/my-collaboration-associations', {
       method: 'GET',
     });
-    console.log('🤝 DEBUG: /memories/my-collaboration-associations API raw response:', response);
+    devLog('🤝 DEBUG: /memories/my-collaboration-associations API raw response:', response);
     return response;
   },
 
   // Remove collaboration association (remove user from shared memory)
   removeCollaborationAssociation: async (collaborationId: number): Promise<ApiResponse<any>> => {
-    console.log('🗑️ DEBUG: Removing collaboration association:', collaborationId);
+    devLog('🗑️ DEBUG: Removing collaboration association:', collaborationId);
     const response = await apiRequest(`/user/collaboration-associations/${collaborationId}`, {
       method: 'DELETE',
     });
-    console.log('🗑️ DEBUG: Remove collaboration association response:', response);
+    devLog('🗑️ DEBUG: Remove collaboration association response:', response);
     return response;
   },
 
@@ -4015,20 +4079,20 @@ export const dashboardAPI = {
       ? `/memories/search?search_memory=${encodeURIComponent(searchQuery)}`
       : '/memories/search';
 
-    console.log('🔍 DEBUG: Calling memories search API:', url);
+    devLog('🔍 DEBUG: Calling memories search API:', url);
     const response = await apiRequest(url, {
       method: 'GET',
     });
-    console.log('🔍 DEBUG: Memories search API response:', response);
+    devLog('🔍 DEBUG: Memories search API response:', response);
     return response;
   },
 
   // Delete user collaborator (for Users page)
   deleteUserCollaborator: async (collaboratorUserId?: number, collaboratorEmail?: string, collaboratorType?: string): Promise<ApiResponse<any>> => {
-    console.log(`dashboardAPI.deleteUserCollaborator: Deleting user collaborator`);
-    console.log('Collaborator User ID:', collaboratorUserId);
-    console.log('Collaborator Email:', collaboratorEmail);
-    console.log('Collaborator Type:', collaboratorType);
+    devLog(`dashboardAPI.deleteUserCollaborator: Deleting user collaborator`);
+    devLog('Collaborator User ID:', collaboratorUserId);
+    devLog('Collaborator Email:', collaboratorEmail);
+    devLog('Collaborator Type:', collaboratorType);
 
     // Validate that either user ID or email is provided
     if (!collaboratorUserId && !collaboratorEmail) {
@@ -4050,8 +4114,8 @@ export const dashboardAPI = {
       requestBody.collaborator_user_id = collaboratorUserId;
     }
 
-    console.log('API Request Body:', requestBody);
-    console.log(`API URL: /user/delete-user-collaborator`);
+    devLog('API Request Body:', requestBody);
+    devLog(`API URL: /user/delete-user-collaborator`);
 
     return await apiRequest('/user/delete-user-collaborator', {
       method: 'DELETE',
@@ -4061,7 +4125,7 @@ export const dashboardAPI = {
 
   // Get AI suggested description for image
   getSuggestedDescription: async (imageUrl: string, tone?: string, memoryId?: string, noCredit?: boolean): Promise<ApiResponse<any>> => {
-    console.log('🤖 Calling AI suggested description API for image:', imageUrl, 'with tone:', tone, 'memoryId:', memoryId, 'and noCredit:', noCredit);
+    devLog('🤖 Calling AI suggested description API for image:', imageUrl, 'with tone:', tone, 'memoryId:', memoryId, 'and noCredit:', noCredit);
 
     const requestBody: any = {
       image: imageUrl,
@@ -4082,7 +4146,7 @@ export const dashboardAPI = {
 
   // AI Memory Wizard - Analyze uploaded photos
   analyzeUploadedPhotos: async (photos: string[], cluster_type?: 'faces' | 'moments' | 'objects', memoryId?: string): Promise<ApiResponse<any>> => {
-    console.log(`dashboardAPI.analyzeUploadedPhotos: Analyzing ${photos.length} photos with cluster_type: ${cluster_type || 'all'} and memoryId: ${memoryId}`);
+    devLog(`dashboardAPI.analyzeUploadedPhotos: Analyzing ${photos.length} photos with cluster_type: ${cluster_type || 'all'} and memoryId: ${memoryId}`);
 
     const requestBody: any = { photos };
     if (cluster_type) {
@@ -4108,7 +4172,7 @@ export const dashboardAPI = {
 
   // AI Memory Wizard - Create memory from custom prompt
   createMemoryFromSentence: async (prompt: string, memory: any[]): Promise<ApiResponse<any>> => {
-    console.log(`dashboardAPI.createMemoryFromSentence: Creating memory from prompt with ${memory.length} files`);
+    devLog(`dashboardAPI.createMemoryFromSentence: Creating memory from prompt with ${memory.length} files`);
 
     return await apiRequest('/ai/create-memory-from-sentence', {
       method: 'POST',
@@ -4118,8 +4182,8 @@ export const dashboardAPI = {
 
   // AI Memory Wizard - Create memory from AI response
   createMemoryFromAIResponse: async (ai_response: any): Promise<ApiResponse<any>> => {
-    console.log(`dashboardAPI.createMemoryFromAIResponse: Creating memory from AI response`);
-    console.log('AI Response data being sent:', ai_response);
+    devLog(`dashboardAPI.createMemoryFromAIResponse: Creating memory from AI response`);
+    devLog('AI Response data being sent:', ai_response);
 
     return await apiRequest('/ai/create-memory-from-ai-response', {
       method: 'POST',
@@ -4129,8 +4193,8 @@ export const dashboardAPI = {
 
   // AI Memory Wizard - Create memories from photo groups (faces, moments, objects)
   createMemoriesFromGroups: async (groupData: any, type: 'faces' | 'moments' | 'objects'): Promise<ApiResponse<any>> => {
-    console.log(`dashboardAPI.createMemoriesFromGroups: Creating memories from ${type} groups`);
-    console.log('Group data being sent:', groupData);
+    devLog(`dashboardAPI.createMemoriesFromGroups: Creating memories from ${type} groups`);
+    devLog('Group data being sent:', groupData);
 
     return await apiRequest('/ai/photos/memories', {
       method: 'POST',
@@ -4143,9 +4207,9 @@ export const dashboardAPI = {
 
   // Accept suggested category for a memory
   acceptSuggestedCategory: async (memoryId: string): Promise<ApiResponse<any>> => {
-    console.log(`dashboardAPI.acceptSuggestedCategory: Accepting suggested category for memory ${memoryId}`);
-    console.log('API URL: /ai/suggested/accept');
-    console.log('Request body:', { memory_id: memoryId });
+    devLog(`dashboardAPI.acceptSuggestedCategory: Accepting suggested category for memory ${memoryId}`);
+    devLog('API URL: /ai/suggested/accept');
+    devLog('Request body:', { memory_id: memoryId });
 
     return await apiRequest('/ai/suggested/accept', {
       method: 'POST',
@@ -4155,9 +4219,9 @@ export const dashboardAPI = {
 
   // Reject suggested category for a memory
   rejectSuggestedCategory: async (memoryId: string): Promise<ApiResponse<any>> => {
-    console.log(`dashboardAPI.rejectSuggestedCategory: Rejecting suggested category for memory ${memoryId}`);
-    console.log('API URL: /ai/suggested/reject');
-    console.log('Request body:', { memory_id: memoryId });
+    devLog(`dashboardAPI.rejectSuggestedCategory: Rejecting suggested category for memory ${memoryId}`);
+    devLog('API URL: /ai/suggested/reject');
+    devLog('Request body:', { memory_id: memoryId });
 
     return await apiRequest('/ai/suggested/reject', {
       method: 'POST',
@@ -4167,7 +4231,7 @@ export const dashboardAPI = {
 
   // Get AI Library faces (grouped face clusters)
   getLibraryFaces: async (): Promise<ApiResponse<any>> => {
-    console.log('📚 dashboardAPI.getLibraryFaces: Fetching library faces');
+    devLog('📚 dashboardAPI.getLibraryFaces: Fetching library faces');
     return await apiRequest('/ai/library/faces', {
       method: 'GET',
     });
@@ -4181,7 +4245,7 @@ export const dashboardAPI = {
 
   // Assign selected media to face clusters
   assignMediaToFaces: async (params: { face_ids: string[]; media_ids: number[] }): Promise<ApiResponse<any>> => {
-    console.log('🔗 dashboardAPI.assignMediaToFaces:', params);
+    devLog('🔗 dashboardAPI.assignMediaToFaces:', params);
     return await apiRequest('/ai/library/faces/assign-media', {
       method: 'POST',
       body: JSON.stringify(params),
@@ -4190,8 +4254,8 @@ export const dashboardAPI = {
 
   // Get media library data (all images from all categories and unassigned)
   getMediaLibraryData: async (): Promise<ApiResponse<any>> => {
-    console.log('📚 dashboardAPI.getMediaLibraryData: Fetching media library data');
-    console.log('📚 API URL: /media');
+    devLog('📚 dashboardAPI.getMediaLibraryData: Fetching media library data');
+    devLog('📚 API URL: /media');
 
     return await apiRequest('/media', {
       method: 'GET',
@@ -4202,7 +4266,7 @@ export const dashboardAPI = {
 
   // Initiate OAuth connection for a service
   connectService: async (serviceType: string): Promise<ApiResponse<{ auth_url: string }>> => {
-    console.log(`🔗 dashboardAPI.connectService: Initiating connection for ${serviceType}`);
+    devLog(`🔗 dashboardAPI.connectService: Initiating connection for ${serviceType}`);
     return await apiRequest(`/services/connect/${serviceType}`, {
       method: 'GET',
     });
@@ -4210,7 +4274,7 @@ export const dashboardAPI = {
 
   // Exchange OAuth token after callback
   exchangeServiceToken: async (serviceType: string, code: string, state?: string): Promise<ApiResponse<any>> => {
-    console.log(`🔑 dashboardAPI.exchangeServiceToken: Exchanging token for ${serviceType}`);
+    devLog(`🔑 dashboardAPI.exchangeServiceToken: Exchanging token for ${serviceType}`);
     return await apiRequest(`/services/exchange-token/${serviceType}`, {
       method: 'POST',
       body: JSON.stringify({ code, state }),
@@ -4219,7 +4283,7 @@ export const dashboardAPI = {
 
   // Disconnect a service
   disconnectService: async (userId: number, serviceName: string): Promise<ApiResponse<any>> => {
-    console.log(`🔌 dashboardAPI.disconnectService: Disconnecting ${serviceName} for user ${userId}`);
+    devLog(`🔌 dashboardAPI.disconnectService: Disconnecting ${serviceName} for user ${userId}`);
     return await apiRequest(`/services/admin/disconnect`, {
       method: 'POST',
       body: JSON.stringify({
@@ -4231,7 +4295,7 @@ export const dashboardAPI = {
 
   // Trigger sync for a specific service
   syncService: async (serviceType: string): Promise<ApiResponse<{ synced_count: number; message: string }>> => {
-    console.log(`🔄 dashboardAPI.syncService: Syncing ${serviceType}`);
+    devLog(`🔄 dashboardAPI.syncService: Syncing ${serviceType}`);
     return await apiRequest(`/services/sync/${serviceType}`, {
       method: 'POST',
     });
@@ -4239,7 +4303,7 @@ export const dashboardAPI = {
 
   // Get connected services status
   getConnectedServices: async (): Promise<ApiResponse<{ services: any[] }>> => {
-    console.log('📡 dashboardAPI.getConnectedServices: Fetching connected services');
+    devLog('📡 dashboardAPI.getConnectedServices: Fetching connected services');
     return await apiRequest('/user/connected-services', {
       method: 'GET',
     });
@@ -4247,7 +4311,7 @@ export const dashboardAPI = {
 
   // Get synced media from connected services
   getSyncedMedia: async (serviceType?: string, page: number = 1): Promise<ApiResponse<any>> => {
-    console.log('📡 dashboardAPI.getSyncedMedia: Fetching synced media', serviceType ? `for ${serviceType}` : 'for all services', `page ${page}`);
+    devLog('📡 dashboardAPI.getSyncedMedia: Fetching synced media', serviceType ? `for ${serviceType}` : 'for all services', `page ${page}`);
     let url = serviceType ? `/services/synced-media?service=${serviceType}` : '/services/synced-media';
     url += `${serviceType ? '&' : '?'}page=${page}`;
     return await apiRequest(url, {
@@ -4257,7 +4321,7 @@ export const dashboardAPI = {
 
   // Get fresh media URLs for expired Dropbox/service links
   getFreshMediaUrls: async (mediaIds: string[]): Promise<ApiResponse<any>> => {
-    console.log('🔄 dashboardAPI.getFreshMediaUrls: Refreshing URLs for', mediaIds.length, 'media items');
+    devLog('🔄 dashboardAPI.getFreshMediaUrls: Refreshing URLs for', mediaIds.length, 'media items');
     return await apiRequest('/services/get-fresh-media-urls', {
       method: 'POST',
       body: JSON.stringify({ media_ids: mediaIds }),
@@ -4266,7 +4330,7 @@ export const dashboardAPI = {
 
   // Resync Dropbox paths (re-fetch all media from Dropbox)
   resyncDropboxPaths: async (): Promise<ApiResponse<any>> => {
-    console.log('🔄 dashboardAPI.resyncDropboxPaths: Re-syncing Dropbox media...');
+    devLog('🔄 dashboardAPI.resyncDropboxPaths: Re-syncing Dropbox media...');
     return await apiRequest('/services/resync-dropbox-paths', {
       method: 'POST',
     });
@@ -4274,7 +4338,7 @@ export const dashboardAPI = {
 
   // Get Dropbox media IDs
   getDropboxMediaIds: async (): Promise<ApiResponse<any>> => {
-    console.log('🔄 dashboardAPI.getDropboxMediaIds: Fetching Dropbox media IDs...');
+    devLog('🔄 dashboardAPI.getDropboxMediaIds: Fetching Dropbox media IDs...');
     return await apiRequest('/services/dropbox-media-ids', {
       method: 'GET',
     });
@@ -4282,7 +4346,7 @@ export const dashboardAPI = {
 
   // Save synced media from external service (Facebook, etc.)
   saveSyncedMedia: async (data: { service: string; photos: any[]; access_token?: string }): Promise<ApiResponse<any>> => {
-    console.log(`💾 dashboardAPI.saveSyncedMedia: Saving ${data.photos.length} photos from ${data.service}`);
+    devLog(`💾 dashboardAPI.saveSyncedMedia: Saving ${data.photos.length} photos from ${data.service}`);
     return await apiRequest('/services/save-synced-media', {
       method: 'POST',
       body: JSON.stringify(data),
@@ -4290,7 +4354,7 @@ export const dashboardAPI = {
   },
 
   getNotificationPreferences: async (): Promise<ApiResponse<any>> => {
-    console.log('📩 Fetching notification preferences');
+    devLog('📩 Fetching notification preferences');
     return await apiRequest('/user/notification-preferences', {
       method: 'GET',
     });
@@ -4311,7 +4375,7 @@ export const dashboardAPI = {
     // leave the previously saved value untouched (the backend won't overwrite it).
     category_id?: number | string | null;
   }): Promise<ApiResponse<any>> => {
-    console.log('📩 Updating notification preferences:', preferences);
+    devLog('📩 Updating notification preferences:', preferences);
     return await apiRequest('/user/notification-preferences', {
       method: 'PUT',
       body: JSON.stringify(preferences),
@@ -4320,7 +4384,7 @@ export const dashboardAPI = {
 
   // Get all properties
   getProperties: async (): Promise<ApiResponse<any>> => {
-    console.log('🏠 dashboardAPI.getProperties: Fetching properties');
+    devLog('🏠 dashboardAPI.getProperties: Fetching properties');
     return await apiRequest('/properties', {
       method: 'GET',
     });
@@ -4328,7 +4392,7 @@ export const dashboardAPI = {
 
   // Search properties by name
   searchProperties: async (searchQuery: string): Promise<ApiResponse<any>> => {
-    console.log('🔍 dashboardAPI.searchProperties: Searching properties with query:', searchQuery);
+    devLog('🔍 dashboardAPI.searchProperties: Searching properties with query:', searchQuery);
     return await apiRequest(`/properties?search=${encodeURIComponent(searchQuery)}`, {
       method: 'GET',
     });
@@ -4336,17 +4400,17 @@ export const dashboardAPI = {
 
   // Create a new property
   createProperty: async (formData: FormData): Promise<ApiResponse<any>> => {
-    console.log('🏠 dashboardAPI.createProperty: Creating new property');
+    devLog('🏠 dashboardAPI.createProperty: Creating new property');
     try {
       const token = localStorage.getItem('stasht_token');
 
       // Log form data for debugging
-      console.log('📝 Form data entries:');
+      devLog('📝 Form data entries:');
       for (const [key, value] of formData.entries()) {
         if (value instanceof File) {
-          console.log(`  ${key}:`, value.name, `(${value.size} bytes)`);
+          devLog(`  ${key}:`, value.name, `(${value.size} bytes)`);
         } else {
-          console.log(`  ${key}:`, value);
+          devLog(`  ${key}:`, value);
         }
       }
 
@@ -4360,7 +4424,7 @@ export const dashboardAPI = {
       });
 
       const data = await response.json();
-      console.log('📥 Create property response:', data);
+      devLog('📥 Create property response:', data);
 
       if (!response.ok) {
         return {
@@ -4385,7 +4449,7 @@ export const dashboardAPI = {
 
   // Create property invite link
   createPropertyInviteLink: async (propertyId: number): Promise<ApiResponse<any>> => {
-    console.log(`🔗 dashboardAPI.createPropertyInviteLink: Creating invite link for property ${propertyId}`);
+    devLog(`🔗 dashboardAPI.createPropertyInviteLink: Creating invite link for property ${propertyId}`);
     return await apiRequest(`/properties/${propertyId}/invite-link`, {
       method: 'GET',
     });
@@ -4393,7 +4457,7 @@ export const dashboardAPI = {
 
   // Get property memories
   getPropertyMemories: async (propertyId: number, page: number = 1): Promise<ApiResponse<any>> => {
-    console.log(`🏠 dashboardAPI.getPropertyMemories: Fetching memories for property ${propertyId}, page ${page}`);
+    devLog(`🏠 dashboardAPI.getPropertyMemories: Fetching memories for property ${propertyId}, page ${page}`);
     return await apiRequest(`/properties/${propertyId}/memories?per_page=15&page=${page}`, {
       method: 'GET',
     });
@@ -4464,8 +4528,8 @@ export const dashboardAPI = {
 
   // Invite user (registered or not) to a specific memory via property
   inviteToMemory: async (propertyId: number, data: { memory_id: number; email?: string; phone_number?: string }): Promise<ApiResponse<any>> => {
-    console.log(`🏠 inviteToMemory: POST /properties/${propertyId}/invite-to-memory`);
-    console.log('Payload:', data);
+    devLog(`🏠 inviteToMemory: POST /properties/${propertyId}/invite-to-memory`);
+    devLog('Payload:', data);
     return await apiRequest(`/properties/${propertyId}/invite-to-memory`, {
       method: 'POST',
       body: JSON.stringify(data),
@@ -4474,8 +4538,8 @@ export const dashboardAPI = {
 
   // Send invite to non-existing user to join a property
   sendPropertyInvite: async (propertyId: number, data: { email?: string; phone_number?: string }): Promise<ApiResponse<any>> => {
-    console.log(`🏠 sendPropertyInvite: POST /properties/${propertyId}/send-invite`);
-    console.log('Payload:', data);
+    devLog(`🏠 sendPropertyInvite: POST /properties/${propertyId}/send-invite`);
+    devLog('Payload:', data);
     return await apiRequest(`/properties/${propertyId}/send-invite`, {
       method: 'POST',
       body: JSON.stringify(data),
@@ -4484,8 +4548,8 @@ export const dashboardAPI = {
 
   // Add user (existing or new) to property as collaborator
   addUserToProperty: async (data: { property_id: number; email?: string; phone_number?: string }): Promise<ApiResponse<any>> => {
-    console.log('🏠 addUserToProperty: Calling /properties/register');
-    console.log('Payload:', data);
+    devLog('🏠 addUserToProperty: Calling /properties/register');
+    devLog('Payload:', data);
     return await apiRequest('/properties/register', {
       method: 'POST',
       body: JSON.stringify(data),
@@ -4532,7 +4596,7 @@ export const dashboardAPI = {
 
   // Update property
   updateProperty: async (propertyId: number, formData: FormData): Promise<ApiResponse<any>> => {
-    console.log(`🔄 dashboardAPI.updateProperty: Updating property ${propertyId}`);
+    devLog(`🔄 dashboardAPI.updateProperty: Updating property ${propertyId}`);
     try {
       const token = localStorage.getItem('stasht_token');
 
@@ -4544,12 +4608,12 @@ export const dashboardAPI = {
       }
 
       // Log form data for debugging
-      console.log('📝 Form data entries:');
+      devLog('📝 Form data entries:');
       for (const [key, value] of formData.entries()) {
         if (value instanceof File) {
-          console.log(`  ${key}:`, value.name, `(${value.size} bytes)`);
+          devLog(`  ${key}:`, value.name, `(${value.size} bytes)`);
         } else {
-          console.log(`  ${key}:`, value);
+          devLog(`  ${key}:`, value);
         }
       }
 
@@ -4563,7 +4627,7 @@ export const dashboardAPI = {
       });
 
       const data = await response.json();
-      console.log('📥 Update property response:', data);
+      devLog('📥 Update property response:', data);
 
       if (!response.ok) {
         return {
@@ -4587,7 +4651,7 @@ export const dashboardAPI = {
 
   // Delete property
   deleteProperty: async (propertyId: number): Promise<ApiResponse<any>> => {
-    console.log(`🗑️ dashboardAPI.deleteProperty: Deleting property ${propertyId}`);
+    devLog(`🗑️ dashboardAPI.deleteProperty: Deleting property ${propertyId}`);
     return await apiRequest(`/properties/${propertyId}`, {
       method: 'DELETE',
     });
@@ -4595,7 +4659,7 @@ export const dashboardAPI = {
 
   // Update property status (activate/deactivate)
   updatePropertyStatus: async (propertyId: number, status: boolean): Promise<ApiResponse<any>> => {
-    console.log(`🔄 dashboardAPI.updatePropertyStatus: Updating status for property ${propertyId} to ${status}`);
+    devLog(`🔄 dashboardAPI.updatePropertyStatus: Updating status for property ${propertyId} to ${status}`);
     return await apiRequest(`/properties/${propertyId}/status`, {
       method: 'POST',
       body: JSON.stringify({ status }),
@@ -4604,7 +4668,7 @@ export const dashboardAPI = {
 
   // Purchase property — creates payment intent (Flow 1: multipart with property data, Flow 2: JSON with property_id)
   purchaseProperty: async (data: FormData | { quantity: number; property_id: number }): Promise<ApiResponse<any>> => {
-    console.log('💳 dashboardAPI.purchaseProperty: Creating property payment intent');
+    devLog('💳 dashboardAPI.purchaseProperty: Creating property payment intent');
     try {
       const token = localStorage.getItem('stasht_token');
       const isFormData = data instanceof FormData;
@@ -4619,7 +4683,7 @@ export const dashboardAPI = {
       });
 
       const json = await response.json();
-      console.log('💳 purchaseProperty response:', json);
+      devLog('💳 purchaseProperty response:', json);
 
       if (!response.ok) {
         return { success: false, error: json.message || json.error || `HTTP ${response.status}` };
@@ -4634,7 +4698,7 @@ export const dashboardAPI = {
 
   // Confirm property payment after Stripe confirms on frontend
   confirmPropertyPayment: async (paymentIntentId: string): Promise<ApiResponse<any>> => {
-    console.log('✅ dashboardAPI.confirmPropertyPayment:', paymentIntentId);
+    devLog('✅ dashboardAPI.confirmPropertyPayment:', paymentIntentId);
     return await apiRequest('/billing/confirm-property-payment', {
       method: 'POST',
       body: JSON.stringify({ payment_intent_id: paymentIntentId }),
@@ -4779,7 +4843,7 @@ export const dashboardAPI = {
 // Utility function to check if last sync is older than specified hours
 export const isLastSyncOlderThan = (lastSync: string | null | undefined, hours: number = 4): boolean => {
   if (!lastSync) {
-    console.log('⏰ No last_sync value, treating as outdated');
+    devLog('⏰ No last_sync value, treating as outdated');
     return true; // If no last sync, treat as outdated
   }
 
@@ -4793,13 +4857,13 @@ export const isLastSyncOlderThan = (lastSync: string | null | undefined, hours: 
     if (justNowMatch) {
       // "just now" = 0 hours
       diffInHours = 0;
-      console.log('⏰ Last sync was "just now", treating as < 4 hours');
+      devLog('⏰ Last sync was "just now", treating as < 4 hours');
     } else if (relativeTimeMatch) {
       // Parse relative time string
       const value = parseInt(relativeTimeMatch[1], 10);
       const unit = relativeTimeMatch[2].toLowerCase();
 
-      console.log('⏰ Parsing relative time:', { value, unit });
+      devLog('⏰ Parsing relative time:', { value, unit });
 
       // Convert to hours
       switch (unit) {
@@ -4823,7 +4887,7 @@ export const isLastSyncOlderThan = (lastSync: string | null | undefined, hours: 
           break;
       }
 
-      console.log('⏰ Relative time check:', {
+      devLog('⏰ Relative time check:', {
         lastSync,
         parsedValue: value,
         parsedUnit: unit,
@@ -4844,7 +4908,7 @@ export const isLastSyncOlderThan = (lastSync: string | null | undefined, hours: 
       const diffInMs = now.getTime() - lastSyncDate.getTime();
       diffInHours = diffInMs / (1000 * 60 * 60);
 
-      console.log('⏰ Timestamp check:', {
+      devLog('⏰ Timestamp check:', {
         lastSync,
         lastSyncDate: lastSyncDate.toISOString(),
         now: now.toISOString(),
@@ -4938,7 +5002,7 @@ export const servicesAPI = {
   // Delete synced media from connected services (batch delete)
   deleteSyncedMediaBatch: async (mediaIds: number[]) => {
     try {
-      console.log('📡 servicesAPI.deleteSyncedMediaBatch called with:', mediaIds);
+      devLog('📡 servicesAPI.deleteSyncedMediaBatch called with:', mediaIds);
 
       const token = tokenUtils.getToken();
       if (!token) {
@@ -4946,8 +5010,8 @@ export const servicesAPI = {
       }
 
       const requestBody = { media_ids: mediaIds };
-      console.log('📡 Request URL:', `${API_BASE_URL}/services/synced-media/delete-multiple`);
-      console.log('📡 Request body:', requestBody);
+      devLog('📡 Request URL:', `${API_BASE_URL}/services/synced-media/delete-multiple`);
+      devLog('📡 Request body:', requestBody);
 
       const response = await fetch(`${API_BASE_URL}/services/synced-media/delete-multiple`, {
         method: 'POST',
@@ -4959,7 +5023,7 @@ export const servicesAPI = {
         body: JSON.stringify(requestBody),
       });
 
-      console.log('📡 Response status:', response.status);
+      devLog('📡 Response status:', response.status);
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
@@ -4968,7 +5032,7 @@ export const servicesAPI = {
       }
 
       const data = await response.json();
-      console.log('📡 Success response:', data);
+      devLog('📡 Success response:', data);
       return data;
     } catch (error) {
       console.error('❌ Error deleting synced media:', error);
@@ -4982,7 +5046,7 @@ export const servicesAPI = {
 
   // Get Google OAuth URL for login/signup
   getGoogleAuthUrl: async (intent: 'login' | 'signup' = 'login'): Promise<ApiResponse<{ auth_url: string }>> => {
-    console.log(`🔐 dashboardAPI.getGoogleAuthUrl: Getting Google auth URL for ${intent}`);
+    devLog(`🔐 dashboardAPI.getGoogleAuthUrl: Getting Google auth URL for ${intent}`);
     try {
       const response = await fetch(`${API_BASE_URL}/react/auth/google/url?intent=${intent}`, {
         method: 'GET',
@@ -5001,7 +5065,7 @@ export const servicesAPI = {
 
   // Handle Google OAuth callback (login/signup)
   googleAuthCallback: async (code: string, state: string): Promise<ApiResponse<{ user: any; token: string; has_memory: number; message: string }>> => {
-    console.log('🔐 dashboardAPI.googleAuthCallback: Handling Google OAuth callback');
+    devLog('🔐 dashboardAPI.googleAuthCallback: Handling Google OAuth callback');
     try {
       const response = await fetch(`${API_BASE_URL}/react/auth/google/callback`, {
         method: 'POST',
@@ -5021,7 +5085,7 @@ export const servicesAPI = {
 
   // Link Google account to existing user
   linkGoogleAccount: async (code: string): Promise<ApiResponse<{ message: string }>> => {
-    console.log('🔗 dashboardAPI.linkGoogleAccount: Linking Google account');
+    devLog('🔗 dashboardAPI.linkGoogleAccount: Linking Google account');
     try {
       const token = localStorage.getItem('stasht_token');
       const response = await fetch(`${API_BASE_URL}/react/auth/google/link`, {
@@ -5043,7 +5107,7 @@ export const servicesAPI = {
 
   // Unlink Google account from user
   unlinkGoogleAccount: async (): Promise<ApiResponse<{ message: string }>> => {
-    console.log('🔗 dashboardAPI.unlinkGoogleAccount: Unlinking Google account');
+    devLog('🔗 dashboardAPI.unlinkGoogleAccount: Unlinking Google account');
     try {
       const token = localStorage.getItem('stasht_token');
       const response = await fetch(`${API_BASE_URL}/react/auth/google/unlink`, {
@@ -5065,7 +5129,7 @@ export const servicesAPI = {
 
   // Get Google Photos OAuth URL
   getGooglePhotosAuthUrl: async (): Promise<ApiResponse<{ auth_url: string; message: string }>> => {
-    console.log('📸 dashboardAPI.getGooglePhotosAuthUrl: Getting Google Photos auth URL');
+    devLog('📸 dashboardAPI.getGooglePhotosAuthUrl: Getting Google Photos auth URL');
     try {
       const token = localStorage.getItem('stasht_token');
       const response = await fetch(`${API_BASE_URL}/react/auth/google/photos/url`, {
@@ -5086,7 +5150,7 @@ export const servicesAPI = {
 
   // Handle Google Photos OAuth callback
   googlePhotosCallback: async (code: string): Promise<ApiResponse<{ message: string; service: any }>> => {
-    console.log('📸 dashboardAPI.googlePhotosCallback: Handling Google Photos callback');
+    devLog('📸 dashboardAPI.googlePhotosCallback: Handling Google Photos callback');
     try {
       const token = localStorage.getItem('stasht_token');
       const response = await fetch(`${API_BASE_URL}/react/auth/google/photos/callback`, {

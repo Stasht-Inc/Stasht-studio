@@ -2193,8 +2193,10 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
       });
       if (!res.success) { toast.error('Failed to duplicate call to action'); return; }
       const cRaw = res.data?.data || res.data;
+      const newWidgetId = cRaw?.id?.toString() || `cta_${Date.now()}`;
+      pendingScrollWidgetRef.current = { type: 'cta', id: newWidgetId };
       setCtaWidgets(prev => [...prev, {
-        id: cRaw?.id?.toString() || `cta_${Date.now()}`,
+        id: newWidgetId,
         ...widget_data,
         afterPostId: widget.afterPostId,
         widget_order,
@@ -2213,6 +2215,32 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
   const youtubeWidgetCardRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const aiCreatorWidgetCardRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const addMomentButtonRef = useRef<HTMLButtonElement>(null);
+
+  // Scroll-to-newly-added-widget: shared by every widget type (HTML/YouTube/Quote/
+  // CTA/AI Creator) so "jump to what I just added" is standard everywhere, not just
+  // for moments/voice-memos. Each widget type already keeps its own per-id ref map
+  // (htmlWidgetCardRefs etc.) for the sidebar's "click to scroll" behavior — this
+  // reuses those same maps rather than introducing a new one per widget type.
+  const widgetCardRefMaps = {
+    html: htmlWidgetCardRefs,
+    youtube: youtubeWidgetCardRefs,
+    quote: quoteWidgetCardRefs,
+    cta: ctaWidgetCardRefs,
+    aiCreator: aiCreatorWidgetCardRefs,
+  } as const;
+  const pendingScrollWidgetRef = useRef<{ type: keyof typeof widgetCardRefMaps; id: string } | null>(null);
+  useEffect(() => {
+    const pending = pendingScrollWidgetRef.current;
+    if (!pending) return;
+    const timer = setTimeout(() => {
+      const el = widgetCardRefMaps[pending.type].current[pending.id];
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        pendingScrollWidgetRef.current = null;
+      }
+    }, 100);
+    return () => clearTimeout(timer);
+  }, [htmlWidgets, youtubeWidgets, quoteWidgets, ctaWidgets, aiCreatorWidgets]);
 
   // Shared-with view state (PublishedMemoryPage layout)
   const [sharedSortOrder, setSharedSortOrder] = useState<'asc' | 'desc'>('asc');
@@ -7948,8 +7976,10 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                       });
                     } else {
                       const now = Date.now();
+                      const newWidgetId = htmlRaw?.id?.toString() || `html_${now}`;
+                      pendingScrollWidgetRef.current = { type: 'html', id: newWidgetId };
                       setHtmlWidgets(prev => [...prev, {
-                        id: htmlRaw?.id?.toString() || `html_${now}`,
+                        id: newWidgetId,
                         title: addHtmlTitle,
                         content: addHtmlContent,
                         afterPostId: htmlWidgetAfterPostId,
@@ -8084,8 +8114,10 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                         style: { background: '#FFFBEB', color: '#92400E', border: '1px solid #FDE68A' },
                       });
                     } else {
+                      const newWidgetId = ytRaw?.id?.toString() || `yt_${Date.now()}`;
+                      pendingScrollWidgetRef.current = { type: 'youtube', id: newWidgetId };
                       setYoutubeWidgets(prev => [...prev, {
-                        id: ytRaw?.id?.toString() || `yt_${Date.now()}`,
+                        id: newWidgetId,
                         title: youtubeTitle,
                         url: youtubeUrl,
                         videoId,
@@ -8198,8 +8230,10 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                         style: { background: '#FFFBEB', color: '#92400E', border: '1px solid #FDE68A' },
                       });
                     } else {
+                      const newWidgetId = qRaw?.id?.toString() || `q_${Date.now()}`;
+                      pendingScrollWidgetRef.current = { type: 'quote', id: newWidgetId };
                       setQuoteWidgets(prev => [...prev, {
-                        id: qRaw?.id?.toString() || `q_${Date.now()}`,
+                        id: newWidgetId,
                         text: quoteText,
                         author: quoteAuthor,
                         afterPostId: quoteWidgetAfterPostId,
@@ -8478,8 +8512,10 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                   });
                   if (!res.success) { toast.error('Failed to add AI Creator content'); return; }
                   const raw = res.data?.data || res.data;
+                  const newWidgetId = raw?.id?.toString() || `ai_${Date.now()}`;
+                  pendingScrollWidgetRef.current = { type: 'aiCreator', id: newWidgetId };
                   setAiCreatorWidgets(prev => [...prev, {
-                    id: raw?.id?.toString() || `ai_${Date.now()}`,
+                    id: newWidgetId,
                     text: aiCreatorGeneratedPreview.text,
                     background: aiCreatorGeneratedPreview.background,
                     imageUrl: aiCreatorGeneratedPreview.imageUrl,
@@ -8788,8 +8824,10 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                         style: { background: '#FFFBEB', color: '#92400E', border: '1px solid #FDE68A' },
                       });
                     } else {
+                      const newWidgetId = cRaw?.id?.toString() || `cta_${Date.now()}`;
+                      pendingScrollWidgetRef.current = { type: 'cta', id: newWidgetId };
                       setCtaWidgets(prev => [...prev, {
-                        id: cRaw?.id?.toString() || `cta_${Date.now()}`,
+                        id: newWidgetId,
                         ...widget_data,
                         afterPostId: ctaWidgetAfterPostId,
                         widget_order,
@@ -9488,6 +9526,11 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
           getInsertAfterPostId={() => insertAfterPostIdRef.current}
           onAddMoment={(momentData) => {
             console.log('Moment added:', momentData);
+            // Scroll the Timeline to the newly added moment once the refreshed
+            // data renders — reuses the same pendingScrollPostIdRef mechanism
+            // the Voice-to-Text modal's onMomentsCreated already relies on.
+            const newPostId = Array.isArray(momentData) ? momentData[momentData.length - 1]?.image?.id : undefined;
+            if (newPostId != null) pendingScrollPostIdRef.current = String(newPostId);
             // Close modal and refresh
             setIsAddMomentModalOpen(false);
             insertAfterPostIdRef.current = null; setInsertAfterPostId(null);
@@ -18280,6 +18323,11 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
         selectedMediaLibraryImages={selectedMediaLibraryImagesForMoment}
         onAddMoment={(momentData) => {
           console.log('Moment added:', momentData);
+          // Scroll the Timeline to the newly added moment once the refreshed
+          // data renders — reuses the same pendingScrollPostIdRef mechanism
+          // the Voice-to-Text modal's onMomentsCreated already relies on.
+          const newPostId = Array.isArray(momentData) ? momentData[momentData.length - 1]?.image?.id : undefined;
+          if (newPostId != null) pendingScrollPostIdRef.current = String(newPostId);
           // Close modal immediately
           setIsAddMomentModalOpen(false);
           insertAfterPostIdRef.current = null; setInsertAfterPostId(null);

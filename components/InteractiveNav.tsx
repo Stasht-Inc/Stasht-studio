@@ -7,7 +7,7 @@ import { imgFemaleAvatar1 } from "../imports/svg-bahio";
 import ProfileDdwn, { ProfileDropdownMenu } from "../imports/ProfileDdwn";
 import EnhancedSearch from "./EnhancedSearch";
 import { NotificationDropdown } from "./NotificationDropdown";
-import { Upload } from "lucide-react";
+import { Upload, RefreshCw } from "lucide-react";
 import { useProperty } from "../contexts/PropertyContext";
 
 function Layer1() {
@@ -181,6 +181,40 @@ function Badge({ count, onClick }: { count: number; onClick: () => void }) {
         <p className="block leading-[14px] whitespace-pre">{count}</p>
       </div>
     </div>
+  );
+}
+
+// Lets users on the PWA/installed app (where a hard refresh isn't available)
+// force-update to the latest deployed build, instead of only picking it up
+// whenever the service worker happens to check in the background.
+function RefreshAppButton() {
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    try {
+      if ('serviceWorker' in navigator) {
+        const registrations = await navigator.serviceWorker.getRegistrations();
+        await Promise.all(registrations.map((registration) => registration.update()));
+      }
+    } catch (error) {
+      console.warn('Service worker update check failed:', error);
+    } finally {
+      window.location.reload();
+    }
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={handleRefresh}
+      disabled={isRefreshing}
+      title="Refresh to get the latest version"
+      aria-label="Refresh to get the latest version"
+      className="flex items-center justify-center size-6 min-[576px]:size-8 md:size-6 text-gray-700 hover:opacity-70 transition-opacity disabled:opacity-40"
+    >
+      <RefreshCw className={`size-4 min-[576px]:size-5 md:size-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+    </button>
   );
 }
 
@@ -488,6 +522,11 @@ export default function InteractiveNav({
 
       {/* Right side icons */}
       <div className="flex items-center gap-8 min-[576px]:gap-9 md:gap-0">
+        {/* Refresh — visible on every breakpoint, including the installed PWA,
+            where there's no hard-refresh keyboard shortcut available. */}
+        <div className="mr-4 md:mr-6">
+          <RefreshAppButton />
+        </div>
         {/* Upload Media Button - before notifications - Only show for property owners */}
         {onUploadMedia && isPropertyOwner && (
           <div className="hidden md:block mr-4">

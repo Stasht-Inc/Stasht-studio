@@ -75,16 +75,12 @@ export default defineConfig(({ mode }) => {
             urlPattern: /^https:\/\/stasht-data\.s3\.us-east-2\.amazonaws\.com\/.*/i,
             handler: 'CacheFirst',
             options: {
-              cacheName: 's3-media-cache-v2',
-              fetchOptions: {
-                mode: 'cors',
-                credentials: 'omit',
-              },
+              cacheName: 's3-media-cache-v3',
               expiration: {
                 maxEntries: 100,
                 maxAgeSeconds: 60 * 60 * 24 * 7
               },
-              cacheableResponse: { statuses: [200] }
+              cacheableResponse: { statuses: [0, 200] }
             }
           }
         ]
@@ -142,6 +138,11 @@ export default defineConfig(({ mode }) => {
       }
     }
   ],
+  // Stamped into every build so the profile menu can show which build a user is
+  // actually running — no manual bump needed, it's always the real build time.
+  define: {
+    __APP_BUILD_TIME__: JSON.stringify(new Date().toISOString()),
+  },
   esbuild: {
     logOverride: { 'this-is-undefined-in-esm': 'silent' },
   },
@@ -153,7 +154,7 @@ export default defineConfig(({ mode }) => {
   build: {
     outDir: 'dist',
     sourcemap: false,
-    minify: false,
+    minify: 'esbuild',
     chunkSizeWarningLimit: 10000,
     rollupOptions: {
       maxParallelFileOps: 1,
@@ -204,7 +205,10 @@ export default defineConfig(({ mode }) => {
     strictPort: true
   },
   server: mode === 'development' ? {
-    port: 5173,
+    // 5173 is the port registered with Google OAuth / the admin-portal SSO
+    // handoff; PORT lets a harness/tooling run a second instance elsewhere
+    // (OTP login works on any port).
+    port: Number(process.env.PORT) || 5173,
     strictPort: true,
     proxy: {
       '/api': {

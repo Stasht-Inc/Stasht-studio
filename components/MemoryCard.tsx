@@ -287,9 +287,12 @@ export default function MemoryCard({
 
     const img = new Image();
     img.onload = () => setImageLoaded(true);
-    img.onerror = () => setImageLoaded(false);
+    img.onerror = () => {
+      console.warn(`⚠️ MemoryCard: cover image failed to load for "${title}", falling back to avatar. URL: ${image}`);
+      setImageLoaded(false);
+    };
     img.src = image;
-  }, [image]);
+  }, [image, title]);
 
   // Calculate precise truncation based on available space
   useEffect(() => {
@@ -608,13 +611,16 @@ export default function MemoryCard({
               </div>
             )}
 
-            {/* Date */}
-            <div className="flex items-center gap-1.5">
-              <Calendar className="w-3.5 h-3.5 text-white/90 flex-shrink-0" />
-              <span className="text-white/90" style={{ fontSize: '14px', fontWeight: 400, lineHeight: '18px' }}>
-                {dateRange}
-              </span>
-            </div>
+            {/* Date — hidden entirely when there's no date to show (e.g. car listings,
+                which have no upload-date range) rather than rendering a bare icon. */}
+            {dateRange && (
+              <div className="flex items-center gap-1.5">
+                <Calendar className="w-3.5 h-3.5 text-white/90 flex-shrink-0" />
+                <span className="text-white/90" style={{ fontSize: '14px', fontWeight: 400, lineHeight: '18px' }}>
+                  {dateRange}
+                </span>
+              </div>
+            )}
           </div>
 
           {/* Right: Add Media button */}
