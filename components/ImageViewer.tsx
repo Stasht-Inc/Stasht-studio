@@ -233,6 +233,12 @@ interface ImageViewerProps {
   isPdf?: boolean; // Whether the current src is a PDF document
   specs?: Array<{ label: string; value: string }>; // Read-only key/value grid shown below the description (e.g. car specs)
   disableDescriptionEdit?: boolean; // Hide edit/delete on the description — for sources with no real post to save changes to (e.g. cars)
+  // Overrides the "Image N of M" filmstrip label with a caller-supplied position
+  // instead of deriving it from currentSubImageIndex/subImages.length — needed
+  // when the sub-image list always excludes "whichever image is currently open"
+  // (e.g. cars), which means an index within that list can never reflect the
+  // image's true position among all of them.
+  positionOverride?: { current: number; total: number };
 }
 
 export function ImageViewer({
@@ -284,7 +290,8 @@ export function ImageViewer({
   storyTags = [],
   isPdf = false,
   specs = [],
-  disableDescriptionEdit = false
+  disableDescriptionEdit = false,
+  positionOverride
 }: ImageViewerProps) {
 
   // Helper function to format profile color
@@ -410,6 +417,13 @@ export function ImageViewer({
   // Ref for mobile comments section (for scrolling when focusComments is true)
   const mobileCommentsRef = useRef<HTMLDivElement>(null);
 
+  // Ref to whichever thumbnail is currently selected in the sidebar filmstrip
+  // (the parent block when currentSubImageIndex is 0, else the matching
+  // sub-image block) — used to scroll it into view below, since opening the
+  // viewer partway through a long list otherwise leaves the highlighted
+  // thumbnail scrolled off-screen with nothing visible pointing to it.
+  const selectedThumbnailRef = useRef<HTMLDivElement>(null);
+
   // State for touch/swipe gestures (mobile only)
   const [touchStart, setTouchStart] = useState<{ x: number; y: number } | null>(null);
   const [touchEnd, setTouchEnd] = useState<{ x: number; y: number } | null>(null);
@@ -462,16 +476,28 @@ export function ImageViewer({
         console.log('⏭️ Skipping featured state initialization due to manual update flag');
       }
 
-      // If initialSubImageId is provided, find its index and set it as current
-      if (initialSubImageId) {
-        const subImageIndex = fetchedSubImages.findIndex(img => img.id === initialSubImageId);
+      // positionOverride mode (cars): subImages is the full ordered list
+      // INCLUDING whichever image is currently open — there's no separate
+      // "parent" slot (it's hidden in the sidebar render below) — so re-locate
+      // the live imageId within the list on every run, not just once. This is
+      // what keeps next/prev navigation in sync instead of freezing on
+      // whichever photo the viewer originally opened on.
+      //
+      // Regular mode: initialSubImageId is a one-time "open directly on this
+      // sub-image" instruction from the caller (e.g. a notification link) —
+      // only honored on the images/effect run it's meant for; navigating to a
+      // different parent post correctly falls through to index 0 since that
+      // post's own sub-images won't contain the old id.
+      const targetSubImageId = positionOverride ? imageId : initialSubImageId;
+      if (targetSubImageId) {
+        const subImageIndex = fetchedSubImages.findIndex(img => img.id === targetSubImageId);
         if (subImageIndex !== -1) {
           // Add 1 because index 0 is the parent image
           const targetIndex = subImageIndex + 1;
-          console.log(`🎯 Setting initial sub-image: ${initialSubImageId} at index ${targetIndex}`);
+          console.log(`🎯 Setting initial sub-image: ${targetSubImageId} at index ${targetIndex}`);
           setCurrentSubImageIndex(targetIndex);
         } else {
-          console.log(`⚠️ Could not find sub-image with id ${initialSubImageId}, showing parent instead`);
+          console.log(`⚠️ Could not find sub-image with id ${targetSubImageId}, showing parent instead`);
           setCurrentSubImageIndex(0); // Fallback to parent if sub-image not found
         }
       } else {
@@ -485,7 +511,16 @@ export function ImageViewer({
       setManualFeaturedUpdate(false);
       // Don't clear manuallyFeaturedImageRef - let it persist to remember user's choice
     }
-  }, [isOpen, imageId, onGetSubImages, initialSubImageId, parentImageIsFeatured]);
+  }, [isOpen, imageId, onGetSubImages, initialSubImageId, parentImageIsFeatured, positionOverride]);
+
+  // Keep the selected thumbnail visible in the sidebar filmstrip — without
+  // this, opening the viewer partway through a long list (e.g. photo 6 of 26)
+  // leaves the highlighted thumbnail scrolled off-screen with nothing on
+  // screen indicating which one is selected.
+  useEffect(() => {
+    if (!isOpen) return;
+    selectedThumbnailRef.current?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  }, [isOpen, currentSubImageIndex, subImages]);
 
   // Update featured image ID when parent featured status changes
   // This useEffect should NOT override manual updates or interfere with user actions
@@ -2424,7 +2459,7 @@ export function ImageViewer({
           {imageId && memoryId && (subImages.length > 0) && (
             <div className="flex items-center justify-center bg-white/10 rounded-full px-3 py-1.5">
               <span className="text-xs text-white font-medium whitespace-nowrap">
-                {currentSubImageIndex + 1}/{subImages.length + 1}
+                {positionOverride ? `${positionOverride.current}/${positionOverride.total}` : `${currentSubImageIndex + 1}/${subImages.length + 1}`}
               </span>
             </div>
           )}
@@ -2463,54 +2498,62 @@ export function ImageViewer({
               {/* Image Counter - Desktop only (mobile shows in header) */}
               <div className="hidden md:flex items-center justify-center text-center py-2">
                 <span className="text-sm text-white font-medium">
-                  Image {currentSubImageIndex + 1} of {subImages.length + 1}
+                  {positionOverride ? `Image ${positionOverride.current} of ${positionOverride.total}` : `Image ${currentSubImageIndex + 1} of ${subImages.length + 1}`}
                 </span>
               </div>
 
-              {/* Current/Main Image Thumbnail */}
-              <div
-                className={`group relative cursor-pointer rounded-full md:rounded-lg overflow-hidden border-2 transition-all w-[70px] h-[70px]  md:w-[120px] md:h-[120px] md:w-full md:aspect-square flex-shrink-0 ${
-                  currentSubImageIndex === 0 ? 'border-[#6C60FF] shadow-lg shadow-[#6C60FF]/30' : 'border-gray-700 hover:border-gray-500'
-                }`}
-                onClick={() => setCurrentSubImageIndex(0)}
-              >
-                <img
-                  src={imageSrc}
-                  alt={imageAlt}
-                  className="w-full h-full object-cover"
-                  style={{ transform: `rotate(${rotation}deg)` }}
-                />
-                {currentSubImageIndex === 0 && (
-                  <div className="absolute inset-0 bg-[#6C60FF]/20"></div>
-                )}
+              {/* Current/Main Image Thumbnail — hidden in positionOverride mode
+                  (cars), where subImages is already the full ordered list
+                  including the current photo, so this pinned duplicate would
+                  otherwise show the same photo a second time, unhighlighted,
+                  permanently glued to the top instead of appearing once at its
+                  real position in the list. */}
+              {!positionOverride && (
+                <div
+                  ref={currentSubImageIndex === 0 ? selectedThumbnailRef : null}
+                  className={`group relative cursor-pointer rounded-full md:rounded-lg overflow-hidden border-2 transition-all w-[70px] h-[70px]  md:w-[120px] md:h-[120px] md:w-full md:aspect-square flex-shrink-0 ${
+                    currentSubImageIndex === 0 ? 'border-[#6C60FF] shadow-lg shadow-[#6C60FF]/30' : 'border-gray-700 hover:border-gray-500'
+                  }`}
+                  onClick={() => setCurrentSubImageIndex(0)}
+                >
+                  <img
+                    src={imageSrc}
+                    alt={imageAlt}
+                    className="w-full h-full object-cover"
+                    style={{ transform: `rotate(${rotation}deg)` }}
+                  />
+                  {currentSubImageIndex === 0 && (
+                    <div className="absolute inset-0 bg-[#6C60FF]/20"></div>
+                  )}
 
-                {/* Star icon for featured image - Only show when sub-images exist */}
-                {imageId && subImages.length > 0 && (
-                  <button
-                    onClick={(e) => {
-                      console.log('⭐ Parent star clicked - imageId:', imageId, 'featuredImageId:', featuredImageId);
-                      handleToggleFeatured(e, imageId);
-                    }}
-                    className={`absolute top-1 left-1 p-1.5 bg-black/60 hover:bg-black/80 text-white rounded-full shadow-lg transition-all z-50 ${
-                      featuredImageId === imageId ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
-                    }`}
-                    title={featuredImageId === imageId ? "Remove from featured" : "Set as featured image"}
-                  >
-                    <Star
-                      className="w-3 h-3 md:w-4 md:h-4"
-                      fill={featuredImageId === imageId ? "#FCD34D" : "none"}
-                      stroke={featuredImageId === imageId ? "#FCD34D" : "white"}
-                      strokeWidth={2}
-                    />
-                  </button>
-                )}
-                {void console.log('🎨 Rendering parent star - imageId:', imageId, 'featuredImageId:', featuredImageId, 'Match:', featuredImageId === imageId)}
-              </div>
+                  {/* Star icon for featured image - Only show when sub-images exist */}
+                  {imageId && subImages.length > 0 && (
+                    <button
+                      onClick={(e) => {
+                        console.log('⭐ Parent star clicked - imageId:', imageId, 'featuredImageId:', featuredImageId);
+                        handleToggleFeatured(e, imageId);
+                      }}
+                      className={`absolute top-1 left-1 p-1.5 bg-black/60 hover:bg-black/80 text-white rounded-full shadow-lg transition-all z-50 ${
+                        featuredImageId === imageId ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+                      }`}
+                      title={featuredImageId === imageId ? "Remove from featured" : "Set as featured image"}
+                    >
+                      <Star
+                        className="w-3 h-3 md:w-4 md:h-4"
+                        fill={featuredImageId === imageId ? "#FCD34D" : "none"}
+                        stroke={featuredImageId === imageId ? "#FCD34D" : "white"}
+                        strokeWidth={2}
+                      />
+                    </button>
+                  )}
+                </div>
+              )}
 
               {/* Sub-images Thumbnails */}
               {subImages.map((subImage, index) => (
                 <div
                   key={subImage.id}
+                  ref={currentSubImageIndex === index + 1 ? selectedThumbnailRef : null}
                   className={`group relative cursor-pointer rounded-full md:rounded-lg overflow-hidden border-2 transition-all w-[70px] h-[70px] md:w-[120px] md:h-[120px] md:w-full md:aspect-square flex-shrink-0 ${
                     currentSubImageIndex === index + 1 ? 'border-[#6C60FF] shadow-lg shadow-[#6C60FF]/30' : 'border-gray-700 hover:border-gray-500'
                   }`}

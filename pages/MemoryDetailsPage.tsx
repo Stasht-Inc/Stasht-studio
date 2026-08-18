@@ -1088,6 +1088,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
     description?: string;
     specs?: Array<{ label: string; value: string }>;
     disableDescriptionEdit?: boolean;
+    positionOverride?: { current: number; total: number };
   }>({
     isOpen: false,
     src: '',
@@ -4378,24 +4379,23 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
   //
   // Car photos have no parent/sub-image relation (each is its own top-level post,
   // per the timeline-explosion fix above), so the normal parent_id match would
-  // always return empty. Instead, in car-detail mode, treat every OTHER photo of
-  // the same car as a filmstrip entry — restores the "see all N images" browsing
-  // experience the swipeable card used to give, while each entry still carries the
-  // car's own description so switching between them doesn't blank the panel (specs
-  // stay populated too, since those come from a static prop, not per-image data).
-  //
-  // The sub-image mechanism always reserves position 0 for whichever image is
-  // "the parent" — it has no notion of an arbitrary starting index. So this
-  // ALWAYS excludes the car's first photo (index 0 in sort_order) regardless of
-  // which photo was actually clicked; handleTimelineImageView pairs this with
-  // initialSubImageId to land on the real clicked position instead of always
-  // showing "Image 1 of N".
+  // always return empty. Instead, in car-detail mode, this returns EVERY photo
+  // of the car, including whichever one is currently open — a single, truly
+  // continuous list in sort_order, so the currently-open photo shows up
+  // highlighted at its own true position (with real neighbors around it) rather
+  // than being pulled out into a separate "current" slot. ImageViewer hides its
+  // usual parent-thumbnail block for this case (see positionOverride) and
+  // re-locates the live imageId within this list on every render, so next/prev
+  // navigation stays in sync instead of freezing on the photo the viewer opened
+  // on. Each entry carries the car's own description so switching between them
+  // doesn't blank the panel (specs stay populated too, since those come from a
+  // static prop, not per-image data). The "Image N of 26" position label uses
+  // this same list's index — no separate positionOverride math needed here.
   const getSubImagesForParent = (parentImageId: string) => {
     const allPosts = rawApiPosts || [];
 
     if (isCarDetail) {
       return allPosts
-        .slice(1)
         .filter((post: any) => post.image_link)
         .map((post: any) => ({
           id: post.id?.toString(),
@@ -6700,19 +6700,6 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
     const displayAlt = parentPost ? (parentPost.name || parentPost.title || 'Image') : (currentImage?.alt || alt);
     const displayTitle = parentPost ? (parentPost.name || parentPost.title) : (currentImage?.title || title || currentPost?.title);
 
-    // getSubImagesForParent() (car-detail mode) always excludes the car's first
-    // photo, since the sub-image mechanism has no concept of an arbitrary
-    // starting index — position 0 there is always "the parent". So the
-    // top-level src/title/etc below must point at that same first photo, and
-    // initialSubImageId carries the actually-clicked photo so the viewer lands
-    // on the real position (e.g. "Image 5 of 26") instead of always "1 of 26".
-    const carFirstPost = isCarDetail
-      ? sortedTimelinePosts.filter(post => post.image && !post.parent_id)[0]
-      : null;
-    const carInitialSubImageId = isCarDetail && carFirstPost && currentPost?.id !== carFirstPost.id
-      ? currentPost?.id
-      : undefined;
-
     // Check if parent image is featured
     const parentIsFeatured = currentPost?.is_featured === 1 || currentPost?.is_featured === true;
     console.log('🌟 Parent image is_featured:', parentIsFeatured, 'currentPost.is_featured:', currentPost?.is_featured);
@@ -6736,19 +6723,25 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
     console.log('🔍 handleTimelineImageView - finalImageId:', finalImageId, 'memoryId:', memoryId);
     const viewerData = {
       isOpen: true,
-      src: carFirstPost ? carFirstPost.image : displaySrc,
-      alt: carFirstPost ? (carFirstPost.name || carFirstPost.title || 'Image') : displayAlt,
-      title: carFirstPost ? (carFirstPost.name || carFirstPost.title) : displayTitle,
+      src: displaySrc,
+      alt: displayAlt,
+      title: displayTitle,
       subtitle: `${currentPost?.author?.name || 'Unknown'} • ${getFormattedDate(currentPost?.date)}`,
-      filename: carFirstPost ? extractFilename(carFirstPost.image, carFirstPost.title) : extractFilename(displaySrc, currentPost?.title),
-      dateTaken: carFirstPost ? getFormattedDate(carFirstPost.date) : getFormattedDate(currentPost?.date),
-      location: carFirstPost ? getLocationDisplay(carFirstPost.location) : getLocationDisplay(currentPost?.location),
+      filename: extractFilename(displaySrc, currentPost?.title),
+      dateTaken: getFormattedDate(currentPost?.date),
+      location: getLocationDisplay(currentPost?.location),
       images: allImages,
       currentIndex: Math.max(0, currentIndex),
-      imageId: carFirstPost ? carFirstPost.id : finalImageId,
+      imageId: finalImageId,
       memoryId: memoryId, // CRITICAL FIX: Include memoryId in the viewer state
-      rotation_angle: carFirstPost ? (carFirstPost.rotation_angle || 0) : (currentPost?.rotation_angle || 0),
-      initialSubImageId: isCarDetail ? carInitialSubImageId : subImageId, // Pass the sub-image ID if a sub-image was clicked
+      rotation_angle: currentPost?.rotation_angle || 0,
+      initialSubImageId: subImageId, // Pass the sub-image ID if a sub-image was clicked
+      // Car photos: getSubImagesForParent() always excludes the CURRENTLY open
+      // photo (recomputed per navigation, see that function's comment), which
+      // means slot 0 there can never reflect this photo's true position among
+      // all N — so pass the reliable cross-post index/total straight through
+      // for the "Image X of N" label instead.
+      positionOverride: isCarDetail ? { current: Math.max(0, currentIndex) + 1, total: allImages.length } : undefined,
       parentImageIsFeatured: parentIsFeatured, // Pass parent's featured status
       focusComments: focusComments, // Scroll to comments on mobile when true
       tags: Array.isArray(currentPost?.tags) ? currentPost.tags.map((t: any) => typeof t === 'string' ? t : t?.name).filter(Boolean) : [],
@@ -7007,7 +7000,8 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
         filename: extractFilename(nextImage.src, nextImage.alt),
         currentIndex: nextIndex,
         imageId: nextImage.id,
-        rotation_angle: nextMediaItem?.rotation_angle || 0
+        rotation_angle: nextMediaItem?.rotation_angle || 0,
+        positionOverride: isCarDetail ? { current: nextIndex + 1, total: prev.images.length } : prev.positionOverride,
       }));
     }
   };
@@ -7039,7 +7033,8 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
         filename: extractFilename(prevImage.src, prevImage.alt),
         currentIndex: prevIndex,
         imageId: prevImage.id,
-        rotation_angle: prevMediaItem?.rotation_angle || 0
+        rotation_angle: prevMediaItem?.rotation_angle || 0,
+        positionOverride: isCarDetail ? { current: prevIndex + 1, total: prev.images.length } : prev.positionOverride,
       }));
     }
   };
@@ -9787,6 +9782,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
           description={imageViewer.description}
           specs={imageViewer.specs}
           disableDescriptionEdit={imageViewer.disableDescriptionEdit}
+          positionOverride={imageViewer.positionOverride}
           images={imageViewer.images}
           largeSize={true}
           coverContentOnly={false}
@@ -19242,6 +19238,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
         description={imageViewer.description}
         specs={imageViewer.specs}
         disableDescriptionEdit={imageViewer.disableDescriptionEdit}
+        positionOverride={imageViewer.positionOverride}
         images={imageViewer.images}
         largeSize={true}
         coverContentOnly={false}
