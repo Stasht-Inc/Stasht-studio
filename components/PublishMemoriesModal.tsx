@@ -52,7 +52,15 @@ const VISIBILITY_OPTIONS = [
   },
 ];
 
-const VIDEO_EXTENSIONS = ['.mp4', '.mov', '.avi', '.webm', '.mkv', '.m4v'];
+// Includes the raw-MIME-subtype extensions (.quicktime, .x-msvideo, etc.) that
+// some iPhone/.mov uploads still carry from a since-fixed backend naming bug
+// (ClickUp wdy2xgympv) — without these, those files render as a plain image
+// with no play button. Keep this list in sync with the mobile app's
+// _isVideoFile() in stasht-app-2026/lib/new_development/stories/story_detail_cover.dart.
+const VIDEO_EXTENSIONS = [
+  '.mp4', '.mov', '.avi', '.mkv', '.flv', '.wmv', '.webm', '.3gp', '.m4v',
+  '.mts', '.m2ts', '.quicktime', '.x-msvideo', '.x-matroska', '.x-ms-wmv', '.3gpp',
+];
 const isVideoUrl = (url: string) => {
   const lower = url.toLowerCase();
   return VIDEO_EXTENSIONS.some(ext => lower.includes(ext));

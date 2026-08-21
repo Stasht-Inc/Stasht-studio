@@ -5492,7 +5492,15 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
   // Helper function to check if URL is a video
   const isVideoUrl = (url: string): boolean => {
     if (!url) return false;
-    const videoExtensions = ['.mp4', '.mov', '.avi', '.webm', '.mkv', '.m4v'];
+    // Includes the raw-MIME-subtype extensions (.quicktime, .x-msvideo, etc.) that
+    // some iPhone/.mov uploads still carry from a since-fixed backend naming bug
+    // (ClickUp wdy2xgympv) — without these, those files render as a plain image
+    // with no play button. Keep this list in sync with the mobile app's
+    // _isVideoFile() in stasht-app-2026/lib/new_development/stories/story_detail_cover.dart.
+    const videoExtensions = [
+      '.mp4', '.mov', '.avi', '.mkv', '.flv', '.wmv', '.webm', '.3gp', '.m4v',
+      '.mts', '.m2ts', '.quicktime', '.x-msvideo', '.x-matroska', '.x-ms-wmv', '.3gpp',
+    ];
     const lowerUrl = url.toLowerCase();
     return videoExtensions.some(ext => lowerUrl.includes(ext));
   };
@@ -8979,10 +8987,40 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
               const coverSrc = apiMemoryData?.last_update_img || sharedAllPosts[0]?.master_image_link || apiMemoryData?.user?.profile_image;
               if (!coverSrc) return <div className="absolute inset-0 bg-[#6C60FF] flex items-center justify-center"><span className="text-white font-bold text-6xl uppercase">{apiMemoryData?.title?.charAt(0) || 'M'}</span></div>;
               if (isYoutubeUrl(coverSrc)) return <iframe src={getYoutubeEmbedUrl(coverSrc) || ''} className="absolute inset-0 w-full h-full" allow="accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowFullScreen style={{ border: 'none' }} />;
-              if (isVideoUrl(coverSrc)) return <video src={`${coverSrc}#t=0.1`} className="absolute inset-0 w-full h-full object-cover" controls playsInline preload="metadata" />;
+              if (isVideoUrl(coverSrc)) return (
+                <video
+                  ref={coverVideoMobileRef}
+                  src={`${coverSrc}#t=0.1`}
+                  className="absolute inset-0 w-full h-full object-cover"
+                  preload="metadata"
+                  playsInline
+                  onLoadedMetadata={(e) => {
+                    const vid = e.currentTarget;
+                    if (vid.currentTime === 0) vid.currentTime = 0.1;
+                  }}
+                  onEnded={() => { setIsCoverVideoPlaying(false); setIsCoverVideoEnded(true); }}
+                />
+              );
               return <ImageWithFallback src={coverSrc} alt={apiMemoryData?.title || 'Memory'} className="absolute inset-0 w-full h-full object-cover" />;
             })()}
             <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent pointer-events-none" />
+            {/* Cover video play/pause — shared-view cover previously relied on bare native
+                <video controls>, which Chrome doesn't reliably surface a visible play
+                affordance for; use the same custom button already proven on the owner view. */}
+            {isVideoUrl(apiMemoryData?.last_update_img || sharedAllPosts[0]?.master_image_link || apiMemoryData?.user?.profile_image) && (
+              <button
+                type="button"
+                onClick={handleToggleCoverVideo}
+                className="absolute inset-0 w-full h-full flex items-center justify-center bg-transparent border-0 p-0 z-10"
+              >
+                <div className="w-14 h-14 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center">
+                  {isCoverVideoPlaying
+                    ? <Pause className="w-6 h-6 text-white" />
+                    : <Play className="w-6 h-6 text-white ml-0.5" />
+                  }
+                </div>
+              </button>
+            )}
             {/* Back button — absolute on cover image, scrolls away with it */}
             <div className="absolute top-[42px] left-3 z-20">
               <button onClick={onBack} className="flex items-center gap-1.5 bg-black/50 backdrop-blur-sm text-white text-sm font-medium px-3 py-1.5 rounded-full">
@@ -9416,10 +9454,40 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                         const coverSrc = apiMemoryData?.last_update_img || sharedAllPosts[0]?.master_image_link || apiMemoryData?.user?.profile_image;
                         if (!coverSrc) return <div className="w-full h-full bg-[#6C60FF] flex items-center justify-center"><span className="text-white font-bold text-8xl uppercase">{apiMemoryData?.title?.charAt(0) || 'M'}</span></div>;
                         if (isYoutubeUrl(coverSrc)) return <iframe src={getYoutubeEmbedUrl(coverSrc) || ''} className="w-full h-full" allow="accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowFullScreen style={{ border: 'none' }} />;
-                        if (isVideoUrl(coverSrc)) return <video src={`${coverSrc}#t=0.1`} className="w-full h-full object-cover" controls playsInline preload="metadata" />;
+                        if (isVideoUrl(coverSrc)) return (
+                          <video
+                            ref={coverVideoDesktopRef}
+                            src={`${coverSrc}#t=0.1`}
+                            className="w-full h-full object-cover"
+                            preload="metadata"
+                            playsInline
+                            onLoadedMetadata={(e) => {
+                              const vid = e.currentTarget;
+                              if (vid.currentTime === 0) vid.currentTime = 0.1;
+                            }}
+                            onEnded={() => { setIsCoverVideoPlaying(false); setIsCoverVideoEnded(true); }}
+                          />
+                        );
                         return <ImageWithFallback src={coverSrc} alt={apiMemoryData?.title || 'Memory'} className="w-full h-full object-cover" />;
                       })()}
                       <div className="absolute inset-0 pointer-events-none" style={{ background: 'linear-gradient(0deg,rgba(0,0,0,0.80) 11.54%,rgba(0,0,0,0.30) 55.77%,rgba(0,0,0,0.00) 100%)' }} />
+                      {/* Cover video play/pause — shared-view cover previously relied on bare native
+                          <video controls>, which Chrome doesn't reliably surface a visible play
+                          affordance for; use the same custom button already proven on the owner view. */}
+                      {isVideoUrl(apiMemoryData?.last_update_img || sharedAllPosts[0]?.master_image_link || apiMemoryData?.user?.profile_image) && (
+                        <button
+                          type="button"
+                          onClick={handleToggleCoverVideo}
+                          className="absolute inset-0 flex items-center justify-center group"
+                        >
+                          <div className="w-16 h-16 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center transition-all duration-200 group-hover:bg-black/60 group-hover:scale-110">
+                            {isCoverVideoPlaying
+                              ? <Pause className="w-7 h-7 text-white" />
+                              : <Play className="w-7 h-7 text-white ml-0.5" />
+                            }
+                          </div>
+                        </button>
+                      )}
                     </div>
                     <div className="relative z-10 space-y-6 -mt-48 px-4 mx-2">
                       <div className="flex items-center justify-between rounded-2xl">
