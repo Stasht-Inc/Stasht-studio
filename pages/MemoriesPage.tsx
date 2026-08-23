@@ -14,6 +14,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSepara
 import MemoryCard from "../components/MemoryCard";
 import CreateMemory, { CreateMemoryHandle } from "../components/CreateMemory";
 import { dashboardAPI, isPartialAdmin, apiRequest } from '../utils/authUtils';
+import { RemoveCollaborationModal } from '../components/RemoveCollaborationModal';
 import { aiCreditsAPI } from '../services/aiCreditsAPI';
 import { mediaAPI } from '../services/mediaAPI';
 import { useAuth } from '../contexts/AuthContext';
@@ -845,6 +846,37 @@ function MemoriesPageContent({
   const [memories, setMemories] = useState<Memory[]>(mockMemories);
   const [isEditMode, setIsEditMode] = useState(false);
   const [selectedCardIds, setSelectedCardIds] = useState<Set<string>>(new Set());
+  // "Leave" a shared-with campaign (remove your own collaboration). The card only
+  // knows the memory id; the leave endpoint needs the Collaborator row id, so we
+  // resolve it from /my-collaboration-associations on confirm.
+  const [leaveTarget, setLeaveTarget] = useState<{ memoryId: string; title: string } | null>(null);
+  const [isLeaving, setIsLeaving] = useState(false);
+  const handleLeaveShared = async () => {
+    if (!leaveTarget) return;
+    setIsLeaving(true);
+    try {
+      const assocResp: any = await dashboardAPI.getMyCollaborationAssociations();
+      const associations = assocResp?.data?.data?.associations || assocResp?.data?.associations || [];
+      const match = associations.find((a: any) => a?.memory_id?.toString() === leaveTarget.memoryId);
+      if (!match?.collaboration_id) {
+        sonnerToast.error('Could not find this shared campaign to leave.');
+        return;
+      }
+      const resp: any = await dashboardAPI.removeCollaborationAssociation(match.collaboration_id);
+      if (resp?.success || resp?.data?.status === 1) {
+        sonnerToast.success(`Left "${leaveTarget.title}"`);
+        setLeaveTarget(null);
+        await onRefreshMemories?.();
+      } else {
+        sonnerToast.error(resp?.error || 'Failed to leave campaign.');
+      }
+    } catch (e) {
+      console.error('Leave shared campaign failed:', e);
+      sonnerToast.error('Failed to leave campaign.');
+    } finally {
+      setIsLeaving(false);
+    }
+  };
   const [filterCategory, setFilterCategory] = useState("All Categories");
   const [selectedAuthor, setSelectedAuthor] = useState("All Authors");
   const [selectedLabel, setSelectedLabel] = useState("All Labels");
@@ -2524,8 +2556,10 @@ function MemoriesPageContent({
                       profileColor={memory.author?.profile_color}
                       tags={Array.isArray(memory.tags) ? memory.tags.map((t: any) => typeof t === 'string' ? t : t.name).filter(Boolean) : []}
                       isEditMode={isEditMode}
+                      isSharedWith={isSharedWithCategory}
                       isSelected={selectedCardIds.has(memory.id.toString())}
                       onSelectToggle={() => setSelectedCardIds(prev => { const next = new Set(prev); next.has(memory.id.toString()) ? next.delete(memory.id.toString()) : next.add(memory.id.toString()); return next; })}
+                      onLeaveShared={isSharedWithCategory ? () => setLeaveTarget({ memoryId: memory.id.toString(), title: memory.title }) : undefined}
                       contributors={memory.collaborators?.map((collab: any) => {
                         // Check if this collaborator is the logged-in user
                         const isCurrentUser = user && (
@@ -3126,6 +3160,7 @@ function MemoriesPageContent({
                             property={memory.property ? { id: memory.property.id, name: memory.property.name } : undefined}
                       properties={memory.properties?.map((p: any) => ({ id: p.id, name: p.name }))}
                             isSharedWith={memory.isShared}
+                            onLeaveShared={memory.isShared ? () => setLeaveTarget({ memoryId: memory.id.toString(), title: memory.title }) : undefined}
                             isInvite={isInvitesCategory}
                             notificationId={memory.notification_id}
                             onAcceptInvite={isInvitesCategory ? (notificationId) => handleAcceptInvite(memory.id, notificationId) : undefined}
@@ -4079,6 +4114,14 @@ function MemoriesPageContent({
         hideStarter={true}
         canClose={false}
         onSuccess={() => setShowTrialEndedModal(false)}
+      />
+
+      <RemoveCollaborationModal
+        isOpen={leaveTarget !== null}
+        onClose={() => { if (!isLeaving) setLeaveTarget(null); }}
+        onConfirm={handleLeaveShared}
+        memoryTitle={leaveTarget?.title || ''}
+        isRemoving={isLeaving}
       />
     </div>
   );

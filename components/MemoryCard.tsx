@@ -204,6 +204,9 @@ interface MemoryCardProps {
   isEditMode?: boolean;
   isSelected?: boolean;
   onSelectToggle?: () => void;
+  // Shared-with campaigns can't be selected/deleted (you don't own them); in edit
+  // mode they show a "Leave" control instead, which removes your collaboration.
+  onLeaveShared?: () => void;
   actionButton?: React.ReactNode;
   whiteFooter?: boolean;
 }
@@ -242,6 +245,7 @@ export default function MemoryCard({
   isEditMode = false,
   isSelected = false,
   onSelectToggle,
+  onLeaveShared,
   actionButton,
   whiteFooter = false,
 }: MemoryCardProps) {
@@ -438,6 +442,26 @@ export default function MemoryCard({
                 </svg>
               )}
             </div>
+          </div>
+        )}
+
+        {/* Edit Mode — Leave (shared campaigns aren't owned, so they can't be
+            selected/deleted; leaving removes your collaboration instead). Shown
+            as a prominent centered button over a light scrim so it's unmistakable
+            that a shared campaign can be left. */}
+        {isEditMode && isSharedWith && onLeaveShared && (
+          <div
+            className="absolute inset-0 z-20 flex items-center justify-center bg-black/25"
+            onClick={e => { e.stopPropagation(); onLeaveShared(); }}
+          >
+            <button
+              type="button"
+              className="flex items-center gap-2 rounded-full bg-red-500 px-5 py-2.5 text-sm font-semibold text-white shadow-lg hover:bg-red-600 transition-colors"
+              onClick={e => { e.stopPropagation(); onLeaveShared(); }}
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" /><polyline points="16 17 21 12 16 7" /><line x1="21" x2="9" y1="12" y2="12" /></svg>
+              Leave Campaign
+            </button>
           </div>
         )}
 
