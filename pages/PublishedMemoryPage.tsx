@@ -587,6 +587,7 @@ export default function PublishedMemoryPage() {
     // PublishedMemoryController::index()'s $carEntries mapping on the backend),
     // so just show it directly with no extra request.
     if (lm.is_car) {
+      setCarImageIndex(0);
       setSelectedCarDetail(lm);
       return;
     }
@@ -666,6 +667,8 @@ export default function PublishedMemoryPage() {
   // handleLinkedMemoryClick below), so clicking one just opens this read-only
   // panel from the data already on the linked_memories entry, no extra fetch needed.
   const [selectedCarDetail, setSelectedCarDetail] = useState<any | null>(null);
+  // Which of the car's photos is showing in the full-view gallery.
+  const [carImageIndex, setCarImageIndex] = useState(0);
 
   // Cover video state
   const [isCoverVideoPlaying, setIsCoverVideoPlaying] = useState(false);
@@ -3771,25 +3774,61 @@ export default function PublishedMemoryPage() {
 
       {/* ── Car listing detail modal ──────────────────────────────────────── */}
       <Dialog open={!!selectedCarDetail} onOpenChange={(open) => { if (!open) setSelectedCarDetail(null); }}>
-        <DialogContent className="sm:max-w-md p-0 overflow-hidden gap-0 bg-white">
+        <DialogContent className="sm:max-w-3xl max-h-[92vh] overflow-y-auto p-0 gap-0 bg-white">
           <DialogTitle className="sr-only">
             {selectedCarDetail?.title || 'Vehicle details'}
           </DialogTitle>
-          {selectedCarDetail && (
+          {selectedCarDetail && (() => {
+            // Full photo set from the backend (PublishedMemoryController car entries
+            // now include `images`); fall back to just the cover image so the gallery
+            // still works against a backend that hasn't shipped that field yet.
+            const carImages: string[] = (Array.isArray(selectedCarDetail.images) && selectedCarDetail.images.length)
+              ? selectedCarDetail.images
+              : (selectedCarDetail.cover_image ? [selectedCarDetail.cover_image] : []);
+            const total = carImages.length;
+            const idx = Math.min(carImageIndex, Math.max(0, total - 1));
+            const prev = () => setCarImageIndex((i) => (i > 0 ? i - 1 : total - 1));
+            const next = () => setCarImageIndex((i) => (i < total - 1 ? i + 1 : 0));
+            return (
             <>
-              <div className="w-full aspect-[4/3] bg-gray-100">
-                {selectedCarDetail.cover_image ? (
+              <div className="relative w-full aspect-[16/10] bg-black">
+                {total > 0 ? (
                   <img
-                    src={selectedCarDetail.cover_image}
+                    src={carImages[idx]}
                     alt={selectedCarDetail.title}
-                    className="w-full h-full object-cover"
+                    className="w-full h-full object-contain"
                   />
                 ) : (
-                  <div className="w-full h-full flex items-center justify-center text-gray-400">
+                  <div className="w-full h-full flex items-center justify-center text-gray-500">
                     <ImageIcon className="w-10 h-10" />
                   </div>
                 )}
+                {total > 1 && (
+                  <>
+                    <button type="button" onClick={prev} aria-label="Previous photo"
+                      className="absolute left-3 top-1/2 -translate-y-1/2 flex items-center justify-center w-10 h-10 rounded-full bg-black/50 text-white hover:bg-black/70 transition-colors">
+                      <ChevronLeft className="w-6 h-6" />
+                    </button>
+                    <button type="button" onClick={next} aria-label="Next photo"
+                      className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center justify-center w-10 h-10 rounded-full bg-black/50 text-white hover:bg-black/70 transition-colors">
+                      <ChevronRight className="w-6 h-6" />
+                    </button>
+                    <div className="absolute bottom-3 right-3 rounded-full bg-black/60 px-3 py-1 text-xs font-medium text-white">
+                      {idx + 1} / {total}
+                    </div>
+                  </>
+                )}
               </div>
+              {total > 1 && (
+                <div className="flex gap-2 overflow-x-auto px-4 py-3 bg-gray-50 border-b border-gray-100">
+                  {carImages.map((src, i) => (
+                    <button key={i} type="button" onClick={() => setCarImageIndex(i)}
+                      className={`flex-shrink-0 w-20 h-16 rounded-md overflow-hidden border-2 transition-all ${i === idx ? 'border-[#6C60FF]' : 'border-transparent opacity-70 hover:opacity-100'}`}>
+                      <img src={src} alt="" className="w-full h-full object-cover" />
+                    </button>
+                  ))}
+                </div>
+              )}
               <div className="p-6 space-y-4">
                 <div>
                   <h3 className="text-lg font-semibold text-[#101828]">{selectedCarDetail.title}</h3>
@@ -3839,7 +3878,8 @@ export default function PublishedMemoryPage() {
                 )}
               </div>
             </>
-          )}
+            );
+          })()}
         </DialogContent>
       </Dialog>
     </>
