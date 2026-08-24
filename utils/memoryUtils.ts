@@ -92,3 +92,17 @@ export function sanitizeAiCreatorText(html?: string | null): string {
     return `<${tag}>`;
   });
 }
+// A "car campaign" is one where dates are meaningless and should be hidden:
+// either the campaign's own category is "Cars", or it is a car showcase whose
+// content is entirely car listings (e.g. "CB Cars" — no category, only cars).
+export const isCarCampaign = (mem: any): boolean => {
+  if (!mem) return false;
+  const catName = (mem.category?.name ?? mem.category ?? '').toString().toLowerCase();
+  if (catName === 'cars') return true;
+  const linked: any[] = Array.isArray(mem.linked_memories) ? mem.linked_memories
+    : (Array.isArray(mem.cars) ? mem.cars : []);
+  const posts: any[] = Array.isArray(mem.posts) ? mem.posts : [];
+  const carCount = linked.filter((l) => l?.is_car).length;
+  const nonCarLinked = linked.length - carCount;
+  return carCount > 0 && nonCarLinked === 0 && posts.length === 0;
+};

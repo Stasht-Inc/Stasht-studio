@@ -15,7 +15,7 @@ import { ImageWithFallback } from "../components/figma/ImageWithFallback";
 import { toast } from "sonner";
 import { mockPosts } from "../data/mockPosts";
 import { getMemoryDetails } from "../data/memoryData";
-import { getCategoryColorHex, getCategoryIcon, formatDate, sanitizeAiCreatorText } from "../utils/memoryUtils";
+import { getCategoryColorHex, getCategoryIcon, formatDate, sanitizeAiCreatorText, isCarCampaign } from "../utils/memoryUtils";
 import { getCategoryColor } from "../constants/mediaConstants";
 import { triggerMemoryCountsRefresh } from '../hooks/useMemoryCounts';
 import { useMemoryLimit, recheckMemoryLimit } from '../hooks/useMemoryLimit';
@@ -586,7 +586,7 @@ function TimelinePostCard({ post, subImages, memoryData, onImageClick }: {
             <MapPin className="w-4 h-4 flex-shrink-0" />
             <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block', minWidth: 0 }}>{post.location || '-'}</span>
           </div>
-          {postDate && (
+          {postDate && !isCarCampaign(memoryData) && (
             <div className="flex items-center gap-1.5 flex-shrink-0 ml-auto">
               <Calendar className="w-4 h-4 flex-shrink-0" />
               <span className="whitespace-nowrap">{new Date(postDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
@@ -854,7 +854,7 @@ function SharedPostCard({ post, index, memoryData, onImageClick, onCommentClick,
         </div>
         <div className="flex items-center mb-2" style={{ color: '#6A7282', fontSize: '14px', lineHeight: '20px' }}>
           <div className="flex items-center gap-1.5 flex-1 min-w-0 overflow-hidden"><MapPin className="w-4 h-4 flex-shrink-0" /><span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block', minWidth: 0 }}>{post.location || '-'}</span></div>
-          {(post.uploaded_at || post.capture_date) && <div className="flex items-center gap-1.5 flex-shrink-0 ml-auto"><Calendar className="w-4 h-4 flex-shrink-0" /><span className="whitespace-nowrap">{new Date(post.uploaded_at || post.capture_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span></div>}
+          {(post.uploaded_at || post.capture_date) && !isCarCampaign(memoryData) && <div className="flex items-center gap-1.5 flex-shrink-0 ml-auto"><Calendar className="w-4 h-4 flex-shrink-0" /><span className="whitespace-nowrap">{new Date(post.uploaded_at || post.capture_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span></div>}
         </div>
         {post.title && <p className="font-medium mb-2" style={{ color: '#364153', fontSize: '16px', lineHeight: '24px' }}>{post.title}</p>}
         {isEditingCaption ? (
@@ -8929,6 +8929,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
     const sharedMinDate = apiMemoryData?.min_uploaded_img_date ? new Date(apiMemoryData.min_uploaded_img_date) : null;
     const sharedMaxDate = apiMemoryData?.max_uploaded_img_date ? new Date(apiMemoryData.max_uploaded_img_date) : null;
     const sharedFormatDateRange = () => {
+      if (isCarCampaign(apiMemoryData)) return ''; // dates are meaningless for car campaigns
       if (!sharedMinDate || !sharedMaxDate) return '';
       if (sharedMinDate.getTime() === sharedMaxDate.getTime()) return sharedMinDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
       if (sharedMinDate.getMonth() === sharedMaxDate.getMonth() && sharedMinDate.getFullYear() === sharedMaxDate.getFullYear())
@@ -9335,7 +9336,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                               <div className="group/border relative pr-6">
                                 <p className={`leading-snug hover:text-[#6C60FF] cursor-pointer text-[#101828] ${isActive ? 'text-lg font-semibold' : 'text-base line-clamp-2 font-medium'}`}>{description}</p>
                                 <div className="flex items-center gap-1.5 mt-1 text-gray-400 text-sm">
-                                  <Calendar className="w-4 h-4" /><span>{postDate ? new Date(postDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '-'}</span>
+                                  {!isCarCampaign(apiMemoryData) && (<><Calendar className="w-4 h-4" /><span>{postDate ? new Date(postDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '-'}</span></>)}
                                   <MapPin className="w-4 h-4 ml-2" /><span>{(post.location || '-').length > 12 ? (post.location || '-').substring(0, 12) + '...' : (post.location || '-')}</span>
                                   <MessageSquare className="w-4 h-4 ml-2" /><span>{post.comments_count ?? 0}</span>
                                 </div>
@@ -12650,10 +12651,12 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                   </span>
                                 </div>
                               )}
+                              {!isCarCampaign(apiMemoryData) && (
                               <div className="flex items-center gap-1.5 md:gap-1.5 lg:gap-2">
                                 <Calendar className="w-4 h-4 md:w-4 md:h-4 lg:w-5 lg:h-5" />
                                 <span className="whitespace-nowrap">{uiMemory.dateRange || `Created ${formatDate(uiMemory.createdDate)}`}</span>
                               </div>
+                              )}
                             </div>
                             {/* Author - mobile only (on cover) */}
                             <div className="flex items-center gap-2.5 md:hidden pt-1">
@@ -12783,7 +12786,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                   <span className="truncate max-w-[100px]">{uiMemory.location.primary}</span>
                                 </div>
                               )}
-                              {uiMemory.dateRange && (
+                              {uiMemory.dateRange && !isCarCampaign(apiMemoryData) && (
                                 <div className="flex items-center gap-1">
                                   <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5 flex-shrink-0">
                                     <rect x="1.75" y="2.91675" width="10.5" height="9.33333" rx="1.16667" stroke="#4A5565" strokeWidth="1.16617" strokeLinecap="round" strokeLinejoin="round"/>
@@ -12995,7 +12998,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                         <span>{typeof uiMemory.location === 'string' ? uiMemory.location : uiMemory.location?.primary || ''}</span>
                       </div>
                     )}
-                    {uiMemory.dateRange && (
+                    {uiMemory.dateRange && !isCarCampaign(apiMemoryData) && (
                       <div className="flex items-center gap-1.5">
                         <Calendar className="w-4 h-4" />
                         <span>{uiMemory.dateRange}</span>
@@ -13844,8 +13847,8 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                               }`}>{activeSearchQuery ? highlightText(description, activeSearchQuery) : description}</p>
                             )}
                             <div className="flex items-center gap-1.5 mt-1 text-gray-400 text-sm">
-                              <Calendar className="w-4 h-4" />
-                              <span>{postDate ? new Date(postDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '-'}</span>
+                              {!isCarCampaign(apiMemoryData) && (<><Calendar className="w-4 h-4" />
+                              <span>{postDate ? new Date(postDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '-'}</span></>)}
                               <MapPin className="w-4 h-4 ml-2" />
                               <span>{(post.location || '-').length > 12 ? (post.location || '-').substring(0, 12) + '...' : (post.location || '-')}</span>
                               <MessageSquare className="w-4 h-4 ml-2" />

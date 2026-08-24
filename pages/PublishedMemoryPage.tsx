@@ -12,6 +12,7 @@ import { Popover, PopoverTrigger, PopoverContent, PopoverClose } from "../compon
 import { ImageWithFallback } from "../components/figma/ImageWithFallback";
 import { PdfThumbnail } from "../components/PdfThumbnail";
 import MemoryCard from "../components/MemoryCard";
+import { isCarCampaign } from "../utils/memoryUtils";
 import RequestMomentModal from "../components/RequestMomentModal";
 import { toast, Toaster } from "sonner";
 import exifr from "exifr";
@@ -394,7 +395,7 @@ function PublishedPostCard({ post, index, memoryData, onImageClick, onCommentCli
             <span className="truncate">{post.location || '-'}</span>
           </div>
           {/* Date on the right */}
-          {(post.uploaded_at || post.capture_date) && (
+          {(post.uploaded_at || post.capture_date) && !isCarCampaign(memoryData) && (
             <div className="flex items-center gap-1.5 flex-shrink-0 ml-auto">
               <Calendar className="w-4 h-4 flex-shrink-0" />
               <span className="whitespace-nowrap">{new Date(post.uploaded_at || post.capture_date).toLocaleDateString('en-US', {
@@ -1645,6 +1646,7 @@ export default function PublishedMemoryPage() {
   const maxDate = memoryData.max_uploaded_img_date ? new Date(memoryData.max_uploaded_img_date) : null;
 
   const formatDateRange = () => {
+    if (isCarCampaign(memoryData)) return ''; // dates are meaningless for car campaigns
     if (!minDate || !maxDate) return '';
 
     // Format like "Oct 19 - Oct 30, 2025"
