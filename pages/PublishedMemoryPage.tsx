@@ -236,6 +236,14 @@ const carLinkedMemoryTags = (lm: any): string[] => {
   if (lm?.stock_number) tags.push(`Stock #${lm.stock_number}`);
   return tags;
 };
+// eDealer CDN encodes the image size as the first path segment
+// (https://images.edealer.ca/{sizeId}/{id}.jpeg). Car galleries stored the tiny
+// thumbnail preset (e.g. /21/ ≈ 2.6 KB), so large displays looked like thumbnails.
+// Rewrite to the full-res preset (/1/ ≈ 83 KB). Non-eDealer URLs pass through.
+const carImageLarge = (url: string): string =>
+  typeof url === 'string'
+    ? url.replace(/^(https?:\/\/images\.edealer\.ca)\/\d+\//i, '$1/1/')
+    : url;
 
 function PublishedPostCard({ post, index, memoryData, onImageClick, onCommentClick }: PublishedPostCardProps) {
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
@@ -587,7 +595,7 @@ export default function PublishedMemoryPage() {
     // PublishedMemoryController::index()'s $carEntries mapping on the backend),
     // so just show it directly with no extra request.
     if (lm.is_car) {
-      setCarImageIndex(0);
+      setCarPhotoIndex(0);
       setSelectedCarDetail(lm);
       return;
     }
@@ -663,12 +671,29 @@ export default function PublishedMemoryPage() {
   // Which post the submission should land after; null = top of the timeline.
   const [requestMomentAfterPostId, setRequestMomentAfterPostId] = useState<string | null>(null);
 
-  // Car listing detail modal — cars aren't real Memory records (see
-  // handleLinkedMemoryClick below), so clicking one just opens this read-only
-  // panel from the data already on the linked_memories entry, no extra fetch needed.
+  // Cars aren't real Memory records (see handleLinkedMemoryClick), so clicking one
+  // opens a public, read-only, timeline-style view built entirely from the data on
+  // the linked_memories entry — no extra fetch.
+  // Step 2: the car whose timeline is open (null = not viewing a car).
   const [selectedCarDetail, setSelectedCarDetail] = useState<any | null>(null);
-  // Which of the car's photos is showing in the full-view gallery.
-  const [carImageIndex, setCarImageIndex] = useState(0);
+  // Step 3: index of the car photo open in the full-screen viewer; null = closed.
+  const [carPhotoIndex, setCarPhotoIndex] = useState<number | null>(null);
+  // Car photo viewer keyboard nav: Esc closes the viewer (back to the campaign),
+  // ←/→ move between the car's photos.
+  useEffect(() => {
+    if (!selectedCarDetail) return;
+    const imgs: string[] = (Array.isArray(selectedCarDetail.images) && selectedCarDetail.images.length)
+      ? selectedCarDetail.images
+      : (selectedCarDetail.cover_image ? [selectedCarDetail.cover_image] : []);
+    const t = imgs.length;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setSelectedCarDetail(null);
+      else if (t > 1 && e.key === 'ArrowLeft') setCarPhotoIndex((i) => (i === null ? 0 : (((i - 1) % t) + t) % t));
+      else if (t > 1 && e.key === 'ArrowRight') setCarPhotoIndex((i) => (i === null ? 0 : (((i + 1) % t) + t) % t));
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [selectedCarDetail]);
 
   // Cover video state
   const [isCoverVideoPlaying, setIsCoverVideoPlaying] = useState(false);
@@ -3772,116 +3797,89 @@ export default function PublishedMemoryPage() {
         variant="public"
       />
 
-      {/* ── Car listing detail modal ──────────────────────────────────────── */}
-      <Dialog open={!!selectedCarDetail} onOpenChange={(open) => { if (!open) setSelectedCarDetail(null); }}>
-        <DialogContent className="sm:max-w-3xl max-h-[92vh] overflow-y-auto p-0 gap-0 bg-white">
-          <DialogTitle className="sr-only">
-            {selectedCarDetail?.title || 'Vehicle details'}
-          </DialogTitle>
-          {selectedCarDetail && (() => {
-            // Full photo set from the backend (PublishedMemoryController car entries
-            // now include `images`); fall back to just the cover image so the gallery
-            // still works against a backend that hasn't shipped that field yet.
-            const carImages: string[] = (Array.isArray(selectedCarDetail.images) && selectedCarDetail.images.length)
-              ? selectedCarDetail.images
-              : (selectedCarDetail.cover_image ? [selectedCarDetail.cover_image] : []);
-            const total = carImages.length;
-            const idx = Math.min(carImageIndex, Math.max(0, total - 1));
-            const prev = () => setCarImageIndex((i) => (i > 0 ? i - 1 : total - 1));
-            const next = () => setCarImageIndex((i) => (i < total - 1 ? i + 1 : 0));
-            return (
-            <>
-              <div className="relative w-full aspect-[16/10] bg-black">
-                {total > 0 ? (
-                  <img
-                    src={carImages[idx]}
-                    alt={selectedCarDetail.title}
-                    className="w-full h-full object-contain"
-                  />
-                ) : (
-                  <div className="w-full h-full flex items-center justify-center text-gray-500">
-                    <ImageIcon className="w-10 h-10" />
-                  </div>
-                )}
-                {total > 1 && (
-                  <>
-                    <button type="button" onClick={prev} aria-label="Previous photo"
-                      className="absolute left-3 top-1/2 -translate-y-1/2 flex items-center justify-center w-10 h-10 rounded-full bg-black/50 text-white hover:bg-black/70 transition-colors">
-                      <ChevronLeft className="w-6 h-6" />
-                    </button>
-                    <button type="button" onClick={next} aria-label="Next photo"
-                      className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center justify-center w-10 h-10 rounded-full bg-black/50 text-white hover:bg-black/70 transition-colors">
-                      <ChevronRight className="w-6 h-6" />
-                    </button>
-                    <div className="absolute bottom-3 right-3 rounded-full bg-black/60 px-3 py-1 text-xs font-medium text-white">
-                      {idx + 1} / {total}
-                    </div>
-                  </>
-                )}
-              </div>
+      {/* ── Car photo viewer: opens directly from the campaign (filmstrip + spec sheet, no comments) ── */}
+      {selectedCarDetail && (() => {
+        const car = selectedCarDetail;
+        const carImages: string[] = (Array.isArray(car.images) && car.images.length)
+          ? car.images
+          : (car.cover_image ? [car.cover_image] : []);
+        const total = carImages.length;
+        const idx = Math.min(carPhotoIndex ?? 0, Math.max(0, total - 1));
+        const go = (n: number) => setCarPhotoIndex(total > 0 ? (((n % total) + total) % total) : 0);
+        const specs: [string, any][] = [
+          ['Mileage', (car.mileage != null && car.mileage !== '') ? `${Number(car.mileage).toLocaleString()} mi` : null],
+          ['Stock #', car.stock_number],
+          ['Engine', car.engine],
+          ['Body Style', car.body_style],
+          ['Exterior Color', car.exterior_color],
+          ['Interior Color', car.interior_color],
+          ['Fuel Type', car.fuel_type],
+          ['Transmission', car.transmission],
+          ['Drivetrain', car.drivetrain],
+          ['Trim', car.trim_details],
+        ];
+        const shownSpecs = specs.filter(([, v]) => v != null && v !== '');
+        return (
+          <div className="fixed inset-0 z-[60] bg-black flex flex-col lg:flex-row">
+            <div className="hidden lg:flex flex-col w-24 shrink-0 overflow-y-auto bg-black/80 p-2 gap-2">
+              {carImages.map((src, i) => (
+                <button key={i} type="button" onClick={() => setCarPhotoIndex(i)}
+                  className={`shrink-0 w-full aspect-[4/3] rounded-md overflow-hidden border-2 ${i === idx ? 'border-[#6C60FF]' : 'border-transparent opacity-60 hover:opacity-100'}`}>
+                  <img src={src} alt="" className="w-full h-full object-cover" />
+                </button>
+              ))}
+            </div>
+            <div className="relative flex-1 flex items-center justify-center min-h-[45vh] lg:min-h-0">
+              <div className="absolute top-4 left-4 text-white text-sm z-10">{car.title} · {idx + 1} of {total}</div>
+              <button type="button" onClick={() => setSelectedCarDetail(null)} aria-label="Close"
+                className="absolute top-4 right-4 z-10 flex items-center justify-center w-10 h-10 rounded-full bg-white/10 text-white hover:bg-white/20">
+                <X className="w-5 h-5" />
+              </button>
               {total > 1 && (
-                <div className="flex gap-2 overflow-x-auto px-4 py-3 bg-gray-50 border-b border-gray-100">
-                  {carImages.map((src, i) => (
-                    <button key={i} type="button" onClick={() => setCarImageIndex(i)}
-                      className={`flex-shrink-0 w-20 h-16 rounded-md overflow-hidden border-2 transition-all ${i === idx ? 'border-[#6C60FF]' : 'border-transparent opacity-70 hover:opacity-100'}`}>
-                      <img src={src} alt="" className="w-full h-full object-cover" />
-                    </button>
+                <button type="button" onClick={() => go(idx - 1)} aria-label="Previous"
+                  className="absolute left-4 top-1/2 -translate-y-1/2 z-10 flex items-center justify-center w-11 h-11 rounded-full bg-white/10 text-white hover:bg-white/20">
+                  <ChevronLeft className="w-6 h-6" />
+                </button>
+              )}
+              {total > 0 ? (
+                <img src={carImageLarge(carImages[idx])} alt={car.title} className="max-h-[92vh] max-w-full object-contain" />
+              ) : (
+                <div className="text-gray-500"><ImageIcon className="w-12 h-12" /></div>
+              )}
+              {total > 1 && (
+                <button type="button" onClick={() => go(idx + 1)} aria-label="Next"
+                  className="absolute right-4 top-1/2 -translate-y-1/2 z-10 flex items-center justify-center w-11 h-11 rounded-full bg-white/10 text-white hover:bg-white/20">
+                  <ChevronRight className="w-6 h-6" />
+                </button>
+              )}
+            </div>
+            <div className="w-full lg:w-96 shrink-0 bg-[#0b0b0b] text-white overflow-y-auto p-6">
+              <div className="flex flex-wrap items-center gap-2 mb-3">
+                {car.condition && <span className="inline-flex rounded-full bg-emerald-500/20 text-emerald-300 text-xs font-semibold px-2.5 py-1">{car.condition}</span>}
+                {carLinkedMemoryLabel(car) && <span className="inline-flex rounded-full bg-amber-500/20 text-amber-300 text-xs font-semibold px-2.5 py-1">{carLinkedMemoryLabel(car)}</span>}
+              </div>
+              <h3 className="text-lg font-semibold">{car.title}</h3>
+              {car.description && <p className="text-gray-300 text-sm leading-relaxed mt-2 mb-6">{car.description}</p>}
+              {shownSpecs.length > 0 && (
+                <div className="grid grid-cols-2 gap-x-6 gap-y-4 border-t border-white/10 pt-5">
+                  {shownSpecs.map(([label, value]) => (
+                    <div key={label}>
+                      <p className="text-[11px] uppercase tracking-wide text-gray-500">{label}</p>
+                      <p className="text-sm font-medium text-white break-words">{value}</p>
+                    </div>
                   ))}
                 </div>
               )}
-              <div className="p-6 space-y-4">
-                <div>
-                  <h3 className="text-lg font-semibold text-[#101828]">{selectedCarDetail.title}</h3>
-                  {selectedCarDetail.location && (
-                    <p className="text-sm text-gray-500 flex items-center gap-1 mt-1">
-                      <MapPin className="w-3.5 h-3.5" /> {selectedCarDetail.location}
-                    </p>
-                  )}
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  {carLinkedMemoryLabel(selectedCarDetail) && (
-                    <div>
-                      <p className="text-xs text-gray-400 uppercase tracking-wide">Price</p>
-                      <p className="text-base font-semibold text-[#101828]">{carLinkedMemoryLabel(selectedCarDetail)}</p>
-                    </div>
-                  )}
-                  {selectedCarDetail.mileage != null && selectedCarDetail.mileage !== '' && (
-                    <div>
-                      <p className="text-xs text-gray-400 uppercase tracking-wide">Mileage</p>
-                      <p className="text-base font-semibold text-[#101828]">{Number(selectedCarDetail.mileage).toLocaleString()} mi</p>
-                    </div>
-                  )}
-                  {selectedCarDetail.stock_number && (
-                    <div>
-                      <p className="text-xs text-gray-400 uppercase tracking-wide">Stock #</p>
-                      <p className="text-base font-semibold text-[#101828]">{selectedCarDetail.stock_number}</p>
-                    </div>
-                  )}
-                  {(selectedCarDetail.year || selectedCarDetail.make || selectedCarDetail.model) && (
-                    <div>
-                      <p className="text-xs text-gray-400 uppercase tracking-wide">Vehicle</p>
-                      <p className="text-base font-semibold text-[#101828]">
-                        {[selectedCarDetail.year, selectedCarDetail.make, selectedCarDetail.model].filter(Boolean).join(' ')}
-                      </p>
-                    </div>
-                  )}
-                </div>
-                {selectedCarDetail.listing_url && (
-                  <a
-                    href={selectedCarDetail.listing_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="block w-full text-center bg-[#6C60FF] hover:bg-[#5b50e6] text-white text-sm font-medium rounded-lg py-2.5 transition-colors"
-                  >
-                    View Full Listing
-                  </a>
-                )}
-              </div>
-            </>
-            );
-          })()}
-        </DialogContent>
-      </Dialog>
+              {car.listing_url && (
+                <a href={car.listing_url} target="_blank" rel="noopener noreferrer"
+                  className="mt-6 block w-full text-center bg-[#6C60FF] hover:bg-[#5b50e6] text-white text-sm font-medium rounded-lg py-2.5 transition-colors">
+                  View Full Listing
+                </a>
+              )}
+            </div>
+          </div>
+        );
+      })()}
     </>
   );
 }
