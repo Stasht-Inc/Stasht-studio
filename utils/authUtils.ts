@@ -4601,7 +4601,7 @@ export const dashboardAPI = {
   },
 
   // Register user for property
-  registerPropertyUser: async (token: string, data: { invite_token: string; name: string; email?: string; phone_number?: string; password?: string }): Promise<ApiResponse<any>> => {
+  registerPropertyUser: async (token: string, data: { invite_token: string; name: string; email?: string; phone_number?: string; password?: string; verification_token?: string }): Promise<ApiResponse<any>> => {
     return await apiRequest('/properties/register', {
       method: 'POST',
       body: JSON.stringify(data),
