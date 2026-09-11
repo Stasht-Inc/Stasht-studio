@@ -4628,7 +4628,7 @@ export const dashboardAPI = {
   },
 
   // Register via personal account invite (public — no auth needed)
-  registerViaPersonalInvite: async (data: { invite_token: string; name: string; email?: string; phone_number?: string; password: string }): Promise<ApiResponse<any>> => {
+  registerViaPersonalInvite: async (data: { invite_token: string; name: string; email?: string; phone_number?: string; password?: string; verification_token?: string }): Promise<ApiResponse<any>> => {
     try {
       const response = await fetch(`${API_BASE_URL}/account/register-via-invite`, {
         method: 'POST',
