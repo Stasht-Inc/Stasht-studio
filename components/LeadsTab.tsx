@@ -15,6 +15,8 @@ const STATUS_TRIGGER_CLASS: Record<string, string> = {
   hot: 'bg-red-100 text-red-600 border-red-200 hover:bg-red-100 focus:ring-0',
   warm: 'bg-orange-100 text-orange-500 border-orange-200 hover:bg-orange-100 focus:ring-0',
   cold: 'bg-blue-100 text-blue-500 border-blue-200 hover:bg-blue-100 focus:ring-0',
+  visited: 'bg-purple-100 text-purple-600 border-purple-200 hover:bg-purple-100 focus:ring-0',
+  sold: 'bg-green-100 text-green-600 border-green-200 hover:bg-green-100 focus:ring-0',
 };
 
 function getTimeAgo(dateString: string): string {
@@ -140,12 +142,12 @@ function SortableTh({
   );
 }
 
-function StatusSelect({ lead, onUpdate, disabled }: { lead: Lead; onUpdate: (id: number, status: 'hot' | 'warm' | 'cold' | null) => void; disabled: boolean }) {
+function StatusSelect({ lead, onUpdate, disabled }: { lead: Lead; onUpdate: (id: number, status: 'hot' | 'warm' | 'cold' | 'visited' | 'sold' | null) => void; disabled: boolean }) {
   return (
     <Select
       value={lead.status ?? 'none'}
       disabled={disabled}
-      onValueChange={(val) => onUpdate(lead.id, val === 'none' ? null : val as 'hot' | 'warm' | 'cold')}
+      onValueChange={(val) => onUpdate(lead.id, val === 'none' ? null : val as 'hot' | 'warm' | 'cold' | 'visited' | 'sold')}
     >
       <SelectTrigger
         className={`h-6 text-xs font-medium rounded-md px-2 w-auto min-w-[68px] border shadow-none outline-none focus:ring-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#6C60FF] focus-visible:ring-offset-1 ${
@@ -157,6 +159,8 @@ function StatusSelect({ lead, onUpdate, disabled }: { lead: Lead; onUpdate: (id:
         {lead.status === 'hot' && <span className="flex items-center gap-1.5"><img src="/hot-icon.svg" className="w-3 h-3.5" />Hot</span>}
         {lead.status === 'warm' && <span className="flex items-center gap-1.5"><img src="/warm-icon.svg" className="w-2 h-3.5" />Warm</span>}
         {lead.status === 'cold' && <span className="flex items-center gap-1.5"><img src="/cold-icon.svg" className="w-3.5 h-3.5" />Cold</span>}
+        {lead.status === 'visited' && <span>Visited</span>}
+        {lead.status === 'sold' && <span>Sold</span>}
         {!lead.status && <SelectValue placeholder="Set status" />}
       </SelectTrigger>
       <SelectContent>
@@ -164,6 +168,9 @@ function StatusSelect({ lead, onUpdate, disabled }: { lead: Lead; onUpdate: (id:
         <SelectItem value="hot"><span className="flex items-center gap-1.5"><img src="/hot-icon.svg" className="w-3 h-3.5" />Hot</span></SelectItem>
         <SelectItem value="warm"><span className="flex items-center gap-1.5"><img src="/warm-icon.svg" className="w-2 h-3.5" />Warm</span></SelectItem>
         <SelectItem value="cold"><span className="flex items-center gap-1.5"><img src="/cold-icon.svg" className="w-3.5 h-3.5" />Cold</span></SelectItem>
+        <SelectSeparator />
+        <SelectItem value="visited">Visited</SelectItem>
+        <SelectItem value="sold">Sold</SelectItem>
       </SelectContent>
     </Select>
   );
@@ -235,7 +242,7 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
   const [totalPages, setTotalPages] = useState(1);
   // Summary-card data for the Leads sub-tab (Task M4) — backend-computed
   // across the full filtered/scoped result set, not just the current page.
-  const [statusCounts, setStatusCounts] = useState<Partial<Record<'hot' | 'warm' | 'cold', number>>>({});
+  const [statusCounts, setStatusCounts] = useState<Partial<Record<'hot' | 'warm' | 'cold' | 'visited' | 'sold', number>>>({});
   const [messagesTotal, setMessagesTotal] = useState(0);
 
   // Search Group (commentary search across the currently loaded leads page)
@@ -696,7 +703,7 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
     }
   };
 
-  const handleUpdateStatus = async (leadId: number, newStatus: 'hot' | 'warm' | 'cold' | null) => {
+  const handleUpdateStatus = async (leadId: number, newStatus: 'hot' | 'warm' | 'cold' | 'visited' | 'sold' | null) => {
     setUpdatingId(leadId);
     try {
       const res = await leadsAPI.updateLeadStatus(leadId, newStatus);
@@ -721,6 +728,8 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
         { label: 'Hot', value: statusCounts.hot ?? 0, valueClassName: 'text-red-600' },
         { label: 'Warm', value: statusCounts.warm ?? 0, valueClassName: 'text-orange-500' },
         { label: 'Cold', value: statusCounts.cold ?? 0, valueClassName: 'text-blue-500' },
+        { label: 'Visited', value: statusCounts.visited ?? 0, valueClassName: 'text-purple-600' },
+        { label: 'Sold', value: statusCounts.sold ?? 0, valueClassName: 'text-green-600' },
         // Messages = sent + received combined (backend messages_total).
         { label: 'Messages', value: messagesTotal },
       ];
@@ -821,6 +830,8 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
               {statusFilter === 'hot' && <span className="flex items-center gap-1.5"><img src="/hot-icon.svg" className="w-3 h-3.5" />Hot</span>}
               {statusFilter === 'warm' && <span className="flex items-center gap-1.5"><img src="/warm-icon.svg" className="w-2 h-3.5" />Warm</span>}
               {statusFilter === 'cold' && <span className="flex items-center gap-1.5"><img src="/cold-icon.svg" className="w-3.5 h-3.5" />Cold</span>}
+              {statusFilter === 'visited' && <span>Visited</span>}
+              {statusFilter === 'sold' && <span>Sold</span>}
               {statusFilter === 'archived' && <span className="flex items-center gap-1.5"><Archive className="w-3.5 h-3.5" />Archived</span>}
               {statusFilter === 'all' && <SelectValue placeholder="Status" />}
             </SelectTrigger>
@@ -829,6 +840,8 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
               <SelectItem value="hot"><span className="flex items-center gap-1.5"><img src="/hot-icon.svg" className="w-3 h-3.5" />Hot</span></SelectItem>
               <SelectItem value="warm"><span className="flex items-center gap-1.5"><img src="/warm-icon.svg" className="w-2 h-3.5" />Warm</span></SelectItem>
               <SelectItem value="cold"><span className="flex items-center gap-1.5"><img src="/cold-icon.svg" className="w-3.5 h-3.5" />Cold</span></SelectItem>
+              <SelectItem value="visited">Visited</SelectItem>
+              <SelectItem value="sold">Sold</SelectItem>
               <SelectSeparator className="bg-gray-200" />
               <SelectItem value="archived"><span className="flex items-center gap-1.5"><Archive className="w-3.5 h-3.5" />Archived</span></SelectItem>
             </SelectContent>
@@ -1033,6 +1046,8 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
                       {mgStatusFilter === 'hot' && <span className="flex items-center gap-1.5"><img src="/hot-icon.svg" className="w-3 h-3.5" />Hot</span>}
                       {mgStatusFilter === 'warm' && <span className="flex items-center gap-1.5"><img src="/warm-icon.svg" className="w-2 h-3.5" />Warm</span>}
                       {mgStatusFilter === 'cold' && <span className="flex items-center gap-1.5"><img src="/cold-icon.svg" className="w-3.5 h-3.5" />Cold</span>}
+                      {mgStatusFilter === 'visited' && <span>Visited</span>}
+                      {mgStatusFilter === 'sold' && <span>Sold</span>}
                       {mgStatusFilter === 'all' && <SelectValue placeholder="Status" />}
                     </SelectTrigger>
                     <SelectContent>
@@ -1040,6 +1055,8 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
                       <SelectItem value="hot"><span className="flex items-center gap-1.5"><img src="/hot-icon.svg" className="w-3 h-3.5" />Hot</span></SelectItem>
                       <SelectItem value="warm"><span className="flex items-center gap-1.5"><img src="/warm-icon.svg" className="w-2 h-3.5" />Warm</span></SelectItem>
                       <SelectItem value="cold"><span className="flex items-center gap-1.5"><img src="/cold-icon.svg" className="w-3.5 h-3.5" />Cold</span></SelectItem>
+                      <SelectItem value="visited">Visited</SelectItem>
+                      <SelectItem value="sold">Sold</SelectItem>
                     </SelectContent>
                   </Select>
 
@@ -1632,7 +1649,9 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
                         <span className="text-sm font-semibold text-gray-900 truncate">{c.owner.name}</span>
                         <span className="text-xs text-gray-600 shrink-0">{getTimeAgo(c.last_message_at)}</span>
                       </div>
-                      <div className="text-xs text-gray-600 truncate">Re: {c.story.title}</div>
+                      {c.story?.title && (
+                        <div className="text-xs text-gray-600 truncate">Re: {c.story.title}</div>
+                      )}
                       {lm && (
                         <div className="text-xs text-gray-600 truncate mt-0.5">
                           {lm.from_me && <span className="text-gray-600">You: </span>}{lm.body}

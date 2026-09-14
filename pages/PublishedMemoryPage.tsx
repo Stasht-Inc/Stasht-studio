@@ -18,6 +18,7 @@ import { toast, Toaster } from "sonner";
 import exifr from "exifr";
 import { dashboardAPI } from "../utils/authUtils";
 import { useAuth } from "../contexts/AuthContext";
+import { useStoreelTracking } from "../hooks/useStoreelTracking";
 
 // Custom Comment Icon Component (for mobile)
 const CommentIcon = ({ className = "" }: { className?: string }) => (
@@ -62,11 +63,15 @@ function pubNormalizeUrl(url: string): string {
 
 // Renders a single widget by its widget_type. `widget` is the raw API object
 // ({ id, widget_type, widget_data, ... }). memoryId is used for CTA click tracking.
-function PublishedWidget({ widget, memoryId, onRequestMoment }: {
+function PublishedWidget({ widget, memoryId, onRequestMoment, onCtaClick }: {
   widget: any;
   memoryId?: string | number | null;
   // Invoked by a CTA saved with mode 'request_moment'; opens the submission form.
   onRequestMoment?: (afterPostId: string | null) => void;
+  // Storeel viewer beacon (spec §5.4 cta_clicked) — separate from the legacy
+  // dashboardAPI.trackWidgetClick() call below, which only powers the
+  // Studio-side widget click_count, not Storeel measurement.
+  onCtaClick?: (widgetId?: number | string) => void;
 }) {
   const data = widget?.widget_data || {};
   switch (widget?.widget_type) {
@@ -100,6 +105,7 @@ function PublishedWidget({ widget, memoryId, onRequestMoment }: {
       const href = pubNormalizeUrl(data.buttonLink || '');
       const buttonWidth = data.buttonWidth || 0; // 0 = full width
       const trackClick = () => {
+        onCtaClick?.(widget?.id);
         const mid = widget?.memory_id ?? memoryId;
         if (!mid || !widget?.id) return;
         try { dashboardAPI.trackWidgetClick(String(mid), String(widget.id)).catch(() => {}); } catch { /* ignore */ }
@@ -153,6 +159,7 @@ function PublishedWidget({ widget, memoryId, onRequestMoment }: {
       const priceLabel = data.price ? (data.currency ? `${data.currency} ${data.price}` : String(data.price)) : '';
       const shortDesc = (data.description || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
       const trackClick = () => {
+        onCtaClick?.(widget?.id);
         const mid = widget?.memory_id ?? memoryId;
         if (!mid || !widget?.id) return;
         try { dashboardAPI.trackWidgetClick(String(mid), String(widget.id)).catch(() => {}); } catch { /* ignore */ }
@@ -456,6 +463,10 @@ export default function PublishedMemoryPage() {
   const viewOnly = searchParams.get('viewonly') === '1';
   const accessToken = searchParams.get('access_token');
   const postIdParam = searchParams.get('post_id'); // Get post_id from URL to auto-open specific post
+  // Storeel measurement (spec §5.3/5.4): the tokenised send this visit came
+  // from, forwarded by the /share/memory/{slug} redirect. Empty for organic/
+  // untracked visits — useStoreelTracking no-ops entirely in that case.
+  const storeelSendToken = searchParams.get('s');
 
   // Image viewer state
   const [imageViewer, setImageViewer] = useState<{
@@ -776,6 +787,18 @@ export default function PublishedMemoryPage() {
   const sidebarWidgetRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const rightScrollContainerRef = useRef<HTMLDivElement>(null);
   const [mobileActiveMemoryIndex, setMobileActiveMemoryIndex] = useState(0);
+
+  // Storeel viewer beacon. Must be called unconditionally before the loading/
+  // error early-returns below (rules of hooks), so it can't use the fully
+  // sorted/filtered totalMomentsCount computed further down — this simpler
+  // count is a close-enough proxy for milestone-percentage purposes.
+  const storeelTotalMomentsEarly =
+    (memoryData?.posts?.length || 0) + (memoryData?.linked_memories?.length || 0);
+  const { trackCtaClick: trackStoreelCtaClick } = useStoreelTracking(
+    storeelSendToken,
+    Math.max(activeMemoryIndex, mobileActiveMemoryIndex),
+    storeelTotalMomentsEarly
+  );
 
   // Access token state for private memories
   const [requiresToken, setRequiresToken] = useState(false);
@@ -1529,8 +1552,8 @@ export default function PublishedMemoryPage() {
   const renderWidgets = (list: any[], withAnchor: boolean) =>
     list.map((w: any) => (
       withAnchor
-        ? <div key={`widget-${w.id}`} data-pub-widget-id={w.id}><PublishedWidget widget={w} memoryId={memoryData?.id} onRequestMoment={openRequestMoment} /></div>
-        : <PublishedWidget key={`widget-${w.id}`} widget={w} memoryId={memoryData?.id} onRequestMoment={openRequestMoment} />
+        ? <div key={`widget-${w.id}`} data-pub-widget-id={w.id}><PublishedWidget widget={w} memoryId={memoryData?.id} onRequestMoment={openRequestMoment} onCtaClick={trackStoreelCtaClick} /></div>
+        : <PublishedWidget key={`widget-${w.id}`} widget={w} memoryId={memoryData?.id} onRequestMoment={openRequestMoment} onCtaClick={trackStoreelCtaClick} />
     ));
   // The combined timeline actually rendered by both feeds. Falls back to a
   // post-only list before the API's unified_order has been merged in.

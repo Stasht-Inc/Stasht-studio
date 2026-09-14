@@ -156,7 +156,7 @@ export const getApiBaseUrl = () => {
   return `${window.location.origin}/api/react`;
 };
 
-const API_BASE_URL = getApiBaseUrl();
+export const API_BASE_URL = getApiBaseUrl();
 
 // Helper function to get auth headers
 export const getAuthHeaders = (): Record<string, string> => {
@@ -240,7 +240,101 @@ export const fetchWithRateLimitRetry = async (url: string, init: RequestInit): P
   return response;
 };
 
+// ── GET de-duplication + short-TTL response cache ─────────────────────────
+// A single navigation mounts several components that each independently fetch
+// the same shared data (e.g. the sidebar, the page, and a modal all GET
+// /user/collaborators-and-non-collaborators), so one page load fires the same
+// GET 2-3x. Against the server's per-minute throttle that burns the budget fast
+// and surfaces as "Invalid response format from server (429)". Two transparent,
+// read-only optimisations collapse the waste without changing any call site:
+//   1. In-flight de-duplication — identical GETs issued while one is already
+//      pending share that single network request (kills the concurrent 3x/2x).
+//   2. Short-TTL cache — a GET repeated within GET_CACHE_TTL_MS (a quick tab
+//      switch back, a staggered second mount) is served from memory.
+// Only GETs are ever cached/de-duped; every successful write clears the cache so
+// mutations are reflected immediately on the next read. Cache keys are namespaced
+// by a fingerprint of the auth token so a login/logout or "log in as user" switch
+// can never serve one user data cached for another.
+const GET_CACHE_TTL_MS = 15000;
+
+type CachedGet = { response: ApiResponse<any>; expiresAt: number };
+
+const inFlightGets = new Map<string, Promise<ApiResponse<any>>>();
+const getCache = new Map<string, CachedGet>();
+
+const cacheKeyFor = (endpoint: string): string => {
+  const token = tokenUtils.getToken();
+  const ns = token ? token.slice(-16) : 'anon';
+  return `${ns}::${endpoint}`;
+};
+
+// Return a copy so a caller mutating the result can't corrupt the shared cached
+// object (and thus the next caller's data). API payloads are JSON, so a
+// structured/JSON clone is always safe.
+const cloneResponse = <T>(res: ApiResponse<T>): ApiResponse<T> => {
+  try {
+    return structuredClone(res);
+  } catch {
+    try { return JSON.parse(JSON.stringify(res)); } catch { return res; }
+  }
+};
+
+// Exported so writes elsewhere (and logout) can force subsequent reads to be
+// fresh. Called automatically after every successful non-GET request below.
+export const clearApiCache = (): void => {
+  getCache.clear();
+};
+
 export const apiRequest = async <T = any>(
+  endpoint: string,
+  options: RequestInit = {}
+): Promise<ApiResponse<T>> => {
+  const method = (options.method || 'GET').toUpperCase();
+  const isGet = method === 'GET';
+  // Opt-out for callers that must always hit the wire (e.g. an explicit
+  // "refresh" with no preceding write). Ignored by fetch itself.
+  const skipCache = (options as any).skipCache === true;
+
+  // Writes never come from cache and invalidate it so the next read is fresh.
+  if (!isGet) {
+    const result = await performApiRequest<T>(endpoint, options);
+    if (result.success) clearApiCache();
+    return result;
+  }
+
+  if (skipCache) {
+    return performApiRequest<T>(endpoint, options);
+  }
+
+  const key = cacheKeyFor(endpoint);
+
+  const cached = getCache.get(key);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cloneResponse(cached.response) as ApiResponse<T>;
+  }
+
+  const pending = inFlightGets.get(key);
+  if (pending) {
+    return cloneResponse(await pending) as ApiResponse<T>;
+  }
+
+  const promise = performApiRequest<T>(endpoint, options)
+    .then((result) => {
+      // Only successful reads are cached — never errors, 401s or 429s.
+      if (result.success) {
+        getCache.set(key, { response: result, expiresAt: Date.now() + GET_CACHE_TTL_MS });
+      }
+      return result;
+    })
+    .finally(() => {
+      inFlightGets.delete(key);
+    });
+
+  inFlightGets.set(key, promise);
+  return cloneResponse(await promise) as ApiResponse<T>;
+};
+
+const performApiRequest = async <T = any>(
   endpoint: string,
   options: RequestInit = {}
 ): Promise<ApiResponse<T>> => {
@@ -1756,6 +1850,9 @@ export const userUtils = {
   clearAuthData: (): void => {
     devLog('🧹🧹🧹 ===== userUtils.clearAuthData STARTED =====');
 
+    // Drop any cached GET responses so a following login can't read stale data.
+    clearApiCache();
+
     // Clear all localStorage items related to the app
     const localStorageKeysToRemove = [
       'stasht_user',
@@ -2123,6 +2220,15 @@ export const dashboardAPI = {
     return await apiRequest('/memories/publish', {
       method: 'POST',
       body: JSON.stringify(body),
+    });
+  },
+
+  // Update the per-campaign social share message (OG description on shared links).
+  // Empty string clears it → the default "View this published storeel on stasht." is used.
+  updateShareMessage: async (memoryId: number | string, shareMessage: string): Promise<ApiResponse<any>> => {
+    return await apiRequest('/memories/published/share-message', {
+      method: 'POST',
+      body: JSON.stringify({ memory_id: Number(memoryId), share_message: shareMessage }),
     });
   },
 
@@ -3075,7 +3181,7 @@ export const dashboardAPI = {
     const backendRole = roleMapping[role] || role;
     devLog('Mapped Role (backend):', backendRole);
 
-    return await apiRequest(`/memories/non-user-collaborator/${email}`, {
+    return await apiRequest(`/memories/non-user-collaborator?email=${encodeURIComponent(email)}`, {
       method: 'PUT',
       body: JSON.stringify({
         memory_id: memoryId,
@@ -3165,7 +3271,7 @@ export const dashboardAPI = {
     devLog('Memory ID:', memoryId);
     devLog(`API URL: /memories/non-user-collaborator/${email}`);
 
-    return await apiRequest(`/memories/non-user-collaborator/${email}`, {
+    return await apiRequest(`/memories/non-user-collaborator?email=${encodeURIComponent(email)}`, {
       method: 'DELETE',
       body: JSON.stringify({
         memory_id: memoryId
@@ -3368,6 +3474,23 @@ export const dashboardAPI = {
   trackWidgetClick: async (memoryId: string | number, widgetId: string | number): Promise<ApiResponse<any>> => {
     return await apiRequest(`/memories/${memoryId}/widgets/${widgetId}/track-click`, {
       method: 'POST',
+    });
+  },
+
+  // Per-rep / per-Storeel report (spec Plan #4). from/to are ISO dates
+  // (YYYY-MM-DD); omit either to use the backend's default (last 30 days).
+  getStoreelReport: async (params: {
+    propertyId: number | string;
+    from?: string;
+    to?: string;
+    groupBy?: 'rep' | 'memory';
+  }): Promise<ApiResponse<any>> => {
+    const query = new URLSearchParams({ property_id: String(params.propertyId) });
+    if (params.from) query.set('from', params.from);
+    if (params.to) query.set('to', params.to);
+    if (params.groupBy) query.set('group_by', params.groupBy);
+    return await apiRequest(`/storeels/report?${query.toString()}`, {
+      method: 'GET',
     });
   },
 

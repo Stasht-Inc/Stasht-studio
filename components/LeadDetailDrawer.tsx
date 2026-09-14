@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Mail, Phone, MapPin, Clock, MessageSquare, X, Paperclip, Send, ChevronDown, Smile, RefreshCw, Eye, Sparkles, Search, Heart, Gift, Calendar, MessageCircle, ThumbsUp, TrendingUp, Lightbulb, FileText, UserRound } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from './ui/avatar';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
+import { Select, SelectContent, SelectItem, SelectSeparator, SelectTrigger, SelectValue } from './ui/select';
 import { Lead, LeadMessage, LeadMessageAttachment, leadsAPI, CommentaryTarget } from '../services/leadsAPI';
 import { useAuth } from '../contexts/AuthContext';
 import { useMemoryLimit, recheckMemoryLimit } from '../hooks/useMemoryLimit';
@@ -13,6 +13,8 @@ const STATUS_STYLES: Record<string, string> = {
   hot: 'bg-red-100 text-red-600 border-red-200',
   warm: 'bg-orange-100 text-orange-500 border-orange-200',
   cold: 'bg-blue-100 text-blue-500 border-blue-200',
+  visited: 'bg-purple-100 text-purple-600 border-purple-200',
+  sold: 'bg-green-100 text-green-600 border-green-200',
 };
 
 // Built-in emoji grid — kept small/lightweight, no external dependency.
@@ -147,7 +149,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
   const [aiCredits, setAiCredits] = useState<number>(limitData.ai_connects ?? 0);
   const [generatingAction, setGeneratingAction] = useState<string | null>(null);
   useEffect(() => { setAiCredits(limitData.ai_connects ?? 0); }, [limitData.ai_connects]);
-  const [currentStatus, setCurrentStatus] = useState<'hot' | 'warm' | 'cold' | null>(null);
+  const [currentStatus, setCurrentStatus] = useState<'hot' | 'warm' | 'cold' | 'visited' | 'sold' | null>(null);
   const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
   const [messages, setMessages] = useState<LeadMessage[]>([]);
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
@@ -279,7 +281,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
 
   const handleStatusChange = async (val: string) => {
     if (lead?.is_rollup) return; // read-only — backend also 403s this for rollup leads
-    const newStatus = val === 'none' ? null : val as 'hot' | 'warm' | 'cold';
+    const newStatus = val === 'none' ? null : val as 'hot' | 'warm' | 'cold' | 'visited' | 'sold';
     setIsUpdatingStatus(true);
     try {
       const res = await leadsAPI.updateLeadStatus(lead!.id, newStatus);
@@ -682,6 +684,8 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
                         {currentStatus === 'hot' && <span className="flex items-center gap-1"><img src="/hot-icon.svg" className="w-3 h-3.5" />Hot</span>}
                         {currentStatus === 'warm' && <span className="flex items-center gap-1"><img src="/warm-icon.svg" className="w-2 h-3.5" />Warm</span>}
                         {currentStatus === 'cold' && <span className="flex items-center gap-1"><img src="/cold-icon.svg" className="w-3.5 h-3.5" />Cold</span>}
+                        {currentStatus === 'visited' && <span>Visited</span>}
+                        {currentStatus === 'sold' && <span>Sold</span>}
                         {!currentStatus && <SelectValue />}
                       </SelectTrigger>
                       <SelectContent>
@@ -689,6 +693,9 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
                         <SelectItem value="hot"><span className="flex items-center gap-1.5"><img src="/hot-icon.svg" className="w-3 h-3.5" />Hot</span></SelectItem>
                         <SelectItem value="warm"><span className="flex items-center gap-1.5"><img src="/warm-icon.svg" className="w-2 h-3.5" />Warm</span></SelectItem>
                         <SelectItem value="cold"><span className="flex items-center gap-1.5"><img src="/cold-icon.svg" className="w-3.5 h-3.5" />Cold</span></SelectItem>
+                        <SelectSeparator />
+                        <SelectItem value="visited">Visited</SelectItem>
+                        <SelectItem value="sold">Sold</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>

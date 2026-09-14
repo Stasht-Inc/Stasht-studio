@@ -17,6 +17,7 @@ import SignupPage from "./pages/SignupPage";
 import ProfileSettingsPage from "./pages/ProfileSettingsPage";
 import BillingPage from "./pages/BillingPage";
 import UsersPage from "./pages/UsersPage";
+import StoreelReportPage from "./pages/StoreelReportPage";
 import LibraryPage from "./pages/LibraryPage";
 import AccountActivationPage from "./pages/AccountActivationPage";
 import AppsPage from "./pages/AppsPage";
@@ -1109,6 +1110,16 @@ function MainApp() {
   const handleOpenConversation = useCallback((leadId: number) => {
     setPendingConversationLeadId(leadId);
     handleNavigation('users');
+  }, [handleNavigation]);
+
+  // Storeel report target — set right before navigating to "storeel-report"
+  // (mirrors pendingConversationLeadId above). Explicit property id/name from
+  // the launch point, not PropertyContext — see UsersPage's "Storeel Report"
+  // property-row action.
+  const [storeelReportProperty, setStoreelReportProperty] = useState<{ id: number | string; name: string } | null>(null);
+  const handleViewStoreelReport = useCallback((propertyId: number | string, propertyName: string) => {
+    setStoreelReportProperty({ id: propertyId, name: propertyName });
+    handleNavigation('storeel-report');
   }, [handleNavigation]);
 
   // State variables (moved up to fix dependency order)
@@ -3918,7 +3929,11 @@ function MainApp() {
     }
 
     if (currentPage === "users") {
-      return <UsersPage openConversationLeadId={pendingConversationLeadId} onConversationOpened={() => setPendingConversationLeadId(null)} onNavigate={handleNavigation} />;
+      return <UsersPage openConversationLeadId={pendingConversationLeadId} onConversationOpened={() => setPendingConversationLeadId(null)} onNavigate={handleNavigation} onViewStoreelReport={handleViewStoreelReport} />;
+    }
+
+    if (currentPage === "storeel-report") {
+      return <StoreelReportPage property={storeelReportProperty} onBack={() => handleNavigation('users')} />;
     }
 
     if (currentPage === "library") {

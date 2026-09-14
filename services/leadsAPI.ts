@@ -83,7 +83,7 @@ export interface Lead {
   // (rare/malformed rows); guest leads still populate this from viewer_* columns.
   user: LeadUser | null;
   story: LeadStory;
-  status: 'hot' | 'warm' | 'cold' | null;
+  status: 'hot' | 'warm' | 'cold' | 'visited' | 'sold' | null;
   engagement: number;
   comments: LeadComment[];
   messages_count?: number;
@@ -111,7 +111,7 @@ export interface LeadsResponse {
   // backend-computed pre-pagination so they're correct even when `leads` only
   // holds the current page. Optional here defensively (older cached responses,
   // partial mocks in tests).
-  status_counts?: Partial<Record<'hot' | 'warm' | 'cold', number>>;
+  status_counts?: Partial<Record<'hot' | 'warm' | 'cold' | 'visited' | 'sold', number>>;
   messages_total?: number;
   leads: Lead[];
   meta?: LeadsMeta;
@@ -125,7 +125,7 @@ export interface CommentaryTarget {
 
 export interface LeadGroupMember {
   lead_id: number;
-  status: 'hot' | 'warm' | 'cold' | null;
+  status: 'hot' | 'warm' | 'cold' | 'visited' | 'sold' | null;
   user: {
     id: number;
     name: string;
@@ -241,7 +241,7 @@ export const leadsAPI = {
     return apiRequest<LeadsResponse>(url, { method: 'GET' });
   },
 
-  updateLeadStatus: async (leadId: number, status: 'hot' | 'warm' | 'cold' | null) => {
+  updateLeadStatus: async (leadId: number, status: 'hot' | 'warm' | 'cold' | 'visited' | 'sold' | null) => {
     return apiRequest(`/leads/${leadId}`, {
       method: 'PATCH',
       body: JSON.stringify({ status, ...partialAdminBody() }),
