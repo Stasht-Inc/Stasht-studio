@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Avatar, AvatarFallback, AvatarImage } from '../components/ui/avatar';
 import { Badge } from '../components/ui/badge';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '../components/ui/dropdown-menu';
-import { dashboardAPI, apiRequest } from '../utils/authUtils';
+import { dashboardAPI, apiRequest, userDisplayUtils } from '../utils/authUtils';
 import { useAuth } from '../contexts/AuthContext';
 import { useMemoryCounts } from '../hooks/useMemoryCounts';
 import InviteToMemoryModal from '../components/InviteToMemoryModal';
@@ -1791,7 +1791,10 @@ export default function UsersPage({ openConversationLeadId, onConversationOpened
                             {user.profile_image ? (
                               <AvatarImage src={user.profile_image} alt={user.name} />
                             ) : null}
-                            <AvatarFallback className="text-sm bg-purple-100 text-purple-600">
+                            <AvatarFallback
+                              className="text-sm text-white"
+                              style={{ backgroundColor: userDisplayUtils.getUserDisplayColor(user) }}
+                            >
                               {generateInitials(user.name || user.email || 'User')}
                             </AvatarFallback>
                           </Avatar>
@@ -1910,7 +1913,10 @@ export default function UsersPage({ openConversationLeadId, onConversationOpened
                             {user.profile_image ? (
                               <AvatarImage src={user.profile_image} alt={user.name} />
                             ) : null}
-                            <AvatarFallback className="text-xs bg-purple-100 text-purple-600">
+                            <AvatarFallback
+                              className="text-xs text-white"
+                              style={{ backgroundColor: userDisplayUtils.getUserDisplayColor(user) }}
+                            >
                               {generateInitials(user.name || user.email || 'User')}
                             </AvatarFallback>
                           </Avatar>
