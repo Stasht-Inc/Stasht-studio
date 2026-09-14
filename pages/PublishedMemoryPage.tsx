@@ -1506,9 +1506,13 @@ export default function PublishedMemoryPage() {
     .filter((w: any) => w && w.is_visible !== false && w.admin_approval !== 0)
     .slice()
     .sort((a: any, b: any) => (a.widget_order ?? 0) - (b.widget_order ?? 0));
+  // Widgets pinned to bottom render at the very end of the timeline regardless of their
+  // after_post_id — matching the owner/editor view. Keep them out of the per-post grouping.
+  const bottomWidgetList: any[] = publishedWidgets.filter((w: any) => w.widget_data?.pinToBottom);
   const widgetsByAfterPostId = (() => {
     const map = new Map<string, any[]>();
     publishedWidgets.forEach((w: any) => {
+      if (w.widget_data?.pinToBottom) return; // rendered at the end via bottomWidgetList
       const key = (w.after_post_id === null || w.after_post_id === undefined || w.after_post_id === '' || w.after_post_id === 0 || w.after_post_id === '0')
         ? 'top'
         : String(w.after_post_id);
@@ -2315,6 +2319,9 @@ export default function PublishedMemoryPage() {
             </div>
           )}
 
+          {/* Pinned-to-bottom widgets — render after the whole timeline */}
+          {renderWidgets(bottomWidgetList, false)}
+
           {/* E-Business Card - Mobile */}
           {!!memoryData?.user?.is_business && (
             <div className="mt-10 mx-2">
@@ -2709,6 +2716,9 @@ export default function PublishedMemoryPage() {
                       );
                     })}
 
+                    {/* Pinned-to-bottom widgets — after the whole timeline */}
+                    {bottomWidgetList.map((w: any, wi: number) => renderSidebarWidgetNode(w, wi !== bottomWidgetList.length - 1))}
+
                     {/* E-Business Card - desktop only */}
                     {!!memoryData?.user?.is_business && <div className="mx-3">
                       <div className="h-10" />
@@ -2986,6 +2996,8 @@ export default function PublishedMemoryPage() {
                     <p className="text-lg">No moments to display</p>
                   </div>
                 )}
+                  {/* Pinned-to-bottom widgets — render after the whole timeline */}
+                  {renderWidgets(bottomWidgetList, true)}
                   {/* Footer inside parallax scrolling area */}
                   <div className="mt-8 py-6 text-center">
                     <p className="text-base text-gray-500">
