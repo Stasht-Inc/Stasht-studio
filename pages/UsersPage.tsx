@@ -143,7 +143,7 @@ export default function UsersPage({ openConversationLeadId, onConversationOpened
 
   // Tab state and shared memories data
   const [activeTab, setActiveTab] = useState<'users' | 'shared-with' | 'properties' | 'leads'>(
-    () => sessionStorage.getItem('users_open_tab') === 'properties' ? 'properties' : 'users'
+    () => sessionStorage.getItem('users_open_tab') === 'properties' ? 'properties' : 'leads'
   );
 
   // Close any open lead/group drawer when leaving the Leads tab, so it doesn't
@@ -1494,16 +1494,6 @@ export default function UsersPage({ openConversationLeadId, onConversationOpened
           <div className="flex items-center justify-between border-b border-gray-200">
             <div className="flex overflow-x-auto scrollbar-hide flex-1">
               <button
-                onClick={() => setActiveTab('users')}
-                className={`flex-1 sm:flex-none px-3 sm:px-6 py-3 text-xs sm:text-sm font-medium transition-colors relative whitespace-nowrap text-center ${
-                  activeTab === 'users'
-                    ? 'text-[#6C60FF] border-b-2 border-[#6C60FF] -mb-[1px]'
-                    : 'text-gray-600 hover:text-gray-900'
-                }`}
-              >
-                All Users
-              </button>
-              <button
                 onClick={() => setActiveTab('leads')}
                 className={`flex-1 sm:flex-none px-3 sm:px-6 py-3 text-xs sm:text-sm font-medium transition-colors relative whitespace-nowrap text-center ${
                   activeTab === 'leads'
@@ -1529,6 +1519,16 @@ export default function UsersPage({ openConversationLeadId, onConversationOpened
                 }`}
               >
                 Shared with
+              </button>
+              <button
+                onClick={() => setActiveTab('users')}
+                className={`flex-1 sm:flex-none px-3 sm:px-6 py-3 text-xs sm:text-sm font-medium transition-colors relative whitespace-nowrap text-center ${
+                  activeTab === 'users'
+                    ? 'text-[#6C60FF] border-b-2 border-[#6C60FF] -mb-[1px]'
+                    : 'text-gray-600 hover:text-gray-900'
+                }`}
+              >
+                All Users
               </button>
               {planName !== 'starter' && (currentUser?.role === 2 || currentUser?.role === '2' || currentUser?.role === 4 || currentUser?.role === '4' || planName === 'intermediate' || planName === 'professional' || currentUser?.is_internal) && (
                 <button
