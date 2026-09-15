@@ -109,7 +109,7 @@ interface UsersPageProps {
   openConversationLeadId?: number | null;
   onConversationOpened?: () => void;
   onNavigate?: (page: string) => void;
-  onViewStoreelReport?: (propertyId: number | string, propertyName: string) => void;
+  onViewStoreelReport?: (propertyId?: number | string, propertyName?: string) => void;
 }
 
 export default function UsersPage({ openConversationLeadId, onConversationOpened, onNavigate, onViewStoreelReport }: UsersPageProps = {}) {
@@ -2729,6 +2729,7 @@ export default function UsersPage({ openConversationLeadId, onConversationOpened
               setSelectedLead(lead);
               setCommentaryTarget(target);
             }}
+            onViewStoreelReport={onViewStoreelReport ? () => onViewStoreelReport() : undefined}
           />
         )}
       </div>{/* closes w-full sm:px-3 */}

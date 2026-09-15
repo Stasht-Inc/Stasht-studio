@@ -1117,8 +1117,11 @@ function MainApp() {
   // the launch point, not PropertyContext — see UsersPage's "Storeel Report"
   // property-row action.
   const [storeelReportProperty, setStoreelReportProperty] = useState<{ id: number | string; name: string } | null>(null);
-  const handleViewStoreelReport = useCallback((propertyId: number | string, propertyName: string) => {
-    setStoreelReportProperty({ id: propertyId, name: propertyName });
+  // propertyId/propertyName are omitted when opened from the Leads tab (no
+  // property context there) — StoreelReportPage then resolves its own
+  // property via getStoreelMyProperties.
+  const handleViewStoreelReport = useCallback((propertyId?: number | string, propertyName?: string) => {
+    setStoreelReportProperty(propertyId !== undefined ? { id: propertyId, name: propertyName ?? '' } : null);
     handleNavigation('storeel-report');
   }, [handleNavigation]);
 

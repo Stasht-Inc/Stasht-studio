@@ -1,5 +1,5 @@
 ﻿import React, { useState, useEffect, useRef } from 'react';
-import { Search, X, MoreHorizontal, MessageSquare, Clock, RefreshCw, Trash2, Archive, Check, Send, Users, ChevronLeft, Sparkles, Heart, Gift, Calendar, MessageCircle, ThumbsUp, TrendingUp, Lightbulb, UserRound } from 'lucide-react';
+import { Search, X, MoreHorizontal, MessageSquare, Clock, RefreshCw, Trash2, Archive, Check, Send, Users, ChevronLeft, Sparkles, Heart, Gift, Calendar, MessageCircle, ThumbsUp, TrendingUp, Lightbulb, UserRound, MapPin, CheckCircle2 } from 'lucide-react';
 import { useMemoryLimit, recheckMemoryLimit } from '../hooks/useMemoryLimit';
 import { useDialogBehavior } from '../hooks/useDialogBehavior';
 import { toast } from 'sonner';
@@ -159,8 +159,8 @@ function StatusSelect({ lead, onUpdate, disabled }: { lead: Lead; onUpdate: (id:
         {lead.status === 'hot' && <span className="flex items-center gap-1.5"><img src="/hot-icon.svg" className="w-3 h-3.5" />Hot</span>}
         {lead.status === 'warm' && <span className="flex items-center gap-1.5"><img src="/warm-icon.svg" className="w-2 h-3.5" />Warm</span>}
         {lead.status === 'cold' && <span className="flex items-center gap-1.5"><img src="/cold-icon.svg" className="w-3.5 h-3.5" />Cold</span>}
-        {lead.status === 'visited' && <span>Visited</span>}
-        {lead.status === 'sold' && <span>Sold</span>}
+        {lead.status === 'visited' && <span className="flex items-center gap-1.5"><MapPin className="w-3.5 h-3.5" />Visited</span>}
+        {lead.status === 'sold' && <span className="flex items-center gap-1.5"><CheckCircle2 className="w-3.5 h-3.5" />Sold</span>}
         {!lead.status && <SelectValue placeholder="Set status" />}
       </SelectTrigger>
       <SelectContent>
@@ -169,8 +169,8 @@ function StatusSelect({ lead, onUpdate, disabled }: { lead: Lead; onUpdate: (id:
         <SelectItem value="warm"><span className="flex items-center gap-1.5"><img src="/warm-icon.svg" className="w-2 h-3.5" />Warm</span></SelectItem>
         <SelectItem value="cold"><span className="flex items-center gap-1.5"><img src="/cold-icon.svg" className="w-3.5 h-3.5" />Cold</span></SelectItem>
         <SelectSeparator />
-        <SelectItem value="visited">Visited</SelectItem>
-        <SelectItem value="sold">Sold</SelectItem>
+        <SelectItem value="visited"><span className="flex items-center gap-1.5"><MapPin className="w-3.5 h-3.5" />Visited</span></SelectItem>
+        <SelectItem value="sold"><span className="flex items-center gap-1.5"><CheckCircle2 className="w-3.5 h-3.5" />Sold</span></SelectItem>
       </SelectContent>
     </Select>
   );
@@ -193,6 +193,10 @@ interface LeadsTabProps {
   // (rather than refetched here) so the Groups sub-tab's unread cards don't
   // duplicate that call.
   unreadBreakdown?: { total_unread_messages: number; total_unread_comments: number; total_unread: number } | null;
+  // Opens the Storeel Report screen — property resolution happens on that
+  // screen itself (auto-selects when there's only one), so this tab doesn't
+  // need to know about properties at all.
+  onViewStoreelReport?: () => void;
 }
 
 // One summary-card row above the sub-tab content, scoped to whichever
@@ -216,7 +220,7 @@ function SummaryCardRow({ cards }: { cards: SummaryCardData[] }) {
   );
 }
 
-export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, compact = false, onLeadsRefreshed, onFilterChange, onCommentaryJump, selectedGroupId, onGroupSelect, selectedConversationId, onConversationSelect, unreadBreakdown }: LeadsTabProps) {
+export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, compact = false, onLeadsRefreshed, onFilterChange, onCommentaryJump, selectedGroupId, onGroupSelect, selectedConversationId, onConversationSelect, unreadBreakdown, onViewStoreelReport }: LeadsTabProps) {
   const [leads, setLeads] = useState<Lead[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -830,8 +834,8 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
               {statusFilter === 'hot' && <span className="flex items-center gap-1.5"><img src="/hot-icon.svg" className="w-3 h-3.5" />Hot</span>}
               {statusFilter === 'warm' && <span className="flex items-center gap-1.5"><img src="/warm-icon.svg" className="w-2 h-3.5" />Warm</span>}
               {statusFilter === 'cold' && <span className="flex items-center gap-1.5"><img src="/cold-icon.svg" className="w-3.5 h-3.5" />Cold</span>}
-              {statusFilter === 'visited' && <span>Visited</span>}
-              {statusFilter === 'sold' && <span>Sold</span>}
+              {statusFilter === 'visited' && <span className="flex items-center gap-1.5"><MapPin className="w-3.5 h-3.5" />Visited</span>}
+              {statusFilter === 'sold' && <span className="flex items-center gap-1.5"><CheckCircle2 className="w-3.5 h-3.5" />Sold</span>}
               {statusFilter === 'archived' && <span className="flex items-center gap-1.5"><Archive className="w-3.5 h-3.5" />Archived</span>}
               {statusFilter === 'all' && <SelectValue placeholder="Status" />}
             </SelectTrigger>
@@ -840,8 +844,8 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
               <SelectItem value="hot"><span className="flex items-center gap-1.5"><img src="/hot-icon.svg" className="w-3 h-3.5" />Hot</span></SelectItem>
               <SelectItem value="warm"><span className="flex items-center gap-1.5"><img src="/warm-icon.svg" className="w-2 h-3.5" />Warm</span></SelectItem>
               <SelectItem value="cold"><span className="flex items-center gap-1.5"><img src="/cold-icon.svg" className="w-3.5 h-3.5" />Cold</span></SelectItem>
-              <SelectItem value="visited">Visited</SelectItem>
-              <SelectItem value="sold">Sold</SelectItem>
+              <SelectItem value="visited"><span className="flex items-center gap-1.5"><MapPin className="w-3.5 h-3.5" />Visited</span></SelectItem>
+              <SelectItem value="sold"><span className="flex items-center gap-1.5"><CheckCircle2 className="w-3.5 h-3.5" />Sold</span></SelectItem>
               <SelectSeparator className="bg-gray-200" />
               <SelectItem value="archived"><span className="flex items-center gap-1.5"><Archive className="w-3.5 h-3.5" />Archived</span></SelectItem>
             </SelectContent>
@@ -888,6 +892,20 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
           >
             Clear
           </Button>
+
+          {/* Storeel Report — same screen reachable from a property row's "⋯"
+              menu in the Properties tab, surfaced here too since that's buried
+              and this is where reps actually spend their time. */}
+          {onViewStoreelReport && (
+            <Button
+              variant="outline"
+              onClick={onViewStoreelReport}
+              className="h-9 px-4 text-sm shrink-0 gap-1.5 border-[#6C60FF] text-[#6C60FF] hover:bg-purple-50 hover:text-[#6C60FF]"
+            >
+              <TrendingUp className="w-4 h-4" />
+              <span className="hidden sm:inline">Storeel Report</span>
+            </Button>
+          )}
 
           {/* Search Group Commentary popover */}
           {showSearchGroup && (
@@ -1046,8 +1064,8 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
                       {mgStatusFilter === 'hot' && <span className="flex items-center gap-1.5"><img src="/hot-icon.svg" className="w-3 h-3.5" />Hot</span>}
                       {mgStatusFilter === 'warm' && <span className="flex items-center gap-1.5"><img src="/warm-icon.svg" className="w-2 h-3.5" />Warm</span>}
                       {mgStatusFilter === 'cold' && <span className="flex items-center gap-1.5"><img src="/cold-icon.svg" className="w-3.5 h-3.5" />Cold</span>}
-                      {mgStatusFilter === 'visited' && <span>Visited</span>}
-                      {mgStatusFilter === 'sold' && <span>Sold</span>}
+                      {mgStatusFilter === 'visited' && <span className="flex items-center gap-1.5"><MapPin className="w-3.5 h-3.5" />Visited</span>}
+                      {mgStatusFilter === 'sold' && <span className="flex items-center gap-1.5"><CheckCircle2 className="w-3.5 h-3.5" />Sold</span>}
                       {mgStatusFilter === 'all' && <SelectValue placeholder="Status" />}
                     </SelectTrigger>
                     <SelectContent>
@@ -1055,8 +1073,8 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
                       <SelectItem value="hot"><span className="flex items-center gap-1.5"><img src="/hot-icon.svg" className="w-3 h-3.5" />Hot</span></SelectItem>
                       <SelectItem value="warm"><span className="flex items-center gap-1.5"><img src="/warm-icon.svg" className="w-2 h-3.5" />Warm</span></SelectItem>
                       <SelectItem value="cold"><span className="flex items-center gap-1.5"><img src="/cold-icon.svg" className="w-3.5 h-3.5" />Cold</span></SelectItem>
-                      <SelectItem value="visited">Visited</SelectItem>
-                      <SelectItem value="sold">Sold</SelectItem>
+                      <SelectItem value="visited"><span className="flex items-center gap-1.5"><MapPin className="w-3.5 h-3.5" />Visited</span></SelectItem>
+                      <SelectItem value="sold"><span className="flex items-center gap-1.5"><CheckCircle2 className="w-3.5 h-3.5" />Sold</span></SelectItem>
                     </SelectContent>
                   </Select>
 

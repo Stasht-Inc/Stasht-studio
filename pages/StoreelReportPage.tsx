@@ -33,7 +33,12 @@ interface StoreelReportRow {
 }
 
 interface StoreelReportPageProps {
-  property: StoreelReportProperty | null;
+  // Optional: when omitted (e.g. opened from the Leads tab, which has no
+  // property context), the page resolves it itself via
+  // getStoreelMyProperties — auto-selecting when there's only one,
+  // otherwise showing a picker. When supplied (the property-row "⋯" menu
+  // entry point), that property is used directly and no fetch happens.
+  property?: StoreelReportProperty | null;
   onBack: () => void;
 }
 
@@ -71,7 +76,7 @@ const COLUMNS: { key: keyof StoreelReportRow; label: string; format?: (row: Stor
 // Per-rep / per-campaign Storeel report (Plan #4). Reads GET /storeels/report,
 // built and reviewed on the backend as part of Plan #1 — this page is its
 // first consumer.
-export default function StoreelReportPage({ property, onBack }: StoreelReportPageProps) {
+export default function StoreelReportPage({ property: suppliedProperty, onBack }: StoreelReportPageProps) {
   const [groupBy, setGroupBy] = useState<'rep' | 'memory'>('rep');
   const [from, setFrom] = useState(daysAgoIso(30));
   const [to, setTo] = useState(todayIso());
@@ -79,6 +84,46 @@ export default function StoreelReportPage({ property, onBack }: StoreelReportPag
   const [totals, setTotals] = useState<StoreelReportRow | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Self-resolution: when opened without a property (e.g. from the Leads
+  // tab's button), fetch the caller's properties, auto-selecting when
+  // there's only one — mirrors storeel_report_screen.dart's Flutter logic.
+  const [myProperties, setMyProperties] = useState<StoreelReportProperty[]>([]);
+  const [loadingProperties, setLoadingProperties] = useState(!suppliedProperty);
+  const [propertiesError, setPropertiesError] = useState<string | null>(null);
+  const [selectedPropertyId, setSelectedPropertyId] = useState<string | number | null>(suppliedProperty?.id ?? null);
+
+  useEffect(() => {
+    if (suppliedProperty) return;
+    let cancelled = false;
+    (async () => {
+      setLoadingProperties(true);
+      setPropertiesError(null);
+      try {
+        const res: any = await dashboardAPI.getStoreelMyProperties();
+        if (cancelled) return;
+        if (res?.success === false) {
+          setPropertiesError(res?.message || res?.error || 'Could not load your properties.');
+        } else {
+          const list: StoreelReportProperty[] = res?.properties || res?.data?.properties || [];
+          setMyProperties(list);
+          if (list.length === 1) {
+            setSelectedPropertyId(list[0].id);
+          }
+        }
+      } catch {
+        if (!cancelled) setPropertiesError('Could not load your properties.');
+      } finally {
+        if (!cancelled) setLoadingProperties(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [suppliedProperty]);
+
+  const property: StoreelReportProperty | null =
+    suppliedProperty ?? myProperties.find((p) => p.id === selectedPropertyId) ?? null;
 
   const fetchReport = useCallback(async () => {
     if (!property?.id) return;
@@ -102,13 +147,61 @@ export default function StoreelReportPage({ property, onBack }: StoreelReportPag
   }, [property?.id, from, to, groupBy]);
 
   useEffect(() => {
-    fetchReport();
-  }, [fetchReport]);
+    if (property?.id) fetchReport();
+  }, [fetchReport, property?.id]);
 
-  if (!property) {
+  if (!suppliedProperty && loadingProperties) {
     return (
       <div className="p-6">
-        <p className="text-gray-600">No property selected.</p>
+        <p className="text-gray-400">Loading your properties…</p>
+      </div>
+    );
+  }
+
+  if (!suppliedProperty && propertiesError) {
+    return (
+      <div className="p-6">
+        <p className="text-red-600">{propertiesError}</p>
+        <Button variant="outline" onClick={onBack} className="mt-4">
+          <ArrowLeft className="w-4 h-4 mr-2" /> Back
+        </Button>
+      </div>
+    );
+  }
+
+  if (!property) {
+    if (!suppliedProperty && myProperties.length > 1) {
+      return (
+        <div className="p-4 sm:p-6 max-w-7xl mx-auto">
+          <div className="flex items-center gap-3 mb-6">
+            <Button variant="ghost" size="sm" onClick={onBack} className="p-2">
+              <ArrowLeft className="w-5 h-5" />
+            </Button>
+            <h1 className="text-2xl font-bold text-gray-900">Storeel Report</h1>
+          </div>
+          <p className="text-sm text-gray-500 mb-3">Choose a property to view its report.</p>
+          <div className="flex flex-col gap-2 max-w-sm">
+            {myProperties.map((p) => (
+              <button
+                key={p.id}
+                onClick={() => setSelectedPropertyId(p.id)}
+                className="text-left px-4 py-3 rounded-lg border border-gray-200 hover:border-[#6C60FF] hover:bg-purple-50 transition-colors text-sm font-medium text-gray-900"
+              >
+                {p.name}
+              </button>
+            ))}
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div className="p-6">
+        <p className="text-gray-600">
+          {suppliedProperty === null && !loadingProperties && myProperties.length === 0
+            ? 'No properties found for your account.'
+            : 'No property selected.'}
+        </p>
         <Button variant="outline" onClick={onBack} className="mt-4">
           <ArrowLeft className="w-4 h-4 mr-2" /> Back
         </Button>

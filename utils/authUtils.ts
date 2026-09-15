@@ -3494,6 +3494,13 @@ export const dashboardAPI = {
     });
   },
 
+  // Lightweight property list for the report screen's picker — see the
+  // matching endpoint's own comment for why this isn't the full Properties
+  // tab fetch.
+  getStoreelMyProperties: async (): Promise<ApiResponse<any>> => {
+    return await apiRequest('/storeels/my-properties', { method: 'GET' });
+  },
+
   // Search users for collaborator invite
   searchUsers: async (searchQuery: string, searchType: 'email' | 'phone' = 'email'): Promise<ApiResponse<any>> => {
     const paramName = searchType === 'phone' ? 'phone' : 'search';
