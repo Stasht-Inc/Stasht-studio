@@ -893,17 +893,19 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
             Clear
           </Button>
 
-          {/* Storeel Report — same screen reachable from a property row's "⋯"
-              menu in the Properties tab, surfaced here too since that's buried
-              and this is where reps actually spend their time. */}
+          {/* Leads Report (internally "Storeel") — same screen reachable from a
+              property row's "⋯" menu in the Properties tab, surfaced here too
+              since that's buried and this is where reps actually spend their
+              time. Teal, deliberately distinct from the app's purple accent so
+              it doesn't read as just another primary button. */}
           {onViewStoreelReport && (
             <Button
               variant="outline"
               onClick={onViewStoreelReport}
-              className="h-9 px-4 text-sm shrink-0 gap-1.5 border-[#6C60FF] text-[#6C60FF] hover:bg-purple-50 hover:text-[#6C60FF]"
+              className="h-9 px-4 text-sm shrink-0 gap-1.5 border-[#0D9488] text-[#0D9488] hover:bg-teal-50 hover:text-[#0D9488]"
             >
               <TrendingUp className="w-4 h-4" />
-              <span className="hidden sm:inline">Storeel Report</span>
+              <span className="hidden sm:inline">Leads Report</span>
             </Button>
           )}
 

@@ -2470,7 +2470,7 @@ export default function UsersPage({ openConversationLeadId, onConversationOpened
                                 className="cursor-pointer hover:bg-gray-100 rounded px-3 py-2 flex items-center"
                               >
                                 <TrendingUp className="mr-2 h-4 w-4" />
-                                Storeel Report
+                                Leads Report
                               </DropdownMenuItem>
                               <DropdownMenuItem
                                 onClick={() => handleViewProperty(property)}
@@ -2667,7 +2667,7 @@ export default function UsersPage({ openConversationLeadId, onConversationOpened
                             className="cursor-pointer hover:bg-gray-100 rounded px-3 py-2 flex items-center"
                           >
                             <TrendingUp className="mr-2 h-4 w-4" />
-                            Storeel Report
+                            Leads Report
                           </DropdownMenuItem>
                           <DropdownMenuItem
                             onClick={() => handleViewProperty(property)}

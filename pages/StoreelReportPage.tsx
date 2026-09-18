@@ -177,7 +177,7 @@ export default function StoreelReportPage({ property: suppliedProperty, onBack }
             <Button variant="ghost" size="sm" onClick={onBack} className="p-2">
               <ArrowLeft className="w-5 h-5" />
             </Button>
-            <h1 className="text-2xl font-bold text-gray-900">Storeel Report</h1>
+            <h1 className="text-2xl font-bold text-gray-900">Leads Report</h1>
           </div>
           <p className="text-sm text-gray-500 mb-3">Choose a property to view its report.</p>
           <div className="flex flex-col gap-2 max-w-sm">
@@ -185,7 +185,7 @@ export default function StoreelReportPage({ property: suppliedProperty, onBack }
               <button
                 key={p.id}
                 onClick={() => setSelectedPropertyId(p.id)}
-                className="text-left px-4 py-3 rounded-lg border border-gray-200 hover:border-[#6C60FF] hover:bg-purple-50 transition-colors text-sm font-medium text-gray-900"
+                className="text-left px-4 py-3 rounded-lg border border-gray-200 hover:border-[#0D9488] hover:bg-teal-50 transition-colors text-sm font-medium text-gray-900"
               >
                 {p.name}
               </button>
@@ -229,7 +229,7 @@ export default function StoreelReportPage({ property: suppliedProperty, onBack }
           <ArrowLeft className="w-5 h-5" />
         </Button>
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Storeel Report</h1>
+          <h1 className="text-2xl font-bold text-gray-900">Leads Report</h1>
           <p className="text-sm text-gray-500">{property.name}</p>
         </div>
       </div>
@@ -242,7 +242,7 @@ export default function StoreelReportPage({ property: suppliedProperty, onBack }
             value={from}
             max={to}
             onChange={(e) => setFrom(e.target.value)}
-            className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:border-[#6C60FF] focus:outline-none"
+            className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:border-[#0D9488] focus:outline-none"
           />
         </div>
         <div>
@@ -253,14 +253,14 @@ export default function StoreelReportPage({ property: suppliedProperty, onBack }
             min={from}
             max={todayIso()}
             onChange={(e) => setTo(e.target.value)}
-            className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:border-[#6C60FF] focus:outline-none"
+            className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:border-[#0D9488] focus:outline-none"
           />
         </div>
         <div className="flex rounded-lg border border-gray-200 overflow-hidden">
           <button
             onClick={() => setGroupBy('rep')}
             className={`px-4 py-2 text-sm font-medium transition-colors ${
-              groupBy === 'rep' ? 'bg-[#6C60FF] text-white' : 'bg-white text-gray-700 hover:bg-gray-50'
+              groupBy === 'rep' ? 'bg-[#0D9488] text-white' : 'bg-white text-gray-700 hover:bg-gray-50'
             }`}
           >
             By Rep
@@ -268,7 +268,7 @@ export default function StoreelReportPage({ property: suppliedProperty, onBack }
           <button
             onClick={() => setGroupBy('memory')}
             className={`px-4 py-2 text-sm font-medium border-l border-gray-200 transition-colors ${
-              groupBy === 'memory' ? 'bg-[#6C60FF] text-white' : 'bg-white text-gray-700 hover:bg-gray-50'
+              groupBy === 'memory' ? 'bg-[#0D9488] text-white' : 'bg-white text-gray-700 hover:bg-gray-50'
             }`}
           >
             By Campaign
