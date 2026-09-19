@@ -162,11 +162,15 @@ export default function BillingPage({ onNavigateToMemory }: BillingPageProps = {
 
         setUpcomingSubscriptions(upcomingList);
       } else {
-        toast.error(response.error || 'Failed to load subscription data');
+        // Non-critical background data (page renders fine without it) —
+        // fail silently like fetchStorageOverview/fetchCreditBalance below,
+        // instead of surfacing the Stripe service's raw "Network Error".
+        console.error('Failed to load subscription data:', response.error);
+        setCurrentSubscription(null);
       }
     } catch (error: any) {
       console.error('Error fetching subscription:', error);
-      toast.error('Failed to load subscription data');
+      setCurrentSubscription(null);
     } finally {
       setIsLoadingSubscription(false);
     }
@@ -180,11 +184,14 @@ export default function BillingPage({ onNavigateToMemory }: BillingPageProps = {
       if (response.success && response.billing_history) {
         setBillingHistory(response.billing_history);
       } else {
-        toast.error(response.error || 'Failed to load billing history');
+        // Non-critical background data — fail silently, same convention as
+        // fetchStorageOverview/fetchCreditBalance below.
+        console.error('Failed to load billing history:', response.error);
+        setBillingHistory([]);
       }
     } catch (error: any) {
       console.error('Error fetching billing history:', error);
-      toast.error('Failed to load billing history');
+      setBillingHistory([]);
     } finally {
       setIsLoadingHistory(false);
     }
@@ -198,11 +205,14 @@ export default function BillingPage({ onNavigateToMemory }: BillingPageProps = {
       if (response.success && response.payment_methods) {
         setPaymentMethods(response.payment_methods);
       } else {
-        toast.error(response.error || 'Failed to load payment methods');
+        // Non-critical background data — fail silently, same convention as
+        // fetchStorageOverview/fetchCreditBalance below.
+        console.error('Failed to load payment methods:', response.error);
+        setPaymentMethods([]);
       }
     } catch (error: any) {
       console.error('Error fetching payment methods:', error);
-      toast.error('Failed to load payment methods');
+      setPaymentMethods([]);
     } finally {
       setIsLoadingPaymentMethods(false);
     }
