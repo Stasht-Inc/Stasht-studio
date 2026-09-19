@@ -16,6 +16,7 @@ import { toast } from "sonner";
 import { mockPosts } from "../data/mockPosts";
 import { getMemoryDetails } from "../data/memoryData";
 import { getCategoryColorHex, getCategoryIcon, formatDate, sanitizeAiCreatorText, isCarCampaign } from "../utils/memoryUtils";
+import { displayWebsite } from "../utils/displayUrl";
 import { getCategoryColor } from "../constants/mediaConstants";
 import { triggerMemoryCountsRefresh } from '../hooks/useMemoryCounts';
 import { useMemoryLimit, recheckMemoryLimit } from '../hooks/useMemoryLimit';
@@ -980,6 +981,16 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
   const mobileInfoRef = useRef<HTMLDivElement>(null);
   const [isSharePopoverOpen, setIsSharePopoverOpen] = useState(false);
   const [isQRPopoverOpen, setIsQRPopoverOpen] = useState(false);
+  // Per-campaign social share message (OG description on shared links).
+  const DEFAULT_SHARE_MESSAGE = 'View this published storeel on stasht.';
+  const [shareMessage, setShareMessage] = useState('');
+  const [isSavingShareMessage, setIsSavingShareMessage] = useState(false);
+  useEffect(() => {
+    if (apiMemoryData) {
+      setShareMessage(apiMemoryData.share_message || DEFAULT_SHARE_MESSAGE);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [apiMemoryData?.id, apiMemoryData?.share_message]);
   const shareMenuRef = useRef<HTMLDivElement>(null);
 
   // Timeline scroll-sync state and refs (PublishedMemoryPage pattern)
@@ -1983,6 +1994,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
   const [showDeleteItemDialog, setShowDeleteItemDialog] = useState(false);
   const [isDeletingItem, setIsDeletingItem] = useState(false);
   const [itemToDelete, setItemToDelete] = useState<string | null>(null);
+  const [itemToDeleteIsCar, setItemToDeleteIsCar] = useState<boolean>(false);
   
   // Memory update loading state
   const [isUpdatingMemory, setIsUpdatingMemory] = useState(false);
@@ -3188,6 +3200,9 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
               type: 'image',
               parent_id: null,
               user: carAuthor,
+              // Dealer address shown on each card's footer (the date beside it is hidden
+              // for cars); car photos have no per-photo location of their own.
+              location: car.location?.formatted || car.city || '',
               capture_date: captureDate,
               date: captureDate,
             };
@@ -3205,6 +3220,13 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
             sub_category: { name: priceLabel },
             user: carAuthor,
             posts,
+            // Marks this as a car so date fields are hidden everywhere on the page
+            // (isCarCampaign() keys off it — the category here is the condition, not "Cars").
+            is_car: true,
+            // Dealer address from the backend so the detail header shows a real location.
+            location: car.location?.formatted || car.city || null,
+            // Spec line ("STK# … / … km / … engine") for the detail header.
+            spec_summary: car.spec_summary || null,
             last_update_img: coverImg,
             linked_memories: [],
             new_images: 0,
@@ -4403,7 +4425,9 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
           alt: post.name || post.title || 'Car photo',
           title: post.name || post.title,
           description: carDetailData?.description || '',
-          location: '',
+          // Show the dealer address on each car image card's footer (in place of the
+          // now-hidden date); cars have no per-photo location of their own.
+          location: carDetailData?.location?.formatted || carDetailData?.city || '',
           dateTaken: '',
           filename: post.name || post.title || 'Car photo',
           is_featured: 0,
@@ -7288,9 +7312,10 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
     console.log('=== END UPDATING MEDIA ITEM ===');
   };
 
-  const handleDeleteItem = (id: string) => {
-    console.log('Delete item requested:', id);
+  const handleDeleteItem = (id: string, isCar: boolean = false) => {
+    console.log('Delete item requested:', id, 'isCar:', isCar);
     setItemToDelete(id);
+    setItemToDeleteIsCar(isCar);
     setShowDeleteItemDialog(true);
   };
 
@@ -7302,7 +7327,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
       console.log(`Deleting media item ${itemToDelete}...`);
       
       // Call the single image delete API
-      const response = await mediaAPI.deleteImage(itemToDelete);
+      const response = await mediaAPI.deleteImage(itemToDelete, itemToDeleteIsCar);
       
       if (response.success) {
         console.log('Media item deleted successfully');
@@ -9139,7 +9164,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                     {apiMemoryData?.user?.email && <a href={`mailto:${apiMemoryData.user.email}`} className="flex items-center gap-1 hover:text-[#6C60FF] transition-colors"><Mail className="w-3 h-3" />{apiMemoryData.user.email}</a>}
                     {apiMemoryData?.user?.phone_number && <a href={`tel:${apiMemoryData.user.phone_number}`} className="flex items-center gap-1 hover:text-[#6C60FF] transition-colors"><Phone className="w-3 h-3" />{apiMemoryData.user.phone_number}</a>}
                   </div>
-                  {apiMemoryData?.user?.website && <a href={apiMemoryData.user.website} target="_blank" rel="noopener noreferrer" className="text-xs text-[#6C60FF] hover:underline mb-3">{apiMemoryData.user.website}</a>}
+                  {apiMemoryData?.user?.website && <a href={apiMemoryData.user.website} target="_blank" rel="noopener noreferrer" className="text-sm text-[#6C60FF] hover:underline mb-3">{displayWebsite(apiMemoryData.user.website)}</a>}
                   <div className="flex items-center gap-3 mt-2 mb-3">
                     {[
                       { url: apiMemoryData?.user?.instagram_url, src: '/social-instagram.png', alt: 'Instagram' },
@@ -9426,7 +9451,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                               {apiMemoryData?.user?.email && <a href={`mailto:${apiMemoryData.user.email}`} className="flex items-center gap-1 hover:text-[#6C60FF] transition-colors"><Mail className="w-3 h-3" />{apiMemoryData.user.email}</a>}
                               {apiMemoryData?.user?.phone_number && <a href={`tel:${apiMemoryData.user.phone_number}`} className="flex items-center gap-1 hover:text-[#6C60FF] transition-colors"><Phone className="w-3 h-3" />{apiMemoryData.user.phone_number}</a>}
                             </div>
-                            {apiMemoryData?.user?.website && <a href={apiMemoryData.user.website} target="_blank" rel="noopener noreferrer" className="text-xs text-[#6C60FF] hover:underline mb-3">{apiMemoryData.user.website}</a>}
+                            {apiMemoryData?.user?.website && <a href={apiMemoryData.user.website} target="_blank" rel="noopener noreferrer" className="text-sm text-[#6C60FF] hover:underline mb-3">{displayWebsite(apiMemoryData.user.website)}</a>}
                             <div className="flex items-center gap-3 mt-2 mb-3">
                               {[
                                 { url: apiMemoryData?.user?.instagram_url, src: '/social-instagram.png', alt: 'Instagram' },
@@ -11749,6 +11774,45 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                 </div>
               </div>
               <div className="flex-1 min-w-0">
+                {/* Personalize the social share message (OG description on shared links) */}
+                <div className="mb-3">
+                  <label className="block text-xs font-medium text-green-800 mb-1">Share message</label>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      value={shareMessage}
+                      onChange={(e) => setShareMessage(e.target.value)}
+                      disabled={!isOwner}
+                      maxLength={500}
+                      placeholder={DEFAULT_SHARE_MESSAGE}
+                      className="flex-1 text-sm bg-white border-green-200 text-gray-700 h-9"
+                    />
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={!isOwner || isSavingShareMessage}
+                      onClick={async () => {
+                        try {
+                          setIsSavingShareMessage(true);
+                          const res: any = await dashboardAPI.updateShareMessage(apiMemoryData.id, shareMessage.trim());
+                          if (res?.success || res?.status === 1 || res?.data?.success) {
+                            setApiMemoryData((prev: any) => prev ? { ...prev, share_message: shareMessage.trim() || null } : prev);
+                            toast.success('Share message saved');
+                          } else {
+                            toast.error('Failed to save share message');
+                          }
+                        } catch {
+                          toast.error('Failed to save share message');
+                        } finally {
+                          setIsSavingShareMessage(false);
+                        }
+                      }}
+                      className="flex-shrink-0 h-9 px-3 bg-white hover:bg-green-50 border-green-200 text-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {isSavingShareMessage ? 'Saving…' : 'Save'}
+                    </Button>
+                  </div>
+                  <p className="text-xs text-green-700/70 mt-1">Shown when someone shares this campaign link. Leave as-is for the default.</p>
+                </div>
                 <div className="flex items-center gap-2 mb-1">
                   <h4 className="text-sm font-semibold text-green-800">Published Campaign</h4>
                   <Badge variant="secondary" className="bg-green-100 text-green-700 border-green-200 text-xs">
@@ -12651,7 +12715,12 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                   </span>
                                 </div>
                               )}
-                              {!isCarCampaign(apiMemoryData) && (
+                              {apiMemoryData?.spec_summary && (
+                                <div className="flex items-center gap-1.5 md:gap-1.5 lg:gap-2">
+                                  <span className="whitespace-nowrap">{apiMemoryData.spec_summary}</span>
+                                </div>
+                              )}
+                              {!isCarCampaign(apiMemoryData) && !isCarDetail && (
                               <div className="flex items-center gap-1.5 md:gap-1.5 lg:gap-2">
                                 <Calendar className="w-4 h-4 md:w-4 md:h-4 lg:w-5 lg:h-5" />
                                 <span className="whitespace-nowrap">{uiMemory.dateRange || `Created ${formatDate(uiMemory.createdDate)}`}</span>
@@ -12786,7 +12855,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                   <span className="truncate max-w-[100px]">{uiMemory.location.primary}</span>
                                 </div>
                               )}
-                              {uiMemory.dateRange && !isCarCampaign(apiMemoryData) && (
+                              {uiMemory.dateRange && !isCarCampaign(apiMemoryData) && !isCarDetail && (
                                 <div className="flex items-center gap-1">
                                   <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5 flex-shrink-0">
                                     <rect x="1.75" y="2.91675" width="10.5" height="9.33333" rx="1.16667" stroke="#4A5565" strokeWidth="1.16617" strokeLinecap="round" strokeLinejoin="round"/>
@@ -12998,7 +13067,12 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                         <span>{typeof uiMemory.location === 'string' ? uiMemory.location : uiMemory.location?.primary || ''}</span>
                       </div>
                     )}
-                    {uiMemory.dateRange && !isCarCampaign(apiMemoryData) && (
+                    {apiMemoryData?.spec_summary && (
+                      <div className="flex items-center gap-1.5">
+                        <span>{apiMemoryData.spec_summary}</span>
+                      </div>
+                    )}
+                    {uiMemory.dateRange && !isCarCampaign(apiMemoryData) && !isCarDetail && (
                       <div className="flex items-center gap-1.5">
                         <Calendar className="w-4 h-4" />
                         <span>{uiMemory.dateRange}</span>
@@ -14402,8 +14476,8 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                             )}
                           </div>
                           {apiMemoryData?.user?.website && (
-                            <a href={apiMemoryData.user.website} target="_blank" rel="noopener noreferrer" className="text-xs text-[#6C60FF] hover:underline mb-3">
-                              {apiMemoryData.user.website}
+                            <a href={apiMemoryData.user.website} target="_blank" rel="noopener noreferrer" className="text-sm text-[#6C60FF] hover:underline mb-3">
+                              {displayWebsite(apiMemoryData.user.website)}
                             </a>
                           )}
                           <div className="flex items-center gap-3 mt-2 mb-3">
@@ -14824,6 +14898,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                       memoryImages={memoryImagesWithSubImages}
                                       memoryPublished={apiMemoryData?.published}
                                       memoryId={memoryId}
+                                      carSpec={apiMemoryData?.spec_summary}
                                       searchHighlight={activeSearchQuery || undefined}
                                       storyTags={allStoryTags}
                                       onInsufficientCredits={(available) => { setAiScanAvailableCredits(available); setShowAiScanCreditsModal(true); }}
@@ -15133,7 +15208,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                               onView={() => handleMediaItemView(item)}
                               onViewImage={(src, alt, title, subtitle, imageId) => handleImageView(src, alt, title, subtitle, imageId)}
                               onUpdateItem={isSuggestedCategory ? undefined : handleUpdateItem}
-                              onDeleteItem={isSuggestedCategory ? undefined : () => handleDeleteItem(item.id)}
+                              onDeleteItem={isSuggestedCategory ? undefined : () => handleDeleteItem(item.id, isCarCampaign(apiMemoryData))}
                               memoryOwnerId={memoryOwnerId}
                               memoryTitle={apiMemoryData?.title}
                               memoryThumbnail={apiMemoryData?.last_update_img}
@@ -15179,7 +15254,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                       {apiMemoryData?.user?.email && <a href={`mailto:${apiMemoryData.user.email}`} className="flex items-center gap-1 hover:text-[#6C60FF] transition-colors"><Mail className="w-3 h-3" />{apiMemoryData.user.email}</a>}
                       {apiMemoryData?.user?.phone_number && <a href={`tel:${apiMemoryData.user.phone_number}`} className="flex items-center gap-1 hover:text-[#6C60FF] transition-colors"><Phone className="w-3 h-3" />{apiMemoryData.user.phone_number}</a>}
                     </div>
-                    {apiMemoryData?.user?.website && <a href={apiMemoryData.user.website} target="_blank" rel="noopener noreferrer" className="text-xs text-[#6C60FF] hover:underline mb-3">{apiMemoryData.user.website}</a>}
+                    {apiMemoryData?.user?.website && <a href={apiMemoryData.user.website} target="_blank" rel="noopener noreferrer" className="text-sm text-[#6C60FF] hover:underline mb-3">{displayWebsite(apiMemoryData.user.website)}</a>}
                     <div className="flex items-center gap-3 mt-2 mb-3">
                       {[
                         { url: apiMemoryData?.user?.instagram_url, src: '/social-instagram.png', alt: 'Instagram' },
@@ -15514,6 +15589,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                               memoryImages={memoryImagesWithSubImages}
                               memoryPublished={apiMemoryData?.published}
                               memoryId={memoryId}
+                              carSpec={apiMemoryData?.spec_summary}
                               searchHighlight={activeSearchQuery || undefined}
                               storyTags={allStoryTags}
                               onInsufficientCredits={(available) => { setAiScanAvailableCredits(available); setShowAiScanCreditsModal(true); }}
@@ -15766,7 +15842,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                               {apiMemoryData?.user?.email && <a href={`mailto:${apiMemoryData.user.email}`} className="flex items-center gap-1 hover:text-[#6C60FF] transition-colors"><Mail className="w-3 h-3" />{apiMemoryData.user.email}</a>}
                               {apiMemoryData?.user?.phone_number && <a href={`tel:${apiMemoryData.user.phone_number}`} className="flex items-center gap-1 hover:text-[#6C60FF] transition-colors"><Phone className="w-3 h-3" />{apiMemoryData.user.phone_number}</a>}
                             </div>
-                            {apiMemoryData?.user?.website && <a href={apiMemoryData.user.website} target="_blank" rel="noopener noreferrer" className="text-xs text-[#6C60FF] hover:underline mb-3">{apiMemoryData.user.website}</a>}
+                            {apiMemoryData?.user?.website && <a href={apiMemoryData.user.website} target="_blank" rel="noopener noreferrer" className="text-sm text-[#6C60FF] hover:underline mb-3">{displayWebsite(apiMemoryData.user.website)}</a>}
                             <div className="flex items-center gap-3 mt-2 mb-3">
                               {[
                                 { url: apiMemoryData?.user?.instagram_url, src: '/social-instagram.png', alt: 'Instagram' },
@@ -15814,7 +15890,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                               {apiMemoryData?.user?.email && <a href={`mailto:${apiMemoryData.user.email}`} className="flex items-center gap-1 hover:text-[#6C60FF] transition-colors"><Mail className="w-3 h-3" />{apiMemoryData.user.email}</a>}
                               {apiMemoryData?.user?.phone_number && <a href={`tel:${apiMemoryData.user.phone_number}`} className="flex items-center gap-1 hover:text-[#6C60FF] transition-colors"><Phone className="w-3 h-3" />{apiMemoryData.user.phone_number}</a>}
                             </div>
-                            {apiMemoryData?.user?.website && <a href={apiMemoryData.user.website} target="_blank" rel="noopener noreferrer" className="text-xs text-[#6C60FF] hover:underline mb-3">{apiMemoryData.user.website}</a>}
+                            {apiMemoryData?.user?.website && <a href={apiMemoryData.user.website} target="_blank" rel="noopener noreferrer" className="text-sm text-[#6C60FF] hover:underline mb-3">{displayWebsite(apiMemoryData.user.website)}</a>}
                             <div className="flex items-center gap-3 mt-2 mb-3">
                               {[
                                 { url: apiMemoryData?.user?.instagram_url, src: '/social-instagram.png', alt: 'Instagram' },
@@ -17462,7 +17538,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                       onView={() => handleMediaItemView(item)}
                       onViewImage={(src, alt, title, subtitle, imageId) => handleImageView(src, alt, title, subtitle, imageId)}
                       onUpdateItem={isSuggestedCategory ? undefined : handleUpdateItem}
-                      onDeleteItem={isSuggestedCategory ? undefined : () => handleDeleteItem(item.id)}
+                      onDeleteItem={isSuggestedCategory ? undefined : () => handleDeleteItem(item.id, isCarCampaign(apiMemoryData))}
                       memoryOwnerId={memoryOwnerId}
                       memoryTitle={apiMemoryData?.title}
                       memoryThumbnail={apiMemoryData?.last_update_img}
@@ -17470,6 +17546,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                       memoryImages={memoryImagesWithSubImages}
                       index={idx + 1}
                       isHidden={isItemHidden}
+                      isCar={isCarDetail}
                     />
                     </div>
                   );

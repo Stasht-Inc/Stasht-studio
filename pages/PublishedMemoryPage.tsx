@@ -13,6 +13,7 @@ import { ImageWithFallback } from "../components/figma/ImageWithFallback";
 import { PdfThumbnail } from "../components/PdfThumbnail";
 import MemoryCard from "../components/MemoryCard";
 import { isCarCampaign } from "../utils/memoryUtils";
+import { displayWebsite } from "../utils/displayUrl";
 import RequestMomentModal from "../components/RequestMomentModal";
 import { toast, Toaster } from "sonner";
 import exifr from "exifr";
@@ -2371,8 +2372,8 @@ export default function PublishedMemoryPage() {
                   )}
                 </div>
                 {memoryData?.user?.website && (
-                  <a href={memoryData.user.website} target="_blank" rel="noopener noreferrer" className="text-xs text-[#6C60FF] hover:underline mb-3">
-                    {memoryData.user.website}
+                  <a href={memoryData.user.website} target="_blank" rel="noopener noreferrer" className="text-sm text-[#6C60FF] hover:underline mb-3">
+                    {displayWebsite(memoryData.user.website)}
                   </a>
                 )}
                 <div className="flex items-center gap-3 mt-2 mb-3">
@@ -2777,9 +2778,9 @@ export default function PublishedMemoryPage() {
                             href={memoryData.user.website}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="text-xs text-[#6C60FF] hover:underline mb-3"
+                            className="text-sm text-[#6C60FF] hover:underline mb-3"
                           >
-                            {memoryData.user.website}
+                            {displayWebsite(memoryData.user.website)}
                           </a>
                         )}
 
