@@ -1,6 +1,7 @@
 ﻿import React, { useState, useEffect } from 'react';
 import { Eye, EyeOff, User, Mail, Lock, ArrowRight, Loader2, Phone } from 'lucide-react';
 import { validationUtils, authAPI } from '../utils/authUtils';
+import { parsePhonePrefill } from '../utils/phoneUtils';
 import { googleAuthAPI } from '../utils/googleAuthAPI';
 import { appleAuthAPI } from '../utils/appleAuthAPI';
 import { useGoogleLogin } from '@react-oauth/google';
@@ -308,6 +309,25 @@ export default function SignupPage({ onSignup, onSwitchToLogin }: SignupPageProp
         // DON'T clear flag here - keep it until successful signup
         // This protects invite params when navigating between login/signup pages
       }, 0);
+    }
+  }, []);
+
+  // Pre-fill phone/email from a plain invite link (e.g. /signup?phone=+14163028755),
+  // used by admin invites for a brand-new user. Collaborator invites are handled by
+  // the lock effect above, so skip when a collaborator param is present.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('collaborator')) return;
+    const emailParam = params.get('email');
+    const phoneParam = params.get('phone');
+    if (emailParam) {
+      setMethod('email');
+      setFormData(prev => ({ ...prev, email: decodeURIComponent(emailParam) }));
+    } else if (phoneParam) {
+      setMethod('phone');
+      const parsed = parsePhonePrefill(decodeURIComponent(phoneParam));
+      if (parsed.countryCode) setCountryCode(parsed.countryCode);
+      setPhoneNumber(parsed.number);
     }
   }, []);
 

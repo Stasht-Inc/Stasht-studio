@@ -175,6 +175,7 @@ interface MemoryCardProps {
   title: string;
   dateRange: string;
   location?: string; // Location where the memory was created
+  subtitle?: string; // Small info line under the location (e.g. car spec: "STK# … / … km / …")
   category?: string;
   categoryColor?: string;
   label?: string; // Yellow label for memory classification
@@ -216,6 +217,7 @@ export default function MemoryCard({
   title,
   dateRange,
   location,
+  subtitle,
   category,
   categoryColor,
   label,
@@ -653,6 +655,15 @@ export default function MemoryCard({
                 </span>
               </div>
             )}
+
+            {/* Subtitle — a small info line under the location/date (e.g. a car's spec
+                summary "STK# … / … km / …"), shown only when provided. On whiteFooter
+                cards it renders in the white footer instead (see below). */}
+            {subtitle && !whiteFooter && (
+              <p className="text-white/90 truncate" style={{ fontSize: '14px', fontWeight: 400, lineHeight: '18px' }} title={subtitle}>
+                {subtitle}
+              </p>
+            )}
           </div>
 
           {/* Right: Add Media button */}
@@ -702,6 +713,11 @@ export default function MemoryCard({
                 </div>
               )}
             </div>
+
+            {/* Subtitle (e.g. a car's spec line) — footer variant, under the author */}
+            {subtitle && (
+              <p className="text-[14px] text-gray-500 ml-0.5 truncate" title={subtitle}>{subtitle}</p>
+            )}
 
             {/* Row 2: Contributors (left) + Tags (far right) */}
             {(contributors.length > 0 || tags.length > 0) && (

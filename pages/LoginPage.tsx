@@ -17,6 +17,7 @@ import { toast } from 'sonner';
 import { DeviceVerificationModal } from '../components/DeviceVerificationModal';
 import { PopupBlockedGuideModal } from '../components/PopupBlockedGuideModal';
 import { getInviteParams, isEmail, isPhoneNumber, isCorrectCollaborator } from '../utils/inviteUtils';
+import { parsePhonePrefill } from '../utils/phoneUtils';
 import { AccountChoiceModal, getAdminCollaborator, AdminCollaborator } from '../components/AccountChoiceModal';
 
 interface LoginPageProps {
@@ -430,24 +431,14 @@ export default function LoginPage({ onLogin, onSwitchToSignup, onSocialLogin }: 
       const decodedPhone = decodeURIComponent(magicLinkPhone);
       console.log('🔗 [LoginPage] Decoded phone:', decodedPhone);
 
-      // Extract country code and phone number if the phone starts with +
-      if (decodedPhone.startsWith('+')) {
-        // Common country codes (1-3 digits after +)
-        const countryCodeMatch = decodedPhone.match(/^(\+\d{1,3})/);
-        if (countryCodeMatch) {
-          const extractedCountryCode = countryCodeMatch[1];
-          const extractedPhoneNumber = decodedPhone.slice(extractedCountryCode.length);
-
-          setCountryCode(extractedCountryCode);
-          setPhoneNumber(extractedPhoneNumber);
-          console.log('🔗 [LoginPage] Extracted country code:', extractedCountryCode);
-          console.log('🔗 [LoginPage] Extracted phone number:', extractedPhoneNumber);
-        } else {
-          setPhoneNumber(decodedPhone);
-        }
-      } else {
-        setPhoneNumber(decodedPhone);
+      // Split the invited phone into the correct country code + national number.
+      // Handles both "+14163028755" and "14163028755" (see parsePhonePrefill).
+      const parsedPhone = parsePhonePrefill(decodedPhone);
+      if (parsedPhone.countryCode) {
+        setCountryCode(parsedPhone.countryCode);
       }
+      setPhoneNumber(parsedPhone.number);
+      console.log('🔗 [LoginPage] Prefilled phone:', parsedPhone.countryCode, parsedPhone.number);
 
       setMethod('phone'); // Switch to phone method
 

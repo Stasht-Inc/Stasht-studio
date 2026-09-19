@@ -3,6 +3,7 @@ import { Search, Shield, Check, X, UserPlus, Send } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "./ui/dialog";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
+import CountrySelect from './CountrySelect';
 import { Avatar, AvatarFallback, AvatarImage } from "./ui/avatar";
 import { Badge } from "./ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
@@ -67,6 +68,7 @@ export default function AddCollaboratorDialog({
     if (node) setPersonalizedNameWidth(node.offsetWidth + 6); // + small gap
   }, [user?.name]);
   const [inviteMethod, setInviteMethod] = useState<'email' | 'phone'>('email');
+  const [phoneCountryCode, setPhoneCountryCode] = useState('+1');
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedEmailCollaborators, setSelectedEmailCollaborators] = useState<ApiUser[]>([]);
   const [selectedPhoneCollaborators, setSelectedPhoneCollaborators] = useState<ApiUser[]>([]);
@@ -246,7 +248,7 @@ export default function AddCollaboratorDialog({
 
   // Function to add collaborator from manual input
   const handleAddFromInput = async () => {
-    const input = searchQuery.trim();
+    let input = searchQuery.trim();
 
     if (!input) {
       toast.error("Please enter an email or phone number");
@@ -262,13 +264,15 @@ export default function AddCollaboratorDialog({
       }
     }
 
-    // Validate phone format (must have at least 7 digits)
+    // Validate phone format (must have at least 7 digits) and prefix the
+    // selected country code so the stored/sent number is fully-qualified.
     if (inviteMethod === 'phone') {
       const digitsOnly = input.replace(/[^0-9]/g, '');
       if (digitsOnly.length < 7) {
         toast.error("Please enter a valid phone number");
         return;
       }
+      input = `${phoneCountryCode}${digitsOnly}`;
     }
 
     // Check if already selected
@@ -819,9 +823,16 @@ export default function AddCollaboratorDialog({
           {/* Input with Add Button and Search Dropdown */}
           <div className="relative" ref={searchContainerRef}>
             <div className="flex gap-2">
+              {inviteMethod === 'phone' && (
+                <CountrySelect
+                  value={phoneCountryCode}
+                  onChange={setPhoneCountryCode}
+                  className="w-28 flex-shrink-0 h-10 border border-gray-200 rounded-md bg-gray-50 text-sm focus:outline-none focus:border-gray-400"
+                />
+              )}
               <div className="flex-1 relative">
                 <Input
-                  placeholder={inviteMethod === 'email' ? "john@example.com" : "+1 (555) 123-4567"}
+                  placeholder={inviteMethod === 'email' ? "john@example.com" : "e.g. 4163028755"}
                   value={searchQuery}
                   type={inviteMethod === 'email' ? 'email' : 'tel'}
                   onChange={(e) => {

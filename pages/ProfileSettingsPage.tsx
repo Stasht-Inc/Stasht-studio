@@ -5,6 +5,8 @@ import { Checkbox } from "../components/ui/checkbox";
 import { toast } from 'sonner';
 import { dashboardAPI, authAPI } from "../utils/authUtils";
 import GooglePlacesInput from "../components/ui/google-places-input";
+import CountrySelect from "../components/CountrySelect";
+import { parsePhonePrefill } from "../utils/phoneUtils";
 import PasswordStrengthIndicator from "../components/PasswordStrengthIndicator";
 import { savePasswordSecurity, getPasswordSecurity } from "../utils/passwordSecurityStorage";
 import UpgradePlanModal from "../components/UpgradePlanModal";
@@ -88,8 +90,30 @@ function PersonalInformation({ user, profileData, isLoadingProfile, sectionRef, 
     linkedinUrl: ensureString(profileData?.linkedin_url),
     facebookUrl: ensureString(profileData?.facebook_url),
     tiktokUrl: ensureString(profileData?.tiktok_url),
-    instagramUrl: ensureString(profileData?.instagram_url)
+    instagramUrl: ensureString(profileData?.instagram_url),
+        website: ensureString(profileData?.website)
   });
+
+  // Phone number is stored fully-qualified (e.g. "+14163028755"); split it into
+  // a country-code selector + national number for editing, mirroring the invite
+  // and signup flows.
+  const [phoneCountry, setPhoneCountry] = useState('+1');
+  const [phoneNational, setPhoneNational] = useState('');
+
+  useEffect(() => {
+    const { countryCode, number } = parsePhonePrefill(ensureString(profileData?.phone));
+    setPhoneCountry(countryCode || '+1');
+    setPhoneNational(number);
+  }, [profileData?.phone]);
+
+  // Keep formData.phone (the value that gets saved) as the fully-qualified number
+  // whenever either the country code or the national part changes.
+  const applyPhone = (country: string, national: string) => {
+    setPhoneCountry(country);
+    setPhoneNational(national);
+    const digits = national.replace(/[^0-9]/g, '');
+    setFormData(prev => ({ ...prev, phone: digits ? `${country}${digits}` : '' }));
+  };
   const [urlErrors, setUrlErrors] = useState({
     linkedinUrl: '',
     facebookUrl: '',
@@ -114,7 +138,8 @@ function PersonalInformation({ user, profileData, isLoadingProfile, sectionRef, 
         linkedinUrl: ensureString(profileData?.linkedin_url),
         facebookUrl: ensureString(profileData?.facebook_url),
         tiktokUrl: ensureString(profileData?.tiktok_url),
-        instagramUrl: ensureString(profileData?.instagram_url)
+        instagramUrl: ensureString(profileData?.instagram_url),
+        website: ensureString(profileData?.website)
       });
       setShowEBusinessCard(!!profileData?.is_business);
 
@@ -139,7 +164,8 @@ function PersonalInformation({ user, profileData, isLoadingProfile, sectionRef, 
         linkedinUrl: ensureString(profileData?.linkedin_url),
         facebookUrl: ensureString(profileData?.facebook_url),
         tiktokUrl: ensureString(profileData?.tiktok_url),
-        instagramUrl: ensureString(profileData?.instagram_url)
+        instagramUrl: ensureString(profileData?.instagram_url),
+        website: ensureString(profileData?.website)
       });
     }
   }, [isEditing, profileData, user]);
@@ -324,6 +350,7 @@ function PersonalInformation({ user, profileData, isLoadingProfile, sectionRef, 
       formDataToSend.append('facebook_url', formData.facebookUrl?.trim() ?? '');
       formDataToSend.append('tiktok_url', formData.tiktokUrl?.trim() ?? '');
       formDataToSend.append('instagram_url', formData.instagramUrl?.trim() ?? '');
+      formDataToSend.append('website', formData.website?.trim() ?? '');
 
       console.log('Method override: PUT');
       console.log('Name parameter:', nameToSend);
@@ -353,7 +380,7 @@ function PersonalInformation({ user, profileData, isLoadingProfile, sectionRef, 
       
       if (formDataSize === 0) {
         console.error('ERROR: FormData is empty!');
-        alert('No data to send. Please fill in the form.');
+        toast.error('No data to send. Please fill in the form.');
         return;
       }
       
@@ -434,14 +461,14 @@ function PersonalInformation({ user, profileData, isLoadingProfile, sectionRef, 
         }, 300);
 
         // Show success message
-        alert('Profile updated successfully! Location: ' + expectedLocation);
+        toast.success('Profile updated successfully');
       } else {
         console.error('Profile update failed:', response);
-        alert('Failed to update profile. Please try again.');
+        toast.error('Failed to update profile. Please try again.');
       }
     } catch (error) {
       console.error('Error updating profile:', error);
-      alert('An error occurred while updating your profile.');
+      toast.error('An error occurred while updating your profile.');
     } finally {
       setIsSubmitting(false);
     }
@@ -546,11 +573,28 @@ function PersonalInformation({ user, profileData, isLoadingProfile, sectionRef, 
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">Phone</label>
+            <div className="flex gap-2">
+              <CountrySelect
+                value={phoneCountry}
+                onChange={(c) => applyPhone(c, phoneNational)}
+                className="w-28 flex-shrink-0 px-3 py-2 bg-gray-100 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#6C60FF] focus:border-[#6C60FF]"
+              />
+              <input
+                type="tel"
+                value={phoneNational}
+                onChange={(e) => applyPhone(phoneCountry, e.target.value)}
+                placeholder="e.g. 4163028755"
+                className="flex-1 px-3 py-2 bg-gray-100 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#6C60FF] focus:border-[#6C60FF]"
+              />
+            </div>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Website</label>
             <input
-              type="tel"
-              value={formData.phone}
-              onChange={(e) => setFormData(prev => ({...prev, phone: e.target.value}))}
-              placeholder="Enter your phone number"
+              type="url"
+              value={formData.website}
+              onChange={(e) => setFormData(prev => ({...prev, website: e.target.value}))}
+              placeholder="https://yourwebsite.com"
               className="w-full px-3 py-2 bg-gray-100 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#6C60FF] focus:border-[#6C60FF]"
             />
           </div>
@@ -883,6 +927,14 @@ function PersonalInformation({ user, profileData, isLoadingProfile, sectionRef, 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Phone:</label>
                 <p className="text-gray-900">{profileData?.phone || 'Not set'}</p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Website:</label>
+                {profileData?.website ? (
+                  <a href={profileData.website} target="_blank" rel="noopener noreferrer" className="text-[#6C60FF] hover:underline break-all">{profileData.website}</a>
+                ) : (
+                  <p className="text-gray-900">Not set</p>
+                )}
               </div>
               <div>
                 <div className="flex items-center justify-between mb-1">

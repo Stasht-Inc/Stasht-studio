@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Mail, Phone, MapPin, Clock, MessageSquare, X, Paperclip, Send, ChevronDown, Smile, RefreshCw, Eye, Sparkles, Search, Heart, Gift, Calendar, MessageCircle, ThumbsUp, TrendingUp, Lightbulb, FileText, UserRound } from 'lucide-react';
+import { Mail, Phone, MapPin, Clock, MessageSquare, X, Paperclip, Send, ChevronDown, Smile, RefreshCw, Eye, Sparkles, Search, Heart, Gift, Calendar, MessageCircle, ThumbsUp, TrendingUp, Lightbulb, FileText, UserRound, CheckCircle2 } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from './ui/avatar';
 import { Select, SelectContent, SelectItem, SelectSeparator, SelectTrigger, SelectValue } from './ui/select';
 import { Lead, LeadMessage, LeadMessageAttachment, leadsAPI, CommentaryTarget } from '../services/leadsAPI';
@@ -684,8 +684,8 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
                         {currentStatus === 'hot' && <span className="flex items-center gap-1"><img src="/hot-icon.svg" className="w-3 h-3.5" />Hot</span>}
                         {currentStatus === 'warm' && <span className="flex items-center gap-1"><img src="/warm-icon.svg" className="w-2 h-3.5" />Warm</span>}
                         {currentStatus === 'cold' && <span className="flex items-center gap-1"><img src="/cold-icon.svg" className="w-3.5 h-3.5" />Cold</span>}
-                        {currentStatus === 'visited' && <span>Visited</span>}
-                        {currentStatus === 'sold' && <span>Sold</span>}
+                        {currentStatus === 'visited' && <span className="flex items-center gap-1"><MapPin className="w-3.5 h-3.5" />Visited</span>}
+                        {currentStatus === 'sold' && <span className="flex items-center gap-1"><CheckCircle2 className="w-3.5 h-3.5" />Sold</span>}
                         {!currentStatus && <SelectValue />}
                       </SelectTrigger>
                       <SelectContent>
@@ -694,8 +694,8 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
                         <SelectItem value="warm"><span className="flex items-center gap-1.5"><img src="/warm-icon.svg" className="w-2 h-3.5" />Warm</span></SelectItem>
                         <SelectItem value="cold"><span className="flex items-center gap-1.5"><img src="/cold-icon.svg" className="w-3.5 h-3.5" />Cold</span></SelectItem>
                         <SelectSeparator />
-                        <SelectItem value="visited">Visited</SelectItem>
-                        <SelectItem value="sold">Sold</SelectItem>
+                        <SelectItem value="visited"><span className="flex items-center gap-1.5"><MapPin className="w-3.5 h-3.5" />Visited</span></SelectItem>
+                        <SelectItem value="sold"><span className="flex items-center gap-1.5"><CheckCircle2 className="w-3.5 h-3.5" />Sold</span></SelectItem>
                       </SelectContent>
                     </Select>
                   </div>

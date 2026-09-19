@@ -28,7 +28,7 @@ import { MemoryLimitDialog } from "../components/MemoryLimitDialog";
 import { useNotificationsRefresh } from '../hooks/useNotificationsRefresh';
 import CategoryNav from "../components/CategoryNav";
 import { SHOPIFY_COLOR, CARS_COLOR } from "../utils/categoryColorManager";
-import { memoryCountsManager, setCatalogItemsCount } from '../hooks/useMemoryCounts';
+import { memoryCountsManager, setShopifyCatalogCount } from '../hooks/useMemoryCounts';
 import PublishMemoriesModal from "../components/PublishMemoriesModal";
 import { Popover, PopoverContent, PopoverTrigger } from "../components/ui/popover";
 import AddTagsModal from "../components/AddTagsModal";
@@ -799,6 +799,11 @@ function MemoriesPageContent({
         category: { name: categoryName, color: CARS_COLOR },
         label: priceLabel,
         photos: { count: car?.images_count || 1 },
+        // Dealer address (from the backend) so the card shows a real location instead of
+        // "Location not specified" — cars have no per-row street address of their own.
+        location: { formatted: car?.location?.formatted || car?.city || '' },
+        // Spec line matching the dealer site: "STK# … / … km / … engine" (computed backend-side).
+        spec_summary: car?.spec_summary || '',
         last_update_img: car?.main_image || null,
         isCars: true,
         isShared: false,
@@ -807,12 +812,15 @@ function MemoriesPageContent({
     });
   }, [carsList]);
 
-  // Cars/Shopify cards aren't real memory records, so the backend memory-counts total never
-  // includes them. Report how many are currently on screen so the sidebar total can add them
-  // in — see setCatalogItemsCount in hooks/useMemoryCounts.
+  // Shopify cards aren't real memory records, so the backend memory-counts total never
+  // includes them. Report how many are on screen so the sidebar total can add them in.
+  // Cars are intentionally NOT reported here: the cars inventory count is fetched once on
+  // login (see fetchCarsCatalogCount in hooks/useMemoryCounts) so this page's first render —
+  // before its idle /cars fetch resolves — can't briefly report 0 cars and flicker the
+  // sidebar total down to the campaigns-only count and back.
   useEffect(() => {
-    setCatalogItemsCount(carsCards.length + shopifyCards.length);
-  }, [carsCards, shopifyCards]);
+    setShopifyCatalogCount(shopifyCards.length);
+  }, [shopifyCards]);
 
   // Single source of truth for the category list used by the Create Campaign gate and the
   // dropdowns. The server fetch (sidebarData) and the local `categories` state can briefly
@@ -2297,7 +2305,7 @@ function MemoriesPageContent({
                     <MemoryCard
                       image={thumbnailUrl}
                       title={mem.title}
-                      dateRange={mem.created_at ? new Date(mem.created_at).toLocaleDateString() : 'Date not specified'}
+                      dateRange={(mem.isCars || mem.category?.name === 'Cars') ? '' : (mem.created_at ? new Date(mem.created_at).toLocaleDateString() : 'Date not specified')}
                       location={mem.location || ''}
                       category=""
                       categoryColor="#9333EA"
@@ -2534,6 +2542,8 @@ function MemoriesPageContent({
                       image={imageUrl}
                       title={memory.title}
                       dateRange={(() => {
+                        // Cars have no meaningful date — hide it (icon + text) on their cards.
+                        if (memory.isCars || memory.category?.name === 'Cars') return '';
                         // Format date range like "Aug 11/25" or "Aug 11 - Aug 15/25"
                         if (memory.starting_date && memory.ending_date) {
                           return `${memory.starting_date} - ${memory.ending_date}`;
@@ -3131,8 +3141,9 @@ function MemoriesPageContent({
                           <MemoryCard
                             image={thumbnailUrl}
                             title={memory.title}
-                            dateRange={memory.dates?.formatted_range || 'Date not specified'}
+                            dateRange={(memory.isCars || memory.category?.name === 'Cars') ? '' : (memory.dates?.formatted_range || 'Date not specified')}
                             location={memory.location?.formatted || 'Location not specified'}
+                            subtitle={memory.spec_summary || undefined}
                             category={memory.isShared ? 'Shared With' : memoryCategoryName}
                             categoryColor={categoryColor}
                             label={isSharedWithCategory || isInvitesCategory ? '' : (memory.sub_category?.name || (typeof memory.label === 'object' ? memory.label?.name : memory.label) || '')}

@@ -893,11 +893,13 @@ export const mediaAPI = {
   },
 
   // Delete single image by ID
-  deleteImage: async (imageId: string | number): Promise<{success: boolean; data?: any; error?: string}> => {
+  deleteImage: async (imageId: string | number, isCar: boolean = false): Promise<{success: boolean; data?: any; error?: string}> => {
     try {
-      console.log('🗑️ Deleting single image with ID:', imageId);
-      
-      const endpoint = `/memory-images/${imageId}`;
+      console.log('🗑️ Deleting single image with ID:', imageId, 'isCar:', isCar);
+
+      // Car-campaign photos live in the `car_images` table, not `memory_images`;
+      // flag them so the backend deletes from the right table.
+      const endpoint = `/memory-images/${imageId}${isCar ? '?is_car=1' : ''}`;
       
       const response = await apiRequest<any>(endpoint, {
         method: 'DELETE'

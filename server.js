@@ -70,7 +70,7 @@ app.get('/published-memory/:slug', async (req, res) => {
     <meta property="og:type" content="website" />
     <meta property="og:url" content="${currentUrl}" />
     <meta property="og:title" content="Memory Title - Stasht" />
-    <meta property="og:description" content="View this amazing memory on Stasht" />
+    <meta property="og:description" content="View this published storeel on stasht." />
     <meta property="og:image" content="${siteUrl}/default-og-image.jpg" />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
@@ -79,7 +79,7 @@ app.get('/published-memory/:slug', async (req, res) => {
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:url" content="${currentUrl}" />
     <meta name="twitter:title" content="Memory Title - Stasht" />
-    <meta name="twitter:description" content="View this amazing memory on Stasht" />
+    <meta name="twitter:description" content="View this published storeel on stasht." />
     <meta name="twitter:image" content="${siteUrl}/default-og-image.jpg" />
   `;
 

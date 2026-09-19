@@ -3,6 +3,7 @@ import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Badge } from './ui/badge';
 import { Avatar, AvatarFallback, AvatarImage } from './ui/avatar';
+import CountrySelect from './CountrySelect';
 import {
   Dialog,
   DialogContent,
@@ -137,6 +138,7 @@ export default function InviteToMemoryModal({ isOpen, onClose, onInviteSuccess }
   const [searchQuery, setSearchQuery] = useState('');
   const [emailInput, setEmailInput] = useState('');
   const [phoneInput, setPhoneInput] = useState('');
+  const [phoneCountryCode, setPhoneCountryCode] = useState('+1');
   const [selectedCollaborators, setSelectedCollaborators] = useState<User[]>([]);
   const [recentCollaborators, setRecentCollaborators] = useState<User[]>([]);
   const [selectedRole, setSelectedRole] = useState('Contributor');
@@ -394,25 +396,11 @@ export default function InviteToMemoryModal({ isOpen, onClose, onInviteSuccess }
         const collaborators = response.data.data?.collaborators || response.data.collaborators || [];
         setRecentCollaborators(collaborators.slice(0, 4)); // Show top 4 recent collaborators
       } else {
-        // Fallback mock data for demo
-        const mockCollaborators = [
-          { id: '1', name: 'Sarah Johnson', email: 'sarah.johnson@email.com' },
-          { id: '2', name: 'Mike Chen', email: 'mike.chen@email.com' },
-          { id: '3', name: 'Emily Rodriguez', email: 'emily.rodriguez@email.com' },
-          { id: '4', name: 'David Thompson', email: 'david.thompson@email.com' }
-        ];
-        setRecentCollaborators(mockCollaborators);
+        setRecentCollaborators([]);
       }
     } catch (error) {
       console.error('Error fetching collaborators:', error);
-      // Fallback mock data for demo
-      const mockCollaborators = [
-        { id: '1', name: 'Sarah Johnson', email: 'sarah.johnson@email.com' },
-        { id: '2', name: 'Mike Chen', email: 'mike.chen@email.com' },
-        { id: '3', name: 'Emily Rodriguez', email: 'emily.rodriguez@email.com' },
-        { id: '4', name: 'David Thompson', email: 'david.thompson@email.com' }
-      ];
-      setRecentCollaborators(mockCollaborators);
+      setRecentCollaborators([]);
     }
   };
 
@@ -470,13 +458,6 @@ export default function InviteToMemoryModal({ isOpen, onClose, onInviteSuccess }
 
   const handleAddPhone = async () => {
     if (phoneInput.trim()) {
-      // Check if phone is already added
-      const existingCollaborator = selectedCollaborators.find(c => c.phone_number === phoneInput.trim());
-      if (existingCollaborator) {
-        toast.error('This phone number is already added');
-        return;
-      }
-
       // Validate phone format (basic validation - at least 7 digits)
       const digitsOnly = phoneInput.trim().replace(/[^0-9]/g, '');
       if (digitsOnly.length < 7) {
@@ -484,15 +465,25 @@ export default function InviteToMemoryModal({ isOpen, onClose, onInviteSuccess }
         return;
       }
 
+      // Full number = selected country/area code + the entered national digits.
+      const fullPhone = `${phoneCountryCode}${digitsOnly}`;
+
+      // Check if phone is already added
+      const existingCollaborator = selectedCollaborators.find(c => c.phone_number === fullPhone);
+      if (existingCollaborator) {
+        toast.error('This phone number is already added');
+        return;
+      }
+
       const newUser: User = {
         id: `phone-${Date.now()}`,
-        name: phoneInput ? phoneInput.trim() : 'User',
+        name: fullPhone,
         email: '',
-        phone_number: phoneInput.trim()
+        phone_number: fullPhone
       };
       setSelectedCollaborators([...selectedCollaborators, newUser]);
       setPhoneInput('');
-      toast.success(`${phoneInput.trim()} added as user`);
+      toast.success(`${fullPhone} added as user`);
     }
   };
 
@@ -735,9 +726,15 @@ export default function InviteToMemoryModal({ isOpen, onClose, onInviteSuccess }
     });
   };
 
+  // Only real recent collaborators (has a name, email, or phone) — filters out the
+  // empty placeholder entries so the "Recent users" section is hidden when there are none.
+  const validRecentUsers = recentCollaborators.filter(
+    (u) => (u.name && u.name.trim()) || u.email || u.phone_number
+  );
+
   return (
     <Dialog open={isOpen} onOpenChange={handleClose}>
-      <DialogContent className="sm:max-w-lg bg-white rounded-xl shadow-xl border-0 p-0 overflow-hidden max-h-[90vh] focus:outline-none [&>button]:hidden">
+      <DialogContent className="flex flex-col gap-0 w-screen h-[100dvh] max-w-none max-h-[100dvh] top-0 left-0 translate-x-0 translate-y-0 rounded-none sm:top-[50%] sm:left-[50%] sm:translate-x-[-50%] sm:translate-y-[-50%] sm:w-full sm:max-w-lg sm:h-auto sm:max-h-[90vh] sm:rounded-xl bg-white shadow-xl border-0 p-0 overflow-hidden focus:outline-none [&>button]:hidden">
         {/* Header */}
         <DialogHeader className="px-6 pt-6 pb-2">
           <div className="flex items-center justify-between">
@@ -765,7 +762,7 @@ export default function InviteToMemoryModal({ isOpen, onClose, onInviteSuccess }
           </div>
         </DialogHeader>
 
-        <div className="px-6 space-y-4 overflow-y-auto max-h-[calc(90vh-140px)]">
+        <div className="px-6 space-y-4 overflow-y-auto flex-1 min-h-0 sm:flex-none sm:max-h-[calc(90vh-140px)]">
           {/* Admin Limit Warning */}
           {isAdminLimitExceeded && (
             <div className="bg-yellow-50 border border-yellow-300 rounded-lg p-3 flex items-start gap-2">
@@ -1132,7 +1129,7 @@ export default function InviteToMemoryModal({ isOpen, onClose, onInviteSuccess }
               <div className="mb-3 relative">
                 <div className="flex gap-2">
                   <Input
-                    placeholder="Add by email address"
+                    placeholder="e.g. name@example.com"
                     value={emailInput}
                     onChange={(e) => {
                       setEmailInput(e.target.value);
@@ -1206,8 +1203,14 @@ export default function InviteToMemoryModal({ isOpen, onClose, onInviteSuccess }
             {activeTab === 'phone' && (
               <div className="mb-3 relative">
                 <div className="flex gap-2">
+                  <CountrySelect
+                    value={phoneCountryCode}
+                    onChange={setPhoneCountryCode}
+                    className="w-28 h-9 flex-shrink-0 border border-gray-300 rounded-md bg-gray-50 text-sm focus:outline-none focus:border-gray-400"
+                  />
                   <Input
-                    placeholder="Add by phone number"
+                    placeholder="e.g. 4163028755"
+                    inputMode="tel"
                     value={phoneInput}
                     onChange={(e) => {
                       setPhoneInput(e.target.value);
@@ -1310,55 +1313,15 @@ export default function InviteToMemoryModal({ isOpen, onClose, onInviteSuccess }
               </div>
             )}
 
-            {/* Frequent Collaborators Section */}
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <h4 className="text-sm font-medium text-gray-700">Frequent users</h4>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setIsExpanded(!isExpanded)}
-                  className="h-6 p-0 text-gray-400 hover:text-gray-600"
-                >
-                  {isExpanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
-                </Button>
-              </div>
-
-              {/* Show frequent collaborators in grid format like recent collaborators */}
-              {isExpanded && recentCollaborators.length > 0 && (
-                <div className="grid grid-cols-2 gap-2">
-                  {recentCollaborators.slice(0, 4).map((user) => (
-                    <div
-                      key={user.id}
-                      onClick={() => handleAddCollaborator(user)}
-                      className="p-2 border border-gray-200 rounded-lg hover:border-gray-300 hover:bg-gray-50 cursor-pointer transition-all"
-                    >
-                      <div className="flex items-center space-x-2">
-                        <Avatar className="h-7 w-7">
-                          {user.profile_image ? (
-                            <AvatarImage src={user.profile_image} />
-                          ) : null}
-                          <AvatarFallback className="text-xs bg-gray-100 text-gray-600">
-                            {generateInitials(user.name)}
-                          </AvatarFallback>
-                        </Avatar>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-xs font-medium text-gray-900 truncate">{user.name}</p>
-                          <p className="text-xs text-gray-500 truncate">{user.email || user.phone_number}</p>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
+            {/* Frequent users section removed per request. */}
           </div>
 
-          {/* Recent Collaborators Grid */}
+          {/* Recent Collaborators Grid — only shown when there are valid recent users */}
+          {validRecentUsers.length > 0 && (
           <div>
             <h4 className="text-sm font-medium text-gray-700 mb-3">Recent users</h4>
             <div className="grid grid-cols-2 gap-3">
-              {recentCollaborators.slice(0, 4).map((user) => (
+              {validRecentUsers.slice(0, 4).map((user) => (
                 <div
                   key={user.id}
                   onClick={() => handleAddCollaborator(user)}
@@ -1382,6 +1345,7 @@ export default function InviteToMemoryModal({ isOpen, onClose, onInviteSuccess }
               ))}
             </div>
           </div>
+          )}
 
           {/* Personal Message */}
           <div>

@@ -113,6 +113,7 @@ interface PostCardProps {
   onInsufficientCredits?: (availableCredits: number) => void; // Callback when credits are insufficient
   onMoveUp?: () => void;
   onMoveDown?: () => void;
+  carSpec?: string; // Car spec line ("STK# … / … km / … engine"), shown under the location for car cards
   docusignDocument?: {
     envelope_id: string;
     document_name: string;
@@ -121,7 +122,7 @@ interface PostCardProps {
   };
 }
 
-export default function PostCard({ post, variant = 'thumbnail', onContentUpdate, onImageClick, memoryOwnerId, onPostDelete, onUpdateItem, activeCollaborators = [], subImageCount = 0, subImages = [], memoryTitle, memoryThumbnail, memoryCreatedDate, memoryImages = [], onRefresh, memoryPublished, memoryId, memorySlug, searchHighlight, storyTags = [], onInsufficientCredits, docusignDocument, onMoveUp, onMoveDown }: PostCardProps) {
+export default function PostCard({ post, variant = 'thumbnail', onContentUpdate, onImageClick, memoryOwnerId, onPostDelete, onUpdateItem, activeCollaborators = [], subImageCount = 0, subImages = [], memoryTitle, memoryThumbnail, memoryCreatedDate, memoryImages = [], onRefresh, memoryPublished, memoryId, memorySlug, searchHighlight, storyTags = [], onInsufficientCredits, docusignDocument, onMoveUp, onMoveDown, carSpec }: PostCardProps) {
   // Debug log to check title in PostCard
   console.log(`📝 PostCard received post ${post.id}: title="${post.title}", name="${post.name}"`);
 
@@ -333,6 +334,9 @@ export default function PostCard({ post, variant = 'thumbnail', onContentUpdate,
   const currentImageTitle = currentImageData?.title || post.title;
   const currentImageLocation = currentImageData?.location || post.location;
   const currentImageDate = currentImageData?.dateTaken || currentImageData?.date || post.date;
+  // Car detail views (memoryId marker `cars_detail:<id>`) synthesize post dates only to
+  // keep photo sort order — they aren't real capture dates, so hide the date on car cards.
+  const isCarPost = typeof memoryId === 'string' && memoryId.startsWith('cars_detail:');
 
   const newDescriptionTextareaRef = useRef<HTMLTextAreaElement>(null);
   
@@ -1969,11 +1973,17 @@ export default function PostCard({ post, variant = 'thumbnail', onContentUpdate,
                   {currentImageLocation}
                 </span>
               </div>
+              {!isCarPost && (
               <div className="flex items-center gap-1.5 flex-shrink-0">
                 <Calendar className="h-5 w-5 md:h-4 md:w-4 flex-shrink-0 text-[#6A7282]" />
                 <span className="whitespace-nowrap">{currentImageDate ? new Date(currentImageDate).toLocaleDateString('en-US', { year: 'numeric', month: '2-digit', day: '2-digit' }) : currentImageDate}</span>
               </div>
+              )}
             </div>
+            {/* Car spec line, under the location */}
+            {isCarPost && carSpec && (
+              <div className="text-[15px] md:text-sm text-[#6A7282]">{carSpec}</div>
+            )}
             {/* Title - shown below location if exists and is different from name */}
             {currentImageTitle && currentImageTitle.trim() !== '' && currentImageTitle !== post.name && currentImageTitle !== currentImageData?.name && (
               <p
@@ -2004,10 +2014,12 @@ export default function PostCard({ post, variant = 'thumbnail', onContentUpdate,
             )}
 
             {/* Date */}
+            {!isCarPost && (
             <div className="flex items-center gap-1">
               <Calendar className="h-3.5 w-3.5 md:h-3 md:w-3 flex-shrink-0" />
               <span>{currentImageDate ? new Date(currentImageDate).toLocaleDateString('en-US', { year: 'numeric', month: '2-digit', day: '2-digit' }) : currentImageDate}</span>
             </div>
+            )}
 
             {/* Location */}
             <div className="flex items-center gap-1">
@@ -2020,6 +2032,11 @@ export default function PostCard({ post, variant = 'thumbnail', onContentUpdate,
                 {currentImageLocation}
               </span>
             </div>
+
+            {/* Car spec line, under the location */}
+            {isCarPost && carSpec && (
+              <div className="truncate" title={carSpec}>{carSpec}</div>
+            )}
 
             {/* Comments */}
             <div

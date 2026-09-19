@@ -23,11 +23,22 @@ let globalError: string | null = null;
 // When true, personal account API counts will not override property account counts
 let propertyModeActive = false;
 // Cars + Shopify catalog cards aren't real memory records in the backend, so the
-// /user/memory-counts response never includes them. MemoriesPage reports how many
-// catalog cards it's currently showing here, and we add it on top of the backend
-// total at read time — that way the 30s background refetch of memory-counts can't
-// stomp it back out.
-let globalCatalogCount = 0;
+// /user/memory-counts response never includes them. We track them separately and add
+// both on top of the backend total at read time — that way the 30s background refetch
+// of memory-counts can't stomp them back out.
+//
+// Cars and Shopify are kept in SEPARATE counters on purpose. The cars inventory is
+// fetched once on login (fetchCarsCatalogCount) so the sidebar total is complete on
+// the dashboard immediately, without waiting for the Campaigns tab. MemoriesPage owns
+// only the Shopify count. If MemoriesPage owned a combined count, its first render
+// (before its idle /cars fetch resolves) would report 0 cars and briefly stomp the
+// login-fetched inventory to 0 — the 49 → 2 → 49 flicker. Splitting them means nothing
+// ever resets the cars number to 0.
+let globalCarsCatalogCount = 0;
+let globalShopifyCatalogCount = 0;
+// Guards the one-time login cars fetch so concurrent hook instances don't double-fetch;
+// reset on logout so the next user refetches.
+let carsCatalogLoaded = false;
 
 // Subscribers that need to be notified when memory counts change
 const subscribers = new Set<() => void>();
@@ -65,11 +76,35 @@ const memoryCountsManager = {
     propertyModeActive = active;
   },
 
-  // Report how many non-memory catalog cards (Cars, Shopify) are currently displayed
-  setCatalogCount: (count: number) => {
-    if (globalCatalogCount === count) return;
-    globalCatalogCount = count;
+  // Report the Shopify catalog card count (owned by MemoriesPage).
+  setShopifyCatalogCount: (count: number) => {
+    if (globalShopifyCatalogCount === count) return;
+    globalShopifyCatalogCount = count;
     memoryCountsManager.notify();
+  },
+
+  // Report the cars inventory count.
+  setCarsCatalogCount: (count: number) => {
+    if (globalCarsCatalogCount === count) return;
+    globalCarsCatalogCount = count;
+    memoryCountsManager.notify();
+  },
+
+  // Fetch the read-only cars inventory count once on login so the sidebar Campaigns
+  // total includes it before MemoriesPage has ever mounted. Mirrors the /cars fetch
+  // MemoriesPage does for its card display; here we only need the count.
+  fetchCarsCatalogCount: async (): Promise<void> => {
+    if (carsCatalogLoaded) return;
+    carsCatalogLoaded = true; // set synchronously so parallel hook instances skip
+    try {
+      const res: any = await dashboardAPI.carsGetCatalog();
+      const list = res?.data?.data?.cars || res?.data?.cars || [];
+      if (res?.success && Array.isArray(list)) {
+        memoryCountsManager.setCarsCatalogCount(list.length);
+      }
+    } catch {
+      carsCatalogLoaded = false; // allow a later attempt if this one failed
+    }
   },
 
   // Fetch memory counts from API
@@ -144,11 +179,18 @@ export const useMemoryCounts = (): UseMemoryCountsReturn => {
     return unsubscribe;
   }, [rerender]);
 
-  // Fetch memory counts when authenticated
+  // Fetch memory counts (and the cars inventory count) once when the user becomes
+  // authenticated, so the sidebar Campaigns total is complete on the dashboard without
+  // waiting for the Campaigns tab to be opened.
   useEffect(() => {
-    if (isAuthenticated && !globalMemoryCounts && !globalIsLoading) {
+    if (!isAuthenticated) {
+      carsCatalogLoaded = false; // next login refetches the cars catalog
+      return;
+    }
+    if (!globalMemoryCounts && !globalIsLoading) {
       memoryCountsManager.fetchMemoryCounts();
     }
+    memoryCountsManager.fetchCarsCatalogCount();
   }, [isAuthenticated]);
 
   // Set up periodic refresh of memory counts (every 30 seconds when authenticated)
@@ -174,7 +216,11 @@ export const useMemoryCounts = (): UseMemoryCountsReturn => {
   }, [isAuthenticated]);
 
   const memoryCounts = globalMemoryCounts
-    ? { ...globalMemoryCounts, total_memories: globalMemoryCounts.total_memories + globalCatalogCount }
+    ? {
+        ...globalMemoryCounts,
+        total_memories:
+          globalMemoryCounts.total_memories + globalCarsCatalogCount + globalShopifyCatalogCount,
+      }
     : globalMemoryCounts;
 
   return {
@@ -194,8 +240,10 @@ export const triggerMemoryCountsRefresh = async (): Promise<void> => {
   await memoryCountsManager.fetchMemoryCounts();
 };
 
-// Report the number of Cars/Shopify catalog cards currently shown on the Memories page,
-// so the sidebar total can include them even though the backend doesn't count them.
-export const setCatalogItemsCount = (count: number): void => {
-  memoryCountsManager.setCatalogCount(count);
+// Report the number of Shopify catalog cards currently shown on the Memories page, so
+// the sidebar total can include them even though the backend doesn't count them. The
+// cars inventory is NOT reported here — it's fetched once on login (fetchCarsCatalogCount)
+// so MemoriesPage's initial pre-fetch render can't stomp the cars count to 0.
+export const setShopifyCatalogCount = (count: number): void => {
+  memoryCountsManager.setShopifyCatalogCount(count);
 };

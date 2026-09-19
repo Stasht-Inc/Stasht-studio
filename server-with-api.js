@@ -89,7 +89,7 @@ async function fetchMemoryData(slug) {
     // Use the current request host for the URL, or fallback to stashtpro
     const memoryData = {
       title: memory.title || 'Shared Memory',
-      description: memory.description || `View this memory on Stasht`,
+      description: memory.share_message || memory.description || 'View this published storeel on stasht.',
       image: imageUrl,
       url: `https://stashtpro.wd-projects.online/published-memory/${slug}`
     };

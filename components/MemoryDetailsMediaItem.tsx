@@ -61,6 +61,7 @@ interface MemoryDetailsMediaItemProps {
   memoryImages?: MemoryImage[];
   index?: number; // Sequential number to display on the card
   isHidden?: boolean; // Person hidden from media
+  isCar?: boolean; // Car media has no real capture date — hide the date row
 }
 
 export default function MemoryDetailsMediaItem({
@@ -77,7 +78,8 @@ export default function MemoryDetailsMediaItem({
   memoryCreatedDate,
   memoryImages = [],
   index,
-  isHidden = false
+  isHidden = false,
+  isCar = false
 }: MemoryDetailsMediaItemProps) {
   const [isDeleting, setIsDeleting] = useState(false);
   const [isEditOpen, setIsEditOpen] = useState(false);
@@ -471,11 +473,13 @@ export default function MemoryDetailsMediaItem({
             )}
           </div>
 
-          {/* Date */}
+          {/* Date — hidden for cars (their capture date is synthetic) */}
+          {!isCar && (
           <div className="flex items-center gap-1 text-xs text-gray-500">
             <Calendar className="w-3 h-3" />
             <span>{formatDate(item.date)}</span>
           </div>
+          )}
         </div>
       </div>
     </div>

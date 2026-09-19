@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { X, Upload, Calendar, MapPin, Tag, Users, Plus, Camera, Image as ImageIcon, CheckCircle, Loader2, File as FileIcon, Search, Video, Pencil, Globe, Eye, Lock } from 'lucide-react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
+import CountrySelect from './CountrySelect';
 import GooglePlacesInput from './ui/google-places-input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import * as Popover from '@radix-ui/react-popover';
@@ -96,6 +97,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
   const [currentCollaborator, setCurrentCollaborator] = useState('');
   const [collaboratorError, setCollaboratorError] = useState('');
   const [collaboratorMethod, setCollaboratorMethod] = useState<'phone' | 'email'>('phone');
+  const [collaboratorCountryCode, setCollaboratorCountryCode] = useState('+1');
   // Live user-search dropdown for the collaborator input (matches AddCollaboratorDialog's search UX)
   const [collaboratorSearchResults, setCollaboratorSearchResults] = useState<any[]>([]);
   const [isSearchingCollaborators, setIsSearchingCollaborators] = useState(false);
@@ -1586,12 +1588,16 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
     const value = currentCollaborator.trim();
     if (!value) return;
 
+    let collaboratorValue = value;
+
     if (collaboratorMethod === 'phone') {
       const digits = value.replace(/\D/g, '');
-      if (digits.length < 10) {
-        setCollaboratorError('Please enter a valid phone number (at least 10 digits).');
+      if (digits.length < 7) {
+        setCollaboratorError('Please enter a valid phone number.');
         return;
       }
+      // Prepend the selected country/area code to the entered national digits.
+      collaboratorValue = `${collaboratorCountryCode}${digits}`;
     } else {
       const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
       if (!emailRegex.test(value)) {
@@ -1600,10 +1606,10 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
       }
     }
 
-    if (!formData.collaborators.includes(value)) {
+    if (!formData.collaborators.includes(collaboratorValue)) {
       setFormData(prev => ({
         ...prev,
-        collaborators: [...prev.collaborators, value]
+        collaborators: [...prev.collaborators, collaboratorValue]
       }));
     }
     setCurrentCollaborator('');
@@ -3110,12 +3116,19 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
                 </span>
               </div>
               <div className="flex items-stretch gap-2 mb-3">
+                {collaboratorMethod === 'phone' && (
+                  <CountrySelect
+                    value={collaboratorCountryCode}
+                    onChange={setCollaboratorCountryCode}
+                    className="w-28 h-10 flex-shrink-0 bg-gray-100 border-0 rounded-lg text-sm outline-none focus:outline-none focus:ring-2 focus:ring-gray-300"
+                  />
+                )}
                 <div className="relative flex-1" ref={collaboratorSearchRef}>
                   <Input
                     type={collaboratorMethod === 'phone' ? 'tel' : 'email'}
                     value={currentCollaborator}
                     onChange={handleCollaboratorChange}
-                    placeholder={collaboratorMethod === 'phone' ? '+1-493-944-0939' : 'Enter email address...'}
+                    placeholder={collaboratorMethod === 'phone' ? 'e.g. 4939440939' : 'Enter email address...'}
                     className={`w-full text-sm bg-gray-100 border-0 rounded-lg h-10 px-4 outline-none focus:outline-none focus-visible:outline-none ring-0 focus:ring-2 focus-visible:ring-2 transition-all ${
                       collaboratorError
                         ? 'focus:ring-red-400 focus-visible:ring-red-400'

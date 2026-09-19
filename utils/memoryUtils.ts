@@ -97,6 +97,10 @@ export function sanitizeAiCreatorText(html?: string | null): string {
 // content is entirely car listings (e.g. "CB Cars" — no category, only cars).
 export const isCarCampaign = (mem: any): boolean => {
   if (!mem) return false;
+  // A single car's detail view is marked with is_car (its category is the car's
+  // condition, e.g. "Preowned", not "Cars") — treat it as a car so dates are hidden
+  // the same way as a car campaign / showcase.
+  if (mem.is_car) return true;
   const catName = (mem.category?.name ?? mem.category ?? '').toString().toLowerCase();
   if (catName === 'cars') return true;
   const linked: any[] = Array.isArray(mem.linked_memories) ? mem.linked_memories
