@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Mail, Phone, MapPin, Clock, MessageSquare, X, Paperclip, Send, ChevronDown, Smile, RefreshCw, Eye, Sparkles, Search, Heart, Gift, Calendar, MessageCircle, ThumbsUp, TrendingUp, Lightbulb, FileText, UserRound, CheckCircle2 } from 'lucide-react';
+import { Mail, Phone, MapPin, Clock, MessageSquare, X, Paperclip, Send, ChevronDown, Smile, RefreshCw, Eye, Sparkles, Search, Heart, Gift, Calendar, MessageCircle, ThumbsUp, TrendingUp, Lightbulb, FileText, UserRound, CheckCircle2, Plus } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from './ui/avatar';
 import { Select, SelectContent, SelectItem, SelectSeparator, SelectTrigger, SelectValue } from './ui/select';
 import { Lead, LeadMessage, LeadMessageAttachment, leadsAPI, CommentaryTarget } from '../services/leadsAPI';
@@ -8,6 +8,7 @@ import { useMemoryLimit, recheckMemoryLimit } from '../hooks/useMemoryLimit';
 import { useDialogBehavior } from '../hooks/useDialogBehavior';
 import { toast } from 'sonner';
 import { smsSegmentInfo, SMS_MAX_BODY } from '../utils/smsSegments';
+import ShareCarsDialog from './ShareCarsDialog';
 
 const STATUS_STYLES: Record<string, string> = {
   hot: 'bg-red-100 text-red-600 border-red-200',
@@ -159,6 +160,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
   const [isSending, setIsSending] = useState(false);
   const [showViaDropdown, setShowViaDropdown] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [showShareCars, setShowShareCars] = useState(false);
   const [attachments, setAttachments] = useState<File[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const composeInputRef = useRef<HTMLTextAreaElement>(null);
@@ -1175,6 +1177,18 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
             />
 
             <div className="flex items-center gap-2 mt-2">
+              {/* "+" opens the car picker directly — no intermediate menu
+                  (Chris: "we don't need this extra step"). Same action the
+                  mobile app's "+" reaches on SMS threads. */}
+              <button
+                onClick={() => setShowShareCars(true)}
+                title="Share new cars"
+                aria-label="Share new cars"
+                className="flex items-center justify-center w-7 h-7 rounded-full bg-[#6C60FF] hover:bg-[#5A4FE5] text-white transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#6C60FF] focus-visible:ring-offset-2"
+              >
+                <Plus className="w-4 h-4" />
+              </button>
+
               <button
                 onClick={() => fileInputRef.current?.click()}
                 disabled={via === 'sms'}
@@ -1269,6 +1283,14 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
             </div>
           </div>
         </div>
+
+        <ShareCarsDialog
+          open={showShareCars}
+          onClose={() => setShowShareCars(false)}
+          leadId={lead.id}
+          leadName={leadName}
+          onShared={() => { refreshAll(); }}
+        />
     </div>
   );
 }
