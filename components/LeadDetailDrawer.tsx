@@ -509,7 +509,8 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
           <div className="flex flex-col items-end">
             <div className="flex items-center gap-1.5 mb-1">
               <span className="text-xs text-gray-600">{formatShortDate(msg.sent_at)}</span>
-              <span className="text-xs font-semibold text-gray-700">You</span>
+              <span className="text-xs text-gray-600">· via {channelLabel}</span>
+              <span className="text-xs font-semibold text-gray-900">You</span>
               <Avatar className="h-6 w-6">
                 <AvatarImage src={user?.avatar} alt={user?.name || 'You'} />
                 <AvatarFallback className="bg-[#6C60FF] text-white text-[10px] font-bold">
@@ -522,16 +523,12 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
             )}
             {msg.body && (
               <div className="max-w-[82%] bg-[#6C60FF] text-white rounded-2xl rounded-tr-sm px-4 py-2.5">
-                <p className="text-sm leading-relaxed">{msg.body}</p>
+                <p className="text-xs leading-relaxed">{msg.body}</p>
               </div>
             )}
             {msg.attachments && msg.attachments.length > 0 && (
               <MessageAttachments attachments={msg.attachments} align="right" />
             )}
-            <div className="flex items-center gap-0.5 mt-1">
-              <span className="text-[11px] text-gray-600">via {channelLabel}</span>
-              <ChevronDown className="w-3 h-3 text-gray-400" />
-            </div>
           </div>
           {children.map((child) => renderMessage(child, true))}
         </div>
@@ -542,31 +539,25 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
       <div
         key={`msg-${msg.id}`}
         ref={(el) => { rowRefs.current[`message-${msg.id}`] = el; }}
-        className={`${isChild ? 'ml-11 mt-3' : 'py-4'} ${rowHl(`message-${msg.id}`)}`}
+        className={`${isChild ? 'ml-11 mt-3' : 'py-3'} ${rowHl(`message-${msg.id}`)}`}
       >
         <div className="flex items-start gap-3">
           {/* Avatar with channel badge */}
           <div className="relative shrink-0 mt-0.5">
-            <Avatar className="h-9 w-9">
+            <Avatar className="h-8 w-8">
               <AvatarImage src={lead.user?.profile_image} alt={leadName} />
-              <AvatarFallback className="bg-[#6C60FF] text-white text-xs font-semibold">
+              <AvatarFallback className="bg-[#6C60FF] text-white text-[11px] font-semibold">
                 {getInitials(leadName)}
               </AvatarFallback>
             </Avatar>
-            <div className="absolute -bottom-1 -right-1 h-[18px] w-[18px] rounded-full flex items-center justify-center border-2 border-white bg-[#6C60FF]">
-              {isEmail
-                ? <Mail className="w-2.5 h-2.5 text-white" />
-                : <MessageSquare className="w-2.5 h-2.5 text-white" />
-              }
-            </div>
           </div>
 
           <div className="flex-1 min-w-0">
             {/* Name · channel  +  date */}
             <div className="flex items-center justify-between gap-2">
-              <span className="text-xs font-semibold text-gray-800">
+              <span className="text-xs font-semibold text-gray-900">
                 {firstName}
-                <span className="font-normal text-gray-600"> · {channelLabel}</span>
+                <span className="font-normal text-gray-600"> via {channelLabel}</span>
               </span>
               <span className="text-xs text-gray-600 shrink-0">{formatShortDate(msg.sent_at)}</span>
             </div>
@@ -578,7 +569,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
             {/* Bubble */}
             {msg.body && (
               <div className="w-fit max-w-[90%] bg-gray-100 rounded-2xl rounded-tl-sm px-4 py-2.5 mt-1">
-                <p className="text-sm text-gray-700 leading-relaxed">{msg.body}</p>
+                <p className="text-xs text-gray-700 leading-relaxed">{msg.body}</p>
               </div>
             )}
             {msg.attachments && msg.attachments.length > 0 && (
@@ -878,31 +869,28 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
                           <div
                             key={`comment-${c.id}`}
                             ref={(el) => { rowRefs.current[`comment-${c.id}`] = el; }}
-                            className={`py-4 ${rowHl(`comment-${c.id}`)}`}
+                            className={`py-3 ${rowHl(`comment-${c.id}`)}`}
                           >
                             {/* Parent comment row */}
                             <div className="flex items-start gap-3">
                               <div className="relative shrink-0 mt-0.5">
-                                <Avatar className="h-9 w-9">
+                                <Avatar className="h-8 w-8">
                                   <AvatarImage src={c.user?.profile_image} alt={c.user?.name} />
-                                  <AvatarFallback className="bg-[#6C60FF] text-white text-xs font-semibold">
+                                  <AvatarFallback className="bg-[#6C60FF] text-white text-[11px] font-semibold">
                                     {getInitials(c.user?.name || firstName)}
                                   </AvatarFallback>
                                 </Avatar>
-                                <div className="absolute -bottom-1 -right-1 h-[18px] w-[18px] rounded-full flex items-center justify-center border-2 border-white bg-[#6C60FF]">
-                                  <MessageSquare className="w-2.5 h-2.5 text-white" />
-                                </div>
                               </div>
                               <div className="flex-1 min-w-0">
                                 <div className="flex items-center justify-between gap-2">
-                                  <span className="text-xs font-semibold text-gray-800">
+                                  <span className="text-xs font-semibold text-gray-900">
                                     {c.user?.name || firstName}
                                     <span className="font-normal text-gray-600"> · Comment</span>
                                   </span>
                                   <span className="text-xs text-gray-600 shrink-0">{formatShortDate(c.created_at)}</span>
                                 </div>
                                 <div className="w-fit max-w-[90%] bg-gray-100 rounded-2xl rounded-tl-sm px-4 py-2.5 mt-1">
-                                  <p className="text-sm text-gray-700 leading-relaxed">{c.description}</p>
+                                  <p className="text-xs text-gray-700 leading-relaxed">{c.description}</p>
                                 </div>
 
                                 {/* Reply button */}
@@ -981,7 +969,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
                                     <span className="text-xs text-gray-600 shrink-0">{formatShortDate(child.created_at)}</span>
                                   </div>
                                   <div className={`inline-block rounded-2xl rounded-tl-sm px-4 py-2.5 mt-1 max-w-[90%] ${isMyReply ? 'bg-[#6C60FF]' : 'bg-gray-100'}`}>
-                                    <p className={`text-sm leading-relaxed ${isMyReply ? 'text-white' : 'text-gray-700'}`}>{child.description}</p>
+                                    <p className={`text-xs leading-relaxed ${isMyReply ? 'text-white' : 'text-gray-700'}`}>{child.description}</p>
                                   </div>
                                 </div>
                               </div>
