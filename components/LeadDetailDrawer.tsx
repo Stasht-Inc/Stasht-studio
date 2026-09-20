@@ -795,9 +795,9 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
 
       {/* Body: thread column + details column */}
       <div className="flex-1 min-h-0 flex flex-col lg:flex-row">
-        <div className="order-2 lg:order-1 flex-1 min-h-0 min-w-0 flex flex-col">
+        <div className="order-2 lg:order-1 flex-1 min-h-0 min-w-0 flex flex-col bg-gray-50">
           {/* Correspondence header — stays put; only the messages below scroll */}
-          <div className="shrink-0 px-4 sm:px-5 pt-4">
+          <div className="shrink-0 px-4 sm:px-5 pt-3 pb-1 border-b border-gray-200">
             <div className="flex items-center justify-between mb-2">
               <p className="text-[12px] font-bold text-gray-900">
                 Correspondence
@@ -1019,8 +1019,8 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
             No contact info on file for this lead.
           </div>
         )}
-        <div className={`px-4 sm:px-5 pt-2 pb-4 bg-white ${(isArchived || lead.is_rollup || !hasAnyContact) ? 'hidden' : ''}`}>
-          <div className="border border-gray-200 rounded-2xl bg-white px-4 pt-3 pb-3">
+        <div className={`px-4 sm:px-5 pt-3 pb-4 bg-white border-t border-gray-200 ${(isArchived || lead.is_rollup || !hasAnyContact) ? 'hidden' : ''}`}>
+          <div className="border border-gray-200 rounded-2xl bg-white px-4 pt-3 pb-3 shadow-sm">
             <textarea
               ref={composeInputRef}
               value={message}
