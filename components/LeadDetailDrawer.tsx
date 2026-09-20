@@ -1004,14 +1004,14 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
             No contact info on file for this lead.
           </div>
         )}
-        <div className={`border-t border-gray-200 px-4 pt-3 pb-4 bg-white ${(isArchived || lead.is_rollup || !hasAnyContact) ? 'hidden' : ''}`}>
+        <div className={`px-4 sm:px-6 pt-2 pb-4 bg-white ${(isArchived || lead.is_rollup || !hasAnyContact) ? 'hidden' : ''}`}>
           <div className="border border-gray-200 rounded-2xl bg-white px-4 pt-3 pb-3">
             <textarea
               ref={composeInputRef}
               value={message}
               onChange={(e) => { setMessage(e.target.value); if (e.target.value === '') setLastAiAction(null); }}
               onKeyDown={handleKeyDown}
-              placeholder={`Send new message to ${firstName}...`}
+              placeholder={`Type a message to ${firstName}...`}
               rows={3}
               maxLength={via === 'sms' ? SMS_MAX_BODY : undefined}
               className="w-full text-sm text-gray-700 placeholder:text-gray-400 resize-none border-none outline-none bg-transparent leading-relaxed focus-visible:ring-2 focus-visible:ring-[#6C60FF] focus-visible:ring-offset-1"
@@ -1066,18 +1066,6 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
             />
 
             <div className="flex items-center gap-2 mt-2">
-              {/* "+" opens the car picker directly — no intermediate menu
-                  (Chris: "we don't need this extra step"). Same action the
-                  mobile app's "+" reaches on SMS threads. */}
-              <button
-                onClick={() => setShowShareCars(true)}
-                title="Share new cars"
-                aria-label="Share new cars"
-                className="flex items-center justify-center w-7 h-7 rounded-full bg-[#6C60FF] hover:bg-[#5A4FE5] text-white transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#6C60FF] focus-visible:ring-offset-2"
-              >
-                <Plus className="w-4 h-4" />
-              </button>
-
               <button
                 onClick={() => fileInputRef.current?.click()}
                 disabled={via === 'sms'}
@@ -1086,6 +1074,18 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
                 className="p-1.5 text-gray-400 hover:text-gray-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 <Paperclip className="w-4 h-4" />
+              </button>
+
+              {/* "＋ Campaign" pill (Chris's design) — opens the car picker directly, no
+                  intermediate menu. Same action the mobile app's "+" reaches on SMS threads. */}
+              <button
+                onClick={() => setShowShareCars(true)}
+                title="Share new cars"
+                aria-label="Share new cars"
+                className="flex items-center gap-1 h-7 px-2.5 rounded-md bg-purple-50 hover:bg-purple-100 text-[#5A4FE5] text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#6C60FF]"
+              >
+                <Plus className="w-3 h-3" aria-hidden="true" />
+                Campaign
               </button>
 
               <div className="relative">
@@ -1118,7 +1118,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
               <div className="relative">
                 <button
                   onClick={() => setShowViaDropdown((v) => !v)}
-                  className="flex items-center gap-1.5 text-sm text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-xl px-3 py-1.5 transition-colors"
+                  className="flex items-center gap-1.5 text-xs text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg px-2.5 py-1.5 transition-colors"
                 >
                   via {via === 'email' ? 'Email' : 'SMS'}
                   <ChevronDown className="w-3.5 h-3.5" />
@@ -1150,7 +1150,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
                   onClick={() => handleAiAction(lastAiAction, true)}
                   disabled={generatingAction !== null}
                   title="Regenerate (free)"
-                  className="ml-auto flex items-center gap-1.5 h-10 px-3 rounded-xl border border-[#6C60FF] text-[#6C60FF] bg-purple-50 hover:bg-purple-100 text-sm font-medium disabled:opacity-50 transition-colors"
+                  className="ml-auto flex items-center gap-1.5 h-8 px-3 rounded-lg border border-[#6C60FF] text-[#6C60FF] bg-purple-50 hover:bg-purple-100 text-xs font-medium disabled:opacity-50 transition-colors"
                 >
                   {generatingAction ? (
                     <div className="animate-spin rounded-full h-3.5 w-3.5 border-b-2 border-[#6C60FF]" />
@@ -1164,9 +1164,9 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
               <button
                 onClick={handleSend}
                 disabled={!canSend || isSending}
-                className={`${lastAiAction ? '' : 'ml-auto'} flex items-center gap-2 h-10 px-5 rounded-xl bg-[#6C60FF] hover:bg-[#5A4FE5] text-white text-sm font-medium disabled:opacity-50 transition-colors`}
+                className={`${lastAiAction ? '' : 'ml-auto'} flex items-center gap-1.5 h-8 px-3 rounded-lg bg-[#6C60FF] hover:bg-[#5A4FE5] text-white text-xs font-medium disabled:opacity-50 transition-colors`}
               >
-                <Send className="w-4 h-4" />
+                <Send className="w-3.5 h-3.5" />
                 {isSending ? 'Sending...' : 'Send'}
               </button>
             </div>
