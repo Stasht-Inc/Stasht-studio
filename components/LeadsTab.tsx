@@ -816,9 +816,9 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
       <>
       {/* Search & Filter Bar */}
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 px-3 sm:px-4 md:px-6 py-3 sm:py-4">
-        <div className="relative flex items-center gap-2 sm:gap-3">
-          {/* Search — takes remaining width */}
-          <div className="relative flex-1">
+        <div className="relative flex flex-wrap items-center gap-2 sm:gap-3">
+          {/* Search — takes remaining width (wraps the filters below it on narrow screens) */}
+          <div className="relative flex-1 min-w-[10rem]">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
             <Input
               placeholder="Search users or emails..."

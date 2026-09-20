@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Avatar, AvatarFallback, AvatarImage } from '../components/ui/avatar';
 import { Badge } from '../components/ui/badge';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '../components/ui/dropdown-menu';
-import { dashboardAPI, apiRequest, userDisplayUtils } from '../utils/authUtils';
+import { dashboardAPI, userDisplayUtils } from '../utils/authUtils';
 import { useAuth } from '../contexts/AuthContext';
 import { useMemoryCounts } from '../hooks/useMemoryCounts';
 import InviteToMemoryModal from '../components/InviteToMemoryModal';
@@ -22,11 +22,6 @@ import { Elements } from '@stripe/react-stripe-js';
 const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY);
 import PublishLandingPagesModal from '../components/PublishLandingPagesModal';
 import TransferMemoryDialog from '../components/TransferMemoryDialog';
-import LeadsTab from '../components/LeadsTab';
-import LeadDetailDrawer from '../components/LeadDetailDrawer';
-import GroupDetailDrawer from '../components/GroupDetailDrawer';
-import ConversationDrawer from '../components/ConversationDrawer';
-import { Lead, CommentaryTarget, Conversation, leadsAPI } from '../services/leadsAPI';
 import { toast } from 'sonner';
 
 interface User {
@@ -106,13 +101,11 @@ const getTimeAgo = (dateString?: string): string => {
 };
 
 interface UsersPageProps {
-  openConversationLeadId?: number | null;
-  onConversationOpened?: () => void;
   onNavigate?: (page: string) => void;
   onViewStoreelReport?: (propertyId?: number | string, propertyName?: string) => void;
 }
 
-export default function UsersPage({ openConversationLeadId, onConversationOpened, onNavigate, onViewStoreelReport }: UsersPageProps = {}) {
+export default function UsersPage({ onNavigate, onViewStoreelReport }: UsersPageProps = {}) {
   const { isAuthenticated, user: currentUser } = useAuth();
   const { switchToProperty } = useProperty();
   const [users, setUsers] = useState<User[]>([]);
@@ -128,83 +121,10 @@ export default function UsersPage({ openConversationLeadId, onConversationOpened
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [userToDelete, setUserToDelete] = useState<User | null>(null);
 
-  // Lead profile panel state
-  const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
-  const [leadsUnreadCount, setLeadsUnreadCount] = useState<number>(0);
-  // Full breakdown from the same /leads/unread-count call, threaded down to
-  // LeadsTab for the Groups sub-tab's unread summary cards (Task M4) — avoids
-  // a second call for data this page already fetches for the tab badge.
-  const [leadsUnreadBreakdown, setLeadsUnreadBreakdown] = useState<{ total_unread_messages: number; total_unread_comments: number; total_unread: number } | null>(null);
-  const [leadsRefreshTrigger, setLeadsRefreshTrigger] = useState(0);
-  const [leadsStatusFilter, setLeadsStatusFilter] = useState('all');
-  const [commentaryTarget, setCommentaryTarget] = useState<CommentaryTarget | null>(null);
-  const [selectedGroupId, setSelectedGroupId] = useState<number | null>(null);
-  const [selectedConversation, setSelectedConversation] = useState<Conversation | null>(null);
-
   // Tab state and shared memories data
-  const [activeTab, setActiveTab] = useState<'users' | 'shared-with' | 'properties' | 'leads'>(
-    () => sessionStorage.getItem('users_open_tab') === 'properties' ? 'properties' : 'leads'
+  const [activeTab, setActiveTab] = useState<'users' | 'shared-with' | 'properties'>(
+    () => sessionStorage.getItem('users_open_tab') === 'properties' ? 'properties' : 'users'
   );
-
-  // Close any open lead/group drawer when leaving the Leads tab, so it doesn't
-  // auto-reopen (via the persisted selection) when returning to the tab.
-  useEffect(() => {
-    if (activeTab !== 'leads') {
-      setSelectedLead(null);
-      setSelectedGroupId(null);
-      setSelectedConversation(null);
-    }
-  }, [activeTab]);
-
-  // Fetch the unread leads count for the red badge on the Leads tab (same
-  // source as the Sidebar's Users badge). Refreshes on the shared event so
-  // both stay in sync when leads are read.
-  const fetchLeadsUnreadCount = () => {
-    if (!isAuthenticated) return;
-    apiRequest('/leads/unread-count', { method: 'GET' }).then((data: any) => {
-      const payload = data?.data ?? data ?? {};
-      const unread = payload?.total_unread ?? 0;
-      setLeadsUnreadCount(typeof unread === 'number' ? unread : 0);
-      setLeadsUnreadBreakdown({
-        total_unread_messages: typeof payload?.total_unread_messages === 'number' ? payload.total_unread_messages : 0,
-        total_unread_comments: typeof payload?.total_unread_comments === 'number' ? payload.total_unread_comments : 0,
-        total_unread: typeof unread === 'number' ? unread : 0,
-      });
-    }).catch(() => {});
-  };
-
-  useEffect(() => {
-    fetchLeadsUnreadCount();
-  }, [isAuthenticated]);
-
-  useEffect(() => {
-    window.addEventListener('leads-unread-count-refresh', fetchLeadsUnreadCount);
-    return () => window.removeEventListener('leads-unread-count-refresh', fetchLeadsUnreadCount);
-  }, [isAuthenticated]);
-
-  // Deep-link from a lead_message notification: open the Leads tab and the
-  // matching conversation thread, then clear the pending id so it doesn't reopen.
-  useEffect(() => {
-    if (!openConversationLeadId) return;
-    let cancelled = false;
-    (async () => {
-      setActiveTab('leads');
-      setSelectedLead(null);
-      setSelectedGroupId(null);
-      try {
-        const res = await leadsAPI.getMyConversations();
-        if (!cancelled && res.success && res.data) {
-          const match = (res.data.conversations ?? []).find((c) => c.lead_id === openConversationLeadId);
-          if (match) setSelectedConversation(match);
-        }
-      } catch {
-        // ignore — nothing to open
-      } finally {
-        onConversationOpened?.();
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [openConversationLeadId]);
   const [sharedMemories, setSharedMemories] = useState<any[]>([]);
   const [isRemovingCollaboration, setIsRemovingCollaboration] = useState(false);
   const [isLoadingShared, setIsLoadingShared] = useState(false);
@@ -1383,17 +1303,12 @@ export default function UsersPage({ openConversationLeadId, onConversationOpened
     }
   };
 
-  const isPanelOpen = activeTab === 'leads' && (!!selectedLead || !!selectedGroupId || !!selectedConversation);
-  // A selected lead takes over the whole page (Chris's full-view design);
-  // group / conversation panels keep the 30% side panel.
-  const isLeadFullView = activeTab === 'leads' && !!selectedLead;
 
 
   return (
-    <div className={`flex bg-white ${isLeadFullView ? 'sm:h-[calc(100dvh-5rem)] sm:overflow-hidden' : 'min-h-screen'}`}>
+    <div className="flex bg-white min-h-screen">
 
-      {/* LEFT: entire page content — shrinks when lead panel open */}
-      <div className={`transition-all duration-300 ${isLeadFullView ? 'hidden' : isPanelOpen ? 'hidden sm:block sm:w-[70%]' : 'w-full'}`}>
+      <div className="w-full">
       <div className="py-2 sm:p-3 md:p-4">
       <div className="w-full sm:px-3 bg-white">
         {/* Header */}
@@ -1497,21 +1412,14 @@ export default function UsersPage({ openConversationLeadId, onConversationOpened
           <div className="flex items-center justify-between border-b border-gray-200">
             <div className="flex overflow-x-auto scrollbar-hide flex-1">
               <button
-                onClick={() => setActiveTab('leads')}
+                onClick={() => setActiveTab('users')}
                 className={`flex-1 sm:flex-none px-3 sm:px-6 py-3 text-xs sm:text-sm font-medium transition-colors relative whitespace-nowrap text-center ${
-                  activeTab === 'leads'
+                  activeTab === 'users'
                     ? 'text-[#6C60FF] border-b-2 border-[#6C60FF] -mb-[1px]'
                     : 'text-gray-600 hover:text-gray-900'
                 }`}
               >
-                <span className="inline-flex items-center gap-1.5">
-                  Leads
-                  {leadsUnreadCount > 0 && (
-                    <span className="flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-lg bg-red-500 text-white text-[10px] font-bold leading-none">
-                      {leadsUnreadCount}
-                    </span>
-                  )}
-                </span>
+                All Users
               </button>
               <button
                 onClick={() => setActiveTab('shared-with')}
@@ -1522,16 +1430,6 @@ export default function UsersPage({ openConversationLeadId, onConversationOpened
                 }`}
               >
                 Shared with
-              </button>
-              <button
-                onClick={() => setActiveTab('users')}
-                className={`flex-1 sm:flex-none px-3 sm:px-6 py-3 text-xs sm:text-sm font-medium transition-colors relative whitespace-nowrap text-center ${
-                  activeTab === 'users'
-                    ? 'text-[#6C60FF] border-b-2 border-[#6C60FF] -mb-[1px]'
-                    : 'text-gray-600 hover:text-gray-900'
-                }`}
-              >
-                All Users
               </button>
               {planName !== 'starter' && (currentUser?.role === 2 || currentUser?.role === '2' || currentUser?.role === 4 || currentUser?.role === '4' || planName === 'intermediate' || planName === 'professional' || currentUser?.is_internal) && (
                 <button
@@ -2709,74 +2607,9 @@ export default function UsersPage({ openConversationLeadId, onConversationOpened
           </>
         )}
 
-        {/* Leads Tab */}
-        {activeTab === 'leads' && (
-          <LeadsTab
-            selectedLead={selectedLead}
-            onLeadSelect={(lead) => { setSelectedLead(lead); if (lead) { setSelectedGroupId(null); setSelectedConversation(null); } }}
-            selectedGroupId={selectedGroupId}
-            onGroupSelect={(id) => { setSelectedGroupId(id); if (id) { setSelectedLead(null); setSelectedConversation(null); } }}
-            selectedConversationId={selectedConversation?.lead_id ?? null}
-            onConversationSelect={(conv) => { setSelectedConversation(conv); if (conv) { setSelectedLead(null); setSelectedGroupId(null); } }}
-            refreshTrigger={leadsRefreshTrigger}
-            compact={isPanelOpen}
-            unreadBreakdown={leadsUnreadBreakdown}
-            onLeadsRefreshed={(leads) => {
-              if (selectedLead) {
-                const updated = leads.find((l) => l.id === selectedLead.id);
-                if (updated) setSelectedLead(updated);
-              }
-            }}
-            onFilterChange={setLeadsStatusFilter}
-            onCommentaryJump={(lead, target) => {
-              setSelectedLead(lead);
-              setCommentaryTarget(target);
-            }}
-            onViewStoreelReport={onViewStoreelReport ? () => onViewStoreelReport() : undefined}
-          />
-        )}
       </div>{/* closes w-full sm:px-3 */}
       </div>{/* closes py-2 padding */}
-      </div>{/* closes LEFT panel */}
-
-      {/* RIGHT: lead profile panel */}
-      {isPanelOpen && (
-        <div className={isLeadFullView
-          ? 'fixed inset-0 z-[60] bg-white flex flex-col sm:static sm:inset-auto sm:z-auto sm:flex-1 sm:min-w-0 sm:h-full sm:overflow-hidden'
-          : 'fixed inset-0 z-[60] bg-white flex flex-col sm:static sm:inset-auto sm:z-auto sm:w-[30%] sm:border-l sm:border-gray-200 sm:sticky sm:top-0 sm:h-screen sm:overflow-hidden'}>
-          {selectedLead ? (
-            <LeadDetailDrawer
-              lead={selectedLead}
-              open={true}
-              highlightTarget={commentaryTarget}
-              onTargetHandled={() => setCommentaryTarget(null)}
-              onNavigate={onNavigate}
-              onClose={() => {
-                setSelectedLead(null);
-                setCommentaryTarget(null);
-                setLeadsRefreshTrigger((t) => t + 1);
-                window.dispatchEvent(new CustomEvent('leads-unread-count-refresh'));
-              }}
-              onRefreshLead={async () => {
-                setLeadsRefreshTrigger((t) => t + 1);
-              }}
-              isArchived={leadsStatusFilter === 'archived'}
-            />
-          ) : selectedGroupId ? (
-            <GroupDetailDrawer
-              groupId={selectedGroupId}
-              open={true}
-              onClose={() => setSelectedGroupId(null)}
-            />
-          ) : (
-            <ConversationDrawer
-              conversation={selectedConversation}
-              open={true}
-              onClose={() => setSelectedConversation(null)}
-            />
-          )}
-        </div>
-      )}
+      </div>{/* closes page content */}
 
       {/* Modals — inside flex root so JSX has single root */}
       {/* Invite to Memory Modal */}

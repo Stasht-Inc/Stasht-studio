@@ -17,6 +17,7 @@ import SignupPage from "./pages/SignupPage";
 import ProfileSettingsPage from "./pages/ProfileSettingsPage";
 import BillingPage from "./pages/BillingPage";
 import UsersPage from "./pages/UsersPage";
+import LeadsPage from "./pages/LeadsPage";
 import StoreelReportPage from "./pages/StoreelReportPage";
 import LibraryPage from "./pages/LibraryPage";
 import AccountActivationPage from "./pages/AccountActivationPage";
@@ -44,7 +45,7 @@ import { Toaster, toast } from 'sonner';
 import { UploadProgressProvider } from './contexts/UploadProgressContext';
 import { SyncProgressProvider } from './contexts/SyncProgressContext';
 import { GoogleOAuthProvider } from '@react-oauth/google';
-import { LayoutDashboard, FolderOpen, Camera, Users, Grid3x3, Plus, BookOpen, ScanLine, X as XIcon, Clock } from 'lucide-react';
+import { LayoutDashboard, FolderOpen, Camera, Users, Grid3x3, Plus, BookOpen, ScanLine, X as XIcon, Clock, Target } from 'lucide-react';
 import { CameraInterface } from './components/CameraInterface';
 import { AddMomentModal } from './components/AddMomentModal';
 import exifr from 'exifr';
@@ -1105,11 +1106,11 @@ function MainApp() {
   } = useAppNavigation();
 
   // Deep-link target for opening a "My Conversations" thread from a
-  // lead_message notification. Consumed (and cleared) by UsersPage.
+  // lead_message notification. Consumed (and cleared) by LeadsPage.
   const [pendingConversationLeadId, setPendingConversationLeadId] = useState<number | null>(null);
   const handleOpenConversation = useCallback((leadId: number) => {
     setPendingConversationLeadId(leadId);
-    handleNavigation('users');
+    handleNavigation('leads');
   }, [handleNavigation]);
 
   // Storeel report target — set right before navigating to "storeel-report"
@@ -1458,6 +1459,9 @@ function MainApp() {
     } else if (pathname === '/profile' || pathname.startsWith('/profile')) {
       console.log('🔍 Detected /profile URL - setting currentPage to profile');
       handleNavigation('profile');
+    } else if (pathname === '/leads' || pathname.startsWith('/leads')) {
+      console.log('🔍 Detected /leads URL - setting currentPage to leads');
+      handleNavigation('leads');
     } else if (pathname === '/users' || pathname.startsWith('/users')) {
       console.log('🔍 Detected /users URL - setting currentPage to users');
       handleNavigation('users');
@@ -3931,12 +3935,21 @@ function MainApp() {
       return <BillingPage onNavigateToMemory={handleMemorySelect} />;
     }
 
+    if (currentPage === "leads") {
+      return <LeadsPage openConversationLeadId={pendingConversationLeadId} onConversationOpened={() => setPendingConversationLeadId(null)} onNavigate={handleNavigation} onViewStoreelReport={handleViewStoreelReport} />;
+    }
+
     if (currentPage === "users") {
-      return <UsersPage openConversationLeadId={pendingConversationLeadId} onConversationOpened={() => setPendingConversationLeadId(null)} onNavigate={handleNavigation} onViewStoreelReport={handleViewStoreelReport} />;
+      return <UsersPage onNavigate={handleNavigation} onViewStoreelReport={handleViewStoreelReport} />;
     }
 
     if (currentPage === "storeel-report") {
-      return <StoreelReportPage property={storeelReportProperty} onBack={() => handleNavigation('users')} />;
+      // Opened from a property row (Users → Properties) it carries that property, and
+      // goes back there; opened from the Leads page it carries none, and goes back to Leads.
+      return <StoreelReportPage property={storeelReportProperty} onBack={() => {
+        if (storeelReportProperty) sessionStorage.setItem('users_open_tab', 'properties');
+        handleNavigation(storeelReportProperty ? 'users' : 'leads');
+      }} />;
     }
 
     if (currentPage === "library") {
@@ -4374,7 +4387,7 @@ function MainApp() {
 
         {/* Main Content */}
 <main className={`flex-1 bg-white min-h-[calc(100dvh-5rem)] relative mx-4 md:mx-0 ${
-          currentPage === "users" || currentPage === "apps" || currentPage === "library" || currentPage === "Media" || currentPage === "Dashboard" || currentPage === "memories" || currentPage === "marketplace" ? "" : "py-5 md:py-6"
+          currentPage === "users" || currentPage === "leads" || currentPage === "apps" || currentPage === "library" || currentPage === "Media" || currentPage === "Dashboard" || currentPage === "memories" || currentPage === "marketplace" ? "" : "py-5 md:py-6"
         } ${shouldShowSubSidebar && !isViewingPublishedEntry
           ? (isSubSidebarExpanded
               ? (isSidebarMinimized ? 'md:ml-[23rem]' : 'md:ml-[39.5rem]')
@@ -4515,6 +4528,20 @@ function MainApp() {
               >
                 <Camera className="w-8 h-8 mb-1" />
                 <span className="text-xs font-medium">Media</span>
+              </button>
+
+              {/* Leads tab - visible for all roles (was reachable through Users on mobile) */}
+              <button
+                onClick={() => {
+                  handleNavigation("leads");
+                  window.scrollTo({ top: 0, behavior: 'smooth' });
+                }}
+                className={`flex flex-col items-center justify-center flex-1 py-2 px-3 rounded-lg transition-colors ${
+                  currentPage === "leads" ? "text-[#6C60FF] bg-[#6C60FF]/10" : "text-gray-500"
+                }`}
+              >
+                <Target className="w-8 h-8 mb-1" />
+                <span className="text-xs font-medium">Leads</span>
               </button>
 
               {/* Users tab - visible for all roles */}

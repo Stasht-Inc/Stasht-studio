@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
-import { Plus, LayoutDashboard, BookOpen, FolderOpen, Users, Grid3x3, CheckCircle, Circle, ChevronRight, Upload, FileText, UserPlus, Share, PanelLeft, Plug } from "lucide-react";
+import { Plus, LayoutDashboard, BookOpen, FolderOpen, Users, Grid3x3, CheckCircle, Circle, ChevronRight, Upload, FileText, UserPlus, Share, PanelLeft, Plug, Target } from "lucide-react";
 import CreateMemory from "./CreateMemory";
 import { useMemoryLimit } from "../hooks/useMemoryLimit";
 import { dashboardAPI, isPartialAdmin, apiRequest } from "../utils/authUtils";
@@ -271,7 +271,7 @@ export default function Sidebar({
     try { return JSON.parse(localStorage.getItem('stasht_watched_videos') || '[]'); } catch { return []; }
   });
   const [usersCount, setUsersCount] = useState<number | undefined>(undefined);
-  const [usersUnreadCount, setUsersUnreadCount] = useState<number>(0);
+  const [leadsUnreadCount, setLeadsUnreadCount] = useState<number>(0);
   const [appsCount, setAppsCount] = useState<number | undefined>(undefined);
   const [connectorsCount, setConnectorsCount] = useState<number | undefined>(undefined);
 
@@ -314,7 +314,7 @@ export default function Sidebar({
     if (!isAuthenticated) return;
     apiRequest('/leads/unread-count', { method: 'GET' }).then((data) => {
       const unread = data?.data?.total_unread ?? data?.total_unread ?? 0;
-      setUsersUnreadCount(typeof unread === 'number' ? unread : 0);
+      setLeadsUnreadCount(typeof unread === 'number' ? unread : 0);
     }).catch(() => {});
   };
 
@@ -436,7 +436,7 @@ export default function Sidebar({
       }
     );
 
-    // Hide Library, Users, Apps for partial admin
+    // Hide Library for partial admin
     if (!isPartialAdmin()) {
       items.push({
         id: 'library',
@@ -444,13 +444,24 @@ export default function Sidebar({
         icon: <PanelLeft className="w-5 h-5" />,
         count: memoryCounts?.total_library_people ?? 0,
       });
+    }
 
+    // Leads — its own item above Users, carrying the unread badge. Shown for every
+    // role, partial admins included (the Leads API is partial-admin aware).
+    items.push({
+      id: 'leads',
+      label: 'Leads',
+      icon: <Target className="w-5 h-5" />,
+      unreadCount: leadsUnreadCount,
+    });
+
+    // Hide Users, Apps, Connectors for partial admin
+    if (!isPartialAdmin()) {
       items.push({
         id: 'users',
         label: 'Users',
         icon: <Users className="w-5 h-5" />,
         count: usersCount,
-        unreadCount: usersUnreadCount,
       });
 
       // Only show Apps section if user role is NOT 3
@@ -500,6 +511,12 @@ export default function Sidebar({
           icon: <PanelLeft className="w-5 h-5 text-white" />,
           title: 'Library',
           subtitle: 'Browse People'
+        };
+      case 'leads':
+        return {
+          icon: <Target className="w-5 h-5 text-white" />,
+          title: 'Leads',
+          subtitle: 'Manage Leads & Conversations'
         };
       case 'users':
         return {
