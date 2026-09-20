@@ -1390,7 +1390,7 @@ export default function UsersPage({ openConversationLeadId, onConversationOpened
 
 
   return (
-    <div className="flex bg-white min-h-screen">
+    <div className={`flex bg-white ${isLeadFullView ? 'sm:h-[calc(100dvh-5rem)] sm:overflow-hidden' : 'min-h-screen'}`}>
 
       {/* LEFT: entire page content — shrinks when lead panel open */}
       <div className={`transition-all duration-300 ${isLeadFullView ? 'hidden' : isPanelOpen ? 'hidden sm:block sm:w-[70%]' : 'w-full'}`}>
@@ -2742,7 +2742,7 @@ export default function UsersPage({ openConversationLeadId, onConversationOpened
       {/* RIGHT: lead profile panel */}
       {isPanelOpen && (
         <div className={isLeadFullView
-          ? 'fixed inset-0 z-[60] bg-white flex flex-col sm:static sm:inset-auto sm:z-auto sm:flex-1 sm:min-w-0 sm:sticky sm:top-0 sm:h-screen sm:overflow-hidden'
+          ? 'fixed inset-0 z-[60] bg-white flex flex-col sm:static sm:inset-auto sm:z-auto sm:flex-1 sm:min-w-0 sm:h-full sm:overflow-hidden'
           : 'fixed inset-0 z-[60] bg-white flex flex-col sm:static sm:inset-auto sm:z-auto sm:w-[30%] sm:border-l sm:border-gray-200 sm:sticky sm:top-0 sm:h-screen sm:overflow-hidden'}>
           {selectedLead ? (
             <LeadDetailDrawer

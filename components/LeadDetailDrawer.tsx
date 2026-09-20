@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import { Mail, Phone, MessageSquare, X, Paperclip, Send, ChevronDown, Smile, RefreshCw, Eye, Sparkles, Search, Heart, Gift, Calendar, MessageCircle, ThumbsUp, TrendingUp, Lightbulb, FileText, UserRound, Plus, ChevronLeft } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from './ui/avatar';
 import { Lead, LeadMessage, LeadMessageAttachment, leadsAPI, CommentaryTarget } from '../services/leadsAPI';
@@ -178,6 +178,9 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
   const replyInputRef = useRef<HTMLTextAreaElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const isInitialLoad = useRef(true);
+  // True once the current lead's messages have been fetched at least once, so the
+  // open-at-newest scroll waits for real content instead of firing on mount.
+  const messagesFetched = useRef(false);
   const scrollBodyRef = useRef<HTMLDivElement>(null);
   // Refs to each message/comment row, keyed "message-<id>" / "comment-<id>",
   // used to scroll-to + highlight a row when jumping in from Search Group.
@@ -208,6 +211,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
       setShowEmojiPicker(false);
       setAttachments([]);
       isInitialLoad.current = true;
+      messagesFetched.current = false;
       // Fresh compose session for this lead — new idempotency keys.
       smsIdemKeyRef.current = crypto.randomUUID();
       emailIdemKeyRef.current = crypto.randomUUID();
@@ -227,16 +231,23 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
     }
   }, [open, lead]);
 
-  useEffect(() => {
-    if (messages.length > 0) {
-      if (isInitialLoad.current) {
-        isInitialLoad.current = false;
-        if (scrollBodyRef.current) scrollBodyRef.current.scrollTop = 0;
-      } else {
-        threadBottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-      }
+  // Open on the newest message/comment (not the middle of the thread), then follow
+  // new messages smoothly. A Search Group jump (highlightTarget) scrolls to its own
+  // row instead. Scrolls the thread container directly so the page never moves.
+  // Layout effect: runs after the DOM commits but before paint, so the thread never
+  // flashes at the top first (and, unlike requestAnimationFrame, it still runs in a
+  // background tab).
+  useLayoutEffect(() => {
+    const el = scrollBodyRef.current;
+    if (!el || isLoadingMessages || !messagesFetched.current) return;
+    if (isInitialLoad.current) {
+      isInitialLoad.current = false;
+      if (highlightTarget) return;
+      el.scrollTop = el.scrollHeight;
+    } else if (messages.length > 0) {
+      el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
     }
-  }, [messages]);
+  }, [messages, isLoadingMessages]);
 
   // Jump-to-row: when opened from Search Group with a target, wait for the
   // thread to render, then scroll the matched message/comment into view and
@@ -269,6 +280,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
     } catch {
       // silently fail
     } finally {
+      messagesFetched.current = true;
       setIsLoadingMessages(false);
     }
   };
@@ -784,10 +796,8 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
       {/* Body: thread column + details column */}
       <div className="flex-1 min-h-0 flex flex-col lg:flex-row">
         <div className="order-2 lg:order-1 flex-1 min-h-0 min-w-0 flex flex-col">
-          {/* Scrollable thread — key resets scroll to top on each new lead */}
-          <div key={lead.id} ref={scrollBodyRef} className="flex-1 overflow-y-auto">
-          {/* Correspondence */}
-          <div className="px-4 sm:px-5 pt-4 pb-0">
+          {/* Correspondence header — stays put; only the messages below scroll */}
+          <div className="shrink-0 px-4 sm:px-5 pt-4">
             <div className="flex items-center justify-between mb-2">
               <p className="text-[12px] font-bold text-gray-900">
                 Correspondence
@@ -832,6 +842,10 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
                 )}
               </div>
             )}
+          </div>
+
+          {/* Scrollable thread — key resets scroll on each new lead */}
+          <div key={lead.id} ref={scrollBodyRef} className="flex-1 min-h-0 overflow-y-auto px-4 sm:px-5">
 
             {isLoadingMessages ? (
               <p className="text-sm text-gray-600 text-center py-10">Loading messages...</p>
@@ -986,7 +1000,6 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
                 </div>
               );
             })()}
-          </div>
           </div>
 
         {/* Compose box — pinned to bottom. Precedence when more than one applies:
