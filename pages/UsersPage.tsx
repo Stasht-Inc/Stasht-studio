@@ -1384,13 +1384,16 @@ export default function UsersPage({ openConversationLeadId, onConversationOpened
   };
 
   const isPanelOpen = activeTab === 'leads' && (!!selectedLead || !!selectedGroupId || !!selectedConversation);
+  // A selected lead takes over the whole page (Chris's full-view design);
+  // group / conversation panels keep the 30% side panel.
+  const isLeadFullView = activeTab === 'leads' && !!selectedLead;
 
 
   return (
     <div className="flex bg-white min-h-screen">
 
       {/* LEFT: entire page content — shrinks when lead panel open */}
-      <div className={`transition-all duration-300 ${isPanelOpen ? 'hidden sm:block sm:w-[70%]' : 'w-full'}`}>
+      <div className={`transition-all duration-300 ${isLeadFullView ? 'hidden' : isPanelOpen ? 'hidden sm:block sm:w-[70%]' : 'w-full'}`}>
       <div className="py-2 sm:p-3 md:p-4">
       <div className="w-full sm:px-3 bg-white">
         {/* Header */}
@@ -2738,7 +2741,9 @@ export default function UsersPage({ openConversationLeadId, onConversationOpened
 
       {/* RIGHT: lead profile panel */}
       {isPanelOpen && (
-        <div className="fixed inset-0 z-[60] bg-white flex flex-col sm:static sm:inset-auto sm:z-auto sm:w-[30%] sm:border-l sm:border-gray-200 sm:sticky sm:top-0 sm:h-screen sm:overflow-hidden">
+        <div className={isLeadFullView
+          ? 'fixed inset-0 z-[60] bg-white flex flex-col sm:static sm:inset-auto sm:z-auto sm:flex-1 sm:min-w-0 sm:sticky sm:top-0 sm:h-screen sm:overflow-hidden'
+          : 'fixed inset-0 z-[60] bg-white flex flex-col sm:static sm:inset-auto sm:z-auto sm:w-[30%] sm:border-l sm:border-gray-200 sm:sticky sm:top-0 sm:h-screen sm:overflow-hidden'}>
           {selectedLead ? (
             <LeadDetailDrawer
               lead={selectedLead}
