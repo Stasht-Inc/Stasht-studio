@@ -511,9 +511,9 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
               <span className="text-xs text-gray-600">{formatShortDate(msg.sent_at)}</span>
               <span className="text-xs text-gray-600">· via {channelLabel}</span>
               <span className="text-xs font-semibold text-gray-900">You</span>
-              <Avatar className="h-6 w-6">
+              <Avatar className="h-5 w-5">
                 <AvatarImage src={user?.avatar} alt={user?.name || 'You'} />
-                <AvatarFallback className="bg-[#6C60FF] text-white text-[10px] font-bold">
+                <AvatarFallback className="bg-[#6C60FF] text-white text-[9px] font-bold">
                   {getInitials(user?.name || 'You')}
                 </AvatarFallback>
               </Avatar>
@@ -522,8 +522,8 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
               <p className="text-xs font-semibold text-[#6C60FF] mb-1">{msg.subject}</p>
             )}
             {msg.body && (
-              <div className="max-w-[82%] bg-[#6C60FF] text-white rounded-2xl rounded-tr-sm px-4 py-2.5">
-                <p className="text-xs leading-relaxed">{msg.body}</p>
+              <div className="max-w-[390px] bg-[#6C60FF] text-white rounded-2xl rounded-tr-sm px-4 py-2.5">
+                <p className="text-[12px] leading-relaxed">{msg.body}</p>
               </div>
             )}
             {msg.attachments && msg.attachments.length > 0 && (
@@ -544,7 +544,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
         <div className="flex items-start gap-3">
           {/* Avatar with channel badge */}
           <div className="relative shrink-0 mt-0.5">
-            <Avatar className="h-8 w-8">
+            <Avatar className="h-7 w-7">
               <AvatarImage src={lead.user?.profile_image} alt={leadName} />
               <AvatarFallback className="bg-[#6C60FF] text-white text-[11px] font-semibold">
                 {getInitials(leadName)}
@@ -555,21 +555,21 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
           <div className="flex-1 min-w-0">
             {/* Name · channel  +  date */}
             <div className="flex items-center justify-between gap-2">
-              <span className="text-xs font-semibold text-gray-900">
+              <span className="text-[12px] font-semibold text-gray-900">
                 {firstName}
-                <span className="font-normal text-gray-600"> via {channelLabel}</span>
+                <span className="text-[10px] font-normal text-gray-600"> via {channelLabel}</span>
               </span>
               <span className="text-xs text-gray-600 shrink-0">{formatShortDate(msg.sent_at)}</span>
             </div>
 
             {/* Subject above bubble */}
             {msg.subject && msg.subject !== 'Following up' && (
-              <p className="text-xs font-semibold text-gray-900 mt-1">{msg.subject}</p>
+              <p className="text-[12px] font-semibold text-gray-900 mt-1">{msg.subject}</p>
             )}
             {/* Bubble */}
             {msg.body && (
-              <div className="w-fit max-w-[90%] bg-gray-100 rounded-2xl rounded-tl-sm px-4 py-2.5 mt-1">
-                <p className="text-xs text-gray-700 leading-relaxed">{msg.body}</p>
+              <div className="w-fit max-w-[365px] bg-gray-100 rounded-2xl rounded-tl-sm px-4 py-2.5 mt-1">
+                <p className="text-[12px] text-gray-700 leading-relaxed">{msg.body}</p>
               </div>
             )}
             {msg.attachments && msg.attachments.length > 0 && (
@@ -633,16 +633,17 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
   return (
     <div ref={panelRef} {...dialogProps} className="h-full flex flex-col overflow-hidden bg-white">
       {/* Header bar — breadcrumb, AI Suggest, Call, close (Chris design) */}
-      <div className="shrink-0 flex items-center justify-between gap-3 h-14 px-4 sm:px-6 border-b border-gray-200 bg-white">
-        <div className="flex items-center gap-2 min-w-0 text-xs">
+      <div className="shrink-0 flex items-center justify-between gap-3 h-[62px] px-4 sm:px-6 border-b border-gray-200 bg-white">
+        <div className="flex items-center gap-2 min-w-0 text-[12px]">
           <button
             onClick={onClose}
+            aria-label="Back to Leads"
             className="flex items-center gap-1 shrink-0 text-gray-600 hover:text-gray-900 transition-colors rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#6C60FF]"
           >
             <ChevronLeft className="w-3.5 h-3.5" aria-hidden="true" />
-            Leads
+            <span className="hidden sm:inline">Leads</span>
           </button>
-          <span className="text-gray-400" aria-hidden="true">/</span>
+          <span className="hidden sm:inline text-gray-400" aria-hidden="true">/</span>
           <h2 id="lead-drawer-title" className="font-semibold text-gray-900 truncate">{leadName}</h2>
           {!lead.user?.id && (
             <span className="flex items-center gap-1 px-2 h-5 rounded-md bg-blue-50 text-blue-500 border border-blue-200 text-[10px] font-medium shrink-0">
@@ -663,7 +664,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
               onClick={() => { if (!lead.is_rollup) setShowAiSuggest((v) => !v); }}
               disabled={lead.is_rollup}
               title={lead.is_rollup ? 'View only — managed by the property owner' : undefined}
-              className={`flex items-center justify-center gap-1 h-8 px-3 rounded-lg whitespace-nowrap transition-opacity ${lead.is_rollup ? 'opacity-40 cursor-not-allowed' : 'hover:opacity-90'}`}
+              className={`flex items-center justify-center gap-1 h-[32px] px-3 rounded-lg whitespace-nowrap transition-opacity ${lead.is_rollup ? 'opacity-40 cursor-not-allowed' : 'hover:opacity-90'}`}
               style={{
                 border: '1.5px solid transparent',
                 backgroundImage: 'linear-gradient(white, white), linear-gradient(to right, #6C60FF, #FF5FAD)',
@@ -762,10 +763,11 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
           {(lead.user?.phone_number || lead.user?.phone) && (
             <button
               onClick={() => { const p = lead.user?.phone_number || lead.user?.phone; if (p) window.open(`tel:${p}`); }}
-              className="flex items-center justify-center gap-1.5 h-8 px-3 rounded-lg border border-gray-200 text-xs text-gray-900 font-medium hover:bg-gray-50 transition-colors"
+              aria-label="Call"
+              className="flex items-center justify-center gap-1.5 h-[32px] px-2.5 sm:px-3 rounded-lg border border-gray-200 text-xs text-gray-900 font-medium hover:bg-gray-50 transition-colors"
             >
               <Phone className="w-3.5 h-3.5 text-gray-900" />
-              Call
+              <span className="hidden sm:inline">Call</span>
             </button>
           )}
 
@@ -785,9 +787,9 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
           {/* Scrollable thread — key resets scroll to top on each new lead */}
           <div key={lead.id} ref={scrollBodyRef} className="flex-1 overflow-y-auto">
           {/* Correspondence */}
-          <div className="px-4 sm:px-6 pt-4 pb-0">
+          <div className="px-4 sm:px-5 pt-4 pb-0">
             <div className="flex items-center justify-between mb-2">
-              <p className="text-xs font-bold text-gray-900">
+              <p className="text-[12px] font-bold text-gray-900">
                 Correspondence
               </p>
               <div className="flex items-center gap-1.5">
@@ -874,7 +876,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
                             {/* Parent comment row */}
                             <div className="flex items-start gap-3">
                               <div className="relative shrink-0 mt-0.5">
-                                <Avatar className="h-8 w-8">
+                                <Avatar className="h-7 w-7">
                                   <AvatarImage src={c.user?.profile_image} alt={c.user?.name} />
                                   <AvatarFallback className="bg-[#6C60FF] text-white text-[11px] font-semibold">
                                     {getInitials(c.user?.name || firstName)}
@@ -883,14 +885,14 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
                               </div>
                               <div className="flex-1 min-w-0">
                                 <div className="flex items-center justify-between gap-2">
-                                  <span className="text-xs font-semibold text-gray-900">
+                                  <span className="text-[12px] font-semibold text-gray-900">
                                     {c.user?.name || firstName}
                                     <span className="font-normal text-gray-600"> · Comment</span>
                                   </span>
                                   <span className="text-xs text-gray-600 shrink-0">{formatShortDate(c.created_at)}</span>
                                 </div>
-                                <div className="w-fit max-w-[90%] bg-gray-100 rounded-2xl rounded-tl-sm px-4 py-2.5 mt-1">
-                                  <p className="text-xs text-gray-700 leading-relaxed">{c.description}</p>
+                                <div className="w-fit max-w-[365px] bg-gray-100 rounded-2xl rounded-tl-sm px-4 py-2.5 mt-1">
+                                  <p className="text-[12px] text-gray-700 leading-relaxed">{c.description}</p>
                                 </div>
 
                                 {/* Reply button */}
@@ -969,7 +971,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
                                     <span className="text-xs text-gray-600 shrink-0">{formatShortDate(child.created_at)}</span>
                                   </div>
                                   <div className={`inline-block rounded-2xl rounded-tl-sm px-4 py-2.5 mt-1 max-w-[90%] ${isMyReply ? 'bg-[#6C60FF]' : 'bg-gray-100'}`}>
-                                    <p className={`text-xs leading-relaxed ${isMyReply ? 'text-white' : 'text-gray-700'}`}>{child.description}</p>
+                                    <p className={`text-[12px] leading-relaxed ${isMyReply ? 'text-white' : 'text-gray-700'}`}>{child.description}</p>
                                   </div>
                                 </div>
                               </div>
@@ -1004,7 +1006,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
             No contact info on file for this lead.
           </div>
         )}
-        <div className={`px-4 sm:px-6 pt-2 pb-4 bg-white ${(isArchived || lead.is_rollup || !hasAnyContact) ? 'hidden' : ''}`}>
+        <div className={`px-4 sm:px-5 pt-2 pb-4 bg-white ${(isArchived || lead.is_rollup || !hasAnyContact) ? 'hidden' : ''}`}>
           <div className="border border-gray-200 rounded-2xl bg-white px-4 pt-3 pb-3">
             <textarea
               ref={composeInputRef}
@@ -1174,7 +1176,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
         </div>
         </div>
 
-        <aside className="order-1 lg:order-2 shrink-0 lg:w-[342px] max-h-[40vh] lg:max-h-none overflow-y-auto border-b lg:border-b-0 lg:border-l border-gray-200">
+        <aside className="order-1 lg:order-2 shrink-0 lg:w-[342px] max-h-[32vh] lg:max-h-none overflow-y-auto border-b lg:border-b-0 lg:border-l border-gray-200">
           <LeadDetailsSidebar
             lead={lead}
             leadName={leadName}
