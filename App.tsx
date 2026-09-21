@@ -4517,19 +4517,6 @@ function MainApp() {
                 <span className="text-xs font-medium">Campaigns</span>
               </button>
 
-              <button
-                onClick={() => {
-                  handleNavigationWithReset("media");
-                  window.scrollTo({ top: 0, behavior: 'smooth' });
-                }}
-                className={`flex flex-col items-center justify-center flex-1 min-w-0 py-2 px-0.5 rounded-lg transition-colors ${
-                  currentPage === "media" ? "text-[#6C60FF] bg-[#6C60FF]/10" : "text-gray-500"
-                }`}
-              >
-                <Camera className="w-7 h-7 mb-1" />
-                <span className="text-xs font-medium">Media</span>
-              </button>
-
               {/* Leads tab - visible for all roles (was reachable through Users on mobile) */}
               <button
                 onClick={() => {
@@ -4542,6 +4529,19 @@ function MainApp() {
               >
                 <Target className="w-7 h-7 mb-1" />
                 <span className="text-xs font-medium">Leads</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  handleNavigationWithReset("media");
+                  window.scrollTo({ top: 0, behavior: 'smooth' });
+                }}
+                className={`flex flex-col items-center justify-center flex-1 min-w-0 py-2 px-0.5 rounded-lg transition-colors ${
+                  currentPage === "media" ? "text-[#6C60FF] bg-[#6C60FF]/10" : "text-gray-500"
+                }`}
+              >
+                <Camera className="w-7 h-7 mb-1" />
+                <span className="text-xs font-medium">Media</span>
               </button>
 
               {/* Users tab - visible for all roles */}

@@ -6,6 +6,7 @@ import { Plus, LayoutDashboard, BookOpen, FolderOpen, Users, Grid3x3, CheckCircl
 import CreateMemory from "./CreateMemory";
 import { useMemoryLimit } from "../hooks/useMemoryLimit";
 import { dashboardAPI, isPartialAdmin, apiRequest } from "../utils/authUtils";
+import { leadsAPI } from '../services/leadsAPI';
 import { runWhenIdle } from "../utils/deferIdle";
 import { useAuth } from "../contexts/AuthContext";
 import { useMemoryCounts } from "../hooks/useMemoryCounts";
@@ -272,6 +273,7 @@ export default function Sidebar({
   });
   const [usersCount, setUsersCount] = useState<number | undefined>(undefined);
   const [leadsUnreadCount, setLeadsUnreadCount] = useState<number>(0);
+  const [leadsCount, setLeadsCount] = useState<number | undefined>(undefined);
   const [appsCount, setAppsCount] = useState<number | undefined>(undefined);
   const [connectorsCount, setConnectorsCount] = useState<number | undefined>(undefined);
 
@@ -318,8 +320,35 @@ export default function Sidebar({
     }).catch(() => {});
   };
 
+  // Total leads, shown as the grey counter like Campaigns/Media/Users (Chris, 2026-09-21:
+  // "why is there no counter??"). Same total the Leads page's "Total Leads" card shows. Asks
+  // for ONE row via page/per_page — without `page` the endpoint returns the whole list.
+  const fetchLeadsCount = () => {
+    if (!isAuthenticated) return;
+    leadsAPI.getLeads({ page: 1, per_page: 1 }).then((res) => {
+      const total = res?.success ? res.data?.total : undefined;
+      if (typeof total === 'number') setLeadsCount(total);
+    }).catch(() => {});
+  };
+
   useEffect(() => {
     fetchLeadsUnreadCount();
+  }, [isAuthenticated]);
+
+  // Purely decorative, so deferred to browser-idle time like the Apps/Connectors counts,
+  // then refreshed when leads are read/opened and once a minute.
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    let cancelled = false;
+    const cancelIdle = runWhenIdle(() => { if (!cancelled) fetchLeadsCount(); });
+    const interval = setInterval(fetchLeadsCount, 60000);
+    window.addEventListener('leads-unread-count-refresh', fetchLeadsCount);
+    return () => {
+      cancelled = true;
+      cancelIdle();
+      clearInterval(interval);
+      window.removeEventListener('leads-unread-count-refresh', fetchLeadsCount);
+    };
   }, [isAuthenticated]);
 
   useEffect(() => {
@@ -420,13 +449,21 @@ export default function Sidebar({
       });
     }
 
-    // Always show Memories and Media
+    // Campaigns, then Leads right under it (Chris, 2026-09-21), then Media. Leads is shown
+    // for every role, partial admins included (the Leads API is partial-admin aware).
     items.push(
       {
         id: 'memories',
         label: 'Campaigns',
         icon: <BookOpen className="w-5 h-5" />,
         count: memoryCounts?.total_memories || 0
+      },
+      {
+        id: 'leads',
+        label: 'Leads',
+        icon: <Target className="w-5 h-5" />,
+        count: leadsCount,
+        unreadCount: leadsUnreadCount,
       },
       {
         id: 'media',
@@ -445,15 +482,6 @@ export default function Sidebar({
         count: memoryCounts?.total_library_people ?? 0,
       });
     }
-
-    // Leads — its own item above Users, carrying the unread badge. Shown for every
-    // role, partial admins included (the Leads API is partial-admin aware).
-    items.push({
-      id: 'leads',
-      label: 'Leads',
-      icon: <Target className="w-5 h-5" />,
-      unreadCount: leadsUnreadCount,
-    });
 
     // Hide Users, Apps, Connectors for partial admin
     if (!isPartialAdmin()) {
