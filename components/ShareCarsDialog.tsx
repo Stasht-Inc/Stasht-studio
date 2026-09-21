@@ -16,6 +16,9 @@ interface CarListing {
   main_image?: string | null;
 }
 
+// Shown pre-filled in the name field and used by the server when the name is left blank.
+const DEFAULT_CAMPAIGN_NAME = 'Vehicles Just for You';
+
 interface ShareCarsDialogProps {
   open: boolean;
   onClose: () => void;
@@ -39,15 +42,16 @@ function carSubtitle(c: CarListing): string {
 
 // "Share new cars" — the Studio counterpart of the mobile app's Share New Cars
 // sheet. Picks from the dealer's own inventory (GET /cars, same feed the
-// Cars catalog uses) and attaches the picks to the lead's OWN already-shared
-// campaign via POST /leads/{id}/share-cars: no new link, the lead's existing
-// one just gets new cars on it and is re-sent as a nudge.
+// Cars catalog uses) and sends them to the lead in a NEW campaign, named by the
+// rep (default "Vehicles Just for You"), via POST /leads/{id}/share-cars. Each
+// share gets its own campaign and link — never added to the lead's old one.
 export default function ShareCarsDialog({ open, onClose, leadId, leadName, onShared }: ShareCarsDialogProps) {
   const [cars, setCars] = useState<CarListing[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [search, setSearch] = useState('');
+  const [campaignName, setCampaignName] = useState(DEFAULT_CAMPAIGN_NAME);
   const [isSharing, setIsSharing] = useState(false);
 
   // Fresh inventory + a clean slate every time the dialog opens — stock changes
@@ -57,6 +61,7 @@ export default function ShareCarsDialog({ open, onClose, leadId, leadName, onSha
     let cancelled = false;
     setSelected(new Set());
     setSearch('');
+    setCampaignName(DEFAULT_CAMPAIGN_NAME);
     setLoadError(null);
     setIsLoading(true);
     (async () => {
@@ -99,14 +104,12 @@ export default function ShareCarsDialog({ open, onClose, leadId, leadName, onSha
     if (selected.size === 0 || isSharing) return;
     setIsSharing(true);
     try {
-      const res = await leadsAPI.shareCars(leadId, Array.from(selected));
+      const name = campaignName.trim();
+      const res = await leadsAPI.shareCars(leadId, Array.from(selected), name || undefined);
       if (res.success) {
-        const added = typeof res.data?.cars_added === 'number' ? res.data.cars_added : selected.size;
-        toast.success(
-          added > 0
-            ? `Shared ${added} new ${added === 1 ? 'car' : 'cars'} with ${leadName}.`
-            : `Re-sent the link to ${leadName}.`,
-        );
+        const shared = typeof res.data?.cars_total === 'number' ? res.data.cars_total : selected.size;
+        const title = res.data?.campaign?.title || name || DEFAULT_CAMPAIGN_NAME;
+        toast.success(`Sent ${leadName} ${shared} ${shared === 1 ? 'car' : 'cars'} in a new campaign, "${title}".`);
         onShared();
         onClose();
       } else {
@@ -125,9 +128,25 @@ export default function ShareCarsDialog({ open, onClose, leadId, leadName, onSha
         <DialogHeader className="px-6 pt-6 pb-3 pr-12">
           <DialogTitle>Share New Cars</DialogTitle>
           <DialogDescription>
-            Adds to the campaign already shared with {leadName} — same link, new cars on it.
+            Creates a new campaign with the cars you pick and sends {leadName} its own link.
           </DialogDescription>
         </DialogHeader>
+
+        <div className="px-6 pb-3">
+          <label htmlFor="share-cars-campaign-name" className="block text-xs font-medium text-gray-700 mb-1">
+            Campaign name
+          </label>
+          <input
+            id="share-cars-campaign-name"
+            type="text"
+            value={campaignName}
+            onChange={(e) => setCampaignName(e.target.value)}
+            onFocus={(e) => e.currentTarget.select()}
+            maxLength={120}
+            placeholder={DEFAULT_CAMPAIGN_NAME}
+            className="w-full h-10 px-3 rounded-lg bg-white text-sm text-gray-900 placeholder:text-gray-500 border border-gray-200 outline-none focus-visible:ring-2 focus-visible:ring-[#6C60FF]"
+          />
+        </div>
 
         <div className="px-6 pb-3">
           <div className="relative">

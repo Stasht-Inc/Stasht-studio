@@ -378,17 +378,23 @@ export const leadsAPI = {
     });
   },
 
-  // "Share new cars" — attaches cars from the dealer's own inventory (GET /cars)
-  // to the lead's already-shared campaign and re-sends the same link, so the
-  // lead sees what's new. Same endpoint the mobile app's Share New Cars sheet
-  // uses. cars_added is 0 when every selected car was already on the campaign
-  // (the link is still re-sent as a nudge).
-  shareCars: async (leadId: number, carIds: number[]) => {
-    return apiRequest<{ message: string; cars_added: number; cars_total: number; channels: string[] }>(
+  // "Share new cars" — puts cars from the dealer's own inventory (GET /cars) into
+  // a NEW campaign (named `title`; the server defaults it to "Vehicles Just for
+  // You") and sends the lead that campaign's own link. Never appends to the
+  // lead's existing campaign (Chris, 2026-09-20). Same endpoint the mobile app's
+  // Share New Cars sheet uses.
+  shareCars: async (leadId: number, carIds: number[], title?: string) => {
+    return apiRequest<{
+      message: string;
+      cars_added: number;
+      cars_total: number;
+      channels: string[];
+      campaign?: { id: number; title: string; url: string };
+    }>(
       `/leads/${leadId}/share-cars`,
       {
         method: 'POST',
-        body: JSON.stringify({ car_ids: carIds, ...partialAdminBody() }),
+        body: JSON.stringify({ car_ids: carIds, ...(title ? { title } : {}), ...partialAdminBody() }),
       },
     );
   },
