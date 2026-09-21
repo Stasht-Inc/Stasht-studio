@@ -15,18 +15,18 @@ export const STATUS_STYLES: Record<LeadStatus, string> = {
 
 function StatusLabel({ status }: { status: LeadStatus }) {
   switch (status) {
-    case 'hot': return <span className="flex items-center gap-1"><img src="/hot-icon.svg" alt="" className="w-3 h-3.5" />Hot</span>;
-    case 'warm': return <span className="flex items-center gap-1"><img src="/warm-icon.svg" alt="" className="w-2 h-3.5" />Warm</span>;
-    case 'cold': return <span className="flex items-center gap-1"><img src="/cold-icon.svg" alt="" className="w-3.5 h-3.5" />Cold</span>;
-    case 'visited': return <span className="flex items-center gap-1"><MapPin className="w-3.5 h-3.5" />Visited</span>;
-    case 'sold': return <span className="flex items-center gap-1"><CheckCircle2 className="w-3.5 h-3.5" />Sold</span>;
+    case 'hot': return <span className="flex items-center gap-1"><img src="/hot-icon.svg" alt="" className="w-3.5 h-4" />Hot</span>;
+    case 'warm': return <span className="flex items-center gap-1"><img src="/warm-icon.svg" alt="" className="w-2.5 h-4" />Warm</span>;
+    case 'cold': return <span className="flex items-center gap-1"><img src="/cold-icon.svg" alt="" className="w-4 h-4" />Cold</span>;
+    case 'visited': return <span className="flex items-center gap-1"><MapPin className="w-4 h-4" />Visited</span>;
+    case 'sold': return <span className="flex items-center gap-1"><CheckCircle2 className="w-4 h-4" />Sold</span>;
   }
 }
 
 // Read-only status pill — the header breadcrumb's "Hot" chip in the design.
 export function StatusChip({ status }: { status: LeadStatus }) {
   return (
-    <span className={`inline-flex items-center h-5 px-2 rounded-md border text-[11px] font-semibold ${STATUS_STYLES[status]}`}>
+    <span className={`inline-flex items-center h-8 px-3 rounded-md border text-sm font-semibold ${STATUS_STYLES[status]}`}>
       <StatusLabel status={status} />
     </span>
   );
@@ -35,8 +35,8 @@ export function StatusChip({ status }: { status: LeadStatus }) {
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div>
-      <p className="text-[10px] font-medium uppercase tracking-wide text-gray-600">{label}</p>
-      <div className="mt-0.5 text-[12px] text-gray-900 break-words">{children}</div>
+      <p className="text-xs font-medium uppercase tracking-wide text-gray-600">{label}</p>
+      <div className="mt-1 text-base text-gray-900 break-words">{children}</div>
     </div>
   );
 }
@@ -63,21 +63,21 @@ export default function LeadDetailsSidebar({
 
   return (
     <div>
-      <section className="p-[20px]">
-        <h3 className="text-[12px] font-bold text-gray-900">Contact Details</h3>
+      <section className="p-5 xl:p-6">
+        <h3 className="text-lg font-bold text-gray-900">Contact Details</h3>
 
-        <div className="mt-3 flex items-center gap-2.5">
-          <Avatar className="h-[40px] w-[40px] shrink-0">
+        <div className="mt-4 flex items-center gap-3.5">
+          <Avatar className="h-14 w-14 shrink-0">
             <AvatarImage src={lead.user?.profile_image} alt={leadName} />
-            <AvatarFallback className="bg-[#6C60FF] text-white text-[11px] font-semibold">{initials}</AvatarFallback>
+            <AvatarFallback className="bg-[#6C60FF] text-white text-lg font-semibold">{initials}</AvatarFallback>
           </Avatar>
           <div className="min-w-0">
-            <p className="text-[12px] font-semibold text-gray-900 truncate">{leadName}</p>
-            <p className="text-[10px] text-gray-600 truncate">Via: {lead.story.title}</p>
+            <p className="text-lg font-semibold text-gray-900 truncate">{leadName}</p>
+            <p className="text-sm text-gray-600 truncate">Via: {lead.story.title}</p>
           </div>
         </div>
 
-        <div className="mt-4 space-y-3">
+        <div className="mt-5 space-y-5">
           {email && (
             <Field label="Email">
               <a href={`mailto:${email}`} className="hover:text-[#6C60FF] hover:underline">{email}</a>
@@ -98,7 +98,7 @@ export default function LeadDetailsSidebar({
             >
               <SelectTrigger
                 aria-label="Lead status"
-                className={`h-5 text-[11px] font-semibold rounded-md px-2 w-auto min-w-[60px] gap-1 border shadow-none focus:ring-0 focus:outline-none outline-none focus-visible:ring-2 focus-visible:ring-[#6C60FF] focus-visible:ring-offset-1 ${
+                className={`h-8 text-sm font-semibold rounded-md px-3 w-auto min-w-[80px] gap-1.5 border shadow-none focus:ring-0 focus:outline-none outline-none focus-visible:ring-2 focus-visible:ring-[#6C60FF] focus-visible:ring-offset-1 ${
                   currentStatus ? STATUS_STYLES[currentStatus] : 'bg-gray-100 text-gray-600 border-gray-200'
                 }`}
               >
@@ -118,17 +118,17 @@ export default function LeadDetailsSidebar({
         </div>
       </section>
 
-      <section className="p-[20px] border-t border-gray-200">
-        <h3 className="text-[12px] font-bold text-gray-900">Engagement</h3>
-        <div className="mt-3 grid grid-cols-3 gap-2">
+      <section className="p-5 xl:p-6 border-t border-gray-200">
+        <h3 className="text-lg font-bold text-gray-900">Engagement</h3>
+        <div className="mt-4 grid grid-cols-3 gap-2 xl:gap-3">
           {[
             { value: lead.engagement, label: 'Campaigns viewed' },
             { value: lead.sent_count ?? 0, label: 'Messages sent' },
             { value: `${daysAsLead}d`, label: 'Days as lead' },
           ].map((s) => (
-            <div key={s.label} className="bg-gray-100 rounded-lg px-2 py-[12px] text-center">
-              <div className="text-[17px] font-bold text-gray-900">{s.value}</div>
-              <div className="text-[10px] text-gray-600 mt-0.5 leading-tight">{s.label}</div>
+            <div key={s.label} className="bg-gray-100 rounded-xl px-2 xl:px-3 py-4 text-center">
+              <div className="text-2xl font-bold text-gray-900">{s.value}</div>
+              <div className="text-sm text-gray-600 mt-1 leading-tight">{s.label}</div>
             </div>
           ))}
         </div>
