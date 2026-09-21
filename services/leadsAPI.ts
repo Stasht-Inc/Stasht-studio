@@ -248,8 +248,14 @@ export const leadsAPI = {
     });
   },
 
-  getMessages: async (leadId: number) => {
-    return apiRequest<{ messages: LeadMessage[] }>(`/leads/${leadId}/messages${partialAdminQuery('?')}`, { method: 'GET' });
+  // `fresh` bypasses apiRequest's 15s GET cache — a thread must never show a stale copy
+  // (opening a lead, Refresh, and the live poll in LeadDetailDrawer all pass it), otherwise a
+  // customer's reply can sit unseen for up to 15s.
+  getMessages: async (leadId: number, fresh = false) => {
+    return apiRequest<{ messages: LeadMessage[] }>(
+      `/leads/${leadId}/messages${partialAdminQuery('?')}`,
+      { method: 'GET', ...(fresh ? { skipCache: true } : {}) } as RequestInit,
+    );
   },
 
   // POST /api/react/leads/{id}/ai-suggest — generate a suggested message.

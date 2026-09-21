@@ -182,6 +182,18 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
   // open-at-newest scroll waits for real content instead of firing on mount.
   const messagesFetched = useRef(false);
   const scrollBodyRef = useRef<HTMLDivElement>(null);
+  // True while the reader is at (or near) the bottom of the thread — new messages only
+  // auto-scroll then, so someone reading older messages isn't yanked down.
+  const stickToBottomRef = useRef(true);
+  // Our own smooth auto-scroll fires scroll events mid-animation (still "far" from the bottom);
+  // those must not be mistaken for the reader scrolling away.
+  const autoScrollUntilRef = useRef(0);
+  const messagesRef = useRef<LeadMessage[]>([]);
+  const handleThreadScroll = () => {
+    if (Date.now() < autoScrollUntilRef.current) return;
+    const el = scrollBodyRef.current;
+    if (el) stickToBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+  };
   // Refs to each message/comment row, keyed "message-<id>" / "comment-<id>",
   // used to scroll-to + highlight a row when jumping in from Search Group.
   const rowRefs = useRef<Record<string, HTMLDivElement | null>>({});
@@ -212,6 +224,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
       setAttachments([]);
       isInitialLoad.current = true;
       messagesFetched.current = false;
+      stickToBottomRef.current = true;
       // Fresh compose session for this lead — new idempotency keys.
       smsIdemKeyRef.current = crypto.randomUUID();
       emailIdemKeyRef.current = crypto.randomUUID();
@@ -244,10 +257,58 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
       isInitialLoad.current = false;
       if (highlightTarget) return;
       el.scrollTop = el.scrollHeight;
-    } else if (messages.length > 0) {
+    } else if (messages.length > 0 && stickToBottomRef.current) {
+      autoScrollUntilRef.current = Date.now() + 900;
       el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
     }
   }, [messages, isLoadingMessages]);
+
+  useEffect(() => { messagesRef.current = messages; }, [messages]);
+
+  // Live updates: a customer's reply should appear in an already-open thread without
+  // pressing Refresh (Chris, 2026-09-21: the sidebar badge showed his SMS but the open
+  // conversation didn't). Polls every 5s while the tab is visible; only touches state when
+  // something changed (no re-render/scroll jump otherwise) and marks new incoming messages
+  // read, since the reader is looking right at them. Never touches the composer draft.
+  useEffect(() => {
+    if (!open || !lead) return;
+    const leadId = lead.id;
+    let cancelled = false;
+    let inFlight = false;
+    const poll = async () => {
+      if (inFlight || cancelled || document.visibilityState !== 'visible') return;
+      if (!messagesFetched.current) return; // initial load still running
+      inFlight = true;
+      try {
+        const res = await leadsAPI.getMessages(leadId, true);
+        if (cancelled || !res.success || !res.data?.messages) return;
+        const next = res.data.messages;
+        const prev = messagesRef.current;
+        const unchanged = next.length === prev.length
+          && next.every((m, i) => m.id === prev[i].id && m.status === prev[i].status);
+        if (unchanged) return;
+        const known = new Set(prev.map((m) => m.id));
+        const hasNewIncoming = next.some((m) => m.direction === 'inbound' && !known.has(m.id));
+        setMessages(next);
+        if (hasNewIncoming) {
+          leadsAPI.markRead(leadId);
+          window.dispatchEvent(new CustomEvent('leads-unread-count-refresh'));
+        }
+      } catch {
+        // transient — try again on the next tick
+      } finally {
+        inFlight = false;
+      }
+    };
+    const timer = setInterval(poll, 5000);
+    const onVisible = () => { if (document.visibilityState === 'visible') poll(); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [open, lead?.id]);
 
   // Jump-to-row: when opened from Search Group with a target, wait for the
   // thread to render, then scroll the matched message/comment into view and
@@ -270,7 +331,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
   const fetchMessages = async (leadId: number) => {
     setIsLoadingMessages(true);
     try {
-      const res = await leadsAPI.getMessages(leadId);
+      const res = await leadsAPI.getMessages(leadId, true);
       if (res.success && res.data?.messages) {
         setMessages(res.data.messages);
       }
@@ -299,6 +360,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
 
   const refreshAll = async () => {
     if (!lead) return;
+    stickToBottomRef.current = true; // the user just acted — show the result
     try {
       await Promise.all([
         fetchMessages(lead.id),
@@ -845,7 +907,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
           </div>
 
           {/* Scrollable thread — key resets scroll on each new lead */}
-          <div key={lead.id} ref={scrollBodyRef} className="flex-1 min-h-0 overflow-y-auto px-4 sm:px-6 xl:px-8 pb-2">
+          <div key={lead.id} ref={scrollBodyRef} onScroll={handleThreadScroll} className="flex-1 min-h-0 overflow-y-auto px-4 sm:px-6 xl:px-8 pb-2">
 
             {isLoadingMessages ? (
               <p className="text-sm text-gray-600 text-center py-10">Loading messages...</p>
