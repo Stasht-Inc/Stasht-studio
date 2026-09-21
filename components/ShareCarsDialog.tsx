@@ -5,6 +5,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { dashboardAPI } from '../utils/authUtils';
 import { formatCarCategory } from '../utils/carCategories';
+import { describeCarSearch, matchesCarSearch, parseCarSearch } from '../utils/carSearch';
 import { leadsAPI } from '../services/leadsAPI';
 
 // One listing from GET /cars — only the fields this picker renders.
@@ -126,14 +127,17 @@ export default function ShareCarsDialog({ open, onClose, leadId, leadName, onSha
     return m;
   }, [cars, isComplete]);
 
+  // Smart search: words + a year and/or a price in one box ("hybrid under 30k", "2024",
+  // "20k-30k") — see utils/carSearch.ts. `searchNotes` echoes what it understood.
+  const parsedSearch = useMemo(() => parseCarSearch(search), [search]);
+  const searchNotes = useMemo(() => describeCarSearch(parsedSearch), [parsedSearch]);
+
   const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
     return cars.filter((c) => {
       if (category !== ALL_CATEGORIES && c.category !== category) return false;
-      if (!q) return true;
-      return [c.title, c.make, c.model].filter(Boolean).join(' ').toLowerCase().includes(q);
+      return matchesCarSearch(c, parsedSearch);
     });
-  }, [cars, search, category]);
+  }, [cars, parsedSearch, category]);
 
   const emptyText =
     cars.length === 0 && category === ALL_CATEGORIES
@@ -235,11 +239,16 @@ export default function ShareCarsDialog({ open, onClose, leadId, leadName, onSha
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search your inventory..."
-              aria-label="Search your inventory"
+              placeholder="Search inventory, price or year"
+              aria-label="Search inventory, price or year"
               className="w-full h-10 pl-9 pr-3 rounded-lg bg-gray-100 text-sm text-gray-700 placeholder:text-gray-500 border-none outline-none focus-visible:ring-2 focus-visible:ring-[#6C60FF]"
             />
           </div>
+          {searchNotes.length > 0 && (
+            <p className="mt-1.5 text-xs text-[#5A4FE5]" aria-live="polite">
+              Showing: {searchNotes.join(' · ')}
+            </p>
+          )}
         </div>
 
         <div className="flex-1 min-h-0 overflow-y-auto px-6 pb-2">
