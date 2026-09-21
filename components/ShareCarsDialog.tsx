@@ -108,8 +108,14 @@ export default function ShareCarsDialog({ open, onClose, leadId, leadName, onSha
       const res = await leadsAPI.shareCars(leadId, Array.from(selected), name || undefined);
       if (res.success) {
         const shared = typeof res.data?.cars_total === 'number' ? res.data.cars_total : selected.size;
-        const title = res.data?.campaign?.title || name || DEFAULT_CAMPAIGN_NAME;
-        toast.success(`Sent ${leadName} ${shared} ${shared === 1 ? 'car' : 'cars'} in a new campaign, "${title}".`);
+        const carWord = shared === 1 ? 'car' : 'cars';
+        // Only claim a new campaign when the server says it made one — an older backend
+        // (not yet deployed) still appends to the lead's campaign and returns no `campaign`.
+        toast.success(
+          res.data?.campaign
+            ? `Sent ${leadName} ${shared} ${carWord} in a new campaign, "${res.data.campaign.title}".`
+            : `Shared ${shared} ${carWord} with ${leadName}.`,
+        );
         onShared();
         onClose();
       } else {
