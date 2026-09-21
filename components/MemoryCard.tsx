@@ -547,15 +547,17 @@ export default function MemoryCard({
               className="shadow-lg"
               style={{
                 display: 'flex',
-                padding: '6px 12px',
+                padding: '8px 14px',
                 alignItems: 'center',
                 gap: '10px',
-                borderRadius: '6px',
+                borderRadius: '8px',
                 backgroundColor: (category === 'Suggested' || suggestedCategory) ? '#ffffff' : finalCategoryColor,
                 color: (category === 'Suggested' || suggestedCategory) ? '#6B7280' : '#ffffff',
-                fontSize: '12px',
-                fontWeight: 500,
-                lineHeight: '16px'
+                // Category / price badges are key information (Chris, 2026-09-21: "why is
+                // category and badge so small… these are important") — 12px was too small.
+                fontSize: '15px',
+                fontWeight: 600,
+                lineHeight: '20px'
               }}
             >
               {category}
@@ -568,14 +570,15 @@ export default function MemoryCard({
               className="text-gray-900 shadow-md"
               style={{
                 display: 'flex',
-                padding: '6px 12px',
+                padding: '8px 14px',
                 alignItems: 'center',
                 gap: '10px',
-                borderRadius: '6px',
+                borderRadius: '8px',
                 background: '#FCD34D',
-                fontSize: '12px',
-                fontWeight: 500,
-                lineHeight: '16px'
+                // The yellow label carries a car's price, so it is the boldest pill.
+                fontSize: '18px',
+                fontWeight: 700,
+                lineHeight: '22px'
               }}
             >
               {label}
