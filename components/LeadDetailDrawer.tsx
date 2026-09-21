@@ -293,6 +293,9 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
         if (hasNewIncoming) {
           leadsAPI.markRead(leadId);
           window.dispatchEvent(new CustomEvent('leads-unread-count-refresh'));
+          // A reply changes the lead itself (Last engaged, status) — re-fetch it so the
+          // details sidebar doesn't keep showing the old date.
+          onRefreshLead?.();
         }
       } catch {
         // transient — try again on the next tick

@@ -3483,7 +3483,7 @@ export const dashboardAPI = {
     propertyId: number | string;
     from?: string;
     to?: string;
-    groupBy?: 'rep' | 'memory';
+    groupBy?: 'rep' | 'lead' | 'memory';
   }): Promise<ApiResponse<any>> => {
     const query = new URLSearchParams({ property_id: String(params.propertyId) });
     if (params.from) query.set('from', params.from);

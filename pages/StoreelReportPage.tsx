@@ -73,11 +73,11 @@ const COLUMNS: { key: keyof StoreelReportRow; label: string; format?: (row: Stor
   { key: 'sold', label: 'Sold' },
 ];
 
-// Per-rep / per-campaign Storeel report (Plan #4). Reads GET /storeels/report,
+// Per-rep / per-lead / per-campaign Storeel report (Plan #4). Reads GET /storeels/report,
 // built and reviewed on the backend as part of Plan #1 — this page is its
 // first consumer.
 export default function StoreelReportPage({ property: suppliedProperty, onBack }: StoreelReportPageProps) {
-  const [groupBy, setGroupBy] = useState<'rep' | 'memory'>('rep');
+  const [groupBy, setGroupBy] = useState<'rep' | 'lead' | 'memory'>('rep');
   const [from, setFrom] = useState(daysAgoIso(30));
   const [to, setTo] = useState(todayIso());
   const [rows, setRows] = useState<StoreelReportRow[]>([]);
@@ -266,6 +266,14 @@ export default function StoreelReportPage({ property: suppliedProperty, onBack }
             By Rep
           </button>
           <button
+            onClick={() => setGroupBy('lead')}
+            className={`px-4 py-2 text-sm font-medium border-l border-gray-200 transition-colors ${
+              groupBy === 'lead' ? 'bg-[#0D9488] text-white' : 'bg-white text-gray-700 hover:bg-gray-50'
+            }`}
+          >
+            By Lead
+          </button>
+          <button
             onClick={() => setGroupBy('memory')}
             className={`px-4 py-2 text-sm font-medium border-l border-gray-200 transition-colors ${
               groupBy === 'memory' ? 'bg-[#0D9488] text-white' : 'bg-white text-gray-700 hover:bg-gray-50'
@@ -296,7 +304,7 @@ export default function StoreelReportPage({ property: suppliedProperty, onBack }
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-gray-100 text-left text-gray-500">
-              <th className="px-4 py-3 font-medium whitespace-nowrap">{groupBy === 'rep' ? 'Rep' : 'Campaign'}</th>
+              <th className="px-4 py-3 font-medium whitespace-nowrap">{groupBy === 'rep' ? 'Rep' : groupBy === 'lead' ? 'Lead' : 'Campaign'}</th>
               {COLUMNS.map((c) => (
                 <th key={String(c.key)} className="px-4 py-3 font-medium whitespace-nowrap">
                   {c.label}
