@@ -124,7 +124,7 @@ function PropertyHeaderInfo({ property, user }: { property: any; user?: any }) {
           )}
         </div>
       </div>
-      <div className="text-[#202224] text-left flex flex-col">
+      <div className="text-[#202224] text-left hidden xl:flex flex-col">
         <div className="flex items-baseline gap-2">
           <p className="block leading-[normal] whitespace-nowrap font-medium">{displayName}</p>
         </div>
@@ -132,7 +132,7 @@ function PropertyHeaderInfo({ property, user }: { property: any; user?: any }) {
           <p className="text-xs text-gray-600 leading-[normal] truncate mt-0.5" title={invitedBy.name}>{invitedBy.name}</p>
         )}
         <div className="flex items-center gap-1.5 sm:gap-1 mt-1 sm:mt-0.5">
-          <span className="px-2 py-0.5 bg-purple-100 text-purple-700 text-[10.5px] font-medium rounded-full">Property</span>
+          <span className="px-2 py-0.5 bg-purple-100 text-purple-700 text-[12px] font-medium rounded-full">Property</span>
         </div>
       </div>
     </div>
@@ -167,7 +167,7 @@ function ProfileInfo({ user }: { user?: { name?: string; email?: string; phone_n
   return (
     <div className="flex items-center gap-3 justify-start">
       <Frame193 user={user} />
-      <div className="text-[#202224] text-left flex flex-col">
+      <div className="text-[#202224] text-left hidden xl:flex flex-col">
         <div className="flex items-baseline gap-2">
           <p className="block leading-[normal] whitespace-nowrap font-medium">{displayName}</p>
         </div>
@@ -186,7 +186,7 @@ function ProfileInfo({ user }: { user?: { name?: string; email?: string; phone_n
                 </clipPath>
               </defs>
             </svg>
-            <span className="text-[#4A5565] font-medium sm:font-normal text-xs sm:text-[10.5px] leading-4 sm:leading-[14px]">{credits} credits</span>
+            <span className="text-[#4A5565] font-medium sm:font-normal text-xs sm:text-[12px] leading-4 sm:leading-[14px]">{credits} credits</span>
           </div>
         ) : (
           <div className="flex items-center gap-1 mt-1 sm:mt-0.5">
@@ -194,7 +194,7 @@ function ProfileInfo({ user }: { user?: { name?: string; email?: string; phone_n
               <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
               <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
             </svg>
-            <span className="text-[10px] text-amber-600 font-medium leading-none">Select a plan to unlock</span>
+            <span className="text-[12px] text-amber-600 font-medium leading-none">Select a plan to unlock</span>
           </div>
         )}
 
@@ -1011,7 +1011,7 @@ export function ProfileDropdownMenu({ isOpen, onClose, user, onShowProfileSettin
                                           {adminDisplayName}
                                         </div>
                                         {adminAccount.isPartialAdmin && (
-                                          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-orange-100 text-orange-600 border border-orange-200 flex-shrink-0">
+                                          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[12px] font-semibold bg-orange-100 text-orange-600 border border-orange-200 flex-shrink-0">
                                             Partial Access
                                           </span>
                                         )}
@@ -1065,7 +1065,7 @@ export function ProfileDropdownMenu({ isOpen, onClose, user, onShowProfileSettin
 
         {/* Build version — lets us confirm which build a user is actually
             running when troubleshooting, without asking them to check DevTools. */}
-        <div className="px-4 pt-2 pb-1 text-[11px] text-gray-400 text-center select-text">
+        <div className="px-4 pt-2 pb-1 text-[12px] text-gray-400 text-center select-text">
           {formatBuildVersion(__APP_BUILD_TIME__)}
         </div>
       </div>
@@ -1098,7 +1098,7 @@ export default function ProfileDdwn({ user, onShowProfileSettings, onShowBilling
         className="absolute border-[0px_1px] border-[rgba(217,218,255,0.56)] border-solid inset-0 pointer-events-none"
       />
       <div className="flex flex-row items-center relative size-full">
-        <div className="box-border content-stretch flex flex-row gap-6 items-center justify-start px-8 py-0 relative size-full">
+        <div className="box-border content-stretch flex flex-row gap-3 xl:gap-6 items-center justify-start px-3 xl:px-8 py-0 relative size-full">
           {viewType === 'property' && currentProperty ? (
             /* Show Property Info in Header */
             <PropertyHeaderInfo property={currentProperty} user={user} />

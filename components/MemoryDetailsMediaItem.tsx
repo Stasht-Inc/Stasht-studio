@@ -404,7 +404,7 @@ export default function MemoryDetailsMediaItem({
         {/* New Badge */}
         {(item.is_new == 1 || item.is_new === true) && (
           <div className="absolute bottom-2 right-2 z-10">
-            <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-yellow-50 border border-yellow-300 text-yellow-700 text-[10px] font-semibold">
+            <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-yellow-50 border border-yellow-300 text-yellow-700 text-[12px] font-semibold">
               New
             </span>
           </div>

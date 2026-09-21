@@ -38,14 +38,14 @@ function TagOverlay({ tags }: { tags: string[] }) {
 
   return (
     <div className="absolute top-2 right-2 z-[2] flex items-center gap-1" ref={popoverRef}>
-      <span className="bg-gray-500/80 backdrop-blur-sm text-white text-[11px] font-medium px-2 py-0.5 rounded-full truncate max-w-[90px]">
+      <span className="bg-gray-500/80 backdrop-blur-sm text-white text-[12px] font-medium px-2 py-0.5 rounded-full truncate max-w-[90px]">
         {firstTag}
       </span>
       {remaining.length > 0 && (
         <div className="relative">
           <button
             onClick={(e) => { e.stopPropagation(); setShowPopover(p => !p); }}
-            className="bg-gray-500/80 backdrop-blur-sm text-white text-[11px] font-medium px-1.5 py-0.5 rounded-full hover:bg-gray-600/90 transition-colors"
+            className="bg-gray-500/80 backdrop-blur-sm text-white text-[12px] font-medium px-1.5 py-0.5 rounded-full hover:bg-gray-600/90 transition-colors"
           >
             +{remaining.length}
           </button>
@@ -53,7 +53,7 @@ function TagOverlay({ tags }: { tags: string[] }) {
             <div className="absolute top-full right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg p-2 min-w-[120px] z-50">
               <div className="flex flex-wrap gap-1">
                 {remaining.map(tag => (
-                  <span key={tag} className="bg-gray-100 text-gray-700 text-[11px] px-2 py-0.5 rounded-full font-medium">
+                  <span key={tag} className="bg-gray-100 text-gray-700 text-[12px] px-2 py-0.5 rounded-full font-medium">
                     {tag}
                   </span>
                 ))}

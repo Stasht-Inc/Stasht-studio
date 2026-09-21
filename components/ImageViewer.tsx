@@ -2272,7 +2272,7 @@ export function ImageViewer({
                       {imageTags.map((tag) => (
                         <span
                           key={tag}
-                          className="inline-flex items-center gap-1.5 pl-2.5 pr-1.5 py-1 bg-gray-200 text-gray-900 text-[13px] rounded-full border border-gray-300"
+                          className="inline-flex items-center gap-1.5 pl-2.5 pr-1.5 py-1 bg-gray-200 text-gray-900 text-[14px] rounded-full border border-gray-300"
                         >
                           <span className="leading-none">{tag}</span>
                           <button
@@ -2331,7 +2331,7 @@ export function ImageViewer({
                         <p className="text-xs text-gray-400 mb-1.5">Suggested</p>
                         <div className="flex flex-wrap gap-1.5">
                           {suggestions.map(tag => (
-                            <button key={tag} type="button" disabled={isSavingTags} onClick={() => { if (!imageTags.includes(tag)) handleSaveTags([...imageTags, tag]); }} className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[13px] bg-gray-100 text-gray-700 rounded-full border border-gray-200 hover:bg-gray-200 transition-colors disabled:opacity-40">
+                            <button key={tag} type="button" disabled={isSavingTags} onClick={() => { if (!imageTags.includes(tag)) handleSaveTags([...imageTags, tag]); }} className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[14px] bg-gray-100 text-gray-700 rounded-full border border-gray-200 hover:bg-gray-200 transition-colors disabled:opacity-40">
                               {tag}<span className="text-gray-400 font-medium">+</span>
                             </button>
                           ))}
@@ -2491,7 +2491,7 @@ export function ImageViewer({
                     <span className="text-xs text-gray-400 group-hover:text-white mt-2">Add</span>
                   </button>
                   {/* Mobile Add Label */}
-                  <span className="md:hidden text-[9px] text-gray-400 mt-1">Add</span>
+                  <span className="md:hidden text-[12px] text-gray-400 mt-1">Add</span>
                 </div>
               )}
 

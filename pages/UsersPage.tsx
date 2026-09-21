@@ -1323,39 +1323,39 @@ export default function UsersPage({ onNavigate, onViewStoreelReport }: UsersPage
           {/* Stats Cards */}
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-2 sm:gap-3 md:gap-4">
             <div className="bg-white rounded-md sm:rounded-lg p-2.5 sm:p-3 md:p-4 border border-gray-200 shadow-sm">
-              <div className="text-[10px] sm:text-xs text-gray-600 mb-0.5 sm:mb-1">Total Users</div>
+              <div className="text-[12px] sm:text-xs text-gray-600 mb-0.5 sm:mb-1">Total Users</div>
               <div className="text-lg sm:text-xl md:text-2xl font-semibold text-gray-900">{totalUsers}</div>
-              <div className="text-[10px] sm:text-xs text-blue-600 mt-0.5 sm:mt-1 md:mt-2">+{activeUsers} active</div>
+              <div className="text-[12px] sm:text-xs text-blue-600 mt-0.5 sm:mt-1 md:mt-2">+{activeUsers} active</div>
             </div>
             <div className="bg-white rounded-md sm:rounded-lg p-2.5 sm:p-3 md:p-4 border border-gray-200 shadow-sm">
-              <div className="text-[10px] sm:text-xs text-gray-600 mb-0.5 sm:mb-1">Active Users</div>
+              <div className="text-[12px] sm:text-xs text-gray-600 mb-0.5 sm:mb-1">Active Users</div>
               <div className="text-lg sm:text-xl md:text-2xl font-semibold text-green-600">{activeUsers}</div>
-              <div className="text-[10px] sm:text-xs text-gray-500 mt-0.5 sm:mt-1 md:mt-2">{totalUsers > 0 ? Math.round((activeUsers / totalUsers) * 100) : 0}% of total</div>
+              <div className="text-[12px] sm:text-xs text-gray-500 mt-0.5 sm:mt-1 md:mt-2">{totalUsers > 0 ? Math.round((activeUsers / totalUsers) * 100) : 0}% of total</div>
             </div>
             <div className="bg-white rounded-md sm:rounded-lg p-2.5 sm:p-3 md:p-4 border border-gray-200 shadow-sm">
-              <div className="text-[10px] sm:text-xs text-gray-600 mb-0.5 sm:mb-1">Pending Invites</div>
+              <div className="text-[12px] sm:text-xs text-gray-600 mb-0.5 sm:mb-1">Pending Invites</div>
               <div className="text-lg sm:text-xl md:text-2xl font-semibold text-orange-600">{pendingInvites}</div>
-              <div className="text-[10px] sm:text-xs text-gray-500 mt-0.5 sm:mt-1 md:mt-2">Awaiting acceptance</div>
+              <div className="text-[12px] sm:text-xs text-gray-500 mt-0.5 sm:mt-1 md:mt-2">Awaiting acceptance</div>
             </div>
             <div className="bg-white rounded-md sm:rounded-lg p-2.5 sm:p-3 md:p-4 border border-gray-200 shadow-sm">
-              <div className="text-[10px] sm:text-xs text-gray-600 mb-0.5 sm:mb-1">Total Campaigns</div>
+              <div className="text-[12px] sm:text-xs text-gray-600 mb-0.5 sm:mb-1">Total Campaigns</div>
               <div className="text-lg sm:text-xl md:text-2xl font-semibold text-gray-900">{totalMemories}</div>
-              <div className="text-[10px] sm:text-xs text-gray-500 mt-0.5 sm:mt-1 md:mt-2">Across all users</div>
+              <div className="text-[12px] sm:text-xs text-gray-500 mt-0.5 sm:mt-1 md:mt-2">Across all users</div>
             </div>
             <div className="bg-white rounded-md sm:rounded-lg p-2.5 sm:p-3 md:p-4 border border-gray-200 shadow-sm">
-              <div className="text-[10px] sm:text-xs text-gray-600 mb-0.5 sm:mb-1">Collaborations</div>
+              <div className="text-[12px] sm:text-xs text-gray-600 mb-0.5 sm:mb-1">Collaborations</div>
               <div className="text-lg sm:text-xl md:text-2xl font-semibold text-gray-900">{collaborations}</div>
-              <div className="text-[10px] sm:text-xs text-gray-500 mt-0.5 sm:mt-1 md:mt-2">Shared campaigns</div>
+              <div className="text-[12px] sm:text-xs text-gray-500 mt-0.5 sm:mt-1 md:mt-2">Shared campaigns</div>
             </div>
             <div className="bg-white rounded-md sm:rounded-lg p-2.5 sm:p-3 md:p-4 border border-gray-200 shadow-sm">
-              <div className="text-[10px] sm:text-xs text-gray-600 mb-0.5 sm:mb-1">Shared With</div>
+              <div className="text-[12px] sm:text-xs text-gray-600 mb-0.5 sm:mb-1">Shared With</div>
               <div className="text-lg sm:text-xl md:text-2xl font-semibold text-purple-600">{sharedMemories.length}</div>
-              <div className="text-[10px] sm:text-xs text-gray-500 mt-0.5 sm:mt-1 md:mt-2">As collaborator</div>
+              <div className="text-[12px] sm:text-xs text-gray-500 mt-0.5 sm:mt-1 md:mt-2">As collaborator</div>
             </div>
             <div className="bg-white rounded-md sm:rounded-lg p-2.5 sm:p-3 md:p-4 border border-gray-200 shadow-sm">
-              <div className="text-[10px] sm:text-xs text-gray-600 mb-0.5 sm:mb-1">Admins</div>
+              <div className="text-[12px] sm:text-xs text-gray-600 mb-0.5 sm:mb-1">Admins</div>
               <div className={`text-lg sm:text-xl md:text-2xl font-semibold ${adminCount >= adminLimit ? 'text-red-600' : 'text-green-600'}`}>{adminCount}/{adminLimit}</div>
-              <div className="text-[10px] sm:text-xs text-gray-500 mt-0.5 sm:mt-1 md:mt-2">By plan limit</div>
+              <div className="text-[12px] sm:text-xs text-gray-500 mt-0.5 sm:mt-1 md:mt-2">By plan limit</div>
             </div>
           </div>
         </div>
@@ -1634,7 +1634,7 @@ export default function UsersPage({ onNavigate, onViewStoreelReport }: UsersPage
           <div className="px-3 sm:px-4 md:px-6 py-3 sm:py-4 border-b border-gray-200">
             <div className="flex items-center justify-between">
               <h3 className="text-xs sm:text-sm md:text-base font-medium text-gray-900">All Users</h3>
-              <span className="text-[10px] sm:text-xs md:text-sm text-gray-500">{filteredUsers.length} of {totalUsers} users</span>
+              <span className="text-[12px] sm:text-xs md:text-sm text-gray-500">{filteredUsers.length} of {totalUsers} users</span>
             </div>
           </div>
 
@@ -1825,7 +1825,7 @@ export default function UsersPage({ onNavigate, onViewStoreelReport }: UsersPage
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2 mb-1">
                               <h4 className="text-sm font-medium text-gray-900 truncate">{user.name}</h4>
-                              <Badge className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${getStatusColor(displayStatus)}`}>
+                              <Badge className={`text-[12px] font-medium px-1.5 py-0.5 rounded ${getStatusColor(displayStatus)}`}>
                                 {displayStatus.toUpperCase()}
                               </Badge>
                             </div>
@@ -1842,20 +1842,20 @@ export default function UsersPage({ onNavigate, onViewStoreelReport }: UsersPage
                             )}
                             <p className="text-xs text-gray-500 truncate mb-2">{user.email}</p>
                             <div className="flex flex-wrap items-center gap-2">
-                              <Badge className={`text-[10px] font-medium px-1.5 py-0.5 rounded border ${getRoleColor(displayRole)} flex items-center gap-1`}>
+                              <Badge className={`text-[12px] font-medium px-1.5 py-0.5 rounded border ${getRoleColor(displayRole)} flex items-center gap-1`}>
                                 {getRoleIcon(displayRole)}
                                 {displayRoleName}
                               </Badge>
-                              <span className="text-[10px] text-gray-500">
+                              <span className="text-[12px] text-gray-500">
                                 {user.memory_count || 0} created • {user.shared_memory_count || 0} shared
                               </span>
                             </div>
                             <div className="flex items-center gap-3 mt-1.5">
-                              <span className="text-[10px] text-gray-500">
+                              <span className="text-[12px] text-gray-500">
                                 Active: {getTimeAgo(user.last_active_at)}
                               </span>
-                              <span className="text-[10px] text-gray-400">•</span>
-                              <span className="text-[10px] text-gray-500">
+                              <span className="text-[12px] text-gray-400">•</span>
+                              <span className="text-[12px] text-gray-500">
                                 Joined: {formatDate(user.created_at)}
                               </span>
                             </div>
@@ -1910,7 +1910,7 @@ export default function UsersPage({ onNavigate, onViewStoreelReport }: UsersPage
             <div className="px-3 sm:px-4 md:px-6 py-3 sm:py-4 border-b border-gray-200">
               <div className="flex items-center justify-between">
                 <h3 className="text-xs sm:text-sm md:text-base font-medium text-gray-900">Shared With Me</h3>
-                <span className="text-[10px] sm:text-xs md:text-sm text-gray-500">{sharedMemories.length} campaigns</span>
+                <span className="text-[12px] sm:text-xs md:text-sm text-gray-500">{sharedMemories.length} campaigns</span>
               </div>
             </div>
 
@@ -2056,14 +2056,14 @@ export default function UsersPage({ onNavigate, onViewStoreelReport }: UsersPage
                         <div className="mb-2">
                           <div className="flex items-center gap-2 mb-1">
                             <h4 className="text-sm font-medium text-gray-900">{memory.memory_title || 'Untitled'}</h4>
-                            <Badge className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${
+                            <Badge className={`text-[12px] font-medium px-1.5 py-0.5 rounded ${
                               displayStatus === 'active' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'
                             }`}>
                               {displayStatus.toUpperCase()}
                             </Badge>
                           </div>
                           <div className="flex items-center gap-2 mt-2">
-                            <Badge className={`text-[10px] font-medium px-1.5 py-0.5 rounded border ${
+                            <Badge className={`text-[12px] font-medium px-1.5 py-0.5 rounded border ${
                               displayRole.toLowerCase() === 'admin'
                                 ? 'bg-red-100 text-red-800 border-red-200'
                                 : displayRole.toLowerCase() === 'contributor'
@@ -2437,7 +2437,7 @@ export default function UsersPage({ onNavigate, onViewStoreelReport }: UsersPage
                             <h4 className="text-sm font-medium text-gray-900">{property.name}</h4>
                             <span className="text-xs text-gray-500">{property.code}</span>
                             <Badge
-                              className={`text-[10px] px-1.5 py-0.5 font-medium border-0 ${
+                              className={`text-[12px] px-1.5 py-0.5 font-medium border-0 ${
                                 property.status
                                   ? 'bg-green-100 text-green-800'
                                   : 'bg-red-100 text-red-800'
@@ -2460,7 +2460,7 @@ export default function UsersPage({ onNavigate, onViewStoreelReport }: UsersPage
                                   {property.users.map((user, idx) => (
                                     <Avatar key={idx} className="h-5 w-5 -ml-1 first:ml-0 border border-white">
                                       {user.image && <AvatarImage src={user.image} alt={user.name} />}
-                                      <AvatarFallback className="text-[10px] bg-purple-100 text-purple-600 font-semibold">
+                                      <AvatarFallback className="text-[12px] bg-purple-100 text-purple-600 font-semibold">
                                         {user.name || 'U'}
                                       </AvatarFallback>
                                     </Avatar>
@@ -2479,7 +2479,7 @@ export default function UsersPage({ onNavigate, onViewStoreelReport }: UsersPage
                               property.labels.map((label: any, idx: number) => (
                                 <Badge
                                   key={idx}
-                                  className="text-[10px] px-1.5 py-0.5 bg-yellow-100 text-yellow-800 border-0"
+                                  className="text-[12px] px-1.5 py-0.5 bg-yellow-100 text-yellow-800 border-0"
                                 >
                                   {label.name}
                                 </Badge>
@@ -2489,7 +2489,7 @@ export default function UsersPage({ onNavigate, onViewStoreelReport }: UsersPage
                             )}
                             {property.propertyType && (
                               <Badge
-                                className={`text-[10px] px-1.5 py-0.5 font-medium border-0 capitalize ${
+                                className={`text-[12px] px-1.5 py-0.5 font-medium border-0 capitalize ${
                                   String(property.propertyType).toLowerCase() === 'internal'
                                     ? 'bg-blue-100 text-blue-800'
                                     : 'bg-purple-100 text-purple-800'

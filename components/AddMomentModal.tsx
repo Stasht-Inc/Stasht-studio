@@ -1992,7 +1992,7 @@ export function AddMomentModal({
                   {(imageDetails[selectedImageIndex]?.tags || []).map((tag) => (
                     <span
                       key={tag}
-                      className="inline-flex items-center gap-1.5 pl-2.5 pr-1.5 py-1 bg-gray-200 text-gray-900 text-[13px] font-normal rounded-full border border-gray-300"
+                      className="inline-flex items-center gap-1.5 pl-2.5 pr-1.5 py-1 bg-gray-200 text-gray-900 text-[14px] font-normal rounded-full border border-gray-300"
                     >
                       <span className="leading-none">{tag}</span>
                       <button
@@ -2015,7 +2015,7 @@ export function AddMomentModal({
                     <p className="text-xs text-gray-400 mb-1.5">Suggested</p>
                     <div className="flex flex-wrap gap-1.5">
                       {suggestions.map(tag => (
-                        <button key={tag} type="button" onClick={() => { if (!currentTags.includes(tag)) { setImageDetails(prev => ({ ...prev, [selectedImageIndex]: { ...prev[selectedImageIndex], description: prev[selectedImageIndex]?.description || '', date: prev[selectedImageIndex]?.date || new Date().toISOString().split('T')[0], location: prev[selectedImageIndex]?.location || memoryLocation || '', tags: [...currentTags, tag] } })); } }} className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[13px] bg-gray-100 text-gray-700 rounded-full border border-gray-200 hover:bg-gray-200 transition-colors">
+                        <button key={tag} type="button" onClick={() => { if (!currentTags.includes(tag)) { setImageDetails(prev => ({ ...prev, [selectedImageIndex]: { ...prev[selectedImageIndex], description: prev[selectedImageIndex]?.description || '', date: prev[selectedImageIndex]?.date || new Date().toISOString().split('T')[0], location: prev[selectedImageIndex]?.location || memoryLocation || '', tags: [...currentTags, tag] } })); } }} className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[14px] bg-gray-100 text-gray-700 rounded-full border border-gray-200 hover:bg-gray-200 transition-colors">
                           {tag}<span className="text-gray-400 font-medium">+</span>
                         </button>
                       ))}

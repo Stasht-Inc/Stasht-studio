@@ -1957,7 +1957,7 @@ function MemoriesPageContent({
                     if (coverUpdatedRef.current) { coverUpdatedRef.current = false; onRefreshMemories?.(); }
                   }}
                   className={`bg-gray-200/80 hover:bg-gray-300/80 text-gray-700 rounded-lg backdrop-blur-sm transition-all duration-300 ${
-                    isPublishedHeaderScrolled ? 'text-[11px] sm:text-xs px-2 py-1 h-auto' : 'text-xs sm:text-sm px-2 sm:px-3 py-1.5 sm:py-2'
+                    isPublishedHeaderScrolled ? 'text-[12px] sm:text-xs px-2 py-1 h-auto' : 'text-xs sm:text-sm px-2 sm:px-3 py-1.5 sm:py-2'
                   }`}
                 >
                   <ArrowLeft className={`mr-1 sm:mr-2 transition-all duration-300 ${isPublishedHeaderScrolled ? 'w-3.5 h-3.5' : 'w-6 h-6 sm:w-4 sm:h-4'}`} />
@@ -2133,8 +2133,8 @@ function MemoriesPageContent({
                     <div className="flex items-center gap-2">
                       <Globe className="w-4 h-4 text-[#16a34a] flex-shrink-0" />
                       <span className="text-sm font-semibold text-gray-800">Published Campaign</span>
-                      <span className="text-[11px] font-medium bg-[#dcfce7] text-[#16a34a] border border-[#86efac] px-2 py-0.5 rounded-full">Live</span>
-                      <span className={`text-[11px] font-medium px-2 py-0.5 rounded-full ${visibilityColor}`}>{visibilityLabel}</span>
+                      <span className="text-[12px] font-medium bg-[#dcfce7] text-[#16a34a] border border-[#86efac] px-2 py-0.5 rounded-full">Live</span>
+                      <span className={`text-[12px] font-medium px-2 py-0.5 rounded-full ${visibilityColor}`}>{visibilityLabel}</span>
                     </div>
                     {/* Row 2: URL + action buttons */}
                     <div className="flex items-center gap-2 min-w-0">

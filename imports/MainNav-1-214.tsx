@@ -264,7 +264,7 @@ function Badge() {
       className="bg-[#fc8e88] box-border content-stretch flex flex-row gap-2.5 items-center justify-center mr-[-5px] px-3 py-0 relative rounded-3xl shrink-0 size-[27px]"
       data-name="Badge"
     >
-      <div className="font-['Inter:Bold',_sans-serif] font-bold leading-[0] not-italic relative shrink-0 text-[#1d1b20] text-[13px] text-left text-nowrap">
+      <div className="font-['Inter:Bold',_sans-serif] font-bold leading-[0] not-italic relative shrink-0 text-[#1d1b20] text-[14px] text-left text-nowrap">
         <p className="block leading-[19.2px] whitespace-pre">2</p>
       </div>
     </div>

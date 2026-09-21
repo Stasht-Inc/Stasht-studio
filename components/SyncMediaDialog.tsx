@@ -580,7 +580,7 @@ export function SyncMediaDialog({ isOpen, onClose, onSync, onSyncAll, anchorRef,
             </div>
             <div className="flex-1 min-w-0">
               <div className="text-xs font-semibold text-gray-900 leading-tight">Sync All</div>
-              <div className="text-[10px] text-gray-500 leading-tight">Sync all connected services</div>
+              <div className="text-[12px] text-gray-500 leading-tight">Sync all connected services</div>
             </div>
           </div>
 
@@ -650,7 +650,7 @@ export function SyncMediaDialog({ isOpen, onClose, onSync, onSyncAll, anchorRef,
                     {service.icon}
                     <div className="flex-1 min-w-0">
                       <div className="text-xs font-medium text-gray-900 leading-tight">{service.name}</div>
-                      <div className="flex items-center gap-1 text-[10px] leading-tight mt-0.5">
+                      <div className="flex items-center gap-1 text-[12px] leading-tight mt-0.5">
                         {getStatusDisplay(service)}
                       </div>
                     </div>

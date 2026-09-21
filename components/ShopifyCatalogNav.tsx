@@ -148,7 +148,7 @@ function CollectionNode({
           </button>
           <div className="flex items-center gap-2 mt-1">
             <div className="bg-gray-100 border border-gray-200 rounded px-1.5 py-0.5">
-              <div className="text-gray-600 text-[10px] font-medium">
+              <div className="text-gray-600 text-[12px] font-medium">
                 {collection.products_count} item{collection.products_count !== 1 ? "s" : ""}
               </div>
             </div>

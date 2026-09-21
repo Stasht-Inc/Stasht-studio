@@ -574,7 +574,7 @@ function MemoryTreeItem({
                 <div className="mt-1 space-y-0.5">
                   <div className="flex items-center">
                     <div className="bg-gray-100 border border-gray-200 rounded px-1.5 py-0.5">
-                      <div className="text-gray-600 text-[10px] font-medium">
+                      <div className="text-gray-600 text-[12px] font-medium">
                         {memory.images?.length || 0} image{(memory.images?.length || 0) !== 1 ? 's' : ''}
                       </div>
                     </div>
@@ -584,7 +584,7 @@ function MemoryTreeItem({
                 /* Standard layout for other categories */
                 <div className="flex items-center gap-2 mt-1">
                   <div className="bg-gray-100 border border-gray-200 rounded px-1.5 py-0.5">
-                    <div className="text-gray-600 text-[10px] font-medium">
+                    <div className="text-gray-600 text-[12px] font-medium">
                       {memory.images?.length || 0} item{(memory.images?.length || 0) !== 1 ? 's' : ''}
                     </div>
                   </div>
@@ -2871,7 +2871,7 @@ export default function MediaNav({
                           <h3 className="text-xs font-medium text-gray-700">
                             No {category.name.toLowerCase()} campaigns
                           </h3>
-                          <p className="text-[10px] text-gray-500 mt-1">
+                          <p className="text-[12px] text-gray-500 mt-1">
                             Your {category.name.toLowerCase()} campaigns will appear here.
                           </p>
                         </div>
@@ -3112,7 +3112,7 @@ export default function MediaNav({
               title="Upload media files"
             >
               <Upload className="w-4 h-4 mb-1" />
-              <span className="text-[10px]">Select Files</span>
+              <span className="text-[12px]">Select Files</span>
             </Button>
             <input
               type="file"

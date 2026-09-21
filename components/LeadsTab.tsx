@@ -52,7 +52,7 @@ function leadDisplayEmail(lead: Lead): string {
 // GroupDetailDrawer's "No contact info" badge styling.
 function GuestBadge() {
   return (
-    <span className="flex items-center gap-1 px-2 h-6 rounded-md bg-blue-50 text-blue-500 border border-blue-200 text-[11px] font-medium shrink-0">
+    <span className="flex items-center gap-1 px-2 h-6 rounded-md bg-blue-50 text-blue-500 border border-blue-200 text-[12px] font-medium shrink-0">
       <UserRound className="w-3 h-3" /> Guest
     </span>
   );
@@ -134,7 +134,7 @@ function SortableTh({
         className="flex items-center gap-1 hover:text-[#6C60FF] transition-colors"
       >
         {label}
-        <span className={`text-[10px] ${isActive ? 'text-[#6C60FF]' : 'text-gray-300'}`}>
+        <span className={`text-[12px] ${isActive ? 'text-[#6C60FF]' : 'text-gray-300'}`}>
           {isActive ? (direction === 'asc' ? '▲' : '▼') : '▲'}
         </span>
       </button>
@@ -791,7 +791,7 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
         >
           Groups
           {leadGroups.length > 0 && (
-            <span className="flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-[#6C60FF] text-white text-[10px] font-bold">
+            <span className="flex items-center justify-center min-w-[20px] h-5 px-1 rounded-full bg-[#6C60FF] text-white text-[12px] font-bold">
               {leadGroups.length}
             </span>
           )}
@@ -802,7 +802,7 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
         >
           My Conversations
           {conversationsUnread > 0 && (
-            <span className="flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold">
+            <span className="flex items-center justify-center min-w-[20px] h-5 px-1 rounded-full bg-red-500 text-white text-[12px] font-bold">
               {conversationsUnread}
             </span>
           )}
@@ -1103,10 +1103,10 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
                         <div className="flex items-center justify-between gap-2 px-3 py-2.5 border-b border-gray-100">
                           <div className="flex items-center gap-1.5">
                             <Lightbulb className="w-3.5 h-3.5 text-[#6C60FF]" />
-                            <p className="text-[11px] font-semibold text-gray-600 uppercase tracking-wider">Suggested Actions</p>
+                            <p className="text-[12px] font-semibold text-gray-600 uppercase tracking-wider">Suggested Actions</p>
                           </div>
                           {mgAiCredits > 0 && (
-                            <span className="flex items-center gap-1 px-2 h-6 rounded-full bg-purple-100 text-[#6C60FF] text-[11px] font-semibold shrink-0">
+                            <span className="flex items-center gap-1 px-2 h-6 rounded-full bg-purple-100 text-[#6C60FF] text-[12px] font-semibold shrink-0">
                               <Sparkles className="w-3 h-3" /> 1 credit
                             </span>
                           )}
@@ -1166,7 +1166,7 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
                             </span>
                             <Avatar className="h-8 w-8 shrink-0">
                               <AvatarImage src={lead.user?.profile_image} alt={leadDisplayName(lead)} />
-                              <AvatarFallback className="bg-[#6C60FF] text-white text-[10px] font-medium">
+                              <AvatarFallback className="bg-[#6C60FF] text-white text-[12px] font-medium">
                                 {getInitials(leadDisplayName(lead))}
                               </AvatarFallback>
                             </Avatar>
@@ -1204,7 +1204,7 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
                         onClick={() => handleMgAiAction(mgLastAiAction, true)}
                         disabled={mgGeneratingAction !== null}
                         title="Regenerate (free)"
-                        className="flex items-center gap-1 px-2 h-6 rounded-md border border-[#6C60FF] text-[#6C60FF] bg-purple-50 hover:bg-purple-100 text-[11px] font-medium disabled:opacity-50 transition-colors"
+                        className="flex items-center gap-1 px-2 h-6 rounded-md border border-[#6C60FF] text-[#6C60FF] bg-purple-50 hover:bg-purple-100 text-[12px] font-medium disabled:opacity-50 transition-colors"
                       >
                         {mgGeneratingAction ? (
                           <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-[#6C60FF]" />
@@ -1350,7 +1350,7 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
                         <MessageSquare className={`text-gray-400 ${compact ? 'w-3.5 h-3.5' : 'w-4 h-4'}`} />
                         <span className={`text-gray-700 ${compact ? 'text-sm' : 'text-base'}`}>{(lead.messages_count ?? 0) + (lead.comments?.length ?? 0)}</span>
                         {((lead.unread_count ?? 0) + (lead.comment_unread_count ?? 0)) > 0 && (
-                          <span className="flex items-center justify-center min-w-[22px] h-5 px-1 rounded-lg bg-red-500 text-white text-[10px] font-bold">
+                          <span className="flex items-center justify-center min-w-[22px] h-5 px-1 rounded-lg bg-red-500 text-white text-[12px] font-bold">
                             {(lead.unread_count ?? 0) + (lead.comment_unread_count ?? 0)}
                           </span>
                         )}
@@ -1475,7 +1475,7 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
                     <MessageSquare className="w-3.5 h-3.5 text-gray-400" />
                     <span className="text-xs text-gray-600">{(lead.messages_count ?? 0) + (lead.comments?.length ?? 0)}</span>
                     {((lead.unread_count ?? 0) + (lead.comment_unread_count ?? 0)) > 0 && (
-                      <span className="flex items-center justify-center min-w-[22px] h-5 px-1 rounded-lg bg-red-500 text-white text-[10px] font-bold">
+                      <span className="flex items-center justify-center min-w-[22px] h-5 px-1 rounded-lg bg-red-500 text-white text-[12px] font-bold">
                         {(lead.unread_count ?? 0) + (lead.comment_unread_count ?? 0)}
                       </span>
                     )}
@@ -1568,11 +1568,11 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
                               {(g.members ?? []).slice(0, 4).map((m, i) => (
                                 <Avatar key={m.lead_id} className={`h-8 w-8 border-2 border-white ${i > 0 ? '-ml-2' : ''}`}>
                                   <AvatarImage src={m.profile_image ?? undefined} alt={m.name} />
-                                  <AvatarFallback className="bg-[#6C60FF] text-white text-[10px] font-medium">{getInitials(m.name)}</AvatarFallback>
+                                  <AvatarFallback className="bg-[#6C60FF] text-white text-[12px] font-medium">{getInitials(m.name)}</AvatarFallback>
                                 </Avatar>
                               ))}
                               {g.member_count > 4 && (
-                                <span className="-ml-2 h-8 w-8 rounded-full border-2 border-white bg-gray-100 text-gray-600 text-[11px] font-semibold flex items-center justify-center">
+                                <span className="-ml-2 h-8 w-8 rounded-full border-2 border-white bg-gray-100 text-gray-600 text-[12px] font-semibold flex items-center justify-center">
                                   +{g.member_count - 4}
                                 </span>
                               )}
@@ -1615,11 +1615,11 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
                           {(g.members ?? []).slice(0, 3).map((m, i) => (
                             <Avatar key={m.lead_id} className={`h-7 w-7 border-2 border-white ${i > 0 ? '-ml-2' : ''}`}>
                               <AvatarImage src={m.profile_image ?? undefined} alt={m.name} />
-                              <AvatarFallback className="bg-[#6C60FF] text-white text-[9px] font-medium">{getInitials(m.name)}</AvatarFallback>
+                              <AvatarFallback className="bg-[#6C60FF] text-white text-[12px] font-medium">{getInitials(m.name)}</AvatarFallback>
                             </Avatar>
                           ))}
                           {g.member_count > 3 && (
-                            <span className="-ml-2 h-7 w-7 rounded-full border-2 border-white bg-gray-100 text-gray-600 text-[10px] font-semibold flex items-center justify-center">
+                            <span className="-ml-2 h-7 w-7 rounded-full border-2 border-white bg-gray-100 text-gray-600 text-[12px] font-semibold flex items-center justify-center">
                               +{g.member_count - 3}
                             </span>
                           )}
@@ -1679,7 +1679,7 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
                       )}
                     </div>
                     {c.unread_count > 0 && (
-                      <span className="flex items-center justify-center min-w-[22px] h-5 px-1 rounded-lg bg-red-500 text-white text-[10px] font-bold shrink-0">
+                      <span className="flex items-center justify-center min-w-[22px] h-5 px-1 rounded-lg bg-red-500 text-white text-[12px] font-bold shrink-0">
                         {c.unread_count}
                       </span>
                     )}

@@ -733,7 +733,7 @@ export default function MemoryCard({
                         return (
                           <Avatar key={index} className="border-2 border-white" style={{ height: '26px', width: '26px', flexShrink: 0 }}>
                             <AvatarImage src={contributor.avatar} alt={contributor.name} />
-                            <AvatarFallback className="text-[9px] text-white" style={{ backgroundColor }}>
+                            <AvatarFallback className="text-[12px] text-white" style={{ backgroundColor }}>
                               {contributor.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
                             </AvatarFallback>
                           </Avatar>
@@ -748,11 +748,11 @@ export default function MemoryCard({
                 {/* Tags — far right */}
                 {tags.length > 0 && (
                   <div className="flex items-center gap-1.5" onClick={e => e.stopPropagation()}>
-                    <span className="text-[13px] font-semibold text-gray-700 bg-gray-100 px-3 py-1.5 rounded-full">{tags[0]}</span>
+                    <span className="text-[14px] font-semibold text-gray-700 bg-gray-100 px-3 py-1.5 rounded-full">{tags[0]}</span>
                     {tags.length > 1 && (
                       <Popover.Root>
                         <Popover.Trigger asChild>
-                          <button className="text-[13px] font-semibold text-gray-700 bg-gray-100 px-3 py-1.5 rounded-full hover:bg-gray-200 cursor-pointer">+{tags.length - 1}</button>
+                          <button className="text-[14px] font-semibold text-gray-700 bg-gray-100 px-3 py-1.5 rounded-full hover:bg-gray-200 cursor-pointer">+{tags.length - 1}</button>
                         </Popover.Trigger>
                         <Popover.Portal>
                           <Popover.Content
@@ -764,7 +764,7 @@ export default function MemoryCard({
                           >
                             <div className="flex flex-wrap gap-1.5">
                               {tags.slice(1).map((tag, i) => (
-                                <span key={i} className="text-[13px] font-semibold text-gray-700 bg-gray-100 px-3 py-1.5 rounded-full">{tag}</span>
+                                <span key={i} className="text-[14px] font-semibold text-gray-700 bg-gray-100 px-3 py-1.5 rounded-full">{tag}</span>
                               ))}
                             </div>
                           </Popover.Content>
@@ -812,7 +812,7 @@ export default function MemoryCard({
                         return (
                           <Avatar key={index} className="border-2 border-white" style={{ height: '24px', width: '24px', flexShrink: 0 }}>
                             <AvatarImage src={contributor.avatar} alt={contributor.name} />
-                            <AvatarFallback className="text-[8px] text-white" style={{ backgroundColor }}>
+                            <AvatarFallback className="text-[12px] text-white" style={{ backgroundColor }}>
                               {contributor.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
                             </AvatarFallback>
                           </Avatar>
@@ -820,23 +820,23 @@ export default function MemoryCard({
                       })}
                     </div>
                     {contributors.length > 2 && (
-                      <span className="text-[11px] text-gray-500 font-medium">+{contributors.length - 2}</span>
+                      <span className="text-[12px] text-gray-500 font-medium">+{contributors.length - 2}</span>
                     )}
                   </div>
                 ) : <span />}
                 {tags.length > 0 && (
                   <div className="flex items-center gap-1.5" onClick={e => e.stopPropagation()}>
-                    <span className="text-[13px] font-semibold text-gray-700 bg-gray-100 px-3 py-1.5 rounded-full">{tags[0]}</span>
+                    <span className="text-[14px] font-semibold text-gray-700 bg-gray-100 px-3 py-1.5 rounded-full">{tags[0]}</span>
                     {tags.length > 1 && (
                       <Popover.Root>
                         <Popover.Trigger asChild>
-                          <button className="text-[13px] font-semibold text-gray-700 bg-gray-100 px-3 py-1.5 rounded-full hover:bg-gray-200 cursor-pointer">+{tags.length - 1}</button>
+                          <button className="text-[14px] font-semibold text-gray-700 bg-gray-100 px-3 py-1.5 rounded-full hover:bg-gray-200 cursor-pointer">+{tags.length - 1}</button>
                         </Popover.Trigger>
                         <Popover.Portal>
                           <Popover.Content side="top" align="end" sideOffset={4} className="bg-white rounded-lg shadow-lg border border-gray-100 p-2 z-50 max-w-[160px]" style={{ zIndex: 9999 }}>
                             <div className="flex flex-wrap gap-1.5">
                               {tags.slice(1).map((tag, i) => (
-                                <span key={i} className="text-[13px] font-semibold text-gray-700 bg-gray-100 px-3 py-1.5 rounded-full">{tag}</span>
+                                <span key={i} className="text-[14px] font-semibold text-gray-700 bg-gray-100 px-3 py-1.5 rounded-full">{tag}</span>
                               ))}
                             </div>
                           </Popover.Content>

@@ -219,7 +219,7 @@ function ShopifyConnectModal({
                     </li>
                     <li>Look at the address bar — it looks like this:</li>
                   </ol>
-                  <div className="mt-1.5 bg-white border border-gray-200 rounded-lg px-3 py-2 font-mono text-[11px] text-gray-500 overflow-x-auto">
+                  <div className="mt-1.5 bg-white border border-gray-200 rounded-lg px-3 py-2 font-mono text-[12px] text-gray-500 overflow-x-auto">
                     admin.shopify.com/store/<span className="text-[#6C60FF] font-semibold">yourstore</span>
                   </div>
                   <p className="text-xs text-gray-600 mt-1.5">

@@ -3902,7 +3902,7 @@ export default function PublishedMemoryPage() {
                 <div className="grid grid-cols-2 gap-x-6 gap-y-4 border-t border-white/10 pt-5">
                   {shownSpecs.map(([label, value]) => (
                     <div key={label}>
-                      <p className="text-[11px] uppercase tracking-wide text-gray-500">{label}</p>
+                      <p className="text-[12px] uppercase tracking-wide text-gray-500">{label}</p>
                       <p className="text-sm font-medium text-white break-words">{value}</p>
                     </div>
                   ))}

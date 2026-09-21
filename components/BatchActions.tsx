@@ -474,7 +474,7 @@ export default function BatchActions({
             {pendingTags.length > 0 && (
               <div className="flex flex-wrap gap-1.5">
                 {pendingTags.map(tag => (
-                  <span key={tag} className="inline-flex items-center gap-1.5 pl-2.5 pr-1.5 py-1 bg-gray-200 text-gray-900 text-[13px] rounded-full border border-gray-300">
+                  <span key={tag} className="inline-flex items-center gap-1.5 pl-2.5 pr-1.5 py-1 bg-gray-200 text-gray-900 text-[14px] rounded-full border border-gray-300">
                     <span className="leading-none">{tag}</span>
                     <button
                       type="button"

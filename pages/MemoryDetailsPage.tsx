@@ -8653,14 +8653,14 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                   <label className="text-[14px] md:text-sm font-medium text-gray-700">Button color</label>
                   <div className="flex items-center gap-2">
                     <input type="color" value={ctaButtonColor} onChange={(e) => setCtaButtonColor(e.target.value)} className="h-10 w-12 rounded border border-gray-300 cursor-pointer bg-white p-0.5" />
-                    <input type="text" value={ctaButtonColor} onChange={(e) => setCtaButtonColor(e.target.value)} className="flex-1 h-10 px-2 border border-gray-300 rounded-lg text-[13px] uppercase focus:outline-none focus:ring-2 focus:ring-[#6C60FF]/20 focus:border-[#6C60FF]" />
+                    <input type="text" value={ctaButtonColor} onChange={(e) => setCtaButtonColor(e.target.value)} className="flex-1 h-10 px-2 border border-gray-300 rounded-lg text-[14px] uppercase focus:outline-none focus:ring-2 focus:ring-[#6C60FF]/20 focus:border-[#6C60FF]" />
                   </div>
                 </div>
                 <div className="space-y-1.5">
                   <label className="text-[14px] md:text-sm font-medium text-gray-700">Text color</label>
                   <div className="flex items-center gap-2">
                     <input type="color" value={ctaTextColor} onChange={(e) => setCtaTextColor(e.target.value)} className="h-10 w-12 rounded border border-gray-300 cursor-pointer bg-white p-0.5" />
-                    <input type="text" value={ctaTextColor} onChange={(e) => setCtaTextColor(e.target.value)} className="flex-1 h-10 px-2 border border-gray-300 rounded-lg text-[13px] uppercase focus:outline-none focus:ring-2 focus:ring-[#6C60FF]/20 focus:border-[#6C60FF]" />
+                    <input type="text" value={ctaTextColor} onChange={(e) => setCtaTextColor(e.target.value)} className="flex-1 h-10 px-2 border border-gray-300 rounded-lg text-[14px] uppercase focus:outline-none focus:ring-2 focus:ring-[#6C60FF]/20 focus:border-[#6C60FF]" />
                   </div>
                 </div>
               </div>
@@ -8674,7 +8674,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                   <button
                     type="button"
                     onClick={() => setCtaIcon('')}
-                    className={`h-10 w-10 rounded-lg border flex items-center justify-center text-[11px] text-gray-500 ${ctaIcon === '' ? 'border-[#6C60FF] bg-[#6C60FF]/10' : 'border-gray-300 hover:bg-gray-50'}`}
+                    className={`h-10 w-10 rounded-lg border flex items-center justify-center text-[12px] text-gray-500 ${ctaIcon === '' ? 'border-[#6C60FF] bg-[#6C60FF]/10' : 'border-gray-300 hover:bg-gray-50'}`}
                     title="No icon"
                   >
                     None
@@ -8999,7 +8999,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                   <div>
                     <p className="font-bold text-gray-900 text-base leading-tight">{apiMemoryData?.title}</p>
                     <div className="flex items-center gap-1.5 text-sm text-gray-500">
-                      <Avatar className="h-4 w-4"><AvatarImage src={apiMemoryData?.user?.profile_image} /><AvatarFallback className="bg-[#6C60FF] text-white text-[8px]">{apiMemoryData?.user?.name?.split(' ').map((n: string) => n[0]).join('') || 'U'}</AvatarFallback></Avatar>
+                      <Avatar className="h-4 w-4"><AvatarImage src={apiMemoryData?.user?.profile_image} /><AvatarFallback className="bg-[#6C60FF] text-white text-[12px]">{apiMemoryData?.user?.name?.split(' ').map((n: string) => n[0]).join('') || 'U'}</AvatarFallback></Avatar>
                       <span>Author: <span className="font-medium">{apiMemoryData?.user?.name}</span></span>
                     </div>
                   </div>
@@ -9764,7 +9764,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
               <button
                 type="button"
                 onClick={() => setShowMoreCameraOptions(prev => !prev)}
-                className="w-full flex items-center justify-center px-4 py-2 text-[13px] font-medium text-[#6C60FF] active:bg-black/5 transition-colors"
+                className="w-full flex items-center justify-center px-4 py-2 text-[14px] font-medium text-[#6C60FF] active:bg-black/5 transition-colors"
               >
                 {showMoreCameraOptions ? 'Show less' : 'Show more'}
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={`ml-1 transition-transform ${showMoreCameraOptions ? 'rotate-180' : ''}`}>
@@ -11260,7 +11260,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                       {editData.tags.length > 0 && (
                         <div className="flex flex-wrap gap-1.5 mb-2">
                           {editData.tags.map((tag, i) => (
-                            <span key={i} className="inline-flex items-center gap-1.5 pl-2.5 pr-1.5 py-1 bg-gray-200 text-gray-900 text-[13px] font-normal rounded-full border border-gray-300">
+                            <span key={i} className="inline-flex items-center gap-1.5 pl-2.5 pr-1.5 py-1 bg-gray-200 text-gray-900 text-[14px] font-normal rounded-full border border-gray-300">
                               <span className="leading-none">{tag}</span>
                               <button
                                 type="button"
@@ -11327,7 +11327,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                             <p className="text-xs text-gray-400 mb-1.5">Suggested</p>
                             <div className="flex flex-wrap gap-1.5">
                               {suggestions.map(tag => (
-                                <button key={tag} type="button" onClick={() => { if (!editData.tags.includes(tag)) setEditData(prev => ({ ...prev, tags: [...prev.tags, tag] })); }} className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[13px] bg-gray-100 text-gray-700 rounded-full border border-gray-200 hover:bg-gray-200 transition-colors">
+                                <button key={tag} type="button" onClick={() => { if (!editData.tags.includes(tag)) setEditData(prev => ({ ...prev, tags: [...prev.tags, tag] })); }} className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[14px] bg-gray-100 text-gray-700 rounded-full border border-gray-200 hover:bg-gray-200 transition-colors">
                                   {tag}
                                   <span className="text-gray-400 font-medium">+</span>
                                 </button>
@@ -12638,20 +12638,20 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                   <>
                                     {visible.map((tag: string) => (
                                       <div key={tag} className="bg-gray-200/90 text-gray-900 flex items-center justify-center px-4 py-1.5 md:px-3 md:py-1.5 lg:px-4 lg:py-2 rounded-full md:rounded-md lg:rounded-lg shadow-lg backdrop-blur-sm">
-                                        <span className="text-[13px] font-semibold">{tag}</span>
+                                        <span className="text-[14px] font-semibold">{tag}</span>
                                       </div>
                                     ))}
                                     {hidden.length > 0 && (
                                       <Popover>
                                         <PopoverTrigger>
-                                          <span className="inline-flex items-center bg-gray-200/90 text-gray-900 px-4 py-1.5 md:px-3 md:py-1.5 lg:px-4 lg:py-2 rounded-full md:rounded-md lg:rounded-lg shadow-lg backdrop-blur-sm cursor-pointer text-[13px] font-semibold">
+                                          <span className="inline-flex items-center bg-gray-200/90 text-gray-900 px-4 py-1.5 md:px-3 md:py-1.5 lg:px-4 lg:py-2 rounded-full md:rounded-md lg:rounded-lg shadow-lg backdrop-blur-sm cursor-pointer text-[14px] font-semibold">
                                             +{hidden.length}
                                           </span>
                                         </PopoverTrigger>
                                         <PopoverContent className="w-auto p-2 border-0 shadow-md" align="start">
                                           <div className="flex flex-wrap gap-1.5">
                                             {hidden.map((tag: string) => (
-                                              <span key={tag} className="bg-gray-200 text-gray-900 text-[13px] font-semibold px-2.5 py-1 rounded-full">
+                                              <span key={tag} className="bg-gray-200 text-gray-900 text-[14px] font-semibold px-2.5 py-1 rounded-full">
                                                 {tag}
                                               </span>
                                             ))}
@@ -13017,21 +13017,21 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                       return (
                         <>
                           {visible.map((tag: string) => (
-                            <Badge key={tag} className="bg-gray-200 text-gray-900 border-0 px-3 py-1.5 text-[13px] font-semibold rounded-2xl">
+                            <Badge key={tag} className="bg-gray-200 text-gray-900 border-0 px-3 py-1.5 text-[14px] font-semibold rounded-2xl">
                               {tag}
                             </Badge>
                           ))}
                           {hidden.length > 0 && (
                             <Popover>
                               <PopoverTrigger>
-                                <span className="inline-flex items-center bg-gray-200 text-gray-900 border-0 px-3 py-1.5 text-[13px] font-semibold rounded-2xl cursor-pointer hover:bg-gray-300">
+                                <span className="inline-flex items-center bg-gray-200 text-gray-900 border-0 px-3 py-1.5 text-[14px] font-semibold rounded-2xl cursor-pointer hover:bg-gray-300">
                                   +{hidden.length}
                                 </span>
                               </PopoverTrigger>
                               <PopoverContent className="w-auto p-2 border-0 shadow-md" align="start">
                                 <div className="flex flex-wrap gap-1.5">
                                   {hidden.map((tag: string) => (
-                                    <span key={tag} className="bg-gray-200 text-gray-900 text-[13px] font-semibold px-2.5 py-1 rounded-full">
+                                    <span key={tag} className="bg-gray-200 text-gray-900 text-[14px] font-semibold px-2.5 py-1 rounded-full">
                                       {tag}
                                     </span>
                                   ))}
@@ -16592,7 +16592,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                             <div className="mb-4">
                               <div className="flex items-center gap-1.5 mb-2">
                                 <div className="w-4 h-4 rounded-full border border-gray-400 flex items-center justify-center">
-                                  <span className="text-[10px] text-gray-500 font-bold">i</span>
+                                  <span className="text-[12px] text-gray-500 font-bold">i</span>
                                 </div>
                                 <span className="text-sm font-medium text-gray-700">Required Format</span>
                               </div>
@@ -17192,7 +17192,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                 <span className="text-base font-semibold text-gray-900">Media</span>
                 <span className="text-sm text-gray-500">· ({filteredAndSortedMediaItems.length} photos)</span>
                 {apiMemoryData?.new_images > 0 && (
-                  <span className="inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full bg-[#6C60FF] text-white text-[10px] font-semibold leading-none">
+                  <span className="inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full bg-[#6C60FF] text-white text-[12px] font-semibold leading-none">
                     +{apiMemoryData.new_images} new
                   </span>
                 )}
@@ -18619,7 +18619,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
             <button
               type="button"
               onClick={() => setShowMoreCameraOptions(prev => !prev)}
-              className="w-full flex items-center justify-center px-4 py-2 text-[13px] font-medium text-[#6C60FF] active:bg-black/5 transition-colors"
+              className="w-full flex items-center justify-center px-4 py-2 text-[14px] font-medium text-[#6C60FF] active:bg-black/5 transition-colors"
             >
               {showMoreCameraOptions ? 'Show less' : 'Show more'}
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={`ml-1 transition-transform ${showMoreCameraOptions ? 'rotate-180' : ''}`}>

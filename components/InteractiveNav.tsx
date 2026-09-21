@@ -177,7 +177,7 @@ function Badge({ count, onClick }: { count: number; onClick: () => void }) {
       data-name="Badge"
       onClick={onClick}
     >
-      <div className="relative shrink-0 text-white text-[10px] font-semibold text-center text-nowrap">
+      <div className="relative shrink-0 text-white text-[12px] font-semibold text-center text-nowrap">
         <p className="block leading-[14px] whitespace-pre">{count}</p>
       </div>
     </div>
@@ -521,7 +521,7 @@ export default function InteractiveNav({
       </div>
 
       {/* Right side icons */}
-      <div className="flex items-center gap-8 min-[576px]:gap-9 md:gap-0">
+      <div className="flex items-center gap-4 min-[576px]:gap-9 md:gap-0">
         {/* Refresh — visible on every breakpoint, including the installed PWA,
             where there's no hard-refresh keyboard shortcut available. */}
         <div className="mr-4 md:mr-6">

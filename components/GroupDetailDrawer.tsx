@@ -103,7 +103,7 @@ function MessageAttachments({ attachments }: { attachments: LeadMessageAttachmen
             </span>
             <span className="min-w-0">
               <span className="block text-xs font-medium text-gray-700 truncate">{att.filename}</span>
-              {att.size ? <span className="block text-[11px] text-gray-600">{formatFileSize(att.size)}</span> : null}
+              {att.size ? <span className="block text-[12px] text-gray-600">{formatFileSize(att.size)}</span> : null}
             </span>
           </a>
         );
@@ -345,11 +345,11 @@ export default function GroupDetailDrawer({ groupId, open, onClose }: Props) {
                   {group.members.slice(0, 6).map((m, i) => (
                     <Avatar key={m.lead_id} className={`h-7 w-7 border-2 border-white ${i > 0 ? '-ml-2' : ''}`}>
                       <AvatarImage src={m.user.profile_image} alt={m.user.name} />
-                      <AvatarFallback className="bg-[#6C60FF] text-white text-[9px] font-medium">{getInitials(m.user.name)}</AvatarFallback>
+                      <AvatarFallback className="bg-[#6C60FF] text-white text-[12px] font-medium">{getInitials(m.user.name)}</AvatarFallback>
                     </Avatar>
                   ))}
                   {group.member_count > 6 && (
-                    <span className="-ml-2 h-7 w-7 rounded-full border-2 border-white bg-gray-100 text-gray-600 text-[10px] font-semibold flex items-center justify-center">
+                    <span className="-ml-2 h-7 w-7 rounded-full border-2 border-white bg-gray-100 text-gray-600 text-[12px] font-semibold flex items-center justify-center">
                       +{group.member_count - 6}
                     </span>
                   )}
@@ -367,7 +367,7 @@ export default function GroupDetailDrawer({ groupId, open, onClose }: Props) {
           </div>
         ) : group ? (
           <div>
-            <p className="px-5 pt-4 pb-2 text-[11px] font-semibold text-gray-600 uppercase tracking-wider">Members</p>
+            <p className="px-5 pt-4 pb-2 text-[12px] font-semibold text-gray-600 uppercase tracking-wider">Members</p>
             <div className="divide-y divide-gray-100">
               {group.members.map((m) => (
                 <div key={m.lead_id} className="flex items-center gap-3 px-5 py-3">
@@ -382,7 +382,7 @@ export default function GroupDetailDrawer({ groupId, open, onClose }: Props) {
                     </div>
                   </div>
                   {!m.has_email && !m.has_phone && (
-                    <span className="flex items-center gap-1 px-2 h-6 rounded-md bg-red-50 text-red-500 border border-red-200 text-[11px] font-medium shrink-0">
+                    <span className="flex items-center gap-1 px-2 h-6 rounded-md bg-red-50 text-red-500 border border-red-200 text-[12px] font-medium shrink-0">
                       <AlertCircle className="w-3 h-3" /> No contact
                     </span>
                   )}
@@ -405,12 +405,12 @@ export default function GroupDetailDrawer({ groupId, open, onClose }: Props) {
             {group.messages && group.messages.length > 0 && (
               <div className="border-t border-gray-100 mt-2">
                 <div className="flex items-center justify-between px-5 pt-4 pb-2">
-                  <p className="text-[11px] font-semibold text-gray-600 uppercase tracking-wider">Broadcasts</p>
+                  <p className="text-[12px] font-semibold text-gray-600 uppercase tracking-wider">Broadcasts</p>
                   <button
                     onClick={handleRefreshBroadcasts}
                     disabled={isRefreshingBroadcasts}
                     title="Refresh broadcasts"
-                    className="flex items-center gap-1.5 h-6 px-2.5 rounded-md border border-gray-200 text-[11px] font-medium text-gray-600 hover:text-[#6C60FF] hover:border-[#6C60FF] disabled:opacity-40 transition-colors"
+                    className="flex items-center gap-1.5 h-6 px-2.5 rounded-md border border-gray-200 text-[12px] font-medium text-gray-600 hover:text-[#6C60FF] hover:border-[#6C60FF] disabled:opacity-40 transition-colors"
                   >
                     <RefreshCw className={`w-3 h-3 ${isRefreshingBroadcasts ? 'animate-spin' : ''}`} />
                     {isRefreshingBroadcasts ? 'Refreshing...' : 'Refresh'}
@@ -430,7 +430,7 @@ export default function GroupDetailDrawer({ groupId, open, onClose }: Props) {
                         {m.attachments && m.attachments.length > 0 && (
                           <MessageAttachments attachments={m.attachments} />
                         )}
-                        <div className="flex items-center flex-wrap justify-end gap-x-1.5 gap-y-0.5 mt-1 text-[11px] text-gray-600">
+                        <div className="flex items-center flex-wrap justify-end gap-x-1.5 gap-y-0.5 mt-1 text-[12px] text-gray-600">
                           <span className="text-gray-600">{m.channels.map(channelLabel).join(', ')}</span>
                           <span>· {m.recipient_count} recipient{m.recipient_count === 1 ? '' : 's'}</span>
                           <span>· {formatDateTime(m.sent_at)}</span>
@@ -573,10 +573,10 @@ export default function GroupDetailDrawer({ groupId, open, onClose }: Props) {
                     <div className="flex items-center justify-between gap-2 px-3 py-2.5 border-b border-gray-100">
                       <div className="flex items-center gap-1.5">
                         <Lightbulb className="w-3.5 h-3.5 text-[#6C60FF]" />
-                        <p className="text-[11px] font-semibold text-gray-600 uppercase tracking-wider">Suggested Actions</p>
+                        <p className="text-[12px] font-semibold text-gray-600 uppercase tracking-wider">Suggested Actions</p>
                       </div>
                       {aiCredits > 0 && (
-                        <span className="flex items-center gap-1 px-2 h-6 rounded-full bg-purple-100 text-[#6C60FF] text-[11px] font-semibold shrink-0">
+                        <span className="flex items-center gap-1 px-2 h-6 rounded-full bg-purple-100 text-[#6C60FF] text-[12px] font-semibold shrink-0">
                           <Sparkles className="w-3 h-3" /> 1 credit
                         </span>
                       )}

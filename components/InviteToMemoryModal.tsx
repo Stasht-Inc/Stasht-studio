@@ -93,7 +93,7 @@ const MemoryThumbnail = ({ thumbnail, title, profileImage, name, size }: {
         <img src={src} alt={title} className="w-full h-full object-cover" onError={handleError} />
       ) : (
         <div className="w-full h-full bg-gradient-to-br from-blue-400 to-purple-500 flex items-center justify-center">
-          <span className={`text-white font-semibold ${size === 'md' ? 'text-xs' : 'text-[10px]'}`}>{generateInitials(name)}</span>
+          <span className={`text-white font-semibold ${size === 'md' ? 'text-xs' : 'text-[12px]'}`}>{generateInitials(name)}</span>
         </div>
       )}
     </div>

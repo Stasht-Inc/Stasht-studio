@@ -69,7 +69,7 @@ function Frame23() {
     <div className="box-border content-stretch flex flex-col gap-0.5 h-[43px] items-start justify-center p-0 relative shrink-0 w-[215px]">
       <Frame17 />
       <div
-        className="font-['Roboto:Italic',_sans-serif] font-normal italic leading-[0] relative shrink-0 text-[#858484] text-[13px] text-left w-full"
+        className="font-['Roboto:Italic',_sans-serif] font-normal italic leading-[0] relative shrink-0 text-[#858484] text-[14px] text-left w-full"
         style={{ fontVariationSettings: "'wdth' 100" }}
       >
         <p className="block leading-[19.2px]">Sayulita, Mexico</p>
@@ -276,7 +276,7 @@ function Frame24() {
     <div className="box-border content-stretch flex flex-col gap-0.5 h-[43px] items-start justify-center p-0 relative shrink-0 w-[215px]">
       <Frame18 />
       <div
-        className="font-['Roboto:Italic',_sans-serif] font-normal italic leading-[0] relative shrink-0 text-[#858484] text-[13px] text-left w-full"
+        className="font-['Roboto:Italic',_sans-serif] font-normal italic leading-[0] relative shrink-0 text-[#858484] text-[14px] text-left w-full"
         style={{ fontVariationSettings: "'wdth' 100" }}
       >
         <p className="block leading-[19.2px]">Sayulita, Mexico</p>
@@ -489,7 +489,7 @@ function Frame25() {
     <div className="box-border content-stretch flex flex-col gap-0.5 h-[43px] items-start justify-center p-0 relative shrink-0 w-[215px]">
       <Frame19 />
       <div
-        className="font-['Roboto:Italic',_sans-serif] font-normal italic leading-[0] relative shrink-0 text-[#858484] text-[13px] text-left w-full"
+        className="font-['Roboto:Italic',_sans-serif] font-normal italic leading-[0] relative shrink-0 text-[#858484] text-[14px] text-left w-full"
         style={{ fontVariationSettings: "'wdth' 100" }}
       >
         <p className="block leading-[19.2px]">Sayulita, Mexico</p>
@@ -713,7 +713,7 @@ function Frame26() {
     <div className="box-border content-stretch flex flex-col gap-0.5 h-[43px] items-start justify-center p-0 relative shrink-0 w-[215px]">
       <Frame20 />
       <div
-        className="font-['Roboto:Italic',_sans-serif] font-normal italic leading-[0] relative shrink-0 text-[#858484] text-[13px] text-left w-full"
+        className="font-['Roboto:Italic',_sans-serif] font-normal italic leading-[0] relative shrink-0 text-[#858484] text-[14px] text-left w-full"
         style={{ fontVariationSettings: "'wdth' 100" }}
       >
         <p className="block leading-[19.2px]">Sayulita, Mexico</p>
@@ -946,7 +946,7 @@ function Frame27() {
     <div className="box-border content-stretch flex flex-col gap-0.5 h-[43px] items-start justify-center p-0 relative shrink-0 w-[215px]">
       <Frame21 />
       <div
-        className="font-['Roboto:Italic',_sans-serif] font-normal italic leading-[0] relative shrink-0 text-[#858484] text-[13px] text-left w-full"
+        className="font-['Roboto:Italic',_sans-serif] font-normal italic leading-[0] relative shrink-0 text-[#858484] text-[14px] text-left w-full"
         style={{ fontVariationSettings: "'wdth' 100" }}
       >
         <p className="block leading-[19.2px]">Sayulita, Mexico</p>

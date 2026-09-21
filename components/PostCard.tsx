@@ -2002,7 +2002,7 @@ export default function PostCard({ post, variant = 'thumbnail', onContentUpdate,
           </div>
         ) : (
           // Thumbnail view: All on separate lines
-          <div className="space-y-1 text-[13px] md:text-xs text-gray-500">
+          <div className="space-y-1 text-[14px] md:text-xs text-gray-500">
             {/* Title (if exists) */}
             {post.title && (
               <div className="flex items-center gap-1">

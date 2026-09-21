@@ -69,7 +69,7 @@ export default function ShopifyProductCard({ post, onImageClick }: ShopifyProduc
               {priceLabel}
             </span>
             {hasCompare && (
-              <span className="px-2 py-0.5 rounded-full bg-white/90 text-gray-400 text-[11px] font-medium line-through shadow-sm">
+              <span className="px-2 py-0.5 rounded-full bg-white/90 text-gray-400 text-[12px] font-medium line-through shadow-sm">
                 {compareLabel}
               </span>
             )}

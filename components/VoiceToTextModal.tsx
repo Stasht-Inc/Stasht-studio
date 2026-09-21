@@ -621,7 +621,7 @@ export const VoiceToTextModal: React.FC<VoiceToTextModalProps> = ({
             <div className="flex items-center justify-between px-6 pt-10 pb-4 border-b border-gray-100 flex-shrink-0">
               <div>
                 <h2 className="text-[20px] font-semibold text-gray-900">Review Transcript</h2>
-                <p className="text-[13px] text-gray-400 mt-0.5">Edit your script or go straight to analyzing</p>
+                <p className="text-[14px] text-gray-400 mt-0.5">Edit your script or go straight to analyzing</p>
               </div>
               <button
                 onClick={() => { setModalState('initial'); setReviewText(''); setIsEditing(false); }}
@@ -635,13 +635,13 @@ export const VoiceToTextModal: React.FC<VoiceToTextModalProps> = ({
             <div className="flex items-center justify-center px-6 py-2.5 bg-[#F5F4FF] border-b border-[#E8E6FF] flex-shrink-0">
               <div className="flex items-center gap-2">
                 <Layers className="w-4 h-4 text-[#6C60FF]" />
-                <span className="text-[13px] font-semibold text-[#6C60FF]">Moments split by "stasht"</span>
+                <span className="text-[14px] font-semibold text-[#6C60FF]">Moments split by "stasht"</span>
               </div>
             </div>
 
             {/* Transcript label + edit toggle */}
             <div className="flex items-center justify-between px-6 pt-4 pb-2 flex-shrink-0">
-              <span className="text-[13px] font-semibold text-gray-500 uppercase tracking-wide">Transcript</span>
+              <span className="text-[14px] font-semibold text-gray-500 uppercase tracking-wide">Transcript</span>
               <button
                 onClick={() => setIsEditing(prev => !prev)}
                 className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 border text-[14px] font-semibold transition-all
@@ -689,7 +689,7 @@ export const VoiceToTextModal: React.FC<VoiceToTextModalProps> = ({
                         )}
                       </div>
                       {i < arr.length - 1 && (
-                        <p className="text-center text-gray-500 text-[13px] font-medium flex-shrink-0">── New Moment Added ──</p>
+                        <p className="text-center text-gray-500 text-[14px] font-medium flex-shrink-0">── New Moment Added ──</p>
                       )}
                     </React.Fragment>
                   ))}
@@ -722,7 +722,7 @@ export const VoiceToTextModal: React.FC<VoiceToTextModalProps> = ({
             {/* Separator hint */}
             <div className="px-6 py-1 flex-shrink-0">
               <p className="text-[12px] text-gray-400 text-center">
-                Moments are separated by <code className="bg-gray-100 px-1 rounded text-[11px]">--- New Moment Added ---</code>
+                Moments are separated by <code className="bg-gray-100 px-1 rounded text-[12px]">--- New Moment Added ---</code>
               </p>
             </div>
 
@@ -798,7 +798,7 @@ export const VoiceToTextModal: React.FC<VoiceToTextModalProps> = ({
                       <React.Fragment key={i}>
                         <div className="flex flex-col gap-2 flex-shrink-0">
                           {arr.length > 1 && (
-                            <span className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide">Moment {i + 1}</span>
+                            <span className="text-[12px] font-semibold text-gray-400 uppercase tracking-wide">Moment {i + 1}</span>
                           )}
                           <textarea
                             ref={i === 0 ? textareaRef : undefined}
@@ -857,8 +857,8 @@ export const VoiceToTextModal: React.FC<VoiceToTextModalProps> = ({
 
               {/* Separator hint */}
               <div className="px-6 py-1 flex-shrink-0">
-                <p className="text-[11px] text-gray-400 text-center">
-                  Moments are separated by <code className="bg-gray-100 px-1 rounded text-[10px]">--- New Moment Added ---</code>
+                <p className="text-[12px] text-gray-400 text-center">
+                  Moments are separated by <code className="bg-gray-100 px-1 rounded text-[12px]">--- New Moment Added ---</code>
                 </p>
               </div>
 

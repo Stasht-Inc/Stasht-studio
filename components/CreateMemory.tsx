@@ -2965,7 +2965,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
               {formData.tags.length > 0 && (
                 <div className="flex flex-wrap gap-1.5 mb-2">
                   {formData.tags.map((tag, index) => (
-                    <span key={index} className="flex items-center gap-1 px-2.5 py-1 bg-gray-200 text-gray-900 text-[10.5px] font-normal rounded-full border border-gray-300">
+                    <span key={index} className="flex items-center gap-1 px-2.5 py-1 bg-gray-200 text-gray-900 text-[12px] font-normal rounded-full border border-gray-300">
                       {tag}
                       <button type="button" onClick={() => handleRemoveTag(tag)} className="hover:text-red-500 leading-none ml-0.5">
                         <X className="w-3 h-3" />

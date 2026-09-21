@@ -39,7 +39,7 @@ const MemoryThumb = ({ thumbnail, profileImage, title }: { thumbnail?: string | 
   }
   return (
     <div className="w-9 h-9 rounded-md bg-gradient-to-br from-[#6C60FF] to-purple-500 flex items-center justify-center flex-shrink-0">
-      <span className="text-white text-[10px] font-semibold">{title?.charAt(0)?.toUpperCase()}</span>
+      <span className="text-white text-[12px] font-semibold">{title?.charAt(0)?.toUpperCase()}</span>
     </div>
   );
 };

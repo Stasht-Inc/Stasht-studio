@@ -49,7 +49,7 @@ function NavItem({
       </div>
       <div className="flex items-center gap-1.5">
         {unreadCount !== undefined && unreadCount > 0 && (
-          <span className="flex items-center justify-center min-w-[22px] h-5 px-1 rounded-lg bg-red-500 text-white text-[10px] font-bold">
+          <span className="flex items-center justify-center min-w-[22px] h-5 px-1 rounded-lg bg-red-500 text-white text-[12px] font-bold">
             {unreadCount}
           </span>
         )}
@@ -204,7 +204,7 @@ function TaskItem({
             {primaryAction && (
               <button
                 onClick={primaryAction.onClick}
-                className="px-3 py-1 text-[11px] font-medium text-[#6C60FF] border border-[#6C60FF] rounded-full hover:bg-[#6C60FF] hover:text-white transition-all duration-200 flex items-center gap-0.5 whitespace-nowrap"
+                className="px-3 py-1 text-[12px] font-medium text-[#6C60FF] border border-[#6C60FF] rounded-full hover:bg-[#6C60FF] hover:text-white transition-all duration-200 flex items-center gap-0.5 whitespace-nowrap"
               >
                 {primaryAction.text}
                 <ChevronRight className="w-2.5 h-2.5 flex-shrink-0" />
@@ -213,7 +213,7 @@ function TaskItem({
             {secondaryAction && (
               <button
                 onClick={secondaryAction.onClick}
-                className="px-3 py-1 text-[11px] font-medium text-gray-700 border border-gray-300 rounded-full hover:bg-gray-50 transition-all duration-200 flex items-center gap-0.5 whitespace-nowrap"
+                className="px-3 py-1 text-[12px] font-medium text-gray-700 border border-gray-300 rounded-full hover:bg-gray-50 transition-all duration-200 flex items-center gap-0.5 whitespace-nowrap"
               >
                 {secondaryAction.text}
                 <ChevronRight className="w-2.5 h-2.5 flex-shrink-0" />

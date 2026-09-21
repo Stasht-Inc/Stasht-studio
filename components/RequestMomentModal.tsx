@@ -360,7 +360,7 @@ export default function RequestMomentModal({
                   )}
                 </div>
               )}
-              {fileError && <p className="text-[13px] md:text-xs text-red-600 mt-2">{fileError}</p>}
+              {fileError && <p className="text-[14px] md:text-xs text-red-600 mt-2">{fileError}</p>}
             </div>
 
             {/* Caption */}
@@ -431,7 +431,7 @@ export default function RequestMomentModal({
                     : 'border-gray-300 focus:ring-[#6C60FF]/20 focus:border-[#6C60FF]'
                 }`}
               />
-              {nameError && <p className="text-[13px] md:text-xs text-red-600 mt-2">{nameError}</p>}
+              {nameError && <p className="text-[14px] md:text-xs text-red-600 mt-2">{nameError}</p>}
             </div>
 
             {/* Contact — email or mobile, chosen by radio */}
@@ -484,7 +484,7 @@ export default function RequestMomentModal({
                   }`}
                 />
               </div>
-              {contactError && <p className="text-[13px] md:text-xs text-red-600 mt-2">{contactError}</p>}
+              {contactError && <p className="text-[14px] md:text-xs text-red-600 mt-2">{contactError}</p>}
             </div>
           </div>
 
@@ -492,12 +492,12 @@ export default function RequestMomentModal({
           <div className="flex-shrink-0 px-5 py-4 border-t border-gray-100 md:border-0 md:px-0 md:pb-0 md:pt-5">
             {/* Tell the visitor why Submit is greyed out */}
             {!canSubmit && (
-              <p className="text-[13px] md:text-xs text-gray-500 mb-3 text-center md:text-right">
+              <p className="text-[14px] md:text-xs text-gray-500 mb-3 text-center md:text-right">
                 {disabledHint}
               </p>
             )}
             {submitError && (
-              <p className="text-[13px] md:text-xs text-red-600 mb-3 text-center md:text-right">{submitError}</p>
+              <p className="text-[14px] md:text-xs text-red-600 mb-3 text-center md:text-right">{submitError}</p>
             )}
             <div className="flex items-center justify-end gap-3">
               <Button

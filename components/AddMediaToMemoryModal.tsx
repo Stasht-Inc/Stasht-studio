@@ -83,7 +83,7 @@ export default function AddMediaToMemoryModal({
         <div className="flex items-center justify-between px-4 py-3 bg-[#6C60FF]">
           <div className="flex-1 min-w-0">
             <h3 className="text-sm font-semibold text-white truncate">Add to {categoryName}</h3>
-            <p className="text-[11px] text-white/90 mt-0.5">Upload & select campaign</p>
+            <p className="text-[12px] text-white/90 mt-0.5">Upload & select campaign</p>
           </div>
           <button
             onClick={onClose}
@@ -156,7 +156,7 @@ export default function AddMediaToMemoryModal({
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="text-xs font-medium text-gray-900 truncate">{memory.title}</div>
-                      <div className="text-[10px] text-gray-500">{memory.images.length} images</div>
+                      <div className="text-[12px] text-gray-500">{memory.images.length} images</div>
                     </div>
                     {selectedMemoryId === memory.id && <CheckCircle2 className="w-4 h-4 text-[#6C60FF]" />}
                   </div>
@@ -164,7 +164,7 @@ export default function AddMediaToMemoryModal({
                   {/* Images Grid */}
                   {selectedMemoryId === memory.id && memory.images.length > 0 && (
                     <div className="p-2 bg-gray-50 border-t border-gray-200">
-                      <p className="text-[10px] text-gray-600 mb-1.5">Click image to add as sub-image (optional)</p>
+                      <p className="text-[12px] text-gray-600 mb-1.5">Click image to add as sub-image (optional)</p>
                       <div className="grid grid-cols-4 gap-1.5">
                         {memory.images.slice(0, 8).map((image) => (
                           <div
@@ -184,7 +184,7 @@ export default function AddMediaToMemoryModal({
                         ))}
                       </div>
                       {memory.images.length > 8 && (
-                        <p className="text-[10px] text-gray-500 mt-1">+{memory.images.length - 8} more</p>
+                        <p className="text-[12px] text-gray-500 mt-1">+{memory.images.length - 8} more</p>
                       )}
                     </div>
                   )}

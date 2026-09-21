@@ -978,7 +978,7 @@ export function EditMediaItemPopover({
                     {formData.tags.map((tag) => (
                       <span
                         key={tag}
-                        className="inline-flex items-center gap-1.5 pl-2.5 pr-1.5 py-1 bg-gray-200 text-gray-900 text-[13px] font-normal rounded-full border border-gray-300"
+                        className="inline-flex items-center gap-1.5 pl-2.5 pr-1.5 py-1 bg-gray-200 text-gray-900 text-[14px] font-normal rounded-full border border-gray-300"
                       >
                         <span className="leading-none">{tag}</span>
                         <button
@@ -1001,7 +1001,7 @@ export function EditMediaItemPopover({
                       <p className="text-xs text-gray-400 mb-1.5">Suggested</p>
                       <div className="flex flex-wrap gap-1.5">
                         {suggestions.map(tag => (
-                          <button key={tag} type="button" onClick={() => { if (!formData.tags.includes(tag)) setFormData(prev => ({ ...prev, tags: [...prev.tags, tag] })); }} className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[13px] bg-gray-100 text-gray-700 rounded-full border border-gray-200 hover:bg-gray-200 transition-colors">
+                          <button key={tag} type="button" onClick={() => { if (!formData.tags.includes(tag)) setFormData(prev => ({ ...prev, tags: [...prev.tags, tag] })); }} className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[14px] bg-gray-100 text-gray-700 rounded-full border border-gray-200 hover:bg-gray-200 transition-colors">
                             {tag}<span className="text-gray-400 font-medium">+</span>
                           </button>
                         ))}
@@ -1015,7 +1015,7 @@ export function EditMediaItemPopover({
 
           {/* Footer */}
           <div className="flex-shrink-0 flex items-center justify-start md:justify-between px-5 md:px-3 py-3 pb-[50px] md:pb-3 sm:p-4 sm:pb-4 border-t border-gray-200 bg-gray-50">
-            <div className="text-[10px] sm:text-xs text-gray-500 hidden md:block">
+            <div className="text-[12px] sm:text-xs text-gray-500 hidden md:block">
               <span className="hidden sm:inline">{hasChanges() ? 'You have unsaved changes' : 'No changes made'}</span>
               <span className="sm:hidden">{hasChanges() ? 'Unsaved' : 'No changes'}</span>
             </div>

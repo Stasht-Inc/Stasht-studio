@@ -818,7 +818,7 @@ export function AccountChoiceModal({
                                       {ownerDisplayName}
                                     </h3>
                                     {adminCollab.isPartialAdmin && (
-                                      <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-orange-100 text-orange-600 border border-orange-200 flex-shrink-0">
+                                      <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[12px] font-semibold bg-orange-100 text-orange-600 border border-orange-200 flex-shrink-0">
                                         Partial Access
                                       </span>
                                     )}

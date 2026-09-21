@@ -368,7 +368,7 @@ export default function CreatePropertyModal({
                   }`}
                 >
                   <span className="truncate max-w-[80px]">{item.propertyName || `Property ${index + 1}`}</span>
-                  <span className={`text-[10px] font-semibold ${editingIndex === index ? 'text-purple-200' : 'text-green-600'}`}>$2</span>
+                  <span className={`text-[12px] font-semibold ${editingIndex === index ? 'text-purple-200' : 'text-green-600'}`}>$2</span>
                 </button>
               ))}
               <button
@@ -433,7 +433,7 @@ export default function CreatePropertyModal({
                   <Upload className="h-5 w-5 text-purple-600" />
                 </div>
                 <p className="text-xs font-medium text-gray-700 mb-1 text-center">Click to upload property image</p>
-                <p className="text-[10px] text-gray-500 text-center">PNG, JPG up to 10MB</p>
+                <p className="text-[12px] text-gray-500 text-center">PNG, JPG up to 10MB</p>
                 <input ref={fileInputRef} type="file" accept="image/*" onChange={handleImageChange} className="hidden" />
               </div>
             ) : (

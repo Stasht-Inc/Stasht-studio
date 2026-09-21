@@ -4386,7 +4386,7 @@ function MainApp() {
           </aside>
 
         {/* Main Content */}
-<main className={`flex-1 bg-white min-h-[calc(100dvh-5rem)] relative mx-4 md:mx-0 ${
+<main className={`flex-1 min-w-0 bg-white min-h-[calc(100dvh-5rem)] relative mx-4 md:mx-0 ${
           currentPage === "users" || currentPage === "leads" || currentPage === "apps" || currentPage === "library" || currentPage === "Media" || currentPage === "Dashboard" || currentPage === "memories" || currentPage === "marketplace" ? "" : "py-5 md:py-6"
         } ${shouldShowSubSidebar && !isViewingPublishedEntry
           ? (isSubSidebarExpanded
@@ -4495,11 +4495,11 @@ function MainApp() {
                     handleNavigation("dashboard");
                     window.scrollTo({ top: 0, behavior: 'smooth' });
                   }}
-                  className={`flex flex-col items-center justify-center flex-1 py-2 px-3 rounded-lg transition-colors ${
+                  className={`flex flex-col items-center justify-center flex-1 min-w-0 py-2 px-0.5 rounded-lg transition-colors ${
                     currentPage === "dashboard" ? "text-[#6C60FF] bg-[#6C60FF]/10" : "text-gray-500"
                   }`}
                 >
-                  <LayoutDashboard className="w-8 h-8 mb-1" />
+                  <LayoutDashboard className="w-7 h-7 mb-1" />
                   <span className="text-xs font-medium">Dashboard</span>
                 </button>
               )}
@@ -4509,11 +4509,11 @@ function MainApp() {
                   handleNavigation("memories");
                   window.scrollTo({ top: 0, behavior: 'smooth' });
                 }}
-                className={`flex flex-col items-center justify-center flex-1 py-2 px-3 rounded-lg transition-colors ${
+                className={`flex flex-col items-center justify-center flex-1 min-w-0 py-2 px-0.5 rounded-lg transition-colors ${
                   currentPage === "memories" ? "text-[#6C60FF] bg-[#6C60FF]/10" : "text-gray-500"
                 }`}
               >
-                <FolderOpen className="w-8 h-8 mb-1" />
+                <FolderOpen className="w-7 h-7 mb-1" />
                 <span className="text-xs font-medium">Campaigns</span>
               </button>
 
@@ -4522,11 +4522,11 @@ function MainApp() {
                   handleNavigationWithReset("media");
                   window.scrollTo({ top: 0, behavior: 'smooth' });
                 }}
-                className={`flex flex-col items-center justify-center flex-1 py-2 px-3 rounded-lg transition-colors ${
+                className={`flex flex-col items-center justify-center flex-1 min-w-0 py-2 px-0.5 rounded-lg transition-colors ${
                   currentPage === "media" ? "text-[#6C60FF] bg-[#6C60FF]/10" : "text-gray-500"
                 }`}
               >
-                <Camera className="w-8 h-8 mb-1" />
+                <Camera className="w-7 h-7 mb-1" />
                 <span className="text-xs font-medium">Media</span>
               </button>
 
@@ -4536,11 +4536,11 @@ function MainApp() {
                   handleNavigation("leads");
                   window.scrollTo({ top: 0, behavior: 'smooth' });
                 }}
-                className={`flex flex-col items-center justify-center flex-1 py-2 px-3 rounded-lg transition-colors ${
+                className={`flex flex-col items-center justify-center flex-1 min-w-0 py-2 px-0.5 rounded-lg transition-colors ${
                   currentPage === "leads" ? "text-[#6C60FF] bg-[#6C60FF]/10" : "text-gray-500"
                 }`}
               >
-                <Target className="w-8 h-8 mb-1" />
+                <Target className="w-7 h-7 mb-1" />
                 <span className="text-xs font-medium">Leads</span>
               </button>
 
@@ -4550,11 +4550,11 @@ function MainApp() {
                   handleNavigation("users");
                   window.scrollTo({ top: 0, behavior: 'smooth' });
                 }}
-                className={`flex flex-col items-center justify-center flex-1 py-2 px-3 rounded-lg transition-colors ${
+                className={`flex flex-col items-center justify-center flex-1 min-w-0 py-2 px-0.5 rounded-lg transition-colors ${
                   currentPage === "users" ? "text-[#6C60FF] bg-[#6C60FF]/10" : "text-gray-500"
                 }`}
               >
-                <Users className="w-8 h-8 mb-1" />
+                <Users className="w-7 h-7 mb-1" />
                 <span className="text-xs font-medium">Users</span>
               </button>
 
@@ -4565,11 +4565,11 @@ function MainApp() {
                     handleNavigation("apps");
                     window.scrollTo({ top: 0, behavior: 'smooth' });
                   }}
-                  className={`flex flex-col items-center justify-center flex-1 py-2 px-3 rounded-lg transition-colors ${
+                  className={`flex flex-col items-center justify-center flex-1 min-w-0 py-2 px-0.5 rounded-lg transition-colors ${
                     currentPage === "apps" ? "text-[#6C60FF] bg-[#6C60FF]/10" : "text-gray-500"
                   }`}
                 >
-                  <Grid3x3 className="w-8 h-8 mb-1" />
+                  <Grid3x3 className="w-7 h-7 mb-1" />
                   <span className="text-xs font-medium">Apps</span>
                 </button>
               )}

@@ -3606,7 +3606,7 @@ export default function MediaPage({
             </svg>
             <div className="flex flex-col items-start">
               <span className="font-semibold text-xs md:text-sm">{connectedServices.length > 0 ? 'All Media' : 'Media'}</span>
-              <span className="text-[10px] md:text-xs text-gray-500">{allMediaCount} items</span>
+              <span className="text-[12px] md:text-xs text-gray-500">{allMediaCount} items</span>
             </div>
           </button>
 
@@ -3851,7 +3851,7 @@ export default function MediaPage({
                           </div>
                         )}
                       </div>
-                      <span className="text-[10px] md:text-xs text-gray-500">
+                      <span className="text-[12px] md:text-xs text-gray-500">
                         {itemCount} items
                       </span>
                     </div>

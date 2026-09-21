@@ -103,7 +103,7 @@ export function PaymentMethodModal({
                     <div className="flex items-center gap-1">
                       {/* Visa */}
                       <div className="w-8 h-5 bg-white border border-gray-200 rounded flex items-center justify-center">
-                        <span className="text-[10px] font-bold text-blue-800">VISA</span>
+                        <span className="text-[12px] font-bold text-blue-800">VISA</span>
                       </div>
                       {/* Mastercard */}
                       <div className="w-8 h-5 bg-white border border-gray-200 rounded flex items-center justify-center">
