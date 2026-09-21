@@ -4943,8 +4943,10 @@ export const dashboardAPI = {
   // category sidebar and the Cars cards on the main grid, both grouped by each car's
   // `category` field (e.g. preowned/hybrid). per_page=100 pulls the whole inventory in one
   // call since /cars paginates at 20/page by default and grouping needs the full set.
-  carsGetCatalog: async (): Promise<ApiResponse<{ status: number; data: { cars: any[]; pagination: any; filters: any } }>> => {
-    return await apiRequest('/cars?per_page=100', { method: 'GET' });
+  // `category` narrows the list server-side (GET /cars?category=preowned); `filters.categories`
+  // in the response always lists every category the dealer's inventory has.
+  carsGetCatalog: async (category?: string): Promise<ApiResponse<{ status: number; data: { cars: any[]; pagination: any; filters: any } }>> => {
+    return await apiRequest(`/cars?per_page=100${category ? `&category=${encodeURIComponent(category)}` : ''}`, { method: 'GET' });
   },
 
   // Single car's detail (full spec + images) — accepts either car.id or car.stock_number.

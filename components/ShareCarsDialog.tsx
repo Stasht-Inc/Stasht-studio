@@ -1,8 +1,10 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Car, Check, Search } from 'lucide-react';
 import { toast } from 'sonner';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from './ui/dialog';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { dashboardAPI } from '../utils/authUtils';
+import { formatCarCategory } from '../utils/carCategories';
 import { leadsAPI } from '../services/leadsAPI';
 
 // One listing from GET /cars — only the fields this picker renders.
@@ -14,7 +16,11 @@ interface CarListing {
   year?: number | string | null;
   price?: number | string | null;
   main_image?: string | null;
+  category?: string | null; // "preowned" | "hybrid" — what the category dropdown groups by
 }
+
+// Dropdown value for "no category filter".
+const ALL_CATEGORIES = 'all';
 
 // Shown pre-filled in the name field and used by the server when the name is left blank.
 const DEFAULT_CAMPAIGN_NAME = 'Vehicles Just for You';
@@ -45,6 +51,8 @@ function carSubtitle(c: CarListing): string {
 // Cars catalog uses) and sends them to the lead in a NEW campaign, named by the
 // rep (default "Vehicles Just for You"), via POST /leads/{id}/share-cars. Each
 // share gets its own campaign and link — never added to the lead's old one.
+// A category dropdown (the categories the dealer's inventory actually has, e.g.
+// "Preowned (26)", "Hybrid (21)") narrows the list; selections survive switching.
 export default function ShareCarsDialog({ open, onClose, leadId, leadName, onShared }: ShareCarsDialogProps) {
   const [cars, setCars] = useState<CarListing[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -53,43 +61,86 @@ export default function ShareCarsDialog({ open, onClose, leadId, leadName, onSha
   const [search, setSearch] = useState('');
   const [campaignName, setCampaignName] = useState(DEFAULT_CAMPAIGN_NAME);
   const [isSharing, setIsSharing] = useState(false);
+  const [categories, setCategories] = useState<string[]>([]);
+  const [category, setCategory] = useState<string>(ALL_CATEGORIES);
+  // True when the loaded list is the dealer's WHOLE inventory (GET /cars caps a page at
+  // 100). Then the dropdown filters and counts locally; otherwise picking a category
+  // re-queries the server so cars beyond the first 100 are still reachable.
+  const [isComplete, setIsComplete] = useState(true);
+  const loadSeq = useRef(0);
+
+  // Loads the inventory. `cat` is only passed when re-querying the server for one
+  // category (inventory > 100 cars); the first load also learns which categories exist.
+  const loadCars = async (cat?: string, initial = false) => {
+    const seq = ++loadSeq.current; // ignore a slower, older response
+    setIsLoading(true);
+    setLoadError(null);
+    try {
+      const res = await dashboardAPI.carsGetCatalog(cat);
+      if (seq !== loadSeq.current) return;
+      if (res?.success === false) {
+        setLoadError(res.error || res.message || 'Could not load your car inventory.');
+        return;
+      }
+      const payload: any = res?.data?.data ?? res?.data ?? {};
+      const list = (Array.isArray(payload.cars) ? payload.cars : []).filter((c: any) => c?.id != null);
+      setCars(list);
+      if (initial) {
+        const cats: string[] = (Array.isArray(payload.filters?.categories) ? payload.filters.categories : [])
+          .filter((c: unknown): c is string => typeof c === 'string' && c.trim() !== '');
+        setCategories(Array.from(new Set(cats)).sort());
+        const total = payload.pagination?.total;
+        setIsComplete(typeof total !== 'number' || total <= list.length);
+      }
+    } catch {
+      if (seq === loadSeq.current) setLoadError('Could not load your car inventory.');
+    } finally {
+      if (seq === loadSeq.current) setIsLoading(false);
+    }
+  };
 
   // Fresh inventory + a clean slate every time the dialog opens — stock changes
   // between visits and a stale selection would silently carry over.
   useEffect(() => {
     if (!open) return;
-    let cancelled = false;
     setSelected(new Set());
     setSearch('');
     setCampaignName(DEFAULT_CAMPAIGN_NAME);
-    setLoadError(null);
-    setIsLoading(true);
-    (async () => {
-      try {
-        const res = await dashboardAPI.carsGetCatalog();
-        if (cancelled) return;
-        if (res?.success === false) {
-          setLoadError(res.error || res.message || 'Could not load your car inventory.');
-          return;
-        }
-        const raw = res?.data?.data?.cars || (res?.data as any)?.cars || [];
-        setCars((Array.isArray(raw) ? raw : []).filter((c: any) => c?.id != null));
-      } catch {
-        if (!cancelled) setLoadError('Could not load your car inventory.');
-      } finally {
-        if (!cancelled) setIsLoading(false);
-      }
-    })();
-    return () => { cancelled = true; };
+    setCategory(ALL_CATEGORIES);
+    setCategories([]);
+    setIsComplete(true);
+    loadCars(undefined, true);
+    return () => { loadSeq.current++; };
   }, [open]);
+
+  const handleCategoryChange = (next: string) => {
+    setCategory(next);
+    if (!isComplete) loadCars(next === ALL_CATEGORIES ? undefined : next);
+  };
+
+  // Per-category counts, only when the list is the whole inventory (otherwise they'd lie).
+  const counts = useMemo(() => {
+    if (!isComplete) return null;
+    const m: Record<string, number> = {};
+    cars.forEach((c) => { if (c.category) m[c.category] = (m[c.category] || 0) + 1; });
+    return m;
+  }, [cars, isComplete]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return cars;
-    return cars.filter((c) =>
-      [c.title, c.make, c.model].filter(Boolean).join(' ').toLowerCase().includes(q),
-    );
-  }, [cars, search]);
+    return cars.filter((c) => {
+      if (category !== ALL_CATEGORIES && c.category !== category) return false;
+      if (!q) return true;
+      return [c.title, c.make, c.model].filter(Boolean).join(' ').toLowerCase().includes(q);
+    });
+  }, [cars, search, category]);
+
+  const emptyText =
+    cars.length === 0 && category === ALL_CATEGORIES
+      ? 'No cars in your inventory yet.'
+      : category !== ALL_CATEGORIES && !search.trim()
+        ? 'No cars in this category.'
+        : 'No cars match your search.';
 
   const toggle = (id: number) => {
     setSelected((prev) => {
@@ -154,6 +205,29 @@ export default function ShareCarsDialog({ open, onClose, leadId, leadName, onSha
           />
         </div>
 
+        {categories.length > 1 && (
+          <div className="px-6 pb-3">
+            <label id="share-cars-category-label" className="block text-xs font-medium text-gray-700 mb-1">
+              Category
+            </label>
+            <Select value={category} onValueChange={handleCategoryChange}>
+              <SelectTrigger aria-labelledby="share-cars-category-label" className="h-10 w-full bg-white border-gray-200 text-sm">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={ALL_CATEGORIES}>
+                  All categories{counts ? ` (${cars.length})` : ''}
+                </SelectItem>
+                {categories.map((c) => (
+                  <SelectItem key={c} value={c}>
+                    {formatCarCategory(c)}{counts ? ` (${counts[c] ?? 0})` : ''}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
+
         <div className="px-6 pb-3">
           <div className="relative">
             <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" aria-hidden="true" />
@@ -177,7 +251,7 @@ export default function ShareCarsDialog({ open, onClose, leadId, leadName, onSha
             <p className="text-center text-sm text-gray-600 py-10">{loadError}</p>
           ) : filtered.length === 0 ? (
             <p className="text-center text-sm text-gray-600 py-10">
-              {cars.length === 0 ? 'No cars in your inventory yet.' : 'No cars match your search.'}
+              {emptyText}
             </p>
           ) : (
             <ul className="space-y-1.5">
