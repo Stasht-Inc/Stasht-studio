@@ -15,8 +15,12 @@ function InfoHint({ children }: { children: React.ReactNode }) {
         </button>
       </TooltipTrigger>
       {/* side="bottom": these sit right under the stat-card grid / column headers, so
-          Radix's default side="top" popped the box up and over the row above it. */}
-      <TooltipContent side="bottom" sideOffset={6} className="max-w-[240px] text-xs leading-snug">{children}</TooltipContent>
+          Radix's default side="top" popped the box up and over the row above it.
+          bg-gray-900/text-white: the shared TooltipContent's own bg-primary/text-primary-foreground
+          render as NO background at all here — tailwind.config's `primary` color wraps
+          --primary (a raw hex/oklch value) in hsl(...), producing invalid CSS the browser
+          silently drops, so the "box" was fully transparent and table text showed through it. */}
+      <TooltipContent side="bottom" sideOffset={6} className="max-w-[240px] text-xs leading-snug bg-gray-900 text-white">{children}</TooltipContent>
     </Tooltip>
   );
 }
