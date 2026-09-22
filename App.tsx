@@ -1121,10 +1121,21 @@ function MainApp() {
   // propertyId/propertyName are omitted when opened from the Leads tab (no
   // property context there) — StoreelReportPage then resolves its own
   // property via getStoreelMyProperties.
+  //
+  // Opens in a NEW browser tab rather than in-app (Deepak, 2026-09-22) — the
+  // report is a "check on this, come back later" screen, not a step in the
+  // Leads flow. The new tab lands on /leads-report, shares the same origin
+  // (and so the same localStorage auth token), and the mount-time URL
+  // detection below restores the property from the query string.
   const handleViewStoreelReport = useCallback((propertyId?: number | string, propertyName?: string) => {
-    setStoreelReportProperty(propertyId !== undefined ? { id: propertyId, name: propertyName ?? '' } : null);
-    handleNavigation('storeel-report');
-  }, [handleNavigation]);
+    const params = new URLSearchParams();
+    if (propertyId !== undefined) {
+      params.set('property_id', String(propertyId));
+      if (propertyName) params.set('property_name', propertyName);
+    }
+    const url = '/leads-report' + (params.toString() ? `?${params.toString()}` : '');
+    window.open(url, '_blank', 'noopener,noreferrer');
+  }, []);
 
   // State variables (moved up to fix dependency order)
   const [selectedMemoryCategory, setSelectedMemoryCategory] = useState<string | null>(null);
@@ -1459,6 +1470,15 @@ function MainApp() {
     } else if (pathname === '/profile' || pathname.startsWith('/profile')) {
       console.log('🔍 Detected /profile URL - setting currentPage to profile');
       handleNavigation('profile');
+    } else if (pathname === '/leads-report') {
+      // Must be checked BEFORE the '/leads' branch below — '/leads-report'.startsWith('/leads')
+      // is true, so that broader check was matching first and this one never ran.
+      console.log('🔍 Detected /leads-report URL - setting currentPage to storeel-report');
+      const searchParams = new URLSearchParams(window.location.search);
+      const propertyId = searchParams.get('property_id');
+      const propertyName = searchParams.get('property_name');
+      setStoreelReportProperty(propertyId ? { id: propertyId, name: propertyName ?? '' } : null);
+      handleNavigation('storeel-report');
     } else if (pathname === '/leads' || pathname.startsWith('/leads')) {
       console.log('🔍 Detected /leads URL - setting currentPage to leads');
       handleNavigation('leads');

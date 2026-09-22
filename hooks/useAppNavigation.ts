@@ -41,7 +41,8 @@ export function useAppNavigation() {
       'media': '/media',
       'profile': '/profile',
       'leads': '/leads',
-      'users': '/users'
+      'users': '/users',
+      'storeel-report': '/leads-report'
     };
 
     const newUrl = urlMap[page] || '/';
