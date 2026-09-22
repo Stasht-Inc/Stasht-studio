@@ -701,7 +701,9 @@ export default function MarketplacePage() {
 
       {/* Widget Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-        {widgets.map(widget => (
+        {/* AutoTrader hidden from the Connectors grid (Deepak, 2026-09-22) — the
+            connect flow/modal below is left in place, just not offered as a card. */}
+        {widgets.filter(widget => widget.id !== 'autotrader').map(widget => (
           <div key={widget.id} className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden flex flex-col">
             {/* Logo Banner */}
             <div className="h-44 bg-white flex items-center justify-center border-b border-gray-100 px-8">
