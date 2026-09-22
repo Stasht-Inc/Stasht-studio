@@ -1,7 +1,25 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ArrowLeft, RefreshCw } from 'lucide-react';
+import { ArrowLeft, RefreshCw, Info } from 'lucide-react';
 import { Button } from '../components/ui/button';
+import { Tooltip, TooltipContent, TooltipTrigger } from '../components/ui/tooltip';
 import { dashboardAPI } from '../utils/authUtils';
+
+// Hover/tap target explaining a stat — Chris couldn't tell what "Median Depth" or
+// "Median Response" meant at a glance (2026-09-22).
+function InfoHint({ children }: { children: React.ReactNode }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button type="button" className="inline-flex align-middle text-gray-300 hover:text-gray-500 ml-1" aria-label="What does this mean?">
+          <Info className="w-3.5 h-3.5" />
+        </button>
+      </TooltipTrigger>
+      {/* side="bottom": these sit right under the stat-card grid / column headers, so
+          Radix's default side="top" popped the box up and over the row above it. */}
+      <TooltipContent side="bottom" sideOffset={6} className="max-w-[240px] text-xs leading-snug">{children}</TooltipContent>
+    </Tooltip>
+  );
+}
 
 export interface StoreelReportProperty {
   id: number | string;
@@ -60,17 +78,17 @@ const formatDuration = (seconds: number | null | undefined): string => {
   return `${(seconds / 86400).toFixed(1)}d`;
 };
 
-const COLUMNS: { key: keyof StoreelReportRow; label: string; format?: (row: StoreelReportRow) => string }[] = [
-  { key: 'sends', label: 'Sends' },
-  { key: 'delivered', label: 'Delivered' },
-  { key: 'clicked', label: 'Clicked', format: (r) => `${r.clicked} (${formatPct(r.click_rate)})` },
-  { key: 'viewed', label: 'Viewed', format: (r) => `${r.viewed} (${formatPct(r.view_rate)})` },
-  { key: 'median_depth_pct', label: 'Median Depth', format: (r) => (r.median_depth_pct === null ? '—' : `${r.median_depth_pct}%`) },
-  { key: 'replied', label: 'Replied', format: (r) => `${r.replied} (${formatPct(r.reply_rate)})` },
-  { key: 'median_response_seconds', label: 'Median Response', format: (r) => formatDuration(r.median_response_seconds) },
-  { key: 'said_yes', label: 'Said Yes', format: (r) => `${r.said_yes} (${formatPct(r.yes_rate)})` },
-  { key: 'visited', label: 'Visited' },
-  { key: 'sold', label: 'Sold' },
+const COLUMNS: { key: keyof StoreelReportRow; label: string; hint: string; format?: (row: StoreelReportRow) => string }[] = [
+  { key: 'sends', label: 'Sends', hint: 'Messages sent that carried a link to the shared campaign.' },
+  { key: 'delivered', label: 'Delivered', hint: 'Sends the carrier/email provider confirmed reached the lead’s phone or inbox.' },
+  { key: 'clicked', label: 'Clicked', hint: 'Delivered sends where the lead tapped the campaign link at least once.', format: (r) => `${r.clicked} (${formatPct(r.click_rate)})` },
+  { key: 'viewed', label: 'Viewed', hint: 'Delivered sends where the lead actually opened the shared campaign page.', format: (r) => `${r.viewed} (${formatPct(r.view_rate)})` },
+  { key: 'median_depth_pct', label: 'Median Depth', hint: 'Among opened sends, the middle value of how far down the campaign page the lead scrolled (100% = viewed every photo).', format: (r) => (r.median_depth_pct === null ? '—' : `${r.median_depth_pct}%`) },
+  { key: 'replied', label: 'Replied', hint: 'Sends where the lead texted or emailed back afterwards.', format: (r) => `${r.replied} (${formatPct(r.reply_rate)})` },
+  { key: 'median_response_seconds', label: 'Median Response', hint: 'Among replies, the middle value of how long it took the lead to reply after the send.', format: (r) => formatDuration(r.median_response_seconds) },
+  { key: 'said_yes', label: 'Said Yes', hint: 'Sends where the lead replied YES to the "want to see more vehicles?" follow-up text.', format: (r) => `${r.said_yes} (${formatPct(r.yes_rate)})` },
+  { key: 'visited', label: 'Visited', hint: 'Sends to a lead whose current status is "Visited" — they came into the dealership.' },
+  { key: 'sold', label: 'Sold', hint: 'Sends to a lead whose current status is "Sold".' },
 ];
 
 // Per-rep / per-lead / per-campaign Storeel report (Plan #4). Reads GET /storeels/report,
@@ -209,16 +227,17 @@ export default function StoreelReportPage({ property: suppliedProperty, onBack }
     );
   }
 
+  const hintByColumn = Object.fromEntries(COLUMNS.map((c) => [c.key, c.hint])) as Record<string, string>;
   const summaryStats = totals
     ? [
-        { label: 'Sends', value: totals.sends },
-        { label: 'Delivered', value: totals.delivered },
-        { label: 'Clicked', value: `${totals.clicked} (${formatPct(totals.click_rate)})` },
-        { label: 'Viewed', value: `${totals.viewed} (${formatPct(totals.view_rate)})` },
-        { label: 'Replied', value: `${totals.replied} (${formatPct(totals.reply_rate)})` },
-        { label: 'Said Yes', value: `${totals.said_yes} (${formatPct(totals.yes_rate)})` },
-        { label: 'Visited', value: totals.visited },
-        { label: 'Sold', value: totals.sold },
+        { label: 'Sends', value: totals.sends, hint: hintByColumn.sends },
+        { label: 'Delivered', value: totals.delivered, hint: hintByColumn.delivered },
+        { label: 'Clicked', value: `${totals.clicked} (${formatPct(totals.click_rate)})`, hint: hintByColumn.clicked },
+        { label: 'Viewed', value: `${totals.viewed} (${formatPct(totals.view_rate)})`, hint: hintByColumn.viewed },
+        { label: 'Replied', value: `${totals.replied} (${formatPct(totals.reply_rate)})`, hint: hintByColumn.replied },
+        { label: 'Said Yes', value: `${totals.said_yes} (${formatPct(totals.yes_rate)})`, hint: hintByColumn.said_yes },
+        { label: 'Visited', value: totals.visited, hint: hintByColumn.visited },
+        { label: 'Sold', value: totals.sold, hint: hintByColumn.sold },
       ]
     : [];
 
@@ -293,7 +312,10 @@ export default function StoreelReportPage({ property: suppliedProperty, onBack }
         <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3 mb-6">
           {summaryStats.map((stat) => (
             <div key={stat.label} className="bg-white border border-gray-100 rounded-xl p-3">
-              <p className="text-xs text-gray-500">{stat.label}</p>
+              <p className="text-xs text-gray-500 flex items-center">
+                {stat.label}
+                {stat.hint && <InfoHint>{stat.hint}</InfoHint>}
+              </p>
               <p className="text-lg font-semibold text-gray-900">{stat.value}</p>
             </div>
           ))}
@@ -307,7 +329,10 @@ export default function StoreelReportPage({ property: suppliedProperty, onBack }
               <th className="px-4 py-3 font-medium whitespace-nowrap">{groupBy === 'rep' ? 'Rep' : groupBy === 'lead' ? 'Lead' : 'Campaign'}</th>
               {COLUMNS.map((c) => (
                 <th key={String(c.key)} className="px-4 py-3 font-medium whitespace-nowrap">
-                  {c.label}
+                  <span className="inline-flex items-center">
+                    {c.label}
+                    <InfoHint>{c.hint}</InfoHint>
+                  </span>
                 </th>
               ))}
             </tr>
