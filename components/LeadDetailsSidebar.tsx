@@ -2,6 +2,7 @@ import { MapPin, CheckCircle2 } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from './ui/avatar';
 import { Select, SelectContent, SelectItem, SelectSeparator, SelectTrigger, SelectValue } from './ui/select';
 import type { Lead } from '../services/leadsAPI';
+import AssigneeControl from './leads/AssigneeControl';
 
 export type LeadStatus = 'hot' | 'warm' | 'cold' | 'visited' | 'sold';
 
@@ -50,12 +51,14 @@ interface LeadDetailsSidebarProps {
   currentStatus: LeadStatus | null;
   isUpdatingStatus: boolean;
   onStatusChange: (val: string) => void;
+  // Accept / assign changed who owns the lead — the drawer re-fetches it.
+  onAssigneeChanged?: () => void;
 }
 
 // Right-hand column of the lead detail view: Contact Details + Engagement.
 // Presentational only — all state/handlers live in LeadDetailDrawer.
 export default function LeadDetailsSidebar({
-  lead, leadName, initials, lastEngaged, daysAsLead, currentStatus, isUpdatingStatus, onStatusChange,
+  lead, leadName, initials, lastEngaged, daysAsLead, currentStatus, isUpdatingStatus, onStatusChange, onAssigneeChanged,
 }: LeadDetailsSidebarProps) {
   const email = lead.user?.email;
   const phone = lead.user?.phone_number || lead.user?.phone;
@@ -90,6 +93,9 @@ export default function LeadDetailsSidebar({
           )}
           {location && <Field label="Location">{location}</Field>}
           <Field label="Last engaged">{lastEngaged}</Field>
+          <Field label="Assigned to">
+            <AssigneeControl lead={lead} size="md" onChanged={() => onAssigneeChanged?.()} />
+          </Field>
           <Field label="Status">
             <Select
               value={currentStatus ?? 'none'}

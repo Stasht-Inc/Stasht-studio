@@ -3,6 +3,8 @@ import LeadsTab from '../components/LeadsTab';
 import LeadDetailDrawer from '../components/LeadDetailDrawer';
 import GroupDetailDrawer from '../components/GroupDetailDrawer';
 import ConversationDrawer from '../components/ConversationDrawer';
+import SendMessageDialog from '../components/leads/SendMessageDialog';
+import { Plus } from 'lucide-react';
 import { Lead, CommentaryTarget, Conversation, leadsAPI } from '../services/leadsAPI';
 import { apiRequest } from '../utils/authUtils';
 import { useAuth } from '../contexts/AuthContext';
@@ -14,10 +16,14 @@ interface LeadsPageProps {
   onConversationOpened?: () => void;
   onNavigate?: (page: string) => void;
   onViewStoreelReport?: (propertyId?: number | string, propertyName?: string) => void;
+  // Set by App when a lead_unassigned / lead_assigned notification is clicked;
+  // opens that lead once the list has it. Cleared through onLeadOpened.
+  openLeadId?: number | null;
+  onLeadOpened?: () => void;
 }
 
 // Leads — its own top-level page (previously the first tab of the Users page).
-export default function LeadsPage({ openConversationLeadId, onConversationOpened, onNavigate, onViewStoreelReport }: LeadsPageProps = {}) {
+export default function LeadsPage({ openConversationLeadId, onConversationOpened, onNavigate, onViewStoreelReport, openLeadId: requestedLeadId, onLeadOpened }: LeadsPageProps = {}) {
   const { isAuthenticated } = useAuth();
 
   // Lead / group / conversation panel state
@@ -27,6 +33,17 @@ export default function LeadsPage({ openConversationLeadId, onConversationOpened
   const [leadsRefreshTrigger, setLeadsRefreshTrigger] = useState(0);
   const [leadsStatusFilter, setLeadsStatusFilter] = useState('all');
   const [commentaryTarget, setCommentaryTarget] = useState<CommentaryTarget | null>(null);
+  const [showSendMessage, setShowSendMessage] = useState(false);
+  // Lead to open once the list loads it: a thread just started with "+ Send
+  // Message", or a lead notification from App.
+  const [openLeadId, setOpenLeadId] = useState<number | null>(null);
+  useEffect(() => {
+    if (requestedLeadId) {
+      setOpenLeadId(requestedLeadId);
+      setLeadsRefreshTrigger((t) => t + 1);
+      onLeadOpened?.();
+    }
+  }, [requestedLeadId]);
   // Full breakdown from GET /leads/unread-count, threaded down to LeadsTab for the
   // Groups sub-tab's unread summary cards — avoids a second call for the same data.
   const [leadsUnreadBreakdown, setLeadsUnreadBreakdown] = useState<{ total_unread_messages: number; total_unread_comments: number; total_unread: number } | null>(null);
@@ -93,9 +110,18 @@ export default function LeadsPage({ openConversationLeadId, onConversationOpened
       <div className={`transition-all duration-300 min-w-0 ${isLeadFullView ? 'hidden' : isPanelOpen ? 'hidden sm:block sm:w-[70%]' : 'w-full'}`}>
         <div className="py-2 sm:p-3 md:p-4">
           <div className="w-full sm:px-3 bg-white">
-            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-3 sm:p-4 md:p-6 mb-4 sm:mb-6">
-              <h1 className="text-lg sm:text-xl md:text-2xl font-semibold text-gray-900">Leads</h1>
-              <p className="text-xs sm:text-sm md:text-base text-gray-600 mt-0.5 sm:mt-1">Follow up with the people engaging with your campaigns</p>
+            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-3 sm:p-4 md:p-6 mb-4 sm:mb-6 flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <h1 className="text-lg sm:text-xl md:text-2xl font-semibold text-gray-900">Leads</h1>
+                <p className="text-xs sm:text-sm md:text-base text-gray-600 mt-0.5 sm:mt-1">Follow up with the people engaging with your campaigns</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowSendMessage(true)}
+                className="shrink-0 inline-flex items-center gap-1.5 h-10 px-4 rounded-lg bg-gray-900 hover:bg-gray-800 text-white text-sm font-semibold"
+              >
+                <Plus className="w-4 h-4" />Send Message
+              </button>
             </div>
 
             <LeadsTab
@@ -120,6 +146,8 @@ export default function LeadsPage({ openConversationLeadId, onConversationOpened
                 setCommentaryTarget(target);
               }}
               onViewStoreelReport={onViewStoreelReport ? () => onViewStoreelReport() : undefined}
+              openLeadId={openLeadId}
+              onOpenLeadHandled={() => setOpenLeadId(null)}
             />
           </div>
         </div>
@@ -163,6 +191,15 @@ export default function LeadsPage({ openConversationLeadId, onConversationOpened
           )}
         </div>
       )}
+      <SendMessageDialog
+        open={showSendMessage}
+        onOpenChange={setShowSendMessage}
+        onSent={(leadId) => {
+          setOpenLeadId(leadId);
+          setLeadsRefreshTrigger((t) => t + 1);
+          window.dispatchEvent(new CustomEvent('leads-unread-count-refresh'));
+        }}
+      />
     </div>
   );
 }

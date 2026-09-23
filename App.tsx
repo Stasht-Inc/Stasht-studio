@@ -1108,6 +1108,13 @@ function MainApp() {
   // Deep-link target for opening a "My Conversations" thread from a
   // lead_message notification. Consumed (and cleared) by LeadsPage.
   const [pendingConversationLeadId, setPendingConversationLeadId] = useState<number | null>(null);
+  // Deep-link target for a lead_unassigned / lead_assigned notification: opens
+  // that lead in the Leads list. Consumed (and cleared) by LeadsPage.
+  const [pendingLeadId, setPendingLeadId] = useState<number | null>(null);
+  const handleOpenLead = useCallback((leadId: number) => {
+    setPendingLeadId(leadId);
+    handleNavigation('leads');
+  }, [handleNavigation]);
   const handleOpenConversation = useCallback((leadId: number) => {
     setPendingConversationLeadId(leadId);
     handleNavigation('leads');
@@ -3956,7 +3963,7 @@ function MainApp() {
     }
 
     if (currentPage === "leads") {
-      return <LeadsPage openConversationLeadId={pendingConversationLeadId} onConversationOpened={() => setPendingConversationLeadId(null)} onNavigate={handleNavigation} onViewStoreelReport={handleViewStoreelReport} />;
+      return <LeadsPage openConversationLeadId={pendingConversationLeadId} onConversationOpened={() => setPendingConversationLeadId(null)} openLeadId={pendingLeadId} onLeadOpened={() => setPendingLeadId(null)} onNavigate={handleNavigation} onViewStoreelReport={handleViewStoreelReport} />;
     }
 
     if (currentPage === "users") {
@@ -4122,6 +4129,7 @@ function MainApp() {
           onNotificationsClear={clearNotifications}
           onMemorySelect={handleMemorySelect}
           onOpenConversation={handleOpenConversation}
+          onOpenLead={handleOpenLead}
           onShowProfileSettings={handleShowProfileSettings}
           onShowBillingPayment={handleShowBillingPayment}
           user={user ? { ...user, credits: limitData.ai_connects || 0 } : undefined}

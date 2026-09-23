@@ -239,11 +239,12 @@ function Frame223({ notificationCount, onNotificationClick }: {
   );
 }
 
-function NotifBttn({ notificationCount, onNotificationClick, onMemorySelect, onOpenConversation }: {
+function NotifBttn({ notificationCount, onNotificationClick, onMemorySelect, onOpenConversation, onOpenLead }: {
   notificationCount: number;
   onNotificationClick: () => void;
   onMemorySelect?: (memoryId: string, options?: any) => void;
   onOpenConversation?: (leadId: number) => void;
+  onOpenLead?: (leadId: number) => void;
 }) {
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [dynamicNotificationCount, setDynamicNotificationCount] = useState(notificationCount);
@@ -297,6 +298,7 @@ function NotifBttn({ notificationCount, onNotificationClick, onMemorySelect, onO
         onNotificationCountChange={handleNotificationCountChange}
         onMemorySelect={onMemorySelect}
         onOpenConversation={onOpenConversation}
+        onOpenLead={onOpenLead}
         onMarkAllAsReadRef={(fn) => { markAllAsReadRef.current = fn; }}
       />
     </div>
@@ -429,6 +431,7 @@ export default function InteractiveNav({
   onNotificationsClear,
   onMemorySelect,
   onOpenConversation,
+  onOpenLead,
   onShowProfileSettings,
   onShowBillingPayment,
   user,
@@ -441,6 +444,7 @@ export default function InteractiveNav({
   onNotificationsClear?: () => void;
   onMemorySelect?: (memoryId: string, options?: any) => void;
   onOpenConversation?: (leadId: number) => void;
+  onOpenLead?: (leadId: number) => void;
   onShowProfileSettings?: () => void;
   onShowBillingPayment?: () => void;
   user?: any;
@@ -556,7 +560,7 @@ export default function InteractiveNav({
 
         {/* Notification Button - modified for mobile */}
         <div className="md:border-l md:border-gray-100">
-          <NotifBttn notificationCount={notificationCount} onNotificationClick={handleNotificationClick} onMemorySelect={onMemorySelect} onOpenConversation={onOpenConversation} />
+          <NotifBttn notificationCount={notificationCount} onNotificationClick={handleNotificationClick} onMemorySelect={onMemorySelect} onOpenConversation={onOpenConversation} onOpenLead={onOpenLead} />
         </div>
 
         {/* Profile Section - desktop version */}

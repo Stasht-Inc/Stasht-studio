@@ -235,6 +235,9 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
   const [showClosed, setShowClosed] = useState(false);
   const [assignedFilter, setAssignedFilter] = useState<string>('all');
   const [tabCounts, setTabCounts] = useState<{ open: number; closed: number }>({ open: 0, closed: 0 });
+  // Lead the parent wants opened (see the openLeadId effect below); read by fetchLeads.
+  const openLeadIdRef = useRef<number | null>(null);
+  openLeadIdRef.current = openLeadId ?? null;
   const [timeFilter, setTimeFilter] = useState<'all' | 'daily' | 'weekly' | 'monthly' | 'annually'>('all');
   const [updatingId, setUpdatingId] = useState<number | null>(null);
   const searchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -571,6 +574,13 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
         setTotalPages(res.data.meta?.total_pages ?? 1);
         if (res.data.tab_counts) setTabCounts(res.data.tab_counts);
         onLeadsRefreshed?.(freshLeads);
+        const wanted = openLeadIdRef.current;
+        if (wanted) {
+          const match = freshLeads.find((l) => l.id === wanted);
+          if (match) onLeadSelect(match);
+          else toast.info('This lead is no longer available — a teammate may have accepted it.');
+          onOpenLeadHandled?.();
+        }
       } else {
         setError(res.error || 'Failed to load leads');
       }
@@ -727,19 +737,18 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
     }
   };
 
-  // Open a specific lead once it is in the list (new "+ Send Message" thread or a
-  // lead notification). If it isn't visible to this user any more — e.g. a
-  // teammate accepted it first — say so instead of silently doing nothing.
+  // Open a specific lead (new "+ Send Message" thread or a lead notification).
+  // If it's already listed, open it now; otherwise the parent bumps
+  // refreshTrigger and fetchLeads resolves it once the fresh list arrives — so
+  // a stale list never produces a false "not available".
   useEffect(() => {
-    if (!openLeadId || isLoading) return;
+    if (!openLeadId) return;
     const match = leads.find((l) => l.id === openLeadId);
     if (match) {
       onLeadSelect(match);
-    } else if (leads.length > 0 || !error) {
-      toast.info('This lead is no longer available — a teammate may have accepted it.');
+      onOpenLeadHandled?.();
     }
-    onOpenLeadHandled?.();
-  }, [openLeadId, isLoading, leads]);
+  }, [openLeadId]);
 
   const handleDeleteLead = async (leadId: number) => {
     try {

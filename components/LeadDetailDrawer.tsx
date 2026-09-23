@@ -8,6 +8,7 @@ import { useDialogBehavior } from '../hooks/useDialogBehavior';
 import { toast } from 'sonner';
 import { smsSegmentInfo, SMS_MAX_BODY } from '../utils/smsSegments';
 import ShareCarsDialog from './ShareCarsDialog';
+import AssigneeControl from './leads/AssigneeControl';
 import LeadDetailsSidebar, { StatusChip } from './LeadDetailsSidebar';
 
 // Built-in emoji grid — kept small/lightweight, no external dependency.
@@ -1072,8 +1073,17 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
             the user) > no-contact (nothing to fix from this drawer) — each
             state fully replaces the composer with a single note. */}
         {lead.is_rollup ? (
-          <div className="border-t border-gray-200 px-4 py-3 bg-gray-50 text-center text-sm text-gray-600">
-            View only — managed by the property owner.
+          // Read-only for this user. An unclaimed lead can be accepted right here;
+          // one owned by a teammate just says so (spec 2026-09-23).
+          <div className="border-t border-gray-200 px-4 py-3 bg-gray-50 flex items-center justify-center gap-3 text-sm text-gray-700">
+            {lead.assignee ? (
+              <span>This lead is assigned to {lead.assignee.name ?? 'a teammate'}.</span>
+            ) : (
+              <>
+                <span>Nobody has this lead yet.</span>
+                <AssigneeControl lead={lead} onChanged={() => { onRefreshLead?.(); }} />
+              </>
+            )}
           </div>
         ) : isArchived ? (
           <div className="border-t border-gray-200 px-4 py-3 bg-gray-50 text-center text-sm text-gray-600">
@@ -1264,6 +1274,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
             currentStatus={currentStatus}
             isUpdatingStatus={isUpdatingStatus}
             onStatusChange={handleStatusChange}
+            onAssigneeChanged={() => { onRefreshLead?.(); }}
           />
         </aside>
       </div>
