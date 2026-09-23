@@ -5,7 +5,7 @@ import {
 import type { Lead } from '../../services/leadsAPI';
 import { STATUS_STYLES, type LeadStatus } from '../LeadDetailsSidebar';
 import AssigneeControl from './AssigneeControl';
-import { formatInboxDate, inboxExcerpt, isUnread, leadContactLine } from '../../utils/leadInbox';
+import { formatInboxDate, formatInboxDateShort, inboxExcerpt, isUnread, leadContactLine } from '../../utils/leadInbox';
 
 // Inbox-style Leads list (spec 2026-09-23 §5, Chris's reference): one line per
 // lead — when, who, the latest message, and who owns it.
@@ -25,8 +25,10 @@ interface Props {
   onLeadPatched: (leadId: number, patch: Partial<Lead>) => void;
 }
 
+// The phone/email already has its own column, so an unnamed contact shows "—"
+// here (as in Chris's reference) rather than repeating the number.
 function leadName(lead: Lead): string {
-  return lead.user?.name?.trim() || lead.user?.email || lead.user?.phone_number || 'Unknown';
+  return lead.user?.name?.trim() || '—';
 }
 
 function StatusPill({ status }: { status: Lead['status'] }) {
@@ -171,10 +173,10 @@ export default function LeadsInboxTable(props: Props) {
                     <StatusPill status={lead.status} />
                     {unread && <span className="shrink-0 h-2 w-2 rounded-full bg-red-500" aria-label="Unread" />}
                   </div>
-                  <div className="text-sm text-gray-600">{leadContactLine(lead)}</div>
+                  <div className="text-sm text-gray-600 whitespace-nowrap">{leadContactLine(lead)}</div>
                 </div>
                 <div className="flex items-center gap-1 shrink-0">
-                  <span className="text-xs text-gray-500 whitespace-nowrap">{formatInboxDate(lead.last_activity_at || lead.last_engaged_at)}</span>
+                  <span className="text-xs text-gray-500 whitespace-nowrap">{formatInboxDateShort(lead.last_activity_at || lead.last_engaged_at)}</span>
                   <RowMenu {...props} lead={lead} />
                 </div>
               </div>

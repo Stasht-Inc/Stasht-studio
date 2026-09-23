@@ -13,6 +13,16 @@ export function formatInboxDate(iso: string | null | undefined): string {
   return `${date} ${time}`;
 }
 
+// Phone cards: "Sep 23, 3:52 PM" (year only when it isn't this year).
+export function formatInboxDateShort(iso: string | null | undefined): string {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return '—';
+  const sameYear = d.getFullYear() === new Date().getFullYear();
+  const date = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', ...(sameYear ? {} : { year: 'numeric' }) });
+  return `${date}, ${d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`;
+}
+
 export function inboxExcerpt(lead: Lead): { prefix: string | null; text: string } {
   const m = lead.latest_message;
   if (!m) return { prefix: null, text: '—' };

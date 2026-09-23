@@ -1347,12 +1347,14 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
       </div>
 
       {/* Open / Closed tabs (Closed = archived) */}
-      <div className="flex items-center gap-6 border-b border-gray-200 px-1" role="tablist" aria-label="Lead status">
+      {/* Toggle buttons (aria-pressed), not role="tab": an app-wide
+          [aria-selected="true"] rule paints selected elements solid purple. */}
+      <div className="flex items-center gap-6 border-b border-gray-200 px-1" aria-label="Open or closed leads">
         {([['Open', false, tabCounts.open], ['Closed', true, tabCounts.closed]] as const).map(([label, closed, count]) => (
           <button
             key={label}
-            role="tab"
-            aria-selected={showClosed === closed}
+            type="button"
+            aria-pressed={showClosed === closed}
             onClick={() => handleTabChange(closed)}
             className={`-mb-px pb-2.5 text-sm font-semibold uppercase tracking-wide border-b-2 transition-colors ${showClosed === closed ? 'border-[#6C60FF] text-gray-900' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
           >
