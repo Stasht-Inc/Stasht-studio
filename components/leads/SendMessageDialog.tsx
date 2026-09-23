@@ -44,14 +44,6 @@ export default function SendMessageDialog({ open, onOpenChange, onSent }: Props)
     setChannel('sms'); setName(''); setPhone(''); setEmail(''); setSubject(''); setBody('');
     setCampaignId(NO_CAMPAIGN); setError(null);
 
-    dashboardAPI.getExistingMemories().then((res: any) => {
-      const raw = res?.data?.memories || res?.data?.data?.memories || res?.data?.data || res?.data;
-      const list: any[] = Array.isArray(raw) ? raw : [];
-      setCampaigns(list
-        .map((m) => ({ id: String(m.id ?? m.memory_id), name: m.title || m.name || 'Untitled' }))
-        .filter((m) => m.id && m.id !== 'undefined'));
-    }).catch(() => setCampaigns([]));
-
     dashboardAPI.getStoreelMyProperties().then((res: any) => {
       const list: any[] = res?.properties || res?.data?.properties || [];
       const opts = list.map((p) => ({ id: String(p.id), name: p.name }));
@@ -59,6 +51,21 @@ export default function SendMessageDialog({ open, onOpenChange, onSent }: Props)
       setPropertyId(opts.length === 1 ? opts[0].id : '');
     }).catch(() => setProperties([]));
   }, [open]);
+
+  // Campaigns that can be attached from the chosen dealership (plus the sender's
+  // own). Reloads when the dealership changes; a campaign from the previous one
+  // is cleared so the backend never rejects the pairing.
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    setCampaignId(NO_CAMPAIGN);
+    leadsAPI.getAttachableCampaigns(propertyId || undefined).then((res) => {
+      if (cancelled) return;
+      const list = res.success && res.data ? res.data.campaigns : [];
+      setCampaigns(list.map((c) => ({ id: String(c.id), name: c.title })));
+    }).catch(() => { if (!cancelled) setCampaigns([]); });
+    return () => { cancelled = true; };
+  }, [open, propertyId]);
 
   const digits = phone.replace(/\D/g, '');
   const contactOk = channel === 'sms' ? digits.length >= 10 : /\S+@\S+\.\S+/.test(email.trim());

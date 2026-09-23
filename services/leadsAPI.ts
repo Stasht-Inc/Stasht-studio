@@ -307,6 +307,14 @@ export const leadsAPI = {
     return apiRequest<{ users: AssignableUser[] }>(`/leads/${leadId}/assignable-users`, { method: 'GET', skipCache: true } as RequestInit);
   },
 
+  // Campaigns "+ Send Message" can attach: own + the chosen dealership's, published only.
+  getAttachableCampaigns: async (propertyId?: number | string) => {
+    const q = propertyId ? `?property_id=${encodeURIComponent(String(propertyId))}` : '';
+    return apiRequest<{ campaigns: { id: number; title: string; is_car: boolean }[] }>(
+      `/leads/attachable-campaigns${q}`, { method: 'GET', skipCache: true } as RequestInit,
+    );
+  },
+
   // "+ Send Message": new SMS/email conversation; reuses the contact's lead if one exists.
   startConversation: async (payload: StartConversationPayload) => {
     return apiRequest<{ lead_id: number; created: boolean; message_id: number }>('/leads/start-conversation', {
