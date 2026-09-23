@@ -11,6 +11,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel,
 import { leadsAPI, Lead, LeadMessage, CommentaryTarget, LeadGroupSummary, LeadGroup, Conversation } from '../services/leadsAPI';
 import { mapLimit } from '../utils/requestLimit';
 import LeadsInboxTable from './leads/LeadsInboxTable';
+import LeadConfirmDialog, { type LeadConfirmKind } from './leads/LeadConfirmDialog';
 
 const STATUS_TRIGGER_CLASS: Record<string, string> = {
   hot: 'bg-red-100 text-red-600 border-red-200 hover:bg-red-100 focus:ring-0',
@@ -750,35 +751,52 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
     }
   }, [openLeadId]);
 
-  const handleDeleteLead = async (leadId: number) => {
+  // Both return whether it worked, so the confirmation dialog can stay open on failure.
+  const handleDeleteLead = async (leadId: number): Promise<boolean> => {
     try {
       const res = await leadsAPI.deleteLead(leadId);
       if (res.success) {
         setLeads(prev => prev.filter(l => l.id !== leadId));
+        setTotal((t) => Math.max(0, t - 1));
+        setTabCounts((c) => (showClosed ? { ...c, closed: Math.max(0, c.closed - 1) } : { ...c, open: Math.max(0, c.open - 1) }));
         toast.success('Lead deleted');
-      } else {
-        toast.error('Failed to delete lead');
+        return true;
       }
+      toast.error('Failed to delete lead');
     } catch {
       toast.error('Failed to delete lead');
     }
+    return false;
   };
 
-  const handleArchiveLead = async (leadId: number) => {
+  const handleArchiveLead = async (leadId: number): Promise<boolean> => {
     try {
       const res = await leadsAPI.archiveLead(leadId);
       if (res.success) {
         setLeads(prev => prev.filter(l => l.id !== leadId));
+        setTotal((t) => Math.max(0, t - 1));
         setTabCounts((c) => (res.data?.is_archived
           ? { open: Math.max(0, c.open - 1), closed: c.closed + 1 }
           : { open: c.open + 1, closed: Math.max(0, c.closed - 1) }));
         toast.success(res.data?.is_archived ? 'Lead closed' : 'Lead reopened');
-      } else {
-        toast.error('Failed to archive lead');
+        return true;
       }
+      toast.error(showClosed ? 'Failed to reopen lead' : 'Failed to close lead');
     } catch {
-      toast.error('Failed to archive lead');
+      toast.error(showClosed ? 'Failed to reopen lead' : 'Failed to close lead');
     }
+    return false;
+  };
+
+  // Delete and Close ask first (LeadConfirmDialog); Reopen is harmless and runs straight away.
+  const [confirming, setConfirming] = useState<{ kind: LeadConfirmKind; lead: Lead } | null>(null);
+  const runConfirmed = async (): Promise<boolean> => {
+    if (!confirming) return false;
+    const ok = confirming.kind === 'delete'
+      ? await handleDeleteLead(confirming.lead.id)
+      : await handleArchiveLead(confirming.lead.id);
+    if (ok) setConfirming(null);
+    return ok;
   };
 
   const handleUpdateStatus = async (leadId: number, newStatus: 'hot' | 'warm' | 'cold' | 'visited' | 'sold' | null) => {
@@ -1372,6 +1390,13 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
         ))}
       </div>
 
+      <LeadConfirmDialog
+        kind={confirming?.kind ?? null}
+        leadName={confirming ? (confirming.lead.user?.name?.trim() || confirming.lead.user?.phone_number || confirming.lead.user?.email || 'This lead') : ''}
+        onCancel={() => setConfirming(null)}
+        onConfirm={runConfirmed}
+      />
+
       {/* Inbox list */}
       <div className="bg-white rounded-lg shadow-sm border border-gray-200">
         <LeadsInboxTable
@@ -1390,8 +1415,8 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
           compact={compact}
           isClosedTab={showClosed}
           onSelect={(lead) => onLeadSelect(lead)}
-          onArchive={(lead) => handleArchiveLead(lead.id)}
-          onDelete={(lead) => handleDeleteLead(lead.id)}
+          onArchive={(lead) => (showClosed ? handleArchiveLead(lead.id) : setConfirming({ kind: 'close', lead }))}
+          onDelete={(lead) => setConfirming({ kind: 'delete', lead })}
           onMarkRead={handleMarkRead}
           onLeadPatched={patchLead}
         />
