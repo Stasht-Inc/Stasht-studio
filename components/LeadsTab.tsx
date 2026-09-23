@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectSeparator, SelectTrigger, Sele
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger } from './ui/dropdown-menu';
 import { leadsAPI, Lead, LeadMessage, CommentaryTarget, LeadGroupSummary, LeadGroup, Conversation } from '../services/leadsAPI';
 import { mapLimit } from '../utils/requestLimit';
+import LeadsInboxTable from './leads/LeadsInboxTable';
 
 const STATUS_TRIGGER_CLASS: Record<string, string> = {
   hot: 'bg-red-100 text-red-600 border-red-200 hover:bg-red-100 focus:ring-0',
@@ -197,6 +198,10 @@ interface LeadsTabProps {
   // screen itself (auto-selects when there's only one), so this tab doesn't
   // need to know about properties at all.
   onViewStoreelReport?: () => void;
+  // Open this lead once the list has loaded it (new "+ Send Message" thread, or a
+  // lead notification). Cleared through onOpenLeadHandled.
+  openLeadId?: number | null;
+  onOpenLeadHandled?: () => void;
 }
 
 // One summary-card row above the sub-tab content, scoped to whichever
@@ -220,12 +225,16 @@ function SummaryCardRow({ cards }: { cards: SummaryCardData[] }) {
   );
 }
 
-export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, compact = false, onLeadsRefreshed, onFilterChange, onCommentaryJump, selectedGroupId, onGroupSelect, selectedConversationId, onConversationSelect, unreadBreakdown, onViewStoreelReport }: LeadsTabProps) {
+export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, compact = false, onLeadsRefreshed, onFilterChange, onCommentaryJump, selectedGroupId, onGroupSelect, selectedConversationId, onConversationSelect, unreadBreakdown, onViewStoreelReport, openLeadId, onOpenLeadHandled }: LeadsTabProps) {
   const [leads, setLeads] = useState<Lead[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
+  // Inbox (spec 2026-09-23): Open / Closed tabs (Closed = archived) and "Assigned to".
+  const [showClosed, setShowClosed] = useState(false);
+  const [assignedFilter, setAssignedFilter] = useState<string>('all');
+  const [tabCounts, setTabCounts] = useState<{ open: number; closed: number }>({ open: 0, closed: 0 });
   const [timeFilter, setTimeFilter] = useState<'all' | 'daily' | 'weekly' | 'monthly' | 'annually'>('all');
   const [updatingId, setUpdatingId] = useState<number | null>(null);
   const searchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -240,7 +249,7 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
   // close over the search/status/sort/page values from the render they
   // mounted on. Updated after every render so any []-effect can read the
   // *current* filter/sort/page state instead of stale mount-time defaults.
-  const fetchArgsRef = useRef({ search: '', status: 'all', sort: null as 'name' | 'last_engaged' | 'status' | null, direction: 'asc' as 'asc' | 'desc', page: 1 });
+  const fetchArgsRef = useRef({ search: '', status: 'all', sort: null as 'name' | 'last_engaged' | 'status' | null, direction: 'asc' as 'asc' | 'desc', page: 1, closed: false, assigned: 'all' });
   const perPage = 50;
   const [total, setTotal] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
@@ -529,6 +538,8 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
     sort?: 'name' | 'last_engaged' | 'status' | null,
     direction?: 'asc' | 'desc',
     pageNum?: number,
+    closed?: boolean,
+    assigned?: string,
   ) => {
     setIsLoading(true);
     setError(null);
@@ -536,12 +547,17 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
       const effectiveSort = sort !== undefined ? sort : sortField;
       const effectiveDirection = direction ?? sortDirection;
       const effectivePage = pageNum ?? page;
+      const effectiveAssigned = assigned ?? assignedFilter;
       const res = await leadsAPI.getLeads({
         search: search ?? searchQuery,
         status: status ?? statusFilter,
         ...(effectiveSort ? { sort: effectiveSort, direction: effectiveDirection } : {}),
         page: effectivePage,
         per_page: perPage,
+        archived: closed ?? showClosed,
+        ...(effectiveAssigned !== 'all'
+          ? { assigned: effectiveAssigned === 'me' || effectiveAssigned === 'unassigned' ? effectiveAssigned : Number(effectiveAssigned) }
+          : {}),
       });
       if (res.success && res.data) {
         // Guest leads (no account) and rollup leads are rendered, not dropped —
@@ -553,6 +569,7 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
         setStatusCounts(res.data.status_counts ?? {});
         setMessagesTotal(res.data.messages_total ?? 0);
         setTotalPages(res.data.meta?.total_pages ?? 1);
+        if (res.data.tab_counts) setTabCounts(res.data.tab_counts);
         onLeadsRefreshed?.(freshLeads);
       } else {
         setError(res.error || 'Failed to load leads');
@@ -613,7 +630,7 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
 
   // Keep fetchArgsRef current after every render — deliberately no dep array.
   useEffect(() => {
-    fetchArgsRef.current = { search: searchQuery, status: statusFilter, sort: sortField, direction: sortDirection, page };
+    fetchArgsRef.current = { search: searchQuery, status: statusFilter, sort: sortField, direction: sortDirection, page, closed: showClosed, assigned: assignedFilter };
   });
 
   useEffect(() => {
@@ -624,8 +641,8 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
     // search/status. See task-M2-report.md fix addendum.
     const onVisible = () => {
       if (document.visibilityState === 'visible') {
-        const { search, status, sort, direction, page: currentPage } = fetchArgsRef.current;
-        fetchLeads(search, status, sort, direction, currentPage);
+        const { search, status, sort, direction, page: currentPage, closed, assigned } = fetchArgsRef.current;
+        fetchLeads(search, status, sort, direction, currentPage, closed, assigned);
       }
     };
     document.addEventListener('visibilitychange', onVisible);
@@ -675,9 +692,54 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
     setSearchQuery('');
     setStatusFilter('all');
     setTimeFilter('all');
+    setAssignedFilter('all');
     setPage(1);
-    fetchLeads('', 'all', sortField, sortDirection, 1);
+    fetchLeads('', 'all', sortField, sortDirection, 1, showClosed, 'all');
   };
+
+  const handleTabChange = (closed: boolean) => {
+    if (closed === showClosed) return;
+    setShowClosed(closed);
+    setPage(1);
+    fetchLeads(searchQuery, statusFilter, sortField, sortDirection, 1, closed);
+    // LeadsPage reads 'archived' to put the open lead view in read-only mode.
+    onFilterChange?.(closed ? 'archived' : statusFilter);
+  };
+
+  const handleAssignedChange = (value: string) => {
+    setAssignedFilter(value);
+    setPage(1);
+    fetchLeads(searchQuery, statusFilter, sortField, sortDirection, 1, showClosed, value);
+  };
+
+  const patchLead = (leadId: number, patch: Partial<Lead>) => {
+    setLeads((prev) => prev.map((l) => (l.id === leadId ? { ...l, ...patch } : l)));
+    if (selectedLead?.id === leadId) onLeadSelect({ ...selectedLead, ...patch });
+  };
+
+  const handleMarkRead = async (lead: Lead) => {
+    try {
+      await leadsAPI.markRead(lead.id);
+      patchLead(lead.id, { unread_count: 0 });
+      window.dispatchEvent(new CustomEvent('leads-unread-count-refresh'));
+    } catch {
+      toast.error('Could not mark as read');
+    }
+  };
+
+  // Open a specific lead once it is in the list (new "+ Send Message" thread or a
+  // lead notification). If it isn't visible to this user any more — e.g. a
+  // teammate accepted it first — say so instead of silently doing nothing.
+  useEffect(() => {
+    if (!openLeadId || isLoading) return;
+    const match = leads.find((l) => l.id === openLeadId);
+    if (match) {
+      onLeadSelect(match);
+    } else if (leads.length > 0 || !error) {
+      toast.info('This lead is no longer available — a teammate may have accepted it.');
+    }
+    onOpenLeadHandled?.();
+  }, [openLeadId, isLoading, leads]);
 
   const handleDeleteLead = async (leadId: number) => {
     try {
@@ -698,7 +760,10 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
       const res = await leadsAPI.archiveLead(leadId);
       if (res.success) {
         setLeads(prev => prev.filter(l => l.id !== leadId));
-        toast.success(res.data?.is_archived ? 'Lead archived' : 'Lead unarchived');
+        setTabCounts((c) => (res.data?.is_archived
+          ? { open: Math.max(0, c.open - 1), closed: c.closed + 1 }
+          : { open: c.open + 1, closed: Math.max(0, c.closed - 1) }));
+        toast.success(res.data?.is_archived ? 'Lead closed' : 'Lead reopened');
       } else {
         toast.error('Failed to archive lead');
       }
@@ -719,7 +784,15 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
     }
   };
 
-  const hasActiveFilters = searchQuery.trim() !== '' || (statusFilter !== 'all' && statusFilter !== '') || timeFilter !== 'all';
+  const hasActiveFilters = searchQuery.trim() !== '' || (statusFilter !== 'all' && statusFilter !== '') || timeFilter !== 'all' || assignedFilter !== 'all';
+
+  // Admin-only teammate options for the "Assigned to" filter: everyone currently
+  // assigned a lead in view (kept once seen, so filtering by one doesn't drop the rest).
+  const assigneeOptionsRef = useRef(new Map<number, { id: number; name: string | null }>());
+  if (leads.some((l) => l.can_assign)) {
+    leads.forEach((l) => { if (l.assignee) assigneeOptionsRef.current.set(l.assignee.id, { id: l.assignee.id, name: l.assignee.name }); });
+  }
+  const assigneeOptions = Array.from(assigneeOptionsRef.current.values()).sort((a, b) => (a.name ?? '').localeCompare(b.name ?? ''));
   const conversationsUnread = conversations.reduce((sum, c) => sum + (c.unread_count ?? 0), 0);
 
   // Summary cards scoped to the ACTIVE sub-tab only (Task M4 / product
@@ -809,8 +882,9 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
         </button>
       </div>
 
-      {/* Summary cards — scoped to the active sub-tab, above its content */}
-      <SummaryCardRow cards={summaryCards} />
+      {/* Summary cards — scoped to the active sub-tab, above its content. The
+          Leads inbox has none: its counts live on the Open / Closed tabs. */}
+      {leadsView !== 'leads' && <SummaryCardRow cards={summaryCards} />}
 
       {leadsView === 'leads' ? (
       <>
@@ -836,7 +910,6 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
               {statusFilter === 'cold' && <span className="flex items-center gap-1.5"><img src="/cold-icon.svg" className="w-3.5 h-3.5" />Cold</span>}
               {statusFilter === 'visited' && <span className="flex items-center gap-1.5"><MapPin className="w-3.5 h-3.5" />Visited</span>}
               {statusFilter === 'sold' && <span className="flex items-center gap-1.5"><CheckCircle2 className="w-3.5 h-3.5" />Sold</span>}
-              {statusFilter === 'archived' && <span className="flex items-center gap-1.5"><Archive className="w-3.5 h-3.5" />Archived</span>}
               {statusFilter === 'all' && <SelectValue placeholder="Status" />}
             </SelectTrigger>
             <SelectContent>
@@ -846,8 +919,23 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
               <SelectItem value="cold"><span className="flex items-center gap-1.5"><img src="/cold-icon.svg" className="w-3.5 h-3.5" />Cold</span></SelectItem>
               <SelectItem value="visited"><span className="flex items-center gap-1.5"><MapPin className="w-3.5 h-3.5" />Visited</span></SelectItem>
               <SelectItem value="sold"><span className="flex items-center gap-1.5"><CheckCircle2 className="w-3.5 h-3.5" />Sold</span></SelectItem>
-              <SelectSeparator className="bg-gray-200" />
-              <SelectItem value="archived"><span className="flex items-center gap-1.5"><Archive className="w-3.5 h-3.5" />Archived</span></SelectItem>
+            </SelectContent>
+          </Select>
+
+          {/* Assigned to — Me / Unassigned for everyone; admins also get each
+              teammate seen in the list. */}
+          <Select value={assignedFilter} onValueChange={handleAssignedChange}>
+            <SelectTrigger aria-label="Assigned to" className="w-40 bg-white border-gray-200 h-9 text-sm shrink-0 !ring-0 !outline-none !shadow-none focus:!ring-0 focus-visible:!ring-2 focus-visible:!ring-[#6C60FF] focus-visible:!ring-offset-1">
+              <SelectValue placeholder="Assigned to" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Assigned to: Anyone</SelectItem>
+              <SelectItem value="me">Assigned to me</SelectItem>
+              <SelectItem value="unassigned">Unassigned</SelectItem>
+              {assigneeOptions.length > 0 && <SelectSeparator className="bg-gray-200" />}
+              {assigneeOptions.map((a) => (
+                <SelectItem key={a.id} value={String(a.id)}>{a.name ?? `Teammate #${a.id}`}</SelectItem>
+              ))}
             </SelectContent>
           </Select>
 
@@ -1258,241 +1346,44 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
         </div>
       </div>
 
-      {/* Table */}
+      {/* Open / Closed tabs (Closed = archived) */}
+      <div className="flex items-center gap-6 border-b border-gray-200 px-1" role="tablist" aria-label="Lead status">
+        {([['Open', false, tabCounts.open], ['Closed', true, tabCounts.closed]] as const).map(([label, closed, count]) => (
+          <button
+            key={label}
+            role="tab"
+            aria-selected={showClosed === closed}
+            onClick={() => handleTabChange(closed)}
+            className={`-mb-px pb-2.5 text-sm font-semibold uppercase tracking-wide border-b-2 transition-colors ${showClosed === closed ? 'border-[#6C60FF] text-gray-900' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+          >
+            {label} <span className="ml-1 text-gray-500 font-medium">({count})</span>
+          </button>
+        ))}
+      </div>
+
+      {/* Inbox list */}
       <div className="bg-white rounded-lg shadow-sm border border-gray-200">
-
-        {/* Desktop Table */}
-        <div className="hidden md:block overflow-x-auto">
-          <table className="w-full">
-            <thead>
-              <tr className="border-b border-gray-100">
-                <SortableTh label="Lead" field="name" activeField={sortField} direction={sortDirection} onSort={handleSort} />
-                <SortableTh label="Status" field="status" activeField={sortField} direction={sortDirection} onSort={handleSort} />
-                <th className="px-6 py-3 text-left text-sm font-bold text-gray-700">Viewed Campaigns</th>
-                <th className="px-6 py-3 text-left text-sm font-bold text-gray-700">Messages</th>
-                <SortableTh label="Last Engaged" field="last_engaged" activeField={sortField} direction={sortDirection} onSort={handleSort} />
-                <th className="px-6 py-3 text-left text-sm font-bold text-gray-700">First Seen</th>
-                <th className="px-6 py-3" />
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {isLoading ? (
-                <tr>
-                  <td colSpan={7} className="px-6 py-12 text-center">
-                    <div className="flex items-center justify-center gap-2">
-                      <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-[#6C60FF]" />
-                      <span className="text-sm text-gray-600">Loading leads...</span>
-                    </div>
-                  </td>
-                </tr>
-              ) : error ? (
-                <tr>
-                  <td colSpan={7} className="px-6 py-12 text-center text-red-500 text-sm">{error}</td>
-                </tr>
-              ) : displayLeads.length === 0 ? (
-                <tr>
-                  <td colSpan={7} className="px-6 py-16 text-center">
-                    <p className="text-sm text-gray-600">No leads found</p>
-                    {hasActiveFilters && (
-                      <button onClick={handleClear} className="mt-2 text-xs text-[#6C60FF] hover:underline">
-                        Clear filters
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              ) : (
-                displayLeads.map((lead) => {
-                  const isSelected = selectedLead?.id === lead.id;
-                  return (
-                  <tr
-                    key={lead.id}
-                    className={`transition-colors cursor-pointer ${isSelected ? 'bg-purple-50' : 'hover:bg-gray-50'}`}
-                    style={isSelected ? { boxShadow: 'inset 3px 0 0 #6C60FF' } : {}}
-                    onClick={() => onLeadSelect(lead)}
-                  >
-
-                    {/* Lead: avatar + name + email + Via campaign */}
-                    <td className={`px-4 ${compact ? 'py-1.5' : 'py-2.5'}`}>
-                      <div className="flex items-center gap-2.5">
-                        <Avatar className={`${compact ? 'h-7 w-7' : 'h-9 w-9'} shrink-0`}>
-                          <AvatarImage src={lead.user?.profile_image} alt={leadDisplayName(lead)} />
-                          <AvatarFallback className="bg-[#6C60FF] text-white text-xs font-medium">
-                            {getInitials(leadDisplayName(lead))}
-                          </AvatarFallback>
-                        </Avatar>
-                        <div>
-                          <div className={`font-semibold text-gray-900 flex items-center gap-1.5 ${compact ? 'text-sm' : 'text-base'}`}>
-                            {leadDisplayName(lead)}
-                            {!lead.user?.id && <GuestBadge />}
-                          </div>
-                          <div className={`text-gray-600 ${compact ? 'text-xs' : 'text-sm'}`}>{leadDisplayEmail(lead)}</div>
-                          <div className={`text-gray-600 mt-0.5 ${compact ? 'text-xs' : 'text-sm'}`}>Via: {lead.story.title}</div>
-                        </div>
-                      </div>
-                    </td>
-
-                    {/* Status */}
-                    <td className={`px-4 ${compact ? 'py-1.5' : 'py-2.5'}`} onClick={(e) => e.stopPropagation()}>
-                      <StatusSelect lead={lead} onUpdate={handleUpdateStatus} disabled={updatingId === lead.id || !!lead.is_rollup} />
-                    </td>
-
-                    {/* Viewed Campaigns */}
-                    <td className={`px-4 ${compact ? 'py-1.5' : 'py-2.5'}`}>
-                      <span className={`font-semibold text-gray-800 ${compact ? 'text-sm' : 'text-base'}`}>{lead.engagement}</span>
-                    </td>
-
-                    {/* Messages */}
-                    <td className={`px-4 ${compact ? 'py-1.5' : 'py-2.5'}`} onClick={(e) => e.stopPropagation()}>
-                      <button
-                        onClick={() => onLeadSelect(lead)}
-                        className="flex items-center gap-1.5 hover:opacity-75 transition-opacity"
-                      >
-                        <MessageSquare className={`text-gray-400 ${compact ? 'w-3.5 h-3.5' : 'w-4 h-4'}`} />
-                        <span className={`text-gray-700 ${compact ? 'text-sm' : 'text-base'}`}>{(lead.messages_count ?? 0) + (lead.comments?.length ?? 0)}</span>
-                        {((lead.unread_count ?? 0) + (lead.comment_unread_count ?? 0)) > 0 && (
-                          <span className="flex items-center justify-center min-w-[22px] h-5 px-1 rounded-lg bg-red-500 text-white text-[12px] font-bold">
-                            {(lead.unread_count ?? 0) + (lead.comment_unread_count ?? 0)}
-                          </span>
-                        )}
-                      </button>
-                    </td>
-
-                    {/* Last Engaged */}
-                    <td className={`px-4 ${compact ? 'py-1.5' : 'py-2.5'}`}>
-                      <div className={`flex items-center gap-1.5 text-gray-600 ${compact ? 'text-sm' : 'text-base'}`}>
-                        <Clock className={`text-gray-400 shrink-0 ${compact ? 'w-3.5 h-3.5' : 'w-4 h-4'}`} />
-                        {getTimeAgo(lead.last_engaged_at)}
-                      </div>
-                    </td>
-
-                    {/* First Seen */}
-                    <td className={`px-4 ${compact ? 'py-1.5' : 'py-2.5'}`}>
-                      <span className={`text-gray-600 ${compact ? 'text-sm' : 'text-base'}`}>{formatDate(lead.first_seen_at)}</span>
-                    </td>
-
-                    {/* Actions */}
-                    <td className={`px-4 ${compact ? 'py-1.5' : 'py-2.5'} text-right`} onClick={(e) => e.stopPropagation()}>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <button aria-label="More actions" className="p-1.5 rounded-md hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors">
-                            <MoreHorizontal className="w-4 h-4" />
-                          </button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="w-40 bg-white border border-gray-200 shadow-lg">
-                          {lead.is_rollup ? (
-                            <DropdownMenuLabel className="text-xs font-normal text-gray-600">View only</DropdownMenuLabel>
-                          ) : (
-                            <>
-                              <DropdownMenuItem onClick={() => handleArchiveLead(lead.id)} className="cursor-pointer text-sm flex items-center gap-2">
-                                <Archive className="w-3.5 h-3.5" />{statusFilter === 'archived' ? 'Unarchive' : 'Archive'}
-                              </DropdownMenuItem>
-                              <DropdownMenuItem onClick={() => handleDeleteLead(lead.id)} className="cursor-pointer text-sm text-red-600 focus:text-red-600 flex items-center gap-2">
-                                <Trash2 className="w-3.5 h-3.5" />Delete
-                              </DropdownMenuItem>
-                            </>
-                          )}
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </td>
-                  </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
-
-        {/* Mobile Card View */}
-        <div className="md:hidden divide-y divide-gray-100">
-          {isLoading ? (
-            <div className="px-4 py-12 text-center">
-              <div className="flex items-center justify-center gap-2">
-                <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-[#6C60FF]" />
-                <span className="text-sm text-gray-600">Loading leads...</span>
-              </div>
-            </div>
-          ) : error ? (
-            <div className="px-4 py-8 text-center text-red-500 text-sm">{error}</div>
-          ) : displayLeads.length === 0 ? (
-            <div className="px-4 py-12 text-center">
-              <p className="text-sm text-gray-600">No leads found</p>
+        <LeadsInboxTable
+          leads={displayLeads}
+          isLoading={isLoading}
+          error={error}
+          emptyState={
+            <>
+              <p className="text-sm text-gray-600">{showClosed ? 'No closed leads' : 'No leads found'}</p>
               {hasActiveFilters && (
                 <button onClick={handleClear} className="mt-2 text-xs text-[#6C60FF] hover:underline">Clear filters</button>
               )}
-            </div>
-          ) : (
-            displayLeads.map((lead) => (
-              <div key={lead.id} className="px-4 py-4 space-y-3 cursor-pointer" onClick={() => onLeadSelect(lead)}>
-                <div className="flex items-start justify-between gap-3">
-                  <div className="flex items-center gap-3">
-                    <Avatar className="h-9 w-9 shrink-0">
-                      <AvatarImage src={lead.user?.profile_image} alt={leadDisplayName(lead)} />
-                      <AvatarFallback className="bg-[#6C60FF] text-white text-xs font-medium">
-                        {getInitials(leadDisplayName(lead))}
-                      </AvatarFallback>
-                    </Avatar>
-                    <div>
-                      <div className="text-sm font-semibold text-gray-900 flex items-center gap-1.5">
-                        {leadDisplayName(lead)}
-                        {!lead.user?.id && <GuestBadge />}
-                      </div>
-                      <div className="text-xs text-gray-600">{leadDisplayEmail(lead)}</div>
-                      <div className="text-xs text-gray-600 mt-0.5">Via: {lead.story.title}</div>
-                    </div>
-                  </div>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <button aria-label="More actions" className="p-1.5 rounded-md hover:bg-gray-100 text-gray-400" onClick={(e) => e.stopPropagation()}>
-                        <MoreHorizontal className="w-4 h-4" />
-                      </button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" className="w-40 bg-white border border-gray-200 shadow-lg">
-                      {lead.is_rollup ? (
-                        <DropdownMenuLabel className="text-xs font-normal text-gray-600">View only</DropdownMenuLabel>
-                      ) : (
-                        <>
-                          <DropdownMenuItem onClick={() => handleArchiveLead(lead.id)} className="cursor-pointer text-sm flex items-center gap-2">
-                            <Archive className="w-3.5 h-3.5" />{statusFilter === 'archived' ? 'Unarchive' : 'Archive'}
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => handleDeleteLead(lead.id)} className="cursor-pointer text-sm text-red-600 focus:text-red-600 flex items-center gap-2">
-                            <Trash2 className="w-3.5 h-3.5" />Delete
-                          </DropdownMenuItem>
-                        </>
-                      )}
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </div>
-
-                <div className="flex items-center gap-2 flex-wrap">
-                  <div onClick={(e) => e.stopPropagation()}>
-                    <StatusSelect lead={lead} onUpdate={handleUpdateStatus} disabled={updatingId === lead.id || !!lead.is_rollup} />
-                  </div>
-                  <span className="text-xs text-gray-600">{lead.engagement} views</span>
-                  <button
-                    onClick={() => onLeadSelect(lead)}
-                    className="flex items-center gap-1 hover:opacity-75 transition-opacity"
-                  >
-                    <MessageSquare className="w-3.5 h-3.5 text-gray-400" />
-                    <span className="text-xs text-gray-600">{(lead.messages_count ?? 0) + (lead.comments?.length ?? 0)}</span>
-                    {((lead.unread_count ?? 0) + (lead.comment_unread_count ?? 0)) > 0 && (
-                      <span className="flex items-center justify-center min-w-[22px] h-5 px-1 rounded-lg bg-red-500 text-white text-[12px] font-bold">
-                        {(lead.unread_count ?? 0) + (lead.comment_unread_count ?? 0)}
-                      </span>
-                    )}
-                  </button>
-                </div>
-
-                <div className="flex items-center gap-4 text-xs text-gray-600">
-                  <div className="flex items-center gap-1">
-                    <Clock className="w-3 h-3" />
-                    {getTimeAgo(lead.last_engaged_at)}
-                  </div>
-                  <span>First seen: {formatDate(lead.first_seen_at)}</span>
-                </div>
-              </div>
-            ))
-          )}
-        </div>
+            </>
+          }
+          selectedLeadId={selectedLead?.id ?? null}
+          compact={compact}
+          isClosedTab={showClosed}
+          onSelect={(lead) => onLeadSelect(lead)}
+          onArchive={(lead) => handleArchiveLead(lead.id)}
+          onDelete={(lead) => handleDeleteLead(lead.id)}
+          onMarkRead={handleMarkRead}
+          onLeadPatched={patchLead}
+        />
 
         {/* Pagination footer */}
         {!isLoading && !error && total > 0 && (

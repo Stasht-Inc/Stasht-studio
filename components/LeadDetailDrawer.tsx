@@ -937,7 +937,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
                       <Eye className="w-4 h-4 text-gray-400" />
                     </div>
                     <span className="text-sm text-gray-600 flex-1">
-                      {firstName} viewed <span className="font-medium text-gray-600">"{lead.story.title}"</span>
+                      {firstName} viewed <span className="font-medium text-gray-600">"{lead.story?.title ?? 'a campaign'}"</span>
                     </span>
                     <span className="text-sm text-gray-600 shrink-0">{formatShortDate(lead.first_seen_at)}</span>
                   </div>

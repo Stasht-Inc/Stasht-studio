@@ -82,7 +82,8 @@ export interface Lead {
   // null when there's no viewer account AND no guest details on the lead row
   // (rare/malformed rows); guest leads still populate this from viewer_* columns.
   user: LeadUser | null;
-  story: LeadStory;
+  // null for a direct lead started from "+ Send Message" without a campaign.
+  story: LeadStory | null;
   status: 'hot' | 'warm' | 'cold' | 'visited' | 'sold' | null;
   engagement: number;
   comments: LeadComment[];
@@ -92,9 +93,48 @@ export interface Lead {
   comment_unread_count?: number;
   last_engaged_at: string;
   first_seen_at: string;
-  // True when this lead belongs to another owner but rolls up into the
-  // current user's list (main-owner admin view) — read-only in the UI.
+  // True when the current user can see this lead but not message it (e.g. a rep
+  // looking at an unassigned lead they haven't accepted) — read-only in the UI.
+  // Backend sets it to !can_message (spec 2026-09-23).
   is_rollup?: boolean;
+  // Lead assignment / inbox fields (spec 2026-09-23 "Leads inbox & assignment").
+  property_id?: number | null;
+  assignee?: LeadAssignee | null;
+  latest_message?: LeadLatestMessage | null;
+  last_activity_at?: string | null;
+  can_message?: boolean;
+  can_assign?: boolean;
+  can_delete?: boolean;
+}
+
+export interface LeadAssignee {
+  id: number;
+  name: string | null;
+  profile_color: string | null;
+}
+
+export interface LeadLatestMessage {
+  body: string;
+  direction: 'inbound' | 'outbound';
+  channel: 'sms' | 'email' | 'app';
+  sender_name: string | null;
+  sent_at: string | null;
+  attachment_name: string | null;
+}
+
+export interface AssignableUser extends LeadAssignee {
+  role: 'owner' | 'admin' | 'rep' | string;
+}
+
+export interface StartConversationPayload {
+  channel: 'sms' | 'email';
+  phone?: string;
+  email?: string;
+  name?: string;
+  subject?: string;
+  body: string;
+  property_id?: number | string;
+  memory_id?: number | string;
 }
 
 // Present only when the request sent `page` — the backend omits it otherwise.
@@ -113,6 +153,8 @@ export interface LeadsResponse {
   // partial mocks in tests).
   status_counts?: Partial<Record<'hot' | 'warm' | 'cold' | 'visited' | 'sold', number>>;
   messages_total?: number;
+  // Open / Closed (archived) counts for the same filters — drives the tab labels.
+  tab_counts?: { open: number; closed: number };
   leads: Lead[];
   meta?: LeadsMeta;
 }
@@ -224,14 +266,19 @@ export const leadsAPI = {
     direction?: 'asc' | 'desc';
     page?: number;
     per_page?: number;
+    // Closed tab (archived leads). The legacy status==='archived' still works.
+    archived?: boolean;
+    assigned?: 'me' | 'unassigned' | number;
   }) => {
     const query = new URLSearchParams();
     if (params?.search?.trim()) query.append('search', params.search.trim());
-    if (params?.status === 'archived') {
+    if (params?.status === 'archived' || params?.archived) {
       query.append('archived', '1');
-    } else if (params?.status && params.status !== 'all') {
+    }
+    if (params?.status && params.status !== 'all' && params.status !== 'archived') {
       query.append('status', params.status);
     }
+    if (params?.assigned != null) query.append('assigned', String(params.assigned));
     if (params?.sort) query.append('sort', params.sort);
     if (params?.direction) query.append('direction', params.direction);
     if (params?.page != null) query.append('page', String(params.page));
@@ -239,6 +286,33 @@ export const leadsAPI = {
     if (isPartialAdmin()) query.append('partial_admin_email', getPartialAdminEmail());
     const url = `/leads${query.toString() ? `?${query.toString()}` : ''}`;
     return apiRequest<LeadsResponse>(url, { method: 'GET' });
+  },
+
+  // Lead assignment (spec 2026-09-23). accept → 409 {message, taken_by} when
+  // another teammate got there first; apiRequest surfaces that as success:false.
+  acceptLead: async (leadId: number) => {
+    return apiRequest<{ lead_id: number; assignee: LeadAssignee | null; taken_by?: LeadAssignee; message?: string }>(
+      `/leads/${leadId}/accept`, { method: 'POST' },
+    );
+  },
+
+  assignLead: async (leadId: number, userId: number | null) => {
+    return apiRequest<{ lead_id: number; assignee: LeadAssignee | null }>(`/leads/${leadId}/assign`, {
+      method: 'POST',
+      body: JSON.stringify({ user_id: userId }),
+    });
+  },
+
+  getAssignableUsers: async (leadId: number) => {
+    return apiRequest<{ users: AssignableUser[] }>(`/leads/${leadId}/assignable-users`, { method: 'GET', skipCache: true } as RequestInit);
+  },
+
+  // "+ Send Message": new SMS/email conversation; reuses the contact's lead if one exists.
+  startConversation: async (payload: StartConversationPayload) => {
+    return apiRequest<{ lead_id: number; created: boolean; message_id: number }>('/leads/start-conversation', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
   },
 
   updateLeadStatus: async (leadId: number, status: 'hot' | 'warm' | 'cold' | 'visited' | 'sold' | null) => {

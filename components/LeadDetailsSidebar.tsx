@@ -73,7 +73,7 @@ export default function LeadDetailsSidebar({
           </Avatar>
           <div className="min-w-0">
             <p className="text-lg font-semibold text-gray-900 truncate">{leadName}</p>
-            <p className="text-sm text-gray-600 truncate">Via: {lead.story.title}</p>
+            <p className="text-sm text-gray-600 truncate">{lead.story ? `Via: ${lead.story.title}` : 'Direct message'}</p>
           </div>
         </div>
 
