@@ -952,7 +952,7 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
           {/* Assigned to — Me / Unassigned for everyone; admins also get each
               teammate seen in the list. */}
           <Select value={assignedFilter} onValueChange={handleAssignedChange}>
-            <SelectTrigger aria-label="Assigned to" className="w-40 bg-white border-gray-200 h-9 text-sm shrink-0 !ring-0 !outline-none !shadow-none focus:!ring-0 focus-visible:!ring-2 focus-visible:!ring-[#6C60FF] focus-visible:!ring-offset-1">
+            <SelectTrigger aria-label="Assigned to" className="w-auto min-w-[11rem] gap-2 whitespace-nowrap bg-white border-gray-200 h-9 text-sm shrink-0 !ring-0 !outline-none !shadow-none focus:!ring-0 focus-visible:!ring-2 focus-visible:!ring-[#6C60FF] focus-visible:!ring-offset-1">
               <SelectValue placeholder="Assigned to" />
             </SelectTrigger>
             <SelectContent>
