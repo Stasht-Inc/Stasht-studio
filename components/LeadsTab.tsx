@@ -914,6 +914,20 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
         </button>
       </div>
 
+      {/* Right side of the tabs row: Leads Report + Refresh */}
+      <div className="flex items-center gap-2">
+        {/* Leads Report (internally "Storeel") — teal, distinct from the purple
+            actions; opens in a new tab. */}
+        {onViewStoreelReport && (
+          <button
+            type="button"
+            onClick={onViewStoreelReport}
+            className="h-9 px-3.5 inline-flex items-center gap-2 rounded-lg border border-[#0D9488] bg-white text-sm font-medium text-[#0D9488] hover:bg-teal-50 transition-colors shrink-0"
+          >
+            <TrendingUp className="w-4 h-4" />
+            Leads Report
+          </button>
+        )}
       {/* Refresh whatever tab is showing */}
       <button
         type="button"
@@ -928,6 +942,7 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
         <RefreshCw className={`w-4 h-4 ${isLoading || isLoadingConversations ? 'animate-spin' : ''}`} />
         Refresh
       </button>
+      </div>
       </div>
 
       {/* Summary cards — scoped to the active sub-tab, above its content. The
@@ -1029,21 +1044,6 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
             Clear
           </Button>
 
-          {/* Leads Report (internally "Storeel") — same screen reachable from a
-              property row's "⋯" menu in the Properties tab, surfaced here too
-              since that's buried and this is where reps actually spend their
-              time. Teal, deliberately distinct from the app's purple accent so
-              it doesn't read as just another primary button. */}
-          {onViewStoreelReport && (
-            <Button
-              variant="outline"
-              onClick={onViewStoreelReport}
-              className="h-9 px-4 text-sm shrink-0 gap-1.5 border-[#0D9488] text-[#0D9488] hover:bg-teal-50 hover:text-[#0D9488]"
-            >
-              <TrendingUp className="w-4 h-4" />
-              <span className="hidden sm:inline">Leads Report</span>
-            </Button>
-          )}
 
           {/* Search Group Commentary popover */}
           {showSearchGroup && (
