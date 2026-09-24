@@ -881,7 +881,8 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
 
   return (
     <div className="space-y-4 sm:space-y-6">
-      {/* Sub-tab toggle: Leads / Groups / My Conversations */}
+      {/* Sub-tab toggle (Leads / Groups / My Conversations) + Refresh on the far right */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
       <div className="inline-flex items-center gap-1 bg-gray-100 rounded-lg p-1">
         <button
           onClick={() => { setLeadsView('leads'); onGroupSelect?.(null); onConversationSelect?.(null); }}
@@ -911,6 +912,22 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
             </span>
           )}
         </button>
+      </div>
+
+      {/* Refresh whatever tab is showing */}
+      <button
+        type="button"
+        onClick={() => {
+          if (leadsView === 'leads') fetchLeads();
+          else if (leadsView === 'groups') fetchLeadGroups();
+          else fetchMyConversations();
+        }}
+        disabled={isLoading || isLoadingConversations}
+        className="h-9 px-3.5 inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 hover:text-[#6C60FF] transition-colors shrink-0 disabled:opacity-50"
+      >
+        <RefreshCw className={`w-4 h-4 ${isLoading || isLoadingConversations ? 'animate-spin' : ''}`} />
+        Refresh
+      </button>
       </div>
 
       {/* Summary cards — scoped to the active sub-tab, above its content. The
@@ -1364,16 +1381,6 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
             </>
           )}
 
-          {/* Refresh */}
-          <button
-            onClick={() => fetchLeads()}
-            disabled={isLoading}
-            title="Refresh leads"
-            aria-label="Refresh leads"
-            className="h-9 w-9 flex items-center justify-center rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 hover:text-[#6C60FF] transition-colors shrink-0 disabled:opacity-40"
-          >
-            <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
-          </button>
         </div>
       </div>
 
