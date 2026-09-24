@@ -42,6 +42,7 @@ import { useMemoryLimit } from './hooks/useMemoryLimit';
 import { memoryCountsManager } from './hooks/useMemoryCounts';
 import ErrorBoundary from './components/ErrorBoundary';
 import { Toaster, toast } from 'sonner';
+import { maybeAskForDesktopAlerts } from './components/leads/desktopAlertsPrompt';
 import { UploadProgressProvider } from './contexts/UploadProgressContext';
 import { SyncProgressProvider } from './contexts/SyncProgressContext';
 import { GoogleOAuthProvider } from '@react-oauth/google';
@@ -1571,6 +1572,8 @@ function MainApp() {
               ).length;
               setNotificationCount(unreadCount);
               console.log('📊 Initial notification count:', unreadCount);
+              // First lead alert → offer desktop alerts once (they start off).
+              maybeAskForDesktopAlerts(notificationsData);
             }
           }
         } catch (error) {

@@ -4,7 +4,6 @@ import LeadDetailDrawer from '../components/LeadDetailDrawer';
 import GroupDetailDrawer from '../components/GroupDetailDrawer';
 import ConversationDrawer from '../components/ConversationDrawer';
 import SendMessageDialog from '../components/leads/SendMessageDialog';
-import DesktopAlertsToggle from '../components/leads/DesktopAlertsToggle';
 import { Plus } from 'lucide-react';
 import { Lead, CommentaryTarget, Conversation, leadsAPI } from '../services/leadsAPI';
 import { apiRequest } from '../utils/authUtils';
@@ -120,7 +119,6 @@ export default function LeadsPage({ openConversationLeadId, onConversationOpened
                 <p className="text-xs sm:text-sm md:text-base text-gray-600 mt-0.5 sm:mt-1">Follow up with the people engaging with your campaigns</p>
               </div>
               <div className="shrink-0 flex flex-wrap items-center justify-end gap-2">
-              <DesktopAlertsToggle />
               <button
                 type="button"
                 onClick={() => setShowSendMessage(true)}

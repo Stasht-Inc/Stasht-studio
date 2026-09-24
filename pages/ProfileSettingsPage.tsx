@@ -11,6 +11,7 @@ import PasswordStrengthIndicator from "../components/PasswordStrengthIndicator";
 import { savePasswordSecurity, getPasswordSecurity } from "../utils/passwordSecurityStorage";
 import UpgradePlanModal from "../components/UpgradePlanModal";
 import { Switch } from "../components/ui/switch";
+import DesktopAlertsSetting from "../components/leads/DesktopAlertsSetting";
 import { getCategoryColor } from "../constants/mediaConstants";
 
 // Types
@@ -2453,6 +2454,7 @@ function NotificationPreferences({ sectionRef, isEditing, onEditToggle }: {
                   />
                 </button>
               </div>
+              <DesktopAlertsSetting variant="switch" />
             </div>
           </div>
 
@@ -2586,6 +2588,7 @@ function NotificationPreferences({ sectionRef, isEditing, onEditToggle }: {
                 {pushNotifications.comments ? 'On' : 'Off'}
               </button>
             </div>
+            <DesktopAlertsSetting variant="pill" />
           </div>
         </div>
 
