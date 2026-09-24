@@ -5,6 +5,7 @@ import SessionValidator from '../utils/sessionValidator';
 import { resetMediaCache } from '../services/mediaAPI';
 import { crossTabAuth } from '../utils/crossTabAuth';
 import StashtLogo from '../components/StashtLogo';
+import { webPushLogin, webPushLogout } from '../utils/webPush';
 
 // Module-level guard: survives React StrictMode's double-invoke (and any remount)
 // in the same page load, so a single-use SSO code is exchanged exactly once.
@@ -423,6 +424,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const logout = async () => {
     console.log('AuthContext: Logging out user');
 
+    // Detach this browser from the user's desktop (web push) alerts.
+    webPushLogout();
+
     // Call the logout API endpoint
     try {
       await authAPI.logout();
@@ -460,6 +464,14 @@ export function AuthProvider({ children }: AuthProviderProps) {
   };
 
   const isAuthenticated = !!user;
+
+  // Desktop (web) push: sign this browser in to OneSignal as the user, under the
+  // same external id the mobile app uses, so lead alerts reach it. No-op where web
+  // push isn't set up (localhost without a dev app, unsupported browsers).
+  const pushUserId = (user as any)?.external_user_id;
+  useEffect(() => {
+    if (pushUserId) webPushLogin(pushUserId);
+  }, [pushUserId]);
   
   // Debug logging for authentication state changes
   useEffect(() => {

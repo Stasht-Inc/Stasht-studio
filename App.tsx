@@ -1488,7 +1488,13 @@ function MainApp() {
       handleNavigation('storeel-report');
     } else if (pathname === '/leads' || pathname.startsWith('/leads')) {
       console.log('🔍 Detected /leads URL - setting currentPage to leads');
+      // /leads?lead=123 — a desktop (web push) notification click opens that lead.
+      const leadParam = Number(new URLSearchParams(window.location.search).get('lead'));
       handleNavigation('leads');
+      if (leadParam > 0) {
+        setPendingLeadId(leadParam);
+        window.history.replaceState({}, '', '/leads');
+      }
     } else if (pathname === '/users' || pathname.startsWith('/users')) {
       console.log('🔍 Detected /users URL - setting currentPage to users');
       handleNavigation('users');
