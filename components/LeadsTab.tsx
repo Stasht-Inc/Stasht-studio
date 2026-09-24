@@ -202,6 +202,8 @@ interface LeadsTabProps {
   // Open this lead once the list has loaded it (new "+ Send Message" thread, or a
   // lead notification). Cleared through onOpenLeadHandled.
   openLeadId?: number | null;
+  // Why it may be gone, from the notification (e.g. "accepted by Sam").
+  openLeadHint?: string | null;
   onOpenLeadHandled?: () => void;
 }
 
@@ -226,7 +228,7 @@ function SummaryCardRow({ cards }: { cards: SummaryCardData[] }) {
   );
 }
 
-export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, compact = false, onLeadsRefreshed, onFilterChange, onCommentaryJump, selectedGroupId, onGroupSelect, selectedConversationId, onConversationSelect, unreadBreakdown, onViewStoreelReport, openLeadId, onOpenLeadHandled }: LeadsTabProps) {
+export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, compact = false, onLeadsRefreshed, onFilterChange, onCommentaryJump, selectedGroupId, onGroupSelect, selectedConversationId, onConversationSelect, unreadBreakdown, onViewStoreelReport, openLeadId, openLeadHint, onOpenLeadHandled }: LeadsTabProps) {
   const [leads, setLeads] = useState<Lead[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -579,7 +581,9 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
         if (wanted) {
           const match = freshLeads.find((l) => l.id === wanted);
           if (match) onLeadSelect(match);
-          else toast.info('This lead is no longer available — a teammate may have accepted it.');
+          else toast.info(openLeadHint
+            ? `This lead was ${openLeadHint}.`
+            : 'This lead is no longer available — a teammate may have accepted it.');
           onOpenLeadHandled?.();
         }
       } else {

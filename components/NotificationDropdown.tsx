@@ -13,7 +13,7 @@ import { mapLimit } from '../utils/requestLimit';
 
 export interface NotificationItem {
   id: string | number;
-  type: 'invitation' | 'share' | 'comment' | 'mention' | 'like' | 'join' | 'moment' | 'full_access_request' | 'claim_request' | 'lead_message' | 'lead_unassigned' | 'lead_assigned';
+  type: 'invitation' | 'share' | 'comment' | 'mention' | 'like' | 'join' | 'moment' | 'full_access_request' | 'claim_request' | 'lead_message' | 'lead_unassigned' | 'lead_assigned' | 'lead_reply';
   description: string; // Main notification text
   lead_id?: number; // For lead_message notifications — the conversation to open
   sender: {
@@ -44,7 +44,7 @@ interface NotificationDropdownProps {
   onMemorySelect?: (memoryId: string, options?: any) => void;
   onOpenConversation?: (leadId: number) => void;
   // lead_unassigned / lead_assigned (spec 2026-09-23) → open that lead in Leads.
-  onOpenLead?: (leadId: number) => void;
+  onOpenLead?: (leadId: number, hint?: string | null) => void;
   onMarkAllAsReadRef?: (fn: () => Promise<void>) => void;
 }
 
@@ -166,7 +166,7 @@ export function NotificationDropdown({ isOpen, onClose, anchorRef, onNotificatio
 
             // Lead-message notifications keep their type (the body may contain
             // words like "comment"/"like" that would otherwise mis-detect them).
-            if (notification.type === 'lead_message' || notification.type === 'lead_unassigned' || notification.type === 'lead_assigned') {
+            if (notification.type === 'lead_message' || notification.type === 'lead_unassigned' || notification.type === 'lead_assigned' || notification.type === 'lead_reply') {
               return { ...notification, originalType: notification.type };
             }
 
@@ -560,10 +560,14 @@ export function NotificationDropdown({ isOpen, onClose, anchorRef, onNotificatio
 
     // Lead-message notification → open the My Conversations thread for this lead.
     // New-lead / assigned-to-you notification → open that lead in Leads.
-    if (notification?.type === 'lead_unassigned' || notification?.type === 'lead_assigned') {
+    if (notification?.type === 'lead_unassigned' || notification?.type === 'lead_assigned' || notification?.type === 'lead_reply') {
       const leadId = (notification as any).lead_id;
+      // A "New lead" alert someone else took reads "New lead: Brian — accepted by Sam."
+      const taken = notification.type === 'lead_unassigned' && notification.description?.includes(' — ')
+        ? notification.description.split(' — ').pop()?.replace(/\.$/, '') ?? null
+        : null;
       if (leadId != null && onOpenLead) {
-        onOpenLead(Number(leadId));
+        onOpenLead(Number(leadId), taken);
       }
       onClose();
       return;
@@ -904,6 +908,7 @@ export function NotificationDropdown({ isOpen, onClose, anchorRef, onNotificatio
       case 'lead_message':
       case 'lead_unassigned':
       case 'lead_assigned':
+      case 'lead_reply':
         return {
           icon: (
             <svg className="w-2.5 h-2.5 text-white" fill="currentColor" viewBox="0 0 20 20">
@@ -976,7 +981,12 @@ export function NotificationDropdown({ isOpen, onClose, anchorRef, onNotificatio
 
     // Determine display type for badge
     let badgeType = notification.type;
-    if (isCommentType) {
+    // Lead notifications quote customers ("I like these", "any comments?"), so
+    // never re-type them from their wording.
+    const isLeadType = ['lead_message', 'lead_unassigned', 'lead_assigned', 'lead_reply'].includes(String(notification.type));
+    if (isLeadType) {
+      // keep badgeType = notification.type
+    } else if (isCommentType) {
       badgeType = 'comment';
     } else if (isMentionType) {
       badgeType = 'mention';
@@ -1021,7 +1031,7 @@ export function NotificationDropdown({ isOpen, onClose, anchorRef, onNotificatio
                 badgeType === 'comment' || badgeType === 'mention' ||
                 badgeType === 'join' || badgeType === 'like' ||
                 badgeType === 'moment' || badgeType === 'full_access_request' ||
-                badgeType === 'lead_message' || badgeType === 'lead_unassigned' || badgeType === 'lead_assigned' ||
+                badgeType === 'lead_message' || badgeType === 'lead_unassigned' || badgeType === 'lead_assigned' || badgeType === 'lead_reply' ||
                 (notification as any).isInvitation) {
               return (
                 <div className="absolute -bottom-1 -right-1 w-5 h-5 bg-white rounded-full border border-gray-200 flex items-center justify-center shadow-sm">

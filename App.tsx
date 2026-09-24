@@ -1111,8 +1111,11 @@ function MainApp() {
   // Deep-link target for a lead_unassigned / lead_assigned notification: opens
   // that lead in the Leads list. Consumed (and cleared) by LeadsPage.
   const [pendingLeadId, setPendingLeadId] = useState<number | null>(null);
-  const handleOpenLead = useCallback((leadId: number) => {
+  // Shown if that lead turns out not to be visible any more (e.g. "accepted by Sam").
+  const [pendingLeadHint, setPendingLeadHint] = useState<string | null>(null);
+  const handleOpenLead = useCallback((leadId: number, hint?: string | null) => {
     setPendingLeadId(leadId);
+    setPendingLeadHint(hint ?? null);
     handleNavigation('leads');
   }, [handleNavigation]);
   const handleOpenConversation = useCallback((leadId: number) => {
@@ -1577,6 +1580,21 @@ function MainApp() {
     };
 
     fetchInitialNotificationCount();
+
+    // Keep the bell live (ClickUp wdy2xh18d8): new-lead / assigned / reply alerts
+    // used to appear only after a full reload. Refresh every 30s while the tab is
+    // visible, when it becomes visible again, and whenever something reads
+    // notifications (e.g. opening a lead) fires 'notifications-count-refresh'.
+    if (!isAuthenticated || isLoading) return;
+    const onVisible = () => { if (document.visibilityState === 'visible') fetchInitialNotificationCount(); };
+    const timer = window.setInterval(onVisible, 30000);
+    document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('notifications-count-refresh', fetchInitialNotificationCount);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('notifications-count-refresh', fetchInitialNotificationCount);
+    };
   }, [isAuthenticated, isLoading]);
 
   // Check for pending redirect after login (from published memory page)
@@ -3969,7 +3987,7 @@ function MainApp() {
     }
 
     if (currentPage === "leads") {
-      return <LeadsPage openConversationLeadId={pendingConversationLeadId} onConversationOpened={() => setPendingConversationLeadId(null)} openLeadId={pendingLeadId} onLeadOpened={() => setPendingLeadId(null)} onNavigate={handleNavigation} onViewStoreelReport={handleViewStoreelReport} />;
+      return <LeadsPage openConversationLeadId={pendingConversationLeadId} onConversationOpened={() => setPendingConversationLeadId(null)} openLeadId={pendingLeadId} openLeadHint={pendingLeadHint} onLeadOpened={() => setPendingLeadId(null)} onNavigate={handleNavigation} onViewStoreelReport={handleViewStoreelReport} />;
     }
 
     if (currentPage === "users") {

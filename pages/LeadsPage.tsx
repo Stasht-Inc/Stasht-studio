@@ -20,11 +20,12 @@ interface LeadsPageProps {
   // Set by App when a lead_unassigned / lead_assigned notification is clicked;
   // opens that lead once the list has it. Cleared through onLeadOpened.
   openLeadId?: number | null;
+  openLeadHint?: string | null;
   onLeadOpened?: () => void;
 }
 
 // Leads — its own top-level page (previously the first tab of the Users page).
-export default function LeadsPage({ openConversationLeadId, onConversationOpened, onNavigate, onViewStoreelReport, openLeadId: requestedLeadId, onLeadOpened }: LeadsPageProps = {}) {
+export default function LeadsPage({ openConversationLeadId, onConversationOpened, onNavigate, onViewStoreelReport, openLeadId: requestedLeadId, openLeadHint, onLeadOpened }: LeadsPageProps = {}) {
   const { isAuthenticated } = useAuth();
 
   // Lead / group / conversation panel state
@@ -38,9 +39,11 @@ export default function LeadsPage({ openConversationLeadId, onConversationOpened
   // Lead to open once the list loads it: a thread just started with "+ Send
   // Message", or a lead notification from App.
   const [openLeadId, setOpenLeadId] = useState<number | null>(null);
+  const [openHint, setOpenHint] = useState<string | null>(null);
   useEffect(() => {
     if (requestedLeadId) {
       setOpenLeadId(requestedLeadId);
+      setOpenHint(openLeadHint ?? null);
       setLeadsRefreshTrigger((t) => t + 1);
       onLeadOpened?.();
     }
@@ -151,7 +154,8 @@ export default function LeadsPage({ openConversationLeadId, onConversationOpened
               }}
               onViewStoreelReport={onViewStoreelReport ? () => onViewStoreelReport() : undefined}
               openLeadId={openLeadId}
-              onOpenLeadHandled={() => setOpenLeadId(null)}
+              openLeadHint={openHint}
+              onOpenLeadHandled={() => { setOpenLeadId(null); setOpenHint(null); }}
             />
           </div>
         </div>
@@ -199,6 +203,7 @@ export default function LeadsPage({ openConversationLeadId, onConversationOpened
         open={showSendMessage}
         onOpenChange={setShowSendMessage}
         onSent={(leadId) => {
+          setOpenHint(null);
           setOpenLeadId(leadId);
           setLeadsRefreshTrigger((t) => t + 1);
           window.dispatchEvent(new CustomEvent('leads-unread-count-refresh'));

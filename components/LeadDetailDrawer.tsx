@@ -339,7 +339,8 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
       if (res.success && res.data?.messages) {
         setMessages(res.data.messages);
       }
-      leadsAPI.markRead(leadId);
+      // mark-read also clears this user's bell notifications for the lead.
+      leadsAPI.markRead(leadId).then(() => window.dispatchEvent(new CustomEvent('notifications-count-refresh')));
       leadsAPI.markCommentsRead(leadId);
       window.dispatchEvent(new CustomEvent('leads-unread-count-refresh'));
     } catch {

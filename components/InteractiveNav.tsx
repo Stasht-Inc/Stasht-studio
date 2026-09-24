@@ -244,7 +244,7 @@ function NotifBttn({ notificationCount, onNotificationClick, onMemorySelect, onO
   onNotificationClick: () => void;
   onMemorySelect?: (memoryId: string, options?: any) => void;
   onOpenConversation?: (leadId: number) => void;
-  onOpenLead?: (leadId: number) => void;
+  onOpenLead?: (leadId: number, hint?: string | null) => void;
 }) {
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [dynamicNotificationCount, setDynamicNotificationCount] = useState(notificationCount);
@@ -444,7 +444,7 @@ export default function InteractiveNav({
   onNotificationsClear?: () => void;
   onMemorySelect?: (memoryId: string, options?: any) => void;
   onOpenConversation?: (leadId: number) => void;
-  onOpenLead?: (leadId: number) => void;
+  onOpenLead?: (leadId: number, hint?: string | null) => void;
   onShowProfileSettings?: () => void;
   onShowBillingPayment?: () => void;
   user?: any;
