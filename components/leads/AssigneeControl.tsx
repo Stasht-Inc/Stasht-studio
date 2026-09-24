@@ -1,7 +1,9 @@
 import { useState } from 'react';
 import { toast } from 'sonner';
-import { Loader2, UserCheck } from 'lucide-react';
-import { Select, SelectContent, SelectItem, SelectSeparator, SelectTrigger } from '../ui/select';
+import { Check, ChevronDown, Loader2, UserCheck, UserX } from 'lucide-react';
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger,
+} from '../ui/dropdown-menu';
 import { leadsAPI, type AssignableUser, type Lead, type LeadAssignee } from '../../services/leadsAPI';
 import { initialsOf } from '../../utils/leadInbox';
 
@@ -10,7 +12,7 @@ import { initialsOf } from '../../utils/leadInbox';
 //  - anyone else sees the assignee, or an "Accept" button when nobody has it.
 // Parents apply `onChanged` as a patch to their copy of the lead.
 
-const UNASSIGNED = '__unassigned__';
+const ROLE_LABEL: Record<string, string> = { owner: 'Owner', admin: 'Admin', rep: 'Rep' };
 
 export function avatarColor(color: string | null | undefined): string {
   if (!color) return '#6C60FF';
@@ -77,8 +79,7 @@ export default function AssigneeControl({ lead, onChanged, size = 'sm' }: Props)
     }
   };
 
-  const assign = async (value: string) => {
-    const userId = value === UNASSIGNED ? null : Number(value);
+  const assign = async (userId: number | null) => {
     if (userId === (lead.assignee?.id ?? null)) return;
     setBusy(true);
     try {
@@ -99,46 +100,65 @@ export default function AssigneeControl({ lead, onChanged, size = 'sm' }: Props)
   const stop = (e: React.SyntheticEvent) => e.stopPropagation();
 
   if (lead.can_assign) {
+    // A menu rather than a Select: Select marks the chosen option aria-selected,
+    // and an app-wide [aria-selected="true"] rule paints it solid purple, which
+    // made the current assignee's role unreadable.
+    const currentId = lead.assignee?.id ?? null;
+    const people = [
+      ...(lead.assignee && !team?.some((u) => u.id === lead.assignee!.id) ? [{ ...lead.assignee, role: '' }] : []),
+      ...(team ?? []),
+    ];
     return (
       <div onClick={stop} className="min-w-0">
-        <Select
-          value={lead.assignee ? String(lead.assignee.id) : UNASSIGNED}
-          onValueChange={assign}
-          onOpenChange={(open) => { if (open) loadTeam(); }}
-          disabled={busy}
-        >
-          <SelectTrigger
-            aria-label="Assigned to"
-            className={`${size === 'sm' ? 'h-8 text-sm' : 'h-10 text-base'} w-full max-w-[14rem] bg-white border-gray-200 !ring-0 !shadow-none focus-visible:!ring-2 focus-visible:!ring-[#6C60FF]`}
-          >
-            {busy ? (
-              <span className="flex items-center gap-2 text-gray-500"><Loader2 className="w-4 h-4 animate-spin" />Saving…</span>
-            ) : lead.assignee ? (
-              <AssigneeBadge assignee={lead.assignee} size="sm" />
-            ) : (
-              <span className="text-gray-500">Unassigned</span>
-            )}
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value={UNASSIGNED}>Unassigned</SelectItem>
-            <SelectSeparator className="bg-gray-200" />
+        <DropdownMenu onOpenChange={(open) => { if (open) loadTeam(); }}>
+          <DropdownMenuTrigger asChild disabled={busy}>
+            <button
+              type="button"
+              aria-label="Assigned to"
+              className={`${size === 'sm' ? 'h-9 text-sm' : 'h-10 text-base'} w-full max-w-[15rem] inline-flex items-center justify-between gap-2 rounded-lg border border-gray-200 bg-white px-2.5 text-left hover:border-gray-300 hover:bg-gray-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#6C60FF] disabled:opacity-60`}
+            >
+              {busy ? (
+                <span className="flex items-center gap-2 text-gray-500"><Loader2 className="w-4 h-4 animate-spin" />Saving…</span>
+              ) : lead.assignee ? (
+                <AssigneeBadge assignee={lead.assignee} size="sm" />
+              ) : (
+                <span className="inline-flex items-center gap-2 text-gray-500"><UserX className="w-4 h-4" />Unassigned</span>
+              )}
+              <ChevronDown className="w-4 h-4 shrink-0 text-gray-400" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" sideOffset={6} className="w-72 p-1.5 bg-white border border-gray-200 shadow-lg rounded-xl">
+            <DropdownMenuLabel className="px-2.5 pt-1.5 pb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">Assign lead to</DropdownMenuLabel>
             {loadingTeam && !team && (
-              <div className="px-2 py-1.5 text-sm text-gray-500 flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" />Loading team…</div>
+              <div className="px-2.5 py-2 text-sm text-gray-500 flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" />Loading team…</div>
             )}
-            {/* Keep the current assignee selectable even before the team loads. */}
-            {lead.assignee && !team?.some((u) => u.id === lead.assignee!.id) && (
-              <SelectItem value={String(lead.assignee.id)}><AssigneeBadge assignee={lead.assignee} /></SelectItem>
-            )}
-            {(team ?? []).map((u) => (
-              <SelectItem key={u.id} value={String(u.id)}>
-                <span className="flex items-center gap-2">
-                  <AssigneeBadge assignee={u} />
-                  <span className="text-xs text-gray-500 capitalize">{u.role}</span>
-                </span>
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+            {people.map((u) => {
+              const isCurrent = u.id === currentId;
+              return (
+                <DropdownMenuItem
+                  key={u.id}
+                  onSelect={() => assign(u.id)}
+                  className={`cursor-pointer rounded-lg px-2.5 py-2 flex items-center gap-2.5 outline-none focus:outline-none focus-visible:outline-none focus:bg-gray-50 ${isCurrent ? 'bg-purple-50 focus:bg-purple-50' : ''}`}
+                >
+                  <span className="min-w-0 flex-1"><AssigneeBadge assignee={u} size="md" /></span>
+                  {u.role && ROLE_LABEL[u.role] && (
+                    <span className="shrink-0 rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600">{ROLE_LABEL[u.role]}</span>
+                  )}
+                  <Check className={`w-4 h-4 shrink-0 text-[#6C60FF] ${isCurrent ? 'visible' : 'invisible'}`} aria-hidden />
+                </DropdownMenuItem>
+              );
+            })}
+            <DropdownMenuSeparator className="my-1.5 bg-gray-100" />
+            <DropdownMenuItem
+              onSelect={() => assign(null)}
+              className={`cursor-pointer rounded-lg px-2.5 py-2 flex items-center gap-2.5 outline-none focus:outline-none focus-visible:outline-none text-gray-700 focus:bg-gray-50 ${currentId === null ? 'bg-purple-50 focus:bg-purple-50' : ''}`}
+            >
+              <span className="h-8 w-8 shrink-0 rounded-full border border-dashed border-gray-300 inline-flex items-center justify-center text-gray-400"><UserX className="w-4 h-4" /></span>
+              <span className="flex-1">Unassigned <span className="block text-xs text-gray-500">Team can accept it</span></span>
+              <Check className={`w-4 h-4 shrink-0 text-[#6C60FF] ${currentId === null ? 'visible' : 'invisible'}`} aria-hidden />
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
     );
   }
