@@ -546,7 +546,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
   const renderMessage = (msg: LeadMessage, isChild = false): React.ReactNode => {
     const isOutbound = msg.direction === 'outbound';
     const isEmail = msg.channel === 'email';
-    const channelLabel = isEmail ? 'Email' : 'SMS';
+    const channelLabel = isEmail ? 'Email' : msg.channel === 'widget' ? 'Website' : 'SMS';
     const isReplying = replyingToMsgId === msg.id;
     const children = messages
       .filter((m) => m.parent_message_id === msg.id)
@@ -933,16 +933,18 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
               return (
                 <div>
 
-                  {/* Campaign viewed — always first */}
-                  <div className="flex items-center gap-2 py-2.5">
-                    <div className="h-8 w-8 rounded-full bg-gray-100 flex items-center justify-center shrink-0">
-                      <Eye className="w-4 h-4 text-gray-400" />
+                  {/* Campaign viewed — always first (a website lead never viewed a campaign) */}
+                  {lead.source !== 'widget' && (
+                    <div className="flex items-center gap-2 py-2.5">
+                      <div className="h-8 w-8 rounded-full bg-gray-100 flex items-center justify-center shrink-0">
+                        <Eye className="w-4 h-4 text-gray-400" />
+                      </div>
+                      <span className="text-sm text-gray-600 flex-1">
+                        {firstName} viewed <span className="font-medium text-gray-600">"{lead.story?.title ?? 'a campaign'}"</span>
+                      </span>
+                      <span className="text-sm text-gray-600 shrink-0">{formatShortDate(lead.first_seen_at)}</span>
                     </div>
-                    <span className="text-sm text-gray-600 flex-1">
-                      {firstName} viewed <span className="font-medium text-gray-600">"{lead.story?.title ?? 'a campaign'}"</span>
-                    </span>
-                    <span className="text-sm text-gray-600 shrink-0">{formatShortDate(lead.first_seen_at)}</span>
-                  </div>
+                  )}
 
                   {topLevel.map((item) => {
                       if (item._type === 'comment') {

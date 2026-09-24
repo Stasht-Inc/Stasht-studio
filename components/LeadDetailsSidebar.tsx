@@ -1,6 +1,7 @@
 import { MapPin, CheckCircle2 } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from './ui/avatar';
 import { Select, SelectContent, SelectItem, SelectSeparator, SelectTrigger, SelectValue } from './ui/select';
+import { leadViaLabel } from '../services/leadsAPI';
 import type { Lead } from '../services/leadsAPI';
 import AssigneeControl from './leads/AssigneeControl';
 import LeadNotesCard from './leads/LeadNotesCard';
@@ -80,7 +81,7 @@ export default function LeadDetailsSidebar({
           </Avatar>
           <div className="min-w-0">
             <p className="text-lg font-semibold text-gray-900 truncate">{leadName}</p>
-            <p className="text-sm text-gray-600 truncate">{lead.story ? `Via: ${lead.story.title}` : 'Direct message'}</p>
+            <p className="text-sm text-gray-600 truncate">{leadViaLabel(lead)}</p>
           </div>
         </div>
 
