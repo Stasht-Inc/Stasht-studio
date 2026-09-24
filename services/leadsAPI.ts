@@ -138,6 +138,13 @@ export function leadViaLabel(lead: Pick<Lead, 'story' | 'source'>): string {
   return lead.source === 'widget' ? 'Website widget' : 'Direct message';
 }
 
+/** Display label for a lead message's channel: Email, Website (Contact Us widget), else SMS. */
+export function messageChannelLabel(channel: LeadMessage['channel'] | string | null | undefined): string {
+  if (channel === 'email') return 'Email';
+  if (channel === 'widget') return 'Website';
+  return 'SMS';
+}
+
 export interface StartConversationPayload {
   channel: 'sms' | 'email';
   phone?: string;

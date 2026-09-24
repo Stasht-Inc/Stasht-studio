@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import { Mail, Phone, MessageSquare, X, Paperclip, Send, ChevronDown, Smile, RefreshCw, Eye, Sparkles, Search, Heart, Gift, Calendar, MessageCircle, ThumbsUp, TrendingUp, Lightbulb, FileText, UserRound, Plus, ChevronLeft } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from './ui/avatar';
-import { Lead, LeadMessage, LeadMessageAttachment, leadsAPI, CommentaryTarget } from '../services/leadsAPI';
+import { Lead, LeadMessage, LeadMessageAttachment, leadsAPI, CommentaryTarget, messageChannelLabel } from '../services/leadsAPI';
 import { useAuth } from '../contexts/AuthContext';
 import { useMemoryLimit, recheckMemoryLimit } from '../hooks/useMemoryLimit';
 import { useDialogBehavior } from '../hooks/useDialogBehavior';
@@ -545,8 +545,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
 
   const renderMessage = (msg: LeadMessage, isChild = false): React.ReactNode => {
     const isOutbound = msg.direction === 'outbound';
-    const isEmail = msg.channel === 'email';
-    const channelLabel = isEmail ? 'Email' : msg.channel === 'widget' ? 'Website' : 'SMS';
+    const channelLabel = messageChannelLabel(msg.channel);
     const isReplying = replyingToMsgId === msg.id;
     const children = messages
       .filter((m) => m.parent_message_id === msg.id)
