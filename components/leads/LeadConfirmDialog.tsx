@@ -51,7 +51,7 @@ export default function LeadConfirmDialog({ kind, leadName, onCancel, onConfirm 
 
   return (
     <AlertDialog open={!!kind} onOpenChange={(open) => { if (!open && !busy) onCancel(); }}>
-      <AlertDialogContent className="bg-white sm:max-w-md" onClick={(e) => e.stopPropagation()}>
+      <AlertDialogContent className="bg-white sm:max-w-md rounded-2xl shadow-xl border-0" onClick={(e) => e.stopPropagation()}>
         {copy && (
           <>
             <AlertDialogHeader className="items-center sm:items-start">
@@ -76,14 +76,14 @@ export default function LeadConfirmDialog({ kind, leadName, onCancel, onConfirm 
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter className="gap-2 sm:gap-2">
-              <AlertDialogCancel disabled={busy} className="h-11 flex-1 sm:flex-none">Cancel</AlertDialogCancel>
+              <AlertDialogCancel disabled={busy} className="h-11 flex-1 sm:flex-none rounded-xl bg-white border border-gray-200 text-sm font-medium text-gray-700 hover:bg-gray-50 hover:text-gray-900 shadow-none">Cancel</AlertDialogCancel>
               {/* A plain button, not AlertDialogAction: that one closes the dialog
                   immediately, before the request has finished. */}
               <button
                 type="button"
                 onClick={confirm}
                 disabled={busy}
-                className={`inline-flex h-11 flex-1 sm:flex-none items-center justify-center gap-2 rounded-md px-5 text-sm font-semibold text-white disabled:opacity-70 ${isDelete ? 'bg-red-600 hover:bg-red-700' : 'bg-[#6C60FF] hover:bg-[#5A4FE5]'}`}
+                className={`inline-flex h-11 flex-1 sm:flex-none items-center justify-center gap-2 rounded-xl px-5 text-sm font-semibold text-white disabled:opacity-70 ${isDelete ? 'bg-red-600 hover:bg-red-700' : 'bg-[#6C60FF] hover:bg-[#5A4FE5]'}`}
               >
                 {busy && <Loader2 className="h-4 w-4 animate-spin" />}
                 {busy ? copy.busy : copy.action}

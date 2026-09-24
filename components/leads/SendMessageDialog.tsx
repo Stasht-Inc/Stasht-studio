@@ -2,9 +2,6 @@ import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { Loader2, Mail, MessageSquare } from 'lucide-react';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../ui/dialog';
-import { Input } from '../ui/input';
-import { Textarea } from '../ui/textarea';
-import { Button } from '../ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { leadsAPI } from '../../services/leadsAPI';
 import { dashboardAPI } from '../../utils/authUtils';
@@ -100,60 +97,69 @@ export default function SendMessageDialog({ open, onOpenChange, onSent }: Props)
     }
   };
 
+  // Same pill toggle as the Leads / Groups / My Conversations tabs.
   const tab = (value: 'sms' | 'email', label: string, Icon: typeof MessageSquare) => (
     <button
       type="button"
       aria-pressed={channel === value}
       onClick={() => setChannel(value)}
-      className={`flex-1 h-10 inline-flex items-center justify-center gap-2 text-sm font-semibold transition-colors ${channel === value ? 'bg-[#6C60FF] text-white' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
+      className={`flex-1 h-9 inline-flex items-center justify-center gap-2 rounded-md text-sm font-medium transition-colors ${channel === value ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-800'}`}
     >
       <Icon className="w-4 h-4" />{label}
     </button>
   );
 
+  // Styled like ShareCarsDialog (the app's pattern): explicit gray borders and a
+  // purple focus ring. The shadcn defaults draw borders from colour tokens that
+  // don't resolve in this app, which is what showed up as black outlines.
+  const field = 'w-full h-10 px-3 rounded-lg bg-white text-sm text-gray-900 placeholder:text-gray-500 border border-gray-200 outline-none focus-visible:ring-2 focus-visible:ring-[#6C60FF] focus-visible:border-transparent';
+  const label = 'block text-xs font-medium text-gray-700 mb-1';
+  const hint = 'font-normal text-gray-500';
+
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!sending) onOpenChange(o); }}>
-      <DialogContent className="sm:max-w-lg bg-white">
-        <DialogHeader>
-          <DialogTitle className="text-xl">Start a new message</DialogTitle>
-          <DialogDescription className="text-gray-600">Text or email anyone. The conversation shows up in your Leads.</DialogDescription>
+      <DialogContent className="sm:max-w-lg max-h-[90vh] flex flex-col gap-0 p-0 overflow-hidden bg-white rounded-2xl shadow-xl border-0">
+        <DialogHeader className="px-6 pt-6 pb-3 pr-12">
+          <DialogTitle>Start a new message</DialogTitle>
+          <DialogDescription>Text or email anyone. The conversation shows up in your Leads.</DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4">
-          <div className="flex rounded-lg border border-gray-200 overflow-hidden">
+        <div className="px-6 pb-4 space-y-4 overflow-y-auto">
+          <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-1">
             {tab('sms', 'Text (SMS)', MessageSquare)}
-            <span className="w-px bg-gray-200" />
             {tab('email', 'Email', Mail)}
           </div>
 
-          <label className="block">
-            <span className="text-sm font-medium text-gray-800">Name <span className="text-gray-500 font-normal">(optional)</span></span>
-            <Input value={name} onChange={(e) => setName(e.target.value)} className="mt-1 h-10" autoComplete="off" />
-          </label>
+          <div>
+            <label htmlFor="sm-name" className={label}>Name <span className={hint}>(optional)</span></label>
+            <input id="sm-name" value={name} onChange={(e) => setName(e.target.value)} className={field} autoComplete="off" />
+          </div>
 
           {channel === 'sms' ? (
-            <label className="block">
-              <span className="text-sm font-medium text-gray-800">Phone number *</span>
-              <Input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="(555) 555-5555" inputMode="tel" className="mt-1 h-10" autoComplete="off" />
-            </label>
+            <div>
+              <label htmlFor="sm-phone" className={label}>Phone number</label>
+              <input id="sm-phone" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="(555) 555-5555" inputMode="tel" className={field} autoComplete="off" />
+            </div>
           ) : (
             <>
-              <label className="block">
-                <span className="text-sm font-medium text-gray-800">Email *</span>
-                <Input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="name@example.com" type="email" className="mt-1 h-10" autoComplete="off" />
-              </label>
-              <label className="block">
-                <span className="text-sm font-medium text-gray-800">Subject <span className="text-gray-500 font-normal">(optional)</span></span>
-                <Input value={subject} onChange={(e) => setSubject(e.target.value)} className="mt-1 h-10" />
-              </label>
+              <div>
+                <label htmlFor="sm-email" className={label}>Email</label>
+                <input id="sm-email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="name@example.com" type="email" className={field} autoComplete="off" />
+              </div>
+              <div>
+                <label htmlFor="sm-subject" className={label}>Subject <span className={hint}>(optional)</span></label>
+                <input id="sm-subject" value={subject} onChange={(e) => setSubject(e.target.value)} className={field} />
+              </div>
             </>
           )}
 
           {properties.length > 1 && (
             <div>
-              <span className="text-sm font-medium text-gray-800">Send from *</span>
+              <span id="sm-property-label" className={label}>Send from</span>
               <Select value={propertyId} onValueChange={setPropertyId}>
-                <SelectTrigger className="mt-1 h-10"><SelectValue placeholder="Choose a dealership" /></SelectTrigger>
+                <SelectTrigger aria-labelledby="sm-property-label" className="h-10 w-full bg-white border-gray-200 text-sm">
+                  <SelectValue placeholder="Choose a dealership" />
+                </SelectTrigger>
                 <SelectContent>
                   {properties.map((p) => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
                 </SelectContent>
@@ -162,9 +168,11 @@ export default function SendMessageDialog({ open, onOpenChange, onSent }: Props)
           )}
 
           <div>
-            <span className="text-sm font-medium text-gray-800">Attach a campaign <span className="text-gray-500 font-normal">(optional — adds its link)</span></span>
+            <span id="sm-campaign-label" className={label}>Attach a campaign <span className={hint}>(optional — adds its link)</span></span>
             <Select value={campaignId} onValueChange={setCampaignId}>
-              <SelectTrigger className="mt-1 h-10"><SelectValue placeholder="No campaign" /></SelectTrigger>
+              <SelectTrigger aria-labelledby="sm-campaign-label" className="h-10 w-full bg-white border-gray-200 text-sm">
+                <SelectValue placeholder="No campaign" />
+              </SelectTrigger>
               <SelectContent className="max-h-72">
                 <SelectItem value={NO_CAMPAIGN}>No campaign</SelectItem>
                 {campaigns.map((c) => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
@@ -172,22 +180,41 @@ export default function SendMessageDialog({ open, onOpenChange, onSent }: Props)
             </Select>
           </div>
 
-          <label className="block">
-            <span className="text-sm font-medium text-gray-800">Message *</span>
-            <Textarea value={body} onChange={(e) => setBody(e.target.value)} rows={5} className="mt-1 text-base" />
+          <div>
+            <label htmlFor="sm-body" className={label}>Message</label>
+            <textarea
+              id="sm-body"
+              value={body}
+              onChange={(e) => setBody(e.target.value)}
+              rows={5}
+              className="w-full px-3 py-2.5 rounded-lg bg-white text-sm text-gray-900 placeholder:text-gray-500 border border-gray-200 outline-none resize-y focus-visible:ring-2 focus-visible:ring-[#6C60FF] focus-visible:border-transparent"
+              placeholder={channel === 'sms' ? 'Type your text…' : 'Type your email…'}
+            />
             {channel === 'sms' && (
-              <span className={`mt-1 block text-right text-sm ${tooLong ? 'text-red-600 font-semibold' : 'text-gray-500'}`}>{body.length}/{SMS_LIMIT}</span>
+              <span className={`mt-1 block text-right text-xs ${tooLong ? 'text-red-600 font-semibold' : 'text-gray-500'}`}>{body.length}/{SMS_LIMIT}</span>
             )}
-          </label>
+          </div>
 
           {error && <p className="text-sm text-red-600" role="alert">{error}</p>}
         </div>
 
-        <div className="flex gap-3 pt-2">
-          <Button variant="outline" className="flex-1 h-11" onClick={() => onOpenChange(false)} disabled={sending}>Cancel</Button>
-          <Button className="flex-1 h-11 bg-[#6C60FF] hover:bg-[#5A4FE5] text-white" onClick={send} disabled={!canSend}>
-            {sending ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Sending…</> : 'Send'}
-          </Button>
+        <div className="border-t border-gray-100 px-6 py-4 flex gap-3">
+          <button
+            type="button"
+            onClick={() => onOpenChange(false)}
+            disabled={sending}
+            className="flex-1 h-11 rounded-xl bg-white border border-gray-200 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#6C60FF] focus-visible:ring-offset-2"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={send}
+            disabled={!canSend}
+            className="flex-1 h-11 rounded-xl bg-[#6C60FF] hover:bg-[#5A4FE5] text-white text-sm font-medium inline-flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#6C60FF] focus-visible:ring-offset-2"
+          >
+            {sending ? <><Loader2 className="w-4 h-4 animate-spin" />Sending…</> : 'Send'}
+          </button>
         </div>
       </DialogContent>
     </Dialog>
