@@ -105,6 +105,10 @@ export interface Lead {
   can_message?: boolean;
   can_assign?: boolean;
   can_delete?: boolean;
+  // Shared note (ClickUp wdy2xh13mn): readable by anyone who sees the lead.
+  notes?: string | null;
+  notes_updated_at?: string | null;
+  notes_updated_by?: { id: number; name: string | null } | null;
 }
 
 export interface LeadAssignee {
@@ -305,6 +309,13 @@ export const leadsAPI = {
 
   getAssignableUsers: async (leadId: number) => {
     return apiRequest<{ users: AssignableUser[] }>(`/leads/${leadId}/assignable-users`, { method: 'GET', skipCache: true } as RequestInit);
+  },
+
+  // Save the lead's shared note; blank clears it. Max 2000 characters.
+  updateNotes: async (leadId: number, notes: string) => {
+    return apiRequest<{ notes: string | null; notes_updated_at: string; notes_updated_by: { id: number; name: string | null } }>(
+      `/leads/${leadId}/notes`, { method: 'PATCH', body: JSON.stringify({ notes }) },
+    );
   },
 
   // Campaigns "+ Send Message" can attach: own + the chosen dealership's, published only.

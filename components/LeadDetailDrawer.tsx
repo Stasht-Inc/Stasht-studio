@@ -1276,6 +1276,8 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
             isUpdatingStatus={isUpdatingStatus}
             onStatusChange={handleStatusChange}
             onAssigneeChanged={() => { onRefreshLead?.(); }}
+            isArchived={isArchived}
+            onNotesSaved={() => { onRefreshLead?.(); }}
           />
         </aside>
       </div>
