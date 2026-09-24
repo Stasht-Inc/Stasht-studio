@@ -19,13 +19,24 @@ export function avatarColor(color: string | null | undefined): string {
   return color.startsWith('#') ? color : `#${color}`;
 }
 
+// White initials on dark colours, dark initials on light ones — some profile
+// colours are pale enough that white "BB" nearly disappeared.
+function initialsColor(bg: string): string {
+  const hex = bg.replace('#', '');
+  if (!/^[0-9a-fA-F]{6}$/.test(hex)) return '#ffffff';
+  const [r, g, b] = [0, 2, 4].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255)
+    .map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+  const luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  return luminance > 0.4 ? '#1f2937' : '#ffffff';
+}
+
 export function AssigneeBadge({ assignee, size = 'sm' }: { assignee: LeadAssignee; size?: 'sm' | 'md' }) {
   const dim = size === 'sm' ? 'h-6 w-6 text-[12px]' : 'h-8 w-8 text-sm';
   return (
     <span className="inline-flex items-center gap-2 min-w-0">
       <span
-        className={`${dim} shrink-0 rounded-full inline-flex items-center justify-center text-white font-semibold`}
-        style={{ backgroundColor: avatarColor(assignee.profile_color) }}
+        className={`${dim} shrink-0 rounded-full inline-flex items-center justify-center font-semibold`}
+        style={{ backgroundColor: avatarColor(assignee.profile_color), color: initialsColor(avatarColor(assignee.profile_color)) }}
         aria-hidden
       >
         {initialsOf(assignee.name)}
@@ -138,11 +149,11 @@ export default function AssigneeControl({ lead, onChanged, size = 'sm' }: Props)
                 <DropdownMenuItem
                   key={u.id}
                   onSelect={() => assign(u.id)}
-                  className={`cursor-pointer rounded-lg px-2.5 py-2 flex items-center gap-2.5 outline-none focus:outline-none focus-visible:outline-none focus:bg-gray-50 ${isCurrent ? 'bg-purple-50 focus:bg-purple-50' : ''}`}
+                  className={`cursor-pointer rounded-lg px-2.5 py-2 flex items-center gap-2.5 outline-none focus:outline-none focus-visible:outline-none text-gray-900 focus:!bg-gray-100 focus:!text-gray-900 ${isCurrent ? 'bg-purple-50 focus:!bg-purple-100' : ''}`}
                 >
                   <span className="min-w-0 flex-1"><AssigneeBadge assignee={u} size="md" /></span>
                   {u.role && ROLE_LABEL[u.role] && (
-                    <span className="shrink-0 rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600">{ROLE_LABEL[u.role]}</span>
+                    <span className="shrink-0 rounded-full border border-gray-200 bg-white px-2 py-0.5 text-xs font-medium text-gray-700">{ROLE_LABEL[u.role]}</span>
                   )}
                   <Check className={`w-4 h-4 shrink-0 text-[#6C60FF] ${isCurrent ? 'visible' : 'invisible'}`} aria-hidden />
                 </DropdownMenuItem>
@@ -151,7 +162,7 @@ export default function AssigneeControl({ lead, onChanged, size = 'sm' }: Props)
             <DropdownMenuSeparator className="my-1.5 bg-gray-100" />
             <DropdownMenuItem
               onSelect={() => assign(null)}
-              className={`cursor-pointer rounded-lg px-2.5 py-2 flex items-center gap-2.5 outline-none focus:outline-none focus-visible:outline-none text-gray-700 focus:bg-gray-50 ${currentId === null ? 'bg-purple-50 focus:bg-purple-50' : ''}`}
+              className={`cursor-pointer rounded-lg px-2.5 py-2 flex items-center gap-2.5 outline-none focus:outline-none focus-visible:outline-none text-gray-800 focus:!bg-gray-100 focus:!text-gray-900 ${currentId === null ? 'bg-purple-50 focus:!bg-purple-100' : ''}`}
             >
               <span className="h-8 w-8 shrink-0 rounded-full border border-dashed border-gray-300 inline-flex items-center justify-center text-gray-400"><UserX className="w-4 h-4" /></span>
               <span className="flex-1">Unassigned <span className="block text-xs text-gray-500">Team can accept it</span></span>
