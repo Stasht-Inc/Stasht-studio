@@ -51,15 +51,17 @@ function chatIcon() {
   return svg;
 }
 
+// Measured synchronously: the iframe starts hidden/0x0 and browsers may defer
+// requestAnimationFrame there, which would mean the first resize is never sent.
+let lastSize = { width: -1, height: -1 };
+
 function reportSize() {
-  requestAnimationFrame(() => {
-    const rect = root.getBoundingClientRect();
-    tell('resize', {
-      width: Math.ceil(rect.width),
-      height: Math.ceil(rect.height),
-      position: clampPosition(state.config?.theme?.bubble_position),
-    });
-  });
+  const rect = root.getBoundingClientRect();
+  const width = Math.ceil(rect.width);
+  const height = Math.ceil(rect.height);
+  if (width === lastSize.width && height === lastSize.height) return;
+  lastSize = { width, height };
+  tell('resize', { width, height, position: clampPosition(state.config?.theme?.bubble_position) });
 }
 
 function render() {
@@ -67,20 +69,30 @@ function render() {
   reportSize();
 }
 
+function focusId(id) {
+  document.getElementById(id)?.focus({ preventScroll: true });
+}
+
+function focusFirstError() {
+  const key = ['name', 'mobile', 'company', 'message'].find((k) => state.errors[k]);
+  focusId(key ? `f-${key}` : 'f-send');
+}
+
 function openPanel() {
   state.open = true;
   render();
-  document.getElementById('f-name')?.focus();
+  focusId(state.phase === 'form' ? 'f-name' : 'w-thanks');
 }
 
 function closePanel() {
   state.open = false;
   render();
+  focusId('w-launcher');
 }
 
 function launcher() {
   const label = state.config.callout_text || 'Chat with us';
-  return h('button', { class: 'launcher', type: 'button', 'aria-label': label, onclick: openPanel }, chatIcon(), h('span', {}, label));
+  return h('button', { id: 'w-launcher', class: 'launcher', type: 'button', 'aria-label': label, onclick: openPanel }, chatIcon(), h('span', {}, label));
 }
 
 function panel() {
@@ -117,18 +129,18 @@ function form() {
     field('f-message', 'Message', h('textarea', { id: 'f-message', name: 'message', maxlength: MESSAGE_MAX, required: true, oninput: bind('message') }, v.message), e.message),
     counter,
     e.form && h('div', { class: 'err', role: 'alert' }, e.form),
-    h('button', { class: 'send', type: 'submit', disabled: state.sending }, state.sending ? 'Sending…' : 'Send Message'),
+    h('button', { id: 'f-send', class: 'send', type: 'submit', disabled: state.sending }, state.sending ? 'Sending…' : 'Send Message'),
     h('p', { class: 'legal' }, 'By submitting, you authorize this business to send messages to the number you provided. Message and data rates may apply.'));
 }
 
 function thanks() {
   const first = state.values.name.trim().split(/\s+/)[0];
   return h('div', { class: 'thanks' },
-    h('h3', {}, first ? `Thanks, ${first}!` : 'Thanks!'),
+    h('h3', { id: 'w-thanks', tabindex: '-1' }, first ? `Thanks, ${first}!` : 'Thanks!'),
     h('p', {}, "Your message was sent. We'll text you shortly."),
     h('button', {
       class: 'linkbtn', type: 'button',
-      onclick: () => { state.phase = 'form'; state.values.message = ''; render(); },
+      onclick: () => { state.phase = 'form'; state.values.message = ''; render(); focusId('f-message'); },
     }, 'Send another message'));
 }
 
@@ -144,11 +156,13 @@ async function submit(ev) {
   state.errors = errors;
   if (Object.keys(errors).length) {
     render();
+    focusFirstError();
     return;
   }
 
   state.sending = true;
   render();
+  let focusTarget = null; // 'errors' | 'send' | 'thanks'
   try {
     const res = await fetch(`${API}/widgets/${encodeURIComponent(widgetId)}/submit`, {
       method: 'POST',
@@ -165,23 +179,34 @@ async function submit(ev) {
     if (res.status === 404) {
       tell('hide'); // widget was paused or removed
     } else if (res.status === 422) {
-      const body = await res.json().catch(() => ({}));
+      const body = (await res.json().catch(() => null)) || {};
       state.errors = Object.fromEntries(
         Object.entries(body.errors || {}).map(([k, msgs]) => [k, Array.isArray(msgs) ? msgs[0] : String(msgs)]),
       );
+      if (!['name', 'mobile', 'company', 'message'].some((k) => state.errors[k])) {
+        state.errors = { form: 'Please check your details and try again.' };
+      }
+      focusTarget = 'errors';
     } else if (res.status === 429) {
       state.errors = { form: 'Too many attempts. Please wait a minute and try again.' };
+      focusTarget = 'send';
     } else if (!res.ok) {
       state.errors = { form: 'Something went wrong. Please try again.' };
+      focusTarget = 'send';
     } else {
       state.errors = {};
       state.phase = 'sent';
+      focusTarget = 'thanks';
     }
   } catch {
     state.errors = { form: 'Could not reach the server. Check your connection and try again.' };
+    focusTarget = 'send';
   } finally {
     state.sending = false;
     render();
+    if (focusTarget === 'errors') focusFirstError();
+    else if (focusTarget === 'send') focusId('f-send');
+    else if (focusTarget === 'thanks') focusId('w-thanks');
   }
 }
 
@@ -195,7 +220,9 @@ async function init() {
   try {
     const res = await fetch(`${API}/widget-embed/${encodeURIComponent(widgetId)}/config`, { headers: { Accept: 'application/json' } });
     if (!res.ok) return tell('hide');
-    state.config = (await res.json()).data;
+    const body = await res.json();
+    if (!body || !body.data) return tell('hide');
+    state.config = body.data;
   } catch {
     return tell('hide');
   }
@@ -204,6 +231,7 @@ async function init() {
   style.setProperty('--brand', safeColor(state.config.theme?.primary_color));
   style.setProperty('--brand-ink', contrastInk(state.config.theme?.primary_color));
   style.setProperty('--panel-w', `${panelWidth(Number(params.get('vw')))}px`);
+  if (typeof ResizeObserver !== 'undefined') new ResizeObserver(reportSize).observe(root);
   render();
 }
 
