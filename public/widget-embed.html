@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex" />
+    <title>Contact us</title>
+    <style>
+      :root { --brand: #2f5fac; --brand-ink: #ffffff; --panel-w: 360px; --panel-max-h: 696px; }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; background: transparent; }
+      body { font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: #1b2030; }
+      #root { display: inline-block; width: max-content; padding: 12px; }
+
+      .launcher { display: inline-flex; align-items: center; gap: 10px; border: 0; cursor: pointer; padding: 14px 20px;
+        border-radius: 999px; background: var(--brand); color: var(--brand-ink); font: inherit; font-weight: 600;
+        box-shadow: 0 6px 20px rgba(0, 0, 0, .25); white-space: nowrap; }
+      .launcher svg { width: 22px; height: 22px; flex: none; }
+
+      .panel { width: var(--panel-w); background: #fff; border-radius: 16px; max-height: var(--panel-max-h); overflow-x: hidden; overflow-y: auto; box-shadow: 0 10px 40px rgba(0, 0, 0, .3); }
+      .head { background: var(--brand); color: var(--brand-ink); padding: 18px 20px 16px; position: sticky; top: 0; z-index: 1; }
+      .head h2 { margin: 0 32px 6px 0; font-size: 17px; }
+      .head p { margin: 0; font-size: 13px; opacity: .95; }
+      .agent { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; font-weight: 600; font-size: 13px; }
+      .agent img { height: 26px; border-radius: 4px; background: #fff; padding: 2px; }
+      .close { position: absolute; top: 12px; right: 12px; width: 32px; height: 32px; border: 0; border-radius: 50%;
+        background: transparent; color: inherit; font-size: 22px; line-height: 1; cursor: pointer; }
+      .close:hover { background: rgba(255, 255, 255, .18); }
+
+      form { padding: 16px 20px 18px; display: grid; gap: 10px; }
+      label { display: grid; gap: 4px; font-size: 12px; font-weight: 600; color: #3d4257; }
+      input, textarea { font: inherit; padding: 10px 12px; border: 1px solid #c9cfdd; border-radius: 10px; width: 100%; color: #1b2030; background: #fff; }
+      textarea { min-height: 84px; resize: vertical; }
+      input:focus-visible, textarea:focus-visible, button:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+      .err { color: #b3261e; font-size: 12px; font-weight: 500; }
+      .count { text-align: right; font-size: 11px; color: #6b7288; }
+      .send { border: 0; cursor: pointer; padding: 13px 16px; border-radius: 999px; background: var(--brand); color: var(--brand-ink); font: inherit; font-weight: 700; }
+      .send[disabled] { opacity: .6; cursor: default; }
+      .legal { font-size: 11px; color: #6b7288; margin: 2px 0 0; }
+
+      .thanks { padding: 28px 20px 24px; text-align: center; display: grid; gap: 12px; }
+      .thanks h3 { margin: 0; font-size: 17px; }
+      .thanks p { margin: 0; }
+      .linkbtn { border: 0; background: none; color: var(--brand); font: inherit; font-weight: 600; cursor: pointer; text-decoration: underline; }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/widget-embed.js"></script>
+  </body>
+</html>

@@ -2,6 +2,7 @@ import { Archive, ArchiveRestore, CheckCheck, MoreHorizontal, Trash2 } from 'luc
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from '../ui/dropdown-menu';
+import { leadViaLabel } from '../../services/leadsAPI';
 import type { Lead } from '../../services/leadsAPI';
 import { STATUS_STYLES, type LeadStatus } from '../LeadDetailsSidebar';
 import AssigneeControl from './AssigneeControl';
@@ -133,7 +134,7 @@ export default function LeadsInboxTable(props: Props) {
                     {formatInboxDate(lead.last_activity_at || lead.last_engaged_at)}
                   </td>
                   <td className={`${cell} text-sm text-gray-800 truncate`}>{leadContactLine(lead)}</td>
-                  <td className={`${cell} text-sm text-gray-900`} title={lead.story ? `Via: ${lead.story.title}` : 'Direct message'}>
+                  <td className={`${cell} text-sm text-gray-900`} title={leadViaLabel(lead)}>
                     <span className="flex items-center gap-1.5 min-w-0">
                       <span className="truncate">{leadName(lead)}</span>
                       <StatusPill status={lead.status} />

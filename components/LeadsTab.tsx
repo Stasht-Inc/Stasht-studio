@@ -8,7 +8,7 @@ import { Button } from './ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from './ui/avatar';
 import { Select, SelectContent, SelectItem, SelectSeparator, SelectTrigger, SelectValue } from './ui/select';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger } from './ui/dropdown-menu';
-import { leadsAPI, Lead, LeadMessage, CommentaryTarget, LeadGroupSummary, LeadGroup, Conversation } from '../services/leadsAPI';
+import { leadsAPI, Lead, LeadMessage, CommentaryTarget, LeadGroupSummary, LeadGroup, Conversation, messageChannelLabel } from '../services/leadsAPI';
 import { mapLimit } from '../utils/requestLimit';
 import LeadsInboxTable from './leads/LeadsInboxTable';
 import LeadConfirmDialog, { type LeadConfirmKind } from './leads/LeadConfirmDialog';
@@ -314,7 +314,7 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
 
       fetched.forEach(({ lead, messages }) => {
         messages.forEach((m) => {
-          const channel = m.channel === 'email' ? 'Email' : 'SMS';
+          const channel = messageChannelLabel(m.channel);
           const dir = m.direction === 'outbound' ? 'Outbound' : 'Inbound';
           entries.push({
             lead,

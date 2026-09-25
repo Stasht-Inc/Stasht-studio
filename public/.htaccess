@@ -17,6 +17,18 @@ Options -MultiViews
     Header set Cache-Control "no-store, no-cache, must-revalidate, max-age=0"
 </FilesMatch>
 
+# Contact Us widget files are embedded on customers' sites. The generic .js rule above marks every
+# .js file immutable for a year, which would strand customers on a stale loader — keep these short.
+<FilesMatch "^(widget-loader\.js|widget-embed\.js|widget-core\.js|widget-embed\.html)$">
+    Header set Cache-Control "public, max-age=300"
+</FilesMatch>
+
+# The embed page is loaded inside an iframe on other companies' websites.
+<FilesMatch "^widget-embed\.html$">
+    Header always unset X-Frame-Options
+    Header set Content-Security-Policy "frame-ancestors *"
+</FilesMatch>
+
 # Deep-link verification files must serve as application/json.
 # The Apple file has no extension, so force its Content-Type explicitly.
 <Files "apple-app-site-association">

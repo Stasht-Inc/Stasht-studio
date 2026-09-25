@@ -272,6 +272,7 @@
   "scripts": {
     "dev": "vite",
     "test": "echo \"Error: no test specified\" && exit 1",
+    "test:widget": "node --test tests/widget/*.test.mjs",
     "build": "tsc && vite build",
     "build:prod": "node --max-old-space-size=8192 node_modules/vite/bin/vite.js build",
     "preview": "vite preview",

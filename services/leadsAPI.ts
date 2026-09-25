@@ -68,7 +68,7 @@ export interface LeadMessage {
   id: number;
   parent_message_id: number | null;
   direction: 'outbound' | 'inbound';
-  channel: 'email' | 'sms';
+  channel: 'email' | 'sms' | 'app' | 'widget';
   body: string;
   subject?: string | null;
   status: string;
@@ -84,6 +84,8 @@ export interface Lead {
   user: LeadUser | null;
   // null for a direct lead started from "+ Send Message" without a campaign.
   story: LeadStory | null;
+  // 'widget' = captured by the Contact Us website widget (no campaign, no account).
+  source?: 'memory' | 'widget';
   status: 'hot' | 'warm' | 'cold' | 'visited' | 'sold' | null;
   engagement: number;
   comments: LeadComment[];
@@ -120,7 +122,7 @@ export interface LeadAssignee {
 export interface LeadLatestMessage {
   body: string;
   direction: 'inbound' | 'outbound';
-  channel: 'sms' | 'email' | 'app';
+  channel: 'sms' | 'email' | 'app' | 'widget';
   sender_name: string | null;
   sent_at: string | null;
   attachment_name: string | null;
@@ -128,6 +130,19 @@ export interface LeadLatestMessage {
 
 export interface AssignableUser extends LeadAssignee {
   role: 'owner' | 'admin' | 'rep' | string;
+}
+
+/** Text for a lead's "Via" line: its campaign, the website widget, or a direct message. */
+export function leadViaLabel(lead: Pick<Lead, 'story' | 'source'>): string {
+  if (lead.story?.title) return `Via: ${lead.story.title}`;
+  return lead.source === 'widget' ? 'Website widget' : 'Direct message';
+}
+
+/** Display label for a lead message's channel: Email, Website (Contact Us widget), else SMS. */
+export function messageChannelLabel(channel: LeadMessage['channel'] | string | null | undefined): string {
+  if (channel === 'email') return 'Email';
+  if (channel === 'widget') return 'Website';
+  return 'SMS';
 }
 
 export interface StartConversationPayload {
