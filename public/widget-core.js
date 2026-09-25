@@ -58,3 +58,11 @@ export function panelWidth(viewportWidth) {
   if (!Number.isFinite(vw) || vw <= 0) return 360;
   return Math.max(280, Math.min(360, Math.floor(vw) - 32));
 }
+
+/** Max panel height so the panel scrolls inside the iframe instead of being clipped on short host viewports. */
+export function panelMaxHeight(viewportHeight) {
+  const vh = Number(viewportHeight);
+  if (!Number.isFinite(vh) || vh <= 0) return 696;
+  // The loader caps the iframe at min(720, vh - 32); #root adds 12px padding top and bottom.
+  return Math.max(200, Math.min(720, Math.floor(vh) - 32) - 24);
+}

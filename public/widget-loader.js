@@ -18,7 +18,8 @@
   var src = base + '/widget-embed.html'
     + '?w=' + encodeURIComponent(widgetId)
     + '&host=' + encodeURIComponent(window.location.origin)
-    + '&vw=' + encodeURIComponent(window.innerWidth);
+    + '&vw=' + encodeURIComponent(window.innerWidth)
+    + '&vh=' + encodeURIComponent(window.innerHeight);
 
   var frame = document.createElement('iframe');
   frame.id = frameId;

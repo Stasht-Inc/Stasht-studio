@@ -6,7 +6,7 @@
     <meta name="robots" content="noindex" />
     <title>Contact us</title>
     <style>
-      :root { --brand: #2f5fac; --brand-ink: #ffffff; --panel-w: 360px; }
+      :root { --brand: #2f5fac; --brand-ink: #ffffff; --panel-w: 360px; --panel-max-h: 696px; }
       * { box-sizing: border-box; }
       html, body { margin: 0; background: transparent; }
       body { font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: #1b2030; }
@@ -17,7 +17,7 @@
         box-shadow: 0 6px 20px rgba(0, 0, 0, .25); white-space: nowrap; }
       .launcher svg { width: 22px; height: 22px; flex: none; }
 
-      .panel { width: var(--panel-w); background: #fff; border-radius: 16px; overflow: hidden; box-shadow: 0 10px 40px rgba(0, 0, 0, .3); }
+      .panel { width: var(--panel-w); background: #fff; border-radius: 16px; max-height: var(--panel-max-h); overflow-x: hidden; overflow-y: auto; box-shadow: 0 10px 40px rgba(0, 0, 0, .3); }
       .head { background: var(--brand); color: var(--brand-ink); padding: 18px 20px 16px; position: relative; }
       .head h2 { margin: 0 32px 6px 0; font-size: 17px; }
       .head p { margin: 0; font-size: 13px; opacity: .95; }

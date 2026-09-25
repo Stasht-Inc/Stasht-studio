@@ -1,6 +1,6 @@
 // public/widget-embed.js
 import {
-  safeColor, safeHttpsUrl, contrastInk, hostOrigin, isPlausiblePhone, clampPosition, panelWidth, MESSAGE_MAX,
+  safeColor, safeHttpsUrl, contrastInk, hostOrigin, isPlausiblePhone, clampPosition, panelWidth, panelMaxHeight, MESSAGE_MAX,
 } from './widget-core.js';
 
 const params = new URLSearchParams(location.search);
@@ -231,6 +231,7 @@ async function init() {
   style.setProperty('--brand', safeColor(state.config.theme?.primary_color));
   style.setProperty('--brand-ink', contrastInk(state.config.theme?.primary_color));
   style.setProperty('--panel-w', `${panelWidth(Number(params.get('vw')))}px`);
+  style.setProperty('--panel-max-h', `${panelMaxHeight(Number(params.get('vh')))}px`);
   if (typeof ResizeObserver !== 'undefined') new ResizeObserver(reportSize).observe(root);
   render();
 }

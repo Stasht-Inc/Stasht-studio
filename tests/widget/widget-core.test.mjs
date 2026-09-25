@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  safeColor, safeHttpsUrl, contrastInk, hostOrigin, isPlausiblePhone, clampPosition, panelWidth, MESSAGE_MAX,
+  safeColor, safeHttpsUrl, contrastInk, hostOrigin, isPlausiblePhone, clampPosition, panelWidth, panelMaxHeight, MESSAGE_MAX,
 } from '../../public/widget-core.js';
 
 test('safeColor accepts #RRGGBB only', () => {
@@ -64,4 +64,13 @@ test('panelWidth fits the host viewport', () => {
 
 test('MESSAGE_MAX matches the API limit', () => {
   assert.equal(MESSAGE_MAX, 320);
+});
+
+test('panelMaxHeight fits the host viewport', () => {
+  assert.equal(panelMaxHeight(undefined), 696);
+  assert.equal(panelMaxHeight(0), 696);
+  assert.equal(panelMaxHeight(900), 696);
+  assert.equal(panelMaxHeight(640), 584);
+  assert.equal(panelMaxHeight(568), 512);
+  assert.equal(panelMaxHeight(200), 200);
 });
