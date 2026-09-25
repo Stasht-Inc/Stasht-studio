@@ -69,7 +69,8 @@ export default defineConfig(({ mode }) => {
         globPatterns: ['**/*.{css,html,svg,png,woff2}'],
         maximumFileSizeToCacheInBytes: 1 * 1024 * 1024,
         navigateFallback: 'index.html',
-        navigateFallbackDenylist: [/^\/api/, /^\/s\//],
+        navigateFallbackDenylist: [/^\/api/, /^\/s\//, /^\/widget-embed\.html/],
+        globIgnores: ['**/widget-embed.html'],
         runtimeCaching: [
           {
             urlPattern: /^https:\/\/stasht-data\.s3\.us-east-2\.amazonaws\.com\/.*/i,
