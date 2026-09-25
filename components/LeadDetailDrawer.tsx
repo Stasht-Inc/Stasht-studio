@@ -558,7 +558,11 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
       setIsSendingReply(true);
       try {
         const key = replyIdemKeyRef.current;
-        const res = await leadsAPI.replyToMessage(lead!.id, msg.id, replyText.trim(), key);
+        // Email replies thread onto the parent email; SMS and website-widget messages have no email
+        // thread to reply into, so answer them by SMS (the lead's phone is always on file for both).
+        const res = (msg.channel === 'sms' || msg.channel === 'widget')
+          ? await leadsAPI.sendSMS(lead!.id, replyText.trim(), key)
+          : await leadsAPI.replyToMessage(lead!.id, msg.id, replyText.trim(), key);
         if (res.success) {
           replyIdemKeyRef.current = crypto.randomUUID(); // confirmed success → fresh key
           setReplyingToMsgId(null);
