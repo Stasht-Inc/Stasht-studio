@@ -77,7 +77,7 @@ export async function copyText(text: string): Promise<boolean> {
   }
 }
 
-/** "https://www.RoyalWoodShop.com/contact" -> "royalwoodshop.com" (matches the server's WidgetHostMatcher). Returns '' if nothing usable. */
+/** "https://www.Example.com/contact" -> "example.com" (matches the server's WidgetHostMatcher). Returns '' if nothing usable. */
 export function normalizeDomain(input: string): string {
   return input
     .trim()
