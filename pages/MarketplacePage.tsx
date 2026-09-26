@@ -1,7 +1,9 @@
 import { useState, useEffect } from 'react';
-import { Check, X, ExternalLink, Info, CheckCircle2, Loader2, Unplug } from 'lucide-react';
+import { Check, X, ExternalLink, Info, CheckCircle2, Loader2, Unplug, MessageCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import { dashboardAPI } from '../utils/authUtils';
+import { widgetsAPI } from '../services/widgetsAPI';
+import { ContactWidgetManager } from '../components/widgets/ContactWidgetManager';
 
 interface Widget {
   id: string;
@@ -44,12 +46,20 @@ const widgets: Widget[] = [
     iconImage: '/autotrader-icon.png',
     iconFill: true,
   },
+  {
+    id: 'contact-widget',
+    name: 'Contact Us Widget',
+    category: 'Website Lead Capture',
+    description: 'Capture leads straight from your own website with a chat-style Contact Us widget.',
+    features: ['Customizable color, agent name, and greeting', 'Leads land in your Leads inbox', 'One-line install'],
+  },
 ];
 
 const brandColors: Record<string, string> = {
   shopify: 'linear-gradient(145deg, #95BF47, #5E8E3E)',
   docusign: '#ffffff',
   autotrader: '#ffffff',
+  'contact-widget': 'linear-gradient(145deg, #8B80FF, #6C60FF)',
 };
 
 const brandInitials: Record<string, string> = {
@@ -632,6 +642,7 @@ export default function MarketplacePage() {
   const [shopifyConnected, setShopifyConnected] = useState(false);
   const [shopifyShopDomain, setShopifyShopDomain] = useState<string | null>(null);
   const [shopifyConnectedAt, setShopifyConnectedAt] = useState<string | null>(null);
+  const [contactWidgetCount, setContactWidgetCount] = useState(0);
 
   useEffect(() => {
     // Handle OAuth callback result from URL params
@@ -689,6 +700,13 @@ export default function MarketplacePage() {
         }
       })
       .catch(() => {});
+
+    // Contact Us widgets: only needed to label the card "Manage" vs "Get Widget".
+    widgetsAPI.list()
+      .then(res => {
+        if (res.ok && Array.isArray(res.data)) setContactWidgetCount(res.data.length);
+      })
+      .catch(() => {});
   }, []);
 
   return (
@@ -718,7 +736,7 @@ export default function MarketplacePage() {
                   className="w-24 h-24 rounded-2xl flex items-center justify-center text-white text-3xl font-bold"
                   style={{ background: brandColors[widget.id] }}
                 >
-                  {brandInitials[widget.id]}
+                  {widget.id === 'contact-widget' ? <MessageCircle className="w-12 h-12" aria-hidden="true" /> : brandInitials[widget.id]}
                 </div>
               )}
             </div>
@@ -743,7 +761,7 @@ export default function MarketplacePage() {
                     className="w-11 h-11 rounded-xl flex items-center justify-center text-white text-base font-bold flex-shrink-0"
                     style={{ background: brandColors[widget.id] }}
                   >
-                    {brandInitials[widget.id]}
+                    {widget.id === 'contact-widget' ? <MessageCircle className="w-6 h-6" aria-hidden="true" /> : brandInitials[widget.id]}
                   </div>
                 )}
                 <div className="flex-1 min-w-0">
@@ -774,7 +792,9 @@ export default function MarketplacePage() {
 
               {/* Button */}
               {(() => {
-                const connected = (widget.id === 'docusign' && docusignConnected) || (widget.id === 'shopify' && shopifyConnected);
+                const connected = (widget.id === 'docusign' && docusignConnected)
+                  || (widget.id === 'shopify' && shopifyConnected)
+                  || (widget.id === 'contact-widget' && contactWidgetCount > 0);
                 return (
                   <button
                     onClick={() => setActiveModal(widget.id)}
@@ -822,6 +842,14 @@ export default function MarketplacePage() {
             setDocusignConnected(false);
             setDocusignConnectedAt(null);
           }}
+        />
+      )}
+
+      {/* Contact Us Widget manager */}
+      {activeModal === 'contact-widget' && (
+        <ContactWidgetManager
+          onClose={() => setActiveModal(null)}
+          onCountChange={setContactWidgetCount}
         />
       )}
 
