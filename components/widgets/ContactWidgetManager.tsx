@@ -199,7 +199,7 @@ function WidgetBuilder({
     const domain = normalizeDomain(raw);
     if (!domain) return current;
     if (!isPlausibleDomain(domain)) {
-      setDomainError(`"${raw.trim()}" doesn't look like a domain. Use something like royalwoodshop.com.`);
+      setDomainError(`"${raw.trim()}" doesn't look like a domain. Use something like example.com.`);
       return null;
     }
     setDomainError('');
@@ -524,7 +524,7 @@ function WidgetBuilder({
                   onChange={(e) => { setDomainInput(e.target.value); if (domainError) setDomainError(''); }}
                   onKeyDown={onDomainKey}
                   onBlur={() => { if (domainInput.trim()) commitDomain(); }}
-                  placeholder="royalwoodshop.com"
+                  placeholder="example.com"
                   autoCapitalize="none"
                   spellCheck={false}
                   aria-invalid={!!(domainError || errors.allowed_domains)}
@@ -540,7 +540,7 @@ function WidgetBuilder({
                 </button>
               </div>
               <p id={id('domain-help')} className="text-xs text-gray-400 mt-1">
-                The domain(s) of the site where the widget will be installed, e.g. royalwoodshop.com. Press Enter to add each one.
+                The domain(s) of the site where the widget will be installed, e.g. example.com. Press Enter to add each one.
               </p>
               <FieldError id={id('domain-err')} message={domainError || errors.allowed_domains} />
             </div>
