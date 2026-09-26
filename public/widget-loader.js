@@ -9,6 +9,9 @@
   var script = document.currentScript
     || document.querySelector('script[data-widget-id][src*="widget-loader.js"]');
   if (!script) return;
+  // An app that injects this tag and removes it again before it runs (e.g. Studio's login page
+  // unmounting) means "don't install": otherwise the widget would appear after the page is gone.
+  if (script.isConnected === false) return;
 
   var scriptSrc = script.getAttribute('src');
   if (!scriptSrc) return; // inline script with no src: nothing to derive our origin from

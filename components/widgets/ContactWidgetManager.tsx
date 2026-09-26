@@ -257,8 +257,9 @@ function WidgetBuilder({
     setDomainInput('');
     setDomainError('');
     setErrors({});
+    // A new widget sends the manager back to the list (this builder unmounts), which has its own toast.
     onSaved(res.data, created);
-    toast.success(created ? 'Widget created. Copy the install code below.' : 'Widget saved');
+    if (!created) toast.success('Widget saved');
   };
 
   const remove = async () => {
@@ -651,6 +652,7 @@ export function ContactWidgetManager({
   const [editing, setEditing] = useState<ContactWidget | null>(null);
   // Bumped each time the builder opens so it always starts from fresh state.
   const [builderKey, setBuilderKey] = useState(0);
+  const [justCreatedId, setJustCreatedId] = useState<string | null>(null);
   const dirtyRef = useRef(false);
   const dialogRef = useRef<HTMLDivElement>(null);
   const titleId = useId();
@@ -680,6 +682,7 @@ export function ContactWidgetManager({
   }, [onClose]);
 
   const openBuilder = (w: ContactWidget | null) => {
+    setJustCreatedId(null);
     setEditing(w);
     setBuilderKey((k) => k + 1);
     setView('builder');
@@ -732,13 +735,22 @@ export function ContactWidgetManager({
   }, [requestClose]);
 
   const handleSaved = (w: ContactWidget, created: boolean) => {
-    setEditing(w);
     setWidgets((list) => {
       const current = list || [];
       const next = created ? [w, ...current.filter((x) => x.id !== w.id)] : current.map((x) => (x.id === w.id ? w : x));
       onCountChange?.(next.length);
       return next;
     });
+    if (!created) {
+      setEditing(w);
+      return;
+    }
+    // New widget: back to the list, with the new row highlighted and its install code one click away.
+    dirtyRef.current = false;
+    setEditing(null);
+    setJustCreatedId(w.id);
+    setView('list');
+    toast.success('Widget created. Use "Copy install code" to add it to your site.');
   };
 
   const handleDeleted = (id: string) => {
@@ -859,10 +871,18 @@ export function ContactWidgetManager({
             {widgets !== null && widgets.length > 0 && (
               <ul className="rounded-2xl border border-gray-200 divide-y divide-gray-100 overflow-hidden">
                 {widgets.map((w) => (
-                  <li key={w.id} className="flex items-center gap-4 px-5 py-4 flex-wrap">
+                  <li
+                    key={w.id}
+                    className={`flex items-center gap-4 px-5 py-4 flex-wrap ${w.id === justCreatedId ? 'bg-[#6C60FF]/5' : ''}`}
+                  >
                     <div className="w-24 flex-shrink-0"><StatusBadge status={w.status} /></div>
                     <div className="flex-1 min-w-[10rem]">
-                      <p className="text-base font-semibold text-gray-900 truncate">{w.name}</p>
+                      <p className="text-base font-semibold text-gray-900 truncate">
+                        {w.name}
+                        {w.id === justCreatedId && (
+                          <span className="ml-2 align-middle text-xs font-semibold text-[#4a40d4] bg-[#6C60FF]/10 rounded-full px-2 py-0.5">New</span>
+                        )}
+                      </p>
                       <p className="text-sm text-gray-500 truncate">
                         {w.allowed_domains?.length ? w.allowed_domains.join(', ') : 'No domain added yet'}
                       </p>
