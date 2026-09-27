@@ -1,11 +1,12 @@
 import { useState } from 'react';
 import { toast } from 'sonner';
-import { Check, ChevronDown, Loader2, UserCheck, UserX } from 'lucide-react';
+import { Check, ChevronDown, Loader2, UserCheck, UserPlus, UserX } from 'lucide-react';
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger,
 } from '../ui/dropdown-menu';
 import { leadsAPI, type AssignableUser, type Lead, type LeadAssignee } from '../../services/leadsAPI';
 import { initialsOf } from '../../utils/leadInbox';
+import RowActionButton from './RowActionButton';
 
 // Who owns a lead, and the controls to change it (spec 2026-09-23 §2/§5):
 //  - admins (can_assign) get a picker of the dealer team, incl. "Unassigned";
@@ -30,10 +31,10 @@ function initialsColor(bg: string): string {
   return luminance > 0.4 ? '#1f2937' : '#ffffff';
 }
 
-export function AssigneeBadge({ assignee, size = 'sm' }: { assignee: LeadAssignee; size?: 'sm' | 'md' }) {
+export function AssigneeBadge({ assignee, size = 'sm', nameClassName = '' }: { assignee: LeadAssignee; size?: 'sm' | 'md'; nameClassName?: string }) {
   const dim = size === 'sm' ? 'h-6 w-6 text-[12px]' : 'h-8 w-8 text-sm';
   return (
-    <span className="inline-flex items-center gap-2 min-w-0">
+    <span className="inline-flex items-center gap-2 min-w-0" title={assignee.name ?? undefined}>
       <span
         className={`${dim} shrink-0 rounded-full inline-flex items-center justify-center font-semibold`}
         style={{ backgroundColor: avatarColor(assignee.profile_color), color: initialsColor(avatarColor(assignee.profile_color)) }}
@@ -41,7 +42,7 @@ export function AssigneeBadge({ assignee, size = 'sm' }: { assignee: LeadAssigne
       >
         {initialsOf(assignee.name)}
       </span>
-      <span className="truncate text-gray-800">{assignee.name ?? 'Team member'}</span>
+      <span className={`truncate text-gray-800 ${nameClassName}`}>{assignee.name ?? 'Team member'}</span>
     </span>
   );
 }
@@ -50,9 +51,12 @@ interface Props {
   lead: Lead;
   onChanged: (patch: Partial<Lead>) => void;
   size?: 'sm' | 'md';
+  // 'icon' = a single round button for the Leads list's hover actions (the
+  // current assignee is shown separately); renders nothing when there's no action.
+  variant?: 'picker' | 'icon';
 }
 
-export default function AssigneeControl({ lead, onChanged, size = 'sm' }: Props) {
+export default function AssigneeControl({ lead, onChanged, size = 'sm', variant = 'picker' }: Props) {
   const [busy, setBusy] = useState(false);
   const [team, setTeam] = useState<AssignableUser[] | null>(null);
   const [loadingTeam, setLoadingTeam] = useState(false);
@@ -120,9 +124,12 @@ export default function AssigneeControl({ lead, onChanged, size = 'sm' }: Props)
       ...(team ?? []),
     ];
     return (
-      <div onClick={stop} className="min-w-0">
+      <div onClick={stop} className={variant === 'icon' ? 'shrink-0' : 'min-w-0'}>
         <DropdownMenu onOpenChange={(open) => { if (open) loadTeam(); }}>
           <DropdownMenuTrigger asChild disabled={busy}>
+            {variant === 'icon' ? (
+              <RowActionButton label={lead.assignee ? 'Reassign lead' : 'Assign lead'} icon={UserPlus} busy={busy} />
+            ) : (
             <button
               type="button"
               aria-label="Assigned to"
@@ -137,8 +144,9 @@ export default function AssigneeControl({ lead, onChanged, size = 'sm' }: Props)
               )}
               <ChevronDown className="w-4 h-4 shrink-0 text-gray-400" />
             </button>
+            )}
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" sideOffset={6} className="w-72 p-1.5 bg-white border border-gray-200 shadow-lg rounded-xl">
+          <DropdownMenuContent align={variant === 'icon' ? 'end' : 'start'} sideOffset={6} className="w-72 p-1.5 bg-white border border-gray-200 shadow-lg rounded-xl">
             <DropdownMenuLabel className="px-2.5 pt-1.5 pb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">Assign lead to</DropdownMenuLabel>
             {loadingTeam && !team && (
               <div className="px-2.5 py-2 text-sm text-gray-500 flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" />Loading team…</div>
@@ -171,6 +179,15 @@ export default function AssigneeControl({ lead, onChanged, size = 'sm' }: Props)
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
+    );
+  }
+
+  if (variant === 'icon') {
+    if (lead.assignee) return null;
+    return (
+      <span onClick={stop} className="shrink-0">
+        <RowActionButton label="Accept lead" icon={UserCheck} busy={busy} disabled={busy} onClick={accept} />
+      </span>
     );
   }
 
