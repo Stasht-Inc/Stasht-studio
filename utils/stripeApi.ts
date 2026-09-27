@@ -1,23 +1,8 @@
 import axios from 'axios';
+import { getApiBaseUrl } from './authUtils';
 
-// Get API base URL - use proxy in development to avoid CORS issues
-const getStripeApiUrl = () => {
-  // Use environment variable if set (production)
-  if (import.meta.env.VITE_STRIPE_API_URL) {
-    return import.meta.env.VITE_STRIPE_API_URL;
-  }
-
-  // Development mode: use Vite proxy
-  if (import.meta.env.DEV) {
-    console.log('🔍 Development mode: Using Vite proxy for Stripe API requests');
-    return '/api/react';
-  }
-
-  // Production fallback: assume same domain with /api prefix
-  return `${window.location.origin}/api/react`;
-};
-
-const STRIPE_API_URL = getStripeApiUrl();
+// Same host as every other API call — a separate Stripe URL setting drifted once already.
+const STRIPE_API_URL = getApiBaseUrl();
 
 // Create axios instance with default config
 const stripeAxios = axios.create({
