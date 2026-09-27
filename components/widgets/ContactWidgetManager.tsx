@@ -832,6 +832,15 @@ export function ContactWidgetManager({
     setView('builder');
   };
 
+  // Most accounts have one widget: with none yet, skip the empty list and open the
+  // builder. First load only — deleting your last widget later returns to the list.
+  const firstLoadHandled = useRef(false);
+  useEffect(() => {
+    if (widgets === null || firstLoadHandled.current) return;
+    firstLoadHandled.current = true;
+    if (widgets.length === 0) openBuilder(null);
+  }, [widgets]);
+
   const backToList = () => {
     if (!confirmDiscard()) return;
     dirtyRef.current = false;
