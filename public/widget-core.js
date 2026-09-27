@@ -79,3 +79,74 @@ export function panelMaxHeight(viewportHeight) {
   // The loader caps the iframe at min(720, vh - 32); #root adds the top and bottom padding.
   return Math.max(200, cap - ROOT_PAD.top - ROOT_PAD.bottom);
 }
+
+// --- Form fields -----------------------------------------------------------------------------
+// The server sends the shown fields (in order) as config.form_fields; see WidgetFormFields.php.
+
+const FIELD_KEYS = ['name', 'mobile', 'email', 'company', 'message'];
+const DEFAULT_LABELS = { name: 'Name', mobile: 'Mobile Number', email: 'Email', company: 'Company Name', message: 'Message' };
+
+/** The original form, used when the API predates configurable fields. */
+export const DEFAULT_FORM_FIELDS = [
+  { key: 'name', label: 'Name', required: true },
+  { key: 'mobile', label: 'Mobile Number', required: true },
+  { key: 'company', label: 'Company Name', required: false },
+  { key: 'message', label: 'Message', required: true },
+];
+
+export function formFieldsFrom(config) {
+  const list = Array.isArray(config?.form_fields)
+    ? config.form_fields.filter((f) => f && FIELD_KEYS.includes(f.key))
+    : [];
+  if (!list.length) return DEFAULT_FORM_FIELDS;
+  return list.map((f) => ({ key: f.key, label: String(f.label || DEFAULT_LABELS[f.key]), required: Boolean(f.required) }));
+}
+
+export function fieldLabel(field) {
+  return field.required ? field.label : `${field.label} (optional)`;
+}
+
+/** Early feedback only; the server's `email` rule decides. */
+export function isPlausibleEmail(raw) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(raw || '').trim());
+}
+
+const REQUIRED_MESSAGES = {
+  name: 'Enter your name.',
+  mobile: 'Enter a valid phone number, including the area code.',
+  email: 'Enter your email address.',
+  company: 'Enter your company name.',
+  message: 'Enter a message.',
+};
+
+/** Errors keyed by field for the shown fields only. */
+export function validateValues(fields, values) {
+  const errors = {};
+  for (const field of fields) {
+    const value = String(values[field.key] || '').trim();
+    if (!value) {
+      if (field.required) errors[field.key] = REQUIRED_MESSAGES[field.key];
+    } else if (field.key === 'mobile' && !isPlausiblePhone(value)) {
+      errors.mobile = 'Enter a valid phone number, including the area code.';
+    } else if (field.key === 'email' && !isPlausibleEmail(value)) {
+      errors.email = 'Enter a valid email address.';
+    }
+  }
+  return errors;
+}
+
+export function consentText(fields) {
+  const phone = fields.some((f) => f.key === 'mobile');
+  const email = fields.some((f) => f.key === 'email');
+  if (phone && email) {
+    return 'By submitting, you authorize this business to contact you by text or email using the details you provided. Message and data rates may apply.';
+  }
+  if (email) return 'By submitting, you authorize this business to contact you at the email you provided.';
+  return 'By submitting, you authorize this business to send messages to the number you provided. Message and data rates may apply.';
+}
+
+export function thanksText(values) {
+  if (String(values.mobile || '').trim()) return "Your message was sent. We'll text you shortly.";
+  if (String(values.email || '').trim()) return "Your message was sent. We'll email you shortly.";
+  return "Your message was sent. We'll be in touch shortly.";
+}

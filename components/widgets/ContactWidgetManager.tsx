@@ -3,15 +3,19 @@ import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { ArrowLeft, Check, Code2, Copy, Loader2, MessageCircle, Pencil, Plus, Trash2, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { widgetsAPI } from '../../services/widgetsAPI';
-import type { ContactWidget, ContactWidgetInput, WidgetBubblePosition, WidgetStatus } from '../../services/widgetsAPI';
+import type {
+  ContactWidget, ContactWidgetInput, FormFieldKey, FormFieldSetting, FormFieldSettings, WidgetBubblePosition, WidgetStatus,
+} from '../../services/widgetsAPI';
 import { WidgetPreview } from './WidgetPreview';
 import { InstallGuide } from './InstallGuide';
 import { InstallStatusLine } from './InstallStatus';
 import {
-  DEFAULT_BRAND, WELCOME_MAX, copyText, installSnippet, isHexColor, isPlausibleDomain, normalizeDomain, safeColor,
+  DEFAULT_BRAND, DEFAULT_FORM_FIELD_SETTINGS, FORM_FIELD_KEYS, FORM_FIELD_LABEL_MAX, FORM_FIELD_NAMES, WELCOME_MAX, copyText,
+  formCanReply, installSnippet, isHexColor, isPlausibleDomain, normalizeDomain, resolveFormFields, safeColor,
 } from './widgetHelpers';
 
 const BRAND = '#6C60FF';
+const REPLY_RULE = 'Make Mobile number or Email required, so every visitor leaves a way for you to reply.';
 const CALLOUT_MAX = 60;
 const AGENT_MAX = 40;
 const NAME_MAX = 80;
@@ -36,6 +40,7 @@ interface FormState {
   position: WidgetBubblePosition;
   domains: string[];
   status: WidgetStatus;
+  formFields: FormFieldSettings;
 }
 
 const emptyForm: FormState = {
@@ -48,6 +53,7 @@ const emptyForm: FormState = {
   position: 'bottom-right',
   domains: [],
   status: 'draft',
+  formFields: resolveFormFields(null),
 };
 
 function formFromWidget(w: ContactWidget): FormState {
@@ -61,6 +67,7 @@ function formFromWidget(w: ContactWidget): FormState {
     position: w.theme?.bubble_position === 'bottom-left' ? 'bottom-left' : 'bottom-right',
     domains: [...(w.allowed_domains || [])],
     status: w.status || 'draft',
+    formFields: resolveFormFields(w.form_fields),
   };
 }
 
@@ -77,6 +84,7 @@ function inputFromForm(f: FormState, domains: string[]): ContactWidgetInput {
       bubble_position: f.position,
     },
     allowed_domains: domains,
+    form_fields: Object.fromEntries(FORM_FIELD_KEYS.map((k) => [k, { ...f.formFields[k], label: f.formFields[k].label.trim() }])),
   };
 }
 
@@ -199,7 +207,7 @@ function WidgetBuilder({
       const map: Record<string, string> = {
         name: 'name', agentName: 'agent_name', calloutText: 'callout_text', welcomeSubtext: 'welcome_subtext',
         primaryColor: 'theme.primary_color', logoUrl: 'theme.logo_url', position: 'theme.bubble_position',
-        domains: 'allowed_domains', status: 'status',
+        domains: 'allowed_domains', status: 'status', formFields: 'form_fields',
       };
       if (!e[map[key]]) return e;
       const { [map[key]]: _drop, ...rest } = e;
@@ -238,6 +246,7 @@ function WidgetBuilder({
       }
     }
     if (form.welcomeSubtext.length > WELCOME_MAX) e.welcome_subtext = `Keep this under ${WELCOME_MAX} characters.`;
+    if (!formCanReply(form.formFields)) e.form_fields = REPLY_RULE;
     return e;
   };
 
@@ -297,6 +306,14 @@ function WidgetBuilder({
       set('domains', form.domains.slice(0, -1));
     }
   };
+
+  const setField = (key: FormFieldKey, patch: Partial<FormFieldSetting>) => {
+    const next = { ...form.formFields[key], ...patch };
+    if (!next.show) next.required = false;
+    set('formFields', { ...form.formFields, [key]: next });
+  };
+  const formFieldsError = errors.form_fields
+    || Object.entries(errors).find(([k]) => k.startsWith('form_fields.'))?.[1];
 
   const busy = saving || deleting;
   const liveWithoutDomain = form.status === 'live' && form.domains.length === 0 && !domainInput.trim();
@@ -446,6 +463,66 @@ function WidgetBuilder({
               </div>
               <FieldError id={id('welcome-err')} message={errors.welcome_subtext} />
             </div>
+
+            <fieldset>
+              <legend className="block text-sm font-medium text-gray-800 mb-1">Form fields</legend>
+              <p className="text-xs text-gray-400 mb-2">
+                Choose what visitors fill in and rename any label. Mobile number or Email must be required so you can always reply.
+              </p>
+              <div className="rounded-xl border border-gray-200 divide-y divide-gray-100">
+                <div className="hidden sm:grid grid-cols-[7.5rem_minmax(0,1fr)_10rem] gap-3 px-3 py-2 text-xs font-semibold text-gray-500">
+                  <span>Field</span>
+                  <span>Label visitors see</span>
+                  <span className="grid grid-cols-2 text-center"><span>Show</span><span>Required</span></span>
+                </div>
+                {FORM_FIELD_KEYS.map((key) => {
+                  const f = form.formFields[key];
+                  const name = FORM_FIELD_NAMES[key];
+                  return (
+                    <div key={key} className="grid grid-cols-[7.5rem_minmax(0,1fr)] sm:grid-cols-[7.5rem_minmax(0,1fr)_10rem] gap-x-3 gap-y-2 items-center px-3 py-2.5">
+                      <span className={`text-sm font-medium ${f.show ? 'text-gray-900' : 'text-gray-400'}`}>{name}</span>
+                      <input
+                        type="text"
+                        value={f.label}
+                        maxLength={FORM_FIELD_LABEL_MAX}
+                        disabled={!f.show}
+                        onChange={(e) => setField(key, { label: e.target.value })}
+                        placeholder={DEFAULT_FORM_FIELD_SETTINGS[key].label}
+                        aria-label={`${name}: label visitors see`}
+                        className={inputClass + ' !py-1.5 disabled:opacity-50'}
+                      />
+                      <div className="col-span-2 sm:col-span-1 flex gap-5 sm:grid sm:grid-cols-2 sm:gap-0">
+                        <label className="inline-flex items-center gap-1.5 text-sm text-gray-700 sm:justify-center cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={f.show}
+                            onChange={(e) => setField(key, { show: e.target.checked })}
+                            aria-label={`Show ${name}`}
+                            className="w-4 h-4 accent-[#6C60FF]"
+                          />
+                          <span className="sm:sr-only">Show</span>
+                        </label>
+                        <label className={`inline-flex items-center gap-1.5 text-sm sm:justify-center ${f.show ? 'text-gray-700 cursor-pointer' : 'text-gray-300'}`}>
+                          <input
+                            type="checkbox"
+                            checked={f.required}
+                            disabled={!f.show}
+                            onChange={(e) => setField(key, { required: e.target.checked })}
+                            aria-label={`${name} required`}
+                            className="w-4 h-4 accent-[#6C60FF] disabled:opacity-40"
+                          />
+                          <span className="sm:sr-only">Required</span>
+                        </label>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              {!formCanReply(form.formFields) && !formFieldsError && (
+                <p className="text-xs text-amber-700 mt-1">{REPLY_RULE}</p>
+              )}
+              <FieldError id={id('fields-err')} message={formFieldsError} />
+            </fieldset>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
               <div>
@@ -635,6 +712,7 @@ function WidgetBuilder({
                         primaryColor: form.primaryColor,
                         logoUrl: form.logoUrl,
                         position: form.position,
+                        formFields: form.formFields,
                       }}
                     />
                   </div>

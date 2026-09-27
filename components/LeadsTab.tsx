@@ -44,7 +44,8 @@ function getInitials(name: string): string {
 // `user` block with name/email/phone but a null `id`. Malformed rows can
 // have no `user` at all — fall back to an em-dash placeholder for those.
 function leadDisplayName(lead: Lead): string {
-  return lead.user?.name || '—';
+  // Website-widget forms can hide the Name field, so fall back to how the lead can be reached.
+  return lead.user?.name || lead.user?.email || lead.user?.phone_number || '—';
 }
 function leadDisplayEmail(lead: Lead): string {
   return lead.user?.email || '—';

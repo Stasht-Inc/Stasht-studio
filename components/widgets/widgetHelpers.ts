@@ -2,6 +2,8 @@
 // contrastInk/safeColor/safeHttpsUrl are duplicated from public/widget-core.js on purpose:
 // the embed page ships as plain static JS and is not importable from the app bundle. Keep in sync.
 
+import type { FormFieldKey, FormFieldSetting, FormFieldSettings } from '../../services/widgetsAPI';
+
 export const DEFAULT_BRAND = '#2f5fac';
 export const DEFAULT_CALLOUT = 'Chat with us';
 export const MESSAGE_MAX = 320;
@@ -113,4 +115,49 @@ export function timeAgo(iso: string | null | undefined, now: number = Date.now()
 export function isStaleInstall(lastSeenIso: string | null | undefined, now: number = Date.now()): boolean {
   const t = lastSeenIso ? Date.parse(lastSeenIso) : NaN;
   return Number.isNaN(t) || now - t > STALE_INSTALL_DAYS * 24 * 60 * 60 * 1000;
+}
+
+// --- Form fields (mirrors WidgetFormFields.php and public/widget-core.js) --------------------
+
+export const FORM_FIELD_KEYS: FormFieldKey[] = ['name', 'mobile', 'email', 'company', 'message'];
+export const FORM_FIELD_LABEL_MAX = 40;
+
+/** What each field is, for the builder's rows (the visitor-facing label is editable). */
+export const FORM_FIELD_NAMES: Record<FormFieldKey, string> = {
+  name: 'Name', mobile: 'Mobile number', email: 'Email', company: 'Company', message: 'Message',
+};
+
+export const DEFAULT_FORM_FIELD_SETTINGS: FormFieldSettings = {
+  name: { show: true, required: true, label: 'Name' },
+  mobile: { show: true, required: true, label: 'Mobile Number' },
+  email: { show: false, required: false, label: 'Email' },
+  company: { show: true, required: false, label: 'Company Name' },
+  message: { show: true, required: true, label: 'Message' },
+};
+
+export function resolveFormFields(stored: Partial<FormFieldSettings> | null | undefined): FormFieldSettings {
+  const out = {} as FormFieldSettings;
+  for (const key of FORM_FIELD_KEYS) {
+    const f = { ...DEFAULT_FORM_FIELD_SETTINGS[key], ...(stored?.[key] || {}) };
+    out[key] = { show: !!f.show, required: !!f.show && !!f.required, label: f.label ?? '' };
+  }
+  return out;
+}
+
+/** A visitor must always leave a mobile number or an email, or nobody can reply. */
+export function formCanReply(fields: FormFieldSettings): boolean {
+  return (fields.mobile.show && fields.mobile.required) || (fields.email.show && fields.email.required);
+}
+
+export function fieldDisplayLabel(key: FormFieldKey, f: FormFieldSetting): string {
+  const label = f.label.trim() || DEFAULT_FORM_FIELD_SETTINGS[key].label;
+  return f.required ? label : `${label} (optional)`;
+}
+
+export function consentLine(fields: FormFieldSettings): string {
+  if (fields.mobile.show && fields.email.show) {
+    return 'By submitting, you authorize this business to contact you by text or email using the details you provided. Message and data rates may apply.';
+  }
+  if (fields.email.show) return 'By submitting, you authorize this business to contact you at the email you provided.';
+  return 'By submitting, you authorize this business to send messages to the number you provided. Message and data rates may apply.';
 }

@@ -14,6 +14,15 @@ export interface WidgetTheme {
   bubble_position: WidgetBubblePosition;
 }
 
+// Built-in form fields (see WidgetFormFields.php). Mobile or Email must be shown + required.
+export type FormFieldKey = 'name' | 'mobile' | 'email' | 'company' | 'message';
+export interface FormFieldSetting {
+  show: boolean;
+  required: boolean;
+  label: string;
+}
+export type FormFieldSettings = Record<FormFieldKey, FormFieldSetting>;
+
 // A website the widget has been loaded on, as reported by the embed page (most recent first).
 export interface WidgetInstall {
   host: string;
@@ -34,6 +43,7 @@ export interface ContactWidget {
   updated_at: string;
   leads_count: number;
   installs?: WidgetInstall[]; // absent from older API builds
+  form_fields?: FormFieldSettings; // absent from older API builds -> the original form
 }
 
 // Fields editable in this phase. Every field is optional so PATCH can send a partial body.
@@ -45,6 +55,7 @@ export interface ContactWidgetInput {
   welcome_subtext?: string | null;
   theme?: Partial<WidgetTheme>;
   allowed_domains?: string[];
+  form_fields?: Partial<Record<FormFieldKey, Partial<FormFieldSetting>>>;
 }
 
 // Server bodies are {success, data}. apiRequest wraps a successful body as
