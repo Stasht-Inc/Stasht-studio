@@ -1,4 +1,4 @@
-import { MessageCircle } from 'lucide-react';
+import { MessageCircle, UserRound } from 'lucide-react';
 import type { CSSProperties } from 'react';
 import {
   DEFAULT_CALLOUT, FORM_FIELD_KEYS, MESSAGE_MAX, consentLine, contrastInk, fieldDisplayLabel, resolveFormFields, safeColor, safeHttpsUrl,
@@ -72,12 +72,12 @@ export function WidgetPreview({ values, mode }: { values: WidgetPreviewValues; m
           <div style={{ background: brand, color: ink, padding: '18px 20px 16px', position: 'relative' }}>
             {(agent || logo) && (
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, fontWeight: 600, fontSize: 13 }}>
-                {logo && (
-                  <img
-                    src={logo}
-                    alt=""
-                    style={{ height: 26, borderRadius: 4, background: '#fff', padding: 2 }}
-                  />
+                {logo ? (
+                  <img src={logo} alt="" style={{ flex: 'none', width: 32, height: 32, borderRadius: '50%', objectFit: 'cover', background: '#fff' }} />
+                ) : (
+                  <span style={{ flex: 'none', width: 32, height: 32, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(255,255,255,.22)', color: ink }}>
+                    <UserRound style={{ width: 18, height: 18 }} aria-hidden="true" />
+                  </span>
                 )}
                 {agent && <span>{agent}</span>}
               </div>

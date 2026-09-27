@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
-import { ArrowLeft, Check, Code2, Copy, Loader2, MessageCircle, Pencil, Plus, Trash2, X } from 'lucide-react';
+import { ArrowLeft, Check, Code2, Copy, Loader2, MessageCircle, Pencil, Plus, Trash2, UserRound, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { widgetsAPI } from '../../services/widgetsAPI';
 import type {
@@ -14,6 +14,7 @@ import { InstallStatusLine } from './InstallStatus';
 import {
   DEFAULT_BRAND, DEFAULT_FORM_FIELD_SETTINGS, FORM_FIELD_KEYS, FORM_FIELD_LABEL_MAX, FORM_FIELD_NAMES, WELCOME_MAX, copyText,
   formCanReply, installSnippet, isHexColor, isPlausibleDomain, normalizeDomain, resolveFormFields, safeColor,
+  safeHttpsUrl, squareAvatarDataUrl,
 } from './widgetHelpers';
 
 const BRAND = '#6C60FF';
@@ -207,6 +208,35 @@ function WidgetBuilder({
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [previewMode, setPreviewMode] = useState<'closed' | 'open'>('open');
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const avatarInput = useRef<HTMLInputElement>(null);
+
+  const onAvatarPicked = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = ''; // allow picking the same file again
+    if (!file) return;
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+      toast.error('Choose a JPG, PNG or WebP image.');
+      return;
+    }
+    if (file.size > 15 * 1024 * 1024) {
+      toast.error('That image is too large. Choose one under 15 MB.');
+      return;
+    }
+    setUploadingAvatar(true);
+    try {
+      const res = await widgetsAPI.uploadAvatar(await squareAvatarDataUrl(file));
+      if (res.ok && res.data?.url) {
+        set('logoUrl', res.data.url);
+      } else {
+        toast.error(res.error || 'Could not upload the avatar.');
+      }
+    } catch {
+      toast.error('Could not read that image. Try another one.');
+    } finally {
+      setUploadingAvatar(false);
+    }
+  };
   // The preview shows you as the online team member; visitors see whoever is really online.
   const previewOnline = useMemo(() => {
     const full = (user?.name || 'You').trim();
@@ -261,7 +291,7 @@ function WidgetBuilder({
     if (form.primaryColor.trim() && !isHexColor(form.primaryColor)) e['theme.primary_color'] = 'Use a hex color like #2f5fac.';
     if (form.logoUrl.trim()) {
       try {
-        if (new URL(form.logoUrl.trim()).protocol !== 'https:') e['theme.logo_url'] = 'The logo URL must start with https://';
+        if (new URL(form.logoUrl.trim()).protocol !== 'https:') e['theme.logo_url'] = 'The avatar link must start with https://';
       } catch {
         e['theme.logo_url'] = 'Enter a full URL starting with https://';
       }
@@ -429,6 +459,41 @@ function WidgetBuilder({
               <FieldError id={id('name-err')} message={errors.name} />
             </div>
 
+            <div>
+              <span id={id('avatar-label')} className="block text-sm font-medium text-gray-800 mb-1.5">Agent avatar</span>
+              <div className="flex items-center gap-4">
+                {safeHttpsUrl(form.logoUrl) ? (
+                  <img src={safeHttpsUrl(form.logoUrl)!} alt="Agent avatar" className="w-14 h-14 rounded-full object-cover border border-gray-200 bg-white shrink-0" />
+                ) : (
+                  <span className="w-14 h-14 rounded-full bg-gray-100 border border-gray-200 flex items-center justify-center shrink-0" aria-label="Default avatar">
+                    <UserRound className="w-7 h-7 text-gray-400" aria-hidden="true" />
+                  </span>
+                )}
+                <div className="min-w-0">
+                  <div className="flex items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={() => avatarInput.current?.click()}
+                      disabled={uploadingAvatar}
+                      aria-describedby={id('avatar-help')}
+                      className="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg border border-gray-200 bg-white text-sm font-semibold text-gray-800 hover:bg-gray-50 disabled:opacity-60"
+                    >
+                      {uploadingAvatar && <Loader2 className="w-4 h-4 animate-spin" />}
+                      {uploadingAvatar ? 'Uploading…' : form.logoUrl ? 'Change photo' : 'Upload photo'}
+                    </button>
+                    {form.logoUrl && !uploadingAvatar && (
+                      <button type="button" onClick={() => set('logoUrl', '')} className="text-sm font-medium text-gray-500 hover:text-gray-800 underline">
+                        Remove
+                      </button>
+                    )}
+                  </div>
+                  <p id={id('avatar-help')} className="text-xs text-gray-400 mt-1">JPG, PNG or WebP. Shown next to the agent name; a default avatar is used until you add one.</p>
+                </div>
+                <input ref={avatarInput} type="file" accept="image/jpeg,image/png,image/webp" hidden onChange={onAvatarPicked} />
+              </div>
+              <FieldError id={id('logo-err')} message={errors['theme.logo_url']} />
+            </div>
+
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
               <div>
                 <label htmlFor={id('agent')} className="block text-sm font-medium text-gray-800 mb-1.5">Agent name</label>
@@ -591,22 +656,6 @@ function WidgetBuilder({
                 </div>
                 <FieldError id={id('position-err')} message={errors['theme.bubble_position']} />
               </fieldset>
-            </div>
-
-            <div>
-              <label htmlFor={id('logo')} className="block text-sm font-medium text-gray-800 mb-1.5">Logo URL (optional)</label>
-              <input
-                id={id('logo')}
-                type="url"
-                value={form.logoUrl}
-                onChange={(e) => set('logoUrl', e.target.value)}
-                placeholder="https://yourdomain.com/logo.png"
-                aria-invalid={!!errors['theme.logo_url']}
-                aria-describedby={errors['theme.logo_url'] ? id('logo-err') : id('logo-help')}
-                className={inputClass + (errors['theme.logo_url'] ? errorInputClass : '')}
-              />
-              <p id={id('logo-help')} className="text-xs text-gray-400 mt-1">A link to an image hosted on your own site. Must start with https://</p>
-              <FieldError id={id('logo-err')} message={errors['theme.logo_url']} />
             </div>
 
             <div>

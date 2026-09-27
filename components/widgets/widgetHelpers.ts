@@ -161,3 +161,18 @@ export function consentLine(fields: FormFieldSettings): string {
   if (fields.email.show) return 'By submitting, you authorize this business to contact you at the email you provided.';
   return 'By submitting, you authorize this business to send messages to the number you provided. Message and data rates may apply.';
 }
+
+/** Crops an image to a centred square and shrinks it (default 256px) before upload. */
+export async function squareAvatarDataUrl(file: File, size = 256): Promise<string> {
+  const bitmap = await createImageBitmap(file);
+  const side = Math.min(bitmap.width, bitmap.height);
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('Canvas is not available');
+  ctx.drawImage(bitmap, (bitmap.width - side) / 2, (bitmap.height - side) / 2, side, side, 0, 0, size, size);
+  bitmap.close?.();
+  // PNG keeps transparency; everything else becomes a small JPEG.
+  return file.type === 'image/png' ? canvas.toDataURL('image/png') : canvas.toDataURL('image/jpeg', 0.9);
+}

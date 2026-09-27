@@ -24,7 +24,9 @@
       .head h2 { margin: 0 32px 6px 0; font-size: 17px; }
       .head p { margin: 0; font-size: 13px; opacity: .95; }
       .agent { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; font-weight: 600; font-size: 13px; }
-      .agent img { height: 26px; border-radius: 4px; background: #fff; padding: 2px; }
+      .agent .avatar { flex: none; width: 32px; height: 32px; border-radius: 50%; object-fit: cover; background: #fff; }
+      .agent .avatar.default { display: flex; align-items: center; justify-content: center; background: rgba(255, 255, 255, .22); color: var(--brand-ink); }
+      .agent .avatar.default svg { width: 18px; height: 18px; }
       .online { display: flex; align-items: center; gap: 10px; margin-top: 12px; font-size: 13px; font-weight: 600; }
       .faces { display: flex; }
       .face { position: relative; width: 30px; height: 30px; margin-left: -8px; border-radius: 50%; border: 2px solid var(--brand); background: #fff; }
