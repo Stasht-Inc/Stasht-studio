@@ -1146,7 +1146,7 @@ export default function SignupPage({ onSignup, onSwitchToLogin }: SignupPageProp
         {/* Logo and Header */}
         <div className="text-center mb-6">
           <div className="mx-auto mb-4 flex justify-center items-center">
-            <StashtLogo className="h-16 w-auto max-w-[200px] object-contain" fill="#6C60FF" style={{ aspectRatio: 'auto' }} />
+            <StashtLogo className="h-16 w-auto max-w-[200px]" fill="#6C60FF" />
           </div>
         
         </div>

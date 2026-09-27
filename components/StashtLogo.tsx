@@ -6,12 +6,13 @@ interface StashtLogoProps {
 }
 
 export default function StashtLogo({ className = "h-16 w-16", fill = "#6C60FF" }: StashtLogoProps) {
+  // aspect-ratio lets a height-only (or width-only) className size the box, and the
+  // SVG's default "meet" scaling never distorts the wordmark if a caller caps a side.
   return (
-    <div className={className}>
+    <div className={className} style={{ aspectRatio: '160 / 41' }}>
       <svg
         className="block size-full"
         fill="none"
-        preserveAspectRatio="none"
         viewBox="0 0 160 41"
       >
         <g clipPath="url(#clip0_1_227)" id="Layer_1">

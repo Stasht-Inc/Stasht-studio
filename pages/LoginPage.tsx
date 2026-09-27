@@ -1577,7 +1577,7 @@ export default function LoginPage({ onLogin, onSwitchToSignup, onSocialLogin }: 
         {/* Logo/Brand Section */}
         <div className="text-center">
           <div className="mx-auto mb-4 flex justify-center items-center">
-            <StashtLogo className="h-16 w-auto max-w-[200px] object-contain" fill="#6C60FF" style={{ aspectRatio: 'auto' }} />
+            <StashtLogo className="h-16 w-auto max-w-[200px]" fill="#6C60FF" />
           </div>
           <p className="text-indigo-600 mt-2 text-lg">
             {showForgotPassword
