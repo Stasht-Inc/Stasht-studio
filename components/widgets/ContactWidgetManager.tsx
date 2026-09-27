@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
-import { ArrowLeft, Camera, Check, ChevronDown, Code2, Copy, Loader2, MessageCircle, Pencil, Plus, Trash2, UserRound, X } from 'lucide-react';
+import { ArrowLeft, Camera, Check, ChevronDown, Code2, Copy, Loader2, MessageSquare, Pencil, Plus, Trash2, UserRound, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { widgetsAPI } from '../../services/widgetsAPI';
 import type {
@@ -8,6 +8,7 @@ import type {
   WidgetTeamOption,
 } from '../../services/widgetsAPI';
 import { useAuth } from '../../contexts/AuthContext';
+import { WIDGET_ICON_BLUE } from '../connectors/catalog';
 import { WidgetPreview } from './WidgetPreview';
 import { InstallGuide } from './InstallGuide';
 import { InstallStatusLine } from './InstallStatus';
@@ -1018,9 +1019,9 @@ export function ContactWidgetManager({
           <div className="flex items-start gap-3">
             <div
               className="w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0"
-              style={{ background: 'linear-gradient(145deg, #8B80FF, #6C60FF)' }}
+              style={{ background: WIDGET_ICON_BLUE }}
             >
-              <MessageCircle className="w-6 h-6 text-white" aria-hidden="true" />
+              <MessageSquare className="w-6 h-6 text-white" aria-hidden="true" />
             </div>
             <div>
               <h2 id={titleId} className="text-lg font-bold text-gray-900">Contact Us Widget</h2>
@@ -1088,9 +1089,9 @@ export function ContactWidgetManager({
               <div className="rounded-2xl border border-dashed border-gray-300 py-14 px-6 text-center">
                 <div
                   className="w-14 h-14 rounded-2xl mx-auto flex items-center justify-center mb-4"
-                  style={{ background: 'linear-gradient(145deg, #8B80FF, #6C60FF)' }}
+                  style={{ background: WIDGET_ICON_BLUE }}
                 >
-                  <MessageCircle className="w-7 h-7 text-white" aria-hidden="true" />
+                  <MessageSquare className="w-7 h-7 text-white" aria-hidden="true" />
                 </div>
                 <h4 className="text-lg font-bold text-gray-900">Create your first Contact Us widget</h4>
                 <p className="text-sm text-gray-500 mt-1.5 max-w-md mx-auto">
