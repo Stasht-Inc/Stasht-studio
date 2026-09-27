@@ -1,7 +1,6 @@
 import { useEffect, useId, useRef } from 'react';
 import { X } from 'lucide-react';
 import { ConnectorIcon } from './ConnectorIcon';
-import { setupLabel } from './catalog';
 import type { ConnectorDef, ConnectorId } from './catalog';
 
 /** "+ Add connector" pop-up: compact cards for the connectors that aren't set up yet. */
@@ -67,7 +66,7 @@ export function AddConnectorModal({
                   onClick={() => onSelect(connector.id)}
                   className="px-4 py-2 rounded-lg bg-[#6C60FF] hover:bg-[#5A4FFF] text-white text-sm font-semibold transition-colors flex-shrink-0"
                 >
-                  {setupLabel(connector.id)}
+                  Connect
                 </button>
               </div>
               <p className="text-sm text-gray-600 leading-relaxed mt-3 line-clamp-2">{connector.description}</p>

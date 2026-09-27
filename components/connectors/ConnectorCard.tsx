@@ -1,6 +1,5 @@
 import { Check } from 'lucide-react';
 import { ConnectorIcon } from './ConnectorIcon';
-import { setupLabel } from './catalog';
 import type { ConnectorDef } from './catalog';
 
 /** Full catalog card, shown on the Connectors page before anything is connected. */
@@ -45,7 +44,7 @@ export function ConnectorCard({ connector, onSelect }: { connector: ConnectorDef
           onClick={onSelect}
           className="w-full py-3 rounded-xl text-base font-semibold transition-colors bg-[#6C60FF] hover:bg-[#5A4FFF] text-white"
         >
-          {setupLabel(connector.id)}
+          Connect
         </button>
       </div>
     </div>
