@@ -58,17 +58,24 @@ export function clampPosition(value) {
   return value === 'bottom-left' ? 'bottom-left' : 'bottom-right';
 }
 
+/**
+ * Transparent space around the launcher/panel inside the iframe, so their shadows fade out before
+ * the iframe edge instead of being cut into a hard grey box. Bottom is largest: shadows fall down.
+ */
+export const ROOT_PAD = { top: 12, x: 16, bottom: 24 };
+
 /** Panel width that fits the host page's viewport (passed in by the loader as ?vw=). */
 export function panelWidth(viewportWidth) {
   const vw = Number(viewportWidth);
   if (!Number.isFinite(vw) || vw <= 0) return 360;
-  return Math.max(280, Math.min(360, Math.floor(vw) - 32));
+  // The loader caps the iframe at vw - 32; the panel plus its side padding has to fit in that.
+  return Math.max(240, Math.min(360, Math.floor(vw) - 32 - ROOT_PAD.x * 2));
 }
 
 /** Max panel height so the panel scrolls inside the iframe instead of being clipped on short host viewports. */
 export function panelMaxHeight(viewportHeight) {
   const vh = Number(viewportHeight);
-  if (!Number.isFinite(vh) || vh <= 0) return 696;
-  // The loader caps the iframe at min(720, vh - 32); #root adds 12px padding top and bottom.
-  return Math.max(200, Math.min(720, Math.floor(vh) - 32) - 24);
+  const cap = !Number.isFinite(vh) || vh <= 0 ? 720 : Math.min(720, Math.floor(vh) - 32);
+  // The loader caps the iframe at min(720, vh - 32); #root adds the top and bottom padding.
+  return Math.max(200, cap - ROOT_PAD.top - ROOT_PAD.bottom);
 }

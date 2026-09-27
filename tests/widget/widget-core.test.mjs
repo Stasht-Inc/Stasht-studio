@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   safeColor, safeHttpsUrl, contrastInk, hostOrigin, isPlausiblePhone, clampPosition, panelWidth, panelMaxHeight, MESSAGE_MAX,
-  configUrl,
+  configUrl, ROOT_PAD,
 } from '../../public/widget-core.js';
 
 test('safeColor accepts #RRGGBB only', () => {
@@ -54,26 +54,38 @@ test('clampPosition defaults to bottom-right', () => {
   assert.equal(clampPosition(undefined), 'bottom-right');
 });
 
-test('panelWidth fits the host viewport', () => {
+test('panel plus its shadow padding fits inside the loader-capped iframe (vw - 32 wide)', () => {
   assert.equal(panelWidth(undefined), 360);
   assert.equal(panelWidth(0), 360);
   assert.equal(panelWidth(1440), 360);
-  assert.equal(panelWidth(400), 360);
-  assert.equal(panelWidth(320), 288);
-  assert.equal(panelWidth(250), 280);
+  assert.equal(panelWidth(400), 336);
+  assert.equal(panelWidth(320), 256);
+  assert.equal(panelWidth(250), 240);
+  for (const vw of [360, 390, 400, 430]) {
+    assert.ok(panelWidth(vw) + ROOT_PAD.x * 2 <= vw - 32, `fits at ${vw}px`);
+  }
 });
 
 test('MESSAGE_MAX matches the API limit', () => {
   assert.equal(MESSAGE_MAX, 320);
 });
 
-test('panelMaxHeight fits the host viewport', () => {
-  assert.equal(panelMaxHeight(undefined), 696);
-  assert.equal(panelMaxHeight(0), 696);
-  assert.equal(panelMaxHeight(900), 696);
-  assert.equal(panelMaxHeight(640), 584);
-  assert.equal(panelMaxHeight(568), 512);
+test('panelMaxHeight leaves room for the shadow padding inside the loader-capped iframe', () => {
+  assert.equal(panelMaxHeight(undefined), 684);
+  assert.equal(panelMaxHeight(0), 684);
+  assert.equal(panelMaxHeight(900), 684);
+  assert.equal(panelMaxHeight(640), 572);
+  assert.equal(panelMaxHeight(568), 500);
   assert.equal(panelMaxHeight(200), 200);
+  for (const vh of [568, 640, 900]) {
+    assert.ok(panelMaxHeight(vh) + ROOT_PAD.top + ROOT_PAD.bottom <= Math.min(720, vh - 32), `fits at ${vh}px`);
+  }
+});
+
+test('the panel shadow stays inside the padding, so the iframe edge never cuts it off', () => {
+  // PANEL_SHADOW's largest layer is 0 8px 20px -6px: reaches blur + spread + offset from each edge.
+  const reach = { top: 20 - 6 - 8, x: 20 - 6, bottom: 20 - 6 + 8 };
+  assert.ok(ROOT_PAD.top >= reach.top && ROOT_PAD.x >= reach.x && ROOT_PAD.bottom >= reach.bottom);
 });
 
 test('configUrl passes the customer page origin so the server can record where the widget is installed', () => {
