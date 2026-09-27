@@ -1,4 +1,4 @@
-import { MessageCircle } from 'lucide-react';
+import { MessageSquare } from 'lucide-react';
 import { brandColors, brandInitials } from './catalog';
 import type { ConnectorDef } from './catalog';
 
@@ -33,7 +33,7 @@ export function ConnectorIcon({ connector, size = 'md' }: { connector: Connector
       style={{ background }}
     >
       {connector.id === 'contact-widget'
-        ? <MessageCircle className={s.glyph} aria-hidden="true" />
+        ? <MessageSquare className={s.glyph} aria-hidden="true" />
         : brandInitials[connector.id]}
     </div>
   );

@@ -56,11 +56,14 @@ export const CONNECTORS: ConnectorDef[] = [
 // just not offered.
 export const OFFERED_CONNECTORS = CONNECTORS.filter((c) => c.id !== 'autotrader');
 
+// Contact Us Widget tile colour, from Chris's original ContactWidgetCard design.
+export const WIDGET_ICON_BLUE = '#0EA5E9';
+
 export const brandColors: Record<ConnectorId, string> = {
   shopify: 'linear-gradient(145deg, #95BF47, #5E8E3E)',
   docusign: '#ffffff',
   autotrader: '#ffffff',
-  'contact-widget': 'linear-gradient(145deg, #8B80FF, #6C60FF)',
+  'contact-widget': WIDGET_ICON_BLUE,
 };
 
 export const brandInitials: Partial<Record<ConnectorId, string>> = {
