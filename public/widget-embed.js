@@ -1,6 +1,7 @@
 // public/widget-embed.js
 import {
   safeColor, safeHttpsUrl, contrastInk, hostOrigin, isPlausiblePhone, clampPosition, panelWidth, panelMaxHeight, MESSAGE_MAX,
+  configUrl,
 } from './widget-core.js';
 
 const params = new URLSearchParams(location.search);
@@ -218,7 +219,8 @@ async function init() {
   if (!/^w_[a-z0-9]{10}$/.test(widgetId)) return tell('hide');
 
   try {
-    const res = await fetch(`${API}/widget-embed/${encodeURIComponent(widgetId)}/config`, { headers: { Accept: 'application/json' } });
+    const host = hostOrigin({ hostParam: params.get('host'), referrer: document.referrer });
+    const res = await fetch(configUrl(API, widgetId, host), { headers: { Accept: 'application/json' } });
     if (!res.ok) return tell('hide');
     const body = await res.json();
     if (!body || !body.data) return tell('hide');

@@ -39,6 +39,12 @@ export function hostOrigin({ hostParam, referrer }) {
   return '';
 }
 
+/** Config URL for the embed page. `host` (the customer page origin) lets the server show owners where the widget is installed. */
+export function configUrl(api, widgetId, host) {
+  const base = `${api}/widget-embed/${encodeURIComponent(widgetId)}/config`;
+  return host ? `${base}?host=${encodeURIComponent(host)}` : base;
+}
+
 /** Same rule as the server's PhoneCanonicalizer::toE164 — early feedback only, the server is authoritative. */
 export function isPlausiblePhone(raw) {
   const value = String(raw || '').trim();

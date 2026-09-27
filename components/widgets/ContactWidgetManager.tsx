@@ -6,6 +6,7 @@ import { widgetsAPI } from '../../services/widgetsAPI';
 import type { ContactWidget, ContactWidgetInput, WidgetBubblePosition, WidgetStatus } from '../../services/widgetsAPI';
 import { WidgetPreview } from './WidgetPreview';
 import { InstallGuide } from './InstallGuide';
+import { InstallStatusLine } from './InstallStatus';
 import {
   DEFAULT_BRAND, WELCOME_MAX, copyText, installSnippet, isHexColor, isPlausibleDomain, normalizeDomain, safeColor,
 } from './widgetHelpers';
@@ -914,9 +915,7 @@ export function ContactWidgetManager({
                           <span className="ml-2 align-middle text-xs font-semibold text-[#4a40d4] bg-[#6C60FF]/10 rounded-full px-2 py-0.5">New</span>
                         )}
                       </p>
-                      <p className="text-sm text-gray-500 truncate">
-                        {w.allowed_domains?.length ? w.allowed_domains.join(', ') : 'No domain added yet'}
-                      </p>
+                      <InstallStatusLine widget={w} />
                     </div>
                     <div className="text-sm text-gray-600 w-24 flex-shrink-0">
                       {w.leads_count ?? 0} {w.leads_count === 1 ? 'lead' : 'leads'}

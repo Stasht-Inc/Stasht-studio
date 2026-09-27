@@ -14,6 +14,13 @@ export interface WidgetTheme {
   bubble_position: WidgetBubblePosition;
 }
 
+// A website the widget has been loaded on, as reported by the embed page (most recent first).
+export interface WidgetInstall {
+  host: string;
+  first_seen_at: string | null;
+  last_seen_at: string | null;
+}
+
 export interface ContactWidget {
   id: string; // 'w_' + 10 chars, used directly in the embed snippet
   name: string;
@@ -26,6 +33,7 @@ export interface ContactWidget {
   created_at: string;
   updated_at: string;
   leads_count: number;
+  installs?: WidgetInstall[]; // absent from older API builds
 }
 
 // Fields editable in this phase. Every field is optional so PATCH can send a partial body.
