@@ -145,6 +145,10 @@ export const widgetsAPI = {
   update: (id: string, input: ContactWidgetInput) =>
     run<ContactWidget>(apiRequest(`/widgets/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(input) })),
 
+  // Agent avatar: a (pre-cropped) image data URL in, a public https link out (save it as theme.logo_url).
+  uploadAvatar: (image: string) =>
+    run<{ url: string }>(apiRequest('/widgets/avatar', { method: 'POST', body: JSON.stringify({ image }) })),
+
   remove: (id: string) =>
     run<unknown>(apiRequest(`/widgets/${encodeURIComponent(id)}`, { method: 'DELETE' })),
 };

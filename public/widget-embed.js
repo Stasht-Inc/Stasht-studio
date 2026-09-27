@@ -106,6 +106,22 @@ function launcher() {
   return h('button', { id: 'w-launcher', class: 'launcher', type: 'button', 'aria-label': label, onclick: openPanel }, chatIcon(), h('span', {}, label));
 }
 
+// The agent's avatar next to their name; a person icon until one is uploaded.
+function agentAvatar(url) {
+  if (url) return h('img', { class: 'avatar', src: url, alt: '' });
+  const ns = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(ns, 'svg');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('fill', 'currentColor');
+  svg.setAttribute('aria-hidden', 'true');
+  const head = document.createElementNS(ns, 'circle');
+  head.setAttribute('cx', '12'); head.setAttribute('cy', '8'); head.setAttribute('r', '4');
+  const body = document.createElementNS(ns, 'path');
+  body.setAttribute('d', 'M4 20.5c0-4.1 3.6-6.5 8-6.5s8 2.4 8 6.5z');
+  svg.append(head, body);
+  return h('span', { class: 'avatar default' }, svg);
+}
+
 // One online team member: photo (or initials on their colour) with a green dot.
 function face(member) {
   let inner;
@@ -125,7 +141,7 @@ function panel() {
   const team = teamOnlineFrom(cfg);
   const head = h('div', { class: 'head' },
     (cfg.agent_name || logo) && h('div', { class: 'agent' },
-      logo && h('img', { src: logo, alt: '' }),
+      agentAvatar(logo),
       cfg.agent_name && h('span', {}, cfg.agent_name)),
     h('h2', { id: 'w-title' }, cfg.callout_text || 'Chat with us'),
     cfg.welcome_subtext && h('p', {}, cfg.welcome_subtext),
