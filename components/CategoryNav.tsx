@@ -2991,7 +2991,10 @@ export default function CategoryNav({
             </div>
 
             <div className="p-4 space-y-3">
-              
+
+              {/* Cars first — dealers' main inventory. Read-only feed from GET /cars; renders nothing without cars. */}
+              {selectedFilter === "all" && <CarsCatalogNav />}
+
               {/* Regular Categories */}
               {categories
                 .filter(category => selectedFilter === "all" || category.name === selectedFilter)
@@ -3049,9 +3052,6 @@ export default function CategoryNav({
                   }
                 />
               )}
-
-              {/* Read-only Cars catalog box — self-contained, flat inventory feed from GET /cars. */}
-              {selectedFilter === "all" && <CarsCatalogNav />}
             </div>
           </>
         )}
