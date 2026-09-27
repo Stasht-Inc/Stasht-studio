@@ -1,72 +1,16 @@
-import { useState, useEffect } from 'react';
-import { Check, X, ExternalLink, Info, CheckCircle2, Loader2, Unplug, MessageCircle } from 'lucide-react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
+import { X, ExternalLink, Info, CheckCircle2, Loader2, Unplug, Plus } from 'lucide-react';
 import { toast } from 'sonner';
 import { dashboardAPI } from '../utils/authUtils';
 import { widgetsAPI } from '../services/widgetsAPI';
+import type { ContactWidget } from '../services/widgetsAPI';
 import { ContactWidgetManager } from '../components/widgets/ContactWidgetManager';
-
-interface Widget {
-  id: string;
-  name: string;
-  category: string;
-  description: string;
-  features: string[];
-  bannerLogo?: string;
-  iconImage?: string;
-  iconFill?: boolean;
-}
-
-const widgets: Widget[] = [
-  {
-    id: 'shopify',
-    name: 'Shopify',
-    category: 'E-commerce Platform',
-    description: 'Sync your Shopify product images and customer photos directly to Stasht. Organize product photography and create stunning photobooks from your e-commerce content.',
-    features: ['Auto-sync product images', 'Organize by collection', 'Create product catalogs'],
-    bannerLogo: 'https://upload.wikimedia.org/wikipedia/commons/0/0e/Shopify_logo_2018.svg',
-    iconImage: 'https://cdn.simpleicons.org/shopify/ffffff',
-  },
-  {
-    id: 'docusign',
-    name: 'DocuSign',
-    category: 'Digital Signatures',
-    description: 'Add documents to your campaigns that can be opened and signed with DocuSign. Perfect for important agreements, contracts, and legal documents that are part of your campaign.',
-    features: ['Attach signable documents', 'Track signature status', 'Secure document storage'],
-    bannerLogo: '/docusign-logo.png',
-    iconImage: '/docusign-icon.png',
-    iconFill: true,
-  },
-  {
-    id: 'autotrader',
-    name: 'AutoTrader',
-    category: 'Vehicle Marketplace',
-    description: 'Create campaigns from your vehicle listings and automotive adventures. Track your car collection journey, document restoration projects, and share memorable road trips with rich photo galleries.',
-    features: ['Import vehicle photos', 'Import specifications', 'Create product catalogs'],
-    bannerLogo: '/autotrader-logo.png',
-    iconImage: '/autotrader-icon.png',
-    iconFill: true,
-  },
-  {
-    id: 'contact-widget',
-    name: 'Contact Us Widget',
-    category: 'Website Lead Capture',
-    description: 'Capture leads straight from your own website with a chat-style Contact Us widget.',
-    features: ['Customizable color, agent name, and greeting', 'Leads land in your Leads inbox', 'One-line install'],
-  },
-];
-
-const brandColors: Record<string, string> = {
-  shopify: 'linear-gradient(145deg, #95BF47, #5E8E3E)',
-  docusign: '#ffffff',
-  autotrader: '#ffffff',
-  'contact-widget': 'linear-gradient(145deg, #8B80FF, #6C60FF)',
-};
-
-const brandInitials: Record<string, string> = {
-  shopify: 'S',
-  docusign: 'D',
-  autotrader: 'AT',
-};
+import { CONNECTORS, OFFERED_CONNECTORS, CONNECTORS_COUNT_EVENT } from '../components/connectors/catalog';
+import type { ConnectorId } from '../components/connectors/catalog';
+import { ConnectorCard } from '../components/connectors/ConnectorCard';
+import { ActiveConnectorsList } from '../components/connectors/ActiveConnectorsList';
+import type { ActiveConnector } from '../components/connectors/ActiveConnectorsList';
+import { AddConnectorModal } from '../components/connectors/AddConnectorModal';
 
 const shopifyOAuthSteps = [
   'Enter your Shopify store domain below',
@@ -635,14 +579,27 @@ function AutoTraderConnectModal({ onClose }: { onClose: () => void }) {
   );
 }
 
+const connectorById = (id: ConnectorId) => CONNECTORS.find((c) => c.id === id)!;
+
+function since(iso: string | null): string | null {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  return `since ${d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })}`;
+}
+
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
+
 export default function MarketplacePage() {
-  const [activeModal, setActiveModal] = useState<string | null>(null);
+  const [activeModal, setActiveModal] = useState<ConnectorId | 'add' | null>(null);
   const [docusignConnected, setDocusignConnected] = useState(false);
   const [docusignConnectedAt, setDocusignConnectedAt] = useState<string | null>(null);
   const [shopifyConnected, setShopifyConnected] = useState(false);
   const [shopifyShopDomain, setShopifyShopDomain] = useState<string | null>(null);
   const [shopifyConnectedAt, setShopifyConnectedAt] = useState<string | null>(null);
-  const [contactWidgetCount, setContactWidgetCount] = useState(0);
+  const [contactWidgets, setContactWidgets] = useState<ContactWidget[]>([]);
+  // Until all three status checks settle we can't tell whether to show the catalog or the active list.
+  const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
     // Handle OAuth callback result from URL params
@@ -680,8 +637,7 @@ export default function MarketplacePage() {
       window.history.replaceState({}, '', url.toString());
     }
 
-    // Fetch DocuSign connection status
-    dashboardAPI.docuSignGetStatus()
+    const docusign = dashboardAPI.docuSignGetStatus()
       .then(res => {
         if (res.success && res.data) {
           setDocusignConnected(res.data.connected);
@@ -690,8 +646,7 @@ export default function MarketplacePage() {
       })
       .catch(() => {});
 
-    // Fetch Shopify connection status
-    dashboardAPI.shopifyGetStatus()
+    const shopify = dashboardAPI.shopifyGetStatus()
       .then(res => {
         if (res.success && res.data) {
           setShopifyConnected(res.data.connected);
@@ -701,122 +656,99 @@ export default function MarketplacePage() {
       })
       .catch(() => {});
 
-    // Contact Us widgets: only needed to label the card "Manage" vs "Get Widget".
-    widgetsAPI.list()
+    const widgets = widgetsAPI.list()
       .then(res => {
-        if (res.ok && Array.isArray(res.data)) setContactWidgetCount(res.data.length);
+        if (res.ok && Array.isArray(res.data)) setContactWidgets(res.data);
       })
       .catch(() => {});
+
+    Promise.all([docusign, shopify, widgets]).then(() => setLoaded(true));
   }, []);
+
+  const activeConnectors = useMemo<ActiveConnector[]>(() => {
+    const items: ActiveConnector[] = [];
+    if (shopifyConnected) {
+      items.push({
+        connector: connectorById('shopify'),
+        status: ['Connected', shopifyShopDomain, since(shopifyConnectedAt)].filter(Boolean).join(' · '),
+      });
+    }
+    if (docusignConnected) {
+      items.push({
+        connector: connectorById('docusign'),
+        status: ['Connected', since(docusignConnectedAt)].filter(Boolean).join(' · '),
+      });
+    }
+    if (contactWidgets.length > 0) {
+      const live = contactWidgets.filter((w) => w.status === 'live').length;
+      const leads = contactWidgets.reduce((n, w) => n + (w.leads_count ?? 0), 0);
+      items.push({
+        connector: connectorById('contact-widget'),
+        status: `${plural(contactWidgets.length, 'widget')} · ${live} live · ${plural(leads, 'lead')}`,
+      });
+    }
+    return items;
+  }, [shopifyConnected, shopifyShopDomain, shopifyConnectedAt, docusignConnected, docusignConnectedAt, contactWidgets]);
+
+  const available = useMemo(
+    () => OFFERED_CONNECTORS.filter((c) => !activeConnectors.some((a) => a.connector.id === c.id)),
+    [activeConnectors],
+  );
+
+  // Keep the sidebar's Connectors badge in step with what this page shows.
+  useEffect(() => {
+    if (!loaded) return;
+    window.dispatchEvent(new CustomEvent(CONNECTORS_COUNT_EVENT, { detail: { count: activeConnectors.length } }));
+  }, [loaded, activeConnectors.length]);
+
+  const closeModal = useCallback(() => setActiveModal(null), []);
+  const hasActive = activeConnectors.length > 0;
 
   return (
     <div className="p-6 sm:p-10 max-w-7xl">
       {/* Header */}
-      <div className="mb-10">
-        <h1 className="text-3xl sm:text-4xl font-bold text-gray-900">Connectors</h1>
-        <p className="text-gray-500 mt-2 text-base">Connect your favorite services and extend Stasht functionality</p>
+      <div className="mb-10 flex items-start justify-between gap-4 flex-wrap">
+        <div>
+          <h1 className="text-3xl sm:text-4xl font-bold text-gray-900">Connectors</h1>
+          <p className="text-gray-500 mt-2 text-base">Connect your favorite services and extend Stasht functionality</p>
+        </div>
+        {loaded && hasActive && available.length > 0 && (
+          <button
+            type="button"
+            onClick={() => setActiveModal('add')}
+            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#6C60FF] hover:bg-[#5A4FFF] text-white text-base font-semibold transition-colors"
+          >
+            <Plus className="w-5 h-5" /> Add connector
+          </button>
+        )}
       </div>
 
-      {/* Widget Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-        {/* AutoTrader hidden from the Connectors grid (Deepak, 2026-09-22) — the
-            connect flow/modal below is left in place, just not offered as a card. */}
-        {widgets.filter(widget => widget.id !== 'autotrader').map(widget => (
-          <div key={widget.id} className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden flex flex-col">
-            {/* Logo Banner */}
-            <div className="h-44 bg-white flex items-center justify-center border-b border-gray-100 px-8">
-              {widget.bannerLogo ? (
-                <img
-                  src={widget.bannerLogo}
-                  alt={widget.name}
-                  className={`max-w-full object-contain ${widget.id === 'autotrader' ? 'max-h-32' : 'max-h-20'}`}
-                />
-              ) : (
-                <div
-                  className="w-24 h-24 rounded-2xl flex items-center justify-center text-white text-3xl font-bold"
-                  style={{ background: brandColors[widget.id] }}
-                >
-                  {widget.id === 'contact-widget' ? <MessageCircle className="w-12 h-12" aria-hidden="true" /> : brandInitials[widget.id]}
-                </div>
-              )}
-            </div>
+      {!loaded ? (
+        <div className="space-y-3" role="status" aria-label="Loading connectors">
+          {[0, 1].map((i) => <div key={i} className="h-20 rounded-2xl bg-gray-100 animate-pulse" />)}
+        </div>
+      ) : hasActive ? (
+        <section aria-labelledby="your-connectors-heading">
+          <h2 id="your-connectors-heading" className="text-lg font-bold text-gray-900 mb-4">Your connectors</h2>
+          <ActiveConnectorsList items={activeConnectors} onManage={setActiveModal} />
+        </section>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+          {OFFERED_CONNECTORS.map((connector) => (
+            <ConnectorCard key={connector.id} connector={connector} onSelect={() => setActiveModal(connector.id)} />
+          ))}
+        </div>
+      )}
 
-            {/* Card Body */}
-            <div className="p-6 flex flex-col flex-1">
-              {/* Name + Category + Connected badge */}
-              <div className="flex items-center gap-4 mb-4">
-                {widget.iconImage ? (
-                  <div
-                    className={`w-11 h-11 rounded-xl flex-shrink-0 overflow-hidden border border-gray-100 ${widget.iconFill ? '' : 'flex items-center justify-center'}`}
-                    style={{ background: brandColors[widget.id] }}
-                  >
-                    <img
-                      src={widget.iconImage}
-                      alt={widget.name}
-                      className={widget.iconFill ? 'w-full h-full object-cover' : 'w-8 h-8 object-contain'}
-                    />
-                  </div>
-                ) : (
-                  <div
-                    className="w-11 h-11 rounded-xl flex items-center justify-center text-white text-base font-bold flex-shrink-0"
-                    style={{ background: brandColors[widget.id] }}
-                  >
-                    {widget.id === 'contact-widget' ? <MessageCircle className="w-6 h-6" aria-hidden="true" /> : brandInitials[widget.id]}
-                  </div>
-                )}
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <h3 className="text-xl font-bold text-gray-900">{widget.name}</h3>
-                    {((widget.id === 'docusign' && docusignConnected) || (widget.id === 'shopify' && shopifyConnected)) && (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-green-100 text-green-700 text-xs font-semibold">
-                        <Check className="w-3 h-3" /> Connected
-                      </span>
-                    )}
-                  </div>
-                  <p className="text-sm text-gray-500">{widget.category}</p>
-                </div>
-              </div>
-
-              {/* Description */}
-              <p className="text-base text-gray-600 leading-relaxed mb-5">{widget.description}</p>
-
-              {/* Features */}
-              <ul className="space-y-3 mb-6 flex-1">
-                {widget.features.map(feature => (
-                  <li key={feature} className="flex items-center gap-2.5 text-base text-gray-700">
-                    <Check className="w-4 h-4 text-green-500 flex-shrink-0" />
-                    {feature}
-                  </li>
-                ))}
-              </ul>
-
-              {/* Button */}
-              {(() => {
-                const connected = (widget.id === 'docusign' && docusignConnected)
-                  || (widget.id === 'shopify' && shopifyConnected)
-                  || (widget.id === 'contact-widget' && contactWidgetCount > 0);
-                return (
-                  <button
-                    onClick={() => setActiveModal(widget.id)}
-                    className={`w-full py-3 rounded-xl text-base font-semibold transition-colors ${
-                      connected
-                        ? 'bg-gray-100 hover:bg-gray-200 text-gray-700 border border-gray-200'
-                        : 'bg-[#6C60FF] hover:bg-[#5A4FFF] text-white'
-                    }`}
-                  >
-                    {connected ? 'Manage' : 'Get Widget'}
-                  </button>
-                );
-              })()}
-            </div>
-          </div>
-        ))}
-      </div>
+      {/* "+ Add connector" pop-up */}
+      {activeModal === 'add' && (
+        <AddConnectorModal available={available} onSelect={setActiveModal} onClose={closeModal} />
+      )}
 
       {/* Shopify Connect Modal */}
       {activeModal === 'shopify' && (
         <ShopifyConnectModal
-          onClose={() => setActiveModal(null)}
+          onClose={closeModal}
           isConnected={shopifyConnected}
           shopDomain={shopifyShopDomain}
           connectedAt={shopifyConnectedAt}
@@ -831,7 +763,7 @@ export default function MarketplacePage() {
       {/* DocuSign Connect Modal */}
       {activeModal === 'docusign' && (
         <DocuSignConnectModal
-          onClose={() => setActiveModal(null)}
+          onClose={closeModal}
           isConnected={docusignConnected}
           connectedAt={docusignConnectedAt}
           onConnected={() => {
@@ -847,15 +779,12 @@ export default function MarketplacePage() {
 
       {/* Contact Us Widget manager */}
       {activeModal === 'contact-widget' && (
-        <ContactWidgetManager
-          onClose={() => setActiveModal(null)}
-          onCountChange={setContactWidgetCount}
-        />
+        <ContactWidgetManager onClose={closeModal} onWidgetsChange={setContactWidgets} />
       )}
 
       {/* AutoTrader Connect Modal */}
       {activeModal === 'autotrader' && (
-        <AutoTraderConnectModal onClose={() => setActiveModal(null)} />
+        <AutoTraderConnectModal onClose={closeModal} />
       )}
     </div>
   );

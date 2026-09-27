@@ -8,6 +8,8 @@ import { useMemoryLimit } from "../hooks/useMemoryLimit";
 import { dashboardAPI, isPartialAdmin, apiRequest } from "../utils/authUtils";
 import { leadsAPI } from '../services/leadsAPI';
 import { runWhenIdle } from "../utils/deferIdle";
+import { widgetsAPI } from "../services/widgetsAPI";
+import { CONNECTORS_COUNT_EVENT } from "./connectors/catalog";
 import { useAuth } from "../contexts/AuthContext";
 import { useMemoryCounts } from "../hooks/useMemoryCounts";
 import { MemoryLimitDialog } from "./MemoryLimitDialog";
@@ -294,10 +296,12 @@ export default function Sidebar({
     }).catch(() => {});
   }, [isAuthenticated]);
 
-  // Connectors badge = number of connectors currently connected (DocuSign + Shopify).
-  // Same two status endpoints the Connectors/Marketplace page uses. This is a purely
-  // decorative count, so it's deferred to browser-idle time to keep the two status
-  // calls off the initial-load critical path (PERFORMANCE_OPTIMIZATION_PLAN.md #4).
+  // Connectors badge = number of connectors currently connected (DocuSign + Shopify, plus the
+  // Contact Us Widget once the account has at least one widget). Same status endpoints the
+  // Connectors/Marketplace page uses. This is a purely decorative count, so it's deferred to
+  // browser-idle time to keep the status calls off the initial-load critical path
+  // (PERFORMANCE_OPTIMIZATION_PLAN.md #4). The Connectors page also broadcasts its own count
+  // whenever something is connected, disconnected, created or deleted there.
   useEffect(() => {
     if (!isAuthenticated) return;
     let cancelled = false;
@@ -305,11 +309,21 @@ export default function Sidebar({
       Promise.all([
         dashboardAPI.docuSignGetStatus().then(r => (r?.success && r.data?.connected ? 1 : 0)).catch(() => 0),
         dashboardAPI.shopifyGetStatus().then(r => (r?.success && r.data?.connected ? 1 : 0)).catch(() => 0),
-      ]).then(([docusign, shopify]) => {
-        if (!cancelled) setConnectorsCount(docusign + shopify);
+        widgetsAPI.list().then(r => (r.ok && Array.isArray(r.data) && r.data.length > 0 ? 1 : 0)).catch(() => 0),
+      ]).then(([docusign, shopify, contactWidget]) => {
+        if (!cancelled) setConnectorsCount(docusign + shopify + contactWidget);
       });
     });
-    return () => { cancelled = true; cancelIdle(); };
+    const onCount = (e: Event) => {
+      const count = (e as CustomEvent<{ count?: number }>).detail?.count;
+      if (typeof count === 'number') setConnectorsCount(count);
+    };
+    window.addEventListener(CONNECTORS_COUNT_EVENT, onCount);
+    return () => {
+      cancelled = true;
+      cancelIdle();
+      window.removeEventListener(CONNECTORS_COUNT_EVENT, onCount);
+    };
   }, [isAuthenticated]);
 
   const fetchLeadsUnreadCount = () => {
