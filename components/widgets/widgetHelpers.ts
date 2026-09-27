@@ -4,8 +4,11 @@
 
 import type { FormFieldKey, FormFieldSetting, FormFieldSettings } from '../../services/widgetsAPI';
 
-export const DEFAULT_BRAND = '#2f5fac';
-export const DEFAULT_CALLOUT = 'Chat with us';
+// Mirrors public/widget-core.js (Chris's ContactWidget design).
+export const DEFAULT_BRAND = '#6C60FF';
+export const DEFAULT_CALLOUT = 'Hi there! Have a question?';
+export const CALLOUT_SUBTEXT = 'Chat with us here.';
+export const DEFAULT_WELCOME = 'Enter your question below and a representative will get right back to you.';
 export const MESSAGE_MAX = 320;
 export const WELCOME_MAX = 500;
 export const PRODUCTION_ORIGIN = 'https://studio.stasht.com';
@@ -149,18 +152,14 @@ export function formCanReply(fields: FormFieldSettings): boolean {
   return (fields.mobile.show && fields.mobile.required) || (fields.email.show && fields.email.required);
 }
 
-export function fieldDisplayLabel(key: FormFieldKey, f: FormFieldSetting): string {
+/** The input placeholder the widget shows ("Name *", "Business (optional)") — same as widget-core placeholderFor(). */
+export function fieldPlaceholder(key: FormFieldKey, f: FormFieldSetting): string {
   const label = f.label.trim() || DEFAULT_FORM_FIELD_SETTINGS[key].label;
-  return f.required ? label : `${label} (optional)`;
+  if (key === 'message' && label === DEFAULT_FORM_FIELD_SETTINGS.message.label) return 'I want to know more...';
+  return f.required ? `${label} *` : `${label} (optional)`;
 }
 
-export function consentLine(fields: FormFieldSettings): string {
-  if (fields.mobile.show && fields.email.show) {
-    return 'By submitting, you authorize this business to contact you by text or email using the details you provided. Message and data rates may apply.';
-  }
-  if (fields.email.show) return 'By submitting, you authorize this business to contact you at the email you provided.';
-  return 'By submitting, you authorize this business to send messages to the number you provided. Message and data rates may apply.';
-}
+export const CONSENT_LINE = 'By submitting you agree to receive messages for the provided channel. Rates may be applied.';
 
 /** Crops an image to a centred square and shrinks it (default 256px) before upload. */
 export async function squareAvatarDataUrl(file: File, size = 256): Promise<string> {

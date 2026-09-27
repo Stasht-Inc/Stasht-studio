@@ -1,7 +1,8 @@
-import { MessageCircle, UserRound } from 'lucide-react';
+import { MessageCircle, X } from 'lucide-react';
 import type { CSSProperties } from 'react';
 import {
-  DEFAULT_CALLOUT, FORM_FIELD_KEYS, MESSAGE_MAX, consentLine, contrastInk, fieldDisplayLabel, resolveFormFields, safeColor, safeHttpsUrl,
+  CALLOUT_SUBTEXT, CONSENT_LINE, DEFAULT_CALLOUT, DEFAULT_WELCOME, FORM_FIELD_KEYS, contrastInk, fieldPlaceholder,
+  resolveFormFields, safeColor, safeHttpsUrl,
 } from './widgetHelpers';
 import type { FormFieldSettings, WidgetBubblePosition } from '../../services/widgetsAPI';
 
@@ -13,132 +14,118 @@ export interface WidgetPreviewValues {
   logoUrl: string;
   position: WidgetBubblePosition;
   formFields?: FormFieldSettings;
-  // Sample "who's online" row (the embed shows the real team from the server).
+  // Sample "who's online" (the embed shows the real team from the server).
   online?: { name: string; initials: string; color: string; avatarUrl?: string | null }[];
 }
 
-// Mirrors public/widget-embed.html + widget-embed.js markup and styles (launcher pill, 360px panel,
-// header in brand colour, the shown form fields, Send). Static: nothing here submits.
+// Mirrors public/widget-embed.html + widget-embed.js, which follow Chris's ContactWidget frames:
+// callout card + round launcher when closed; agent header, intro bubble and form when open.
+// Static: nothing here submits.
 const font = 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
+const inputStyle: CSSProperties = {
+  width: '100%', padding: '11px 12px', border: '1px solid #d1d5db', borderRadius: 10, background: '#fff',
+  color: '#9ca3af', fontSize: 14.5, boxSizing: 'border-box',
+};
 
-// Same wording as widget-core.js onlineLabel().
-function onlineText(names: string[]): string {
-  if (names.length === 0) return '';
-  if (names.length === 1) return `${names[0]} is online`;
-  return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]} are online`;
+function initialsInk(hex: string): string {
+  const h = safeColor(hex, '#6C60FF').slice(1);
+  const [r, g, b] = [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16));
+  return (0.299 * r + 0.587 * g + 0.114 * b) / 255 > 0.8 ? '#1f2937' : '#ffffff';
 }
 
-const labelStyle: CSSProperties = { display: 'grid', gap: 4, fontSize: 12, fontWeight: 600, color: '#3d4257' };
-const inputStyle: CSSProperties = {
-  font: 'inherit', padding: '10px 12px', border: '1px solid #c9cfdd', borderRadius: 10,
-  width: '100%', color: '#1b2030', background: '#fff', boxSizing: 'border-box',
-};
+function Faces({ online }: { online: NonNullable<WidgetPreviewValues['online']> }) {
+  return (
+    <span style={{ display: 'flex' }} aria-hidden="true">
+      {online.map((m, i) => {
+        const photo = safeHttpsUrl(m.avatarUrl ?? '');
+        const color = safeColor(m.color, '#6C60FF');
+        return (
+          <span key={`${m.name}-${i}`} style={{ position: 'relative', zIndex: 4 - i, width: 28, height: 28, marginLeft: i === 0 ? 0 : -7, borderRadius: '50%', border: '2px solid #fff', background: '#fff' }}>
+            {photo ? (
+              <img src={photo} alt="" style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover', display: 'block' }} />
+            ) : (
+              <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', height: '100%', borderRadius: '50%', background: color, color: initialsInk(color), fontSize: 10, fontWeight: 700 }}>
+                {m.initials}
+              </span>
+            )}
+            <span style={{ position: 'absolute', right: -2, bottom: -2, width: 9, height: 9, borderRadius: '50%', background: '#22c55e', border: '2px solid #fff' }} />
+          </span>
+        );
+      })}
+    </span>
+  );
+}
 
 export function WidgetPreview({ values, mode }: { values: WidgetPreviewValues; mode: 'closed' | 'open' }) {
   const brand = safeColor(values.primaryColor);
   const ink = contrastInk(brand);
   const logo = safeHttpsUrl(values.logoUrl);
-  const callout = values.calloutText.trim() || DEFAULT_CALLOUT;
-  const agent = values.agentName.trim();
-  const welcome = values.welcomeSubtext.trim();
-  const alignEnd = values.position === 'bottom-right';
+  const title = values.calloutText.trim() || DEFAULT_CALLOUT;
+  const agent = values.agentName.trim() || 'Chat with us';
+  const welcome = values.welcomeSubtext.trim() || DEFAULT_WELCOME;
+  const left = values.position === 'bottom-left';
   const fields = values.formFields || resolveFormFields(null);
   const shown = FORM_FIELD_KEYS.filter((k) => fields[k].show);
-  const online = (values.online || []).slice(0, 3);
+  const online = (values.online || []).slice(0, 4);
+
+  const picture = (size: number, iconSize: number, bg: string) => (logo
+    ? <img src={logo} alt="" style={{ width: size, height: size, borderRadius: '50%', objectFit: 'cover', display: 'block' }} />
+    : (
+      <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: size, height: size, borderRadius: '50%', background: bg, color: ink }}>
+        <MessageCircle style={{ width: iconSize, height: iconSize }} aria-hidden="true" />
+      </span>
+    ));
 
   return (
     <div
-      className={`flex flex-col ${alignEnd ? 'items-end' : 'items-start'} justify-end h-full`}
-      style={{ fontFamily: font, fontSize: 14, lineHeight: 1.45, color: '#1b2030' }}
+      className={`flex flex-col ${left ? 'items-start' : 'items-end'} justify-end h-full`}
+      style={{ fontFamily: font, fontSize: 14, lineHeight: 1.45, color: '#1f2937' }}
     >
       {mode === 'closed' ? (
-        <div
-          style={{
-            display: 'inline-flex', alignItems: 'center', gap: 10, padding: '14px 20px', borderRadius: 999,
-            background: brand, color: ink, fontWeight: 600, whiteSpace: 'nowrap',
-            boxShadow: '0 4px 12px -2px rgba(16,24,40,.30), 0 1px 3px rgba(16,24,40,.12)', maxWidth: '100%',
-          }}
-        >
-          <MessageCircle style={{ width: 22, height: 22, flex: 'none' }} aria-hidden="true" />
-          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{callout}</span>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: left ? 'flex-start' : 'flex-end' }}>
+          <div style={{ position: 'relative', width: 280, marginBottom: 14, padding: '14px 16px 16px', background: '#fff', borderRadius: 14, boxShadow: '0 0 0 1px rgba(16,24,40,.05), 0 6px 16px -4px rgba(16,24,40,.18)' }}>
+            {online.length > 0 && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                <Faces online={online} />
+                <span style={{ fontSize: 12, fontWeight: 600, color: '#16a34a' }}>{online.length} online</span>
+              </div>
+            )}
+            <div style={{ paddingRight: 18, fontSize: 15, fontWeight: 700, color: '#111827' }}>{title}</div>
+            <div style={{ marginTop: 2, fontSize: 13, color: '#4b5563' }}>{CALLOUT_SUBTEXT}</div>
+            <span aria-hidden="true" style={{ position: 'absolute', top: 8, right: 8, width: 24, height: 24, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#9ca3af', fontSize: 18 }}>×</span>
+            <span aria-hidden="true" style={{ position: 'absolute', bottom: -6, [left ? 'left' : 'right']: 22, width: 12, height: 12, background: '#fff', transform: 'rotate(45deg)', boxShadow: '3px 3px 4px -2px rgba(16,24,40,.10)' }} />
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 56, height: 56, borderRadius: '50%', background: brand, color: ink, boxShadow: `0 6px 16px -2px ${brand}8C` }}>
+            <MessageCircle style={{ width: 26, height: 26 }} aria-hidden="true" />
+          </div>
         </div>
       ) : (
-        <div
-          style={{
-            width: 360, maxWidth: '100%', background: '#fff', borderRadius: 16, overflow: 'hidden',
-            boxShadow: '0 0 0 1px rgba(16,24,40,.06), 0 8px 20px -6px rgba(16,24,40,.28), 0 2px 6px rgba(16,24,40,.08)',
-          }}
-        >
-          <div style={{ background: brand, color: ink, padding: '18px 20px 16px', position: 'relative' }}>
-            {(agent || logo) && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, fontWeight: 600, fontSize: 13 }}>
-                {logo ? (
-                  <img src={logo} alt="" style={{ flex: 'none', width: 32, height: 32, borderRadius: '50%', objectFit: 'cover', background: '#fff' }} />
-                ) : (
-                  <span style={{ flex: 'none', width: 32, height: 32, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(255,255,255,.22)', color: ink }}>
-                    <UserRound style={{ width: 18, height: 18 }} aria-hidden="true" />
-                  </span>
-                )}
-                {agent && <span>{agent}</span>}
-              </div>
-            )}
-            <h2 style={{ margin: '0 32px 6px 0', fontSize: 17, fontWeight: 700 }}>{callout}</h2>
-            {welcome && <p style={{ margin: 0, fontSize: 13, opacity: 0.95, whiteSpace: 'pre-wrap' }}>{welcome}</p>}
-            {online.length > 0 && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 12, fontSize: 13, fontWeight: 600 }}>
-                <span style={{ display: 'flex' }} aria-hidden="true">
-                  {online.map((m, i) => {
-                    const photo = safeHttpsUrl(m.avatarUrl ?? '');
-                    const color = safeColor(m.color, '#6C60FF');
-                    return (
-                      <span
-                        key={`${m.name}-${i}`}
-                        style={{ position: 'relative', zIndex: 3 - i, width: 30, height: 30, marginLeft: i === 0 ? 0 : -8, borderRadius: '50%', border: `2px solid ${brand}`, background: '#fff' }}
-                      >
-                        {photo ? (
-                          <img src={photo} alt="" style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover', display: 'block' }} />
-                        ) : (
-                          <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', height: '100%', borderRadius: '50%', background: color, color: contrastInk(color), fontSize: 11, fontWeight: 700 }}>
-                            {m.initials}
-                          </span>
-                        )}
-                        <span style={{ position: 'absolute', right: -3, bottom: -3, width: 10, height: 10, borderRadius: '50%', background: '#22c55e', border: `2px solid ${brand}` }} />
-                      </span>
-                    );
-                  })}
-                </span>
-                <span>{onlineText(online.map((m) => m.name))}</span>
-              </div>
-            )}
-            <span
-              aria-hidden="true"
-              style={{ position: 'absolute', top: 12, right: 12, width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, lineHeight: 1 }}
-            >
-              ×
+        <div style={{ width: 380, maxWidth: '100%', background: '#fff', borderRadius: 16, overflow: 'hidden', boxShadow: '0 0 0 1px rgba(16,24,40,.06), 0 8px 20px -6px rgba(16,24,40,.28), 0 2px 6px rgba(16,24,40,.08)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '14px 12px 14px 16px', background: brand, color: ink }}>
+            <span style={{ position: 'relative', flex: 'none', width: 36, height: 36 }}>
+              {picture(36, 18, 'rgba(255,255,255,.22)')}
+              {online.length > 0 && <span style={{ position: 'absolute', top: -1, right: -1, width: 11, height: 11, borderRadius: '50%', background: '#22c55e', border: `2px solid ${brand}` }} />}
             </span>
-          </div>
-          <div style={{ padding: '16px 20px 18px', display: 'grid', gap: 10 }} aria-hidden="true">
-            {shown.map((key) => (
-              <div key={key} style={{ display: 'grid', gap: 10 }}>
-                <div style={labelStyle}>
-                  <span>
-                    {fieldDisplayLabel(key, fields[key])}
-                    {fields[key].required && <span style={{ color: '#dc2626', marginLeft: 2 }}>*</span>}
-                  </span>
-                  <div style={{ ...inputStyle, minHeight: key === 'message' ? 84 : 40 }} />
-                </div>
-                {key === 'message' && <div style={{ textAlign: 'right', fontSize: 11, color: '#6b7288' }}>0/{MESSAGE_MAX}</div>}
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontSize: 15, fontWeight: 700, lineHeight: 1.25, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{agent}</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2, fontSize: 12.5, opacity: 0.92 }}>
+                {online.length > 0 ? <><span style={{ width: 7, height: 7, borderRadius: '50%', background: '#22c55e' }} />Online now</> : "We'll reply soon"}
               </div>
+            </div>
+            <X style={{ width: 20, height: 20, marginLeft: 'auto', marginRight: 6, flex: 'none' }} aria-hidden="true" />
+          </div>
+          <div style={{ display: 'grid', gap: 12, padding: 16 }} aria-hidden="true">
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+              <span style={{ flex: 'none', overflow: 'hidden', borderRadius: '50%' }}>{picture(28, 14, brand)}</span>
+              <div style={{ maxWidth: '82%', padding: '11px 14px', borderRadius: 14, background: '#f3f4f6', fontSize: 14.5, lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>{welcome}</div>
+            </div>
+            {shown.map((key) => (
+              <div key={key} style={{ ...inputStyle, minHeight: key === 'message' ? 88 : undefined }}>{fieldPlaceholder(key, fields[key])}</div>
             ))}
-            <div
-              style={{
-                padding: '13px 16px', borderRadius: 999, background: brand, color: ink,
-                fontWeight: 700, textAlign: 'center',
-              }}
-            >
+            <p style={{ margin: '2px 0 0', fontSize: 11.5, lineHeight: 1.5, color: '#6b7280' }}>{CONSENT_LINE}</p>
+            <div style={{ height: 44, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 12, background: brand, color: ink, fontWeight: 600, opacity: 0.45 }}>
               Send Message
             </div>
-            <p style={{ fontSize: 11, color: '#6b7288', margin: '2px 0 0' }}>{consentLine(fields)}</p>
           </div>
         </div>
       )}

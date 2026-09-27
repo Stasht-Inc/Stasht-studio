@@ -13,7 +13,7 @@ import { WidgetPreview } from './WidgetPreview';
 import { InstallGuide } from './InstallGuide';
 import { InstallStatusLine } from './InstallStatus';
 import {
-  DEFAULT_BRAND, DEFAULT_FORM_FIELD_SETTINGS, FORM_FIELD_KEYS, FORM_FIELD_LABEL_MAX, FORM_FIELD_NAMES, WELCOME_MAX, copyText,
+  DEFAULT_BRAND, DEFAULT_CALLOUT, DEFAULT_WELCOME, DEFAULT_FORM_FIELD_SETTINGS, FORM_FIELD_KEYS, FORM_FIELD_LABEL_MAX, FORM_FIELD_NAMES, WELCOME_MAX, copyText,
   formCanReply, installSnippet, isHexColor, isPlausibleDomain, normalizeDomain, resolveFormFields, safeColor,
   safeHttpsUrl, squareAvatarDataUrl,
 } from './widgetHelpers';
@@ -538,13 +538,13 @@ function WidgetBuilder({
                   value={form.calloutText}
                   maxLength={CALLOUT_MAX}
                   onChange={(e) => set('calloutText', e.target.value)}
-                  placeholder="Ask us a question!"
+                  placeholder={DEFAULT_CALLOUT}
                   aria-invalid={!!errors.callout_text}
                   aria-describedby={errors.callout_text ? id('callout-err') : id('callout-count')}
                   className={inputClass + (errors.callout_text ? errorInputClass : '')}
                 />
                 <div className="flex justify-between mt-1">
-                  <p className="text-xs text-gray-400">Shown on the closed bubble.</p>
+                  <p className="text-xs text-gray-400">The headline on the card above the chat button.</p>
                   <span id={id('callout-count')} className="text-xs text-gray-400">{form.calloutText.length}/{CALLOUT_MAX}</span>
                 </div>
                 <FieldError id={id('callout-err')} message={errors.callout_text} />
@@ -559,7 +559,7 @@ function WidgetBuilder({
                 maxLength={WELCOME_MAX}
                 rows={4}
                 onChange={(e) => set('welcomeSubtext', e.target.value)}
-                placeholder="To speak with a live agent, reach out during our regular business hours (Mon-Fri, 7:00am-5:30pm)."
+                placeholder={DEFAULT_WELCOME}
                 aria-invalid={!!errors.welcome_subtext}
                 aria-describedby={errors.welcome_subtext ? id('welcome-err') : id('welcome-count')}
                 className={inputClass + ' resize-y' + (errors.welcome_subtext ? errorInputClass : '')}
