@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   safeColor, safeHttpsUrl, contrastInk, hostOrigin, isPlausiblePhone, clampPosition, panelWidth, panelMaxHeight, MESSAGE_MAX,
+  configUrl,
 } from '../../public/widget-core.js';
 
 test('safeColor accepts #RRGGBB only', () => {
@@ -73,4 +74,13 @@ test('panelMaxHeight fits the host viewport', () => {
   assert.equal(panelMaxHeight(640), 584);
   assert.equal(panelMaxHeight(568), 512);
   assert.equal(panelMaxHeight(200), 200);
+});
+
+test('configUrl passes the customer page origin so the server can record where the widget is installed', () => {
+  const api = 'https://restapi.stasht.com/api/react';
+  assert.equal(
+    configUrl(api, 'w_abcdefghij', 'https://www.example.com'),
+    'https://restapi.stasht.com/api/react/widget-embed/w_abcdefghij/config?host=https%3A%2F%2Fwww.example.com',
+  );
+  assert.equal(configUrl(api, 'w_abcdefghij', ''), 'https://restapi.stasht.com/api/react/widget-embed/w_abcdefghij/config');
 });

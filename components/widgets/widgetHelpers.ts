@@ -92,3 +92,25 @@ export function normalizeDomain(input: string): string {
 export function isPlausibleDomain(domain: string): boolean {
   return /^(?=.{3,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/.test(domain);
 }
+
+/** Days without a page load after which an install is shown as possibly removed. */
+export const STALE_INSTALL_DAYS = 7;
+
+/** "just now", "5 minutes ago", "3 hours ago", "12 days ago". */
+export function timeAgo(iso: string | null | undefined, now: number = Date.now()): string {
+  const t = iso ? Date.parse(iso) : NaN;
+  if (Number.isNaN(t)) return 'a while ago';
+  const minutes = Math.max(0, Math.floor((now - t) / 60000));
+  if (minutes < 1) return 'just now';
+  if (minutes < 60) return `${minutes} minute${minutes === 1 ? '' : 's'} ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} hour${hours === 1 ? '' : 's'} ago`;
+  const days = Math.floor(hours / 24);
+  return `${days} day${days === 1 ? '' : 's'} ago`;
+}
+
+/** True when the most recent sighting is older than STALE_INSTALL_DAYS. */
+export function isStaleInstall(lastSeenIso: string | null | undefined, now: number = Date.now()): boolean {
+  const t = lastSeenIso ? Date.parse(lastSeenIso) : NaN;
+  return Number.isNaN(t) || now - t > STALE_INSTALL_DAYS * 24 * 60 * 60 * 1000;
+}

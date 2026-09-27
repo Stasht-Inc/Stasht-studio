@@ -682,9 +682,15 @@ export default function MarketplacePage() {
     if (contactWidgets.length > 0) {
       const live = contactWidgets.filter((w) => w.status === 'live').length;
       const leads = contactWidgets.reduce((n, w) => n + (w.leads_count ?? 0), 0);
+      const sites = new Set(contactWidgets.flatMap((w) => (w.installs || []).map((i) => i.host))).size;
       items.push({
         connector: connectorById('contact-widget'),
-        status: `${plural(contactWidgets.length, 'widget')} · ${live} live · ${plural(leads, 'lead')}`,
+        status: [
+          plural(contactWidgets.length, 'widget'),
+          `${live} live`,
+          sites > 0 ? `on ${plural(sites, 'website')}` : 'not installed yet',
+          plural(leads, 'lead'),
+        ].join(' · '),
       });
     }
     return items;

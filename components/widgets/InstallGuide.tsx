@@ -5,6 +5,7 @@ import { toast } from 'sonner';
 import { widgetsAPI } from '../../services/widgetsAPI';
 import type { ContactWidget } from '../../services/widgetsAPI';
 import { copyText, installSnippet } from './widgetHelpers';
+import { InstallStatusPanel } from './InstallStatus';
 import {
   INSTALL_PLATFORMS, aiAssistantPrompt, developerEmailBody, developerEmailSubject,
 } from './installGuideContent';
@@ -88,6 +89,20 @@ export function InstallGuide({
   const emailBody = developerEmailBody(ctx);
   const mailto = `mailto:?subject=${encodeURIComponent(developerEmailSubject())}&body=${encodeURIComponent(emailBody)}`;
 
+  const checkAgain = async () => {
+    const before = widget.installs?.length ?? 0;
+    const res = await widgetsAPI.get(widget.id);
+    if (!res.ok || !res.data) {
+      toast.error(res.error || 'Could not check right now. Please try again.');
+      return;
+    }
+    onWidgetUpdated(res.data);
+    const installs = res.data.installs || [];
+    if (installs.length > before) toast.success(`Installed on ${installs[0].host}`);
+    else if (installs.length === 0) toast.info('Not seen yet. Open your website in a browser, then check again.');
+    else toast.success('Status updated');
+  };
+
   const goLive = async () => {
     if (goingLive) return;
     setGoingLive(true);
@@ -122,6 +137,8 @@ export function InstallGuide({
               It takes about 5 minutes. You paste one line of code into your website once, and the chat bubble appears on every page.
             </p>
           </div>
+
+          <InstallStatusPanel widget={widget} onCheck={checkAgain} />
 
           {/* 1. Checklist */}
           <section>
@@ -285,6 +302,7 @@ export function InstallGuide({
                 Within a few seconds, a chat bubble saying <strong className="font-semibold text-gray-900">"{widget.callout_text || 'Chat with us'}"</strong> should appear in the {cornerText} corner.
               </li>
               <li>Click it and send yourself a test message. It will show up in your <strong className="font-semibold text-gray-900">Leads</strong>.</li>
+              <li>Come back here and click <strong className="font-semibold text-gray-900">Check again</strong> at the top. It shows <strong className="font-semibold text-gray-900">Installed on your website</strong> once your site has loaded the widget.</li>
             </ol>
             <div className="mt-4 rounded-xl bg-gray-50 border border-gray-200 p-4">
               <p className="text-sm font-semibold text-gray-900 mb-2">Not seeing the bubble?</p>
