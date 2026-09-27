@@ -137,7 +137,6 @@ export default function LeadsPage({ openConversationLeadId, onConversationOpened
               selectedConversationId={selectedConversation?.lead_id ?? null}
               onConversationSelect={(conv) => { setSelectedConversation(conv); if (conv) { setSelectedLead(null); setSelectedGroupId(null); } }}
               refreshTrigger={leadsRefreshTrigger}
-              compact={isPanelOpen}
               unreadBreakdown={leadsUnreadBreakdown}
               onLeadsRefreshed={(leads) => {
                 if (selectedLead) {

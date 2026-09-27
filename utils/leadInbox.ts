@@ -13,6 +13,15 @@ export function formatInboxDate(iso: string | null | undefined): string {
   return `${date} ${time}`;
 }
 
+// Narrower tables: "Sep 21, 2026 4:49 PM" (no weekday).
+export function formatInboxDateMedium(iso: string | null | undefined): string {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return '—';
+  const date = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  return `${date} ${d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`;
+}
+
 // Phone cards: "Sep 23, 3:52 PM" (year only when it isn't this year).
 export function formatInboxDateShort(iso: string | null | undefined): string {
   if (!iso) return '—';
@@ -42,6 +51,14 @@ export function formatPhone(raw: string | null | undefined): string {
 
 export function leadContactLine(lead: Lead): string {
   return formatPhone(lead.user?.phone_number) || lead.user?.email || '—';
+}
+
+export function leadPhone(lead: Lead): string {
+  return formatPhone(lead.user?.phone_number);
+}
+
+export function leadEmail(lead: Lead): string {
+  return lead.user?.email?.trim() ?? '';
 }
 
 export function isUnread(lead: Lead): boolean {

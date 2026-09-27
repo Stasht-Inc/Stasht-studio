@@ -183,7 +183,6 @@ interface LeadsTabProps {
   selectedLead: Lead | null;
   onLeadSelect: (lead: Lead | null) => void;
   refreshTrigger: number;
-  compact?: boolean;
   onLeadsRefreshed?: (leads: Lead[]) => void;
   onFilterChange?: (filter: string) => void;
   onCommentaryJump?: (lead: Lead, target: CommentaryTarget) => void;
@@ -229,7 +228,7 @@ function SummaryCardRow({ cards }: { cards: SummaryCardData[] }) {
   );
 }
 
-export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, compact = false, onLeadsRefreshed, onFilterChange, onCommentaryJump, selectedGroupId, onGroupSelect, selectedConversationId, onConversationSelect, unreadBreakdown, onViewStoreelReport, openLeadId, openLeadHint, onOpenLeadHandled }: LeadsTabProps) {
+export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, onLeadsRefreshed, onFilterChange, onCommentaryJump, selectedGroupId, onGroupSelect, selectedConversationId, onConversationSelect, unreadBreakdown, onViewStoreelReport, openLeadId, openLeadHint, onOpenLeadHandled }: LeadsTabProps) {
   const [leads, setLeads] = useState<Lead[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -1424,7 +1423,6 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, c
             </>
           }
           selectedLeadId={selectedLead?.id ?? null}
-          compact={compact}
           isClosedTab={showClosed}
           onSelect={(lead) => onLeadSelect(lead)}
           onArchive={(lead) => (showClosed ? handleArchiveLead(lead.id) : setConfirming({ kind: 'close', lead }))}
