@@ -137,8 +137,11 @@ function panel() {
   return h('div', { class: 'panel', role: 'dialog', 'aria-labelledby': 'w-title' }, head, state.phase === 'sent' ? thanks() : form());
 }
 
-function field(id, label, control, error) {
-  return h('label', { for: id }, label, control, error && h('span', { class: 'err', role: 'alert' }, error));
+// Required fields get a red * (decorative; the input's `required` is what assistive tech reads).
+function field(id, label, control, error, required = false) {
+  return h('label', { for: id },
+    h('span', { class: 'lbl' }, label, required && h('span', { class: 'req', 'aria-hidden': 'true' }, '*')),
+    control, error && h('span', { class: 'err', role: 'alert' }, error));
 }
 
 // Per-field input attributes; which fields appear, their labels and required-ness come from the config.
@@ -164,7 +167,7 @@ function form() {
     const control = f.key === 'message'
       ? h('textarea', { id, name: 'message', maxlength: MESSAGE_MAX, required: f.required, oninput: bind('message') }, v.message)
       : h('input', { id, name: f.key, ...INPUTS[f.key], required: f.required, value: v[f.key], oninput: bind(f.key) });
-    return [field(id, fieldLabel(f), control, e[f.key]), f.key === 'message' && counter];
+    return [field(id, fieldLabel(f), control, e[f.key], f.required), f.key === 'message' && counter];
   });
 
   return h('form', { novalidate: true, onsubmit: submit },

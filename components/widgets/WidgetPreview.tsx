@@ -121,7 +121,10 @@ export function WidgetPreview({ values, mode }: { values: WidgetPreviewValues; m
             {shown.map((key) => (
               <div key={key} style={{ display: 'grid', gap: 10 }}>
                 <div style={labelStyle}>
-                  {fieldDisplayLabel(key, fields[key])}
+                  <span>
+                    {fieldDisplayLabel(key, fields[key])}
+                    {fields[key].required && <span style={{ color: '#dc2626', marginLeft: 2 }}>*</span>}
+                  </span>
                   <div style={{ ...inputStyle, minHeight: key === 'message' ? 84 : 40 }} />
                 </div>
                 {key === 'message' && <div style={{ textAlign: 'right', fontSize: 11, color: '#6b7288' }}>0/{MESSAGE_MAX}</div>}
