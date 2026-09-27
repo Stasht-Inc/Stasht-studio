@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
-import { ArrowLeft, Camera, Check, Code2, Copy, Loader2, MessageCircle, Pencil, Plus, Trash2, UserRound, X } from 'lucide-react';
+import { ArrowLeft, Camera, Check, ChevronDown, Code2, Copy, Loader2, MessageCircle, Pencil, Plus, Trash2, UserRound, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { widgetsAPI } from '../../services/widgetsAPI';
 import type {
@@ -170,6 +170,16 @@ function FieldError({ id, message }: { id: string; message?: string }) {
 const inputClass =
   'w-full bg-gray-100 border border-gray-200 rounded-xl px-4 py-2.5 text-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#6C60FF]/40 focus:border-[#6C60FF]';
 const errorInputClass = ' !border-red-400 !bg-red-50';
+
+// Native <select> arrows ignore padding and sit on the edge; draw our own chevron instead.
+function SelectField({ wrapperClassName = '', children, ...props }: React.SelectHTMLAttributes<HTMLSelectElement> & { wrapperClassName?: string }) {
+  return (
+    <div className={`relative ${wrapperClassName}`}>
+      <select {...props} className={inputClass + ' appearance-none pr-10 cursor-pointer'}>{children}</select>
+      <ChevronDown className="pointer-events-none absolute right-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" aria-hidden="true" />
+    </div>
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Builder
@@ -701,10 +711,15 @@ function WidgetBuilder({
                   aria-describedby={id('domain-help') + ((domainError || errors.allowed_domains) ? ' ' + id('domain-err') : '')}
                   className={inputClass + ((domainError || errors.allowed_domains) ? errorInputClass : '')}
                 />
+                {/* Turns purple once something is typed, so it's clear the domain still needs adding. */}
                 <button
                   type="button"
                   onClick={commitDomain}
-                  className="inline-flex items-center gap-1.5 px-4 rounded-xl border border-gray-200 text-sm font-medium text-gray-700 hover:bg-gray-50 flex-shrink-0"
+                  className={`inline-flex items-center gap-1.5 px-4 rounded-xl border text-sm font-medium flex-shrink-0 transition-colors ${
+                    domainInput.trim()
+                      ? 'border-transparent bg-[#6C60FF] text-white hover:bg-[#5A4FE5]'
+                      : 'border-gray-200 text-gray-700 hover:bg-gray-50'
+                  }`}
                 >
                   <Plus className="w-4 h-4" /> Add
                 </button>
@@ -718,16 +733,16 @@ function WidgetBuilder({
             {teamOptions.length > 0 && (
               <div>
                 <label htmlFor={id('team')} className="block text-sm font-medium text-gray-800 mb-1.5">Who handles this widget's leads</label>
-                <select
+                <SelectField
                   id={id('team')}
                   value={form.propertyId ?? ''}
                   onChange={(e) => set('propertyId', e.target.value === '' ? null : Number(e.target.value))}
                   aria-describedby={id('team-help')}
-                  className={inputClass + ' sm:max-w-xs'}
+                  wrapperClassName="sm:max-w-xs"
                 >
                   {teamOptions.map((t) => <option key={t.id} value={t.id}>{t.name} team</option>)}
                   <option value="">Only me</option>
-                </select>
+                </SelectField>
                 <p id={id('team-help')} className="text-xs text-gray-400 mt-1">
                   {form.propertyId
                     ? 'Everyone on the team is alerted to new leads, the first to accept takes the lead, and the widget shows who is online.'
@@ -739,17 +754,17 @@ function WidgetBuilder({
 
             <div>
               <label htmlFor={id('status')} className="block text-sm font-medium text-gray-800 mb-1.5">Status</label>
-              <select
+              <SelectField
                 id={id('status')}
                 value={form.status}
                 onChange={(e) => set('status', e.target.value as WidgetStatus)}
                 aria-describedby={id('status-help')}
-                className={inputClass + ' sm:max-w-xs'}
+                wrapperClassName="sm:max-w-xs"
               >
                 <option value="draft">Draft</option>
                 <option value="live">Live</option>
                 <option value="paused">Paused</option>
-              </select>
+              </SelectField>
               <p id={id('status-help')} className="text-xs text-gray-400 mt-1">Live widgets appear on the site. Draft and Paused widgets are hidden from visitors.</p>
               {liveWithoutDomain && (
                 <p className="text-xs text-amber-700 mt-1">Tip: add your website's domain above so we can flag messages sent from other sites.</p>
