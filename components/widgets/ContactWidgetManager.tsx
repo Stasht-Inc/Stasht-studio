@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
-import { ArrowLeft, Check, Code2, Copy, Loader2, MessageCircle, Pencil, Plus, Trash2, UserRound, X } from 'lucide-react';
+import { ArrowLeft, Camera, Check, Code2, Copy, Loader2, MessageCircle, Pencil, Plus, Trash2, UserRound, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { widgetsAPI } from '../../services/widgetsAPI';
 import type {
@@ -459,57 +459,66 @@ function WidgetBuilder({
               <FieldError id={id('name-err')} message={errors.name} />
             </div>
 
+            {/* Agent name and photo together — upload only; a default avatar shows until one is added. */}
             <div>
-              <span id={id('avatar-label')} className="block text-sm font-medium text-gray-800 mb-1.5">Agent avatar</span>
-              <div className="flex items-center gap-4">
-                {safeHttpsUrl(form.logoUrl) ? (
-                  <img src={safeHttpsUrl(form.logoUrl)!} alt="Agent avatar" className="w-14 h-14 rounded-full object-cover border border-gray-200 bg-white shrink-0" />
-                ) : (
-                  <span className="w-14 h-14 rounded-full bg-gray-100 border border-gray-200 flex items-center justify-center shrink-0" aria-label="Default avatar">
-                    <UserRound className="w-7 h-7 text-gray-400" aria-hidden="true" />
+              <label htmlFor={id('agent')} className="block text-sm font-medium text-gray-800 mb-1.5">Agent name and photo</label>
+              <div className="flex items-start gap-4">
+                <button
+                  type="button"
+                  onClick={() => avatarInput.current?.click()}
+                  disabled={uploadingAvatar}
+                  aria-label={form.logoUrl ? 'Change agent photo' : 'Upload agent photo'}
+                  title={form.logoUrl ? 'Change photo' : 'Upload photo'}
+                  className="relative w-14 h-14 shrink-0 rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-[#6C60FF] focus-visible:ring-offset-2 disabled:opacity-70"
+                >
+                  {safeHttpsUrl(form.logoUrl) ? (
+                    <img src={safeHttpsUrl(form.logoUrl)!} alt="Agent avatar" className="w-14 h-14 rounded-full object-cover border border-gray-200 bg-white" />
+                  ) : (
+                    <span className="w-14 h-14 rounded-full bg-gray-100 border border-gray-200 flex items-center justify-center" aria-label="Default avatar">
+                      <UserRound className="w-7 h-7 text-gray-400" aria-hidden="true" />
+                    </span>
+                  )}
+                  <span className="absolute -bottom-0.5 -right-0.5 w-6 h-6 rounded-full text-white flex items-center justify-center ring-2 ring-white" style={{ background: BRAND }} aria-hidden="true">
+                    {uploadingAvatar ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Camera className="w-3.5 h-3.5" />}
                   </span>
-                )}
-                <div className="min-w-0">
-                  <div className="flex items-center gap-3">
+                </button>
+                <div className="flex-1 min-w-0">
+                  <input
+                    id={id('agent')}
+                    type="text"
+                    value={form.agentName}
+                    maxLength={AGENT_MAX}
+                    onChange={(e) => set('agentName', e.target.value)}
+                    placeholder="Sarah"
+                    aria-invalid={!!errors.agent_name}
+                    aria-describedby={errors.agent_name ? id('agent-err') : id('avatar-help')}
+                    className={inputClass + (errors.agent_name ? errorInputClass : '')}
+                  />
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1.5">
                     <button
                       type="button"
                       onClick={() => avatarInput.current?.click()}
                       disabled={uploadingAvatar}
-                      aria-describedby={id('avatar-help')}
-                      className="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg border border-gray-200 bg-white text-sm font-semibold text-gray-800 hover:bg-gray-50 disabled:opacity-60"
+                      className="text-sm font-semibold hover:underline disabled:opacity-60"
+                      style={{ color: '#5A4FE5' }}
                     >
-                      {uploadingAvatar && <Loader2 className="w-4 h-4 animate-spin" />}
                       {uploadingAvatar ? 'Uploading…' : form.logoUrl ? 'Change photo' : 'Upload photo'}
                     </button>
                     {form.logoUrl && !uploadingAvatar && (
-                      <button type="button" onClick={() => set('logoUrl', '')} className="text-sm font-medium text-gray-500 hover:text-gray-800 underline">
-                        Remove
+                      <button type="button" onClick={() => set('logoUrl', '')} className="text-sm font-medium text-gray-500 hover:text-gray-800 hover:underline">
+                        Remove photo
                       </button>
                     )}
+                    <span id={id('avatar-help')} className="text-xs text-gray-400">JPG, PNG or WebP. A default avatar shows until you add one.</span>
                   </div>
-                  <p id={id('avatar-help')} className="text-xs text-gray-400 mt-1">JPG, PNG or WebP. Shown next to the agent name; a default avatar is used until you add one.</p>
+                  <FieldError id={id('agent-err')} message={errors.agent_name} />
+                  <FieldError id={id('logo-err')} message={errors['theme.logo_url']} />
                 </div>
                 <input ref={avatarInput} type="file" accept="image/jpeg,image/png,image/webp" hidden onChange={onAvatarPicked} />
               </div>
-              <FieldError id={id('logo-err')} message={errors['theme.logo_url']} />
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-              <div>
-                <label htmlFor={id('agent')} className="block text-sm font-medium text-gray-800 mb-1.5">Agent name</label>
-                <input
-                  id={id('agent')}
-                  type="text"
-                  value={form.agentName}
-                  maxLength={AGENT_MAX}
-                  onChange={(e) => set('agentName', e.target.value)}
-                  placeholder="Sarah"
-                  aria-invalid={!!errors.agent_name}
-                  aria-describedby={errors.agent_name ? id('agent-err') : undefined}
-                  className={inputClass + (errors.agent_name ? errorInputClass : '')}
-                />
-                <FieldError id={id('agent-err')} message={errors.agent_name} />
-              </div>
               <div>
                 <label htmlFor={id('callout')} className="block text-sm font-medium text-gray-800 mb-1.5">Callout text</label>
                 <input
