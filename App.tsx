@@ -40,6 +40,7 @@ import { useQrInviteFlow } from './hooks/useQrInviteFlow';
 import { CollaboratorInviteModal } from './components/CollaboratorInviteModal';
 import { isCorrectCollaborator } from './utils/inviteUtils';
 import { useMemoryLimit } from './hooks/useMemoryLimit';
+import { usePresenceHeartbeat } from './hooks/usePresenceHeartbeat';
 import { memoryCountsManager } from './hooks/useMemoryCounts';
 import ErrorBoundary from './components/ErrorBoundary';
 import { Toaster, toast } from 'sonner';
@@ -248,6 +249,7 @@ function MainApp() {
   }
 
   const { isAuthenticated, isLoading, login, register, user } = useAuth();
+  usePresenceHeartbeat(isAuthenticated);
   const { limitData, checkLimit } = useMemoryLimit();
   const { viewType, currentProperty, switchToProperty: switchToPropertyCtx, isPendingPropertySwitch } = useProperty();
 

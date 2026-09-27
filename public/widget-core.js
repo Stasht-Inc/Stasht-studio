@@ -150,3 +150,26 @@ export function thanksText(values) {
   if (String(values.email || '').trim()) return "Your message was sent. We'll email you shortly.";
   return "Your message was sent. We'll be in touch shortly.";
 }
+
+// Who's online (config.team_online): up to three team members, first name + an
+// https photo or initials on a colour. Anything unexpected is dropped or defaulted.
+export function teamOnlineFrom(config) {
+  const list = Array.isArray(config?.team_online) ? config.team_online : [];
+  return list
+    .filter((m) => m && typeof m.name === 'string' && m.name.trim() !== '')
+    .slice(0, 3)
+    .map((m) => ({
+      name: m.name.trim(),
+      avatarUrl: safeHttpsUrl(m.avatar_url),
+      initials: String(m.initials || m.name.trim()[0] || '?').slice(0, 2).toUpperCase(),
+      color: safeColor(m.color, '#6C60FF'),
+    }));
+}
+
+// "Sam is online" / "Sam and Andrew are online" / "Sam, Andrew and Jo are online".
+export function onlineLabel(team) {
+  const names = (team || []).map((m) => m.name);
+  if (names.length === 0) return '';
+  if (names.length === 1) return `${names[0]} is online`;
+  return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]} are online`;
+}
