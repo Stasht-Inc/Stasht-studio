@@ -1,17 +1,20 @@
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
-import { Loader2, Mail, MessageSquare } from 'lucide-react';
+import { Car, Loader2, Mail, MessageSquare, Plus, X } from 'lucide-react';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { leadsAPI } from '../../services/leadsAPI';
 import { dashboardAPI } from '../../utils/authUtils';
+import ShareCarsDialog from '../ShareCarsDialog';
 
 // "+ Send Message" (spec 2026-09-23 §5, Chris's "Start A New Message" reference):
 // text or email anyone. The backend reuses the contact's existing lead on this
-// dealer, or creates a direct lead assigned to the sender.
+// dealer, or creates a direct lead assigned to the sender. "+ Campaign" works
+// like the lead chat's: picked cars become a NEW campaign whose link is sent.
 
 const SMS_LIMIT = 320;
-const NO_CAMPAIGN = '__none__';
+
+interface PickedCampaign { carIds: number[]; name: string }
 
 interface Props {
   open: boolean;
@@ -28,18 +31,18 @@ export default function SendMessageDialog({ open, onOpenChange, onSent }: Props)
   const [email, setEmail] = useState('');
   const [subject, setSubject] = useState('');
   const [body, setBody] = useState('');
-  const [campaignId, setCampaignId] = useState(NO_CAMPAIGN);
+  const [picked, setPicked] = useState<PickedCampaign | null>(null);
+  const [showPicker, setShowPicker] = useState(false);
   const [propertyId, setPropertyId] = useState<string>('');
-  const [campaigns, setCampaigns] = useState<Option[]>([]);
   const [properties, setProperties] = useState<Option[]>([]);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Fresh form each time it opens; campaign + property lists load lazily.
+  // Fresh form each time it opens; the property list loads lazily.
   useEffect(() => {
     if (!open) return;
     setChannel('sms'); setName(''); setPhone(''); setEmail(''); setSubject(''); setBody('');
-    setCampaignId(NO_CAMPAIGN); setError(null);
+    setPicked(null); setShowPicker(false); setError(null);
 
     dashboardAPI.getStoreelMyProperties().then((res: any) => {
       const list: any[] = res?.properties || res?.data?.properties || [];
@@ -49,26 +52,12 @@ export default function SendMessageDialog({ open, onOpenChange, onSent }: Props)
     }).catch(() => setProperties([]));
   }, [open]);
 
-  // Campaigns that can be attached from the chosen dealership (plus the sender's
-  // own). Reloads when the dealership changes; a campaign from the previous one
-  // is cleared so the backend never rejects the pairing.
-  useEffect(() => {
-    if (!open) return;
-    let cancelled = false;
-    setCampaignId(NO_CAMPAIGN);
-    leadsAPI.getAttachableCampaigns(propertyId || undefined).then((res) => {
-      if (cancelled) return;
-      const list = res.success && res.data ? res.data.campaigns : [];
-      setCampaigns(list.map((c) => ({ id: String(c.id), name: c.title })));
-    }).catch(() => { if (!cancelled) setCampaigns([]); });
-    return () => { cancelled = true; };
-  }, [open, propertyId]);
-
   const digits = phone.replace(/\D/g, '');
   const contactOk = channel === 'sms' ? digits.length >= 10 : /\S+@\S+\.\S+/.test(email.trim());
   const needsProperty = properties.length > 1 && !propertyId;
   const tooLong = channel === 'sms' && body.length > SMS_LIMIT;
-  const canSend = contactOk && body.trim().length > 0 && !needsProperty && !tooLong && !sending;
+  const carCount = picked?.carIds.length ?? 0;
+  const canSend = contactOk && (body.trim().length > 0 || carCount > 0) && !needsProperty && !tooLong && !sending;
 
   const send = async () => {
     if (!canSend) return;
@@ -81,10 +70,11 @@ export default function SendMessageDialog({ open, onOpenChange, onSent }: Props)
         ...(name.trim() ? { name: name.trim() } : {}),
         body: body.trim(),
         ...(propertyId ? { property_id: propertyId } : {}),
-        ...(campaignId !== NO_CAMPAIGN ? { memory_id: campaignId } : {}),
+        ...(picked ? { car_ids: picked.carIds, campaign_title: picked.name } : {}),
       });
       if (res.success && res.data) {
-        toast.success(res.data.created ? 'Message sent — new lead added' : 'Message sent');
+        const what = picked ? `Message sent with a new campaign, "${picked.name}"` : 'Message sent';
+        toast.success(res.data.created ? `${what} — new lead added` : what);
         onOpenChange(false);
         onSent(res.data.lead_id);
       } else {
@@ -168,27 +158,57 @@ export default function SendMessageDialog({ open, onOpenChange, onSent }: Props)
           )}
 
           <div>
-            <span id="sm-campaign-label" className={label}>Attach a campaign <span className={hint}>(optional — adds its link)</span></span>
-            <Select value={campaignId} onValueChange={setCampaignId}>
-              <SelectTrigger aria-labelledby="sm-campaign-label" className="h-10 w-full bg-white border-gray-200 text-sm">
-                <SelectValue placeholder="No campaign" />
-              </SelectTrigger>
-              <SelectContent className="max-h-72">
-                <SelectItem value={NO_CAMPAIGN}>No campaign</SelectItem>
-                {campaigns.map((c) => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}
-              </SelectContent>
-            </Select>
+            <span id="sm-campaign-label" className={label}>Campaign <span className={hint}>(optional — pick cars for a new campaign; its link is added)</span></span>
+            {picked ? (
+              <div className="flex items-center gap-3 rounded-lg border border-[#6C60FF] bg-[#F5F2FF] px-3 py-2">
+                <span aria-hidden="true" className="w-8 h-8 shrink-0 rounded-md bg-white flex items-center justify-center">
+                  <Car className="w-4 h-4 text-[#5A4FE5]" />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm font-medium text-gray-900">{picked.name}</span>
+                  <span className="block text-xs text-gray-600">{carCount} {carCount === 1 ? 'car' : 'cars'} · new campaign</span>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setShowPicker(true)}
+                  className="h-8 px-2.5 rounded-md text-sm font-medium text-[#5A4FE5] hover:bg-white transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#6C60FF]"
+                >
+                  Edit
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPicked(null)}
+                  aria-label="Remove campaign"
+                  className="h-8 w-8 shrink-0 inline-flex items-center justify-center rounded-md text-gray-500 hover:bg-white hover:text-gray-700 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#6C60FF]"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            ) : (
+              // Same "＋ Campaign" pill as the lead chat composer.
+              <button
+                type="button"
+                aria-labelledby="sm-campaign-label"
+                onClick={() => setShowPicker(true)}
+                className="flex items-center gap-1.5 h-10 px-4 rounded-lg bg-purple-50 hover:bg-purple-100 text-[#5A4FE5] text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#6C60FF]"
+              >
+                <Plus className="w-4 h-4" aria-hidden="true" />
+                Campaign
+              </button>
+            )}
           </div>
 
           <div>
-            <label htmlFor="sm-body" className={label}>Message</label>
+            <label htmlFor="sm-body" className={label}>Message {picked && <span className={hint}>(optional with cars)</span>}</label>
             <textarea
               id="sm-body"
               value={body}
               onChange={(e) => setBody(e.target.value)}
               rows={5}
               className="w-full px-3 py-2.5 rounded-lg bg-white text-sm text-gray-900 placeholder:text-gray-500 border border-gray-200 outline-none resize-y focus-visible:ring-2 focus-visible:ring-[#6C60FF] focus-visible:border-transparent"
-              placeholder={channel === 'sms' ? 'Type your text…' : 'Type your email…'}
+              placeholder={picked
+                ? `Leave blank to send "${carCount === 1 ? 'Here is 1 new car listing that matches' : `Here are ${carCount} new car listings that match`} your criteria: <link>"`
+                : channel === 'sms' ? 'Type your text…' : 'Type your email…'}
             />
             {channel === 'sms' && (
               <span className={`mt-1 block text-right text-xs ${tooLong ? 'text-red-600 font-semibold' : 'text-gray-500'}`}>{body.length}/{SMS_LIMIT}</span>
@@ -197,6 +217,17 @@ export default function SendMessageDialog({ open, onOpenChange, onSent }: Props)
 
           {error && <p className="text-sm text-red-600" role="alert">{error}</p>}
         </div>
+
+        {/* Inside DialogContent so Radix treats it as a nested layer: clicks in the
+            picker don't count as "outside" and close this dialog. */}
+        <ShareCarsDialog
+          open={showPicker}
+          onClose={() => setShowPicker(false)}
+          leadName={name.trim() || 'this contact'}
+          initialSelection={picked?.carIds}
+          initialCampaignName={picked?.name}
+          onPick={(carIds, campaignName) => setPicked({ carIds, name: campaignName })}
+        />
 
         <div className="border-t border-gray-100 px-6 py-4 flex gap-3">
           <button

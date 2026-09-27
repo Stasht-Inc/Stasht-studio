@@ -29,10 +29,15 @@ const DEFAULT_CAMPAIGN_NAME = 'Vehicles Just for You';
 interface ShareCarsDialogProps {
   open: boolean;
   onClose: () => void;
-  leadId: number;
   leadName: string;
+  // Share mode: send to this lead now via POST /leads/{id}/share-cars.
+  leadId?: number;
   // Called after a successful share so the caller can refresh the thread.
-  onShared: () => void;
+  onShared?: () => void;
+  // Pick mode ("+ Send Message"): hand the choice back instead of sending.
+  onPick?: (carIds: number[], campaignName: string) => void;
+  initialSelection?: number[];
+  initialCampaignName?: string;
 }
 
 function carSubtitle(c: CarListing): string {
@@ -54,7 +59,7 @@ function carSubtitle(c: CarListing): string {
 // share gets its own campaign and link — never added to the lead's old one.
 // A category dropdown (the categories the dealer's inventory actually has, e.g.
 // "Preowned (26)", "Hybrid (21)") narrows the list; selections survive switching.
-export default function ShareCarsDialog({ open, onClose, leadId, leadName, onShared }: ShareCarsDialogProps) {
+export default function ShareCarsDialog({ open, onClose, leadId, leadName, onShared, onPick, initialSelection, initialCampaignName }: ShareCarsDialogProps) {
   const [cars, setCars] = useState<CarListing[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -104,9 +109,9 @@ export default function ShareCarsDialog({ open, onClose, leadId, leadName, onSha
   // between visits and a stale selection would silently carry over.
   useEffect(() => {
     if (!open) return;
-    setSelected(new Set());
+    setSelected(new Set(initialSelection ?? []));
     setSearch('');
-    setCampaignName(DEFAULT_CAMPAIGN_NAME);
+    setCampaignName(initialCampaignName || DEFAULT_CAMPAIGN_NAME);
     setCategory(ALL_CATEGORIES);
     setCategories([]);
     setIsComplete(true);
@@ -157,6 +162,12 @@ export default function ShareCarsDialog({ open, onClose, leadId, leadName, onSha
 
   const handleShare = async () => {
     if (selected.size === 0 || isSharing) return;
+    if (onPick) {
+      onPick(Array.from(selected), campaignName.trim() || DEFAULT_CAMPAIGN_NAME);
+      onClose();
+      return;
+    }
+    if (leadId == null) return;
     setIsSharing(true);
     try {
       const name = campaignName.trim();
@@ -171,7 +182,7 @@ export default function ShareCarsDialog({ open, onClose, leadId, leadName, onSha
             ? `Sent ${leadName} ${shared} ${carWord} in a new campaign, "${res.data.campaign.title}".`
             : `Shared ${shared} ${carWord} with ${leadName}.`,
         );
-        onShared();
+        onShared?.();
         onClose();
       } else {
         toast.error(res.message || res.error || 'Could not share cars.');
@@ -189,7 +200,9 @@ export default function ShareCarsDialog({ open, onClose, leadId, leadName, onSha
         <DialogHeader className="px-6 pt-6 pb-3 pr-12">
           <DialogTitle>Share New Cars</DialogTitle>
           <DialogDescription>
-            Creates a new campaign with the cars you pick and sends {leadName} its own link.
+            {onPick
+              ? `Creates a new campaign with the cars you pick. Its link goes out with your message to ${leadName}.`
+              : `Creates a new campaign with the cars you pick and sends ${leadName} its own link.`}
           </DialogDescription>
         </DialogHeader>
 
@@ -316,7 +329,7 @@ export default function ShareCarsDialog({ open, onClose, leadId, leadName, onSha
               ? 'Sharing...'
               : selected.size === 0
                 ? 'Select cars to share'
-                : `Share ${selected.size} ${selected.size === 1 ? 'Car' : 'Cars'}`}
+                : `${onPick ? 'Add' : 'Share'} ${selected.size} ${selected.size === 1 ? 'Car' : 'Cars'}`}
           </button>
         </div>
       </DialogContent>
