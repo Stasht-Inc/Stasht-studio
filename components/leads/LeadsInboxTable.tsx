@@ -79,6 +79,13 @@ function StatusIndicator({ status }: { status: Lead['status'] }) {
   );
 }
 
+// Open lead: purple. New (unread): soft yellow, Chris's "this is new" cue. Else plain.
+function rowBackground(selected: boolean, unread: boolean): string {
+  if (selected) return 'bg-purple-50';
+  if (unread) return 'bg-amber-50 hover:bg-amber-100 focus-visible:bg-amber-100';
+  return 'hover:bg-gray-50 focus-visible:bg-gray-50';
+}
+
 function UnreadDot() {
   return <span className="shrink-0 h-2 w-2 rounded-full bg-red-500" aria-label="Unread" />;
 }
@@ -238,7 +245,7 @@ export default function LeadsInboxTable(props: Props) {
                       onSelect(lead);
                     }
                   }}
-                  className={`group cursor-pointer transition-colors focus:outline-none focus-visible:bg-gray-50 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#6C60FF] ${selected ? 'bg-purple-50' : 'hover:bg-gray-50'} ${unread ? 'font-semibold' : ''}`}
+                  className={`group cursor-pointer transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#6C60FF] ${rowBackground(selected, unread)} ${unread ? 'font-semibold' : ''}`}
                   style={selected ? { boxShadow: 'inset 3px 0 0 #6C60FF' } : undefined}
                 >
                   <td className={`${CELL} text-gray-800 whitespace-nowrap overflow-hidden`}>
@@ -284,7 +291,7 @@ export default function LeadsInboxTable(props: Props) {
           const contact = [leadPhone(lead), leadEmail(lead)].filter(Boolean).join(' · ') || '—';
           const name = lead.user?.name?.trim();
           return (
-            <div key={lead.id} onClick={() => onSelect(lead)} className="px-4 py-2.5 cursor-pointer active:bg-gray-50">
+            <div key={lead.id} onClick={() => onSelect(lead)} className={`px-4 py-2.5 cursor-pointer ${unread ? 'bg-amber-50 active:bg-amber-100' : 'active:bg-gray-50'}`}>
               <div className="flex items-center justify-between gap-2">
                 <div className={`flex items-center gap-1.5 min-w-0 text-[15px] text-gray-900 ${unread ? 'font-semibold' : 'font-medium'}`}>
                   <span className="truncate">{name || contact}</span>
