@@ -641,10 +641,11 @@ function WidgetBuilder({
 
 export function ContactWidgetManager({
   onClose,
-  onCountChange,
+  onWidgetsChange,
 }: {
   onClose: () => void;
-  onCountChange?: (count: number) => void;
+  // Called with the current list after it loads and after every create/save/delete.
+  onWidgetsChange?: (widgets: ContactWidget[]) => void;
 }) {
   const [widgets, setWidgets] = useState<ContactWidget[] | null>(null);
   const [loadError, setLoadError] = useState('');
@@ -667,13 +668,16 @@ export function ContactWidgetManager({
       setLoadError(res.error || 'Could not load your widgets.');
       return;
     }
-    const list = Array.isArray(res.data) ? res.data : [];
-    setWidgets(list);
-    onCountChange?.(list.length);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    setWidgets(Array.isArray(res.data) ? res.data : []);
   }, []);
 
   useEffect(() => { void load(); }, [load]);
+
+  const onWidgetsChangeRef = useRef(onWidgetsChange);
+  onWidgetsChangeRef.current = onWidgetsChange;
+  useEffect(() => {
+    if (widgets) onWidgetsChangeRef.current?.(widgets);
+  }, [widgets]);
 
   const confirmDiscard = () => !dirtyRef.current || window.confirm('You have unsaved changes. Discard them?');
 
@@ -737,9 +741,7 @@ export function ContactWidgetManager({
   const handleSaved = (w: ContactWidget, created: boolean) => {
     setWidgets((list) => {
       const current = list || [];
-      const next = created ? [w, ...current.filter((x) => x.id !== w.id)] : current.map((x) => (x.id === w.id ? w : x));
-      onCountChange?.(next.length);
-      return next;
+      return created ? [w, ...current.filter((x) => x.id !== w.id)] : current.map((x) => (x.id === w.id ? w : x));
     });
     if (!created) {
       setEditing(w);
@@ -755,11 +757,7 @@ export function ContactWidgetManager({
 
   const handleDeleted = (id: string) => {
     dirtyRef.current = false;
-    setWidgets((list) => {
-      const next = (list || []).filter((x) => x.id !== id);
-      onCountChange?.(next.length);
-      return next;
-    });
+    setWidgets((list) => (list || []).filter((x) => x.id !== id));
     setEditing(null);
     setView('list');
   };
