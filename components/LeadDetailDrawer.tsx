@@ -22,6 +22,9 @@ const EMOJIS = [
 
 // Attachment constraints — images & PDF only, ~2 MB per file.
 const MAX_ATTACHMENT_BYTES = 2 * 1024 * 1024;
+// Twilio MMS to US/Canada: JPG/PNG/GIF are resized for the phone, PDFs accepted; 5 MB per text.
+const MMS_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'application/pdf'];
+const MAX_MMS_TOTAL_BYTES = 5 * 1024 * 1024;
 
 // Read a File as a base64 data URL (e.g. "data:application/pdf;base64,JVBER...").
 function fileToDataUrl(file: File): Promise<string> {
@@ -382,9 +385,9 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
   // reachable over any channel, so the whole composer gets replaced by a note.
   const hasAnyContact = !!lead?.user?.email || !!(lead?.user?.phone_number || lead?.user?.phone);
 
-  // Email may carry attachments; SMS is text-only, so a bare attachment with no
-  // text can still be sent over email.
-  const hasAttachments = via === 'email' && attachments.length > 0;
+  // Both channels may carry attachments (texts go as MMS), so a bare attachment
+  // with no words can be sent either way.
+  const hasAttachments = attachments.length > 0;
   const canSend = (!!message.trim() || hasAttachments) && hasAnyContact;
 
   const handleSend = async () => {
@@ -397,15 +400,12 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
       // Per-channel keys — the backend dedupes on (lead_id, idempotency_key)
       // with no channel dimension, so SMS and Email must never share one.
       const key = via === 'sms' ? smsIdemKeyRef.current : emailIdemKeyRef.current;
-      let res;
-      if (via === 'sms') {
-        res = await leadsAPI.sendSMS(lead!.id, message.trim(), key);
-      } else {
-        const encoded = await Promise.all(
-          attachments.map(async (f) => ({ filename: f.name, data: await fileToDataUrl(f) })),
-        );
-        res = await leadsAPI.sendEmail(lead!.id, subject.trim() || 'Following up', message.trim(), encoded, key);
-      }
+      const encoded = await Promise.all(
+        attachments.map(async (f) => ({ filename: f.name, data: await fileToDataUrl(f) })),
+      );
+      const res = via === 'sms'
+        ? await leadsAPI.sendSMS(lead!.id, message.trim(), key, encoded)
+        : await leadsAPI.sendEmail(lead!.id, subject.trim() || 'Following up', message.trim(), encoded, key);
       if (res.success) {
         // confirmed success → fresh key for the next compose on THIS channel only
         if (via === 'sms') smsIdemKeyRef.current = crypto.randomUUID();
@@ -447,10 +447,12 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
     }
   };
 
-  // Validate picked files (images/PDF, ≤2 MB) and queue the valid ones.
+  // Validate picked files (images/PDF, ≤2 MB each; texts: JPG/PNG/GIF/PDF and
+  // 5 MB in total, Twilio's MMS limit) and queue the valid ones.
   const handleFilesSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
     const picked = Array.from(e.target.files ?? []);
     const valid: File[] = [];
+    let total = attachments.reduce((sum, f) => sum + f.size, 0);
     for (const f of picked) {
       const isImage = f.type.startsWith('image/');
       const isPdf = f.type === 'application/pdf';
@@ -458,14 +460,40 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
         toast.error(`${f.name}: only images and PDF files are allowed.`);
         continue;
       }
+      if (via === 'sms' && !MMS_TYPES.includes(f.type)) {
+        toast.error(`${f.name}: texts can carry JPG, PNG or GIF photos and PDF files only.`);
+        continue;
+      }
       if (f.size > MAX_ATTACHMENT_BYTES) {
         toast.error(`${f.name} is too large (max 2 MB).`);
         continue;
       }
+      if (via === 'sms' && total + f.size > MAX_MMS_TOTAL_BYTES) {
+        toast.error(`${f.name}: attachments on a text can be 5 MB in total at most.`);
+        continue;
+      }
+      total += f.size;
       valid.push(f);
     }
     if (valid.length) setAttachments((prev) => [...prev, ...valid]);
     e.target.value = ''; // allow re-picking the same file
+  };
+
+  // Switching to SMS keeps the files a text can carry and drops the rest.
+  const switchToSms = () => {
+    setSubject('');
+    const kept: File[] = [];
+    let total = 0;
+    for (const f of attachments) {
+      if (MMS_TYPES.includes(f.type) && total + f.size <= MAX_MMS_TOTAL_BYTES) {
+        kept.push(f);
+        total += f.size;
+      }
+    }
+    if (kept.length < attachments.length) {
+      toast.message(`${attachments.length - kept.length} attachment(s) removed — texts carry JPG, PNG, GIF or PDF, 5 MB in total.`);
+    }
+    setAttachments(kept);
   };
 
   const removeAttachment = (index: number) => {
@@ -1127,12 +1155,12 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
               const segmentLabel = info.segments === 1 ? 'SMS segment' : 'SMS segments';
               return (
                 <p className={`text-sm ${textColor} mt-1.5`}>
-                  {info.chars}/{SMS_MAX_BODY} · ~{info.segments} {segmentLabel}
+                  {info.chars}/{SMS_MAX_BODY} · {attachments.length > 0 ? 'Picture message (MMS)' : `~${info.segments} ${segmentLabel}`}
                 </p>
               );
             })()}
 
-            {/* Attachment chips (email only) */}
+            {/* Attachment chips */}
             {attachments.length > 0 && (
               <div className="flex flex-wrap gap-2 mt-2">
                 {attachments.map((f, i) => (
@@ -1156,11 +1184,11 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
               </div>
             )}
 
-            {/* Hidden file input — images & PDF, ≤2 MB each */}
+            {/* Hidden file input — images & PDF, ≤2 MB each (texts: JPG/PNG/GIF/PDF) */}
             <input
               ref={fileInputRef}
               type="file"
-              accept="image/*,application/pdf"
+              accept={via === 'sms' ? MMS_TYPES.join(',') : 'image/*,application/pdf'}
               multiple
               hidden
               onChange={handleFilesSelected}
@@ -1169,10 +1197,9 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
             <div className="flex flex-wrap items-center gap-2 mt-2">
               <button
                 onClick={() => fileInputRef.current?.click()}
-                disabled={via === 'sms'}
-                title={via === 'sms' ? 'Attachments are available for email only' : 'Attach image or PDF (max 2 MB)'}
+                title={via === 'sms' ? 'Attach photo (JPG, PNG, GIF) or PDF — 5 MB in total' : 'Attach image or PDF (max 2 MB)'}
                 aria-label="Attach file"
-                className="p-1.5 text-gray-400 hover:text-gray-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                className="p-1.5 text-gray-400 hover:text-gray-600 transition-colors"
               >
                 <Paperclip className="w-5 h-5" />
               </button>
@@ -1234,7 +1261,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
                         <button
                           key={option}
                           disabled={isDisabled}
-                          onClick={() => { if (isDisabled) return; setVia(option); setShowViaDropdown(false); if (option === 'sms') { setSubject(''); setAttachments([]); } }}
+                          onClick={() => { if (isDisabled) return; if (option === 'sms' && via !== 'sms') switchToSms(); setVia(option); setShowViaDropdown(false); }}
                           className={`w-full text-left px-3 py-2 text-sm ${isDisabled ? 'opacity-40 cursor-not-allowed text-gray-400' : via === option ? 'text-[#6C60FF] font-medium hover:bg-gray-50' : 'text-gray-700 hover:bg-gray-50'}`}
                         >
                           {option === 'email' ? 'Email' : 'SMS'}

@@ -464,11 +464,22 @@ export const leadsAPI = {
     );
   },
 
-  // idempotencyKey (optional): see broadcastToGroup above.
-  sendSMS: async (leadId: number, body: string, idempotencyKey?: string) => {
+  // idempotencyKey (optional): see broadcastToGroup above. attachments make it
+  // a picture message (MMS): JPG/PNG/GIF/PDF, 5 MB in total (server-checked).
+  sendSMS: async (
+    leadId: number,
+    body: string,
+    idempotencyKey?: string,
+    attachments?: { filename: string; data: string }[],
+  ) => {
     return apiRequest<LeadMessage>(`/leads/${leadId}/messages/sms`, {
       method: 'POST',
-      body: JSON.stringify({ body, ...partialAdminBody(), ...(idempotencyKey ? { idempotency_key: idempotencyKey } : {}) }),
+      body: JSON.stringify({
+        body,
+        ...(attachments && attachments.length ? { attachments } : {}),
+        ...partialAdminBody(),
+        ...(idempotencyKey ? { idempotency_key: idempotencyKey } : {}),
+      }),
     });
   },
 
