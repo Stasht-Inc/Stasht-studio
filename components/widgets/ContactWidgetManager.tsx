@@ -1140,8 +1140,7 @@ export function ContactWidgetManager({
                         type="button"
                         onClick={() => openInstall(w)}
                         aria-label={`Install ${w.name} on your website`}
-                        className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-semibold text-white hover:opacity-90"
-                        style={{ background: BRAND }}
+                        className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border-[1.5px] border-gray-800 bg-white text-sm font-medium text-gray-800 hover:bg-gray-50"
                       >
                         <Code2 className="w-4 h-4" /> Install
                       </button>
