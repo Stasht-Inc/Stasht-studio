@@ -41,7 +41,7 @@ export function WidgetPreview({ values, mode }: { values: WidgetPreviewValues; m
           style={{
             display: 'inline-flex', alignItems: 'center', gap: 10, padding: '14px 20px', borderRadius: 999,
             background: brand, color: ink, fontWeight: 600, whiteSpace: 'nowrap',
-            boxShadow: '0 6px 20px rgba(0,0,0,.25)', maxWidth: '100%',
+            boxShadow: '0 4px 12px -2px rgba(16,24,40,.30), 0 1px 3px rgba(16,24,40,.12)', maxWidth: '100%',
           }}
         >
           <MessageCircle style={{ width: 22, height: 22, flex: 'none' }} aria-hidden="true" />
@@ -51,7 +51,7 @@ export function WidgetPreview({ values, mode }: { values: WidgetPreviewValues; m
         <div
           style={{
             width: 360, maxWidth: '100%', background: '#fff', borderRadius: 16, overflow: 'hidden',
-            boxShadow: '0 10px 40px rgba(0,0,0,.3)',
+            boxShadow: '0 0 0 1px rgba(16,24,40,.06), 0 8px 20px -6px rgba(16,24,40,.28), 0 2px 6px rgba(16,24,40,.08)',
           }}
         >
           <div style={{ background: brand, color: ink, padding: '18px 20px 16px', position: 'relative' }}>

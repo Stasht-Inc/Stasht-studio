@@ -1,13 +1,14 @@
 // public/widget-embed.js
 import {
   safeColor, safeHttpsUrl, contrastInk, hostOrigin, isPlausiblePhone, clampPosition, panelWidth, panelMaxHeight, MESSAGE_MAX,
-  configUrl,
+  configUrl, ROOT_PAD,
 } from './widget-core.js';
 
 const params = new URLSearchParams(location.search);
 const widgetId = params.get('w') || '';
 const API = `${location.origin}/api/react`;
 const root = document.getElementById('root');
+root.style.padding = `${ROOT_PAD.top}px ${ROOT_PAD.x}px ${ROOT_PAD.bottom}px`;
 
 const state = {
   config: null,
