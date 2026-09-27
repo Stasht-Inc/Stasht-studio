@@ -151,9 +151,13 @@ export interface StartConversationPayload {
   email?: string;
   name?: string;
   subject?: string;
+  // May be '' when car_ids is set — the server then uses Share New Cars' wording.
   body: string;
   property_id?: number | string;
   memory_id?: number | string;
+  // "+ Campaign": cars for a NEW campaign whose link goes out with the message.
+  car_ids?: number[];
+  campaign_title?: string;
 }
 
 // Present only when the request sent `page` — the backend omits it otherwise.
@@ -330,14 +334,6 @@ export const leadsAPI = {
   updateNotes: async (leadId: number, notes: string) => {
     return apiRequest<{ notes: string | null; notes_updated_at: string; notes_updated_by: { id: number; name: string | null } }>(
       `/leads/${leadId}/notes`, { method: 'PATCH', body: JSON.stringify({ notes }) },
-    );
-  },
-
-  // Campaigns "+ Send Message" can attach: own + the chosen dealership's, published only.
-  getAttachableCampaigns: async (propertyId?: number | string) => {
-    const q = propertyId ? `?property_id=${encodeURIComponent(String(propertyId))}` : '';
-    return apiRequest<{ campaigns: { id: number; title: string; is_car: boolean }[] }>(
-      `/leads/attachable-campaigns${q}`, { method: 'GET', skipCache: true } as RequestInit,
     );
   },
 
