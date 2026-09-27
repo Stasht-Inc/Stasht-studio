@@ -69,10 +69,5 @@ export const brandInitials: Partial<Record<ConnectorId, string>> = {
   autotrader: 'AT',
 };
 
-/** Label for the button that starts setting up a connector that isn't connected yet. */
-export function setupLabel(id: ConnectorId): string {
-  return id === 'contact-widget' ? 'Set up widget' : 'Connect';
-}
-
 /** Name of the event the Connectors page fires so the sidebar badge updates without a reload. */
 export const CONNECTORS_COUNT_EVENT = 'connectors-count-refresh';
