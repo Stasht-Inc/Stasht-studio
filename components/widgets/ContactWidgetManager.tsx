@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
-import { ArrowLeft, Check, Copy, Loader2, MessageCircle, Pencil, Plus, Trash2, X } from 'lucide-react';
+import { ArrowLeft, Check, Code2, Copy, Loader2, MessageCircle, Pencil, Plus, Trash2, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { widgetsAPI } from '../../services/widgetsAPI';
 import type { ContactWidget, ContactWidgetInput, WidgetBubblePosition, WidgetStatus } from '../../services/widgetsAPI';
 import { WidgetPreview } from './WidgetPreview';
+import { InstallGuide } from './InstallGuide';
 import {
   DEFAULT_BRAND, WELCOME_MAX, copyText, installSnippet, isHexColor, isPlausibleDomain, normalizeDomain, safeColor,
 } from './widgetHelpers';
@@ -92,7 +93,7 @@ function StatusBadge({ status }: { status: WidgetStatus }) {
   );
 }
 
-function InstallSnippetBox({ widgetId }: { widgetId: string }) {
+function InstallSnippetBox({ widgetId, onOpenGuide }: { widgetId: string; onOpenGuide: () => void }) {
   const snippet = installSnippet(widgetId);
   const [copied, setCopied] = useState(false);
 
@@ -119,17 +120,26 @@ function InstallSnippetBox({ widgetId }: { widgetId: string }) {
       >
         {snippet}
       </pre>
-      <button
-        type="button"
-        onClick={copy}
-        className="mt-3 inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold text-white transition-colors hover:opacity-90"
-        style={{ background: BRAND }}
-      >
-        {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-        {copied ? 'Copied' : 'Copy install code'}
-      </button>
+      <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2">
+        <button
+          type="button"
+          onClick={copy}
+          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold text-white transition-colors hover:opacity-90"
+          style={{ background: BRAND }}
+        >
+          {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+          {copied ? 'Copied' : 'Copy install code'}
+        </button>
+        <button
+          type="button"
+          onClick={onOpenGuide}
+          className="text-sm font-semibold text-[#4a40d4] hover:underline"
+        >
+          Step-by-step install instructions
+        </button>
+      </div>
       <p className="text-xs text-gray-500 mt-3">
-        The widget only shows on your site when its status is Live and the site's domain is in Allowed domains.
+        The widget only shows on your site when its status is Live.
       </p>
     </div>
   );
@@ -154,12 +164,14 @@ function WidgetBuilder({
   onSaved,
   onDeleted,
   onDirtyChange,
+  onOpenGuide,
 }: {
   widget: ContactWidget | null; // null = creating
   onBack: () => void;
   onSaved: (w: ContactWidget, created: boolean) => void;
   onDeleted: (id: string) => void;
   onDirtyChange: (dirty: boolean) => void;
+  onOpenGuide: (w: ContactWidget) => void;
 }) {
   const uid = useId();
   const [saved, setSaved] = useState<ContactWidget | null>(widget);
@@ -561,7 +573,7 @@ function WidgetBuilder({
               </select>
               <p id={id('status-help')} className="text-xs text-gray-400 mt-1">Live widgets appear on the site. Draft and Paused widgets are hidden from visitors.</p>
               {liveWithoutDomain && (
-                <p className="text-xs text-amber-700 mt-1">Add the domain of your website above so the widget can run on it.</p>
+                <p className="text-xs text-amber-700 mt-1">Tip: add your website's domain above so we can flag messages sent from other sites.</p>
               )}
               <FieldError id={id('status-err')} message={errors.status} />
             </div>
@@ -574,7 +586,16 @@ function WidgetBuilder({
 
           {/* Preview + install column */}
           <div className="space-y-5 min-w-0">
-            <div className="lg:sticky lg:top-0">
+            {/* Install box first once saved: it's what the user needs next. (The preview used to be
+                sticky, which left this box stuck underneath it and unclickable.) */}
+            {saved ? (
+              <InstallSnippetBox widgetId={saved.id} onOpenGuide={() => onOpenGuide(saved)} />
+            ) : (
+              <div className="rounded-xl border border-dashed border-gray-300 p-4 text-sm text-gray-500">
+                Save the widget to get your install code.
+              </div>
+            )}
+            <div>
               <div className="flex items-center justify-between mb-2">
                 <h3 className="text-sm font-bold text-gray-900">Live preview</h3>
                 <div className="inline-flex rounded-lg border border-gray-200 p-0.5 bg-gray-50" role="group" aria-label="Preview state">
@@ -621,13 +642,6 @@ function WidgetBuilder({
               <p className="text-xs text-gray-400 mt-2">This is how visitors will see the widget on your site.</p>
             </div>
 
-            {saved ? (
-              <InstallSnippetBox widgetId={saved.id} />
-            ) : (
-              <div className="rounded-xl border border-dashed border-gray-300 p-4 text-sm text-gray-500">
-                Save the widget to get your install code.
-              </div>
-            )}
           </div>
         </div>
       </div>
@@ -649,8 +663,9 @@ export function ContactWidgetManager({
 }) {
   const [widgets, setWidgets] = useState<ContactWidget[] | null>(null);
   const [loadError, setLoadError] = useState('');
-  const [view, setView] = useState<'list' | 'builder'>('list');
+  const [view, setView] = useState<'list' | 'builder' | 'install'>('list');
   const [editing, setEditing] = useState<ContactWidget | null>(null);
+  const [installing, setInstalling] = useState<ContactWidget | null>(null);
   // Bumped each time the builder opens so it always starts from fresh state.
   const [builderKey, setBuilderKey] = useState(0);
   const [justCreatedId, setJustCreatedId] = useState<string | null>(null);
@@ -697,6 +712,21 @@ export function ContactWidgetManager({
     dirtyRef.current = false;
     setView('list');
     setEditing(null);
+    setInstalling(null);
+  };
+
+  const openInstall = (w: ContactWidget) => {
+    if (!confirmDiscard()) return;
+    dirtyRef.current = false;
+    setJustCreatedId(null);
+    setEditing(null);
+    setInstalling(w);
+    setView('install');
+  };
+
+  const handleInstallUpdated = (w: ContactWidget) => {
+    setInstalling(w);
+    setWidgets((list) => (list || []).map((x) => (x.id === w.id ? w : x)));
   };
 
   // Escape to close, Tab focus trap, focus restore on unmount.
@@ -752,7 +782,7 @@ export function ContactWidgetManager({
     setEditing(null);
     setJustCreatedId(w.id);
     setView('list');
-    toast.success('Widget created. Use "Copy install code" to add it to your site.');
+    toast.success('Widget created. Click "Install" for step-by-step instructions to add it to your site.');
   };
 
   const handleDeleted = (id: string) => {
@@ -762,11 +792,6 @@ export function ContactWidgetManager({
     setView('list');
   };
 
-  const copyFromList = async (w: ContactWidget) => {
-    const ok = await copyText(installSnippet(w.id));
-    if (ok) toast.success('Install code copied. Paste it before </body> on your site.');
-    else toast.error('Could not copy the install code.');
-  };
 
   return (
     <div
@@ -807,7 +832,14 @@ export function ContactWidgetManager({
           </button>
         </div>
 
-        {view === 'builder' ? (
+        {view === 'install' && installing ? (
+          <InstallGuide
+            widget={installing}
+            onBack={backToList}
+            onEdit={() => openBuilder(installing)}
+            onWidgetUpdated={handleInstallUpdated}
+          />
+        ) : view === 'builder' ? (
           <WidgetBuilder
             key={builderKey}
             widget={editing}
@@ -815,6 +847,7 @@ export function ContactWidgetManager({
             onSaved={handleSaved}
             onDeleted={handleDeleted}
             onDirtyChange={setDirty}
+            onOpenGuide={openInstall}
           />
         ) : (
           <div className="flex-1 min-h-0 overflow-y-auto px-6 pb-6">
@@ -899,11 +932,12 @@ export function ContactWidgetManager({
                       </button>
                       <button
                         type="button"
-                        onClick={() => void copyFromList(w)}
-                        aria-label={`Copy install code for ${w.name}`}
-                        className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-gray-200 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                        onClick={() => openInstall(w)}
+                        aria-label={`Install ${w.name} on your website`}
+                        className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-semibold text-white hover:opacity-90"
+                        style={{ background: BRAND }}
                       >
-                        <Copy className="w-4 h-4" /> Copy install code
+                        <Code2 className="w-4 h-4" /> Install
                       </button>
                     </div>
                   </li>
