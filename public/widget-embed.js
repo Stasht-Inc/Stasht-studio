@@ -2,6 +2,7 @@
 import {
   safeColor, safeHttpsUrl, contrastInk, hostOrigin, clampPosition, panelWidth, panelMaxHeight, MESSAGE_MAX,
   configUrl, ROOT_PAD, formFieldsFrom, fieldLabel, validateValues, consentText, thanksText,
+  teamOnlineFrom, onlineLabel,
 } from './widget-core.js';
 
 const params = new URLSearchParams(location.search);
@@ -105,15 +106,32 @@ function launcher() {
   return h('button', { id: 'w-launcher', class: 'launcher', type: 'button', 'aria-label': label, onclick: openPanel }, chatIcon(), h('span', {}, label));
 }
 
+// One online team member: photo (or initials on their colour) with a green dot.
+function face(member) {
+  let inner;
+  if (member.avatarUrl) {
+    inner = h('img', { src: member.avatarUrl, alt: '' });
+  } else {
+    inner = h('span', { class: 'ini' }, member.initials);
+    inner.style.background = member.color;
+    inner.style.color = contrastInk(member.color);
+  }
+  return h('span', { class: 'face' }, inner, h('span', { class: 'dot' }));
+}
+
 function panel() {
   const cfg = state.config;
   const logo = safeHttpsUrl(cfg.theme?.logo_url);
+  const team = teamOnlineFrom(cfg);
   const head = h('div', { class: 'head' },
     (cfg.agent_name || logo) && h('div', { class: 'agent' },
       logo && h('img', { src: logo, alt: '' }),
       cfg.agent_name && h('span', {}, cfg.agent_name)),
     h('h2', { id: 'w-title' }, cfg.callout_text || 'Chat with us'),
     cfg.welcome_subtext && h('p', {}, cfg.welcome_subtext),
+    team.length > 0 && h('div', { class: 'online' },
+      h('span', { class: 'faces', 'aria-hidden': 'true' }, team.map(face)),
+      h('span', {}, onlineLabel(team))),
     h('button', { class: 'close', type: 'button', 'aria-label': 'Close', onclick: closePanel }, '×'));
 
   return h('div', { class: 'panel', role: 'dialog', 'aria-labelledby': 'w-title' }, head, state.phase === 'sent' ? thanks() : form());

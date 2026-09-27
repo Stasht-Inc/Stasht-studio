@@ -44,6 +44,14 @@ export interface ContactWidget {
   leads_count: number;
   installs?: WidgetInstall[]; // absent from older API builds
   form_fields?: FormFieldSettings; // absent from older API builds -> the original form
+  // The dealership whose team takes over this widget's leads; null = the owner alone.
+  property_id?: number | null;
+}
+
+// A dealership a widget's leads can go to (GET /widgets team_options).
+export interface WidgetTeamOption {
+  id: number;
+  name: string;
 }
 
 // Fields editable in this phase. Every field is optional so PATCH can send a partial body.
@@ -56,6 +64,7 @@ export interface ContactWidgetInput {
   theme?: Partial<WidgetTheme>;
   allowed_domains?: string[];
   form_fields?: Partial<Record<FormFieldKey, Partial<FormFieldSetting>>>;
+  property_id?: number | null;
 }
 
 // Server bodies are {success, data}. apiRequest wraps a successful body as
@@ -110,6 +119,22 @@ export const widgetsAPI = {
   // A list must never be stale right after create/delete, so it bypasses apiRequest's short
   // GET cache (writes also clear that cache).
   list: () => run<ContactWidget[]>(apiRequest('/widgets', { method: 'GET', skipCache: true } as RequestInit)),
+
+  // The list plus the dealerships a widget can route leads to (the builder's Team picker).
+  listWithTeams: async (): Promise<WidgetResult<{ widgets: ContactWidget[]; teamOptions: WidgetTeamOption[] }>> => {
+    try {
+      const res = await apiRequest<any>('/widgets', { method: 'GET', skipCache: true } as RequestInit);
+      if (!res.success) {
+        return { ok: false, error: res.error || res.message || 'Request failed. Please try again.', fieldErrors: {} };
+      }
+      const body: any = res.data;
+      const widgets = Array.isArray(body) ? body : Array.isArray(body?.data) ? body.data : [];
+      const teamOptions = Array.isArray(body?.team_options) ? body.team_options : [];
+      return { ok: true, data: { widgets, teamOptions }, fieldErrors: {} };
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : 'Request failed. Please try again.', fieldErrors: {} };
+    }
+  },
 
   get: (id: string) =>
     run<ContactWidget>(apiRequest(`/widgets/${encodeURIComponent(id)}`, { method: 'GET', skipCache: true } as RequestInit)),

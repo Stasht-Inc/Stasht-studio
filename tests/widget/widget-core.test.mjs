@@ -5,6 +5,7 @@ import {
   safeColor, safeHttpsUrl, contrastInk, hostOrigin, isPlausiblePhone, clampPosition, panelWidth, panelMaxHeight, MESSAGE_MAX,
   configUrl, ROOT_PAD,
   DEFAULT_FORM_FIELDS, formFieldsFrom, fieldLabel, isPlausibleEmail, validateValues, consentText, thanksText,
+  teamOnlineFrom, onlineLabel,
 } from '../../public/widget-core.js';
 
 test('safeColor accepts #RRGGBB only', () => {
@@ -147,4 +148,29 @@ test('consentText matches the contact details the form asks for', () => {
 test('thanksText says how the business will reply', () => {
   assert.match(thanksText({ mobile: '4168181235', email: 'sam@example.com' }), /text you/);
   assert.match(thanksText({ mobile: '', email: 'sam@example.com' }), /email you/);
+});
+
+test('teamOnlineFrom keeps up to three safe entries', () => {
+  const team = teamOnlineFrom({ team_online: [
+    { name: 'Sam', avatar_url: 'https://cdn.example/sam.jpg', initials: 'SC', color: '#10B981' },
+    { name: 'Andrew', avatar_url: 'http://cdn.example/a.jpg', initials: 'AVD', color: 'red' },
+    { name: '', initials: 'X' },
+    { name: 'Jo', avatar_url: null, initials: 'JO', color: '#123456' },
+    { name: 'Kim', initials: 'K', color: '#654321' },
+  ] });
+  assert.deepEqual(team, [
+    { name: 'Sam', avatarUrl: 'https://cdn.example/sam.jpg', initials: 'SC', color: '#10B981' },
+    { name: 'Andrew', avatarUrl: null, initials: 'AV', color: '#6C60FF' },
+    { name: 'Jo', avatarUrl: null, initials: 'JO', color: '#123456' },
+  ]);
+  assert.deepEqual(teamOnlineFrom({}), []);
+  assert.deepEqual(teamOnlineFrom({ team_online: 'nope' }), []);
+  assert.deepEqual(teamOnlineFrom(null), []);
+});
+
+test('onlineLabel names who is online', () => {
+  assert.equal(onlineLabel([]), '');
+  assert.equal(onlineLabel([{ name: 'Sam' }]), 'Sam is online');
+  assert.equal(onlineLabel([{ name: 'Sam' }, { name: 'Andrew' }]), 'Sam and Andrew are online');
+  assert.equal(onlineLabel([{ name: 'Sam' }, { name: 'Andrew' }, { name: 'Jo' }]), 'Sam, Andrew and Jo are online');
 });

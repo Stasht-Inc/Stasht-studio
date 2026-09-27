@@ -5,7 +5,9 @@ import { toast } from 'sonner';
 import { widgetsAPI } from '../../services/widgetsAPI';
 import type {
   ContactWidget, ContactWidgetInput, FormFieldKey, FormFieldSetting, FormFieldSettings, WidgetBubblePosition, WidgetStatus,
+  WidgetTeamOption,
 } from '../../services/widgetsAPI';
+import { useAuth } from '../../contexts/AuthContext';
 import { WidgetPreview } from './WidgetPreview';
 import { InstallGuide } from './InstallGuide';
 import { InstallStatusLine } from './InstallStatus';
@@ -41,6 +43,7 @@ interface FormState {
   domains: string[];
   status: WidgetStatus;
   formFields: FormFieldSettings;
+  propertyId: number | null; // the dealership whose team takes over leads; null = only the owner
 }
 
 const emptyForm: FormState = {
@@ -54,6 +57,7 @@ const emptyForm: FormState = {
   domains: [],
   status: 'draft',
   formFields: resolveFormFields(null),
+  propertyId: null,
 };
 
 function formFromWidget(w: ContactWidget): FormState {
@@ -68,11 +72,14 @@ function formFromWidget(w: ContactWidget): FormState {
     domains: [...(w.allowed_domains || [])],
     status: w.status || 'draft',
     formFields: resolveFormFields(w.form_fields),
+    propertyId: w.property_id ?? null,
   };
 }
 
-function inputFromForm(f: FormState, domains: string[]): ContactWidgetInput {
+// withTeam: only send property_id when the owner has dealerships to choose from.
+function inputFromForm(f: FormState, domains: string[], withTeam: boolean): ContactWidgetInput {
   return {
+    ...(withTeam ? { property_id: f.propertyId } : {}),
     name: f.name.trim(),
     status: f.status,
     agent_name: f.agentName.trim(),
@@ -174,7 +181,9 @@ function WidgetBuilder({
   onDeleted,
   onDirtyChange,
   onOpenGuide,
+  teamOptions,
 }: {
+  teamOptions: WidgetTeamOption[];
   widget: ContactWidget | null; // null = creating
   onBack: () => void;
   onSaved: (w: ContactWidget, created: boolean) => void;
@@ -184,7 +193,12 @@ function WidgetBuilder({
 }) {
   const uid = useId();
   const [saved, setSaved] = useState<ContactWidget | null>(widget);
-  const baseline = useMemo(() => (saved ? formFromWidget(saved) : emptyForm), [saved]);
+  // A new widget starts on the owner's only dealership (the server does the same).
+  const baseline = useMemo(
+    () => (saved ? formFromWidget(saved) : { ...emptyForm, propertyId: teamOptions.length === 1 ? teamOptions[0].id : null }),
+    [saved, teamOptions],
+  );
+  const { user } = useAuth();
   const [form, setForm] = useState<FormState>(baseline);
   const [domainInput, setDomainInput] = useState('');
   const [domainError, setDomainError] = useState('');
@@ -193,6 +207,13 @@ function WidgetBuilder({
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [previewMode, setPreviewMode] = useState<'closed' | 'open'>('open');
+  // The preview shows you as the online team member; visitors see whoever is really online.
+  const previewOnline = useMemo(() => {
+    const full = (user?.name || 'You').trim();
+    const words = full.split(/\s+/).filter(Boolean);
+    const initials = ((words[0]?.[0] || 'Y') + (words.length > 1 ? words[words.length - 1][0] : '')).toUpperCase();
+    return [{ name: words[0] || 'You', initials, color: user?.profile_color || '#6C60FF', avatarUrl: user?.avatar || null }];
+  }, [user]);
 
   const dirty = useMemo(
     () => JSON.stringify(form) !== JSON.stringify(baseline) || domainInput.trim() !== '',
@@ -207,7 +228,7 @@ function WidgetBuilder({
       const map: Record<string, string> = {
         name: 'name', agentName: 'agent_name', calloutText: 'callout_text', welcomeSubtext: 'welcome_subtext',
         primaryColor: 'theme.primary_color', logoUrl: 'theme.logo_url', position: 'theme.bubble_position',
-        domains: 'allowed_domains', status: 'status', formFields: 'form_fields',
+        domains: 'allowed_domains', status: 'status', formFields: 'form_fields', propertyId: 'property_id',
       };
       if (!e[map[key]]) return e;
       const { [map[key]]: _drop, ...rest } = e;
@@ -262,7 +283,7 @@ function WidgetBuilder({
     }
 
     setSaving(true);
-    const payload = inputFromForm(form, domains);
+    const payload = inputFromForm(form, domains, teamOptions.length > 0);
     const res = saved ? await widgetsAPI.update(saved.id, payload) : await widgetsAPI.create(payload);
     setSaving(false);
 
@@ -636,6 +657,28 @@ function WidgetBuilder({
               <FieldError id={id('domain-err')} message={domainError || errors.allowed_domains} />
             </div>
 
+            {teamOptions.length > 0 && (
+              <div>
+                <label htmlFor={id('team')} className="block text-sm font-medium text-gray-800 mb-1.5">Who handles this widget's leads</label>
+                <select
+                  id={id('team')}
+                  value={form.propertyId ?? ''}
+                  onChange={(e) => set('propertyId', e.target.value === '' ? null : Number(e.target.value))}
+                  aria-describedby={id('team-help')}
+                  className={inputClass + ' sm:max-w-xs'}
+                >
+                  {teamOptions.map((t) => <option key={t.id} value={t.id}>{t.name} team</option>)}
+                  <option value="">Only me</option>
+                </select>
+                <p id={id('team-help')} className="text-xs text-gray-400 mt-1">
+                  {form.propertyId
+                    ? 'Everyone on the team is alerted to new leads, the first to accept takes the lead, and the widget shows who is online.'
+                    : 'New leads go to you only.'}
+                </p>
+                <FieldError id={id('team-err')} message={errors.property_id} />
+              </div>
+            )}
+
             <div>
               <label htmlFor={id('status')} className="block text-sm font-medium text-gray-800 mb-1.5">Status</label>
               <select
@@ -713,6 +756,7 @@ function WidgetBuilder({
                         logoUrl: form.logoUrl,
                         position: form.position,
                         formFields: form.formFields,
+                        online: previewOnline,
                       }}
                     />
                   </div>
@@ -741,6 +785,7 @@ export function ContactWidgetManager({
   onWidgetsChange?: (widgets: ContactWidget[]) => void;
 }) {
   const [widgets, setWidgets] = useState<ContactWidget[] | null>(null);
+  const [teamOptions, setTeamOptions] = useState<WidgetTeamOption[]>([]);
   const [loadError, setLoadError] = useState('');
   const [view, setView] = useState<'list' | 'builder' | 'install'>('list');
   const [editing, setEditing] = useState<ContactWidget | null>(null);
@@ -757,12 +802,13 @@ export function ContactWidgetManager({
   const load = useCallback(async () => {
     setLoadError('');
     setWidgets(null);
-    const res = await widgetsAPI.list();
-    if (!res.ok) {
+    const res = await widgetsAPI.listWithTeams();
+    if (!res.ok || !res.data) {
       setLoadError(res.error || 'Could not load your widgets.');
       return;
     }
-    setWidgets(Array.isArray(res.data) ? res.data : []);
+    setTeamOptions(res.data.teamOptions);
+    setWidgets(res.data.widgets);
   }, []);
 
   useEffect(() => { void load(); }, [load]);
@@ -927,6 +973,7 @@ export function ContactWidgetManager({
             onDeleted={handleDeleted}
             onDirtyChange={setDirty}
             onOpenGuide={openInstall}
+            teamOptions={teamOptions}
           />
         ) : (
           <div className="flex-1 min-h-0 overflow-y-auto px-6 pb-6">
