@@ -533,7 +533,8 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
 
   if (!lead) return null;
 
-  const leadName = lead.user?.name || 'Guest';
+  // Website-widget forms can hide the Name field, so fall back to how the lead can be reached.
+  const leadName = lead.user?.name || lead.user?.email || lead.user?.phone_number || 'Guest';
   const firstName = leadName.split(' ')[0];
   const daysAsLead = getDaysAsLead(lead.first_seen_at);
   const unreadCount = lead.unread_count ?? 0;
@@ -559,10 +560,14 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
       try {
         const key = replyIdemKeyRef.current;
         // Email replies thread onto the parent email; SMS and website-widget messages have no email
-        // thread to reply into, so answer them by SMS (the lead's phone is always on file for both).
-        const res = (msg.channel === 'sms' || msg.channel === 'widget')
+        // thread to reply into, so answer them by SMS. A widget lead may have left only an email
+        // (the widget's form fields are configurable), in which case the reply goes by email.
+        const leadHasPhone = !!(lead!.user?.phone_number || lead!.user?.phone);
+        const res = msg.channel === 'sms' || (msg.channel === 'widget' && leadHasPhone)
           ? await leadsAPI.sendSMS(lead!.id, replyText.trim(), key)
-          : await leadsAPI.replyToMessage(lead!.id, msg.id, replyText.trim(), key);
+          : msg.channel === 'widget'
+            ? await leadsAPI.sendEmail(lead!.id, 'Re: Your message', replyText.trim(), undefined, key)
+            : await leadsAPI.replyToMessage(lead!.id, msg.id, replyText.trim(), key);
         if (res.success) {
           replyIdemKeyRef.current = crypto.randomUUID(); // confirmed success → fresh key
           setReplyingToMsgId(null);

@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {
   safeColor, safeHttpsUrl, contrastInk, hostOrigin, isPlausiblePhone, clampPosition, panelWidth, panelMaxHeight, MESSAGE_MAX,
   configUrl, ROOT_PAD,
+  DEFAULT_FORM_FIELDS, formFieldsFrom, fieldLabel, isPlausibleEmail, validateValues, consentText, thanksText,
 } from '../../public/widget-core.js';
 
 test('safeColor accepts #RRGGBB only', () => {
@@ -95,4 +96,55 @@ test('configUrl passes the customer page origin so the server can record where t
     'https://restapi.stasht.com/api/react/widget-embed/w_abcdefghij/config?host=https%3A%2F%2Fwww.example.com',
   );
   assert.equal(configUrl(api, 'w_abcdefghij', ''), 'https://restapi.stasht.com/api/react/widget-embed/w_abcdefghij/config');
+});
+
+const EMAIL_ONLY = [
+  { key: 'name', label: 'Name', required: true },
+  { key: 'email', label: 'Email', required: true },
+  { key: 'message', label: 'Message', required: false },
+];
+
+test('formFieldsFrom uses the configured fields, or the original form for older API responses', () => {
+  assert.deepEqual(formFieldsFrom({}), DEFAULT_FORM_FIELDS);
+  assert.deepEqual(DEFAULT_FORM_FIELDS.map((f) => f.key), ['name', 'mobile', 'company', 'message']);
+  assert.deepEqual(formFieldsFrom({ form_fields: EMAIL_ONLY }), EMAIL_ONLY);
+  assert.deepEqual(
+    formFieldsFrom({ form_fields: [{ key: 'email', label: '', required: 1 }, { key: 'evil', label: 'x', required: true }] }),
+    [{ key: 'email', label: 'Email', required: true }],
+  );
+});
+
+test('fieldLabel marks optional fields', () => {
+  assert.equal(fieldLabel({ key: 'company', label: 'Dealership', required: false }), 'Dealership (optional)');
+  assert.equal(fieldLabel({ key: 'name', label: 'Name', required: true }), 'Name');
+});
+
+test('isPlausibleEmail is a light early check (the server is authoritative)', () => {
+  assert.ok(isPlausibleEmail('sam@example.com'));
+  assert.ok(!isPlausibleEmail('sam@example'));
+  assert.ok(!isPlausibleEmail('not an email'));
+});
+
+test('validateValues checks only the shown fields: required ones filled, contact details well-formed', () => {
+  assert.deepEqual(validateValues(EMAIL_ONLY, { name: 'Sam', email: 'sam@example.com', message: '' }), {});
+  assert.deepEqual(validateValues(EMAIL_ONLY, { name: '', email: 'nope', mobile: 'ignored' }), {
+    name: 'Enter your name.', email: 'Enter a valid email address.',
+  });
+  assert.deepEqual(validateValues(DEFAULT_FORM_FIELDS, { name: 'Sam', mobile: '123', message: 'Hi' }), {
+    mobile: 'Enter a valid phone number, including the area code.',
+  });
+  const optionalMobile = [{ key: 'mobile', label: 'Mobile', required: false }, { key: 'email', label: 'Email', required: true }];
+  assert.deepEqual(validateValues(optionalMobile, { mobile: '', email: 'sam@example.com' }), {});
+});
+
+test('consentText matches the contact details the form asks for', () => {
+  assert.match(consentText(DEFAULT_FORM_FIELDS), /number you provided\. Message and data rates may apply/);
+  assert.match(consentText(EMAIL_ONLY), /email you provided/);
+  assert.doesNotMatch(consentText(EMAIL_ONLY), /data rates/);
+  assert.match(consentText([...DEFAULT_FORM_FIELDS, { key: 'email', label: 'Email', required: false }]), /text or email/);
+});
+
+test('thanksText says how the business will reply', () => {
+  assert.match(thanksText({ mobile: '4168181235', email: 'sam@example.com' }), /text you/);
+  assert.match(thanksText({ mobile: '', email: 'sam@example.com' }), /email you/);
 });

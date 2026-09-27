@@ -1,7 +1,9 @@
 import { MessageCircle } from 'lucide-react';
 import type { CSSProperties } from 'react';
-import { DEFAULT_CALLOUT, MESSAGE_MAX, contrastInk, safeColor, safeHttpsUrl } from './widgetHelpers';
-import type { WidgetBubblePosition } from '../../services/widgetsAPI';
+import {
+  DEFAULT_CALLOUT, FORM_FIELD_KEYS, MESSAGE_MAX, consentLine, contrastInk, fieldDisplayLabel, resolveFormFields, safeColor, safeHttpsUrl,
+} from './widgetHelpers';
+import type { FormFieldSettings, WidgetBubblePosition } from '../../services/widgetsAPI';
 
 export interface WidgetPreviewValues {
   agentName: string;
@@ -10,10 +12,11 @@ export interface WidgetPreviewValues {
   primaryColor: string; // may be '' or partially typed; falls back to the embed default
   logoUrl: string;
   position: WidgetBubblePosition;
+  formFields?: FormFieldSettings;
 }
 
 // Mirrors public/widget-embed.html + widget-embed.js markup and styles (launcher pill, 360px panel,
-// header in brand colour, Name / Mobile / Company / Message, Send). Static: nothing here submits.
+// header in brand colour, the shown form fields, Send). Static: nothing here submits.
 const font = 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
 
 const labelStyle: CSSProperties = { display: 'grid', gap: 4, fontSize: 12, fontWeight: 600, color: '#3d4257' };
@@ -30,6 +33,8 @@ export function WidgetPreview({ values, mode }: { values: WidgetPreviewValues; m
   const agent = values.agentName.trim();
   const welcome = values.welcomeSubtext.trim();
   const alignEnd = values.position === 'bottom-right';
+  const fields = values.formFields || resolveFormFields(null);
+  const shown = FORM_FIELD_KEYS.filter((k) => fields[k].show);
 
   return (
     <div
@@ -77,11 +82,15 @@ export function WidgetPreview({ values, mode }: { values: WidgetPreviewValues; m
             </span>
           </div>
           <div style={{ padding: '16px 20px 18px', display: 'grid', gap: 10 }} aria-hidden="true">
-            <div style={labelStyle}>Name<div style={{ ...inputStyle, minHeight: 40 }} /></div>
-            <div style={labelStyle}>Mobile Number<div style={{ ...inputStyle, minHeight: 40 }} /></div>
-            <div style={labelStyle}>Company Name (optional)<div style={{ ...inputStyle, minHeight: 40 }} /></div>
-            <div style={labelStyle}>Message<div style={{ ...inputStyle, minHeight: 84 }} /></div>
-            <div style={{ textAlign: 'right', fontSize: 11, color: '#6b7288' }}>0/{MESSAGE_MAX}</div>
+            {shown.map((key) => (
+              <div key={key} style={{ display: 'grid', gap: 10 }}>
+                <div style={labelStyle}>
+                  {fieldDisplayLabel(key, fields[key])}
+                  <div style={{ ...inputStyle, minHeight: key === 'message' ? 84 : 40 }} />
+                </div>
+                {key === 'message' && <div style={{ textAlign: 'right', fontSize: 11, color: '#6b7288' }}>0/{MESSAGE_MAX}</div>}
+              </div>
+            ))}
             <div
               style={{
                 padding: '13px 16px', borderRadius: 999, background: brand, color: ink,
@@ -90,9 +99,7 @@ export function WidgetPreview({ values, mode }: { values: WidgetPreviewValues; m
             >
               Send Message
             </div>
-            <p style={{ fontSize: 11, color: '#6b7288', margin: '2px 0 0' }}>
-              By submitting, you authorize this business to send messages to the number you provided. Message and data rates may apply.
-            </p>
+            <p style={{ fontSize: 11, color: '#6b7288', margin: '2px 0 0' }}>{consentLine(fields)}</p>
           </div>
         </div>
       )}

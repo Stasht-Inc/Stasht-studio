@@ -1,7 +1,7 @@
 // public/widget-embed.js
 import {
-  safeColor, safeHttpsUrl, contrastInk, hostOrigin, isPlausiblePhone, clampPosition, panelWidth, panelMaxHeight, MESSAGE_MAX,
-  configUrl, ROOT_PAD,
+  safeColor, safeHttpsUrl, contrastInk, hostOrigin, clampPosition, panelWidth, panelMaxHeight, MESSAGE_MAX,
+  configUrl, ROOT_PAD, formFieldsFrom, fieldLabel, validateValues, consentText, thanksText,
 } from './widget-core.js';
 
 const params = new URLSearchParams(location.search);
@@ -16,8 +16,11 @@ const state = {
   phase: 'form', // 'form' | 'sent'
   sending: false,
   errors: {},
-  values: { name: '', mobile: '', company: '', message: '' },
+  values: { name: '', mobile: '', email: '', company: '', message: '' },
 };
+
+// The shown fields, in order (set once the config loads).
+const fields = () => formFieldsFrom(state.config);
 
 function tell(type, extra = {}) {
   window.parent.postMessage({ source: 'stasht-widget', id: widgetId, type, ...extra }, '*');
@@ -33,7 +36,7 @@ function h(tag, props = {}, ...children) {
     else if (key === 'class') el.className = value;
     else el.setAttribute(key, value === true ? '' : value);
   }
-  for (const child of children.flat()) {
+  for (const child of children.flat(Infinity)) {
     if (child === undefined || child === null || child === false) continue;
     el.append(child instanceof Node ? child : String(child));
   }
@@ -76,14 +79,19 @@ function focusId(id) {
 }
 
 function focusFirstError() {
-  const key = ['name', 'mobile', 'company', 'message'].find((k) => state.errors[k]);
-  focusId(key ? `f-${key}` : 'f-send');
+  const field = fields().find((f) => state.errors[f.key]);
+  focusId(field ? `f-${field.key}` : 'f-send');
+}
+
+function firstFieldId() {
+  const first = fields()[0];
+  return first ? `f-${first.key}` : 'f-send';
 }
 
 function openPanel() {
   state.open = true;
   render();
-  focusId(state.phase === 'form' ? 'f-name' : 'w-thanks');
+  focusId(state.phase === 'form' ? firstFieldId() : 'w-thanks');
 }
 
 function closePanel() {
@@ -115,34 +123,48 @@ function field(id, label, control, error) {
   return h('label', { for: id }, label, control, error && h('span', { class: 'err', role: 'alert' }, error));
 }
 
+// Per-field input attributes; which fields appear, their labels and required-ness come from the config.
+const INPUTS = {
+  name: { autocomplete: 'name' },
+  mobile: { type: 'tel', autocomplete: 'tel' },
+  email: { type: 'email', autocomplete: 'email', inputmode: 'email' },
+  company: { autocomplete: 'organization' },
+};
+
 function form() {
   const v = state.values;
   const e = state.errors;
+  const shown = fields();
   const counter = h('span', { class: 'count' }, `${v.message.length}/${MESSAGE_MAX}`);
   const bind = (key) => (ev) => {
     state.values[key] = ev.target.value;
     if (key === 'message') counter.textContent = `${ev.target.value.length}/${MESSAGE_MAX}`;
   };
 
+  const controls = shown.map((f) => {
+    const id = `f-${f.key}`;
+    const control = f.key === 'message'
+      ? h('textarea', { id, name: 'message', maxlength: MESSAGE_MAX, required: f.required, oninput: bind('message') }, v.message)
+      : h('input', { id, name: f.key, ...INPUTS[f.key], required: f.required, value: v[f.key], oninput: bind(f.key) });
+    return [field(id, fieldLabel(f), control, e[f.key]), f.key === 'message' && counter];
+  });
+
   return h('form', { novalidate: true, onsubmit: submit },
-    field('f-name', 'Name', h('input', { id: 'f-name', name: 'name', autocomplete: 'name', required: true, value: v.name, oninput: bind('name') }), e.name),
-    field('f-mobile', 'Mobile Number', h('input', { id: 'f-mobile', name: 'mobile', type: 'tel', autocomplete: 'tel', required: true, value: v.mobile, oninput: bind('mobile') }), e.mobile),
-    field('f-company', 'Company Name (optional)', h('input', { id: 'f-company', name: 'company', autocomplete: 'organization', value: v.company, oninput: bind('company') }), e.company),
-    field('f-message', 'Message', h('textarea', { id: 'f-message', name: 'message', maxlength: MESSAGE_MAX, required: true, oninput: bind('message') }, v.message), e.message),
-    counter,
+    controls,
     e.form && h('div', { class: 'err', role: 'alert' }, e.form),
     h('button', { id: 'f-send', class: 'send', type: 'submit', disabled: state.sending }, state.sending ? 'Sending…' : 'Send Message'),
-    h('p', { class: 'legal' }, 'By submitting, you authorize this business to send messages to the number you provided. Message and data rates may apply.'));
+    h('p', { class: 'legal' }, consentText(shown)));
 }
 
 function thanks() {
   const first = state.values.name.trim().split(/\s+/)[0];
+  const again = fields().some((f) => f.key === 'message') ? 'f-message' : firstFieldId();
   return h('div', { class: 'thanks' },
     h('h3', { id: 'w-thanks', tabindex: '-1' }, first ? `Thanks, ${first}!` : 'Thanks!'),
-    h('p', {}, "Your message was sent. We'll text you shortly."),
+    h('p', {}, thanksText(state.values)),
     h('button', {
       class: 'linkbtn', type: 'button',
-      onclick: () => { state.phase = 'form'; state.values.message = ''; render(); focusId('f-message'); },
+      onclick: () => { state.phase = 'form'; state.values.message = ''; render(); focusId(again); },
     }, 'Send another message'));
 }
 
@@ -151,10 +173,8 @@ async function submit(ev) {
   if (state.sending) return;
 
   const v = state.values;
-  const errors = {};
-  if (!v.name.trim()) errors.name = 'Enter your name.';
-  if (!isPlausiblePhone(v.mobile)) errors.mobile = 'Enter a valid phone number, including the area code.';
-  if (!v.message.trim()) errors.message = 'Enter a message.';
+  const shown = fields();
+  const errors = validateValues(shown, v);
   state.errors = errors;
   if (Object.keys(errors).length) {
     render();
@@ -170,10 +190,7 @@ async function submit(ev) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
       body: JSON.stringify({
-        name: v.name.trim(),
-        mobile: v.mobile.trim(),
-        company: v.company.trim(),
-        message: v.message.trim(),
+        ...Object.fromEntries(shown.map((f) => [f.key, v[f.key].trim()])),
         host_origin: hostOrigin({ hostParam: params.get('host'), referrer: document.referrer }),
       }),
     });
@@ -185,7 +202,7 @@ async function submit(ev) {
       state.errors = Object.fromEntries(
         Object.entries(body.errors || {}).map(([k, msgs]) => [k, Array.isArray(msgs) ? msgs[0] : String(msgs)]),
       );
-      if (!['name', 'mobile', 'company', 'message'].some((k) => state.errors[k])) {
+      if (!shown.some((f) => state.errors[f.key])) {
         state.errors = { form: 'Please check your details and try again.' };
       }
       focusTarget = 'errors';
