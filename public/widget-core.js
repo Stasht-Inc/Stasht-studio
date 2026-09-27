@@ -5,7 +5,10 @@ export const MESSAGE_MAX = 320;
 
 const HEX_COLOR = /^#[0-9a-f]{6}$/i;
 
-export function safeColor(value, fallback = '#2f5fac') {
+// Stasht purple, as in Chris's ContactWidget design, when a widget has no brand colour set.
+export const DEFAULT_BRAND = '#6C60FF';
+
+export function safeColor(value, fallback = DEFAULT_BRAND) {
   return typeof value === 'string' && HEX_COLOR.test(value.trim()) ? value.trim() : fallback;
 }
 
@@ -64,12 +67,14 @@ export function clampPosition(value) {
  */
 export const ROOT_PAD = { top: 12, x: 16, bottom: 24 };
 
+const PANEL_MAX_W = 380;
+
 /** Panel width that fits the host page's viewport (passed in by the loader as ?vw=). */
 export function panelWidth(viewportWidth) {
   const vw = Number(viewportWidth);
-  if (!Number.isFinite(vw) || vw <= 0) return 360;
+  if (!Number.isFinite(vw) || vw <= 0) return PANEL_MAX_W;
   // The loader caps the iframe at vw - 32; the panel plus its side padding has to fit in that.
-  return Math.max(240, Math.min(360, Math.floor(vw) - 32 - ROOT_PAD.x * 2));
+  return Math.max(240, Math.min(PANEL_MAX_W, Math.floor(vw) - 32 - ROOT_PAD.x * 2));
 }
 
 /** Max panel height so the panel scrolls inside the iframe instead of being clipped on short host viewports. */
@@ -135,29 +140,42 @@ export function validateValues(fields, values) {
   return errors;
 }
 
-export function consentText(fields) {
-  const phone = fields.some((f) => f.key === 'mobile');
-  const email = fields.some((f) => f.key === 'email');
-  if (phone && email) {
-    return 'By submitting, you authorize this business to contact you by text or email using the details you provided. Message and data rates may apply.';
-  }
-  if (email) return 'By submitting, you authorize this business to contact you at the email you provided.';
-  return 'By submitting, you authorize this business to send messages to the number you provided. Message and data rates may apply.';
+// Copy from Chris's ContactWidget design.
+export const DEFAULT_CALLOUT = 'Hi there! Have a question?';
+export const CALLOUT_SUBTEXT = 'Chat with us here.';
+export const DEFAULT_WELCOME = 'Enter your question below and a representative will get right back to you.';
+const MESSAGE_PLACEHOLDER = 'I want to know more...';
+
+export function consentText() {
+  return 'By submitting you agree to receive messages for the provided channel. Rates may be applied.';
 }
 
-export function thanksText(values) {
-  if (String(values.mobile || '').trim()) return "Your message was sent. We'll text you shortly.";
-  if (String(values.email || '').trim()) return "Your message was sent. We'll email you shortly.";
-  return "Your message was sent. We'll be in touch shortly.";
+/** Inputs carry their label as the placeholder ("Name *", "Business (optional)"), as in the design. */
+export function placeholderFor(field) {
+  if (field.key === 'message' && field.label === DEFAULT_LABELS.message) return MESSAGE_PLACEHOLDER;
+  return field.required ? `${field.label} *` : `${field.label} (optional)`;
 }
 
-// Who's online (config.team_online): up to three team members, first name + an
+/** The instant reply shown under the visitor's message once it's sent. */
+export function autoReplyText(name) {
+  const first = String(name || '').trim().split(/\s+/)[0];
+  return `Hi${first ? ` ${first}` : ''}! Thanks for reaching out. We've got your message and will reply shortly.`;
+}
+
+/** "Christian Beckermann" -> "CB". */
+export function initialsFrom(name) {
+  const words = String(name || '').trim().split(/\s+/).filter(Boolean);
+  if (!words.length) return '?';
+  return (words[0][0] + (words.length > 1 ? words[words.length - 1][0] : '')).toUpperCase();
+}
+
+// Who's online (config.team_online): up to four team members, first name + an
 // https photo or initials on a colour. Anything unexpected is dropped or defaulted.
 export function teamOnlineFrom(config) {
   const list = Array.isArray(config?.team_online) ? config.team_online : [];
   return list
     .filter((m) => m && typeof m.name === 'string' && m.name.trim() !== '')
-    .slice(0, 3)
+    .slice(0, 4)
     .map((m) => ({
       name: m.name.trim(),
       avatarUrl: safeHttpsUrl(m.avatar_url),
@@ -166,10 +184,14 @@ export function teamOnlineFrom(config) {
     }));
 }
 
-// "Sam is online" / "Sam and Andrew are online" / "Sam, Andrew and Jo are online".
-export function onlineLabel(team) {
-  const names = (team || []).map((m) => m.name);
-  if (names.length === 0) return '';
-  if (names.length === 1) return `${names[0]} is online`;
-  return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]} are online`;
+/** "4 online". */
+export function onlineCountText(team) {
+  return `${(team || []).length} online`;
+}
+
+/** White initials on avatar colours, as in the design; dark only on very pale colours. */
+export function initialsInk(hex) {
+  const h = safeColor(hex).slice(1);
+  const [r, g, b] = [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16));
+  return (0.299 * r + 0.587 * g + 0.114 * b) / 255 > 0.8 ? '#1f2937' : '#ffffff';
 }

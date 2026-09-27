@@ -1,8 +1,11 @@
 // public/widget-embed.js
+// Layout follows Chris's ContactWidget frames: a callout card with who's online above a round
+// launcher; an open panel with the agent header, an intro bubble and the form; after sending,
+// the visitor's message and an instant reply as chat bubbles. (Live two-way chat comes later.)
 import {
   safeColor, safeHttpsUrl, contrastInk, hostOrigin, clampPosition, panelWidth, panelMaxHeight, MESSAGE_MAX,
-  configUrl, ROOT_PAD, formFieldsFrom, fieldLabel, validateValues, consentText, thanksText,
-  teamOnlineFrom, onlineLabel,
+  configUrl, ROOT_PAD, formFieldsFrom, validateValues, consentText, placeholderFor, autoReplyText, initialsFrom,
+  teamOnlineFrom, onlineCountText, initialsInk, DEFAULT_CALLOUT, CALLOUT_SUBTEXT, DEFAULT_WELCOME,
 } from './widget-core.js';
 
 const params = new URLSearchParams(location.search);
@@ -11,6 +14,8 @@ const API = `${location.origin}/api/react`;
 const root = document.getElementById('root');
 root.style.padding = `${ROOT_PAD.top}px ${ROOT_PAD.x}px ${ROOT_PAD.bottom}px`;
 
+const DISMISS_KEY = `stasht-widget-callout-dismissed:${widgetId}`;
+
 const state = {
   config: null,
   open: false,
@@ -18,10 +23,16 @@ const state = {
   sending: false,
   errors: {},
   values: { name: '', mobile: '', email: '', company: '', message: '' },
+  sent: null, // { text, name, at: Date } — what the visitor sent, for the chat view
+  calloutDismissed: readDismissed(),
 };
 
 // The shown fields, in order (set once the config loads).
 const fields = () => formFieldsFrom(state.config);
+
+function readDismissed() {
+  try { return sessionStorage.getItem(DISMISS_KEY) === '1'; } catch { return false; }
+}
 
 function tell(type, extra = {}) {
   window.parent.postMessage({ source: 'stasht-widget', id: widgetId, type, ...extra }, '*');
@@ -44,18 +55,24 @@ function h(tag, props = {}, ...children) {
   return el;
 }
 
-function chatIcon() {
+// Lucide-style stroke icons, built with createElementNS (never innerHTML).
+function icon(paths) {
   const ns = 'http://www.w3.org/2000/svg';
   const svg = document.createElementNS(ns, 'svg');
   for (const [k, v] of Object.entries({
     viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '2',
     'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'aria-hidden': 'true',
   })) svg.setAttribute(k, v);
-  const path = document.createElementNS(ns, 'path');
-  path.setAttribute('d', 'M21 15a2 2 0 0 1-2 2H8l-5 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z');
-  svg.append(path);
+  for (const d of paths) {
+    const path = document.createElementNS(ns, 'path');
+    path.setAttribute('d', d);
+    svg.append(path);
+  }
   return svg;
 }
+const chatIcon = () => icon(['M7.9 20A9 9 0 1 0 4 16.1L2 22Z']);
+const closeIcon = () => icon(['M18 6 6 18', 'm6 6 12 12']);
+const backIcon = () => icon(['m12 19-7-7 7-7', 'M19 12H5']);
 
 // Measured synchronously: the iframe starts hidden/0x0 and browsers may defer
 // requestAnimationFrame there, which would mean the first resize is never sent.
@@ -71,7 +88,7 @@ function reportSize() {
 }
 
 function render() {
-  root.replaceChildren(state.open ? panel() : launcher());
+  root.replaceChildren(state.open ? panel() : closed());
   reportSize();
 }
 
@@ -89,37 +106,31 @@ function firstFieldId() {
   return first ? `f-${first.key}` : 'f-send';
 }
 
+// Return focus to the launcher only for keyboard users — after a mouse click it would
+// otherwise show the focus ring around the closed button.
+let usingKeyboard = false;
+document.addEventListener('keydown', () => { usingKeyboard = true; }, true);
+document.addEventListener('pointerdown', () => { usingKeyboard = false; }, true);
+
 function openPanel() {
   state.open = true;
   render();
-  focusId(state.phase === 'form' ? firstFieldId() : 'w-thanks');
+  // Keyboard users land in the form; a mouse click leaves it unfocused, as in the design.
+  if (usingKeyboard) focusId(state.phase === 'form' ? firstFieldId() : 'w-back');
 }
 
 function closePanel() {
   state.open = false;
   render();
-  focusId('w-launcher');
+  if (usingKeyboard) focusId('w-launcher');
 }
 
-function launcher() {
-  const label = state.config.callout_text || 'Chat with us';
-  return h('button', { id: 'w-launcher', class: 'launcher', type: 'button', 'aria-label': label, onclick: openPanel }, chatIcon(), h('span', {}, label));
-}
-
-// The agent's avatar next to their name; a person icon until one is uploaded.
-function agentAvatar(url) {
-  if (url) return h('img', { class: 'avatar', src: url, alt: '' });
-  const ns = 'http://www.w3.org/2000/svg';
-  const svg = document.createElementNS(ns, 'svg');
-  svg.setAttribute('viewBox', '0 0 24 24');
-  svg.setAttribute('fill', 'currentColor');
-  svg.setAttribute('aria-hidden', 'true');
-  const head = document.createElementNS(ns, 'circle');
-  head.setAttribute('cx', '12'); head.setAttribute('cy', '8'); head.setAttribute('r', '4');
-  const body = document.createElementNS(ns, 'path');
-  body.setAttribute('d', 'M4 20.5c0-4.1 3.6-6.5 8-6.5s8 2.4 8 6.5z');
-  svg.append(head, body);
-  return h('span', { class: 'avatar default' }, svg);
+function dismissCallout(ev) {
+  ev.stopPropagation();
+  state.calloutDismissed = true;
+  try { sessionStorage.setItem(DISMISS_KEY, '1'); } catch { /* private mode: dismiss for this page only */ }
+  render();
+  if (usingKeyboard) focusId('w-launcher');
 }
 
 // One online team member: photo (or initials on their colour) with a green dot.
@@ -130,34 +141,58 @@ function face(member) {
   } else {
     inner = h('span', { class: 'ini' }, member.initials);
     inner.style.background = member.color;
-    inner.style.color = contrastInk(member.color);
+    inner.style.color = initialsInk(member.color);
   }
   return h('span', { class: 'face' }, inner, h('span', { class: 'dot' }));
 }
 
-function panel() {
+function closed() {
   const cfg = state.config;
-  const logo = safeHttpsUrl(cfg.theme?.logo_url);
+  const title = cfg.callout_text || DEFAULT_CALLOUT;
   const team = teamOnlineFrom(cfg);
-  const head = h('div', { class: 'head' },
-    (cfg.agent_name || logo) && h('div', { class: 'agent' },
-      agentAvatar(logo),
-      cfg.agent_name && h('span', {}, cfg.agent_name)),
-    h('h2', { id: 'w-title' }, cfg.callout_text || 'Chat with us'),
-    cfg.welcome_subtext && h('p', {}, cfg.welcome_subtext),
-    team.length > 0 && h('div', { class: 'online' },
-      h('span', { class: 'faces', 'aria-hidden': 'true' }, team.map(face)),
-      h('span', {}, onlineLabel(team))),
-    h('button', { class: 'close', type: 'button', 'aria-label': 'Close', onclick: closePanel }, '×'));
+  const left = clampPosition(cfg.theme?.bubble_position) === 'bottom-left';
 
-  return h('div', { class: 'panel', role: 'dialog', 'aria-labelledby': 'w-title' }, head, state.phase === 'sent' ? thanks() : form());
+  const callout = !state.calloutDismissed && h('div', { class: 'callout' },
+    h('button', { class: 'callout-body', type: 'button', onclick: openPanel },
+      team.length > 0 && h('span', { class: 'team' },
+        h('span', { class: 'faces', 'aria-hidden': 'true' }, team.map(face)),
+        h('span', { class: 'count' }, onlineCountText(team))),
+      h('span', { class: 'title' }, title),
+      h('span', { class: 'sub' }, CALLOUT_SUBTEXT)),
+    h('button', { class: 'dismiss', type: 'button', 'aria-label': 'Dismiss', onclick: dismissCallout }, '×'));
+
+  return h('div', { class: left ? 'closed left' : 'closed' },
+    callout,
+    h('button', { id: 'w-launcher', class: 'launcher', type: 'button', 'aria-label': title, onclick: openPanel }, chatIcon()));
 }
 
-// Required fields get a red * (decorative; the input's `required` is what assistive tech reads).
-function field(id, label, control, error, required = false) {
-  return h('label', { for: id },
-    h('span', { class: 'lbl' }, label, required && h('span', { class: 'req', 'aria-hidden': 'true' }, '*')),
-    control, error && h('span', { class: 'err', role: 'alert' }, error));
+// The agent's picture: their uploaded avatar, else the chat icon.
+function agentPicture(className) {
+  const logo = safeHttpsUrl(state.config.theme?.logo_url);
+  return logo ? h('img', { src: logo, alt: '' }) : h('span', { class: className }, chatIcon());
+}
+
+function panel() {
+  const cfg = state.config;
+  const online = teamOnlineFrom(cfg).length > 0;
+  const sent = state.phase === 'sent';
+
+  const head = h('div', { class: 'head' },
+    sent && h('button', { id: 'w-back', class: 'iconbtn', type: 'button', 'aria-label': 'Send another message', onclick: newMessage }, backIcon()),
+    h('span', { class: 'hav' }, agentPicture('icon'), online && h('span', { class: 'dot' })),
+    h('div', { class: 'who' },
+      h('h2', { id: 'w-title' }, cfg.agent_name || 'Chat with us'),
+      h('p', {}, online ? [h('span', { class: 'on' }), 'Online now'] : "We'll reply soon")),
+    h('button', { class: 'iconbtn close', type: 'button', 'aria-label': 'Close', onclick: closePanel }, closeIcon()));
+
+  return h('div', { class: 'panel', role: 'dialog', 'aria-labelledby': 'w-title' }, head, sent ? chat() : form());
+}
+
+// The intro sits beside the avatar's top; replies sit on its baseline (as in the design).
+function botRow(text, time, align = 'bottom') {
+  return h('div', { class: align === 'top' ? 'row bot top' : 'row bot' },
+    h('span', { class: 'mini' }, agentPicture('')),
+    h('div', { class: 'stack' }, h('div', { class: 'bubble' }, text), time && h('span', { class: 'time' }, time)));
 }
 
 // Per-field input attributes; which fields appear, their labels and required-ness come from the config.
@@ -168,41 +203,59 @@ const INPUTS = {
   company: { autocomplete: 'organization' },
 };
 
+const canSend = () => !state.sending && fields().every((f) => !f.required || String(state.values[f.key] || '').trim() !== '');
+
 function form() {
   const v = state.values;
   const e = state.errors;
   const shown = fields();
-  const counter = h('span', { class: 'count' }, `${v.message.length}/${MESSAGE_MAX}`);
+  const send = h('button', { id: 'f-send', class: 'send', type: 'submit', disabled: !canSend() }, state.sending ? 'Sending…' : 'Send Message');
   const bind = (key) => (ev) => {
     state.values[key] = ev.target.value;
-    if (key === 'message') counter.textContent = `${ev.target.value.length}/${MESSAGE_MAX}`;
+    send.disabled = !canSend();
   };
 
   const controls = shown.map((f) => {
     const id = `f-${f.key}`;
+    const common = {
+      id, name: f.key, required: f.required, placeholder: placeholderFor(f),
+      'aria-label': f.required ? f.label : `${f.label} (optional)`, 'aria-invalid': e[f.key] ? 'true' : false, oninput: bind(f.key),
+    };
     const control = f.key === 'message'
-      ? h('textarea', { id, name: 'message', maxlength: MESSAGE_MAX, required: f.required, oninput: bind('message') }, v.message)
-      : h('input', { id, name: f.key, ...INPUTS[f.key], required: f.required, value: v[f.key], oninput: bind(f.key) });
-    return [field(id, fieldLabel(f), control, e[f.key], f.required), f.key === 'message' && counter];
+      ? h('textarea', { ...common, maxlength: MESSAGE_MAX }, v.message)
+      : h('input', { ...common, ...INPUTS[f.key], value: v[f.key] });
+    return [control, e[f.key] && h('span', { class: 'err', role: 'alert' }, e[f.key])];
   });
 
-  return h('form', { novalidate: true, onsubmit: submit },
-    controls,
-    e.form && h('div', { class: 'err', role: 'alert' }, e.form),
-    h('button', { id: 'f-send', class: 'send', type: 'submit', disabled: state.sending }, state.sending ? 'Sending…' : 'Send Message'),
-    h('p', { class: 'legal' }, consentText(shown)));
+  return h('div', { class: 'body' },
+    botRow(state.config.welcome_subtext || DEFAULT_WELCOME, null, 'top'),
+    h('form', { novalidate: true, onsubmit: submit },
+      controls,
+      h('p', { class: 'legal' }, consentText()),
+      e.form && h('div', { class: 'err', role: 'alert' }, e.form),
+      send));
 }
 
-function thanks() {
-  const first = state.values.name.trim().split(/\s+/)[0];
-  const again = fields().some((f) => f.key === 'message') ? 'f-message' : firstFieldId();
-  return h('div', { class: 'thanks' },
-    h('h3', { id: 'w-thanks', tabindex: '-1' }, first ? `Thanks, ${first}!` : 'Thanks!'),
-    h('p', {}, thanksText(state.values)),
-    h('button', {
-      class: 'linkbtn', type: 'button',
-      onclick: () => { state.phase = 'form'; state.values.message = ''; render(); focusId(again); },
-    }, 'Send another message'));
+function clock(date) {
+  return date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+}
+
+function chat() {
+  const s = state.sent;
+  const time = clock(s.at);
+  return h('div', { class: 'body', 'aria-live': 'polite' },
+    h('div', { class: 'row me' },
+      h('div', { class: 'stack' }, h('div', { class: 'bubble' }, s.text), h('span', { class: 'time' }, time)),
+      h('span', { class: 'mini', 'aria-hidden': 'true' }, initialsFrom(s.name))),
+    botRow(autoReplyText(s.name), time));
+}
+
+function newMessage() {
+  state.phase = 'form';
+  state.values.message = '';
+  state.errors = {};
+  render();
+  focusId(fields().some((f) => f.key === 'message') ? 'f-message' : firstFieldId());
 }
 
 async function submit(ev) {
@@ -221,7 +274,7 @@ async function submit(ev) {
 
   state.sending = true;
   render();
-  let focusTarget = null; // 'errors' | 'send' | 'thanks'
+  let focusTarget = null; // 'errors' | 'send' | 'sent'
   try {
     const res = await fetch(`${API}/widgets/${encodeURIComponent(widgetId)}/submit`, {
       method: 'POST',
@@ -251,8 +304,9 @@ async function submit(ev) {
       focusTarget = 'send';
     } else {
       state.errors = {};
+      state.sent = { text: v.message.trim() || 'Sent the contact form', name: v.name.trim(), at: new Date() };
       state.phase = 'sent';
-      focusTarget = 'thanks';
+      focusTarget = 'sent';
     }
   } catch {
     state.errors = { form: 'Could not reach the server. Check your connection and try again.' };
@@ -262,7 +316,7 @@ async function submit(ev) {
     render();
     if (focusTarget === 'errors') focusFirstError();
     else if (focusTarget === 'send') focusId('f-send');
-    else if (focusTarget === 'thanks') focusId('w-thanks');
+    else if (focusTarget === 'sent') focusId('w-back');
   }
 }
 

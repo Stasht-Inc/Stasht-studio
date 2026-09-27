@@ -4,16 +4,17 @@ import assert from 'node:assert/strict';
 import {
   safeColor, safeHttpsUrl, contrastInk, hostOrigin, isPlausiblePhone, clampPosition, panelWidth, panelMaxHeight, MESSAGE_MAX,
   configUrl, ROOT_PAD,
-  DEFAULT_FORM_FIELDS, formFieldsFrom, fieldLabel, isPlausibleEmail, validateValues, consentText, thanksText,
-  teamOnlineFrom, onlineLabel,
+  DEFAULT_FORM_FIELDS, formFieldsFrom, fieldLabel, isPlausibleEmail, validateValues, consentText,
+  teamOnlineFrom, onlineCountText, DEFAULT_BRAND, placeholderFor, autoReplyText, initialsFrom, initialsInk,
 } from '../../public/widget-core.js';
 
 test('safeColor accepts #RRGGBB only', () => {
   assert.equal(safeColor('#2F5FAC'), '#2F5FAC');
   assert.equal(safeColor('  #2f5fac '), '#2f5fac');
-  assert.equal(safeColor('red'), '#2f5fac');
-  assert.equal(safeColor('#fff'), '#2f5fac');
-  assert.equal(safeColor('#2f5fac; background:url(x)'), '#2f5fac');
+  assert.equal(safeColor('red'), DEFAULT_BRAND);
+  assert.equal(safeColor('#fff'), DEFAULT_BRAND);
+  assert.equal(safeColor('#2f5fac; background:url(x)'), DEFAULT_BRAND);
+  assert.equal(DEFAULT_BRAND, '#6C60FF');
   assert.equal(safeColor(null, '#000000'), '#000000');
 });
 
@@ -57,9 +58,9 @@ test('clampPosition defaults to bottom-right', () => {
 });
 
 test('panel plus its shadow padding fits inside the loader-capped iframe (vw - 32 wide)', () => {
-  assert.equal(panelWidth(undefined), 360);
-  assert.equal(panelWidth(0), 360);
-  assert.equal(panelWidth(1440), 360);
+  assert.equal(panelWidth(undefined), 380);
+  assert.equal(panelWidth(0), 380);
+  assert.equal(panelWidth(1440), 380);
   assert.equal(panelWidth(400), 336);
   assert.equal(panelWidth(320), 256);
   assert.equal(panelWidth(250), 240);
@@ -138,19 +139,29 @@ test('validateValues checks only the shown fields: required ones filled, contact
   assert.deepEqual(validateValues(optionalMobile, { mobile: '', email: 'sam@example.com' }), {});
 });
 
-test('consentText matches the contact details the form asks for', () => {
-  assert.match(consentText(DEFAULT_FORM_FIELDS), /number you provided\. Message and data rates may apply/);
-  assert.match(consentText(EMAIL_ONLY), /email you provided/);
-  assert.doesNotMatch(consentText(EMAIL_ONLY), /data rates/);
-  assert.match(consentText([...DEFAULT_FORM_FIELDS, { key: 'email', label: 'Email', required: false }]), /text or email/);
+test('consentText is the design copy', () => {
+  assert.equal(consentText(), 'By submitting you agree to receive messages for the provided channel. Rates may be applied.');
 });
 
-test('thanksText says how the business will reply', () => {
-  assert.match(thanksText({ mobile: '4168181235', email: 'sam@example.com' }), /text you/);
-  assert.match(thanksText({ mobile: '', email: 'sam@example.com' }), /email you/);
+test('placeholderFor puts the label in the input, marking required and optional fields', () => {
+  assert.equal(placeholderFor({ key: 'name', label: 'Name', required: true }), 'Name *');
+  assert.equal(placeholderFor({ key: 'company', label: 'Business', required: false }), 'Business (optional)');
+  assert.equal(placeholderFor({ key: 'message', label: 'Message', required: true }), 'I want to know more...');
+  assert.equal(placeholderFor({ key: 'message', label: 'Your question', required: true }), 'Your question *');
 });
 
-test('teamOnlineFrom keeps up to three safe entries', () => {
+test('autoReplyText greets by first name', () => {
+  assert.equal(autoReplyText('christian beckermann'), "Hi christian! Thanks for reaching out. We've got your message and will reply shortly.");
+  assert.equal(autoReplyText(''), "Hi! Thanks for reaching out. We've got your message and will reply shortly.");
+});
+
+test('initialsFrom makes two-letter initials', () => {
+  assert.equal(initialsFrom('Christian Beckermann'), 'CB');
+  assert.equal(initialsFrom('sam'), 'S');
+  assert.equal(initialsFrom('  '), '?');
+});
+
+test('teamOnlineFrom keeps up to four safe entries', () => {
   const team = teamOnlineFrom({ team_online: [
     { name: 'Sam', avatar_url: 'https://cdn.example/sam.jpg', initials: 'SC', color: '#10B981' },
     { name: 'Andrew', avatar_url: 'http://cdn.example/a.jpg', initials: 'AVD', color: 'red' },
@@ -162,15 +173,19 @@ test('teamOnlineFrom keeps up to three safe entries', () => {
     { name: 'Sam', avatarUrl: 'https://cdn.example/sam.jpg', initials: 'SC', color: '#10B981' },
     { name: 'Andrew', avatarUrl: null, initials: 'AV', color: '#6C60FF' },
     { name: 'Jo', avatarUrl: null, initials: 'JO', color: '#123456' },
+    { name: 'Kim', avatarUrl: null, initials: 'K', color: '#654321' },
   ]);
   assert.deepEqual(teamOnlineFrom({}), []);
   assert.deepEqual(teamOnlineFrom({ team_online: 'nope' }), []);
   assert.deepEqual(teamOnlineFrom(null), []);
 });
 
-test('onlineLabel names who is online', () => {
-  assert.equal(onlineLabel([]), '');
-  assert.equal(onlineLabel([{ name: 'Sam' }]), 'Sam is online');
-  assert.equal(onlineLabel([{ name: 'Sam' }, { name: 'Andrew' }]), 'Sam and Andrew are online');
-  assert.equal(onlineLabel([{ name: 'Sam' }, { name: 'Andrew' }, { name: 'Jo' }]), 'Sam, Andrew and Jo are online');
+test('onlineCountText counts who is online', () => {
+  assert.equal(onlineCountText([{ name: 'Sam' }, { name: 'Jo' }, { name: 'Kim' }, { name: 'Lee' }]), '4 online');
+});
+
+test('initialsInk keeps initials white except on very pale colours', () => {
+  assert.equal(initialsInk('#F59E0B'), '#ffffff');
+  assert.equal(initialsInk('#6C60FF'), '#ffffff');
+  assert.equal(initialsInk('#FEF3C7'), '#1f2937');
 });
