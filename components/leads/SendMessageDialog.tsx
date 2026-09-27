@@ -5,6 +5,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { leadsAPI } from '../../services/leadsAPI';
 import { dashboardAPI } from '../../utils/authUtils';
+import { useAuth } from '../../contexts/AuthContext';
 import ShareCarsDialog from '../ShareCarsDialog';
 
 // "+ Send Message" (spec 2026-09-23 §5, Chris's "Start A New Message" reference):
@@ -16,6 +17,22 @@ const SMS_LIMIT = 320;
 
 interface PickedCampaign { carIds: number[]; name: string }
 
+// Pre-written text (Chris: "so they don't have to do anything"). No greeting —
+// the server already opens emails and first texts with "Hi {name},". With cars,
+// the campaign link is appended on its own line after the colon.
+function suggestedBody(carCount: number, senderName: string, dealerName: string): string {
+  if (carCount > 0) {
+    return `I picked out ${carCount === 1 ? 'a vehicle' : `${carCount} vehicles`} I think you'll like — take a look:`;
+  }
+  const who = [senderName, dealerName].filter(Boolean).join(' at ');
+  return `Just checking in to see if you have any questions. I'm happy to help${who ? ` — ${who}` : ''}.`;
+}
+
+function suggestedSubject(carCount: number, dealerName: string): string {
+  if (carCount > 0) return `${carCount === 1 ? 'A vehicle' : `${carCount} vehicles`} picked for you`;
+  return dealerName ? `Checking in from ${dealerName}` : 'Checking in';
+}
+
 interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -25,12 +42,14 @@ interface Props {
 interface Option { id: string; name: string }
 
 export default function SendMessageDialog({ open, onOpenChange, onSent }: Props) {
+  const { user } = useAuth();
   const [channel, setChannel] = useState<'sms' | 'email'>('sms');
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
-  const [subject, setSubject] = useState('');
-  const [body, setBody] = useState('');
+  // null = use the suggested text, which follows the cars/dealership picked.
+  const [subjectOverride, setSubjectOverride] = useState<string | null>(null);
+  const [bodyOverride, setBodyOverride] = useState<string | null>(null);
   const [picked, setPicked] = useState<PickedCampaign | null>(null);
   const [showPicker, setShowPicker] = useState(false);
   const [propertyId, setPropertyId] = useState<string>('');
@@ -41,7 +60,7 @@ export default function SendMessageDialog({ open, onOpenChange, onSent }: Props)
   // Fresh form each time it opens; the property list loads lazily.
   useEffect(() => {
     if (!open) return;
-    setChannel('sms'); setName(''); setPhone(''); setEmail(''); setSubject(''); setBody('');
+    setChannel('sms'); setName(''); setPhone(''); setEmail(''); setSubjectOverride(null); setBodyOverride(null);
     setPicked(null); setShowPicker(false); setError(null);
 
     dashboardAPI.getStoreelMyProperties().then((res: any) => {
@@ -52,11 +71,20 @@ export default function SendMessageDialog({ open, onOpenChange, onSent }: Props)
     }).catch(() => setProperties([]));
   }, [open]);
 
+  const carCount = picked?.carIds.length ?? 0;
+  const senderName = user?.name?.trim().split(/\s+/)[0] ?? '';
+  const dealerName = properties.find((p) => p.id === propertyId)?.name ?? '';
+  const bodySuggestion = suggestedBody(carCount, senderName, dealerName);
+  const body = bodyOverride ?? bodySuggestion;
+  const subject = subjectOverride ?? suggestedSubject(carCount, dealerName);
+  // Mirrors the server's opener (LeadDeliveryService buildSmsBody / buildEmailHtml).
+  const contactFirst = name.trim().split(/\s+/)[0];
+  const greeting = contactFirst ? `Hi ${contactFirst},` : channel === 'email' ? 'Hi there,' : 'Hi,';
+
   const digits = phone.replace(/\D/g, '');
   const contactOk = channel === 'sms' ? digits.length >= 10 : /\S+@\S+\.\S+/.test(email.trim());
   const needsProperty = properties.length > 1 && !propertyId;
   const tooLong = channel === 'sms' && body.length > SMS_LIMIT;
-  const carCount = picked?.carIds.length ?? 0;
   const canSend = contactOk && (body.trim().length > 0 || carCount > 0) && !needsProperty && !tooLong && !sending;
 
   const send = async () => {
@@ -137,8 +165,8 @@ export default function SendMessageDialog({ open, onOpenChange, onSent }: Props)
                 <input id="sm-email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="name@example.com" type="email" className={field} autoComplete="off" />
               </div>
               <div>
-                <label htmlFor="sm-subject" className={label}>Subject <span className={hint}>(optional)</span></label>
-                <input id="sm-subject" value={subject} onChange={(e) => setSubject(e.target.value)} className={field} />
+                <label htmlFor="sm-subject" className={label}>Subject</label>
+                <input id="sm-subject" value={subject} onChange={(e) => setSubjectOverride(e.target.value)} className={field} />
               </div>
             </>
           )}
@@ -199,11 +227,24 @@ export default function SendMessageDialog({ open, onOpenChange, onSent }: Props)
           </div>
 
           <div>
-            <label htmlFor="sm-body" className={label}>Message {picked && <span className={hint}>(optional with cars)</span>}</label>
+            <div className="flex items-baseline justify-between gap-2 mb-1">
+              <label htmlFor="sm-body" className="text-xs font-medium text-gray-700">
+                Message <span className={hint}>(the “{greeting}” greeting is added for you)</span>
+              </label>
+              {bodyOverride !== null && bodyOverride !== bodySuggestion && (
+                <button
+                  type="button"
+                  onClick={() => setBodyOverride(null)}
+                  className="shrink-0 text-xs font-medium text-[#5A4FE5] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#6C60FF] rounded"
+                >
+                  Use suggested text
+                </button>
+              )}
+            </div>
             <textarea
               id="sm-body"
               value={body}
-              onChange={(e) => setBody(e.target.value)}
+              onChange={(e) => setBodyOverride(e.target.value)}
               rows={5}
               className="w-full px-3 py-2.5 rounded-lg bg-white text-sm text-gray-900 placeholder:text-gray-500 border border-gray-200 outline-none resize-y focus-visible:ring-2 focus-visible:ring-[#6C60FF] focus-visible:border-transparent"
               placeholder={picked
