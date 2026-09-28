@@ -249,12 +249,14 @@ function WidgetBuilder({
     }
   };
   // The preview shows you as the online team member; visitors see whoever is really online.
+  // As the widget's owner your face is the agent photo once one is uploaded (the API does the same).
   const previewOnline = useMemo(() => {
     const full = (user?.name || 'You').trim();
     const words = full.split(/\s+/).filter(Boolean);
     const initials = ((words[0]?.[0] || 'Y') + (words.length > 1 ? words[words.length - 1][0] : '')).toUpperCase();
-    return [{ name: words[0] || 'You', initials, color: user?.profile_color || '#6C60FF', avatarUrl: user?.avatar || null }];
-  }, [user]);
+    const avatarUrl = safeHttpsUrl(form.logoUrl) || user?.avatar || null;
+    return [{ name: words[0] || 'You', initials, color: user?.profile_color || '#6C60FF', avatarUrl }];
+  }, [user, form.logoUrl]);
 
   const dirty = useMemo(
     () => JSON.stringify(form) !== JSON.stringify(baseline) || domainInput.trim() !== '',
