@@ -8,6 +8,9 @@ interface Property {
   image?: string;
   location?: string;
   user_id?: number;
+  // The signed-in user's relation to it (from the properties payload): decides property-view tools.
+  user_role?: string;
+  is_creator?: boolean;
 }
 
 interface PropertyContextType {
