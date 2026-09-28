@@ -41,6 +41,7 @@ import { CollaboratorInviteModal } from './components/CollaboratorInviteModal';
 import { isCorrectCollaborator } from './utils/inviteUtils';
 import { useMemoryLimit } from './hooks/useMemoryLimit';
 import { usePresenceHeartbeat } from './hooks/usePresenceHeartbeat';
+import { useIsStarterPlan } from './hooks/usePlan';
 import { memoryCountsManager } from './hooks/useMemoryCounts';
 import ErrorBoundary from './components/ErrorBoundary';
 import { Toaster, toast } from 'sonner';
@@ -1108,6 +1109,17 @@ function MainApp() {
     handleBackFromMemory,
     toggleSubSidebarExpansion,
   } = useAppNavigation();
+
+  // Connectors are paid-plan only (Chris, 2026-09-28). The Sidebar hides them on the free plan;
+  // reaching /marketplace anyway (old link, bookmark) opens Billing with the plan picker, the
+  // same "upgrade to unlock" hand-off the limit banners use.
+  const { isStarter: isStarterPlan, known: planKnown } = useIsStarterPlan();
+  useEffect(() => {
+    if (currentPage !== 'marketplace' || !planKnown || !isStarterPlan) return;
+    toast('Connectors are available on the Teams and Business plans.');
+    sessionStorage.setItem('billing_open_upgrade', 'true');
+    handleNavigation('billing');
+  }, [currentPage, planKnown, isStarterPlan, handleNavigation]);
 
   // Deep-link target for opening a "My Conversations" thread from a
   // lead_message notification. Consumed (and cleared) by LeadsPage.
@@ -4041,7 +4053,7 @@ function MainApp() {
     }
 
     if (currentPage === "marketplace") {
-      return <MarketplacePage />;
+      return planKnown && !isStarterPlan ? <MarketplacePage /> : null;
     }
 
     if (currentPage === "csv-upload") {

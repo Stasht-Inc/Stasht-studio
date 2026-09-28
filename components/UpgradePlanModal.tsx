@@ -5,6 +5,7 @@ import { Elements } from '@stripe/react-stripe-js';
 import PaymentMethodModal from './PaymentMethodModal';
 import StripePaymentForm from './StripePaymentForm';
 import { stripeApi } from '../utils/stripeApi';
+import { announcePlanChange } from '../hooks/usePlan';
 import { toast } from 'sonner';
 
 // Initialize Stripe
@@ -134,6 +135,7 @@ export function UpgradePlanModal({ isOpen, onClose, currentPlan, onUpgrade, onSu
       const response = await stripeApi.cancelSubscription();
       if (response.success) {
         toast.success(response.message || 'Plan downgraded to Starter successfully!', { id: toastId });
+        announcePlanChange();
         if (onSuccess) onSuccess();
         handleClose();
       } else {
@@ -158,6 +160,7 @@ export function UpgradePlanModal({ isOpen, onClose, currentPlan, onUpgrade, onSu
           ? 'Your Starter plan is activated. Access the Stasht portal!'
           : (response.message || 'You are now on the Starter plan!');
         toast.success(message, { id: toastId });
+        announcePlanChange();
         if (onSuccess) onSuccess();
         handleClose();
       } else {
@@ -328,6 +331,7 @@ export function UpgradePlanModal({ isOpen, onClose, currentPlan, onUpgrade, onSu
         // Show success message from API response
         const successMessage = response.message || `Successfully subscribed to ${selectedPlanData.name} plan!`;
         toast.success(successMessage, { id: toastId, duration: 5000 });
+        announcePlanChange();
 
         // Call the upgrade callback if provided
         if (onUpgrade) {
