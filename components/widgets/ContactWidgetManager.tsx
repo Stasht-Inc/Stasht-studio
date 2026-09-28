@@ -194,6 +194,8 @@ function WidgetBuilder({
   onDirtyChange,
   onOpenGuide,
   teamOptions,
+  propertyId,
+  propertyName,
 }: {
   teamOptions: WidgetTeamOption[];
   widget: ContactWidget | null; // null = creating
@@ -202,13 +204,15 @@ function WidgetBuilder({
   onDeleted: (id: string) => void;
   onDirtyChange: (dirty: boolean) => void;
   onOpenGuide: (w: ContactWidget) => void;
+  propertyId?: number;
+  propertyName?: string;
 }) {
   const uid = useId();
   const [saved, setSaved] = useState<ContactWidget | null>(widget);
   // A new widget starts on the owner's only dealership (the server does the same).
   const baseline = useMemo(
-    () => (saved ? formFromWidget(saved) : { ...emptyForm, propertyId: teamOptions.length === 1 ? teamOptions[0].id : null }),
-    [saved, teamOptions],
+    () => (saved ? formFromWidget(saved) : { ...emptyForm, propertyId: propertyId ?? (teamOptions.length === 1 ? teamOptions[0].id : null) }),
+    [saved, teamOptions, propertyId],
   );
   const { user } = useAuth();
   const [form, setForm] = useState<FormState>(baseline);
@@ -326,7 +330,7 @@ function WidgetBuilder({
     }
 
     setSaving(true);
-    const payload = inputFromForm(form, domains, teamOptions.length > 0);
+    const payload = inputFromForm(form, domains, propertyId != null || teamOptions.length > 0);
     const res = saved ? await widgetsAPI.update(saved.id, payload) : await widgetsAPI.create(payload);
     setSaving(false);
 
@@ -736,7 +740,12 @@ function WidgetBuilder({
               <FieldError id={id('domain-err')} message={domainError || errors.allowed_domains} />
             </div>
 
-            {teamOptions.length > 0 && (
+            {propertyId != null ? (
+              <div>
+                <p className="block text-sm font-medium text-gray-800 mb-1.5">Who handles this widget's leads</p>
+                <p className="text-sm text-gray-600">Leads go to the {propertyName || 'property'} team.</p>
+              </div>
+            ) : teamOptions.length > 0 && (
               <div>
                 <label htmlFor={id('team')} className="block text-sm font-medium text-gray-800 mb-1.5">Who handles this widget's leads</label>
                 <SelectField
@@ -858,10 +867,15 @@ function WidgetBuilder({
 export function ContactWidgetManager({
   onClose,
   onWidgetsChange,
+  propertyId,
+  propertyName,
 }: {
   onClose: () => void;
   // Called with the current list after it loads and after every create/save/delete.
   onWidgetsChange?: (widgets: ContactWidget[]) => void;
+  // Property view: list and create that property's widgets (its owner and admins manage them).
+  propertyId?: number;
+  propertyName?: string;
 }) {
   const [widgets, setWidgets] = useState<ContactWidget[] | null>(null);
   const [teamOptions, setTeamOptions] = useState<WidgetTeamOption[]>([]);
@@ -881,14 +895,14 @@ export function ContactWidgetManager({
   const load = useCallback(async () => {
     setLoadError('');
     setWidgets(null);
-    const res = await widgetsAPI.listWithTeams();
+    const res = await widgetsAPI.listWithTeams({ propertyId });
     if (!res.ok || !res.data) {
       setLoadError(res.error || 'Could not load your widgets.');
       return;
     }
     setTeamOptions(res.data.teamOptions);
     setWidgets(res.data.widgets);
-  }, []);
+  }, [propertyId]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -1062,6 +1076,8 @@ export function ContactWidgetManager({
             onDirtyChange={setDirty}
             onOpenGuide={openInstall}
             teamOptions={teamOptions}
+            propertyId={propertyId}
+            propertyName={propertyName}
           />
         ) : (
           <div className="flex-1 min-h-0 overflow-y-auto px-6 pb-6">
@@ -1129,6 +1145,9 @@ export function ContactWidgetManager({
                         )}
                       </p>
                       <InstallStatusLine widget={w} />
+                      {!propertyId && w.property?.name && (
+                        <p className="text-xs text-gray-400 mt-0.5">{w.property.name} team</p>
+                      )}
                     </div>
                     <div className="text-sm text-gray-600 w-24 flex-shrink-0">
                       {w.leads_count ?? 0} {w.leads_count === 1 ? 'lead' : 'leads'}

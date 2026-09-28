@@ -13,6 +13,7 @@ import type { ActiveConnector } from '../components/connectors/ActiveConnectorsL
 import { AddConnectorModal } from '../components/connectors/AddConnectorModal';
 import { useIsStarterPlan } from '../hooks/usePlan';
 import { requestUpgrade } from '../utils/planEvents';
+import { useProperty } from '../contexts/PropertyContext';
 
 const shopifyOAuthSteps = [
   'Enter your Shopify store domain below',
@@ -603,6 +604,11 @@ export default function MarketplacePage() {
   // Until all three status checks settle we can't tell whether to show the catalog or the active list.
   const [loaded, setLoaded] = useState(false);
 
+  // Property view (Chris, 2026-09-28): only the property's Contact Us widget is offered there.
+  const { viewType, currentProperty } = useProperty();
+  const propertyId = viewType === 'property' && currentProperty ? currentProperty.id : null;
+  const [propertyError, setPropertyError] = useState('');
+
   useEffect(() => {
     // Handle OAuth callback result from URL params
     const params = new URLSearchParams(window.location.search);
@@ -639,6 +645,17 @@ export default function MarketplacePage() {
       window.history.replaceState({}, '', url.toString());
     }
 
+    if (propertyId) {
+      widgetsAPI.list({ propertyId })
+        .then(res => {
+          if (res.ok && Array.isArray(res.data)) setContactWidgets(res.data);
+          else setPropertyError(res.error || "Only the property's owner and admins can manage its widgets.");
+        })
+        .catch(() => {})
+        .finally(() => setLoaded(true));
+      return;
+    }
+
     const docusign = dashboardAPI.docuSignGetStatus()
       .then(res => {
         if (res.success && res.data) {
@@ -665,7 +682,7 @@ export default function MarketplacePage() {
       .catch(() => {});
 
     Promise.all([docusign, shopify, widgets]).then(() => setLoaded(true));
-  }, []);
+  }, [propertyId]);
 
   const activeConnectors = useMemo<ActiveConnector[]>(() => {
     const items: ActiveConnector[] = [];
@@ -698,9 +715,13 @@ export default function MarketplacePage() {
     return items;
   }, [shopifyConnected, shopifyShopDomain, shopifyConnectedAt, docusignConnected, docusignConnectedAt, contactWidgets]);
 
+  const offered = useMemo(
+    () => (propertyId ? OFFERED_CONNECTORS.filter((c) => c.id === 'contact-widget') : OFFERED_CONNECTORS),
+    [propertyId],
+  );
   const available = useMemo(
-    () => OFFERED_CONNECTORS.filter((c) => !activeConnectors.some((a) => a.connector.id === c.id)),
-    [activeConnectors],
+    () => offered.filter((c) => !activeConnectors.some((a) => a.connector.id === c.id)),
+    [offered, activeConnectors],
   );
 
   // Keep the sidebar's Connectors badge in step with what this page shows.
@@ -743,6 +764,8 @@ export default function MarketplacePage() {
         <div className="space-y-3" role="status" aria-label="Loading connectors">
           {[0, 1].map((i) => <div key={i} className="h-20 rounded-2xl bg-gray-100 animate-pulse" />)}
         </div>
+      ) : propertyError ? (
+        <p className="text-base text-gray-600">{propertyError}</p>
       ) : hasActive ? (
         <section aria-labelledby="your-connectors-heading">
           <h2 id="your-connectors-heading" className="text-lg font-bold text-gray-900 mb-4">Your connectors</h2>
@@ -750,7 +773,7 @@ export default function MarketplacePage() {
         </section>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-          {OFFERED_CONNECTORS.map((connector) => (
+          {offered.map((connector) => (
             <ConnectorCard key={connector.id} connector={connector} onSelect={() => openConnector(connector.id)} />
           ))}
         </div>
@@ -795,7 +818,12 @@ export default function MarketplacePage() {
 
       {/* Contact Us Widget manager */}
       {activeModal === 'contact-widget' && (
-        <ContactWidgetManager onClose={closeModal} onWidgetsChange={setContactWidgets} />
+        <ContactWidgetManager
+          onClose={closeModal}
+          onWidgetsChange={setContactWidgets}
+          propertyId={propertyId ?? undefined}
+          propertyName={currentProperty?.name}
+        />
       )}
 
       {/* AutoTrader Connect Modal */}
