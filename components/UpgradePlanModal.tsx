@@ -5,7 +5,7 @@ import { Elements } from '@stripe/react-stripe-js';
 import PaymentMethodModal from './PaymentMethodModal';
 import StripePaymentForm from './StripePaymentForm';
 import { stripeApi } from '../utils/stripeApi';
-import { announcePlanChange } from '../hooks/usePlan';
+import { announcePlanChange } from '../utils/planEvents';
 import { toast } from 'sonner';
 
 // Initialize Stripe

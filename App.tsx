@@ -41,7 +41,7 @@ import { CollaboratorInviteModal } from './components/CollaboratorInviteModal';
 import { isCorrectCollaborator } from './utils/inviteUtils';
 import { useMemoryLimit } from './hooks/useMemoryLimit';
 import { usePresenceHeartbeat } from './hooks/usePresenceHeartbeat';
-import { useIsStarterPlan } from './hooks/usePlan';
+import { UPGRADE_REQUIRED_EVENT } from './utils/planEvents';
 import { memoryCountsManager } from './hooks/useMemoryCounts';
 import ErrorBoundary from './components/ErrorBoundary';
 import { Toaster, toast } from 'sonner';
@@ -1110,16 +1110,19 @@ function MainApp() {
     toggleSubSidebarExpansion,
   } = useAppNavigation();
 
-  // Connectors are paid-plan only (Chris, 2026-09-28). The Sidebar hides them on the free plan;
-  // reaching /marketplace anyway (old link, bookmark) opens Billing with the plan picker, the
-  // same "upgrade to unlock" hand-off the limit banners use.
-  const { isStarter: isStarterPlan, known: planKnown } = useIsStarterPlan();
+  // Paid-plan-only features (Connectors) stay visible on the free plan; using one opens the
+  // upgrade plans right where the user is (Chris, 2026-09-28). Asked for by the Connectors page
+  // and by apiRequest whenever the API answers 403 plan_required.
+  const [planUpgradeOpen, setPlanUpgradeOpen] = useState(false);
   useEffect(() => {
-    if (currentPage !== 'marketplace' || !planKnown || !isStarterPlan) return;
-    toast('Connectors are available on the Teams and Business plans.');
-    sessionStorage.setItem('billing_open_upgrade', 'true');
-    handleNavigation('billing');
-  }, [currentPage, planKnown, isStarterPlan, handleNavigation]);
+    const onUpgradeRequired = (e: Event) => {
+      const message = (e as CustomEvent<{ message?: string }>).detail?.message;
+      toast(message || 'Connectors are available on the Teams and Business plans.', { id: 'plan-required' });
+      setPlanUpgradeOpen(true);
+    };
+    window.addEventListener(UPGRADE_REQUIRED_EVENT, onUpgradeRequired);
+    return () => window.removeEventListener(UPGRADE_REQUIRED_EVENT, onUpgradeRequired);
+  }, []);
 
   // Deep-link target for opening a "My Conversations" thread from a
   // lead_message notification. Consumed (and cleared) by LeadsPage.
@@ -4053,7 +4056,7 @@ function MainApp() {
     }
 
     if (currentPage === "marketplace") {
-      return planKnown && !isStarterPlan ? <MarketplacePage /> : null;
+      return <MarketplacePage />;
     }
 
     if (currentPage === "csv-upload") {
@@ -4713,6 +4716,17 @@ function MainApp() {
           localStorage.removeItem('is_new_user');
           window.dispatchEvent(new Event('is_new_user_removed'));
           setShowNewUserUpgradeModal(false);
+          checkLimit();
+        }}
+      />
+
+      {/* Upgrade plans for a paid-plan-only feature used on the free plan (see UPGRADE_REQUIRED_EVENT) */}
+      <UpgradePlanModal
+        isOpen={planUpgradeOpen}
+        onClose={() => setPlanUpgradeOpen(false)}
+        currentPlan="starter"
+        onSuccess={() => {
+          setPlanUpgradeOpen(false);
           checkLimit();
         }}
       />

@@ -4,6 +4,7 @@ import { X, Upload, Calendar, MapPin, Tag, Users, Plus, Camera, Image as ImageIc
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import CountrySelect from './CountrySelect';
+import { useIsStarterPlan } from '../hooks/usePlan';
 import GooglePlacesInput from './ui/google-places-input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import * as Popover from '@radix-ui/react-popover';
@@ -236,6 +237,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
   // Choosing it turns the "existing campaigns" picker into a list of the store's
   // Shopify collections (from shopifyGetCatalog), all pre-selected.
   const [shopifyConnected, setShopifyConnected] = useState(false);
+  const { isStarter: isStarterPlan } = useIsStarterPlan();
   const [shopifyCollections, setShopifyCollections] = useState<any[]>([]);
   const [shopifyCollectionsLoading, setShopifyCollectionsLoading] = useState(false);
   const wasShopifyCategoryRef = useRef(false);
@@ -512,11 +514,12 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
     (async () => {
       try {
         const res = await dashboardAPI.shopifyGetStatus();
-        if (!cancelled) setShopifyConnected(res?.data?.connected === true);
+        // Shopify is switched off on the free plan (e.g. after a downgrade).
+        if (!cancelled) setShopifyConnected(res?.data?.connected === true && !isStarterPlan);
       } catch { if (!cancelled) setShopifyConnected(false); }
     })();
     return () => { cancelled = true; };
-  }, [open]);
+  }, [open, isStarterPlan]);
 
   // Detect whether the Cars catalog has any listings, to gate the Cars option.
   useEffect(() => {

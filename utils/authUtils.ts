@@ -1,3 +1,5 @@
+import { requestUpgrade } from './planEvents';
+
 // Auth utility functions for API integration
 
 // Dev-only logging. Silenced in production builds so the app ships without the
@@ -512,6 +514,18 @@ const performApiRequest = async <T = any>(
           message: data?.message,
           rateLimited: true,
           statusCode: RATE_LIMIT_STATUS,
+        } as ApiResponse<T>;
+      }
+
+      // Paid-plan-only features (Connectors) answer 403 plan_required on the free plan: open the
+      // upgrade plans wherever the user is (App listens), and hand the caller a plain error.
+      if (response.status === 403 && data?.code === 'plan_required') {
+        requestUpgrade(data.message);
+        return {
+          success: false,
+          error: data.message || 'Upgrade your plan to use this.',
+          message: data.message,
+          statusCode: 403,
         } as ApiResponse<T>;
       }
 
@@ -4874,6 +4888,7 @@ export const dashboardAPI = {
       });
       const data = await response.json();
       if (!response.ok) {
+        if (response.status === 403 && data?.code === 'plan_required') requestUpgrade(data.message);
         return { success: false, error: data.message || `HTTP ${response.status}` };
       }
       return { success: true, data };

@@ -3,6 +3,7 @@ import { Folder, FolderOpen, ChevronRight, ChevronDown, ShoppingBag, Loader2, Pa
 import { ImageWithFallback } from "./figma/ImageWithFallback";
 import ImageHoverPopover from "./ImageHoverPopover";
 import { dashboardAPI } from "../utils/authUtils";
+import { useIsStarterPlan } from "../hooks/usePlan";
 import { SHOPIFY_COLOR } from "../utils/categoryColorManager";
 
 // A single product as returned by GET /shopify/catalog. We only read the fields we render.
@@ -177,6 +178,7 @@ export default function ShopifyCatalogNav({
   onCollectionSelect?: (collectionId: string) => void;
 } = {}) {
   const [connected, setConnected] = useState<boolean | null>(null); // null = still checking
+  const { isStarter } = useIsStarterPlan();
   const [loading, setLoading] = useState(false);
   const [collections, setCollections] = useState<CatalogCollection[]>([]);
   const [boxExpanded, setBoxExpanded] = useState(false);
@@ -186,7 +188,8 @@ export default function ShopifyCatalogNav({
     (async () => {
       try {
         const status = await dashboardAPI.shopifyGetStatus();
-        const isConnected = !!(status.success && status.data?.connected);
+        // Shopify is switched off on the free plan (e.g. after a downgrade): show it as not connected.
+        const isConnected = !!(status.success && status.data?.connected) && !isStarter;
         if (cancelled) return;
         setConnected(isConnected);
         if (!isConnected) return;
@@ -206,7 +209,7 @@ export default function ShopifyCatalogNav({
       }
     })();
     return () => { cancelled = true; };
-  }, []);
+  }, [isStarter]);
 
   // Requirement: box appears only when Shopify is connected.
   if (connected !== true) return null;
