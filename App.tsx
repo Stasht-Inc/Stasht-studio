@@ -3657,7 +3657,7 @@ function MainApp() {
       setApiMemoriesData(null);
       setHasApiData(false);
 
-      if (viewType === 'property' && currentPage !== 'memories' && currentPage !== 'media') {
+      if (viewType === 'property' && currentPage !== 'memories' && currentPage !== 'media' && currentPage !== 'marketplace') {
         handleNavigation('memories');
       }
 
