@@ -67,7 +67,7 @@ export function clampPosition(value) {
  */
 export const ROOT_PAD = { top: 12, x: 16, bottom: 24 };
 
-const PANEL_MAX_W = 380;
+const PANEL_MAX_W = 420; // Chris, 2026-09-28: "make chatbox and text slightly bigger" (was 380)
 
 /** Panel width that fits the host page's viewport (passed in by the loader as ?vw=). */
 export function panelWidth(viewportWidth) {
