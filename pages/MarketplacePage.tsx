@@ -645,7 +645,18 @@ export default function MarketplacePage() {
       window.history.replaceState({}, '', url.toString());
     }
 
+    // The page can stay mounted across a personal ↔ property switch: start each load clean.
+    setLoaded(false);
+    setPropertyError('');
+
     if (propertyId) {
+      // DocuSign and Shopify are personal-account connectors; never show them in property view.
+      setDocusignConnected(false);
+      setDocusignConnectedAt(null);
+      setShopifyConnected(false);
+      setShopifyShopDomain(null);
+      setShopifyConnectedAt(null);
+
       widgetsAPI.list({ propertyId })
         .then(res => {
           if (res.ok && Array.isArray(res.data)) setContactWidgets(res.data);
