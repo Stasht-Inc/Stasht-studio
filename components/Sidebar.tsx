@@ -12,6 +12,7 @@ import { widgetsAPI } from "../services/widgetsAPI";
 import { CONNECTORS_COUNT_EVENT } from "./connectors/catalog";
 import { useAuth } from "../contexts/AuthContext";
 import { useMemoryCounts } from "../hooks/useMemoryCounts";
+import { useIsStarterPlan } from "../hooks/usePlan";
 import { MemoryLimitDialog } from "./MemoryLimitDialog";
 import { useUploadProgress } from "../contexts/UploadProgressContext";
 import { useSyncProgress } from "../contexts/SyncProgressContext";
@@ -262,6 +263,7 @@ export default function Sidebar({
   onShowAiResults?: (memoryId: string) => void;
 }) {
   const { isAuthenticated, user } = useAuth();
+  const { isStarter: isStarterPlan } = useIsStarterPlan();
   const { viewType, currentProperty } = useProperty();
   const { isLimitExceeded, limitData, checkLimit } = useMemoryLimit();
   const { memoryCounts, refreshMemoryCounts } = useMemoryCounts();
@@ -303,7 +305,7 @@ export default function Sidebar({
   // (PERFORMANCE_OPTIMIZATION_PLAN.md #4). The Connectors page also broadcasts its own count
   // whenever something is connected, disconnected, created or deleted there.
   useEffect(() => {
-    if (!isAuthenticated) return;
+    if (!isAuthenticated || isStarterPlan) return;
     let cancelled = false;
     const cancelIdle = runWhenIdle(() => {
       Promise.all([
@@ -324,7 +326,7 @@ export default function Sidebar({
       cancelIdle();
       window.removeEventListener(CONNECTORS_COUNT_EVENT, onCount);
     };
-  }, [isAuthenticated]);
+  }, [isAuthenticated, isStarterPlan]);
 
   const fetchLeadsUnreadCount = () => {
     if (!isAuthenticated) return;
@@ -516,12 +518,15 @@ export default function Sidebar({
         });
       }
 
-      items.push({
-        id: 'marketplace',
-        label: 'Connectors',
-        icon: <Plug className="w-5 h-5" />,
-        count: connectorsCount,
-      });
+      // Connectors are paid-plan only (Chris, 2026-09-28); the API refuses free accounts too.
+      if (!isStarterPlan) {
+        items.push({
+          id: 'marketplace',
+          label: 'Connectors',
+          icon: <Plug className="w-5 h-5" />,
+          count: connectorsCount,
+        });
+      }
     }
 
     return items;
