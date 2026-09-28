@@ -646,8 +646,10 @@ export default function MarketplacePage() {
     }
 
     // The page can stay mounted across a personal ↔ property switch: start each load clean.
+    let cancelled = false;
     setLoaded(false);
     setPropertyError('');
+    setContactWidgets([]);
 
     if (propertyId) {
       // DocuSign and Shopify are personal-account connectors; never show them in property view.
@@ -659,16 +661,18 @@ export default function MarketplacePage() {
 
       widgetsAPI.list({ propertyId })
         .then(res => {
+          if (cancelled) return;
           if (res.ok && Array.isArray(res.data)) setContactWidgets(res.data);
           else setPropertyError(res.error || "Only the property's owner and admins can manage its widgets.");
         })
         .catch(() => {})
-        .finally(() => setLoaded(true));
-      return;
+        .finally(() => { if (!cancelled) setLoaded(true); });
+      return () => { cancelled = true; };
     }
 
     const docusign = dashboardAPI.docuSignGetStatus()
       .then(res => {
+        if (cancelled) return;
         if (res.success && res.data) {
           setDocusignConnected(res.data.connected);
           setDocusignConnectedAt(res.data.connected_at || null);
@@ -678,6 +682,7 @@ export default function MarketplacePage() {
 
     const shopify = dashboardAPI.shopifyGetStatus()
       .then(res => {
+        if (cancelled) return;
         if (res.success && res.data) {
           setShopifyConnected(res.data.connected);
           setShopifyShopDomain(res.data.shop_domain || null);
@@ -688,11 +693,13 @@ export default function MarketplacePage() {
 
     const widgets = widgetsAPI.list()
       .then(res => {
+        if (cancelled) return;
         if (res.ok && Array.isArray(res.data)) setContactWidgets(res.data);
       })
       .catch(() => {});
 
-    Promise.all([docusign, shopify, widgets]).then(() => setLoaded(true));
+    Promise.all([docusign, shopify, widgets]).then(() => { if (!cancelled) setLoaded(true); });
+    return () => { cancelled = true; };
   }, [propertyId]);
 
   const activeConnectors = useMemo<ActiveConnector[]>(() => {

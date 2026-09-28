@@ -897,7 +897,7 @@ export function ContactWidgetManager({
     setWidgets(null);
     const res = await widgetsAPI.listWithTeams({ propertyId });
     if (!res.ok || !res.data) {
-      setLoadError(res.error || 'Could not load your widgets.');
+      setLoadError(res.error || (propertyId != null ? 'Could not load the widgets.' : 'Could not load your widgets.'));
       return;
     }
     setTeamOptions(res.data.teamOptions);
@@ -1082,7 +1082,9 @@ export function ContactWidgetManager({
         ) : (
           <div className="flex-1 min-h-0 overflow-y-auto px-6 pb-6">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-base font-bold text-gray-900">Your widgets</h3>
+              <h3 className="text-base font-bold text-gray-900">
+                {propertyId != null ? `${propertyName || 'Property'} widgets` : 'Your widgets'}
+              </h3>
               <button
                 type="button"
                 onClick={() => openBuilder(null)}

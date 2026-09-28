@@ -1,12 +1,18 @@
+import { isPartialAdmin } from './authUtils';
+
 /**
  * Whether the signed-in user can manage the current property's Contact Us widgets: its creator,
  * owner or admins (Chris, 2026-09-28). The API checks the same thing, so this only decides what
  * Studio shows. The user_id check covers property selections stored before user_role was kept.
+ * Partial admins always come back false: they hold the owner's login token (the API can't tell
+ * them apart from the owner), so owner-only tools stay hidden from them here, same as personal view.
  */
 export function canManagePropertyWidgets(
   property: { user_role?: string; is_creator?: boolean; user_id?: number } | null,
   user: unknown,
 ): boolean {
+  // Partial admins hold the owner's token; owner-only tools stay hidden from them, as in personal view.
+  if (isPartialAdmin()) return false;
   if (!property) return false;
   if (property.is_creator) return true;
   if (property.user_role === 'owner' || property.user_role === 'admin') return true;
