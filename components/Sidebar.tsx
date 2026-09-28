@@ -8,6 +8,7 @@ import { useMemoryLimit } from "../hooks/useMemoryLimit";
 import { dashboardAPI, isPartialAdmin, apiRequest } from "../utils/authUtils";
 import { leadsAPI } from '../services/leadsAPI';
 import { runWhenIdle } from "../utils/deferIdle";
+import { canManagePropertyWidgets } from "../utils/propertyAccess";
 import { widgetsAPI } from "../services/widgetsAPI";
 import { CONNECTORS_COUNT_EVENT } from "./connectors/catalog";
 import { useAuth } from "../contexts/AuthContext";
@@ -306,13 +307,17 @@ export default function Sidebar({
     if (!isAuthenticated) return;
     let cancelled = false;
     const cancelIdle = runWhenIdle(() => {
-      Promise.all([
-        dashboardAPI.docuSignGetStatus().then(r => (r?.success && r.data?.connected ? 1 : 0)).catch(() => 0),
-        dashboardAPI.shopifyGetStatus().then(r => (r?.success && r.data?.connected ? 1 : 0)).catch(() => 0),
-        widgetsAPI.list().then(r => (r.ok && Array.isArray(r.data) && r.data.length > 0 ? 1 : 0)).catch(() => 0),
-      ]).then(([docusign, shopify, contactWidget]) => {
-        if (!cancelled) setConnectorsCount(docusign + shopify + contactWidget);
-      });
+      // Property view: the only connector there is the property's Contact Us widget.
+      const counts = viewType === 'property' && currentProperty
+        ? (canManagePropertyWidgets(currentProperty, user)
+            ? widgetsAPI.list({ propertyId: currentProperty.id }).then(r => (r.ok && Array.isArray(r.data) && r.data.length > 0 ? 1 : 0)).catch(() => 0)
+            : Promise.resolve(0))
+        : Promise.all([
+            dashboardAPI.docuSignGetStatus().then(r => (r?.success && r.data?.connected ? 1 : 0)).catch(() => 0),
+            dashboardAPI.shopifyGetStatus().then(r => (r?.success && r.data?.connected ? 1 : 0)).catch(() => 0),
+            widgetsAPI.list().then(r => (r.ok && Array.isArray(r.data) && r.data.length > 0 ? 1 : 0)).catch(() => 0),
+          ]).then(([docusign, shopify, contactWidget]) => docusign + shopify + contactWidget);
+      counts.then((n) => { if (!cancelled) setConnectorsCount(n); });
     });
     const onCount = (e: Event) => {
       const count = (e as CustomEvent<{ count?: number }>).detail?.count;
@@ -324,7 +329,7 @@ export default function Sidebar({
       cancelIdle();
       window.removeEventListener(CONNECTORS_COUNT_EVENT, onCount);
     };
-  }, [isAuthenticated]);
+  }, [isAuthenticated, viewType, currentProperty?.id, (user as any)?.external_user_id]);
 
   const fetchLeadsUnreadCount = () => {
     if (!isAuthenticated) return;
@@ -434,7 +439,8 @@ export default function Sidebar({
   const getNavigationItems = () => {
     const items = [];
 
-    // If viewing a property account, only show Memories and Media
+    // If viewing a property account: Campaigns and Media, plus Connectors (Contact Us widget
+    // only) for the property's owner and admins (Chris, 2026-09-28).
     if (viewType === 'property') {
       items.push(
         {
@@ -450,6 +456,14 @@ export default function Sidebar({
           count: memoryCounts?.total_memory_images || 0
         }
       );
+      if (canManagePropertyWidgets(currentProperty, user)) {
+        items.push({
+          id: 'marketplace',
+          label: 'Connectors',
+          icon: <Plug className="w-5 h-5" />,
+          count: connectorsCount,
+        });
+      }
       return items;
     }
 

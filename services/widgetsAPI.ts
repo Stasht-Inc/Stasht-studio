@@ -46,6 +46,8 @@ export interface ContactWidget {
   form_fields?: FormFieldSettings; // absent from older API builds -> the original form
   // The dealership whose team takes over this widget's leads; null = the owner alone.
   property_id?: number | null;
+  // The property a widget belongs to (its owner and admins can manage it); null = personal.
+  property?: { id: number; name: string } | null;
 }
 
 // A dealership a widget's leads can go to (GET /widgets team_options).
@@ -115,15 +117,19 @@ async function run<T>(request: Promise<ApiResponse<any>>): Promise<WidgetResult<
   }
 }
 
+const listPath = (propertyId?: number | null) =>
+  propertyId ? `/widgets?property_id=${encodeURIComponent(String(propertyId))}` : '/widgets';
+
 export const widgetsAPI = {
   // A list must never be stale right after create/delete, so it bypasses apiRequest's short
-  // GET cache (writes also clear that cache).
-  list: () => run<ContactWidget[]>(apiRequest('/widgets', { method: 'GET', skipCache: true } as RequestInit)),
+  // GET cache (writes also clear that cache). propertyId = property view: that property's widgets.
+  list: (opts?: { propertyId?: number | null }) =>
+    run<ContactWidget[]>(apiRequest(listPath(opts?.propertyId), { method: 'GET', skipCache: true } as RequestInit)),
 
   // The list plus the dealerships a widget can route leads to (the builder's Team picker).
-  listWithTeams: async (): Promise<WidgetResult<{ widgets: ContactWidget[]; teamOptions: WidgetTeamOption[] }>> => {
+  listWithTeams: async (opts?: { propertyId?: number | null }): Promise<WidgetResult<{ widgets: ContactWidget[]; teamOptions: WidgetTeamOption[] }>> => {
     try {
-      const res = await apiRequest<any>('/widgets', { method: 'GET', skipCache: true } as RequestInit);
+      const res = await apiRequest<any>(listPath(opts?.propertyId), { method: 'GET', skipCache: true } as RequestInit);
       if (!res.success) {
         return { ok: false, error: res.error || res.message || 'Request failed. Please try again.', fieldErrors: {} };
       }

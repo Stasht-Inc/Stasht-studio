@@ -811,7 +811,9 @@ export default function UsersPage({ onNavigate, onViewStoreelReport }: UsersPage
       username: property.username,
       unique_id: property.code,
       image: property.image,
-      location: property.location
+      location: property.location,
+      user_role: property.userRole,
+      is_creator: property.isCreator,
     };
 
     // Store property data in localStorage for persistence across page navigation

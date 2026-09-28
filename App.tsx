@@ -42,6 +42,7 @@ import { isCorrectCollaborator } from './utils/inviteUtils';
 import { useMemoryLimit } from './hooks/useMemoryLimit';
 import { usePresenceHeartbeat } from './hooks/usePresenceHeartbeat';
 import { UPGRADE_REQUIRED_EVENT } from './utils/planEvents';
+import { canManagePropertyWidgets } from './utils/propertyAccess';
 import { memoryCountsManager } from './hooks/useMemoryCounts';
 import ErrorBoundary from './components/ErrorBoundary';
 import { Toaster, toast } from 'sonner';
@@ -3657,7 +3658,12 @@ function MainApp() {
       setApiMemoriesData(null);
       setHasApiData(false);
 
-      if (viewType === 'property' && currentPage !== 'memories' && currentPage !== 'media') {
+      if (
+        viewType === 'property' &&
+        currentPage !== 'memories' &&
+        currentPage !== 'media' &&
+        !(currentPage === 'marketplace' && canManagePropertyWidgets(currentProperty, user))
+      ) {
         handleNavigation('memories');
       }
 
