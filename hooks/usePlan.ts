@@ -1,11 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { dashboardAPI } from '../utils/authUtils';
-
-/** Fired after the plan changes (UpgradePlanModal) so plan-gated UI re-checks. */
-export const PLAN_CHANGED_EVENT = 'stasht-plan-changed';
-
-export const announcePlanChange = () => window.dispatchEvent(new Event(PLAN_CHANGED_EVENT));
+import { PLAN_CHANGED_EVENT } from '../utils/planEvents';
 
 /** Starter, or no plan at all, is the free plan. Same rule as the API's RequirePaidPlan. */
 export const isStarterPlanName = (name?: string | null) => (name || 'starter').toLowerCase().includes('starter');

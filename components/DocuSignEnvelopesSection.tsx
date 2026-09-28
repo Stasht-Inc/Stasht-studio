@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { useIsStarterPlan } from '../hooks/usePlan';
 import { FileText, Download, ChevronDown, ChevronUp, RefreshCw, Clock, CheckCircle2, XCircle, Eye, Send } from 'lucide-react';
 import { dashboardAPI } from '../utils/authUtils';
 
@@ -26,6 +27,7 @@ const STATUS_CONFIG: Record<string, { label: string; color: string; icon: React.
 };
 
 export function DocuSignEnvelopesSection({ memoryId }: Props) {
+  const { isStarter } = useIsStarterPlan();
   const [envelopes, setEnvelopes] = useState<Envelope[]>([]);
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState(true);
@@ -46,13 +48,20 @@ export function DocuSignEnvelopesSection({ memoryId }: Props) {
   };
 
   useEffect(() => {
+    // DocuSign is a paid-plan connector: on the free plan it's switched off, so don't ask (the
+    // API would answer plan_required and pop the upgrade plans on every campaign you open).
+    if (isStarter) {
+      setEnvelopes([]);
+      setLoading(false);
+      return;
+    }
     fetchEnvelopes();
     // Poll every 30 seconds for status updates
     intervalRef.current = setInterval(() => fetchEnvelopes(true), 30000);
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
     };
-  }, [memoryId]);
+  }, [memoryId, isStarter]);
 
   const pendingEnvelopes = envelopes.filter(e => e.status !== 'completed' && e.status !== 'signed');
 

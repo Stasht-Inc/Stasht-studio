@@ -11,6 +11,8 @@ import { ConnectorCard } from '../components/connectors/ConnectorCard';
 import { ActiveConnectorsList } from '../components/connectors/ActiveConnectorsList';
 import type { ActiveConnector } from '../components/connectors/ActiveConnectorsList';
 import { AddConnectorModal } from '../components/connectors/AddConnectorModal';
+import { useIsStarterPlan } from '../hooks/usePlan';
+import { requestUpgrade } from '../utils/planEvents';
 
 const shopifyOAuthSteps = [
   'Enter your Shopify store domain below',
@@ -710,6 +712,14 @@ export default function MarketplacePage() {
   const closeModal = useCallback(() => setActiveModal(null), []);
   const hasActive = activeConnectors.length > 0;
 
+  // Connectors are shown on every plan, but on the free (Starter) plan using one opens the
+  // upgrade plans instead (Chris, 2026-09-28). The API refuses free accounts as well.
+  const { isStarter } = useIsStarterPlan();
+  const openConnector = useCallback((id: ConnectorId | 'add') => {
+    if (isStarter) requestUpgrade();
+    else setActiveModal(id);
+  }, [isStarter]);
+
   return (
     <div className="p-6 sm:p-10 max-w-7xl">
       {/* Header */}
@@ -721,7 +731,7 @@ export default function MarketplacePage() {
         {loaded && hasActive && available.length > 0 && (
           <button
             type="button"
-            onClick={() => setActiveModal('add')}
+            onClick={() => openConnector('add')}
             className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#6C60FF] hover:bg-[#5A4FFF] text-white text-base font-semibold transition-colors"
           >
             <Plus className="w-5 h-5" /> Add connector
@@ -736,12 +746,12 @@ export default function MarketplacePage() {
       ) : hasActive ? (
         <section aria-labelledby="your-connectors-heading">
           <h2 id="your-connectors-heading" className="text-lg font-bold text-gray-900 mb-4">Your connectors</h2>
-          <ActiveConnectorsList items={activeConnectors} onManage={setActiveModal} />
+          <ActiveConnectorsList items={activeConnectors} onManage={openConnector} disabled={isStarter} />
         </section>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
           {OFFERED_CONNECTORS.map((connector) => (
-            <ConnectorCard key={connector.id} connector={connector} onSelect={() => setActiveModal(connector.id)} />
+            <ConnectorCard key={connector.id} connector={connector} onSelect={() => openConnector(connector.id)} />
           ))}
         </div>
       )}
