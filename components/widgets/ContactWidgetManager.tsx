@@ -500,6 +500,7 @@ function WidgetBuilder({
                     value={form.agentName}
                     maxLength={AGENT_MAX}
                     onChange={(e) => set('agentName', e.target.value)}
+                    onFocus={() => setPreviewMode('open')}
                     placeholder="Sarah"
                     aria-invalid={!!errors.agent_name}
                     aria-describedby={errors.agent_name ? id('agent-err') : id('avatar-help')}
@@ -538,6 +539,7 @@ function WidgetBuilder({
                   value={form.calloutText}
                   maxLength={CALLOUT_MAX}
                   onChange={(e) => set('calloutText', e.target.value)}
+                  onFocus={() => setPreviewMode('closed')}
                   placeholder={DEFAULT_CALLOUT}
                   aria-invalid={!!errors.callout_text}
                   aria-describedby={errors.callout_text ? id('callout-err') : id('callout-count')}
@@ -559,6 +561,7 @@ function WidgetBuilder({
                 maxLength={WELCOME_MAX}
                 rows={4}
                 onChange={(e) => set('welcomeSubtext', e.target.value)}
+                onFocus={() => setPreviewMode('open')}
                 placeholder={DEFAULT_WELCOME}
                 aria-invalid={!!errors.welcome_subtext}
                 aria-describedby={errors.welcome_subtext ? id('welcome-err') : id('welcome-count')}
@@ -570,7 +573,7 @@ function WidgetBuilder({
               <FieldError id={id('welcome-err')} message={errors.welcome_subtext} />
             </div>
 
-            <fieldset>
+            <fieldset onFocus={() => setPreviewMode('open')}>
               <legend className="block text-sm font-medium text-gray-800 mb-1">Form fields</legend>
               <p className="text-xs text-gray-400 mb-2">
                 Choose what visitors fill in and rename any label. Mobile number or Email must be required so you can always reply.
