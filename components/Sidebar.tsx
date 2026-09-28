@@ -329,7 +329,7 @@ export default function Sidebar({
       cancelIdle();
       window.removeEventListener(CONNECTORS_COUNT_EVENT, onCount);
     };
-  }, [isAuthenticated, viewType, currentProperty?.id]);
+  }, [isAuthenticated, viewType, currentProperty?.id, (user as any)?.external_user_id]);
 
   const fetchLeadsUnreadCount = () => {
     if (!isAuthenticated) return;
