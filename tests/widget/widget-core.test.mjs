@@ -58,9 +58,9 @@ test('clampPosition defaults to bottom-right', () => {
 });
 
 test('panel plus its shadow padding fits inside the loader-capped iframe (vw - 32 wide)', () => {
-  assert.equal(panelWidth(undefined), 380);
-  assert.equal(panelWidth(0), 380);
-  assert.equal(panelWidth(1440), 380);
+  assert.equal(panelWidth(undefined), 420);
+  assert.equal(panelWidth(0), 420);
+  assert.equal(panelWidth(1440), 420);
   assert.equal(panelWidth(400), 336);
   assert.equal(panelWidth(320), 256);
   assert.equal(panelWidth(250), 240);
