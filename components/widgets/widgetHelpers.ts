@@ -2,7 +2,7 @@
 // contrastInk/safeColor/safeHttpsUrl are duplicated from public/widget-core.js on purpose:
 // the embed page ships as plain static JS and is not importable from the app bundle. Keep in sync.
 
-import type { FormFieldKey, FormFieldSetting, FormFieldSettings } from '../../services/widgetsAPI';
+import type { BusinessHours, FormFieldKey, FormFieldSetting, FormFieldSettings, WeekdayKey } from '../../services/widgetsAPI';
 
 // Mirrors public/widget-core.js (Chris's ContactWidget design).
 export const DEFAULT_BRAND = '#6C60FF';
@@ -174,4 +174,91 @@ export async function squareAvatarDataUrl(file: File, size = 256): Promise<strin
   bitmap.close?.();
   // PNG keeps transparency; everything else becomes a small JPEG.
   return file.type === 'image/png' ? canvas.toDataURL('image/png') : canvas.toDataURL('image/jpeg', 0.9);
+}
+
+// --- After hours (mirrors WidgetBusinessHours.php; spec 2026-09-29 part 2 §2) -----------------
+
+export const DAY_KEYS: WeekdayKey[] = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+export const DAY_NAMES: Record<WeekdayKey, string> = {
+  mon: 'Monday', tue: 'Tuesday', wed: 'Wednesday', thu: 'Thursday', fri: 'Friday', sat: 'Saturday', sun: 'Sunday',
+};
+export const AI_NOTES_MAX = 2000;
+
+export interface DayHours {
+  open: boolean;
+  from: string; // "HH:MM"
+  to: string;
+}
+export type WeekHours = Record<WeekdayKey, DayHours>;
+
+const WEEKDAY: DayHours = { open: true, from: '09:00', to: '17:00' };
+const WEEKEND: DayHours = { open: false, from: '09:00', to: '17:00' };
+export const DEFAULT_WEEK_HOURS: WeekHours = {
+  mon: WEEKDAY, tue: WEEKDAY, wed: WEEKDAY, thu: WEEKDAY, fri: WEEKDAY, sat: WEEKEND, sun: WEEKEND,
+};
+
+/** 00:00, 00:15 … 23:45: the server accepts 15-minute steps only. */
+export const TIME_OPTIONS: string[] = Array.from({ length: 96 }, (_, i) =>
+  `${String(Math.floor(i / 4)).padStart(2, '0')}:${String((i % 4) * 15).padStart(2, '0')}`);
+
+/** "13:30" -> "1:30 PM". */
+export function timeLabel(hhmm: string): string {
+  const [h, m] = hhmm.split(':').map(Number);
+  return `${h % 12 === 0 ? 12 : h % 12}:${String(m).padStart(2, '0')} ${h < 12 ? 'AM' : 'PM'}`;
+}
+
+/** Stored hours -> the builder's rows; null when the widget has no hours set. */
+export function weekFromApi(stored: BusinessHours | null | undefined): WeekHours | null {
+  if (!stored || typeof stored !== 'object') return null;
+  const week = {} as WeekHours;
+  for (const day of DAY_KEYS) {
+    const range = stored[day];
+    week[day] = Array.isArray(range) && range.length === 2
+      ? { open: true, from: range[0], to: range[1] }
+      : { ...DEFAULT_WEEK_HOURS[day], open: false };
+  }
+  return week;
+}
+
+export function weekToApi(week: WeekHours): BusinessHours {
+  const out = {} as BusinessHours;
+  for (const day of DAY_KEYS) out[day] = week[day].open ? [week[day].from, week[day].to] : null;
+  return out;
+}
+
+/** The first open day whose closing time isn't after its opening time, as a message; else null. */
+export function weekProblem(week: WeekHours): string | null {
+  for (const day of DAY_KEYS) {
+    const d = week[day];
+    if (d.open && d.to <= d.from) return `Closing time must be after opening time on ${DAY_NAMES[day]}.`;
+  }
+  return null;
+}
+
+/** The owner's own timezone (IANA), used when business hours are first set. */
+export function browserTimeZone(): string {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || 'America/Toronto';
+  } catch {
+    return 'America/Toronto';
+  }
+}
+
+const FALLBACK_ZONES = [
+  'America/St_Johns', 'America/Halifax', 'America/Toronto', 'America/New_York', 'America/Winnipeg', 'America/Chicago',
+  'America/Regina', 'America/Edmonton', 'America/Denver', 'America/Phoenix', 'America/Vancouver', 'America/Los_Angeles',
+  'America/Anchorage', 'Pacific/Honolulu', 'Europe/London', 'Asia/Kolkata', 'UTC',
+];
+
+/** Every IANA timezone the browser knows (the current one kept), A–Z. */
+export function timeZoneOptions(current: string): string[] {
+  let zones: string[] = [];
+  try {
+    zones = (Intl as unknown as { supportedValuesOf?: (key: string) => string[] }).supportedValuesOf?.('timeZone') ?? [];
+  } catch {
+    zones = [];
+  }
+  const list = new Set(zones.length ? zones : FALLBACK_ZONES);
+  if (current) list.add(current);
+  return [...list].sort();
 }

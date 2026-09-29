@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
-import { ArrowLeft, Camera, Check, ChevronDown, Code2, Copy, Loader2, MessageSquare, Pencil, Plus, Trash2, UserRound, X } from 'lucide-react';
+import { ArrowLeft, Camera, Check, Code2, Copy, Loader2, MessageSquare, Pencil, Plus, Trash2, UserRound, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { widgetsAPI } from '../../services/widgetsAPI';
 import type {
@@ -12,10 +12,14 @@ import { WIDGET_ICON_BLUE } from '../connectors/catalog';
 import { WidgetPreview } from './WidgetPreview';
 import { InstallGuide } from './InstallGuide';
 import { InstallStatusLine } from './InstallStatus';
+import { AfterHoursSettings } from './AfterHoursSettings';
+import type { AfterHoursValue } from './AfterHoursSettings';
+import { FieldError, SelectField, errorInputClass, inputClass } from './builderFields';
 import {
   DEFAULT_BRAND, DEFAULT_CALLOUT, DEFAULT_WELCOME, DEFAULT_FORM_FIELD_SETTINGS, FORM_FIELD_KEYS, FORM_FIELD_LABEL_MAX, FORM_FIELD_NAMES, WELCOME_MAX, copyText,
   formCanReply, installSnippet, isHexColor, isPlausibleDomain, normalizeDomain, resolveFormFields, safeColor,
   safeHttpsUrl, squareAvatarDataUrl,
+  AI_NOTES_MAX, DEFAULT_WEEK_HOURS, weekFromApi, weekProblem, weekToApi,
 } from './widgetHelpers';
 
 const BRAND = '#6C60FF';
@@ -34,7 +38,7 @@ const STATUS_META: Record<WidgetStatus, { label: string; dot: string; text: stri
 // Form state <-> API
 // ---------------------------------------------------------------------------
 
-interface FormState {
+interface FormState extends AfterHoursValue {
   name: string;
   agentName: string;
   calloutText: string;
@@ -60,9 +64,15 @@ const emptyForm: FormState = {
   status: 'draft',
   formFields: resolveFormFields(null),
   propertyId: null,
+  hoursOn: false,
+  hours: DEFAULT_WEEK_HOURS,
+  timezone: '',
+  aiEnabled: false,
+  aiNotes: '',
 };
 
 function formFromWidget(w: ContactWidget): FormState {
+  const week = weekFromApi(w.business_hours);
   return {
     name: w.name || '',
     agentName: w.agent_name || '',
@@ -75,6 +85,11 @@ function formFromWidget(w: ContactWidget): FormState {
     status: w.status || 'draft',
     formFields: resolveFormFields(w.form_fields),
     propertyId: w.property_id ?? null,
+    hoursOn: week !== null,
+    hours: week ?? DEFAULT_WEEK_HOURS,
+    timezone: w.timezone || '',
+    aiEnabled: !!w.ai_enabled,
+    aiNotes: w.faq_notes || '',
   };
 }
 
@@ -94,6 +109,11 @@ function inputFromForm(f: FormState, domains: string[], withTeam: boolean): Cont
     },
     allowed_domains: domains,
     form_fields: Object.fromEntries(FORM_FIELD_KEYS.map((k) => [k, { ...f.formFields[k], label: f.formFields[k].label.trim() }])),
+    // After hours (spec 2026-09-29 part 2 §2). No hours = always open: the AI never answers.
+    business_hours: f.hoursOn ? weekToApi(f.hours) : null,
+    timezone: f.timezone || null,
+    faq_notes: f.aiNotes.trim() || null,
+    ai_enabled: f.aiEnabled,
   };
 }
 
@@ -163,24 +183,7 @@ function InstallSnippetBox({ widgetId, onOpenGuide }: { widgetId: string; onOpen
   );
 }
 
-function FieldError({ id, message }: { id: string; message?: string }) {
-  if (!message) return null;
-  return <p id={id} role="alert" className="text-xs text-red-600 mt-1">{message}</p>;
-}
-
-const inputClass =
-  'w-full bg-gray-100 border border-gray-200 rounded-xl px-4 py-2.5 text-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#6C60FF]/40 focus:border-[#6C60FF]';
-const errorInputClass = ' !border-red-400 !bg-red-50';
-
-// Native <select> arrows ignore padding and sit on the edge; draw our own chevron instead.
-function SelectField({ wrapperClassName = '', children, ...props }: React.SelectHTMLAttributes<HTMLSelectElement> & { wrapperClassName?: string }) {
-  return (
-    <div className={`relative ${wrapperClassName}`}>
-      <select {...props} className={inputClass + ' appearance-none pr-10 cursor-pointer'}>{children}</select>
-      <ChevronDown className="pointer-events-none absolute right-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" aria-hidden="true" />
-    </div>
-  );
-}
+// FieldError, SelectField, inputClass and errorInputClass live in ./builderFields (shared with AfterHoursSettings).
 
 // ---------------------------------------------------------------------------
 // Builder
@@ -276,6 +279,7 @@ function WidgetBuilder({
         name: 'name', agentName: 'agent_name', calloutText: 'callout_text', welcomeSubtext: 'welcome_subtext',
         primaryColor: 'theme.primary_color', logoUrl: 'theme.logo_url', position: 'theme.bubble_position',
         domains: 'allowed_domains', status: 'status', formFields: 'form_fields', propertyId: 'property_id',
+        hoursOn: 'business_hours', hours: 'business_hours', timezone: 'timezone', aiEnabled: 'ai_enabled', aiNotes: 'faq_notes',
       };
       if (!e[map[key]]) return e;
       const { [map[key]]: _drop, ...rest } = e;
@@ -315,6 +319,12 @@ function WidgetBuilder({
     }
     if (form.welcomeSubtext.length > WELCOME_MAX) e.welcome_subtext = `Keep this under ${WELCOME_MAX} characters.`;
     if (!formCanReply(form.formFields)) e.form_fields = REPLY_RULE;
+    if (form.hoursOn) {
+      const hoursProblem = weekProblem(form.hours);
+      if (hoursProblem) e.business_hours = hoursProblem;
+      if (!form.timezone) e.timezone = 'Choose the timezone your business hours are in.';
+    }
+    if (form.aiNotes.length > AI_NOTES_MAX) e.faq_notes = 'Notes for the AI can be up to 2,000 characters.';
     return e;
   };
 
@@ -382,6 +392,10 @@ function WidgetBuilder({
   };
   const formFieldsError = errors.form_fields
     || Object.entries(errors).find(([k]) => k.startsWith('form_fields.'))?.[1];
+
+  const setAfterHours = (patch: Partial<AfterHoursValue>) => {
+    (Object.keys(patch) as (keyof AfterHoursValue)[]).forEach((key) => set(key, patch[key] as FormState[typeof key]));
+  };
 
   const busy = saving || deleting;
   const liveWithoutDomain = form.status === 'live' && form.domains.length === 0 && !domainInput.trim();
@@ -787,7 +801,12 @@ function WidgetBuilder({
               <FieldError id={id('status-err')} message={errors.status} />
             </div>
 
-            <p className="text-xs text-gray-400 pt-1">Coming soon: business hours and AI replies.</p>
+            <AfterHoursSettings
+              idPrefix={id('after-hours')}
+              value={{ hoursOn: form.hoursOn, hours: form.hours, timezone: form.timezone, aiEnabled: form.aiEnabled, aiNotes: form.aiNotes }}
+              onChange={setAfterHours}
+              errors={errors}
+            />
 
             {/* Submit on Enter from single-line inputs */}
             <button type="submit" className="sr-only" tabIndex={-1} aria-hidden="true" disabled={busy}>Save</button>

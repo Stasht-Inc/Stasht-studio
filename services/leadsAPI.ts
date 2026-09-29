@@ -75,6 +75,8 @@ export interface LeadMessage {
   provider_message_id?: string | null;
   sent_at: string;
   attachments?: LeadMessageAttachment[];
+  // The website widget's after-hours AI wrote it (a reply or its after-hours notice).
+  is_ai?: boolean;
 }
 
 export interface Lead {
@@ -138,10 +140,10 @@ export function leadViaLabel(lead: Pick<Lead, 'story' | 'source'>): string {
   return lead.source === 'widget' ? 'Website widget' : 'Direct message';
 }
 
-/** Display label for a lead message's channel: Email, Website (Contact Us widget), else SMS. */
+/** Display label for a lead message's channel: Email, Website chat (Contact Us widget), else SMS. */
 export function messageChannelLabel(channel: LeadMessage['channel'] | string | null | undefined): string {
   if (channel === 'email') return 'Email';
-  if (channel === 'widget') return 'Website';
+  if (channel === 'widget') return 'Website chat';
   return 'SMS';
 }
 
@@ -355,8 +357,10 @@ export const leadsAPI = {
   // `fresh` bypasses apiRequest's 15s GET cache — a thread must never show a stale copy
   // (opening a lead, Refresh, and the live poll in LeadDetailDrawer all pass it), otherwise a
   // customer's reply can sit unseen for up to 15s.
+  // visitor_online: a Contact Us widget lead whose widget checked in within the last 20 s
+  // ("On your website now"; false for every other lead).
   getMessages: async (leadId: number, fresh = false) => {
-    return apiRequest<{ messages: LeadMessage[] }>(
+    return apiRequest<{ messages: LeadMessage[]; visitor_online?: boolean }>(
       `/leads/${leadId}/messages${partialAdminQuery('?')}`,
       { method: 'GET', ...(fresh ? { skipCache: true } : {}) } as RequestInit,
     );
@@ -491,6 +495,27 @@ export const leadsAPI = {
       method: 'POST',
       body: JSON.stringify({
         subject,
+        body,
+        ...(attachments && attachments.length ? { attachments } : {}),
+        ...partialAdminBody(),
+        ...(idempotencyKey ? { idempotency_key: idempotencyKey } : {}),
+      }),
+    });
+  },
+
+  // Website chat (Contact Us widget, spec 2026-09-29): the reply shows in the visitor's widget
+  // within seconds. 409 {code: 'visitor_offline'} once they've left the site (nothing is sent),
+  // 422 for a lead that didn't come from the widget. Same attachments shape as sendSMS: up to 3
+  // photos (JPG, PNG, GIF, WebP) or PDFs. idempotencyKey: see broadcastToGroup above.
+  sendChat: async (
+    leadId: number,
+    body: string,
+    idempotencyKey?: string,
+    attachments?: { filename: string; data: string }[],
+  ) => {
+    return apiRequest<LeadMessage>(`/leads/${leadId}/messages/chat`, {
+      method: 'POST',
+      body: JSON.stringify({
         body,
         ...(attachments && attachments.length ? { attachments } : {}),
         ...partialAdminBody(),
