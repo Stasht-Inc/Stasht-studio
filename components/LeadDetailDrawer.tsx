@@ -188,7 +188,22 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
   const smsIdemKeyRef = useRef<string>(crypto.randomUUID());
   const emailIdemKeyRef = useRef<string>(crypto.randomUUID());
   const chatIdemKeyRef = useRef<string>(crypto.randomUUID());
-  const replyIdemKeyRef = useRef<string>(crypto.randomUUID());
+  // Inline Reply (the reply box under a single message, as opposed to the main composer above)
+  // can send on a different channel each attempt: the visitor can go offline between a first
+  // try (byChat) and a retry (falls through to sms/email), or the lead's phone/email can change.
+  // One shared key across channels would hit the same (lead_id, idempotency_key) collision the
+  // comment above warns about for the main composer — a retry on a new channel could be answered
+  // with the old channel's stored row instead of actually sending. So this is a key per channel
+  // kind, not one ref; getReplyIdemKey() below mints one lazily and only that channel's key is
+  // rotated on a confirmed send.
+  const replyIdemKeysRef = useRef<Record<string, string>>({});
+  const getReplyIdemKey = (channelKind: string): string => {
+    const existing = replyIdemKeysRef.current[channelKind];
+    if (existing) return existing;
+    const key = crypto.randomUUID();
+    replyIdemKeysRef.current[channelKind] = key;
+    return key;
+  };
   const [replyingToMsgId, setReplyingToMsgId] = useState<number | null>(null);
   const [replyText, setReplyText] = useState('');
   const [isSendingReply, setIsSendingReply] = useState(false);
@@ -252,7 +267,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
       smsIdemKeyRef.current = crypto.randomUUID();
       emailIdemKeyRef.current = crypto.randomUUID();
       chatIdemKeyRef.current = crypto.randomUUID();
-      replyIdemKeyRef.current = crypto.randomUUID();
+      replyIdemKeysRef.current = {};
       setVisitorOnline(false);
       setChatNotice(null);
       autoChatBlockedRef.current = false;
@@ -668,22 +683,32 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
       if (lead?.is_rollup) return; // read-only — reply UI is hidden, this is a backstop
       setIsSendingReply(true);
       try {
-        const key = replyIdemKeyRef.current;
         // A website-chat message is answered in the chat while the visitor is on the site (spec
         // 2026-09-29 decision 2). Otherwise: email replies thread onto the parent email; SMS and
         // website-widget messages have no email thread to reply into, so answer them by SMS. A widget
         // lead may have left only an email (the widget's form fields are configurable), in which case
         // the reply goes by email.
         const byChat = msg.channel === 'widget' && visitorOnline;
+        const channelKind = byChat
+          ? 'chat'
+          : msg.channel === 'sms' || (msg.channel === 'widget' && leadHasPhone)
+            ? 'sms'
+            : msg.channel === 'widget'
+              ? 'email'
+              : 'threadReply';
+        // Its own key per channel kind (see replyIdemKeysRef above) — a retry that falls through
+        // to a different channel (e.g. chat → sms once the visitor left) never reuses a key an
+        // earlier channel already claimed on the server.
+        const key = getReplyIdemKey(channelKind);
         const res = byChat
           ? await leadsAPI.sendChat(lead!.id, replyText.trim(), key)
-          : msg.channel === 'sms' || (msg.channel === 'widget' && leadHasPhone)
+          : channelKind === 'sms'
             ? await leadsAPI.sendSMS(lead!.id, replyText.trim(), key)
-            : msg.channel === 'widget'
+            : channelKind === 'email'
               ? await leadsAPI.sendEmail(lead!.id, 'Re: Your message', replyText.trim(), undefined, key)
               : await leadsAPI.replyToMessage(lead!.id, msg.id, replyText.trim(), key);
         if (res.success) {
-          replyIdemKeyRef.current = crypto.randomUUID(); // confirmed success → fresh key
+          delete replyIdemKeysRef.current[channelKind]; // confirmed success → fresh key next time
           setReplyingToMsgId(null);
           setReplyText('');
           toast.success('Reply sent.');

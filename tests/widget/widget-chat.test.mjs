@@ -5,7 +5,7 @@ import {
   CHAT_MESSAGE_MAX, CHAT_MAX_FILES, CHAT_MAX_FILE_BYTES, CHAT_FILE_TYPES, CHAT_TOKEN_TTL_MS,
   POLL_OPEN_MS, POLL_CLOSED_MS, POLL_CLOSED_WINDOW_MS, publicPersonFrom, chatStorageKey, readChatToken, writeChatToken,
   clearChatToken, messagesUrl, chatMessageFrom, mergeMessages, lastMessageId, acceptChatFiles, chatSendProblem,
-  nextPollDelay, backoffDelay, hasUnreadTeamMessage, autoReplyAnchor, firstServerError,
+  nextPollDelay, backoffDelay, hasUnreadTeamMessage, autoReplyAnchor, firstServerError, chatOpenHeaderValue,
 } from '../../public/widget-core.js';
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -190,4 +190,10 @@ test('publicPersonFrom: first name, https photo, two-letter initials, safe colou
   assert.deepEqual(publicPersonFrom({ name: 'Andrew', initials: 'AVD', color: 'red' }), { name: 'Andrew', avatarUrl: null, initials: 'AV', color: '#6C60FF' });
   assert.equal(publicPersonFrom({ name: '' }), null);
   assert.equal(publicPersonFrom(null), null);
+});
+
+test('chatOpenHeaderValue: 1 while the panel is open, 0 while closed', () => {
+  assert.equal(chatOpenHeaderValue(true), '1');
+  assert.equal(chatOpenHeaderValue(false), '0');
+  assert.equal(chatOpenHeaderValue(undefined), '0');
 });

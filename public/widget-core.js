@@ -269,6 +269,17 @@ export function messagesUrl(api, widgetId, afterId = 0) {
 }
 
 /**
+ * The X-Widget-Chat-Open header value: '1' while the panel is open, '0' while closed. Lets the
+ * server tell a GET made with the panel actually visible (part 2 marks outbound messages seen
+ * only then) apart from background polling while closed. A POST always means the visitor is
+ * typing in the panel, so callers building POST headers should pass `true` regardless of
+ * `state.open`, but this helper only turns a boolean into the header's string value.
+ */
+export function chatOpenHeaderValue(open) {
+  return open ? '1' : '0';
+}
+
+/**
  * A message from the API in a safe, render-ready shape, or null when it can't be shown.
  * Only https attachment links survive; senders only on team messages.
  */

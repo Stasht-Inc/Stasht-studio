@@ -10,7 +10,7 @@ import {
   teamOnlineFrom, onlineCountText, initialsInk, DEFAULT_CALLOUT, CALLOUT_SUBTEXT, DEFAULT_WELCOME,
   CHAT_MESSAGE_MAX, CHAT_FILE_TYPES, readChatToken, writeChatToken, clearChatToken, messagesUrl, chatMessageFrom,
   mergeMessages, lastMessageId, acceptChatFiles, chatSendProblem, nextPollDelay, backoffDelay, hasUnreadTeamMessage,
-  autoReplyAnchor, firstServerError,
+  autoReplyAnchor, firstServerError, chatOpenHeaderValue,
 } from './widget-core.js';
 
 const params = new URLSearchParams(location.search);
@@ -460,7 +460,11 @@ function removeFile(index) {
 
 // --- Chat state and the server ---------------------------------------------------------------
 
-const chatHeaders = () => ({ Accept: 'application/json', 'X-Widget-Chat-Token': state.token });
+// `open` defaults to the panel's actual state (for GETs); a POST always passes `true` — the
+// visitor is typing in the panel by definition, whether or not `state.open` has been set yet.
+const chatHeaders = (open = state.open) => ({
+  Accept: 'application/json', 'X-Widget-Chat-Token': state.token, 'X-Widget-Chat-Open': chatOpenHeaderValue(open),
+});
 
 // A synthetic id for the visitor's own message when /submit's response can't be shown as-is (an
 // older API during a deploy, or any malformed reply): never a real server id (those are positive
@@ -528,7 +532,7 @@ async function sendChat() {
   render();
   let sent = false;
   try {
-    const res = await fetch(messagesUrl(API, widgetId), { method: 'POST', headers: chatHeaders(), body });
+    const res = await fetch(messagesUrl(API, widgetId), { method: 'POST', headers: chatHeaders(true), body });
     if (res.status === 404) {
       conversationGone();
       return;
