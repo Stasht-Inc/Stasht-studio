@@ -163,6 +163,10 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
   const [via, setVia] = useState<Via>('email');
   const viaRef = useRef<Via>('email');
   viaRef.current = via;
+  // Once the rep has left Website chat for any reason (a 409 visitor_offline, or picking any
+  // channel by hand — including Website chat itself, which puts the rep in control) the
+  // auto-engage effect below stops re-selecting chat on its own; only a different lead resets it.
+  const autoChatBlockedRef = useRef(false);
   // Website chat: whether the visitor's widget checked in within the last 20 s (the thread's
   // visitor_online, re-read on the 5 s refresh), and the one-line notice after they left.
   const [visitorOnline, setVisitorOnline] = useState(false);
@@ -251,6 +255,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
       replyIdemKeyRef.current = crypto.randomUUID();
       setVisitorOnline(false);
       setChatNotice(null);
+      autoChatBlockedRef.current = false;
       if (scrollBodyRef.current) scrollBodyRef.current.scrollTop = 0;
       fetchMessages(lead.id);
       const hasEmail = !!lead.user?.email;
@@ -546,7 +551,10 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
   };
 
   // The visitor left (or the API answered visitor_offline): keep the draft, move to text (or email).
+  // Also blocks the auto-engage effect below from picking chat again on its own — the rep chooses
+  // the channel from here (Website chat stays available, just not auto-selected).
   const leaveChat = () => {
+    autoChatBlockedRef.current = true;
     if (leadHasPhone) switchToSms();
     setVia(leadHasPhone ? 'sms' : 'email');
     setChatNotice(`${CHAT_OFFLINE_HINT}.`);
@@ -554,10 +562,14 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
 
   // Website chat follows the visitor (spec 2026-09-29 §3): picked automatically when they arrive on
   // the site; when they leave, a chat draft moves to text/email with a one-line notice. Only a
-  // change of visitorOnline triggers this, so a rep who picks SMS or Email by hand keeps it.
+  // change of visitorOnline triggers the auto-select, so a rep who picks SMS, Email or Website chat
+  // by hand keeps it — autoChatBlockedRef (set by leaveChat and by any manual via pick) stops this
+  // effect from re-selecting chat once the rep has taken control, even if the visitor comes back
+  // online moments later (e.g. right after a 409 visitor_offline on Send).
   useEffect(() => {
     if (!isWidgetLead) return;
     if (visitorOnline) {
+      if (autoChatBlockedRef.current) return;
       if (viaRef.current !== 'chat') switchToChat();
       setVia('chat');
       setChatNotice(null);
@@ -1354,6 +1366,9 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
                           disabled={isDisabled}
                           onClick={() => {
                             if (isDisabled) return;
+                            // A manual pick — including Website chat — puts the rep in control:
+                            // stop auto-selecting chat on its own from here (see autoChatBlockedRef).
+                            autoChatBlockedRef.current = true;
                             if (option === 'sms' && via !== 'sms') switchToSms();
                             if (option === 'chat' && via !== 'chat') switchToChat();
                             setVia(option);
