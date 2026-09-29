@@ -25,6 +25,14 @@ const MAX_ATTACHMENT_BYTES = 2 * 1024 * 1024;
 // Twilio MMS to US/Canada: JPG/PNG/GIF are resized for the phone, PDFs accepted; 5 MB per text.
 const MMS_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'application/pdf'];
 const MAX_MMS_TOTAL_BYTES = 5 * 1024 * 1024;
+// Website chat (Contact Us widget, spec 2026-09-29): up to 3 photos/PDFs per message, the widget's
+// types (WebP too). Files stay under the composer's 2 MB-per-file cap above; the API allows 5 MB.
+const CHAT_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'application/pdf'];
+const CHAT_MAX_FILES = 3;
+const CHAT_MAX_BODY = 1000;
+const CHAT_OFFLINE_HINT = "They've left your site — reply by text or email";
+type Via = 'email' | 'sms' | 'chat';
+const VIA_LABELS: Record<Via, string> = { email: 'Email', sms: 'SMS', chat: 'Website chat' };
 
 // Read a File as a base64 data URL (e.g. "data:application/pdf;base64,JVBER...").
 function fileToDataUrl(file: File): Promise<string> {
@@ -152,7 +160,13 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
   const [message, setMessage] = useState('');
   const [subject, setSubject] = useState('');
-  const [via, setVia] = useState<'email' | 'sms'>('email');
+  const [via, setVia] = useState<Via>('email');
+  const viaRef = useRef<Via>('email');
+  viaRef.current = via;
+  // Website chat: whether the visitor's widget checked in within the last 20 s (the thread's
+  // visitor_online, re-read on the 5 s refresh), and the one-line notice after they left.
+  const [visitorOnline, setVisitorOnline] = useState(false);
+  const [chatNotice, setChatNotice] = useState<string | null>(null);
   const [isSending, setIsSending] = useState(false);
   const [showViaDropdown, setShowViaDropdown] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
@@ -169,6 +183,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
   // Email request and the new content is silently dropped).
   const smsIdemKeyRef = useRef<string>(crypto.randomUUID());
   const emailIdemKeyRef = useRef<string>(crypto.randomUUID());
+  const chatIdemKeyRef = useRef<string>(crypto.randomUUID());
   const replyIdemKeyRef = useRef<string>(crypto.randomUUID());
   const [replyingToMsgId, setReplyingToMsgId] = useState<number | null>(null);
   const [replyText, setReplyText] = useState('');
@@ -232,7 +247,10 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
       // Fresh compose session for this lead — new idempotency keys.
       smsIdemKeyRef.current = crypto.randomUUID();
       emailIdemKeyRef.current = crypto.randomUUID();
+      chatIdemKeyRef.current = crypto.randomUUID();
       replyIdemKeyRef.current = crypto.randomUUID();
+      setVisitorOnline(false);
+      setChatNotice(null);
       if (scrollBodyRef.current) scrollBodyRef.current.scrollTop = 0;
       fetchMessages(lead.id);
       const hasEmail = !!lead.user?.email;
@@ -286,6 +304,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
       try {
         const res = await leadsAPI.getMessages(leadId, true);
         if (cancelled || !res.success || !res.data?.messages) return;
+        setVisitorOnline(!!res.data.visitor_online);
         const next = res.data.messages;
         const prev = messagesRef.current;
         const unchanged = next.length === prev.length
@@ -341,6 +360,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
       const res = await leadsAPI.getMessages(leadId, true);
       if (res.success && res.data?.messages) {
         setMessages(res.data.messages);
+        setVisitorOnline(!!res.data.visitor_online);
       }
       // mark-read also clears this user's bell notifications for the lead.
       leadsAPI.markRead(leadId).then(() => window.dispatchEvent(new CustomEvent('notifications-count-refresh')));
@@ -384,6 +404,9 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
   // contact info straight into `user` (F5). A lead with neither is not
   // reachable over any channel, so the whole composer gets replaced by a note.
   const hasAnyContact = !!lead?.user?.email || !!(lead?.user?.phone_number || lead?.user?.phone);
+  // Website chat is offered only on leads that came from the Contact Us widget (spec 2026-09-29).
+  const isWidgetLead = lead?.source === 'widget';
+  const leadHasPhone = !!(lead?.user?.phone_number || lead?.user?.phone);
 
   // Both channels may carry attachments (texts go as MMS), so a bare attachment
   // with no words can be sent either way.
@@ -398,25 +421,33 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
     setIsSending(true);
     try {
       // Per-channel keys — the backend dedupes on (lead_id, idempotency_key)
-      // with no channel dimension, so SMS and Email must never share one.
-      const key = via === 'sms' ? smsIdemKeyRef.current : emailIdemKeyRef.current;
+      // with no channel dimension, so SMS, Email and chat must never share one.
+      const key = via === 'sms' ? smsIdemKeyRef.current : via === 'chat' ? chatIdemKeyRef.current : emailIdemKeyRef.current;
       const encoded = await Promise.all(
         attachments.map(async (f) => ({ filename: f.name, data: await fileToDataUrl(f) })),
       );
-      const res = via === 'sms'
-        ? await leadsAPI.sendSMS(lead!.id, message.trim(), key, encoded)
-        : await leadsAPI.sendEmail(lead!.id, subject.trim() || 'Following up', message.trim(), encoded, key);
+      const res = via === 'chat'
+        ? await leadsAPI.sendChat(lead!.id, message.trim(), key, encoded)
+        : via === 'sms'
+          ? await leadsAPI.sendSMS(lead!.id, message.trim(), key, encoded)
+          : await leadsAPI.sendEmail(lead!.id, subject.trim() || 'Following up', message.trim(), encoded, key);
       if (res.success) {
         // confirmed success → fresh key for the next compose on THIS channel only
         if (via === 'sms') smsIdemKeyRef.current = crypto.randomUUID();
+        else if (via === 'chat') chatIdemKeyRef.current = crypto.randomUUID();
         else emailIdemKeyRef.current = crypto.randomUUID();
         setMessage('');
         setSubject('');
         setAttachments([]);
         setShowEmojiPicker(false);
         setLastAiAction(null);
-        toast.success(`${via === 'email' ? 'Email' : 'SMS'} sent successfully.`);
+        setChatNotice(null);
+        toast.success(via === 'chat' ? 'Sent to their website chat.' : `${via === 'email' ? 'Email' : 'SMS'} sent successfully.`);
         await refreshAll();
+      } else if (via === 'chat' && (res as any)?.code === 'visitor_offline') {
+        // They left just as the rep hit Send: nothing went out — keep the draft, move to text/email.
+        setVisitorOnline(false);
+        leaveChat();
       } else {
         toast.error((res as any)?.message || 'Failed to send message.');
         // failure → key intentionally kept so a retry dedupes with this attempt
@@ -464,6 +495,14 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
         toast.error(`${f.name}: texts can carry JPG, PNG or GIF photos and PDF files only.`);
         continue;
       }
+      if (via === 'chat' && !CHAT_TYPES.includes(f.type)) {
+        toast.error(`${f.name}: website chat carries JPG, PNG, GIF or WebP photos and PDF files only.`);
+        continue;
+      }
+      if (via === 'chat' && attachments.length + valid.length >= CHAT_MAX_FILES) {
+        toast.error('Website chat messages can carry up to 3 files.');
+        continue;
+      }
       if (f.size > MAX_ATTACHMENT_BYTES) {
         toast.error(`${f.name} is too large (max 2 MB).`);
         continue;
@@ -495,6 +534,37 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
     }
     setAttachments(kept);
   };
+
+  // Chat carries up to 3 photos/PDFs (JPG, PNG, GIF, WebP, PDF); keep those, drop the rest.
+  const switchToChat = () => {
+    setSubject('');
+    const kept = attachments.filter((f) => CHAT_TYPES.includes(f.type)).slice(0, CHAT_MAX_FILES);
+    if (kept.length < attachments.length) {
+      toast.message(`${attachments.length - kept.length} attachment(s) removed — website chat carries up to 3 photos or PDFs.`);
+    }
+    setAttachments(kept);
+  };
+
+  // The visitor left (or the API answered visitor_offline): keep the draft, move to text (or email).
+  const leaveChat = () => {
+    if (leadHasPhone) switchToSms();
+    setVia(leadHasPhone ? 'sms' : 'email');
+    setChatNotice(`${CHAT_OFFLINE_HINT}.`);
+  };
+
+  // Website chat follows the visitor (spec 2026-09-29 §3): picked automatically when they arrive on
+  // the site; when they leave, a chat draft moves to text/email with a one-line notice. Only a
+  // change of visitorOnline triggers this, so a rep who picks SMS or Email by hand keeps it.
+  useEffect(() => {
+    if (!isWidgetLead) return;
+    if (visitorOnline) {
+      if (viaRef.current !== 'chat') switchToChat();
+      setVia('chat');
+      setChatNotice(null);
+    } else if (viaRef.current === 'chat') {
+      leaveChat();
+    }
+  }, [visitorOnline, isWidgetLead]);
 
   const removeAttachment = (index: number) => {
     setAttachments((prev) => prev.filter((_, i) => i !== index));
@@ -587,21 +657,29 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
       setIsSendingReply(true);
       try {
         const key = replyIdemKeyRef.current;
-        // Email replies thread onto the parent email; SMS and website-widget messages have no email
-        // thread to reply into, so answer them by SMS. A widget lead may have left only an email
-        // (the widget's form fields are configurable), in which case the reply goes by email.
-        const leadHasPhone = !!(lead!.user?.phone_number || lead!.user?.phone);
-        const res = msg.channel === 'sms' || (msg.channel === 'widget' && leadHasPhone)
-          ? await leadsAPI.sendSMS(lead!.id, replyText.trim(), key)
-          : msg.channel === 'widget'
-            ? await leadsAPI.sendEmail(lead!.id, 'Re: Your message', replyText.trim(), undefined, key)
-            : await leadsAPI.replyToMessage(lead!.id, msg.id, replyText.trim(), key);
+        // A website-chat message is answered in the chat while the visitor is on the site (spec
+        // 2026-09-29 decision 2). Otherwise: email replies thread onto the parent email; SMS and
+        // website-widget messages have no email thread to reply into, so answer them by SMS. A widget
+        // lead may have left only an email (the widget's form fields are configurable), in which case
+        // the reply goes by email.
+        const byChat = msg.channel === 'widget' && visitorOnline;
+        const res = byChat
+          ? await leadsAPI.sendChat(lead!.id, replyText.trim(), key)
+          : msg.channel === 'sms' || (msg.channel === 'widget' && leadHasPhone)
+            ? await leadsAPI.sendSMS(lead!.id, replyText.trim(), key)
+            : msg.channel === 'widget'
+              ? await leadsAPI.sendEmail(lead!.id, 'Re: Your message', replyText.trim(), undefined, key)
+              : await leadsAPI.replyToMessage(lead!.id, msg.id, replyText.trim(), key);
         if (res.success) {
           replyIdemKeyRef.current = crypto.randomUUID(); // confirmed success → fresh key
           setReplyingToMsgId(null);
           setReplyText('');
           toast.success('Reply sent.');
           await refreshAll();
+        } else if (byChat && (res as any)?.code === 'visitor_offline') {
+          // Nothing went out; the reply stays in the box and goes by text/email on the next Send.
+          setVisitorOnline(false);
+          toast.message(`${CHAT_OFFLINE_HINT}.`);
         } else {
           toast.error((res as any)?.message || 'Failed to send reply.');
           // failure → key intentionally kept for retry
@@ -763,6 +841,12 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
           {!lead.user?.id && (
             <span className="flex items-center gap-1 px-2.5 h-7 rounded-md bg-blue-50 text-blue-500 border border-blue-200 text-sm font-medium shrink-0">
               <UserRound className="w-3.5 h-3.5" /> Guest
+            </span>
+          )}
+          {isWidgetLead && visitorOnline && (
+            <span className="flex items-center gap-1.5 px-2.5 h-7 rounded-md bg-green-50 text-green-700 border border-green-200 text-sm font-medium shrink-0">
+              <span className="w-2 h-2 rounded-full bg-green-500" aria-hidden="true" />
+              On your website now
             </span>
           )}
           {currentStatus && <span className="hidden sm:inline-flex"><StatusChip status={currentStatus} /></span>}
@@ -1142,7 +1226,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
               onKeyDown={handleKeyDown}
               placeholder={`Type a message to ${firstName}...`}
               rows={3}
-              maxLength={via === 'sms' ? SMS_MAX_BODY : undefined}
+              maxLength={via === 'sms' ? SMS_MAX_BODY : via === 'chat' ? CHAT_MAX_BODY : undefined}
               className="w-full max-sm:h-14 text-base text-gray-700 placeholder:text-gray-400 resize-none border-none outline-none bg-transparent leading-relaxed focus-visible:ring-2 focus-visible:ring-[#6C60FF] focus-visible:ring-offset-1"
             />
 
@@ -1184,11 +1268,16 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
               </div>
             )}
 
-            {/* Hidden file input — images & PDF, ≤2 MB each (texts: JPG/PNG/GIF/PDF) */}
+            {/* After the visitor left the site: the chat draft moved to text/email (spec 2026-09-29 §3). */}
+            {chatNotice && via !== 'chat' && (
+              <p className="text-sm text-amber-700 mt-1.5" role="status">{chatNotice}</p>
+            )}
+
+            {/* Hidden file input — images & PDF, ≤2 MB each (texts: JPG/PNG/GIF/PDF; chat: + WebP, 3 files) */}
             <input
               ref={fileInputRef}
               type="file"
-              accept={via === 'sms' ? MMS_TYPES.join(',') : 'image/*,application/pdf'}
+              accept={via === 'sms' ? MMS_TYPES.join(',') : via === 'chat' ? CHAT_TYPES.join(',') : 'image/*,application/pdf'}
               multiple
               hidden
               onChange={handleFilesSelected}
@@ -1197,7 +1286,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
             <div className="flex flex-wrap items-center gap-2 mt-2">
               <button
                 onClick={() => fileInputRef.current?.click()}
-                title={via === 'sms' ? 'Attach photo (JPG, PNG, GIF) or PDF — 5 MB in total' : 'Attach image or PDF (max 2 MB)'}
+                title={via === 'sms' ? 'Attach photo (JPG, PNG, GIF) or PDF — 5 MB in total' : via === 'chat' ? 'Attach up to 3 photos or PDFs (max 2 MB each)' : 'Attach image or PDF (max 2 MB)'}
                 aria-label="Attach file"
                 className="p-1.5 text-gray-400 hover:text-gray-600 transition-colors"
               >
@@ -1248,23 +1337,35 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
                   onClick={() => setShowViaDropdown((v) => !v)}
                   className="flex items-center gap-1.5 text-sm text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg px-3 py-2 transition-colors"
                 >
-                  via {via === 'email' ? 'Email' : 'SMS'}
+                  via {VIA_LABELS[via]}
                   <ChevronDown className="w-4 h-4" />
                 </button>
                 {showViaDropdown && (
-                  <div className="absolute bottom-10 left-0 bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden z-10 w-28">
-                    {(['email', 'sms'] as const).map((option) => {
-                      const isDisabled = option === 'email'
-                        ? !lead?.user?.email
-                        : !(lead?.user?.phone_number || lead?.user?.phone);
+                  <div className={`absolute bottom-10 left-0 bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden z-10 ${isWidgetLead ? 'w-64' : 'w-28'}`}>
+                    {((isWidgetLead ? ['chat', 'sms', 'email'] : ['email', 'sms']) as Via[]).map((option) => {
+                      const isDisabled = option === 'chat'
+                        ? !visitorOnline
+                        : option === 'email'
+                          ? !lead?.user?.email
+                          : !(lead?.user?.phone_number || lead?.user?.phone);
                       return (
                         <button
                           key={option}
                           disabled={isDisabled}
-                          onClick={() => { if (isDisabled) return; if (option === 'sms' && via !== 'sms') switchToSms(); setVia(option); setShowViaDropdown(false); }}
-                          className={`w-full text-left px-3 py-2 text-sm ${isDisabled ? 'opacity-40 cursor-not-allowed text-gray-400' : via === option ? 'text-[#6C60FF] font-medium hover:bg-gray-50' : 'text-gray-700 hover:bg-gray-50'}`}
+                          onClick={() => {
+                            if (isDisabled) return;
+                            if (option === 'sms' && via !== 'sms') switchToSms();
+                            if (option === 'chat' && via !== 'chat') switchToChat();
+                            setVia(option);
+                            setChatNotice(null);
+                            setShowViaDropdown(false);
+                          }}
+                          className={`w-full text-left px-3 py-2 text-sm ${isDisabled ? `cursor-not-allowed text-gray-400 ${option === 'chat' ? '' : 'opacity-40'}` : via === option ? 'text-[#6C60FF] font-medium hover:bg-gray-50' : 'text-gray-700 hover:bg-gray-50'}`}
                         >
-                          {option === 'email' ? 'Email' : 'SMS'}
+                          {VIA_LABELS[option]}
+                          {option === 'chat' && isDisabled && (
+                            <span className="block text-xs text-gray-500 mt-0.5">{CHAT_OFFLINE_HINT}</span>
+                          )}
                         </button>
                       );
                     })}
