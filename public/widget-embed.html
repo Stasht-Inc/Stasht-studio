@@ -14,7 +14,7 @@
       /* Padding is ROOT_PAD in widget-core.js (applied by widget-embed.js); this is the no-JS fallback. */
       #root { display: inline-block; width: max-content; padding: 12px 16px 24px; }
       button { font: inherit; }
-      button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+      button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
 
       /* ---- Closed: callout card + round launcher ---- */
       .closed { display: flex; flex-direction: column; align-items: flex-end; }
@@ -90,6 +90,44 @@
       .legal { margin: 2px 0 0; font-size: 12.5px; line-height: 1.5; color: #6b7280; }
       .send { height: 48px; border: 0; border-radius: 12px; background: var(--brand); color: var(--brand-ink); font-size: 16px; font-weight: 600; cursor: pointer; }
       .send[disabled] { opacity: .45; cursor: default; }
+
+      /* ---- Live chat (spec 2026-09-29): the same bubbles and avatars, plus a typing box ---- */
+      .panel.chat { display: flex; flex-direction: column; height: min(var(--panel-max-h), 620px); overflow: hidden; }
+      .log { flex: 1; min-height: 0; overflow-y: auto; align-content: start; overscroll-behavior: contain; }
+      .mini.ini { font-size: 12px; font-weight: 700; }
+      .row.me .mini svg { width: 16px; height: 16px; }
+      .atts { display: grid; gap: 6px; }
+      .row.me .atts { justify-items: end; }
+      .att-img { display: block; width: 200px; max-width: 100%; border-radius: 14px; overflow: hidden; border: 1px solid #e5e7eb; background: #f3f4f6; }
+      .att-img img { display: block; width: 100%; max-height: 240px; object-fit: cover; }
+      .att-file { display: flex; align-items: center; gap: 10px; max-width: 240px; padding: 10px 12px; border: 1px solid #e5e7eb; border-radius: 14px;
+        background: #fff; color: #1f2937; font-size: 14px; font-weight: 500; text-decoration: none; }
+      .att-file:hover { background: #f9fafb; }
+      .ficon { flex: none; display: flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: 8px; background: #fef2f2; color: #ef4444; }
+      .ficon svg { width: 18px; height: 18px; }
+      .fname, .cname { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+      .composer { flex: none; padding: 10px 12px 12px; border-top: 1px solid #eef0f3; background: #fff; }
+      .queue { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
+      .chip { position: relative; display: flex; align-items: center; gap: 8px; max-width: 100%; padding: 5px 32px 5px 5px; border-radius: 12px;
+        background: #f3f4f6; font-size: 13.5px; color: #374151; }
+      .chip img, .chip .ficon { width: 36px; height: 36px; border-radius: 8px; object-fit: cover; }
+      .chip .x { position: absolute; top: 50%; right: 5px; transform: translateY(-50%); width: 24px; height: 24px; border: 0; border-radius: 50%;
+        background: none; color: #6b7280; font-size: 18px; line-height: 1; cursor: pointer; }
+      .chip .x:hover { background: #e5e7eb; color: #1f2937; }
+      .bar { display: flex; align-items: flex-end; gap: 6px; }
+      .bar textarea { flex: 1; min-height: 46px; max-height: 128px; padding: 12px 16px; border-radius: 23px; resize: none; line-height: 1.35; overflow-y: auto; }
+      .clip, .sendbtn { flex: none; display: flex; align-items: center; justify-content: center; width: 46px; height: 46px; border: 0; border-radius: 50%; cursor: pointer; }
+      .clip { background: none; color: #6b7280; }
+      .clip:hover { background: #f3f4f6; color: #374151; }
+      .sendbtn { background: var(--brand); color: var(--brand-ink); }
+      .sendbtn[disabled], .clip[disabled] { opacity: .45; cursor: default; }
+      .clip svg, .sendbtn svg { width: 22px; height: 22px; }
+      .composer .err { margin: 8px 4px 0; }
+
+      /* Unread dot on the closed launcher */
+      .launcher { position: relative; }
+      .launcher .unread { position: absolute; top: 1px; right: 1px; width: 16px; height: 16px; border-radius: 50%; background: #ef4444; border: 2.5px solid #fff; }
     </style>
   </head>
   <body>
