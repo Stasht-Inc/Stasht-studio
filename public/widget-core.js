@@ -296,13 +296,19 @@ export function chatMessageFrom(raw) {
   const body = typeof raw.body === 'string' ? raw.body : '';
   if (body.trim() === '' && attachments.length === 0) return null;
   const sentAt = raw.sent_at ? new Date(raw.sent_at) : null;
+  const fromTeam = raw.from === 'team';
+  const isAi = fromTeam && raw.is_ai === true;
   return {
     id: raw.id,
     from: raw.from,
     body,
     sentAt: sentAt && !Number.isNaN(sentAt.getTime()) ? sentAt : null,
     attachments,
-    sender: raw.from === 'team' ? publicPersonFrom(raw.sender) : null,
+    sender: fromTeam ? publicPersonFrom(raw.sender) : null,
+    // After-hours AI (spec part 2 §3): an AI reply, the after-hours notice, and the vehicles it shared.
+    isAi,
+    autoReply: isAi && raw.auto_reply === true,
+    campaign: fromTeam ? campaignFrom(raw.campaign) : null,
   };
 }
 
@@ -369,11 +375,18 @@ export function hasUnreadTeamMessage(messages, seenAt) {
 /**
  * The embed's automatic reply isn't stored, so it's drawn after a message: the one just sent from
  * the form, else the conversation's first message when the visitor sent it (a returning visitor).
+ * After hours the server answers at once instead (an AI reply or its after-hours notice): then there
+ * is none — `off` when /submit returned replies, and whenever the next message is the AI's, so a
+ * reloaded history looks the same.
  */
-export function autoReplyAnchor(messages, submittedId = null) {
-  if (submittedId && messages.some((m) => m.id === submittedId)) return submittedId;
-  const first = messages[0];
-  return first && first.from === 'visitor' ? first.id : null;
+export function autoReplyAnchor(messages, submittedId = null, off = false) {
+  if (off) return null;
+  let anchor = null;
+  if (submittedId && messages.some((m) => m.id === submittedId)) anchor = submittedId;
+  else if (messages[0] && messages[0].from === 'visitor') anchor = messages[0].id;
+  if (anchor === null) return null;
+  const next = messages[messages.findIndex((m) => m.id === anchor) + 1];
+  return next && next.from === 'team' && next.isAi ? null : anchor;
 }
 
 /** The first validation message from a 422 body (Laravel's {errors: {field: [msg]}}), else the fallback. */
@@ -384,4 +397,57 @@ export function firstServerError(body, fallback) {
     if (typeof first === 'string' && first.trim() !== '') return first;
   }
   return fallback;
+}
+
+// --- After-hours AI (spec 2026-09-29 part 2 §3) -------------------------------------------------
+
+/** "typing…" shows (and the form's message becomes the chat) once a send has taken this long. */
+export const TYPING_DELAY_MS = 600;
+
+/** An AI reply more than 12 h after the previous one starts a new run, with the notice again. */
+export const AI_RUN_GAP_MS = 12 * 60 * 60 * 1000;
+
+export const AI_NOTICE = "You're chatting with our AI assistant outside business hours. A team member will follow up if needed.";
+
+/** The AI's campaign link card, or null: an https link and a title (vehicles 0 when unknown). */
+export function campaignFrom(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const url = safeHttpsUrl(raw.url);
+  const title = typeof raw.title === 'string' ? raw.title.trim() : '';
+  if (!url || !title) return null;
+  const vehicles = Number.isInteger(raw.vehicles) && raw.vehicles > 0 ? raw.vehicles : 0;
+  return { title, url, linkText: String(raw.url).trim(), vehicles };
+}
+
+/** "View 6 vehicles" / "View 1 vehicle" (no count: "View vehicles"). */
+export function campaignCardText(vehicles) {
+  if (!vehicles) return 'View vehicles';
+  return `View ${vehicles} ${vehicles === 1 ? 'vehicle' : 'vehicles'}`;
+}
+
+/** The reply's text without the campaign link: the card under it carries the link. */
+export function bodyWithoutLink(body, linkText) {
+  const text = String(body || '');
+  if (!linkText) return text;
+  return text.split(linkText).join('').replace(/[ \t]{2,}/g, ' ').replace(/[ \t]+\n/g, '\n').trim();
+}
+
+/**
+ * Where the AI notice goes (spec part 2 §3): before the first AI reply of each run, i.e. an AI reply
+ * whose previous team message wasn't an AI reply from the last 12 h. The after-hours notice isn't an
+ * AI reply, so an AI reply after it starts a new run. Unknown times count as the same run.
+ */
+export function aiNoticeBefore(messages) {
+  const ids = new Set();
+  let lastTeam = null;
+  for (const m of messages) {
+    if (m.from !== 'team') continue;
+    if (m.isAi && !m.autoReply) {
+      const gap = m.sentAt instanceof Date && lastTeam?.sentAt instanceof Date ? m.sentAt - lastTeam.sentAt : 0;
+      const continues = lastTeam && lastTeam.isAi && !lastTeam.autoReply && gap <= AI_RUN_GAP_MS;
+      if (!continues) ids.add(m.id);
+    }
+    lastTeam = m;
+  }
+  return ids;
 }
