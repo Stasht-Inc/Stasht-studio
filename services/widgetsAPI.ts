@@ -8,6 +8,10 @@ import type { ApiResponse } from '../utils/authUtils';
 export type WidgetStatus = 'draft' | 'live' | 'paused';
 export type WidgetBubblePosition = 'bottom-left' | 'bottom-right';
 
+// Business hours as stored (WidgetBusinessHours.php): each day null (closed) or [opens, closes] as "HH:MM".
+export type WeekdayKey = 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun';
+export type BusinessHours = Record<WeekdayKey, [string, string] | null>;
+
 export interface WidgetTheme {
   primary_color: string | null;
   logo_url: string | null;
@@ -48,6 +52,11 @@ export interface ContactWidget {
   property_id?: number | null;
   // The property a widget belongs to (its owner and admins can manage it); null = personal.
   property?: { id: number; name: string } | null;
+  // After hours (spec 2026-09-29 part 2); absent from older API builds.
+  business_hours?: BusinessHours | null; // null = no hours set: always open, so the AI never answers
+  timezone?: string | null; // IANA name
+  faq_notes?: string | null; // "Notes for the AI"
+  ai_enabled?: boolean;
 }
 
 // A dealership a widget's leads can go to (GET /widgets team_options).
@@ -67,6 +76,10 @@ export interface ContactWidgetInput {
   allowed_domains?: string[];
   form_fields?: Partial<Record<FormFieldKey, Partial<FormFieldSetting>>>;
   property_id?: number | null;
+  business_hours?: BusinessHours | null;
+  timezone?: string | null;
+  faq_notes?: string | null;
+  ai_enabled?: boolean;
 }
 
 // Server bodies are {success, data}. apiRequest wraps a successful body as
