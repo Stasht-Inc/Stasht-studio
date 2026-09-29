@@ -75,6 +75,8 @@ export interface LeadMessage {
   provider_message_id?: string | null;
   sent_at: string;
   attachments?: LeadMessageAttachment[];
+  // The website widget's after-hours AI wrote it (a reply or its after-hours notice).
+  is_ai?: boolean;
 }
 
 export interface Lead {

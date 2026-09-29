@@ -740,13 +740,29 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
             <div className="flex items-center gap-1.5 mb-1">
               <span className="text-sm text-gray-600">{formatShortDate(msg.sent_at)}</span>
               <span className="text-sm text-gray-600">· via {channelLabel}</span>
-              <span className="text-base font-semibold text-gray-900">You</span>
-              <Avatar className="h-8 w-8">
-                <AvatarImage src={user?.avatar} alt={user?.name || 'You'} />
-                <AvatarFallback className="bg-[#6C60FF] text-white text-sm font-bold">
-                  {getInitials(user?.name || 'You')}
-                </AvatarFallback>
-              </Avatar>
+              {msg.is_ai ? (
+                // The website widget's after-hours AI (spec 2026-09-29 part 2 §4.4): its replies and its
+                // after-hours notices carry the badge. A rep's reply takes over from it.
+                <>
+                  <span className="text-base font-semibold text-gray-900">AI assistant</span>
+                  <span data-ai-badge className="inline-flex items-center rounded-md bg-[#6C60FF]/10 px-1.5 py-0.5 text-xs font-bold tracking-wide text-[#4a40d4]">
+                    AI
+                  </span>
+                  <span className="h-8 w-8 rounded-full bg-[#6C60FF]/10 text-[#6C60FF] flex items-center justify-center" aria-hidden="true">
+                    <Sparkles className="w-4 h-4" />
+                  </span>
+                </>
+              ) : (
+                <>
+                  <span className="text-base font-semibold text-gray-900">You</span>
+                  <Avatar className="h-8 w-8">
+                    <AvatarImage src={user?.avatar} alt={user?.name || 'You'} />
+                    <AvatarFallback className="bg-[#6C60FF] text-white text-sm font-bold">
+                      {getInitials(user?.name || 'You')}
+                    </AvatarFallback>
+                  </Avatar>
+                </>
+              )}
             </div>
             {msg.subject && msg.subject !== 'Following up' && (
               <p className="text-sm font-semibold text-[#6C60FF] mb-1">{msg.subject}</p>

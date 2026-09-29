@@ -5,7 +5,7 @@ import AddPaymentMethodModal from '../components/AddPaymentMethodModal';
 import { PurchaseCreditsModal } from '../components/PurchaseCreditsModal';
 import { stripeApi, BillingHistoryItem, PaymentMethod, SubscriptionItem, ScheduledChange } from '../utils/stripeApi';
 import { authAPI, dashboardAPI } from '../utils/authUtils';
-import { aiCreditsAPI, UsageHistoryResponse, CreditPackage, CreditBalance } from '../services/aiCreditsAPI';
+import { aiCreditsAPI, UsageHistoryResponse, CreditPackage, CreditBalance, UsageOperationType, operationTypeLabel } from '../services/aiCreditsAPI';
 import { useMemoryLimit } from '../hooks/useMemoryLimit';
 import { toast } from 'sonner';
 
@@ -65,7 +65,7 @@ export default function BillingPage({ onNavigateToMemory }: BillingPageProps = {
   const [usageHistory, setUsageHistory] = useState<UsageHistoryResponse | null>(null);
   const [isLoadingUsageHistory, setIsLoadingUsageHistory] = useState(true);
   const [currentPage, setCurrentPage] = useState(1);
-  const [filterOperationType, setFilterOperationType] = useState<'ai_captions' | 'ai_memory_wizard' | undefined>(undefined);
+  const [filterOperationType, setFilterOperationType] = useState<UsageOperationType | undefined>(undefined);
 
   // AI Credit Balance data
   const [creditBalance, setCreditBalance] = useState<CreditBalance | null>(null);
@@ -357,13 +357,7 @@ export default function BillingPage({ onNavigateToMemory }: BillingPageProps = {
   };
 
   // Helper function to format operation type
-  const formatOperationType = (type: 'ai_captions' | 'ai_memory_wizard') => {
-    const typeMap = {
-      'ai_captions': 'AI Captions',
-      'ai_memory_wizard': 'Campaign Wizard'
-    };
-    return typeMap[type] || type;
-  };
+  const formatOperationType = (type: string) => operationTypeLabel(type);
 
   // Helper function to format usage date/time
   const formatUsageDateTime = (dateTimeString: string) => {
@@ -1146,6 +1140,16 @@ export default function BillingPage({ onNavigateToMemory }: BillingPageProps = {
                         >
                           Campaign Wizard
                         </button>
+                        <button
+                          onClick={() => setFilterOperationType('ai_widget_reply')}
+                          className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                            filterOperationType === 'ai_widget_reply'
+                              ? 'bg-purple-600 text-white'
+                              : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                          }`}
+                        >
+                          Widget AI reply
+                        </button>
                       </div>
                     </div>
 
@@ -1188,7 +1192,9 @@ export default function BillingPage({ onNavigateToMemory }: BillingPageProps = {
                                     <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
                                       item.operation_type === 'ai_captions'
                                         ? 'bg-blue-100 text-blue-700'
-                                        : 'bg-pink-100 text-pink-700'
+                                        : item.operation_type === 'ai_widget_reply'
+                                          ? 'bg-emerald-100 text-emerald-700'
+                                          : 'bg-pink-100 text-pink-700'
                                     }`}>
                                       {formatOperationType(item.operation_type)}
                                     </span>

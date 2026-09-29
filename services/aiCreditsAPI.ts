@@ -79,9 +79,22 @@ export interface UsageHistoryResponse {
   };
 }
 
+// operation_type values the usage history names (ai_credit_usage_logs); any other shows as stored.
+export type UsageOperationType = 'ai_captions' | 'ai_memory_wizard' | 'ai_widget_reply';
+
+export const OPERATION_TYPE_LABELS: Record<string, string> = {
+  ai_captions: 'AI Captions',
+  ai_memory_wizard: 'Campaign Wizard',
+  ai_widget_reply: 'Widget AI reply', // the website widget's after-hours AI (spec 2026-09-29 part 2 §4.4)
+};
+
+export function operationTypeLabel(type: string): string {
+  return OPERATION_TYPE_LABELS[type] || type;
+}
+
 export interface UsageItem {
   id: number;
-  operation_type: 'ai_captions' | 'ai_memory_wizard';
+  operation_type: UsageOperationType;
   credits_consumed: number;
   memory_id: number | null;
   image_id: number | null;
@@ -140,7 +153,7 @@ export const aiCreditsAPI = {
   async getUsageHistory(params?: {
     from_date?: string;
     to_date?: string;
-    operation_type?: 'ai_captions' | 'ai_memory_wizard';
+    operation_type?: UsageOperationType;
     page?: number;
     per_page?: number;
   }): Promise<UsageHistoryResponse> {
