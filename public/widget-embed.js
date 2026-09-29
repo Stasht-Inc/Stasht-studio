@@ -462,18 +462,33 @@ function removeFile(index) {
 
 const chatHeaders = () => ({ Accept: 'application/json', 'X-Widget-Chat-Token': state.token });
 
+// A synthetic id for the visitor's own message when /submit's response can't be shown as-is (an
+// older API during a deploy, or any malformed reply): never a real server id (those are positive
+// integers), so it can't collide, and it's dropped as soon as a real copy of the message arrives.
+const PLACEHOLDER_VISITOR_ID = -1;
+
 // Remembers the conversation in this browser, and when the visitor last looked at it.
 function markSeen() {
   if (state.token) writeChatToken(chatStore, widgetId, state.token);
 }
 
-// After the form: the chat starts from the visitor's own message (and any instant replies).
-function startChat(data) {
-  const list = [data.message, ...(Array.isArray(data.replies) ? data.replies : [])].map(chatMessageFrom).filter(Boolean);
+// After the form: the chat starts from the visitor's own message (and any instant replies). If
+// the server's copy of the visitor's own message isn't usable, show what they typed locally
+// anyway — landing in an empty chat with no acknowledgement of what they just sent would be worse.
+function startChat(data, sentText = '') {
+  const ownMessage = chatMessageFrom(data.message) || {
+    id: PLACEHOLDER_VISITOR_ID,
+    from: 'visitor',
+    body: sentText,
+    sentAt: new Date(),
+    attachments: [],
+    sender: null,
+  };
+  const replies = (Array.isArray(data.replies) ? data.replies : []).map(chatMessageFrom).filter(Boolean);
   state.token = data.conversation_token;
   state.phase = 'chat';
-  state.messages = mergeMessages([], list);
-  state.submittedId = list.length > 0 && list[0].from === 'visitor' ? list[0].id : null;
+  state.messages = mergeMessages([], [ownMessage, ...replies]);
+  state.submittedId = ownMessage.id;
   state.lastActivity = Date.now();
   stick = true;
   markSeen();
@@ -599,6 +614,13 @@ function applyIncoming(list) {
   const known = new Set(state.messages.map((m) => m.id));
   const fresh = (Array.isArray(list) ? list : []).map(chatMessageFrom).filter((m) => m && !known.has(m.id));
   if (!fresh.length) return false;
+  // The visitor's own message finally came back from the server (see startChat): drop the local
+  // placeholder so it isn't shown twice, and point the automatic reply at the real message instead.
+  const realOwn = fresh.find((m) => m.from === 'visitor');
+  if (realOwn && state.messages.some((m) => m.id === PLACEHOLDER_VISITOR_ID)) {
+    state.messages = state.messages.filter((m) => m.id !== PLACEHOLDER_VISITOR_ID);
+    if (state.submittedId === PLACEHOLDER_VISITOR_ID) state.submittedId = realOwn.id;
+  }
   state.messages = mergeMessages(state.messages, fresh);
   state.lastActivity = Date.now();
   if (state.open) {
@@ -694,8 +716,9 @@ async function submit(ev) {
       } else {
         state.errors = {};
         state.visitorName = v.name.trim();
+        const sentText = v.message.trim();
         state.values.message = '';
-        startChat(body.data);
+        startChat(body.data, sentText);
         focusTarget = 'chat';
       }
     }
