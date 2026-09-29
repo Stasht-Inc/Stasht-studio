@@ -4,13 +4,17 @@
 // panel becomes a live chat with the team (spec 2026-09-29): the whole conversation, a typing box
 // with a paperclip, replies picked up by polling, an unread dot on the closed launcher, and
 // returning visitors (same browser, 30 days) straight back into their chat instead of the form.
+// After hours the AI assistant answers in the same chat (spec 2026-09-29 part 2): the visitor's
+// message shows at once with a "typing…" bubble, then the AI notice, replies tagged "AI" and a card
+// for the vehicles it shares; when it can't answer, its after-hours notice looks like the auto-reply.
 import {
   safeColor, safeHttpsUrl, contrastInk, hostOrigin, clampPosition, panelWidth, panelMaxHeight, MESSAGE_MAX,
   configUrl, ROOT_PAD, formFieldsFrom, validateValues, consentText, placeholderFor, autoReplyText, initialsFrom,
   teamOnlineFrom, onlineCountText, initialsInk, DEFAULT_CALLOUT, CALLOUT_SUBTEXT, DEFAULT_WELCOME,
   CHAT_MESSAGE_MAX, CHAT_FILE_TYPES, readChatToken, writeChatToken, clearChatToken, messagesUrl, chatMessageFrom,
   mergeMessages, lastMessageId, acceptChatFiles, chatSendProblem, nextPollDelay, backoffDelay, hasUnreadTeamMessage,
-  autoReplyAnchor, firstServerError, chatOpenHeaderValue,
+  autoReplyAnchor, firstServerError, chatOpenHeaderValue, CHAT_MAX_FILES,
+  TYPING_DELAY_MS, AI_NOTICE, aiNoticeBefore, campaignCardText, bodyWithoutLink,
 } from './widget-core.js';
 
 const params = new URLSearchParams(location.search);
@@ -51,6 +55,11 @@ const state = {
   chatSending: false,
   unread: false,
   lastActivity: 0, // ms of the last message either way; closed-panel checks stop an hour after it
+  // After-hours AI (spec part 2)
+  pending: null, // { text, files }: the visitor's message on its way, shown at once
+  typing: false, // the "typing…" bubble while a send takes more than a moment
+  provisional: false, // the form's first message shown as the chat before /submit answers
+  autoReplyOff: false, // /submit came back with replies (the AI or its notice): no static auto-reply
 };
 
 // The shown fields, in order (set once the config loads).
@@ -105,6 +114,11 @@ const sendIcon = () => icon([
 ]);
 const fileIcon = () => icon(['M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z', 'M14 2v4a2 2 0 0 0 2 2h4', 'M16 13H8', 'M16 17H8', 'M10 9H8']);
 const userIcon = () => icon(['M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2', 'M16 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0']);
+const carIcon = () => icon([
+  'M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1.1.4-1.4.9l-1.4 2.9A3.7 3.7 0 0 0 2 12v4c0 .6.4 1 1 1h2',
+  'M5 17a2 2 0 1 0 4 0a2 2 0 1 0 -4 0', 'M9 17h6', 'M15 17a2 2 0 1 0 4 0a2 2 0 1 0 -4 0',
+]);
+const chevronIcon = () => icon(['m9 18 6-6-6-6']);
 
 // Measured synchronously: the iframe starts hidden/0x0 and browsers may defer
 // requestAnimationFrame there, which would mean the first resize is never sent.
@@ -326,35 +340,85 @@ function onLogScroll(ev) {
 }
 
 function logRows() {
-  const anchor = autoReplyAnchor(state.messages, state.submittedId);
+  const anchor = autoReplyAnchor(state.messages, state.submittedId, state.autoReplyOff);
+  const notices = aiNoticeBefore(state.messages);
   const rows = [];
   for (const m of state.messages) {
+    if (notices.has(m.id)) rows.push(aiNoticeRow());
     rows.push(messageRow(m));
     if (m.id === anchor) rows.push(botRow(autoReplyText(state.visitorName), m.sentAt ? clock(m.sentAt) : null));
   }
+  if (state.pending) rows.push(pendingRow(state.pending));
+  if (state.typing) rows.push(typingRow());
   return rows;
 }
 
 function messageRow(m) {
   const time = m.sentAt ? clock(m.sentAt) : '';
-  const content = [
-    m.body.trim() !== '' && h('div', { class: 'bubble' }, m.body),
-    m.attachments.length > 0 && h('div', { class: 'atts' }, m.attachments.map(attachmentView)),
-  ];
 
   if (m.from === 'visitor') {
     return h('div', { class: 'row me' },
-      h('div', { class: 'stack' }, content, time && h('span', { class: 'time' }, time)),
+      h('div', { class: 'stack' },
+        m.body.trim() !== '' && h('div', { class: 'bubble' }, m.body),
+        m.attachments.length > 0 && h('div', { class: 'atts' }, m.attachments.map(attachmentView)),
+        time && h('span', { class: 'time' }, time)),
       h('span', { class: 'mini', 'aria-hidden': 'true' }, state.visitorName ? initialsFrom(state.visitorName) : userIcon()));
   }
 
+  // The after-hours notice ("… will reply when we open …") looks like the embed's own automatic reply.
+  if (m.autoReply) return botRow(m.body, time || null);
+
   // Team: the rep's first name and photo (or initials on their colour). Messages without a Stasht
-  // sender use the widget's agent picture and name.
+  // sender (the AI assistant) use the widget's agent picture and name; AI replies carry an "AI" tag
+  // and, when the AI shared vehicles, a campaign card under the text (which then drops the raw link).
   const who = m.sender ? m.sender.name : (state.config.agent_name || '');
-  const meta = [who, time].filter(Boolean).join(' · ');
+  const text = m.campaign ? bodyWithoutLink(m.body, m.campaign.linkText) : m.body;
+  const meta = [who, m.isAi && h('span', { class: 'ai-tag' }, 'AI'), (who || m.isAi) && time && ' · ', time].filter(Boolean);
   return h('div', { class: 'row bot' },
     m.sender ? personMini(m.sender) : h('span', { class: 'mini' }, agentPicture('')),
-    h('div', { class: 'stack' }, content, meta && h('span', { class: 'time' }, meta)));
+    h('div', { class: 'stack' },
+      text.trim() !== '' && h('div', { class: 'bubble' }, text),
+      m.campaign && campaignCard(m.campaign),
+      m.attachments.length > 0 && h('div', { class: 'atts' }, m.attachments.map(attachmentView)),
+      meta.length > 0 && h('span', { class: 'time' }, meta)));
+}
+
+// The AI disclosure before each run of AI replies (spec part 2 §3). Drawn here, never stored.
+function aiNoticeRow() {
+  return h('div', { class: 'sys', role: 'note' }, AI_NOTICE);
+}
+
+// The vehicles the AI shared: a card under its reply, opening the campaign in a new tab.
+function campaignCard(c) {
+  return h('a', { class: 'camp', href: c.url, target: '_blank', rel: 'noopener noreferrer' },
+    h('span', { class: 'camp-icon', 'aria-hidden': 'true' }, carIcon()),
+    h('span', { class: 'camp-text' },
+      h('span', { class: 'camp-title' }, c.title),
+      h('span', { class: 'camp-cta' }, campaignCardText(c.vehicles))),
+    h('span', { class: 'camp-go', 'aria-hidden': 'true' }, chevronIcon()));
+}
+
+// The visitor's message on its way: shown at once (after hours the AI answers inside the request).
+function pendingRow(p) {
+  const files = p.files.map((item) => (item.previewUrl
+    ? h('span', { class: 'att-img' }, h('img', { src: item.previewUrl, alt: item.file.name }))
+    : h('span', { class: 'att-file' }, h('span', { class: 'ficon' }, fileIcon()), h('span', { class: 'fname' }, item.file.name))));
+  return h('div', { class: 'row me pending' },
+    h('div', { class: 'stack' },
+      p.text && h('div', { class: 'bubble' }, p.text),
+      files.length > 0 && h('div', { class: 'atts' }, files),
+      h('span', { class: 'time' }, 'Sending…')),
+    h('span', { class: 'mini', 'aria-hidden': 'true' }, state.visitorName ? initialsFrom(state.visitorName) : userIcon()));
+}
+
+// "typing…" while the reply is written.
+function typingRow() {
+  const who = state.config.agent_name || 'The team';
+  return h('div', { class: 'row bot' },
+    h('span', { class: 'mini' }, agentPicture('')),
+    h('div', { class: 'stack' },
+      h('div', { class: 'bubble typing', role: 'status', 'aria-label': `${who} is typing` },
+        h('span', { class: 'tdot' }), h('span', { class: 'tdot' }), h('span', { class: 'tdot' }))));
 }
 
 function personMini(person) {
@@ -386,13 +450,13 @@ function composer() {
     state.files.length > 0 && h('div', { class: 'queue' }, state.files.map(chip)),
     h('div', { class: 'bar' },
       h('button', {
-        id: 'c-attach', class: 'clip', type: 'button', 'aria-label': 'Attach a photo or PDF', disabled: state.chatSending,
+        id: 'c-attach', class: 'clip', type: 'button', 'aria-label': 'Attach a photo or PDF', disabled: state.chatSending || state.provisional,
         onclick: () => document.getElementById('c-file')?.click(),
       }, clipIcon()),
       h('input', { id: 'c-file', type: 'file', accept: CHAT_FILE_TYPES.join(','), multiple: true, hidden: true, onchange: onFilesPicked }),
       h('textarea', {
         id: 'c-input', rows: 1, maxlength: CHAT_MESSAGE_MAX, placeholder: 'Type a message…', 'aria-label': 'Message',
-        oninput: onDraftInput, onkeydown: onDraftKey,
+        disabled: state.provisional, oninput: onDraftInput, onkeydown: onDraftKey,
       }, state.draft),
       h('button', { id: 'c-send', class: 'sendbtn', type: 'button', 'aria-label': 'Send', disabled: !canSendChat(), onclick: sendChat }, sendIcon())),
     state.chatError && h('div', { class: 'err', role: 'alert' }, state.chatError));
@@ -406,7 +470,7 @@ function chip(item, index) {
     h('button', { class: 'x', type: 'button', 'aria-label': `Remove ${item.file.name}`, onclick: () => removeFile(index) }, '×'));
 }
 
-const canSendChat = () => !state.chatSending && chatSendProblem(state.draft, state.files.length) === null;
+const canSendChat = () => !state.chatSending && !state.provisional && chatSendProblem(state.draft, state.files.length) === null;
 
 function growInput() {
   const input = document.getElementById('c-input');
@@ -493,6 +557,8 @@ function startChat(data, sentText = '') {
   state.phase = 'chat';
   state.messages = mergeMessages([], [ownMessage, ...replies]);
   state.submittedId = ownMessage.id;
+  // After hours the server answered at once (the AI, or its after-hours notice): no static auto-reply.
+  state.autoReplyOff = replies.length > 0;
   state.lastActivity = Date.now();
   stick = true;
   markSeen();
@@ -505,16 +571,18 @@ function conversationGone() {
   clearChatToken(chatStore, widgetId);
   clearTimeout(pollTimer);
   pollTimer = null;
+  stopTyping();
   if (state.draft.trim()) state.values.message = state.draft.trim().slice(0, MESSAGE_MAX);
   state.files.forEach(releaseFile);
   Object.assign(state, {
     token: null, messages: [], submittedId: null, phase: 'form', draft: '', files: [], chatError: '', chatSending: false, unread: false,
+    pending: null, provisional: false, autoReplyOff: false,
   });
   render();
 }
 
 async function sendChat() {
-  if (state.chatSending || state.phase !== 'chat') return;
+  if (state.chatSending || state.provisional || state.phase !== 'chat') return;
   const problem = chatSendProblem(state.draft, state.files.length);
   if (problem) {
     state.chatError = problem;
@@ -527,13 +595,20 @@ async function sendChat() {
   if (text) body.append('body', text);
   for (const item of state.files) body.append('files[]', item.file, item.file.name);
 
+  // Shown at once: after hours the AI's reply is written inside this request (a few seconds).
+  state.pending = { text, files: state.files };
+  state.draft = '';
+  state.files = [];
   state.chatSending = true;
   state.chatError = '';
+  stick = true;
   render();
+  startTyping();
   let sent = false;
   try {
     const res = await fetch(messagesUrl(API, widgetId), { method: 'POST', headers: chatHeaders(true), body });
     if (res.status === 404) {
+      restorePending();
       conversationGone();
       return;
     }
@@ -547,9 +622,8 @@ async function sendChat() {
     } else {
       const incoming = [json.data.message, ...(Array.isArray(json.data.replies) ? json.data.replies : [])];
       state.messages = mergeMessages(state.messages, incoming.map(chatMessageFrom).filter(Boolean));
-      state.draft = '';
-      state.files.forEach(releaseFile);
-      state.files = [];
+      state.pending.files.forEach(releaseFile);
+      state.pending = null;
       state.lastActivity = Date.now();
       stick = true;
       markSeen();
@@ -558,6 +632,8 @@ async function sendChat() {
   } catch {
     state.chatError = 'Could not reach the server. Check your connection and try again.';
   } finally {
+    stopTyping();
+    restorePending(); // nothing went out: the text and files go back into the typing box
     state.chatSending = false;
     if (state.phase === 'chat') {
       render();
@@ -565,6 +641,45 @@ async function sendChat() {
       schedulePoll();
     }
   }
+}
+
+// A send that didn't go out: its text and files go back into the typing box, before anything
+// typed meanwhile.
+function restorePending() {
+  const p = state.pending;
+  if (!p) return;
+  state.pending = null;
+  state.draft = [p.text, state.draft.trim()].filter(Boolean).join('\n');
+  state.files = p.files.concat(state.files).slice(0, CHAT_MAX_FILES);
+}
+
+// "typing…" once a send takes longer than TYPING_DELAY_MS. For the form's first message the panel
+// also turns into the chat right away (with that message) instead of waiting on "Sending…".
+let typingTimer = null;
+
+function startTyping() {
+  clearTimeout(typingTimer);
+  typingTimer = setTimeout(() => {
+    typingTimer = null;
+    if (state.phase === 'form') {
+      if (!state.sending) return;
+      state.phase = 'chat';
+      state.provisional = true;
+      state.typing = true;
+      stick = true;
+      render();
+      return;
+    }
+    state.typing = true;
+    stick = true;
+    refreshChat();
+  }, TYPING_DELAY_MS);
+}
+
+function stopTyping() {
+  clearTimeout(typingTimer);
+  typingTimer = null;
+  state.typing = false;
 }
 
 // Checking for replies (spec §2): every 3 s open; every 15 s closed for up to 60 min after the
@@ -587,7 +702,8 @@ function schedulePoll(immediately = false) {
 }
 
 async function poll() {
-  if (polling || state.phase !== 'chat' || !state.token) return;
+  // While a send is out, its response brings the new messages (and the AI's reply); sendChat reschedules.
+  if (polling || state.chatSending || state.phase !== 'chat' || !state.token) return;
   polling = true;
   try {
     for (;;) {
@@ -683,7 +799,12 @@ async function submit(ev) {
   }
 
   state.sending = true;
+  // If /submit takes more than a moment (after hours the AI's first reply is written inside it),
+  // the panel becomes the chat with this message and a "typing…" bubble (startTyping).
+  state.visitorName = v.name.trim();
+  state.pending = { text: v.message.trim(), files: [] };
   render();
+  startTyping();
   let focusTarget = null; // 'errors' | 'send' | 'chat'
   try {
     const res = await fetch(`${API}/widgets/${encodeURIComponent(widgetId)}/submit`, {
@@ -730,6 +851,12 @@ async function submit(ev) {
     state.errors = { form: 'Could not reach the server. Check your connection and try again.' };
     focusTarget = 'send';
   } finally {
+    stopTyping();
+    state.pending = null;
+    if (state.provisional) {
+      state.provisional = false;
+      if (!state.token) state.phase = 'form'; // it didn't go through: back to the form, with its errors
+    }
     state.sending = false;
     render();
     if (focusTarget === 'errors') focusFirstError();
