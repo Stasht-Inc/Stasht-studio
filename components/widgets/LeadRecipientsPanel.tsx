@@ -3,8 +3,10 @@
 // in ContactWidgetManager's preview column under "This is how visitors will see the widget on
 // your site." Ticking/unticking a row only edits WidgetBuilder's form.excludedRecipients; the
 // builder sends that as excluded_recipients on save, following its existing dirty-state pattern —
-// this component holds no state of its own.
-import { Check } from 'lucide-react';
+// this component holds no state of its own (its only local state is per-avatar broken-image
+// tracking, below).
+import { useEffect, useState } from 'react';
+import { Check, Loader2 } from 'lucide-react';
 import type { LeadRecipient, LeadRecipientRole } from '../../services/widgetsAPI';
 import { contrastInk, safeColor, safeHttpsUrl } from './widgetHelpers';
 
@@ -17,19 +19,18 @@ const ROLE_LABELS: Record<LeadRecipientRole, string> = {
   rep: 'Rep',
 };
 
-// Deep components navigate via this event (see InviteToMemoryModal's billing-upgrade link);
-// App.tsx's 'app-navigate' listener calls handleNavigation(detail) with the page key.
-function goToUsersTab() {
-  window.dispatchEvent(new CustomEvent('app-navigate', { detail: 'users' }));
-}
-
 function RecipientAvatar({ recipient }: { recipient: LeadRecipient }) {
   const photo = safeHttpsUrl(recipient.avatar_url);
+  const [broken, setBroken] = useState(false);
+  // A row can be re-rendered in place (same key, new photo) after a save; don't keep an old
+  // broken-image flag pinned once the underlying URL actually changes.
+  useEffect(() => { setBroken(false); }, [photo]);
   const color = safeColor(recipient.color, '#6C60FF');
+  const showPhoto = !!photo && !broken;
   return (
     <span className="w-8 h-8 rounded-full overflow-hidden shrink-0 bg-white border border-gray-100" aria-hidden="true">
-      {photo ? (
-        <img src={photo} alt="" className="w-full h-full object-cover" />
+      {showPhoto ? (
+        <img src={photo!} alt="" className="w-full h-full object-cover" onError={() => setBroken(true)} />
       ) : (
         <span
           className="w-full h-full flex items-center justify-center text-[11px] font-semibold"
@@ -90,16 +91,23 @@ function RecipientRow({
 }
 
 export function LeadRecipientsPanel({
-  saved,
+  hasWidget,
   recipients,
+  loading,
+  loadError,
   excludedRecipients,
   onToggle,
+  onInviteAdmin,
 }: {
   // Whether the widget has been saved at least once; an unsaved widget has no recipients yet.
-  saved: boolean;
+  hasWidget: boolean;
+  // undefined while loading/not yet fetched; an array (possibly just the owner row) once loaded.
   recipients?: LeadRecipient[];
+  loading: boolean;
+  loadError: boolean;
   excludedRecipients: string[];
   onToggle: (key: string, connected: boolean) => void;
+  onInviteAdmin: () => void;
 }) {
   const excludedSet = new Set(excludedRecipients);
   const rows = recipients || [];
@@ -112,8 +120,14 @@ export function LeadRecipientsPanel({
         Ticked people get an email for every new lead and reply. Partial Admins can see these leads, and team members can accept them.
       </p>
 
-      {!saved ? (
+      {!hasWidget ? (
         <p className="text-sm text-gray-500 mt-3">Save the widget to choose who gets its leads.</p>
+      ) : loading ? (
+        <p className="text-sm text-gray-500 mt-3 flex items-center gap-2" role="status">
+          <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" /> Loading...
+        </p>
+      ) : loadError || !recipients ? (
+        <p className="text-sm text-gray-500 mt-3">Couldn't load who gets this widget's leads. Reopen this widget to try again.</p>
       ) : (
         <>
           <ul className="mt-3 divide-y divide-gray-100">
@@ -126,7 +140,7 @@ export function LeadRecipientsPanel({
           )}
           <button
             type="button"
-            onClick={goToUsersTab}
+            onClick={onInviteAdmin}
             className="mt-3 text-sm font-semibold hover:underline"
             style={{ color: '#5A4FE5' }}
           >
