@@ -255,6 +255,8 @@ function WidgetBuilder({
   // Guards the fetch-resolution handler from clobbering a tick/untick the user made in the brief
   // window before the GET resolved.
   const recipientsEditedRef = useRef(false);
+  // Set once a save succeeds; the opening GET is then older than what the save returned.
+  const savedSinceOpenRef = useRef(false);
 
   const onAvatarPicked = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -326,6 +328,8 @@ function WidgetBuilder({
         setRecipientsError(true);
         return;
       }
+      // A save that landed first already brought fresher recipients; this older read would revert them.
+      if (savedSinceOpenRef.current) return;
       const recipients = res.data.lead_recipients;
       setSaved((prev) => (prev ? { ...prev, lead_recipients: recipients } : res.data));
       if (!recipientsEditedRef.current) set('excludedRecipients', excludedKeysFrom(recipients));
@@ -400,6 +404,7 @@ function WidgetBuilder({
     }
 
     const created = !saved;
+    savedSinceOpenRef.current = true;
     setSaved(res.data);
     setForm(formFromWidget(res.data));
     setDomainInput('');
