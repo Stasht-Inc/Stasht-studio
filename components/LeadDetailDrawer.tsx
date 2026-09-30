@@ -1350,8 +1350,8 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
                   intermediate menu. Same action the mobile app's "+" reaches on SMS threads. */}
               <button
                 onClick={() => setShowShareCars(true)}
-                title="Share new cars"
-                aria-label="Share new cars"
+                title="Share a campaign"
+                aria-label="Share a campaign"
                 className="flex items-center gap-1.5 h-10 px-4 rounded-lg bg-purple-50 hover:bg-purple-100 text-[#5A4FE5] text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#6C60FF]"
               >
                 <Plus className="w-4 h-4" aria-hidden="true" />
