@@ -14,6 +14,7 @@ import { InstallGuide } from './InstallGuide';
 import { InstallStatusLine } from './InstallStatus';
 import { AfterHoursSettings } from './AfterHoursSettings';
 import type { AfterHoursValue } from './AfterHoursSettings';
+import { LeadRecipientsPanel } from './LeadRecipientsPanel';
 import { FieldError, SelectField, errorInputClass, inputClass } from './builderFields';
 import {
   DEFAULT_BRAND, DEFAULT_CALLOUT, DEFAULT_WELCOME, DEFAULT_FORM_FIELD_SETTINGS, FORM_FIELD_KEYS, FORM_FIELD_LABEL_MAX, FORM_FIELD_NAMES, WELCOME_MAX, copyText,
@@ -50,6 +51,9 @@ interface FormState extends AfterHoursValue {
   status: WidgetStatus;
   formFields: FormFieldSettings;
   propertyId: number | null; // the dealership whose team takes over leads; null = only the owner
+  // Keys of unticked, unlocked "who gets this widget's leads" rows (spec 2026-09-30). Starts from
+  // the widget's last-saved lead_recipients and is edited only by the panel's checkboxes.
+  excludedRecipients: string[];
 }
 
 const emptyForm: FormState = {
@@ -64,6 +68,7 @@ const emptyForm: FormState = {
   status: 'draft',
   formFields: resolveFormFields(null),
   propertyId: null,
+  excludedRecipients: [],
   hoursOn: false,
   hours: DEFAULT_WEEK_HOURS,
   timezone: '',
@@ -85,6 +90,7 @@ function formFromWidget(w: ContactWidget): FormState {
     status: w.status || 'draft',
     formFields: resolveFormFields(w.form_fields),
     propertyId: w.property_id ?? null,
+    excludedRecipients: (w.lead_recipients || []).filter((r) => !r.locked && !r.connected).map((r) => r.key),
     hoursOn: week !== null,
     hours: week ?? DEFAULT_WEEK_HOURS,
     timezone: w.timezone || '',
@@ -94,9 +100,12 @@ function formFromWidget(w: ContactWidget): FormState {
 }
 
 // withTeam: only send property_id when the owner has dealerships to choose from.
-function inputFromForm(f: FormState, domains: string[], withTeam: boolean): ContactWidgetInput {
+// withRecipients: only an existing widget has lead_recipients rows to exclude/include; a create
+// has none yet, so the field is left out rather than sent as [].
+function inputFromForm(f: FormState, domains: string[], withTeam: boolean, withRecipients: boolean): ContactWidgetInput {
   return {
     ...(withTeam ? { property_id: f.propertyId } : {}),
+    ...(withRecipients ? { excluded_recipients: f.excludedRecipients } : {}),
     name: f.name.trim(),
     status: f.status,
     agent_name: f.agentName.trim(),
@@ -279,6 +288,7 @@ function WidgetBuilder({
         name: 'name', agentName: 'agent_name', calloutText: 'callout_text', welcomeSubtext: 'welcome_subtext',
         primaryColor: 'theme.primary_color', logoUrl: 'theme.logo_url', position: 'theme.bubble_position',
         domains: 'allowed_domains', status: 'status', formFields: 'form_fields', propertyId: 'property_id',
+        excludedRecipients: 'excluded_recipients',
         hoursOn: 'business_hours', hours: 'business_hours', timezone: 'timezone', aiEnabled: 'ai_enabled', aiNotes: 'faq_notes',
       };
       if (!e[map[key]]) return e;
@@ -340,7 +350,7 @@ function WidgetBuilder({
     }
 
     setSaving(true);
-    const payload = inputFromForm(form, domains, propertyId != null || teamOptions.length > 0);
+    const payload = inputFromForm(form, domains, propertyId != null || teamOptions.length > 0, !!saved);
     const res = saved ? await widgetsAPI.update(saved.id, payload) : await widgetsAPI.create(payload);
     setSaving(false);
 
@@ -395,6 +405,16 @@ function WidgetBuilder({
 
   const setAfterHours = (patch: Partial<AfterHoursValue>) => {
     (Object.keys(patch) as (keyof AfterHoursValue)[]).forEach((key) => set(key, patch[key] as FormState[typeof key]));
+  };
+
+  // connected=true (ticked) drops the key from the excluded list; connected=false (unticked) adds it.
+  const toggleRecipient = (key: string, connected: boolean) => {
+    set(
+      'excludedRecipients',
+      connected
+        ? form.excludedRecipients.filter((k) => k !== key)
+        : form.excludedRecipients.includes(key) ? form.excludedRecipients : [...form.excludedRecipients, key],
+    );
   };
 
   const busy = saving || deleting;
@@ -871,6 +891,13 @@ function WidgetBuilder({
               </div>
               <p className="text-xs text-gray-400 mt-2">This is how visitors will see the widget on your site.</p>
             </div>
+
+            <LeadRecipientsPanel
+              saved={!!saved}
+              recipients={saved?.lead_recipients}
+              excludedRecipients={form.excludedRecipients}
+              onToggle={toggleRecipient}
+            />
 
           </div>
         </div>

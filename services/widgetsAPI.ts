@@ -34,6 +34,22 @@ export interface WidgetInstall {
   last_seen_at: string | null;
 }
 
+// "Who gets this widget's leads" (spec 2026-09-30). Order from the API: owner, then Admins, then
+// Partial Admins, then the property team (owner/admins/reps mixed), each group by name.
+export type LeadRecipientRole = 'owner' | 'admin' | 'partial_admin' | 'property_owner' | 'property_admin' | 'rep';
+
+export interface LeadRecipient {
+  key: string; // 'u:<external_user_id>' (has an account) or 'e:<lowercased email>' (invited, no account)
+  name: string;
+  email: string | null; // lowercased; null only if an account has no email
+  avatar_url: string | null; // https:// photo or null
+  initials: string;
+  color: string; // always '#rrggbb'
+  role: LeadRecipientRole;
+  connected: boolean;
+  locked: boolean; // true only for the owner row (always connected, can't be unticked)
+}
+
 export interface ContactWidget {
   id: string; // 'w_' + 10 chars, used directly in the embed snippet
   name: string;
@@ -57,6 +73,8 @@ export interface ContactWidget {
   timezone?: string | null; // IANA name
   faq_notes?: string | null; // "Notes for the AI"
   ai_enabled?: boolean;
+  // "Who gets this widget's leads"; absent from the list endpoint and from older API builds.
+  lead_recipients?: LeadRecipient[];
 }
 
 // A dealership a widget's leads can go to (GET /widgets team_options).
@@ -80,6 +98,8 @@ export interface ContactWidgetInput {
   timezone?: string | null;
   faq_notes?: string | null;
   ai_enabled?: boolean;
+  // Keys of unticked, unlocked lead_recipients rows. [] = everyone ticked; omit = no change.
+  excluded_recipients?: string[];
 }
 
 // Server bodies are {success, data}. apiRequest wraps a successful body as
