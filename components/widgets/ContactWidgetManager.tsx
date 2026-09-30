@@ -4,7 +4,7 @@ import { ArrowLeft, Camera, Check, Code2, Copy, Loader2, MessageSquare, Pencil, 
 import { toast } from 'sonner';
 import { widgetsAPI } from '../../services/widgetsAPI';
 import type {
-  ContactWidget, ContactWidgetInput, FormFieldKey, FormFieldSetting, FormFieldSettings, WidgetBubblePosition, WidgetStatus,
+  ContactWidget, ContactWidgetInput, FormFieldKey, FormFieldSetting, FormFieldSettings, LeadRecipient, WidgetBubblePosition, WidgetStatus,
   WidgetTeamOption,
 } from '../../services/widgetsAPI';
 import { useAuth } from '../../contexts/AuthContext';
@@ -14,6 +14,7 @@ import { InstallGuide } from './InstallGuide';
 import { InstallStatusLine } from './InstallStatus';
 import { AfterHoursSettings } from './AfterHoursSettings';
 import type { AfterHoursValue } from './AfterHoursSettings';
+import { LeadRecipientsPanel } from './LeadRecipientsPanel';
 import { FieldError, SelectField, errorInputClass, inputClass } from './builderFields';
 import {
   DEFAULT_BRAND, DEFAULT_CALLOUT, DEFAULT_WELCOME, DEFAULT_FORM_FIELD_SETTINGS, FORM_FIELD_KEYS, FORM_FIELD_LABEL_MAX, FORM_FIELD_NAMES, WELCOME_MAX, copyText,
@@ -50,6 +51,9 @@ interface FormState extends AfterHoursValue {
   status: WidgetStatus;
   formFields: FormFieldSettings;
   propertyId: number | null; // the dealership whose team takes over leads; null = only the owner
+  // Keys of unticked, unlocked "who gets this widget's leads" rows (spec 2026-09-30). Starts from
+  // the widget's last-saved lead_recipients and is edited only by the panel's checkboxes.
+  excludedRecipients: string[];
 }
 
 const emptyForm: FormState = {
@@ -64,12 +68,20 @@ const emptyForm: FormState = {
   status: 'draft',
   formFields: resolveFormFields(null),
   propertyId: null,
+  excludedRecipients: [],
   hoursOn: false,
   hours: DEFAULT_WEEK_HOURS,
   timezone: '',
   aiEnabled: false,
   aiNotes: '',
 };
+
+// Keys of unticked, unlocked rows — undefined recipients (not yet loaded) means "don't know", not
+// "nobody excluded", so callers must not treat its [] result as safe to send unless recipients
+// was actually loaded (see the `withRecipients` guard in inputFromForm's call site).
+function excludedKeysFrom(recipients?: LeadRecipient[]): string[] {
+  return (recipients || []).filter((r) => !r.locked && !r.connected).map((r) => r.key);
+}
 
 function formFromWidget(w: ContactWidget): FormState {
   const week = weekFromApi(w.business_hours);
@@ -85,6 +97,7 @@ function formFromWidget(w: ContactWidget): FormState {
     status: w.status || 'draft',
     formFields: resolveFormFields(w.form_fields),
     propertyId: w.property_id ?? null,
+    excludedRecipients: excludedKeysFrom(w.lead_recipients),
     hoursOn: week !== null,
     hours: week ?? DEFAULT_WEEK_HOURS,
     timezone: w.timezone || '',
@@ -94,9 +107,13 @@ function formFromWidget(w: ContactWidget): FormState {
 }
 
 // withTeam: only send property_id when the owner has dealerships to choose from.
-function inputFromForm(f: FormState, domains: string[], withTeam: boolean): ContactWidgetInput {
+// withRecipients: true only once lead_recipients has actually been loaded for this widget (the
+// widget list/index response doesn't include it). Absent data must never be sent as "everyone
+// ticked" — that would silently clear whatever the owner had already unticked.
+function inputFromForm(f: FormState, domains: string[], withTeam: boolean, withRecipients: boolean): ContactWidgetInput {
   return {
     ...(withTeam ? { property_id: f.propertyId } : {}),
+    ...(withRecipients ? { excluded_recipients: f.excludedRecipients } : {}),
     name: f.name.trim(),
     status: f.status,
     agent_name: f.agentName.trim(),
@@ -229,6 +246,18 @@ function WidgetBuilder({
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const avatarInput = useRef<HTMLInputElement>(null);
 
+  // The widget list/builder-open object comes from the index endpoint, which doesn't include
+  // lead_recipients (it's per-widget: show/update only). Fetch the full widget once so the panel
+  // has real data and excluded_recipients is never computed from an empty/missing list — see
+  // widgetsAPI.get usage in InstallGuide.tsx for the same "list is thin, fetch the full one" shape.
+  const [recipientsLoading, setRecipientsLoading] = useState(!!widget);
+  const [recipientsError, setRecipientsError] = useState(false);
+  // Guards the fetch-resolution handler from clobbering a tick/untick the user made in the brief
+  // window before the GET resolved.
+  const recipientsEditedRef = useRef(false);
+  // Set once a save succeeds; the opening GET is then older than what the save returned.
+  const savedSinceOpenRef = useRef(false);
+
   const onAvatarPicked = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = ''; // allow picking the same file again
@@ -279,6 +308,7 @@ function WidgetBuilder({
         name: 'name', agentName: 'agent_name', calloutText: 'callout_text', welcomeSubtext: 'welcome_subtext',
         primaryColor: 'theme.primary_color', logoUrl: 'theme.logo_url', position: 'theme.bubble_position',
         domains: 'allowed_domains', status: 'status', formFields: 'form_fields', propertyId: 'property_id',
+        excludedRecipients: 'excluded_recipients',
         hoursOn: 'business_hours', hours: 'business_hours', timezone: 'timezone', aiEnabled: 'ai_enabled', aiNotes: 'faq_notes',
       };
       if (!e[map[key]]) return e;
@@ -286,6 +316,28 @@ function WidgetBuilder({
       return rest;
     });
   };
+
+  useEffect(() => {
+    if (!widget) return;
+    let cancelled = false;
+    (async () => {
+      const res = await widgetsAPI.get(widget.id);
+      if (cancelled) return;
+      setRecipientsLoading(false);
+      if (!res.ok || !res.data) {
+        setRecipientsError(true);
+        return;
+      }
+      // A save that landed first already brought fresher recipients; this older read would revert them.
+      if (savedSinceOpenRef.current) return;
+      const recipients = res.data.lead_recipients;
+      setSaved((prev) => (prev ? { ...prev, lead_recipients: recipients } : res.data));
+      if (!recipientsEditedRef.current) set('excludedRecipients', excludedKeysFrom(recipients));
+    })();
+    return () => { cancelled = true; };
+    // Runs once: this builder instance is remounted (fresh `key`) whenever a different widget opens.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Returns the domain list including anything typed but not yet added; null if the pending text is invalid.
   const addDomain = (raw: string, current: string[]): string[] | null => {
@@ -340,7 +392,7 @@ function WidgetBuilder({
     }
 
     setSaving(true);
-    const payload = inputFromForm(form, domains, propertyId != null || teamOptions.length > 0);
+    const payload = inputFromForm(form, domains, propertyId != null || teamOptions.length > 0, !!saved?.lead_recipients);
     const res = saved ? await widgetsAPI.update(saved.id, payload) : await widgetsAPI.create(payload);
     setSaving(false);
 
@@ -352,6 +404,7 @@ function WidgetBuilder({
     }
 
     const created = !saved;
+    savedSinceOpenRef.current = true;
     setSaved(res.data);
     setForm(formFromWidget(res.data));
     setDomainInput('');
@@ -395,6 +448,24 @@ function WidgetBuilder({
 
   const setAfterHours = (patch: Partial<AfterHoursValue>) => {
     (Object.keys(patch) as (keyof AfterHoursValue)[]).forEach((key) => set(key, patch[key] as FormState[typeof key]));
+  };
+
+  // connected=true (ticked) drops the key from the excluded list; connected=false (unticked) adds it.
+  const toggleRecipient = (key: string, connected: boolean) => {
+    recipientsEditedRef.current = true;
+    set(
+      'excludedRecipients',
+      connected
+        ? form.excludedRecipients.filter((k) => k !== key)
+        : form.excludedRecipients.includes(key) ? form.excludedRecipients : [...form.excludedRecipients, key],
+    );
+  };
+
+  // "Invite admin" leaves the builder for the Users tab; gate it behind the same unsaved-changes
+  // confirmation as every other way out of this form (Back, delete, closing the modal).
+  const inviteAdmin = () => {
+    if (dirty && !window.confirm('You have unsaved changes. Discard them?')) return;
+    window.dispatchEvent(new CustomEvent('app-navigate', { detail: 'users' }));
   };
 
   const busy = saving || deleting;
@@ -871,6 +942,16 @@ function WidgetBuilder({
               </div>
               <p className="text-xs text-gray-400 mt-2">This is how visitors will see the widget on your site.</p>
             </div>
+
+            <LeadRecipientsPanel
+              hasWidget={!!saved}
+              recipients={saved?.lead_recipients}
+              loading={recipientsLoading}
+              loadError={recipientsError}
+              excludedRecipients={form.excludedRecipients}
+              onToggle={toggleRecipient}
+              onInviteAdmin={inviteAdmin}
+            />
 
           </div>
         </div>
