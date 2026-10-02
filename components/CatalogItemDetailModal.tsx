@@ -75,7 +75,7 @@ export default function CatalogItemDetailModal({ itemId, onClose }: CatalogItemD
                   <div className="mt-2 flex gap-2 overflow-x-auto pb-1">
                     {photos.map((url, i) => (
                       <button
-                        key={url}
+                        key={`${i}-${url}`}
                         type="button"
                         onClick={() => setActivePhoto(i)}
                         aria-label={`Show photo ${i + 1}`}
@@ -116,7 +116,7 @@ export default function CatalogItemDetailModal({ itemId, onClose }: CatalogItemD
           )}
         </div>
 
-        {item?.url && (
+        {item?.url && /^https?:\/\//i.test(item.url) && (
           <div className="border-t border-gray-100 px-6 py-4">
             <a
               href={item.url}
