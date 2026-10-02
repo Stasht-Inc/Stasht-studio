@@ -877,6 +877,8 @@ function WidgetBuilder({
               value={{ hoursOn: form.hoursOn, hours: form.hours, timezone: form.timezone, aiEnabled: form.aiEnabled, aiNotes: form.aiNotes }}
               onChange={setAfterHours}
               errors={errors}
+              publicId={saved?.id ?? null}
+              firstDomain={form.domains[0]}
             />
 
             {/* Submit on Enter from single-line inputs */}
