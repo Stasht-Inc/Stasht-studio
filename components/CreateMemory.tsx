@@ -9,6 +9,7 @@ import GooglePlacesInput from './ui/google-places-input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import * as Popover from '@radix-ui/react-popover';
 import { dashboardAPI, getApiBaseUrl } from '../utils/authUtils';
+import { loadCatalogueForBrowsing } from '../services/catalogueAPI';
 import exifr from 'exifr';
 import { getCategoryColor } from '../constants/mediaConstants';
 import { SHOPIFY_COLOR } from '../utils/categoryColorManager';
@@ -249,6 +250,12 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
   const [carsForPicker, setCarsForPicker] = useState<any[]>([]);
   const [carsForPickerLoading, setCarsForPickerLoading] = useState(false);
   const wasCarsCategoryRef = useRef(false);
+  // Website Catalogue (spec 2026-09-30 §9.2): offered as a category while the account can use the
+  // catalogue and has items; picking it turns the picker into the catalogue (up to 50 items).
+  const [catalogAvailable, setCatalogAvailable] = useState(false);
+  const [catalogForPicker, setCatalogForPicker] = useState<any[]>([]);
+  const [catalogNotice, setCatalogNotice] = useState('');
+  const wasCatalogCategoryRef = useRef(false);
   // How many campaigns are rendered in the "Select from Existing Campaigns" list —
   // grows as the user scrolls near the bottom (infinite scroll) instead of paging.
   const CAMPAIGNS_LOAD_BATCH = 10;
@@ -479,19 +486,33 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
   const CARS_CATEGORY_NAME = 'Cars';
   const CARS_CATEGORY_ID = 'cars';
   const isCarsCategory = formData.category === CARS_CATEGORY_NAME;
+  // Sentinel id sent as category_id for a Website Catalogue campaign; the backend files the
+  // campaign under the account's real "Website Catalogue" category (created on first use).
+  const CATALOG_CATEGORY_NAME = 'Website Catalogue';
+  const CATALOG_CATEGORY_ID = 'website_catalogue';
+  const CATALOG_MAX_ITEMS = 50;
+  const isCatalogCategory = catalogAvailable && formData.category === CATALOG_CATEGORY_NAME;
   // The synthetic Shopify/Cars entries are appended only while available, so they
   // appear in the dropdown and are findable at submit for their category_id.
   const categoriesForDropdown = [
-    ...apiCategories,
+    // While the catalogue is available, the synthetic entry replaces the account's real
+    // "Website Catalogue" category (same name): picking it builds a catalogue campaign, which the
+    // backend files under that real category anyway.
+    ...(catalogAvailable
+      ? apiCategories.filter((c: any) => (c.name || '').trim().toLowerCase() !== CATALOG_CATEGORY_NAME.toLowerCase())
+      : apiCategories),
     ...(shopifyConnected ? [{ id: SHOPIFY_CATEGORY_ID, name: SHOPIFY_CATEGORY_NAME, __isShopify: true }] : []),
     ...(carsAvailable ? [{ id: CARS_CATEGORY_ID, name: CARS_CATEGORY_NAME }] : []),
+    ...(catalogAvailable ? [{ id: CATALOG_CATEGORY_ID, name: CATALOG_CATEGORY_NAME }] : []),
   ];
 
   // Shared by the "Select from Existing Campaigns" list and its search-suggestions dropdown.
   // "All Categories" merges every source (real campaigns + Cars + Shopify) since those two
   // are pulled from separate catalog APIs, not from the regular campaigns list — without this
   // they'd never show up unless the user filters specifically to "Cars"/picks it as the category.
-  const existingCampaignsPickerSource = isShopifyCategory
+  const existingCampaignsPickerSource = isCatalogCategory
+    ? catalogForPicker
+    : isShopifyCategory
     ? shopifyCollections
     : (isCarsCategory || memoryCategoryFilter === CARS_CATEGORY_NAME)
     ? carsForPicker
@@ -506,6 +527,31 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
         return matchSearch && matchCat;
       }).slice(0, 20)
     : [];
+
+  // Website Catalogue campaigns take at most CATALOG_MAX_ITEMS items (spec §10); other pickers are unlimited.
+  const catalogCapMessage = `You can add up to ${CATALOG_MAX_ITEMS} items to one campaign.`;
+  const toggleSelectedId = (id: string) => {
+    if (selectedMemoryIds.includes(id)) {
+      setSelectedMemoryIds(prev => prev.filter(x => x !== id));
+      setCatalogNotice('');
+      return;
+    }
+    if (isCatalogCategory && selectedMemoryIds.length >= CATALOG_MAX_ITEMS) {
+      setCatalogNotice(catalogCapMessage);
+      return;
+    }
+    setSelectedMemoryIds(prev => (prev.includes(id) ? prev : [...prev, id]));
+    setCatalogNotice('');
+  };
+  const selectAllIds = (ids: string[]) => {
+    if (isCatalogCategory && ids.length > CATALOG_MAX_ITEMS) {
+      setSelectedMemoryIds(ids.slice(0, CATALOG_MAX_ITEMS));
+      setCatalogNotice(`${catalogCapMessage} The first ${CATALOG_MAX_ITEMS} are selected.`);
+      return;
+    }
+    setSelectedMemoryIds(ids);
+    setCatalogNotice('');
+  };
 
   // Detect a connected store when the modal opens, to gate the Shopify option.
   useEffect(() => {
@@ -532,6 +578,27 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
         if (!cancelled) setCarsAvailable(res?.success === true && Array.isArray(list) && list.length > 0);
       } catch { if (!cancelled) setCarsAvailable(false); }
     })();
+    return () => { cancelled = true; };
+  }, [open]);
+
+  // Detect whether the account can use the Website Catalogue and has items, to gate its option.
+  // loadCatalogueForBrowsing asks GET /website-catalogue first, so accounts without the feature
+  // never call the Business-only items route (whose 403 would open the upgrade modal).
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    loadCatalogueForBrowsing().then((list) => {
+      if (cancelled) return;
+      setCatalogForPicker(list.map((item) => ({
+        id: item.id,
+        title: item.title || 'Untitled item',
+        location: [item.price_label, item.category].filter(Boolean).join(' · ') || CATALOG_CATEGORY_NAME,
+        category: { name: CATALOG_CATEGORY_NAME },
+        last_update_img: item.main_image || '',
+        posts_count: item.images_count || 0,
+      })));
+      setCatalogAvailable(list.length > 0);
+    });
     return () => { cancelled = true; };
   }, [open]);
 
@@ -640,6 +707,26 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
     }
     wasCarsCategoryRef.current = isCarsCategory;
   }, [isCarsCategory, open]);
+
+  // React to the Website Catalogue category being chosen / left. Entering starts a clean selection
+  // (it held memory, car or collection ids) and opens the picker on the catalogue.
+  useEffect(() => {
+    if (!open) return;
+    if (isCatalogCategory) {
+      if (!wasCatalogCategoryRef.current) {
+        setSelectedMemoryIds([]);
+        setMemoryCategoryFilter('All Categories');
+        setMemorySearch('');
+        setCatalogNotice('');
+      }
+      setSelectFromExisting(true);
+    } else if (wasCatalogCategoryRef.current) {
+      setSelectedMemoryIds([]);
+      setSelectFromExisting(false);
+      setCatalogNotice('');
+    }
+    wasCatalogCategoryRef.current = isCatalogCategory;
+  }, [isCatalogCategory, open]);
 
   // Also load the Cars catalog when picked from the existing-campaigns filter
   // (not just the main Category field) so the picker has something to show.
@@ -1069,6 +1156,8 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
     wasShopifyCategoryRef.current = false;
     setCarsForPicker([]);
     wasCarsCategoryRef.current = false;
+    setCatalogNotice('');
+    wasCatalogCategoryRef.current = false;
     setVisibleCampaignsCount(CAMPAIGNS_LOAD_BATCH);
     onOpenChange(false);
   };
@@ -1715,6 +1804,13 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
       return;
     }
 
+    // A Website Catalogue campaign is built from the picked items, so it needs at least one.
+    if (isCatalogCategory && selectedMemoryIds.length === 0) {
+      setSelectFromExisting(true);
+      setCatalogNotice('Pick at least one item from your Website Catalogue.');
+      return;
+    }
+
     // Log current state before submission
     console.log(`🚀 SUBMIT BUTTON CLICKED - Current state:`, {
       mediaFilesCount: formData.mediaFiles.length,
@@ -1814,10 +1910,12 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
         memoryData.published = publishType;
       }
 
-      // Selected items: Shopify collection ids / Cars listing ids go to their own
-      // field (they are not real memory rows); normal campaigns stay on linked_memory_ids.
+      // Selected items: Website Catalogue item ids / Shopify collection ids / Cars listing ids go
+      // to their own field (they are not real memory rows); normal campaigns stay on linked_memory_ids.
       if (selectedMemoryIds.length > 0) {
-        if (isShopifyCategory) {
+        if (isCatalogCategory) {
+          memoryData.catalog_item_ids = selectedMemoryIds.map(id => parseInt(id, 10));
+        } else if (isShopifyCategory) {
           memoryData.shopify_collection_ids = selectedMemoryIds;
         } else if (isCarsCategory) {
           memoryData.car_ids = selectedMemoryIds;
@@ -2060,7 +2158,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
                   }}
                   className="w-5 h-5 md:w-4 md:h-4 bg-gray-100 border-gray-300 rounded focus:ring-2 focus:ring-[#6C60FF] accent-[#6C60FF]"
                 />
-                <span className="text-base md:text-sm font-medium text-gray-700">Select from Existing Campaigns</span>
+                <span className="text-base md:text-sm font-medium text-gray-700">{isCatalogCategory ? 'Pick items from your Website Catalogue' : 'Select from Existing Campaigns'}</span>
               </label>
 
               {selectFromExisting && (
@@ -2071,7 +2169,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
                       <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
                       <input
                         type="text"
-                        placeholder="Search campaigns..."
+                        placeholder={isCatalogCategory ? 'Search items...' : 'Search campaigns...'}
                         value={memorySearch}
                         onChange={(e) => { setMemorySearch(e.target.value); setVisibleCampaignsCount(CAMPAIGNS_LOAD_BATCH); }}
                         onFocus={() => setIsMemorySearchFocused(true)}
@@ -2083,7 +2181,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
                           style={{ zIndex: 100002 }}
                         >
                           {memorySearchSuggestions.length === 0 ? (
-                            <div className="px-3 py-3 text-sm text-gray-400">No campaigns found</div>
+                            <div className="px-3 py-3 text-sm text-gray-400">{isCatalogCategory ? 'No items found' : 'No campaigns found'}</div>
                           ) : (
                             memorySearchSuggestions.map((m: any) => {
                               const id = String(m.id);
@@ -2101,9 +2199,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
                                   type="button"
                                   key={id}
                                   onClick={() => {
-                                    setSelectedMemoryIds(prev =>
-                                      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
-                                    );
+                                    toggleSelectedId(id);
                                     setIsMemorySearchFocused(false);
                                   }}
                                   className={`w-full flex items-center gap-3 md:gap-2.5 px-5 py-5 md:px-3 md:py-2.5 text-left border-b border-gray-100 last:border-b-0 transition-colors ${
@@ -2186,27 +2282,30 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
                         {/* Select All / Deselect All */}
                         <div className="flex items-center justify-between px-3 py-2 bg-white border-b border-gray-100">
                           <span className="text-xs font-medium text-[#6C60FF] bg-[#6C60FF]/10 px-2 py-0.5 rounded-full">
-                            {selectedMemoryIds.length} selected
+                            {isCatalogCategory ? `${selectedMemoryIds.length} / ${CATALOG_MAX_ITEMS} selected` : `${selectedMemoryIds.length} selected`}
                           </span>
                           <div className="flex items-center gap-2 text-xs">
                             <button
                               type="button"
-                              onClick={() => setSelectedMemoryIds(filtered.map((m: any) => String(m.id)))}
+                              onClick={() => selectAllIds(filtered.map((m: any) => String(m.id)))}
                               className="text-[#6C60FF] font-medium hover:underline"
                             >Select All</button>
                             <span className="text-gray-300">|</span>
                             <button
                               type="button"
-                              onClick={() => setSelectedMemoryIds([])}
+                              onClick={() => { setSelectedMemoryIds([]); setCatalogNotice(''); }}
                               className="text-gray-500 font-medium hover:underline"
                             >Deselect All</button>
                           </div>
                         </div>
+                        {isCatalogCategory && catalogNotice && (
+                          <p role="status" className="px-3 py-2 text-xs text-amber-700 bg-amber-50 border-b border-amber-100">{catalogNotice}</p>
+                        )}
 
                         {/* Memory list — each campaign is its own bordered card. Fixed-height,
                             internally scrollable; more items load in as you near the bottom. */}
                         {visibleItems.length === 0 ? (
-                          <div className="py-6 text-center text-sm text-gray-400">No campaigns found</div>
+                          <div className="py-6 text-center text-sm text-gray-400">{isCatalogCategory ? 'No items found' : 'No campaigns found'}</div>
                         ) : (
                           <div
                             className="space-y-2 p-3 bg-white max-h-80 overflow-y-auto modal-scrollbar"
@@ -2242,9 +2341,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
                                       ? 'border-[#6C60FF] bg-[#6C60FF]/5'
                                       : 'border-gray-200 bg-white hover:bg-gray-50'
                                   }`}
-                                  onClick={() => setSelectedMemoryIds(prev =>
-                                    prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
-                                  )}
+                                  onClick={() => toggleSelectedId(id)}
                                 >
                                   <input
                                     type="checkbox"
