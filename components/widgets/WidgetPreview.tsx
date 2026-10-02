@@ -2,7 +2,7 @@ import { MessageCircle, X } from 'lucide-react';
 import type { CSSProperties } from 'react';
 import {
   CALLOUT_SUBTEXT, CONSENT_LINE, DEFAULT_CALLOUT, DEFAULT_WELCOME, FORM_FIELD_KEYS, contrastInk, fieldPlaceholder,
-  resolveFormFields, safeColor, safeHttpsUrl,
+  resolveFormFields, safeColor, safeHttpsUrl, STASHT_MARK_PATH, STASHT_MARK_VIEWBOX,
 } from './widgetHelpers';
 import type { FormFieldSettings, WidgetBubblePosition } from '../../services/widgetsAPI';
 
@@ -126,6 +126,11 @@ export function WidgetPreview({ values, mode }: { values: WidgetPreviewValues; m
             <div style={{ height: 48, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 12, background: brand, color: ink, fontSize: 16, fontWeight: 600, opacity: 0.45 }}>
               Send Message
             </div>
+          </div>
+          <div aria-hidden="true" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5, padding: '0 0 13px', marginTop: -4, fontSize: 12.5, color: '#9ca3af' }}>
+            <span>Powered by</span>
+            <svg viewBox={STASHT_MARK_VIEWBOX} style={{ width: 18, height: 12 }}><path d={STASHT_MARK_PATH} fill="#6C60FF" /></svg>
+            <strong style={{ color: '#4b5563', fontWeight: 700 }}>Stasht</strong>
           </div>
         </div>
       )}

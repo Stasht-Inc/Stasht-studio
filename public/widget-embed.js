@@ -15,6 +15,7 @@ import {
   mergeMessages, lastMessageId, acceptChatFiles, chatSendProblem, nextPollDelay, backoffDelay, hasUnreadTeamMessage,
   autoReplyAnchor, firstServerError, chatOpenHeaderValue, CHAT_MAX_FILES,
   TYPING_DELAY_MS, AI_NOTICE, aiNoticeBefore, campaignCardText, bodyWithoutLink,
+  POWERED_BY_URL, STASHT_MARK_VIEWBOX, STASHT_MARK_PATH,
 } from './widget-core.js';
 
 const params = new URLSearchParams(location.search);
@@ -273,7 +274,25 @@ function panel() {
     h('button', { class: 'iconbtn close', type: 'button', 'aria-label': 'Close', onclick: closePanel }, closeIcon()));
 
   return h('div', { class: inChat ? 'panel chat' : 'panel', role: 'dialog', 'aria-labelledby': 'w-title' },
-    head, inChat ? [chatLog(), composer()] : form());
+    head, inChat ? [chatLog(), composer()] : form(), poweredBy());
+}
+
+// The Stasht "S", filled in Stasht purple whatever the widget's brand colour is.
+function stashtMark() {
+  const ns = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(ns, 'svg');
+  svg.setAttribute('viewBox', STASHT_MARK_VIEWBOX);
+  svg.setAttribute('aria-hidden', 'true');
+  const path = document.createElementNS(ns, 'path');
+  path.setAttribute('d', STASHT_MARK_PATH);
+  path.setAttribute('fill', '#6C60FF');
+  svg.append(path);
+  return svg;
+}
+
+function poweredBy() {
+  return h('a', { class: 'powered', href: POWERED_BY_URL, target: '_blank', rel: 'noopener' },
+    h('span', {}, 'Powered by'), stashtMark(), h('strong', {}, 'Stasht'));
 }
 
 // The intro sits beside the avatar's top; replies sit on its baseline (as in the design).

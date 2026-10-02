@@ -189,3 +189,13 @@ test('initialsInk keeps initials white except on very pale colours', () => {
   assert.equal(initialsInk('#6C60FF'), '#ffffff');
   assert.equal(initialsInk('#FEF3C7'), '#1f2937');
 });
+
+test('powered-by link goes to stasht.com over https, tagged as a widget referral', async () => {
+  const { POWERED_BY_URL, STASHT_MARK_PATH, STASHT_MARK_VIEWBOX } = await import('../../public/widget-core.js');
+  const u = new URL(POWERED_BY_URL);
+  assert.equal(u.protocol, 'https:');
+  assert.equal(u.hostname, 'stasht.com');
+  assert.equal(u.searchParams.get('utm_source'), 'contact-widget');
+  assert.match(STASHT_MARK_PATH, /^M[\d.,\-a-zA-Z\s]+Z$/);
+  assert.equal(STASHT_MARK_VIEWBOX, '0 0 78.99 52.48');
+});
