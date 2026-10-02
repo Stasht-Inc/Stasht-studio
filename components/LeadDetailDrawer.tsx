@@ -1280,7 +1280,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
               placeholder={`Type a message to ${firstName}...`}
               rows={3}
               maxLength={via === 'sms' ? SMS_MAX_BODY : via === 'chat' ? CHAT_MAX_BODY : undefined}
-              className="w-full max-sm:h-14 text-base text-gray-700 placeholder:text-gray-400 resize-none border-none outline-none bg-transparent leading-relaxed focus-visible:ring-2 focus-visible:ring-[#6C60FF] focus-visible:ring-offset-1"
+              className="w-full max-sm:h-16 text-base text-gray-700 placeholder:text-gray-400 resize-none rounded-xl bg-gray-50 border border-gray-200 px-4 py-3 leading-relaxed outline-none transition-colors focus:bg-white focus:border-[#6C60FF]/60 focus:ring-4 focus:ring-[#6C60FF]/15"
             />
 
             {/* SMS character counter — only when via === 'sms' */}
