@@ -38,6 +38,8 @@ export interface WidgetInstall {
 // Partial Admins, then the property team (owner/admins/reps mixed), each group by name.
 export type LeadRecipientRole = 'owner' | 'admin' | 'partial_admin' | 'property_owner' | 'property_admin' | 'rep';
 
+export type LeadRecipientStatus = 'active' | 'pending';
+
 export interface LeadRecipient {
   key: string; // 'u:<external_user_id>' (has an account) or 'e:<lowercased email>' (invited, no account)
   name: string;
@@ -46,6 +48,9 @@ export interface LeadRecipient {
   initials: string;
   color: string; // always '#rrggbb'
   role: LeadRecipientRole;
+  // 'pending' = invited but not accepted yet (decided like the Users tab). Pending people are listed
+  // and their tick saves, but they get no lead emails or access until they accept.
+  status: LeadRecipientStatus;
   connected: boolean;
   locked: boolean; // true only for the owner row (always connected, can't be unticked)
 }

@@ -7,7 +7,7 @@
 // tracking, below).
 import { useEffect, useState } from 'react';
 import { Check, Loader2 } from 'lucide-react';
-import type { LeadRecipient, LeadRecipientRole } from '../../services/widgetsAPI';
+import type { LeadRecipient, LeadRecipientRole, LeadRecipientStatus } from '../../services/widgetsAPI';
 import { contrastInk, safeColor, safeHttpsUrl } from './widgetHelpers';
 
 const ROLE_LABELS: Record<LeadRecipientRole, string> = {
@@ -18,6 +18,27 @@ const ROLE_LABELS: Record<LeadRecipientRole, string> = {
   property_admin: 'Property admin',
   rep: 'Rep',
 };
+
+// Same colours, case and compact size as the Users tab's status badge (UsersPage getStatusColor),
+// so a person reads the same in both places.
+const STATUS_BADGES: Record<LeadRecipientStatus, { label: string; className: string; title?: string }> = {
+  active: { label: 'ACTIVE', className: 'bg-green-100 text-green-800' },
+  pending: { label: 'PENDING', className: 'bg-orange-100 text-orange-800', title: 'Invite sent — gets leads once they accept' },
+};
+
+function StatusBadge({ status }: { status: LeadRecipientStatus }) {
+  // An API from before statuses existed sends none: show nothing rather than guess.
+  const badge = STATUS_BADGES[status];
+  if (!badge) return null;
+  return (
+    <span
+      className={`text-[12px] leading-4 font-medium px-1.5 py-0.5 rounded shrink-0 whitespace-nowrap ${badge.className}`}
+      title={badge.title}
+    >
+      {badge.label}
+    </span>
+  );
+}
 
 function RecipientAvatar({ recipient }: { recipient: LeadRecipient }) {
   const photo = safeHttpsUrl(recipient.avatar_url);
@@ -59,11 +80,18 @@ function RecipientRow({
     <li className="flex items-center gap-3 px-3 py-2.5">
       <RecipientAvatar recipient={recipient} />
       <div className="flex-1 min-w-0">
-        <div className="flex items-baseline gap-2 min-w-0">
-          <span className="text-sm font-medium text-gray-900 truncate">{recipient.name}</span>
-          <span className="text-xs text-gray-400 shrink-0">{ROLE_LABELS[recipient.role]}</span>
+        {/* Wraps instead of squeezing: in a narrow column a long name keeps the line and the role
+            and status drop below it, rather than the name collapsing to a couple of letters. */}
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 min-w-0">
+          <span className="text-sm font-medium text-gray-900 truncate max-w-full" title={recipient.name}>{recipient.name}</span>
+          {/* Role and status wrap as one unit, so a badge never sits alone on a line. */}
+          <span className="inline-flex items-center gap-2 shrink-0">
+            <span className="text-xs text-gray-400 whitespace-nowrap">{ROLE_LABELS[recipient.role]}</span>
+            {/* The owner row is always on; its status adds nothing. */}
+            {!recipient.locked && <StatusBadge status={recipient.status} />}
+          </span>
         </div>
-        {recipient.email && <p className="text-xs text-gray-500 truncate">{recipient.email}</p>}
+        {recipient.email && <p className="text-xs text-gray-500 truncate" title={recipient.email}>{recipient.email}</p>}
       </div>
       {recipient.locked ? (
         // A real disabled+checked <input> renders its check mark almost invisibly in Chrome
@@ -117,7 +145,7 @@ export function LeadRecipientsPanel({
     <div className="rounded-xl border border-gray-200 p-4">
       <h3 className="text-sm font-medium text-gray-800">Who gets this widget's leads</h3>
       <p className="text-xs text-gray-400 mt-1">
-        Ticked people get an email for every new lead and reply. Partial Admins can see these leads, and team members can accept them.
+        Ticked people get an email for every new lead and reply. Partial Admins can see these leads, and team members can accept them. Pending people get leads once they accept the invite.
       </p>
 
       {!hasWidget ? (
