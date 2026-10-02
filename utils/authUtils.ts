@@ -215,7 +215,11 @@ const isRetryableNetworkError = (error: unknown): boolean => {
 // FormData uploads, where apiRequest's JSON-only body handling doesn't fit
 // (uploadImageWithMetadata, mediaAPI.addMoment) — get the same retry behavior
 // instead of failing outright on a transient rate-limit hit or dropped connection.
-export const fetchWithRateLimitRetry = async (url: string, init: RequestInit): Promise<Response> => {
+export const fetchWithRateLimitRetry = async (
+  url: string,
+  init: RequestInit,
+  maxRateLimitRetries: number = MAX_RATE_LIMIT_RETRIES
+): Promise<Response> => {
   let response: Response;
   for (let attempt = 0; ; attempt++) {
     try {
@@ -229,7 +233,7 @@ export const fetchWithRateLimitRetry = async (url: string, init: RequestInit): P
       continue;
     }
 
-    if (response.status !== RATE_LIMIT_STATUS || attempt >= MAX_RATE_LIMIT_RETRIES) break;
+    if (response.status !== RATE_LIMIT_STATUS || attempt >= maxRateLimitRetries) break;
 
     const retryAfterSec = Number(response.headers.get('Retry-After'));
     const waitMs = Number.isFinite(retryAfterSec) && retryAfterSec > 0
@@ -367,6 +371,10 @@ const performApiRequest = async <T = any>(
       finalEndpoint = `${endpoint}${separator}_t=${Date.now()}`;
     }
 
+    // Opt-out for endpoints whose 429 is a deliberate business answer (e.g. "invite
+    // sent less than 10 minutes ago") that retrying can't change. Ignored by fetch.
+    const noRateLimitRetry = (options as any).noRateLimitRetry === true;
+
     const response = await fetchWithRateLimitRetry(`${API_BASE_URL}${finalEndpoint}`, {
       ...options,
       headers: {
@@ -374,7 +382,7 @@ const performApiRequest = async <T = any>(
         ...(options.headers || {}),
       },
       credentials: 'same-origin', // Ensure cookies are sent with same-origin requests
-    });
+    }, noRateLimitRetry ? 0 : MAX_RATE_LIMIT_RETRIES);
 
     let data;
     try {
@@ -512,6 +520,7 @@ const performApiRequest = async <T = any>(
           success: false,
           error: 'Too many requests right now. Please wait a moment and try again.',
           message: data?.message,
+          code: data?.code,
           rateLimited: true,
           statusCode: RATE_LIMIT_STATUS,
         } as ApiResponse<T>;
@@ -4232,6 +4241,17 @@ export const dashboardAPI = {
   },
 
   // Delete user collaborator (for Users page)
+  // Re-send a pending Users-tab invite. type/id are the row's collaborator_type /
+  // collaborator_id. The server's own message is the toast text for every outcome
+  // (sent, 409 already accepted, 429 sent < 10 min ago, 502 delivery failed).
+  resendUserInvite: async (type: string, id: number): Promise<ApiResponse<any>> => {
+    return await apiRequest('/users/resend-invite', {
+      method: 'POST',
+      body: JSON.stringify({ type, id }),
+      noRateLimitRetry: true,
+    } as RequestInit);
+  },
+
   deleteUserCollaborator: async (collaboratorUserId?: number, collaboratorEmail?: string, collaboratorType?: string): Promise<ApiResponse<any>> => {
     devLog(`dashboardAPI.deleteUserCollaborator: Deleting user collaborator`);
     devLog('Collaborator User ID:', collaboratorUserId);
