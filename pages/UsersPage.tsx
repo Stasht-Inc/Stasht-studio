@@ -1056,7 +1056,8 @@ export default function UsersPage({ onNavigate, onViewStoreelReport }: UsersPage
   // Stats calculations
   const totalUsers = users.length;
   const activeUsers = users.filter(user => user.status === 1).length;
-  const pendingInvites = users.filter(user => user.status === 0).length;
+  // Same mapping as the row badge: anything not active (0, 'invited', 'pending') is PENDING.
+  const pendingInvites = users.filter(user => getDisplayStatus(user.status) === 'pending').length;
   const collaborators = users.filter(user => user.is_user_collaborator).length;
   const adminCount = users.filter(user => ['admin', 'partial_admin'].includes(user.collaborator_role || user.role || '')).length;
   const adminLimit = planName === 'professional' ? 5 : planName === 'intermediate' ? 3 : 1;
