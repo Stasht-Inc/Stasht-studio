@@ -27,7 +27,9 @@ const STATUS_BADGES: Record<LeadRecipientStatus, { label: string; className: str
 };
 
 function StatusBadge({ status }: { status: LeadRecipientStatus }) {
-  const badge = STATUS_BADGES[status] || STATUS_BADGES.active;
+  // An API from before statuses existed sends none: show nothing rather than guess.
+  const badge = STATUS_BADGES[status];
+  if (!badge) return null;
   return (
     <span
       className={`text-[12px] leading-4 font-medium px-1.5 py-0.5 rounded shrink-0 whitespace-nowrap ${badge.className}`}
