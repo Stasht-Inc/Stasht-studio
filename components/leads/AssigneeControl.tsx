@@ -33,15 +33,29 @@ function initialsColor(bg: string): string {
 
 export function AssigneeBadge({ assignee, size = 'sm', nameClassName = '' }: { assignee: LeadAssignee; size?: 'sm' | 'md'; nameClassName?: string }) {
   const dim = size === 'sm' ? 'h-6 w-6 text-[12px]' : 'h-8 w-8 text-sm';
+  // Their profile photo when they have one; initials on their colour otherwise, or if it fails to load.
+  const [failedPhoto, setFailedPhoto] = useState<string | null>(null);
+  const url = assignee.avatar_url ?? null;
+  const photo = url && /^https:\/\//i.test(url) && url !== failedPhoto ? url : null;
   return (
     <span className="inline-flex items-center gap-2 min-w-0" title={assignee.name ?? undefined}>
-      <span
-        className={`${dim} shrink-0 rounded-full inline-flex items-center justify-center font-semibold`}
-        style={{ backgroundColor: avatarColor(assignee.profile_color), color: initialsColor(avatarColor(assignee.profile_color)) }}
-        aria-hidden
-      >
-        {initialsOf(assignee.name)}
-      </span>
+      {photo ? (
+        <img
+          src={photo}
+          alt=""
+          aria-hidden
+          onError={() => setFailedPhoto(url)}
+          className={`${dim} shrink-0 rounded-full object-cover bg-gray-100`}
+        />
+      ) : (
+        <span
+          className={`${dim} shrink-0 rounded-full inline-flex items-center justify-center font-semibold`}
+          style={{ backgroundColor: avatarColor(assignee.profile_color), color: initialsColor(avatarColor(assignee.profile_color)) }}
+          aria-hidden
+        >
+          {initialsOf(assignee.name)}
+        </span>
+      )}
       <span className={`truncate text-gray-800 ${nameClassName}`}>{assignee.name ?? 'Team member'}</span>
     </span>
   );
