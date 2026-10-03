@@ -769,7 +769,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
             )}
             {msg.body && (
               <div className="max-w-[560px] bg-[#6C60FF] text-white rounded-2xl rounded-tr-sm px-5 py-3">
-                <p className="text-base leading-relaxed [overflow-wrap:anywhere]">{msg.body}</p>
+                <p className="text-base leading-relaxed whitespace-pre-line [overflow-wrap:anywhere]">{msg.body}</p>
               </div>
             )}
             {msg.attachments && msg.attachments.length > 0 && (
@@ -815,7 +815,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
             {/* Bubble */}
             {msg.body && (
               <div className="w-fit max-w-[560px] bg-gray-100 rounded-2xl rounded-tl-sm px-5 py-3 mt-1">
-                <p className="text-base text-gray-700 leading-relaxed [overflow-wrap:anywhere]">{msg.body}</p>
+                <p className="text-base text-gray-700 leading-relaxed whitespace-pre-line [overflow-wrap:anywhere]">{msg.body}</p>
               </div>
             )}
             {msg.attachments && msg.attachments.length > 0 && (
