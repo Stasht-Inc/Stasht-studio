@@ -137,9 +137,10 @@
       .launcher { position: relative; }
       .launcher .unread { position: absolute; top: 1px; right: 1px; width: 16px; height: 16px; border-radius: 50%; background: #ef4444; border: 2.5px solid #fff; }
 
-      /* ---- After-hours AI (spec 2026-09-29 part 2): notice, "AI" tag, typing dots, campaign card ---- */
+      /* ---- Widget AI (spec 2026-09-29 part 2): notice, "AI" tag, typing dots, campaign card, rep joined ---- */
       .sys { justify-self: center; max-width: 92%; margin: 2px 0; padding: 8px 14px; border-radius: 12px;
         background: color-mix(in srgb, var(--brand) 7%, #fff); color: #4b5563; font-size: 13px; line-height: 1.45; text-align: center; }
+      .sys.joined { background: transparent; padding: 2px 14px; color: #6b7280; font-size: 12.5px; font-weight: 500; }
       .ai-tag { display: inline-block; margin-left: 6px; padding: 1px 6px; border-radius: 6px; vertical-align: 1px;
         background: color-mix(in srgb, var(--brand) 12%, #fff); color: var(--brand); font-size: 10.5px; font-weight: 700; letter-spacing: .04em; }
       .bubble.typing { display: inline-flex; align-items: center; gap: 5px; width: max-content; padding: 16px 18px; }
