@@ -410,7 +410,8 @@ function WidgetBuilder({
     setDomainInput('');
     setDomainError('');
     setErrors({});
-    // A new widget sends the manager back to the list (this builder unmounts), which has its own toast.
+    // Any successful save sends the manager back to the list (this builder unmounts). A new widget
+    // gets its own toast there; an update keeps this one.
     onSaved(res.data, created);
     if (!created) toast.success('Widget saved');
   };
@@ -1102,16 +1103,13 @@ export function ContactWidgetManager({
       const current = list || [];
       return created ? [w, ...current.filter((x) => x.id !== w.id)] : current.map((x) => (x.id === w.id ? w : x));
     });
-    if (!created) {
-      setEditing(w);
-      return;
-    }
-    // New widget: back to the list, with the new row highlighted and its install code one click away.
+    // Saving closes the editor (Chris, 2026-10-03). A new widget's row is highlighted with its
+    // install code one click away.
     dirtyRef.current = false;
     setEditing(null);
-    setJustCreatedId(w.id);
+    setJustCreatedId(created ? w.id : null);
     setView('list');
-    toast.success('Widget created. Click "Install" for step-by-step instructions to add it to your site.');
+    if (created) toast.success('Widget created. Click "Install" for step-by-step instructions to add it to your site.');
   };
 
   const handleDeleted = (id: string) => {
