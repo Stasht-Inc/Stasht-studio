@@ -75,7 +75,7 @@ export interface ContactWidget {
   // The property a widget belongs to (its owner and admins can manage it); null = personal.
   property?: { id: number; name: string } | null;
   // After hours (spec 2026-09-29 part 2); absent from older API builds.
-  business_hours?: BusinessHours | null; // null = no hours set: always open, so the AI never answers
+  business_hours?: BusinessHours | null; // null = no hours set: always open (the AI answers at any hour either way)
   timezone?: string | null; // IANA name
   faq_notes?: string | null; // "Notes for the AI"
   ai_enabled?: boolean;

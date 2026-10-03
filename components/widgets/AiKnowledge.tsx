@@ -1,6 +1,6 @@
 // components/widgets/AiKnowledge.tsx
 // "Files" and "Your website" (spec 2026-10-02-widget-ai-knowledge-design.md §5), rendered inside
-// AfterHoursSettings right under "Notes for the AI" — the three feed the after-hours AI together.
+// AfterHoursSettings right under "Notes for the AI" — the three feed the widget AI together.
 // Unlike the rest of the builder, changes here save immediately (one file/import/delete at a
 // time), not as part of the form's "Save changes".
 import { useEffect, useMemo, useRef, useState } from 'react';

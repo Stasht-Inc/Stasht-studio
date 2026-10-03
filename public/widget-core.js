@@ -305,7 +305,7 @@ export function chatMessageFrom(raw) {
     sentAt: sentAt && !Number.isNaN(sentAt.getTime()) ? sentAt : null,
     attachments,
     sender: fromTeam ? publicPersonFrom(raw.sender) : null,
-    // After-hours AI (spec part 2 §3): an AI reply, the after-hours notice, and the vehicles it shared.
+    // Widget AI (spec part 2 §3): an AI reply, its fallback notice, and the vehicles it shared.
     isAi,
     autoReply: isAi && raw.auto_reply === true,
     campaign: fromTeam ? campaignFrom(raw.campaign) : null,
@@ -375,7 +375,7 @@ export function hasUnreadTeamMessage(messages, seenAt) {
 /**
  * The embed's automatic reply isn't stored, so it's drawn after a message: the one just sent from
  * the form, else the conversation's first message when the visitor sent it (a returning visitor).
- * After hours the server answers at once instead (an AI reply or its after-hours notice): then there
+ * With the AI on, the server answers at once instead (an AI reply or its fallback notice): then there
  * is none — `off` when /submit returned replies, and whenever the next message is the AI's, so a
  * reloaded history looks the same.
  */
@@ -399,7 +399,7 @@ export function firstServerError(body, fallback) {
   return fallback;
 }
 
-// --- After-hours AI (spec 2026-09-29 part 2 §3) -------------------------------------------------
+// --- Widget AI (spec 2026-09-29 part 2 §3; always on since 2026-10-03) --------------------------
 
 /** "typing…" shows (and the form's message becomes the chat) once a send has taken this long. */
 export const TYPING_DELAY_MS = 600;
@@ -407,7 +407,7 @@ export const TYPING_DELAY_MS = 600;
 /** An AI reply more than 12 h after the previous one starts a new run, with the notice again. */
 export const AI_RUN_GAP_MS = 12 * 60 * 60 * 1000;
 
-export const AI_NOTICE = "You're chatting with our AI assistant outside business hours. A team member will follow up if needed.";
+export const AI_NOTICE = "You're chatting with our AI assistant. A team member can join at any time.";
 
 // "Powered by Stasht" at the foot of the open panel (Chris, 2026-10-02: brand awareness). The link is
 // tagged so stasht.com can count visits from widgets.
@@ -440,7 +440,7 @@ export function bodyWithoutLink(body, linkText) {
 
 /**
  * Where the AI notice goes (spec part 2 §3): before the first AI reply of each run, i.e. an AI reply
- * whose previous team message wasn't an AI reply from the last 12 h. The after-hours notice isn't an
+ * whose previous team message wasn't an AI reply from the last 12 h. The fallback notice isn't an
  * AI reply, so an AI reply after it starts a new run. Unknown times count as the same run.
  */
 export function aiNoticeBefore(messages) {
@@ -454,6 +454,39 @@ export function aiNoticeBefore(messages) {
       if (!continues) ids.add(m.id);
     }
     lastTeam = m;
+  }
+  return ids;
+}
+
+/** The line drawn when a team member takes over from the AI (Chris, 2026-10-03). */
+export function joinedText(name) {
+  return `${String(name || '').trim() || 'A team member'} has joined the conversation`;
+}
+
+/**
+ * Before which team messages "{name} has joined the conversation" goes: a message from a person (not
+ * the AI, with a sender) that takes over from the AI — the first person message after any AI message
+ * (a reply or its fallback notice), or the first after 12 h+ since the previous person message in a
+ * conversation the AI has touched (the AI is back in charge by then). Never in conversations the AI
+ * never touched. Unknown times count as no gap.
+ */
+export function repJoinedBefore(messages) {
+  const ids = new Set();
+  let aiEver = false;
+  let aiSinceRep = false;
+  let lastRep = null;
+  for (const m of messages) {
+    if (m.from !== 'team') continue;
+    if (m.isAi) {
+      aiEver = true;
+      aiSinceRep = true;
+      continue;
+    }
+    if (!m.sender) continue;
+    const gap = m.sentAt instanceof Date && lastRep?.sentAt instanceof Date ? m.sentAt - lastRep.sentAt : 0;
+    if (aiSinceRep || (aiEver && lastRep && gap >= AI_RUN_GAP_MS)) ids.add(m.id);
+    aiSinceRep = false;
+    lastRep = m;
   }
   return ids;
 }

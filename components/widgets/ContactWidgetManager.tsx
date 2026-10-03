@@ -126,7 +126,7 @@ function inputFromForm(f: FormState, domains: string[], withTeam: boolean, withR
     },
     allowed_domains: domains,
     form_fields: Object.fromEntries(FORM_FIELD_KEYS.map((k) => [k, { ...f.formFields[k], label: f.formFields[k].label.trim() }])),
-    // After hours (spec 2026-09-29 part 2 §2). No hours = always open: the AI never answers.
+    // AI assistant + business hours (spec 2026-09-29 part 2 §2). The AI answers at any hour; hours only tell visitors when the team is in.
     business_hours: f.hoursOn ? weekToApi(f.hours) : null,
     timezone: f.timezone || null,
     faq_notes: f.aiNotes.trim() || null,

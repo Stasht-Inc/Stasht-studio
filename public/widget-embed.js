@@ -4,9 +4,11 @@
 // panel becomes a live chat with the team (spec 2026-09-29): the whole conversation, a typing box
 // with a paperclip, replies picked up by polling, an unread dot on the closed launcher, and
 // returning visitors (same browser, 30 days) straight back into their chat instead of the form.
-// After hours the AI assistant answers in the same chat (spec 2026-09-29 part 2): the visitor's
-// message shows at once with a "typing…" bubble, then the AI notice, replies tagged "AI" and a card
-// for the vehicles it shares; when it can't answer, its after-hours notice looks like the auto-reply.
+// With the AI on, the AI assistant answers in the same chat right away, at any hour (spec 2026-09-29
+// part 2, amended 2026-10-03): the visitor's message shows at once with a "typing…" bubble, then the
+// AI notice, replies tagged "AI" and a card for the vehicles it shares; when it can't answer, its
+// fallback notice looks like the auto-reply. When a rep takes over, "{name} has joined the
+// conversation" shows before their message.
 import {
   safeColor, safeHttpsUrl, contrastInk, hostOrigin, clampPosition, panelWidth, panelMaxHeight, MESSAGE_MAX,
   configUrl, ROOT_PAD, formFieldsFrom, validateValues, consentText, placeholderFor, autoReplyText, initialsFrom,
@@ -14,7 +16,7 @@ import {
   CHAT_MESSAGE_MAX, CHAT_FILE_TYPES, readChatToken, writeChatToken, clearChatToken, messagesUrl, chatMessageFrom,
   mergeMessages, lastMessageId, acceptChatFiles, chatSendProblem, nextPollDelay, backoffDelay, hasUnreadTeamMessage,
   autoReplyAnchor, firstServerError, chatOpenHeaderValue, CHAT_MAX_FILES,
-  TYPING_DELAY_MS, AI_NOTICE, aiNoticeBefore, campaignCardText, bodyWithoutLink,
+  TYPING_DELAY_MS, AI_NOTICE, aiNoticeBefore, campaignCardText, bodyWithoutLink, joinedText, repJoinedBefore,
   POWERED_BY_URL, STASHT_MARK_VIEWBOX, STASHT_MARK_PATH,
 } from './widget-core.js';
 
@@ -56,7 +58,7 @@ const state = {
   chatSending: false,
   unread: false,
   lastActivity: 0, // ms of the last message either way; closed-panel checks stop an hour after it
-  // After-hours AI (spec part 2)
+  // Widget AI (spec part 2)
   pending: null, // { text, files }: the visitor's message on its way, shown at once
   typing: false, // the "typing…" bubble while a send takes more than a moment
   provisional: false, // the form's first message shown as the chat before /submit answers
@@ -361,9 +363,11 @@ function onLogScroll(ev) {
 function logRows() {
   const anchor = autoReplyAnchor(state.messages, state.submittedId, state.autoReplyOff);
   const notices = aiNoticeBefore(state.messages);
+  const joined = repJoinedBefore(state.messages);
   const rows = [];
   for (const m of state.messages) {
     if (notices.has(m.id)) rows.push(aiNoticeRow());
+    if (joined.has(m.id)) rows.push(joinedRow(m.sender.name));
     rows.push(messageRow(m));
     if (m.id === anchor) rows.push(botRow(autoReplyText(state.visitorName), m.sentAt ? clock(m.sentAt) : null));
   }
@@ -384,7 +388,7 @@ function messageRow(m) {
       h('span', { class: 'mini', 'aria-hidden': 'true' }, state.visitorName ? initialsFrom(state.visitorName) : userIcon()));
   }
 
-  // The after-hours notice ("… will reply when we open …") looks like the embed's own automatic reply.
+  // The AI's fallback notice ("… will reply shortly / when we open …") looks like the embed's own automatic reply.
   if (m.autoReply) return botRow(m.body, time || null);
 
   // Team: the rep's first name and photo (or initials on their colour). Messages without a Stasht
@@ -407,6 +411,11 @@ function aiNoticeRow() {
   return h('div', { class: 'sys', role: 'note' }, AI_NOTICE);
 }
 
+// A rep taking over from the AI (Chris, 2026-10-03). Drawn here, never stored.
+function joinedRow(name) {
+  return h('div', { class: 'sys joined', role: 'note' }, joinedText(name));
+}
+
 // The vehicles the AI shared: a card under its reply, opening the campaign in a new tab.
 function campaignCard(c) {
   return h('a', { class: 'camp', href: c.url, target: '_blank', rel: 'noopener noreferrer' },
@@ -417,7 +426,7 @@ function campaignCard(c) {
     h('span', { class: 'camp-go', 'aria-hidden': 'true' }, chevronIcon()));
 }
 
-// The visitor's message on its way: shown at once (after hours the AI answers inside the request).
+// The visitor's message on its way: shown at once (the AI answers inside the request).
 function pendingRow(p) {
   const files = p.files.map((item) => (item.previewUrl
     ? h('span', { class: 'att-img' }, h('img', { src: item.previewUrl, alt: item.file.name }))
@@ -576,7 +585,7 @@ function startChat(data, sentText = '') {
   state.phase = 'chat';
   state.messages = mergeMessages([], [ownMessage, ...replies]);
   state.submittedId = ownMessage.id;
-  // After hours the server answered at once (the AI, or its after-hours notice): no static auto-reply.
+  // The server answered at once (the AI, or its fallback notice): no static auto-reply.
   state.autoReplyOff = replies.length > 0;
   state.lastActivity = Date.now();
   stick = true;
@@ -614,7 +623,7 @@ async function sendChat() {
   if (text) body.append('body', text);
   for (const item of state.files) body.append('files[]', item.file, item.file.name);
 
-  // Shown at once: after hours the AI's reply is written inside this request (a few seconds).
+  // Shown at once: with the AI on, its reply is written inside this request (a few seconds).
   state.pending = { text, files: state.files };
   state.draft = '';
   state.files = [];
@@ -818,7 +827,7 @@ async function submit(ev) {
   }
 
   state.sending = true;
-  // If /submit takes more than a moment (after hours the AI's first reply is written inside it),
+  // If /submit takes more than a moment (with the AI on, its first reply is written inside it),
   // the panel becomes the chat with this message and a "typing…" bubble (startTyping).
   state.visitorName = v.name.trim();
   state.pending = { text: v.message.trim(), files: [] };
