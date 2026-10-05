@@ -816,7 +816,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
             {/* Bubble */}
             {msg.body && (
               <div className="w-fit max-w-[560px] bg-gray-100 rounded-2xl rounded-tl-sm px-5 py-3 mt-1">
-                <p className="text-base text-gray-700 leading-relaxed whitespace-pre-line [overflow-wrap:anywhere]"><LinkifiedText text={msg.body} linkClassName="text-[#4a40d4]" /></p>
+                <p className="text-base text-gray-700 leading-relaxed whitespace-pre-line [overflow-wrap:anywhere]">{msg.body}</p>
               </div>
             )}
             {msg.attachments && msg.attachments.length > 0 && (
