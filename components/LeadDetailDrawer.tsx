@@ -9,6 +9,7 @@ import { toast } from 'sonner';
 import { smsSegmentInfo, SMS_MAX_BODY } from '../utils/smsSegments';
 import ShareCarsDialog from './ShareCarsDialog';
 import AssigneeControl from './leads/AssigneeControl';
+import LinkifiedText from './leads/LinkifiedText';
 import LeadDetailsSidebar, { StatusChip } from './LeadDetailsSidebar';
 
 // Built-in emoji grid — kept small/lightweight, no external dependency.
@@ -769,7 +770,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
             )}
             {msg.body && (
               <div className="max-w-[560px] bg-[#6C60FF] text-white rounded-2xl rounded-tr-sm px-5 py-3">
-                <p className="text-base leading-relaxed whitespace-pre-line [overflow-wrap:anywhere]">{msg.body}</p>
+                <p className="text-base leading-relaxed whitespace-pre-line [overflow-wrap:anywhere]"><LinkifiedText text={msg.body} linkClassName="text-white" /></p>
               </div>
             )}
             {msg.attachments && msg.attachments.length > 0 && (

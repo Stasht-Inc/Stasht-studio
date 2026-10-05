@@ -17,7 +17,7 @@ import {
   mergeMessages, lastMessageId, acceptChatFiles, chatSendProblem, nextPollDelay, backoffDelay, hasUnreadTeamMessage,
   autoReplyAnchor, firstServerError, chatOpenHeaderValue, CHAT_MAX_FILES,
   TYPING_DELAY_MS, AI_NOTICE, aiNoticeBefore, campaignCardText, bodyWithoutLink, joinedText, repJoinedBefore,
-  POWERED_BY_URL, STASHT_MARK_VIEWBOX, STASHT_MARK_PATH,
+  POWERED_BY_URL, STASHT_MARK_VIEWBOX, STASHT_MARK_PATH, linkParts, linkTarget, shouldReopenChat,
 } from './widget-core.js';
 
 const params = new URLSearchParams(location.search);
@@ -27,6 +27,11 @@ const root = document.getElementById('root');
 root.style.padding = `${ROOT_PAD.top}px ${ROOT_PAD.x}px ${ROOT_PAD.bottom}px`;
 
 const DISMISS_KEY = `stasht-widget-callout-dismissed:${widgetId}`;
+// Set just before a chat link takes the visitor to another page of the same site, so the chat panel
+// opens again there (sessionStorage: this tab only, and partitioned per top-level site).
+const REOPEN_KEY = `stasht-widget-reopen:${widgetId}`;
+// The customer's page the widget runs on: links to that site open in place (target _top).
+const HOST_PAGE = hostOrigin({ hostParam: params.get('host'), referrer: document.referrer });
 
 // The conversation token lives in this iframe's own localStorage (Studio's origin, never the
 // customer's site). Browsers that block storage in iframes still get the chat for this page view;
@@ -91,6 +96,24 @@ function h(tag, props = {}, ...children) {
     el.append(child instanceof Node ? child : String(child));
   }
   return el;
+}
+
+// Message text with its https:// links clickable (wdy2xh1tdp): text nodes and <a>s, never innerHTML.
+// A link to the site the widget is on replaces that page and the chat carries on there; any other
+// link opens in a new tab.
+function richText(text) {
+  return linkParts(text).map((part) => {
+    if (!part.href) return part.text;
+    const how = linkTarget(part.href, HOST_PAGE);
+    return h('a', {
+      href: part.href, ...how,
+      onclick: how.target === '_top' ? rememberReopen : undefined,
+    }, part.text);
+  });
+}
+
+function rememberReopen() {
+  try { sessionStorage.setItem(REOPEN_KEY, String(Date.now())); } catch { /* storage blocked: the chat stays closed on the next page */ }
 }
 
 // Lucide-style stroke icons, built with createElementNS (never innerHTML).
@@ -301,7 +324,7 @@ function poweredBy() {
 function botRow(text, time, align = 'bottom') {
   return h('div', { class: align === 'top' ? 'row bot top' : 'row bot' },
     h('span', { class: 'mini' }, agentPicture('')),
-    h('div', { class: 'stack' }, h('div', { class: 'bubble' }, text), time && h('span', { class: 'time' }, time)));
+    h('div', { class: 'stack' }, h('div', { class: 'bubble' }, richText(text)), time && h('span', { class: 'time' }, time)));
 }
 
 // Per-field input attributes; which fields appear, their labels and required-ness come from the config.
@@ -382,7 +405,7 @@ function messageRow(m) {
   if (m.from === 'visitor') {
     return h('div', { class: 'row me' },
       h('div', { class: 'stack' },
-        m.body.trim() !== '' && h('div', { class: 'bubble' }, m.body),
+        m.body.trim() !== '' && h('div', { class: 'bubble' }, richText(m.body)),
         m.attachments.length > 0 && h('div', { class: 'atts' }, m.attachments.map(attachmentView)),
         time && h('span', { class: 'time' }, time)),
       h('span', { class: 'mini', 'aria-hidden': 'true' }, state.visitorName ? initialsFrom(state.visitorName) : userIcon()));
@@ -400,7 +423,7 @@ function messageRow(m) {
   return h('div', { class: 'row bot' },
     m.sender ? personMini(m.sender) : h('span', { class: 'mini' }, agentPicture('')),
     h('div', { class: 'stack' },
-      text.trim() !== '' && h('div', { class: 'bubble' }, text),
+      text.trim() !== '' && h('div', { class: 'bubble' }, richText(text)),
       m.campaign && campaignCard(m.campaign),
       m.attachments.length > 0 && h('div', { class: 'atts' }, m.attachments.map(attachmentView)),
       meta.length > 0 && h('span', { class: 'time' }, meta)));
@@ -433,7 +456,7 @@ function pendingRow(p) {
     : h('span', { class: 'att-file' }, h('span', { class: 'ficon' }, fileIcon()), h('span', { class: 'fname' }, item.file.name))));
   return h('div', { class: 'row me pending' },
     h('div', { class: 'stack' },
-      p.text && h('div', { class: 'bubble' }, p.text),
+      p.text && h('div', { class: 'bubble' }, richText(p.text)),
       files.length > 0 && h('div', { class: 'atts' }, files),
       h('span', { class: 'time' }, 'Sending…')),
     h('span', { class: 'mini', 'aria-hidden': 'true' }, state.visitorName ? initialsFrom(state.visitorName) : userIcon()));
@@ -840,7 +863,7 @@ async function submit(ev) {
       headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
       body: JSON.stringify({
         ...Object.fromEntries(shown.map((f) => [f.key, v[f.key].trim()])),
-        host_origin: hostOrigin({ hostParam: params.get('host'), referrer: document.referrer }),
+        host_origin: HOST_PAGE,
       }),
     });
 
@@ -901,8 +924,7 @@ async function init() {
   if (!/^w_[a-z0-9]{10}$/.test(widgetId)) return tell('hide');
 
   try {
-    const host = hostOrigin({ hostParam: params.get('host'), referrer: document.referrer });
-    const res = await fetch(configUrl(API, widgetId, host), { headers: { Accept: 'application/json' } });
+    const res = await fetch(configUrl(API, widgetId, HOST_PAGE), { headers: { Accept: 'application/json' } });
     if (!res.ok) return tell('hide');
     const body = await res.json();
     if (!body || !body.data) return tell('hide');
@@ -918,6 +940,19 @@ async function init() {
   style.setProperty('--panel-max-h', `${panelMaxHeight(Number(params.get('vh')))}px`);
 
   await resumeChat();
+
+  // The visitor followed a chat link to this page of the same site: the chat carries on, open.
+  let reopen = null;
+  try {
+    reopen = sessionStorage.getItem(REOPEN_KEY);
+    sessionStorage.removeItem(REOPEN_KEY);
+  } catch { /* storage blocked */ }
+  if (state.phase === 'chat' && shouldReopenChat(reopen)) {
+    state.open = true;
+    state.unread = false;
+    stick = true;
+    markSeen();
+  }
 
   if (typeof ResizeObserver !== 'undefined') new ResizeObserver(reportSize).observe(root);
   render();

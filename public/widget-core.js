@@ -490,3 +490,86 @@ export function repJoinedBefore(messages) {
   }
   return ids;
 }
+
+// --- Links in chat bubbles (ClickUp wdy2xh1tdp) ---------------------------------------------------
+// The AI gives the business's own page links ("our hours are at https://…/hours"), so every bubble
+// makes https:// URLs clickable. Split here as plain data; the embed builds text nodes and <a>s.
+
+// ONE strict ASCII URL grammar, character for character the same as WidgetAiLinks::URL_GRAMMAR on the
+// server (and components/leads/LinkifiedText.tsx), so the server's link guard and the browser always
+// read the same URL: it ends at whitespace, quotes, <, >, `, a backslash or anything non-ASCII, and
+// its authority is only letters, digits, dots and hyphens (plus a port).
+export const URL_GRAMMAR = 'https?://([A-Za-z0-9.\\-]+)(?::[0-9]+)?(?:[/?#][!#-&(-;=?-\\[\\]-_a-z~%]*)?';
+// Sentence punctuation after a URL that isn't part of it (same set as WidgetAiLinks::TRAILING).
+const URL_TRAILING = /[.,;:!?)]+$/;
+
+/**
+ * Text split into plain parts and https links: [{ text }, { text, href }, …]. A link's text is the
+ * URL without "https://"; its href is the full URL. Only https: URLs become links, and never one
+ * whose authority runs into "\" or "@" or that the browser would read as another host.
+ */
+export function linkParts(body) {
+  const text = String(body ?? '');
+  const parts = [];
+  const re = new RegExp(URL_GRAMMAR, 'gi');
+  let last = 0;
+  let match;
+  while ((match = re.exec(text)) !== null) {
+    const after = text[match.index + match[0].length];
+    if (after === '\\' || after === '@') {
+      // Browsers would read another host here: the whole run stays plain text.
+      const run = /^\S*/.exec(text.slice(match.index))[0];
+      re.lastIndex = match.index + Math.max(run.length, 1);
+      continue;
+    }
+    const raw = match[0].replace(URL_TRAILING, '');
+    const href = linkHref(raw, match[1]);
+    if (!href) continue;
+    if (match.index > last) parts.push({ text: text.slice(last, match.index) });
+    parts.push({ text: raw.replace(/^https:\/\//i, ''), href });
+    last = match.index + raw.length;
+  }
+  if (last < text.length || parts.length === 0) parts.push({ text: text.slice(last) });
+  return parts;
+}
+
+/** The https URL to link, or null when it isn't https or the browser reads a different host than the text shows. */
+function linkHref(raw, literalHost) {
+  if (raw.includes('\\') || !/^https:\/\//i.test(raw)) return null;
+  try {
+    const url = new URL(raw);
+    if (url.protocol !== 'https:' || url.hostname !== String(literalHost).toLowerCase()) return null;
+    return url.href;
+  } catch {
+    return null;
+  }
+}
+
+/** Lowercase hostname without a leading www. (www.site.com and site.com are one site), or ''. */
+export function siteHost(urlOrOrigin) {
+  try {
+    const host = new URL(String(urlOrOrigin)).hostname.toLowerCase().replace(/\.$/, '');
+    return host.startsWith('www.') ? host.slice(4) : host;
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * How a chat link opens. A page on the site the widget is running on replaces that page (target
+ * _top: the visitor's site navigates and the chat carries on there); anything else opens a new tab.
+ */
+export function linkTarget(href, hostPageOrigin) {
+  const host = siteHost(href);
+  if (host && host === siteHost(hostPageOrigin)) return { target: '_top' };
+  return { target: '_blank', rel: 'noopener noreferrer' };
+}
+
+/** How long after following a same-site chat link the next page reopens the chat panel. */
+export const REOPEN_AFTER_LINK_MS = 60 * 1000;
+
+/** Whether the panel should open by itself: a same-site chat link was followed a moment ago (stored ms). */
+export function shouldReopenChat(stored, now = Date.now()) {
+  const at = Number(stored);
+  return Number.isFinite(at) && at > 0 && now - at >= 0 && now - at <= REOPEN_AFTER_LINK_MS;
+}
