@@ -7,6 +7,8 @@ import { imgFemaleAvatar1 } from "../imports/svg-bahio";
 import ProfileDdwn, { ProfileDropdownMenu } from "../imports/ProfileDdwn";
 import EnhancedSearch from "./EnhancedSearch";
 import { NotificationDropdown } from "./NotificationDropdown";
+import AlvinButton from "./alvin/AlvinButton";
+import AlvinPanel from "./alvin/AlvinPanel";
 import { Upload, RefreshCw } from "lucide-react";
 import { useProperty } from "../contexts/PropertyContext";
 
@@ -438,7 +440,8 @@ export default function InteractiveNav({
   onOpenMobileSidebar,
   hideMemoryDetailsIcons = false,
   onUploadMedia,
-  isPropertyOwner = true
+  isPropertyOwner = true,
+  currentPage
 }: {
   notificationCount?: number;
   onNotificationsClear?: () => void;
@@ -452,8 +455,10 @@ export default function InteractiveNav({
   hideMemoryDetailsIcons?: boolean;
   onUploadMedia?: (files: File[]) => void;
   isPropertyOwner?: boolean;
+  currentPage?: string;
 }) {
   const [searchQuery, setSearchQuery] = useState("");
+  const [alvinOpen, setAlvinOpen] = useState(false);
   const [showMobileSearch, setShowMobileSearch] = useState(false);
   const { viewType, currentProperty, switchToPersonal } = useProperty();
 
@@ -558,6 +563,11 @@ export default function InteractiveNav({
           <SearchIcon onClick={handleMobileSearchClick} />
         </div>
 
+        {/* Alvin AI help centre (ClickUp wdy2xh1r0r) - before notifications, as in Chris's design */}
+        <div className="md:mr-2.5">
+          <AlvinButton open={alvinOpen} onClick={() => setAlvinOpen((v) => !v)} />
+        </div>
+
         {/* Notification Button - modified for mobile */}
         <div className="md:border-l md:border-gray-100">
           <NotifBttn notificationCount={notificationCount} onNotificationClick={handleNotificationClick} onMemorySelect={onMemorySelect} onOpenConversation={onOpenConversation} onOpenLead={onOpenLead} />
@@ -573,6 +583,8 @@ export default function InteractiveNav({
           <MobileProfileAvatar user={user} onShowProfileSettings={onShowProfileSettings} onShowBillingPayment={onShowBillingPayment} viewType={viewType} currentProperty={currentProperty} switchToPersonal={switchToPersonal} />
         </div>
       </div>
+
+      <AlvinPanel open={alvinOpen} onClose={() => setAlvinOpen(false)} currentPage={currentPage} user={user} />
 
       {/* Mobile Search Overlay */}
       {showMobileSearch && (

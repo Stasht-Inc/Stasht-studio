@@ -4189,6 +4189,7 @@ function MainApp() {
           hideMemoryDetailsIcons={!!selectedMemoryId}
           onUploadMedia={handleUploadMedia}
           isPropertyOwner={isPropertyOwner}
+          currentPage={currentPage}
         />
       </header>
       
