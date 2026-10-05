@@ -1,16 +1,13 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { X, ExternalLink, Info, CheckCircle2, Loader2, Unplug, Plus } from 'lucide-react';
+import { X, ExternalLink, Info, CheckCircle2, Loader2, Unplug } from 'lucide-react';
 import { toast } from 'sonner';
 import { dashboardAPI } from '../utils/authUtils';
 import { widgetsAPI } from '../services/widgetsAPI';
 import type { ContactWidget } from '../services/widgetsAPI';
 import { ContactWidgetManager } from '../components/widgets/ContactWidgetManager';
 import { CONNECTORS, OFFERED_CONNECTORS, CONNECTORS_COUNT_EVENT } from '../components/connectors/catalog';
-import type { ConnectorId } from '../components/connectors/catalog';
+import type { ConnectorDef, ConnectorId } from '../components/connectors/catalog';
 import { ConnectorCard } from '../components/connectors/ConnectorCard';
-import { ActiveConnectorsList } from '../components/connectors/ActiveConnectorsList';
-import type { ActiveConnector } from '../components/connectors/ActiveConnectorsList';
-import { AddConnectorModal } from '../components/connectors/AddConnectorModal';
 import { useIsStarterPlan } from '../hooks/usePlan';
 import { requestUpgrade } from '../utils/planEvents';
 import { useProperty } from '../contexts/PropertyContext';
@@ -593,8 +590,13 @@ function since(iso: string | null): string | null {
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
+interface ActiveConnector {
+  connector: ConnectorDef;
+  status: string;
+}
+
 export default function MarketplacePage() {
-  const [activeModal, setActiveModal] = useState<ConnectorId | 'add' | null>(null);
+  const [activeModal, setActiveModal] = useState<ConnectorId | null>(null);
   const [docusignConnected, setDocusignConnected] = useState(false);
   const [docusignConnectedAt, setDocusignConnectedAt] = useState<string | null>(null);
   const [shopifyConnected, setShopifyConnected] = useState(false);
@@ -702,6 +704,7 @@ export default function MarketplacePage() {
     return () => { cancelled = true; };
   }, [propertyId]);
 
+  // Status line per connected connector, shown on its card.
   const activeConnectors = useMemo<ActiveConnector[]>(() => {
     const items: ActiveConnector[] = [];
     if (shopifyConnected) {
@@ -737,9 +740,9 @@ export default function MarketplacePage() {
     () => (propertyId ? OFFERED_CONNECTORS.filter((c) => c.id === 'contact-widget') : OFFERED_CONNECTORS),
     [propertyId],
   );
-  const available = useMemo(
-    () => offered.filter((c) => !activeConnectors.some((a) => a.connector.id === c.id)),
-    [offered, activeConnectors],
+  const statusById = useMemo(
+    () => new Map(activeConnectors.map((a) => [a.connector.id, a.status])),
+    [activeConnectors],
   );
 
   // Keep the sidebar's Connectors badge in step with what this page shows.
@@ -749,12 +752,11 @@ export default function MarketplacePage() {
   }, [loaded, activeConnectors.length]);
 
   const closeModal = useCallback(() => setActiveModal(null), []);
-  const hasActive = activeConnectors.length > 0;
 
   // Connectors are shown on every plan, but on the free (Starter) plan using one opens the
   // upgrade plans instead (Chris, 2026-09-28). The API refuses free accounts as well.
   const { isStarter } = useIsStarterPlan();
-  const openConnector = useCallback((id: ConnectorId | 'add') => {
+  const openConnector = useCallback((id: ConnectorId) => {
     if (isStarter) requestUpgrade();
     else setActiveModal(id);
   }, [isStarter]);
@@ -767,15 +769,6 @@ export default function MarketplacePage() {
           <h1 className="text-3xl sm:text-4xl font-bold text-gray-900">Connectors</h1>
           <p className="text-gray-500 mt-2 text-base">Connect your favorite services and extend Stasht functionality</p>
         </div>
-        {loaded && hasActive && available.length > 0 && (
-          <button
-            type="button"
-            onClick={() => openConnector('add')}
-            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#6C60FF] hover:bg-[#5A4FFF] text-white text-base font-semibold transition-colors"
-          >
-            <Plus className="w-5 h-5" /> Add connector
-          </button>
-        )}
       </div>
 
       {!loaded ? (
@@ -784,22 +777,18 @@ export default function MarketplacePage() {
         </div>
       ) : propertyError ? (
         <p className="text-base text-gray-600">{propertyError}</p>
-      ) : hasActive ? (
-        <section aria-labelledby="your-connectors-heading">
-          <h2 id="your-connectors-heading" className="text-lg font-bold text-gray-900 mb-4">Your connectors</h2>
-          <ActiveConnectorsList items={activeConnectors} onManage={openConnector} disabled={isStarter} />
-        </section>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
           {offered.map((connector) => (
-            <ConnectorCard key={connector.id} connector={connector} onSelect={() => openConnector(connector.id)} />
+            <ConnectorCard
+              key={connector.id}
+              connector={connector}
+              status={statusById.get(connector.id)}
+              disabled={isStarter}
+              onSelect={() => openConnector(connector.id)}
+            />
           ))}
         </div>
-      )}
-
-      {/* "+ Add connector" pop-up */}
-      {activeModal === 'add' && (
-        <AddConnectorModal available={available} onSelect={setActiveModal} onClose={closeModal} />
       )}
 
       {/* Shopify Connect Modal */}
