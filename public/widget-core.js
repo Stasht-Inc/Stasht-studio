@@ -490,3 +490,59 @@ export function repJoinedBefore(messages) {
   }
   return ids;
 }
+
+// --- Links in chat bubbles (ClickUp wdy2xh1tdp) ---------------------------------------------------
+// The AI gives the business's own page links ("our hours are at https://…/hours"), so every bubble
+// makes https:// URLs clickable. Split here as plain data; the embed builds text nodes and <a>s.
+
+const URL_IN_TEXT = /https:\/\/[^\s<>"'`]+/gi;
+const URL_TRAILING = /[.,;:!?)]+$/;
+
+/**
+ * Text split into plain parts and https links: [{ text }, { text, href }, …]. Punctuation that ends
+ * a sentence (.,;:!?)) isn't part of the link. Only https: URLs become links; anything else stays text.
+ */
+export function linkParts(body) {
+  const text = String(body ?? '');
+  const parts = [];
+  let last = 0;
+  for (const match of text.matchAll(URL_IN_TEXT)) {
+    const raw = match[0].replace(URL_TRAILING, '');
+    const href = safeHttpsUrl(raw);
+    if (!href || !/^https:\/\/[^/?#]+/i.test(raw)) continue;
+    if (match.index > last) parts.push({ text: text.slice(last, match.index) });
+    parts.push({ text: raw, href });
+    last = match.index + raw.length;
+  }
+  if (last < text.length || parts.length === 0) parts.push({ text: text.slice(last) });
+  return parts;
+}
+
+/** Lowercase hostname without a leading www. (www.site.com and site.com are one site), or ''. */
+export function siteHost(urlOrOrigin) {
+  try {
+    const host = new URL(String(urlOrOrigin)).hostname.toLowerCase().replace(/\.$/, '');
+    return host.startsWith('www.') ? host.slice(4) : host;
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * How a chat link opens. A page on the site the widget is running on replaces that page (target
+ * _top: the visitor's site navigates and the chat carries on there); anything else opens a new tab.
+ */
+export function linkTarget(href, hostPageOrigin) {
+  const host = siteHost(href);
+  if (host && host === siteHost(hostPageOrigin)) return { target: '_top' };
+  return { target: '_blank', rel: 'noopener noreferrer' };
+}
+
+/** How long after following a same-site chat link the next page reopens the chat panel. */
+export const REOPEN_AFTER_LINK_MS = 60 * 1000;
+
+/** Whether the panel should open by itself: a same-site chat link was followed a moment ago (stored ms). */
+export function shouldReopenChat(stored, now = Date.now()) {
+  const at = Number(stored);
+  return Number.isFinite(at) && at > 0 && now - at >= 0 && now - at <= REOPEN_AFTER_LINK_MS;
+}
