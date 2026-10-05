@@ -35,11 +35,16 @@ export interface AlvinSendResult {
 const NETWORK_ERROR = "Sorry, I couldn't reach Alvin. Check your connection and try again.";
 
 export const alvinAPI = {
+  // Never throws: null when the chat couldn't be loaded.
   async getConversation(): Promise<AlvinConversation | null> {
-    // apiRequest's `data` is the whole response body ({ success, data }).
-    const res = await apiRequest<{ data?: AlvinConversation }>('/alvin/conversation', { method: 'GET', skipCache: true } as RequestInit);
-    const conv = res.success ? res.data?.data : undefined;
-    return conv ? { ...conv, messages: conv.messages ?? [], suggestions: conv.suggestions ?? [] } : null;
+    try {
+      // apiRequest's `data` is the whole response body ({ success, data }).
+      const res = await apiRequest<{ data?: AlvinConversation }>('/alvin/conversation', { method: 'GET', skipCache: true } as RequestInit);
+      const conv = res.success ? res.data?.data : undefined;
+      return conv ? { ...conv, messages: conv.messages ?? [], suggestions: conv.suggestions ?? [] } : null;
+    } catch {
+      return null;
+    }
   },
 
   async send(message: string, page: string | null): Promise<AlvinSendResult> {
@@ -67,7 +72,11 @@ export const alvinAPI = {
   },
 
   async startOver(): Promise<boolean> {
-    const res = await apiRequest('/alvin/conversation/reset', { method: 'POST' });
-    return res.success;
+    try {
+      const res = await apiRequest('/alvin/conversation/reset', { method: 'POST' });
+      return res.success;
+    } catch {
+      return false;
+    }
   },
 };

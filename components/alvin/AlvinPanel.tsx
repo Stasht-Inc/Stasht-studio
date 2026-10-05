@@ -127,14 +127,20 @@ export default function AlvinPanel({
   useEffect(() => {
     if (!open || loaded) return;
     let cancelled = false;
-    alvinAPI.getConversation().then((conv) => {
-      if (cancelled) return;
-      setLoaded(true);
-      if (!conv) return;
-      setMessages(conv.messages);
-      if (conv.suggestions?.length) setSuggestions(conv.suggestions);
-      if (conv.messages[0]?.created_at) setGreetingTime(timeLabel(conv.messages[0].created_at));
-    });
+    alvinAPI
+      .getConversation()
+      .then((conv) => {
+        if (cancelled || !conv) return;
+        setMessages(conv.messages);
+        if (conv.suggestions.length) setSuggestions(conv.suggestions);
+        if (conv.messages[0]?.created_at) setGreetingTime(timeLabel(conv.messages[0].created_at));
+      })
+      .catch(() => {
+        // No saved chat to show: start from the greeting and the starter questions.
+      })
+      .finally(() => {
+        if (!cancelled) setLoaded(true);
+      });
     return () => {
       cancelled = true;
     };
@@ -152,8 +158,9 @@ export default function AlvinPanel({
 
   useEffect(() => {
     if (!open) return;
+    // Esc closes Alvin unless something on top of it (a dialog, a dropdown) already handled the key.
     const onKey = (e: globalThis.KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+      if (e.key === 'Escape' && !e.defaultPrevented) onClose();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -199,7 +206,13 @@ export default function AlvinPanel({
 
   const startOver = async () => {
     if (sending) return;
-    await alvinAPI.startOver();
+    if (!(await alvinAPI.startOver())) {
+      setMessages((prev) => [
+        ...prev,
+        { id: `reset-${Date.now()}`, role: 'assistant', body: "Sorry, I couldn't start over just now. Please try again.", meta: { failed: true }, created_at: new Date().toISOString(), local: true },
+      ]);
+      return;
+    }
     setMessages([]);
     setGreetingTime(timeLabel(null));
     inputRef.current?.focus();

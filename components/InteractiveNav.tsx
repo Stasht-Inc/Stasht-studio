@@ -584,7 +584,16 @@ export default function InteractiveNav({
         </div>
       </div>
 
-      <AlvinPanel open={alvinOpen} onClose={() => setAlvinOpen(false)} currentPage={currentPage} user={user} />
+      <AlvinPanel
+        open={alvinOpen}
+        onClose={() => {
+          setAlvinOpen(false);
+          // Hand keyboard focus back to the button that opened Alvin.
+          document.querySelector<HTMLButtonElement>('[data-name="AlvinAIButton"]')?.focus();
+        }}
+        currentPage={currentPage}
+        user={user}
+      />
 
       {/* Mobile Search Overlay */}
       {showMobileSearch && (

@@ -19,21 +19,22 @@ function inline(text: string, key: string): ReactNode[] {
 
 type Block =
   | { kind: 'p'; lines: string[] }
-  | { kind: 'ol' | 'ul'; items: string[] };
+  | { kind: 'ol' | 'ul'; items: string[]; start: number };
 
 function blocks(text: string): Block[] {
   const out: Block[] = [];
   for (const raw of text.replace(/\r\n/g, '\n').split('\n')) {
     const line = raw.trimEnd();
-    const ol = line.match(/^\s*\d+[.)]\s+(.*)$/);
+    const ol = line.match(/^\s*(\d+)[.)]\s+(.*)$/);
     const ul = line.match(/^\s*[-*•]\s+(.*)$/);
     const last = out[out.length - 1];
 
     if (ol || ul) {
       const kind = ol ? 'ol' : 'ul';
-      const item = (ol ?? ul)![1];
+      const item = ol ? ol[2] : ul![1];
+      // A step list interrupted by a sub-point or a note keeps its numbering (start = the step's own number).
       if (last && last.kind === kind) last.items.push(item);
-      else out.push({ kind, items: [item] });
+      else out.push({ kind, items: [item], start: ol ? parseInt(ol[1], 10) || 1 : 1 });
     } else if (line.trim() === '') {
       out.push({ kind: 'p', lines: [] });
     } else if (last && last.kind === 'p' && last.lines.length > 0) {
@@ -63,7 +64,7 @@ export default function AlvinMessageText({ text }: { text: string }) {
         }
         const List = b.kind;
         return (
-          <List key={i} className={`${b.kind === 'ol' ? 'list-decimal' : 'list-disc'} pl-[18px] flex flex-col gap-[3px]`}>
+          <List key={i} start={b.kind === 'ol' && b.start !== 1 ? b.start : undefined} className={`${b.kind === 'ol' ? 'list-decimal' : 'list-disc'} pl-[18px] flex flex-col gap-[3px]`}>
             {b.items.map((item, j) => <li key={j}>{inline(item, `${i}-${j}`)}</li>)}
           </List>
         );
