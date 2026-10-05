@@ -573,3 +573,74 @@ export function shouldReopenChat(stored, now = Date.now()) {
   const at = Number(stored);
   return Number.isFinite(at) && at > 0 && now - at >= 0 && now - at <= REOPEN_AFTER_LINK_MS;
 }
+
+// --- Click-through around the widget (wdy2xh1tjc) -------------------------------------------
+// The iframe is a rectangle, but most of it is transparent: the shadow padding, and when closed
+// the empty space beside the launcher under the callout. An iframe takes every click inside its
+// rectangle, so the host page's links there went dead. The embed reports the parts that are
+// actually visible ("hit rects", in iframe coordinates) and the loader clips the iframe to them
+// with clip-path, which also takes the clipped-out area out of hit-testing.
+//
+// sanitizeHitRects and hitClipPath are copied verbatim into widget-loader.js (a classic script on
+// the customer's page, so it can't import this module); the tests check the two copies match.
+
+/** Room kept around each visible part so rounded corners and the near shadow aren't cut. Bottom is largest: shadows fall down. */
+export const HIT_PAD = { top: 6, x: 8, bottom: 16 };
+export const HIT_RECTS_MAX = 6;
+
+/** One visible part's hit rect from its bounding box (iframe coordinates) and corner radius. */
+export function hitRectFor(box, radius = 0, pad = HIT_PAD) {
+  const x = Math.floor(box.left - pad.x);
+  const y = Math.floor(box.top - pad.top);
+  const right = Math.ceil(box.left + box.width + pad.x);
+  const bottom = Math.ceil(box.top + box.height + pad.bottom);
+  return { x, y, w: right - x, h: bottom - y, r: Math.max(0, Math.round(radius + Math.min(pad.x, pad.top))) };
+}
+
+/**
+ * The embed's hit rects, checked before they shape the iframe on the customer's page: an array of
+ * 1..6 { x, y, w, h, r? } plain numbers, clamped to the frame. Anything unexpected returns null,
+ * which means "no clip" (the whole iframe stays clickable, as before this fix).
+ */
+export function sanitizeHitRects(raw, frameW, frameH) {
+  var MAX = 6;
+  if (!Array.isArray(raw) || raw.length === 0 || raw.length > MAX) return null;
+  var W = frameW, H = frameH;
+  if (typeof W !== 'number' || typeof H !== 'number' || !(W > 0) || !(H > 0) || !isFinite(W) || !isFinite(H)) return null;
+  var num = function (n) { return typeof n === 'number' && isFinite(n); };
+  var clamp = function (n, max) { return Math.max(0, Math.min(max, n)); };
+  var round = function (n) { return Math.round(n * 100) / 100; };
+  var out = [];
+  for (var i = 0; i < raw.length; i++) {
+    var r = raw[i];
+    if (!r || typeof r !== 'object') return null;
+    var rad = r.r === undefined ? 0 : r.r;
+    if (!num(r.x) || !num(r.y) || !num(r.w) || !num(r.h) || !num(rad) || r.w < 0 || r.h < 0) return null;
+    var x0 = clamp(r.x, W), y0 = clamp(r.y, H), x1 = clamp(r.x + r.w, W), y1 = clamp(r.y + r.h, H);
+    if (x1 - x0 < 1 || y1 - y0 < 1) continue; // nothing of it inside the frame
+    out.push({
+      x: round(x0), y: round(y0), w: round(x1 - x0), h: round(y1 - y0),
+      r: round(Math.max(0, Math.min(rad, (x1 - x0) / 2, (y1 - y0) / 2))),
+    });
+  }
+  return out.length ? out : null;
+}
+
+/** CSS clip-path for sanitized hit rects: one clockwise (rounded) rectangle subpath each, so they add up. */
+export function hitClipPath(rects) {
+  var f = function (n) { return String(Math.round(n * 100) / 100); };
+  var d = [];
+  for (var i = 0; i < rects.length; i++) {
+    var x = rects[i].x, y = rects[i].y, w = rects[i].w, h = rects[i].h, r = rects[i].r || 0;
+    if (r > 0) {
+      var a = 'A' + f(r) + ' ' + f(r) + ' 0 0 1 ';
+      d.push('M' + f(x + r) + ' ' + f(y) + 'H' + f(x + w - r) + a + f(x + w) + ' ' + f(y + r)
+        + 'V' + f(y + h - r) + a + f(x + w - r) + ' ' + f(y + h)
+        + 'H' + f(x + r) + a + f(x) + ' ' + f(y + h - r)
+        + 'V' + f(y + r) + a + f(x + r) + ' ' + f(y) + 'Z');
+    } else {
+      d.push('M' + f(x) + ' ' + f(y) + 'H' + f(x + w) + 'V' + f(y + h) + 'H' + f(x) + 'Z');
+    }
+  }
+  return "path('" + d.join(' ') + "')";
+}
