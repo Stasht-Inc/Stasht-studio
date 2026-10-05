@@ -18,6 +18,7 @@ import {
   autoReplyAnchor, firstServerError, chatOpenHeaderValue, CHAT_MAX_FILES,
   TYPING_DELAY_MS, AI_NOTICE, aiNoticeBefore, campaignCardText, bodyWithoutLink, joinedText, repJoinedBefore,
   POWERED_BY_URL, STASHT_MARK_VIEWBOX, STASHT_MARK_PATH, linkParts, linkTarget, shouldReopenChat,
+  hitRectFor, HIT_RECTS_MAX,
 } from './widget-core.js';
 
 const params = new URLSearchParams(location.search);
@@ -148,15 +149,36 @@ const chevronIcon = () => icon(['m9 18 6-6-6-6']);
 
 // Measured synchronously: the iframe starts hidden/0x0 and browsers may defer
 // requestAnimationFrame there, which would mean the first resize is never sent.
-let lastSize = { width: -1, height: -1 };
+let lastReport = '';
+
+// The visible parts and their corner radii (as in widget-embed.html). Everything else that shows
+// (the dismiss ×, the callout's pointer, the unread dot, focus rings) sits inside one of these
+// once HIT_PAD is added.
+const HIT_PARTS = [['.panel', 18], ['.callout', 16], ['#w-launcher', 31]];
+
+// The visible parts' rects in iframe coordinates: the loader clips the iframe to them so the
+// transparent rest of it lets clicks through to the customer's page (wdy2xh1tjc).
+function hitRects() {
+  const rects = [];
+  for (const [selector, radius] of HIT_PARTS) {
+    const el = root.querySelector(selector);
+    if (!el) continue;
+    const box = el.getBoundingClientRect();
+    if (box.width > 0 && box.height > 0) rects.push(hitRectFor(box, radius));
+  }
+  return rects.slice(0, HIT_RECTS_MAX);
+}
 
 function reportSize() {
   const rect = root.getBoundingClientRect();
   const width = Math.ceil(rect.width);
   const height = Math.ceil(rect.height);
-  if (width === lastSize.width && height === lastSize.height) return;
-  lastSize = { width, height };
-  tell('resize', { width, height, position: clampPosition(state.config?.theme?.bubble_position) });
+  const position = clampPosition(state.config?.theme?.bubble_position);
+  const hit = hitRects();
+  const key = JSON.stringify([width, height, position, hit]);
+  if (key === lastReport) return;
+  lastReport = key;
+  tell('resize', { width, height, position, hit });
 }
 
 // The chat log sticks to the newest message unless the visitor scrolled up to read.
