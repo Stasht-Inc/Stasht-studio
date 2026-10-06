@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { createPortal } from 'react-dom';
 import { alvinAPI, type AlvinMessage } from '../../services/alvinAPI';
 import AlvinMessageText from './AlvinMessageText';
 
@@ -230,14 +231,17 @@ export default function AlvinPanel({
   const canSend = draft.trim().length > 0 && !sending;
   const showSuggestions = loaded && messages.length === 0 && !sending;
 
-  return (
+  // Portal to <body>: inside the sticky header (its own stacking layer) the panel would sit under
+  // the mobile bottom bar whatever its z-index.
+  return createPortal(
     <div
       role="dialog"
       aria-label="Alvin AI"
       data-name="AlvinAIPanel"
-      className="fixed z-[60] flex flex-col overflow-hidden bg-white border border-[#ede9ff] rounded-[16px] shadow-[0px_8px_40px_0px_rgba(108,96,255,0.18),0px_2px_12px_0px_rgba(0,0,0,0.1)]
-        left-2 right-2 top-[72px] bottom-2
-        md:left-auto md:right-4 md:top-[64px] md:bottom-auto md:w-[380px] md:h-[min(779px,calc(100vh-80px))]"
+      className="fixed z-[9000] flex flex-col overflow-hidden bg-white
+        inset-0 pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]
+        md:inset-auto md:pt-0 md:pb-0 md:right-4 md:top-[64px] md:w-[380px] md:h-[min(779px,calc(100vh-80px))]
+        md:border md:border-[#ede9ff] md:rounded-[16px] md:shadow-[0px_8px_40px_0px_rgba(108,96,255,0.18),0px_2px_12px_0px_rgba(0,0,0,0.1)]"
     >
       {/* Header */}
       <div className="flex items-center justify-between px-[17.5px] py-[14px] border-b border-[#f0f0f5] shrink-0">
@@ -344,6 +348,7 @@ export default function AlvinPanel({
         </div>
         <p className="pt-[7px] text-center text-[11px] leading-[16.5px] tracking-[0.0645px] text-[#99a1af]">Alvin AI · Powered by Stasht</p>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
