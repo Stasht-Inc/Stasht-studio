@@ -19,6 +19,8 @@ import {
   TYPING_DELAY_MS, AI_NOTICE, aiNoticeBefore, campaignCardText, bodyWithoutLink, joinedText, repJoinedBefore,
   POWERED_BY_URL, STASHT_MARK_VIEWBOX, STASHT_MARK_PATH, linkParts, linkTarget, shouldReopenChat,
   hitRectFor, HIT_RECTS_MAX, pathHidden,
+  hasContactChoice, contactMethodLabel, fieldsForMethod, submissionValues, DEFAULT_CONTACT_METHOD, CONTACT_METHODS,
+  CONTACT_CHOICE_LEGEND,
 } from './widget-core.js';
 
 const params = new URLSearchParams(location.search);
@@ -52,6 +54,7 @@ const state = {
   sending: false,
   errors: {},
   values: { name: '', mobile: '', email: '', company: '', message: '' },
+  contactMethod: DEFAULT_CONTACT_METHOD, // 'mobile' | 'email': which one the visitor fills in when the form offers both
   calloutDismissed: readDismissed(),
   // Live chat
   token: null,
@@ -73,6 +76,8 @@ const state = {
 
 // The shown fields, in order (set once the config loads).
 const fields = () => formFieldsFrom(state.config);
+// The fields the visitor fills in: with the Mobile phone / Email choice, only the chosen one of the two.
+const activeFields = () => fieldsForMethod(fields(), state.contactMethod);
 
 function readDismissed() {
   try { return sessionStorage.getItem(DISMISS_KEY) === '1'; } catch { return false; }
@@ -223,7 +228,7 @@ function focusId(id) {
 }
 
 function focusFirstError() {
-  const field = fields().find((f) => state.errors[f.key]);
+  const field = activeFields().find((f) => state.errors[f.key]);
   focusId(field ? `f-${field.key}` : 'f-send');
 }
 
@@ -357,12 +362,35 @@ const INPUTS = {
   company: { autocomplete: 'organization' },
 };
 
-const canSend = () => !state.sending && fields().every((f) => !f.required || String(state.values[f.key] || '').trim() !== '');
+const canSend = () => !state.sending && activeFields().every((f) => !f.required || String(state.values[f.key] || '').trim() !== '');
+
+// Mobile phone / Email radios (both shown in the settings). Switching keeps what was typed in each;
+// only the chosen one is sent. Native radios: arrow keys move between them, Tab leaves the group.
+function contactChoice(all) {
+  const pick = (method) => () => {
+    if (state.contactMethod === method) return;
+    state.contactMethod = method;
+    const { mobile, email, ...rest } = state.errors;
+    state.errors = rest;
+    render();
+    focusId(`f-via-${method}`);
+  };
+  return h('fieldset', { class: 'choice' },
+    h('legend', { class: 'sr' }, CONTACT_CHOICE_LEGEND),
+    CONTACT_METHODS.map((method) => {
+      const field = all.find((f) => f.key === method);
+      return h('label', { class: 'opt' },
+        h('input', { type: 'radio', id: `f-via-${method}`, name: 'contact_via', value: method, checked: state.contactMethod === method, onchange: pick(method) }),
+        h('span', {}, contactMethodLabel(field)));
+    }));
+}
 
 function form() {
   const v = state.values;
   const e = state.errors;
-  const shown = fields();
+  const all = fields();
+  const choice = hasContactChoice(all);
+  const shown = fieldsForMethod(all, state.contactMethod);
   const send = h('button', { id: 'f-send', class: 'send', type: 'submit', disabled: !canSend() }, state.sending ? 'Sending…' : 'Send Message');
   const bind = (key) => (ev) => {
     state.values[key] = ev.target.value;
@@ -378,7 +406,10 @@ function form() {
     const control = f.key === 'message'
       ? h('textarea', { ...common, maxlength: MESSAGE_MAX }, v.message)
       : h('input', { ...common, ...INPUTS[f.key], value: v[f.key] });
-    return [control, e[f.key] && h('span', { class: 'err', role: 'alert' }, e[f.key])];
+    return [
+      choice && f.key === state.contactMethod && contactChoice(all),
+      control, e[f.key] && h('span', { class: 'err', role: 'alert' }, e[f.key]),
+    ];
   });
 
   return h('div', { class: 'body' },
@@ -862,7 +893,8 @@ async function submit(ev) {
   if (state.sending) return;
 
   const v = state.values;
-  const shown = fields();
+  const all = fields();
+  const shown = fieldsForMethod(all, state.contactMethod);
   const errors = validateValues(shown, v);
   state.errors = errors;
   if (Object.keys(errors).length) {
@@ -884,7 +916,7 @@ async function submit(ev) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
       body: JSON.stringify({
-        ...Object.fromEntries(shown.map((f) => [f.key, v[f.key].trim()])),
+        ...submissionValues(all, v, state.contactMethod),
         host_origin: HOST_PAGE,
       }),
     });

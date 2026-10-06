@@ -90,6 +90,18 @@
       textarea { min-height: 96px; resize: vertical; }
       .err { color: #b3261e; font-size: 13px; font-weight: 500; margin-top: -4px; }
       .legal { margin: 2px 0 0; font-size: 12.5px; line-height: 1.5; color: #6b7280; }
+      /* Mobile phone / Email choice (Chris, 2026-10-06): compact radios above the one contact box. */
+      .choice { display: flex; flex-wrap: wrap; gap: 6px 22px; min-width: 0; margin: 0; padding: 2px 2px 0; border: 0; }
+      .sr { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+      .opt { display: inline-flex; align-items: center; gap: 9px; font-size: 15px; color: #4b5563; cursor: pointer; }
+      .opt input { -webkit-appearance: none; appearance: none; display: grid; place-content: center; flex: none; width: 18px; height: 18px;
+        margin: 0; padding: 0; border: 1.5px solid #d1d5db; border-radius: 50%; background: #fff; cursor: pointer; }
+      .opt input::before { content: ''; width: 8px; height: 8px; border-radius: 50%; background: var(--brand); transform: scale(0); transition: transform .12s ease-out; }
+      .opt input:checked { border-color: var(--brand); }
+      .opt input:checked::before { transform: scale(1); }
+      .opt input:checked + span { color: #1f2937; font-weight: 500; }
+      .opt:hover input:not(:checked) { border-color: #9ca3af; }
+      @media (prefers-reduced-motion: reduce) { .opt input::before { transition: none; } }
       .send { height: 48px; border: 0; border-radius: 12px; background: var(--brand); color: var(--brand-ink); font-size: 16px; font-weight: 600; cursor: pointer; }
       .send[disabled] { opacity: .45; cursor: default; }
 
