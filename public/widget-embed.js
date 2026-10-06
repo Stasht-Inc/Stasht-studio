@@ -18,7 +18,7 @@ import {
   autoReplyAnchor, firstServerError, chatOpenHeaderValue, CHAT_MAX_FILES,
   TYPING_DELAY_MS, AI_NOTICE, aiNoticeBefore, campaignCardText, bodyWithoutLink, joinedText, repJoinedBefore,
   POWERED_BY_URL, STASHT_MARK_VIEWBOX, STASHT_MARK_PATH, linkParts, linkTarget, shouldReopenChat,
-  hitRectFor, HIT_RECTS_MAX,
+  hitRectFor, HIT_RECTS_MAX, pathHidden,
 } from './widget-core.js';
 
 const params = new URLSearchParams(location.search);
@@ -954,6 +954,10 @@ async function init() {
   } catch {
     return tell('hide');
   }
+
+  // "Don't show on these pages": the loader passes the host page's path; on a match the loader
+  // removes the frame. The frame is still hidden and zero-sized here, so nothing flashes.
+  if (pathHidden(params.get('path'), state.config.hidden_paths)) return tell('hide');
 
   const style = document.documentElement.style;
   style.setProperty('--brand', safeColor(state.config.theme?.primary_color));
