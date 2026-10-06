@@ -140,6 +140,42 @@ export function validateValues(fields, values) {
   return errors;
 }
 
+// --- Mobile phone or Email (Chris, 2026-10-06) ------------------------------------------------
+// When the widget shows both mobile and email, the visitor picks one with radio buttons ("Mobile
+// phone" by default) and fills in only that one, which is then required whatever its own setting.
+// Derived from form_fields, so the config needs no new flag (WidgetFormFields::isContactChoice).
+
+export const CONTACT_METHODS = ['mobile', 'email'];
+export const DEFAULT_CONTACT_METHOD = 'mobile';
+export const CONTACT_CHOICE_LEGEND = 'How should we contact you?';
+
+export function hasContactChoice(fields) {
+  return CONTACT_METHODS.every((key) => fields.some((f) => f.key === key));
+}
+
+/** The radio's text: "Mobile phone" / "Email", or the owner's own label when they renamed the field. */
+export function contactMethodLabel(field) {
+  if (field.key === 'mobile' && field.label === DEFAULT_LABELS.mobile) return 'Mobile phone';
+  return field.label;
+}
+
+/**
+ * The fields actually filled in: with the choice, only the chosen contact field (required) stays;
+ * otherwise the fields as configured.
+ */
+export function fieldsForMethod(fields, method) {
+  if (!hasContactChoice(fields)) return fields;
+  const chosen = CONTACT_METHODS.includes(method) ? method : DEFAULT_CONTACT_METHOD;
+  return fields
+    .filter((f) => !CONTACT_METHODS.includes(f.key) || f.key === chosen)
+    .map((f) => (f.key === chosen ? { ...f, required: true } : f));
+}
+
+/** What /submit receives: the filled-in fields only (the unchosen contact value is left out). */
+export function submissionValues(fields, values, method) {
+  return Object.fromEntries(fieldsForMethod(fields, method).map((f) => [f.key, String(values[f.key] || '').trim()]));
+}
+
 // Copy from Chris's ContactWidget design.
 export const DEFAULT_CALLOUT = 'Hi there! Have a question?';
 export const CALLOUT_SUBTEXT = 'Chat with us here.';

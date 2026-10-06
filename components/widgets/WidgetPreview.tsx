@@ -1,8 +1,8 @@
 import { MessageCircle, X } from 'lucide-react';
-import type { CSSProperties } from 'react';
+import { Fragment, type CSSProperties } from 'react';
 import {
-  CALLOUT_SUBTEXT, CONSENT_LINE, DEFAULT_CALLOUT, DEFAULT_WELCOME, FORM_FIELD_KEYS, contrastInk, fieldPlaceholder,
-  resolveFormFields, safeColor, safeHttpsUrl, STASHT_MARK_PATH, STASHT_MARK_VIEWBOX,
+  CALLOUT_SUBTEXT, CONSENT_LINE, DEFAULT_CALLOUT, DEFAULT_WELCOME, FORM_FIELD_KEYS, contactMethodLabel, contrastInk,
+  fieldPlaceholder, isContactChoice, resolveFormFields, safeColor, safeHttpsUrl, STASHT_MARK_PATH, STASHT_MARK_VIEWBOX,
 } from './widgetHelpers';
 import type { FormFieldSettings, WidgetBubblePosition } from '../../services/widgetsAPI';
 
@@ -31,6 +31,25 @@ function initialsInk(hex: string): string {
   const h = safeColor(hex, '#6C60FF').slice(1);
   const [r, g, b] = [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16));
   return (0.299 * r + 0.587 * g + 0.114 * b) / 255 > 0.8 ? '#1f2937' : '#ffffff';
+}
+
+// The Mobile phone / Email radios (widget-embed.html .choice/.opt), "Mobile phone" picked as in the embed.
+function ContactChoice({ fields, brand }: { fields: FormFieldSettings; brand: string }) {
+  return (
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px 22px', padding: '2px 2px 0' }}>
+      {(['mobile', 'email'] as const).map((key) => {
+        const on = key === 'mobile';
+        return (
+          <span key={key} style={{ display: 'inline-flex', alignItems: 'center', gap: 9, fontSize: 15, color: on ? '#1f2937' : '#4b5563', fontWeight: on ? 500 : 400 }}>
+            <span style={{ display: 'grid', placeContent: 'center', flex: 'none', width: 18, height: 18, boxSizing: 'border-box', borderRadius: '50%', border: `1.5px solid ${on ? brand : '#d1d5db'}`, background: '#fff' }}>
+              {on && <span style={{ width: 8, height: 8, borderRadius: '50%', background: brand }} />}
+            </span>
+            {contactMethodLabel(key, fields[key])}
+          </span>
+        );
+      })}
+    </div>
+  );
 }
 
 function Faces({ online }: { online: NonNullable<WidgetPreviewValues['online']> }) {
@@ -65,7 +84,9 @@ export function WidgetPreview({ values, mode }: { values: WidgetPreviewValues; m
   const welcome = values.welcomeSubtext.trim() || DEFAULT_WELCOME;
   const left = values.position === 'bottom-left';
   const fields = values.formFields || resolveFormFields(null);
-  const shown = FORM_FIELD_KEYS.filter((k) => fields[k].show);
+  // With the Mobile phone / Email choice the form shows the radios and the mobile box (the default).
+  const choice = isContactChoice(fields);
+  const shown = FORM_FIELD_KEYS.filter((k) => fields[k].show && !(choice && k === 'email'));
   const online = (values.online || []).slice(0, 4);
 
   const picture = (size: number, iconSize: number, bg: string) => (logo
@@ -120,7 +141,12 @@ export function WidgetPreview({ values, mode }: { values: WidgetPreviewValues; m
               <div style={{ maxWidth: '82%', padding: '12px 16px', borderRadius: 16, background: '#f3f4f6', fontSize: 16, lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>{welcome}</div>
             </div>
             {shown.map((key) => (
-              <div key={key} style={{ ...inputStyle, minHeight: key === 'message' ? 96 : undefined }}>{fieldPlaceholder(key, fields[key])}</div>
+              <Fragment key={key}>
+                {choice && key === 'mobile' && <ContactChoice fields={fields} brand={brand} />}
+                <div style={{ ...inputStyle, minHeight: key === 'message' ? 96 : undefined }}>
+                  {fieldPlaceholder(key, choice && key === 'mobile' ? { ...fields[key], required: true } : fields[key])}
+                </div>
+              </Fragment>
             ))}
             <p style={{ margin: '2px 0 0', fontSize: 12.5, lineHeight: 1.5, color: '#6b7280' }}>{CONSENT_LINE}</p>
             <div style={{ height: 48, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 12, background: brand, color: ink, fontSize: 16, fontWeight: 600, opacity: 0.45 }}>

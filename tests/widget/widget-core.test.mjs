@@ -6,6 +6,7 @@ import {
   configUrl, ROOT_PAD,
   DEFAULT_FORM_FIELDS, formFieldsFrom, fieldLabel, isPlausibleEmail, validateValues, consentText,
   teamOnlineFrom, onlineCountText, DEFAULT_BRAND, placeholderFor, autoReplyText, initialsFrom, initialsInk,
+  hasContactChoice, contactMethodLabel, fieldsForMethod, submissionValues, DEFAULT_CONTACT_METHOD,
 } from '../../public/widget-core.js';
 
 test('safeColor accepts #RRGGBB only', () => {
@@ -137,6 +138,55 @@ test('validateValues checks only the shown fields: required ones filled, contact
   });
   const optionalMobile = [{ key: 'mobile', label: 'Mobile', required: false }, { key: 'email', label: 'Email', required: true }];
   assert.deepEqual(validateValues(optionalMobile, { mobile: '', email: 'sam@example.com' }), {});
+});
+
+const CHOICE = [
+  { key: 'name', label: 'Name', required: true },
+  { key: 'mobile', label: 'Mobile Number', required: false },
+  { key: 'email', label: 'Email', required: false },
+  { key: 'message', label: 'Message', required: true },
+];
+
+test('hasContactChoice: mobile and email both shown', () => {
+  assert.ok(hasContactChoice(CHOICE));
+  assert.ok(!hasContactChoice(DEFAULT_FORM_FIELDS));
+  assert.ok(!hasContactChoice(EMAIL_ONLY));
+  assert.equal(DEFAULT_CONTACT_METHOD, 'mobile');
+});
+
+test('contactMethodLabel says "Mobile phone" / "Email", or the owner\'s own label', () => {
+  assert.equal(contactMethodLabel(CHOICE[1]), 'Mobile phone');
+  assert.equal(contactMethodLabel(CHOICE[2]), 'Email');
+  assert.equal(contactMethodLabel({ key: 'mobile', label: 'Cell', required: false }), 'Cell');
+  assert.equal(contactMethodLabel({ key: 'email', label: 'Work email', required: false }), 'Work email');
+});
+
+test('fieldsForMethod keeps only the chosen contact field, required; one-field forms are unchanged', () => {
+  assert.deepEqual(fieldsForMethod(CHOICE, 'mobile').map((f) => [f.key, f.required]),
+    [['name', true], ['mobile', true], ['message', true]]);
+  assert.deepEqual(fieldsForMethod(CHOICE, 'email').map((f) => [f.key, f.required]),
+    [['name', true], ['email', true], ['message', true]]);
+  assert.deepEqual(fieldsForMethod(CHOICE, 'nonsense').map((f) => f.key), ['name', 'mobile', 'message']);
+  assert.equal(fieldsForMethod(DEFAULT_FORM_FIELDS, 'email'), DEFAULT_FORM_FIELDS);
+  assert.equal(fieldsForMethod(EMAIL_ONLY, 'mobile'), EMAIL_ONLY);
+  assert.equal(CHOICE[1].required, false, 'the config is not mutated');
+});
+
+test('the chosen contact field is required and checked; the other is ignored', () => {
+  const values = { name: 'Sam', mobile: '', email: 'nope', message: 'Hi' };
+  assert.deepEqual(validateValues(fieldsForMethod(CHOICE, 'mobile'), values), {
+    mobile: 'Enter a valid phone number, including the area code.',
+  });
+  assert.deepEqual(validateValues(fieldsForMethod(CHOICE, 'email'), values), { email: 'Enter a valid email address.' });
+  assert.deepEqual(validateValues(fieldsForMethod(CHOICE, 'mobile'), { ...values, mobile: '416 818 1235' }), {});
+});
+
+test('submissionValues sends only the chosen contact value', () => {
+  const values = { name: ' Sam ', mobile: '416 818 1235', email: 'sam@example.com', company: 'x', message: 'Hi' };
+  assert.deepEqual(submissionValues(CHOICE, values, 'mobile'), { name: 'Sam', mobile: '416 818 1235', message: 'Hi' });
+  assert.deepEqual(submissionValues(CHOICE, values, 'email'), { name: 'Sam', email: 'sam@example.com', message: 'Hi' });
+  assert.deepEqual(submissionValues(DEFAULT_FORM_FIELDS, values, 'email'),
+    { name: 'Sam', mobile: '416 818 1235', company: 'x', message: 'Hi' });
 });
 
 test('consentText is the design copy', () => {

@@ -18,13 +18,13 @@ import { LeadRecipientsPanel } from './LeadRecipientsPanel';
 import { FieldError, SelectField, errorInputClass, inputClass } from './builderFields';
 import {
   DEFAULT_BRAND, DEFAULT_CALLOUT, DEFAULT_WELCOME, DEFAULT_FORM_FIELD_SETTINGS, FORM_FIELD_KEYS, FORM_FIELD_LABEL_MAX, FORM_FIELD_NAMES, WELCOME_MAX, copyText,
-  formCanReply, installSnippet, isHexColor, isPlausibleDomain, normalizeDomain, resolveFormFields, safeColor,
+  formCanReply, installSnippet, isContactChoice, withFormFieldChange, CONTACT_CHOICE_NOTE, isHexColor, isPlausibleDomain, normalizeDomain, resolveFormFields, safeColor,
   safeHttpsUrl, squareAvatarDataUrl,
   AI_NOTES_MAX, DEFAULT_WEEK_HOURS, weekFromApi, weekProblem, weekToApi, hiddenPathsFromText, hiddenPathsProblem,
 } from './widgetHelpers';
 
 const BRAND = '#6C60FF';
-const REPLY_RULE = 'Make Mobile number or Email required, so every visitor leaves a way for you to reply.';
+const REPLY_RULE = 'Show Mobile number or Email, so every visitor leaves a way for you to reply.';
 const CALLOUT_MAX = 60;
 const AGENT_MAX = 40;
 const NAME_MAX = 80;
@@ -446,10 +446,10 @@ function WidgetBuilder({
   };
 
   const setField = (key: FormFieldKey, patch: Partial<FormFieldSetting>) => {
-    const next = { ...form.formFields[key], ...patch };
-    if (!next.show) next.required = false;
-    set('formFields', { ...form.formFields, [key]: next });
+    set('formFields', withFormFieldChange(form.formFields, key, patch));
   };
+  // Both shown: visitors pick one, so neither has its own Required box. One shown: it is always required.
+  const contactChoice = isContactChoice(form.formFields);
   const formFieldsError = errors.form_fields
     || Object.entries(errors).find(([k]) => k.startsWith('form_fields.'))?.[1];
 
@@ -674,7 +674,7 @@ function WidgetBuilder({
             <fieldset onFocus={() => setPreviewMode('open')}>
               <legend className="block text-sm font-medium text-gray-800 mb-1">Form fields</legend>
               <p className="text-xs text-gray-400 mb-2">
-                Choose what visitors fill in and rename any label. Mobile number or Email must be required so you can always reply.
+                Choose what visitors fill in and rename any label. Show Mobile number, Email or both so you can always reply.
               </p>
               <div className="rounded-xl border border-gray-200 divide-y divide-gray-100">
                 <div className="hidden sm:grid grid-cols-[7.5rem_minmax(0,1fr)_10rem] gap-3 px-3 py-2 text-xs font-semibold text-gray-500">
@@ -685,6 +685,10 @@ function WidgetBuilder({
                 {FORM_FIELD_KEYS.map((key) => {
                   const f = form.formFields[key];
                   const name = FORM_FIELD_NAMES[key];
+                  const isContact = key === 'mobile' || key === 'email';
+                  const choiceRow = isContact && contactChoice;
+                  // The only contact field shown: required, and it can't be unticked.
+                  const lockedRequired = isContact && f.show && !contactChoice;
                   return (
                     <div key={key} className="grid grid-cols-[7.5rem_minmax(0,1fr)] sm:grid-cols-[7.5rem_minmax(0,1fr)_10rem] gap-x-3 gap-y-2 items-center px-3 py-2.5">
                       <span className={`text-sm font-medium ${f.show ? 'text-gray-900' : 'text-gray-400'}`}>{name}</span>
@@ -709,22 +713,34 @@ function WidgetBuilder({
                           />
                           <span className="sm:sr-only">Show</span>
                         </label>
-                        <label className={`inline-flex items-center gap-1.5 text-sm sm:justify-center ${f.show ? 'text-gray-700 cursor-pointer' : 'text-gray-300'}`}>
-                          <input
-                            type="checkbox"
-                            checked={f.required}
-                            disabled={!f.show}
-                            onChange={(e) => setField(key, { required: e.target.checked })}
-                            aria-label={`${name} required`}
-                            className="w-4 h-4 accent-[#6C60FF] disabled:opacity-40"
-                          />
-                          <span className="sm:sr-only">Required</span>
-                        </label>
+                        {choiceRow ? (
+                          <span className="inline-flex items-center text-xs text-gray-400 sm:justify-center" title={CONTACT_CHOICE_NOTE}>
+                            Visitor picks
+                          </span>
+                        ) : (
+                          <label
+                            className={`inline-flex items-center gap-1.5 text-sm sm:justify-center ${f.show && !lockedRequired ? 'text-gray-700 cursor-pointer' : 'text-gray-300'}`}
+                            title={lockedRequired ? 'Required: it is the only way to reply' : undefined}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={f.required}
+                              disabled={!f.show || lockedRequired}
+                              onChange={(e) => setField(key, { required: e.target.checked })}
+                              aria-label={lockedRequired ? `${name} required (the only way to reply)` : `${name} required`}
+                              className="w-4 h-4 accent-[#6C60FF] disabled:opacity-40"
+                            />
+                            <span className="sm:sr-only">Required</span>
+                          </label>
+                        )}
                       </div>
                     </div>
                   );
                 })}
               </div>
+              {contactChoice && (
+                <p className="text-xs text-gray-500 mt-1.5">{CONTACT_CHOICE_NOTE}</p>
+              )}
               {!formCanReply(form.formFields) && !formFieldsError && (
                 <p className="text-xs text-amber-700 mt-1">{REPLY_RULE}</p>
               )}

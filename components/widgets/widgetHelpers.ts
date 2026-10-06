@@ -175,9 +175,43 @@ export function resolveFormFields(stored: Partial<FormFieldSettings> | null | un
   return out;
 }
 
-/** A visitor must always leave a mobile number or an email, or nobody can reply. */
+/**
+ * Mobile and email both shown: visitors pick "Mobile phone" (default) or "Email" with radios and fill
+ * in that one, so the two fields' own required flags no longer apply (WidgetFormFields::isContactChoice,
+ * widget-core hasContactChoice).
+ */
+export function isContactChoice(fields: FormFieldSettings): boolean {
+  return fields.mobile.show && fields.email.show;
+}
+
+export const CONTACT_CHOICE_NOTE = 'Visitors choose Mobile phone (default) or Email.';
+
+/** A visitor must always leave a mobile number or an email: both shown (they pick one), or the shown one required. */
 export function formCanReply(fields: FormFieldSettings): boolean {
-  return (fields.mobile.show && fields.mobile.required) || (fields.email.show && fields.email.required);
+  return isContactChoice(fields)
+    || (fields.mobile.show && fields.mobile.required) || (fields.email.show && fields.email.required);
+}
+
+/**
+ * Apply one field's change in the builder: hidden fields aren't required, and when mobile or email
+ * becomes the only contact field shown it is required (otherwise nobody could be replied to).
+ */
+export function withFormFieldChange(
+  fields: FormFieldSettings, key: FormFieldKey, patch: Partial<FormFieldSetting>,
+): FormFieldSettings {
+  const next: FormFieldSettings = { ...fields, [key]: { ...fields[key], ...patch } };
+  if (!next[key].show) next[key] = { ...next[key], required: false };
+  for (const contact of ['mobile', 'email'] as const) {
+    const other = contact === 'mobile' ? 'email' : 'mobile';
+    if (next[contact].show && !next[other].show && !next[contact].required) next[contact] = { ...next[contact], required: true };
+  }
+  return next;
+}
+
+/** The radio text the widget shows: "Mobile phone" / "Email", or the owner's own label (widget-core contactMethodLabel). */
+export function contactMethodLabel(key: 'mobile' | 'email', f: FormFieldSetting): string {
+  const label = f.label.trim() || DEFAULT_FORM_FIELD_SETTINGS[key].label;
+  return key === 'mobile' && label === DEFAULT_FORM_FIELD_SETTINGS.mobile.label ? 'Mobile phone' : label;
 }
 
 /** The input placeholder the widget shows ("Name *", "Business (optional)") — same as widget-core placeholderFor(). */
