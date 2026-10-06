@@ -5,6 +5,21 @@
 (function () {
   'use strict';
 
+  // Front end only (Chris, 2026-10-06): a site whose admin pages share the template the snippet was
+  // pasted into must not get the widget there. Checked before anything else: no frame, no request.
+  // Per-widget pages ("Don't show on these pages") are checked by the embed, which has the config.
+  // <admin-skip> Copied verbatim from widget-core.js (tests/widget/widget-paths.test.mjs checks they match).
+  var ADMIN_PATH_SEGMENTS = ['admin', 'wp-admin', 'administrator', 'wp-login.php'];
+
+  function isAdminPath(pathname) {
+    if (typeof pathname !== 'string') return false;
+    var first = pathname.split('/')[1] || '';
+    try { first = decodeURIComponent(first); } catch (e) { /* malformed escape: compare as is */ }
+    return ADMIN_PATH_SEGMENTS.indexOf(first.toLowerCase()) !== -1;
+  }
+  // </admin-skip>
+  if (isAdminPath(window.location.pathname)) return;
+
   // currentScript is null for some async/injected loads; fall back to finding our own tag.
   var script = document.currentScript
     || document.querySelector('script[data-widget-id][src*="widget-loader.js"]');
@@ -28,7 +43,8 @@
     + '?w=' + encodeURIComponent(widgetId)
     + '&host=' + encodeURIComponent(window.location.origin)
     + '&vw=' + encodeURIComponent(window.innerWidth)
-    + '&vh=' + encodeURIComponent(window.innerHeight);
+    + '&vh=' + encodeURIComponent(window.innerHeight)
+    + '&path=' + encodeURIComponent(window.location.pathname);
 
   var frame = document.createElement('iframe');
   frame.id = frameId;

@@ -644,3 +644,62 @@ export function hitClipPath(rects) {
   }
   return "path('" + d.join(' ') + "')";
 }
+
+// --- Where the widget shows ------------------------------------------------------------------
+// Chris, 2026-10-06: a customer's site template is also used by their admin pages, so the widget
+// showed inside their admin; "it should be for front end only".
+//
+// 1. Admin pages are always skipped. The loader checks this before it injects anything (no frame,
+//    no request). ADMIN_PATH_SEGMENTS and isAdminPath are copied verbatim into widget-loader.js
+//    between <admin-skip> markers (tests/widget/widget-paths.test.mjs checks they match), so they
+//    stay ES5 and DOM-free.
+// <admin-skip>
+var ADMIN_PATH_SEGMENTS = ['admin', 'wp-admin', 'administrator', 'wp-login.php'];
+
+function isAdminPath(pathname) {
+  if (typeof pathname !== 'string') return false;
+  var first = pathname.split('/')[1] || '';
+  try { first = decodeURIComponent(first); } catch (e) { /* malformed escape: compare as is */ }
+  return ADMIN_PATH_SEGMENTS.indexOf(first.toLowerCase()) !== -1;
+}
+// </admin-skip>
+export { ADMIN_PATH_SEGMENTS, isAdminPath };
+
+// 2. Each widget's "Don't show on these pages" list (config.hidden_paths): "/checkout",
+//    "/account/*". Rules match the server's WidgetHiddenPaths and the builder's hiddenPathsProblem.
+export const HIDDEN_PATHS_MAX = 20;
+export const HIDDEN_PATH_LENGTH_MAX = 200;
+
+const withoutTrailingSlash = (p) => (p.length > 1 ? p.replace(/\/+$/, '') || '/' : p);
+const escapeRegex = (s) => s.replace(/[.+?^${}()|[\]\\]/g, '\\$&');
+
+/** A pattern as a whole-path, case-insensitive regex; null for an entry that can't be a page address. */
+function hiddenPathRegex(raw) {
+  if (typeof raw !== 'string') return null;
+  const pattern = withoutTrailingSlash(raw.trim());
+  if (!pattern.startsWith('/') || pattern.length > HIDDEN_PATH_LENGTH_MAX) return null;
+  // "/account/*" also covers "/account" itself: hiding a section should hide its front page too.
+  if (pattern.length > 2 && pattern.endsWith('/*')) {
+    return new RegExp('^' + pattern.slice(0, -2).split('*').map(escapeRegex).join('.*') + '(?:/.*)?$', 'i');
+  }
+  // Elsewhere * matches any characters, "/" included.
+  return new RegExp('^' + pattern.split('*').map(escapeRegex).join('.*') + '$', 'i');
+}
+
+/**
+ * True when the host page's path (location.pathname, passed by the loader as ?path=) matches one of
+ * the widget's hidden_paths. Whole path, case-insensitive, a trailing slash ignored; the path is also
+ * tried percent-decoded ("/caf%C3%A9" matches "/café"). No path (an older cached loader) never hides.
+ */
+export function pathHidden(path, patterns) {
+  if (typeof path !== 'string' || !path.startsWith('/') || !Array.isArray(patterns)) return false;
+  const candidates = [withoutTrailingSlash(path)];
+  try {
+    const decoded = withoutTrailingSlash(decodeURIComponent(path));
+    if (decoded !== candidates[0]) candidates.push(decoded);
+  } catch { /* malformed escape: raw path only */ }
+  return patterns.some((raw) => {
+    const re = hiddenPathRegex(raw);
+    return !!re && candidates.some((c) => re.test(c));
+  });
+}

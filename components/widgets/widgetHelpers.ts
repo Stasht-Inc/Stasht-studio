@@ -98,6 +98,34 @@ export function isPlausibleDomain(domain: string): boolean {
   return /^(?=.{3,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/.test(domain);
 }
 
+// --- "Don't show on these pages" (mirrors WidgetHiddenPaths.php; matched by pathHidden() in public/widget-core.js) ---
+export const HIDDEN_PATHS_MAX = 20;
+export const HIDDEN_PATH_LENGTH_MAX = 200;
+
+/** Textarea text -> the list saved: one page address per line, trimmed, blanks and duplicates (any case) dropped. */
+export function hiddenPathsFromText(text: string): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const line of text.split(/\r?\n/)) {
+    const entry = line.trim();
+    if (!entry || seen.has(entry.toLowerCase())) continue;
+    seen.add(entry.toLowerCase());
+    out.push(entry);
+  }
+  return out;
+}
+
+/** Why the list can't be saved (first problem), or null. Same rules as the server. */
+export function hiddenPathsProblem(paths: string[]): string | null {
+  for (const entry of paths) {
+    if (entry.length > HIDDEN_PATH_LENGTH_MAX) return `"${entry.slice(0, 40)}…" is too long: each page address can be ${HIDDEN_PATH_LENGTH_MAX} characters at most.`;
+    if (!entry.startsWith('/')) return `"${entry}" must start with /, e.g. /checkout.`;
+    if (/[\s?#]/.test(entry)) return `"${entry}": enter just the page address, without spaces, ? or #.`;
+  }
+  if (paths.length > HIDDEN_PATHS_MAX) return `You can list up to ${HIDDEN_PATHS_MAX} pages.`;
+  return null;
+}
+
 /** Days without a page load after which an install is shown as possibly removed. */
 export const STALE_INSTALL_DAYS = 7;
 

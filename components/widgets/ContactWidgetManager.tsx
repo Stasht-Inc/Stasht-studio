@@ -20,7 +20,7 @@ import {
   DEFAULT_BRAND, DEFAULT_CALLOUT, DEFAULT_WELCOME, DEFAULT_FORM_FIELD_SETTINGS, FORM_FIELD_KEYS, FORM_FIELD_LABEL_MAX, FORM_FIELD_NAMES, WELCOME_MAX, copyText,
   formCanReply, installSnippet, isHexColor, isPlausibleDomain, normalizeDomain, resolveFormFields, safeColor,
   safeHttpsUrl, squareAvatarDataUrl,
-  AI_NOTES_MAX, DEFAULT_WEEK_HOURS, weekFromApi, weekProblem, weekToApi,
+  AI_NOTES_MAX, DEFAULT_WEEK_HOURS, weekFromApi, weekProblem, weekToApi, hiddenPathsFromText, hiddenPathsProblem,
 } from './widgetHelpers';
 
 const BRAND = '#6C60FF';
@@ -48,6 +48,7 @@ interface FormState extends AfterHoursValue {
   logoUrl: string;
   position: WidgetBubblePosition;
   domains: string[];
+  hiddenPaths: string; // "Don't show on these pages" textarea, one page address per line
   status: WidgetStatus;
   formFields: FormFieldSettings;
   propertyId: number | null; // the dealership whose team takes over leads; null = only the owner
@@ -65,6 +66,7 @@ const emptyForm: FormState = {
   logoUrl: '',
   position: 'bottom-right',
   domains: [],
+  hiddenPaths: '',
   status: 'draft',
   formFields: resolveFormFields(null),
   propertyId: null,
@@ -94,6 +96,7 @@ function formFromWidget(w: ContactWidget): FormState {
     logoUrl: w.theme?.logo_url || '',
     position: w.theme?.bubble_position === 'bottom-left' ? 'bottom-left' : 'bottom-right',
     domains: [...(w.allowed_domains || [])],
+    hiddenPaths: (w.hidden_paths || []).join('\n'),
     status: w.status || 'draft',
     formFields: resolveFormFields(w.form_fields),
     propertyId: w.property_id ?? null,
@@ -125,6 +128,7 @@ function inputFromForm(f: FormState, domains: string[], withTeam: boolean, withR
       bubble_position: f.position,
     },
     allowed_domains: domains,
+    hidden_paths: hiddenPathsFromText(f.hiddenPaths),
     form_fields: Object.fromEntries(FORM_FIELD_KEYS.map((k) => [k, { ...f.formFields[k], label: f.formFields[k].label.trim() }])),
     // AI assistant + business hours (spec 2026-09-29 part 2 §2). The AI answers at any hour; hours only tell visitors when the team is in.
     business_hours: f.hoursOn ? weekToApi(f.hours) : null,
@@ -307,7 +311,7 @@ function WidgetBuilder({
       const map: Record<string, string> = {
         name: 'name', agentName: 'agent_name', calloutText: 'callout_text', welcomeSubtext: 'welcome_subtext',
         primaryColor: 'theme.primary_color', logoUrl: 'theme.logo_url', position: 'theme.bubble_position',
-        domains: 'allowed_domains', status: 'status', formFields: 'form_fields', propertyId: 'property_id',
+        domains: 'allowed_domains', hiddenPaths: 'hidden_paths', status: 'status', formFields: 'form_fields', propertyId: 'property_id',
         excludedRecipients: 'excluded_recipients',
         hoursOn: 'business_hours', hours: 'business_hours', timezone: 'timezone', aiEnabled: 'ai_enabled', aiNotes: 'faq_notes',
       };
@@ -376,6 +380,8 @@ function WidgetBuilder({
       if (hoursProblem) e.business_hours = hoursProblem;
       if (!form.timezone) e.timezone = 'Choose the timezone your business hours are in.';
     }
+    const hiddenProblem = hiddenPathsProblem(hiddenPathsFromText(form.hiddenPaths));
+    if (hiddenProblem) e.hidden_paths = hiddenProblem;
     if (form.aiNotes.length > AI_NOTES_MAX) e.faq_notes = 'Notes for the AI can be up to 2,000 characters.';
     return e;
   };
@@ -824,6 +830,26 @@ function WidgetBuilder({
                 The domain(s) of the site where the widget will be installed, e.g. example.com. Press Enter to add each one.
               </p>
               <FieldError id={id('domain-err')} message={domainError || errors.allowed_domains} />
+            </div>
+
+            <div>
+              <label htmlFor={id('hidden-paths')} className="block text-sm font-medium text-gray-800 mb-1.5">Don't show on these pages</label>
+              <textarea
+                id={id('hidden-paths')}
+                value={form.hiddenPaths}
+                rows={3}
+                onChange={(e) => set('hiddenPaths', e.target.value)}
+                placeholder={'/checkout\n/account/*'}
+                autoCapitalize="none"
+                spellCheck={false}
+                aria-invalid={!!errors.hidden_paths}
+                aria-describedby={id('hidden-paths-help') + (errors.hidden_paths ? ' ' + id('hidden-paths-err') : '')}
+                className={inputClass + ' resize-y' + (errors.hidden_paths ? errorInputClass : '')}
+              />
+              <p id={id('hidden-paths-help')} className="text-xs text-gray-400 mt-1">
+                One page address per line, e.g. /checkout or /account/*. The widget never shows on admin pages (/admin, <span className="whitespace-nowrap">/wp-admin</span>).
+              </p>
+              <FieldError id={id('hidden-paths-err')} message={errors.hidden_paths} />
             </div>
 
             {propertyId != null ? (
