@@ -221,7 +221,13 @@ export function fieldPlaceholder(key: FormFieldKey, f: FormFieldSetting): string
   return f.required ? `${label} *` : `${label} (optional)`;
 }
 
-export const CONSENT_LINE = 'By submitting you agree to receive messages for the provided channel. Rates may be applied.';
+/** Mirrors consentText() in public/widget-core.js: the consent line under the form, naming the business. */
+export function consentLine(businessName: string | null | undefined, channel: 'sms' | 'email'): string {
+  const who = (businessName ?? '').trim() || 'us';
+  return channel === 'email'
+    ? `By submitting, you agree to receive emails from ${who} about your inquiry.`
+    : `By submitting, you agree to receive text messages from ${who} about your inquiry. Msg & data rates may apply. Msg frequency varies. Reply STOP to opt out, HELP for help.`;
+}
 
 /** Crops an image to a centred square and shrinks it (default 256px) before upload. */
 export async function squareAvatarDataUrl(file: File, size = 256): Promise<string> {

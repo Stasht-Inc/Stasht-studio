@@ -1,7 +1,7 @@
 import { MessageCircle, X } from 'lucide-react';
 import { Fragment, type CSSProperties } from 'react';
 import {
-  CALLOUT_SUBTEXT, CONSENT_LINE, DEFAULT_CALLOUT, DEFAULT_WELCOME, FORM_FIELD_KEYS, contactMethodLabel, contrastInk,
+  CALLOUT_SUBTEXT, consentLine, DEFAULT_CALLOUT, DEFAULT_WELCOME, FORM_FIELD_KEYS, contactMethodLabel, contrastInk,
   fieldPlaceholder, isContactChoice, resolveFormFields, safeColor, safeHttpsUrl, STASHT_MARK_PATH, STASHT_MARK_VIEWBOX,
 } from './widgetHelpers';
 import type { FormFieldSettings, WidgetBubblePosition } from '../../services/widgetsAPI';
@@ -16,6 +16,7 @@ export interface WidgetPreviewValues {
   formFields?: FormFieldSettings;
   // Sample "who's online" (the embed shows the real team from the server).
   online?: { name: string; initials: string; color: string; avatarUrl?: string | null }[];
+  businessName?: string | null; // named in the consent line
 }
 
 // Mirrors public/widget-embed.html + widget-embed.js, which follow Chris's ContactWidget frames:
@@ -148,7 +149,7 @@ export function WidgetPreview({ values, mode }: { values: WidgetPreviewValues; m
                 </div>
               </Fragment>
             ))}
-            <p style={{ margin: '2px 0 0', fontSize: 12.5, lineHeight: 1.5, color: '#6b7280' }}>{CONSENT_LINE}</p>
+            <p style={{ margin: '2px 0 0', fontSize: 12.5, lineHeight: 1.5, color: '#6b7280' }}>{consentLine(values.businessName, shown.includes('mobile') ? 'sms' : 'email')}</p>
             <div style={{ height: 48, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 12, background: brand, color: ink, fontSize: 16, fontWeight: 600, opacity: 0.45 }}>
               Send Message
             </div>

@@ -182,8 +182,15 @@ export const CALLOUT_SUBTEXT = 'Chat with us here.';
 export const DEFAULT_WELCOME = 'Enter your question below and a representative will get right back to you.';
 const MESSAGE_PLACEHOLDER = 'I want to know more...';
 
-export function consentText() {
-  return 'By submitting you agree to receive messages for the provided channel. Rates may be applied.';
+/**
+ * Consent line under the form (wording approved by Chris, 2026-10-06), naming the business. `channel`
+ * is how replies will reach the visitor: 'sms' while a mobile number is asked for, else 'email'.
+ */
+export function consentText(businessName, channel = 'sms') {
+  const who = String(businessName || '').trim() || 'us';
+  return channel === 'email'
+    ? `By submitting, you agree to receive emails from ${who} about your inquiry.`
+    : `By submitting, you agree to receive text messages from ${who} about your inquiry. Msg & data rates may apply. Msg frequency varies. Reply STOP to opt out, HELP for help.`;
 }
 
 /** Inputs carry their label as the placeholder ("Name *", "Business (optional)"), as in the design. */

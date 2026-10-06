@@ -416,7 +416,7 @@ function form() {
     botRow(state.config.welcome_subtext || DEFAULT_WELCOME, null, 'top'),
     h('form', { novalidate: true, onsubmit: submit },
       controls,
-      h('p', { class: 'legal' }, consentText()),
+      h('p', { class: 'legal' }, consentText(state.config.business_name, activeFields().some((f) => f.key === 'mobile') ? 'sms' : 'email')),
       e.form && h('div', { class: 'err', role: 'alert' }, e.form),
       send));
 }

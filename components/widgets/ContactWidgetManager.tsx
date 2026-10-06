@@ -980,6 +980,8 @@ function WidgetBuilder({
                         position: form.position,
                         formFields: form.formFields,
                         online: previewOnline,
+                        // Same as the server: the widget's dealership, else the owner's name.
+                        businessName: teamOptions.find((t) => t.id === form.propertyId)?.name ?? propertyName ?? user?.name,
                       }}
                     />
                   </div>

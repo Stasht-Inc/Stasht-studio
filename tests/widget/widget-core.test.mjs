@@ -189,8 +189,11 @@ test('submissionValues sends only the chosen contact value', () => {
     { name: 'Sam', mobile: '416 818 1235', company: 'x', message: 'Hi' });
 });
 
-test('consentText is the design copy', () => {
-  assert.equal(consentText(), 'By submitting you agree to receive messages for the provided channel. Rates may be applied.');
+test('consentText names the business; email wording for email replies', () => {
+  assert.equal(consentText('Royal Wood Shop'), 'By submitting, you agree to receive text messages from Royal Wood Shop about your inquiry. Msg & data rates may apply. Msg frequency varies. Reply STOP to opt out, HELP for help.');
+  assert.equal(consentText('Royal Wood Shop', 'email'), 'By submitting, you agree to receive emails from Royal Wood Shop about your inquiry.');
+  assert.match(consentText(null), /text messages from us about/);
+  assert.match(consentText('   ', 'email'), /emails from us about/);
 });
 
 test('placeholderFor puts the label in the input, marking required and optional fields', () => {
