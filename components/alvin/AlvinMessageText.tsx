@@ -1,19 +1,39 @@
 import { Fragment, type ReactNode } from 'react';
 
 // Renders Alvin's answers: plain text with the light Markdown the prompt asks for — **bold**,
-// `code`, numbered and bulleted lists, paragraphs. Built from React elements (never innerHTML),
+// `code`, links, numbered and bulleted lists, paragraphs. Built from React elements (never innerHTML),
 // so nothing in an answer can inject markup.
+
+// [text](https://…) and bare https:// links. Only http(s) URLs become links, so a javascript: or
+// data: URL in an answer stays plain text.
+const LINK = /(\[[^\]]+\]\(https?:\/\/[^\s)]+\)|https?:\/\/[^\s)]+)/g;
+
+function link(part: string, key: string): ReactNode {
+  const md = part.match(/^\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)$/);
+  const href = md ? md[2] : part.replace(/[.,;:!?]+$/, '');
+  const trailing = md ? '' : part.slice(href.length);
+  return (
+    <Fragment key={key}>
+      <a href={href} target="_blank" rel="noopener noreferrer" className="text-[#6c60ff] underline underline-offset-2 break-all hover:text-[#5246e0]">
+        {md ? md[1] : href}
+      </a>
+      {trailing}
+    </Fragment>
+  );
+}
 
 function inline(text: string, key: string): ReactNode[] {
   const parts = text.split(/(\*\*[^*]+\*\*|`[^`]+`)/g);
-  return parts.map((part, i) => {
+  return parts.flatMap((part, i) => {
     if (part.startsWith('**') && part.endsWith('**') && part.length > 4) {
-      return <strong key={`${key}-${i}`} className="font-semibold">{part.slice(2, -2)}</strong>;
+      return [<strong key={`${key}-${i}`} className="font-semibold">{part.slice(2, -2)}</strong>];
     }
     if (part.startsWith('`') && part.endsWith('`') && part.length > 2) {
-      return <code key={`${key}-${i}`} className="px-1 rounded bg-white/70 text-[11.5px]">{part.slice(1, -1)}</code>;
+      return [<code key={`${key}-${i}`} className="px-1 rounded bg-white/70 text-[11.5px]">{part.slice(1, -1)}</code>];
     }
-    return <Fragment key={`${key}-${i}`}>{part}</Fragment>;
+    return part.split(LINK).map((piece, j) =>
+      j % 2 === 1 ? link(piece, `${key}-${i}-${j}`) : <Fragment key={`${key}-${i}-${j}`}>{piece}</Fragment>,
+    );
   });
 }
 
