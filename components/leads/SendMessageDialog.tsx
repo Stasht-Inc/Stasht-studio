@@ -186,7 +186,7 @@ export default function SendMessageDialog({ open, onOpenChange, onSent }: Props)
           )}
 
           <div>
-            <span id="sm-campaign-label" className={label}>Campaign <span className={hint}>(optional — pick cars for a new campaign; its link is added)</span></span>
+            <span id="sm-campaign-label" className={label}>Campaign <span className={hint}>(optional — pick items for a new campaign; its link is added)</span></span>
             {picked ? (
               <div className="flex items-center gap-3 rounded-lg border border-[#6C60FF] bg-[#F5F2FF] px-3 py-2">
                 <span aria-hidden="true" className="w-8 h-8 shrink-0 rounded-md bg-white flex items-center justify-center">
@@ -194,7 +194,7 @@ export default function SendMessageDialog({ open, onOpenChange, onSent }: Props)
                 </span>
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-sm font-medium text-gray-900">{picked.name}</span>
-                  <span className="block text-xs text-gray-600">{carCount} {carCount === 1 ? 'car' : 'cars'} · new campaign</span>
+                  <span className="block text-xs text-gray-600">{carCount} {carCount === 1 ? 'item' : 'items'} · new campaign</span>
                 </span>
                 <button
                   type="button"

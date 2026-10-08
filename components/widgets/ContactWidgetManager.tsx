@@ -4,7 +4,7 @@ import { ArrowLeft, Camera, Check, Code2, Copy, Loader2, MessageSquare, Pencil, 
 import { toast } from 'sonner';
 import { widgetsAPI } from '../../services/widgetsAPI';
 import type {
-  ContactWidget, ContactWidgetInput, FormFieldKey, FormFieldSetting, FormFieldSettings, WidgetBubblePosition, WidgetStatus,
+  ContactWidget, ContactWidgetInput, FormFieldKey, FormFieldSetting, FormFieldSettings, LeadRecipient, WidgetBubblePosition, WidgetStatus,
   WidgetTeamOption,
 } from '../../services/widgetsAPI';
 import { useAuth } from '../../contexts/AuthContext';
@@ -14,16 +14,17 @@ import { InstallGuide } from './InstallGuide';
 import { InstallStatusLine } from './InstallStatus';
 import { AfterHoursSettings } from './AfterHoursSettings';
 import type { AfterHoursValue } from './AfterHoursSettings';
+import { LeadRecipientsPanel } from './LeadRecipientsPanel';
 import { FieldError, SelectField, errorInputClass, inputClass } from './builderFields';
 import {
   DEFAULT_BRAND, DEFAULT_CALLOUT, DEFAULT_WELCOME, DEFAULT_FORM_FIELD_SETTINGS, FORM_FIELD_KEYS, FORM_FIELD_LABEL_MAX, FORM_FIELD_NAMES, WELCOME_MAX, copyText,
-  formCanReply, installSnippet, isHexColor, isPlausibleDomain, normalizeDomain, resolveFormFields, safeColor,
+  formCanReply, installSnippet, isContactChoice, withFormFieldChange, CONTACT_CHOICE_NOTE, isHexColor, isPlausibleDomain, normalizeDomain, resolveFormFields, safeColor,
   safeHttpsUrl, squareAvatarDataUrl,
-  AI_NOTES_MAX, DEFAULT_WEEK_HOURS, weekFromApi, weekProblem, weekToApi,
+  AI_NOTES_MAX, DEFAULT_WEEK_HOURS, weekFromApi, weekProblem, weekToApi, hiddenPathsFromText, hiddenPathsProblem,
 } from './widgetHelpers';
 
 const BRAND = '#6C60FF';
-const REPLY_RULE = 'Make Mobile number or Email required, so every visitor leaves a way for you to reply.';
+const REPLY_RULE = 'Show Mobile number or Email, so every visitor leaves a way for you to reply.';
 const CALLOUT_MAX = 60;
 const AGENT_MAX = 40;
 const NAME_MAX = 80;
@@ -47,9 +48,13 @@ interface FormState extends AfterHoursValue {
   logoUrl: string;
   position: WidgetBubblePosition;
   domains: string[];
+  hiddenPaths: string; // "Don't show on these pages" textarea, one page address per line
   status: WidgetStatus;
   formFields: FormFieldSettings;
   propertyId: number | null; // the dealership whose team takes over leads; null = only the owner
+  // Keys of unticked, unlocked "who gets this widget's leads" rows (spec 2026-09-30). Starts from
+  // the widget's last-saved lead_recipients and is edited only by the panel's checkboxes.
+  excludedRecipients: string[];
 }
 
 const emptyForm: FormState = {
@@ -61,15 +66,24 @@ const emptyForm: FormState = {
   logoUrl: '',
   position: 'bottom-right',
   domains: [],
+  hiddenPaths: '',
   status: 'draft',
   formFields: resolveFormFields(null),
   propertyId: null,
+  excludedRecipients: [],
   hoursOn: false,
   hours: DEFAULT_WEEK_HOURS,
   timezone: '',
   aiEnabled: false,
   aiNotes: '',
 };
+
+// Keys of unticked, unlocked rows — undefined recipients (not yet loaded) means "don't know", not
+// "nobody excluded", so callers must not treat its [] result as safe to send unless recipients
+// was actually loaded (see the `withRecipients` guard in inputFromForm's call site).
+function excludedKeysFrom(recipients?: LeadRecipient[]): string[] {
+  return (recipients || []).filter((r) => !r.locked && !r.connected).map((r) => r.key);
+}
 
 function formFromWidget(w: ContactWidget): FormState {
   const week = weekFromApi(w.business_hours);
@@ -82,9 +96,11 @@ function formFromWidget(w: ContactWidget): FormState {
     logoUrl: w.theme?.logo_url || '',
     position: w.theme?.bubble_position === 'bottom-left' ? 'bottom-left' : 'bottom-right',
     domains: [...(w.allowed_domains || [])],
+    hiddenPaths: (w.hidden_paths || []).join('\n'),
     status: w.status || 'draft',
     formFields: resolveFormFields(w.form_fields),
     propertyId: w.property_id ?? null,
+    excludedRecipients: excludedKeysFrom(w.lead_recipients),
     hoursOn: week !== null,
     hours: week ?? DEFAULT_WEEK_HOURS,
     timezone: w.timezone || '',
@@ -94,9 +110,13 @@ function formFromWidget(w: ContactWidget): FormState {
 }
 
 // withTeam: only send property_id when the owner has dealerships to choose from.
-function inputFromForm(f: FormState, domains: string[], withTeam: boolean): ContactWidgetInput {
+// withRecipients: true only once lead_recipients has actually been loaded for this widget (the
+// widget list/index response doesn't include it). Absent data must never be sent as "everyone
+// ticked" — that would silently clear whatever the owner had already unticked.
+function inputFromForm(f: FormState, domains: string[], withTeam: boolean, withRecipients: boolean): ContactWidgetInput {
   return {
     ...(withTeam ? { property_id: f.propertyId } : {}),
+    ...(withRecipients ? { excluded_recipients: f.excludedRecipients } : {}),
     name: f.name.trim(),
     status: f.status,
     agent_name: f.agentName.trim(),
@@ -108,8 +128,9 @@ function inputFromForm(f: FormState, domains: string[], withTeam: boolean): Cont
       bubble_position: f.position,
     },
     allowed_domains: domains,
+    hidden_paths: hiddenPathsFromText(f.hiddenPaths),
     form_fields: Object.fromEntries(FORM_FIELD_KEYS.map((k) => [k, { ...f.formFields[k], label: f.formFields[k].label.trim() }])),
-    // After hours (spec 2026-09-29 part 2 §2). No hours = always open: the AI never answers.
+    // AI assistant + business hours (spec 2026-09-29 part 2 §2). The AI answers at any hour; hours only tell visitors when the team is in.
     business_hours: f.hoursOn ? weekToApi(f.hours) : null,
     timezone: f.timezone || null,
     faq_notes: f.aiNotes.trim() || null,
@@ -229,6 +250,18 @@ function WidgetBuilder({
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const avatarInput = useRef<HTMLInputElement>(null);
 
+  // The widget list/builder-open object comes from the index endpoint, which doesn't include
+  // lead_recipients (it's per-widget: show/update only). Fetch the full widget once so the panel
+  // has real data and excluded_recipients is never computed from an empty/missing list — see
+  // widgetsAPI.get usage in InstallGuide.tsx for the same "list is thin, fetch the full one" shape.
+  const [recipientsLoading, setRecipientsLoading] = useState(!!widget);
+  const [recipientsError, setRecipientsError] = useState(false);
+  // Guards the fetch-resolution handler from clobbering a tick/untick the user made in the brief
+  // window before the GET resolved.
+  const recipientsEditedRef = useRef(false);
+  // Set once a save succeeds; the opening GET is then older than what the save returned.
+  const savedSinceOpenRef = useRef(false);
+
   const onAvatarPicked = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = ''; // allow picking the same file again
@@ -278,7 +311,8 @@ function WidgetBuilder({
       const map: Record<string, string> = {
         name: 'name', agentName: 'agent_name', calloutText: 'callout_text', welcomeSubtext: 'welcome_subtext',
         primaryColor: 'theme.primary_color', logoUrl: 'theme.logo_url', position: 'theme.bubble_position',
-        domains: 'allowed_domains', status: 'status', formFields: 'form_fields', propertyId: 'property_id',
+        domains: 'allowed_domains', hiddenPaths: 'hidden_paths', status: 'status', formFields: 'form_fields', propertyId: 'property_id',
+        excludedRecipients: 'excluded_recipients',
         hoursOn: 'business_hours', hours: 'business_hours', timezone: 'timezone', aiEnabled: 'ai_enabled', aiNotes: 'faq_notes',
       };
       if (!e[map[key]]) return e;
@@ -286,6 +320,28 @@ function WidgetBuilder({
       return rest;
     });
   };
+
+  useEffect(() => {
+    if (!widget) return;
+    let cancelled = false;
+    (async () => {
+      const res = await widgetsAPI.get(widget.id);
+      if (cancelled) return;
+      setRecipientsLoading(false);
+      if (!res.ok || !res.data) {
+        setRecipientsError(true);
+        return;
+      }
+      // A save that landed first already brought fresher recipients; this older read would revert them.
+      if (savedSinceOpenRef.current) return;
+      const recipients = res.data.lead_recipients;
+      setSaved((prev) => (prev ? { ...prev, lead_recipients: recipients } : res.data));
+      if (!recipientsEditedRef.current) set('excludedRecipients', excludedKeysFrom(recipients));
+    })();
+    return () => { cancelled = true; };
+    // Runs once: this builder instance is remounted (fresh `key`) whenever a different widget opens.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Returns the domain list including anything typed but not yet added; null if the pending text is invalid.
   const addDomain = (raw: string, current: string[]): string[] | null => {
@@ -324,6 +380,8 @@ function WidgetBuilder({
       if (hoursProblem) e.business_hours = hoursProblem;
       if (!form.timezone) e.timezone = 'Choose the timezone your business hours are in.';
     }
+    const hiddenProblem = hiddenPathsProblem(hiddenPathsFromText(form.hiddenPaths));
+    if (hiddenProblem) e.hidden_paths = hiddenProblem;
     if (form.aiNotes.length > AI_NOTES_MAX) e.faq_notes = 'Notes for the AI can be up to 2,000 characters.';
     return e;
   };
@@ -340,7 +398,7 @@ function WidgetBuilder({
     }
 
     setSaving(true);
-    const payload = inputFromForm(form, domains, propertyId != null || teamOptions.length > 0);
+    const payload = inputFromForm(form, domains, propertyId != null || teamOptions.length > 0, !!saved?.lead_recipients);
     const res = saved ? await widgetsAPI.update(saved.id, payload) : await widgetsAPI.create(payload);
     setSaving(false);
 
@@ -352,12 +410,14 @@ function WidgetBuilder({
     }
 
     const created = !saved;
+    savedSinceOpenRef.current = true;
     setSaved(res.data);
     setForm(formFromWidget(res.data));
     setDomainInput('');
     setDomainError('');
     setErrors({});
-    // A new widget sends the manager back to the list (this builder unmounts), which has its own toast.
+    // Any successful save sends the manager back to the list (this builder unmounts). A new widget
+    // gets its own toast there; an update keeps this one.
     onSaved(res.data, created);
     if (!created) toast.success('Widget saved');
   };
@@ -386,15 +446,33 @@ function WidgetBuilder({
   };
 
   const setField = (key: FormFieldKey, patch: Partial<FormFieldSetting>) => {
-    const next = { ...form.formFields[key], ...patch };
-    if (!next.show) next.required = false;
-    set('formFields', { ...form.formFields, [key]: next });
+    set('formFields', withFormFieldChange(form.formFields, key, patch));
   };
+  // Both shown: visitors pick one, so neither has its own Required box. One shown: it is always required.
+  const contactChoice = isContactChoice(form.formFields);
   const formFieldsError = errors.form_fields
     || Object.entries(errors).find(([k]) => k.startsWith('form_fields.'))?.[1];
 
   const setAfterHours = (patch: Partial<AfterHoursValue>) => {
     (Object.keys(patch) as (keyof AfterHoursValue)[]).forEach((key) => set(key, patch[key] as FormState[typeof key]));
+  };
+
+  // connected=true (ticked) drops the key from the excluded list; connected=false (unticked) adds it.
+  const toggleRecipient = (key: string, connected: boolean) => {
+    recipientsEditedRef.current = true;
+    set(
+      'excludedRecipients',
+      connected
+        ? form.excludedRecipients.filter((k) => k !== key)
+        : form.excludedRecipients.includes(key) ? form.excludedRecipients : [...form.excludedRecipients, key],
+    );
+  };
+
+  // "Invite admin" leaves the builder for the Users tab; gate it behind the same unsaved-changes
+  // confirmation as every other way out of this form (Back, delete, closing the modal).
+  const inviteAdmin = () => {
+    if (dirty && !window.confirm('You have unsaved changes. Discard them?')) return;
+    window.dispatchEvent(new CustomEvent('app-navigate', { detail: 'users' }));
   };
 
   const busy = saving || deleting;
@@ -596,7 +674,7 @@ function WidgetBuilder({
             <fieldset onFocus={() => setPreviewMode('open')}>
               <legend className="block text-sm font-medium text-gray-800 mb-1">Form fields</legend>
               <p className="text-xs text-gray-400 mb-2">
-                Choose what visitors fill in and rename any label. Mobile number or Email must be required so you can always reply.
+                Choose what visitors fill in and rename any label. Show Mobile number, Email or both so you can always reply.
               </p>
               <div className="rounded-xl border border-gray-200 divide-y divide-gray-100">
                 <div className="hidden sm:grid grid-cols-[7.5rem_minmax(0,1fr)_10rem] gap-3 px-3 py-2 text-xs font-semibold text-gray-500">
@@ -607,6 +685,10 @@ function WidgetBuilder({
                 {FORM_FIELD_KEYS.map((key) => {
                   const f = form.formFields[key];
                   const name = FORM_FIELD_NAMES[key];
+                  const isContact = key === 'mobile' || key === 'email';
+                  const choiceRow = isContact && contactChoice;
+                  // The only contact field shown: required, and it can't be unticked.
+                  const lockedRequired = isContact && f.show && !contactChoice;
                   return (
                     <div key={key} className="grid grid-cols-[7.5rem_minmax(0,1fr)] sm:grid-cols-[7.5rem_minmax(0,1fr)_10rem] gap-x-3 gap-y-2 items-center px-3 py-2.5">
                       <span className={`text-sm font-medium ${f.show ? 'text-gray-900' : 'text-gray-400'}`}>{name}</span>
@@ -631,22 +713,34 @@ function WidgetBuilder({
                           />
                           <span className="sm:sr-only">Show</span>
                         </label>
-                        <label className={`inline-flex items-center gap-1.5 text-sm sm:justify-center ${f.show ? 'text-gray-700 cursor-pointer' : 'text-gray-300'}`}>
-                          <input
-                            type="checkbox"
-                            checked={f.required}
-                            disabled={!f.show}
-                            onChange={(e) => setField(key, { required: e.target.checked })}
-                            aria-label={`${name} required`}
-                            className="w-4 h-4 accent-[#6C60FF] disabled:opacity-40"
-                          />
-                          <span className="sm:sr-only">Required</span>
-                        </label>
+                        {choiceRow ? (
+                          <span className="inline-flex items-center text-xs text-gray-400 sm:justify-center" title={CONTACT_CHOICE_NOTE}>
+                            Visitor picks
+                          </span>
+                        ) : (
+                          <label
+                            className={`inline-flex items-center gap-1.5 text-sm sm:justify-center ${f.show && !lockedRequired ? 'text-gray-700 cursor-pointer' : 'text-gray-300'}`}
+                            title={lockedRequired ? 'Required: it is the only way to reply' : undefined}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={f.required}
+                              disabled={!f.show || lockedRequired}
+                              onChange={(e) => setField(key, { required: e.target.checked })}
+                              aria-label={lockedRequired ? `${name} required (the only way to reply)` : `${name} required`}
+                              className="w-4 h-4 accent-[#6C60FF] disabled:opacity-40"
+                            />
+                            <span className="sm:sr-only">Required</span>
+                          </label>
+                        )}
                       </div>
                     </div>
                   );
                 })}
               </div>
+              {contactChoice && (
+                <p className="text-xs text-gray-500 mt-1.5">{CONTACT_CHOICE_NOTE}</p>
+              )}
               {!formCanReply(form.formFields) && !formFieldsError && (
                 <p className="text-xs text-amber-700 mt-1">{REPLY_RULE}</p>
               )}
@@ -754,6 +848,26 @@ function WidgetBuilder({
               <FieldError id={id('domain-err')} message={domainError || errors.allowed_domains} />
             </div>
 
+            <div>
+              <label htmlFor={id('hidden-paths')} className="block text-sm font-medium text-gray-800 mb-1.5">Don't show on these pages</label>
+              <textarea
+                id={id('hidden-paths')}
+                value={form.hiddenPaths}
+                rows={3}
+                onChange={(e) => set('hiddenPaths', e.target.value)}
+                placeholder={'/checkout\n/account/*'}
+                autoCapitalize="none"
+                spellCheck={false}
+                aria-invalid={!!errors.hidden_paths}
+                aria-describedby={id('hidden-paths-help') + (errors.hidden_paths ? ' ' + id('hidden-paths-err') : '')}
+                className={inputClass + ' resize-y' + (errors.hidden_paths ? errorInputClass : '')}
+              />
+              <p id={id('hidden-paths-help')} className="text-xs text-gray-400 mt-1">
+                One page address per line, e.g. /checkout or /account/*. The widget never shows on admin pages (/admin, <span className="whitespace-nowrap">/wp-admin</span>).
+              </p>
+              <FieldError id={id('hidden-paths-err')} message={errors.hidden_paths} />
+            </div>
+
             {propertyId != null ? (
               <div>
                 <p className="block text-sm font-medium text-gray-800 mb-1.5">Who handles this widget's leads</p>
@@ -806,6 +920,8 @@ function WidgetBuilder({
               value={{ hoursOn: form.hoursOn, hours: form.hours, timezone: form.timezone, aiEnabled: form.aiEnabled, aiNotes: form.aiNotes }}
               onChange={setAfterHours}
               errors={errors}
+              publicId={saved?.id ?? null}
+              firstDomain={form.domains[0]}
             />
 
             {/* Submit on Enter from single-line inputs */}
@@ -864,6 +980,8 @@ function WidgetBuilder({
                         position: form.position,
                         formFields: form.formFields,
                         online: previewOnline,
+                        // Same as the server: the widget's dealership, else the owner's name.
+                        businessName: teamOptions.find((t) => t.id === form.propertyId)?.name ?? propertyName ?? user?.name,
                       }}
                     />
                   </div>
@@ -871,6 +989,16 @@ function WidgetBuilder({
               </div>
               <p className="text-xs text-gray-400 mt-2">This is how visitors will see the widget on your site.</p>
             </div>
+
+            <LeadRecipientsPanel
+              hasWidget={!!saved}
+              recipients={saved?.lead_recipients}
+              loading={recipientsLoading}
+              loadError={recipientsError}
+              excludedRecipients={form.excludedRecipients}
+              onToggle={toggleRecipient}
+              onInviteAdmin={inviteAdmin}
+            />
 
           </div>
         </div>
@@ -1019,16 +1147,13 @@ export function ContactWidgetManager({
       const current = list || [];
       return created ? [w, ...current.filter((x) => x.id !== w.id)] : current.map((x) => (x.id === w.id ? w : x));
     });
-    if (!created) {
-      setEditing(w);
-      return;
-    }
-    // New widget: back to the list, with the new row highlighted and its install code one click away.
+    // Saving closes the editor (Chris, 2026-10-03). A new widget's row is highlighted with its
+    // install code one click away.
     dirtyRef.current = false;
     setEditing(null);
-    setJustCreatedId(w.id);
+    setJustCreatedId(created ? w.id : null);
     setView('list');
-    toast.success('Widget created. Click "Install" for step-by-step instructions to add it to your site.');
+    if (created) toast.success('Widget created. Click "Install" for step-by-step instructions to add it to your site.');
   };
 
   const handleDeleted = (id: string) => {

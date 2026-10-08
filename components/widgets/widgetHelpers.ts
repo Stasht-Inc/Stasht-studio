@@ -98,6 +98,34 @@ export function isPlausibleDomain(domain: string): boolean {
   return /^(?=.{3,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/.test(domain);
 }
 
+// --- "Don't show on these pages" (mirrors WidgetHiddenPaths.php; matched by pathHidden() in public/widget-core.js) ---
+export const HIDDEN_PATHS_MAX = 20;
+export const HIDDEN_PATH_LENGTH_MAX = 200;
+
+/** Textarea text -> the list saved: one page address per line, trimmed, blanks and duplicates (any case) dropped. */
+export function hiddenPathsFromText(text: string): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const line of text.split(/\r?\n/)) {
+    const entry = line.trim();
+    if (!entry || seen.has(entry.toLowerCase())) continue;
+    seen.add(entry.toLowerCase());
+    out.push(entry);
+  }
+  return out;
+}
+
+/** Why the list can't be saved (first problem), or null. Same rules as the server. */
+export function hiddenPathsProblem(paths: string[]): string | null {
+  for (const entry of paths) {
+    if (entry.length > HIDDEN_PATH_LENGTH_MAX) return `"${entry.slice(0, 40)}…" is too long: each page address can be ${HIDDEN_PATH_LENGTH_MAX} characters at most.`;
+    if (!entry.startsWith('/')) return `"${entry}" must start with /, e.g. /checkout.`;
+    if (/[\s?#]/.test(entry)) return `"${entry}": enter just the page address, without spaces, ? or #.`;
+  }
+  if (paths.length > HIDDEN_PATHS_MAX) return `You can list up to ${HIDDEN_PATHS_MAX} pages.`;
+  return null;
+}
+
 /** Days without a page load after which an install is shown as possibly removed. */
 export const STALE_INSTALL_DAYS = 7;
 
@@ -147,9 +175,43 @@ export function resolveFormFields(stored: Partial<FormFieldSettings> | null | un
   return out;
 }
 
-/** A visitor must always leave a mobile number or an email, or nobody can reply. */
+/**
+ * Mobile and email both shown: visitors pick "Mobile phone" (default) or "Email" with radios and fill
+ * in that one, so the two fields' own required flags no longer apply (WidgetFormFields::isContactChoice,
+ * widget-core hasContactChoice).
+ */
+export function isContactChoice(fields: FormFieldSettings): boolean {
+  return fields.mobile.show && fields.email.show;
+}
+
+export const CONTACT_CHOICE_NOTE = 'Visitors choose Mobile phone (default) or Email.';
+
+/** A visitor must always leave a mobile number or an email: both shown (they pick one), or the shown one required. */
 export function formCanReply(fields: FormFieldSettings): boolean {
-  return (fields.mobile.show && fields.mobile.required) || (fields.email.show && fields.email.required);
+  return isContactChoice(fields)
+    || (fields.mobile.show && fields.mobile.required) || (fields.email.show && fields.email.required);
+}
+
+/**
+ * Apply one field's change in the builder: hidden fields aren't required, and when mobile or email
+ * becomes the only contact field shown it is required (otherwise nobody could be replied to).
+ */
+export function withFormFieldChange(
+  fields: FormFieldSettings, key: FormFieldKey, patch: Partial<FormFieldSetting>,
+): FormFieldSettings {
+  const next: FormFieldSettings = { ...fields, [key]: { ...fields[key], ...patch } };
+  if (!next[key].show) next[key] = { ...next[key], required: false };
+  for (const contact of ['mobile', 'email'] as const) {
+    const other = contact === 'mobile' ? 'email' : 'mobile';
+    if (next[contact].show && !next[other].show && !next[contact].required) next[contact] = { ...next[contact], required: true };
+  }
+  return next;
+}
+
+/** The radio text the widget shows: "Mobile phone" / "Email", or the owner's own label (widget-core contactMethodLabel). */
+export function contactMethodLabel(key: 'mobile' | 'email', f: FormFieldSetting): string {
+  const label = f.label.trim() || DEFAULT_FORM_FIELD_SETTINGS[key].label;
+  return key === 'mobile' && label === DEFAULT_FORM_FIELD_SETTINGS.mobile.label ? 'Mobile phone' : label;
 }
 
 /** The input placeholder the widget shows ("Name *", "Business (optional)") — same as widget-core placeholderFor(). */
@@ -159,7 +221,13 @@ export function fieldPlaceholder(key: FormFieldKey, f: FormFieldSetting): string
   return f.required ? `${label} *` : `${label} (optional)`;
 }
 
-export const CONSENT_LINE = 'By submitting you agree to receive messages for the provided channel. Rates may be applied.';
+/** Mirrors consentText() in public/widget-core.js: the consent line under the form, naming the business. */
+export function consentLine(businessName: string | null | undefined, channel: 'sms' | 'email'): string {
+  const who = (businessName ?? '').trim() || 'us';
+  return channel === 'email'
+    ? `By submitting, you agree to receive emails from ${who} about your inquiry.`
+    : `By submitting, you agree to receive text messages from ${who} about your inquiry. Msg & data rates may apply. Msg frequency varies. Reply STOP to opt out, HELP for help.`;
+}
 
 /** Crops an image to a centred square and shrinks it (default 256px) before upload. */
 export async function squareAvatarDataUrl(file: File, size = 256): Promise<string> {
@@ -262,3 +330,8 @@ export function timeZoneOptions(current: string): string[] {
   if (current) list.add(current);
   return [...list].sort();
 }
+
+// Mirrors POWERED_BY_URL / STASHT_MARK_* in public/widget-core.js — the preview shows the same foot line.
+export const POWERED_BY_URL = 'https://stasht.com/?utm_source=contact-widget&utm_medium=referral&utm_campaign=powered-by';
+export const STASHT_MARK_VIEWBOX = '0 0 78.99 52.48';
+export const STASHT_MARK_PATH = 'M75.57,52.48h3.42c-5.63-1.56-12.32-2.8-19.72-3.6.58-1.96.88-4.15.88-6.55,0-3.19-.46-5.9-1.37-8.12-.91-2.23-2.34-4.16-4.28-5.81-1.94-1.65-4.89-3.33-8.83-5.05-5.31-2.21-8.52-3.67-9.63-4.39-1.11-.72-1.67-1.58-1.67-2.6,0-1.65,1.59-2.47,4.78-2.47,1.82,0,4.18.43,7.07,1.29,2.89.86,5.62,1.9,8.21,3.13l5.27-13.25c-3.52-1.65-6.91-2.9-10.17-3.76-3.27-.86-6.76-1.29-10.47-1.29-7.4,0-13.12,1.54-17.17,4.63-4.05,3.08-6.07,7.4-6.07,12.94,0,4.38,1.03,8,3.09,10.86,2.06,2.86,5.67,5.41,10.85,7.65,5.67,2.38,9.1,3.99,10.27,4.81,1.18.82,1.77,1.76,1.77,2.81,0,2.04-2.11,3.05-6.32,3.05-2.82,0-6.03-.45-9.63-1.37-3.6-.91-6.91-2.07-9.93-3.47v7.43c-5.9.78-11.27,1.85-15.91,3.14h1.99c10.72-1.33,23.32-2.1,36.79-2.1s26.06.77,36.79,2.1Z';

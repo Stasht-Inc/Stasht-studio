@@ -4,9 +4,11 @@
 // panel becomes a live chat with the team (spec 2026-09-29): the whole conversation, a typing box
 // with a paperclip, replies picked up by polling, an unread dot on the closed launcher, and
 // returning visitors (same browser, 30 days) straight back into their chat instead of the form.
-// After hours the AI assistant answers in the same chat (spec 2026-09-29 part 2): the visitor's
-// message shows at once with a "typing…" bubble, then the AI notice, replies tagged "AI" and a card
-// for the vehicles it shares; when it can't answer, its after-hours notice looks like the auto-reply.
+// With the AI on, the AI assistant answers in the same chat right away, at any hour (spec 2026-09-29
+// part 2, amended 2026-10-03): the visitor's message shows at once with a "typing…" bubble, then the
+// AI notice, replies tagged "AI" and a card for the vehicles it shares; when it can't answer, its
+// fallback notice looks like the auto-reply. When a rep takes over, "{name} has joined the
+// conversation" shows before their message.
 import {
   safeColor, safeHttpsUrl, contrastInk, hostOrigin, clampPosition, panelWidth, panelMaxHeight, MESSAGE_MAX,
   configUrl, ROOT_PAD, formFieldsFrom, validateValues, consentText, placeholderFor, autoReplyText, initialsFrom,
@@ -14,7 +16,11 @@ import {
   CHAT_MESSAGE_MAX, CHAT_FILE_TYPES, readChatToken, writeChatToken, clearChatToken, messagesUrl, chatMessageFrom,
   mergeMessages, lastMessageId, acceptChatFiles, chatSendProblem, nextPollDelay, backoffDelay, hasUnreadTeamMessage,
   autoReplyAnchor, firstServerError, chatOpenHeaderValue, CHAT_MAX_FILES,
-  TYPING_DELAY_MS, AI_NOTICE, aiNoticeBefore, campaignCardText, bodyWithoutLink,
+  TYPING_DELAY_MS, AI_NOTICE, aiNoticeBefore, campaignCardText, bodyWithoutLink, joinedText, repJoinedBefore,
+  POWERED_BY_URL, STASHT_MARK_VIEWBOX, STASHT_MARK_PATH, linkParts, linkTarget, shouldReopenChat,
+  hitRectFor, HIT_RECTS_MAX, pathHidden,
+  hasContactChoice, contactMethodLabel, fieldsForMethod, submissionValues, DEFAULT_CONTACT_METHOD, CONTACT_METHODS,
+  CONTACT_CHOICE_LEGEND,
 } from './widget-core.js';
 
 const params = new URLSearchParams(location.search);
@@ -24,6 +30,11 @@ const root = document.getElementById('root');
 root.style.padding = `${ROOT_PAD.top}px ${ROOT_PAD.x}px ${ROOT_PAD.bottom}px`;
 
 const DISMISS_KEY = `stasht-widget-callout-dismissed:${widgetId}`;
+// Set just before a chat link takes the visitor to another page of the same site, so the chat panel
+// opens again there (sessionStorage: this tab only, and partitioned per top-level site).
+const REOPEN_KEY = `stasht-widget-reopen:${widgetId}`;
+// The customer's page the widget runs on: links to that site open in place (target _top).
+const HOST_PAGE = hostOrigin({ hostParam: params.get('host'), referrer: document.referrer });
 
 // The conversation token lives in this iframe's own localStorage (Studio's origin, never the
 // customer's site). Browsers that block storage in iframes still get the chat for this page view;
@@ -43,6 +54,7 @@ const state = {
   sending: false,
   errors: {},
   values: { name: '', mobile: '', email: '', company: '', message: '' },
+  contactMethod: DEFAULT_CONTACT_METHOD, // 'mobile' | 'email': which one the visitor fills in when the form offers both
   calloutDismissed: readDismissed(),
   // Live chat
   token: null,
@@ -55,7 +67,7 @@ const state = {
   chatSending: false,
   unread: false,
   lastActivity: 0, // ms of the last message either way; closed-panel checks stop an hour after it
-  // After-hours AI (spec part 2)
+  // Widget AI (spec part 2)
   pending: null, // { text, files }: the visitor's message on its way, shown at once
   typing: false, // the "typing…" bubble while a send takes more than a moment
   provisional: false, // the form's first message shown as the chat before /submit answers
@@ -64,6 +76,8 @@ const state = {
 
 // The shown fields, in order (set once the config loads).
 const fields = () => formFieldsFrom(state.config);
+// The fields the visitor fills in: with the Mobile phone / Email choice, only the chosen one of the two.
+const activeFields = () => fieldsForMethod(fields(), state.contactMethod);
 
 function readDismissed() {
   try { return sessionStorage.getItem(DISMISS_KEY) === '1'; } catch { return false; }
@@ -88,6 +102,24 @@ function h(tag, props = {}, ...children) {
     el.append(child instanceof Node ? child : String(child));
   }
   return el;
+}
+
+// Message text with its https:// links clickable (wdy2xh1tdp): text nodes and <a>s, never innerHTML.
+// A link to the site the widget is on replaces that page and the chat carries on there; any other
+// link opens in a new tab.
+function richText(text) {
+  return linkParts(text).map((part) => {
+    if (!part.href) return part.text;
+    const how = linkTarget(part.href, HOST_PAGE);
+    return h('a', {
+      href: part.href, ...how,
+      onclick: how.target === '_top' ? rememberReopen : undefined,
+    }, part.text);
+  });
+}
+
+function rememberReopen() {
+  try { sessionStorage.setItem(REOPEN_KEY, String(Date.now())); } catch { /* storage blocked: the chat stays closed on the next page */ }
 }
 
 // Lucide-style stroke icons, built with createElementNS (never innerHTML).
@@ -122,15 +154,36 @@ const chevronIcon = () => icon(['m9 18 6-6-6-6']);
 
 // Measured synchronously: the iframe starts hidden/0x0 and browsers may defer
 // requestAnimationFrame there, which would mean the first resize is never sent.
-let lastSize = { width: -1, height: -1 };
+let lastReport = '';
+
+// The visible parts and their corner radii (as in widget-embed.html). Everything else that shows
+// (the dismiss ×, the callout's pointer, the unread dot, focus rings) sits inside one of these
+// once HIT_PAD is added.
+const HIT_PARTS = [['.panel', 18], ['.callout', 16], ['#w-launcher', 31]];
+
+// The visible parts' rects in iframe coordinates: the loader clips the iframe to them so the
+// transparent rest of it lets clicks through to the customer's page (wdy2xh1tjc).
+function hitRects() {
+  const rects = [];
+  for (const [selector, radius] of HIT_PARTS) {
+    const el = root.querySelector(selector);
+    if (!el) continue;
+    const box = el.getBoundingClientRect();
+    if (box.width > 0 && box.height > 0) rects.push(hitRectFor(box, radius));
+  }
+  return rects.slice(0, HIT_RECTS_MAX);
+}
 
 function reportSize() {
   const rect = root.getBoundingClientRect();
   const width = Math.ceil(rect.width);
   const height = Math.ceil(rect.height);
-  if (width === lastSize.width && height === lastSize.height) return;
-  lastSize = { width, height };
-  tell('resize', { width, height, position: clampPosition(state.config?.theme?.bubble_position) });
+  const position = clampPosition(state.config?.theme?.bubble_position);
+  const hit = hitRects();
+  const key = JSON.stringify([width, height, position, hit]);
+  if (key === lastReport) return;
+  lastReport = key;
+  tell('resize', { width, height, position, hit });
 }
 
 // The chat log sticks to the newest message unless the visitor scrolled up to read.
@@ -175,7 +228,7 @@ function focusId(id) {
 }
 
 function focusFirstError() {
-  const field = fields().find((f) => state.errors[f.key]);
+  const field = activeFields().find((f) => state.errors[f.key]);
   focusId(field ? `f-${field.key}` : 'f-send');
 }
 
@@ -273,14 +326,32 @@ function panel() {
     h('button', { class: 'iconbtn close', type: 'button', 'aria-label': 'Close', onclick: closePanel }, closeIcon()));
 
   return h('div', { class: inChat ? 'panel chat' : 'panel', role: 'dialog', 'aria-labelledby': 'w-title' },
-    head, inChat ? [chatLog(), composer()] : form());
+    head, inChat ? [chatLog(), composer()] : form(), poweredBy());
+}
+
+// The Stasht "S", filled in Stasht purple whatever the widget's brand colour is.
+function stashtMark() {
+  const ns = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(ns, 'svg');
+  svg.setAttribute('viewBox', STASHT_MARK_VIEWBOX);
+  svg.setAttribute('aria-hidden', 'true');
+  const path = document.createElementNS(ns, 'path');
+  path.setAttribute('d', STASHT_MARK_PATH);
+  path.setAttribute('fill', '#6C60FF');
+  svg.append(path);
+  return svg;
+}
+
+function poweredBy() {
+  return h('a', { class: 'powered', href: POWERED_BY_URL, target: '_blank', rel: 'noopener' },
+    h('span', {}, 'Powered by'), stashtMark(), h('strong', {}, 'Stasht'));
 }
 
 // The intro sits beside the avatar's top; replies sit on its baseline (as in the design).
 function botRow(text, time, align = 'bottom') {
   return h('div', { class: align === 'top' ? 'row bot top' : 'row bot' },
     h('span', { class: 'mini' }, agentPicture('')),
-    h('div', { class: 'stack' }, h('div', { class: 'bubble' }, text), time && h('span', { class: 'time' }, time)));
+    h('div', { class: 'stack' }, h('div', { class: 'bubble' }, richText(text)), time && h('span', { class: 'time' }, time)));
 }
 
 // Per-field input attributes; which fields appear, their labels and required-ness come from the config.
@@ -291,12 +362,35 @@ const INPUTS = {
   company: { autocomplete: 'organization' },
 };
 
-const canSend = () => !state.sending && fields().every((f) => !f.required || String(state.values[f.key] || '').trim() !== '');
+const canSend = () => !state.sending && activeFields().every((f) => !f.required || String(state.values[f.key] || '').trim() !== '');
+
+// Mobile phone / Email radios (both shown in the settings). Switching keeps what was typed in each;
+// only the chosen one is sent. Native radios: arrow keys move between them, Tab leaves the group.
+function contactChoice(all) {
+  const pick = (method) => () => {
+    if (state.contactMethod === method) return;
+    state.contactMethod = method;
+    const { mobile, email, ...rest } = state.errors;
+    state.errors = rest;
+    render();
+    focusId(`f-via-${method}`);
+  };
+  return h('fieldset', { class: 'choice' },
+    h('legend', { class: 'sr' }, CONTACT_CHOICE_LEGEND),
+    CONTACT_METHODS.map((method) => {
+      const field = all.find((f) => f.key === method);
+      return h('label', { class: 'opt' },
+        h('input', { type: 'radio', id: `f-via-${method}`, name: 'contact_via', value: method, checked: state.contactMethod === method, onchange: pick(method) }),
+        h('span', {}, contactMethodLabel(field)));
+    }));
+}
 
 function form() {
   const v = state.values;
   const e = state.errors;
-  const shown = fields();
+  const all = fields();
+  const choice = hasContactChoice(all);
+  const shown = fieldsForMethod(all, state.contactMethod);
   const send = h('button', { id: 'f-send', class: 'send', type: 'submit', disabled: !canSend() }, state.sending ? 'Sending…' : 'Send Message');
   const bind = (key) => (ev) => {
     state.values[key] = ev.target.value;
@@ -312,14 +406,17 @@ function form() {
     const control = f.key === 'message'
       ? h('textarea', { ...common, maxlength: MESSAGE_MAX }, v.message)
       : h('input', { ...common, ...INPUTS[f.key], value: v[f.key] });
-    return [control, e[f.key] && h('span', { class: 'err', role: 'alert' }, e[f.key])];
+    return [
+      choice && f.key === state.contactMethod && contactChoice(all),
+      control, e[f.key] && h('span', { class: 'err', role: 'alert' }, e[f.key]),
+    ];
   });
 
   return h('div', { class: 'body' },
     botRow(state.config.welcome_subtext || DEFAULT_WELCOME, null, 'top'),
     h('form', { novalidate: true, onsubmit: submit },
       controls,
-      h('p', { class: 'legal' }, consentText()),
+      h('p', { class: 'legal' }, consentText(state.config.business_name, activeFields().some((f) => f.key === 'mobile') ? 'sms' : 'email')),
       e.form && h('div', { class: 'err', role: 'alert' }, e.form),
       send));
 }
@@ -342,9 +439,11 @@ function onLogScroll(ev) {
 function logRows() {
   const anchor = autoReplyAnchor(state.messages, state.submittedId, state.autoReplyOff);
   const notices = aiNoticeBefore(state.messages);
+  const joined = repJoinedBefore(state.messages);
   const rows = [];
   for (const m of state.messages) {
     if (notices.has(m.id)) rows.push(aiNoticeRow());
+    if (joined.has(m.id)) rows.push(joinedRow(m.sender.name));
     rows.push(messageRow(m));
     if (m.id === anchor) rows.push(botRow(autoReplyText(state.visitorName), m.sentAt ? clock(m.sentAt) : null));
   }
@@ -359,13 +458,13 @@ function messageRow(m) {
   if (m.from === 'visitor') {
     return h('div', { class: 'row me' },
       h('div', { class: 'stack' },
-        m.body.trim() !== '' && h('div', { class: 'bubble' }, m.body),
+        m.body.trim() !== '' && h('div', { class: 'bubble' }, richText(m.body)),
         m.attachments.length > 0 && h('div', { class: 'atts' }, m.attachments.map(attachmentView)),
         time && h('span', { class: 'time' }, time)),
       h('span', { class: 'mini', 'aria-hidden': 'true' }, state.visitorName ? initialsFrom(state.visitorName) : userIcon()));
   }
 
-  // The after-hours notice ("… will reply when we open …") looks like the embed's own automatic reply.
+  // The AI's fallback notice ("… will reply shortly / when we open …") looks like the embed's own automatic reply.
   if (m.autoReply) return botRow(m.body, time || null);
 
   // Team: the rep's first name and photo (or initials on their colour). Messages without a Stasht
@@ -377,7 +476,7 @@ function messageRow(m) {
   return h('div', { class: 'row bot' },
     m.sender ? personMini(m.sender) : h('span', { class: 'mini' }, agentPicture('')),
     h('div', { class: 'stack' },
-      text.trim() !== '' && h('div', { class: 'bubble' }, text),
+      text.trim() !== '' && h('div', { class: 'bubble' }, richText(text)),
       m.campaign && campaignCard(m.campaign),
       m.attachments.length > 0 && h('div', { class: 'atts' }, m.attachments.map(attachmentView)),
       meta.length > 0 && h('span', { class: 'time' }, meta)));
@@ -386,6 +485,11 @@ function messageRow(m) {
 // The AI disclosure before each run of AI replies (spec part 2 §3). Drawn here, never stored.
 function aiNoticeRow() {
   return h('div', { class: 'sys', role: 'note' }, AI_NOTICE);
+}
+
+// A rep taking over from the AI (Chris, 2026-10-03). Drawn here, never stored.
+function joinedRow(name) {
+  return h('div', { class: 'sys joined', role: 'note' }, joinedText(name));
 }
 
 // The vehicles the AI shared: a card under its reply, opening the campaign in a new tab.
@@ -398,14 +502,14 @@ function campaignCard(c) {
     h('span', { class: 'camp-go', 'aria-hidden': 'true' }, chevronIcon()));
 }
 
-// The visitor's message on its way: shown at once (after hours the AI answers inside the request).
+// The visitor's message on its way: shown at once (the AI answers inside the request).
 function pendingRow(p) {
   const files = p.files.map((item) => (item.previewUrl
     ? h('span', { class: 'att-img' }, h('img', { src: item.previewUrl, alt: item.file.name }))
     : h('span', { class: 'att-file' }, h('span', { class: 'ficon' }, fileIcon()), h('span', { class: 'fname' }, item.file.name))));
   return h('div', { class: 'row me pending' },
     h('div', { class: 'stack' },
-      p.text && h('div', { class: 'bubble' }, p.text),
+      p.text && h('div', { class: 'bubble' }, richText(p.text)),
       files.length > 0 && h('div', { class: 'atts' }, files),
       h('span', { class: 'time' }, 'Sending…')),
     h('span', { class: 'mini', 'aria-hidden': 'true' }, state.visitorName ? initialsFrom(state.visitorName) : userIcon()));
@@ -557,7 +661,7 @@ function startChat(data, sentText = '') {
   state.phase = 'chat';
   state.messages = mergeMessages([], [ownMessage, ...replies]);
   state.submittedId = ownMessage.id;
-  // After hours the server answered at once (the AI, or its after-hours notice): no static auto-reply.
+  // The server answered at once (the AI, or its fallback notice): no static auto-reply.
   state.autoReplyOff = replies.length > 0;
   state.lastActivity = Date.now();
   stick = true;
@@ -595,7 +699,7 @@ async function sendChat() {
   if (text) body.append('body', text);
   for (const item of state.files) body.append('files[]', item.file, item.file.name);
 
-  // Shown at once: after hours the AI's reply is written inside this request (a few seconds).
+  // Shown at once: with the AI on, its reply is written inside this request (a few seconds).
   state.pending = { text, files: state.files };
   state.draft = '';
   state.files = [];
@@ -789,7 +893,8 @@ async function submit(ev) {
   if (state.sending) return;
 
   const v = state.values;
-  const shown = fields();
+  const all = fields();
+  const shown = fieldsForMethod(all, state.contactMethod);
   const errors = validateValues(shown, v);
   state.errors = errors;
   if (Object.keys(errors).length) {
@@ -799,7 +904,7 @@ async function submit(ev) {
   }
 
   state.sending = true;
-  // If /submit takes more than a moment (after hours the AI's first reply is written inside it),
+  // If /submit takes more than a moment (with the AI on, its first reply is written inside it),
   // the panel becomes the chat with this message and a "typing…" bubble (startTyping).
   state.visitorName = v.name.trim();
   state.pending = { text: v.message.trim(), files: [] };
@@ -811,8 +916,8 @@ async function submit(ev) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
       body: JSON.stringify({
-        ...Object.fromEntries(shown.map((f) => [f.key, v[f.key].trim()])),
-        host_origin: hostOrigin({ hostParam: params.get('host'), referrer: document.referrer }),
+        ...submissionValues(all, v, state.contactMethod),
+        host_origin: HOST_PAGE,
       }),
     });
 
@@ -873,8 +978,7 @@ async function init() {
   if (!/^w_[a-z0-9]{10}$/.test(widgetId)) return tell('hide');
 
   try {
-    const host = hostOrigin({ hostParam: params.get('host'), referrer: document.referrer });
-    const res = await fetch(configUrl(API, widgetId, host), { headers: { Accept: 'application/json' } });
+    const res = await fetch(configUrl(API, widgetId, HOST_PAGE), { headers: { Accept: 'application/json' } });
     if (!res.ok) return tell('hide');
     const body = await res.json();
     if (!body || !body.data) return tell('hide');
@@ -883,6 +987,10 @@ async function init() {
     return tell('hide');
   }
 
+  // "Don't show on these pages": the loader passes the host page's path; on a match the loader
+  // removes the frame. The frame is still hidden and zero-sized here, so nothing flashes.
+  if (pathHidden(params.get('path'), state.config.hidden_paths)) return tell('hide');
+
   const style = document.documentElement.style;
   style.setProperty('--brand', safeColor(state.config.theme?.primary_color));
   style.setProperty('--brand-ink', contrastInk(state.config.theme?.primary_color));
@@ -890,6 +998,19 @@ async function init() {
   style.setProperty('--panel-max-h', `${panelMaxHeight(Number(params.get('vh')))}px`);
 
   await resumeChat();
+
+  // The visitor followed a chat link to this page of the same site: the chat carries on, open.
+  let reopen = null;
+  try {
+    reopen = sessionStorage.getItem(REOPEN_KEY);
+    sessionStorage.removeItem(REOPEN_KEY);
+  } catch { /* storage blocked */ }
+  if (state.phase === 'chat' && shouldReopenChat(reopen)) {
+    state.open = true;
+    state.unread = false;
+    stick = true;
+    markSeen();
+  }
 
   if (typeof ResizeObserver !== 'undefined') new ResizeObserver(reportSize).observe(root);
   render();

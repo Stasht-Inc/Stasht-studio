@@ -9,6 +9,7 @@ import { toast } from 'sonner';
 import { smsSegmentInfo, SMS_MAX_BODY } from '../utils/smsSegments';
 import ShareCarsDialog from './ShareCarsDialog';
 import AssigneeControl from './leads/AssigneeControl';
+import LinkifiedText from './leads/LinkifiedText';
 import LeadDetailsSidebar, { StatusChip } from './LeadDetailsSidebar';
 
 // Built-in emoji grid — kept small/lightweight, no external dependency.
@@ -769,7 +770,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
             )}
             {msg.body && (
               <div className="max-w-[560px] bg-[#6C60FF] text-white rounded-2xl rounded-tr-sm px-5 py-3">
-                <p className="text-base leading-relaxed [overflow-wrap:anywhere]">{msg.body}</p>
+                <p className="text-base leading-relaxed whitespace-pre-line [overflow-wrap:anywhere]"><LinkifiedText text={msg.body} linkClassName="text-white" /></p>
               </div>
             )}
             {msg.attachments && msg.attachments.length > 0 && (
@@ -815,7 +816,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
             {/* Bubble */}
             {msg.body && (
               <div className="w-fit max-w-[560px] bg-gray-100 rounded-2xl rounded-tl-sm px-5 py-3 mt-1">
-                <p className="text-base text-gray-700 leading-relaxed [overflow-wrap:anywhere]">{msg.body}</p>
+                <p className="text-base text-gray-700 leading-relaxed whitespace-pre-line [overflow-wrap:anywhere]">{msg.body}</p>
               </div>
             )}
             {msg.attachments && msg.attachments.length > 0 && (
@@ -1280,7 +1281,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
               placeholder={`Type a message to ${firstName}...`}
               rows={3}
               maxLength={via === 'sms' ? SMS_MAX_BODY : via === 'chat' ? CHAT_MAX_BODY : undefined}
-              className="w-full max-sm:h-14 text-base text-gray-700 placeholder:text-gray-400 resize-none border-none outline-none bg-transparent leading-relaxed focus-visible:ring-2 focus-visible:ring-[#6C60FF] focus-visible:ring-offset-1"
+              className="w-full max-sm:h-16 text-base text-gray-700 placeholder:text-gray-400 resize-none rounded-xl bg-gray-50 border border-gray-200 px-4 py-3 leading-relaxed outline-none transition-colors focus:bg-white focus:border-[#6C60FF]/60 focus:ring-4 focus:ring-[#6C60FF]/15"
             />
 
             {/* SMS character counter — only when via === 'sms' */}
@@ -1350,8 +1351,8 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
                   intermediate menu. Same action the mobile app's "+" reaches on SMS threads. */}
               <button
                 onClick={() => setShowShareCars(true)}
-                title="Share new cars"
-                aria-label="Share new cars"
+                title="Share a campaign"
+                aria-label="Share a campaign"
                 className="flex items-center gap-1.5 h-10 px-4 rounded-lg bg-purple-50 hover:bg-purple-100 text-[#5A4FE5] text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#6C60FF]"
               >
                 <Plus className="w-4 h-4" aria-hidden="true" />

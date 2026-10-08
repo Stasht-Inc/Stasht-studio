@@ -1,5 +1,5 @@
 ﻿import React, { useState, useEffect, useRef } from 'react';
-import { Search, Upload, Plus, MoreHorizontal, UserPlus, Download, Trash2, Eye, Edit, Shield, User, Users, Crown, UserX, MapPin, Link, TrendingUp, Filter, Copy, ArrowRightLeft, UserCog, Ban, Home, CreditCard, Share2, QrCode } from 'lucide-react';
+import { Search, Upload, Plus, MoreHorizontal, UserPlus, Download, Trash2, Eye, Edit, Shield, User, Users, Crown, UserX, MapPin, Link, TrendingUp, Filter, Copy, ArrowRightLeft, UserCog, Ban, Home, CreditCard, Share2, QrCode, Send } from 'lucide-react';
 import { QRCodeCanvas } from 'qrcode.react';
 import { useProperty } from '../contexts/PropertyContext';
 import { Button } from '../components/ui/button';
@@ -75,6 +75,20 @@ const getDisplayStatus = (status: number): string => {
   }
 };
 
+// Row kinds whose pending invite POST /users/resend-invite can re-send. These are the
+// collaborator_type values GET /user/collaborators-and-non-collaborators returns;
+// 'property_user' is deliberately absent — those people already joined the property.
+const RESENDABLE_INVITE_TYPES = ['user', 'non_user', 'partial_admin', 'pending_property_user'];
+
+const canResendInvite = (user: User): boolean =>
+  getDisplayStatus(user.status) === 'pending' &&
+  !!user.collaborator_id &&
+  RESENDABLE_INVITE_TYPES.includes(user.collaborator_type || '');
+
+// Invited-but-not-joined rows have no name yet: show who was invited instead.
+const getRowDisplayName = (user: User): string =>
+  user.name || user.email || user.phone_number || '';
+
 // Format date for display
 const formatDate = (dateString?: string): string => {
   if (!dateString) return 'Not available';
@@ -120,6 +134,7 @@ export default function UsersPage({ onNavigate, onViewStoreelReport }: UsersPage
   const [selectedCollaborator, setSelectedCollaborator] = useState<User | null>(null);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [userToDelete, setUserToDelete] = useState<User | null>(null);
+  const [resendingInviteKey, setResendingInviteKey] = useState<string | null>(null);
 
   // Tab state and shared memories data
   const [activeTab, setActiveTab] = useState<'users' | 'shared-with' | 'properties'>(
@@ -1041,7 +1056,8 @@ export default function UsersPage({ onNavigate, onViewStoreelReport }: UsersPage
   // Stats calculations
   const totalUsers = users.length;
   const activeUsers = users.filter(user => user.status === 1).length;
-  const pendingInvites = users.filter(user => user.status === 0).length;
+  // Same mapping as the row badge: anything not active (0, 'invited', 'pending') is PENDING.
+  const pendingInvites = users.filter(user => getDisplayStatus(user.status) === 'pending').length;
   const collaborators = users.filter(user => user.is_user_collaborator).length;
   const adminCount = users.filter(user => ['admin', 'partial_admin'].includes(user.collaborator_role || user.role || '')).length;
   const adminLimit = planName === 'professional' ? 5 : planName === 'intermediate' ? 3 : 1;
@@ -1190,6 +1206,30 @@ export default function UsersPage({ onNavigate, onViewStoreelReport }: UsersPage
     } catch (error) {
       console.error('Error deactivating user:', error);
       alert('An error occurred while deactivating the user.');
+    }
+  };
+
+  const inviteKey = (user: User) => `${user.collaborator_type}-${user.collaborator_id}`;
+
+  const handleResendInvite = async (user: User) => {
+    if (!user.collaborator_type || !user.collaborator_id) return;
+    const key = inviteKey(user);
+    if (resendingInviteKey === key) return;
+
+    setResendingInviteKey(key);
+    try {
+      const response = await dashboardAPI.resendUserInvite(user.collaborator_type, user.collaborator_id);
+      const serverMessage = response.data?.message || response.message;
+      if (response.success) {
+        toast.success(serverMessage || `Invite sent to ${getRowDisplayName(user)}.`);
+      } else {
+        toast.error(response.message || response.error || "Couldn't send the invite — try again later.");
+      }
+    } catch (error) {
+      console.error('Error resending invite:', error);
+      toast.error("Couldn't send the invite — try again later.");
+    } finally {
+      setResendingInviteKey(null);
     }
   };
 
@@ -1703,7 +1743,7 @@ export default function UsersPage({ onNavigate, onViewStoreelReport }: UsersPage
                             </AvatarFallback>
                           </Avatar>
                           <div className="ml-3">
-                            <div className="text-sm font-medium text-gray-900">{user.name}</div>
+                            <div className="text-sm font-medium text-gray-900">{getRowDisplayName(user)}</div>
                             {user.property?.name && (
                               <div className="text-xs text-gray-500 flex items-center gap-1 mt-0.5">
                                 <Home className="h-3 w-3" />
@@ -1753,6 +1793,15 @@ export default function UsersPage({ onNavigate, onViewStoreelReport }: UsersPage
                               <Edit className="w-4 h-4 mr-2" />
                               Edit User
                             </DropdownMenuItem>
+                            {canResendInvite(user) && (
+                              <DropdownMenuItem
+                                onClick={() => handleResendInvite(user)}
+                                disabled={resendingInviteKey === inviteKey(user)}
+                              >
+                                <Send className="w-4 h-4 mr-2" />
+                                {resendingInviteKey === inviteKey(user) ? 'Sending…' : 'Resend invite'}
+                              </DropdownMenuItem>
+                            )}
                             <DropdownMenuItem
                               onClick={() => handleDeactivateUser(user)}
                               className="text-orange-600"
@@ -1826,7 +1875,7 @@ export default function UsersPage({ onNavigate, onViewStoreelReport }: UsersPage
                           </Avatar>
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2 mb-1">
-                              <h4 className="text-sm font-medium text-gray-900 truncate">{user.name}</h4>
+                              <h4 className="text-sm font-medium text-gray-900 truncate">{getRowDisplayName(user)}</h4>
                               <Badge className={`text-[12px] font-medium px-1.5 py-0.5 rounded ${getStatusColor(displayStatus)}`}>
                                 {displayStatus.toUpperCase()}
                               </Badge>
@@ -1842,7 +1891,7 @@ export default function UsersPage({ onNavigate, onViewStoreelReport }: UsersPage
                                 Campaign: {user.memory.title}
                               </p>
                             )}
-                            <p className="text-xs text-gray-500 truncate mb-2">{user.email}</p>
+                            <p className="text-xs text-gray-500 truncate mb-2">{user.name ? user.email : null}</p>
                             <div className="flex flex-wrap items-center gap-2">
                               <Badge className={`text-[12px] font-medium px-1.5 py-0.5 rounded border ${getRoleColor(displayRole)} flex items-center gap-1`}>
                                 {getRoleIcon(displayRole)}
@@ -1874,6 +1923,16 @@ export default function UsersPage({ onNavigate, onViewStoreelReport }: UsersPage
                               <Edit className="w-3.5 h-3.5 mr-2" />
                               Edit User
                             </DropdownMenuItem>
+                            {canResendInvite(user) && (
+                              <DropdownMenuItem
+                                onClick={() => handleResendInvite(user)}
+                                disabled={resendingInviteKey === inviteKey(user)}
+                                className="text-xs"
+                              >
+                                <Send className="w-3.5 h-3.5 mr-2" />
+                                {resendingInviteKey === inviteKey(user) ? 'Sending…' : 'Resend invite'}
+                              </DropdownMenuItem>
+                            )}
                             <DropdownMenuItem
                               onClick={() => handleDeactivateUser(user)}
                               className="text-orange-600 text-xs"

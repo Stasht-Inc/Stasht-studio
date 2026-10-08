@@ -2,10 +2,39 @@ import { Check } from 'lucide-react';
 import { ConnectorIcon } from './ConnectorIcon';
 import type { ConnectorDef } from './catalog';
 
-/** Full catalog card, shown on the Connectors page before anything is connected. */
-export function ConnectorCard({ connector, onSelect }: { connector: ConnectorDef; onSelect: () => void }) {
+/**
+ * Catalog card on the Connectors page. The grid is always shown (Chris, 2026-10-05); a connected
+ * card carries a "Connected" badge and its status line, and its button reads Manage. `disabled`
+ * (free plan, e.g. after a downgrade): a connected card says it's off and the button reads Upgrade.
+ */
+export function ConnectorCard({
+  connector,
+  onSelect,
+  status,
+  disabled = false,
+}: {
+  connector: ConnectorDef;
+  onSelect: () => void;
+  /** Set when connected, e.g. "Connected · yourstore.myshopify.com · since Sep 3, 2026". */
+  status?: string;
+  disabled?: boolean;
+}) {
+  const connected = status !== undefined;
+  const label = connected ? (disabled ? 'Upgrade' : 'Manage') : 'Connect';
+
   return (
-    <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden flex flex-col">
+    <div className="relative bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden flex flex-col">
+      {connected && (
+        <span
+          className={`absolute top-4 right-4 inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-sm font-semibold ${
+            disabled ? 'bg-gray-100 text-gray-500' : 'bg-green-50 text-green-700'
+          }`}
+        >
+          <span className={`w-2 h-2 rounded-full ${disabled ? 'bg-gray-400' : 'bg-green-500'}`} aria-hidden="true" />
+          {disabled ? 'Disabled' : 'Connected'}
+        </span>
+      )}
+
       {/* Logo banner */}
       <div className="h-44 bg-white flex items-center justify-center border-b border-gray-100 px-8">
         {connector.bannerLogo ? (
@@ -39,12 +68,23 @@ export function ConnectorCard({ connector, onSelect }: { connector: ConnectorDef
           ))}
         </ul>
 
+        {connected && (
+          <p className="text-sm text-gray-500 mb-3">
+            {disabled ? 'Disabled on the Starter plan. Upgrade to use it again.' : status}
+          </p>
+        )}
+
         <button
           type="button"
           onClick={onSelect}
-          className="w-full py-3 rounded-xl text-base font-semibold transition-colors bg-[#6C60FF] hover:bg-[#5A4FFF] text-white"
+          aria-label={`${label} ${connector.name}`}
+          className={`w-full py-3 rounded-xl text-base font-semibold transition-colors ${
+            connected && !disabled
+              ? 'border border-[#6C60FF] text-[#6C60FF] bg-white hover:bg-[#F3F2FF]'
+              : 'bg-[#6C60FF] hover:bg-[#5A4FFF] text-white'
+          }`}
         >
-          Connect
+          {label}
         </button>
       </div>
     </div>

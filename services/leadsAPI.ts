@@ -119,6 +119,8 @@ export interface LeadAssignee {
   id: number;
   name: string | null;
   profile_color: string | null;
+  // Their uploaded profile photo (https), or null: initials on profile_color are shown instead.
+  avatar_url?: string | null;
 }
 
 export interface LeadLatestMessage {

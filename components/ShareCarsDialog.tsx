@@ -24,7 +24,7 @@ interface CarListing {
 const ALL_CATEGORIES = 'all';
 
 // Shown pre-filled in the name field and used by the server when the name is left blank.
-const DEFAULT_CAMPAIGN_NAME = 'Vehicles Just for You';
+const DEFAULT_CAMPAIGN_NAME = 'Your Campaign';
 
 interface ShareCarsDialogProps {
   open: boolean;
@@ -55,7 +55,7 @@ function carSubtitle(c: CarListing): string {
 // "Share new cars" — the Studio counterpart of the mobile app's Share New Cars
 // sheet. Picks from the dealer's own inventory (GET /cars, same feed the
 // Cars catalog uses) and sends them to the lead in a NEW campaign, named by the
-// rep (default "Vehicles Just for You"), via POST /leads/{id}/share-cars. Each
+// rep (default "Your Campaign"), via POST /leads/{id}/share-cars. Each
 // share gets its own campaign and link — never added to the lead's old one.
 // A category dropdown (the categories the dealer's inventory actually has, e.g.
 // "Preowned (26)", "Hybrid (21)") narrows the list; selections survive switching.
@@ -85,7 +85,7 @@ export default function ShareCarsDialog({ open, onClose, leadId, leadName, onSha
       const res = await dashboardAPI.carsGetCatalog(cat);
       if (seq !== loadSeq.current) return;
       if (res?.success === false) {
-        setLoadError(res.error || res.message || 'Could not load your car inventory.');
+        setLoadError(res.error || res.message || 'Could not load your inventory.');
         return;
       }
       const payload: any = res?.data?.data ?? res?.data ?? {};
@@ -99,7 +99,7 @@ export default function ShareCarsDialog({ open, onClose, leadId, leadName, onSha
         setIsComplete(typeof total !== 'number' || total <= list.length);
       }
     } catch {
-      if (seq === loadSeq.current) setLoadError('Could not load your car inventory.');
+      if (seq === loadSeq.current) setLoadError('Could not load your inventory.');
     } finally {
       if (seq === loadSeq.current) setIsLoading(false);
     }
@@ -146,10 +146,10 @@ export default function ShareCarsDialog({ open, onClose, leadId, leadName, onSha
 
   const emptyText =
     cars.length === 0 && category === ALL_CATEGORIES
-      ? 'No cars in your inventory yet.'
+      ? 'Nothing in your inventory yet!'
       : category !== ALL_CATEGORIES && !search.trim()
-        ? 'No cars in this category.'
-        : 'No cars match your search.';
+        ? 'Nothing in this category.'
+        : 'Nothing matches your search.';
 
   const toggle = (id: number) => {
     setSelected((prev) => {
@@ -170,25 +170,26 @@ export default function ShareCarsDialog({ open, onClose, leadId, leadName, onSha
     if (leadId == null) return;
     setIsSharing(true);
     try {
-      const name = campaignName.trim();
-      const res = await leadsAPI.shareCars(leadId, Array.from(selected), name || undefined);
+      // Always send a name: the server's own fallback is still car-worded.
+      const name = campaignName.trim() || DEFAULT_CAMPAIGN_NAME;
+      const res = await leadsAPI.shareCars(leadId, Array.from(selected), name);
       if (res.success) {
         const shared = typeof res.data?.cars_total === 'number' ? res.data.cars_total : selected.size;
-        const carWord = shared === 1 ? 'car' : 'cars';
+        const itemWord = shared === 1 ? 'item' : 'items';
         // Only claim a new campaign when the server says it made one — an older backend
         // (not yet deployed) still appends to the lead's campaign and returns no `campaign`.
         toast.success(
           res.data?.campaign
-            ? `Sent ${leadName} ${shared} ${carWord} in a new campaign, "${res.data.campaign.title}".`
-            : `Shared ${shared} ${carWord} with ${leadName}.`,
+            ? `Sent ${leadName} ${shared} ${itemWord} in a new campaign, "${res.data.campaign.title}".`
+            : `Shared ${shared} ${itemWord} with ${leadName}.`,
         );
         onShared?.();
         onClose();
       } else {
-        toast.error(res.message || res.error || 'Could not share cars.');
+        toast.error(res.message || res.error || 'Could not share the campaign.');
       }
     } catch (err: any) {
-      toast.error(err?.message || 'Could not share cars.');
+      toast.error(err?.message || 'Could not share the campaign.');
     } finally {
       setIsSharing(false);
     }
@@ -198,11 +199,11 @@ export default function ShareCarsDialog({ open, onClose, leadId, leadName, onSha
     <Dialog open={open} onOpenChange={(next) => { if (!next && !isSharing) onClose(); }}>
       <DialogContent className="sm:max-w-lg max-h-[85vh] flex flex-col gap-0 p-0 overflow-hidden bg-white rounded-2xl shadow-xl">
         <DialogHeader className="px-6 pt-6 pb-3 pr-12">
-          <DialogTitle>Share New Cars</DialogTitle>
+          <DialogTitle>Share Campaign</DialogTitle>
           <DialogDescription>
             {onPick
-              ? `Creates a new campaign with the cars you pick. Its link goes out with your message to ${leadName}.`
-              : `Creates a new campaign with the cars you pick and sends ${leadName} its own link.`}
+              ? `Creates a new campaign with the items you pick. Its link goes out with your message to ${leadName}.`
+              : `Creates a new campaign with the items you pick and sends ${leadName} its own link.`}
           </DialogDescription>
         </DialogHeader>
 
@@ -307,7 +308,7 @@ export default function ShareCarsDialog({ open, onClose, leadId, leadName, onSha
                         </span>
                       )}
                       <span className="min-w-0 flex-1">
-                        <span className="block truncate text-sm font-medium text-gray-900">{c.title || 'Untitled car'}</span>
+                        <span className="block truncate text-sm font-medium text-gray-900">{c.title || 'Untitled item'}</span>
                         {subtitle && <span className="block truncate text-xs text-gray-600">{subtitle}</span>}
                       </span>
                     </button>
@@ -328,8 +329,8 @@ export default function ShareCarsDialog({ open, onClose, leadId, leadName, onSha
             {isSharing
               ? 'Sharing...'
               : selected.size === 0
-                ? 'Select cars to share'
-                : `${onPick ? 'Add' : 'Share'} ${selected.size} ${selected.size === 1 ? 'Car' : 'Cars'}`}
+                ? 'Select items to share'
+                : `${onPick ? 'Add' : 'Share'} ${selected.size} ${selected.size === 1 ? 'Item' : 'Items'}`}
           </button>
         </div>
       </DialogContent>
