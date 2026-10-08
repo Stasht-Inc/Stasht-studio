@@ -674,6 +674,18 @@ export function ProfileDropdownMenu({ isOpen, onClose, user, onShowProfileSettin
 
       {/* Menu Items */}
       <div className="py-1">
+        {/* Alvin AI help centre (wdy2xh1r0r). On phones this is Alvin's only entry point: the top bar has no room. */}
+        <button
+          onClick={() => {
+            onClose();
+            window.dispatchEvent(new Event('alvin-open'));
+          }}
+          className="w-full px-4 py-2 text-left hover:bg-gray-50 transition-all duration-200 text-gray-700 hover:text-gray-900 flex items-center gap-3"
+        >
+          <img src="/alvin/alvin-logo-button.svg" alt="" width={16} height={13} className="w-4 h-[13px]" />
+          Alvin AI
+        </button>
+
         {/* Back to Primary Account - Only show when viewing property */}
         {viewType === 'property' && switchToPersonal ? (
           <button

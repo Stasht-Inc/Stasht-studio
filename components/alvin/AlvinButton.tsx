@@ -1,5 +1,5 @@
 // Top-bar "Alvin AI" button — Figma "Alvin AI help" › AlvinAIButton (node 14397:15244).
-// Gradient border + gradient text; on phones only the mascot shows, to fit the mobile top bar.
+// Gradient border + gradient text. Shown from tablet width up (phones use the account menu's "Alvin AI" item).
 
 const GRADIENT_BORDER = 'linear-gradient(173.44deg, #ff60e0 15.959%, #6c60ff 57.472%)';
 const GRADIENT_TEXT = 'linear-gradient(171deg, #ff60e0 15.959%, #6c60ff 57.472%)';
@@ -18,7 +18,7 @@ export default function AlvinButton({ open, onClick }: { open: boolean; onClick:
     >
       <img src="/alvin/alvin-logo-button.svg" alt="" width={24} height={20} className="block w-6 h-5 shrink-0" />
       <span
-        className="hidden md:inline text-[13px] leading-[19.5px] font-semibold tracking-[-0.3762px] whitespace-nowrap bg-clip-text text-transparent"
+        className="text-[13px] leading-[19.5px] font-semibold tracking-[-0.3762px] whitespace-nowrap bg-clip-text text-transparent"
         style={{ backgroundImage: GRADIENT_TEXT, WebkitBackgroundClip: 'text' }}
       >
         Alvin AI

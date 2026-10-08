@@ -4,17 +4,25 @@ import { apiRequest } from '../utils/authUtils';
 
 export type AlvinRole = 'user' | 'assistant';
 
+// A "Take me there" button: a Studio page id (App's app-navigate ids) and its name.
+export interface AlvinPageLink {
+  page: string;
+  label: string;
+}
+
 export interface AlvinMessage {
   id: number | string;
   role: AlvinRole;
   body: string;
-  meta: { failed?: boolean; [key: string]: unknown };
+  meta: { failed?: boolean; links?: AlvinPageLink[]; [key: string]: unknown };
   created_at: string | null;
 }
 
 export interface AlvinConversation {
   messages: AlvinMessage[];
   suggestions: string[];
+  // Starter questions per Studio page; pages not listed use `suggestions`.
+  suggestions_by_page?: Record<string, string[]>;
   questions_left_today: number;
 }
 

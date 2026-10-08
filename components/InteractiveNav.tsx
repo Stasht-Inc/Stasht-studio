@@ -459,6 +459,13 @@ export default function InteractiveNav({
 }) {
   const [searchQuery, setSearchQuery] = useState("");
   const [alvinOpen, setAlvinOpen] = useState(false);
+
+  // The account menu's "Alvin AI" item opens the panel.
+  useEffect(() => {
+    const open = () => setAlvinOpen(true);
+    window.addEventListener('alvin-open', open);
+    return () => window.removeEventListener('alvin-open', open);
+  }, []);
   const [showMobileSearch, setShowMobileSearch] = useState(false);
   const { viewType, currentProperty, switchToPersonal } = useProperty();
 
@@ -563,8 +570,9 @@ export default function InteractiveNav({
           <SearchIcon onClick={handleMobileSearchClick} />
         </div>
 
-        {/* Alvin AI help centre (ClickUp wdy2xh1r0r) - before notifications, as in Chris's design */}
-        <div className="md:mr-2.5">
+        {/* Alvin AI help centre (ClickUp wdy2xh1r0r) - before notifications, as in Chris's design.
+            Tablet and up only: the phone top bar has no room, so phones open Alvin from the account menu. */}
+        <div className="hidden md:block md:mr-2.5">
           <AlvinButton open={alvinOpen} onClick={() => setAlvinOpen((v) => !v)} />
         </div>
 

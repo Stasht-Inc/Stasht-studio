@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { createPortal } from 'react-dom';
-import { alvinAPI, type AlvinMessage } from '../../services/alvinAPI';
+import { alvinAPI, type AlvinMessage, type AlvinPageLink } from '../../services/alvinAPI';
 import AlvinMessageText from './AlvinMessageText';
 
 // Alvin AI chat panel — Figma "Alvin AI help" › AlvinAIPanel (node 14397:15290), 380 × 779.
@@ -46,6 +46,31 @@ function AlvinAvatar({ size }: { size: 28 | 36 }) {
   );
 }
 
+// "Take me there": opens the Studio page through App's app-navigate event. On phones the panel
+// covers the screen, so it closes to show the page.
+function PageLinks({ links, onNavigate }: { links: AlvinPageLink[]; onNavigate: () => void }) {
+  return (
+    <div className="flex flex-wrap gap-[6px] pt-[7px]">
+      {links.map((l) => (
+        <button
+          key={l.page}
+          type="button"
+          onClick={() => {
+            window.dispatchEvent(new CustomEvent('app-navigate', { detail: l.page }));
+            onNavigate();
+          }}
+          className="inline-flex items-center gap-[5px] h-[30px] px-[12px] rounded-full bg-[#faf9ff] border border-[#e0deff] text-[12px] leading-[17.5px] font-medium tracking-[-0.018px] text-[#6c60ff] hover:bg-[#f0eeff] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#6c60ff]"
+        >
+          Take me to {l.label}
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M5 12h14M13 6l6 6-6 6" />
+          </svg>
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function UserAvatar({ user }: { user?: any }) {
   const initial = (user?.name || user?.email || 'U').trim().charAt(0).toUpperCase() || 'U';
   if (user?.profile_image) {
@@ -58,7 +83,7 @@ function UserAvatar({ user }: { user?: any }) {
   );
 }
 
-function AlvinBubble({ children, time }: { children: React.ReactNode; time?: string }) {
+function AlvinBubble({ children, time, after }: { children: React.ReactNode; time?: string; after?: React.ReactNode }) {
   return (
     <div className="flex gap-[10.5px] items-start w-full">
       <AlvinAvatar size={28} />
@@ -66,6 +91,7 @@ function AlvinBubble({ children, time }: { children: React.ReactNode; time?: str
         <div className="bg-[#f4f3ff] px-[14px] py-[10.5px] rounded-[14px] rounded-tl-[4.75px] max-w-[275px] text-[#1e2939] text-[12.25px] leading-[19.906px] tracking-[-0.018px] break-words">
           {children}
         </div>
+        {after}
         {time !== undefined && (
           <div className="pl-[3.5px] pt-[3.5px] text-[#99a1af] text-[11px] leading-[16.5px] tracking-[0.0645px]">{time}</div>
         )}
@@ -117,6 +143,7 @@ export default function AlvinPanel({
 }) {
   const [messages, setMessages] = useState<ChatItem[]>([]);
   const [suggestions, setSuggestions] = useState<string[]>(DEFAULT_SUGGESTIONS);
+  const [suggestionsByPage, setSuggestionsByPage] = useState<Record<string, string[]>>({});
   const [loaded, setLoaded] = useState(false);
   const [sending, setSending] = useState(false);
   const [draft, setDraft] = useState('');
@@ -134,6 +161,7 @@ export default function AlvinPanel({
         if (cancelled || !conv) return;
         setMessages(conv.messages);
         if (conv.suggestions.length) setSuggestions(conv.suggestions);
+        if (conv.suggestions_by_page) setSuggestionsByPage(conv.suggestions_by_page);
         if (conv.messages[0]?.created_at) setGreetingTime(timeLabel(conv.messages[0].created_at));
       })
       .catch(() => {
@@ -228,6 +256,10 @@ export default function AlvinPanel({
 
   if (!open) return null;
 
+  const closeOnPhone = () => {
+    if (window.matchMedia('(max-width: 767px)').matches) onClose();
+  };
+  const starterQuestions = (currentPage && suggestionsByPage[currentPage]) || suggestions;
   const canSend = draft.trim().length > 0 && !sending;
   const showSuggestions = loaded && messages.length === 0 && !sending;
 
@@ -286,7 +318,11 @@ export default function AlvinPanel({
             m.role === 'user' ? (
               <UserBubble key={m.id} text={m.body} time={timeLabel(m.created_at)} user={user} />
             ) : (
-              <AlvinBubble key={m.id} time={timeLabel(m.created_at)}>
+              <AlvinBubble
+                key={m.id}
+                time={timeLabel(m.created_at)}
+                after={m.meta?.links?.length ? <PageLinks links={m.meta.links} onNavigate={closeOnPhone} /> : undefined}
+              >
                 <AlvinMessageText text={m.body} />
               </AlvinBubble>
             ),
@@ -298,7 +334,7 @@ export default function AlvinPanel({
       {/* Suggested questions */}
       {showSuggestions && (
         <div className="flex flex-col items-start gap-[6.5px] px-[14px] pb-[12px] shrink-0">
-          {suggestions.map((s) => (
+          {starterQuestions.map((s) => (
             <button
               key={s}
               type="button"
