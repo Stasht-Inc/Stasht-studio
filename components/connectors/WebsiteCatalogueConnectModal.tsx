@@ -52,11 +52,14 @@ export function WebsiteCatalogueConnectModal({ initialScan, onClose, onConnected
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [pollTrouble, setPollTrouble] = useState(false);
+  const [pollStopped, setPollStopped] = useState(false);
 
   // Callbacks and liveness live in refs so the polling effect never restarts for them and never acts after unmount.
   const mounted = useRef(true);
   const onScanChangedRef = useRef(onScanChanged);
   onScanChangedRef.current = onScanChanged;
+  const onConnectedRef = useRef(onConnected);
+  onConnectedRef.current = onConnected;
   useEffect(() => {
     mounted.current = true;
     return () => {
@@ -72,6 +75,7 @@ export function WebsiteCatalogueConnectModal({ initialScan, onClose, onConnected
     let cancelled = false;
     let timer: number | undefined;
     let failures = 0;
+    setPollStopped(false);
 
     const tick = async () => {
       const res = await catalogueAPI.getScan(scanId);
@@ -91,6 +95,12 @@ export function WebsiteCatalogueConnectModal({ initialScan, onClose, onConnected
         setError(res.error || "We couldn't find that check any more. Please start again.");
         setScan(null);
         setStep('url');
+        onScanChangedRef.current(); // the card behind must stop saying "Analysing…"
+        return;
+      } else if (res.code === 'plan_required' || res.code === 'not_available') {
+        // Permanent: the account can no longer use the catalogue. Stop (each further call would reopen the upgrade modal).
+        setError(res.error || 'Website Catalogue is not available on your account.');
+        setPollStopped(true);
         return;
       } else {
         failures += 1;
@@ -106,28 +116,31 @@ export function WebsiteCatalogueConnectModal({ initialScan, onClose, onConnected
     };
   }, [step, scanId]);
 
-  /** Run a write and apply its result only if the dialog is still open. Returns null when it was closed meanwhile. */
-  const act = async <T,>(request: Promise<CatalogueResult<T>>): Promise<CatalogueResult<T> | null> => {
+  /**
+   * Run a write. The result is always returned, even if the dialog was closed meanwhile, because the server has acted
+   * and the page behind must hear about it (callers notify the parent through the refs). Callers must not set state
+   * once `mounted.current` is false.
+   */
+  const act = async <T,>(request: Promise<CatalogueResult<T>>): Promise<CatalogueResult<T>> => {
     setBusy(true);
     setError('');
     const res = await request;
-    if (!mounted.current) return null;
-    setBusy(false);
+    if (mounted.current) setBusy(false);
     return res;
   };
 
   const begin = async (scanUrl: string) => {
     const res = await act(catalogueAPI.startScan(scanUrl));
-    if (!res) return;
     if (!res.ok || !res.data) {
-      setError(res.error || "We couldn't start the check. Please try again.");
-      if (res.code === 'already_connected') onScanChanged(); // a website is already connected: refresh the card behind us
+      if (res.code === 'already_connected') onScanChangedRef.current(); // a website is already connected: refresh the card behind us
+      if (mounted.current) setError(res.error || "We couldn't start the check. Please try again.");
       return;
     }
+    onScanChangedRef.current();
+    if (!mounted.current) return;
     setScan(res.data.scan);
     if (res.data.scan.domain) setDomain(res.data.scan.domain);
     setStep(res.data.scan.in_progress ? 'progress' : 'outcome');
-    onScanChanged();
   };
 
   const submitUrl = async () => {
@@ -140,10 +153,10 @@ export function WebsiteCatalogueConnectModal({ initialScan, onClose, onConnected
       return;
     }
     const res = await act(catalogueAPI.registerDomain(url.trim()));
-    if (!res) return;
+    if (res.code === 'already_connected') onScanChangedRef.current();
+    if (!mounted.current) return; // closed meanwhile: registering is harmless, but don't start a scan nobody asked for now
     if (!res.ok || !res.data) {
       setError(res.error || 'Something went wrong. Please try again.');
-      if (res.code === 'already_connected') onScanChanged();
       return;
     }
     setUrl(res.data.url);
@@ -158,25 +171,24 @@ export function WebsiteCatalogueConnectModal({ initialScan, onClose, onConnected
   const checkAgain = async () => {
     if (!scan) return;
     const res = await act(catalogueAPI.checkAgain(scan.id));
-    if (!res) return;
     if (!res.ok || !res.data) {
-      setError(res.error || "We couldn't check again. Please try again.");
+      if (mounted.current) setError(res.error || "We couldn't check again. Please try again.");
       return;
     }
+    onScanChangedRef.current();
+    if (!mounted.current) return;
     setScan(res.data.scan);
     setStep(res.data.scan.in_progress ? 'progress' : 'outcome');
-    onScanChanged();
   };
 
   const connect = async () => {
     if (!scan) return;
     const res = await act(catalogueAPI.connect(scan.id));
-    if (!res) return;
     if (!res.ok) {
+      if (res.code === 'already_connected') onScanChangedRef.current(); // refresh the card behind us
+      if (!mounted.current) return;
       setError(res.error || "We couldn't connect your website. Please try again.");
-      if (res.code === 'already_connected') {
-        onScanChanged(); // refresh the card behind us; the message stays visible here
-      } else if (res.code === 'scan_expired' || res.code === 'not_found') {
+      if (res.code === 'scan_expired' || res.code === 'not_found') {
         setScan(null);
         setStep('url'); // the preview is too old: analyse again
       } else if (res.code === 'not_verified' && domain) {
@@ -186,7 +198,7 @@ export function WebsiteCatalogueConnectModal({ initialScan, onClose, onConnected
       return;
     }
     toast.success("Website connected. We're importing your items now.");
-    onConnected();
+    onConnectedRef.current();
   };
 
   const startOver = (nextUrl?: string) => {
@@ -234,7 +246,10 @@ export function WebsiteCatalogueConnectModal({ initialScan, onClose, onConnected
             autoComplete="url"
             autoFocus
             value={url}
-            onChange={(e) => setUrl(e.target.value)}
+            onChange={(e) => {
+              setUrl(e.target.value);
+              setAuthorized(false); // the tick covers one website: a changed address needs it again
+            }}
             onKeyDown={(e) => { if (e.key === 'Enter' && !busy) submitUrl(); }}
             placeholder="www.yourstore.com"
             className="w-full bg-gray-100 border border-gray-200 rounded-xl px-4 py-3 text-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-300 focus:border-gray-300"
@@ -291,7 +306,7 @@ export function WebsiteCatalogueConnectModal({ initialScan, onClose, onConnected
               <li key={s.key} className="flex items-center gap-3" aria-current={active ? 'step' : undefined}>
                 {done ? (
                   <CheckCircle2 className="w-5 h-5 text-green-500 flex-shrink-0" aria-hidden="true" />
-                ) : active ? (
+                ) : active && !pollStopped ? (
                   <Loader2 className="w-5 h-5 text-[#6C60FF] animate-spin flex-shrink-0" aria-hidden="true" />
                 ) : (
                   <Circle className="w-5 h-5 text-gray-300 flex-shrink-0" aria-hidden="true" />
@@ -304,10 +319,12 @@ export function WebsiteCatalogueConnectModal({ initialScan, onClose, onConnected
         {pollTrouble && (
           <Notice tone="warning">We're having trouble reaching Stasht to check on progress. We'll keep trying. You can also close this window and come back later.</Notice>
         )}
+        {!pollStopped && (
         <Notice tone="info">
           This usually takes 1–3 minutes. You can close this window: we keep working, and the Connectors page shows
           "Analysing…" until it's done.
         </Notice>
+        )}
       </>
     );
     footer = close;
@@ -422,6 +439,11 @@ export function WebsiteCatalogueConnectModal({ initialScan, onClose, onConnected
                 Try again
               </button>
             )
+          )}
+          {!outcome.can_start_over && (
+            <button type="button" onClick={() => startOver()} disabled={busy} className={BUTTON_SECONDARY}>
+              Use a different address
+            </button>
           )}
         </>
       );
