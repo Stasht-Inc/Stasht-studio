@@ -57,7 +57,9 @@ export function CatalogueModalShell({
           </button>
         </div>
         <div className="overflow-y-auto px-6 pb-4 space-y-5 flex-1">{children}</div>
-        <div className="flex flex-wrap gap-3 px-6 py-4 border-t border-gray-100">{footer}</div>
+        {/* Studio's DialogFooter pattern: stacked on phones (primary, written last, on top), one row from sm up. The
+            buttons are flex-1, so a wrapping row would only squeeze them (walk-through state 62). */}
+        <div className="flex flex-col-reverse sm:flex-row gap-3 px-6 py-4 border-t border-gray-100">{footer}</div>
       </div>
     </div>
   );
