@@ -1,4 +1,4 @@
-import { apiRequest } from '../utils/authUtils';
+import { apiRequest, API_BASE_URL } from '../utils/authUtils';
 
 // Alvin AI help centre chat (ClickUp wdy2xh1r0r), /api/react/alvin/*.
 
@@ -10,11 +10,19 @@ export interface AlvinPageLink {
   label: string;
 }
 
+// A file sent with a question (the file itself isn't kept on the server).
+export interface AlvinAttachmentInfo {
+  name: string;
+  mime: string;
+  size: number;
+  kind: 'image' | 'document';
+}
+
 export interface AlvinMessage {
   id: number | string;
   role: AlvinRole;
   body: string;
-  meta: { failed?: boolean; links?: AlvinPageLink[]; [key: string]: unknown };
+  meta: { failed?: boolean; links?: AlvinPageLink[]; attachments?: AlvinAttachmentInfo[]; [key: string]: unknown };
   created_at: string | null;
 }
 
@@ -37,6 +45,8 @@ export interface AlvinSendResult {
   ok: boolean;
   data?: AlvinAnswer;
   dailyLimit?: boolean;
+  // 'no_credits' (reading files needs an AI credit), 'file_rejected', 'daily_limit'
+  code?: string;
   message?: string;
 }
 
@@ -71,11 +81,45 @@ export const alvinAPI = {
       const r = res as any;
       return {
         ok: false,
+        code: r.code,
         dailyLimit: r.code === 'daily_limit',
         message: r.message || r.error || NETWORK_ERROR,
       };
     } catch {
       return { ok: false, dailyLimit: false, message: NETWORK_ERROR };
+    }
+  },
+
+  // Multipart, so it can't go through apiRequest (which always sends JSON).
+  async sendWithFiles(message: string, page: string | null, files: File[]): Promise<AlvinSendResult> {
+    const form = new FormData();
+    if (message) form.append('message', message);
+    if (page) form.append('page', page);
+    files.forEach((f) => form.append('files[]', f));
+
+    try {
+      const token = localStorage.getItem('stasht_token');
+      const res = await fetch(`${API_BASE_URL}/alvin/messages`, {
+        method: 'POST',
+        headers: { Accept: 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        body: form,
+      });
+      const data = await res.json().catch(() => null);
+      if (res.ok && data?.data?.question && data?.data?.answer) {
+        return { ok: true, data: data.data };
+      }
+      if (res.status === 401) {
+        return { ok: false, message: 'Your session has ended. Please sign in again.' };
+      }
+      const firstError = data?.errors ? (Object.values(data.errors)[0] as string[] | undefined)?.[0] : undefined;
+      return {
+        ok: false,
+        code: data?.code,
+        dailyLimit: data?.code === 'daily_limit',
+        message: (data?.code ? data?.message : firstError || data?.message) || NETWORK_ERROR,
+      };
+    } catch {
+      return { ok: false, message: NETWORK_ERROR };
     }
   },
 

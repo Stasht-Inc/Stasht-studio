@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { createPortal } from 'react-dom';
-import { alvinAPI, type AlvinMessage, type AlvinPageLink } from '../../services/alvinAPI';
+import { alvinAPI, type AlvinMessage, type AlvinPageLink, type AlvinSendResult } from '../../services/alvinAPI';
 import AlvinMessageText from './AlvinMessageText';
+import { ACCEPT, DropOverlay, PendingFile, SentFile, attachmentInfo, fileProblem, isImageFile } from './alvinFiles';
 
 // Alvin AI chat panel — Figma "Alvin AI help" › AlvinAIPanel (node 14397:15290), 380 × 779.
 // The user bubble, typing dots and error notes are not in the Figma frame; they follow Chris's
@@ -100,12 +101,17 @@ function AlvinBubble({ children, time, after }: { children: React.ReactNode; tim
   );
 }
 
-function UserBubble({ text, time, user }: { text: string; time: string; user?: any }) {
+function UserBubble({ message, time, user, previews }: { message: ChatItem; time: string; user?: any; previews?: string[] }) {
+  const files = message.meta?.attachments ?? [];
+  let image = 0;
   return (
     <div className="flex gap-[10.5px] items-start justify-end w-full">
       <div className="flex flex-col items-end min-w-0 flex-1">
-        <div className="bg-[#6c60ff] px-[14px] py-[10.5px] rounded-[14px] rounded-tr-[4.75px] max-w-[275px] text-white text-[12.25px] leading-[19.906px] tracking-[-0.018px] whitespace-pre-wrap break-words">
-          {text}
+        <div className="flex flex-col gap-[8px] bg-[#6c60ff] px-[14px] py-[10.5px] rounded-[14px] rounded-tr-[4.75px] max-w-[275px] text-white text-[12.25px] leading-[19.906px] tracking-[-0.018px] whitespace-pre-wrap break-words">
+          {files.map((f, i) => (
+            <SentFile key={i} info={f} preview={f.kind === 'image' ? previews?.[image++] : undefined} />
+          ))}
+          {message.body !== '' && <span>{message.body}</span>}
         </div>
         <div className="pr-[3.5px] pt-[3.5px] text-[#99a1af] text-[11px] leading-[16.5px] tracking-[0.0645px]">{time}</div>
       </div>
@@ -148,6 +154,12 @@ export default function AlvinPanel({
   const [sending, setSending] = useState(false);
   const [draft, setDraft] = useState('');
   const [greetingTime, setGreetingTime] = useState(() => timeLabel(null));
+  const [pending, setPending] = useState<File[]>([]);
+  const [dragging, setDragging] = useState(false);
+  // Image previews for questions sent from this browser (the server doesn't keep the files).
+  const [previews, setPreviews] = useState<Record<string, string[]>>({});
+  const dragDepth = useRef(0);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -203,28 +215,51 @@ export default function AlvinPanel({
     el.style.height = `${Math.min(el.scrollHeight, 96)}px`;
   }, [draft]);
 
+  // A note from Alvin that only lives in this browser.
+  const note = (body: string, links?: AlvinPageLink[]) =>
+    setMessages((prev) => [
+      ...prev,
+      { id: `note-${Date.now()}`, role: 'assistant', body, meta: { failed: true, links }, created_at: new Date().toISOString(), local: true },
+    ]);
+
   const send = useCallback(
-    async (raw: string) => {
+    async (raw: string, files: File[] = []) => {
       const text = raw.trim();
-      if (!text || sending) return;
+      if ((!text && files.length === 0) || sending) return;
+      const problem = files.length ? fileProblem(files) : null;
+      if (problem) {
+        note(problem);
+        return;
+      }
 
       const tempId = `pending-${Date.now()}`;
       const now = new Date().toISOString();
-      setMessages((prev) => [...prev, { id: tempId, role: 'user', body: text, meta: {}, created_at: now, pending: true }]);
+      const meta = files.length ? { attachments: files.map(attachmentInfo) } : {};
+      const imageUrls = files.filter(isImageFile).map((f) => URL.createObjectURL(f));
+      if (imageUrls.length) setPreviews((prev) => ({ ...prev, [tempId]: imageUrls }));
+      setMessages((prev) => [...prev, { id: tempId, role: 'user', body: text, meta, created_at: now, pending: true }]);
       setDraft('');
+      setPending([]);
       setSending(true);
 
-      const result = await alvinAPI.send(text, currentPage ?? null);
+      const result: AlvinSendResult = files.length
+        ? await alvinAPI.sendWithFiles(text, currentPage ?? null, files)
+        : await alvinAPI.send(text, currentPage ?? null);
       const failure = result.ok ? null : result.message;
 
+      if (result.ok && result.data && imageUrls.length) {
+        const questionId = String(result.data.question.id);
+        setPreviews((prev) => ({ ...prev, [questionId]: imageUrls }));
+      }
       setMessages((prev) => {
         const rest = prev.filter((m) => m.id !== tempId);
         if (result.ok && result.data) return [...rest, result.data.question, result.data.answer];
         // Not saved on the server: keep the question on screen with Alvin's note under it.
+        const links = result.code === 'no_credits' ? [{ page: 'billing', label: 'Billing & Payment' }] : undefined;
         return [
           ...rest,
-          { id: tempId, role: 'user', body: text, meta: {}, created_at: now, local: true },
-          { id: `${tempId}-note`, role: 'assistant', body: failure ?? '', meta: { failed: true }, created_at: new Date().toISOString(), local: true },
+          { id: tempId, role: 'user', body: text, meta, created_at: now, local: true },
+          { id: `${tempId}-note`, role: 'assistant', body: failure ?? '', meta: { failed: true, links }, created_at: new Date().toISOString(), local: true },
         ];
       });
       setSending(false);
@@ -232,6 +267,43 @@ export default function AlvinPanel({
     },
     [sending, currentPage],
   );
+
+  const addFiles = (files: File[]) => {
+    const problem = fileProblem(files, pending.length);
+    if (problem) {
+      note(problem);
+      return;
+    }
+    setPending((prev) => [...prev, ...files]);
+    inputRef.current?.focus();
+  };
+
+  // Dragging files over the panel shows "Drop to send"; dropping sends them with any typed text.
+  const hasFiles = (e: React.DragEvent) => Array.from(e.dataTransfer?.types ?? []).includes('Files');
+  const onDragEnter = (e: React.DragEvent) => {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    dragDepth.current += 1;
+    setDragging(true);
+  };
+  const onDragOver = (e: React.DragEvent) => {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = sending ? 'none' : 'copy';
+  };
+  const onDragLeave = (e: React.DragEvent) => {
+    if (!hasFiles(e)) return;
+    dragDepth.current = Math.max(0, dragDepth.current - 1);
+    if (dragDepth.current === 0) setDragging(false);
+  };
+  const onDrop = (e: React.DragEvent) => {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    dragDepth.current = 0;
+    setDragging(false);
+    if (sending) return;
+    send(draft, [...pending, ...Array.from(e.dataTransfer.files)]);
+  };
 
   const startOver = async () => {
     if (sending) return;
@@ -242,7 +314,10 @@ export default function AlvinPanel({
       ]);
       return;
     }
+    Object.values(previews).flat().forEach((u) => URL.revokeObjectURL(u));
+    setPreviews({});
     setMessages([]);
+    setPending([]);
     setGreetingTime(timeLabel(null));
     inputRef.current?.focus();
   };
@@ -250,7 +325,7 @@ export default function AlvinPanel({
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault();
-      send(draft);
+      send(draft, pending);
     }
   };
 
@@ -260,7 +335,7 @@ export default function AlvinPanel({
     if (window.matchMedia('(max-width: 767px)').matches) onClose();
   };
   const starterQuestions = (currentPage && suggestionsByPage[currentPage]) || suggestions;
-  const canSend = draft.trim().length > 0 && !sending;
+  const canSend = (draft.trim().length > 0 || pending.length > 0) && !sending;
   const showSuggestions = loaded && messages.length === 0 && !sending;
 
   // Portal to <body>: inside the sticky header (its own stacking layer) the panel would sit under
@@ -270,11 +345,17 @@ export default function AlvinPanel({
       role="dialog"
       aria-label="Alvin AI"
       data-name="AlvinAIPanel"
+      onDragEnter={onDragEnter}
+      onDragOver={onDragOver}
+      onDragLeave={onDragLeave}
+      onDrop={onDrop}
       className="fixed z-[9000] flex flex-col overflow-hidden bg-white
         inset-0 pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]
         md:inset-auto md:pt-0 md:pb-0 md:right-4 md:top-[64px] md:w-[380px] md:h-[min(779px,calc(100vh-80px))]
         md:border md:border-[#ede9ff] md:rounded-[16px] md:shadow-[0px_8px_40px_0px_rgba(108,96,255,0.18),0px_2px_12px_0px_rgba(0,0,0,0.1)]"
     >
+      {dragging && <DropOverlay />}
+
       {/* Header */}
       <div className="flex items-center justify-between px-[17.5px] py-[14px] border-b border-[#f0f0f5] shrink-0">
         <div className="flex items-center gap-[10.5px]">
@@ -316,7 +397,7 @@ export default function AlvinPanel({
           <AlvinBubble time={greetingTime}>{GREETING}</AlvinBubble>
           {messages.map((m) =>
             m.role === 'user' ? (
-              <UserBubble key={m.id} text={m.body} time={timeLabel(m.created_at)} user={user} />
+              <UserBubble key={m.id} message={m} time={timeLabel(m.created_at)} user={user} previews={previews[String(m.id)]} />
             ) : (
               <AlvinBubble
                 key={m.id}
@@ -349,16 +430,37 @@ export default function AlvinPanel({
 
       {/* Composer */}
       <div className="border-t border-[#f0f0f5] p-[14px] shrink-0">
+        {pending.length > 0 && (
+          <div className="flex flex-wrap gap-[6px] pb-[8px]" aria-label="Files to send">
+            {pending.map((f, i) => (
+              <PendingFile key={`${f.name}-${i}`} file={f} onRemove={() => setPending((prev) => prev.filter((_, j) => j !== i))} />
+            ))}
+          </div>
+        )}
         <div className="flex items-center gap-[7px] px-[10.5px] py-[8.75px] rounded-[14px] bg-[#faf9ff] border-[1.5px] border-[#e0deff] focus-within:border-[#b9b2ff]">
           <button
             type="button"
-            disabled
-            title="Attaching files is coming soon"
-            aria-label="Attach a file (coming soon)"
-            className="size-[25px] flex items-center justify-center rounded-[8.75px] border border-[#d4c9ff] shrink-0 cursor-not-allowed"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={sending}
+            title="Attach images or files"
+            aria-label="Attach images or files"
+            className="size-[25px] flex items-center justify-center rounded-[8.75px] border border-[#d4c9ff] shrink-0 hover:bg-[#f0eeff] disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#6c60ff]"
           >
             <img src="/alvin/icon-attach.svg" alt="" width={14} height={14} className="block size-[14px]" />
           </button>
+          <input
+            ref={fileInputRef}
+            id="alvin-files"
+            type="file"
+            multiple
+            accept={ACCEPT}
+            className="hidden"
+            onChange={(e) => {
+              const files = Array.from(e.target.files ?? []);
+              e.target.value = '';
+              if (files.length) addFiles(files);
+            }}
+          />
           <label htmlFor="alvin-message" className="sr-only">Ask Alvin anything</label>
           <textarea
             id="alvin-message"
@@ -373,7 +475,7 @@ export default function AlvinPanel({
           />
           <button
             type="button"
-            onClick={() => send(draft)}
+            onClick={() => send(draft, pending)}
             disabled={!canSend}
             aria-label="Send"
             className={`size-[28px] flex items-center justify-center rounded-[12.75px] shrink-0 transition-opacity ${canSend ? 'opacity-100 hover:opacity-90' : 'opacity-40 cursor-not-allowed'}`}
