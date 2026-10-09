@@ -1,6 +1,7 @@
 // Connectors offered on the Connectors page (pages/MarketplacePage.tsx).
+import { WEBSITE_CATALOG_COLOR } from '../../utils/categoryColorManager';
 
-export type ConnectorId = 'shopify' | 'docusign' | 'autotrader' | 'contact-widget';
+export type ConnectorId = 'shopify' | 'docusign' | 'autotrader' | 'contact-widget' | 'website-catalogue';
 
 export interface ConnectorDef {
   id: ConnectorId;
@@ -11,6 +12,14 @@ export interface ConnectorDef {
   bannerLogo?: string;
   iconImage?: string;
   iconFill?: boolean;
+}
+
+/** A card whose state is richer than connected / not connected (the Website Catalogue): its own badge, line and button. */
+export interface ConnectorCardOverride {
+  badge?: { label: string; tone: 'green' | 'amber' | 'gray' };
+  line?: string;
+  actionLabel: string;
+  outlined: boolean;
 }
 
 export const CONNECTORS: ConnectorDef[] = [
@@ -50,11 +59,19 @@ export const CONNECTORS: ConnectorDef[] = [
     description: 'Capture leads straight from your own website with a chat-style Contact Us widget.',
     features: ['Customizable color, agent name, and greeting', 'Leads land in your Leads inbox', 'One-line install'],
   },
+  {
+    id: 'website-catalogue',
+    name: 'Website Catalogue',
+    category: 'Connect your website',
+    description: 'Import the products, vehicles or properties from your own website, keep them in sync every night, and build campaigns from them in a few clicks.',
+    features: ['Works with most store and listing websites', 'Up to 500 items, synced nightly', 'Build campaigns from your items'],
+  },
 ];
 
-// AutoTrader hidden from the Connectors page (Deepak, 2026-09-22) — its connect modal is kept,
-// just not offered.
-export const OFFERED_CONNECTORS = CONNECTORS.filter((c) => c.id !== 'autotrader');
+// AutoTrader hidden from the Connectors page (Deepak, 2026-09-22): its connect modal is kept,
+// just not offered. The Website Catalogue card has its own plan / pilot / status logic and is
+// rendered by MarketplacePage itself.
+export const OFFERED_CONNECTORS = CONNECTORS.filter((c) => c.id !== 'autotrader' && c.id !== 'website-catalogue');
 
 // Contact Us Widget tile colour, from Chris's original ContactWidgetCard design.
 export const WIDGET_ICON_BLUE = '#0EA5E9';
@@ -64,6 +81,7 @@ export const brandColors: Record<ConnectorId, string> = {
   docusign: '#ffffff',
   autotrader: '#ffffff',
   'contact-widget': WIDGET_ICON_BLUE,
+  'website-catalogue': WEBSITE_CATALOG_COLOR,
 };
 
 export const brandInitials: Partial<Record<ConnectorId, string>> = {
