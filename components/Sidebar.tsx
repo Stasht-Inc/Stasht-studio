@@ -10,6 +10,7 @@ import { leadsAPI } from '../services/leadsAPI';
 import { runWhenIdle } from "../utils/deferIdle";
 import { canManagePropertyWidgets } from "../utils/propertyAccess";
 import { widgetsAPI } from "../services/widgetsAPI";
+import { catalogueAPI } from "../services/catalogueAPI";
 import { CONNECTORS_COUNT_EVENT } from "./connectors/catalog";
 import { useAuth } from "../contexts/AuthContext";
 import { useMemoryCounts } from "../hooks/useMemoryCounts";
@@ -298,8 +299,8 @@ export default function Sidebar({
   }, [isAuthenticated]);
 
   // Connectors badge = number of connectors currently connected (DocuSign + Shopify, plus the
-  // Contact Us Widget once the account has at least one widget). Same status endpoints the
-  // Connectors/Marketplace page uses. This is a purely decorative count, so it's deferred to
+  // Contact Us Widget once the account has at least one widget, and a Website Catalogue the plan
+  // hasn't paused). Same status endpoints the Connectors/Marketplace page uses. This is a purely decorative count, so it's deferred to
   // browser-idle time to keep the status calls off the initial-load critical path
   // (PERFORMANCE_OPTIMIZATION_PLAN.md #4). The Connectors page also broadcasts its own count
   // whenever something is connected, disconnected, created or deleted there.
@@ -316,7 +317,10 @@ export default function Sidebar({
             dashboardAPI.docuSignGetStatus().then(r => (r?.success && r.data?.connected ? 1 : 0)).catch(() => 0),
             dashboardAPI.shopifyGetStatus().then(r => (r?.success && r.data?.connected ? 1 : 0)).catch(() => 0),
             widgetsAPI.list().then(r => (r.ok && Array.isArray(r.data) && r.data.length > 0 ? 1 : 0)).catch(() => 0),
-          ]).then(([docusign, shopify, contactWidget]) => docusign + shopify + contactWidget);
+            // GET /website-catalogue answers every account. A website counts only on the Business plan (available):
+            // a source the plan has paused (Starter / Teams) is not "connected".
+            catalogueAPI.getStatus().then(r => (r.ok && r.data?.available && r.data.source ? 1 : 0)).catch(() => 0),
+          ]).then(([docusign, shopify, contactWidget, websiteCatalogue]) => docusign + shopify + contactWidget + websiteCatalogue);
       counts.then((n) => { if (!cancelled) setConnectorsCount(n); });
     });
     const onCount = (e: Event) => {

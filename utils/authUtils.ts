@@ -534,6 +534,7 @@ const performApiRequest = async <T = any>(
           success: false,
           error: data.message || 'Upgrade your plan to use this.',
           message: data.message,
+          code: data?.code,
           statusCode: 403,
         } as ApiResponse<T>;
       }

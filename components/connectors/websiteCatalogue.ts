@@ -59,12 +59,12 @@ export function openBillingUpgrade(): void {
   window.dispatchEvent(new CustomEvent('app-navigate', { detail: 'billing' }));
 }
 
-export type WebsiteCatalogueAction = 'connect' | 'continue' | 'manage' | 'upgrade' | 'billing';
+export type WebsiteCatalogueAction = 'connect' | 'continue' | 'manage' | 'upgrade' | 'billing' | 'reload';
 
 export interface WebsiteCatalogueCard {
   /** Outside the pilot list (spec §13.3): no card at all, not even an upsell. */
   hidden: boolean;
-  /** Counts toward the sidebar's Connectors badge. */
+  /** Counts toward the sidebar's Connectors badge: a website connected on the Business plan (a paused-by-plan one doesn't). */
   connected: boolean;
   /** What clicking the card does. */
   action: WebsiteCatalogueAction;
@@ -105,13 +105,25 @@ function sourceOverride(source: CatalogueSource): ConnectorCardOverride {
  * - Teams: "Available on the Business plan" with a link to Billing (or its paused website after a downgrade);
  * - Business: Connect, an analysis in progress or finished, or the connected website and its status.
  */
-export function websiteCatalogueCard(overview: CatalogueOverview | null, isStarter: boolean): WebsiteCatalogueCard {
-  if (!overview || overview.reason === 'not_available') return { hidden: true, connected: false, action: 'connect' };
+export function websiteCatalogueCard(overview: CatalogueOverview | null, isStarter: boolean, loadFailed = false): WebsiteCatalogueCard {
+  // Not answered yet: a loading card, never a hidden one (a failed load offers Try again). The page hides the card itself in property view.
+  if (!overview) {
+    return {
+      hidden: false,
+      connected: false,
+      action: 'reload',
+      override: loadFailed
+        ? { line: "We couldn't load this right now.", actionLabel: 'Try again', outlined: true }
+        : { line: 'Loading…', actionLabel: 'Loading…', outlined: true, buttonDisabled: true },
+    };
+  }
+  if (overview.reason === 'not_available') return { hidden: true, connected: false, action: 'connect' };
   const { source, scan } = overview;
 
   if (isStarter) {
+    // The API reports a non-Business account as plan_required and pauses its source, so it isn't counted as connected.
     return source
-      ? { hidden: false, connected: true, action: 'upgrade', status: source.host, disabled: true }
+      ? { hidden: false, connected: false, action: 'upgrade', status: source.host, disabled: true }
       : { hidden: false, connected: false, action: 'upgrade' };
   }
 
@@ -119,7 +131,7 @@ export function websiteCatalogueCard(overview: CatalogueOverview | null, isStart
     return source
       ? {
           hidden: false,
-          connected: true,
+          connected: false, // paused by the plan: not counted in the Connectors badge
           action: 'billing',
           override: { badge: { label: 'Paused', tone: 'amber' }, line: `${source.host} · paused: not on the Business plan`, actionLabel: 'Upgrade to Business', outlined: false },
         }

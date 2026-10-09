@@ -1,37 +1,54 @@
 import { Check } from 'lucide-react';
 import { ConnectorIcon } from './ConnectorIcon';
-import type { ConnectorDef } from './catalog';
+import type { ConnectorCardOverride, ConnectorDef } from './catalog';
+
+const BADGE_TONES = {
+  green: { box: 'bg-green-50 text-green-700', dot: 'bg-green-500' },
+  amber: { box: 'bg-yellow-50 text-yellow-800', dot: 'bg-yellow-500' },
+  gray: { box: 'bg-gray-100 text-gray-500', dot: 'bg-gray-400' },
+} as const;
 
 /**
  * Catalog card on the Connectors page. The grid is always shown (Chris, 2026-10-05); a connected
  * card carries a "Connected" badge and its status line, and its button reads Manage. `disabled`
  * (free plan, e.g. after a downgrade): a connected card says it's off and the button reads Upgrade.
+ * `override` (the Website Catalogue, whose state is richer): its own badge, line and button.
  */
 export function ConnectorCard({
   connector,
   onSelect,
   status,
   disabled = false,
+  override,
 }: {
   connector: ConnectorDef;
   onSelect: () => void;
   /** Set when connected, e.g. "Connected · yourstore.myshopify.com · since Sep 3, 2026". */
   status?: string;
   disabled?: boolean;
+  override?: ConnectorCardOverride;
 }) {
   const connected = status !== undefined;
-  const label = connected ? (disabled ? 'Upgrade' : 'Manage') : 'Connect';
+  const badge = override
+    ? override.badge
+    : connected
+      ? { label: disabled ? 'Disabled' : 'Connected', tone: disabled ? ('gray' as const) : ('green' as const) }
+      : undefined;
+  const line = override
+    ? override.line
+    : connected
+      ? (disabled ? 'Disabled on the Starter plan. Upgrade to use it again.' : status)
+      : undefined;
+  const label = override ? override.actionLabel : connected ? (disabled ? 'Upgrade' : 'Manage') : 'Connect';
+  const outlined = override ? override.outlined : connected && !disabled;
+  const tone = badge ? BADGE_TONES[badge.tone] : null;
 
   return (
     <div className="relative bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden flex flex-col">
-      {connected && (
-        <span
-          className={`absolute top-4 right-4 inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-sm font-semibold ${
-            disabled ? 'bg-gray-100 text-gray-500' : 'bg-green-50 text-green-700'
-          }`}
-        >
-          <span className={`w-2 h-2 rounded-full ${disabled ? 'bg-gray-400' : 'bg-green-500'}`} aria-hidden="true" />
-          {disabled ? 'Disabled' : 'Connected'}
+      {badge && tone && (
+        <span className={`absolute top-4 right-4 inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-sm font-semibold ${tone.box}`}>
+          <span className={`w-2 h-2 rounded-full ${tone.dot}`} aria-hidden="true" />
+          {badge.label}
         </span>
       )}
 
@@ -68,18 +85,15 @@ export function ConnectorCard({
           ))}
         </ul>
 
-        {connected && (
-          <p className="text-sm text-gray-500 mb-3">
-            {disabled ? 'Disabled on the Starter plan. Upgrade to use it again.' : status}
-          </p>
-        )}
+        {line && <p className="text-sm text-gray-500 mb-3 break-words">{line}</p>}
 
         <button
           type="button"
           onClick={onSelect}
+          disabled={override?.buttonDisabled}
           aria-label={`${label} ${connector.name}`}
-          className={`w-full py-3 rounded-xl text-base font-semibold transition-colors ${
-            connected && !disabled
+          className={`w-full py-3 rounded-xl text-base font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+            outlined
               ? 'border border-[#6C60FF] text-[#6C60FF] bg-white hover:bg-[#F3F2FF]'
               : 'bg-[#6C60FF] hover:bg-[#5A4FFF] text-white'
           }`}
