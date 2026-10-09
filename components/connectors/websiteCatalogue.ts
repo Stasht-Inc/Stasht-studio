@@ -88,7 +88,7 @@ function sourceOverride(source: CatalogueSource): ConnectorCardOverride {
     case 'paused':
       return { badge: { label: 'Paused', tone: 'gray' }, line: `${source.host} · syncing paused`, ...manage };
     case 'needs_attention':
-      return { badge: { label: 'Needs attention', tone: 'amber' }, line: `${source.host} · syncing paused`, ...manage };
+      return { badge: { label: 'Needs attention', tone: 'amber' }, line: `${source.host} · needs attention: our team has been notified`, ...manage };
     case 'unverified':
       return { badge: { label: 'Action needed', tone: 'amber' }, line: `${source.host} · ownership not confirmed`, ...manage };
     case 'blocked':

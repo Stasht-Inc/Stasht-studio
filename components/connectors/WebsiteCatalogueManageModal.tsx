@@ -12,7 +12,7 @@ import {
   AlertDialogTitle,
 } from '../ui/alert-dialog';
 import { catalogueAPI, type CatalogueOverview, type CatalogueResult } from '../../services/catalogueAPI';
-import { BlockedHelp, BUTTON_DANGER, BUTTON_OUTLINED, BUTTON_SECONDARY, CatalogueModalShell, Notice, VerificationMethods } from './WebsiteCatalogueParts';
+import { BlockedHelp, BUTTON_DANGER, BUTTON_OUTLINED, BUTTON_PRIMARY, BUTTON_SECONDARY, CatalogueModalShell, Notice, VerificationMethods } from './WebsiteCatalogueParts';
 import { formatRelative, openBillingUpgrade, plural, syncNowLabel } from './websiteCatalogue';
 
 type Busy = null | 'sync' | 'pause' | 'resume' | 'disconnect';
@@ -83,6 +83,48 @@ export function WebsiteCatalogueManageModal({
                 Disconnect
               </button>
             )}
+            {/* The state's primary action sits in the pinned footer, rightmost, so a long body never hides it. */}
+            {notBusiness ? (
+              <button type="button" onClick={openBillingUpgrade} className={BUTTON_PRIMARY}>Upgrade to Business</button>
+            ) : (
+              <>
+                {source.status !== 'paused' && canSync && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      act(
+                        'sync',
+                        catalogueAPI.syncNow,
+                        (next) => (next.source?.sync_requested === false ? 'Sync requested.' : 'Sync requested. It starts within a minute.'),
+                      )
+                    }
+                    disabled={!source.can_sync_now || busy !== null}
+                    className={BUTTON_PRIMARY}
+                  >
+                    {busy === 'sync' ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+                    {syncNowLabel(source.status)}
+                  </button>
+                )}
+                {canResume && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      act(
+                        'resume',
+                        catalogueAPI.resume,
+                        // A false sync_requested means the 15-minute allowance was in use: the website is back, no sync was queued.
+                        (next) => (next.source?.sync_requested === false ? 'Syncing resumed.' : 'Syncing resumed. A sync starts within a minute.'),
+                      )
+                    }
+                    disabled={busy !== null}
+                    className={BUTTON_PRIMARY}
+                  >
+                    {busy === 'resume' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
+                    Resume syncing
+                  </button>
+                )}
+              </>
+            )}
           </>
         }
       >
@@ -123,55 +165,14 @@ export function WebsiteCatalogueManageModal({
         {source.blocked && <BlockedHelp blocked={source.blocked} />}
         {showVerification && source.domain && <VerificationMethods domain={source.domain} />}
 
-        <div className="flex flex-wrap gap-3">
-          {notBusiness ? (
-            <button type="button" onClick={openBillingUpgrade} className={BUTTON_OUTLINED}>Upgrade to Business</button>
-          ) : (
-            <>
-              {source.status !== 'paused' && canSync && (
-                <button
-                  type="button"
-                  onClick={() =>
-                    act(
-                      'sync',
-                      catalogueAPI.syncNow,
-                      (next) => (next.source?.sync_requested === false ? 'Sync requested.' : 'Sync requested. It starts within a minute.'),
-                    )
-                  }
-                  disabled={!source.can_sync_now || busy !== null}
-                  className={BUTTON_OUTLINED}
-                >
-                  {busy === 'sync' ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
-                  {syncNowLabel(source.status)}
-                </button>
-              )}
-              {source.can_pause && (
-                <button type="button" onClick={() => act('pause', catalogueAPI.pause, () => 'Syncing paused.')} disabled={busy !== null} className={BUTTON_OUTLINED}>
-                  {busy === 'pause' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Pause className="w-4 h-4" />}
-                  Pause syncing
-                </button>
-              )}
-              {canResume && (
-                <button
-                  type="button"
-                  onClick={() =>
-                    act(
-                      'resume',
-                      catalogueAPI.resume,
-                      // A false sync_requested means the 15-minute allowance was in use: the website is back, no sync was queued.
-                      (next) => (next.source?.sync_requested === false ? 'Syncing resumed.' : 'Syncing resumed. A sync starts within a minute.'),
-                    )
-                  }
-                  disabled={busy !== null}
-                  className={BUTTON_OUTLINED}
-                >
-                  {busy === 'resume' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
-                  Resume syncing
-                </button>
-              )}
-            </>
-          )}
-        </div>
+        {!notBusiness && source.can_pause && (
+          <div className="flex flex-wrap gap-3">
+            <button type="button" onClick={() => act('pause', catalogueAPI.pause, () => 'Syncing paused.')} disabled={busy !== null} className={BUTTON_OUTLINED}>
+              {busy === 'pause' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Pause className="w-4 h-4" />}
+              Pause syncing
+            </button>
+          </div>
+        )}
         {!notBusiness && source.status !== 'paused' && canSync && !source.can_sync_now && wait && (
           <p className="text-xs text-gray-500">
             {source.sync_requested ? 'A sync is already on its way. ' : ''}{syncNowLabel(source.status)} is unavailable for now. {wait}
@@ -184,7 +185,9 @@ export function WebsiteCatalogueManageModal({
           <AlertDialogHeader>
             <AlertDialogTitle>Disconnect {source.host}?</AlertDialogTitle>
             <AlertDialogDescription className="text-gray-600 leading-relaxed">
-              Nightly syncing stops and your {plural(source.item_count, 'item')} leave the catalogue and the campaign picker.
+              {source.item_count > 0
+                ? <>Nightly syncing stops and your {plural(source.item_count, 'item')} leave the catalogue and the campaign picker. </>
+                : <>Nightly syncing stops. </>}
               Campaigns you've already made keep their moments. You can connect a website again at any time.
             </AlertDialogDescription>
           </AlertDialogHeader>
