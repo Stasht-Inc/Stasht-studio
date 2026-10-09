@@ -79,8 +79,11 @@ export function Notice({ tone, children }: { tone: keyof typeof NOTICE_TONES; ch
   );
 }
 
-/** A value in a monospace box with a Copy button (ContactWidgetManager's install-code pattern). */
-export function CopyField({ label, value }: { label: string; value: string }) {
+/**
+ * A value in a monospace box with a Copy button (ContactWidgetManager's install-code pattern). Codes and tokens may
+ * break anywhere; `wrapWords` keeps sentences (the IT note) breaking between words, so an IP address stays whole.
+ */
+export function CopyField({ label, value, wrapWords = false }: { label: string; value: string; wrapWords?: boolean }) {
   const [copied, setCopied] = useState(false);
 
   const copy = async () => {
@@ -96,7 +99,7 @@ export function CopyField({ label, value }: { label: string; value: string }) {
     <div>
       <p className="text-sm font-medium text-gray-800 mb-1.5">{label}</p>
       <div className="flex items-start gap-2">
-        <pre className="flex-1 min-w-0 bg-white border border-gray-200 rounded-lg px-3 py-2 font-mono text-xs text-gray-800 whitespace-pre-wrap break-all select-all">
+        <pre className={`flex-1 min-w-0 bg-white border border-gray-200 rounded-lg px-3 py-2 font-mono text-xs text-gray-800 whitespace-pre-wrap ${wrapWords ? 'break-words' : 'break-all'} select-all`}>
           {value}
         </pre>
         <button
@@ -172,7 +175,7 @@ export function BlockedHelp({ blocked }: { blocked: CatalogueBlockedHelp }) {
     <div className="space-y-3">
       <CopyField label="Our server's IP address" value={blocked.ip} />
       <CopyField label="Our user agent" value={blocked.user_agent} />
-      <CopyField label="Note for your IT team" value={blocked.it_note} />
+      <CopyField label="Note for your IT team" value={blocked.it_note} wrapWords />
     </div>
   );
 }
