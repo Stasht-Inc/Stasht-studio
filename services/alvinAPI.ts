@@ -111,6 +111,15 @@ export const alvinAPI = {
       if (res.status === 401) {
         return { ok: false, message: 'Your session has ended. Please sign in again.' };
       }
+      if (res.status === 413) {
+        return { ok: false, message: 'These files are too big to send together. Try fewer or smaller files.' };
+      }
+      if (res.status === 429 && data?.code !== 'daily_limit') {
+        return { ok: false, message: "You're sending messages quickly. Please wait a moment and try again." };
+      }
+      if (res.status === 422 && !data?.code && data?.errors && Object.keys(data.errors).some((k) => k.startsWith('files'))) {
+        return { ok: false, message: "A file didn't upload. Files can be up to 10 MB (images up to 5 MB), and up to 5 at a time." };
+      }
       const firstError = data?.errors ? (Object.values(data.errors)[0] as string[] | undefined)?.[0] : undefined;
       return {
         ok: false,

@@ -1,10 +1,10 @@
 import type { AlvinAttachmentInfo } from '../../services/alvinAPI';
 
 // Files people can give Alvin (mirrors app/Services/Alvin/AlvinFiles.php in the web API, which
-// checks again from the file's bytes).
+// checks again from the file's bytes). Photos up to 10 MB are accepted here because shrinkImage()
+// makes them smaller before sending; the server's 5 MB image limit applies to what arrives.
 export const MAX_FILES = 5;
 const MAX_BYTES = 10 * 1024 * 1024;
-const IMAGE_MAX_BYTES = 5 * 1024 * 1024;
 const IMAGE_EXT = ['jpg', 'jpeg', 'png', 'gif', 'webp'];
 const DOC_EXT = ['pdf', 'docx', 'csv', 'txt', 'md'];
 
@@ -21,9 +21,30 @@ export function fileProblem(files: File[], existing = 0): string | null {
     const e = ext(f.name);
     if (!IMAGE_EXT.includes(e) && !DOC_EXT.includes(e)) return `“${f.name}” can't be read. ${SUPPORTED}`;
     if (f.size > MAX_BYTES) return `“${f.name}” is larger than 10 MB.`;
-    if (IMAGE_EXT.includes(e) && f.size > IMAGE_MAX_BYTES) return `“${f.name}” is larger than 5 MB. Images can be up to 5 MB.`;
   }
   return null;
+}
+
+/**
+ * Photos are made smaller before they're sent (longest side 2048 px, JPEG): phone photos are often
+ * 4–8 MB, and the AI doesn't need more. GIFs and images already small enough are sent as they are.
+ */
+export async function shrinkImage(file: File): Promise<File> {
+  if (!isImageFile(file) || ext(file.name) === 'gif' || file.size <= 1.5 * 1024 * 1024) return file;
+  try {
+    const bitmap = await createImageBitmap(file);
+    const scale = Math.min(1, 2048 / Math.max(bitmap.width, bitmap.height));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(bitmap.width * scale);
+    canvas.height = Math.round(bitmap.height * scale);
+    canvas.getContext('2d')?.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    bitmap.close?.();
+    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.85));
+    if (!blob || blob.size >= file.size) return file;
+    return new File([blob], file.name.replace(/\.[^.]+$/, '') + '.jpg', { type: 'image/jpeg' });
+  } catch {
+    return file;
+  }
 }
 
 export function sizeLabel(bytes: number): string {

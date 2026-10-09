@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from 're
 import { createPortal } from 'react-dom';
 import { alvinAPI, type AlvinMessage, type AlvinPageLink, type AlvinSendResult } from '../../services/alvinAPI';
 import AlvinMessageText from './AlvinMessageText';
-import { ACCEPT, DropOverlay, PendingFile, SentFile, attachmentInfo, fileProblem, isImageFile } from './alvinFiles';
+import { ACCEPT, DropOverlay, PendingFile, SentFile, attachmentInfo, fileProblem, isImageFile, shrinkImage } from './alvinFiles';
 
 // Alvin AI chat panel — Figma "Alvin AI help" › AlvinAIPanel (node 14397:15290), 380 × 779.
 // The user bubble, typing dots and error notes are not in the Figma frame; they follow Chris's
@@ -159,6 +159,10 @@ export default function AlvinPanel({
   // Image previews for questions sent from this browser (the server doesn't keep the files).
   const [previews, setPreviews] = useState<Record<string, string[]>>({});
   const dragDepth = useRef(0);
+  const previewsRef = useRef(previews);
+  previewsRef.current = previews;
+  // Free the image previews when the panel goes away.
+  useEffect(() => () => Object.values(previewsRef.current).flat().forEach((u) => URL.revokeObjectURL(u)), []);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -243,9 +247,11 @@ export default function AlvinPanel({
       setSending(true);
 
       const result: AlvinSendResult = files.length
-        ? await alvinAPI.sendWithFiles(text, currentPage ?? null, files)
+        ? await alvinAPI.sendWithFiles(text, currentPage ?? null, await Promise.all(files.map(shrinkImage)))
         : await alvinAPI.send(text, currentPage ?? null);
       const failure = result.ok ? null : result.message;
+      // Not sent: put the files back so they don't have to be attached again.
+      if (!result.ok && files.length) setPending(files);
 
       if (result.ok && result.data && imageUrls.length) {
         const questionId = String(result.data.question.id);
@@ -289,7 +295,7 @@ export default function AlvinPanel({
   const onDragOver = (e: React.DragEvent) => {
     if (!hasFiles(e)) return;
     e.preventDefault();
-    e.dataTransfer.dropEffect = sending ? 'none' : 'copy';
+    e.dataTransfer.dropEffect = 'copy';
   };
   const onDragLeave = (e: React.DragEvent) => {
     if (!hasFiles(e)) return;
@@ -301,8 +307,10 @@ export default function AlvinPanel({
     e.preventDefault();
     dragDepth.current = 0;
     setDragging(false);
-    if (sending) return;
-    send(draft, [...pending, ...Array.from(e.dataTransfer.files)]);
+    const dropped = Array.from(e.dataTransfer.files);
+    // While Alvin is answering, dropped files wait with the others instead of being lost.
+    if (sending) addFiles(dropped);
+    else send(draft, [...pending, ...dropped]);
   };
 
   const startOver = async () => {
