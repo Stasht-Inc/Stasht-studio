@@ -59,7 +59,7 @@ export function openBillingUpgrade(): void {
   window.dispatchEvent(new CustomEvent('app-navigate', { detail: 'billing' }));
 }
 
-export type WebsiteCatalogueAction = 'connect' | 'continue' | 'manage' | 'upgrade' | 'billing' | 'reload';
+export type WebsiteCatalogueAction = 'connect' | 'continue' | 'manage' | 'upgrade' | 'billing';
 
 export interface WebsiteCatalogueCard {
   /** Outside the pilot list (spec §13.3): no card at all, not even an upsell. */
@@ -100,24 +100,14 @@ function sourceOverride(source: CatalogueSource): ConnectorCardOverride {
 
 /**
  * The Website Catalogue card for the account's status (spec §8.1):
- * - outside the pilot list: hidden;
+ * - outside the pilot list, or no answer yet / the load failed: hidden;
  * - Starter: the existing Connectors gate (clicking opens the upgrade plans);
  * - Teams: "Available on the Business plan" with a link to Billing (or its paused website after a downgrade);
  * - Business: Connect, an analysis in progress or finished, or the connected website and its status.
  */
-export function websiteCatalogueCard(overview: CatalogueOverview | null, isStarter: boolean, loadFailed = false): WebsiteCatalogueCard {
-  // Not answered yet: a loading card, never a hidden one (a failed load offers Try again). The page hides the card itself in property view.
-  if (!overview) {
-    return {
-      hidden: false,
-      connected: false,
-      action: 'reload',
-      override: loadFailed
-        ? { line: "We couldn't load this right now.", actionLabel: 'Try again', outlined: true }
-        : { line: 'Loading…', actionLabel: 'Loading…', outlined: true, buttonDisabled: true },
-    };
-  }
-  if (overview.reason === 'not_available') return { hidden: true, connected: false, action: 'connect' };
+export function websiteCatalogueCard(overview: CatalogueOverview | null, isStarter: boolean): WebsiteCatalogueCard {
+  // No answer (loading, or the load failed): no card, since an account outside the pilot must never see one (spec §8.1).
+  if (!overview || overview.reason === 'not_available') return { hidden: true, connected: false, action: 'connect' };
   const { source, scan } = overview;
 
   if (isStarter) {

@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { X, ExternalLink, Info, CheckCircle2, Loader2, Unplug } from 'lucide-react';
 import { toast } from 'sonner';
 import { dashboardAPI } from '../utils/authUtils';
@@ -609,7 +609,6 @@ export default function MarketplacePage() {
   const [contactWidgets, setContactWidgets] = useState<ContactWidget[]>([]);
   // Website Catalogue (spec 2026-09-30 §8.1): GET /website-catalogue answers every account.
   const [catalogue, setCatalogue] = useState<CatalogueOverview | null>(null);
-  const [catalogueLoadFailed, setCatalogueLoadFailed] = useState(false);
   // Which dialog the card opened, fixed at click time so a Disconnect inside Manage can't flip it into the connect flow.
   const [catalogueView, setCatalogueView] = useState<'connect' | 'manage'>('connect');
   // Until all three status checks settle we can't tell whether to show the catalog or the active list.
@@ -670,7 +669,6 @@ export default function MarketplacePage() {
       setShopifyShopDomain(null);
       setShopifyConnectedAt(null);
       setCatalogue(null); // a personal-account connector, like DocuSign and Shopify
-      setCatalogueLoadFailed(false);
 
       widgetsAPI.list({ propertyId })
         .then(res => {
@@ -712,14 +710,10 @@ export default function MarketplacePage() {
       .catch(() => {});
 
     setCatalogue(null);
-    setCatalogueLoadFailed(false);
+    // A failed load leaves `catalogue` null: no Website Catalogue card (and nothing in the badge) rather than an error card.
     const catalogueLoad = catalogueAPI.getOverview()
-      .then(res => {
-        if (cancelled) return;
-        if (res.ok && res.data) setCatalogue(res.data);
-        else setCatalogueLoadFailed(true);
-      })
-      .catch(() => { if (!cancelled) setCatalogueLoadFailed(true); });
+      .then(res => { if (!cancelled && res.ok && res.data) setCatalogue(res.data); })
+      .catch(() => {});
 
     Promise.all([docusign, shopify, widgets, catalogueLoad]).then(() => { if (!cancelled) setLoaded(true); });
     return () => { cancelled = true; };
@@ -777,32 +771,25 @@ export default function MarketplacePage() {
   }, [isStarter]);
 
   // Website Catalogue card: hidden outside the pilot, Starter gate, Teams upsell, connect flow or Manage.
-  // Personal view only. Until the overview answers it is a loading card (Try again if the load failed).
-  const catalogueCard = useMemo(
-    () => websiteCatalogueCard(catalogue, isStarter, catalogueLoadFailed),
-    [catalogue, isStarter, catalogueLoadFailed],
-  );
+  // Personal view only. No answer (loading or failed) means no card; a background refresh that fails keeps the last good state.
+  const catalogueCard = useMemo(() => websiteCatalogueCard(catalogue, isStarter), [catalogue, isStarter]);
+  // A late answer must not repopulate `catalogue` once the view has switched to a property.
+  const propertyIdRef = useRef(propertyId);
+  propertyIdRef.current = propertyId;
   const reloadCatalogue = useCallback(() => {
+    if (propertyIdRef.current) return;
     catalogueAPI.getOverview()
-      .then(res => {
-        if (res.ok && res.data) {
-          setCatalogue(res.data);
-          setCatalogueLoadFailed(false);
-        } else {
-          setCatalogueLoadFailed(true);
-        }
-      })
-      .catch(() => setCatalogueLoadFailed(true));
+      .then(res => { if (!propertyIdRef.current && res.ok && res.data) setCatalogue(res.data); })
+      .catch(() => {});
   }, []);
   const openCatalogue = useCallback(() => {
     if (catalogueCard.action === 'upgrade') requestUpgrade();
     else if (catalogueCard.action === 'billing') openBillingUpgrade();
-    else if (catalogueCard.action === 'reload') reloadCatalogue();
     else {
       setCatalogueView(catalogueCard.action === 'manage' ? 'manage' : 'connect');
       setActiveModal('website-catalogue');
     }
-  }, [catalogueCard.action, reloadCatalogue]);
+  }, [catalogueCard.action]);
 
   // While an analysis runs with the dialog closed, keep the card's "Analysing…" line current.
   useEffect(() => {

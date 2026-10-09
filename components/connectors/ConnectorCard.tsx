@@ -90,9 +90,8 @@ export function ConnectorCard({
         <button
           type="button"
           onClick={onSelect}
-          disabled={override?.buttonDisabled}
           aria-label={`${label} ${connector.name}`}
-          className={`w-full py-3 rounded-xl text-base font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+          className={`w-full py-3 rounded-xl text-base font-semibold transition-colors ${
             outlined
               ? 'border border-[#6C60FF] text-[#6C60FF] bg-white hover:bg-[#F3F2FF]'
               : 'bg-[#6C60FF] hover:bg-[#5A4FFF] text-white'

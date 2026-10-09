@@ -20,8 +20,6 @@ export interface ConnectorCardOverride {
   line?: string;
   actionLabel: string;
   outlined: boolean;
-  /** The button can't be used right now (the card is still loading). */
-  buttonDisabled?: boolean;
 }
 
 export const CONNECTORS: ConnectorDef[] = [

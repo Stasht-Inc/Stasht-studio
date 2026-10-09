@@ -65,6 +65,8 @@ export function WebsiteCatalogueManageModal({
   const wait = syncWaitSentence(source.sync_now_available_in);
   const showVerification = source.domain && (source.status === 'unverified' || source.warning);
   const canResume = source.can_resume && supportHold === null;
+  // Lost ownership record: the API's message says to disconnect and connect again, and a sync would be skipped.
+  const canSync = source.status_reason !== 'no_domain' || source.status !== 'unverified';
 
   return (
     <>
@@ -126,7 +128,7 @@ export function WebsiteCatalogueManageModal({
             <button type="button" onClick={openBillingUpgrade} className={BUTTON_OUTLINED}>Upgrade to Business</button>
           ) : (
             <>
-              {source.status !== 'paused' && (
+              {source.status !== 'paused' && canSync && (
                 <button
                   type="button"
                   onClick={() =>
@@ -170,7 +172,7 @@ export function WebsiteCatalogueManageModal({
             </>
           )}
         </div>
-        {!notBusiness && source.status !== 'paused' && !source.can_sync_now && wait && (
+        {!notBusiness && source.status !== 'paused' && canSync && !source.can_sync_now && wait && (
           <p className="text-xs text-gray-500">
             {source.sync_requested ? 'A sync is already on its way. ' : ''}{syncNowLabel(source.status)} is unavailable for now. {wait}
           </p>
