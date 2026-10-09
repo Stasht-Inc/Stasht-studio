@@ -79,6 +79,8 @@ export interface ContactWidget {
   timezone?: string | null; // IANA name
   faq_notes?: string | null; // "Notes for the AI"
   ai_enabled?: boolean;
+  // "Don't show on these pages": "/checkout", "/account/*". Absent from older API builds.
+  hidden_paths?: string[];
   // "Who gets this widget's leads"; absent from the list endpoint and from older API builds.
   lead_recipients?: LeadRecipient[];
 }
@@ -155,6 +157,7 @@ export interface ContactWidgetInput {
   timezone?: string | null;
   faq_notes?: string | null;
   ai_enabled?: boolean;
+  hidden_paths?: string[];
   // Keys of unticked, unlocked lead_recipients rows. [] = everyone ticked; omit = no change.
   excluded_recipients?: string[];
 }

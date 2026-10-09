@@ -161,7 +161,7 @@ export function AfterHoursSettings({ value, onChange, errors, idPrefix, publicId
           className={inputClass + ' resize-y' + (errors.faq_notes ? errorInputClass : '')}
         />
         <div className="flex justify-between gap-3 mt-1">
-          <p id={id('notes-help')} className="text-xs text-gray-400">The AI answers only from these notes, your inventory and the conversation.</p>
+          <p id={id('notes-help')} className="text-xs text-gray-400">The AI answers from these notes, your files, your website, your inventory and the conversation. Notes take priority.</p>
           <span className="text-xs text-gray-400 shrink-0">{value.aiNotes.length}/{AI_NOTES_MAX.toLocaleString('en-US')}</span>
         </div>
         {value.aiEnabled && value.aiNotes.trim() === '' && !hasKnowledgeContent && (

@@ -408,7 +408,7 @@ export function AiKnowledge({ publicId, idPrefix, firstDomain, onHasContentChang
       {!loading && sources !== null && (usedChars > 0 || (sources || []).length > 0) && (
         <p className={'text-xs ' + (overLimit ? 'text-amber-700' : 'text-gray-400')}>
           {overLimit
-            ? 'Over the limit — the AI uses the first 60,000 characters.'
+            ? 'Over the limit — the AI uses the first 60,000 characters. Notes are always included in full.'
             : `Using ${formatChars(usedChars)} of ${formatChars(limitChars)} characters.`}
         </p>
       )}

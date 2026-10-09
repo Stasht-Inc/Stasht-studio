@@ -140,14 +140,57 @@ export function validateValues(fields, values) {
   return errors;
 }
 
+// --- Mobile phone or Email (Chris, 2026-10-06) ------------------------------------------------
+// When the widget shows both mobile and email, the visitor picks one with radio buttons ("Mobile
+// phone" by default) and fills in only that one, which is then required whatever its own setting.
+// Derived from form_fields, so the config needs no new flag (WidgetFormFields::isContactChoice).
+
+export const CONTACT_METHODS = ['mobile', 'email'];
+export const DEFAULT_CONTACT_METHOD = 'mobile';
+export const CONTACT_CHOICE_LEGEND = 'How should we contact you?';
+
+export function hasContactChoice(fields) {
+  return CONTACT_METHODS.every((key) => fields.some((f) => f.key === key));
+}
+
+/** The radio's text: "Mobile phone" / "Email", or the owner's own label when they renamed the field. */
+export function contactMethodLabel(field) {
+  if (field.key === 'mobile' && field.label === DEFAULT_LABELS.mobile) return 'Mobile phone';
+  return field.label;
+}
+
+/**
+ * The fields actually filled in: with the choice, only the chosen contact field (required) stays;
+ * otherwise the fields as configured.
+ */
+export function fieldsForMethod(fields, method) {
+  if (!hasContactChoice(fields)) return fields;
+  const chosen = CONTACT_METHODS.includes(method) ? method : DEFAULT_CONTACT_METHOD;
+  return fields
+    .filter((f) => !CONTACT_METHODS.includes(f.key) || f.key === chosen)
+    .map((f) => (f.key === chosen ? { ...f, required: true } : f));
+}
+
+/** What /submit receives: the filled-in fields only (the unchosen contact value is left out). */
+export function submissionValues(fields, values, method) {
+  return Object.fromEntries(fieldsForMethod(fields, method).map((f) => [f.key, String(values[f.key] || '').trim()]));
+}
+
 // Copy from Chris's ContactWidget design.
 export const DEFAULT_CALLOUT = 'Hi there! Have a question?';
 export const CALLOUT_SUBTEXT = 'Chat with us here.';
 export const DEFAULT_WELCOME = 'Enter your question below and a representative will get right back to you.';
 const MESSAGE_PLACEHOLDER = 'I want to know more...';
 
-export function consentText() {
-  return 'By submitting you agree to receive messages for the provided channel. Rates may be applied.';
+/**
+ * Consent line under the form (wording approved by Chris, 2026-10-06), naming the business. `channel`
+ * is how replies will reach the visitor: 'sms' while a mobile number is asked for, else 'email'.
+ */
+export function consentText(businessName, channel = 'sms') {
+  const who = String(businessName || '').trim() || 'us';
+  return channel === 'email'
+    ? `By submitting, you agree to receive emails from ${who} about your inquiry.`
+    : `By submitting, you agree to receive text messages from ${who} about your inquiry. Msg & data rates may apply. Msg frequency varies. Reply STOP to opt out, HELP for help.`;
 }
 
 /** Inputs carry their label as the placeholder ("Name *", "Business (optional)"), as in the design. */
@@ -489,4 +532,217 @@ export function repJoinedBefore(messages) {
     lastRep = m;
   }
   return ids;
+}
+
+// --- Links in chat bubbles (ClickUp wdy2xh1tdp) ---------------------------------------------------
+// The AI gives the business's own page links ("our hours are at https://…/hours"), so every bubble
+// makes https:// URLs clickable. Split here as plain data; the embed builds text nodes and <a>s.
+
+// ONE strict ASCII URL grammar, character for character the same as WidgetAiLinks::URL_GRAMMAR on the
+// server (and components/leads/LinkifiedText.tsx), so the server's link guard and the browser always
+// read the same URL: it ends at whitespace, quotes, <, >, `, a backslash or anything non-ASCII, and
+// its authority is only letters, digits, dots and hyphens (plus a port).
+export const URL_GRAMMAR = 'https?://([A-Za-z0-9.\\-]+)(?::[0-9]+)?(?:[/?#][!#-&(-;=?-\\[\\]-_a-z~%]*)?';
+// Sentence punctuation after a URL that isn't part of it (same set as WidgetAiLinks::TRAILING).
+const URL_TRAILING = /[.,;:!?)]+$/;
+
+/**
+ * Text split into plain parts and https links: [{ text }, { text, href }, …]. A link's text is the
+ * URL without "https://"; its href is the full URL. Only https: URLs become links, and never one
+ * whose authority runs into "\" or "@" or that the browser would read as another host.
+ */
+export function linkParts(body) {
+  const text = String(body ?? '');
+  const parts = [];
+  const re = new RegExp(URL_GRAMMAR, 'gi');
+  let last = 0;
+  let match;
+  while ((match = re.exec(text)) !== null) {
+    const after = text[match.index + match[0].length];
+    if (after === '\\' || after === '@') {
+      // Browsers would read another host here: the whole run stays plain text.
+      const run = /^\S*/.exec(text.slice(match.index))[0];
+      re.lastIndex = match.index + Math.max(run.length, 1);
+      continue;
+    }
+    const raw = match[0].replace(URL_TRAILING, '');
+    const href = linkHref(raw, match[1]);
+    if (!href) continue;
+    if (match.index > last) parts.push({ text: text.slice(last, match.index) });
+    parts.push({ text: raw.replace(/^https:\/\//i, ''), href });
+    last = match.index + raw.length;
+  }
+  if (last < text.length || parts.length === 0) parts.push({ text: text.slice(last) });
+  return parts;
+}
+
+/** The https URL to link, or null when it isn't https or the browser reads a different host than the text shows. */
+function linkHref(raw, literalHost) {
+  if (raw.includes('\\') || !/^https:\/\//i.test(raw)) return null;
+  try {
+    const url = new URL(raw);
+    if (url.protocol !== 'https:' || url.hostname !== String(literalHost).toLowerCase()) return null;
+    return url.href;
+  } catch {
+    return null;
+  }
+}
+
+/** Lowercase hostname without a leading www. (www.site.com and site.com are one site), or ''. */
+export function siteHost(urlOrOrigin) {
+  try {
+    const host = new URL(String(urlOrOrigin)).hostname.toLowerCase().replace(/\.$/, '');
+    return host.startsWith('www.') ? host.slice(4) : host;
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * How a chat link opens. A page on the site the widget is running on replaces that page (target
+ * _top: the visitor's site navigates and the chat carries on there); anything else opens a new tab.
+ */
+export function linkTarget(href, hostPageOrigin) {
+  const host = siteHost(href);
+  if (host && host === siteHost(hostPageOrigin)) return { target: '_top' };
+  return { target: '_blank', rel: 'noopener noreferrer' };
+}
+
+/** How long after following a same-site chat link the next page reopens the chat panel. */
+export const REOPEN_AFTER_LINK_MS = 60 * 1000;
+
+/** Whether the panel should open by itself: a same-site chat link was followed a moment ago (stored ms). */
+export function shouldReopenChat(stored, now = Date.now()) {
+  const at = Number(stored);
+  return Number.isFinite(at) && at > 0 && now - at >= 0 && now - at <= REOPEN_AFTER_LINK_MS;
+}
+
+// --- Click-through around the widget (wdy2xh1tjc) -------------------------------------------
+// The iframe is a rectangle, but most of it is transparent: the shadow padding, and when closed
+// the empty space beside the launcher under the callout. An iframe takes every click inside its
+// rectangle, so the host page's links there went dead. The embed reports the parts that are
+// actually visible ("hit rects", in iframe coordinates) and the loader clips the iframe to them
+// with clip-path, which also takes the clipped-out area out of hit-testing.
+//
+// sanitizeHitRects and hitClipPath are copied verbatim into widget-loader.js (a classic script on
+// the customer's page, so it can't import this module); the tests check the two copies match.
+
+/** Room kept around each visible part so rounded corners and the near shadow aren't cut. Bottom is largest: shadows fall down. */
+export const HIT_PAD = { top: 6, x: 8, bottom: 16 };
+export const HIT_RECTS_MAX = 6;
+
+/** One visible part's hit rect from its bounding box (iframe coordinates) and corner radius. */
+export function hitRectFor(box, radius = 0, pad = HIT_PAD) {
+  const x = Math.floor(box.left - pad.x);
+  const y = Math.floor(box.top - pad.top);
+  const right = Math.ceil(box.left + box.width + pad.x);
+  const bottom = Math.ceil(box.top + box.height + pad.bottom);
+  return { x, y, w: right - x, h: bottom - y, r: Math.max(0, Math.round(radius + Math.min(pad.x, pad.top))) };
+}
+
+/**
+ * The embed's hit rects, checked before they shape the iframe on the customer's page: an array of
+ * 1..6 { x, y, w, h, r? } plain numbers, clamped to the frame. Anything unexpected returns null,
+ * which means "no clip" (the whole iframe stays clickable, as before this fix).
+ */
+export function sanitizeHitRects(raw, frameW, frameH) {
+  var MAX = 6;
+  if (!Array.isArray(raw) || raw.length === 0 || raw.length > MAX) return null;
+  var W = frameW, H = frameH;
+  if (typeof W !== 'number' || typeof H !== 'number' || !(W > 0) || !(H > 0) || !isFinite(W) || !isFinite(H)) return null;
+  var num = function (n) { return typeof n === 'number' && isFinite(n); };
+  var clamp = function (n, max) { return Math.max(0, Math.min(max, n)); };
+  var round = function (n) { return Math.round(n * 100) / 100; };
+  var out = [];
+  for (var i = 0; i < raw.length; i++) {
+    var r = raw[i];
+    if (!r || typeof r !== 'object') return null;
+    var rad = r.r === undefined ? 0 : r.r;
+    if (!num(r.x) || !num(r.y) || !num(r.w) || !num(r.h) || !num(rad) || r.w < 0 || r.h < 0) return null;
+    var x0 = clamp(r.x, W), y0 = clamp(r.y, H), x1 = clamp(r.x + r.w, W), y1 = clamp(r.y + r.h, H);
+    if (x1 - x0 < 1 || y1 - y0 < 1) continue; // nothing of it inside the frame
+    out.push({
+      x: round(x0), y: round(y0), w: round(x1 - x0), h: round(y1 - y0),
+      r: round(Math.max(0, Math.min(rad, (x1 - x0) / 2, (y1 - y0) / 2))),
+    });
+  }
+  return out.length ? out : null;
+}
+
+/** CSS clip-path for sanitized hit rects: one clockwise (rounded) rectangle subpath each, so they add up. */
+export function hitClipPath(rects) {
+  var f = function (n) { return String(Math.round(n * 100) / 100); };
+  var d = [];
+  for (var i = 0; i < rects.length; i++) {
+    var x = rects[i].x, y = rects[i].y, w = rects[i].w, h = rects[i].h, r = rects[i].r || 0;
+    if (r > 0) {
+      var a = 'A' + f(r) + ' ' + f(r) + ' 0 0 1 ';
+      d.push('M' + f(x + r) + ' ' + f(y) + 'H' + f(x + w - r) + a + f(x + w) + ' ' + f(y + r)
+        + 'V' + f(y + h - r) + a + f(x + w - r) + ' ' + f(y + h)
+        + 'H' + f(x + r) + a + f(x) + ' ' + f(y + h - r)
+        + 'V' + f(y + r) + a + f(x + r) + ' ' + f(y) + 'Z');
+    } else {
+      d.push('M' + f(x) + ' ' + f(y) + 'H' + f(x + w) + 'V' + f(y + h) + 'H' + f(x) + 'Z');
+    }
+  }
+  return "path('" + d.join(' ') + "')";
+}
+
+// --- Where the widget shows ------------------------------------------------------------------
+// Chris, 2026-10-06: a customer's site template is also used by their admin pages, so the widget
+// showed inside their admin; "it should be for front end only".
+//
+// 1. Admin pages are always skipped. The loader checks this before it injects anything (no frame,
+//    no request). ADMIN_PATH_SEGMENTS and isAdminPath are copied verbatim into widget-loader.js
+//    between <admin-skip> markers (tests/widget/widget-paths.test.mjs checks they match), so they
+//    stay ES5 and DOM-free.
+// <admin-skip>
+var ADMIN_PATH_SEGMENTS = ['admin', 'wp-admin', 'administrator', 'wp-login.php'];
+
+function isAdminPath(pathname) {
+  if (typeof pathname !== 'string') return false;
+  var first = pathname.split('/')[1] || '';
+  try { first = decodeURIComponent(first); } catch (e) { /* malformed escape: compare as is */ }
+  return ADMIN_PATH_SEGMENTS.indexOf(first.toLowerCase()) !== -1;
+}
+// </admin-skip>
+export { ADMIN_PATH_SEGMENTS, isAdminPath };
+
+// 2. Each widget's "Don't show on these pages" list (config.hidden_paths): "/checkout",
+//    "/account/*". Rules match the server's WidgetHiddenPaths and the builder's hiddenPathsProblem.
+export const HIDDEN_PATHS_MAX = 20;
+export const HIDDEN_PATH_LENGTH_MAX = 200;
+
+const withoutTrailingSlash = (p) => (p.length > 1 ? p.replace(/\/+$/, '') || '/' : p);
+const escapeRegex = (s) => s.replace(/[.+?^${}()|[\]\\]/g, '\\$&');
+
+/** A pattern as a whole-path, case-insensitive regex; null for an entry that can't be a page address. */
+function hiddenPathRegex(raw) {
+  if (typeof raw !== 'string') return null;
+  const pattern = withoutTrailingSlash(raw.trim());
+  if (!pattern.startsWith('/') || pattern.length > HIDDEN_PATH_LENGTH_MAX) return null;
+  // "/account/*" also covers "/account" itself: hiding a section should hide its front page too.
+  if (pattern.length > 2 && pattern.endsWith('/*')) {
+    return new RegExp('^' + pattern.slice(0, -2).split('*').map(escapeRegex).join('.*') + '(?:/.*)?$', 'i');
+  }
+  // Elsewhere * matches any characters, "/" included.
+  return new RegExp('^' + pattern.split('*').map(escapeRegex).join('.*') + '$', 'i');
+}
+
+/**
+ * True when the host page's path (location.pathname, passed by the loader as ?path=) matches one of
+ * the widget's hidden_paths. Whole path, case-insensitive, a trailing slash ignored; the path is also
+ * tried percent-decoded ("/caf%C3%A9" matches "/café"). No path (an older cached loader) never hides.
+ */
+export function pathHidden(path, patterns) {
+  if (typeof path !== 'string' || !path.startsWith('/') || !Array.isArray(patterns)) return false;
+  const candidates = [withoutTrailingSlash(path)];
+  try {
+    const decoded = withoutTrailingSlash(decodeURIComponent(path));
+    if (decoded !== candidates[0]) candidates.push(decoded);
+  } catch { /* malformed escape: raw path only */ }
+  return patterns.some((raw) => {
+    const re = hiddenPathRegex(raw);
+    return !!re && candidates.some((c) => re.test(c));
+  });
 }

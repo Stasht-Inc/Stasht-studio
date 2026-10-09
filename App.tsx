@@ -1149,8 +1149,8 @@ function MainApp() {
   // property-row action.
   const [storeelReportProperty, setStoreelReportProperty] = useState<{ id: number | string; name: string } | null>(null);
   // propertyId/propertyName are omitted when opened from the Leads tab (no
-  // property context there) — StoreelReportPage then resolves its own
-  // property via getStoreelMyProperties.
+  // property context there) — StoreelReportPage then opens on the
+  // account-wide "All leads" report, with a selector for each property.
   //
   // Opens in a NEW browser tab rather than in-app (Deepak, 2026-09-22) — the
   // report is a "check on this, come back later" screen, not a step in the

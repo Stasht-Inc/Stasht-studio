@@ -3502,13 +3502,17 @@ export const dashboardAPI = {
 
   // Per-rep / per-Storeel report (spec Plan #4). from/to are ISO dates
   // (YYYY-MM-DD); omit either to use the backend's default (last 30 days).
+  // Omit propertyId for the whole-account report ("All leads").
   getStoreelReport: async (params: {
-    propertyId: number | string;
+    propertyId?: number | string | null;
     from?: string;
     to?: string;
     groupBy?: 'rep' | 'lead' | 'memory';
   }): Promise<ApiResponse<any>> => {
-    const query = new URLSearchParams({ property_id: String(params.propertyId) });
+    const query = new URLSearchParams();
+    if (params.propertyId !== undefined && params.propertyId !== null && params.propertyId !== '') {
+      query.set('property_id', String(params.propertyId));
+    }
     if (params.from) query.set('from', params.from);
     if (params.to) query.set('to', params.to);
     if (params.groupBy) query.set('group_by', params.groupBy);
@@ -3517,7 +3521,7 @@ export const dashboardAPI = {
     });
   },
 
-  // Lightweight property list for the report screen's picker — see the
+  // Lightweight property list for the report screen's selector — see the
   // matching endpoint's own comment for why this isn't the full Properties
   // tab fetch.
   getStoreelMyProperties: async (): Promise<ApiResponse<any>> => {

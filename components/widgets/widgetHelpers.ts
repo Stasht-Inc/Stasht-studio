@@ -98,6 +98,34 @@ export function isPlausibleDomain(domain: string): boolean {
   return /^(?=.{3,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/.test(domain);
 }
 
+// --- "Don't show on these pages" (mirrors WidgetHiddenPaths.php; matched by pathHidden() in public/widget-core.js) ---
+export const HIDDEN_PATHS_MAX = 20;
+export const HIDDEN_PATH_LENGTH_MAX = 200;
+
+/** Textarea text -> the list saved: one page address per line, trimmed, blanks and duplicates (any case) dropped. */
+export function hiddenPathsFromText(text: string): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const line of text.split(/\r?\n/)) {
+    const entry = line.trim();
+    if (!entry || seen.has(entry.toLowerCase())) continue;
+    seen.add(entry.toLowerCase());
+    out.push(entry);
+  }
+  return out;
+}
+
+/** Why the list can't be saved (first problem), or null. Same rules as the server. */
+export function hiddenPathsProblem(paths: string[]): string | null {
+  for (const entry of paths) {
+    if (entry.length > HIDDEN_PATH_LENGTH_MAX) return `"${entry.slice(0, 40)}…" is too long: each page address can be ${HIDDEN_PATH_LENGTH_MAX} characters at most.`;
+    if (!entry.startsWith('/')) return `"${entry}" must start with /, e.g. /checkout.`;
+    if (/[\s?#]/.test(entry)) return `"${entry}": enter just the page address, without spaces, ? or #.`;
+  }
+  if (paths.length > HIDDEN_PATHS_MAX) return `You can list up to ${HIDDEN_PATHS_MAX} pages.`;
+  return null;
+}
+
 /** Days without a page load after which an install is shown as possibly removed. */
 export const STALE_INSTALL_DAYS = 7;
 
@@ -147,9 +175,43 @@ export function resolveFormFields(stored: Partial<FormFieldSettings> | null | un
   return out;
 }
 
-/** A visitor must always leave a mobile number or an email, or nobody can reply. */
+/**
+ * Mobile and email both shown: visitors pick "Mobile phone" (default) or "Email" with radios and fill
+ * in that one, so the two fields' own required flags no longer apply (WidgetFormFields::isContactChoice,
+ * widget-core hasContactChoice).
+ */
+export function isContactChoice(fields: FormFieldSettings): boolean {
+  return fields.mobile.show && fields.email.show;
+}
+
+export const CONTACT_CHOICE_NOTE = 'Visitors choose Mobile phone (default) or Email.';
+
+/** A visitor must always leave a mobile number or an email: both shown (they pick one), or the shown one required. */
 export function formCanReply(fields: FormFieldSettings): boolean {
-  return (fields.mobile.show && fields.mobile.required) || (fields.email.show && fields.email.required);
+  return isContactChoice(fields)
+    || (fields.mobile.show && fields.mobile.required) || (fields.email.show && fields.email.required);
+}
+
+/**
+ * Apply one field's change in the builder: hidden fields aren't required, and when mobile or email
+ * becomes the only contact field shown it is required (otherwise nobody could be replied to).
+ */
+export function withFormFieldChange(
+  fields: FormFieldSettings, key: FormFieldKey, patch: Partial<FormFieldSetting>,
+): FormFieldSettings {
+  const next: FormFieldSettings = { ...fields, [key]: { ...fields[key], ...patch } };
+  if (!next[key].show) next[key] = { ...next[key], required: false };
+  for (const contact of ['mobile', 'email'] as const) {
+    const other = contact === 'mobile' ? 'email' : 'mobile';
+    if (next[contact].show && !next[other].show && !next[contact].required) next[contact] = { ...next[contact], required: true };
+  }
+  return next;
+}
+
+/** The radio text the widget shows: "Mobile phone" / "Email", or the owner's own label (widget-core contactMethodLabel). */
+export function contactMethodLabel(key: 'mobile' | 'email', f: FormFieldSetting): string {
+  const label = f.label.trim() || DEFAULT_FORM_FIELD_SETTINGS[key].label;
+  return key === 'mobile' && label === DEFAULT_FORM_FIELD_SETTINGS.mobile.label ? 'Mobile phone' : label;
 }
 
 /** The input placeholder the widget shows ("Name *", "Business (optional)") — same as widget-core placeholderFor(). */
@@ -159,7 +221,13 @@ export function fieldPlaceholder(key: FormFieldKey, f: FormFieldSetting): string
   return f.required ? `${label} *` : `${label} (optional)`;
 }
 
-export const CONSENT_LINE = 'By submitting you agree to receive messages for the provided channel. Rates may be applied.';
+/** Mirrors consentText() in public/widget-core.js: the consent line under the form, naming the business. */
+export function consentLine(businessName: string | null | undefined, channel: 'sms' | 'email'): string {
+  const who = (businessName ?? '').trim() || 'us';
+  return channel === 'email'
+    ? `By submitting, you agree to receive emails from ${who} about your inquiry.`
+    : `By submitting, you agree to receive text messages from ${who} about your inquiry. Msg & data rates may apply. Msg frequency varies. Reply STOP to opt out, HELP for help.`;
+}
 
 /** Crops an image to a centred square and shrinks it (default 256px) before upload. */
 export async function squareAvatarDataUrl(file: File, size = 256): Promise<string> {
