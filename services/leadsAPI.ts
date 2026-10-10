@@ -296,8 +296,11 @@ export const leadsAPI = {
     // Closed tab (archived leads). The legacy status==='archived' still works.
     archived?: boolean;
     assigned?: 'me' | 'unassigned' | number;
+    // One lead by id, ignoring the list filters (still only leads this user may see).
+    leadId?: number;
   }) => {
     const query = new URLSearchParams();
+    if (params?.leadId != null) query.append('lead_id', String(params.leadId));
     if (params?.search?.trim()) query.append('search', params.search.trim());
     if (params?.status === 'archived' || params?.archived) {
       query.append('archived', '1');

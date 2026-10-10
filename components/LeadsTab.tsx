@@ -580,10 +580,24 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
         const wanted = openLeadIdRef.current;
         if (wanted) {
           const match = freshLeads.find((l) => l.id === wanted);
-          if (match) onLeadSelect(match);
-          else toast.info(openLeadHint
-            ? `This lead was ${openLeadHint}.`
-            : 'This lead is no longer available — a teammate may have accepted it.');
+          if (match) {
+            onLeadSelect(match);
+          } else {
+            // Not in this page of the list: the search, status, "Assigned to" filter, tab or
+            // page may simply hide it (e.g. a thread just started with + Send Message while
+            // the list is searched). Look it up by id before calling it unavailable.
+            const found = await leadsAPI.getLeads({ leadId: wanted })
+              .then((r) => (r.success ? (r.data?.leads ?? []).find((l) => l?.id === wanted) : undefined))
+              .catch(() => undefined);
+            if (found) {
+              onLeadSelect(found);
+              toast.info('Opened the conversation. Your current filters hide it in the list.');
+            } else {
+              toast.info(openLeadHint
+                ? `This lead was ${openLeadHint}.`
+                : 'This lead is no longer available — a teammate may have accepted it.');
+            }
+          }
           onOpenLeadHandled?.();
         }
       } else {
