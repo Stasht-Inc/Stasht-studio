@@ -235,6 +235,12 @@ export function WebsiteCatalogueConnectModal({ initialScan, onClose, onConnected
             ))}
           </ul>
         </div>
+        {/* Chris, 2026-10-10: larger catalogues go to an Enterprise account (same contact link as UpgradePlanModal). */}
+        <Notice tone="neutral">
+          If you have more than 500 items, please{' '}
+          <a href="https://stasht.com/#contact" target="_blank" rel="noopener noreferrer" className="font-medium text-[#6C60FF] hover:underline">contact us</a>{' '}
+          to set up an Enterprise Account.
+        </Notice>
         <div>
           <label htmlFor="website-catalogue-url" className="block text-sm font-medium text-gray-800 mb-1.5">
             Website address<span className="text-red-500">*</span>

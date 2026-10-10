@@ -824,7 +824,18 @@ export default function MarketplacePage() {
         <p className="text-base text-gray-600">{propertyError}</p>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-          {offered.map((connector) => (
+          {offered.map((connector) => (connector.id === 'website-catalogue' ? (
+            !propertyId && !catalogueCard.hidden && (
+              <ConnectorCard
+                key={connector.id}
+                connector={connector}
+                status={catalogueCard.status}
+                disabled={catalogueCard.disabled}
+                override={catalogueCard.override}
+                onSelect={openCatalogue}
+              />
+            )
+          ) : (
             <ConnectorCard
               key={connector.id}
               connector={connector}
@@ -832,17 +843,7 @@ export default function MarketplacePage() {
               disabled={isStarter}
               onSelect={() => openConnector(connector.id)}
             />
-          ))}
-          {!propertyId && !catalogueCard.hidden && (
-            <ConnectorCard
-              key="website-catalogue"
-              connector={connectorById('website-catalogue')}
-              status={catalogueCard.status}
-              disabled={catalogueCard.disabled}
-              override={catalogueCard.override}
-              onSelect={openCatalogue}
-            />
-          )}
+          )))}
         </div>
       )}
 

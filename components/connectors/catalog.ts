@@ -22,7 +22,22 @@ export interface ConnectorCardOverride {
   outlined: boolean;
 }
 
+// Array order is the Connectors page order (Chris, 2026-10-10): Contact Us Widget, Website Catalogue, Shopify, DocuSign.
 export const CONNECTORS: ConnectorDef[] = [
+  {
+    id: 'contact-widget',
+    name: 'Contact Us Widget',
+    category: 'Website Lead Capture',
+    description: 'Capture leads straight from your own website with a chat-style Contact Us widget.',
+    features: ['Customizable color, agent name, and greeting', 'Leads land in your Leads inbox', 'One-line install'],
+  },
+  {
+    id: 'website-catalogue',
+    name: 'Website Catalogue',
+    category: 'Connect your website',
+    description: 'Import the products, vehicles or properties from your own website, keep them in sync every night, and build campaigns from them in a few clicks.',
+    features: ['Works with most store and listing websites', 'Up to 500 items, synced nightly', 'Build campaigns from your items'],
+  },
   {
     id: 'shopify',
     name: 'Shopify',
@@ -52,26 +67,12 @@ export const CONNECTORS: ConnectorDef[] = [
     iconImage: '/autotrader-icon.png',
     iconFill: true,
   },
-  {
-    id: 'contact-widget',
-    name: 'Contact Us Widget',
-    category: 'Website Lead Capture',
-    description: 'Capture leads straight from your own website with a chat-style Contact Us widget.',
-    features: ['Customizable color, agent name, and greeting', 'Leads land in your Leads inbox', 'One-line install'],
-  },
-  {
-    id: 'website-catalogue',
-    name: 'Website Catalogue',
-    category: 'Connect your website',
-    description: 'Import the products, vehicles or properties from your own website, keep them in sync every night, and build campaigns from them in a few clicks.',
-    features: ['Works with most store and listing websites', 'Up to 500 items, synced nightly', 'Build campaigns from your items'],
-  },
 ];
 
 // AutoTrader hidden from the Connectors page (Deepak, 2026-09-22): its connect modal is kept,
-// just not offered. The Website Catalogue card has its own plan / pilot / status logic and is
-// rendered by MarketplacePage itself.
-export const OFFERED_CONNECTORS = CONNECTORS.filter((c) => c.id !== 'autotrader' && c.id !== 'website-catalogue');
+// just not offered. The Website Catalogue card keeps its place in this order, but has its own
+// plan / pilot / status logic, so MarketplacePage draws it with websiteCatalogueCard().
+export const OFFERED_CONNECTORS = CONNECTORS.filter((c) => c.id !== 'autotrader');
 
 // Contact Us Widget tile colour, from Chris's original ContactWidgetCard design.
 export const WIDGET_ICON_BLUE = '#0EA5E9';
