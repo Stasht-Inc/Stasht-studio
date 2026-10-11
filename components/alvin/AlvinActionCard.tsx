@@ -89,7 +89,8 @@ export default function AlvinActionCard({
   const [error, setError] = useState<{ text: string; code?: string } | null>(null);
 
   const open = card.status === 'proposed' || card.status === 'failed';
-  const missing = card.fields.filter((f) => f.required && (Array.isArray(values[f.key]) ? (values[f.key] as string[]).length === 0 : String(values[f.key] ?? '').trim() === ''));
+  const isRequired = (f: AlvinActionField) => !!f.required_unless ? values[f.required_unless.key] !== f.required_unless.value : !!f.required;
+  const missing = card.fields.filter((f) => isRequired(f) && (Array.isArray(values[f.key]) ? (values[f.key] as string[]).length === 0 : String(values[f.key] ?? '').trim() === ''));
   const shortOfCredits = card.credits_left !== undefined && card.credits_left !== null && card.credits_left < card.credits;
   const problem = error?.text ?? (card.status === 'failed' || card.problem ? card.problem : null);
 
@@ -123,7 +124,7 @@ export default function AlvinActionCard({
             <div key={f.key} className="flex flex-col gap-[3px]">
               <label htmlFor={`alvin-field-${f.key}`} className="text-[11px] font-medium text-[#6a7282]">
                 {f.label}
-                {f.required && <span className="text-[#e5484d]"> *</span>}
+                {isRequired(f) && <span className="text-[#e5484d]"> *</span>}
               </label>
               <FieldInput field={f} value={values[f.key]} onChange={(v) => setValues((prev) => ({ ...prev, [f.key]: v }))} />
               {f.help && <span className="text-[10.5px] text-[#99a1af]">{f.help}</span>}
@@ -132,7 +133,7 @@ export default function AlvinActionCard({
             <div key={f.key} className="flex flex-col">
               <span className="text-[11px] text-[#99a1af]">{f.label}</span>
               <span className={`break-words ${shown(f, values[f.key]) ? '' : 'text-[#c0c4cc]'}`}>
-                {shown(f, values[f.key]) || (f.required ? 'Needed' : '—')}
+                {shown(f, values[f.key]) || (isRequired(f) ? 'Needed' : '—')}
               </span>
             </div>
           ),

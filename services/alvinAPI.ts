@@ -25,6 +25,8 @@ export interface AlvinActionField {
   type: 'text' | 'textarea' | 'email' | 'select' | 'multiselect';
   value: string | string[] | null;
   required?: boolean;
+  // Not required while another field has this value (e.g. campaigns aren't needed for full admins).
+  required_unless?: { key: string; value: string };
   options?: { value: string; label: string }[];
   help?: string;
 }
