@@ -80,12 +80,15 @@ export interface UsageHistoryResponse {
 }
 
 // operation_type values the usage history names (ai_credit_usage_logs); any other shows as stored.
-export type UsageOperationType = 'ai_captions' | 'ai_memory_wizard' | 'ai_widget_reply';
+// 'alvin' is a filter only (Billing's "Alvin AI"): the web API matches both Alvin types for it.
+export type UsageOperationType = 'ai_captions' | 'ai_memory_wizard' | 'ai_widget_reply' | 'ai_alvin_file' | 'ai_alvin_action' | 'alvin';
 
 export const OPERATION_TYPE_LABELS: Record<string, string> = {
   ai_captions: 'AI Captions',
   ai_memory_wizard: 'Campaign Wizard',
   ai_widget_reply: 'Widget AI reply', // the website widget's after-hours AI (spec 2026-09-29 part 2 §4.4)
+  ai_alvin_file: 'Alvin AI · file', // Alvin read files dropped into the chat
+  ai_alvin_action: 'Alvin AI', // Alvin did something after the person confirmed it
 };
 
 export function operationTypeLabel(type: string): string {

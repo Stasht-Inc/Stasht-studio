@@ -1150,6 +1150,16 @@ export default function BillingPage({ onNavigateToMemory }: BillingPageProps = {
                         >
                           Widget AI reply
                         </button>
+                        <button
+                          onClick={() => setFilterOperationType('alvin')}
+                          className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                            filterOperationType === 'alvin'
+                              ? 'bg-purple-600 text-white'
+                              : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                          }`}
+                        >
+                          Alvin AI
+                        </button>
                       </div>
                     </div>
 
@@ -1194,7 +1204,9 @@ export default function BillingPage({ onNavigateToMemory }: BillingPageProps = {
                                         ? 'bg-blue-100 text-blue-700'
                                         : item.operation_type === 'ai_widget_reply'
                                           ? 'bg-emerald-100 text-emerald-700'
-                                          : 'bg-pink-100 text-pink-700'
+                                          : item.operation_type === 'ai_alvin_file' || item.operation_type === 'ai_alvin_action'
+                                            ? 'bg-violet-100 text-violet-700'
+                                            : 'bg-pink-100 text-pink-700'
                                     }`}>
                                       {formatOperationType(item.operation_type)}
                                     </span>

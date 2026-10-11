@@ -18,11 +18,44 @@ export interface AlvinAttachmentInfo {
   kind: 'image' | 'document';
 }
 
+// A detail on a confirmation card (app/Services/Alvin/Actions in the web API).
+export interface AlvinActionField {
+  key: string;
+  label: string;
+  type: 'text' | 'textarea' | 'email' | 'select' | 'multiselect';
+  value: string | string[] | null;
+  required?: boolean;
+  options?: { value: string; label: string }[];
+  help?: string;
+}
+
+// Something Alvin offers to do; nothing happens until the person confirms.
+export interface AlvinActionCard {
+  id: string;
+  type: string;
+  title: string;
+  confirm_label: string;
+  fields: AlvinActionField[];
+  notes?: string[];
+  credits: number;
+  credits_left?: number;
+  status: 'proposed' | 'done' | 'failed' | 'cancelled';
+  problem?: string | null;
+}
+
+export interface AlvinActionResult {
+  ok: boolean;
+  card?: AlvinMessage;
+  done?: AlvinMessage;
+  code?: string;
+  message?: string;
+}
+
 export interface AlvinMessage {
   id: number | string;
   role: AlvinRole;
   body: string;
-  meta: { failed?: boolean; links?: AlvinPageLink[]; attachments?: AlvinAttachmentInfo[]; [key: string]: unknown };
+  meta: { failed?: boolean; links?: AlvinPageLink[]; attachments?: AlvinAttachmentInfo[]; action?: AlvinActionCard; [key: string]: unknown };
   created_at: string | null;
 }
 
@@ -132,6 +165,15 @@ export const alvinAPI = {
     }
   },
 
+  // Confirm (with the person's edits) or cancel a confirmation card. Errors still return the updated card.
+  async confirmAction(messageId: number | string, fields: Record<string, unknown>): Promise<AlvinActionResult> {
+    return actionCall(`/alvin/actions/${messageId}/confirm`, { fields });
+  },
+
+  async cancelAction(messageId: number | string): Promise<AlvinActionResult> {
+    return actionCall(`/alvin/actions/${messageId}/cancel`, {});
+  },
+
   async startOver(): Promise<boolean> {
     try {
       const res = await apiRequest('/alvin/conversation/reset', { method: 'POST' });
@@ -141,3 +183,21 @@ export const alvinAPI = {
     }
   },
 };
+
+async function actionCall(path: string, body: Record<string, unknown>): Promise<AlvinActionResult> {
+  try {
+    const res = await apiRequest<any>(path, { method: 'POST', body: JSON.stringify(body), noRateLimitRetry: true } as RequestInit);
+    // Success: `data` is the whole body ({ success, data }). Errors: the body is spread into the result.
+    const r = res as any;
+    const payload = res.success ? r.data?.data : r.data;
+    return {
+      ok: !!res.success,
+      card: payload?.card,
+      done: payload?.done,
+      code: r.code,
+      message: res.success ? undefined : r.message || r.error || NETWORK_ERROR,
+    };
+  } catch {
+    return { ok: false, message: NETWORK_ERROR };
+  }
+}

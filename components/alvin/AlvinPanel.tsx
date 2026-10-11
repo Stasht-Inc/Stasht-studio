@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from 're
 import { createPortal } from 'react-dom';
 import { alvinAPI, type AlvinMessage, type AlvinPageLink, type AlvinSendResult } from '../../services/alvinAPI';
 import AlvinMessageText from './AlvinMessageText';
+import AlvinActionCard from './AlvinActionCard';
 import { ACCEPT, DropOverlay, PendingFile, SentFile, attachmentInfo, fileProblem, isImageFile, shrinkImage } from './alvinFiles';
 
 // Alvin AI chat panel — Figma "Alvin AI help" › AlvinAIPanel (node 14397:15290), 380 × 779.
@@ -339,6 +340,13 @@ export default function AlvinPanel({
 
   if (!open) return null;
 
+  // A confirmation card changed (confirmed, cancelled, details fixed); add Alvin's "done" message.
+  const updateCard = (card: AlvinMessage, done?: AlvinMessage) =>
+    setMessages((prev) => {
+      const next = prev.map((m) => (String(m.id) === String(card.id) ? card : m));
+      return done && !next.some((m) => String(m.id) === String(done.id)) ? [...next, done] : next;
+    });
+
   const closeOnPhone = () => {
     if (window.matchMedia('(max-width: 767px)').matches) onClose();
   };
@@ -410,7 +418,21 @@ export default function AlvinPanel({
               <AlvinBubble
                 key={m.id}
                 time={timeLabel(m.created_at)}
-                after={m.meta?.links?.length ? <PageLinks links={m.meta.links} onNavigate={closeOnPhone} /> : undefined}
+                after={
+                  <>
+                    {m.meta?.links?.length ? <PageLinks links={m.meta.links} onNavigate={closeOnPhone} /> : null}
+                    {m.meta?.action && !m.local ? (
+                      <AlvinActionCard
+                        message={m}
+                        onUpdate={updateCard}
+                        onNavigate={(page) => {
+                          window.dispatchEvent(new CustomEvent('app-navigate', { detail: page }));
+                          closeOnPhone();
+                        }}
+                      />
+                    ) : null}
+                  </>
+                }
               >
                 <AlvinMessageText text={m.body} />
               </AlvinBubble>
