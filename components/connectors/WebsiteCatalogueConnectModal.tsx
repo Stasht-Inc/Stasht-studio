@@ -327,8 +327,7 @@ export function WebsiteCatalogueConnectModal({ initialScan, onClose, onConnected
         )}
         {!pollStopped && (
         <Notice tone="info">
-          This usually takes 1–3 minutes. You can close this window: we keep working, and the Connectors page shows
-          "Analysing…" until it's done.
+          {scan?.rendering ? 'This website needs a full browser to read, so this can take up to 10 minutes. You can close this window: we keep working, and the Connectors page shows "Analysing…" until it\'s done.' : 'This usually takes 1–3 minutes. You can close this window: we keep working, and the Connectors page shows "Analysing…" until it\'s done.'}
         </Notice>
         )}
       </>

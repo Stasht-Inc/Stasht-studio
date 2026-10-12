@@ -137,6 +137,7 @@ export interface CatalogueScan {
   expires_at: string | null;
   outcome: CatalogueScanOutcome | null; // null while in progress
   domain: CatalogueDomain | null;
+  rendering?: boolean; // true: website needs a browser to read; takes up to 10 minutes
 }
 
 export type CatalogueSourceStatus = 'active' | 'paused' | 'blocked' | 'needs_attention' | 'unverified' | 'plan_required';
