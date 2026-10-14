@@ -88,15 +88,18 @@ interface CountrySelectProps {
   onChange: (value: string) => void;
   className?: string;
   disabled?: boolean;
+  /** Accessible name for the select, e.g. "Country code" when the visible label belongs to the number box. */
+  ariaLabel?: string;
 }
 
-export default function CountrySelect({ value, onChange, className = '', disabled = false }: CountrySelectProps) {
+export default function CountrySelect({ value, onChange, className = '', disabled = false, ariaLabel }: CountrySelectProps) {
   const selectedCountry = countries.find(c => c.dialCode === value) || countries[0];
 
   return (
     <div className="relative">
       <select
         disabled={disabled}
+        aria-label={ariaLabel}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         className={className}

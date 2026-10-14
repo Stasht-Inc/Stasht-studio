@@ -19,6 +19,7 @@ import { ImageWithFallback } from "./figma/ImageWithFallback";
 import ImageHoverPopover from "./ImageHoverPopover";
 import ShopifyCatalogNav from "./ShopifyCatalogNav";
 import CarsCatalogNav from "./CarsCatalogNav";
+import WebsiteCatalogNav from "./WebsiteCatalogNav";
 import { getCategoryColor } from "../constants/mediaConstants";
 import { dashboardAPI, userDisplayUtils } from "../utils/authUtils";
 import { useAuth } from "../contexts/AuthContext";
@@ -2994,6 +2995,9 @@ export default function CategoryNav({
 
               {/* Cars first — dealers' main inventory. Read-only feed from GET /cars; renders nothing without cars. */}
               {selectedFilter === "all" && <CarsCatalogNav />}
+
+              {/* The connected website's catalogue (spec 2026-09-30 §9.1). Renders nothing without items. */}
+              {selectedFilter === "all" && <WebsiteCatalogNav />}
 
               {/* Regular Categories */}
               {categories

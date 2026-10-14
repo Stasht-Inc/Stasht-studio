@@ -67,6 +67,7 @@ import { CameraInterface } from "../components/CameraInterface";
 import { PurchaseCreditsModal } from "../components/PurchaseCreditsModal";
 import { InsufficientCreditsModal } from "../components/InsufficientCreditsModal";
 import RequestMomentModal from "../components/RequestMomentModal";
+import CatalogRefreshBanner from "../components/CatalogRefreshBanner";
 import Cropper from 'react-easy-crop';
 import { mapLimit } from "../utils/requestLimit";
 const samanthaAvatar = 'https://images.unsplash.com/photo-1494790108755-2616b612b5bc?w=100&h=100&fit=crop';
@@ -3048,7 +3049,9 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
           .filter((w: any) => isPending(w))
           .sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
       );
-      const widgets = allWidgets.filter((w: any) => !isPending(w));
+      // Hidden widgets (is_visible false: e.g. the "View on website" button of an item that is no
+      // longer on the owner's website) stay off the timeline, as on the published page and in the app.
+      const widgets = allWidgets.filter((w: any) => !isPending(w) && w.is_visible !== false && w.is_visible !== 0);
 
       setHtmlWidgets(
         widgets
@@ -12200,6 +12203,11 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
               </div>
             </div>
           </div>
+        )}
+
+        {/* Website Catalogue: "N items changed on your website" + Refresh (renders nothing otherwise) */}
+        {activeTab === 'overview' && isOwner && /^\d+$/.test(String(memoryId)) && (
+          <CatalogRefreshBanner memoryId={String(memoryId)} onRefreshed={() => fetchMemoryDetails(true)} />
         )}
 
         {/* Clean Toggle Section */}

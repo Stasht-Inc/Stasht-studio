@@ -26,6 +26,11 @@ export const SHOPIFY_COLOR = '#95BF47';
 // Cars catalog box accent color. Same single-source-of-truth reasoning as SHOPIFY_COLOR above.
 export const CARS_COLOR = '#0EA5E9';
 
+// Website Catalogue accent: the sidebar catalogue box and the account's auto-created
+// "Website Catalogue" category (spec 2026-09-30 §9.2). Kept out of CATEGORY_COLOR_PALETTE so
+// reserving it doesn't take a colour away from user-created categories.
+export const WEBSITE_CATALOG_COLOR = '#0F766E';
+
 // Fixed colors for system categories
 const SYSTEM_CATEGORY_COLORS: { [key: string]: string } = {
   'Unassigned': '#9CA3AF',   // Gray - for unassigned content
@@ -40,6 +45,8 @@ const SYSTEM_CATEGORY_COLORS: { [key: string]: string } = {
   'Shopify': SHOPIFY_COLOR,
   // Cars is a read-only inventory feed, not a user-created category — same reasoning as Shopify.
   'Cars': CARS_COLOR,
+  // Website Catalogue is the connector's category: fixed colour, same reasoning as Cars.
+  'Website Catalogue': WEBSITE_CATALOG_COLOR,
 };
 
 // LocalStorage key for storing category colors

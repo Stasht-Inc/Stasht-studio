@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { X, ExternalLink, Info, CheckCircle2, Loader2, Unplug } from 'lucide-react';
 import { toast } from 'sonner';
 import { dashboardAPI } from '../utils/authUtils';
@@ -11,6 +11,10 @@ import { ConnectorCard } from '../components/connectors/ConnectorCard';
 import { useIsStarterPlan } from '../hooks/usePlan';
 import { requestUpgrade } from '../utils/planEvents';
 import { useProperty } from '../contexts/PropertyContext';
+import { catalogueAPI, type CatalogueOverview } from '../services/catalogueAPI';
+import { openBillingUpgrade, websiteCatalogueCard } from '../components/connectors/websiteCatalogue';
+import { WebsiteCatalogueConnectModal } from '../components/connectors/WebsiteCatalogueConnectModal';
+import { WebsiteCatalogueManageModal } from '../components/connectors/WebsiteCatalogueManageModal';
 
 const shopifyOAuthSteps = [
   'Enter your Shopify store domain below',
@@ -603,6 +607,10 @@ export default function MarketplacePage() {
   const [shopifyShopDomain, setShopifyShopDomain] = useState<string | null>(null);
   const [shopifyConnectedAt, setShopifyConnectedAt] = useState<string | null>(null);
   const [contactWidgets, setContactWidgets] = useState<ContactWidget[]>([]);
+  // Website Catalogue (spec 2026-09-30 §8.1): GET /website-catalogue answers every account.
+  const [catalogue, setCatalogue] = useState<CatalogueOverview | null>(null);
+  // Which dialog the card opened, fixed at click time so a Disconnect inside Manage can't flip it into the connect flow.
+  const [catalogueView, setCatalogueView] = useState<'connect' | 'manage'>('connect');
   // Until all three status checks settle we can't tell whether to show the catalog or the active list.
   const [loaded, setLoaded] = useState(false);
 
@@ -660,6 +668,7 @@ export default function MarketplacePage() {
       setShopifyConnected(false);
       setShopifyShopDomain(null);
       setShopifyConnectedAt(null);
+      setCatalogue(null); // a personal-account connector, like DocuSign and Shopify
 
       widgetsAPI.list({ propertyId })
         .then(res => {
@@ -700,7 +709,13 @@ export default function MarketplacePage() {
       })
       .catch(() => {});
 
-    Promise.all([docusign, shopify, widgets]).then(() => { if (!cancelled) setLoaded(true); });
+    setCatalogue(null);
+    // A failed load leaves `catalogue` null: no Website Catalogue card (and nothing in the badge) rather than an error card.
+    const catalogueLoad = catalogueAPI.getOverview()
+      .then(res => { if (!cancelled && res.ok && res.data) setCatalogue(res.data); })
+      .catch(() => {});
+
+    Promise.all([docusign, shopify, widgets, catalogueLoad]).then(() => { if (!cancelled) setLoaded(true); });
     return () => { cancelled = true; };
   }, [propertyId]);
 
@@ -745,12 +760,6 @@ export default function MarketplacePage() {
     [activeConnectors],
   );
 
-  // Keep the sidebar's Connectors badge in step with what this page shows.
-  useEffect(() => {
-    if (!loaded) return;
-    window.dispatchEvent(new CustomEvent(CONNECTORS_COUNT_EVENT, { detail: { count: activeConnectors.length } }));
-  }, [loaded, activeConnectors.length]);
-
   const closeModal = useCallback(() => setActiveModal(null), []);
 
   // Connectors are shown on every plan, but on the free (Starter) plan using one opens the
@@ -760,6 +769,42 @@ export default function MarketplacePage() {
     if (isStarter) requestUpgrade();
     else setActiveModal(id);
   }, [isStarter]);
+
+  // Website Catalogue card: hidden outside the pilot, Starter gate, Teams upsell, connect flow or Manage.
+  // Personal view only. No answer (loading or failed) means no card; a background refresh that fails keeps the last good state.
+  const catalogueCard = useMemo(() => websiteCatalogueCard(catalogue, isStarter), [catalogue, isStarter]);
+  // A late answer must not repopulate `catalogue` once the view has switched to a property.
+  const propertyIdRef = useRef(propertyId);
+  propertyIdRef.current = propertyId;
+  const reloadCatalogue = useCallback(() => {
+    if (propertyIdRef.current) return;
+    catalogueAPI.getOverview()
+      .then(res => { if (!propertyIdRef.current && res.ok && res.data) setCatalogue(res.data); })
+      .catch(() => {});
+  }, []);
+  const openCatalogue = useCallback(() => {
+    if (catalogueCard.action === 'upgrade') requestUpgrade();
+    else if (catalogueCard.action === 'billing') openBillingUpgrade();
+    else {
+      setCatalogueView(catalogueCard.action === 'manage' ? 'manage' : 'connect');
+      setActiveModal('website-catalogue');
+    }
+  }, [catalogueCard.action]);
+
+  // While an analysis runs with the dialog closed, keep the card's "Analysing…" line current.
+  useEffect(() => {
+    if (activeModal !== null || !catalogue?.scan?.in_progress) return undefined;
+    const timer = window.setInterval(reloadCatalogue, 10000);
+    return () => window.clearInterval(timer);
+  }, [activeModal, catalogue?.scan?.in_progress, reloadCatalogue]);
+
+  // Keep the sidebar's Connectors badge in step with what this page shows. A website the plan has
+  // paused (Starter / Teams) is not counted: catalogueCard.connected is false for it.
+  const connectedCount = activeConnectors.length + (!propertyId && catalogueCard.connected ? 1 : 0);
+  useEffect(() => {
+    if (!loaded) return;
+    window.dispatchEvent(new CustomEvent(CONNECTORS_COUNT_EVENT, { detail: { count: connectedCount } }));
+  }, [loaded, connectedCount]);
 
   return (
     <div className="p-6 sm:p-10 max-w-7xl">
@@ -779,7 +824,18 @@ export default function MarketplacePage() {
         <p className="text-base text-gray-600">{propertyError}</p>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-          {offered.map((connector) => (
+          {offered.map((connector) => (connector.id === 'website-catalogue' ? (
+            !propertyId && !catalogueCard.hidden && (
+              <ConnectorCard
+                key={connector.id}
+                connector={connector}
+                status={catalogueCard.status}
+                disabled={catalogueCard.disabled}
+                override={catalogueCard.override}
+                onSelect={openCatalogue}
+              />
+            )
+          ) : (
             <ConnectorCard
               key={connector.id}
               connector={connector}
@@ -787,7 +843,7 @@ export default function MarketplacePage() {
               disabled={isStarter}
               onSelect={() => openConnector(connector.id)}
             />
-          ))}
+          )))}
         </div>
       )}
 
@@ -832,6 +888,18 @@ export default function MarketplacePage() {
           propertyName={currentProperty?.name}
         />
       )}
+
+      {/* Website Catalogue: Manage once a website is connected, else the connect flow. Rendered only while open, because closing it stops its polling. */}
+      {activeModal === 'website-catalogue' && catalogue && (catalogueView === 'manage' ? (
+        <WebsiteCatalogueManageModal overview={catalogue} onClose={() => { closeModal(); reloadCatalogue(); }} onChanged={setCatalogue} />
+      ) : (
+        <WebsiteCatalogueConnectModal
+          initialScan={catalogue.scan}
+          onClose={() => { closeModal(); reloadCatalogue(); }}
+          onScanChanged={reloadCatalogue}
+          onConnected={() => { closeModal(); reloadCatalogue(); }}
+        />
+      ))}
 
       {/* AutoTrader Connect Modal */}
       {activeModal === 'autotrader' && (
