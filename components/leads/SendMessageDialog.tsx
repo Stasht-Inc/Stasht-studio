@@ -7,6 +7,8 @@ import { leadsAPI } from '../../services/leadsAPI';
 import { dashboardAPI } from '../../utils/authUtils';
 import { useAuth } from '../../contexts/AuthContext';
 import ShareCarsDialog from '../ShareCarsDialog';
+import CountrySelect from '../CountrySelect';
+import { isPlausibleSplitPhone, splitTypedPhone, toE164 } from '../../utils/phoneUtils';
 
 // "+ Send Message" (spec 2026-09-23 §5, Chris's "Start A New Message" reference):
 // text or email anyone. The backend reuses the contact's existing lead on this
@@ -45,6 +47,9 @@ export default function SendMessageDialog({ open, onOpenChange, onSent }: Props)
   const { user } = useAuth();
   const [channel, setChannel] = useState<'sms' | 'email'>('sms');
   const [name, setName] = useState('');
+  // Split like every other phone field (Profile, invites, add collaborator):
+  // country code + national number, sent as E.164. Canada/US by default.
+  const [phoneCountry, setPhoneCountry] = useState('+1');
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
   // null = use the suggested text, which follows the cars/dealership picked.
@@ -60,7 +65,7 @@ export default function SendMessageDialog({ open, onOpenChange, onSent }: Props)
   // Fresh form each time it opens; the property list loads lazily.
   useEffect(() => {
     if (!open) return;
-    setChannel('sms'); setName(''); setPhone(''); setEmail(''); setSubjectOverride(null); setBodyOverride(null);
+    setChannel('sms'); setName(''); setPhoneCountry('+1'); setPhone(''); setEmail(''); setSubjectOverride(null); setBodyOverride(null);
     setPicked(null); setShowPicker(false); setError(null);
 
     dashboardAPI.getStoreelMyProperties().then((res: any) => {
@@ -81,8 +86,14 @@ export default function SendMessageDialog({ open, onOpenChange, onSent }: Props)
   const contactFirst = name.trim().split(/\s+/)[0];
   const greeting = contactFirst ? `Hi ${contactFirst},` : channel === 'email' ? 'Hi there,' : 'Hi,';
 
-  const digits = phone.replace(/\D/g, '');
-  const contactOk = channel === 'sms' ? digits.length >= 10 : /\S+@\S+\.\S+/.test(email.trim());
+  const phoneE164 = toE164(phoneCountry, phone);
+  // The server (LeadConversationStartController::normalisePhone) ignores the "+"
+  // and reads any 10-digit number as North American, so an international number
+  // that is 10 digits in all would be texted to the wrong person — don't send it.
+  const phoneOk = isPlausibleSplitPhone(phoneCountry, phone)
+    && !(phoneE164.length === 11 && !phoneE164.startsWith('+1'));
+  const showPhoneHint = phone.replace(/\D/g, '').length > 0 && !phoneOk;
+  const contactOk = channel === 'sms' ? phoneOk : /\S+@\S+\.\S+/.test(email.trim());
   const needsProperty = properties.length > 1 && !propertyId;
   const tooLong = channel === 'sms' && body.length > SMS_LIMIT;
   const canSend = contactOk && (body.trim().length > 0 || carCount > 0) && !needsProperty && !tooLong && !sending;
@@ -94,7 +105,7 @@ export default function SendMessageDialog({ open, onOpenChange, onSent }: Props)
     try {
       const res: any = await leadsAPI.startConversation({
         channel,
-        ...(channel === 'sms' ? { phone } : { email: email.trim(), ...(subject.trim() ? { subject: subject.trim() } : {}) }),
+        ...(channel === 'sms' ? { phone: phoneE164 } : { email: email.trim(), ...(subject.trim() ? { subject: subject.trim() } : {}) }),
         ...(name.trim() ? { name: name.trim() } : {}),
         body: body.trim(),
         ...(propertyId ? { property_id: propertyId } : {}),
@@ -156,7 +167,32 @@ export default function SendMessageDialog({ open, onOpenChange, onSent }: Props)
           {channel === 'sms' ? (
             <div>
               <label htmlFor="sm-phone" className={label}>Phone number</label>
-              <input id="sm-phone" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="(555) 555-5555" inputMode="tel" className={field} autoComplete="off" />
+              <div className="flex gap-2">
+                <CountrySelect
+                  value={phoneCountry}
+                  onChange={setPhoneCountry}
+                  ariaLabel="Country code"
+                  className="w-28 flex-shrink-0 h-10 rounded-lg bg-white text-sm text-gray-900 border border-gray-200 outline-none focus-visible:ring-2 focus-visible:ring-[#6C60FF] focus-visible:border-transparent"
+                />
+                <input
+                  id="sm-phone"
+                  type="tel"
+                  inputMode="tel"
+                  value={phone}
+                  onChange={(e) => {
+                    const next = splitTypedPhone(phoneCountry, e.target.value);
+                    setPhoneCountry(next.countryCode);
+                    setPhone(next.number);
+                  }}
+                  placeholder="e.g. 4163028755"
+                  autoComplete="off"
+                  aria-describedby={showPhoneHint ? 'sm-phone-hint' : undefined}
+                  className={`${field} flex-1 min-w-0`}
+                />
+              </div>
+              {showPhoneHint && (
+                <p id="sm-phone-hint" className="mt-1 text-xs text-gray-500">Enter the full number, including the area code.</p>
+              )}
             </div>
           ) : (
             <>
