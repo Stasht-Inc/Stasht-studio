@@ -9,6 +9,7 @@ import EnhancedSearch from "./EnhancedSearch";
 import { NotificationDropdown } from "./NotificationDropdown";
 import AlvinButton from "./alvin/AlvinButton";
 import AlvinPanel from "./alvin/AlvinPanel";
+import useAlvinEnabled from "./alvin/useAlvinEnabled";
 import { Upload, RefreshCw } from "lucide-react";
 import { useProperty } from "../contexts/PropertyContext";
 
@@ -459,6 +460,7 @@ export default function InteractiveNav({
 }) {
   const [searchQuery, setSearchQuery] = useState("");
   const [alvinOpen, setAlvinOpen] = useState(false);
+  const alvinEnabled = useAlvinEnabled();
 
   // The account menu's "Alvin AI" item opens the panel.
   useEffect(() => {
@@ -572,9 +574,9 @@ export default function InteractiveNav({
 
         {/* Alvin AI help centre (ClickUp wdy2xh1r0r) - before notifications, as in Chris's design.
             Tablet and up only: the phone top bar has no room, so phones open Alvin from the account menu. */}
-        <div className="hidden md:block md:mr-2.5">
+        {alvinEnabled && <div className="hidden md:block md:mr-2.5">
           <AlvinButton open={alvinOpen} onClick={() => setAlvinOpen((v) => !v)} />
-        </div>
+        </div>}
 
         {/* Notification Button - modified for mobile */}
         <div className="md:border-l md:border-gray-100">
@@ -592,7 +594,7 @@ export default function InteractiveNav({
         </div>
       </div>
 
-      <AlvinPanel
+      {alvinEnabled && <AlvinPanel
         open={alvinOpen}
         onClose={() => {
           setAlvinOpen(false);
@@ -601,7 +603,7 @@ export default function InteractiveNav({
         }}
         currentPage={currentPage}
         user={user}
-      />
+      />}
 
       {/* Mobile Search Overlay */}
       {showMobileSearch && (

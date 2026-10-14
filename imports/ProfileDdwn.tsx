@@ -7,6 +7,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "../components/ui/avatar";
 import { getAdminSwitchData, switchAccount, clearAdminSwitchData } from "../components/AccountChoiceModal";
 import { dashboardAPI } from "../utils/authUtils";
 import { useProperty } from "../contexts/PropertyContext";
+import useAlvinEnabled from "../components/alvin/useAlvinEnabled";
 
 // __APP_BUILD_TIME__ is injected at build time (see vite.config.ts's `define`)
 // as the ISO timestamp of when this exact bundle was built.
@@ -263,6 +264,7 @@ function Dropdown({ isOpen, onClick }: { isOpen: boolean; onClick: () => void })
 }
 
 export function ProfileDropdownMenu({ isOpen, onClose, user, onShowProfileSettings, onShowBillingPayment, viewType, currentProperty, switchToPersonal }: { isOpen: boolean; onClose: () => void; user?: { name?: string; email?: string; phone_number?: string; profile_image?: string; avatar?: string; profile_color?: string; plan_name?: string; credits?: number; location?: string }; onShowProfileSettings?: () => void; onShowBillingPayment?: () => void; viewType?: string; currentProperty?: any; switchToPersonal?: () => void }) {
+  const alvinEnabled = useAlvinEnabled();
   const dropdownRef = useRef<HTMLDivElement>(null);
   const { logout, updateUser } = useAuth();
   const { switchToProperty } = useProperty();
@@ -675,7 +677,7 @@ export function ProfileDropdownMenu({ isOpen, onClose, user, onShowProfileSettin
       {/* Menu Items */}
       <div className="py-1">
         {/* Alvin AI help centre (wdy2xh1r0r). On phones this is Alvin's only entry point: the top bar has no room. */}
-        <button
+        {alvinEnabled && <button
           onClick={() => {
             onClose();
             window.dispatchEvent(new Event('alvin-open'));
@@ -684,7 +686,7 @@ export function ProfileDropdownMenu({ isOpen, onClose, user, onShowProfileSettin
         >
           <img src="/alvin/alvin-logo-button.svg" alt="" width={16} height={13} className="w-4 h-[13px]" />
           Alvin AI
-        </button>
+        </button>}
 
         {/* Back to Primary Account - Only show when viewing property */}
         {viewType === 'property' && switchToPersonal ? (
