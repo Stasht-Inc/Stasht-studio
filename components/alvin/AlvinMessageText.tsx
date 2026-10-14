@@ -58,6 +58,37 @@ function AlvinVideo({ id, title }: { id: string; title: string }) {
   );
 }
 
+// Long code (an install snippet) gets its own box with a Copy button.
+function CodeCopy({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      const el = document.createElement('textarea');
+      el.value = text;
+      document.body.appendChild(el);
+      el.select();
+      document.execCommand('copy');
+      el.remove();
+    }
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 2000);
+  };
+  return (
+    <span className="block my-[4px] rounded-[8px] bg-white border border-[#e0deff] overflow-hidden">
+      <code className="block px-[9px] py-[7px] text-[11px] leading-[16px] break-all font-mono text-[#1e2939]">{text}</code>
+      <button
+        type="button"
+        onClick={copy}
+        className="block w-full border-t border-[#e0deff] px-[9px] py-[5px] text-left text-[11.5px] font-semibold text-[#6c60ff] hover:bg-[#faf9ff] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#6c60ff]"
+      >
+        {copied ? 'Copied' : 'Copy'}
+      </button>
+    </span>
+  );
+}
+
 function link(part: string, key: string): ReactNode {
   const md = part.match(/^\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)$/);
   const href = md ? md[2] : part.replace(/[.,;:!?]+$/, '');
@@ -88,7 +119,10 @@ function inline(text: string, key: string): ReactNode[] {
       return [<strong key={`${key}-${i}`} className="font-semibold">{part.slice(2, -2)}</strong>];
     }
     if (part.startsWith('`') && part.endsWith('`') && part.length > 2) {
-      return [<code key={`${key}-${i}`} className="px-1 rounded bg-white/70 text-[11.5px]">{part.slice(1, -1)}</code>];
+      const code = part.slice(1, -1);
+      return [code.length > 40
+        ? <CodeCopy key={`${key}-${i}`} text={code} />
+        : <code key={`${key}-${i}`} className="px-1 rounded bg-white/70 text-[11.5px]">{code}</code>];
     }
     return part.split(LINK).map((piece, j) =>
       j % 2 === 1 ? link(piece, `${key}-${i}-${j}`) : <Fragment key={`${key}-${i}-${j}`}>{piece}</Fragment>,
