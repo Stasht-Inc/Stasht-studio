@@ -6,6 +6,8 @@ import { toast } from "sonner";
 import exifr from "exifr";
 import { dashboardAPI } from "../utils/authUtils";
 import ToneSelectionModal from "./ToneSelectionModal";
+import CountrySelect from "./CountrySelect";
+import { isPlausibleSplitPhone, splitPrefillPhone, splitTypedPhone, toE164 } from "../utils/phoneUtils";
 
 /**
  * "Share Request a Moment" submission form.
@@ -60,6 +62,21 @@ export default function RequestMomentModal({
   const [caption, setCaption] = useState('');
   const [contactType, setContactType] = useState<'email' | 'phone'>('email');
   const [contactValue, setContactValue] = useState('');
+  // Mobile is split into country code + national number (sent as E.164), like
+  // every other phone field. contactValue holds the national part in phone mode.
+  const [contactCountry, setContactCountry] = useState('+1');
+
+  // Fill the contact box for a channel from the account (authenticated only).
+  const seedContact = (type: 'email' | 'phone') => {
+    const seeded = isAuthed ? (type === 'email' ? prefillEmail : prefillPhone) : null;
+    if (type === 'phone') {
+      const { countryCode, number } = splitPrefillPhone(seeded || '');
+      setContactCountry(countryCode);
+      setContactValue(number);
+    } else {
+      setContactValue(seeded || '');
+    }
+  };
 
   const [uploading, setUploading] = useState(false);
   const [uploadedMeta, setUploadedMeta] = useState<{
@@ -92,6 +109,7 @@ export default function RequestMomentModal({
     setCaption('');
     setContactType('email');
     setContactValue('');
+    setContactCountry('+1');
     setNameError('');
     setFileError('');
     setContactError('');
@@ -108,10 +126,10 @@ export default function RequestMomentModal({
     if (prefillName) setName(prefillName);
     if (prefillEmail) {
       setContactType('email');
-      setContactValue(prefillEmail);
+      seedContact('email');
     } else if (prefillPhone) {
       setContactType('phone');
-      setContactValue(prefillPhone);
+      seedContact('phone');
     }
   }, [open, isAuthed, prefillName, prefillEmail, prefillPhone]);
 
@@ -218,7 +236,7 @@ export default function RequestMomentModal({
         setContactError('Please enter a valid email address.');
         return;
       }
-      if (contactType === 'phone' && contact.replace(/\D/g, '').length < 7) {
+      if (contactType === 'phone' && !isPlausibleSplitPhone(contactCountry, contact)) {
         setContactError('Please enter a valid mobile number.');
         return;
       }
@@ -243,7 +261,7 @@ export default function RequestMomentModal({
           caption: caption.trim() || null,
           name: name.trim(),
           email: contactType === 'email' ? (contact || null) : null,
-          mobile: contactType === 'phone' ? (contact || null) : null,
+          mobile: contactType === 'phone' ? (toE164(contactCountry, contact) || null) : null,
           size: uploadedMeta?.size ?? null,
         }),
       });
@@ -454,8 +472,7 @@ export default function RequestMomentModal({
                         setContactType(type);
                         // Re-apply the account value for the newly chosen channel
                         // rather than clearing what we prefilled.
-                        const seeded = type === 'email' ? prefillEmail : prefillPhone;
-                        setContactValue(isAuthed && seeded ? seeded : '');
+                        seedContact(type);
                         setContactError('');
                       }}
                       className="w-4 h-4 accent-[#6C60FF]"
@@ -464,25 +481,44 @@ export default function RequestMomentModal({
                   </label>
                 ))}
               </div>
-              <div className="relative">
-                <div className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none">
-                  {contactType === 'email' ? <Mail className="w-4 h-4" /> : <Phone className="w-4 h-4" />}
+              <div className="flex gap-2">
+                {contactType === 'phone' && (
+                  <CountrySelect
+                    value={contactCountry}
+                    onChange={(code) => { setContactCountry(code); if (contactError) setContactError(''); }}
+                    ariaLabel="Country code"
+                    className="w-28 flex-shrink-0 h-12 md:h-10 border border-gray-300 rounded-lg bg-white text-[14px] md:text-sm focus:outline-none focus:ring-2 focus:ring-[#6C60FF]/20 focus:border-[#6C60FF]"
+                  />
+                )}
+                <div className="relative flex-1 min-w-0">
+                  <div className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none">
+                    {contactType === 'email' ? <Mail className="w-4 h-4" /> : <Phone className="w-4 h-4" />}
+                  </div>
+                  <input
+                    type={contactType === 'email' ? 'email' : 'tel'}
+                    inputMode={contactType === 'email' ? 'email' : 'tel'}
+                    value={contactValue}
+                    onChange={(e) => {
+                      if (contactType === 'phone') {
+                        const next = splitTypedPhone(contactCountry, e.target.value);
+                        setContactCountry(next.countryCode);
+                        setContactValue(next.number);
+                      } else {
+                        setContactValue(e.target.value);
+                      }
+                      if (contactError) setContactError('');
+                    }}
+                    placeholder={contactType === 'email' ? 'you@example.com' : 'e.g. 4163028755'}
+                    maxLength={contactType === 'email' ? 191 : 20}
+                    aria-label={contactType === 'email' ? 'Email address' : 'Mobile number'}
+                    aria-invalid={!!contactError}
+                    className={`w-full h-12 md:h-10 pl-9 pr-4 md:pr-3 border rounded-lg text-[14px] md:text-sm focus:outline-none focus:ring-2 ${
+                      contactError
+                        ? 'border-red-500 focus:ring-red-500/20 focus:border-red-500'
+                        : 'border-gray-300 focus:ring-[#6C60FF]/20 focus:border-[#6C60FF]'
+                    }`}
+                  />
                 </div>
-                <input
-                  type={contactType === 'email' ? 'email' : 'tel'}
-                  inputMode={contactType === 'email' ? 'email' : 'tel'}
-                  value={contactValue}
-                  onChange={(e) => { setContactValue(e.target.value); if (contactError) setContactError(''); }}
-                  placeholder={contactType === 'email' ? 'you@example.com' : '+1 555 000 1234'}
-                  maxLength={contactType === 'email' ? 191 : 20}
-                  aria-label={contactType === 'email' ? 'Email address' : 'Mobile number'}
-                  aria-invalid={!!contactError}
-                  className={`w-full h-12 md:h-10 pl-9 pr-4 md:pr-3 border rounded-lg text-[14px] md:text-sm focus:outline-none focus:ring-2 ${
-                    contactError
-                      ? 'border-red-500 focus:ring-red-500/20 focus:border-red-500'
-                      : 'border-gray-300 focus:ring-[#6C60FF]/20 focus:border-[#6C60FF]'
-                  }`}
-                />
               </div>
               {contactError && <p className="text-[14px] md:text-xs text-red-600 mt-2">{contactError}</p>}
             </div>
