@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { alvinAPI, type AlvinMessage, type AlvinPageLink, type AlvinSendResult } from '../../services/alvinAPI';
 import AlvinMessageText from './AlvinMessageText';
 import AlvinActionCard from './AlvinActionCard';
+import type { AlvinSetupStep } from './useAlvinEnabled';
 import { ACCEPT, DropOverlay, PendingFile, SentFile, attachmentInfo, fileProblem, isImageFile, shrinkImage } from './alvinFiles';
 
 // Alvin AI chat panel — Figma "Alvin AI help" › AlvinAIPanel (node 14397:15290), 380 × 779.
@@ -142,11 +143,19 @@ export default function AlvinPanel({
   onClose,
   currentPage,
   user,
+  ask,
+  onAsked,
+  setup = [],
 }: {
   open: boolean;
   onClose: () => void;
   currentPage?: string | null;
   user?: any;
+  // A question to ask as soon as the chat is ready (e.g. a Get Started step); onAsked clears it.
+  ask?: string | null;
+  onAsked?: () => void;
+  // The account's "Getting started" checklist (web API AlvinSetup), shown in an empty chat.
+  setup?: AlvinSetupStep[];
 }) {
   const [messages, setMessages] = useState<ChatItem[]>([]);
   const [suggestions, setSuggestions] = useState<string[]>(DEFAULT_SUGGESTIONS);
@@ -274,6 +283,14 @@ export default function AlvinPanel({
     },
     [sending, currentPage],
   );
+
+  // A question handed over by the Get Started checklist: ask it once the saved chat has loaded.
+  useEffect(() => {
+    if (open && loaded && ask && !sending) {
+      onAsked?.();
+      send(ask);
+    }
+  }, [open, loaded, ask, sending, send, onAsked]);
 
   const addFiles = (files: File[]) => {
     const problem = fileProblem(files, pending.length);
@@ -442,8 +459,46 @@ export default function AlvinPanel({
         </div>
       </div>
 
+      {/* Getting started (new accounts): each open step asks Alvin to help with it */}
+      {showSuggestions && setup.some((s) => !s.done) && (
+        <div className="px-[14px] pb-[12px] shrink-0" data-name="AlvinSetup">
+          <div className="rounded-[14px] border border-[#e0deff] bg-[#faf9ff] px-[12px] py-[10px]">
+            <div className="flex items-baseline justify-between gap-[8px]">
+              <p className="text-[12.5px] font-semibold text-[#101828]">Let's get you set up</p>
+              <span className="text-[11px] text-[#6a7282] tabular-nums">
+                {setup.filter((s) => s.done).length} of {setup.length} done
+              </span>
+            </div>
+            <ul className="mt-[6px] flex flex-col gap-[2px]">
+              {setup.map((step) => (
+                <li key={step.key}>
+                  {step.done ? (
+                    <span className="flex items-center gap-[8px] py-[4px] text-[12px] text-[#99a1af] line-through">
+                      <span className="size-[16px] rounded-full bg-[#00c950] flex items-center justify-center shrink-0" aria-hidden="true">
+                        <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12l5 5L20 7" /></svg>
+                      </span>
+                      {step.label}
+                    </span>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => send(step.ask)}
+                      className="group w-full flex items-center gap-[8px] py-[4px] text-left text-[12px] font-medium text-[#1e2939] hover:text-[#6c60ff] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#6c60ff] rounded-[6px]"
+                    >
+                      <span className="size-[16px] rounded-full border-[1.5px] border-[#c9c3ff] shrink-0" aria-hidden="true" />
+                      <span className="flex-1">{step.label}</span>
+                      <span aria-hidden="true" className="text-[#8b7bff] group-hover:translate-x-[2px] transition-transform">→</span>
+                    </button>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      )}
+
       {/* Suggested questions */}
-      {showSuggestions && (
+      {showSuggestions && !setup.some((s) => !s.done) && (
         <div className="flex flex-col items-start gap-[6.5px] px-[14px] pb-[12px] shrink-0">
           {starterQuestions.map((s) => (
             <button

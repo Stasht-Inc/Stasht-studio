@@ -18,6 +18,7 @@ import { MemoryLimitDialog } from "./MemoryLimitDialog";
 import { useUploadProgress } from "../contexts/UploadProgressContext";
 import { useSyncProgress } from "../contexts/SyncProgressContext";
 import { useProperty } from "../contexts/PropertyContext";
+import useAlvinEnabled, { openAlvin } from './alvin/useAlvinEnabled';
 
 // Navigation item component
 function NavItem({
@@ -272,6 +273,7 @@ export default function Sidebar({
   const [showMemoryLimitAlert, setShowMemoryLimitAlert] = useState(false);
   const [showCreateMemory, setShowCreateMemory] = useState(false);
   const [videoStep, setVideoStep] = useState<number | null>(null);
+  const alvinOn = useAlvinEnabled();
   const [watchedSteps, setWatchedSteps] = useState<number[]>(() => {
     try { return JSON.parse(localStorage.getItem('stasht_watched_videos') || '[]'); } catch { return []; }
   });
@@ -605,6 +607,11 @@ export default function Sidebar({
     }
   };
 
+  // With Alvin on, each step's help is "Ask Alvin" (its answer includes the same tutorial video)
+  // instead of the video on its own; the questions match Alvin's own "Getting started" checklist.
+  const askAlvin = (question: string, step: number, done: boolean) =>
+    done ? undefined : { text: 'Ask Alvin', onClick: () => openAlvin(question), step };
+
   // Get Started tasks based on real user activity
   const getStartedTasks = [
     {
@@ -616,7 +623,7 @@ export default function Sidebar({
         text: "Upload Now",
         onClick: () => handleNavigation('media')
       },
-      secondaryAction: (memoryCounts?.total_memory_images || 0) > 0 || watchedSteps.includes(1) ? undefined : {
+      secondaryAction: alvinOn ? askAlvin('How do I upload photos and videos?', 1, (memoryCounts?.total_memory_images || 0) > 0) : (memoryCounts?.total_memory_images || 0) > 0 || watchedSteps.includes(1) ? undefined : {
         text: "Watch Video",
         onClick: () => setVideoStep(1)
       }
@@ -639,7 +646,7 @@ export default function Sidebar({
           }
         }
       },
-      secondaryAction: (memoryCounts?.total_memories || 0) > 0 || watchedSteps.includes(2) ? undefined : {
+      secondaryAction: alvinOn ? askAlvin('Help me create my first campaign.', 2, (memoryCounts?.total_memories || 0) > 0) : (memoryCounts?.total_memories || 0) > 0 || watchedSteps.includes(2) ? undefined : {
         text: "Watch Video",
         onClick: () => setVideoStep(2)
       }
@@ -653,7 +660,7 @@ export default function Sidebar({
         text: "Invite Now",
         onClick: () => handleNavigation('memories')
       },
-      secondaryAction: (memoryCounts?.active_collaborators || 0) > 0 || watchedSteps.includes(3) ? undefined : {
+      secondaryAction: alvinOn ? askAlvin('Help me invite a team member.', 3, (memoryCounts?.active_collaborators || 0) > 0) : (memoryCounts?.active_collaborators || 0) > 0 || watchedSteps.includes(3) ? undefined : {
         text: "Watch Video",
         onClick: () => setVideoStep(3)
       }
@@ -676,7 +683,7 @@ export default function Sidebar({
         text: "Choose Campaign",
         onClick: () => handleNavigation('memories')
       },
-      secondaryAction: (memoryCounts?.published_memories || 0) > 0 || watchedSteps.includes(4) ? undefined : {
+      secondaryAction: alvinOn ? askAlvin('How do I publish and share a campaign?', 4, (memoryCounts?.published_memories || 0) > 0) : (memoryCounts?.published_memories || 0) > 0 || watchedSteps.includes(4) ? undefined : {
         text: "Watch Video",
         onClick: () => setVideoStep(4)
       }

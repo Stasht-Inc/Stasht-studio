@@ -2631,8 +2631,7 @@ function AppPreferences({ sectionRef, isEditing, onEditToggle }: {
     language: 'English (US)',
     dateFormat: 'MM/DD/YYYY',
     timezone: 'Eastern Time',
-    autoSave: true,
-    showTutorials: true
+    autoSave: true
   });
 
   const handleSave = () => {
@@ -2647,8 +2646,7 @@ function AppPreferences({ sectionRef, isEditing, onEditToggle }: {
       language: 'English (US)',
       dateFormat: 'MM/DD/YYYY',
       timezone: 'Eastern Time',
-      autoSave: true,
-      showTutorials: true
+      autoSave: true
     });
   };
 
@@ -2742,24 +2740,6 @@ function AppPreferences({ sectionRef, isEditing, onEditToggle }: {
             </button>
           </div>
 
-          <div className="flex items-center justify-between">
-            <div>
-              <h3 className="text-base font-medium text-gray-900">Show Tutorials</h3>
-              <p className="text-sm text-gray-600">Display helpful tutorials and tips</p>
-            </div>
-            <button
-              onClick={() => setSettings(prev => ({...prev, showTutorials: !prev.showTutorials}))}
-              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                settings.showTutorials ? 'bg-[#6C60FF]' : 'bg-gray-200'
-              }`}
-            >
-              <span
-                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                  settings.showTutorials ? 'translate-x-6' : 'translate-x-1'
-                }`}
-              />
-            </button>
-          </div>
         </div>
 
         <div className="flex gap-3 pt-4">

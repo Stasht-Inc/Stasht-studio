@@ -9,7 +9,8 @@ import EnhancedSearch from "./EnhancedSearch";
 import { NotificationDropdown } from "./NotificationDropdown";
 import AlvinButton from "./alvin/AlvinButton";
 import AlvinPanel from "./alvin/AlvinPanel";
-import useAlvinEnabled from "./alvin/useAlvinEnabled";
+import { useAlvinStatus } from "./alvin/useAlvinEnabled";
+import AlvinIntroPopover, { introSeen } from "./alvin/AlvinIntroPopover";
 import { Upload, RefreshCw } from "lucide-react";
 import { useProperty } from "../contexts/PropertyContext";
 
@@ -460,11 +461,21 @@ export default function InteractiveNav({
 }) {
   const [searchQuery, setSearchQuery] = useState("");
   const [alvinOpen, setAlvinOpen] = useState(false);
-  const alvinEnabled = useAlvinEnabled();
+  const alvinStatus = useAlvinStatus();
+  const alvinEnabled = alvinStatus.enabled;
+  // A question to ask as Alvin opens (e.g. from the Get Started checklist).
+  const [alvinAsk, setAlvinAsk] = useState<string | null>(null);
+  const alvinUserId = user?.external_user_id ?? user?.id;
+  const [introDone, setIntroDone] = useState(false);
+  const showIntro = alvinEnabled && !alvinStatus.hasUsed && !introDone && !alvinOpen && !introSeen(alvinUserId);
 
   // The account menu's "Alvin AI" item opens the panel.
   useEffect(() => {
-    const open = () => setAlvinOpen(true);
+    const open = (e: Event) => {
+      const ask = (e as CustomEvent<{ ask?: string } | undefined>).detail?.ask;
+      if (ask) setAlvinAsk(ask);
+      setAlvinOpen(true);
+    };
     window.addEventListener('alvin-open', open);
     return () => window.removeEventListener('alvin-open', open);
   }, []);
@@ -594,8 +605,22 @@ export default function InteractiveNav({
         </div>
       </div>
 
+      {showIntro && (
+        <AlvinIntroPopover
+          userId={alvinUserId}
+          onTry={() => {
+            setIntroDone(true);
+            setAlvinOpen(true);
+          }}
+          onDone={() => setIntroDone(true)}
+        />
+      )}
+
       {alvinEnabled && <AlvinPanel
         open={alvinOpen}
+        ask={alvinAsk}
+        onAsked={() => setAlvinAsk(null)}
+        setup={alvinStatus.setup}
         onClose={() => {
           setAlvinOpen(false);
           // Hand keyboard focus back to the button that opened Alvin.
