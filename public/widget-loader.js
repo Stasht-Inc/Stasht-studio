@@ -7,7 +7,8 @@
 
   // Front end only (Chris, 2026-10-06): a site whose admin pages share the template the snippet was
   // pasted into must not get the widget there. Checked before anything else: no frame, no request.
-  // Per-widget pages ("Don't show on these pages") are checked by the embed, which has the config.
+  // Which other pages show it (the home page, plus the widget's "Also show on these pages") is
+  // checked by the embed, which has the config: it gets this page's path as ?path= below.
   // <admin-skip> Copied verbatim from widget-core.js (tests/widget/widget-paths.test.mjs checks they match).
   var ADMIN_PATH_SEGMENTS = ['admin', 'wp-admin', 'administrator', 'wp-login.php'];
 

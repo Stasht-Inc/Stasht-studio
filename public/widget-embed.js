@@ -18,7 +18,7 @@ import {
   autoReplyAnchor, firstServerError, chatOpenHeaderValue, CHAT_MAX_FILES,
   TYPING_DELAY_MS, AI_NOTICE, aiNoticeBefore, campaignCardText, bodyWithoutLink, joinedText, repJoinedBefore,
   POWERED_BY_URL, STASHT_MARK_VIEWBOX, STASHT_MARK_PATH, linkParts, linkTarget, shouldReopenChat,
-  hitRectFor, HIT_RECTS_MAX, pathHidden,
+  hitRectFor, HIT_RECTS_MAX, pathShown,
   hasContactChoice, contactMethodLabel, fieldsForMethod, submissionValues, DEFAULT_CONTACT_METHOD, CONTACT_METHODS,
   CONTACT_CHOICE_LEGEND,
 } from './widget-core.js';
@@ -987,9 +987,10 @@ async function init() {
     return tell('hide');
   }
 
-  // "Don't show on these pages": the loader passes the host page's path; on a match the loader
-  // removes the frame. The frame is still hidden and zero-sized here, so nothing flashes.
-  if (pathHidden(params.get('path'), state.config.hidden_paths)) return tell('hide');
+  // Home page plus "Also show on these pages" (owner decision 2026-10-15): the loader passes the host
+  // page's path; anywhere else the loader removes the frame. The frame is still hidden and
+  // zero-sized here, so nothing flashes. An API that predates shown_paths sends none: home page only.
+  if (!pathShown(params.get('path'), state.config.shown_paths)) return tell('hide');
 
   const style = document.documentElement.style;
   style.setProperty('--brand', safeColor(state.config.theme?.primary_color));
