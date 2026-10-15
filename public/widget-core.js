@@ -708,20 +708,41 @@ function isAdminPath(pathname) {
 // </admin-skip>
 export { ADMIN_PATH_SEGMENTS, isAdminPath };
 
-// 2. Each widget's "Don't show on these pages" list (config.hidden_paths): "/checkout",
-//    "/account/*". Rules match the server's WidgetHiddenPaths and the builder's hiddenPathsProblem.
-export const HIDDEN_PATHS_MAX = 20;
-export const HIDDEN_PATH_LENGTH_MAX = 200;
+// 2. Owner decision 2026-10-15 (ClickUp wdy2xh28hp), replacing "Don't show on these pages": a widget
+//    shows on its website's home page only, plus the pages in its "Also show on these pages" list
+//    (config.shown_paths): "/contact", or "/inventory/*" for a whole section. Rules match the
+//    server's WidgetShownPaths and the builder's shownPathFromInput (components/widgets/widgetHelpers.ts).
+//    The old config.hidden_paths is ignored.
+export const SHOWN_PATHS_MAX = 20;
+export const SHOWN_PATH_LENGTH_MAX = 200;
 
 const withoutTrailingSlash = (p) => (p.length > 1 ? p.replace(/\/+$/, '') || '/' : p);
 const escapeRegex = (s) => s.replace(/[.+?^${}()|[\]\\]/g, '\\$&');
 
+/** The path and, when it differs, its percent-decoded form, each without a trailing slash. */
+function pathCandidates(path) {
+  const candidates = [withoutTrailingSlash(path)];
+  try {
+    const decoded = withoutTrailingSlash(decodeURIComponent(path));
+    if (decoded !== candidates[0]) candidates.push(decoded);
+  } catch { /* malformed escape: raw path only */ }
+  return candidates;
+}
+
+const HOME_PAGE = /^\/(?:index\.(?:html?|php))?$/i;
+
+/** "/", "/index.html", "/index.htm" or "/index.php" (any case, trailing slash ignored). */
+export function isHomePath(path) {
+  if (typeof path !== 'string' || !path.startsWith('/')) return false;
+  return pathCandidates(path).some((c) => HOME_PAGE.test(c));
+}
+
 /** A pattern as a whole-path, case-insensitive regex; null for an entry that can't be a page address. */
-function hiddenPathRegex(raw) {
+function pagePatternRegex(raw) {
   if (typeof raw !== 'string') return null;
   const pattern = withoutTrailingSlash(raw.trim());
-  if (!pattern.startsWith('/') || pattern.length > HIDDEN_PATH_LENGTH_MAX) return null;
-  // "/account/*" also covers "/account" itself: hiding a section should hide its front page too.
+  if (!pattern.startsWith('/') || pattern.length > SHOWN_PATH_LENGTH_MAX) return null;
+  // "/inventory/*" also covers "/inventory" itself: a section includes its own front page.
   if (pattern.length > 2 && pattern.endsWith('/*')) {
     return new RegExp('^' + pattern.slice(0, -2).split('*').map(escapeRegex).join('.*') + '(?:/.*)?$', 'i');
   }
@@ -729,20 +750,29 @@ function hiddenPathRegex(raw) {
   return new RegExp('^' + pattern.split('*').map(escapeRegex).join('.*') + '$', 'i');
 }
 
-/**
- * True when the host page's path (location.pathname, passed by the loader as ?path=) matches one of
- * the widget's hidden_paths. Whole path, case-insensitive, a trailing slash ignored; the path is also
- * tried percent-decoded ("/caf%C3%A9" matches "/café"). No path (an older cached loader) never hides.
- */
-export function pathHidden(path, patterns) {
+/** True when the path matches one of the patterns: whole path, case-insensitive, trailing slash ignored, raw or decoded. */
+export function pathMatchesAny(path, patterns) {
   if (typeof path !== 'string' || !path.startsWith('/') || !Array.isArray(patterns)) return false;
-  const candidates = [withoutTrailingSlash(path)];
-  try {
-    const decoded = withoutTrailingSlash(decodeURIComponent(path));
-    if (decoded !== candidates[0]) candidates.push(decoded);
-  } catch { /* malformed escape: raw path only */ }
+  const candidates = pathCandidates(path);
   return patterns.some((raw) => {
-    const re = hiddenPathRegex(raw);
+    const re = pagePatternRegex(raw);
     return !!re && candidates.some((c) => re.test(c));
   });
+}
+
+/**
+ * Should the widget show on the host page whose path (location.pathname) the loader passed as ?path=?
+ * - Admin pages: never, even when listed (the loader already skips them; this is the backstop).
+ * - The home page: always.
+ * - Any other page: only when it matches one of the widget's shown_paths.
+ * - No usable path: shown (fail open). Every loader since 2026-10-06 passes ?path=, and
+ *   widget-loader.js is served with a 5-minute cache (public/.htaccess), so a request without it can
+ *   only come from a loader copy someone saved and hosts themselves. Hiding there would make the
+ *   widget vanish everywhere with no way for the owner to tell why; showing keeps the old behaviour.
+ */
+export function pathShown(path, patterns) {
+  if (typeof path !== 'string' || !path.startsWith('/')) return true;
+  if (isAdminPath(path)) return false;
+  if (isHomePath(path)) return true;
+  return pathMatchesAny(path, patterns);
 }

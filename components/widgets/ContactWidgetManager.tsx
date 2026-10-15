@@ -20,7 +20,7 @@ import {
   DEFAULT_BRAND, DEFAULT_CALLOUT, DEFAULT_WELCOME, DEFAULT_FORM_FIELD_SETTINGS, FORM_FIELD_KEYS, FORM_FIELD_LABEL_MAX, FORM_FIELD_NAMES, WELCOME_MAX, copyText,
   formCanReply, installSnippet, isContactChoice, withFormFieldChange, CONTACT_CHOICE_NOTE, isHexColor, isPlausibleDomain, normalizeDomain, resolveFormFields, safeColor,
   safeHttpsUrl, squareAvatarDataUrl,
-  AI_NOTES_MAX, DEFAULT_WEEK_HOURS, weekFromApi, weekProblem, weekToApi, hiddenPathsFromText, hiddenPathsProblem,
+  AI_NOTES_MAX, DEFAULT_WEEK_HOURS, weekFromApi, weekProblem, weekToApi, shownPathFromInput, shownPathsProblem, withShownPath, SHOWN_PATHS_MAX,
 } from './widgetHelpers';
 
 const BRAND = '#6C60FF';
@@ -48,7 +48,9 @@ interface FormState extends AfterHoursValue {
   logoUrl: string;
   position: WidgetBubblePosition;
   domains: string[];
-  hiddenPaths: string; // "Don't show on these pages" textarea, one page address per line
+  // "Also show on these pages" (owner decision 2026-10-15): page addresses ("/contact",
+  // "/inventory/*") besides the home page, where the widget always shows.
+  shownPaths: string[];
   status: WidgetStatus;
   formFields: FormFieldSettings;
   propertyId: number | null; // the dealership whose team takes over leads; null = only the owner
@@ -66,7 +68,7 @@ const emptyForm: FormState = {
   logoUrl: '',
   position: 'bottom-right',
   domains: [],
-  hiddenPaths: '',
+  shownPaths: [],
   status: 'draft',
   formFields: resolveFormFields(null),
   propertyId: null,
@@ -96,7 +98,7 @@ function formFromWidget(w: ContactWidget): FormState {
     logoUrl: w.theme?.logo_url || '',
     position: w.theme?.bubble_position === 'bottom-left' ? 'bottom-left' : 'bottom-right',
     domains: [...(w.allowed_domains || [])],
-    hiddenPaths: (w.hidden_paths || []).join('\n'),
+    shownPaths: [...(w.shown_paths || [])],
     status: w.status || 'draft',
     formFields: resolveFormFields(w.form_fields),
     propertyId: w.property_id ?? null,
@@ -113,7 +115,7 @@ function formFromWidget(w: ContactWidget): FormState {
 // withRecipients: true only once lead_recipients has actually been loaded for this widget (the
 // widget list/index response doesn't include it). Absent data must never be sent as "everyone
 // ticked" — that would silently clear whatever the owner had already unticked.
-function inputFromForm(f: FormState, domains: string[], withTeam: boolean, withRecipients: boolean): ContactWidgetInput {
+function inputFromForm(f: FormState, domains: string[], shownPaths: string[], withTeam: boolean, withRecipients: boolean): ContactWidgetInput {
   return {
     ...(withTeam ? { property_id: f.propertyId } : {}),
     ...(withRecipients ? { excluded_recipients: f.excludedRecipients } : {}),
@@ -128,7 +130,7 @@ function inputFromForm(f: FormState, domains: string[], withTeam: boolean, withR
       bubble_position: f.position,
     },
     allowed_domains: domains,
-    hidden_paths: hiddenPathsFromText(f.hiddenPaths),
+    shown_paths: shownPaths,
     form_fields: Object.fromEntries(FORM_FIELD_KEYS.map((k) => [k, { ...f.formFields[k], label: f.formFields[k].label.trim() }])),
     // AI assistant + business hours (spec 2026-09-29 part 2 §2). The AI answers at any hour; hours only tell visitors when the team is in.
     business_hours: f.hoursOn ? weekToApi(f.hours) : null,
@@ -242,6 +244,8 @@ function WidgetBuilder({
   const [form, setForm] = useState<FormState>(baseline);
   const [domainInput, setDomainInput] = useState('');
   const [domainError, setDomainError] = useState('');
+  const [pageInput, setPageInput] = useState('');
+  const [pageError, setPageError] = useState('');
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
@@ -299,8 +303,8 @@ function WidgetBuilder({
   }, [user, form.logoUrl]);
 
   const dirty = useMemo(
-    () => JSON.stringify(form) !== JSON.stringify(baseline) || domainInput.trim() !== '',
-    [form, baseline, domainInput],
+    () => JSON.stringify(form) !== JSON.stringify(baseline) || domainInput.trim() !== '' || pageInput.trim() !== '',
+    [form, baseline, domainInput, pageInput],
   );
   useEffect(() => { onDirtyChange(dirty); }, [dirty, onDirtyChange]);
   useEffect(() => () => onDirtyChange(false), [onDirtyChange]);
@@ -311,7 +315,7 @@ function WidgetBuilder({
       const map: Record<string, string> = {
         name: 'name', agentName: 'agent_name', calloutText: 'callout_text', welcomeSubtext: 'welcome_subtext',
         primaryColor: 'theme.primary_color', logoUrl: 'theme.logo_url', position: 'theme.bubble_position',
-        domains: 'allowed_domains', hiddenPaths: 'hidden_paths', status: 'status', formFields: 'form_fields', propertyId: 'property_id',
+        domains: 'allowed_domains', shownPaths: 'shown_paths', status: 'status', formFields: 'form_fields', propertyId: 'property_id',
         excludedRecipients: 'excluded_recipients',
         hoursOn: 'business_hours', hours: 'business_hours', timezone: 'timezone', aiEnabled: 'ai_enabled', aiNotes: 'faq_notes',
       };
@@ -362,7 +366,37 @@ function WidgetBuilder({
     setDomainInput('');
   };
 
-  const validate = (): Record<string, string> => {
+  // Returns the page list including anything typed but not yet added; null if the pending text can't be added.
+  const addPage = (raw: string, current: string[], domains: string[]): string[] | null => {
+    if (!raw.trim()) return current;
+    const result = shownPathFromInput(raw, domains);
+    if (result.error !== undefined) {
+      setPageError(result.error);
+      return null;
+    }
+    const next = withShownPath(current, result.path);
+    if (next.length > SHOWN_PATHS_MAX) {
+      setPageError(`You can list up to ${SHOWN_PATHS_MAX} pages.`);
+      return null;
+    }
+    setPageError('');
+    return next;
+  };
+
+  // A pasted link is checked against the domains above, including one typed there but not yet added.
+  const domainsForPages = (): string[] => {
+    const pending = normalizeDomain(domainInput);
+    return pending && isPlausibleDomain(pending) && !form.domains.includes(pending) ? [...form.domains, pending] : form.domains;
+  };
+
+  const commitPage = () => {
+    const next = addPage(pageInput, form.shownPaths, domainsForPages());
+    if (next === null) return;
+    set('shownPaths', next);
+    setPageInput('');
+  };
+
+  const validate = (shownPaths: string[]): Record<string, string> => {
     const e: Record<string, string> = {};
     if (!form.name.trim()) e.name = 'Give the widget a name.';
     if (form.primaryColor.trim() && !isHexColor(form.primaryColor)) e['theme.primary_color'] = 'Use a hex color like #2f5fac.';
@@ -380,8 +414,8 @@ function WidgetBuilder({
       if (hoursProblem) e.business_hours = hoursProblem;
       if (!form.timezone) e.timezone = 'Choose the timezone your business hours are in.';
     }
-    const hiddenProblem = hiddenPathsProblem(hiddenPathsFromText(form.hiddenPaths));
-    if (hiddenProblem) e.hidden_paths = hiddenProblem;
+    const pagesProblem = shownPathsProblem(shownPaths);
+    if (pagesProblem) e.shown_paths = pagesProblem;
     if (form.aiNotes.length > AI_NOTES_MAX) e.faq_notes = 'Notes for the AI can be up to 2,000 characters.';
     return e;
   };
@@ -390,7 +424,9 @@ function WidgetBuilder({
     if (saving) return;
     const domains = addDomain(domainInput, form.domains);
     if (domains === null) return;
-    const clientErrors = validate();
+    const shownPaths = addPage(pageInput, form.shownPaths, domains);
+    if (shownPaths === null) return;
+    const clientErrors = validate(shownPaths);
     setErrors(clientErrors);
     if (Object.keys(clientErrors).length) {
       toast.error('Please fix the highlighted fields.');
@@ -398,7 +434,7 @@ function WidgetBuilder({
     }
 
     setSaving(true);
-    const payload = inputFromForm(form, domains, propertyId != null || teamOptions.length > 0, !!saved?.lead_recipients);
+    const payload = inputFromForm(form, domains, shownPaths, propertyId != null || teamOptions.length > 0, !!saved?.lead_recipients);
     const res = saved ? await widgetsAPI.update(saved.id, payload) : await widgetsAPI.create(payload);
     setSaving(false);
 
@@ -415,6 +451,8 @@ function WidgetBuilder({
     setForm(formFromWidget(res.data));
     setDomainInput('');
     setDomainError('');
+    setPageInput('');
+    setPageError('');
     setErrors({});
     // Any successful save sends the manager back to the list (this builder unmounts). A new widget
     // gets its own toast there; an update keeps this one.
@@ -442,6 +480,16 @@ function WidgetBuilder({
       commitDomain();
     } else if (e.key === 'Backspace' && !domainInput && form.domains.length) {
       set('domains', form.domains.slice(0, -1));
+    }
+  };
+
+  const onPageKey = (e: ReactKeyboardEvent<HTMLInputElement>) => {
+    // Enter only: commas can be part of a page address.
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      commitPage();
+    } else if (e.key === 'Backspace' && !pageInput && form.shownPaths.length) {
+      set('shownPaths', form.shownPaths.slice(0, -1));
     }
   };
 
@@ -849,23 +897,57 @@ function WidgetBuilder({
             </div>
 
             <div>
-              <label htmlFor={id('hidden-paths')} className="block text-sm font-medium text-gray-800 mb-1.5">Don't show on these pages</label>
-              <textarea
-                id={id('hidden-paths')}
-                value={form.hiddenPaths}
-                rows={3}
-                onChange={(e) => set('hiddenPaths', e.target.value)}
-                placeholder={'/checkout\n/account/*'}
-                autoCapitalize="none"
-                spellCheck={false}
-                aria-invalid={!!errors.hidden_paths}
-                aria-describedby={id('hidden-paths-help') + (errors.hidden_paths ? ' ' + id('hidden-paths-err') : '')}
-                className={inputClass + ' resize-y' + (errors.hidden_paths ? errorInputClass : '')}
-              />
-              <p id={id('hidden-paths-help')} className="text-xs text-gray-400 mt-1">
-                One page address per line, e.g. /checkout or /account/*. The widget never shows on admin pages (/admin, <span className="whitespace-nowrap">/wp-admin</span>).
+              <label htmlFor={id('page')} className="block text-sm font-medium text-gray-800 mb-1.5">Also show on these pages</label>
+              {form.shownPaths.length > 0 && (
+                <ul className="flex flex-wrap gap-2 mb-2" aria-label="Also show on these pages">
+                  {form.shownPaths.map((p) => (
+                    <li key={p} className="inline-flex items-center gap-1.5 max-w-full bg-[#6C60FF]/10 text-[#4a40d4] rounded-full pl-3 pr-1.5 py-1 text-sm font-medium">
+                      <span className="min-w-0 break-all">{p}</span>
+                      <button
+                        type="button"
+                        aria-label={`Remove ${p}`}
+                        onClick={() => set('shownPaths', form.shownPaths.filter((x) => x !== p))}
+                        className="w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 hover:bg-[#6C60FF]/20"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <div className="flex gap-2">
+                <input
+                  id={id('page')}
+                  type="text"
+                  inputMode="url"
+                  value={pageInput}
+                  onChange={(e) => { setPageInput(e.target.value); if (pageError) setPageError(''); }}
+                  onKeyDown={onPageKey}
+                  onBlur={() => { if (pageInput.trim()) commitPage(); }}
+                  placeholder={form.domains[0] ? `${form.domains[0]}/contact` : 'example.com/contact'}
+                  autoCapitalize="none"
+                  spellCheck={false}
+                  aria-invalid={!!(pageError || errors.shown_paths)}
+                  aria-describedby={id('page-help') + ((pageError || errors.shown_paths) ? ' ' + id('page-err') : '')}
+                  className={inputClass + ((pageError || errors.shown_paths) ? errorInputClass : '')}
+                />
+                {/* Turns purple once something is typed, so it's clear the page still needs adding. */}
+                <button
+                  type="button"
+                  onClick={commitPage}
+                  className={`inline-flex items-center gap-1.5 px-4 rounded-xl border text-sm font-medium flex-shrink-0 transition-colors ${
+                    pageInput.trim()
+                      ? 'border-transparent bg-[#6C60FF] text-white hover:bg-[#5A4FE5]'
+                      : 'border-gray-200 text-gray-700 hover:bg-gray-50'
+                  }`}
+                >
+                  <Plus className="w-4 h-4" /> Add
+                </button>
+              </div>
+              <p id={id('page-help')} className="text-xs text-gray-400 mt-1">
+                The widget shows on your home page. Add any other pages where it should also appear, e.g. example.com/contact, or example.com/inventory/* for a whole section. Press Enter to add each one. It never shows on admin pages.
               </p>
-              <FieldError id={id('hidden-paths-err')} message={errors.hidden_paths} />
+              <FieldError id={id('page-err')} message={pageError || errors.shown_paths} />
             </div>
 
             {propertyId != null ? (
