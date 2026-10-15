@@ -109,3 +109,34 @@ export function splitPrefillPhone(raw: string, defaultCode = '+1'): { countryCod
   if (SUPPORTED_DIAL_CODES.includes(parsed.countryCode)) return { countryCode: parsed.countryCode, number: parsed.number };
   return { countryCode: defaultCode, number: `${parsed.countryCode}${parsed.number}` };
 }
+
+/**
+ * Whether a collaborator phone (country code + national number) is complete
+ * enough to add — the same rule the mobile app's Create Campaign form uses:
+ * North America (+1) needs exactly 10 digits after the code, other codes
+ * 6–15. Separators are ignored, and a typed leading "1" (+1) or trunk "0"
+ * (other codes) is dropped first, as toE164 does. A full international number
+ * typed into the box ("+44 7911…") is checked against its own code; one whose
+ * code the selector doesn't offer falls back to isPlausibleSplitPhone.
+ */
+export function isValidCollaboratorPhone(countryCode: string, national: string): boolean {
+  const raw = (national || '').trim();
+  if (raw.startsWith('+')) {
+    const split = splitTypedPhone(countryCode, raw);
+    if (split.number !== raw) return isValidCollaboratorPhone(split.countryCode, split.number);
+    return isPlausibleSplitPhone(countryCode, raw);
+  }
+  const e164 = toE164(countryCode, raw);
+  if (!e164) return false;
+  const nationalDigits = e164.length - 1 - countryCode.replace(/\D/g, '').length;
+  return countryCode === '+1' ? nationalDigits === 10 : nationalDigits >= 6 && nationalDigits <= 15;
+}
+
+/**
+ * The value stored for a collaborator added by phone: the E.164 form of what
+ * was typed, with a pasted "+<code>" moved onto the number's own code.
+ */
+export function collaboratorPhoneValue(countryCode: string, national: string): string {
+  const split = splitTypedPhone(countryCode, national);
+  return toE164(split.countryCode, split.number);
+}
