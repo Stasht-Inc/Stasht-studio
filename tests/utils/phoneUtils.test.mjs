@@ -2,7 +2,7 @@
 // Imports the TypeScript source directly — needs Node >= 22.18 (built-in type stripping).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parsePhonePrefill, splitPrefillPhone, splitTypedPhone, toE164, isPlausibleSplitPhone } from '../../utils/phoneUtils.ts';
+import { parsePhonePrefill, splitPrefillPhone, splitTypedPhone, toE164, isPlausibleSplitPhone, isValidCollaboratorPhone, collaboratorPhoneValue } from '../../utils/phoneUtils.ts';
 
 test('parsePhonePrefill splits stored numbers for a split field', () => {
   assert.deepEqual(parsePhonePrefill('+12892211807'), { countryCode: '+1', number: '2892211807' });
@@ -68,4 +68,36 @@ test('splitPrefillPhone always yields a code the selector offers', () => {
   const ru = splitPrefillPhone('+79123456789');
   assert.deepEqual(ru, { countryCode: '+1', number: '+79123456789' });
   assert.equal(toE164(ru.countryCode, ru.number), '+79123456789');
+});
+
+test('isValidCollaboratorPhone: +1 needs exactly 10 digits', () => {
+  assert.equal(isValidCollaboratorPhone('+1', '289221180'), false);
+  assert.equal(isValidCollaboratorPhone('+1', '2892211807'), true);
+  assert.equal(isValidCollaboratorPhone('+1', '(289) 221-1807'), true);
+  assert.equal(isValidCollaboratorPhone('+1', '1 289 221 1807'), true); // leading 1 dropped
+  assert.equal(isValidCollaboratorPhone('+1', '28922118071'), false);
+  assert.equal(isValidCollaboratorPhone('+1', ''), false);
+  assert.equal(isValidCollaboratorPhone('+1', '   '), false);
+});
+
+test('isValidCollaboratorPhone: other codes accept 6–15 digits', () => {
+  assert.equal(isValidCollaboratorPhone('+44', '12345'), false);
+  assert.equal(isValidCollaboratorPhone('+44', '123456'), true);
+  assert.equal(isValidCollaboratorPhone('+44', '07911 123456'), true); // trunk 0 dropped
+  assert.equal(isValidCollaboratorPhone('+91', '9876543210'), true);
+  assert.equal(isValidCollaboratorPhone('+91', '1234567890123456'), false);
+});
+
+test('isValidCollaboratorPhone: a typed international number uses its own code', () => {
+  assert.equal(isValidCollaboratorPhone('+44', '+12892211807'), true);
+  assert.equal(isValidCollaboratorPhone('+44', '+1289221180'), false);
+  assert.equal(isValidCollaboratorPhone('+1', '+44 7911 123456'), true);
+  assert.equal(isValidCollaboratorPhone('+1', '+'), false);
+  assert.equal(isValidCollaboratorPhone('+1', '+7 912 345 6789'), true); // unsupported code: plausibility only
+});
+
+test('collaboratorPhoneValue stores E.164', () => {
+  assert.equal(collaboratorPhoneValue('+1', '(289) 221-1807'), '+12892211807');
+  assert.equal(collaboratorPhoneValue('+44', '07911 123456'), '+447911123456');
+  assert.equal(collaboratorPhoneValue('+1', '+44 7911 123456'), '+447911123456');
 });
