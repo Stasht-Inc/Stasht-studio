@@ -22,7 +22,7 @@ export function introSeen(userId: string | number | undefined): boolean {
   }
 }
 
-function markSeen(userId: string | number | undefined) {
+export function markSeen(userId: string | number | undefined) {
   try {
     localStorage.setItem(introSeenKey(userId), '1');
   } catch {
@@ -32,7 +32,8 @@ function markSeen(userId: string | number | undefined) {
 
 type Spot = { top: number; right: number; arrowRight: number };
 
-function anchor(): Spot {
+/** Where to point, or null when there's nothing visible to point at (e.g. the header is hidden). */
+function anchor(): Spot | null {
   const button = document.querySelector<HTMLElement>('[data-name="AlvinAIButton"]');
   const rect = button && button.offsetParent !== null ? button.getBoundingClientRect() : null;
   const width = window.innerWidth;
@@ -41,7 +42,9 @@ function anchor(): Spot {
     return { top: rect.bottom + 12, right, arrowRight: Math.max(16, width - right - rect.left - rect.width / 2 - 7) };
   }
   // Phones: Alvin is in the account menu, under the avatar at the top right.
-  return { top: 72, right: 12, arrowRight: 22 };
+  const header = document.querySelector<HTMLElement>('[data-name="Main Nav"]');
+  if (!header || header.offsetParent === null) return null;
+  return { top: header.getBoundingClientRect().bottom - 8, right: 12, arrowRight: 22 };
 }
 
 export default function AlvinIntroPopover({ userId, onTry, onDone }: { userId?: string | number; onTry: () => void; onDone: () => void }) {
@@ -49,12 +52,20 @@ export default function AlvinIntroPopover({ userId, onTry, onDone }: { userId?: 
   const phone = typeof window !== 'undefined' && window.matchMedia('(max-width: 767px)').matches;
 
   useEffect(() => {
-    // A moment after Studio opens, so it doesn't land on top of the page still loading.
-    const t = window.setTimeout(() => setSpot(anchor()), 1200);
+    // A moment after Studio opens, so it doesn't land on top of the page still loading; and not
+    // over another open window (it waits until that closes).
+    const t = window.setInterval(() => {
+      if (document.querySelector('[role="dialog"][aria-modal="true"], [data-state="open"][role="dialog"]')) return;
+      const s = anchor();
+      if (s) {
+        setSpot(s);
+        window.clearInterval(t);
+      }
+    }, 1200);
     const onResize = () => setSpot((s) => (s ? anchor() : s));
     window.addEventListener('resize', onResize);
     return () => {
-      window.clearTimeout(t);
+      window.clearInterval(t);
       window.removeEventListener('resize', onResize);
     };
   }, []);
@@ -71,7 +82,7 @@ export default function AlvinIntroPopover({ userId, onTry, onDone }: { userId?: 
   useEffect(() => {
     if (!spot) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') close();
+      if (e.key === 'Escape' && !e.defaultPrevented) close();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -83,6 +94,7 @@ export default function AlvinIntroPopover({ userId, onTry, onDone }: { userId?: 
     <div
       role="dialog"
       aria-labelledby="alvin-intro-title"
+      aria-describedby="alvin-intro-body"
       data-name="AlvinIntroPopover"
       className="fixed z-[8500] w-[300px] max-w-[calc(100vw-24px)] rounded-[16px] border border-[#ede9ff] bg-white shadow-[0px_8px_40px_0px_rgba(108,96,255,0.22),0px_2px_12px_0px_rgba(0,0,0,0.1)]"
       style={{ top: spot.top, right: spot.right }}
@@ -107,7 +119,7 @@ export default function AlvinIntroPopover({ userId, onTry, onDone }: { userId?: 
           </span>
           <p id="alvin-intro-title" className="text-[14px] leading-[18px] font-semibold text-[#101828]">Meet Alvin, your AI assistant</p>
         </div>
-        <p className="mt-[10px] text-[12.25px] leading-[19px] text-[#4a5565]">
+        <p id="alvin-intro-body" aria-live="polite" className="mt-[10px] text-[12.25px] leading-[19px] text-[#4a5565]">
           Ask Alvin anything about Stasht and get step-by-step help. Alvin can also set things up for you, like a property, a
           campaign or your Contact Us widget, and read files you drop into the chat.
         </p>

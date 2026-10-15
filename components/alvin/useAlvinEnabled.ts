@@ -47,11 +47,19 @@ export function useAlvinStatus(): AlvinStatus {
   useEffect(() => {
     let live = true;
     loadAlvinStatus().then((s) => live && setStatus(s));
+    // Alvin did something (or was used for the first time): tick the checklist again.
+    const refresh = () => loadAlvinStatus(true).then((s) => live && setStatus(s));
+    window.addEventListener('alvin-status-refresh', refresh);
     return () => {
       live = false;
+      window.removeEventListener('alvin-status-refresh', refresh);
     };
   }, []);
   return status;
+}
+
+export function refreshAlvinStatus() {
+  window.dispatchEvent(new Event('alvin-status-refresh'));
 }
 
 export default function useAlvinEnabled(): boolean {

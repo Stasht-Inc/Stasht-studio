@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { alvinAPI, type AlvinMessage, type AlvinPageLink, type AlvinSendResult } from '../../services/alvinAPI';
 import AlvinMessageText from './AlvinMessageText';
 import AlvinActionCard from './AlvinActionCard';
-import type { AlvinSetupStep } from './useAlvinEnabled';
+import { refreshAlvinStatus, type AlvinSetupStep } from './useAlvinEnabled';
 import { ACCEPT, DropOverlay, PendingFile, SentFile, attachmentInfo, fileProblem, isImageFile, shrinkImage } from './alvinFiles';
 
 // Alvin AI chat panel — Figma "Alvin AI help" › AlvinAIPanel (node 14397:15290), 380 × 779.
@@ -237,7 +237,7 @@ export default function AlvinPanel({
     ]);
 
   const send = useCallback(
-    async (raw: string, files: File[] = []) => {
+    async (raw: string, files: File[] = [], fromOutside = false) => {
       const text = raw.trim();
       if ((!text && files.length === 0) || sending) return;
       const problem = files.length ? fileProblem(files) : null;
@@ -252,8 +252,11 @@ export default function AlvinPanel({
       const imageUrls = files.filter(isImageFile).map((f) => URL.createObjectURL(f));
       if (imageUrls.length) setPreviews((prev) => ({ ...prev, [tempId]: imageUrls }));
       setMessages((prev) => [...prev, { id: tempId, role: 'user', body: text, meta, created_at: now, pending: true }]);
-      setDraft('');
-      setPending([]);
+      if (!fromOutside) {
+        // A question handed over (Ask Alvin) leaves what the person was typing alone.
+        setDraft('');
+        setPending([]);
+      }
       setSending(true);
 
       const result: AlvinSendResult = files.length
@@ -279,16 +282,23 @@ export default function AlvinPanel({
         ];
       });
       setSending(false);
+      if (result.ok) refreshAlvinStatus();
       inputRef.current?.focus();
     },
     [sending, currentPage],
   );
 
-  // A question handed over by the Get Started checklist: ask it once the saved chat has loaded.
+  // A question handed over by the Get Started checklist: ask it once the saved chat has loaded
+  // (the same question twice within a few seconds, e.g. a double-click, is asked once).
+  const lastAsk = useRef<{ text: string; at: number } | null>(null);
   useEffect(() => {
     if (open && loaded && ask && !sending) {
       onAsked?.();
-      send(ask);
+      const recent = lastAsk.current && lastAsk.current.text === ask && Date.now() - lastAsk.current.at < 5000;
+      if (!recent) {
+        lastAsk.current = { text: ask, at: Date.now() };
+        send(ask, [], true);
+      }
     }
   }, [open, loaded, ask, sending, send, onAsked]);
 
@@ -358,11 +368,13 @@ export default function AlvinPanel({
   if (!open) return null;
 
   // A confirmation card changed (confirmed, cancelled, details fixed); add Alvin's "done" message.
-  const updateCard = (card: AlvinMessage, done?: AlvinMessage) =>
+  const updateCard = (card: AlvinMessage, done?: AlvinMessage) => {
+    if (done) refreshAlvinStatus(); // a property/campaign/invite may tick a setup step
     setMessages((prev) => {
       const next = prev.map((m) => (String(m.id) === String(card.id) ? card : m));
       return done && !next.some((m) => String(m.id) === String(done.id)) ? [...next, done] : next;
     });
+  };
 
   const closeOnPhone = () => {
     if (window.matchMedia('(max-width: 767px)').matches) onClose();

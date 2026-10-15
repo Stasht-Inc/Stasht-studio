@@ -10,7 +10,7 @@ import { NotificationDropdown } from "./NotificationDropdown";
 import AlvinButton from "./alvin/AlvinButton";
 import AlvinPanel from "./alvin/AlvinPanel";
 import { useAlvinStatus } from "./alvin/useAlvinEnabled";
-import AlvinIntroPopover, { introSeen } from "./alvin/AlvinIntroPopover";
+import AlvinIntroPopover, { introSeen, markSeen } from "./alvin/AlvinIntroPopover";
 import { Upload, RefreshCw } from "lucide-react";
 import { useProperty } from "../contexts/PropertyContext";
 
@@ -468,6 +468,13 @@ export default function InteractiveNav({
   const alvinUserId = user?.external_user_id ?? user?.id;
   const [introDone, setIntroDone] = useState(false);
   const showIntro = alvinEnabled && !alvinStatus.hasUsed && !introDone && !alvinOpen && !introSeen(alvinUserId);
+  // Opening Alvin any way counts as having seen the explainer.
+  useEffect(() => {
+    if (alvinOpen && !introDone) {
+      markSeen(alvinUserId);
+      setIntroDone(true);
+    }
+  }, [alvinOpen, introDone, alvinUserId]);
 
   // The account menu's "Alvin AI" item opens the panel.
   useEffect(() => {
