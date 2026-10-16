@@ -196,8 +196,11 @@ export interface CatalogueResult<T> {
   error?: string;
 }
 
-// Items per website are capped at 500 (spec §10), so one page of 500 is the whole catalogue.
+// The items route's largest page (per_page max 500). An account's item limit can be higher (up to 3000),
+// so browsing walks the pages (loadCatalogueForBrowsing).
 export const CATALOGUE_PAGE_SIZE = 500;
+// Safety cap for browsing: 10 pages of 500 = 5,000 items, above the largest item limit (3,000).
+const MAX_BROWSE_PAGES = 10;
 
 // Server bodies are {success, data}; apiRequest wraps a successful body as {success: true, data: <body>}.
 function unwrap<T>(body: unknown): T | undefined {
@@ -279,14 +282,22 @@ export const catalogueAPI = {
 };
 
 // Every available item of the account's Website Catalogue, or [] when the account can't use it,
-// has no items, or anything fails. Never throws.
+// has no items, or the first page fails. Pages 1..last_page are fetched one after another (500 each,
+// at most 10 pages); if a later page fails, the items loaded so far are returned. Never throws.
 export async function loadCatalogueForBrowsing(): Promise<CatalogueItemSummary[]> {
+  const items: CatalogueItemSummary[] = [];
   try {
     const status = await catalogueAPI.getStatus();
     if (!status.ok || !status.data?.available || !status.data.item_count) return [];
-    const page = await catalogueAPI.getItems();
-    return page.ok && Array.isArray(page.data?.items) ? page.data!.items : [];
+    for (let page = 1; page <= MAX_BROWSE_PAGES; page += 1) {
+      const res = await catalogueAPI.getItems({ page, perPage: CATALOGUE_PAGE_SIZE });
+      if (!res.ok || !Array.isArray(res.data?.items)) break;
+      items.push(...res.data!.items);
+      const lastPage = Number(res.data!.pagination?.last_page) || 1;
+      if (page >= lastPage || res.data!.items.length === 0) break;
+    }
+    return items;
   } catch {
-    return [];
+    return items;
   }
 }

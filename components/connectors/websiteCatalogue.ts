@@ -70,9 +70,12 @@ export function announceCatalogueSync(): void {
   window.dispatchEvent(new CustomEvent(CATALOGUE_SYNC_STARTED_EVENT));
 }
 
-/** The running import's percentage for a progress bar (0 while the total isn't known yet). */
-export function syncPercent(sync: CatalogueSyncProgress): number {
-  return Math.round(Math.min(100, Math.max(0, sync.percent ?? 0)));
+/**
+ * The running import's percentage for a progress bar, or null when the API can't tell yet (starting, a total not
+ * known yet, an unknown phase): show an indeterminate bar and no number then.
+ */
+export function syncPercent(sync: CatalogueSyncProgress): number | null {
+  return sync.percent === null ? null : Math.round(Math.min(100, Math.max(0, sync.percent)));
 }
 
 export type WebsiteCatalogueAction = 'connect' | 'continue' | 'manage' | 'upgrade' | 'billing';

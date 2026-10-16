@@ -893,7 +893,11 @@ export default function Sidebar({
               )}
               <div className="flex-1 min-w-0">
                 <h3 className="font-semibold text-sm text-gray-900 mb-1">
-                  {syncProgress.serviceType === 'catalogue' ? 'Importing' : 'Syncing'} {syncProgress.serviceName} ({syncProgress.progress}%)
+                  {syncProgress.serviceType === 'catalogue'
+                    ? syncProgress.indeterminate
+                      ? `Importing ${syncProgress.serviceName}…`
+                      : `Importing ${syncProgress.serviceName} (${syncProgress.progress}%)`
+                    : `Syncing ${syncProgress.serviceName} (${syncProgress.progress}%)`}
                 </h3>
                 <p className="text-xs text-gray-600">
                   {syncProgress.message || 'Importing your media...'}
@@ -904,14 +908,20 @@ export default function Sidebar({
             {/* Progress Bar */}
             <div className="space-y-2">
               <div className="w-full bg-[#6C60FF]/20 rounded-full h-2 overflow-hidden">
-                <div
-                  className="bg-[#6C60FF] h-2 rounded-full transition-all duration-500 ease-out"
-                  style={{ width: `${syncProgress.progress}%` }}
-                />
+                {syncProgress.indeterminate ? (
+                  <div className="bg-[#6C60FF] h-2 w-1/3 rounded-full animate-pulse" />
+                ) : (
+                  <div
+                    className="bg-[#6C60FF] h-2 rounded-full transition-all duration-500 ease-out"
+                    style={{ width: `${syncProgress.progress}%` }}
+                  />
+                )}
               </div>
-              <div className="flex items-center justify-end">
-                <span className="text-xs font-semibold text-[#6C60FF]">{syncProgress.progress}%</span>
-              </div>
+              {!syncProgress.indeterminate && (
+                <div className="flex items-center justify-end">
+                  <span className="text-xs font-semibold text-[#6C60FF]">{syncProgress.progress}%</span>
+                </div>
+              )}
             </div>
           </div>
         </div>

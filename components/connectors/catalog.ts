@@ -18,8 +18,8 @@ export interface ConnectorDef {
 export interface ConnectorCardOverride {
   badge?: { label: string; tone: 'green' | 'amber' | 'gray' };
   line?: string;
-  /** 0–100: a thin progress bar under the line (the Website Catalogue's import while it runs). */
-  progress?: number;
+  /** A thin progress bar under the line (the Website Catalogue's import while it runs): 0–100, or null for an indeterminate bar. */
+  progress?: number | null;
   actionLabel: string;
   outlined: boolean;
 }

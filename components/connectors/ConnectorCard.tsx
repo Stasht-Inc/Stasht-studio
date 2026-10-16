@@ -94,9 +94,13 @@ export function ConnectorCard({
             aria-label={`${connector.name} import progress`}
             aria-valuemin={0}
             aria-valuemax={100}
-            aria-valuenow={override.progress}
+            aria-valuenow={override.progress ?? undefined}
           >
-            <div className="bg-[#6C60FF] h-1.5 rounded-full transition-all duration-500 ease-out" style={{ width: `${override.progress}%` }} />
+            {override.progress === null ? (
+              <div className="bg-[#6C60FF] h-1.5 w-1/3 rounded-full animate-pulse" />
+            ) : (
+              <div className="bg-[#6C60FF] h-1.5 rounded-full transition-all duration-500 ease-out" style={{ width: `${override.progress}%` }} />
+            )}
           </div>
         )}
 

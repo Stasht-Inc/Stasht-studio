@@ -52,8 +52,10 @@ export function CatalogueSyncWatcher({ enabled }: { enabled: boolean }) {
         // Another service's sync is running or showing its failure: leave its bar alone and wait.
         if (syncProgress && !ours && syncProgress.status !== 'completed') return;
         if (!oursRunning) startSync(SERVICE_ID, source.host, SERVICE_TYPE);
+        // No percentage from the API (starting, a total not known yet, an unknown phase): keep the last known
+        // number (or 0) for the context and mark the bar indeterminate, so the sidebar shows no number.
         const previous = oursRunning && syncProgress ? syncProgress.progress : 0;
-        updateProgress(Math.round(running.percent ?? previous), running.label);
+        updateProgress(Math.round(running.percent ?? previous), running.label, running.percent === null);
         return;
       }
 

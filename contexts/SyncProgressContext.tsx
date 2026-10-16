@@ -7,6 +7,8 @@ interface SyncProgress {
   progress: number;
   status: 'syncing' | 'completed' | 'failed';
   message?: string;
+  /** True while the service can't give a percentage (the Website Catalogue's import starting, or a total not known yet): the bar is indeterminate. */
+  indeterminate?: boolean;
   startTime: number;
   itemCount?: number;
 }
@@ -14,7 +16,7 @@ interface SyncProgress {
 interface SyncProgressContextType {
   syncProgress: SyncProgress | null;
   startSync: (serviceId: string, serviceName: string, serviceType: string) => void;
-  updateProgress: (progress: number, message?: string) => void;
+  updateProgress: (progress: number, message?: string, indeterminate?: boolean) => void;
   completeSync: (itemCount?: number) => void;
   failSync: (message?: string) => void;
   clearSync: () => void;
@@ -37,12 +39,13 @@ export function SyncProgressProvider({ children }: { children: ReactNode }) {
     });
   };
 
-  const updateProgress = (progress: number, message?: string) => {
+  const updateProgress = (progress: number, message?: string, indeterminate?: boolean) => {
     console.log('🔄 SyncProgressContext: Updating progress to', progress, '%');
     setSyncProgress(prev => prev ? {
       ...prev,
       progress: Math.min(100, Math.max(0, progress)),
       message,
+      indeterminate: indeterminate === true,
     } : null);
   };
 
@@ -51,6 +54,7 @@ export function SyncProgressProvider({ children }: { children: ReactNode }) {
     setSyncProgress(prev => prev ? {
       ...prev,
       progress: 100,
+      indeterminate: false,
       status: 'completed',
       message: itemCount ? `${itemCount} items imported successfully` : 'Sync completed successfully!',
       itemCount,

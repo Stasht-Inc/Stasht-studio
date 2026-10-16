@@ -87,6 +87,7 @@ export function WebsiteCatalogueManageModal({
   const notBusiness = overview.reason === 'plan_required';
   const attention = source.status !== 'active' && source.status !== 'paused';
   const sync = source.sync;
+  const percent = sync ? syncPercent(sync) : null; // null: indeterminate bar, no number
   const lastSync = sync?.state === 'running'
     ? 'In progress'
     : source.sync_requested ? 'Starting within a minute' : formatRelative(source.last_sync_at) ?? 'Not yet';
@@ -186,13 +187,17 @@ export function WebsiteCatalogueManageModal({
               aria-label="Import progress"
               aria-valuemin={0}
               aria-valuemax={100}
-              aria-valuenow={syncPercent(sync)}
+              aria-valuenow={percent ?? undefined}
             >
-              <div className="bg-[#6C60FF] h-2 rounded-full transition-all duration-500 ease-out" style={{ width: `${syncPercent(sync)}%` }} />
+              {percent === null ? (
+                <div className="bg-[#6C60FF] h-2 w-1/3 rounded-full animate-pulse" />
+              ) : (
+                <div className="bg-[#6C60FF] h-2 rounded-full transition-all duration-500 ease-out" style={{ width: `${percent}%` }} />
+              )}
             </div>
-            {sync.percent !== null && (
+            {percent !== null && (
               <div className="flex items-center justify-end mt-2">
-                <span className="text-xs font-semibold text-[#6C60FF]">{syncPercent(sync)}%</span>
+                <span className="text-xs font-semibold text-[#6C60FF]">{percent}%</span>
               </div>
             )}
             <p className="text-xs text-gray-600 mt-2">
