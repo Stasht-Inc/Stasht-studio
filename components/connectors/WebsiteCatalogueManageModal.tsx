@@ -201,7 +201,9 @@ export function WebsiteCatalogueManageModal({
               </div>
             )}
             <p className="text-xs text-gray-600 mt-2">
-              This can take a while. You can close this window and keep using Studio — we'll email you when your catalogue is ready.
+              {/* The engine emails only after the first import (no earlier run: last_sync_at is null until a run ends). */}
+              This can take a while. You can close this window and keep using Studio
+              {source.last_sync_at ? '.' : " — we'll email you when your catalogue is ready."}
             </p>
           </div>
         )}

@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { useSyncProgress } from '../contexts/SyncProgressContext';
-import { catalogueAPI, type CatalogueOverview } from '../services/catalogueAPI';
+import { catalogueAPI, type CatalogueOverview, type CatalogueSource } from '../services/catalogueAPI';
 import { CATALOGUE_SYNC_STARTED_EVENT } from './connectors/websiteCatalogue';
 
 const SERVICE_ID = 'website-catalogue';
@@ -8,12 +8,25 @@ const SERVICE_TYPE = 'catalogue'; // Sidebar: "Importing {host} (n%)", and View 
 const IDLE_MS = 60_000; // no import running
 const ACTIVE_MS = 10_000; // an import is running (or was just announced)
 const ANNOUNCED_MS = 2 * 60_000; // after Connect / Sync now, check every 10 s for this long even before the import shows
+const CONFIRM_END_MS = 3_000; // an import just ended without a success time: look once more after this
+const SUCCESS_SLACK_MS = 2_000; // the engine writes last_sync_at and last_success_at at the end of a run, a moment apart
+
+/** The run that just ended succeeded: last_success_at is at or after last_sync_at (both ISO strings from the API). */
+function finishedWithSuccess(source: CatalogueSource): boolean {
+  if (!source.last_success_at) return false;
+  const success = Date.parse(source.last_success_at);
+  if (Number.isNaN(success)) return false;
+  if (!source.last_sync_at) return true; // no run time to compare with: trust the success time
+  const run = Date.parse(source.last_sync_at);
+  return Number.isNaN(run) || success >= run - SUCCESS_SLACK_MS;
+}
 
 /**
  * Shows the Website Catalogue's import in the sidebar's sync bar (SyncProgressContext), wherever the user is in
  * Studio. Mounted once in App.tsx; `enabled` only for a signed-in user in the personal view (the catalogue is a
- * personal-account connector). It asks GET /website-catalogue on start, every 60 s, every 10 s while an import
- * runs, and at once when the connect or Sync now flows announce a sync (CATALOGUE_SYNC_STARTED_EVENT).
+ * personal-account connector). It asks GET /website-catalogue on start, every 60 s while a website is connected,
+ * every 10 s while an import runs, and at once when the connect or Sync now flows announce a sync
+ * (CATALOGUE_SYNC_STARTED_EVENT), then every 10 s for 2 minutes.
  *
  * It never takes the bar from another service's sync (Google Photos, Dropbox, …) that is running or showing its
  * failure: it waits and tries again at the next check. A finished import of another service is replaced.
@@ -33,7 +46,10 @@ export function CatalogueSyncWatcher({ enabled }: { enabled: boolean }) {
     let checkAgainAfter = false; // an announcement arrived while a check was in flight
     let importing = false; // the last answer had an import running
     let announcedUntil = 0;
-    let unavailable = false; // outside the pilot: no routine checks, but an announcement is still answered
+    let confirmingEnd = false; // our import ended without a success time yet: one quick re-check before failing
+    // No routine checks outside the pilot (not_available) or while no website is connected; an announcement
+    // (Connect, Sync now) is still answered, with its 2-minute fast window.
+    let unavailable = false;
 
     const ownsRunningBar = () => {
       const current = contextRef.current.syncProgress;
@@ -45,6 +61,8 @@ export function CatalogueSyncWatcher({ enabled }: { enabled: boolean }) {
       const source = overview.source;
       const running = source?.sync ?? null;
       importing = running !== null;
+      const wasConfirming = confirmingEnd;
+      confirmingEnd = false;
       const ours = syncProgress?.serviceId === SERVICE_ID;
       const oursRunning = ours && syncProgress?.status === 'syncing';
 
@@ -63,7 +81,13 @@ export function CatalogueSyncWatcher({ enabled }: { enabled: boolean }) {
       if (!source || source.status === 'paused' || source.status === 'plan_required') {
         clearSync(); // disconnected or paused while importing: nothing to report
       } else if (source.status === 'active') {
-        completeSync(source.item_count);
+        // A failed run keeps the source active but does not move last_success_at: only a run that succeeded
+        // (last_success_at written with last_sync_at at its end) is "done".
+        // The engine marks the run finished a moment before it writes those times, so a first "not yet" is
+        // checked again in a few seconds before the bar says the import didn't finish.
+        if (finishedWithSuccess(source)) completeSync(source.item_count);
+        else if (!wasConfirming) confirmingEnd = true;
+        else failSync("The import didn't finish. We'll try again tonight.");
       } else {
         // blocked / needs attention / unverified: the import stopped; the card and Manage say why.
         failSync(source.message || "We couldn't finish importing your catalogue.");
@@ -75,6 +99,10 @@ export function CatalogueSyncWatcher({ enabled }: { enabled: boolean }) {
       if (timer !== undefined) window.clearTimeout(timer);
       timer = undefined;
       const announced = Date.now() < announcedUntil;
+      if (confirmingEnd) {
+        timer = window.setTimeout(check, CONFIRM_END_MS);
+        return;
+      }
       if (unavailable && !importing && !announced) return;
       timer = window.setTimeout(check, importing || announced ? ACTIVE_MS : IDLE_MS);
     };
@@ -86,7 +114,7 @@ export function CatalogueSyncWatcher({ enabled }: { enabled: boolean }) {
       inFlight = false;
       if (cancelled) return;
       if (res.ok && res.data) {
-        unavailable = res.data.reason === 'not_available';
+        unavailable = res.data.reason === 'not_available' || res.data.source == null;
         apply(res.data);
       }
       if (checkAgainAfter) {
