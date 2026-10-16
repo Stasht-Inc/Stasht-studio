@@ -24,7 +24,7 @@ import { dashboardAPI, tokenUtils, apiRequest, getApiBaseUrl, userUtils } from "
 import { EditMediaItemPopover } from "../components/EditMediaItemPopover";
 import mediaAPI from "../services/mediaAPI";
 import { aiCreditsAPI } from "../services/aiCreditsAPI";
-import PostCard from "../components/PostCard";
+import PostCard, { getPostPermissions } from "../components/PostCard";
 import ShopifyProductCard from "../components/ShopifyProductCard";
 import { sanitizeRichText } from "../utils/shopifyProduct";
 import MemoryCard from "../components/MemoryCard";
@@ -1993,6 +1993,10 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
   
   // Media item deletion state
   const [showDeleteItemDialog, setShowDeleteItemDialog] = useState(false);
+  // Timeline sidebar ⋮ menu on moment rows
+  const [sidebarEditCaptionRequest, setSidebarEditCaptionRequest] = useState<{ postId: string; nonce: number } | null>(null);
+  const [sidebarPostToDelete, setSidebarPostToDelete] = useState<string | null>(null);
+  const [isSidebarPostDeleting, setIsSidebarPostDeleting] = useState(false);
   const [isDeletingItem, setIsDeletingItem] = useState(false);
   const [itemToDelete, setItemToDelete] = useState<string | null>(null);
   const [itemToDeleteIsCar, setItemToDeleteIsCar] = useState<boolean>(false);
@@ -6043,6 +6047,64 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
       await fetchMemoryDetails();
       await fetchMemoryActivity();
     }, 500);
+  };
+
+  // ── Timeline sidebar ⋮ menu on a moment row ──
+  // Each action reuses what the moment's own card does, for the same post id.
+
+  // "Edit text" → scroll the card into view and open its caption editor
+  // (PostCard's Edit Caption / Add description, via editCaptionRequest).
+  const handleSidebarEditPostText = (postId: string, postIndex: number) => {
+    memoryCardRefs.current[postIndex]?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    setSidebarEditCaptionRequest(prev => ({ postId, nonce: (prev?.nonce ?? 0) + 1 }));
+  };
+
+  // "Update Image" → pick an image and replace the moment's photo through the same
+  // handleUpdateItem({ newPhoto }) path the card's Add Media button uses.
+  const handleSidebarUpdatePostImage = (postId: string) => {
+    const fileInput = document.createElement('input');
+    fileInput.type = 'file';
+    fileInput.accept = 'image/*';
+    fileInput.style.display = 'none';
+    fileInput.onchange = async () => {
+      const file = fileInput.files?.[0];
+      fileInput.remove();
+      if (!file) return;
+      if (!file.type.startsWith('image/')) {
+        toast.error('Please select an image file');
+        return;
+      }
+      const toastId = toast.loading('Uploading image...');
+      try {
+        await handleUpdateItem(postId, { newPhoto: file });
+      } finally {
+        toast.dismiss(toastId);
+      }
+    };
+    document.body.appendChild(fileInput);
+    fileInput.click();
+  };
+
+  // "Delete" → confirm, then the same API call + parent update as the card's Delete Moment.
+  const handleSidebarDeletePostConfirm = async () => {
+    const postId = sidebarPostToDelete;
+    if (!postId) return;
+    setIsSidebarPostDeleting(true);
+    try {
+      const response = await dashboardAPI.deletePost(postId);
+      if (response.success) {
+        toast.success("Post deleted successfully!");
+        setSidebarPostToDelete(null);
+        handlePostDelete(postId);
+      } else {
+        toast.error(response.error || "Failed to delete post");
+      }
+    } catch (error) {
+      console.error('Error deleting post:', error);
+      toast.error("Failed to delete post");
+    } finally {
+      setIsSidebarPostDeleting(false);
+    }
   };
 
   const handleDeleteSubImage = async (subImageId: string) => {
@@ -13262,27 +13324,49 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                         </svg>
                       </div>
                       <div className={`group/border relative pr-6 transition-all duration-200 ${!isHeaderImageScrolled ? 'opacity-100' : 'opacity-70'}`}>
-                        {!isHeaderImageScrolled && (
-                          <div className="absolute top-0 -right-1 z-10">
+                        {/* Introduction ⋮ menu — same cover actions as the cover's own "Edit Cover"
+                            button (hidden in the same cases). No "Delete": the API has no way to
+                            clear a campaign cover (PUT /memories/{id} with last_update_img=null 500s). */}
+                        {!isHeaderImageScrolled && !isSuggestedCategory && !isShopifyCollection && !isCarDetail && (
+                          <div className="absolute top-0 -right-1 z-10" onClick={(e) => e.stopPropagation()}>
                             <Popover>
                               <PopoverTrigger asChild>
-                                <div className="cursor-pointer">
+                                <div className="cursor-pointer" data-testid="timeline-intro-menu">
                                   <MoreVertical className="w-5 h-5 text-[#6C60FF]" />
                                 </div>
                               </PopoverTrigger>
-                              <PopoverContent side="bottom" align="end" className="w-48 p-1 rounded-lg shadow-lg border border-gray-200 bg-white" sideOffset={4}>
-                                <div className="flex items-center gap-2.5 px-3 py-2 hover:bg-gray-50 cursor-pointer rounded-md transition-colors">
-                                  <Edit className="w-4 h-4 text-[#6C60FF]" />
-                                  <span className="text-sm text-gray-700">Edit Cover</span>
-                                </div>
-                                <div className="flex items-center gap-2.5 px-3 py-2 hover:bg-gray-50 cursor-pointer rounded-md transition-colors">
-                                  <ImageIcon className="w-4 h-4 text-[#6C60FF]" />
-                                  <span className="text-sm text-gray-700">Update Image</span>
-                                </div>
-                                <div className="flex items-center gap-2.5 px-3 py-2 hover:bg-red-50 cursor-pointer rounded-md transition-colors">
-                                  <Trash2 className="w-4 h-4 text-red-500" />
-                                  <span className="text-sm text-red-500">Delete</span>
-                                </div>
+                              <PopoverContent
+                                side="bottom"
+                                align="end"
+                                className="w-48 p-1 rounded-lg shadow-lg border border-gray-200 bg-white"
+                                sideOffset={4}
+                                // Don't hand focus back to the ⋮ trigger on close — that focus move
+                                // would immediately dismiss the cover popover "Edit Cover" opens.
+                                onCloseAutoFocus={(e) => e.preventDefault()}
+                              >
+                                <PopoverClose asChild>
+                                  <div
+                                    className="flex items-center gap-2.5 px-3 py-2 hover:bg-gray-50 cursor-pointer rounded-md transition-colors"
+                                    onClick={() => {
+                                      headerImageRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                                      // Open the cover's own Edit Cover menu (Upload / Media Library / YouTube)
+                                      // once this menu has closed.
+                                      setTimeout(() => setIsCenterCoverPhotoMenuOpen(true), 150);
+                                    }}
+                                  >
+                                    <Edit className="w-4 h-4 text-[#6C60FF]" />
+                                    <span className="text-sm text-gray-700">Edit Cover</span>
+                                  </div>
+                                </PopoverClose>
+                                <PopoverClose asChild>
+                                  <div
+                                    className="flex items-center gap-2.5 px-3 py-2 hover:bg-gray-50 cursor-pointer rounded-md transition-colors"
+                                    onClick={() => handleUploadFromDesktop()}
+                                  >
+                                    <ImageIcon className="w-4 h-4 text-[#6C60FF]" />
+                                    <span className="text-sm text-gray-700">Update Image</span>
+                                  </div>
+                                </PopoverClose>
                               </PopoverContent>
                             </Popover>
                           </div>
@@ -13893,31 +13977,63 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                             </svg>
                           </div>
                           <div className="group/border relative pr-6 transition-all duration-200 opacity-100">
-                            {isActive && (
-                              <div className="absolute top-0 -right-1 z-10">
+                            {isActive && (() => {
+                              // Same actions (and permission rules) as this moment's card menu.
+                              // Shopify products and car-detail photos aren't memory images, so
+                              // their cards have no edit/delete either.
+                              if (Array.isArray(post.variants) || isShopifyCollection || isCarDetail) return null;
+                              const perms = getPostPermissions(post, memoryOwnerId, apiCollaborators.filter(c => c.status === 'active'));
+                              const canEditText = perms.canEdit || perms.canAddDescription;
+                              const isVideoPost = post.type === 'video' || isVideoUrl(post.image || '');
+                              const canUpdateImage = perms.canEdit && !isVideoPost;
+                              if (!canEditText && !canUpdateImage && !perms.canDelete) return null;
+                              return (
+                              <div className="absolute top-0 -right-1 z-10" onClick={(e) => e.stopPropagation()}>
                                 <Popover>
                                   <PopoverTrigger asChild>
-                                    <div className="cursor-pointer">
+                                    <div className="cursor-pointer" data-testid={`timeline-post-menu-${post.id}`}>
                                       <MoreVertical className="w-5 h-5 text-[#6C60FF]" />
                                     </div>
                                   </PopoverTrigger>
                                   <PopoverContent side="bottom" align="end" className="w-48 p-1 rounded-lg shadow-lg border border-gray-200 bg-white" sideOffset={4}>
-                                    <div className="flex items-center gap-2.5 px-3 py-2 hover:bg-gray-50 cursor-pointer rounded-md transition-colors">
-                                      <Edit className="w-4 h-4 text-[#6C60FF]" />
-                                      <span className="text-sm text-gray-700">Edit text</span>
-                                    </div>
-                                    <div className="flex items-center gap-2.5 px-3 py-2 hover:bg-gray-50 cursor-pointer rounded-md transition-colors">
-                                      <ImageIcon className="w-4 h-4 text-[#6C60FF]" />
-                                      <span className="text-sm text-gray-700">Update Image</span>
-                                    </div>
-                                    <div className="flex items-center gap-2.5 px-3 py-2 hover:bg-red-50 cursor-pointer rounded-md transition-colors">
-                                      <Trash2 className="w-4 h-4 text-red-500" />
-                                      <span className="text-sm text-red-500">Delete</span>
-                                    </div>
+                                    {canEditText && (
+                                      <PopoverClose asChild>
+                                        <div
+                                          className="flex items-center gap-2.5 px-3 py-2 hover:bg-gray-50 cursor-pointer rounded-md transition-colors"
+                                          onClick={() => handleSidebarEditPostText(String(post.id), postIndex)}
+                                        >
+                                          <Edit className="w-4 h-4 text-[#6C60FF]" />
+                                          <span className="text-sm text-gray-700">Edit text</span>
+                                        </div>
+                                      </PopoverClose>
+                                    )}
+                                    {canUpdateImage && (
+                                      <PopoverClose asChild>
+                                        <div
+                                          className="flex items-center gap-2.5 px-3 py-2 hover:bg-gray-50 cursor-pointer rounded-md transition-colors"
+                                          onClick={() => handleSidebarUpdatePostImage(String(post.id))}
+                                        >
+                                          <ImageIcon className="w-4 h-4 text-[#6C60FF]" />
+                                          <span className="text-sm text-gray-700">Update Image</span>
+                                        </div>
+                                      </PopoverClose>
+                                    )}
+                                    {perms.canDelete && (
+                                      <PopoverClose asChild>
+                                        <div
+                                          className="flex items-center gap-2.5 px-3 py-2 hover:bg-red-50 cursor-pointer rounded-md transition-colors"
+                                          onClick={() => setSidebarPostToDelete(String(post.id))}
+                                        >
+                                          <Trash2 className="w-4 h-4 text-red-500" />
+                                          <span className="text-sm text-red-500">Delete</span>
+                                        </div>
+                                      </PopoverClose>
+                                    )}
                                   </PopoverContent>
                                 </Popover>
                               </div>
-                            )}
+                              );
+                            })()}
                             {Array.isArray(post.variants) && !activeSearchQuery ? (
                               <p
                                 className={`leading-snug transition-all duration-200 hover:text-[#6C60FF] cursor-pointer text-[#101828] ${isActive ? 'text-lg font-semibold' : 'text-base line-clamp-2 font-medium'}`}
@@ -14907,6 +15023,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                       memoryPublished={apiMemoryData?.published}
                                       memoryId={memoryId}
                                       carSpec={apiMemoryData?.spec_summary}
+                                      editCaptionRequest={sidebarEditCaptionRequest?.postId === String(post.id) ? sidebarEditCaptionRequest.nonce : undefined}
                                       searchHighlight={activeSearchQuery || undefined}
                                       storyTags={allStoryTags}
                                       onInsufficientCredits={(available) => { setAiScanAvailableCredits(available); setShowAiScanCreditsModal(true); }}
@@ -18728,6 +18845,28 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
               className="h-11 md:h-9 text-[14px] md:text-sm bg-red-600 hover:bg-red-700 text-white"
             >
               {isDeleting ? 'Deleting...' : 'Delete Campaign'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Timeline sidebar: delete-moment confirmation */}
+      <AlertDialog open={!!sidebarPostToDelete} onOpenChange={(open) => { if (!open && !isSidebarPostDeleting) setSidebarPostToDelete(null); }}>
+        <AlertDialogContent className="bg-white">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Moment</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete this moment? This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isSidebarPostDeleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => { e.preventDefault(); handleSidebarDeletePostConfirm(); }}
+              disabled={isSidebarPostDeleting}
+              className="bg-red-600 hover:bg-red-700 text-white"
+            >
+              {isSidebarPostDeleting ? 'Deleting...' : 'Delete'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
