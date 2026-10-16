@@ -1997,6 +1997,9 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
   const [sidebarEditCaptionRequest, setSidebarEditCaptionRequest] = useState<{ postId: string; nonce: number } | null>(null);
   const [sidebarPostToDelete, setSidebarPostToDelete] = useState<string | null>(null);
   const [isSidebarPostDeleting, setIsSidebarPostDeleting] = useState(false);
+  // Introduction ⋮ → Delete: remove the campaign's own cover (it falls back to the default).
+  const [showRemoveCoverConfirm, setShowRemoveCoverConfirm] = useState(false);
+  const [isRemovingCover, setIsRemovingCover] = useState(false);
   const [isDeletingItem, setIsDeletingItem] = useState(false);
   const [itemToDelete, setItemToDelete] = useState<string | null>(null);
   const [itemToDeleteIsCar, setItemToDeleteIsCar] = useState<boolean>(false);
@@ -6104,6 +6107,29 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
       toast.error("Failed to delete post");
     } finally {
       setIsSidebarPostDeleting(false);
+    }
+  };
+
+  // Introduction ⋮ → Delete: PUT /memories/{id} with an empty cover clears it (web API
+  // 2026-10-16); the header then shows the default cover (first photo / property / profile).
+  const handleRemoveCoverConfirm = async () => {
+    setIsRemovingCover(true);
+    try {
+      const res = await apiRequest(`/memories/${memoryId}`, {
+        method: 'PUT',
+        body: JSON.stringify({ last_update_img: null }),
+      });
+      if (!res.success) {
+        toast.error(res.error || 'Failed to remove the cover');
+        return;
+      }
+      setApiMemoryData((prev: any) => (prev ? { ...prev, last_update_img: null } : prev));
+      setShowRemoveCoverConfirm(false);
+      toast.success('Cover removed');
+    } catch {
+      toast.error('Failed to remove the cover');
+    } finally {
+      setIsRemovingCover(false);
     }
   };
 
@@ -13325,8 +13351,8 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                       </div>
                       <div className={`group/border relative pr-6 transition-all duration-200 ${!isHeaderImageScrolled ? 'opacity-100' : 'opacity-70'}`}>
                         {/* Introduction ⋮ menu — same cover actions as the cover's own "Edit Cover"
-                            button (hidden in the same cases). No "Delete": the API has no way to
-                            clear a campaign cover (PUT /memories/{id} with last_update_img=null 500s). */}
+                            button (hidden in the same cases). "Delete" removes the campaign's own cover
+                            and is shown only when one is set (otherwise the default cover is showing). */}
                         {!isHeaderImageScrolled && !isSuggestedCategory && !isShopifyCollection && !isCarDetail && (
                           <div className="absolute top-0 -right-1 z-10" onClick={(e) => e.stopPropagation()}>
                             <Popover>
@@ -13367,6 +13393,18 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                     <span className="text-sm text-gray-700">Update Image</span>
                                   </div>
                                 </PopoverClose>
+                                {apiMemoryData?.last_update_img && (
+                                  <PopoverClose asChild>
+                                    <div
+                                      className="flex items-center gap-2.5 px-3 py-2 hover:bg-red-50 cursor-pointer rounded-md transition-colors"
+                                      onClick={() => setShowRemoveCoverConfirm(true)}
+                                      data-testid="timeline-intro-delete"
+                                    >
+                                      <Trash2 className="w-4 h-4 text-red-500" />
+                                      <span className="text-sm text-red-500">Delete</span>
+                                    </div>
+                                  </PopoverClose>
+                                )}
                               </PopoverContent>
                             </Popover>
                           </div>
@@ -18845,6 +18883,28 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
               className="h-11 md:h-9 text-[14px] md:text-sm bg-red-600 hover:bg-red-700 text-white"
             >
               {isDeleting ? 'Deleting...' : 'Delete Campaign'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Timeline sidebar: remove-cover confirmation (Introduction ⋮ → Delete) */}
+      <AlertDialog open={showRemoveCoverConfirm} onOpenChange={(open) => { if (!open && !isRemovingCover) setShowRemoveCoverConfirm(false); }}>
+        <AlertDialogContent className="bg-white">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove cover</AlertDialogTitle>
+            <AlertDialogDescription>
+              Remove this campaign's cover? The campaign will show its default cover instead.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isRemovingCover}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => { e.preventDefault(); handleRemoveCoverConfirm(); }}
+              disabled={isRemovingCover}
+              className="bg-red-600 hover:bg-red-700 text-white"
+            >
+              {isRemovingCover ? 'Removing...' : 'Remove'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
