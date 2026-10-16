@@ -1,6 +1,9 @@
 ﻿import React, { useState, useRef, useEffect, useCallback, useImperativeHandle, forwardRef } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Upload, Calendar, MapPin, Tag, Users, Plus, Camera, Image as ImageIcon, CheckCircle, Loader2, File as FileIcon, Search, Video, Pencil, Globe, Eye, Lock } from 'lucide-react';
+import { X, Upload, Calendar, MapPin, Tag, Users, Plus, Camera, Image as ImageIcon, CheckCircle, Loader2, File as FileIcon, Search, Video, Pencil, Globe, Eye, Lock, ChevronRight } from 'lucide-react';
+import { toast } from 'sonner';
+import { isValidCollaboratorPhone, collaboratorPhoneValue } from '../utils/phoneUtils';
+import { useVisualViewportSheet } from '../hooks/useVisualViewportSheet';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import CountrySelect from './CountrySelect';
@@ -104,6 +107,18 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
   const [collaboratorSearchResults, setCollaboratorSearchResults] = useState<any[]>([]);
   const [isSearchingCollaborators, setIsSearchingCollaborators] = useState(false);
   const collaboratorSearchRef = useRef<HTMLDivElement>(null);
+  const collaboratorInputRef = useRef<HTMLInputElement>(null);
+  // "Selected collaborators" chips (rendered right under the input): the one just
+  // added gets a brief purple highlight and is scrolled into view.
+  const selectedCollaboratorsRef = useRef<HTMLDivElement>(null);
+  const [justAddedCollaborator, setJustAddedCollaborator] = useState<string | null>(null);
+  const justAddedTimerRef = useRef<number | null>(null);
+  // Labels + Tags sit behind an "Advanced filters" toggle. null = automatic: closed,
+  // but it opens (and stays open) as soon as a label or tag is set, so nothing set is
+  // ever hidden. A click on the toggle sets it explicitly.
+  const [advancedFiltersOverride, setAdvancedFiltersOverride] = useState<boolean | null>(null);
+  // The full-screen sheet follows window.visualViewport on phones (iOS keyboard).
+  const modalOverlayRef = useRef<HTMLDivElement>(null);
   // Editable part of the personalized invite message (the author name prefix is fixed/non-editable)
   const [personalizedMessage, setPersonalizedMessage] = useState('wants to share this with you!');
   // "Set as my default message" — when checked, personalizedMessage is saved as the user's master
@@ -211,6 +226,39 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
     tags: [] as string[],
     collaborators: [] as string[]
   });
+
+  const advancedFiltersCount = (formData.label ? 1 : 0) + formData.tags.length;
+  const advancedFiltersOpen = advancedFiltersOverride ?? advancedFiltersCount > 0;
+  // Latch the automatic open: once something is set, removing it inside the section
+  // shouldn't collapse the section out from under the user.
+  useEffect(() => {
+    if (advancedFiltersOverride === null && advancedFiltersCount > 0) setAdvancedFiltersOverride(true);
+  }, [advancedFiltersOverride, advancedFiltersCount]);
+  // Every fresh open starts with Advanced filters in automatic (closed) mode.
+  useEffect(() => {
+    if (open) setAdvancedFiltersOverride(null);
+  }, [open]);
+
+  useVisualViewportSheet(modalOverlayRef, open);
+
+  // Scroll the just-added collaborator chip into view (after the touch keyboard has
+  // started closing) and fade its highlight out.
+  useEffect(() => {
+    if (!justAddedCollaborator) return;
+    const isTouch = typeof window !== 'undefined' && window.matchMedia?.('(hover: none) and (pointer: coarse)').matches;
+    const scrollTimer = window.setTimeout(() => {
+      const chip = selectedCollaboratorsRef.current?.querySelector<HTMLElement>(
+        `[data-collaborator-chip="${CSS.escape(justAddedCollaborator)}"]`
+      );
+      chip?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    }, isTouch ? 350 : 0);
+    if (justAddedTimerRef.current) window.clearTimeout(justAddedTimerRef.current);
+    justAddedTimerRef.current = window.setTimeout(() => setJustAddedCollaborator(null), 1800);
+    return () => window.clearTimeout(scrollTimer);
+  }, [justAddedCollaborator]);
+  useEffect(() => () => {
+    if (justAddedTimerRef.current) window.clearTimeout(justAddedTimerRef.current);
+  }, []);
 
   // Measure the author-name prefix width whenever it (or the box's visibility) changes,
   // so the first line of the message can be indented past the name.
@@ -1676,6 +1724,27 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
     }));
   };
 
+  // Whether the phone/email typed into "Add Users" can be added right now — drives the
+  // Add button's enabled (purple) state and is the same check handleAddCollaborator uses.
+  const isCollaboratorInputValid = collaboratorMethod === 'phone'
+    ? isValidCollaboratorPhone(collaboratorCountryCode, currentCollaborator)
+    : /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(currentCollaborator.trim());
+
+  // Add a collaborator and make it obvious it worked: highlight + scroll to its chip
+  // (just under the input) and a short toast.
+  const addCollaboratorValue = (collaboratorValue: string) => {
+    if (!formData.collaborators.includes(collaboratorValue)) {
+      setFormData(prev => ({
+        ...prev,
+        collaborators: prev.collaborators.includes(collaboratorValue)
+          ? prev.collaborators
+          : [...prev.collaborators, collaboratorValue]
+      }));
+      toast.success('Collaborator added');
+    }
+    setJustAddedCollaborator(collaboratorValue);
+  };
+
   const handleAddCollaborator = () => {
     const value = currentCollaborator.trim();
     if (!value) return;
@@ -1683,13 +1752,14 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
     let collaboratorValue = value;
 
     if (collaboratorMethod === 'phone') {
-      const digits = value.replace(/\D/g, '');
-      if (digits.length < 7) {
-        setCollaboratorError('Please enter a valid phone number.');
+      if (!isValidCollaboratorPhone(collaboratorCountryCode, value)) {
+        setCollaboratorError(collaboratorCountryCode === '+1'
+          ? 'Please enter a valid 10-digit phone number.'
+          : 'Please enter a valid phone number.');
         return;
       }
-      // Prepend the selected country/area code to the entered national digits.
-      collaboratorValue = `${collaboratorCountryCode}${digits}`;
+      // The selected country/area code + the entered national digits, as E.164.
+      collaboratorValue = collaboratorPhoneValue(collaboratorCountryCode, value);
     } else {
       const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
       if (!emailRegex.test(value)) {
@@ -1698,14 +1768,15 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
       }
     }
 
-    if (!formData.collaborators.includes(collaboratorValue)) {
-      setFormData(prev => ({
-        ...prev,
-        collaborators: [...prev.collaborators, collaboratorValue]
-      }));
-    }
+    addCollaboratorValue(collaboratorValue);
     setCurrentCollaborator('');
     setCollaboratorError('');
+    setCollaboratorSearchResults([]);
+    // On phones/tablets, close the on-screen keyboard so the new chip (and Publish)
+    // aren't hidden behind it.
+    if (window.matchMedia?.('(hover: none) and (pointer: coarse)').matches) {
+      collaboratorInputRef.current?.blur();
+    }
   };
 
   const handleRemoveCollaborator = (collaboratorToRemove: string) => {
@@ -1774,14 +1845,12 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
   const handleSelectCollaboratorFromSearch = (user: any) => {
     const value = collaboratorMethod === 'email' ? user.email : user.phone_number;
     if (!value) return;
-    if (!formData.collaborators.includes(value)) {
-      setFormData(prev => ({
-        ...prev,
-        collaborators: [...prev.collaborators, value]
-      }));
-    }
+    addCollaboratorValue(value);
     setCurrentCollaborator('');
     setCollaboratorSearchResults([]);
+    if (window.matchMedia?.('(hover: none) and (pointer: coarse)').matches) {
+      collaboratorInputRef.current?.blur();
+    }
   };
 
   const handleDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -2037,8 +2106,11 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
 
 
   const modalContent = (
-    <div 
-      className="fixed inset-0 md:bg-black md:bg-opacity-50 flex items-center justify-center  p-0 md:p-4"
+    <div
+      ref={modalOverlayRef}
+      // Phones: top/height follow window.visualViewport (useVisualViewportSheet) so the
+      // footer stays above the iOS keyboard; desktop keeps inset-0.
+      className="fixed inset-x-0 top-[var(--vv-top,0px)] h-[var(--vv-height,100%)] md:top-0 md:bottom-0 md:h-auto md:bg-black md:bg-opacity-50 flex items-center justify-center  p-0 md:p-4"
       style={{ zIndex: 99999 }}
       onClick={handleBackdropClick}
     >
@@ -3056,117 +3128,144 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
               />
             </div>
 
-            {/* Tags */}
+            {/* Labels + Tags are tucked behind "Advanced filters" to keep the form short
+                (same as the mobile app). Opens by itself when either is already set. */}
             <div>
-              <label className="flex items-center gap-2 text-base md:text-sm font-medium text-gray-700 mb-1">
-                <Tag className="w-4 h-4 text-black" />
-                Tags <span className="text-gray-400 text-xs">(optional)</span>
-              </label>
-              {formData.tags.length > 0 && (
-                <div className="flex flex-wrap gap-1.5 mb-2">
-                  {formData.tags.map((tag, index) => (
-                    <span key={index} className="flex items-center gap-1 px-2.5 py-1 bg-gray-200 text-gray-900 text-[12px] font-normal rounded-full border border-gray-300">
-                      {tag}
-                      <button type="button" onClick={() => handleRemoveTag(tag)} className="hover:text-red-500 leading-none ml-0.5">
+              <button
+                type="button"
+                onClick={() => setAdvancedFiltersOverride(!advancedFiltersOpen)}
+                aria-expanded={advancedFiltersOpen}
+                aria-controls="create-campaign-advanced-filters"
+                className="inline-flex items-center gap-0.5 py-2 -my-1 text-sm font-semibold text-[#6C60FF] hover:text-[#5A4FE5] rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-[#6C60FF]/40"
+              >
+                Advanced filters
+                <ChevronRight
+                  className={`w-5 h-5 transition-transform duration-200 ${advancedFiltersOpen ? 'rotate-90' : ''}`}
+                  aria-hidden="true"
+                />
+                {!advancedFiltersOpen && advancedFiltersCount > 0 && (
+                  <span className="ml-1.5 px-[7px] py-0.5 rounded-[10px] bg-[#F0EEFF] text-[#6C60FF] text-[11px] font-medium leading-tight">
+                    {advancedFiltersCount} set
+                  </span>
+                )}
+              </button>
+            </div>
+
+            {advancedFiltersOpen && (
+              <div id="create-campaign-advanced-filters" className="space-y-3">
+                {/* Tags */}
+                <div>
+                  <label className="flex items-center gap-2 text-base md:text-sm font-medium text-gray-700 mb-1">
+                    <Tag className="w-4 h-4 text-black" />
+                    Tags <span className="text-gray-400 text-xs">(optional)</span>
+                  </label>
+                  {formData.tags.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5 mb-2">
+                      {formData.tags.map((tag, index) => (
+                        <span key={index} className="flex items-center gap-1 px-2.5 py-1 bg-gray-200 text-gray-900 text-[12px] font-normal rounded-full border border-gray-300">
+                          {tag}
+                          <button type="button" onClick={() => handleRemoveTag(tag)} className="hover:text-red-500 leading-none ml-0.5">
+                            <X className="w-3 h-3" />
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  <div className="flex items-center gap-2">
+                    <Input
+                      type="text"
+                      value={currentTag}
+                      onChange={handleTagChange}
+                      placeholder="Add tags separated by commas (e.g. beach, summer, 2024)"
+                      className={`flex-1 h-12 md:h-10 text-base md:text-sm bg-gray-50 outline-none focus:outline-none focus-visible:outline-none ring-0 focus:ring-1 focus-visible:ring-1 transition-colors ${
+                        isTypingTag
+                          ? 'border-black focus:border-black focus:ring-black focus-visible:border-black focus-visible:ring-black'
+                          : 'border-gray-200 focus:border-gray-200 focus:ring-gray-200 focus-visible:border-gray-200 focus-visible:ring-gray-200'
+                      }`}
+                      onKeyPress={(e) => e.key === 'Enter' && handleAddTag()}
+                    />
+                    <Button
+                      type="button"
+                      onClick={handleAddTag}
+                      size="sm"
+                      disabled={!currentTag.trim()}
+                      className="text-sm bg-gray-100 text-gray-700 hover:bg-gray-200 border-0 disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      Add
+                    </Button>
+                  </div>
+                </div>
+
+
+                {/* Label */}
+                <div>
+                  <label className="flex items-center gap-2 text-base md:text-sm font-medium text-gray-700 mb-1">
+                    <Tag className="w-4 h-4 text-black" />
+                    Labels <span className="text-gray-400 font-normal text-xs">(optional)</span>
+                  </label>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={labelInput}
+                      onChange={(e) => setLabelInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          const trimmed = labelInput.trim();
+                          if (trimmed) {
+                            setFormData(prev => ({ ...prev, label: trimmed }));
+                            setLabelInput('');
+                          }
+                        }
+                      }}
+                      placeholder="Add a label..."
+                      className="flex-1 h-12 md:h-10 px-3 text-base md:text-sm bg-gray-50 border border-gray-200 rounded-md outline-none focus:border-gray-300 transition-colors"
+                    />
+                    <button
+                      type="button"
+                      disabled={!labelInput.trim()}
+                      onClick={() => {
+                        const trimmed = labelInput.trim();
+                        if (trimmed) {
+                          setFormData(prev => ({ ...prev, label: trimmed }));
+                          setLabelInput('');
+                        }
+                      }}
+                      className="px-4 h-12 md:h-10 text-base md:text-sm font-medium bg-white border border-gray-200 rounded-md hover:bg-gray-50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      Add
+                    </button>
+                  </div>
+                  {apiLabels.length > 0 && (
+                    <div className="flex flex-wrap items-center gap-2 mt-2">
+                      <span className="text-xs text-gray-500 font-medium">Existing:</span>
+                      {apiLabels.map((lbl: any) => (
+                        <button
+                          key={lbl.id}
+                          type="button"
+                          onClick={() => setFormData(prev => ({ ...prev, label: prev.label === lbl.name ? '' : lbl.name }))}
+                          className={`px-3 py-1 text-xs rounded-full border border-[#FEC53D] text-black transition-colors ${
+                            formData.label === lbl.name ? 'ring-2 ring-offset-1 ring-[#FEC53D]' : ''
+                          }`}
+                          style={{ backgroundColor: '#FFD46033' }}
+                        >
+                          {lbl.name}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  {formData.label && (
+                    <div className="flex items-center gap-1 mt-1">
+                      <span className="text-xs text-gray-500">Selected:</span>
+                      <span className="px-2 py-0.5 text-xs border border-[#FEC53D] text-black rounded-full font-medium" style={{ backgroundColor: '#FFD46033' }}>{formData.label}</span>
+                      <button type="button" onClick={() => setFormData(prev => ({ ...prev, label: '' }))} className="text-gray-400 hover:text-gray-600 ml-1">
                         <X className="w-3 h-3" />
                       </button>
-                    </span>
-                  ))}
+                    </div>
+                  )}
                 </div>
-              )}
-              <div className="flex items-center gap-2">
-                <Input
-                  type="text"
-                  value={currentTag}
-                  onChange={handleTagChange}
-                  placeholder="Add tags separated by commas (e.g. beach, summer, 2024)"
-                  className={`flex-1 h-12 md:h-10 text-base md:text-sm bg-gray-50 outline-none focus:outline-none focus-visible:outline-none ring-0 focus:ring-1 focus-visible:ring-1 transition-colors ${
-                    isTypingTag
-                      ? 'border-black focus:border-black focus:ring-black focus-visible:border-black focus-visible:ring-black'
-                      : 'border-gray-200 focus:border-gray-200 focus:ring-gray-200 focus-visible:border-gray-200 focus-visible:ring-gray-200'
-                  }`}
-                  onKeyPress={(e) => e.key === 'Enter' && handleAddTag()}
-                />
-                <Button
-                  type="button"
-                  onClick={handleAddTag}
-                  size="sm"
-                  disabled={!currentTag.trim()}
-                  className="text-sm bg-gray-100 text-gray-700 hover:bg-gray-200 border-0 disabled:opacity-40 disabled:cursor-not-allowed"
-                >
-                  Add
-                </Button>
               </div>
-            </div>
-
-
-            {/* Label */}
-            <div>
-              <label className="flex items-center gap-2 text-base md:text-sm font-medium text-gray-700 mb-1">
-                <Tag className="w-4 h-4 text-black" />
-                Labels <span className="text-gray-400 font-normal text-xs">(optional)</span>
-              </label>
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={labelInput}
-                  onChange={(e) => setLabelInput(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      e.preventDefault();
-                      const trimmed = labelInput.trim();
-                      if (trimmed) {
-                        setFormData(prev => ({ ...prev, label: trimmed }));
-                        setLabelInput('');
-                      }
-                    }
-                  }}
-                  placeholder="Add a label..."
-                  className="flex-1 h-12 md:h-10 px-3 text-base md:text-sm bg-gray-50 border border-gray-200 rounded-md outline-none focus:border-gray-300 transition-colors"
-                />
-                <button
-                  type="button"
-                  disabled={!labelInput.trim()}
-                  onClick={() => {
-                    const trimmed = labelInput.trim();
-                    if (trimmed) {
-                      setFormData(prev => ({ ...prev, label: trimmed }));
-                      setLabelInput('');
-                    }
-                  }}
-                  className="px-4 h-12 md:h-10 text-base md:text-sm font-medium bg-white border border-gray-200 rounded-md hover:bg-gray-50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                >
-                  Add
-                </button>
-              </div>
-              {apiLabels.length > 0 && (
-                <div className="flex flex-wrap items-center gap-2 mt-2">
-                  <span className="text-xs text-gray-500 font-medium">Existing:</span>
-                  {apiLabels.map((lbl: any) => (
-                    <button
-                      key={lbl.id}
-                      type="button"
-                      onClick={() => setFormData(prev => ({ ...prev, label: prev.label === lbl.name ? '' : lbl.name }))}
-                      className={`px-3 py-1 text-xs rounded-full border border-[#FEC53D] text-black transition-colors ${
-                        formData.label === lbl.name ? 'ring-2 ring-offset-1 ring-[#FEC53D]' : ''
-                      }`}
-                      style={{ backgroundColor: '#FFD46033' }}
-                    >
-                      {lbl.name}
-                    </button>
-                  ))}
-                </div>
-              )}
-              {formData.label && (
-                <div className="flex items-center gap-1 mt-1">
-                  <span className="text-xs text-gray-500">Selected:</span>
-                  <span className="px-2 py-0.5 text-xs border border-[#FEC53D] text-black rounded-full font-medium" style={{ backgroundColor: '#FFD46033' }}>{formData.label}</span>
-                  <button type="button" onClick={() => setFormData(prev => ({ ...prev, label: '' }))} className="text-gray-400 hover:text-gray-600 ml-1">
-                    <X className="w-3 h-3" />
-                  </button>
-                </div>
-              )}
-            </div>
+            )}
 
             {/* Collaborators */}
             <div>
@@ -3225,11 +3324,13 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
                 )}
                 <div className="relative flex-1" ref={collaboratorSearchRef}>
                   <Input
+                    ref={collaboratorInputRef}
                     type={collaboratorMethod === 'phone' ? 'tel' : 'email'}
                     value={currentCollaborator}
                     onChange={handleCollaboratorChange}
                     placeholder={collaboratorMethod === 'phone' ? 'e.g. 4939440939' : 'Enter email address...'}
-                    className={`w-full text-sm bg-gray-100 border-0 rounded-lg h-10 px-4 outline-none focus:outline-none focus-visible:outline-none ring-0 focus:ring-2 focus-visible:ring-2 transition-all ${
+                    enterKeyHint="done"
+                    className={`w-full text-base md:text-sm bg-gray-100 border-0 rounded-lg h-10 px-4 outline-none focus:outline-none focus-visible:outline-none ring-0 focus:ring-2 focus-visible:ring-2 transition-all ${
                       collaboratorError
                         ? 'focus:ring-red-400 focus-visible:ring-red-400'
                         : 'focus:ring-gray-300 focus-visible:ring-gray-300'
@@ -3269,17 +3370,60 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
                     </div>
                   )}
                 </div>
-                <Button
+                {/* Grey until the phone/email is valid, then a filled purple pill so it's
+                    obvious what to tap next (same as the mobile app). */}
+                <button
                   type="button"
                   onClick={handleAddCollaborator}
-                  disabled={!currentCollaborator.trim()}
-                  className="text-sm font-semibold bg-white text-gray-700 hover:bg-gray-50 border border-gray-200 rounded-lg h-10 px-5 shadow-sm"
+                  disabled={!isCollaboratorInputValid}
+                  aria-label="Add collaborator"
+                  className={`flex-shrink-0 h-10 px-5 rounded-full text-sm font-semibold transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#6C60FF]/40 focus-visible:ring-offset-1 ${
+                    isCollaboratorInputValid
+                      ? 'bg-[#6C60FF] hover:bg-[#5A4FE5] text-white shadow-sm'
+                      : 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                  }`}
                 >
                   Add
-                </Button>
+                </button>
               </div>
               {collaboratorError && (
                 <p className="text-xs text-red-500 mb-2 -mt-1">{collaboratorError}</p>
+              )}
+
+              {/* Selected collaborators — directly under the input so a new one is seen
+                  straight away (it used to land below the suggestion lists, under the
+                  phone keyboard). The one just added flashes purple. */}
+              {formData.collaborators.length > 0 && (
+                <div ref={selectedCollaboratorsRef} className="mb-3">
+                  <p className="text-sm font-medium text-gray-700 mb-2">Selected collaborators</p>
+                  <div className="flex flex-wrap gap-2">
+                    {formData.collaborators.map((collaborator) => {
+                      const highlighted = collaborator === justAddedCollaborator;
+                      return (
+                        <div
+                          key={collaborator}
+                          data-collaborator-chip={collaborator}
+                          className={`flex items-center gap-2 px-3 py-1 rounded-full text-sm scroll-my-4 transition-[background-color,color,box-shadow] duration-700 ${
+                            highlighted
+                              ? 'bg-[#EEEBFF] text-[#4B40D9] ring-2 ring-[#6C60FF]'
+                              : 'bg-green-100 text-green-800 ring-0 ring-transparent'
+                          }`}
+                        >
+                          <Users className="w-3 h-3" />
+                          {collaborator}
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveCollaborator(collaborator)}
+                            aria-label={`Remove ${collaborator}`}
+                            className={`ml-1 transition-colors duration-700 ${highlighted ? 'text-[#6C60FF]' : 'text-green-600 hover:text-green-800'}`}
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
               )}
 
               {/* Recent collaborators - Show first */}
@@ -3298,14 +3442,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
                         </div>
                         <button
                           type="button"
-                          onClick={() => {
-                            if (!formData.collaborators.includes(contact.email)) {
-                              setFormData(prev => ({
-                                ...prev,
-                                collaborators: [...prev.collaborators, contact.email]
-                              }));
-                            }
-                          }}
+                          onClick={() => addCollaboratorValue(contact.email)}
                           disabled={formData.collaborators.includes(contact.email)}
                           className="w-6 h-6 bg-white border border-gray-300 rounded-full flex items-center justify-center hover:bg-gray-50 text-gray-600 disabled:opacity-50"
                         >
@@ -3326,14 +3463,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
                         </div>
                         <button
                           type="button"
-                          onClick={() => {
-                            if (!formData.collaborators.includes(apiRecentCollaborators[2].email)) {
-                              setFormData(prev => ({
-                                ...prev,
-                                collaborators: [...prev.collaborators, apiRecentCollaborators[2].email]
-                              }));
-                            }
-                          }}
+                          onClick={() => addCollaboratorValue(apiRecentCollaborators[2].email)}
                           disabled={formData.collaborators.includes(apiRecentCollaborators[2].email)}
                           className="w-6 h-6 bg-white border border-gray-300 rounded-full flex items-center justify-center hover:bg-gray-50 text-gray-600 disabled:opacity-50"
                         >
@@ -3361,14 +3491,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
                         </div>
                         <button
                           type="button"
-                          onClick={() => {
-                            if (!formData.collaborators.includes(contact.email)) {
-                              setFormData(prev => ({
-                                ...prev,
-                                collaborators: [...prev.collaborators, contact.email]
-                              }));
-                            }
-                          }}
+                          onClick={() => addCollaboratorValue(contact.email)}
                           disabled={formData.collaborators.includes(contact.email)}
                           className="w-6 h-6 bg-white border border-gray-300 rounded-full flex items-center justify-center hover:bg-gray-50 text-gray-600 disabled:opacity-50"
                         >
@@ -3389,14 +3512,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
                         </div>
                         <button
                           type="button"
-                          onClick={() => {
-                            if (!formData.collaborators.includes(apiFrequentCollaborators[2].email)) {
-                              setFormData(prev => ({
-                                ...prev,
-                                collaborators: [...prev.collaborators, apiFrequentCollaborators[2].email]
-                              }));
-                            }
-                          }}
+                          onClick={() => addCollaboratorValue(apiFrequentCollaborators[2].email)}
                           disabled={formData.collaborators.includes(apiFrequentCollaborators[2].email)}
                           className="w-6 h-6 bg-white border border-gray-300 rounded-full flex items-center justify-center hover:bg-gray-50 text-gray-600 disabled:opacity-50"
                         >
@@ -3409,24 +3525,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
               )}
 
               {formData.collaborators.length > 0 && (
-                <div className="mt-4">
-                  <p className="text-sm font-medium text-gray-700 mb-2">Selected collaborators</p>
-                  <div className="flex flex-wrap gap-2">
-                    {formData.collaborators.map((collaborator, index) => (
-                      <div key={index} className="flex items-center gap-2 bg-green-100 text-green-800 px-3 py-1 rounded-full text-sm">
-                        <Users className="w-3 h-3" />
-                        {collaborator}
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveCollaborator(collaborator)}
-                          className="ml-1 text-green-600 hover:text-green-800"
-                        >
-                          <X className="w-3 h-3" />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-
+                <div>
                   {/* Personalized message — appears once a collaborator is added.
                       The author name is a fixed (non-editable) prefix; the rest is editable. */}
                   <div className="mt-4">
@@ -3489,15 +3588,17 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
           </div>
         </div>
 
-        {/* Sticky Footer */}
-        <div className="flex flex-col gap-2 p-4 border-t border-gray-100 bg-gray-50 flex-shrink-0 rounded-b-lg">
-          {/* Row 1: Cancel + Save */}
-          <div className="flex gap-3">
+        {/* Sticky Footer — phones: one compact row (Cancel / Save / wider Publish) above
+            the home indicator, so Publish is always on screen; desktop: Cancel + Create
+            Campaign, then Publish full width, as before. */}
+        <div className="flex items-stretch gap-2 md:flex-col px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] md:p-4 border-t border-gray-100 bg-gray-50 flex-shrink-0 rounded-b-lg">
+          {/* Cancel + Save */}
+          <div className="flex flex-[2] md:flex-none gap-2 md:gap-3 min-w-0">
             <Button
               type="button"
               variant="outline"
               onClick={handleModalClose}
-              className="flex-1 text-sm text-gray-900 border-2 border-gray-400 hover:bg-gray-50 focus:ring-0 focus:outline-none !h-auto !py-4 md:!py-2"
+              className="flex-1 min-w-0 px-2 md:px-4 text-sm text-gray-900 border-2 border-gray-400 hover:bg-gray-50 focus:ring-0 focus:outline-none !h-11 md:!h-auto md:!py-2"
             >
               Cancel
             </Button>
@@ -3506,20 +3607,23 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
               variant="outline"
               onClick={() => handleSubmit(false)}
               disabled={!formData.title.trim() || !formData.category || isSubmitting || isUploadingVideo}
-              className="flex-1 text-sm text-gray-900 border-2 border-gray-900 hover:bg-gray-50 focus:ring-0 focus:outline-none disabled:border-gray-300 !h-auto !py-4 md:!py-2"
+              aria-label={isSubmitting ? 'Saving' : 'Create Campaign'}
+              className="flex-1 min-w-0 px-2 md:px-4 text-sm text-gray-900 border-2 border-gray-900 hover:bg-gray-50 focus:ring-0 focus:outline-none disabled:border-gray-300 !h-11 md:!h-auto md:!py-2"
             >
               {isSubmitting ? (
-                <><div className="w-4 h-4 border-2 border-gray-400 border-t-transparent rounded-full animate-spin mr-2"></div>Saving...</>
-              ) : 'Create Campaign'}
+                <><div className="w-4 h-4 border-2 border-gray-400 border-t-transparent rounded-full animate-spin md:mr-2"></div><span className="hidden md:inline">Saving...</span></>
+              ) : (
+                <><span className="md:hidden">Save</span><span className="hidden md:inline">Create Campaign</span></>
+              )}
             </Button>
           </div>
-          {/* Row 2: Publish full width */}
+          {/* Publish — wider on phones, full width row on desktop */}
           <Popover.Root open={publishPopoverOpen} onOpenChange={setPublishPopoverOpen}>
             <Popover.Trigger asChild>
               <button
                 type="button"
                 disabled={!formData.title.trim() || !formData.category || isSubmitting || isUploadingVideo}
-                className="w-full bg-[#7B68EE] hover:bg-[#6B5DD3] disabled:opacity-50 disabled:pointer-events-none text-white text-sm font-medium rounded-md flex items-center justify-center gap-2 py-4 md:py-2"
+                className="flex-[2] md:flex-none md:w-full min-w-0 bg-[#6C60FF] hover:bg-[#5A4FE5] disabled:opacity-50 disabled:pointer-events-none text-white text-sm font-semibold md:font-medium rounded-md flex items-center justify-center gap-2 h-11 md:h-auto md:py-2"
               >
                 <Globe className="w-4 h-4" />
                 Publish
@@ -3530,8 +3634,9 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
                 side="top"
                 align="center"
                 sideOffset={8}
+                collisionPadding={12}
                 style={{ zIndex: 100002 }}
-                className="w-72 bg-white rounded-2xl shadow-xl border border-gray-100 p-2 outline-none"
+                className="w-72 max-w-[calc(100vw-24px)] bg-white rounded-2xl shadow-xl border border-gray-100 p-2 outline-none"
               >
                 {[
                   { type: 2 as const, icon: <Eye className="w-5 h-5 text-gray-700" />, label: 'View Only', desc: 'Users can only view the campaign, no comments allowed' },

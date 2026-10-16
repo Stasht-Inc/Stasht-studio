@@ -134,7 +134,7 @@ export function InstallGuide({
           <div>
             <h2 className="text-xl font-bold text-gray-900">Add this widget to your website</h2>
             <p className="text-sm text-gray-600 mt-1">
-              It takes about 5 minutes. You paste one line of code into your website once, and the chat bubble appears on every page.
+              It takes about 5 minutes. You paste one line of code into every page of your website once. The chat bubble then appears on your home page, plus any other pages you add under "Also show on these pages".
             </p>
           </div>
 
@@ -297,7 +297,7 @@ export function InstallGuide({
           <section>
             <SectionTitle n={5}>Check it's working</SectionTitle>
             <ol className="list-decimal pl-5 space-y-2 text-sm text-gray-700">
-              <li>Open your website in a new browser tab and refresh the page.</li>
+              <li>Open your website's home page in a new browser tab and refresh it.</li>
               <li>
                 Within a few seconds, a chat bubble saying <strong className="font-semibold text-gray-900">"{widget.callout_text || 'Chat with us'}"</strong> should appear in the {cornerText} corner.
               </li>

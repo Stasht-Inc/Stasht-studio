@@ -98,32 +98,59 @@ export function isPlausibleDomain(domain: string): boolean {
   return /^(?=.{3,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/.test(domain);
 }
 
-// --- "Don't show on these pages" (mirrors WidgetHiddenPaths.php; matched by pathHidden() in public/widget-core.js) ---
-export const HIDDEN_PATHS_MAX = 20;
-export const HIDDEN_PATH_LENGTH_MAX = 200;
+// --- "Also show on these pages" (mirrors WidgetShownPaths.php; matched by pathShown() in public/widget-core.js) ---
+// Owner decision 2026-10-15 (ClickUp wdy2xh28hp): the widget shows on the home page only, plus these.
+export const SHOWN_PATHS_MAX = 20;
+export const SHOWN_PATH_LENGTH_MAX = 200;
+const SHOWN_PATH_INPUT_MAX = 2000; // a pasted link, before it is reduced to its page address
 
-/** Textarea text -> the list saved: one page address per line, trimmed, blanks and duplicates (any case) dropped. */
-export function hiddenPathsFromText(text: string): string[] {
-  const seen = new Set<string>();
-  const out: string[] = [];
-  for (const line of text.split(/\r?\n/)) {
-    const entry = line.trim();
-    if (!entry || seen.has(entry.toLowerCase())) continue;
-    seen.add(entry.toLowerCase());
-    out.push(entry);
+const HOME_PAGE = /^\/(?:index\.(?:html?|php))?$/i;
+
+export type ShownPathResult = { path: string; error?: undefined } | { path?: undefined; error: string };
+
+/**
+ * One typed or pasted entry -> the page address to save, or why it can't be added. Accepts a page
+ * address ("/contact", "/inventory/*") or a link ("https://www.example.com/contact?x#y",
+ * "example.com/contact"); a link must be on one of `domains` (the form's current allowed domains,
+ * already normalized; none = any website). Query string, hash and a trailing slash are dropped.
+ */
+export function shownPathFromInput(raw: string, domains: string[]): ShownPathResult {
+  const entry = raw.trim();
+  if (entry.length > SHOWN_PATH_INPUT_MAX) return { error: 'That link is too long.' };
+
+  let path: string;
+  if (entry.startsWith('/') && !entry.startsWith('//')) {
+    path = entry;
+  } else {
+    const rest = entry.replace(/^(?:[a-z][a-z0-9+.-]*:)?\/\//i, '');
+    const [, hostPart, after] = rest.match(/^([^/?#]*)([\s\S]*)$/) as RegExpMatchArray;
+    const host = /^[^\s:@]+(?::\d{1,5})?$/.test(hostPart) ? normalizeDomain(hostPart) : '';
+    if (!host || !isPlausibleDomain(host)) {
+      return { error: `"${entry}" isn't a page. Enter a page address that starts with /, e.g. /contact, or a link such as example.com/contact.` };
+    }
+    if (domains.length && !domains.some((d) => host === d || host.endsWith(`.${d}`))) {
+      return { error: `That page isn't on your website (${domains.join(', ')}).` };
+    }
+    path = after.startsWith('/') ? after : `/${after}`;
   }
-  return out;
+
+  path = path.replace(/[?#][\s\S]*$/, '');
+  if (path.length > 1) path = path.replace(/\/+$/, '') || '/';
+
+  if (HOME_PAGE.test(path)) return { error: 'The widget always shows on your home page, so there is no need to add it.' };
+  if (path.length > SHOWN_PATH_LENGTH_MAX) return { error: `Each page address can be ${SHOWN_PATH_LENGTH_MAX} characters at most.` };
+  if (/\s/.test(path)) return { error: 'Enter the page address without spaces.' };
+  return { path };
 }
 
-/** Why the list can't be saved (first problem), or null. Same rules as the server. */
-export function hiddenPathsProblem(paths: string[]): string | null {
-  for (const entry of paths) {
-    if (entry.length > HIDDEN_PATH_LENGTH_MAX) return `"${entry.slice(0, 40)}…" is too long: each page address can be ${HIDDEN_PATH_LENGTH_MAX} characters at most.`;
-    if (!entry.startsWith('/')) return `"${entry}" must start with /, e.g. /checkout.`;
-    if (/[\s?#]/.test(entry)) return `"${entry}": enter just the page address, without spaces, ? or #.`;
-  }
-  if (paths.length > HIDDEN_PATHS_MAX) return `You can list up to ${HIDDEN_PATHS_MAX} pages.`;
-  return null;
+/** The list with `path` added, unless it is already there (ignoring case, like the matching). */
+export function withShownPath(current: string[], path: string): string[] {
+  return current.some((p) => p.toLowerCase() === path.toLowerCase()) ? current : [...current, path];
+}
+
+/** Why the list can't be saved, or null. Entries are already checked one by one as they are added. */
+export function shownPathsProblem(paths: string[]): string | null {
+  return paths.length > SHOWN_PATHS_MAX ? `You can list up to ${SHOWN_PATHS_MAX} pages.` : null;
 }
 
 /** Days without a page load after which an install is shown as possibly removed. */

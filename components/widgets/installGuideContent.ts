@@ -131,13 +131,13 @@ export function aiAssistantPrompt(ctx: InstallContext): string {
     ctx.snippet,
     '',
     'What needs to happen:',
-    '- This exact line needs to be on every page of my website, just before the closing </body> tag. A site-wide "footer code" or "custom code" setting is ideal.',
+    '- This exact line needs to be on every page of my website, just before the closing </body> tag. A site-wide "footer code" or "custom code" setting is ideal. (The widget itself decides which pages show the chat bubble: the home page, plus any pages chosen in its settings.)',
     '- The code must not be changed in any way.',
     '- The site may need to be saved or published afterwards.',
     '',
     'Please:',
     `1. Tell me exactly where to click ${where} to add site-wide footer code, and tell me if my plan needs to support custom code.`,
-    `2. Tell me how to check it worked: when I open my website and refresh, a chat bubble should appear in the ${cornerText(ctx.corner)} corner within a few seconds.`,
+    `2. Tell me how to check it worked: when I open my website's home page and refresh, a chat bubble should appear in the ${cornerText(ctx.corner)} corner within a few seconds.`,
     '3. If you can edit my website\'s code or files directly, add the line for me just before </body> in the shared layout or on every page.',
   ].join('\n');
 }
@@ -158,7 +158,7 @@ export function developerEmailBody(ctx: InstallContext): string {
     '',
     ctx.snippet,
     '',
-    `Once it is live, a chat bubble should appear in the ${cornerText(ctx.corner)} corner of every page. The script loads asynchronously (in the background).`,
+    `Once it is live, a chat bubble should appear in the ${cornerText(ctx.corner)} corner of the home page (and of any other pages we choose in the widget's settings). The script loads asynchronously (in the background).`,
     '',
     'Please let me know once it has been added. Thank you!',
   ].join('\n');
