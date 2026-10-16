@@ -893,7 +893,7 @@ export default function Sidebar({
               )}
               <div className="flex-1 min-w-0">
                 <h3 className="font-semibold text-sm text-gray-900 mb-1">
-                  Syncing {syncProgress.serviceName} ({syncProgress.progress}%)
+                  {syncProgress.serviceType === 'catalogue' ? 'Importing' : 'Syncing'} {syncProgress.serviceName} ({syncProgress.progress}%)
                 </h3>
                 <p className="text-xs text-gray-600">
                   {syncProgress.message || 'Importing your media...'}
@@ -933,9 +933,14 @@ export default function Sidebar({
               </div>
             </div>
 
-            {/* View Media Button */}
+            {/* View Media Button (a Website Catalogue import: View catalogue, which opens Campaigns, where the catalogue is browsed) */}
             <button
               onClick={() => {
+                if (syncProgress.serviceType === 'catalogue') {
+                  clearSync();
+                  onNavigate?.('memories');
+                  return;
+                }
                 console.log('📱 View Media clicked for service:', syncProgress.serviceId);
 
                 // Store the service ID to activate that tab - IMPORTANT: Set this first!
@@ -963,7 +968,7 @@ export default function Sidebar({
               }}
               className="w-full py-2.5 px-4 rounded-lg font-medium text-sm bg-[#6C60FF] hover:bg-[#5A4FE5] text-white shadow-md hover:shadow-lg transition-all duration-200 flex items-center justify-center gap-2"
             >
-              View Media
+              {syncProgress.serviceType === 'catalogue' ? 'View catalogue' : 'View Media'}
               <ChevronRight className="w-4 h-4" />
             </button>
           </div>

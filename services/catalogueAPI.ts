@@ -142,6 +142,17 @@ export interface CatalogueScan {
 
 export type CatalogueSourceStatus = 'active' | 'paused' | 'blocked' | 'needs_attention' | 'unverified' | 'plan_required';
 
+/** The import running now (null when none is): its phase, counts and the API's own sentence, e.g. "Reading products 120 of 500". */
+export interface CatalogueSyncProgress {
+  state: 'starting' | 'running';
+  phase: 'finding' | 'reading' | 'learning' | 'saving' | 'photos' | null;
+  done: number | null;
+  total: number | null;
+  percent: number | null; // 0–100, null while the total isn't known yet
+  label: string; // "Starting…", "Reading products 120 of 500", …
+  started_at: string | null;
+}
+
 export interface CatalogueSource {
   id: number;
   url: string;
@@ -163,6 +174,8 @@ export interface CatalogueSource {
   can_resume: boolean;
   blocked: CatalogueBlockedHelp | null;
   domain: CatalogueDomain | null;
+  item_limit: number; // the account's item limit (500 unless support has set another)
+  sync: CatalogueSyncProgress | null; // set while a sync is starting or running
 }
 
 // GET /website-catalogue: SP1's status plus the connected website (null until one is connected or
@@ -170,7 +183,7 @@ export interface CatalogueSource {
 export interface CatalogueOverview extends CatalogueStatus {
   source: CatalogueSource | null;
   scan: CatalogueScan | null;
-  limits: { item_limit: number; sync_now_minutes: number };
+  limits: { item_limit: number; sync_now_minutes: number }; // item_limit: the account's own limit
 }
 
 export interface CatalogueResult<T> {

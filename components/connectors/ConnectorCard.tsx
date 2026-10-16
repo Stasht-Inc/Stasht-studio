@@ -12,7 +12,8 @@ const BADGE_TONES = {
  * Catalog card on the Connectors page. The grid is always shown (Chris, 2026-10-05); a connected
  * card carries a "Connected" badge and its status line, and its button reads Manage. `disabled`
  * (free plan, e.g. after a downgrade): a connected card says it's off and the button reads Upgrade.
- * `override` (the Website Catalogue, whose state is richer): its own badge, line and button.
+ * `override` (the Website Catalogue, whose state is richer): its own badge, line and button, and a thin
+ * progress bar under the line while its import runs.
  */
 export function ConnectorCard({
   connector,
@@ -86,6 +87,18 @@ export function ConnectorCard({
         </ul>
 
         {line && <p className="text-sm text-gray-500 mb-3 break-words">{line}</p>}
+        {override?.progress !== undefined && (
+          <div
+            className="w-full bg-[#6C60FF]/20 rounded-full h-1.5 overflow-hidden mb-3"
+            role="progressbar"
+            aria-label={`${connector.name} import progress`}
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={override.progress}
+          >
+            <div className="bg-[#6C60FF] h-1.5 rounded-full transition-all duration-500 ease-out" style={{ width: `${override.progress}%` }} />
+          </div>
+        )}
 
         <button
           type="button"

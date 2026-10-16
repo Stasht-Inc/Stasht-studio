@@ -12,15 +12,18 @@ import {
   PreviewImage,
   VerificationMethods,
 } from './WebsiteCatalogueParts';
-import { PROGRESS_STEPS, foundSummary, plural, progressIndex } from './websiteCatalogue';
+import { PROGRESS_STEPS, announceCatalogueSync, foundSummary, plural, progressIndex } from './websiteCatalogue';
 
 type Step = 'url' | 'verify' | 'progress' | 'outcome';
 
-const HOW_IT_WORKS = [
+/** The account's item limit when the page couldn't tell us (the API's default). */
+const DEFAULT_ITEM_LIMIT = 500;
+
+const howItWorks = (itemLimit: number) => [
   "Enter your website's address",
   'Prove you own it with a meta tag, a DNS record or your Contact Us widget',
   'We analyse your website and show you a preview',
-  'Connect: we import up to 500 items and keep them in sync every night',
+  `Connect: we import up to ${itemLimit.toLocaleString('en-US')} items and keep them in sync every night`,
 ];
 
 const POLL_MS = 3000;
@@ -35,6 +38,8 @@ function initialStep(scan: CatalogueScan | null): Step {
 interface Props {
   /** The account's latest unexpired scan (GET /website-catalogue): reopens the dialog where the user left it. */
   initialScan: CatalogueScan | null;
+  /** The account's item limit (GET /website-catalogue `limits.item_limit`); a finished scan's own limit wins. */
+  itemLimit?: number;
   onClose: () => void;
   /** A website was connected: the page reloads the card. */
   onConnected: () => void;
@@ -43,7 +48,7 @@ interface Props {
 }
 
 /** Spec 2026-09-30 §8.2: URL → verify ownership → progress → outcome. */
-export function WebsiteCatalogueConnectModal({ initialScan, onClose, onConnected, onScanChanged }: Props) {
+export function WebsiteCatalogueConnectModal({ initialScan, itemLimit, onClose, onConnected, onScanChanged }: Props) {
   const [step, setStep] = useState<Step>(() => initialStep(initialScan));
   const [url, setUrl] = useState(initialScan?.url ?? '');
   const [authorized, setAuthorized] = useState(false);
@@ -198,6 +203,7 @@ export function WebsiteCatalogueConnectModal({ initialScan, onClose, onConnected
       return;
     }
     toast.success("Website connected. We're importing your items now.");
+    announceCatalogueSync(); // the sidebar shows the first import's progress
     onConnectedRef.current();
   };
 
@@ -212,6 +218,7 @@ export function WebsiteCatalogueConnectModal({ initialScan, onClose, onConnected
 
   const host = domain?.host ?? scan?.host ?? '';
   const outcome = scan?.outcome ?? null;
+  const limit = outcome?.item_limit ?? itemLimit ?? DEFAULT_ITEM_LIMIT;
   let body: ReactNode = null;
   let footer: ReactNode = null;
   const close = (
@@ -230,14 +237,14 @@ export function WebsiteCatalogueConnectModal({ initialScan, onClose, onConnected
             <span className="text-blue-700 font-semibold text-sm">How it works</span>
           </div>
           <ul className="space-y-1.5">
-            {HOW_IT_WORKS.map((line, i) => (
+            {howItWorks(limit).map((line, i) => (
               <li key={line} className="text-blue-600 text-sm leading-snug">{i + 1}. {line}</li>
             ))}
           </ul>
         </div>
         {/* Chris, 2026-10-10: larger catalogues go to an Enterprise account (same contact link as UpgradePlanModal). */}
         <Notice tone="neutral">
-          If you have more than 500 items, please{' '}
+          If you have more than {limit.toLocaleString('en-US')} items, please{' '}
           <a href="https://stasht.com/#contact" target="_blank" rel="noopener noreferrer" className="font-medium text-[#6C60FF] hover:underline">contact us</a>{' '}
           to set up an Enterprise Account.
         </Notice>
@@ -358,7 +365,8 @@ export function WebsiteCatalogueConnectModal({ initialScan, onClose, onConnected
           )}
           <p className="text-sm text-gray-500">
             We import up to {plural(outcome.item_limit, 'item')} per website. Photos are copied to Stasht when you connect. The first import
-            starts within a minute; a large catalogue can take an hour or more.
+            starts within a minute. You can keep using Studio while it runs — you'll see its progress at the bottom of the sidebar, and
+            we'll email you when it's done.
           </p>
         </>
       );

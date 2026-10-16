@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { AlertTriangle, CheckCircle2, Loader2, Pause, Play, RefreshCw, Unplug } from 'lucide-react';
 import { toast } from 'sonner';
 import {
@@ -13,9 +13,12 @@ import {
 } from '../ui/alert-dialog';
 import { catalogueAPI, type CatalogueOverview, type CatalogueResult } from '../../services/catalogueAPI';
 import { BlockedHelp, BUTTON_DANGER, BUTTON_OUTLINED, BUTTON_PRIMARY, BUTTON_SECONDARY, CatalogueModalShell, Notice, VerificationMethods } from './WebsiteCatalogueParts';
-import { formatRelative, openBillingUpgrade, plural, syncNowLabel } from './websiteCatalogue';
+import { announceCatalogueSync, formatRelative, openBillingUpgrade, plural, syncNowLabel, syncPercent } from './websiteCatalogue';
 
 type Busy = null | 'sync' | 'pause' | 'resume' | 'disconnect';
+
+/** While open and an import runs, the website's progress is asked for every 5 s. */
+const SYNC_POLL_MS = 5000;
 
 /** "You can sync again in 12 minutes." from the API's seconds-until-allowed, or null when Sync now is open. */
 function syncWaitSentence(seconds: number): string | null {
@@ -38,6 +41,26 @@ export function WebsiteCatalogueManageModal({
   // Set when Resume answers 409 paused_by_support: the API's sentence replaces the Resume button (retrying can't help).
   const [supportHold, setSupportHold] = useState<string | null>(null);
   const source = overview.source;
+
+  // While an import runs, refresh the website every 5 s so the progress block (and the card behind) stay current.
+  // The interval stops once the answer has no sync (the last answer also brings the new item count), and on close.
+  const onChangedRef = useRef(onChanged);
+  onChangedRef.current = onChanged;
+  const syncing = !!source?.sync;
+  useEffect(() => {
+    if (!syncing) return undefined;
+    let cancelled = false;
+    const timer = window.setInterval(() => {
+      catalogueAPI.getOverview()
+        .then((res) => { if (!cancelled && res.ok && res.data) onChangedRef.current(res.data); })
+        .catch(() => {});
+    }, SYNC_POLL_MS);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [syncing]);
+
   if (!source) return null;
 
   const act = async (
@@ -56,12 +79,17 @@ export function WebsiteCatalogueManageModal({
     }
     onChanged(res.data);
     toast.success(done(res.data));
+    // A queued sync: the sidebar's progress bar picks it up straight away.
+    if ((kind === 'sync' || kind === 'resume') && res.data.source?.sync_requested) announceCatalogueSync();
     return true;
   };
 
   const notBusiness = overview.reason === 'plan_required';
   const attention = source.status !== 'active' && source.status !== 'paused';
-  const lastSync = source.sync_requested ? 'Starting within a minute' : formatRelative(source.last_sync_at) ?? 'Not yet';
+  const sync = source.sync;
+  const lastSync = sync?.state === 'running'
+    ? 'In progress'
+    : source.sync_requested ? 'Starting within a minute' : formatRelative(source.last_sync_at) ?? 'Not yet';
   const wait = syncWaitSentence(source.sync_now_available_in);
   const showVerification = source.domain && (source.status === 'unverified' || source.warning);
   const canResume = source.can_resume && supportHold === null;
@@ -149,13 +177,37 @@ export function WebsiteCatalogueManageModal({
 
         {supportHold && <Notice tone="warning">{supportHold}</Notice>}
 
+        {sync && (
+          <div className="bg-blue-50 rounded-xl p-4" aria-live="polite">
+            <p className="font-semibold text-sm text-gray-900 mb-3">{sync.label}</p>
+            <div
+              className="w-full bg-[#6C60FF]/20 rounded-full h-2 overflow-hidden"
+              role="progressbar"
+              aria-label="Import progress"
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={syncPercent(sync)}
+            >
+              <div className="bg-[#6C60FF] h-2 rounded-full transition-all duration-500 ease-out" style={{ width: `${syncPercent(sync)}%` }} />
+            </div>
+            {sync.percent !== null && (
+              <div className="flex items-center justify-end mt-2">
+                <span className="text-xs font-semibold text-[#6C60FF]">{syncPercent(sync)}%</span>
+              </div>
+            )}
+            <p className="text-xs text-gray-600 mt-2">
+              This can take a while. You can close this window and keep using Studio — we'll email you when your catalogue is ready.
+            </p>
+          </div>
+        )}
+
         <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
           <dt className="text-gray-500">Website</dt>
           <dd className="text-gray-900 break-all">
             <a href={source.url} target="_blank" rel="noopener noreferrer" className="text-[#6C60FF] hover:underline">{source.url}</a>
           </dd>
           <dt className="text-gray-500">Items</dt>
-          <dd className="text-gray-900">{source.item_count.toLocaleString('en-US')}</dd>
+          <dd className="text-gray-900">{sync ? 'Importing…' : source.item_count.toLocaleString('en-US')}</dd>
           <dt className="text-gray-500">Last synced</dt>
           <dd className="text-gray-900">{lastSync}</dd>
           <dt className="text-gray-500">Last successful sync</dt>

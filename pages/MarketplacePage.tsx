@@ -791,12 +791,14 @@ export default function MarketplacePage() {
     }
   }, [catalogueCard.action]);
 
-  // While an analysis runs with the dialog closed, keep the card's "Analysing…" line current.
+  // While an analysis or an import runs with the dialog closed, keep the card's "Analysing…" line (or the
+  // import's progress) current. The Manage dialog polls on its own while it's open.
+  const catalogueBusy = !!catalogue?.scan?.in_progress || !!catalogue?.source?.sync;
   useEffect(() => {
-    if (activeModal !== null || !catalogue?.scan?.in_progress) return undefined;
+    if (activeModal !== null || !catalogueBusy) return undefined;
     const timer = window.setInterval(reloadCatalogue, 10000);
     return () => window.clearInterval(timer);
-  }, [activeModal, catalogue?.scan?.in_progress, reloadCatalogue]);
+  }, [activeModal, catalogueBusy, reloadCatalogue]);
 
   // Keep the sidebar's Connectors badge in step with what this page shows. A website the plan has
   // paused (Starter / Teams) is not counted: catalogueCard.connected is false for it.
@@ -895,6 +897,7 @@ export default function MarketplacePage() {
       ) : (
         <WebsiteCatalogueConnectModal
           initialScan={catalogue.scan}
+          itemLimit={catalogue.limits?.item_limit}
           onClose={() => { closeModal(); reloadCatalogue(); }}
           onScanChanged={reloadCatalogue}
           onConnected={() => { closeModal(); reloadCatalogue(); }}

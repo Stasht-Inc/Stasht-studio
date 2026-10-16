@@ -45,6 +45,7 @@ import { UPGRADE_REQUIRED_EVENT } from './utils/planEvents';
 import { canManagePropertyWidgets } from './utils/propertyAccess';
 import { memoryCountsManager } from './hooks/useMemoryCounts';
 import ErrorBoundary from './components/ErrorBoundary';
+import { CatalogueSyncWatcher } from './components/CatalogueSyncWatcher';
 import { Toaster, toast } from 'sonner';
 import { maybeAskForDesktopAlerts } from './components/leads/desktopAlertsPrompt';
 import { UploadProgressProvider } from './contexts/UploadProgressContext';
@@ -4122,6 +4123,8 @@ function MainApp() {
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
+      {/* Website Catalogue import progress in the sidebar's sync bar: a personal-account connector, so personal view only. */}
+      <CatalogueSyncWatcher enabled={isAuthenticated && !!user && viewType === 'personal'} />
       {/* PWA Install Banner */}
       {showInstallBanner && (
         <div className="sticky top-0 z-[9999] flex items-center justify-between gap-3 px-4 py-3 bg-[#6C60FF] text-white">

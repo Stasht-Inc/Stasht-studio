@@ -18,6 +18,8 @@ export interface ConnectorDef {
 export interface ConnectorCardOverride {
   badge?: { label: string; tone: 'green' | 'amber' | 'gray' };
   line?: string;
+  /** 0–100: a thin progress bar under the line (the Website Catalogue's import while it runs). */
+  progress?: number;
   actionLabel: string;
   outlined: boolean;
 }
@@ -36,7 +38,7 @@ export const CONNECTORS: ConnectorDef[] = [
     name: 'Website Catalogue',
     category: 'Connect your website',
     description: 'Import the products, vehicles or properties from your own website, keep them in sync every night, and build campaigns from them in a few clicks.',
-    features: ['Works with most store and listing websites', 'Up to 500 items, synced nightly', 'Build campaigns from your items'],
+    features: ['Works with most store and listing websites', 'Your items, synced nightly', 'Build campaigns from your items'],
   },
   {
     id: 'shopify',

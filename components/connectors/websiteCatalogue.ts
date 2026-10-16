@@ -6,6 +6,7 @@ import type {
   CatalogueScanOutcome,
   CatalogueSource,
   CatalogueSourceStatus,
+  CatalogueSyncProgress,
 } from '../../services/catalogueAPI';
 import type { ConnectorCardOverride } from './catalog';
 
@@ -59,6 +60,21 @@ export function openBillingUpgrade(): void {
   window.dispatchEvent(new CustomEvent('app-navigate', { detail: 'billing' }));
 }
 
+/**
+ * Window event the connect and Sync now flows send when a sync has been queued, so the sidebar's
+ * CatalogueSyncWatcher asks for the website's progress straight away instead of at its next check.
+ */
+export const CATALOGUE_SYNC_STARTED_EVENT = 'catalogue-sync-started';
+
+export function announceCatalogueSync(): void {
+  window.dispatchEvent(new CustomEvent(CATALOGUE_SYNC_STARTED_EVENT));
+}
+
+/** The running import's percentage for a progress bar (0 while the total isn't known yet). */
+export function syncPercent(sync: CatalogueSyncProgress): number {
+  return Math.round(Math.min(100, Math.max(0, sync.percent ?? 0)));
+}
+
 export type WebsiteCatalogueAction = 'connect' | 'continue' | 'manage' | 'upgrade' | 'billing';
 
 export interface WebsiteCatalogueCard {
@@ -75,6 +91,13 @@ export interface WebsiteCatalogueCard {
 }
 
 function sourceOverride(source: CatalogueSource): ConnectorCardOverride {
+  const base = statusOverride(source);
+  // An import is running: its live progress replaces the line ("shop.com · Reading products 120 of 500"), under the status's badge.
+  if (source.sync) return { ...base, line: `${source.host} · ${source.sync.label}`, progress: syncPercent(source.sync) };
+  return base;
+}
+
+function statusOverride(source: CatalogueSource): ConnectorCardOverride {
   const manage = { actionLabel: 'Manage', outlined: true };
   switch (source.status) {
     case 'active': {
