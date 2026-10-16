@@ -89,6 +89,50 @@ interface MemoryImage {
   subImages?: MemoryImage[];
 }
 
+/**
+ * Permission rules for a post card's own ⋮ menu (Edit Caption / Edit Moment /
+ * Delete Moment / Add description). Exported so the campaign page's timeline
+ * sidebar menu only offers actions the card itself would allow.
+ */
+export function getPostPermissions(
+  post: MockPost,
+  memoryOwnerId: string | undefined,
+  activeCollaborators: Collaborator[] = [],
+) {
+  // Get current logged-in user to check post ownership
+  const currentUser = userUtils.getStoredUser();
+
+  // Use external_user_id as the actual user ID (id field is admin_id)
+  const currentUserId = currentUser?.external_user_id || currentUser?.id;
+
+  // Check if current user is the post author
+  const isPostAuthor = !!(currentUser && post.author && (
+    (post.author.id && currentUserId && String(currentUserId) === String(post.author.id)) ||
+    (post.author.email && currentUser.email && post.author.email === currentUser.email) ||
+    (post.author.name && currentUser.name && post.author.name === currentUser.name)
+  ));
+
+  // Check if current user is the memory owner
+  const isMemoryOwner = !!(currentUser && memoryOwnerId && String(currentUserId) === String(memoryOwnerId));
+
+  // Check if current user is a collaborator with edit/admin permissions
+  const currentUserCollaborator = activeCollaborators.find(collab =>
+    (collab.userId && String(collab.userId) === String(currentUserId)) ||
+    (collab.id && String(collab.id) === String(currentUserId)) ||
+    (currentUser?.email && collab.email === currentUser.email)
+  );
+  const hasEditPermission = currentUserCollaborator?.role === 'edit' || currentUserCollaborator?.role === 'admin' || currentUserCollaborator?.role === 'contributor';
+
+  return {
+    isPostAuthor,
+    isMemoryOwner,
+    // Add descriptions: memory owner OR collaborator with edit/admin/contributor role
+    canAddDescription: isMemoryOwner || hasEditPermission,
+    canEdit: isPostAuthor || isMemoryOwner, // Post author OR memory owner can edit
+    canDelete: isPostAuthor || isMemoryOwner, // Delete own posts OR memory owner can delete any
+  };
+}
+
 interface PostCardProps {
   post: MockPost;
   variant?: 'card' | 'thumbnail';
@@ -114,6 +158,8 @@ interface PostCardProps {
   onMoveUp?: () => void;
   onMoveDown?: () => void;
   carSpec?: string; // Car spec line ("STK# … / … km / … engine"), shown under the location for car cards
+  /** Bump this number to open this card's caption editor from outside (the campaign page's timeline sidebar "Edit text"). */
+  editCaptionRequest?: number;
   docusignDocument?: {
     envelope_id: string;
     document_name: string;
@@ -122,7 +168,7 @@ interface PostCardProps {
   };
 }
 
-export default function PostCard({ post, variant = 'thumbnail', onContentUpdate, onImageClick, memoryOwnerId, onPostDelete, onUpdateItem, activeCollaborators = [], subImageCount = 0, subImages = [], memoryTitle, memoryThumbnail, memoryCreatedDate, memoryImages = [], onRefresh, memoryPublished, memoryId, memorySlug, searchHighlight, storyTags = [], onInsufficientCredits, docusignDocument, onMoveUp, onMoveDown, carSpec }: PostCardProps) {
+export default function PostCard({ post, variant = 'thumbnail', onContentUpdate, onImageClick, memoryOwnerId, onPostDelete, onUpdateItem, activeCollaborators = [], subImageCount = 0, subImages = [], memoryTitle, memoryThumbnail, memoryCreatedDate, memoryImages = [], onRefresh, memoryPublished, memoryId, memorySlug, searchHighlight, storyTags = [], onInsufficientCredits, docusignDocument, onMoveUp, onMoveDown, carSpec, editCaptionRequest }: PostCardProps) {
   // Debug log to check title in PostCard
   console.log(`📝 PostCard received post ${post.id}: title="${post.title}", name="${post.name}"`);
 
@@ -347,32 +393,9 @@ export default function PostCard({ post, variant = 'thumbnail', onContentUpdate,
     content: post.content || ""
   });
 
-  // Get current logged-in user to check post ownership
-  const currentUser = userUtils.getStoredUser();
-
-  // Use external_user_id as the actual user ID (id field is admin_id)
-  const currentUserId = currentUser?.external_user_id || currentUser?.id;
-
-  // Check if current user is the post author
-  const isPostAuthor = currentUser ? (
-    (post.author.id && currentUserId && String(currentUserId) === String(post.author.id)) ||
-    (post.author.email && currentUser.email && post.author.email === currentUser.email) ||
-    (post.author.name && currentUser.name && post.author.name === currentUser.name)
-  ) : false;
-
-  // Check if current user is the memory owner
-  const isMemoryOwner = currentUser && memoryOwnerId && String(currentUserId) === String(memoryOwnerId);
-
-  // Check if current user is a collaborator with edit/admin permissions
-  const currentUserCollaborator = activeCollaborators.find(collab =>
-    (collab.userId && String(collab.userId) === String(currentUserId)) ||
-    (collab.id && String(collab.id) === String(currentUserId)) ||
-    (currentUser?.email && collab.email === currentUser.email)
-  );
-  const hasEditPermission = currentUserCollaborator?.role === 'edit' || currentUserCollaborator?.role === 'admin' || currentUserCollaborator?.role === 'contributor';
-
-  // Check if user can add descriptions (memory owner OR collaborator with edit/admin/contributor role)
-  const canAddDescription = isMemoryOwner || hasEditPermission;
+  // Who may edit/delete this post — shared with the campaign page's timeline
+  // sidebar via getPostPermissions() so both menus offer the same actions.
+  const { isPostAuthor, canAddDescription, canEdit, canDelete } = getPostPermissions(post, memoryOwnerId, activeCollaborators);
 
   // Menu visibility logic:
   // - Memory owner sees menu on ALL posts (can edit and delete any post)
@@ -380,8 +403,6 @@ export default function PostCard({ post, variant = 'thumbnail', onContentUpdate,
   // - Other users see menu on posts by others (to claim the moment)
   // Result: Menu shows on ALL posts for everyone
   const shouldShowMenu = true; // Always show menu - different options based on permissions
-  const canEdit = isPostAuthor || isMemoryOwner; // Post author OR memory owner can edit
-  const canDelete = isPostAuthor || isMemoryOwner; // Delete own posts OR memory owner can delete any
 
   // Check if post is already claimed - handle multiple data types
   const isAlreadyClaimed = (
@@ -989,6 +1010,25 @@ export default function PostCard({ post, variant = 'thumbnail', onContentUpdate,
     setIsEditingDescription(true);
     setIsTimelineMenuOpen(false);
   };
+
+  // "Edit text" from the campaign page's timeline sidebar: open the same caption
+  // editor this card's own menu opens (Edit Caption), or the Add description
+  // editor when there is no caption yet. Only a request made while this card is
+  // mounted counts — a card remounted after a data refresh must not reopen it.
+  const handledEditCaptionRequest = useRef(editCaptionRequest);
+  useEffect(() => {
+    if (!editCaptionRequest || editCaptionRequest === handledEditCaptionRequest.current) return;
+    handledEditCaptionRequest.current = editCaptionRequest;
+    if (currentContent && canEdit) {
+      handleEditDescription();
+    } else if (!currentContent && canAddDescription) {
+      setIsAddingDescription(true);
+    } else {
+      toast.error("You don't have permission to edit this caption");
+    }
+    // Only react to a new request, not to content/permission changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editCaptionRequest]);
 
   const handleSaveEditedDescription = async () => {
     if (editedDescription.trim()) {
