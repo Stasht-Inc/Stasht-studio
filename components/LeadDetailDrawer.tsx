@@ -11,6 +11,7 @@ import ShareCarsDialog from './ShareCarsDialog';
 import AssigneeControl from './leads/AssigneeControl';
 import LinkifiedText from './leads/LinkifiedText';
 import LeadDetailsSidebar, { StatusChip } from './LeadDetailsSidebar';
+import CampaignDeletedTag from './leads/CampaignDeletedTag';
 
 // Built-in emoji grid — kept small/lightweight, no external dependency.
 const EMOJIS = [
@@ -1115,6 +1116,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
                       </div>
                       <span className="text-sm text-gray-600 flex-1">
                         {firstName} viewed <span className="font-medium text-gray-600">"{lead.story?.title ?? 'a campaign'}"</span>
+                        {lead.campaign_deleted && <CampaignDeletedTag className="ml-2 align-middle" />}
                       </span>
                       <span className="text-sm text-gray-600 shrink-0">{formatShortDate(lead.first_seen_at)}</span>
                     </div>

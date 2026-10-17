@@ -5,11 +5,12 @@ import {
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
 } from '../ui/dropdown-menu';
-import { leadViaLabel } from '../../services/leadsAPI';
+import { leadViaLabel, leadViaTitle } from '../../services/leadsAPI';
 import type { Lead } from '../../services/leadsAPI';
 import { STATUS_STYLES, type LeadStatus } from '../LeadDetailsSidebar';
 import AssigneeControl, { AssigneeBadge } from './AssigneeControl';
 import RowActionButton from './RowActionButton';
+import CampaignDeletedTag from './CampaignDeletedTag';
 import {
   formatInboxDate, formatInboxDateMedium, formatInboxDateShort, inboxExcerpt, isUnread, leadEmail, leadPhone,
 } from '../../utils/leadInbox';
@@ -122,6 +123,7 @@ function MoreMenu({ lead, onSelect, onDelete, onMarkRead }: ActionProps) {
         <div className="px-2 pt-1 pb-2 space-y-0.5">
           <p className="text-sm font-semibold text-gray-900 truncate">{heading}</p>
           <p className="text-xs text-gray-600 truncate">{leadViaLabel(lead)}</p>
+          {lead.campaign_deleted && <CampaignDeletedTag />}
           <p className="text-xs text-gray-600">First seen {formatInboxDateShort(lead.first_seen_at)}</p>
           <p className="text-xs text-gray-600 truncate">
             {lead.assignee ? `Assigned to ${lead.assignee.name ?? 'a teammate'}` : 'Unassigned'}
@@ -259,14 +261,18 @@ export default function LeadsInboxTable(props: Props) {
                   <td className={`${CELL} hidden [@container(min-width:62rem)]:table-cell text-gray-800 truncate`} title={email || undefined}>
                     {email || '—'}
                   </td>
-                  <td className={`${CELL} text-gray-900`} title={leadViaLabel(lead)}>
+                  <td className={`${CELL} text-gray-900`} title={leadViaTitle(lead)}>
                     <span className="flex items-center gap-1.5 min-w-0">
                       <span className="truncate">{leadName(lead)}</span>
                       <StatusIndicator status={lead.status} />
                       {unread && <UnreadDot />}
                     </span>
                   </td>
-                  <td className={`${CELL} truncate`}>{excerptOf(lead, unread)}</td>
+                  <td className={`${CELL} truncate`}>
+                    {/* The Name column is too narrow for the tag; the excerpt truncates after it. */}
+                    {lead.campaign_deleted && <CampaignDeletedTag className="mr-1.5 align-middle" />}
+                    {excerptOf(lead, unread)}
+                  </td>
                   <td className={`${CELL} font-normal`}>
                     <div className="flex items-center justify-between gap-3 min-w-0">
                       <span className="min-w-0 flex items-center">
@@ -304,7 +310,10 @@ export default function LeadsInboxTable(props: Props) {
               </div>
               <p className={`mt-0.5 text-sm truncate ${unread ? 'font-semibold' : ''}`}>{excerptOf(lead, unread)}</p>
               <div className="mt-1 flex items-center justify-between gap-2">
-                <span className="min-w-0 truncate text-[13px] text-gray-600">{name ? contact : leadViaLabel(lead)}</span>
+                <span className="min-w-0 flex items-center gap-1.5">
+                  <span className="min-w-0 truncate text-[13px] text-gray-600">{name ? contact : leadViaLabel(lead)}</span>
+                  {lead.campaign_deleted && <CampaignDeletedTag />}
+                </span>
                 <div className="flex items-center gap-1 shrink-0">
                   {lead.assignee && <AssigneeBadge assignee={lead.assignee} size="sm" nameClassName="hidden" />}
                   <RowActions {...props} lead={lead} className="flex" />
