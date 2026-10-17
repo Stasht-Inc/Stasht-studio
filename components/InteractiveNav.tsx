@@ -76,7 +76,7 @@ function Layer1() {
 
 function Stasht() {
   return (
-    <div className="h-20 relative shrink-0 cursor-pointer hover:opacity-80 transition-opacity flex items-end px-4" data-name="Stasht">
+    <div className="h-20 relative shrink-0 cursor-pointer hover:opacity-80 transition-opacity flex items-end pl-4 pr-2 min-[400px]:px-4" data-name="Stasht">
       <div className="h-20 relative w-32 md:w-40">
         <Layer1 />
       </div>
@@ -556,11 +556,12 @@ export default function InteractiveNav({
         />
       </div>
 
-      {/* Right side icons */}
-      <div className="flex items-center gap-4 min-[576px]:gap-9 md:gap-0">
+      {/* Right side icons. Phones under 400px get tighter spacing so the bar fits the screen: a top bar
+          wider than the viewport made iOS Safari zoom/pan the page and float the fixed bottom nav (S4). */}
+      <div className="flex items-center gap-2 min-[400px]:gap-4 min-[576px]:gap-9 md:gap-0">
         {/* Refresh — visible on every breakpoint, including the installed PWA,
             where there's no hard-refresh keyboard shortcut available. */}
-        <div className="mr-4 md:mr-6">
+        <div className="min-[400px]:mr-4 md:mr-6">
           <RefreshAppButton />
         </div>
         {/* Upload Media Button - before notifications - Only show for property owners */}
@@ -607,7 +608,7 @@ export default function InteractiveNav({
         </div>
 
         {/* Mobile Profile Avatar - visible only on mobile */}
-        <div className={`md:hidden pr-2 min-[576px]:pr-4 ${hideMemoryDetailsIcons ? 'ml-3 min-[576px]:ml-6' : 'ml-4'}`}>
+        <div className={`md:hidden pr-2 min-[576px]:pr-4 ${hideMemoryDetailsIcons ? 'ml-3 min-[576px]:ml-6' : 'ml-1 min-[400px]:ml-4'}`}>
           <MobileProfileAvatar user={user} onShowProfileSettings={onShowProfileSettings} onShowBillingPayment={onShowBillingPayment} viewType={viewType} currentProperty={currentProperty} switchToPersonal={switchToPersonal} />
         </div>
       </div>
