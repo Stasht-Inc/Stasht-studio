@@ -3,38 +3,14 @@ import { TrendingUp, TrendingDown, Database, Users, Image, Activity } from 'luci
 import { dashboardAPI } from '../utils/authUtils';
 import { useAuth } from '../contexts/AuthContext';
 
-// Mock data generation for realistic stats
-const generateStatsData = () => {
-  const baseMemories = 1249;
-  const baseMedia = 8567;
-  const baseUsers = 426;
-  const baseDataUsage = 3560;
-  
-  return {
-    memories: {
-      current: baseMemories + Math.floor(Math.random() * 50 - 25),
-      change: (Math.random() * 20 - 10).toFixed(1),
-      trend: Math.random() > 0.3 ? 'up' : 'down'
-    },
-    media: {
-      current: baseMedia + Math.floor(Math.random() * 200 - 100),
-      change: (Math.random() * 15 - 5).toFixed(1),
-      trend: Math.random() > 0.4 ? 'up' : 'down'
-    },
-    users: {
-      current: baseUsers + Math.floor(Math.random() * 20 - 10),
-      change: (Math.random() * 8 - 4).toFixed(1),
-      trend: Math.random() > 0.4 ? 'up' : 'down'
-    },
-    dataUsage: {
-      current: baseDataUsage + Math.floor(Math.random() * 100 - 50),
-      max: 5,
-      maxUnit: 'G',
-      change: (Math.random() * 10 - 5).toFixed(1),
-      trend: Math.random() > 0.5 ? 'up' : 'down'
-    }
-  };
-};
+// Shown when the dashboard request fails or returns no statistics: zeros, never made-up numbers
+// (the old fallback invented ~1,249 campaigns, which read as real data — Chris, 2026-10-15).
+const generateStatsData = () => ({
+  memories: { current: 0, change: '0', trend: 'up' },
+  media: { current: 0, change: '0', trend: 'up' },
+  users: { current: 0, change: '0', trend: 'up' },
+  dataUsage: { current: 0, max: 5, maxUnit: 'G', change: '0', trend: 'up' },
+});
 
 // "this week" / "last week" etc. for the selected dashboard period.
 const PERIOD_WORDS: Record<string, { current: string; previous: string }> = {
