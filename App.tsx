@@ -13,7 +13,6 @@ import MemoriesPage from "./pages/MemoriesPage";
 import MediaPage from "./pages/MediaPage";
 import MemoryDetailsPage from "./pages/MemoryDetailsPage";
 import LoginPage from "./pages/LoginPage";
-import { EmbeddedContactWidget, LOGIN_PAGE_WIDGET_ID } from "./components/widgets/EmbeddedContactWidget";
 import SignupPage from "./pages/SignupPage";
 import ProfileSettingsPage from "./pages/ProfileSettingsPage";
 import BillingPage from "./pages/BillingPage";
@@ -3863,7 +3862,6 @@ function MainApp() {
             onSwitchToSignup={handleSwitchToSignup}
             onSocialLogin={handleSocialLogin}
           />
-          <EmbeddedContactWidget widgetId={LOGIN_PAGE_WIDGET_ID} />
         </GoogleOAuthProvider>
       );
     }
