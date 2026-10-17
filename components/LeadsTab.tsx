@@ -11,6 +11,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel,
 import { leadsAPI, Lead, LeadMessage, CommentaryTarget, LeadGroupSummary, LeadGroup, Conversation, messageChannelLabel } from '../services/leadsAPI';
 import { mapLimit } from '../utils/requestLimit';
 import LeadsInboxTable from './leads/LeadsInboxTable';
+import CampaignDeletedTag from './leads/CampaignDeletedTag';
 import LeadConfirmDialog, { type LeadConfirmKind } from './leads/LeadConfirmDialog';
 
 const STATUS_TRIGGER_CLASS: Record<string, string> = {
@@ -1621,7 +1622,10 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
                         <span className="text-xs text-gray-600 shrink-0">{getTimeAgo(c.last_message_at)}</span>
                       </div>
                       {c.story?.title && (
-                        <div className="text-xs text-gray-600 truncate">Re: {c.story.title}</div>
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <span className="text-xs text-gray-600 truncate">Re: {c.story.title}</span>
+                          {c.campaign_deleted && <CampaignDeletedTag />}
+                        </div>
                       )}
                       {lm && (
                         <div className="text-xs text-gray-600 truncate mt-0.5">

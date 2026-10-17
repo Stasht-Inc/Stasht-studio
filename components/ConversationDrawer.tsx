@@ -3,6 +3,7 @@ import { X, Send, Mail, MessageSquare } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from './ui/avatar';
 import { Conversation, ConversationMessage, leadsAPI } from '../services/leadsAPI';
 import { useDialogBehavior } from '../hooks/useDialogBehavior';
+import CampaignDeletedTag from './leads/CampaignDeletedTag';
 import { toast } from 'sonner';
 
 function getInitials(name: string): string {
@@ -128,7 +129,12 @@ export default function ConversationDrawer({ conversation, open, onClose }: Prop
             <div className="flex items-start justify-between gap-2">
               <div className="min-w-0">
                 <h2 id="conversation-drawer-title" className="text-base font-bold text-gray-900 leading-tight truncate">{owner.name}</h2>
-                <p className="text-xs text-gray-600 mt-1 truncate">Re: {conversation.story.title}</p>
+                {conversation.story?.title && (
+                  <p className="text-xs text-gray-600 mt-1 truncate">
+                    Re: {conversation.story.title}
+                    {conversation.campaign_deleted && <CampaignDeletedTag className="ml-1.5 align-middle" />}
+                  </p>
+                )}
               </div>
               <button
                 onClick={onClose}

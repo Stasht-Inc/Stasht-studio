@@ -86,6 +86,9 @@ export interface Lead {
   user: LeadUser | null;
   // null for a direct lead started from "+ Send Message" without a campaign.
   story: LeadStory | null;
+  // The lead's campaign was deleted: the lead stays listed and story keeps its
+  // title, shown with a "Campaign deleted" tag (ClickUp wdy2xh2a38).
+  campaign_deleted?: boolean;
   // 'widget' = captured by the Contact Us website widget (no campaign, no account).
   source?: 'memory' | 'widget';
   status: 'hot' | 'warm' | 'cold' | 'visited' | 'sold' | null;
@@ -140,6 +143,11 @@ export interface AssignableUser extends LeadAssignee {
 export function leadViaLabel(lead: Pick<Lead, 'story' | 'source'>): string {
   if (lead.story?.title) return `Via: ${lead.story.title}`;
   return lead.source === 'widget' ? 'Website widget' : 'Direct message';
+}
+
+/** The "Via" line as plain text (tooltips), noting a deleted campaign. */
+export function leadViaTitle(lead: Pick<Lead, 'story' | 'source' | 'campaign_deleted'>): string {
+  return lead.campaign_deleted ? `${leadViaLabel(lead)} (campaign deleted)` : leadViaLabel(lead);
 }
 
 /** Display label for a lead message's channel: Email, Website chat (Contact Us widget), else SMS. */
@@ -271,7 +279,9 @@ export interface ConversationLastMessage {
 export interface Conversation {
   lead_id: number;
   owner: ConversationOwner;
-  story: { id: number; title: string };
+  // null for a direct conversation with no campaign.
+  story: { id: number; title: string } | null;
+  campaign_deleted?: boolean;
   last_message: ConversationLastMessage | null;
   unread_count: number;
   last_message_at: string;
