@@ -130,10 +130,10 @@ export default function ConversationDrawer({ conversation, open, onClose }: Prop
               <div className="min-w-0">
                 <h2 id="conversation-drawer-title" className="text-base font-bold text-gray-900 leading-tight truncate">{owner.name}</h2>
                 {conversation.story?.title && (
-                  <p className="text-xs text-gray-600 mt-1 truncate">
-                    Re: {conversation.story.title}
-                    {conversation.campaign_deleted && <CampaignDeletedTag className="ml-1.5 align-middle" />}
-                  </p>
+                  <div className="mt-1 flex items-center gap-1.5 min-w-0">
+                    <p className="text-xs text-gray-600 truncate">Re: {conversation.story.title}</p>
+                    {conversation.campaign_deleted && <CampaignDeletedTag />}
+                  </div>
                 )}
               </div>
               <button

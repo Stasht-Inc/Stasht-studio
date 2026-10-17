@@ -270,7 +270,7 @@ export default function LeadsInboxTable(props: Props) {
                   </td>
                   <td className={`${CELL} truncate`}>
                     {/* The Name column is too narrow for the tag; the excerpt truncates after it. */}
-                    {lead.campaign_deleted && <CampaignDeletedTag className="mr-1.5 align-middle font-normal" />}
+                    {lead.campaign_deleted && <CampaignDeletedTag className="mr-1.5 align-middle" />}
                     {excerptOf(lead, unread)}
                   </td>
                   <td className={`${CELL} font-normal`}>
