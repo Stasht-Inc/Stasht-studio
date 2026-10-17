@@ -243,8 +243,8 @@ export default function Frame192({ timePeriod = 'weekly' }: { timePeriod?: strin
           // Transform API data to match component structure
           // `count` is the all-time total; `period_count` / `previous_period_count` are what was
           // added in the selected period and the one before (absent on older API builds).
-          const card = (c: any) => ({
-            current: c.count,
+          const card = (c: any = {}) => ({
+            current: c.count ?? 0,
             change: String(c.percentage?.value ?? 0),
             trend: c.percentage?.trend === 'up' ? 'up' : c.percentage?.trend === 'neutral' ? 'neutral' : 'down',
             periodCount: typeof c.period_count === 'number' ? c.period_count : undefined,
@@ -255,7 +255,7 @@ export default function Frame192({ timePeriod = 'weekly' }: { timePeriod?: strin
           media: card(apiData.total_media),
           users: card(apiData.total_users),
           dataUsage: {
-            periodFormatted: apiData.storage.period_formatted as string | undefined,
+            periodFormatted: apiData.storage?.period_formatted as string | undefined,
             current: apiData.storage.formatted || Math.round(apiData.storage.used), // Show formatted value (like '37.72 B')
             max: apiData.storage.limit_formatted ? apiData.storage.limit_formatted.replace(/[^0-9.]/g, '') : 5, // Extract number from limit_formatted
             maxUnit: apiData.storage.limit_formatted ? apiData.storage.limit_formatted.replace(/[0-9.]/g, '') : 'G', // Extract unit from limit_formatted
