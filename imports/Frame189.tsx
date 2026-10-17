@@ -462,11 +462,12 @@ export default function Frame189({ onNavigate, onMemorySelect }: Frame189Props) 
                 onClick={() => onMemorySelect?.(`mem_${memory.id}`)}
               >
                 {/* Title and Badge */}
-                <div className="flex items-start gap-3 mb-3">
-                  <h4 className="font-semibold text-gray-900 text-base md:text-lg leading-tight flex-1 min-w-0">
+                {/* A long label drops under the title instead of squeezing it to one word per line. */}
+                <div className="flex flex-wrap items-start gap-x-3 gap-y-2 mb-3">
+                  <h4 className="font-semibold text-gray-900 text-base md:text-lg leading-tight flex-1 min-w-[10rem] break-words">
                     {memory.title}
                   </h4>
-                  <Badge className="bg-[#ffd460] text-[#393131] hover:bg-[#ffd460]/90 text-xs md:text-sm px-2 py-1 flex-shrink-0 whitespace-nowrap">
+                  <Badge className="bg-[#ffd460] text-[#393131] hover:bg-[#ffd460]/90 text-xs md:text-sm px-2 py-1 max-w-full truncate whitespace-nowrap">
                     {memory.label}
                   </Badge>
                 </div>
