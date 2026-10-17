@@ -13,7 +13,6 @@ import MemoriesPage from "./pages/MemoriesPage";
 import MediaPage from "./pages/MediaPage";
 import MemoryDetailsPage from "./pages/MemoryDetailsPage";
 import LoginPage from "./pages/LoginPage";
-import { EmbeddedContactWidget, LOGIN_PAGE_WIDGET_ID } from "./components/widgets/EmbeddedContactWidget";
 import SignupPage from "./pages/SignupPage";
 import ProfileSettingsPage from "./pages/ProfileSettingsPage";
 import BillingPage from "./pages/BillingPage";
@@ -3863,7 +3862,6 @@ function MainApp() {
             onSwitchToSignup={handleSwitchToSignup}
             onSocialLogin={handleSocialLogin}
           />
-          <EmbeddedContactWidget widgetId={LOGIN_PAGE_WIDGET_ID} />
         </GoogleOAuthProvider>
       );
     }
@@ -4122,7 +4120,10 @@ function MainApp() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col">
+    // overflow-x-clip is only a safety net (real overflow is fixed at the source): if anything still pokes past
+    // the right edge, iOS Safari must not let the page pan/zoom sideways, which misplaces the fixed bottom nav.
+    // clip (not hidden) keeps this from becoming a scroll container, so the sticky header keeps working.
+    <div className="min-h-screen bg-gray-50 flex flex-col overflow-x-clip">
       {/* Website Catalogue import progress in the sidebar's sync bar: a personal-account connector, so personal view only. */}
       <CatalogueSyncWatcher enabled={isAuthenticated && !!user && viewType === 'personal'} />
       {/* PWA Install Banner */}
@@ -4512,7 +4513,7 @@ function MainApp() {
 
           {/* Plus Popover Card */}
           {showPlusPopover && (
-            <div className="md:hidden fixed bottom-[163px] left-1/2 -translate-x-1/2 z-[9999] bg-gray-100/75 backdrop-blur-2xl rounded-3xl shadow-2xl border border-white/60 w-72 overflow-hidden">
+            <div className="md:hidden fixed bottom-[calc(163px+env(safe-area-inset-bottom))] left-1/2 -translate-x-1/2 z-[9999] bg-gray-100/75 backdrop-blur-2xl rounded-3xl shadow-2xl border border-white/60 w-72 overflow-hidden">
               {/* Create a Campaign */}
               <button
                 className="flex items-center gap-4 w-full px-4 py-4 hover:bg-white/40 active:bg-white/60 transition-colors"
@@ -4560,7 +4561,13 @@ function MainApp() {
             libraryMode={true}
           />
 
-          <nav className="md:hidden sticky bottom-0 left-0 right-0 bg-white border-t border-gray-200 z-50 safe-area-inset-bottom overflow-visible relative">
+          {/* Keeps the page's last content clear of the fixed bar below: its 6rem row + 1px top border + the iPhone home-indicator inset. */}
+          <div aria-hidden="true" className="md:hidden shrink-0 h-[calc(6rem+1px+env(safe-area-inset-bottom))]" />
+
+          {/* Fixed to the viewport, not sticky in the page flow: iOS Safari let the sticky bar ride up
+              into the middle of the screen while scrolling (Chris, S4). It must stay a direct child of the
+              app shell: a transform/filter on any ancestor would turn position:fixed into page-relative. */}
+          <nav className="md:hidden fixed bottom-0 inset-x-0 bg-white border-t border-gray-200 z-50 pb-[env(safe-area-inset-bottom)] overflow-visible">
             {/* Center FAB — protrudes above the nav bar */}
             <div className="absolute left-1/2 -translate-x-1/2 -top-20 z-[10000]">
               <button

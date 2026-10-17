@@ -1176,7 +1176,9 @@ export function NotificationDropdown({ isOpen, onClose, anchorRef, onNotificatio
   return (
     <div 
       ref={dropdownRef}
-      className="absolute right-0 top-[52px] w-80 bg-white border border-gray-200 rounded-lg shadow-lg z-50 max-h-96 overflow-hidden"
+      // Phones: span the screen under the top bar instead of hanging 320px off the bell, which ran past
+      // the left edge once the phone top bar was tightened to fit (S4).
+      className="absolute right-0 top-[52px] w-80 max-md:fixed max-md:inset-x-3 max-md:top-[76px] max-md:w-auto bg-white border border-gray-200 rounded-lg shadow-lg z-50 max-h-96 overflow-hidden"
       // style={{
       //   transform: 'translateX(-100px)', // Adjust positioning relative to notification icon
       // }}
