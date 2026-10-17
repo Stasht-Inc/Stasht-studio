@@ -188,12 +188,8 @@ export default function Dashboard({
   const { limitData, isLimitExceeded, isAICreditsExceeded } = useMemoryLimit();
   const { memoryCounts } = useMemoryCounts();
 
-  const [recentActivity, setRecentActivity] = useState<any[]>(
-    activityData.map(activity => ({
-      ...activity,
-      color: getActivityColor(activity.action)
-    }))
-  );
+  // Real activity only — the panel used to start with (and fall back to) a made-up list.
+  const [recentActivity, setRecentActivity] = useState<any[]>([]);
   const [isLoadingActivity, setIsLoadingActivity] = useState(false);
 
   // Get actual memory count from the centralized hook
@@ -342,20 +338,12 @@ export default function Dashboard({
         setRecentActivity(colorMappedData);
       } else {
         // Fallback to mock data with consistent colors
-        const colorMappedMockData = activityData.map(activity => ({
-          ...activity,
-          color: getActivityColor(activity.action)
-        }));
-        setRecentActivity(colorMappedMockData);
+        setRecentActivity([]);
       }
     } catch (error) {
       console.error('Error fetching recent activity:', error);
       // Fallback to mock data with consistent colors
-      const colorMappedMockData = activityData.map(activity => ({
-        ...activity,
-        color: getActivityColor(activity.action)
-      }));
-      setRecentActivity(colorMappedMockData);
+      setRecentActivity([]);
     } finally {
       setIsLoadingActivity(false);
     }

@@ -199,7 +199,7 @@ function ActivityMetricsCard({ timePeriod }: { timePeriod: string }) {
     }
   }, [timePeriod, isAuthenticated, authLoading]);
 
-  // Use API data if available, otherwise fallback to generated data
+  // API data; when it's missing, the period's labels with zero values
   const activityData = apiData?.chart_data ? 
     apiData.chart_data.map((item: any) => ({
       date: item.label,
@@ -207,7 +207,7 @@ function ActivityMetricsCard({ timePeriod }: { timePeriod: string }) {
       media: item.media_uploaded,
       users: item.total_users,
       published: item.memories_published
-    })) : generateActivityData(timePeriod);
+    })) : generateActivityData(timePeriod).map((d: any) => ({ ...d, memories: 0, media: 0, users: 0, published: 0 })); // no data: real labels, zero values — never sample numbers
   
   // Show loading state while fetching data
   if (isLoading && (!apiData || authLoading)) {
@@ -360,11 +360,15 @@ function PublishedMemoriesCard({ timePeriod }: { timePeriod: string }) {
     }
   }, [timePeriod, isAuthenticated, authLoading]);
 
-  // Generate chart data from API or fallback to mock data
+  // Chart data from the API
   const publishedData = apiData ? [
     { name: 'Viewed', value: apiData.viewed.count, color: '#4AD991' },
     { name: 'Unopened', value: apiData.unopened.count, color: '#D9D9D9' },
-  ] : generatePublishedData(timePeriod);
+  ] : [
+    // No data (request failed): zeros, not generated numbers.
+    { name: 'Viewed', value: 0, color: '#4AD991' },
+    { name: 'Unopened', value: 0, color: '#D9D9D9' },
+  ];
   
   const totalViews = publishedData.reduce((sum, item) => sum + item.value, 0);
   const viewedPercentage = totalViews > 0 ? ((publishedData[0].value / totalViews) * 100).toFixed(1) : "0";
