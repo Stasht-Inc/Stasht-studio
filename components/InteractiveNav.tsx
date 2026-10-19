@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
+import { takeOpenAlvinFromUrl } from "./alvin/useAlvinEnabled"; // ?alvin=1, the app's "Ask Alvin"
 import svgPaths from "../imports/svg-nf2tpvishn";
 import imgFemaleAvatar from "figma:asset/4028506cbe6fbc605e7fd310ec471c44bcf1a98a.png";
 import { imgFemaleAvatar1 } from "../imports/svg-bahio";
@@ -9,7 +10,7 @@ import EnhancedSearch from "./EnhancedSearch";
 import { NotificationDropdown } from "./NotificationDropdown";
 import AlvinButton from "./alvin/AlvinButton";
 import AlvinPanel from "./alvin/AlvinPanel";
-import { useAlvinStatus, takeOpenAlvinFromUrl } from "./alvin/useAlvinEnabled";
+import { useAlvinStatus } from "./alvin/useAlvinEnabled";
 import AlvinIntroPopover, { introSeen, markSeen } from "./alvin/AlvinIntroPopover";
 import { Upload, RefreshCw } from "lucide-react";
 import { useProperty } from "../contexts/PropertyContext";
