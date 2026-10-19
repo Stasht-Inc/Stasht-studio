@@ -12,6 +12,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useProperty } from '../contexts/PropertyContext';
 import { useMemoryLimit } from '../hooks/useMemoryLimit';
 import { useMemoryCounts } from '../hooks/useMemoryCounts';
+import { useAlvinStatus } from './alvin/useAlvinEnabled';
 
 interface DashboardProps {
   timePeriod: string;
@@ -187,6 +188,7 @@ export default function Dashboard({
   const { switchToProperty } = useProperty();
   const { limitData, isLimitExceeded, isAICreditsExceeded } = useMemoryLimit();
   const { memoryCounts } = useMemoryCounts();
+  const alvin = useAlvinStatus();
 
   // Real activity only — the panel used to start with (and fall back to) a made-up list.
   const [recentActivity, setRecentActivity] = useState<any[]>([]);
@@ -413,8 +415,10 @@ export default function Dashboard({
         <Frame192 timePeriod={timePeriod} />
       </div>
 
-      {/* Get Started Section - Mobile Only - Hide when all tasks are completed */}
-      {remainingTasks > 0 && (
+      {/* Get Started Section - Mobile Only - Hide when all tasks are completed, and whenever Alvin is on:
+          Alvin's own "Let's get you set up" checklist replaces it (Chris, ClickUp wdy2xh2a34). Waits for
+          Alvin's status so it doesn't flash; accounts without Alvin (and partial admins) still get it. */}
+      {remainingTasks > 0 && alvin.ready && !alvin.enabled && (
         <div className="md:hidden bg-white rounded-xl border border-gray-100 p-4 sm:p-6 shadow-sm">
           <div className="mb-4">
             <h3 className="font-medium text-sm text-gray-900 mb-1">Get Started</h3>
