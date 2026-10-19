@@ -18,6 +18,8 @@ export interface AlvinStatus {
   enabled: boolean;
   hasUsed: boolean;
   setup: AlvinSetupStep[];
+  // useAlvinStatus only: false until the answer has arrived, so callers can wait instead of showing the "off" view first.
+  ready?: boolean;
 }
 
 const OFF: AlvinStatus = { enabled: false, hasUsed: false, setup: [] };
@@ -43,12 +45,12 @@ export function loadAlvinStatus(fresh = false): Promise<AlvinStatus> {
 }
 
 export function useAlvinStatus(): AlvinStatus {
-  const [status, setStatus] = useState<AlvinStatus>(OFF);
+  const [status, setStatus] = useState<AlvinStatus>({ ...OFF, ready: false });
   useEffect(() => {
     let live = true;
-    loadAlvinStatus().then((s) => live && setStatus(s));
+    loadAlvinStatus().then((s) => live && setStatus({ ...s, ready: true }));
     // Alvin did something (or was used for the first time): tick the checklist again.
-    const refresh = () => loadAlvinStatus(true).then((s) => live && setStatus(s));
+    const refresh = () => loadAlvinStatus(true).then((s) => live && setStatus({ ...s, ready: true }));
     window.addEventListener('alvin-status-refresh', refresh);
     return () => {
       live = false;
