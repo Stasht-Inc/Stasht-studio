@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
+import { takeOpenAlvinFromUrl } from "./alvin/useAlvinEnabled"; // ?alvin=1, the app's "Ask Alvin"
 import svgPaths from "../imports/svg-nf2tpvishn";
 import imgFemaleAvatar from "figma:asset/4028506cbe6fbc605e7fd310ec471c44bcf1a98a.png";
 import { imgFemaleAvatar1 } from "../imports/svg-bahio";
@@ -475,6 +476,12 @@ export default function InteractiveNav({
       setIntroDone(true);
     }
   }, [alvinOpen, introDone, alvinUserId]);
+
+  // Opened with ?alvin=1 (the app's "Ask Alvin"): open Alvin once its status is known. Ignored when Alvin
+  // is off for the account or for partial admins (their status is always off); the parameter goes either way.
+  useEffect(() => {
+    if (alvinStatus.ready && takeOpenAlvinFromUrl() && alvinEnabled) setAlvinOpen(true);
+  }, [alvinStatus.ready, alvinEnabled]);
 
   // The account menu's "Alvin AI" item opens the panel.
   useEffect(() => {
