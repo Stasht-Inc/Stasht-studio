@@ -9,7 +9,7 @@ import EnhancedSearch from "./EnhancedSearch";
 import { NotificationDropdown } from "./NotificationDropdown";
 import AlvinButton from "./alvin/AlvinButton";
 import AlvinPanel from "./alvin/AlvinPanel";
-import { useAlvinStatus } from "./alvin/useAlvinEnabled";
+import { useAlvinStatus, takeOpenAlvinFromUrl } from "./alvin/useAlvinEnabled";
 import AlvinIntroPopover, { introSeen, markSeen } from "./alvin/AlvinIntroPopover";
 import { Upload, RefreshCw } from "lucide-react";
 import { useProperty } from "../contexts/PropertyContext";
@@ -475,6 +475,12 @@ export default function InteractiveNav({
       setIntroDone(true);
     }
   }, [alvinOpen, introDone, alvinUserId]);
+
+  // Opened with ?alvin=1 (the app's "Ask Alvin"): open Alvin once its status is known. Ignored when Alvin
+  // is off for the account or for partial admins (their status is always off); the parameter goes either way.
+  useEffect(() => {
+    if (alvinStatus.ready && takeOpenAlvinFromUrl() && alvinEnabled) setAlvinOpen(true);
+  }, [alvinStatus.ready, alvinEnabled]);
 
   // The account menu's "Alvin AI" item opens the panel.
   useEffect(() => {

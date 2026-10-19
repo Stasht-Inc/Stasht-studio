@@ -18,6 +18,8 @@ export interface AlvinStatus {
   enabled: boolean;
   hasUsed: boolean;
   setup: AlvinSetupStep[];
+  // useAlvinStatus only: false until the answer has arrived, so callers can wait instead of showing the "off" view first.
+  ready?: boolean;
 }
 
 const OFF: AlvinStatus = { enabled: false, hasUsed: false, setup: [] };
@@ -43,12 +45,12 @@ export function loadAlvinStatus(fresh = false): Promise<AlvinStatus> {
 }
 
 export function useAlvinStatus(): AlvinStatus {
-  const [status, setStatus] = useState<AlvinStatus>(OFF);
+  const [status, setStatus] = useState<AlvinStatus>({ ...OFF, ready: false });
   useEffect(() => {
     let live = true;
-    loadAlvinStatus().then((s) => live && setStatus(s));
+    loadAlvinStatus().then((s) => live && setStatus({ ...s, ready: true }));
     // Alvin did something (or was used for the first time): tick the checklist again.
-    const refresh = () => loadAlvinStatus(true).then((s) => live && setStatus(s));
+    const refresh = () => loadAlvinStatus(true).then((s) => live && setStatus({ ...s, ready: true }));
     window.addEventListener('alvin-status-refresh', refresh);
     return () => {
       live = false;
@@ -64,6 +66,23 @@ export function refreshAlvinStatus() {
 
 export default function useAlvinEnabled(): boolean {
   return useAlvinStatus().enabled;
+}
+
+// "Open straight into Alvin" links (ClickUp wdy2xh2a2q): the app's "Ask Alvin" opens Studio in its WebView
+// at /dashboard?code=<SSO code>&alvin=1. Read once as Studio loads, before the router or the SSO exchange
+// rewrites the address; takeOpenAlvinFromUrl() hands it over once and takes ?alvin=1 out of the address.
+let openFromUrl = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('alvin') === '1';
+
+export function takeOpenAlvinFromUrl(): boolean {
+  const wanted = openFromUrl;
+  openFromUrl = false;
+  const params = new URLSearchParams(window.location.search);
+  if (params.has('alvin')) {
+    params.delete('alvin');
+    const query = params.toString();
+    window.history.replaceState(window.history.state, '', window.location.pathname + (query ? `?${query}` : '') + window.location.hash);
+  }
+  return wanted;
 }
 
 // Opens Alvin from anywhere (e.g. the Get Started checklist), optionally asking a question.
