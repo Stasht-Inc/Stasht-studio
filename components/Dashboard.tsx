@@ -12,7 +12,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useProperty } from '../contexts/PropertyContext';
 import { useMemoryLimit } from '../hooks/useMemoryLimit';
 import { useMemoryCounts } from '../hooks/useMemoryCounts';
-import { useAlvinStatus } from './alvin/useAlvinEnabled';
+import useAlvinEnabled, { openAlvin } from './alvin/useAlvinEnabled';
 
 interface DashboardProps {
   timePeriod: string;
@@ -135,7 +135,8 @@ function TaskItem({
   subtitle,
   completed,
   actionText,
-  onClick
+  onClick,
+  onAskAlvin
 }: {
   icon: React.ReactNode;
   title: string;
@@ -143,6 +144,7 @@ function TaskItem({
   completed: boolean;
   actionText?: string;
   onClick?: () => void;
+  onAskAlvin?: () => void;
 }) {
   return (
     <div className={`flex items-start gap-3 p-3 rounded-lg ${
@@ -164,14 +166,29 @@ function TaskItem({
         }`}>
           {subtitle}
         </p>
-        {actionText && onClick && (
-          <button
-            onClick={onClick}
-            className="text-xs text-[#6C60FF] hover:text-[#5A4FE5] font-medium mt-2 flex items-center gap-1"
-          >
-            {actionText}
-            <ChevronRight className="w-3 h-3" />
-          </button>
+        {((actionText && onClick) || (onAskAlvin && !completed)) && (
+          <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1.5">
+            {actionText && onClick && (
+              <button
+                onClick={onClick}
+                className="text-xs text-[#6C60FF] hover:text-[#5A4FE5] font-medium flex items-center gap-1"
+              >
+                {actionText}
+                <ChevronRight className="w-3 h-3" />
+              </button>
+            )}
+            {/* Ask Alvin (Chris, ClickUp wdy2xh2azv): the same pill as the desktop sidebar's Get Started. */}
+            {onAskAlvin && !completed && (
+              <button
+                type="button"
+                onClick={onAskAlvin}
+                className="px-3 py-1 text-[12px] font-medium text-gray-700 bg-white border border-gray-300 rounded-full hover:bg-gray-50 transition-colors flex items-center gap-0.5 whitespace-nowrap"
+              >
+                Ask Alvin
+                <ChevronRight className="w-2.5 h-2.5 flex-shrink-0" />
+              </button>
+            )}
+          </div>
         )}
       </div>
     </div>
@@ -188,7 +205,7 @@ export default function Dashboard({
   const { switchToProperty } = useProperty();
   const { limitData, isLimitExceeded, isAICreditsExceeded } = useMemoryLimit();
   const { memoryCounts } = useMemoryCounts();
-  const alvin = useAlvinStatus();
+  const alvinOn = useAlvinEnabled();
 
   // Real activity only — the panel used to start with (and fall back to) a made-up list.
   const [recentActivity, setRecentActivity] = useState<any[]>([]);
@@ -283,18 +300,21 @@ export default function Dashboard({
     {
       icon: <Upload className="w-5 h-5" />,
       title: "Upload Media",
+      alvinQuestion: "How do I upload photos and videos?",
       subtitle: "Add your first photos and videos",
       completed: (memoryCounts?.total_memory_images || 0) > 0,
     },
     {
       icon: <FileText className="w-5 h-5" />,
       title: "Create Campaign",
+      alvinQuestion: "Help me create my first campaign.",
       subtitle: "Organize your media into campaigns",
       completed: (memoryCounts?.total_memories || 0) > 0,
     },
     {
       icon: <UserPlus className="w-5 h-5" />,
       title: "Invite Collaborators",
+      alvinQuestion: "Help me invite a team member.",
       subtitle: "Share campaigns with friends and family",
       completed: (memoryCounts?.active_collaborators || 0) > 0,
       actionText: (memoryCounts?.active_collaborators || 0) > 0 ? undefined : "Find Campaigns",
@@ -312,6 +332,7 @@ export default function Dashboard({
         </svg>
       ),
       title: "Publish Campaign",
+      alvinQuestion: "How do I publish and share a campaign?",
       subtitle: "Make a campaign publicly available",
       completed: (memoryCounts?.published_memories || 0) > 0,
       actionText: (memoryCounts?.published_memories || 0) > 0 ? undefined : "View Campaigns",
@@ -415,10 +436,9 @@ export default function Dashboard({
         <Frame192 timePeriod={timePeriod} />
       </div>
 
-      {/* Get Started Section - Mobile Only - Hide when all tasks are completed, and whenever Alvin is on:
-          Alvin's own "Let's get you set up" checklist replaces it (Chris, ClickUp wdy2xh2a34). Waits for
-          Alvin's status so it doesn't flash; accounts without Alvin (and partial admins) still get it. */}
-      {remainingTasks > 0 && alvin.ready && !alvin.enabled && (
+      {/* Get Started Section - Mobile Only - Hide when all tasks are completed. With Alvin on, each step
+          left to do has "Ask Alvin" (Chris, ClickUp wdy2xh2azv; this replaces S2's hiding the card). */}
+      {remainingTasks > 0 && (
         <div className="md:hidden bg-white rounded-xl border border-gray-100 p-4 sm:p-6 shadow-sm">
           <div className="mb-4">
             <h3 className="font-medium text-sm text-gray-900 mb-1">Get Started</h3>
@@ -448,6 +468,7 @@ export default function Dashboard({
                 completed={task.completed}
                 actionText={task.actionText}
                 onClick={task.onClick}
+                onAskAlvin={alvinOn ? () => openAlvin(task.alvinQuestion) : undefined}
               />
             ))}
           </div>
