@@ -4,7 +4,8 @@ import Frame732 from "../imports/Frame732";
 import Frame189 from "../imports/Frame189";
 import TimePeriodSelector from "./TimePeriodSelector";
 import { Alert, AlertTitle, AlertDescription } from "./ui/alert";
-import { AlertTriangle, CheckCircle, Circle, ChevronRight, Upload, FileText, UserPlus } from "lucide-react";
+import { AlertTriangle, CheckCircle, Circle, ChevronRight, FileText, UserPlus, UserCircle } from "lucide-react";
+import { profileComplete } from "./Sidebar";
 import { Avatar, AvatarFallback, AvatarImage } from "./ui/avatar";
 import { useState, useEffect } from 'react';
 import { dashboardAPI } from '../utils/authUtils';
@@ -201,7 +202,7 @@ export default function Dashboard({
   onNavigate,
   onMemorySelect
 }: DashboardProps) {
-  const { isAuthenticated, isLoading: authLoading } = useAuth();
+  const { isAuthenticated, isLoading: authLoading, user } = useAuth();
   const { switchToProperty } = useProperty();
   const { limitData, isLimitExceeded, isAICreditsExceeded } = useMemoryLimit();
   const { memoryCounts } = useMemoryCounts();
@@ -297,12 +298,15 @@ export default function Dashboard({
 
   // Get Started tasks based on real user activity
   const getStartedTasks = [
+    // "Complete your Profile" (Chris, ClickUp wdy2xh2b03; was Upload Media), as in the desktop sidebar.
     {
-      icon: <Upload className="w-5 h-5" />,
-      title: "Upload Media",
-      alvinQuestion: "How do I upload photos and videos?",
-      subtitle: "Add your first photos and videos",
-      completed: (memoryCounts?.total_memory_images || 0) > 0,
+      icon: <UserCircle className="w-5 h-5" />,
+      title: "Complete your Profile",
+      alvinQuestion: "Help me complete my profile.",
+      subtitle: "Add your photo and a short bio",
+      completed: profileComplete(user),
+      actionText: profileComplete(user) ? undefined : "Complete Now",
+      onClick: profileComplete(user) ? undefined : () => onNavigate('profile-settings')
     },
     {
       icon: <FileText className="w-5 h-5" />,
