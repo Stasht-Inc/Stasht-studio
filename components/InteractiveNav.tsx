@@ -12,7 +12,7 @@ import AlvinButton from "./alvin/AlvinButton";
 import AlvinPanel from "./alvin/AlvinPanel";
 import { useAlvinStatus } from "./alvin/useAlvinEnabled";
 import AlvinIntroPopover, { introSeen, markSeen, visibleAlvinButton } from "./alvin/AlvinIntroPopover";
-import { Upload, RefreshCw } from "lucide-react";
+import { RefreshCw } from "lucide-react";
 import { useProperty } from "../contexts/PropertyContext";
 
 function Layer1() {
@@ -85,48 +85,6 @@ function Stasht() {
         Studio 1.5
       </div>
     </div>
-  );
-}
-
-function UploadMediaButton({ onClick }: { onClick?: (files: File[]) => void }) {
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const handleClick = () => {
-    console.log('🎯 Upload Media button clicked');
-    // Trigger the file input
-    if (fileInputRef.current) {
-      fileInputRef.current.click();
-    }
-  };
-
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files || []);
-    console.log('🎯 Files selected:', files.length);
-
-    if (files.length > 0 && onClick) {
-      // Pass the files to the handler
-      onClick(files);
-    }
-  };
-
-  return (
-    <>
-      <input
-        ref={fileInputRef}
-        type="file"
-        multiple
-        accept="image/*,video/*"
-        onChange={handleFileSelect}
-        style={{ display: 'none' }}
-      />
-      <button
-        onClick={handleClick}
-        className="flex items-center gap-2 px-4 py-2 border border-[#6C60FF] text-[#6C60FF] rounded-lg hover:bg-[#6C60FF]/10 transition-all duration-200"
-      >
-        <Upload className="w-4 h-4" />
-        <span className="font-medium text-sm">Upload Media</span>
-      </button>
-    </>
   );
 }
 
@@ -442,8 +400,6 @@ export default function InteractiveNav({
   user,
   onOpenMobileSidebar,
   hideMemoryDetailsIcons = false,
-  onUploadMedia,
-  isPropertyOwner = true,
   currentPage
 }: {
   notificationCount?: number;
@@ -456,8 +412,6 @@ export default function InteractiveNav({
   user?: any;
   onOpenMobileSidebar?: () => void;
   hideMemoryDetailsIcons?: boolean;
-  onUploadMedia?: (files: File[]) => void;
-  isPropertyOwner?: boolean;
   currentPage?: string;
 }) {
   const [searchQuery, setSearchQuery] = useState("");
@@ -572,12 +526,6 @@ export default function InteractiveNav({
         <div className="hidden md:block md:mr-6">
           <RefreshAppButton />
         </div>
-        {/* Upload Media Button - before notifications - Only show for property owners */}
-        {onUploadMedia && isPropertyOwner && (
-          <div className="hidden md:block mr-4">
-            <UploadMediaButton onClick={onUploadMedia} />
-          </div>
-        )}
         {/* Mobile Sidebar Icon - visible only on mobile, disabled on memory details page */}
         {onOpenMobileSidebar && (
           <div className="md:hidden">
