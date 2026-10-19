@@ -17,9 +17,15 @@ function initialValues(fields: AlvinActionField[]): Values {
   return v;
 }
 
+// A long list (e.g. 50 catalogue items) shows its first few and a count; "Change details" lists them all.
+const LIST_PREVIEW = 5;
+
 function shown(f: AlvinActionField, value: string | string[]): string {
   if (Array.isArray(value)) {
     const labels = value.map((v) => f.options?.find((o) => o.value === v)?.label ?? v);
+    if (labels.length > LIST_PREVIEW + 1) {
+      return `${labels.slice(0, LIST_PREVIEW).join(', ')}, and ${labels.length - LIST_PREVIEW} more (${labels.length} in all)`;
+    }
     return labels.join(', ');
   }
   if (f.type === 'select') return f.options?.find((o) => o.value === value)?.label ?? value;
