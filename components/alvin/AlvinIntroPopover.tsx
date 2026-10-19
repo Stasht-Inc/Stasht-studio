@@ -3,9 +3,9 @@ import { createPortal } from 'react-dom';
 
 // The first-time explainer (ClickUp wdy2xh28hf, Chris): a small popover pointing at the Alvin AI
 // button the first time someone opens Studio with Alvin switched on. Shown once (remembered per
-// account in this browser) and never to people who have already used Alvin. On phones, where Alvin
-// lives in the account menu, it points at the account avatar. Not in the Figma: built in the
-// panel's style for Chris to review.
+// account in this browser) and never to people who have already used Alvin. It points at whichever
+// Alvin AI button is showing: the top-bar button on desktop, the mascot button next to the avatar on
+// phones. Not in the Figma: built in the panel's style for Chris to review.
 
 const GRADIENT = 'linear-gradient(135deg, #ff60e0 0%, #6c60ff 100%)';
 const AVATAR = 'linear-gradient(160deg, #ff60e0 15.959%, #6c60ff 57.472%)';
@@ -32,16 +32,22 @@ export function markSeen(userId: string | number | undefined) {
 
 type Spot = { top: number; right: number; arrowRight: number };
 
+/** The Alvin AI button on screen (the top bar has a desktop one and a phone one; only one shows). */
+export function visibleAlvinButton(): HTMLButtonElement | null {
+  return [...document.querySelectorAll<HTMLButtonElement>('[data-name="AlvinAIButton"]')].find((b) => b.offsetParent !== null) ?? null;
+}
+
 /** Where to point, or null when there's nothing visible to point at (e.g. the header is hidden). */
 function anchor(): Spot | null {
-  const button = document.querySelector<HTMLElement>('[data-name="AlvinAIButton"]');
-  const rect = button && button.offsetParent !== null ? button.getBoundingClientRect() : null;
+  const button = visibleAlvinButton();
+  const rect = button ? button.getBoundingClientRect() : null;
   const width = window.innerWidth;
   if (rect) {
     const right = Math.max(12, width - rect.right - 40);
     return { top: rect.bottom + 12, right, arrowRight: Math.max(16, width - right - rect.left - rect.width / 2 - 7) };
   }
-  // Phones: Alvin is in the account menu, under the avatar at the top right.
+  // No button showing (e.g. a page that hides the top-bar icons): point at the account avatar, top right,
+  // whose menu also has Alvin AI.
   const header = document.querySelector<HTMLElement>('[data-name="Main Nav"]');
   if (!header || header.offsetParent === null) return null;
   return { top: header.getBoundingClientRect().bottom - 8, right: 12, arrowRight: 22 };
@@ -49,7 +55,6 @@ function anchor(): Spot | null {
 
 export default function AlvinIntroPopover({ userId, onTry, onDone }: { userId?: string | number; onTry: () => void; onDone: () => void }) {
   const [spot, setSpot] = useState<Spot | null>(null);
-  const phone = typeof window !== 'undefined' && window.matchMedia('(max-width: 767px)').matches;
 
   useEffect(() => {
     // A moment after Studio opens, so it doesn't land on top of the page still loading; and not
@@ -123,7 +128,6 @@ export default function AlvinIntroPopover({ userId, onTry, onDone }: { userId?: 
           Ask Alvin anything about Stasht and get step-by-step help. Alvin can also set things up for you, like a property, a
           campaign or your Contact Us widget, and read files you drop into the chat.
         </p>
-        {phone && <p className="mt-[6px] text-[11.5px] leading-[16px] text-[#6a7282]">You'll find Alvin AI in your account menu.</p>}
         <div className="mt-[12px] flex items-center gap-[8px]">
           <button
             type="button"
