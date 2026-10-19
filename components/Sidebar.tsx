@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
-import { Plus, LayoutDashboard, BookOpen, FolderOpen, Users, Grid3x3, CheckCircle, Circle, ChevronRight, Upload, FileText, UserPlus, Share, PanelLeft, Plug, Target } from "lucide-react";
+import { Plus, LayoutDashboard, BookOpen, FolderOpen, Users, Grid3x3, CheckCircle, Circle, ChevronRight, Upload, FileText, UserPlus, Share, PanelLeft, Plug, Target, UserCircle } from "lucide-react";
 import CreateMemory from "./CreateMemory";
 import { useMemoryLimit } from "../hooks/useMemoryLimit";
 import { dashboardAPI, isPartialAdmin, apiRequest } from "../utils/authUtils";
@@ -161,6 +161,12 @@ function VideoModal({ initialStep, onClose, onWatched }: { initialStep: number; 
     </div>,
     document.body
   );
+}
+
+// Get Started's "Complete your Profile" step: a profile photo and a bio (name and email/phone come from sign-up).
+export function profileComplete(user: any): boolean {
+  const photo = user?.avatar || user?.profile_image;
+  return !!photo && photo !== 'null' && String(user?.bio ?? '').trim() !== '';
 }
 
 // Get Started Task Item
@@ -613,20 +619,20 @@ export default function Sidebar({
     done ? undefined : { text: 'Ask Alvin', onClick: () => openAlvin(question), step };
 
   // Get Started tasks based on real user activity
+  // Step 1 is "Complete your Profile" (Chris, ClickUp wdy2xh2b03; was Upload/Sync Media): done once the
+  // profile has a photo and a bio. There's no tutorial video for it, so with Alvin off it has no second button.
+  const profileDone = profileComplete(user);
   const getStartedTasks = [
     {
-      icon: <Upload className="w-6 h-6" />,
-      title: "Upload/Sync Media",
-      subtitle: "Add your first photos to your library",
-      completed: (memoryCounts?.total_memory_images || 0) > 0,
-      primaryAction: (memoryCounts?.total_memory_images || 0) > 0 ? undefined : {
-        text: "Upload Now",
-        onClick: () => handleNavigation('media')
+      icon: <UserCircle className="w-6 h-6" />,
+      title: "Complete your Profile",
+      subtitle: "Add your photo and a short bio",
+      completed: profileDone,
+      primaryAction: profileDone ? undefined : {
+        text: "Complete Now",
+        onClick: () => handleNavigation('profile-settings')
       },
-      secondaryAction: alvinOn ? askAlvin('How do I upload photos and videos?', 1, (memoryCounts?.total_memory_images || 0) > 0) : (memoryCounts?.total_memory_images || 0) > 0 || watchedSteps.includes(1) ? undefined : {
-        text: "Watch Video",
-        onClick: () => setVideoStep(1)
-      }
+      secondaryAction: alvinOn ? askAlvin('Help me complete my profile.', 1, profileDone) : undefined
     },
     {
       icon: (
