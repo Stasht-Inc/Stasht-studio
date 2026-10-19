@@ -163,6 +163,10 @@ function VideoModal({ initialStep, onClose, onWatched }: { initialStep: number; 
   );
 }
 
+// The Library item in the left sidebar (people found in photos). Hidden for now (ClickUp wdy2xh2b0d); the
+// Library page itself is unchanged.
+const SHOW_LIBRARY_IN_MENU = false;
+
 // Get Started's "Complete your Profile" step: a profile photo and a bio (name and email/phone come from sign-up).
 export function profileComplete(user: any): boolean {
   const photo = user?.avatar || user?.profile_image;
@@ -513,8 +517,9 @@ export default function Sidebar({
       }
     );
 
-    // Hide Library for partial admin
-    if (!isPartialAdmin()) {
+    // Hide Library for partial admin. Hidden for everyone for now (Chris, ClickUp wdy2xh2b0d: "Don't delete it,
+    // just hide it. It isn't useful right now"): set SHOW_LIBRARY_IN_MENU to true to bring it back.
+    if (SHOW_LIBRARY_IN_MENU && !isPartialAdmin()) {
       items.push({
         id: 'library',
         label: 'Library',
