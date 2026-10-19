@@ -2521,14 +2521,6 @@ function MainApp() {
     handleNavigation('billing');
   };
 
-  const handleUploadMedia = (files: File[]) => {
-    console.log('🎯 Upload Media - Files received:', files.length);
-    // Store the files
-    setPendingUploadFiles(files);
-    // Navigate to media page
-    handleNavigation('media');
-  };
-
   // Login handler
   const handleLogin = async (email: string, password: string, phone_number?: string): Promise<boolean> => {
     try {
@@ -4191,8 +4183,6 @@ function MainApp() {
           user={user ? { ...user, credits: limitData.ai_connects || 0 } : undefined}
           onOpenMobileSidebar={currentPage === 'memories' ? () => setShowMemoriesMobileSidebar(true) : currentPage === 'media' ? () => setShowMediaMobileSidebar(true) : undefined}
           hideMemoryDetailsIcons={!!selectedMemoryId}
-          onUploadMedia={handleUploadMedia}
-          isPropertyOwner={isPropertyOwner}
           currentPage={currentPage}
         />
       </header>
