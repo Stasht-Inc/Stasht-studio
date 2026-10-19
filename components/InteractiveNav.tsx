@@ -10,7 +10,7 @@ import { NotificationDropdown } from "./NotificationDropdown";
 import AlvinButton from "./alvin/AlvinButton";
 import AlvinPanel from "./alvin/AlvinPanel";
 import { useAlvinStatus } from "./alvin/useAlvinEnabled";
-import AlvinIntroPopover, { introSeen, markSeen } from "./alvin/AlvinIntroPopover";
+import AlvinIntroPopover, { introSeen, markSeen, visibleAlvinButton } from "./alvin/AlvinIntroPopover";
 import { Upload, RefreshCw } from "lucide-react";
 import { useProperty } from "../contexts/PropertyContext";
 
@@ -76,7 +76,7 @@ function Layer1() {
 
 function Stasht() {
   return (
-    <div className="h-20 relative shrink-0 cursor-pointer hover:opacity-80 transition-opacity flex items-end pl-4 pr-2 min-[400px]:px-4" data-name="Stasht">
+    <div className="h-20 relative shrink-0 cursor-pointer hover:opacity-80 transition-opacity flex items-end pl-3 pr-1 min-[400px]:px-4" data-name="Stasht">
       <div className="h-20 relative w-32 md:w-40">
         <Layer1 />
       </div>
@@ -556,12 +556,13 @@ export default function InteractiveNav({
         />
       </div>
 
-      {/* Right side icons. Phones under 400px get tighter spacing so the bar fits the screen: a top bar
-          wider than the viewport made iOS Safari zoom/pan the page and float the fixed bottom nav (S4). */}
-      <div className="flex items-center gap-2 min-[400px]:gap-4 min-[576px]:gap-9 md:gap-0">
-        {/* Refresh — visible on every breakpoint, including the installed PWA,
-            where there's no hard-refresh keyboard shortcut available. */}
-        <div className="min-[400px]:mr-4 md:mr-6">
+      {/* Right side icons. Phones (Chris, ClickUp wdy2xh2a35): Search · Notifications · Alvin · avatar, no
+          Refresh. The phone row is spaced by this gap alone, small enough to fit 360px: a top bar wider than
+          the viewport made iOS Safari zoom/pan the page and float the fixed bottom nav (S4). */}
+      <div className="flex items-center gap-1.5 min-[400px]:gap-3 min-[576px]:gap-6 md:gap-0">
+        {/* Refresh — tablet and desktop, including the installed PWA, where there's no hard-refresh
+            keyboard shortcut. Not on phones: Chris asked for it to go from the phone top bar. */}
+        <div className="hidden md:block md:mr-6">
           <RefreshAppButton />
         </div>
         {/* Upload Media Button - before notifications - Only show for property owners */}
@@ -591,8 +592,7 @@ export default function InteractiveNav({
           <SearchIcon onClick={handleMobileSearchClick} />
         </div>
 
-        {/* Alvin AI help centre (ClickUp wdy2xh1r0r) - before notifications, as in Chris's design.
-            Tablet and up only: the phone top bar has no room, so phones open Alvin from the account menu. */}
+        {/* Alvin AI help centre (ClickUp wdy2xh1r0r) - before notifications, as in Chris's design. Tablet and up. */}
         {alvinEnabled && <div className="hidden md:block md:mr-2.5">
           <AlvinButton open={alvinOpen} onClick={() => setAlvinOpen((v) => !v)} />
         </div>}
@@ -602,13 +602,19 @@ export default function InteractiveNav({
           <NotifBttn notificationCount={notificationCount} onNotificationClick={handleNotificationClick} onMemorySelect={onMemorySelect} onOpenConversation={onOpenConversation} onOpenLead={onOpenLead} />
         </div>
 
+        {/* Phones: Alvin AI just left of the avatar (Chris, ClickUp wdy2xh2a35). Same on/off and partial-admin
+            rules as the desktop button. */}
+        {alvinEnabled && <div className="md:hidden">
+          <AlvinButton compact open={alvinOpen} onClick={() => setAlvinOpen((v) => !v)} />
+        </div>}
+
         {/* Profile Section - desktop version */}
         <div className={`hidden md:block ${hideMemoryDetailsIcons ? 'ml-8' : ''}`}>
           <ProfileSection user={user} onShowProfileSettings={onShowProfileSettings} onShowBillingPayment={onShowBillingPayment} viewType={viewType} currentProperty={currentProperty} switchToPersonal={switchToPersonal} />
         </div>
 
         {/* Mobile Profile Avatar - visible only on mobile */}
-        <div className={`md:hidden pr-2 min-[576px]:pr-4 ${hideMemoryDetailsIcons ? 'ml-3 min-[576px]:ml-6' : 'ml-1 min-[400px]:ml-4'}`}>
+        <div className="md:hidden pr-3 min-[400px]:pr-4">
           <MobileProfileAvatar user={user} onShowProfileSettings={onShowProfileSettings} onShowBillingPayment={onShowBillingPayment} viewType={viewType} currentProperty={currentProperty} switchToPersonal={switchToPersonal} />
         </div>
       </div>
@@ -631,8 +637,8 @@ export default function InteractiveNav({
         setup={alvinStatus.setup}
         onClose={() => {
           setAlvinOpen(false);
-          // Hand keyboard focus back to the button that opened Alvin.
-          document.querySelector<HTMLButtonElement>('[data-name="AlvinAIButton"]')?.focus();
+          // Hand keyboard focus back to the button that opened Alvin (the desktop or the phone one).
+          visibleAlvinButton()?.focus();
         }}
         currentPage={currentPage}
         user={user}
