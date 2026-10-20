@@ -52,8 +52,11 @@ export const useMemoryLimit = () => {
   const [pendingPropertiesCount, setPendingPropertiesCount] = useState<number>(() => globalPendingPropertiesCount);
   const [isLoading, setIsLoading] = useState(false);
 
-  const checkLimit = useCallback(async () => {
-    if (!isAuthenticated || isChecking) return;
+  // Resolves with the fresh limit status (or the last known one when a check is already running), so a caller
+  // can act on it right away instead of reading isLimitExceeded from a stale render.
+  const checkLimit = useCallback(async (): Promise<MemoryLimitData | null> => {
+    if (!isAuthenticated) return null;
+    if (isChecking) return globalLimitData;
 
     try {
       isChecking = true;
@@ -127,6 +130,7 @@ export const useMemoryLimit = () => {
       isChecking = false;
       setIsLoading(false);
     }
+    return globalLimitData;
   }, [isAuthenticated]);
 
   // Subscribe to global state changes

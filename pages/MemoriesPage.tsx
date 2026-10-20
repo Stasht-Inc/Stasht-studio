@@ -1119,21 +1119,12 @@ function MemoriesPageContent({
     flushSync(() => setShowCreateMemory(true));
     createMemoryRef.current?.focusTitle();
 
-    // Check limit in background — close modal if exceeded
+    // Refresh the Storeel limit in the background. Create Campaign stays open either way (alignment
+    // decision 6, newsletters 2026-10-13): the Storeel tab shows the limit inline; newsletters are never blocked.
     try {
       await checkLimit();
-      const response = await dashboardAPI.checkMemoryLimit();
-      if (response.success && response.data) {
-        const data = response.data.data || response.data;
-        const limitStatus = data.limit_status || data;
-        if (limitStatus.status === 'limit_exceeded') {
-          setShowCreateMemory(false);
-          setShowLimitDialog(true);
-        }
-      }
     } catch (error) {
       console.error('❌ Error checking memory limit:', error);
-      // Modal stays open on error — better than silently failing
     }
   };
 
@@ -2655,13 +2646,8 @@ function MemoriesPageContent({
                       Publish
                     </Button>
                     <Button
-                      onClick={isLimitExceeded ? undefined : () => handleCreateMemory()}
-                      disabled={isLimitExceeded}
-                      className={isLimitExceeded
-                        ? "bg-gray-300 text-gray-500 hover:bg-gray-300 cursor-not-allowed"
-                        : "bg-[#6C60FF] hover:bg-[#6C60FF]/90 text-white"
-                      }
-                      style={isLimitExceeded ? { backgroundColor: '#EFEFEF', color: '#9CA3AF' } : undefined}
+                      onClick={() => handleCreateMemory()}
+                      className="bg-[#6C60FF] hover:bg-[#6C60FF]/90 text-white"
                     >
                       <Plus className="w-4 h-4 mr-2" />
                       Create a Campaign
@@ -2771,13 +2757,8 @@ function MemoriesPageContent({
                         <span className="hidden sm:inline">Publish</span>
                       </Button>
                       <Button
-                        onClick={(isLimitExceeded ) ? undefined : () => handleCreateMemory()}
-                        disabled={isLimitExceeded }
-                        className={(isLimitExceeded )
-                          ? "bg-gray-300 text-gray-500 hover:bg-gray-300 cursor-not-allowed md:flex-initial"
-                          : "bg-[#6C60FF] text-white hover:bg-[#5B52FF] focus:ring-2 focus:ring-[#6C60FF] focus:ring-opacity-50 active:bg-[#6C60FF] md:flex-initial"
-                        }
-                        style={isLimitExceeded ? { backgroundColor: '#EFEFEF', color: '#9CA3AF' } : undefined}
+                        onClick={() => handleCreateMemory()}
+                        className="bg-[#6C60FF] text-white hover:bg-[#5B52FF] focus:ring-2 focus:ring-[#6C60FF] focus:ring-opacity-50 active:bg-[#6C60FF] md:flex-initial"
                       >
                         <Plus className="w-4 h-4 -mr-1" />
                         <span className="sm:hidden">Create</span>

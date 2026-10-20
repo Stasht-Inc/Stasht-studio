@@ -1,0 +1,259 @@
+// In-memory stand-in for /api/react used by the newsletter screenshot checks. Shapes follow spec 2026-10-13 §8.
+// Nothing leaves the machine: route() aborts every non-local request except the image hosts it answers itself.
+const PUBLIC_DIR = new URL('../../../public/', import.meta.url).pathname;
+const now = () => new Date().toISOString();
+export const COUNTS0 = { recipients: 0, sent: 0, delivered: 0, opened: 0, clicked: 0, unsubscribed: 0, failed: 0, skipped: 0 };
+export const IMG = 'https://127.0.0.1/nl-img/pwa-icon-512.png';
+const EDITABLE = ['name', 'subject', 'preview_text', 'from_name', 'reply_to_email', 'channels', 'sms_text', 'template', 'header', 'blocks', 'audience'];
+// GET /user/profile's real keys: `phone` (not phone_number) and `avatar` (not profile_image); no profile_color.
+const PROFILE = {
+  name: 'Samantha Smith', email: 'samantha@serpachrysler.ca', phone: '+1 416 555 0100', avatar: null,
+  website: 'https://serpachrysler.ca', instagram_url: 'https://instagram.com/serpachrysler', linkedin_url: '', tiktok_url: null,
+  facebook_url: 'https://facebook.com/serpachrysler', is_business: 1,
+};
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+const pickEditable = (src) => Object.fromEntries(EDITABLE.filter((k) => src && k in src).map((k) => [k, structuredClone(src[k])]));
+
+export function newsletter(id, over = {}) {
+  return {
+    id, name: null, subject: null, preview_text: null, from_name: null, reply_to_email: null, channels: ['email'], sms_text: null,
+    template: 'basic', header: { logo_url: null, banner_url: null, background_color: '#6C60FF', title: 'Serpa Chrysler' },
+    blocks: [], audience: [{ type: 'all_leads' }], status: 'draft', scheduled_at: null, sent_at: null, public_url: null,
+    counts: { ...COUNTS0 }, created_at: now(), updated_at: now(), ...over,
+  };
+}
+
+// Per-channel results for the seeded sent newsletters. 24 went through the SendGrid fallback: no "delivered" (note 10).
+const CHANNEL_COUNTS = {
+  21: {
+    email: { recipients: 1000, sent: 996, delivered: 980, opened: 470, clicked: 80, unsubscribed: 3, failed: 4, skipped: 10 },
+    sms: { recipients: 204, sent: 202, delivered: 200, opened: 42, clicked: 8, unsubscribed: 1, failed: 2, skipped: 2 },
+  },
+  24: {
+    email: { recipients: 300, sent: 300, delivered: 0, opened: 90, clicked: 12, unsubscribed: 1, failed: 0, skipped: 0 },
+    sms: { ...COUNTS0 },
+  },
+};
+
+export function seedNewsletters() {
+  const day = 24 * 3600 * 1000;
+  return [
+    newsletter(21, {
+      name: 'September recap', subject: 'Thanks for a great September', status: 'sent', sent_at: '2026-10-01T14:00:00Z',
+      public_url: 'https://127.0.0.1/n/abc123', blocks: [{ id: 'b1', type: 'title', data: { text: 'September', size: 'large' } }],
+      counts: { recipients: 1204, sent: 1198, delivered: 1180, opened: 512, clicked: 88, unsubscribed: 4, failed: 6, skipped: 12 },
+    }),
+    newsletter(22, { name: 'Winter tires', subject: 'Book your winter tire swap', status: 'scheduled', scheduled_at: new Date(Date.now() + 2 * day).toISOString(), counts: { ...COUNTS0, recipients: 1216 } }),
+    newsletter(23, {
+      name: 'October Newsletter 2026', subject: 'October deals are here', from_name: 'Serpa Chrysler', reply_to_email: 'sales@serpachrysler.ca',
+      blocks: [{ id: 'b1', type: 'title', data: { text: 'This month', size: 'large' } }, { id: 'b2', type: 'text', data: { html: '<p>Hello <strong>there</strong></p>' } }],
+    }),
+    newsletter(24, {
+      name: 'Service reminder', subject: 'Time for your fall service', status: 'sent', sent_at: '2026-09-15T14:00:00Z',
+      blocks: [{ id: 'b1', type: 'title', data: { text: 'Fall service', size: 'large' } }],
+      counts: { recipients: 300, sent: 300, delivered: 0, opened: 90, clicked: 12, unsubscribed: 1, failed: 0, skipped: 0 },
+    }),
+  ];
+}
+
+function previewHtml(n) {
+  const blocks = (n.blocks || []).map((b) => {
+    if (b.type === 'title') return `<h2>${esc(b.data.text)}</h2>`;
+    if (b.type === 'text') return `<div>${esc(String(b.data.html).replace(/<[^>]+>/g, ''))}</div>`;
+    if (b.type === 'button') return `<p><a style="background:#6C60FF;color:#fff;padding:12px 20px;border-radius:8px;text-decoration:none" href="#">${esc(b.data.label)}</a></p>`;
+    return '';
+  }).join('');
+  return `<!doctype html><html><body style="margin:0;background:#f4f4f7;font-family:Arial,sans-serif"><table width="100%"><tr><td align="center">`
+    + `<table width="600" style="background:#fff"><tr><td style="background:${esc(n.header?.background_color || '#6C60FF')};color:#fff;padding:24px;text-align:center">`
+    + `<h1 id="mock-preview-title">${esc(n.header?.title)}</h1></td></tr><tr><td style="padding:24px">${blocks}</td></tr>`
+    + `<tr><td style="padding:16px;text-align:center;color:#888;font-size:12px">Powered by Stasht</td></tr></table></td></tr></table></body></html>`;
+}
+
+function results(n, params) {
+  const all = [];
+  for (let i = 1; i <= 23; i++) {
+    const channel = i % 3 === 0 ? 'sms' : 'email';
+    const status = i % 7 === 0 ? 'failed' : i % 5 === 0 ? 'skipped' : 'delivered';
+    all.push({
+      name: `Lead ${i}`, address: channel === 'sms' ? `+1416555${1000 + i}` : `lead${i}@example.com`, channel, status,
+      sent_at: status === 'skipped' ? null : '2026-10-16T14:00:00Z',
+      opened_at: status === 'delivered' && i % 2 ? '2026-10-16T15:00:00Z' : null,
+      clicked_at: status === 'delivered' && i % 4 === 1 ? '2026-10-16T15:05:00Z' : null,
+      unsubscribed_at: i === 9 ? '2026-10-16T16:00:00Z' : null,
+    });
+  }
+  const channel = params.get('channel');
+  const status = params.get('status');
+  const page = Number(params.get('page') || 1);
+  const matches = (r) => !status
+    || (status === 'opened' ? Boolean(r.opened_at) : status === 'clicked' ? Boolean(r.clicked_at) : status === 'unsubscribed' ? Boolean(r.unsubscribed_at) : r.status === status);
+  const rows = all.filter((r) => (!channel || r.channel === channel) && matches(r));
+  const per = 10;
+  // Totals plus the same eight numbers per channel (contract note 2).
+  const split = CHANNEL_COUNTS[n.id] ?? { email: { ...n.counts }, sms: { ...COUNTS0 } };
+  return { counts: { ...n.counts, ...split }, recipients: { data: rows.slice((page - 1) * per, page * per), meta: { page, total_pages: Math.max(1, Math.ceil(rows.length / per)), total: rows.length } } };
+}
+
+export function createMockApi(options = {}) {
+  const state = {
+    plan: options.plan ?? 'Professional',
+    nextId: 100,
+    newsletters: options.newsletters ?? [],
+    brand: { header: { logo_url: null, banner_url: null, background_color: '#6C60FF', title: 'Serpa Chrysler' }, business_address: options.businessAddress ?? null },
+    lists: options.lists ?? [{ id: 9, name: 'Open house sign-ups', source: 'import', member_count: 212, email_count: 198, sms_count: 140, created_at: now() }],
+    groups: options.groups ?? [{ id: 4, name: 'VIP buyers', member_count: 38, members: [], created_at: now(), updated_at: now() }],
+    allowance: options.allowance ?? { plan: 'Professional', email_limit: 5000, sms_limit: 500, email_used: 1200, sms_used: 40, resets_at: '2026-11-01T00:00:00Z' },
+    sendErrors: options.sendErrors ?? null,
+    calls: [],
+  };
+  const ok = (data, status = 200) => ({ status, json: { success: true, data } });
+  const fail = (status, json) => ({ status, json });
+  const find = (id) => state.newsletters.find((n) => n.id === id);
+  const summary = ({ blocks, ...rest }) => rest;
+
+  function audienceCount(audience, channels) {
+    let email = 0;
+    let sms = 0;
+    for (const a of audience || []) {
+      if (a.type === 'all_leads') { email += 1180; sms += 310; }
+      if (a.type === 'lead_group') { email += 36; sms += 30; }
+      if (a.type === 'list') { const l = state.lists.find((x) => x.id === a.id); if (l) { email += l.email_count; sms += l.sms_count; } }
+    }
+    return { email: channels.includes('email') ? email : 0, sms: channels.includes('sms') ? sms : 0, skipped: { no_email: 24, no_phone: 0, unsubscribed: 3, duplicate: 11 } };
+  }
+
+  function sendErrors(n) {
+    if (state.sendErrors) return state.sendErrors;
+    const errors = {};
+    if (!n.subject) errors.subject = ['Add a subject line.'];
+    if (!n.blocks?.length) errors.blocks = ['Add at least one section.'];
+    // PUT keeps unfinished sections; send names each one (contract note 6).
+    (n.blocks || []).forEach((b, i) => {
+      if (b.type === 'image' && !b.data?.url) (errors.blocks ||= []).push(`Section ${i + 1} (Image) needs a picture.`);
+    });
+    if (!n.channels?.length) errors.channels = ['Choose email, text or both.'];
+    if (!state.brand.business_address) errors.business_address = ['Add your business address.'];
+    return errors;
+  }
+
+  function handle(method, path, params, body) {
+    if (path === '/user/storage-overview') return ok({ storage_overview: { plan_name: state.plan } });
+    if (path === '/user/profile') return ok({ user: PROFILE });
+    if (path === '/website-catalogue') return ok({ available: false });
+    if (path === '/user/check-memory-limit') {
+      return ok({ limit_status: { status: options.storeelLimit ? 'limit_exceeded' : 'within_limit', current_memories: options.storeelLimit ? 5 : 2, memory_limit: 5 } });
+    }
+    if (path === '/lead-groups' && method === 'GET') return ok(state.groups);
+    if (state.plan === 'Starter' && (path.startsWith('/newsletter') || path.startsWith('/contact-lists'))) {
+      return fail(403, { success: false, code: 'plan_required', message: 'Newsletters are available on paid plans' });
+    }
+    if (path === '/newsletters' && method === 'GET') {
+      const s = params.get('status');
+      return ok(state.newsletters.filter((n) => !s || n.status === s).map(summary).reverse());
+    }
+    if (path === '/newsletters' && method === 'POST') {
+      const n = newsletter(state.nextId++, { name: body?.name ?? null, header: structuredClone(state.brand.header) });
+      state.newsletters.push(n);
+      return ok(n, 201);
+    }
+    if (path === '/newsletters/audience-count') return ok(audienceCount(body?.audience, body?.channels || []));
+    if (path === '/newsletters/images') return ok({ url: IMG }, 201);
+    if (path === '/newsletter-brand') {
+      if (method === 'PUT') {
+        if (body && 'header' in body) state.brand.header = body.header;
+        if (body && 'business_address' in body) state.brand.business_address = body.business_address;
+      }
+      return ok(state.brand);
+    }
+    if (path === '/newsletter-allowance') return ok(state.allowance);
+    if (path === '/contact-lists' && method === 'GET') return ok(state.lists);
+    if (path === '/contact-lists/import') {
+      if (body?.consent !== true) return fail(422, { message: 'Confirm consent.', errors: { consent: ['Confirm these people agreed to hear from you.'] } });
+      const rows = body.rows || [];
+      const list = { id: state.nextId++, name: body.name, source: 'import', member_count: rows.length, email_count: rows.filter((r) => r.email).length, sms_count: rows.filter((r) => r.phone).length, created_at: now() };
+      state.lists.push(list);
+      return ok({ ...list, imported: rows.length, skipped_invalid: 0, merged_duplicates: 0 }, 201);
+    }
+    if (path === '/contact-lists/from-leads') {
+      const group = Boolean(body?.lead_group_id);
+      const list = { id: state.nextId++, name: body.name, source: group ? 'lead_group' : 'leads', member_count: group ? 38 : 1210, email_count: group ? 36 : 1180, sms_count: group ? 30 : 310, created_at: now() };
+      state.lists.push(list);
+      return ok(list, 201);
+    }
+    let m = path.match(/^\/contact-lists\/(\d+)(\/members)?$/);
+    if (m) {
+      if (m[2]) return ok({ data: [{ name: 'Lead 1', email: 'lead1@example.com', phone: null }], meta: { page: 1, total_pages: 1, total: 1 } });
+      if (method === 'DELETE') { state.lists = state.lists.filter((l) => l.id !== Number(m[1])); return ok({}); }
+    }
+    m = path.match(/^\/newsletters\/(\d+)(?:\/([a-z-]+))?$/);
+    if (m) {
+      const n = find(Number(m[1]));
+      const action = m[2];
+      if (!n) return fail(404, { success: false, message: 'Not found.' });
+      if (!action && method === 'GET') return ok(n);
+      if (!action && method === 'PUT') {
+        if (n.status !== 'draft') return fail(409, { success: false, message: 'Only drafts can be changed.' });
+        Object.assign(n, pickEditable(body), { updated_at: now() });
+        if (body && 'header' in body) state.brand.header = structuredClone(body.header); // the header is the brand header (note 8)
+        return ok(n);
+      }
+      if (!action && method === 'DELETE') {
+        if (!['draft', 'cancelled'].includes(n.status)) return fail(409, { success: false, message: 'Only drafts and cancelled newsletters can be deleted.' });
+        state.newsletters = state.newsletters.filter((x) => x !== n);
+        return ok({});
+      }
+      if (action === 'duplicate') {
+        const copy = newsletter(state.nextId++, { ...pickEditable(n), name: `${n.name || 'Newsletter'} (copy)` });
+        state.newsletters.push(copy);
+        return ok(copy, 201);
+      }
+      if (action === 'preview') return ok({ html: previewHtml(n) });
+      if (action === 'test') return ok({ sent_to: body?.channel === 'sms' ? '+1 416 555 0100' : 'samantha@serpachrysler.ca' });
+      if (action === 'send' || action === 'schedule') {
+        const errors = sendErrors(n);
+        if (Object.keys(errors).length) {
+          // Allowance 422 carries a top-level {channel, needed, remaining} (contract note 4).
+          return fail(422, { message: Object.values(errors)[0][0], errors, ...(errors.allowance ? { allowance: { channel: 'email', needed: 1216, remaining: 900 } } : {}) });
+        }
+        const c = audienceCount(n.audience, n.channels);
+        n.status = 'scheduled';
+        n.scheduled_at = action === 'send' ? now() : body?.scheduled_at;
+        n.counts = { ...COUNTS0, recipients: c.email + c.sms };
+        return ok(n);
+      }
+      if (action === 'cancel') {
+        if (!['scheduled', 'sending'].includes(n.status)) return fail(409, { success: false, message: 'Only scheduled newsletters can be cancelled.' });
+        n.status = 'cancelled';
+        return ok(n);
+      }
+      if (action === 'results') return ok(results(n, params));
+    }
+    return ok([]);
+  }
+
+  async function route(route) {
+    const request = route.request();
+    const url = new URL(request.url());
+    if (url.hostname === 'i.ytimg.com') return route.fulfill({ path: `${PUBLIC_DIR}pwa-icon-512.png` });
+    // CreateMemory loads the Google Picker script on mount; answer it locally with a do-nothing stub so the
+    // Storeel form doesn't toast "Failed to load Google Drive picker" over the screenshots.
+    if (url.hostname === 'apis.google.com' && url.pathname === '/js/api.js') {
+      return route.fulfill({ contentType: 'text/javascript', body: 'window.gapi={load:function(n,c){var f=typeof c==="function"?c:(c&&c.callback);if(f)f();}};' });
+    }
+    if (url.hostname === '127.0.0.1' && url.pathname.startsWith('/nl-img/')) return route.fulfill({ path: `${PUBLIC_DIR}${url.pathname.slice('/nl-img/'.length)}` });
+    if (!['localhost', '127.0.0.1'].includes(url.hostname) || /^\/(sso-api|s3-proxy)(\/|$)/.test(url.pathname)) return route.abort('blockedbyclient');
+    if (!url.pathname.startsWith('/api/')) return route.continue();
+    if (!url.pathname.startsWith('/api/react/')) return route.fulfill({ json: { success: true, data: [] } });
+    const path = url.pathname.slice('/api/react'.length);
+    let body = null;
+    const raw = request.postData();
+    if (raw && (request.headers()['content-type'] || '').includes('application/json')) {
+      try { body = JSON.parse(raw); } catch { body = null; }
+    }
+    state.calls.push({ method: request.method(), path, query: url.search, body });
+    const { status, json } = handle(request.method(), path, url.searchParams, body);
+    return route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(json) });
+  }
+
+  return { route, state };
+}

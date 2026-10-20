@@ -49,6 +49,9 @@ export function useNewsletterDraft(newsletterId: number | null, enabled: boolean
   const lastErrorRef = useRef<string | null>(null);
   const brandHeaderRef = useRef(brandHeader);
   brandHeaderRef.current = brandHeader;
+  // Not enabled (plan unknown or Starter): never call the API, whatever happens (contract note 1).
+  const enabledRef = useRef(enabled);
+  enabledRef.current = enabled;
 
   const readOnly = newsletter !== null && newsletter.status !== 'draft';
   const readOnlyRef = useRef(readOnly);
@@ -79,7 +82,7 @@ export function useNewsletterDraft(newsletterId: number | null, enabled: boolean
   }, [take]);
 
   const run = useCallback(async () => {
-    if (readOnlyRef.current) return;
+    if (readOnlyRef.current || !enabledRef.current) return;
     const current = draftRef.current;
     setSaveState('saving');
     if (!idRef.current) {
