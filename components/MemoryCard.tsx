@@ -286,27 +286,17 @@ export default function MemoryCard({
     }
   }, [suggestedCategory, title, category, isInvite, onAcceptSuggestion, onRejectSuggestion]);
 
-  // Check if background image loads successfully
+  // No cover → author fallback. A cover that fails to load switches to the same fallback via the
+  // <img>'s own onError below. (This used to preload every cover with `new Image()` on mount,
+  // which defeated lazy loading: a grid with hundreds of catalogue/car cards fetched every image.)
   useEffect(() => {
-    if (!image) {
-      setImageLoaded(false);
-      return;
-    }
+    setImageLoaded(!!image);
+  }, [image]);
 
-    // Video/YouTube URLs can't be loaded via Image() — treat them as always loaded
-    if (isVideoUrl(image) || isYoutubeUrl(image)) {
-      setImageLoaded(true);
-      return;
-    }
-
-    const img = new Image();
-    img.onload = () => setImageLoaded(true);
-    img.onerror = () => {
-      console.warn(`⚠️ MemoryCard: cover image failed to load for "${title}", falling back to avatar. URL: ${image}`);
-      setImageLoaded(false);
-    };
-    img.src = image;
-  }, [image, title]);
+  const handleCoverError = () => {
+    console.warn(`⚠️ MemoryCard: cover image failed to load for "${title}", falling back to avatar. URL: ${image}`);
+    setImageLoaded(false);
+  };
 
   // Calculate precise truncation based on available space
   useEffect(() => {
@@ -402,6 +392,8 @@ export default function MemoryCard({
             <img
               src={`https://img.youtube.com/vi/${getYoutubeVideoId(image)}/hqdefault.jpg`}
               alt={title}
+              loading="lazy"
+              decoding="async"
               className="w-full h-full object-cover"
             />
           ) : isVideoUrl(image) ? (
@@ -410,6 +402,9 @@ export default function MemoryCard({
             <img
               src={image}
               alt={title}
+              loading="lazy"
+              decoding="async"
+              onError={handleCoverError}
               className="w-full h-full object-cover"
             />
           )

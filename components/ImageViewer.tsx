@@ -239,6 +239,9 @@ interface ImageViewerProps {
   // (e.g. cars), which means an index within that list can never reflect the
   // image's true position among all of them.
   positionOverride?: { current: number; total: number };
+  // Photos that aren't memory images (cars, Website Catalogue products): view-only. No comments
+  // are fetched or posted, and rotate (not saved), crop, tags, featured, location and add are off.
+  readOnly?: boolean;
 }
 
 export function ImageViewer({
@@ -291,7 +294,8 @@ export function ImageViewer({
   isPdf = false,
   specs = [],
   disableDescriptionEdit = false,
-  positionOverride
+  positionOverride,
+  readOnly = false
 }: ImageViewerProps) {
 
   // Helper function to format profile color
@@ -850,7 +854,7 @@ export function ImageViewer({
   };
 
   const fetchComments = async () => {
-    if (!currentImageId) return;
+    if (!currentImageId || readOnly) return;
 
     // Prevent duplicate calls while already loading
     if (isLoadingComments) {
@@ -1092,6 +1096,7 @@ export function ImageViewer({
 
   // Save crop settings to localStorage (frontend only - no API call)
   const handleSaveCrop = useCallback(() => {
+    if (readOnly) return;
     if (!croppedAreaPixels || !imageId) {
       toast.error('Unable to save crop settings');
       return;
@@ -1154,7 +1159,7 @@ export function ImageViewer({
     };
 
     img.src = currentImageSrc;
-  }, [croppedAreaPixels, imageId, cropZoom, onRefreshData, currentImageSrc]);
+  }, [croppedAreaPixels, imageId, cropZoom, onRefreshData, currentImageSrc, readOnly]);
 
   // Cancel cropping
   const handleCancelCrop = useCallback(() => {
@@ -1166,6 +1171,7 @@ export function ImageViewer({
 
   // Start cropping with saved crop data if available
   const handleStartCrop = useCallback(() => {
+    if (readOnly) return;
     // Try to load saved crop data if imageId exists
     if (imageId) {
       try {
@@ -1207,7 +1213,7 @@ export function ImageViewer({
     }
 
     setIsCropping(true);
-  }, [imageId]);
+  }, [imageId, readOnly]);
 
   // Touch/swipe handlers for mobile navigation
   const handleTouchStart = (e: React.TouchEvent) => {
@@ -1267,7 +1273,7 @@ export function ImageViewer({
   if (!isOpen) return null;
 
   const handleSaveTags = async (tagsToSave: string[]) => {
-    if (!imageId) return;
+    if (!imageId || readOnly) return;
     setIsSavingTags(true);
     try {
       const result = await mediaAPI.updateImageTags(imageId, tagsToSave);
@@ -1314,6 +1320,7 @@ export function ImageViewer({
 
   // Save rotation to database
   const saveRotationToDatabase = async (newRotation: number) => {
+    if (readOnly) return; // view-only rotation; there is no memory image to save it to
     if (!imageId) {
       console.warn('🔄 Cannot save rotation: imageId is not provided');
       return;
@@ -1345,6 +1352,7 @@ export function ImageViewer({
 
   const handleToggleFeatured = async (e: React.MouseEvent, subImageId: string) => {
     e.stopPropagation();
+    if (readOnly) return;
 
     try {
       // Toggle featured state
@@ -1724,7 +1732,7 @@ export function ImageViewer({
   };
 
   const handleAddComment = async () => {
-    if (!newComment.trim() || !imageId) {
+    if (!newComment.trim() || !imageId || readOnly) {
       return;
     }
 
@@ -1824,7 +1832,7 @@ export function ImageViewer({
   };
 
   const handleAddReply = async (parentId: number) => {
-    if (!replyText.trim() || !imageId) return;
+    if (!replyText.trim() || !imageId || readOnly) return;
 
     try {
       const response = await mediaAPI.addComment({
@@ -2247,7 +2255,8 @@ export function ImageViewer({
           </div>
           
           <div className="flex items-center gap-2">
-            {/* Tags Icon - Before Location icon */}
+            {/* Tags Icon - Before Location icon (not for read-only photos) */}
+            {!readOnly && (
             <div className="relative" ref={tagsPanelRef}>
               <Button
                 variant="ghost"
@@ -2342,8 +2351,10 @@ export function ImageViewer({
                 </div>
               )}
             </div>
+            )}
 
-            {/* Location Icon */}
+            {/* Location Icon (its dialog edits the photo's location; not for read-only photos) */}
+            {!readOnly && (
             <Button
               variant="ghost"
               size="sm"
@@ -2353,6 +2364,7 @@ export function ImageViewer({
             >
               <MapPin className="w-4 h-4" />
             </Button>
+            )}
 
             {/* Comments Icon with count */}
             <Button
@@ -2360,7 +2372,7 @@ export function ImageViewer({
               size="sm"
               onClick={() => setShowSidebar(!showSidebar)}
               className={`text-white hover:bg-white/20 relative ${showSidebar ? 'bg-white/20' : ''}`}
-              title={showSidebar ? "Hide Comments" : "Show Comments"}
+              title={readOnly ? (showSidebar ? "Hide details" : "Show details") : (showSidebar ? "Hide Comments" : "Show Comments")}
             >
               <svg width="16" height="16" viewBox="0 0 22 22" fill="none" xmlns="http://www.w3.org/2000/svg">
                 <path d="M7.70919 17.862C9.37851 18.7184 11.2988 18.9503 13.124 18.5161C14.9492 18.0818 16.5593 17.01 17.6641 15.4937C18.7689 13.9774 19.2959 12.1163 19.15 10.2458C19.004 8.37538 18.1949 6.61855 16.8682 5.29192C15.5416 3.96529 13.7848 3.1561 11.9143 3.01018C10.0439 2.86426 8.18278 3.3912 6.66647 4.49605C5.15015 5.60089 4.0783 7.21098 3.64407 9.03617C3.20984 10.8614 3.44178 12.7816 4.2981 14.451L2.54883 19.6113L7.70919 17.862Z" stroke="currentColor" strokeWidth="1.74928" strokeLinecap="round" strokeLinejoin="round"/>
@@ -2408,7 +2420,8 @@ export function ImageViewer({
               <RotateCw className="w-4 h-4" />
             </Button>
 
-            {/* Crop for Timeline */}
+            {/* Crop for Timeline (saved to the memory image; not for read-only photos) */}
+            {!readOnly && (
             <Button
               variant="ghost"
               size="sm"
@@ -2418,6 +2431,7 @@ export function ImageViewer({
             >
               <Crop className="w-4 h-4" />
             </Button>
+            )}
 
             {/* Download */}
             <Button
@@ -2471,7 +2485,7 @@ export function ImageViewer({
           {imageId && memoryId && (
             <div className="flex flex-row md:flex-col w-full md:w-[180px] h-[100px] md:h-auto flex-shrink-0 border-b md:border-b-0 md:border-r border-gray-800 bg-black px-3 py-2 md:p-4 gap-2 md:gap-3 overflow-x-auto md:overflow-x-visible md:overflow-y-auto">
               {/* Add Button - Only show if user role is not 'view' (viewer) */}
-              {userRole !== 'viewer' && (
+              {userRole !== 'viewer' && !readOnly && (
                 <div className="flex flex-col items-center flex-shrink-0">
                   {/* Mobile Add Button */}
                   <button
@@ -2527,7 +2541,7 @@ export function ImageViewer({
                   )}
 
                   {/* Star icon for featured image - Only show when sub-images exist */}
-                  {imageId && subImages.length > 0 && (
+                  {imageId && subImages.length > 0 && !readOnly && (
                     <button
                       onClick={(e) => {
                         console.log('⭐ Parent star clicked - imageId:', imageId, 'featuredImageId:', featuredImageId);
@@ -2569,6 +2583,7 @@ export function ImageViewer({
                   )}
 
                   {/* Star icon for featured image - Visible on hover or if featured */}
+                  {!readOnly && (
                   <button
                     onClick={(e) => handleToggleFeatured(e, subImage.id)}
                     className={`absolute top-1 left-1 p-1.5 bg-black/60 hover:bg-black/80 text-white rounded-full shadow-lg transition-all z-50 ${
@@ -2583,9 +2598,10 @@ export function ImageViewer({
                       strokeWidth={2}
                     />
                   </button>
+                  )}
 
                   {/* Delete button for sub-images - Only visible on hover */}
-                  {onDeleteSubImage && (
+                  {onDeleteSubImage && !readOnly && (
                     <button
                       onClick={(e) => {
                         e.stopPropagation(); // Prevent selecting the image when clicking delete
@@ -2909,7 +2925,7 @@ export function ImageViewer({
               {currentDescription && (
                 <div className="flex gap-3 mt-2">
                   <div className="w-10 flex-shrink-0" />
-                  <p className="text-base text-gray-700 leading-relaxed flex-1">
+                  <p className="text-base text-gray-700 leading-relaxed flex-1 break-words whitespace-pre-wrap">
                     {renderCommentWithMentions(currentDescription)}
                   </p>
                 </div>
@@ -2919,8 +2935,8 @@ export function ImageViewer({
                 <div className="flex gap-3 mt-3">
                   <div className="w-10 flex-shrink-0" />
                   <div className="grid grid-cols-2 gap-x-4 gap-y-3 flex-1">
-                    {specs.map((spec) => (
-                      <div key={spec.label}>
+                    {specs.map((spec, specIndex) => (
+                      <div key={`${specIndex}-${spec.label}`}>
                         <p className="text-xs text-gray-500 uppercase tracking-wide">{spec.label}</p>
                         <p className="text-sm text-gray-900 font-medium break-words">{spec.value}</p>
                       </div>
@@ -3098,8 +3114,8 @@ export function ImageViewer({
             {/* Spec grid (e.g. car mileage/engine/trim) — read-only, shown below the description */}
             {specs.length > 0 && (
               <div className="grid grid-cols-2 gap-x-4 gap-y-3 mb-4 pb-4 border-b border-gray-800">
-                {specs.map((spec) => (
-                  <div key={spec.label}>
+                {specs.map((spec, specIndex) => (
+                  <div key={`${specIndex}-${spec.label}`}>
                     <p className="text-xs text-gray-500 uppercase tracking-wide">{spec.label}</p>
                     <p className="text-sm text-gray-200 font-medium break-words">{spec.value}</p>
                   </div>
@@ -3128,8 +3144,8 @@ export function ImageViewer({
             </div>
           </div>
           
-          {/* Comments Section */}
-          <div className="p-6 md:block hidden">
+          {/* Comments Section (none for read-only photos: they aren't memory images) */}
+          <div className={readOnly ? 'hidden' : 'p-6 md:block hidden'}>
             <div className="flex items-center gap-2 mb-6">
               <svg width="20" height="20" viewBox="0 0 22 22" fill="none" xmlns="http://www.w3.org/2000/svg">
                 <path d="M7.70919 17.862C9.37851 18.7184 11.2988 18.9503 13.124 18.5161C14.9492 18.0818 16.5593 17.01 17.6641 15.4937C18.7689 13.9774 19.2959 12.1163 19.15 10.2458C19.004 8.37538 18.1949 6.61855 16.8682 5.29192C15.5416 3.96529 13.7848 3.1561 11.9143 3.01018C10.0439 2.86426 8.18278 3.3912 6.66647 4.49605C5.15015 5.60089 4.0783 7.21098 3.64407 9.03617C3.20984 10.8614 3.44178 12.7816 4.2981 14.451L2.54883 19.6113L7.70919 17.862Z" stroke="currentColor" strokeWidth="1.74928" strokeLinecap="round" strokeLinejoin="round"/>
@@ -3244,7 +3260,7 @@ export function ImageViewer({
           </div>
 
           {/* Comments Section - Mobile */}
-          <div ref={mobileCommentsRef} className="md:hidden p-4 bg-white pb-24">
+          <div ref={mobileCommentsRef} className={readOnly ? 'hidden' : 'md:hidden p-4 bg-white pb-24'}>
 
             {/* Comments List */}
             <div className="space-y-4 mb-20">
@@ -3422,7 +3438,7 @@ export function ImageViewer({
           </div>
 
           {/* Fixed Input Section - Mobile */}
-          <div className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 p-4 z-[100001]">
+          <div className={readOnly ? 'hidden' : 'md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 p-4 z-[100001]'}>
             <div className="flex gap-2 items-center">
               <UserFallbackAvatar
                 user={getCurrentUserForAvatar()}

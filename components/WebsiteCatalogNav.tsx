@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from "react";
 import { Folder, FolderOpen, ChevronRight, ChevronDown, Search, Store } from "lucide-react";
 import { ImageWithFallback } from "./figma/ImageWithFallback";
 import ImageHoverPopover from "./ImageHoverPopover";
-import CatalogItemDetailModal from "./CatalogItemDetailModal";
 import { loadCatalogueForBrowsing, type CatalogueItemSummary } from "../services/catalogueAPI";
 import { WEBSITE_CATALOG_COLOR } from "../utils/categoryColorManager";
 import { runWhenIdle } from "../utils/deferIdle";
@@ -34,7 +33,7 @@ function matchesSearch(item: CatalogueItemSummary, query: string): boolean {
   return [item.title, item.category, item.price_label].some((value) => (value || "").toLowerCase().includes(q));
 }
 
-// One item row (leaf): opens the item's detail view.
+// One item row (leaf): opens the item's product page.
 function ItemLeaf({ item, onOpen }: { item: CatalogueItemSummary; onOpen: (id: number) => void }) {
   const thumbFallback = (
     <span className="w-full h-full bg-gray-200 flex items-center justify-center">
@@ -145,16 +144,16 @@ function GroupNode({
 }
 
 // Self-contained "Website Catalogue" box for the memories-page sidebar, built like CarsCatalogNav:
-// the connected website's items grouped by the site's own categories, a search box, hover
-// previews and a detail view per item. Browse-only. Renders nothing unless the account can use
+// the connected website's items grouped by the site's own categories, a search box and hover
+// previews. Tapping an item opens its product page (`catalog_item:<id>`, the same page its
+// campaign card opens). Browse-only. Renders nothing unless the account can use
 // the catalogue and has items (loadCatalogueForBrowsing asks GET /website-catalogue first, so
 // other accounts never call the Business-only items route — and never see the upgrade modal).
-export default function WebsiteCatalogNav() {
+export default function WebsiteCatalogNav({ onMemorySelect }: { onMemorySelect?: (memoryId: string) => void }) {
   const [loading, setLoading] = useState(true);
   const [items, setItems] = useState<CatalogueItemSummary[]>([]);
   const [boxExpanded, setBoxExpanded] = useState(false);
   const [query, setQuery] = useState("");
-  const [openItemId, setOpenItemId] = useState<number | null>(null);
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
 
   const toggleGroup = (name: string) => {
@@ -185,68 +184,64 @@ export default function WebsiteCatalogNav() {
   if (loading || items.length === 0) return null;
 
   return (
-    <>
-      <div className="w-full rounded-lg transition-all duration-200" style={{ backgroundColor: `${WEBSITE_CATALOG_COLOR}1A` }}>
-        <button
-          type="button"
-          onClick={() => setBoxExpanded((v) => !v)}
-          aria-expanded={boxExpanded}
-          className="w-full p-3 flex items-center justify-between rounded-lg text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#6C60FF]"
-          onMouseEnter={(e) => { if (!boxExpanded) e.currentTarget.style.backgroundColor = `${WEBSITE_CATALOG_COLOR}26`; }}
-          onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = ""; }}
+    <div className="w-full rounded-lg transition-all duration-200" style={{ backgroundColor: `${WEBSITE_CATALOG_COLOR}1A` }}>
+      <button
+        type="button"
+        onClick={() => setBoxExpanded((v) => !v)}
+        aria-expanded={boxExpanded}
+        className="w-full p-3 flex items-center justify-between rounded-lg text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#6C60FF]"
+        onMouseEnter={(e) => { if (!boxExpanded) e.currentTarget.style.backgroundColor = `${WEBSITE_CATALOG_COLOR}26`; }}
+        onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = ""; }}
+      >
+        <span className="flex items-center gap-2 min-w-0">
+          <ChevronRight
+            className={`w-3 h-3 transition-all duration-200 ${boxExpanded ? "rotate-90" : ""}`}
+            style={{ color: boxExpanded ? WEBSITE_CATALOG_COLOR : "" }}
+          />
+          {boxExpanded
+            ? <FolderOpen className="w-4 h-4" style={{ color: WEBSITE_CATALOG_COLOR }} />
+            : <Folder className="w-4 h-4 text-muted-foreground" />}
+          <span className={`text-sm ${boxExpanded ? "font-bold" : "font-medium"} text-foreground truncate`}>Website Catalogue</span>
+        </span>
+        <span
+          className="text-xs px-2 py-1 rounded-full transition-all duration-200 text-black flex-shrink-0"
+          style={{ backgroundColor: boxExpanded ? `${WEBSITE_CATALOG_COLOR}33` : "" }}
         >
-          <span className="flex items-center gap-2 min-w-0">
-            <ChevronRight
-              className={`w-3 h-3 transition-all duration-200 ${boxExpanded ? "rotate-90" : ""}`}
-              style={{ color: boxExpanded ? WEBSITE_CATALOG_COLOR : "" }}
+          {items.length}
+        </span>
+      </button>
+
+      {boxExpanded && (
+        <div className="px-3 pb-3 pt-1">
+          <label className="relative block mb-2">
+            <span className="sr-only">Search your Website Catalogue</span>
+            <Search className="w-4 h-4 text-gray-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" aria-hidden="true" />
+            <input
+              type="search"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search items"
+              className="w-full h-9 pl-8 pr-2 rounded-md bg-white text-sm text-gray-700 placeholder:text-gray-500 border border-gray-200 outline-none focus-visible:ring-2 focus-visible:ring-[#6C60FF]"
             />
-            {boxExpanded
-              ? <FolderOpen className="w-4 h-4" style={{ color: WEBSITE_CATALOG_COLOR }} />
-              : <Folder className="w-4 h-4 text-muted-foreground" />}
-            <span className={`text-sm ${boxExpanded ? "font-bold" : "font-medium"} text-foreground truncate`}>Website Catalogue</span>
-          </span>
-          <span
-            className="text-xs px-2 py-1 rounded-full transition-all duration-200 text-black flex-shrink-0"
-            style={{ backgroundColor: boxExpanded ? `${WEBSITE_CATALOG_COLOR}33` : "" }}
-          >
-            {items.length}
-          </span>
-        </button>
-
-        {boxExpanded && (
-          <div className="px-3 pb-3 pt-1">
-            <label className="relative block mb-2">
-              <span className="sr-only">Search your Website Catalogue</span>
-              <Search className="w-4 h-4 text-gray-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" aria-hidden="true" />
-              <input
-                type="search"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder="Search items"
-                className="w-full h-9 pl-8 pr-2 rounded-md bg-white text-sm text-gray-700 placeholder:text-gray-500 border border-gray-200 outline-none focus-visible:ring-2 focus-visible:ring-[#6C60FF]"
-              />
-            </label>
-            {groups.length === 0 ? (
-              <p className="px-2 py-3 text-xs text-gray-500">No items match “{query.trim()}”.</p>
-            ) : (
-              <div className="space-y-1">
-                {groups.map((group) => (
-                  <GroupNode
-                    key={group.name}
-                    group={group}
-                    expanded={expandedGroups.has(group.name)}
-                    forceOpen={searching}
-                    onToggle={toggleGroup}
-                    onOpen={setOpenItemId}
-                  />
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-
-      <CatalogItemDetailModal itemId={openItemId} onClose={() => setOpenItemId(null)} />
-    </>
+          </label>
+          {groups.length === 0 ? (
+            <p className="px-2 py-3 text-xs text-gray-500">No items match “{query.trim()}”.</p>
+          ) : (
+            <div className="space-y-1">
+              {groups.map((group) => (
+                <GroupNode
+                  key={group.name}
+                  group={group}
+                  expanded={expandedGroups.has(group.name)}
+                  forceOpen={searching}
+                  onToggle={toggleGroup}
+                  onOpen={(id) => onMemorySelect?.(`catalog_item:${id}`)}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
