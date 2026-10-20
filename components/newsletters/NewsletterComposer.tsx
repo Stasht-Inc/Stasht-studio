@@ -1,4 +1,4 @@
-import { forwardRef, useImperativeHandle, useRef, useState, type ReactNode } from 'react';
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState, type ReactNode } from 'react';
 import { ArrowLeft, Globe, Loader2, User } from 'lucide-react';
 import { toast } from 'sonner';
 import { useIsStarterPlan } from '../../hooks/usePlan';
@@ -37,6 +37,8 @@ export interface NewsletterComposerProps {
 
 const STATUS_WORDS: Record<string, string> = { scheduled: 'scheduled', sending: 'being sent', sent: 'sent', failed: 'one that failed to send', cancelled: 'cancelled' };
 
+const PLAN_CHECK_PATIENCE_MS = 20000;
+
 // Phones: the three buttons share the row; from sm up they keep their natural width.
 const ROW_BUTTON = 'min-w-0 flex-1 whitespace-nowrap px-2 sm:flex-none sm:px-5';
 
@@ -49,8 +51,18 @@ const NewsletterComposer = forwardRef<NewsletterComposerHandle, NewsletterCompos
 
   // Paid plans only (spec decision 4). No newsletter call until the plan is known to be paid: a Starter
   // account would get 403 plan_required, and the upgrade plans would open under this layer (contract note 1).
-  const { isStarter, known } = useIsStarterPlan();
+  const plan = useIsStarterPlan();
+  const { isStarter, known } = plan;
   const enabled = known && !isStarter;
+  // The plan check failed, or is taking far too long: say so and offer "Try again" instead of waiting forever.
+  const [planSlow, setPlanSlow] = useState(false);
+  useEffect(() => {
+    if (known || plan.failed) return undefined;
+    const timer = window.setTimeout(() => setPlanSlow(true), PLAN_CHECK_PATIENCE_MS);
+    return () => window.clearTimeout(timer);
+  }, [known, plan.failed]);
+  const planStuck = !known && (plan.failed || planSlow);
+  const retryPlan = () => { setPlanSlow(false); plan.retry(); };
   const brand = useNewsletterBrand(enabled);
   const state = useNewsletterDraft(newsletterId, enabled, brand.brand?.header ?? null);
   const profile = useSenderProfile(enabled);
@@ -110,7 +122,13 @@ const NewsletterComposer = forwardRef<NewsletterComposerHandle, NewsletterCompos
       </header>
 
       <div className="flex-1 overflow-y-auto overflow-x-hidden">
-        {!known ? (
+        {planStuck ? (
+          <div role="alert" className="mx-auto max-w-md px-4 py-16 text-center">
+            <p className="text-base font-semibold text-gray-900">We couldn’t check your plan.</p>
+            <p className="mt-1 text-sm text-gray-600">Newsletters need a paid plan, and we couldn’t confirm yours just now. Check your connection, then try again.</p>
+            <button type="button" onClick={retryPlan} className={`${BUTTON_PRIMARY} mt-4`}>Try again</button>
+          </div>
+        ) : !known ? (
           <div className="flex h-full items-center justify-center gap-2 text-sm text-gray-600">
             <Loader2 className="h-5 w-5 animate-spin text-[#6C60FF]" aria-hidden="true" />Getting things ready…
           </div>

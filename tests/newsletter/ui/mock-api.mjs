@@ -104,6 +104,8 @@ export function createMockApi(options = {}) {
     groups: options.groups ?? [{ id: 4, name: 'VIP buyers', member_count: 38, members: [], created_at: now(), updated_at: now() }],
     allowance: options.allowance ?? { plan: 'Professional', email_limit: 5000, sms_limit: 500, email_used: 1200, sms_used: 40, resets_at: '2026-11-01T00:00:00Z' },
     sendErrors: options.sendErrors ?? null,
+    // How many /user/storage-overview calls fail (500) before it answers: the plan check's "Try again".
+    planFailures: options.planFailures ?? 0,
     calls: [],
   };
   const ok = (data, status = 200) => ({ status, json: { success: true, data } });
@@ -137,7 +139,13 @@ export function createMockApi(options = {}) {
   }
 
   function handle(method, path, params, body) {
-    if (path === '/user/storage-overview') return ok({ storage_overview: { plan_name: state.plan } });
+    if (path === '/user/storage-overview') {
+      if (state.planFailures > 0) {
+        state.planFailures -= 1;
+        return fail(500, { success: false, message: 'Server error' });
+      }
+      return ok({ storage_overview: { plan_name: state.plan } });
+    }
     if (path === '/user/profile') return ok({ user: PROFILE });
     if (path === '/website-catalogue') return ok({ available: false });
     if (path === '/user/check-memory-limit') {
