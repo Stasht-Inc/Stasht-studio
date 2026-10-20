@@ -8,10 +8,11 @@ import { useNewsletterDraft } from './hooks/useNewsletterDraft';
 import { useSenderProfile } from './hooks/useSenderProfile';
 import { fieldProblems, type NewsletterDraft } from './lib/draft';
 import { GENERIC_ERROR, PLAN_REQUIRED_ERROR } from './lib/apiResult';
-import { initialsFrom } from './lib/profile';
 import { BUTTON_OUTLINE, BUTTON_PRIMARY, BUTTON_SECONDARY, LABEL, LAYER } from './lib/ui';
 import StepCard from './StepCard';
-import InboxRow from './InboxRow';
+import NewsletterEditor from './NewsletterEditor';
+import DeviceToggle, { type PreviewDevice } from './DeviceToggle';
+import TemplatePicker from './TemplatePicker';
 import SaveIndicator from './SaveIndicator';
 import UpgradeCard from './UpgradeCard';
 import NameStep from './steps/NameStep';
@@ -68,6 +69,15 @@ const NewsletterComposer = forwardRef<NewsletterComposerHandle, NewsletterCompos
   const profile = useSenderProfile(enabled);
   const { draft, update, readOnly } = state;
   const [closing, setClosing] = useState(false);
+  const [device, setDevice] = useState<PreviewDevice>('desktop');
+  // True after the first Send / Schedule attempt: from then on, unfinished steps and sections show their problems.
+  const [attempted, setAttempted] = useState(false);
+  void setAttempted; // set by the send checks (Task 12)
+  const saveAddress = async (address: string): Promise<boolean> => {
+    const res = await brand.saveAddress(address);
+    if (!res.ok) toast.error(res.error ?? GENERIC_ERROR);
+    return res.ok;
+  };
 
   const live = fieldProblems(draft);
   const fieldError = (key: keyof NewsletterDraft): string | undefined => live[key] ?? state.fieldErrors[key];
@@ -172,9 +182,8 @@ const NewsletterComposer = forwardRef<NewsletterComposerHandle, NewsletterCompos
               <SubjectStep subject={draft.subject} previewText={draft.preview_text} onChange={update}
                 errors={{ subject: fieldError('subject'), preview_text: fieldError('preview_text') }} readOnly={readOnly} />
 
-              {/* Step 5: TemplatePicker (Task 8) */}
               <StepCard number={5} title="Content" id="nl-step-content">
-                <p className="text-sm text-gray-600">Basic template. Edit the email in the preview.</p>
+                <TemplatePicker value={draft.template} readOnly={readOnly} />
               </StepCard>
 
               {/* Step 6: ScheduleStep (Task 11) */}
@@ -187,27 +196,23 @@ const NewsletterComposer = forwardRef<NewsletterComposerHandle, NewsletterCompos
               </div>
             </div>
 
-            <aside aria-label="Email preview" className="min-w-0 self-start lg:sticky lg:top-6">
-              <p className="mb-3 text-xs font-semibold uppercase tracking-[0.12em] text-gray-500">Email preview</p>
-              <div className="overflow-hidden rounded-xl border border-gray-200 bg-white">
-                <p className="border-b border-gray-100 bg-gray-50 px-4 py-2.5 text-xs font-semibold uppercase tracking-[0.08em] text-gray-500">Inbox</p>
-                <InboxRow fromName={draft.from_name} subject={draft.subject} previewText={draft.preview_text}
-                  initial={initialsFrom(profile?.name || draft.from_name).slice(0, 1)} photoUrl={profile?.photoUrl ?? null} color={profile?.color ?? null} />
-                <div className="space-y-3 p-4" aria-hidden="true">
-                  <div className="flex h-[70px] items-center justify-center rounded-lg bg-gray-100 text-sm text-gray-500">Header image</div>
-                  <div className="space-y-2">
-                    <div className="h-2 w-3/4 rounded bg-gray-100" />
-                    <div className="h-2 rounded bg-gray-100" />
-                    <div className="h-2 w-5/6 rounded bg-gray-100" />
-                  </div>
-                  <div className="flex h-9 items-center justify-center rounded-lg bg-[#6C60FF] text-sm font-semibold text-white">Call to action</div>
-                  <div className="space-y-2">
-                    <div className="h-2 rounded bg-gray-100" />
-                    <div className="h-2 w-4/5 rounded bg-gray-100" />
-                  </div>
-                  <p className="pt-2 text-center text-xs text-gray-500">Powered by <span className="font-semibold text-[#6C60FF]">Stasht</span></p>
-                </div>
+            <aside aria-label="Email preview" className="min-w-0 self-start lg:sticky lg:top-6 lg:max-h-[calc(100vh-7rem)] lg:overflow-y-auto lg:overflow-x-hidden">
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+                <p className="text-xs font-semibold uppercase tracking-[0.12em] text-gray-500">Email preview</p>
+                <DeviceToggle value={device} onChange={setDevice} />
               </div>
+              <NewsletterEditor
+                draft={draft}
+                readOnly={readOnly}
+                device={device}
+                profile={profile}
+                businessAddress={brand.brand?.business_address ?? null}
+                showProblems={attempted}
+                fieldErrors={state.fieldErrors}
+                onChange={update}
+                onHeaderChange={(header) => update({ header })}
+                onSaveAddress={saveAddress}
+              />
             </aside>
           </div>
         )}
