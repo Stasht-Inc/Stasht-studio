@@ -2997,7 +2997,7 @@ export default function CategoryNav({
               {selectedFilter === "all" && <CarsCatalogNav />}
 
               {/* The connected website's catalogue (spec 2026-09-30 §9.1). Renders nothing without items. */}
-              {selectedFilter === "all" && <WebsiteCatalogNav />}
+              {selectedFilter === "all" && <WebsiteCatalogNav onMemorySelect={onMemorySelect} />}
 
               {/* Regular Categories */}
               {categories
