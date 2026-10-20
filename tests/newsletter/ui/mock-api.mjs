@@ -74,7 +74,7 @@ export function seedNewsletters() {
       public_url: 'https://127.0.0.1/n/abc123', blocks: [{ id: 'b1', type: 'title', data: { text: 'September', size: 'large' } }],
       counts: { recipients: 1204, sent: 1198, delivered: 1180, opened: 512, clicked: 88, unsubscribed: 4, failed: 6, skipped: 12 },
     }),
-    newsletter(22, { name: 'Winter tires', subject: 'Book your winter tire swap', status: 'scheduled', scheduled_at: new Date(Date.now() + 2 * day).toISOString(), counts: { ...COUNTS0, recipients: 1216 } }),
+    newsletter(22, { name: 'Winter tires', subject: 'Book your winter tire swap', status: 'scheduled', scheduled_at: new Date(Date.now() + 2 * day).toISOString() }),
     newsletter(23, {
       name: 'October Newsletter 2026', subject: 'October deals are here', from_name: 'Serpa Chrysler', reply_to_email: 'sales@serpachrysler.ca',
       blocks: [{ id: 'b1', type: 'title', data: { text: 'This month', size: 'large' } }, { id: 'b2', type: 'text', data: { html: '<p>Hello <strong>there</strong></p>' } }],
@@ -213,7 +213,7 @@ export function createMockApi(options = {}) {
     if (path === '/user/profile') return ok({ user: PROFILE });
     if (path === '/website-catalogue') return ok({ available: false });
     if (path === '/user/check-memory-limit') {
-      return ok({ limit_status: { status: options.storeelLimit ? 'limit_exceeded' : 'within_limit', current_memories: options.storeelLimit ? 5 : 2, memory_limit: 5 } });
+      return ok({ limit_status: { status: options.storeelLimit ? 'limit_exceeded' : 'within_limit', current_memories: options.storeelLimit ? 5 : 2, memory_limit: 5, ai_connects: 120 } });
     }
     // LeadGroupsController::index answers {groups: [...]} with no success envelope.
     if (path === '/lead-groups' && method === 'GET') return { status: 200, json: { groups: state.groups } };
@@ -331,12 +331,12 @@ export function createMockApi(options = {}) {
           // Allowance 422 carries a top-level {channel, needed, remaining} (contract note 4).
           return fail(422, { message: Object.values(errors)[0][0], errors, ...(errors.allowance ? { allowance: { channel: 'email', needed: 1216, remaining: 900 } } : {}) });
         }
-        const c = audienceCount(n.audience, n.channels);
+        // NewsletterSendController::queue: status, time and sender defaults only; the counts stay 0 until the
+        // dispatcher builds the recipient rows.
         n.status = 'scheduled';
         n.scheduled_at = action === 'send' ? now() : new Date(body.scheduled_at).toISOString();
         n.from_name ||= state.owner.name;
         n.reply_to_email ||= state.owner.email;
-        n.counts = { ...COUNTS0, recipients: c.email + c.sms };
         return ok(n);
       }
       if (action === 'cancel') {
@@ -362,6 +362,10 @@ export function createMockApi(options = {}) {
     // Storeel form doesn't toast "Failed to load Google Drive picker" over the screenshots.
     if (url.hostname === 'apis.google.com' && url.pathname === '/js/api.js') {
       return route.fulfill({ contentType: 'text/javascript', body: 'window.gapi={load:function(n,c){var f=typeof c==="function"?c:(c&&c.callback);if(f)f();}};' });
+    }
+    // The Campaigns page loads Stripe.js (the upgrade plans); a do-nothing stub keeps it off the network.
+    if (url.hostname === 'js.stripe.com') {
+      return route.fulfill({ contentType: 'text/javascript', body: 'window.Stripe=function(){return{elements:function(){return{create:function(){return{mount:function(){},on:function(){},destroy:function(){},unmount:function(){}}},getElement:function(){return null}}}}};' });
     }
     if (url.hostname === '127.0.0.1' && url.pathname.startsWith('/nl-img/')) return route.fulfill({ path: `${PUBLIC_DIR}${url.pathname.slice('/nl-img/'.length)}` });
     if (!['localhost', '127.0.0.1'].includes(url.hostname) || /^\/(sso-api|s3-proxy)(\/|$)/.test(url.pathname)) return route.abort('blockedbyclient');

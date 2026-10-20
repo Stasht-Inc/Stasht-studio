@@ -36,6 +36,9 @@ import MergeStoriesModal from "../components/MergeStoriesModal";
 import { UpgradePlanModal } from "../components/UpgradePlanModal";
 import { mapLimit } from "../utils/requestLimit";
 import { runWhenIdle } from "../utils/deferIdle";
+import NewslettersView from "../components/newsletters/NewslettersView";
+import SegmentedSwitch from "../components/newsletters/SegmentedSwitch";
+import { CAMPAIGNS_VIEW_OPTIONS, DEFAULT_CAMPAIGNS_VIEW, type CampaignsView } from "../components/newsletters/lib/campaignsView";
 const imgSunnyBeach = 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=400&h=300&fit=crop';
 
 interface ApiMemory {
@@ -389,6 +392,10 @@ function MemoriesPageContent({
   const [selectedFilterTab, setSelectedFilterTab] = useState('All Categories');
   const [showCreateMemory, setShowCreateMemory] = useState(false);
   const createMemoryRef = useRef<CreateMemoryHandle>(null);
+  // Campaigns page: Storeels | Newsletters (spec 2026-10-13). Always opens on Storeels, so loading this page never
+  // calls a newsletter endpoint; NewslettersView mounts (and fetches, on a paid plan) only once Newsletters is picked.
+  const [campaignsView, setCampaignsView] = useState<CampaignsView>(DEFAULT_CAMPAIGNS_VIEW);
+  const [editNewsletterId, setEditNewsletterId] = useState<number | null>(null);
   const proxyInputRef = useRef<HTMLInputElement>(null);
   const [selectedCategoryForCreate, setSelectedCategoryForCreate] = useState<string | undefined>(undefined);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
@@ -2542,8 +2549,28 @@ function MemoriesPageContent({
         </div>
       ))}
 
+      {/* Storeels | Newsletters (spec 2026-10-13) */}
+      {isPropertyOwner && (
+        <div className="flex items-center">
+          <SegmentedSwitch
+            label="Campaigns to show"
+            options={CAMPAIGNS_VIEW_OPTIONS}
+            value={campaignsView}
+            onChange={(view) => setCampaignsView(view)}
+          />
+        </div>
+      )}
+
       {/* Conditional Content Based on Category Selection */}
-      {false && selectedCategory ? (
+      {isPropertyOwner && campaignsView === 'newsletters' ? (
+        // "Create a Newsletter" opens Create Campaign directly: the Storeel campaign limit doesn't apply (decision 6).
+        <NewslettersView
+          onCreate={() => { setEditNewsletterId(null); setSelectedCategoryForCreate(undefined); setShowCreateMemory(true); }}
+          onEdit={(id) => { setEditNewsletterId(id); setSelectedCategoryForCreate(undefined); setShowCreateMemory(true); }}
+          onToggleMobileSidebar={onToggleMobileSidebar}
+          showMobileSidebar={showMobileSidebar}
+        />
+      ) : false && selectedCategory ? (
         // Disabled: Show category-filtered memories when a category is selected in filter dropdown
         <div className="space-y-6">
           {/* Filtered Memory Cards */}
@@ -3559,8 +3586,10 @@ function MemoriesPageContent({
           // Clear selected category when modal closes
           if (!open) {
             setSelectedCategoryForCreate(undefined);
+            setEditNewsletterId(null);
           }
         }}
+        newsletterId={editNewsletterId}
         onMemoryCreated={handleMemoryCreated}
         onOpenMediaLibrary={() => {
           console.log('📸 Opening media library modal ON TOP of Create Memory modal');

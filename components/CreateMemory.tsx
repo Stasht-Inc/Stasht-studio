@@ -29,6 +29,7 @@ import { useGoogleDrivePicker } from '../hooks/useGoogleDrivePicker';
 import NewsletterComposer, { type NewsletterComposerHandle } from './newsletters/NewsletterComposer';
 import CampaignTypeSwitch from './newsletters/CampaignTypeSwitch';
 import { initialCampaignType, type CampaignType } from './newsletters/lib/campaignType';
+import { announceNewslettersChanged } from './newsletters/lib/campaignsView';
 import { requestUpgrade } from '../utils/planEvents';
 
 interface CreateMemoryProps {
@@ -3751,7 +3752,8 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
           hidden={campaignType !== 'newsletter'}
           switcher={<CampaignTypeSwitch value="newsletter" onChange={chooseCampaignType} />}
           onClose={handleModalClose}
-          onChanged={onNewsletterChanged}
+          // Wherever Create Campaign was opened from (Sidebar or Campaigns page), the Newsletters view refreshes.
+          onChanged={() => { onNewsletterChanged?.(); announceNewslettersChanged(); }}
           onSwitchToStoreel={() => chooseCampaignType('storeel')}
         />,
         document.body,

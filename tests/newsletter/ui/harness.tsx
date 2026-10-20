@@ -18,6 +18,7 @@ import EcardFooter from '../../../components/newsletters/EcardFooter';
 import { useSenderProfile } from '../../../components/newsletters/hooks/useSenderProfile';
 import { newslettersAPI, type NewsletterHeader } from '../../../services/newslettersAPI';
 import NewsletterResults from '../../../components/newsletters/NewsletterResults';
+import MemoriesPage from '../../../pages/MemoriesPage';
 
 function HeaderGallery() {
   const [header, setHeader] = useState<NewsletterHeader>({ logo_url: null, banner_url: null, background_color: '#6C60FF', title: 'Serpa Chrysler' });
@@ -109,10 +110,34 @@ function ResultsHarness() {
   );
 }
 
+// A few Storeels for the All Campaigns view (App passes them as apiMemoriesData).
+const SAMPLE_STOREELS = {
+  all_memories: {
+    data: [
+      { id: 501, title: 'Fall service event', category: 'Service', author: 'Samantha Smith', label: 'Events', tags: ['fall'], photos: 12, startDate: 'Oct 1, 2026', endDate: 'Oct 31, 2026', lastVisited: '2 days ago' },
+      { id: 502, title: '2026 Grand Cherokee arrivals', category: 'Inventory', author: 'Samantha Smith', label: 'New', tags: [], photos: 30, startDate: 'Sep 15, 2026', endDate: 'Oct 15, 2026', lastVisited: '1 week ago' },
+      { id: 503, title: 'Customer stories', category: 'Community', author: 'Samantha Smith', label: 'Stories', tags: ['reviews'], photos: 8, startDate: 'Aug 1, 2026', endDate: 'Sep 30, 2026', lastVisited: '3 weeks ago' },
+    ],
+  },
+};
+
+// The Campaigns page as App mounts it (sidebar toggle included, so phones keep it on both views).
+function CampaignsHarness() {
+  const [sidebar, setSidebar] = useState(false);
+  return (
+    // pt-20: App's 80 px top bar, which the page's sticky headers (top-20) sit under.
+    <div className="min-h-screen bg-[#F8F8FA] px-2 pt-20 md:px-6 md:pb-6">
+      <MemoriesPage onMemorySelect={() => {}} apiMemoriesData={params.get('storeels') === '0' ? undefined : SAMPLE_STOREELS}
+        showMobileSidebar={sidebar} onToggleMobileSidebar={() => setSidebar((v) => !v)} onCloseMobileSidebar={() => setSidebar(false)} />
+    </div>
+  );
+}
+
 const VIEWS: Record<string, () => ReactElement> = {
   composer: ComposerHarness,
   blocks: BlocksHarness,
   results: ResultsHarness,
+  campaigns: CampaignsHarness,
 };
 const View = VIEWS[params.get('view') || 'composer'] ?? ComposerHarness;
 
