@@ -2964,7 +2964,8 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
 
   // Function to fetch memory activity from API
   const fetchMemoryActivity = async (skipLoadingState = false) => {
-    if (!memoryId) return;
+    // Inventory pages (cars, catalogue products) have no memory behind them.
+    if (!memoryId || isInventoryDetail) return;
 
     if (!skipLoadingState) {
       setIsLoadingActivity(true);
@@ -3017,7 +3018,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
 
   // Fetch publish history for analytics tab
   const fetchPublishHistory = async () => {
-    if (!memoryId) return;
+    if (!memoryId || isInventoryDetail) return; // no memory behind an inventory page
     setIsLoadingPublishHistory(true);
     try {
       const response = await dashboardAPI.getPublishHistory(memoryId);
@@ -3217,7 +3218,10 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
           const posts = sortedImages.map((img: any, i: number) => {
             const captureDate = new Date(now - i * 1000).toISOString();
             return {
-              id: img.id ?? `car_image_${i}`,
+              // Prefixed so a car photo id can never equal a real memory_images id: every
+              // memory-image endpoint (comments, likes, edit, rotate, …) would otherwise act on
+              // an unrelated photo. The media-tab delete strips it again (handleDeleteItemConfirm).
+              id: img.id != null ? `car_image_${img.id}` : `car_photo_${i}`,
               image_link: toHdImage(img.url),
               type: 'image',
               parent_id: null,
@@ -3290,7 +3294,8 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
           const posts = photoUrls.map((img, i) => {
             const captureDate = new Date(now - i * 1000).toISOString();
             return {
-              id: img.id ?? `catalog_image_${i}`,
+              // Prefixed so it can never equal a real memory_images id (see the car branch).
+              id: img.id != null ? `catalog_image_${img.id}` : `catalog_photo_${i}`,
               image_link: img.url,
               type: 'image',
               parent_id: null,
@@ -3546,8 +3551,8 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
   // Collaborators are now extracted from the memory detail response
   useEffect(() => {
     fetchMemoryDetails();
-    // These hit memory-only endpoints; skip for a Shopify collection detail.
-    if (!isShopifyCollection) {
+    // These hit memory-only endpoints; skip for a Shopify collection, car or catalogue-product detail.
+    if (!isShopifyCollection && !isInventoryDetail) {
       fetchMemoryActivity();
       fetchPublishHistory();
     }
@@ -4579,9 +4584,10 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
   // Dynamic tab configuration - all tabs defined here with their conditions
   const tabItems = [
     { key: 'overview', label: 'Timeline', enabled: true, icon: 'clock', badge: 0 },
-    { key: 'analytics', label: 'Analytics', enabled: true, icon: 'chart', badge: 0 },
-    { key: 'moderation', label: 'Moderation', enabled: shouldShowModeration, icon: 'shield', badge: shouldShowModeration ? pendingModerationCount : 0 },
-    { key: 'collaborators', label: 'Users', enabled: true, icon: 'users', badge: 0 },
+    // Inventory pages (cars, catalogue products) are a timeline only — see the desktop tab toggle.
+    { key: 'analytics', label: 'Analytics', enabled: !isInventoryDetail, icon: 'chart', badge: 0 },
+    { key: 'moderation', label: 'Moderation', enabled: shouldShowModeration && !isInventoryDetail, icon: 'shield', badge: shouldShowModeration && !isInventoryDetail ? pendingModerationCount : 0 },
+    { key: 'collaborators', label: 'Users', enabled: !isInventoryDetail, icon: 'users', badge: 0 },
   ];
 
   // Filter out posts with admin_approval = 0 from regular display (media section)
@@ -6862,7 +6868,8 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
         src: post.image,
         alt: post.name || post.title || 'Image',
         title: post.name || post.title || 'Image',
-        subtitle: `${post.author.name} • ${formatDate(post.date)}`,
+        // Inventory photos (cars, catalogue products): no synthesized date in the subtitle.
+        subtitle: isInventoryDetail ? post.author.name : `${post.author.name} • ${formatDate(post.date)}`,
         id: post.id
       }));
 
@@ -6939,7 +6946,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
       src: displaySrc,
       alt: displayAlt,
       title: displayTitle,
-      subtitle: `${currentPost?.author?.name || 'Unknown'} • ${getFormattedDate(currentPost?.date)}`,
+      subtitle: isInventoryDetail ? (currentPost?.author?.name || 'Unknown') : `${currentPost?.author?.name || 'Unknown'} • ${getFormattedDate(currentPost?.date)}`,
       filename: extractFilename(displaySrc, currentPost?.title),
       // Inventory photos (cars, catalogue products) have only synthesized ordering dates.
       dateTaken: isInventoryDetail ? '' : getFormattedDate(currentPost?.date),
@@ -7052,7 +7059,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
         src: item.image || item.thumbnail,
         alt: item.name || 'Image',
         title: item.name || 'Image',
-        subtitle: `${item.size || 'Unknown size'} • ${formatDate(item.date)}`,
+        subtitle: isInventoryDetail ? '' : `${item.size || 'Unknown size'} • ${formatDate(item.date)}`,
         id: item.id
       }));
 
@@ -7124,9 +7131,9 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
       src: displaySrc,
       alt: displayAlt,
       title: displayTitle,
-      subtitle: `${currentMediaItem?.size || 'Unknown size'} • ${getFormattedDate(currentMediaItem?.date)}`,
+      subtitle: isInventoryDetail ? '' : `${currentMediaItem?.size || 'Unknown size'} • ${getFormattedDate(currentMediaItem?.date)}`,
       filename: extractFilename(displaySrc, currentMediaItem?.name),
-      dateTaken: getFormattedDate(currentMediaItem?.date),
+      dateTaken: isInventoryDetail ? '' : getFormattedDate(currentMediaItem?.date),
       location: getLocationDisplay(currentMediaItem?.location),
       images: allImages,
       currentIndex: Math.max(0, currentIndex),
@@ -7508,8 +7515,10 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
     try {
       console.log(`Deleting media item ${itemToDelete}...`);
       
-      // Call the single image delete API
-      const response = await mediaAPI.deleteImage(itemToDelete, itemToDeleteIsCar);
+      // Call the single image delete API. A car-detail photo's post id is `car_image_<car_images.id>`
+      // (see fetchMemoryDetails) — the backend wants the bare car_images id with is_car=1.
+      const carImageId = itemToDeleteIsCar ? /^car_image_(\d+)$/.exec(String(itemToDelete))?.[1] : undefined;
+      const response = await mediaAPI.deleteImage(carImageId ?? itemToDelete, itemToDeleteIsCar);
       
       if (response.success) {
         console.log('Media item deleted successfully');
@@ -10074,7 +10083,10 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
           memoryThumbnail={apiMemoryData?.last_update_img || apiMemoryData?.thumbnail}
           memoryCreatedDate={apiMemoryData?.created_at}
           memoryImages={memoryImagesWithSubImages}
-          userRole={currentUserRole}
+          // Inventory photos (cars, catalogue products) aren't memory images: read-only viewer
+          // (no comments, add, rotate, crop, tags, featured or sub-image delete).
+          userRole={isInventoryDetail ? 'viewer' : currentUserRole}
+          readOnly={isInventoryDetail}
           parentImageIsFeatured={imageViewer.parentImageIsFeatured}
           initialTags={imageViewer.tags || []}
           storyTags={allStoryTags}
@@ -10112,7 +10124,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
           }}
           onCommentCountChange={handleCommentCountChange}
           activeCollaborators={apiCollaborators.filter(c => c.status === 'active')}
-          onDeleteSubImage={handleDeleteSubImage}
+          onDeleteSubImage={isInventoryDetail ? undefined : handleDeleteSubImage}
         />
 
         {/* Media Library Modal */}
@@ -11060,8 +11072,9 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
       <div className="space-y-4 md:space-y-8 lg:pr-[28rem] bg-white lg:bg-transparent pb-24 md:pb-0" style={{ paddingTop: isPublishing ? '120px' : '0' }}>
         {/* Header */}
         <div className="sticky top-20 relative bg-gray-50 z-10">
-          {/* Tab Toggle - Desktop only */}
-          <div className="bg-gray-50/50 px-1 py-1 hidden lg:block">
+          {/* Tab Toggle - Desktop only. Inventory pages (cars, catalogue products) are a timeline only:
+              their Analytics / Users / Moderation have no campaign behind them. */}
+          <div className={`bg-gray-50/50 px-1 py-1 hidden ${isInventoryDetail ? '' : 'lg:block'}`}>
             <div className={`grid w-full ${shouldShowModeration ? 'grid-cols-4' : 'grid-cols-3'} bg-transparent p-0 h-auto gap-1 pt-4 px-4`} style={{ gridAutoColumns: '1fr' }}>
               <button
                 onClick={() => setActiveTab("overview")}
@@ -11148,8 +11161,8 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
           </Button>
           {activeTab === 'overview' && (
           <div className="flex items-center gap-2 lg:mr-5">
-            {/* Hide Publish button for Suggested category */}
-            {!isSuggestedCategory && (
+            {/* Hide Publish button for Suggested category and read-only inventory (cars, catalogue products) */}
+            {!isSuggestedCategory && !isInventoryDetail && (
               (apiMemoryData?.published === 1 || apiMemoryData?.published === 2 || apiMemoryData?.published === 3) ? (
                 <Button
                   variant="outline"
@@ -11253,8 +11266,8 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
               )
             )}
 
-            {/* Hide Edit button for Suggested category memories */}
-            {!isSuggestedCategory && (
+            {/* Hide Edit button for Suggested category memories and read-only inventory */}
+            {!isSuggestedCategory && !isInventoryDetail && (
               <>
               <Popover open={isEditPopoverOpen && !isMobile} onOpenChange={(open) => { if (!isMobile) setIsEditPopoverOpen(open); }}>
                 <PopoverTrigger asChild>
@@ -11739,8 +11752,8 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
               </>
             )}
 
-            {/* Hide Add a Moment button for Suggested category and for viewers */}
-            {!isSuggestedCategory && currentUserRole !== 'viewer' && (
+            {/* Hide Add a Moment button for Suggested category, for viewers and on read-only inventory */}
+            {!isSuggestedCategory && currentUserRole !== 'viewer' && !isInventoryDetail && (
               <Button
                 ref={addMomentButtonRef}
                 onClick={() => setIsAddMomentModalOpen(true)}
@@ -12647,8 +12660,8 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                               </div>
                             </div>
                             )}
-                            {/* Mobile - Publish button (top-right), hidden when cover video is playing */}
-                            {!isCoverVideoPlaying && !isSuggestedCategory && (
+                            {/* Mobile - Publish button (top-right), hidden when cover video is playing and on read-only inventory */}
+                            {!isCoverVideoPlaying && !isSuggestedCategory && !isInventoryDetail && (
                               <div className="md:hidden pointer-events-auto">
                                 {(apiMemoryData?.published === 1 || apiMemoryData?.published === 2 || apiMemoryData?.published === 3) ? (
                                   <Button
@@ -13008,7 +13021,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                           <span className="text-sm font-semibold text-gray-900">{apiMemoryData?.user?.name || 'Unknown'}</span>
                         </div>
                       </div>
-                      {!isSuggestedCategory && currentUserRole !== 'viewer' && (
+                      {!isSuggestedCategory && currentUserRole !== 'viewer' && !isInventoryDetail && (
                         <Button
                           onClick={() => setIsAddMomentModalOpen(true)}
                           size="sm"
@@ -13075,6 +13088,8 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                               <path d="M19.6 21L13.3 14.7C12.8 15.1 12.225 15.4167 11.575 15.65C10.925 15.8833 10.2333 16 9.5 16C7.68333 16 6.14583 15.3708 4.8875 14.1125C3.62917 12.8542 3 11.3167 3 9.5C3 7.68333 3.62917 6.14583 4.8875 4.8875C6.14583 3.62917 7.68333 3 9.5 3C11.3167 3 12.8542 3.62917 14.1125 4.8875C15.3708 6.14583 16 7.68333 16 9.5C16 10.2333 15.8833 10.925 15.65 11.575C15.4167 12.225 15.1 12.8 14.7 13.3L21 19.6L19.6 21ZM9.5 14C10.75 14 11.8125 13.5625 12.6875 12.6875C13.5625 11.8125 14 10.75 14 9.5C14 8.25 13.5625 7.1875 12.6875 6.3125C11.8125 5.4375 10.75 5 9.5 5C8.25 5 7.1875 5.4375 6.3125 6.3125C5.4375 7.1875 5 8.25 5 9.5C5 10.75 5.4375 11.8125 6.3125 12.6875C7.1875 13.5625 8.25 14 9.5 14Z" fill="#1F1F1F"/>
                             </svg>
                           </Button>
+                        {/* Edit / Publish menu — none on read-only inventory (cars, catalogue products) */}
+                        {!isInventoryDetail && (
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
                             <Button variant="ghost" size="sm" className="w-9 h-9 !p-0 hover:bg-transparent rounded-full">
@@ -13188,6 +13203,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                             )}
                           </DropdownMenuContent>
                         </DropdownMenu>
+                        )}
                       </div>
                     </div>
                     </div>
@@ -19727,7 +19743,10 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
         memoryThumbnail={apiMemoryData?.last_update_img || apiMemoryData?.thumbnail}
         memoryCreatedDate={apiMemoryData?.created_at}
         memoryImages={memoryImagesWithSubImages}
-        userRole={currentUserRole}
+        // Inventory photos (cars, catalogue products) aren't memory images: read-only viewer
+        // (no comments, add, rotate, crop, tags, featured or sub-image delete).
+        userRole={isInventoryDetail ? 'viewer' : currentUserRole}
+        readOnly={isInventoryDetail}
         parentImageIsFeatured={imageViewer.parentImageIsFeatured}
         initialTags={imageViewer.tags || []}
         storyTags={allStoryTags}
@@ -19772,7 +19791,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
         }}
         onCommentCountChange={handleCommentCountChange}
         activeCollaborators={apiCollaborators.filter(c => c.status === 'active')}
-        onDeleteSubImage={handleDeleteSubImage}
+        onDeleteSubImage={isInventoryDetail ? undefined : handleDeleteSubImage}
       />
 
       {/* Media Library Modal */}
@@ -20142,7 +20161,8 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
       <nav className="fixed bottom-0 left-0 right-0 z-50 md:hidden" style={{ overflow: 'visible' }}>
         <div className="relative bg-white border-t border-gray-200" style={{ height: '66px' }}>
 
-          {/* Floating Center Camera Button */}
+          {/* Floating Center Camera Button (adds moments; none on read-only inventory) */}
+          {!isInventoryDetail && (
           <button
             type="button"
             onClick={handleCameraClick}
@@ -20154,6 +20174,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
               <path d="M38.5 46.1389C40.1875 46.1389 41.6219 45.5312 42.8031 44.316C43.9844 43.1007 44.575 41.625 44.575 39.8889C44.575 38.1528 43.9844 36.6771 42.8031 35.4618C41.6219 34.2465 40.1875 33.6389 38.5 33.6389C36.8125 33.6389 35.3781 34.2465 34.1969 35.4618C33.0156 36.6771 32.425 38.1528 32.425 39.8889C32.425 41.625 33.0156 43.1007 34.1969 44.316C35.3781 45.5312 36.8125 46.1389 38.5 46.1389ZM38.5 43.3611C37.555 43.3611 36.7563 43.0255 36.1038 42.3542C35.4513 41.6829 35.125 40.8611 35.125 39.8889C35.125 38.9167 35.4513 38.0949 36.1038 37.4236C36.7563 36.7523 37.555 36.4167 38.5 36.4167C39.445 36.4167 40.2438 36.7523 40.8963 37.4236C41.5487 38.0949 41.875 38.9167 41.875 39.8889C41.875 40.8611 41.5487 41.6829 40.8963 42.3542C40.2438 43.0255 39.445 43.3611 38.5 43.3611ZM27.7 51C26.9575 51 26.3219 50.728 25.7931 50.184C25.2644 49.64 25 48.9861 25 48.2222V31.5556C25 30.7917 25.2644 30.1377 25.7931 29.5938C26.3219 29.0498 26.9575 28.7778 27.7 28.7778H31.9525L34.45 26H42.55L45.0475 28.7778H49.3C50.0425 28.7778 50.6781 29.0498 51.2069 29.5938C51.7356 30.1377 52 30.7917 52 31.5556V48.2222C52 48.9861 51.7356 49.64 51.2069 50.184C50.6781 50.728 50.0425 51 49.3 51H27.7ZM27.7 48.2222H49.3V31.5556H43.8325L41.3688 28.7778H35.6313L33.1675 31.5556H27.7V48.2222Z" fill="white"/>
             </svg>
           </button>
+          )}
 
           {/* Tab Row */}
           <div className="flex items-center h-full">

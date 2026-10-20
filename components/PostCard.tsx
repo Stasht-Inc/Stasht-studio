@@ -404,9 +404,9 @@ export default function PostCard({ post, variant = 'thumbnail', onContentUpdate,
   // - Post author sees menu on their own posts (can edit and delete)
   // - Other users see menu on posts by others (to claim the moment)
   // Result: Menu shows on ALL posts for everyone
-  // Except on catalogue-product photos: they aren't memory images, so there's nothing to edit,
-  // delete or claim (an edit/delete would hit an unrelated memory image with the same id).
-  const shouldShowMenu = !isCatalogPost; // Always show menu - different options based on permissions
+  // Except on car-detail and catalogue-product photos: they aren't memory images (their post ids
+  // are prefixed, e.g. `car_image_5`), so there's nothing to edit, delete or claim.
+  const shouldShowMenu = !isCarPost; // Always show menu - different options based on permissions
 
   // Check if post is already claimed - handle multiple data types
   const isAlreadyClaimed = (

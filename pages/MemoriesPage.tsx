@@ -837,7 +837,9 @@ function MemoriesPageContent({
       title: item.title,
       category: { name: item.category || 'Products', color: WEBSITE_CATALOG_COLOR },
       label: item.price_label || '',
-      photos: { count: item.images_count || 1 },
+      // The page's real photo count: its gallery, or just the main image when there is no gallery
+      // (MemoryDetailsPage falls back to it). 0 → MemoryCard shows no count badge.
+      photos: { count: item.images_count || (item.main_image ? 1 : 0) },
       location: { formatted: '' },
       spec_summary: item.spec_summary || '',
       last_update_img: item.main_image,
