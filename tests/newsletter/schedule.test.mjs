@@ -2,7 +2,7 @@
 process.env.TZ = 'America/Toronto';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { MIN_LEAD_MINUTES, localDateTimeToIso, scheduleProblem, formatSendTime, dateInputValue, maxScheduleDate } from '../../components/newsletters/lib/schedule.ts';
+import { MIN_LEAD_MINUTES, localDateTimeToIso, scheduleProblem, formatSendTime, dateInputValue, maxScheduleDate, DST_GAP_PROBLEM } from '../../components/newsletters/lib/schedule.ts';
 
 test('localDateTimeToIso reads the date and time in the user’s time zone', () => {
   assert.equal(localDateTimeToIso('2026-10-22', '09:30'), '2026-10-22T13:30:00.000Z');
@@ -36,4 +36,12 @@ test('a schedule more than a year ahead is refused like the API (before:+1 year)
   assert.equal(scheduleProblem({ mode: 'later', date: '2027-10-23', time: '09:30' }, now), 'Pick a time within the next year.');
   assert.equal(scheduleProblem({ mode: 'later', date: '2027-10-21', time: '09:30' }, now), null);
   assert.equal(maxScheduleDate(now), '2027-10-22');
+});
+
+// Review 9–12 #9: 2:30 AM on the day the clocks go forward doesn't exist; say so instead of moving it.
+test('a time skipped by the clock change is a problem, not silently moved', () => {
+  assert.equal(localDateTimeToIso('2027-03-14', '02:30'), null);
+  assert.equal(DST_GAP_PROBLEM, 'That time is skipped when the clocks change. Pick another time.');
+  assert.equal(scheduleProblem({ mode: 'later', date: '2027-03-14', time: '02:30' }, new Date('2027-03-01T12:00:00Z')), DST_GAP_PROBLEM);
+  assert.equal(scheduleProblem({ mode: 'later', date: '2027-02-30', time: '09:00' }, new Date('2027-02-01T12:00:00Z')), "That date doesn't exist. Pick another.");
 });

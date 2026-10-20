@@ -83,9 +83,11 @@ export function toResult<T>(res: ApiLikeResponse | null | undefined): NlResult<T
   const raw = String(res.error || res.message || Object.values(fieldErrors)[0] || GENERIC_ERROR);
   // apiRequest flags a 429 with rateLimited + statusCode; the message check covers older paths.
   const rateLimited = res.rateLimited === true || res.statusCode === 429 || mentionsRateLimit(raw);
+  // A 429: the server's own words when it sent some (apiRequest keeps them as `message`), never Laravel's default.
+  const serverWords = typeof res.message === 'string' && res.message.trim() && !/^too many attempts\.?$/i.test(res.message.trim()) ? res.message.trim() : '';
   return {
     ok: false,
-    error: planRequired ? String(res.message || PLAN_REQUIRED_ERROR) : rateLimited ? RATE_LIMITED_ERROR : raw,
+    error: planRequired ? String(res.message || PLAN_REQUIRED_ERROR) : rateLimited ? (res.rateLimited === true || res.statusCode === 429 ? serverWords || RATE_LIMITED_ERROR : RATE_LIMITED_ERROR) : raw,
     fieldErrors,
     conflict: res.conflict === true || res.statusCode === 409,
     planRequired,

@@ -163,6 +163,10 @@ export function createMockApi(options = {}) {
     uploadDelayMs: options.uploadDelayMs ?? 0,
     // Tests left this hour (NewsletterTestSendController's RateLimiter); then 429 with its own message.
     testsLeft: options.testsLeft ?? Infinity,
+    // PUT fields to refuse with a 422 ({field: message}), as the API does for a value it won't take.
+    rejectPut: options.rejectPut ?? {},
+    // Send / schedule find the newsletter already scheduled (sent from another tab): 409, and it is no longer a draft.
+    sendConflict: options.sendConflict ?? false,
     calls: [],
   };
   const ok = (data, status = 200) => ({ status, json: { success: true, data } });
@@ -293,6 +297,7 @@ export function createMockApi(options = {}) {
         if (n.status !== 'draft') return fail(409, { success: false, message: 'Only drafts can be changed. Duplicate this newsletter to make changes.' });
         if (state.failPuts) return fail(state.failPuts, { success: false, message: 'Server Error' });
         const errors = updateErrors(body);
+        for (const [field, message] of Object.entries(state.rejectPut)) if (body && field in body) errors[field] = [message];
         if (Object.keys(errors).length) return fail(422, { message: Object.values(errors)[0][0], errors });
         Object.assign(n, pickEditable(body), { updated_at: now() });
         if (body && 'header' in body) state.brand.header = structuredClone(body.header); // the header is the brand header (note 8)
@@ -319,6 +324,7 @@ export function createMockApi(options = {}) {
         return ok({ sent_to: body?.channel === 'sms' ? '+14165550100' : state.owner.email });
       }
       if (action === 'send' || action === 'schedule') {
+        if (state.sendConflict && n.status === 'draft') { n.status = 'scheduled'; n.scheduled_at = now(); }
         if (n.status !== 'draft') return fail(409, { success: false, message: 'Only drafts can be sent. Duplicate this newsletter to send it again.' });
         // NewsletterSendController::schedule validates scheduled_at before the send checks.
         if (action === 'schedule') {

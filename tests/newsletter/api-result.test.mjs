@@ -53,10 +53,13 @@ test('toResult maps 422, 409, 403 plan_required, 429 and the allowance shortfall
   assert.equal(toResult(null).error, GENERIC_ERROR);
 });
 
-test('toResult prefers apiRequest\'s rateLimited / statusCode 429 flags over the message text', () => {
-  const r = toResult({ success: false, error: 'Slow down', message: 'Slow down', rateLimited: true, statusCode: 429 });
-  assert.equal(r.ok, false);
-  assert.equal(r.error, RATE_LIMITED_ERROR);
+test('toResult prefers apiRequest\'s rateLimited / statusCode 429 flags over the message text, and the server\'s own words', () => {
+  // Review 9–12 #8: the server's message (apiRequest keeps it as `message`) says what happened; Laravel's default
+  // throttle text ("Too Many Attempts.") is replaced with plain words.
+  const r = toResult({ success: false, error: 'Too many requests right now. Please wait a moment and try again.', message: 'Slow down for a minute.', rateLimited: true, statusCode: 429 });
+  assert.equal(r.rateLimited, true);
+  assert.equal(r.error, 'Slow down for a minute.');
+  assert.equal(toResult({ success: false, error: 'Too many requests right now.', message: 'Too Many Attempts.', rateLimited: true, statusCode: 429 }).error, RATE_LIMITED_ERROR);
   assert.equal(toResult({ success: false, error: 'Slow down', statusCode: 429 }).error, RATE_LIMITED_ERROR);
 });
 

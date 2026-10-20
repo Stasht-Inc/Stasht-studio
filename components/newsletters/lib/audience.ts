@@ -1,5 +1,7 @@
 import type { AudienceCount, AudienceItem, ContactList, NewsletterChannel } from '../../../services/newslettersAPI.ts';
-import { LIMITS } from './rules.ts';
+import { LIMITS, smsPlain } from './rules.ts';
+
+export { smsPlain };
 
 export interface GroupOption { id: number; name: string; member_count: number }
 
@@ -65,8 +67,9 @@ export function skippedSummary(counts: AudienceCount | null, channels: Newslette
   return parts.length ? `Not included: ${parts.join(', ')}.` : '';
 }
 
+/** Counted as it is texted (smsPlain): "…" is three characters, curly quotes one. */
 export function smsInfo(text: string): { length: number; remaining: number; over: boolean } {
-  const length = text.length;
+  const length = smsPlain(text).length;
   return { length, remaining: LIMITS.sms_text - length, over: length > LIMITS.sms_text };
 }
 

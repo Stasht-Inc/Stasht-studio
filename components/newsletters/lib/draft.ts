@@ -1,7 +1,7 @@
 import type {
   AudienceItem, Newsletter, NewsletterBlock, NewsletterChannel, NewsletterHeader, NewsletterInput,
 } from '../../../services/newslettersAPI.ts';
-import { LIMITS, isPlausibleEmail } from './rules.ts';
+import { LIMITS, isPlausibleEmail, smsPlain } from './rules.ts';
 import { normaliseBlocks, overLimitTextIds } from './blocks.ts';
 
 /** What the composer edits. Text fields are never null here ('' instead). */
@@ -110,6 +110,12 @@ export function savableChanges(saved: NewsletterDraft, current: NewsletterDraft)
   return { patch: patch as NewsletterInput, nextSaved: nextSaved as unknown as NewsletterDraft, held };
 }
 
+/** The fields of a PUT patch that a 422 refused (its error keys, by first part: 'blocks.2.data.url' → blocks). */
+export function rejectedKeys(patch: NewsletterInput, fieldErrors: Record<string, string>): Array<keyof NewsletterInput> {
+  const roots = new Set(Object.keys(fieldErrors).map((k) => k.split('.')[0]));
+  return (Object.keys(patch) as Array<keyof NewsletterInput>).filter((k) => roots.has(k));
+}
+
 /** The fields of `current` that differ from `saved`, as a PUT body. Everything when nothing is saved yet. */
 export function changedFields(saved: NewsletterDraft | null, current: NewsletterDraft): NewsletterInput {
   const next = draftToInput(current);
@@ -131,7 +137,7 @@ export function fieldProblems(d: NewsletterDraft): Partial<Record<keyof Newslett
   if (d.subject.length > LIMITS.subject) out.subject = tooLong(LIMITS.subject);
   if (d.preview_text.length > LIMITS.preview_text) out.preview_text = tooLong(LIMITS.preview_text);
   if (d.from_name.length > LIMITS.from_name) out.from_name = tooLong(LIMITS.from_name);
-  if (d.sms_text.length > LIMITS.sms_text) out.sms_text = tooLong(LIMITS.sms_text);
+  if (smsPlain(d.sms_text).length > LIMITS.sms_text) out.sms_text = 'Use 120 characters or fewer (some symbols, like …, count as more than one).';
   const reply = d.reply_to_email.trim();
   if (reply && !isPlausibleEmail(reply)) out.reply_to_email = 'Enter an email address like sales@yourbusiness.com.';
   return out;

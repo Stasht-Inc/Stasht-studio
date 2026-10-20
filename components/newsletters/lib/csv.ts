@@ -7,8 +7,21 @@ import { formatCount } from './audience.ts';
 export const MAX_IMPORT_ROWS = 10000;
 export const MAX_IMPORT_BYTES = 5 * 1024 * 1024;
 
+export const NOT_CSV_ERROR = 'This file isn\u2019t a CSV file. Save it as CSV and try again.';
+
+/** A spreadsheet (xlsx is a zip: "PK"), a Numbers file or UTF-16 text can't be read as CSV. `head` = first bytes. */
+export function csvFileProblem(fileName: string, head: Uint8Array): string | null {
+  if (/\.(xlsx|xlsm|xls|numbers|ods)$/i.test(fileName)) return NOT_CSV_ERROR;
+  if (head[0] === 0x50 && head[1] === 0x4b) return NOT_CSV_ERROR;
+  if ((head[0] === 0xff && head[1] === 0xfe) || (head[0] === 0xfe && head[1] === 0xff)) return NOT_CSV_ERROR;
+  const sample = head.subarray(0, 64);
+  if (sample.length > 1 && sample.filter((b) => b === 0).length * 4 >= sample.length) return NOT_CSV_ERROR;
+  return null;
+}
+
 function detectDelimiter(src: string): string {
-  const firstLine = src.split(/\r?\n/, 1)[0] ?? '';
+  // Delimiters inside quoted fields don't count.
+  const firstLine = (src.split(/\r?\n/, 1)[0] ?? '').replace(/"(?:[^"]|"")*"/g, '');
   const counts = [',', ';', '\t'].map((d) => ({ d, n: firstLine.split(d).length - 1 }));
   counts.sort((a, b) => b.n - a.n);
   return counts[0].n > 0 ? counts[0].d : ',';
@@ -31,7 +44,7 @@ export function parseCsv(text: string): string[][] {
       }
       field += c; i++; continue;
     }
-    if (c === '"' && field === '') { quoted = true; i++; continue; }
+    if (c === '"' && field.trim() === '') { field = ''; quoted = true; i++; continue; }
     if (c === delimiter) { row.push(field); field = ''; i++; continue; }
     if (c === '\r' || c === '\n') {
       row.push(field);
@@ -57,8 +70,9 @@ export interface ColumnMap {
 }
 
 const HEADERS: Record<'email' | 'phone' | 'firstName' | 'lastName' | 'name', string[]> = {
-  email: ['email', 'emailaddress', 'mail', 'emailid'],
-  phone: ['phone', 'phonenumber', 'mobile', 'mobilenumber', 'mobilephone', 'cell', 'cellphone', 'telephone', 'tel', 'sms'],
+  // "E-mail 1 - Value" / "Phone 1 - Value": Google Contacts exports.
+  email: ['email', 'emailaddress', 'mail', 'emailid', 'emailvalue'],
+  phone: ['phone', 'phonenumber', 'mobile', 'mobilenumber', 'mobilephone', 'cell', 'cellphone', 'telephone', 'tel', 'sms', 'phonevalue'],
   firstName: ['firstname', 'first', 'givenname', 'fname'],
   lastName: ['lastname', 'last', 'surname', 'familyname', 'lname'],
   name: ['name', 'fullname', 'contactname', 'contact', 'customer', 'customername'],
@@ -85,19 +99,21 @@ export function detectColumns(table: string[][]): ColumnMap {
       }
     }
   });
-  if (map.hasHeader) return map;
-
-  // No header row: guess from the first 20 rows.
-  const sample = table.slice(0, 20);
+  // Guess from the values (the first 20 rows under any header row): every column with no header row, or the email
+  // and phone columns a header row didn't name.
+  const sample = table.slice(map.hasHeader ? 1 : 0, (map.hasHeader ? 1 : 0) + 20);
   const width = Math.max(0, ...sample.map((r) => r.length));
   const share = (col: number, test: (v: string) => boolean): number => {
     const values = sample.map((r) => r[col] ?? '').filter(Boolean);
     return values.length ? values.filter(test).length / values.length : 0;
   };
+  const taken = (col: number) => [map.name, map.firstName, map.lastName, map.email, map.phone].includes(col);
   for (let col = 0; col < width; col++) {
+    if (taken(col)) continue;
     if (map.email === null && share(col, isPlausibleEmail) >= 0.6) map.email = col;
     else if (map.phone === null && share(col, (v) => cleanPhone(v) !== null) >= 0.6) map.phone = col;
   }
+  if (map.hasHeader) return map;
   for (let col = 0; col < width; col++) {
     if (col !== map.email && col !== map.phone && share(col, (v) => /[a-z]/i.test(v)) >= 0.6) {
       map.name = col;

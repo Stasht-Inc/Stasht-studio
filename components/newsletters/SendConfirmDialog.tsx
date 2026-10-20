@@ -57,27 +57,22 @@ export default function SendConfirmDialog({
       setBusy(true);
       if (!(await onSaveAddress(value))) { setBusy(false); setError('Your address could not be saved. Try again.'); return; }
     }
+    // Schedule for later with no usable time must never fall back to sending now.
+    if (later && !iso) { setBusy(false); setError('Pick a date and time for the newsletter, then try again.'); return; }
     setBusy(true);
     const res = later && iso ? await newslettersAPI.schedule(newsletterId, iso) : await newslettersAPI.send(newsletterId);
     setBusy(false);
     if (res.ok && res.data) { onSent(res.data); return; }
+    // The allowance message already has the numbers ("needs N emails, but your plan has M left").
     const inline = res.fieldErrors.allowance ?? res.fieldErrors.business_address ?? res.fieldErrors.scheduled_at;
-    if (inline) {
-      // Allowance 422 carries {channel, needed, remaining} at the top level (contract note 4).
-      const short = res.allowance;
-      const numbers = short
-        ? ` This send needs ${formatCount(short.needed)} ${short.channel === 'sms' ? 'texts' : 'emails'}, and ${formatCount(short.remaining)} are left this month.`
-        : '';
-      setError(inline + numbers);
-      return;
-    }
+    if (inline) { setError(inline); return; }
     onFailed(res);
   };
 
   const footer = (
     <>
       <button type="button" onClick={() => onOpenChange(false)} disabled={busy} className={BUTTON_OUTLINE}>Back</button>
-      <button type="button" onClick={confirm} disabled={busy || Boolean(overLimit) || !newsletterId} className={BUTTON_PRIMARY}>
+      <button type="button" onClick={confirm} disabled={busy || countsLoading || Boolean(overLimit) || !newsletterId} className={BUTTON_PRIMARY}>
         {busy ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Send className="h-4 w-4" aria-hidden="true" />}
         {later ? 'Schedule' : 'Send now'}
       </button>

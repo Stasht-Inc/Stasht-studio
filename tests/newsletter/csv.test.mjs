@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  MAX_IMPORT_ROWS, MAX_IMPORT_BYTES, parseCsv, detectColumns, cleanPhone, buildImportRows, columnLabels, listNameFromFile, importSummary,
+  MAX_IMPORT_ROWS, MAX_IMPORT_BYTES, parseCsv, detectColumns, cleanPhone, buildImportRows, columnLabels, listNameFromFile, importSummary, csvFileProblem, NOT_CSV_ERROR,
 } from '../../components/newsletters/lib/csv.ts';
 
 test('limits', () => {
@@ -61,4 +61,30 @@ test('labels, list names and the import summary', () => {
   assert.equal(listNameFromFile('.csv'), 'Imported list');
   assert.equal(importSummary({ imported: 1180, skipped_invalid: 20, merged_duplicates: 3 }), 'Imported 1,180 contacts. 20 skipped (no usable email or mobile number). 3 duplicates merged.');
   assert.equal(importSummary({ imported: 1, skipped_invalid: 0, merged_duplicates: 0 }), 'Imported 1 contact.');
+});
+
+// Review 9–12 #6: Google Contacts exports; a header row that names only some columns still finds the others.
+test('Google Contacts headers, and value guesses for columns a header row does not name', () => {
+  const google = [['Name', 'E-mail 1 - Value', 'Phone 1 - Value'], ['Ann Lee', 'ann@x.ca', '+1 416 555 0101']];
+  const m = detectColumns(google);
+  assert.equal(m.hasHeader, true);
+  assert.deepEqual([m.name, m.email, m.phone], [0, 1, 2]);
+  const partial = [['Name', 'Notes', 'Contact'], ['Ann Lee', 'VIP', 'ann@x.ca'], ['Bo Chen', 'new', 'bo@x.ca'], ['Cy Ray', '-', '416 555 0199']];
+  const p = detectColumns(partial);
+  assert.equal(p.hasHeader, true);
+  assert.equal(p.email, 2, 'email guessed from the values under a header it does not know');
+  assert.equal(buildImportRows(partial, p).rows.length, 2);
+});
+
+// Review 9–12 #9.
+test('quotes after leading spaces, delimiters inside quotes, and files that are not CSV', () => {
+  assert.deepEqual(parseCsv('name, "Lee, Ann", x\n'), [['name', 'Lee, Ann', 'x']]);
+  assert.deepEqual(parseCsv('"a,b";c;d\n1;2;3'), [['a,b', 'c', 'd'], ['1', '2', '3']], 'semicolons win: the comma is inside quotes');
+  assert.equal(NOT_CSV_ERROR, 'This file isn’t a CSV file. Save it as CSV and try again.');
+  assert.equal(csvFileProblem('contacts.xlsx', new Uint8Array([0x50, 0x4b, 3, 4])), NOT_CSV_ERROR);
+  assert.equal(csvFileProblem('contacts.csv', new Uint8Array([0x50, 0x4b, 3, 4])), NOT_CSV_ERROR, 'a zip renamed .csv');
+  assert.equal(csvFileProblem('contacts.csv', new Uint8Array([0xff, 0xfe, 0x6e, 0])), NOT_CSV_ERROR, 'UTF-16');
+  assert.equal(csvFileProblem('contacts.csv', new Uint8Array([0x6e, 0, 0x61, 0])), NOT_CSV_ERROR, 'UTF-16 without a BOM');
+  assert.equal(csvFileProblem('contacts.csv', new TextEncoder().encode('name,email\n')), null);
+  assert.equal(csvFileProblem('contacts.numbers', new Uint8Array([0x6e])), NOT_CSV_ERROR);
 });

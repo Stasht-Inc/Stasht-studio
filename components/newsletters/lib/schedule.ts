@@ -3,7 +3,10 @@ export type ScheduleChoice = { mode: 'now' } | { mode: 'later'; date: string; ti
 /** A scheduled send must be at least this far ahead (the API needs a future time; this leaves room to confirm). */
 export const MIN_LEAD_MINUTES = 5;
 
-/** 'YYYY-MM-DD' + 'HH:MM' in the browser's time zone → ISO-8601 UTC, or null if that day/time doesn't exist. */
+export const DST_GAP_PROBLEM = 'That time is skipped when the clocks change. Pick another time.';
+
+/** 'YYYY-MM-DD' + 'HH:MM' in the browser's time zone → ISO-8601 UTC, or null if that day/time doesn't exist
+ *  (including a time the clocks skip, which Date would quietly move an hour). */
 export function localDateTimeToIso(date: string, time: string): string | null {
   const dm = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date ?? '');
   const tm = /^(\d{2}):(\d{2})$/.exec(time ?? '');
@@ -16,6 +19,7 @@ export function localDateTimeToIso(date: string, time: string): string | null {
   if (h > 23 || mi > 59) return null;
   const local = new Date(y, mo - 1, d, h, mi, 0, 0);
   if (local.getFullYear() !== y || local.getMonth() !== mo - 1 || local.getDate() !== d) return null;
+  if (local.getHours() !== h || local.getMinutes() !== mi) return null;
   return local.toISOString();
 }
 
@@ -30,7 +34,7 @@ export function scheduleProblem(choice: ScheduleChoice, now: Date = new Date()):
   if (choice.mode === 'now') return null;
   if (!choice.date || !choice.time) return 'Pick a date and a time.';
   const iso = localDateTimeToIso(choice.date, choice.time);
-  if (!iso) return "That date doesn't exist. Pick another.";
+  if (!iso) return localDateTimeToIso(choice.date, '12:00') ? DST_GAP_PROBLEM : "That date doesn't exist. Pick another.";
   const at = new Date(iso).getTime();
   if (at < now.getTime() + MIN_LEAD_MINUTES * 60000) return `Pick a time at least ${MIN_LEAD_MINUTES} minutes from now.`;
   const yearAhead = new Date(now.getTime());

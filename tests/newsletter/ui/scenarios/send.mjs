@@ -56,13 +56,13 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
   expect(api.state.newsletters[0]?.status === 'scheduled', 'newsletter queued to go');
   await context.close();
 
-  // Allowance 422 stays in the dialog with the numbers (contract note 4).
-  ({ page, api, context } = await open({ width: 1280, height: 1900, api: createMockApi({ businessAddress: '4505 Steeles Ave W', sendErrors: { allowance: ['Not enough emails left this month.'] } }) }));
+  // Allowance 422 stays in the dialog; its message already has the numbers (contract note 4).
+  ({ page, api, context } = await open({ width: 1280, height: 1900, api: createMockApi({ businessAddress: '4505 Steeles Ave W', sendErrors: { allowance: ['This newsletter needs 1,216 emails, but your plan has 900 left this month.'] } }) }));
   await fillAll(page);
   await sendButton(page).click();
   const d2 = confirmDialog(page);
   await d2.getByRole('button', { name: 'Send now' }).click();
-  await expectVisible(d2.getByText('Not enough emails left this month. This send needs 1,216 emails, and 900 are left this month.'), 'allowance 422 shown in the dialog');
+  await expectVisible(d2.getByText('This newsletter needs 1,216 emails, but your plan has 900 left this month.', { exact: true }), 'allowance 422 (NewsletterSendCheck message, numbers included) shown once in the dialog');
   await page.waitForTimeout(700); // counts are debounced
   await shot(page, '1280-03-allowance');
   await context.close();

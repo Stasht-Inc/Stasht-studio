@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   ZERO_COUNT, audienceKey, hasAudienceItem, toggleAudienceItem, toggleChannel, audienceLabel, formatCount, reachable,
-  countSummary, skippedSummary, smsInfo, smsPreview, groupsFromApi,
+  countSummary, skippedSummary, smsInfo, smsPreview, groupsFromApi, smsPlain,
 } from '../../components/newsletters/lib/audience.ts';
 
 const groups = [{ id: 4, name: 'VIP buyers', member_count: 38 }];
@@ -57,4 +57,13 @@ test('groupsFromApi reads every shape the lead-groups endpoint has used', () => 
   assert.deepEqual(groupsFromApi({ success: true, data: [row] }), groups);
   assert.deepEqual(groupsFromApi({ success: true, data: { groups: [row] } }), groups);
   assert.deepEqual(groupsFromApi(null), []);
+});
+
+// Review 9–12 #1a: the 120 limit counts the text as it is sent (NewsletterRenderer::smsPlain folds … to ... etc.).
+test('smsPlain folds punctuation like the server, and smsInfo counts the folded text', () => {
+  assert.equal(smsPlain('It’s “here” – now…'), 'It\'s "here" - now...');
+  assert.equal(smsPlain('  a   b\t\tc  '), 'a b c');
+  assert.equal(smsPlain('• deal — − ′ ″ ‚ „ ―   '), '- deal - - \' " \' " -');
+  const text = `${'x'.repeat(118)}…`; // 119 characters typed, 121 sent
+  assert.deepEqual(smsInfo(text), { length: 121, remaining: -1, over: true });
 });

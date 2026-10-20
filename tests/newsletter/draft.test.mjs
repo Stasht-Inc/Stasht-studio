@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { emptyDraft, draftFromNewsletter, draftToInput, changedFields, fieldProblems, DEFAULT_HEADER, mergeUntouched, savableChanges } from '../../components/newsletters/lib/draft.ts';
+import { emptyDraft, draftFromNewsletter, draftToInput, changedFields, fieldProblems, DEFAULT_HEADER, mergeUntouched, savableChanges, rejectedKeys } from '../../components/newsletters/lib/draft.ts';
 import { LIMITS, isPlausibleEmail } from '../../components/newsletters/lib/rules.ts';
 
 const COUNTS = { recipients: 0, sent: 0, delivered: 0, opened: 0, clicked: 0, unsubscribed: 0, failed: 0, skipped: 0 };
@@ -128,4 +128,23 @@ test('savableChanges keeps an over-long text block out of the patch and the rest
   const fixed = savableChanges(nextSaved, { ...current, blocks: [{ ...long, data: { html: '<p>short again</p>' } }, added] });
   assert.deepEqual(fixed.held, []);
   assert.equal(fixed.patch.blocks[0].data.html, '<p>short again</p>');
+});
+
+// Review 9–12 #1a/#1b: what the API would refuse is caught while typing.
+test('fieldProblems counts sms_text as sent and checks email like PHP FILTER_VALIDATE_EMAIL', () => {
+  const d = emptyDraft();
+  assert.ok(fieldProblems({ ...d, sms_text: `${'x'.repeat(118)}…` }).sms_text, '… counts as three');
+  assert.equal(fieldProblems({ ...d, sms_text: 'x'.repeat(120) }).sms_text, undefined);
+  for (const bad of ['a..b@x.ca', '.a@x.ca', 'a.@x.ca', 'a@x..ca', 'a@-x.ca', 'a@x-.ca', 'a b@x.ca', 'a@x', 'a@x.c_a', 'a(b)@x.ca']) {
+    assert.equal(isPlausibleEmail(bad), false, bad);
+  }
+  for (const good of ['sales@serpachrysler.ca', 'first.last+news@mail.serpa-chrysler.co.uk', "o'neil@x.ca", 'a_b@x.io', 'x@123.45.ca']) {
+    assert.equal(isPlausibleEmail(good), true, good);
+  }
+});
+
+// Review 9–12 #1c: on a 422, the keys it names are held (stay dirty) and the rest of the patch is retried.
+test('rejectedKeys names the patch fields a 422 refused', () => {
+  assert.deepEqual(rejectedKeys({ subject: 'x', from_name: 'y', blocks: [] }, { from_name: 'Too long.', 'blocks.2.data.url': 'Use https.', blocks: 'Use https.' }), ['from_name', 'blocks']);
+  assert.deepEqual(rejectedKeys({ subject: 'x' }, { name: 'Required.' }), []);
 });

@@ -184,6 +184,14 @@ const NewsletterComposer = forwardRef<NewsletterComposerHandle, NewsletterCompos
   const onSendFailed = (res: NlResult<Newsletter>) => {
     setConfirmOpen(false);
     if (res.planRequired) { onClose(); return; }
+    if (res.conflict) {
+      // Sent or scheduled somewhere else meanwhile: show it as it is now (read-only).
+      toast.error(res.error ?? GENERIC_ERROR);
+      const id = state.newsletter?.id;
+      if (id) void newslettersAPI.get(id).then((r) => { if (r.ok && r.data) state.adopt(r.data); });
+      onChanged?.();
+      return;
+    }
     state.setFieldErrors(res.fieldErrors);
     const first = firstProblemStep(stepErrorsFrom(res.fieldErrors));
     if (first) {

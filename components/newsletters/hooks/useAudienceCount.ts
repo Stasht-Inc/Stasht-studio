@@ -26,7 +26,8 @@ export function useAudienceCount(audience: AudienceItem[], channels: NewsletterC
       return undefined;
     }
     let cancelled = false;
-    setState((s) => ({ ...s, loading: true }));
+    // The old numbers are for other lists or channels: never show or check against them (null = not known yet).
+    setState({ counts: null, loading: true, error: null });
     const timer = setTimeout(async () => {
       const res = await newslettersAPI.audienceCount(audience, channels);
       if (cancelled) return;

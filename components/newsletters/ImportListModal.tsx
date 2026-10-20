@@ -7,7 +7,7 @@ import SegmentedSwitch from './SegmentedSwitch';
 import { GENERIC_ERROR } from './lib/apiResult';
 import { formatCount, type GroupOption } from './lib/audience';
 import {
-  MAX_IMPORT_BYTES, MAX_IMPORT_ROWS, buildImportRows, columnLabels, detectColumns, importSummary, listNameFromFile, parseCsv, type ColumnMap,
+  MAX_IMPORT_BYTES, MAX_IMPORT_ROWS, buildImportRows, columnLabels, csvFileProblem, detectColumns, importSummary, listNameFromFile, parseCsv, type ColumnMap,
 } from './lib/csv';
 import { LIMITS } from './lib/rules';
 import { BUTTON_OUTLINE, BUTTON_PRIMARY, LABEL, LINK_BUTTON, inputClass } from './lib/ui';
@@ -51,8 +51,22 @@ export default function ImportListModal({ open, onOpenChange, groups, onCreated 
 
   const readFile = async (file: File) => {
     setError(null);
+    // A different file needs its own consent.
+    setConsent(false);
     if (file.size > MAX_IMPORT_BYTES) { setError('This file is bigger than 5 MB. Split it into smaller files.'); return; }
-    const rows = parseCsv(await file.text());
+    let text: string;
+    try {
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      const problem = csvFileProblem(file.name, bytes.subarray(0, 64));
+      if (problem) { setError(problem); return; }
+      text = new TextDecoder('utf-8').decode(bytes);
+      // Not UTF-8 (Excel on Windows saves CSV as windows-1252): read it that way so "Renée" stays Renée.
+      if (text.includes('\uFFFD')) text = new TextDecoder('windows-1252').decode(bytes);
+    } catch {
+      setError('This file could not be read. Try again, or choose another file.');
+      return;
+    }
+    const rows = parseCsv(text);
     if (!rows.length) { setError('This file is empty.'); return; }
     setTable(rows);
     setMap(detectColumns(rows));

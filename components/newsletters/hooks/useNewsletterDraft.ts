@@ -3,7 +3,7 @@ import { toast } from 'sonner';
 import { newslettersAPI, type Newsletter, type NewsletterHeader } from '../../../services/newslettersAPI';
 import { GENERIC_ERROR, type NlResult } from '../lib/apiResult';
 import { createAutosaver, type Autosaver } from '../lib/autosave';
-import { draftFromNewsletter, emptyDraft, headerFrom, mergeUntouched, savableChanges, type NewsletterDraft } from '../lib/draft';
+import { draftFromNewsletter, emptyDraft, headerFrom, mergeUntouched, rejectedKeys, savableChanges, type NewsletterDraft } from '../lib/draft';
 
 export type SaveState = 'idle' | 'saving' | 'saved' | 'error';
 export type DraftPatch = Partial<NewsletterDraft> | ((latest: NewsletterDraft) => Partial<NewsletterDraft> | null);
@@ -57,6 +57,10 @@ export function useNewsletterDraft(newsletterId: number | null, enabled: boolean
   // The fields the person has changed. After the draft is created, every other field takes the server's default.
   const touchedRef = useRef<Set<string>>(new Set());
   const lastErrorRef = useRef<string | null>(null);
+  // Fields a PUT answered 422 for, with the value that was refused and its messages. While the value stays the
+  // same it is left out of every save (still dirty, its message still showing), so one bad field never blocks
+  // the others; a new value is sent again.
+  const rejectedRef = useRef(new Map<string, { value: string; errors: Record<string, string> }>());
   const discardedRef = useRef(false);
   const brandHeaderRef = useRef(brandHeader);
   brandHeaderRef.current = brandHeader;
@@ -107,15 +111,40 @@ export function useNewsletterDraft(newsletterId: number | null, enabled: boolean
       setDraft(merged);
     }
     const current = draftRef.current;
+    const saved = savedRef.current as NewsletterDraft;
     // A field that would not pass (a half-typed reply-to) stays out of the patch, so the rest still saves.
-    const { patch, nextSaved, held } = savableChanges(savedRef.current as NewsletterDraft, current);
-    if (Object.keys(patch).length > 0) {
-      const res = await newslettersAPI.update(idRef.current as number, patch);
+    const { patch, nextSaved, held } = savableChanges(saved, current);
+    const body = patch as Record<string, unknown>;
+    const next = nextSaved as unknown as Record<string, unknown>;
+    const holdBack = (key: string) => {
+      delete body[key];
+      next[key] = (saved as unknown as Record<string, unknown>)[key];
+      held.push(key as keyof NewsletterDraft);
+    };
+    const rejected = rejectedRef.current;
+    for (const [key, r] of [...rejected]) {
+      if (!(key in body)) rejected.delete(key); // back to the saved value
+      else if (JSON.stringify(body[key]) === r.value) holdBack(key); // still the refused value
+      else rejected.delete(key); // changed: try it again
+    }
+    if (Object.keys(body).length > 0) {
+      let res = await newslettersAPI.update(idRef.current as number, body);
+      // A 422 on some fields: hold those back and save the rest once more.
+      const refused = !res.ok && !res.conflict && !res.planRequired ? rejectedKeys(body, res.fieldErrors) : [];
+      if (refused.length) {
+        for (const key of refused) {
+          const errors = Object.fromEntries(Object.entries(res.fieldErrors).filter(([k]) => k.split('.')[0] === key));
+          rejected.set(key, { value: JSON.stringify(body[key]), errors });
+          holdBack(key);
+        }
+        if (Object.keys(body).length > 0) res = await newslettersAPI.update(idRef.current as number, body);
+        else res = { ok: true, data: newsletterRef.current ?? undefined, fieldErrors: {} };
+      }
       if (!res.ok || !res.data) { fail(res); return; }
       take(res.data, false);
     }
     savedRef.current = nextSaved;
-    setFieldErrors({});
+    setFieldErrors(Object.assign({}, ...[...rejected.values()].map((r) => r.errors)));
     if (held.length) {
       lastErrorRef.current = HELD_ERROR;
       setSaveState('error');
@@ -141,6 +170,7 @@ export function useNewsletterDraft(newsletterId: number | null, enabled: boolean
     newsletterRef.current = null;
     touchedRef.current = new Set();
     lastErrorRef.current = null;
+    rejectedRef.current = new Map();
     discardedRef.current = false;
     const fresh = emptyDraft(brandHeaderRef.current);
     draftRef.current = fresh;
@@ -180,6 +210,8 @@ export function useNewsletterDraft(newsletterId: number | null, enabled: boolean
   useEffect(() => () => {
     const saver = saverRef.current;
     if (discardedRef.current || !saver || (!saver.pending && !lastErrorRef.current)) return;
+    // A save that failed earlier is tried once more too.
+    if (lastErrorRef.current) saver.schedule();
     void saver.flush().then(() => {
       if (lastErrorRef.current && !discardedRef.current) toast.error(UNMOUNT_SAVE_ERROR);
     });
@@ -207,6 +239,8 @@ export function useNewsletterDraft(newsletterId: number | null, enabled: boolean
   }, []);
 
   const flush = useCallback(async (): Promise<SaveOutcome> => {
+    // After a failed save, closing tries once more before saying the changes aren't saved.
+    if (lastErrorRef.current && !readOnlyRef.current) saverRef.current?.schedule();
     await saverRef.current?.flush();
     return { newsletter: newsletterRef.current, error: readOnlyRef.current ? null : lastErrorRef.current };
   }, []);
