@@ -27,6 +27,9 @@ export interface CatalogueItemSummary {
   url: string | null;
   main_image: string | null;
   images_count: number;
+  // Up to three attribute values, "Oak / 6 / Natural" ('' when none). Shown under a product's
+  // campaign card and page title, like a car's spec line. Optional: older API builds don't send it.
+  spec_summary?: string;
 }
 
 export interface CatalogueItemDetail extends CatalogueItemSummary {

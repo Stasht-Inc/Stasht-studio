@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { dashboardAPI, isPartialAdmin } from '../utils/authUtils';
 import { useAuth } from '../contexts/AuthContext';
+import { catalogueAPI } from '../services/catalogueAPI';
 
 interface MemoryCounts {
   total_memories: number;
@@ -36,9 +37,13 @@ let propertyModeActive = false;
 // ever resets the cars number to 0.
 let globalCarsCatalogCount = 0;
 let globalShopifyCatalogCount = 0;
+// Website Catalogue products are campaign cards too (MemoriesPage catalogueCards). Same
+// once-on-login treatment as the cars count, for the same no-flicker reason.
+let globalWebsiteCatalogueCount = 0;
 // Guards the one-time login cars fetch so concurrent hook instances don't double-fetch;
 // reset on logout so the next user refetches.
 let carsCatalogLoaded = false;
+let websiteCatalogueLoaded = false;
 
 // Subscribers that need to be notified when memory counts change
 const subscribers = new Set<() => void>();
@@ -104,6 +109,28 @@ const memoryCountsManager = {
       }
     } catch {
       carsCatalogLoaded = false; // allow a later attempt if this one failed
+    }
+  },
+
+  // Fetch the Website Catalogue product count once on login (one product = one campaign card).
+  // The items route is Business-only and a 403 there opens the upgrade modal, so ask the
+  // ungated status route first, exactly like loadCatalogueForBrowsing does.
+  fetchWebsiteCatalogueCount: async (): Promise<void> => {
+    if (websiteCatalogueLoaded) return;
+    websiteCatalogueLoaded = true; // set synchronously so parallel hook instances skip
+    try {
+      const status = await catalogueAPI.getStatus();
+      if (!status.ok) { websiteCatalogueLoaded = false; return; } // allow a later attempt
+      if (!status.data?.available || !status.data.item_count) return;
+      const res = await catalogueAPI.getItems({ perPage: 1 });
+      const total = Number(res.data?.pagination?.total);
+      if (!res.ok || !Number.isFinite(total)) { websiteCatalogueLoaded = false; return; }
+      if (globalWebsiteCatalogueCount !== total) {
+        globalWebsiteCatalogueCount = total;
+        memoryCountsManager.notify();
+      }
+    } catch {
+      websiteCatalogueLoaded = false; // allow a later attempt if this one failed
     }
   },
 
@@ -185,12 +212,15 @@ export const useMemoryCounts = (): UseMemoryCountsReturn => {
   useEffect(() => {
     if (!isAuthenticated) {
       carsCatalogLoaded = false; // next login refetches the cars catalog
+      websiteCatalogueLoaded = false; // …and the Website Catalogue count
+      globalWebsiteCatalogueCount = 0; // the next account may have no catalogue at all
       return;
     }
     if (!globalMemoryCounts && !globalIsLoading) {
       memoryCountsManager.fetchMemoryCounts();
     }
     memoryCountsManager.fetchCarsCatalogCount();
+    memoryCountsManager.fetchWebsiteCatalogueCount();
   }, [isAuthenticated]);
 
   // Set up periodic refresh of memory counts (every 30 seconds when authenticated)
@@ -219,7 +249,7 @@ export const useMemoryCounts = (): UseMemoryCountsReturn => {
     ? {
         ...globalMemoryCounts,
         total_memories:
-          globalMemoryCounts.total_memories + globalCarsCatalogCount + globalShopifyCatalogCount,
+          globalMemoryCounts.total_memories + globalCarsCatalogCount + globalShopifyCatalogCount + globalWebsiteCatalogueCount,
       }
     : globalMemoryCounts;
 

@@ -27,7 +27,8 @@ import MemoryActionMenu from "../components/MemoryActionMenu";
 import { MemoryLimitDialog } from "../components/MemoryLimitDialog";
 import { useNotificationsRefresh } from '../hooks/useNotificationsRefresh';
 import CategoryNav from "../components/CategoryNav";
-import { SHOPIFY_COLOR, CARS_COLOR } from "../utils/categoryColorManager";
+import { SHOPIFY_COLOR, CARS_COLOR, WEBSITE_CATALOG_COLOR } from "../utils/categoryColorManager";
+import { loadCatalogueForBrowsing, type CatalogueItemSummary } from "../services/catalogueAPI";
 import { memoryCountsManager, setShopifyCatalogCount } from '../hooks/useMemoryCounts';
 import PublishMemoriesModal from "../components/PublishMemoriesModal";
 import { Popover, PopoverContent, PopoverTrigger } from "../components/ui/popover";
@@ -811,6 +812,39 @@ function MemoriesPageContent({
       };
     });
   }, [carsList]);
+
+  // Website Catalogue products are campaign cards too, exactly like cars: one read-only card per
+  // product, opening a page built from the item (MemoryDetailsPage, marker `catalog_item:<id>`).
+  // Same idle-time, fail-silent fetch as /cars; loadCatalogueForBrowsing asks the ungated status
+  // route first, so accounts without the catalogue never hit the Business-only items route.
+  const [catalogueList, setCatalogueList] = useState<CatalogueItemSummary[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    const cancelIdle = runWhenIdle(() => {
+      loadCatalogueForBrowsing().then((list) => {
+        if (!cancelled) setCatalogueList(list);
+      });
+    });
+    return () => { cancelled = true; cancelIdle(); };
+  }, []);
+
+  // `isCatalogItem` gets every read-only treatment `isCars` gets below (no dates, edit mode or
+  // add-media; always shown regardless of the sidebar's expanded categories).
+  const catalogueCards = useMemo(() => {
+    return catalogueList.map((item) => ({
+      id: `catalog:${item.id}`,
+      catalogItemId: item.id,
+      title: item.title,
+      category: { name: item.category || 'Products', color: WEBSITE_CATALOG_COLOR },
+      label: item.price_label || '',
+      photos: { count: item.images_count || 1 },
+      location: { formatted: '' },
+      spec_summary: item.spec_summary || '',
+      last_update_img: item.main_image,
+      isCatalogItem: true,
+      isShared: false,
+    }));
+  }, [catalogueList]);
 
   // Shopify cards aren't real memory records, so the backend memory-counts total never
   // includes them. Report how many are on screen so the sidebar total can add them in.
@@ -1728,11 +1762,11 @@ function MemoriesPageContent({
       if (expandedCategories.length === 0) return true;
       return expandedCategories.includes(memory.category?.name || memory.property_category?.name || '');
     }).length;
-    // Cars/Shopify catalog cards aren't part of `memoriesToCount` (they're merged in
+    // Cars/Shopify/Website Catalogue cards aren't part of `memoriesToCount` (they're merged in
     // separately for rendering), so add them in here too — this label should match the
     // number of cards actually shown in the grid below.
-    return realCount + carsCards.length + shopifyCards.length;
-  }, [allMemories, latestMemories, propMemories, selectedCategory, expandedCategories, viewType, carsCards, shopifyCards]);
+    return realCount + carsCards.length + shopifyCards.length + catalogueCards.length;
+  }, [allMemories, latestMemories, propMemories, selectedCategory, expandedCategories, viewType, carsCards, shopifyCards, catalogueCards]);
 
   const handleOpenAIWizard = async () => {
     try {
@@ -2958,11 +2992,11 @@ function MemoriesPageContent({
                         </div>
                       ))}
                     </div>
-                  ) : memoriesToFilter.length > 0 || sharedWithMemories.length > 0 || publishedEntries.length > 0 || shopifyCards.length > 0 || carsCards.length > 0 ? (
+                  ) : memoriesToFilter.length > 0 || sharedWithMemories.length > 0 || publishedEntries.length > 0 || shopifyCards.length > 0 || carsCards.length > 0 || catalogueCards.length > 0 ? (
                     <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-4 gap-3 md:gap-6">
                       {/* Combine and sort all memories by latest update */}
                       {(() => {
-                        const combined = [...memoriesToFilter.map(mem => ({...mem, isShared: false})), ...sharedWithMemories.map(mem => ({...mem, isShared: true})), ...shopifyCards, ...carsCards];
+                        const combined = [...memoriesToFilter.map(mem => ({...mem, isShared: false})), ...sharedWithMemories.map(mem => ({...mem, isShared: true})), ...shopifyCards, ...carsCards, ...catalogueCards];
 
                         // Debug: Log to see date fields in both types
                         console.log('🔍 DEBUG: Own memories sample:', memoriesToFilter.slice(0, 2).map(m => ({
@@ -3075,6 +3109,8 @@ function MemoriesPageContent({
                           // Same reasoning for the synthetic Cars cards (Preowned/Hybrid), and for
                           // real memories created with the Cars category (category.name === 'Cars').
                           if (memory.isCars || memory.category?.name === 'Cars') return true;
+                          // Website Catalogue product cards: categories are the website's own, never in the sidebar list.
+                          if (memory.isCatalogItem) return true;
                           // In property view show all memories — category sidebar is for navigation only
                           if (viewType === 'property') return true;
                           // Then filter memories based on expanded categories in sidebar
@@ -3141,8 +3177,8 @@ function MemoriesPageContent({
                           <MemoryCard
                             image={thumbnailUrl}
                             title={memory.title}
-                            dateRange={(memory.isCars || memory.category?.name === 'Cars') ? '' : (memory.dates?.formatted_range || 'Date not specified')}
-                            location={memory.location?.formatted || 'Location not specified'}
+                            dateRange={(memory.isCars || memory.isCatalogItem || memory.category?.name === 'Cars') ? '' : (memory.dates?.formatted_range || 'Date not specified')}
+                            location={memory.isCatalogItem ? '' : (memory.location?.formatted || 'Location not specified')}
                             subtitle={memory.spec_summary || undefined}
                             category={memory.isShared ? 'Shared With' : memoryCategoryName}
                             categoryColor={categoryColor}
@@ -3154,7 +3190,7 @@ function MemoriesPageContent({
                             profileColor={memory.author?.profile_color}
                             contributors={contributors}
                             tags={Array.isArray(memory.tags) ? memory.tags.map((t: any) => typeof t === 'string' ? t : t?.name).filter(Boolean) : []}
-                            isEditMode={memory.isShopify || memory.isCars ? false : isEditMode}
+                            isEditMode={memory.isShopify || memory.isCars || memory.isCatalogItem ? false : isEditMode}
                             isSelected={selectedCardIds.has(memory.id.toString())}
                             onSelectToggle={() => setSelectedCardIds(prev => { const next = new Set(prev); next.has(memory.id.toString()) ? next.delete(memory.id.toString()) : next.add(memory.id.toString()); return next; })}
                             onClick={
@@ -3164,9 +3200,11 @@ function MemoriesPageContent({
                                   ? (memory.collectionId != null ? () => onMemorySelect(`shopify_collection:${memory.collectionId}`) : undefined)
                                   : memory.isCars
                                     ? (memory.carId != null ? () => onMemorySelect(`cars_detail:${memory.carId}`) : undefined)
-                                    : () => onMemorySelect(memory.id.toString())
+                                    : memory.isCatalogItem
+                                      ? () => onMemorySelect(`catalog_item:${memory.catalogItemId}`)
+                                      : () => onMemorySelect(memory.id.toString())
                             }
-                            onAddMedia={isInvitesCategory || memory.isShopify || memory.isCars ? undefined : () => onMemorySelect(memory.id.toString(), true)}
+                            onAddMedia={isInvitesCategory || memory.isShopify || memory.isCars || memory.isCatalogItem ? undefined : () => onMemorySelect(memory.id.toString(), true)}
                             categories={sidebarData?.categories?.items || categories}
                             property={memory.property ? { id: memory.property.id, name: memory.property.name } : undefined}
                       properties={memory.properties?.map((p: any) => ({ id: p.id, name: p.name }))}
