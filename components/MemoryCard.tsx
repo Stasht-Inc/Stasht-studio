@@ -513,7 +513,7 @@ export default function MemoryCard({
                   lineHeight: '16px'
                 }}
               >
-                {imagesCount} {countLabel}
+                {imagesCount} {imagesCount === 1 ? countLabel.replace(/s$/, '') : countLabel}
               </div>
               {/* Mobile: compact clock icon + number */}
               <div
