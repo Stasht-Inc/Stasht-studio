@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import * as Popover from '@radix-ui/react-popover';
-import { ChevronDown, Mail, MessageSquare, User } from 'lucide-react';
+import { ChevronDown, Mail, MessageSquare, Plus, User } from 'lucide-react';
 import type { AudienceItem, NewsletterChannel } from '../../services/newslettersAPI';
 import StepCard from './StepCard';
+import ImportListModal from './ImportListModal';
 import { moveFocusWithArrows } from './arrowKeys';
 import { useAudienceSources } from './hooks/useAudienceSources';
 import type { AudienceCountState } from './hooks/useAudienceCount';
@@ -34,6 +35,7 @@ const GROUP_HEADING = 'px-3 pb-1 pt-3 text-xs font-semibold uppercase tracking-w
 export default function AudiencePicker({ audience, channels, smsText, count, readOnly, enabled, fieldErrors, stepError, onChange }: AudiencePickerProps) {
   const sources = useAudienceSources(enabled);
   const [open, setOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const label = audienceLabel(audience, sources.groups, sources.lists);
   const sms = smsInfo(smsText);
   const skipped = skippedSummary(count.counts, channels);
@@ -87,6 +89,12 @@ export default function AudiencePicker({ audience, channels, smsText, count, rea
                 <p className={GROUP_HEADING}>Your lists</p>
                 {sources.lists.length === 0 ? <p className="px-3 py-2 text-sm text-gray-500">{sources.loading ? 'Loading…' : 'No lists yet.'}</p> : null}
                 {sources.lists.map((l) => option({ type: 'list', id: l.id }, l.name, `${formatCount(l.member_count)} contacts`))}
+                <div className="mt-1 border-t border-gray-100 pt-1">
+                  <button type="button" disabled={readOnly} onClick={() => { setOpen(false); setImportOpen(true); }}
+                    className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm font-medium text-[#6C60FF] hover:bg-[#6C60FF]/5 focus:bg-[#6C60FF]/5 focus:outline-none">
+                    <Plus className="h-4 w-4" aria-hidden="true" />Add a list
+                  </button>
+                </div>
               </Popover.Content>
             </Popover.Portal>
           </Popover.Root>
@@ -124,6 +132,16 @@ export default function AudiencePicker({ audience, channels, smsText, count, rea
           </div>
         ) : null}
       </div>
+      <ImportListModal
+        open={importOpen}
+        onOpenChange={setImportOpen}
+        groups={sources.groups}
+        onCreated={(list) => {
+          void sources.reload();
+          const item: AudienceItem = { type: 'list', id: list.id };
+          if (!hasAudienceItem(audience, item)) onChange({ audience: [...audience, item] });
+        }}
+      />
     </StepCard>
   );
 }

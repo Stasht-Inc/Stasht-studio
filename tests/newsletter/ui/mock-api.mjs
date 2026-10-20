@@ -213,16 +213,37 @@ export function createMockApi(options = {}) {
     if (path === '/newsletter-allowance') return ok(state.allowance);
     if (path === '/contact-lists' && method === 'GET') return ok(state.lists);
     if (path === '/contact-lists/import') {
-      if (body?.consent !== true) return fail(422, { message: 'Confirm consent.', errors: { consent: ['Confirm these people agreed to hear from you.'] } });
-      const rows = body.rows || [];
-      const list = { id: state.nextId++, name: body.name, source: 'import', member_count: rows.length, email_count: rows.filter((r) => r.email).length, sms_count: rows.filter((r) => r.phone).length, created_at: now() };
-      state.lists.push(list);
-      return ok({ ...list, imported: rows.length, skipped_invalid: 0, merged_duplicates: 0 }, 201);
+      // ContactListController::import: name, consent (accepted), rows; then ContactListBuilder::merge.
+      const errors = {};
+      if (!String(body?.name ?? '').trim()) errors.name = ['Give the list a name.'];
+      if (body?.consent !== true) errors.consent = ['Confirm these people agreed to hear from you.'];
+      if (!Array.isArray(body?.rows) || !body.rows.length) errors.rows = ['The file has no rows.'];
+      else if (body.rows.length > 10000) errors.rows = ['You can import up to 10,000 people at a time.'];
+      if (Object.keys(errors).length) return fail(422, { message: Object.values(errors)[0][0], errors });
+      const seen = new Map();
+      let invalid = 0;
+      for (const r of body.rows) {
+        const email = EMAIL.test(String(r.email ?? '')) ? String(r.email).toLowerCase() : null;
+        const phone = /^\+?\d{7,15}$/.test(String(r.phone ?? '')) ? String(r.phone) : null;
+        if (!email && !phone) { invalid++; continue; }
+        const key = email ?? phone;
+        seen.set(key, { email, phone, merged: seen.has(key) });
+      }
+      if (!seen.size) return fail(422, { message: 'None of the rows has a valid email address or mobile number.', errors: { rows: ['None of the rows has a valid email address or mobile number.'] } });
+      const members = [...seen.values()];
+      const merged = body.rows.length - invalid - members.length;
+      const list = { id: state.nextId++, name: body.name.trim(), source: 'import', member_count: members.length, email_count: members.filter((m) => m.email).length, sms_count: members.filter((m) => m.phone).length, created_at: now() };
+      state.lists.unshift(list);
+      return ok({ ...list, imported: members.length, skipped_invalid: invalid, merged_duplicates: merged }, 201);
     }
     if (path === '/contact-lists/from-leads') {
+      if (!String(body?.name ?? '').trim()) return fail(422, { message: 'Give the list a name.', errors: { name: ['Give the list a name.'] } });
+      if (body?.lead_group_id != null && !state.groups.some((g) => g.id === body.lead_group_id)) {
+        return fail(422, { message: 'That lead group was not found.', errors: { lead_group_id: ['That lead group was not found.'] } });
+      }
       const group = Boolean(body?.lead_group_id);
       const list = { id: state.nextId++, name: body.name, source: group ? 'lead_group' : 'leads', member_count: group ? 38 : 1210, email_count: group ? 36 : 1180, sms_count: group ? 30 : 310, created_at: now() };
-      state.lists.push(list);
+      state.lists.unshift(list);
       return ok(list, 201);
     }
     let m = path.match(/^\/contact-lists\/(\d+)(\/members)?$/);
