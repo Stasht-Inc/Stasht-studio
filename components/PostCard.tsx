@@ -382,7 +382,9 @@ export default function PostCard({ post, variant = 'thumbnail', onContentUpdate,
   const currentImageDate = currentImageData?.dateTaken || currentImageData?.date || post.date;
   // Car detail views (memoryId marker `cars_detail:<id>`) synthesize post dates only to
   // keep photo sort order — they aren't real capture dates, so hide the date on car cards.
-  const isCarPost = typeof memoryId === 'string' && memoryId.startsWith('cars_detail:');
+  // Website Catalogue product pages (`catalog_item:<id>`) are built the same way.
+  const isCatalogPost = typeof memoryId === 'string' && memoryId.startsWith('catalog_item:');
+  const isCarPost = (typeof memoryId === 'string' && memoryId.startsWith('cars_detail:')) || isCatalogPost;
 
   const newDescriptionTextareaRef = useRef<HTMLTextAreaElement>(null);
   
@@ -402,7 +404,9 @@ export default function PostCard({ post, variant = 'thumbnail', onContentUpdate,
   // - Post author sees menu on their own posts (can edit and delete)
   // - Other users see menu on posts by others (to claim the moment)
   // Result: Menu shows on ALL posts for everyone
-  const shouldShowMenu = true; // Always show menu - different options based on permissions
+  // Except on catalogue-product photos: they aren't memory images, so there's nothing to edit,
+  // delete or claim (an edit/delete would hit an unrelated memory image with the same id).
+  const shouldShowMenu = !isCatalogPost; // Always show menu - different options based on permissions
 
   // Check if post is already claimed - handle multiple data types
   const isAlreadyClaimed = (
@@ -2003,6 +2007,8 @@ export default function PostCard({ post, variant = 'thumbnail', onContentUpdate,
           // Card view: Location left, Date right (justified)
           <div className="space-y-2">
             <div className="flex items-center justify-between text-[15px] md:text-sm text-[#6A7282]">
+              {/* Catalogue products have no location — no empty pin */}
+              {!isCatalogPost && (
               <div className="flex items-center gap-1.5 min-w-0 flex-1 max-w-[65%]">
                 <MapPin className="h-5 w-5 md:h-4 md:w-4 flex-shrink-0 text-[#6A7282]" />
                 <span
@@ -2013,6 +2019,7 @@ export default function PostCard({ post, variant = 'thumbnail', onContentUpdate,
                   {currentImageLocation}
                 </span>
               </div>
+              )}
               {!isCarPost && (
               <div className="flex items-center gap-1.5 flex-shrink-0">
                 <Calendar className="h-5 w-5 md:h-4 md:w-4 flex-shrink-0 text-[#6A7282]" />
@@ -2061,7 +2068,8 @@ export default function PostCard({ post, variant = 'thumbnail', onContentUpdate,
             </div>
             )}
 
-            {/* Location */}
+            {/* Location (catalogue products have none) */}
+            {!isCatalogPost && (
             <div className="flex items-center gap-1">
               <MapPin className="h-3.5 w-3.5 md:h-3 md:w-3 flex-shrink-0" />
               <span
@@ -2072,6 +2080,7 @@ export default function PostCard({ post, variant = 'thumbnail', onContentUpdate,
                 {currentImageLocation}
               </span>
             </div>
+            )}
 
             {/* Car spec line, under the location */}
             {isCarPost && carSpec && (

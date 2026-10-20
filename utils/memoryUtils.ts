@@ -101,6 +101,9 @@ export const isCarCampaign = (mem: any): boolean => {
   // condition, e.g. "Preowned", not "Cars") — treat it as a car so dates are hidden
   // the same way as a car campaign / showcase.
   if (mem.is_car) return true;
+  // A Website Catalogue product page (is_catalog_item) is read-only inventory like a car:
+  // its post dates are synthesized for ordering only, so hide them the same way.
+  if (mem.is_catalog_item) return true;
   const catName = (mem.category?.name ?? mem.category ?? '').toString().toLowerCase();
   if (catName === 'cars') return true;
   const linked: any[] = Array.isArray(mem.linked_memories) ? mem.linked_memories

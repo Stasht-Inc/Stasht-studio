@@ -68,6 +68,7 @@ import { PurchaseCreditsModal } from "../components/PurchaseCreditsModal";
 import { InsufficientCreditsModal } from "../components/InsufficientCreditsModal";
 import RequestMomentModal from "../components/RequestMomentModal";
 import CatalogRefreshBanner from "../components/CatalogRefreshBanner";
+import { catalogueAPI, type CatalogueItemDetail } from "../services/catalogueAPI";
 import Cropper from 'react-easy-crop';
 import { mapLimit } from "../utils/requestLimit";
 const samanthaAvatar = 'https://images.unsplash.com/photo-1494790108755-2616b612b5bc?w=100&h=100&fit=crop';
@@ -1183,6 +1184,17 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
   // Raw /cars/{id} response — read by handleTimelineImageView to build the description
   // and spec grid shown in the image viewer's sidebar for a car's photos.
   const [carDetailData, setCarDetailData] = useState<any>(null);
+
+  // Website Catalogue product: memoryId arrives as `catalog_item:<id>` (MemoriesPage product card,
+  // or an item in the sidebar's Website Catalogue box). Rendered exactly like a car detail —
+  // read-only, each photo its own post, no dates — from catalogueAPI.getItem instead of /cars/{id}.
+  const CATALOG_ITEM_MARKER = 'catalog_item:';
+  const isCatalogItemDetail = typeof memoryId === 'string' && memoryId.startsWith(CATALOG_ITEM_MARKER);
+  const catalogItemId = isCatalogItemDetail ? Number(memoryId.slice(CATALOG_ITEM_MARKER.length)) : null;
+  // The item detail — read by handleTimelineImageView for the viewer's description and details grid.
+  const [catalogItemData, setCatalogItemData] = useState<CatalogueItemDetail | null>(null);
+  // Cars and catalogue products share every read-only page treatment below.
+  const isInventoryDetail = isCarDetail || isCatalogItemDetail;
 
   // Compute actual memory ID directly - always use memoryId prop if available, otherwise fallback to API data
   const actualMemoryId = memoryId || apiMemoryData?.id?.toString();
@@ -3253,6 +3265,71 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
       return;
     }
 
+    // Website Catalogue product: memoryId is a marker `catalog_item:<id>`. Same mapping as the car
+    // branch above (product = campaign, each photo = its own top-level post), minus the eDealer
+    // HD-image rewrite and the dealer address — products have neither.
+    if (isCatalogItemDetail) {
+      if (!skipLoadingState) setIsLoadingMemory(true);
+      setApiError(null);
+      try {
+        const res = Number.isFinite(catalogItemId) ? await catalogueAPI.getItem(catalogItemId!) : null;
+        const item = res?.ok ? res.data : undefined;
+        if (item && item.id != null) {
+          setCatalogItemData(item);
+          const images = Array.isArray(item.images) ? item.images : [];
+          const sortedImages = images.slice().sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
+          // A product with no gallery rows still has its main image.
+          const photoUrls = sortedImages.length > 0
+            ? sortedImages.map((img) => ({ id: img.id, url: img.url }))
+            : (item.main_image ? [{ id: undefined, url: item.main_image }] : []);
+          // Logged-in user as each post's author, same as carAuthor (a product has no Stasht author).
+          const itemAuthor = { name: user?.name, avatar: user?.avatar, profile_color: user?.profile_color };
+          // Strictly-decreasing synthesized dates so the default "latest" sort keeps sort_order
+          // (see the car branch above); hidden on the page via is_catalog_item / isCarCampaign().
+          const now = Date.now();
+          const posts = photoUrls.map((img, i) => {
+            const captureDate = new Date(now - i * 1000).toISOString();
+            return {
+              id: img.id ?? `catalog_image_${i}`,
+              image_link: img.url,
+              type: 'image',
+              parent_id: null,
+              user: itemAuthor,
+              location: '',
+              capture_date: captureDate,
+              date: captureDate,
+            };
+          });
+          setApiMemoryData({
+            id: memoryId,
+            title: item.title || 'Untitled product',
+            category: { name: item.category || 'Products' },
+            sub_category: { name: item.price_label || '' },
+            user: itemAuthor,
+            posts,
+            // Marks this as a catalogue product so date fields are hidden everywhere on the page
+            // (isCarCampaign() keys off it, like is_car).
+            is_catalog_item: true,
+            location: null,
+            spec_summary: item.spec_summary || null,
+            // The product's page on the customer's own website ("View on website" in the header).
+            website_url: item.url || null,
+            last_update_img: posts[0]?.image_link || null,
+            linked_memories: [],
+            new_images: 0,
+          });
+        } else {
+          setApiError(res?.error || 'Failed to fetch product');
+        }
+      } catch (error) {
+        console.error('Error fetching catalogue item:', error);
+        setApiError('Network error while fetching product');
+      } finally {
+        if (!skipLoadingState) setIsLoadingMemory(false);
+      }
+      return;
+    }
+
     // Shopify collection detail: memoryId is a marker `shopify_collection:<id>`.
     // Fetch the collection via /shopify/catalog/{id} and map it into the memory shape
     // so the memory-detail layout renders it (collection = memory, product = post/image).
@@ -4306,6 +4383,12 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
   // Check if memory has "Suggested" category - make it read-only
   const isSuggestedCategory = uiMemory.category === 'Suggested';
 
+  // A catalogue product's page on the customer's website — the header's "View on website" link.
+  // http(s) only, so a stored javascript:/data: URL can never become a link.
+  const catalogItemWebsiteUrl = isCatalogItemDetail && typeof apiMemoryData?.website_url === 'string' && /^https?:\/\//i.test(apiMemoryData.website_url)
+    ? apiMemoryData.website_url
+    : null;
+
   // Check if viewing as collaborator (for pull-to-refresh)
   const isCollaboratorView = currentUserRole === 'contributor' || currentUserRole === 'viewer' || currentUserRole === 'edit' || currentUserRole === 'view';
 
@@ -4426,20 +4509,22 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
   const getSubImagesForParent = (parentImageId: string) => {
     const allPosts = rawApiPosts || [];
 
-    if (isCarDetail) {
+    // Catalogue products: the same continuous list, with the product's own description.
+    if (isInventoryDetail) {
+      const photoLabel = isCarDetail ? 'Car photo' : 'Product photo';
       return allPosts
         .filter((post: any) => post.image_link)
         .map((post: any) => ({
           id: post.id?.toString(),
           src: post.image_link ? post.image_link.replace(/\\\//g, '/') : (post.image || post.image_url || ''),
-          alt: post.name || post.title || 'Car photo',
+          alt: post.name || post.title || photoLabel,
           title: post.name || post.title,
-          description: carDetailData?.description || '',
+          description: isCarDetail ? (carDetailData?.description || '') : (catalogItemData?.description || ''),
           // Show the dealer address on each car image card's footer (in place of the
-          // now-hidden date); cars have no per-photo location of their own.
-          location: carDetailData?.location?.formatted || carDetailData?.city || '',
+          // now-hidden date); cars have no per-photo location of their own. Products have none.
+          location: isCarDetail ? (carDetailData?.location?.formatted || carDetailData?.city || '') : '',
           dateTaken: '',
-          filename: post.name || post.title || 'Car photo',
+          filename: post.name || post.title || photoLabel,
           is_featured: 0,
         }));
     }
@@ -6841,6 +6926,11 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
       { label: 'Drivetrain', value: carDetailData.drivetrain || '' },
       { label: 'Trim', value: carDetailData.trim_details || '' },
     ].filter(spec => spec.value) : [];
+    // A catalogue product's details grid is its own attributes (plus SKU, as the old item modal showed).
+    const catalogItemSpecs = isCatalogItemDetail && catalogItemData ? [
+      ...(Array.isArray(catalogItemData.attributes) ? catalogItemData.attributes : []),
+      { label: 'SKU', value: catalogItemData.sku || '' },
+    ].filter(spec => spec.label && spec.value) : [];
 
     // Open the ImageViewer modal with proper timeline metadata
     console.log('🔍 handleTimelineImageView - finalImageId:', finalImageId, 'memoryId:', memoryId);
@@ -6851,7 +6941,8 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
       title: displayTitle,
       subtitle: `${currentPost?.author?.name || 'Unknown'} • ${getFormattedDate(currentPost?.date)}`,
       filename: extractFilename(displaySrc, currentPost?.title),
-      dateTaken: getFormattedDate(currentPost?.date),
+      // Inventory photos (cars, catalogue products) have only synthesized ordering dates.
+      dateTaken: isInventoryDetail ? '' : getFormattedDate(currentPost?.date),
       location: getLocationDisplay(currentPost?.location),
       images: allImages,
       currentIndex: Math.max(0, currentIndex),
@@ -6864,13 +6955,13 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
       // means slot 0 there can never reflect this photo's true position among
       // all N — so pass the reliable cross-post index/total straight through
       // for the "Image X of N" label instead.
-      positionOverride: isCarDetail ? { current: Math.max(0, currentIndex) + 1, total: allImages.length } : undefined,
+      positionOverride: isInventoryDetail ? { current: Math.max(0, currentIndex) + 1, total: allImages.length } : undefined,
       parentImageIsFeatured: parentIsFeatured, // Pass parent's featured status
       focusComments: focusComments, // Scroll to comments on mobile when true
       tags: Array.isArray(currentPost?.tags) ? currentPost.tags.map((t: any) => typeof t === 'string' ? t : t?.name).filter(Boolean) : [],
-      description: isCarDetail ? (carDetailData?.description || '') : undefined,
-      specs: carSpecs,
-      disableDescriptionEdit: isCarDetail,
+      description: isCarDetail ? (carDetailData?.description || '') : isCatalogItemDetail ? (catalogItemData?.description || '') : undefined,
+      specs: isCatalogItemDetail ? catalogItemSpecs : carSpecs,
+      disableDescriptionEdit: isInventoryDetail,
     };
 
     console.log('🎯 VIEWER DATA BEFORE SET:', JSON.stringify({ imageId: viewerData.imageId, memoryId: viewerData.memoryId }));
@@ -7124,7 +7215,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
         currentIndex: nextIndex,
         imageId: nextImage.id,
         rotation_angle: nextMediaItem?.rotation_angle || 0,
-        positionOverride: isCarDetail ? { current: nextIndex + 1, total: prev.images.length } : prev.positionOverride,
+        positionOverride: isInventoryDetail ? { current: nextIndex + 1, total: prev.images.length } : prev.positionOverride,
       }));
     }
   };
@@ -7157,7 +7248,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
         currentIndex: prevIndex,
         imageId: prevImage.id,
         rotation_angle: prevMediaItem?.rotation_angle || 0,
-        positionOverride: isCarDetail ? { current: prevIndex + 1, total: prev.images.length } : prev.positionOverride,
+        positionOverride: isInventoryDetail ? { current: prevIndex + 1, total: prev.images.length } : prev.positionOverride,
       }));
     }
   };
@@ -12816,13 +12907,26 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                   <span className="whitespace-nowrap">{apiMemoryData.spec_summary}</span>
                                 </div>
                               )}
-                              {!isCarCampaign(apiMemoryData) && !isCarDetail && (
+                              {!isCarCampaign(apiMemoryData) && !isInventoryDetail && (
                               <div className="flex items-center gap-1.5 md:gap-1.5 lg:gap-2">
                                 <Calendar className="w-4 h-4 md:w-4 md:h-4 lg:w-5 lg:h-5" />
                                 <span className="whitespace-nowrap">{uiMemory.dateRange || `Created ${formatDate(uiMemory.createdDate)}`}</span>
                               </div>
                               )}
                             </div>
+                            {/* Catalogue product: small text link to its page on the customer's website.
+                                Light grey here, since this header sits on the cover photo. */}
+                            {catalogItemWebsiteUrl && (
+                              <a
+                                href={catalogItemWebsiteUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1 text-sm text-gray-200 underline-offset-2 hover:underline"
+                              >
+                                View on website
+                                <ExternalLink className="w-3.5 h-3.5" aria-hidden="true" />
+                              </a>
+                            )}
                             {/* Author - mobile only (on cover) */}
                             <div className="flex items-center gap-2.5 md:hidden pt-1">
                               <Avatar className="w-8 h-8">
@@ -12951,7 +13055,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                   <span className="truncate max-w-[100px]">{uiMemory.location.primary}</span>
                                 </div>
                               )}
-                              {uiMemory.dateRange && !isCarCampaign(apiMemoryData) && !isCarDetail && (
+                              {uiMemory.dateRange && !isCarCampaign(apiMemoryData) && !isInventoryDetail && (
                                 <div className="flex items-center gap-1">
                                   <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5 flex-shrink-0">
                                     <rect x="1.75" y="2.91675" width="10.5" height="9.33333" rx="1.16667" stroke="#4A5565" strokeWidth="1.16617" strokeLinecap="round" strokeLinejoin="round"/>
@@ -13157,7 +13261,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
 
                   {/* Location and Date */}
                   <div className="flex items-center gap-4 text-gray-500 text-sm mb-2">
-                    {(uiMemory.location?.primary || uiMemory.location) && (
+                    {(uiMemory.location?.primary || uiMemory.location) && !isCatalogItemDetail && (
                       <div className="flex items-center gap-1.5">
                         <MapPin className="w-4 h-4" />
                         <span>{typeof uiMemory.location === 'string' ? uiMemory.location : uiMemory.location?.primary || ''}</span>
@@ -13168,13 +13272,25 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                         <span>{apiMemoryData.spec_summary}</span>
                       </div>
                     )}
-                    {uiMemory.dateRange && !isCarCampaign(apiMemoryData) && !isCarDetail && (
+                    {uiMemory.dateRange && !isCarCampaign(apiMemoryData) && !isInventoryDetail && (
                       <div className="flex items-center gap-1.5">
                         <Calendar className="w-4 h-4" />
                         <span>{uiMemory.dateRange}</span>
                       </div>
                     )}
                   </div>
+                  {/* Catalogue product: small grey text link to its page on the customer's website */}
+                  {catalogItemWebsiteUrl && (
+                    <a
+                      href={catalogItemWebsiteUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="self-start inline-flex items-center gap-1 mb-2 text-sm text-gray-500 underline-offset-2 hover:underline"
+                    >
+                      View on website
+                      <ExternalLink className="w-3.5 h-3.5" aria-hidden="true" />
+                    </a>
+                  )}
 
                   {/* Author Info */}
                   <div className="flex items-center justify-between gap-3 mb-3">
@@ -13353,7 +13469,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                         {/* Introduction ⋮ menu — same cover actions as the cover's own "Edit Cover"
                             button (hidden in the same cases). "Delete" removes the campaign's own cover
                             and is shown only when one is set (otherwise the default cover is showing). */}
-                        {!isHeaderImageScrolled && !isSuggestedCategory && !isShopifyCollection && !isCarDetail && (
+                        {!isHeaderImageScrolled && !isSuggestedCategory && !isShopifyCollection && !isInventoryDetail && (
                           <div className="absolute top-0 -right-1 z-10" onClick={(e) => e.stopPropagation()}>
                             <Popover>
                               <PopoverTrigger asChild>
@@ -14017,9 +14133,9 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                           <div className="group/border relative pr-6 transition-all duration-200 opacity-100">
                             {isActive && (() => {
                               // Same actions (and permission rules) as this moment's card menu.
-                              // Shopify products and car-detail photos aren't memory images, so
-                              // their cards have no edit/delete either.
-                              if (Array.isArray(post.variants) || isShopifyCollection || isCarDetail) return null;
+                              // Shopify products, car-detail and catalogue-product photos aren't memory
+                              // images, so their cards have no edit/delete either.
+                              if (Array.isArray(post.variants) || isShopifyCollection || isInventoryDetail) return null;
                               const perms = getPostPermissions(post, memoryOwnerId, apiCollaborators.filter(c => c.status === 'active'));
                               const canEditText = perms.canEdit || perms.canAddDescription;
                               const isVideoPost = post.type === 'video' || isVideoUrl(post.image || '');
@@ -15367,11 +15483,12 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                               key={item.id}
                               item={item}
                               isSelected={selectedItems.includes(item.id)}
-                              onToggleSelect={isSuggestedCategory ? undefined : () => handleMediaItemToggle(item.id)}
+                              // Catalogue-product photos aren't memory images: no select (batch actions), edit or delete.
+                              onToggleSelect={isSuggestedCategory || isCatalogItemDetail ? undefined : () => handleMediaItemToggle(item.id)}
                               onView={() => handleMediaItemView(item)}
                               onViewImage={(src, alt, title, subtitle, imageId) => handleImageView(src, alt, title, subtitle, imageId)}
-                              onUpdateItem={isSuggestedCategory ? undefined : handleUpdateItem}
-                              onDeleteItem={isSuggestedCategory ? undefined : () => handleDeleteItem(item.id, isCarCampaign(apiMemoryData))}
+                              onUpdateItem={isSuggestedCategory || isCatalogItemDetail ? undefined : handleUpdateItem}
+                              onDeleteItem={isSuggestedCategory || isCatalogItemDetail ? undefined : () => handleDeleteItem(item.id, isCarCampaign(apiMemoryData))}
                               memoryOwnerId={memoryOwnerId}
                               memoryTitle={apiMemoryData?.title}
                               memoryThumbnail={apiMemoryData?.last_update_img}
@@ -17697,11 +17814,12 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                     <MemoryDetailsMediaItem
                       item={item}
                       isSelected={selectedItems.includes(item.id)}
-                      onToggleSelect={isSuggestedCategory ? undefined : () => handleMediaItemToggle(item.id)}
+                      // Catalogue-product photos aren't memory images: no select (batch actions), edit or delete.
+                      onToggleSelect={isSuggestedCategory || isCatalogItemDetail ? undefined : () => handleMediaItemToggle(item.id)}
                       onView={() => handleMediaItemView(item)}
                       onViewImage={(src, alt, title, subtitle, imageId) => handleImageView(src, alt, title, subtitle, imageId)}
-                      onUpdateItem={isSuggestedCategory ? undefined : handleUpdateItem}
-                      onDeleteItem={isSuggestedCategory ? undefined : () => handleDeleteItem(item.id, isCarCampaign(apiMemoryData))}
+                      onUpdateItem={isSuggestedCategory || isCatalogItemDetail ? undefined : handleUpdateItem}
+                      onDeleteItem={isSuggestedCategory || isCatalogItemDetail ? undefined : () => handleDeleteItem(item.id, isCarCampaign(apiMemoryData))}
                       memoryOwnerId={memoryOwnerId}
                       memoryTitle={apiMemoryData?.title}
                       memoryThumbnail={apiMemoryData?.last_update_img}
@@ -17709,7 +17827,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                       memoryImages={memoryImagesWithSubImages}
                       index={idx + 1}
                       isHidden={isItemHidden}
-                      isCar={isCarDetail}
+                      isCar={isInventoryDetail}
                     />
                     </div>
                   );

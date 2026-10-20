@@ -2909,7 +2909,7 @@ export function ImageViewer({
               {currentDescription && (
                 <div className="flex gap-3 mt-2">
                   <div className="w-10 flex-shrink-0" />
-                  <p className="text-base text-gray-700 leading-relaxed flex-1">
+                  <p className="text-base text-gray-700 leading-relaxed flex-1 break-words whitespace-pre-wrap">
                     {renderCommentWithMentions(currentDescription)}
                   </p>
                 </div>
