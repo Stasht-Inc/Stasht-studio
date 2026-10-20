@@ -11,6 +11,33 @@ const PROFILE = {
   website: 'https://serpachrysler.ca', instagram_url: 'https://instagram.com/serpachrysler', linkedin_url: '', tiktok_url: null,
   facebook_url: 'https://facebook.com/serpachrysler', is_business: 1,
 };
+// PUT /newsletters/{id} rules, as NewsletterController::rules() and NewsletterContent::normalise*() answer them.
+const HTTPS = /^https:\/\/[^\s<>"'\\]+$/i;
+const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+function updateErrors(body) {
+  const errors = {};
+  if (body && 'name' in body && (typeof body.name !== 'string' || body.name.trim() === '')) errors.name = ['The name field is required.'];
+  if (body?.reply_to_email != null && !EMAIL.test(String(body.reply_to_email))) errors.reply_to_email = ['Enter a reply-to email address like name@business.com.'];
+  if (body?.template != null && body.template !== 'basic') errors.template = ['That template is coming soon. Use Basic for now.'];
+  for (const field of ['logo_url', 'banner_url']) {
+    const v = body?.header?.[field];
+    if (v != null && v !== '' && !HTTPS.test(v)) errors[`header.${field}`] = ['Use an image link that starts with https://'];
+  }
+  (Array.isArray(body?.blocks) ? body.blocks : []).forEach((b, i) => {
+    const key = `blocks.${i}.data`;
+    const bad = (v) => v != null && v !== '' && !HTTPS.test(v);
+    if (b.type === 'image' && bad(b.data?.url)) errors[`${key}.url`] = ['Use an image link that starts with https://'];
+    if (b.type === 'image' && bad(b.data?.link)) errors[`${key}.link`] = ['Use a link that starts with https://'];
+    if (b.type === 'button' && bad(b.data?.url)) errors[`${key}.url`] = ['Use a link that starts with https://'];
+    if (b.type === 'youtube' && bad(b.data?.url)) errors[`${key}.url`] = ['Use a YouTube link, like https://www.youtube.com/watch?v=…'];
+  });
+  return errors;
+}
+const MONTH_NAME = () => {
+  const d = new Date();
+  return `${d.toLocaleString('en-US', { month: 'long' })} Newsletter ${d.getFullYear()}`;
+};
+
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
 const pickEditable = (src) => Object.fromEntries(EDITABLE.filter((k) => src && k in src).map((k) => [k, structuredClone(src[k])]));
 
@@ -104,6 +131,11 @@ export function createMockApi(options = {}) {
     groups: options.groups ?? [{ id: 4, name: 'VIP buyers', member_count: 38, members: [], created_at: now(), updated_at: now() }],
     allowance: options.allowance ?? { plan: 'Professional', email_limit: 5000, sms_limit: 500, email_used: 1200, sms_used: 40, resets_at: '2026-11-01T00:00:00Z' },
     sendErrors: options.sendErrors ?? null,
+    // The signed-in owner (NewsletterController::store pre-fills from name and email). null email: the
+    // account has none, so send needs a reply-to (422 reply_to_email).
+    owner: { name: 'Samantha Smith', email: options.ownerEmail === undefined ? 'samantha@serpachrysler.ca' : options.ownerEmail },
+    // Answer every PUT /newsletters/{id} with this status (500 = server down) while set.
+    failPuts: options.failPuts ?? 0,
     // How many /user/storage-overview calls fail (500) before it answers: the plan check's "Try again".
     planFailures: options.planFailures ?? 0,
     calls: [],
@@ -160,7 +192,11 @@ export function createMockApi(options = {}) {
       return ok(state.newsletters.filter((n) => !s || n.status === s).map(summary).reverse());
     }
     if (path === '/newsletters' && method === 'POST') {
-      const n = newsletter(state.nextId++, { name: body?.name ?? null, header: structuredClone(state.brand.header) });
+      // Server defaults: a "<Month> Newsletter <Year>" name, from name and reply-to from the owner, no audience.
+      const n = newsletter(state.nextId++, {
+        name: body?.name?.trim() || MONTH_NAME(), from_name: state.owner.name, reply_to_email: state.owner.email,
+        audience: [], header: structuredClone(state.brand.header),
+      });
       state.newsletters.push(n);
       return ok(n, 201);
     }
@@ -201,6 +237,9 @@ export function createMockApi(options = {}) {
       if (!action && method === 'GET') return ok(n);
       if (!action && method === 'PUT') {
         if (n.status !== 'draft') return fail(409, { success: false, message: 'Only drafts can be changed.' });
+        if (state.failPuts) return fail(state.failPuts, { success: false, message: 'Server Error' });
+        const errors = updateErrors(body);
+        if (Object.keys(errors).length) return fail(422, { message: Object.values(errors)[0][0], errors });
         Object.assign(n, pickEditable(body), { updated_at: now() });
         if (body && 'header' in body) state.brand.header = structuredClone(body.header); // the header is the brand header (note 8)
         return ok(n);
@@ -258,8 +297,10 @@ export function createMockApi(options = {}) {
     if (raw && (request.headers()['content-type'] || '').includes('application/json')) {
       try { body = JSON.parse(raw); } catch { body = null; }
     }
-    state.calls.push({ method: request.method(), path, query: url.search, body });
+    const call = { method: request.method(), path, query: url.search, body };
+    state.calls.push(call);
     const { status, json } = handle(request.method(), path, url.searchParams, body);
+    call.status = status;
     return route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(json) });
   }
 

@@ -1,7 +1,13 @@
 import type { ReactNode } from 'react';
 import { LABEL } from '../lib/ui';
 
-/** Label + control + one hint or error line. Give the control aria-describedby={`${id}-help`}. */
+/** The id of a Field's hint / error line, or undefined when it shows neither (aria-describedby must point at
+ *  an element that exists). */
+export function helpId(id: string, hint?: string | null, error?: string | null): string | undefined {
+  return hint || error ? `${id}-help` : undefined;
+}
+
+/** Label + control + one hint or error line. Give the control aria-describedby={helpId(id, hint, error)}. */
 export default function Field({ id, label, required, optional, hint, error, children }: {
   id: string;
   label: string;

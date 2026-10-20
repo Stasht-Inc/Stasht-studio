@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { emptyDraft, draftFromNewsletter, draftToInput, changedFields, fieldProblems, DEFAULT_HEADER } from '../../components/newsletters/lib/draft.ts';
+import { emptyDraft, draftFromNewsletter, draftToInput, changedFields, fieldProblems, DEFAULT_HEADER, mergeUntouched, savableChanges } from '../../components/newsletters/lib/draft.ts';
 import { LIMITS, isPlausibleEmail } from '../../components/newsletters/lib/rules.ts';
 
 const COUNTS = { recipients: 0, sent: 0, delivered: 0, opened: 0, clicked: 0, unsubscribed: 0, failed: 0, skipped: 0 };
@@ -71,4 +71,38 @@ test('fieldProblems flags long text and a bad reply-to address', () => {
 test('draftFromNewsletter gives the editor strings where the API stores null', () => {
   const d = draftFromNewsletter({ ...SPEC_NEWSLETTER, blocks: [{ id: 'b1', type: 'button', data: { label: 'Go', url: null, color: '#6C60FF' } }] });
   assert.deepEqual(d.blocks, [{ id: 'b1', type: 'button', data: { label: 'Go', url: '', color: '#6C60FF' } }]);
+});
+
+// Review fixes (Tasks 1-3).
+test('a blank name is left out of the PUT body (the API answers 422 to name: null)', () => {
+  const input = draftToInput({ ...emptyDraft(), name: '   ', subject: 'Hi' });
+  assert.equal('name' in input, false);
+  assert.equal(input.subject, 'Hi');
+  const saved = draftFromNewsletter(SPEC_NEWSLETTER);
+  assert.deepEqual(changedFields(saved, { ...saved, name: '' }), {}, 'clearing the name sends nothing');
+});
+
+test('mergeUntouched takes the server copy for every field the person has not touched', () => {
+  const server = draftFromNewsletter({ ...SPEC_NEWSLETTER, subject: null, audience: [], blocks: [] });
+  const local = { ...emptyDraft(), subject: 'Typed subject' };
+  const merged = mergeUntouched(local, server, new Set(['subject']));
+  assert.equal(merged.subject, 'Typed subject', 'touched field kept');
+  assert.equal(merged.name, 'October Newsletter 2026', 'server default name shown');
+  assert.equal(merged.from_name, 'Serpa Chrysler');
+  assert.equal(merged.reply_to_email, 'sales@serpachrysler.ca');
+  assert.deepEqual(merged.header, server.header);
+  assert.deepEqual(merged.audience, [{ type: 'all_leads' }], 'an empty server value never replaces a local default');
+  assert.deepEqual(mergeUntouched(local, server, new Set(['name', 'from_name'])).from_name, '', 'touched and cleared stays cleared');
+});
+
+test('savableChanges holds back a field that would not pass, and keeps it dirty', () => {
+  const saved = draftFromNewsletter(SPEC_NEWSLETTER);
+  const current = { ...saved, subject: 'New subject', reply_to_email: 'sales@' };
+  const { patch, nextSaved, held } = savableChanges(saved, current);
+  assert.deepEqual(patch, { subject: 'New subject' });
+  assert.deepEqual(held, ['reply_to_email']);
+  assert.equal(nextSaved.subject, 'New subject');
+  assert.equal(nextSaved.reply_to_email, 'sales@serpachrysler.ca', 'the held field still differs from what is saved');
+  assert.deepEqual(changedFields(nextSaved, { ...current, reply_to_email: 'sales@serpa.ca' }), { reply_to_email: 'sales@serpa.ca' });
+  assert.deepEqual(savableChanges(saved, saved), { patch: {}, nextSaved: saved, held: [] });
 });

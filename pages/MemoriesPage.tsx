@@ -24,7 +24,6 @@ import { Avatar, AvatarFallback, AvatarImage } from "../components/ui/avatar";
 import EmptyMemoriesState from "../components/EmptyMemoriesState";
 import AllMemoriesEmptyState from "../components/AllMemoriesEmptyState";
 import MemoryActionMenu from "../components/MemoryActionMenu";
-import { MemoryLimitDialog } from "../components/MemoryLimitDialog";
 import { useNotificationsRefresh } from '../hooks/useNotificationsRefresh';
 import CategoryNav from "../components/CategoryNav";
 import { SHOPIFY_COLOR, CARS_COLOR, WEBSITE_CATALOG_COLOR } from "../utils/categoryColorManager";
@@ -392,7 +391,6 @@ function MemoriesPageContent({
   const createMemoryRef = useRef<CreateMemoryHandle>(null);
   const proxyInputRef = useRef<HTMLInputElement>(null);
   const [selectedCategoryForCreate, setSelectedCategoryForCreate] = useState<string | undefined>(undefined);
-  const [showLimitDialog, setShowLimitDialog] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [memoryToDelete, setMemoryToDelete] = useState<any>(null);
   const [showPublishModal, setShowPublishModal] = useState(false);
@@ -3577,14 +3575,6 @@ function MemoriesPageContent({
         selectedMediaLibraryImages={selectedMediaLibraryImagesForCreate}
         defaultCategory={selectedCategoryForCreate}
         categories={createMemoryCategories}
-      />
-
-      {/* Memory Limit Dialog */}
-      <MemoryLimitDialog
-        isOpen={showLimitDialog}
-        onClose={() => setShowLimitDialog(false)}
-        memoryCount={limitData?.current_memories}
-        memoryLimit={limitData?.memory_limit}
       />
 
       {/* Mobile Sidebar Drawer */}

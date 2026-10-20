@@ -1,4 +1,5 @@
-import { forwardRef, useEffect, useImperativeHandle, useRef, useState, type ReactNode } from 'react';
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState, type ReactNode } from 'react';
+import { FocusScope } from '@radix-ui/react-focus-scope';
 import { ArrowLeft, Globe, Loader2, User } from 'lucide-react';
 import { toast } from 'sonner';
 import { useIsStarterPlan } from '../../hooks/usePlan';
@@ -15,6 +16,7 @@ import DeviceToggle, { type PreviewDevice } from './DeviceToggle';
 import TemplatePicker from './TemplatePicker';
 import SaveIndicator from './SaveIndicator';
 import UpgradeCard from './UpgradeCard';
+import ComposerDialog from './ComposerDialog';
 import NameStep from './steps/NameStep';
 import FromStep from './steps/FromStep';
 import SubjectStep from './steps/SubjectStep';
@@ -47,8 +49,22 @@ const NewsletterComposer = forwardRef<NewsletterComposerHandle, NewsletterCompos
   { newsletterId, switcher, hidden = false, onClose, onChanged, onSwitchToStoreel },
   ref,
 ) {
-  const nameRef = useRef<HTMLInputElement>(null);
-  useImperativeHandle(ref, () => ({ focusName: () => nameRef.current?.focus() }), []);
+  const nameRef = useRef<HTMLInputElement | null>(null);
+  // focusName() can arrive while the plan is still loading (no name field yet): focus it once it mounts.
+  const focusNamePendingRef = useRef(false);
+  const setNameInput = useCallback((el: HTMLInputElement | null) => {
+    nameRef.current = el;
+    if (el && focusNamePendingRef.current) {
+      focusNamePendingRef.current = false;
+      el.focus();
+    }
+  }, []);
+  useImperativeHandle(ref, () => ({
+    focusName: () => {
+      if (nameRef.current) nameRef.current.focus();
+      else focusNamePendingRef.current = true;
+    },
+  }), []);
 
   // Paid plans only (spec decision 4). No newsletter call until the plan is known to be paid: a Starter
   // account would get 403 plan_required, and the upgrade plans would open under this layer (contract note 1).
@@ -82,14 +98,43 @@ const NewsletterComposer = forwardRef<NewsletterComposerHandle, NewsletterCompos
   const live = fieldProblems(draft);
   const fieldError = (key: keyof NewsletterDraft): string | undefined => live[key] ?? state.fieldErrors[key];
 
+  // Cancel, Back and Escape. If the last changes can't be saved, ask instead of closing silently.
+  const [unsaved, setUnsaved] = useState<string | null>(null);
   const close = async () => {
     if (closing) return;
     setClosing(true);
-    const existing = await state.flush();
+    const outcome = await state.flush();
     setClosing(false);
-    if (existing) onChanged?.();
+    if (outcome.error) {
+      setUnsaved(outcome.error);
+      return;
+    }
+    if (outcome.newsletter) onChanged?.();
     onClose();
   };
+  const discardAndClose = () => {
+    setUnsaved(null);
+    state.discard();
+    if (state.newsletter) onChanged?.();
+    onClose();
+  };
+  const closeRef = useRef(close);
+  closeRef.current = close;
+
+  // aria-modal: Escape works like Cancel. Radix layers (popovers, dialogs) handle their own Escape first and
+  // mark it handled (defaultPrevented); while one is open (even just mounting, before its own listener is
+  // attached) Escape belongs to it.
+  useEffect(() => {
+    if (hidden) return undefined;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape' || e.defaultPrevented) return;
+      if (document.querySelector('[data-radix-popper-content-wrapper], [role="dialog"][data-state="open"], [role="alertdialog"][data-state="open"]')) return;
+      e.preventDefault();
+      void closeRef.current();
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [hidden]);
 
   const saveDraft = async () => {
     const result = await state.saveNow();
@@ -110,11 +155,14 @@ const NewsletterComposer = forwardRef<NewsletterComposerHandle, NewsletterCompos
   );
 
   return (
+    // Focus stays inside while the composer shows (Radix popovers and dialogs inside pause this trap).
+    <FocusScope asChild loop trapped={!hidden}>
     <div
       role="dialog"
       aria-modal="true"
       aria-labelledby="nl-composer-title"
-      className="fixed inset-0 flex flex-col bg-[#F8F8FA]"
+      tabIndex={-1}
+      className="fixed inset-0 flex flex-col bg-[#F8F8FA] outline-none"
       style={{ zIndex: LAYER.composer, display: hidden ? 'none' : undefined }}
     >
       <header className="flex flex-shrink-0 flex-wrap items-center gap-x-3 gap-y-2 border-b border-gray-200 bg-white px-4 py-3 md:px-6">
@@ -163,7 +211,7 @@ const NewsletterComposer = forwardRef<NewsletterComposerHandle, NewsletterCompos
                 </p>
               ) : null}
 
-              <NameStep value={draft.name} onChange={(name) => update({ name })} fieldError={fieldError('name')} readOnly={readOnly} inputRef={nameRef} autoFocus={!newsletterId} />
+              <NameStep value={draft.name} onChange={(name) => update({ name })} fieldError={fieldError('name')} readOnly={readOnly} inputRef={setNameInput} autoFocus={!newsletterId} />
 
               {/* Step 2: AudiencePicker (Task 9) */}
               <StepCard number={2} title="Recipients" id="nl-step-recipients" aside="All leads">
@@ -217,7 +265,20 @@ const NewsletterComposer = forwardRef<NewsletterComposerHandle, NewsletterCompos
           </div>
         )}
       </div>
+      <ComposerDialog
+        open={unsaved !== null}
+        onOpenChange={(o) => { if (!o) setUnsaved(null); }}
+        title="Your latest changes aren't saved"
+        description={unsaved ?? undefined}
+        footer={(
+          <>
+            <button type="button" onClick={discardAndClose} className={BUTTON_OUTLINE}>Discard changes</button>
+            <button type="button" onClick={() => setUnsaved(null)} className={BUTTON_PRIMARY}>Keep editing</button>
+          </>
+        )}
+      />
     </div>
+    </FocusScope>
   );
 });
 

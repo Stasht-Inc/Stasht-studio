@@ -50,14 +50,50 @@ export function draftFromNewsletter(n: Newsletter): NewsletterDraft {
   };
 }
 
-/** The PUT body for a draft: text trimmed, empty text as null. */
+/** The PUT body for a draft: text trimmed, empty text as null. A blank name is left out: the API requires a
+ *  name whenever one is sent (`name: sometimes|required`), and every draft already has the server's default. */
 export function draftToInput(d: NewsletterDraft): NewsletterInput {
   const input: NewsletterInput = { channels: d.channels, template: d.template, header: d.header, blocks: d.blocks, audience: d.audience };
   for (const key of TEXT_FIELDS) {
     const value = d[key].trim();
+    if (key === 'name' && value === '') continue;
     input[key] = value === '' ? null : value;
   }
   return input;
+}
+
+function isEmptyValue(value: unknown): boolean {
+  return value === '' || value === null || value === undefined || (Array.isArray(value) && value.length === 0);
+}
+
+/**
+ * After POST /newsletters: the server fills in a default name, from name, reply-to and the brand header. Show
+ * them for every field the person has not touched yet; an empty server value never replaces a local default
+ * (the draft starts with All leads, the server with no audience).
+ */
+export function mergeUntouched(local: NewsletterDraft, server: NewsletterDraft, touched: ReadonlySet<string>): NewsletterDraft {
+  const out = { ...local } as Record<keyof NewsletterDraft, unknown>;
+  for (const key of Object.keys(server) as Array<keyof NewsletterDraft>) {
+    if (!touched.has(key) && !isEmptyValue(server[key])) out[key] = server[key];
+  }
+  return out as unknown as NewsletterDraft;
+}
+
+/**
+ * What a save can send now: every changed field except one that would not pass (a half-typed reply-to). Those
+ * are `held`: left out of the patch and kept different from `nextSaved`, so they save once they are fixed.
+ */
+export function savableChanges(saved: NewsletterDraft, current: NewsletterDraft): { patch: NewsletterInput; nextSaved: NewsletterDraft; held: Array<keyof NewsletterDraft> } {
+  const patch = changedFields(saved, current) as Record<string, unknown>;
+  const problems = fieldProblems(current);
+  const held = (Object.keys(problems) as Array<keyof NewsletterDraft>).filter((key) => key in patch);
+  if (!held.length && !Object.keys(patch).length) return { patch: {}, nextSaved: saved, held: [] };
+  const nextSaved = { ...current } as Record<keyof NewsletterDraft, unknown>;
+  for (const key of held) {
+    delete patch[key];
+    nextSaved[key] = saved[key];
+  }
+  return { patch: patch as NewsletterInput, nextSaved: nextSaved as unknown as NewsletterDraft, held };
 }
 
 /** The fields of `current` that differ from `saved`, as a PUT body. Everything when nothing is saved yet. */

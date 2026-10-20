@@ -32,6 +32,8 @@ let globalAdminLimitData: AdminLimitData | null = null;
 let globalServiceSyncLimitData: ServiceSyncLimitData | null = null;
 let globalPendingPropertiesCount: number = 0;
 let isChecking = false;
+// The check that is running now. A second caller waits for it instead of getting the data from before it.
+let inFlightCheck: Promise<MemoryLimitData | null> | null = null;
 const listeners = new Set<(data: MemoryLimitData, adminData: AdminLimitData | null, serviceSyncData: ServiceSyncLimitData | null, pendingPropertiesCount: number) => void>();
 
 export const useMemoryLimit = () => {
@@ -52,12 +54,19 @@ export const useMemoryLimit = () => {
   const [pendingPropertiesCount, setPendingPropertiesCount] = useState<number>(() => globalPendingPropertiesCount);
   const [isLoading, setIsLoading] = useState(false);
 
-  // Resolves with the fresh limit status (or the last known one when a check is already running), so a caller
-  // can act on it right away instead of reading isLimitExceeded from a stale render.
+  // Resolves with the fresh limit status, so a caller can act on it right away instead of reading
+  // isLimitExceeded from a stale render. When a check is already running, waits for that one.
   const checkLimit = useCallback(async (): Promise<MemoryLimitData | null> => {
     if (!isAuthenticated) return null;
-    if (isChecking) return globalLimitData;
-
+    if (inFlightCheck) {
+      setIsLoading(true);
+      try {
+        return await inFlightCheck;
+      } finally {
+        setIsLoading(false);
+      }
+    }
+    const run = (async (): Promise<MemoryLimitData | null> => {
     try {
       isChecking = true;
       setIsLoading(true);
@@ -131,6 +140,13 @@ export const useMemoryLimit = () => {
       setIsLoading(false);
     }
     return globalLimitData;
+    })();
+    inFlightCheck = run;
+    try {
+      return await run;
+    } finally {
+      if (inFlightCheck === run) inFlightCheck = null;
+    }
   }, [isAuthenticated]);
 
   // Subscribe to global state changes

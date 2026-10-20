@@ -21,7 +21,6 @@ import { useProperty } from '../contexts/PropertyContext';
 import { useMemoryLimit, recheckMemoryLimit } from '../hooks/useMemoryLimit';
 import { triggerMemoryCountsRefresh } from '../hooks/useMemoryCounts';
 import { MemoryCreatedDialog } from "./MemoryCreatedDialog";
-import { MemoryLimitDialog } from "./MemoryLimitDialog";
 import { ExifProgressModal } from "./ExifProgressModal";
 import MediaLibrarySelectionModal from "./MediaLibrarySelectionModal";
 import { AddMomentModal } from "./AddMomentModal";
@@ -30,6 +29,7 @@ import { useGoogleDrivePicker } from '../hooks/useGoogleDrivePicker';
 import NewsletterComposer, { type NewsletterComposerHandle } from './newsletters/NewsletterComposer';
 import CampaignTypeSwitch from './newsletters/CampaignTypeSwitch';
 import { initialCampaignType, type CampaignType } from './newsletters/lib/campaignType';
+import { requestUpgrade } from '../utils/planEvents';
 
 interface CreateMemoryProps {
   open: boolean;
@@ -98,8 +98,24 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
     if (!open) { setCampaignTypeChoice(null); setComposerMounted(false); return; }
     if (campaignType === 'newsletter') setComposerMounted(true);
   }, [open, campaignType]);
+  // Switching tabs swaps the whole layer, so focus would fall to <body>: put it on the newly shown switch.
+  const focusSwitchRef = useRef(false);
+  const chooseCampaignType = useCallback((type: CampaignType) => {
+    focusSwitchRef.current = true;
+    setCampaignTypeChoice(type);
+  }, []);
+  useEffect(() => {
+    if (!focusSwitchRef.current) return undefined;
+    focusSwitchRef.current = false;
+    const frame = window.requestAnimationFrame(() => {
+      const groups = Array.from(document.querySelectorAll<HTMLElement>('[role="radiogroup"][aria-label="Campaign type"]'));
+      const shown = groups.find((g) => g.offsetParent !== null);
+      shown?.querySelector<HTMLElement>('[role="radio"][aria-checked="true"]')?.focus();
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [campaignType]);
   // The Storeel campaign limit only applies to the Storeel tab (alignment decision 6): it shows inline there,
-  // because MemoryLimitDialog (z-50) would sit under this z-99999 modal.
+  // because a z-50 dialog would sit under this z-99999 modal.
   const storeelLimitRef = useRef<HTMLDivElement>(null);
   const { openDrivePicker, isPickerLoading: isDrivePickerLoading } = useGoogleDrivePicker();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -189,7 +205,6 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
   } | null>(null);
 
   // Limit exceeded dialog state
-  const [showLimitDialog, setShowLimitDialog] = useState(false);
 
   // Photos with metadata state
   const [photosWithMetadata, setPhotosWithMetadata] = useState<Array<{
@@ -2166,7 +2181,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
 
         {/* Newsletter | Storeel switch; the Storeel form below is unchanged */}
         <div className="flex flex-shrink-0 justify-center px-4 pt-3">
-          <CampaignTypeSwitch value="storeel" onChange={setCampaignTypeChoice} />
+          <CampaignTypeSwitch value="storeel" onChange={chooseCampaignType} />
         </div>
         {isLimitExceeded && (
           <div
@@ -2186,6 +2201,14 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
                 Your plan limit has been reached. You have reached your campaign limit of <strong>{limitData.memory_limit || 0} campaigns</strong>.
                 Go to account to upgrade your plan or delete some campaigns. Newsletters are not affected.
               </p>
+              {/* The upgrade plans (z-[60]) would open under this modal, so close it first. */}
+              <button
+                type="button"
+                onClick={() => { handleModalClose(); requestUpgrade('Upgrade your plan for more campaigns.'); }}
+                className="mt-2 inline-flex h-8 items-center rounded-lg bg-[#6C60FF] px-3 text-sm font-medium text-white hover:bg-[#5B50E6] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#6C60FF]/40"
+              >
+                Upgrade
+              </button>
             </div>
           </div>
         )}
@@ -3726,10 +3749,10 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
           ref={newsletterComposerRef}
           newsletterId={newsletterId}
           hidden={campaignType !== 'newsletter'}
-          switcher={<CampaignTypeSwitch value="newsletter" onChange={setCampaignTypeChoice} />}
+          switcher={<CampaignTypeSwitch value="newsletter" onChange={chooseCampaignType} />}
           onClose={handleModalClose}
           onChanged={onNewsletterChanged}
-          onSwitchToStoreel={() => setCampaignTypeChoice('storeel')}
+          onSwitchToStoreel={() => chooseCampaignType('storeel')}
         />,
         document.body,
       )}
@@ -3749,16 +3772,6 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
         document.body
       )}
       
-      {/* Memory Limit Dialog */}
-      {createPortal(
-        <MemoryLimitDialog
-          isOpen={showLimitDialog}
-          onClose={() => setShowLimitDialog(false)}
-          memoryCount={limitData.current_memories}
-          memoryLimit={limitData.memory_limit}
-        />,
-        document.body
-      )}
 
       {/* EXIF Progress Modal - Separate Modal on Right Side */}
       <ExifProgressModal

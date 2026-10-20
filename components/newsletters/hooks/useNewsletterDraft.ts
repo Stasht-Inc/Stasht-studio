@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { toast } from 'sonner';
 import { newslettersAPI, type Newsletter, type NewsletterHeader } from '../../../services/newslettersAPI';
 import { GENERIC_ERROR, type NlResult } from '../lib/apiResult';
 import { createAutosaver, type Autosaver } from '../lib/autosave';
-import { changedFields, draftFromNewsletter, emptyDraft, headerFrom, type NewsletterDraft } from '../lib/draft';
+import { draftFromNewsletter, emptyDraft, headerFrom, mergeUntouched, savableChanges, type NewsletterDraft } from '../lib/draft';
 
 export type SaveState = 'idle' | 'saving' | 'saved' | 'error';
 export interface SaveOutcome { newsletter: Newsletter | null; error: string | null }
@@ -22,14 +23,19 @@ export interface NewsletterDraftState {
   update(patch: Partial<NewsletterDraft>): void;
   /** Save now, creating the draft if needed. */
   saveNow(): Promise<SaveOutcome>;
-  /** Finish any pending save; resolves with the newsletter if one exists. */
-  flush(): Promise<Newsletter | null>;
+  /** Finish any pending save. `error` is set when something is still not saved (a failed save, or a field
+   *  held back because it would not pass). */
+  flush(): Promise<SaveOutcome>;
+  /** Forget unsaved changes (the person chose "Discard changes"): nothing more is saved, even on unmount. */
+  discard(): void;
   /** Take the copy the server returned from send / schedule / cancel. */
   adopt(n: Newsletter): void;
   setFieldErrors(errors: Record<string, string>): void;
 }
 
 const AUTOSAVE_DELAY_MS = 800;
+export const HELD_ERROR = 'Fix the fields marked in red so they can be saved.';
+export const UNMOUNT_SAVE_ERROR = 'Your latest newsletter changes could not be saved. Open the draft from Campaigns › Newsletters to check it.';
 
 export function useNewsletterDraft(newsletterId: number | null, enabled: boolean, brandHeader: NewsletterHeader | null): NewsletterDraftState {
   const [loading, setLoading] = useState<boolean>(Boolean(newsletterId));
@@ -45,8 +51,10 @@ export function useNewsletterDraft(newsletterId: number | null, enabled: boolean
   const savedRef = useRef<NewsletterDraft | null>(null);
   const idRef = useRef<number | null>(newsletterId);
   const newsletterRef = useRef<Newsletter | null>(null);
-  const touchedRef = useRef(false);
+  // The fields the person has changed. After the draft is created, every other field takes the server's default.
+  const touchedRef = useRef<Set<string>>(new Set());
   const lastErrorRef = useRef<string | null>(null);
+  const discardedRef = useRef(false);
   const brandHeaderRef = useRef(brandHeader);
   brandHeaderRef.current = brandHeader;
   // Not enabled (plan unknown or Starter): never call the API, whatever happens (contract note 1).
@@ -83,25 +91,37 @@ export function useNewsletterDraft(newsletterId: number | null, enabled: boolean
 
   const run = useCallback(async () => {
     if (readOnlyRef.current || !enabledRef.current) return;
-    const current = draftRef.current;
     setSaveState('saving');
     if (!idRef.current) {
-      const created = await newslettersAPI.create(current.name.trim() || undefined);
+      const created = await newslettersAPI.create(draftRef.current.name.trim() || undefined);
       if (!created.ok || !created.data) { fail(created); return; }
       take(created.data, false);
-      savedRef.current = draftFromNewsletter(created.data);
+      const server = draftFromNewsletter(created.data);
+      savedRef.current = server;
+      // Show the server's defaults (name, from name, reply-to, header) in every field not touched yet.
+      const merged = mergeUntouched(draftRef.current, server, touchedRef.current);
+      draftRef.current = merged;
+      setDraft(merged);
     }
-    const patch = changedFields(savedRef.current, current);
+    const current = draftRef.current;
+    // A field that would not pass (a half-typed reply-to) stays out of the patch, so the rest still saves.
+    const { patch, nextSaved, held } = savableChanges(savedRef.current as NewsletterDraft, current);
     if (Object.keys(patch).length > 0) {
       const res = await newslettersAPI.update(idRef.current as number, patch);
       if (!res.ok || !res.data) { fail(res); return; }
-      savedRef.current = current;
       take(res.data, false);
+    }
+    savedRef.current = nextSaved;
+    setFieldErrors({});
+    if (held.length) {
+      lastErrorRef.current = HELD_ERROR;
+      setSaveState('error');
+      setSaveError(HELD_ERROR);
+      return;
     }
     lastErrorRef.current = null;
     setSaveState('saved');
     setSaveError(null);
-    setFieldErrors({});
   }, [fail, take]);
 
   const runRef = useRef(run);
@@ -116,7 +136,9 @@ export function useNewsletterDraft(newsletterId: number | null, enabled: boolean
     idRef.current = newsletterId;
     savedRef.current = null;
     newsletterRef.current = null;
-    touchedRef.current = false;
+    touchedRef.current = new Set();
+    lastErrorRef.current = null;
+    discardedRef.current = false;
     const fresh = emptyDraft(brandHeaderRef.current);
     draftRef.current = fresh;
     setDraft(fresh);
@@ -144,18 +166,26 @@ export function useNewsletterDraft(newsletterId: number | null, enabled: boolean
 
   // A new, untouched draft takes the account's last header when the brand arrives.
   useEffect(() => {
-    if (!brandHeader || idRef.current || touchedRef.current) return;
+    if (!brandHeader || idRef.current || touchedRef.current.has('header')) return;
     const next = { ...draftRef.current, header: headerFrom(brandHeader) };
     draftRef.current = next;
     setDraft(next);
   }, [brandHeader]);
 
-  // Save what's pending when the composer goes away.
-  useEffect(() => () => { void saverRef.current?.flush(); }, []);
+  // Save what's pending when the composer goes away (the Storeel tab's X closes Create Campaign without our
+  // Cancel). There is no screen left to ask on, so say so in a toast if it can't be saved.
+  useEffect(() => () => {
+    const saver = saverRef.current;
+    if (discardedRef.current || !saver || (!saver.pending && !lastErrorRef.current)) return;
+    void saver.flush().then(() => {
+      if (lastErrorRef.current && !discardedRef.current) toast.error(UNMOUNT_SAVE_ERROR);
+    });
+  }, []);
 
   const update = useCallback((patch: Partial<NewsletterDraft>) => {
     if (readOnlyRef.current) return;
-    touchedRef.current = true;
+    for (const key of Object.keys(patch)) touchedRef.current.add(key);
+    discardedRef.current = false;
     const next = { ...draftRef.current, ...patch };
     draftRef.current = next;
     setDraft(next);
@@ -171,15 +201,20 @@ export function useNewsletterDraft(newsletterId: number | null, enabled: boolean
       : { newsletter: newsletterRef.current, error: newsletterRef.current ? null : GENERIC_ERROR };
   }, []);
 
-  const flush = useCallback(async () => {
+  const flush = useCallback(async (): Promise<SaveOutcome> => {
     await saverRef.current?.flush();
-    return newsletterRef.current;
+    return { newsletter: newsletterRef.current, error: readOnlyRef.current ? null : lastErrorRef.current };
+  }, []);
+
+  const discard = useCallback(() => {
+    discardedRef.current = true;
+    saverRef.current?.cancel();
   }, []);
 
   const adopt = useCallback((n: Newsletter) => take(n, true), [take]);
 
   return {
     loading, loadError, newsletter, draft, readOnly, saveState, saveError, fieldErrors, planRequired,
-    update, saveNow, flush, adopt, setFieldErrors,
+    update, saveNow, flush, discard, adopt, setFieldErrors,
   };
 }

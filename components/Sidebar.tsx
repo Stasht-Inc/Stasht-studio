@@ -14,7 +14,6 @@ import { catalogueAPI } from "../services/catalogueAPI";
 import { CONNECTORS_COUNT_EVENT } from "./connectors/catalog";
 import { useAuth } from "../contexts/AuthContext";
 import { useMemoryCounts } from "../hooks/useMemoryCounts";
-import { MemoryLimitDialog } from "./MemoryLimitDialog";
 import { useUploadProgress } from "../contexts/UploadProgressContext";
 import { useSyncProgress } from "../contexts/SyncProgressContext";
 import { useProperty } from "../contexts/PropertyContext";
@@ -280,7 +279,6 @@ export default function Sidebar({
   const { memoryCounts, refreshMemoryCounts } = useMemoryCounts();
   const { isUploading } = useUploadProgress();
   const { syncProgress, clearSync } = useSyncProgress();
-  const [showMemoryLimitAlert, setShowMemoryLimitAlert] = useState(false);
   const [showCreateMemory, setShowCreateMemory] = useState(false);
   const [videoStep, setVideoStep] = useState<number | null>(null);
   const alvinOn = useAlvinEnabled();
@@ -1088,13 +1086,6 @@ export default function Sidebar({
           setShowCreateMemory(false);
           handleNavigation('media');
         }}
-      />
-
-      <MemoryLimitDialog
-        isOpen={showMemoryLimitAlert}
-        onClose={() => setShowMemoryLimitAlert(false)}
-        memoryCount={limitData?.current_memories}
-        memoryLimit={limitData?.memory_limit}
       />
 
       {videoStep !== null && (
