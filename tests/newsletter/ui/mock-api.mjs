@@ -108,10 +108,11 @@ function previewHtml(n) {
 // NewsletterResultsController: 50 people a page; status filters on the row status, or on opened_at / clicked_at /
 // unsubscribed_at for opened, clicked, unsubscribed; counts = totals + email + sms.
 const RESULTS_PER_PAGE = 50;
-function results(n, params) {
+function results(n, params, extra = {}) {
+  const channels = extra[n.id] ?? CHANNEL_COUNTS[n.id];
   const all = [];
   const people = ['draft', 'scheduled'].includes(n.status) ? 0 : Math.min(n.counts.recipients, 120);
-  const hasSms = (CHANNEL_COUNTS[n.id]?.sms.recipients ?? 0) > 0;
+  const hasSms = (channels?.sms.recipients ?? 0) > 0;
   for (let i = 1; i <= people; i++) {
     const channel = hasSms && i % 3 === 0 ? 'sms' : 'email';
     const status = n.status === 'sending' && i > 30 ? 'queued' : i % 7 === 0 ? 'failed' : i % 5 === 0 ? 'skipped' : n.id === 24 ? 'sent' : 'delivered';
@@ -131,7 +132,7 @@ function results(n, params) {
     || (status === 'opened' ? Boolean(r.opened_at) : status === 'clicked' ? Boolean(r.clicked_at) : status === 'unsubscribed' ? Boolean(r.unsubscribed_at) : r.status === status);
   const rows = all.filter((r) => (!channel || r.channel === channel) && matches(r));
   // Totals plus the same eight numbers per channel (contract note 2).
-  const split = CHANNEL_COUNTS[n.id] ?? { email: { ...n.counts }, sms: { ...COUNTS0 } };
+  const split = channels ?? { email: { ...n.counts }, sms: { ...COUNTS0 } };
   return {
     counts: { ...n.counts, email: split.email, sms: split.sms },
     recipients: {
@@ -167,6 +168,8 @@ export function createMockApi(options = {}) {
     rejectPut: options.rejectPut ?? {},
     // Send / schedule find the newsletter already scheduled (sent from another tab): 409, and it is no longer a draft.
     sendConflict: options.sendConflict ?? false,
+    // Per-channel results counts by newsletter id, on top of the seeded ones.
+    channelCounts: options.channelCounts ?? {},
     // Storeels made with POST /memories.
     storeels: [],
     calls: [],
@@ -366,7 +369,7 @@ export function createMockApi(options = {}) {
         n.status = 'cancelled';
         return ok(n);
       }
-      if (action === 'results') return ok(results(n, params));
+      if (action === 'results') return ok(results(n, params, state.channelCounts));
     }
     return ok([]);
   }

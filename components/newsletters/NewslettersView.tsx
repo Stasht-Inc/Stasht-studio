@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Loader2, Mail, MoreHorizontal, Plus } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '../ui/button';
@@ -15,7 +15,7 @@ import NewsletterResults from './NewsletterResults';
 import { GENERIC_ERROR, PLAN_REQUIRED_ERROR } from './lib/apiResult';
 import { formatCount } from './lib/audience';
 import { NEWSLETTER_FILTERS, NEWSLETTERS_CHANGED_EVENT, announceNewslettersChanged, type NewsletterFilter } from './lib/campaignsView';
-import { ACTION_LABEL, actionsFor, plural, primaryAction, rate, rateBase, whenText, type NewsletterAction } from './lib/newsletterList';
+import { ACTION_LABEL, actionsFor, isLive, listRateBase, plural, primaryAction, rate, whenText, type NewsletterAction } from './lib/newsletterList';
 import { BUTTON_OUTLINE, BUTTON_PRIMARY } from './lib/ui';
 
 const POLL_MS = 30000;
@@ -70,8 +70,13 @@ export default function NewslettersView({ onCreate, onEdit, onToggleMobileSideba
   const [confirm, setConfirm] = useState<{ action: 'cancel' | 'delete'; item: NewsletterSummary } | null>(null);
   const [busyId, setBusyId] = useState<number | null>(null);
 
+  // Only the latest request may update the list (the filter can change while one is on its way).
+  const requestRef = useRef(0);
+
   const load = useCallback(async () => {
+    const request = ++requestRef.current;
     const res = await newslettersAPI.list(filter === 'all' ? undefined : filter);
+    if (request !== requestRef.current) return;
     if (res.ok) {
       setItems(Array.isArray(res.data) ? res.data : []);
       setError(null);
@@ -81,6 +86,8 @@ export default function NewslettersView({ onCreate, onEdit, onToggleMobileSideba
     }
   }, [filter]);
 
+  // A new filter starts from "Loading…", never the previous filter's rows.
+  useEffect(() => { setItems(null); setError(null); }, [filter]);
   useEffect(() => { if (enabled) void load(); }, [enabled, load]);
 
   useEffect(() => {
@@ -90,12 +97,15 @@ export default function NewslettersView({ onCreate, onEdit, onToggleMobileSideba
     return () => window.removeEventListener(NEWSLETTERS_CHANGED_EVENT, onChanged);
   }, [enabled, load]);
 
-  // Scheduled and sending rows change on their own; check every 30 s while any are on screen.
-  const live = Boolean(items?.some((n) => n.status === 'scheduled' || n.status === 'sending'));
+  // Sending rows, and scheduled ones due within about 10 minutes, change on their own: check every 30 s while the
+  // tab is visible (and once on coming back to it).
+  const live = Boolean(items?.some((n) => isLive(n)));
   useEffect(() => {
     if (!enabled || !live) return undefined;
-    const timer = window.setInterval(() => void load(), POLL_MS);
-    return () => window.clearInterval(timer);
+    const timer = window.setInterval(() => { if (!document.hidden) void load(); }, POLL_MS);
+    const onVisible = () => { if (!document.hidden) void load(); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => { window.clearInterval(timer); document.removeEventListener('visibilitychange', onVisible); };
   }, [enabled, live, load]);
 
   const act = async (action: NewsletterAction, item: NewsletterSummary) => {
@@ -109,7 +119,11 @@ export default function NewslettersView({ onCreate, onEdit, onToggleMobileSideba
       const copy = res.data;
       toast.success('Copied. The copy is a draft.', { action: { label: 'Edit', onClick: () => onEdit(copy.id) } });
       announceNewslettersChanged();
-    } else toast.error(res.error ?? GENERIC_ERROR);
+    } else {
+      toast.error(res.error ?? GENERIC_ERROR);
+      // It may be gone (404, deleted elsewhere): show what is there now.
+      void load();
+    }
   };
 
   const runConfirmed = async () => {
@@ -124,8 +138,8 @@ export default function NewslettersView({ onCreate, onEdit, onToggleMobileSideba
       announceNewslettersChanged();
     } else {
       toast.error(res.error ?? GENERIC_ERROR);
-      // 409: it changed status meanwhile (it was sent, or cancelled elsewhere); show where it is now.
-      if (res.conflict) void load();
+      // 409: it changed status meanwhile (sent, or cancelled elsewhere); 404: deleted elsewhere. Show where it is now.
+      void load();
     }
   };
 
@@ -180,7 +194,7 @@ export default function NewslettersView({ onCreate, onEdit, onToggleMobileSideba
           </div>
           <div role="rowgroup" className="divide-y divide-gray-100">
             {items.map((n) => {
-              const base = rateBase(n.counts).base;
+              const base = listRateBase(n.counts);
               const notSent = n.status === 'draft' || n.status === 'scheduled';
               return (
                 <div key={n.id} role="row" className={`${GRID} px-6 py-4 text-sm transition-colors hover:bg-gray-50`}>
@@ -211,7 +225,7 @@ export default function NewslettersView({ onCreate, onEdit, onToggleMobileSideba
                 <span className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-gray-600">
                   <StatusChip status={n.status} />
                   <span>{whenText(n)}</span>
-                  {n.status === 'sent' || n.status === 'sending' ? <span>· {rate(n.counts.opened, rateBase(n.counts).base)} opened</span> : null}
+                  {n.status === 'sent' || n.status === 'sending' ? <span>· {rate(n.counts.opened, listRateBase(n.counts))} opened</span> : null}
                 </span>
               </button>
               <RowMenu item={n} busy={busyId === n.id} onAction={act} />

@@ -73,15 +73,67 @@ export function whenText(n: Pick<NewsletterSummary, 'status' | 'scheduled_at' | 
 }
 
 export function rate(part: number, whole: number): string {
-  return whole > 0 ? `${Math.round((part / whole) * 100)}%` : '—';
+  // Capped: a rate over 100% only ever means a mismatched base.
+  return whole > 0 ? `${Math.min(100, Math.round((part / whole) * 100))}%` : '—';
 }
 
+export type RateLabel = 'of delivered' | 'of sent' | 'of delivered or sent';
+
 /**
- * Open and click rates are out of delivered when the service reports it, otherwise out of sent: email sent
- * through the SendGrid fallback never reports "delivered" (contract note 10).
+ * One channel's base: out of delivered when the service reports it, otherwise out of sent. Email sent through the
+ * SendGrid fallback never reports "delivered" (contract note 10).
  */
 export function rateBase(c: Pick<NewsletterCounts, 'delivered' | 'sent'>): { base: number; label: 'of delivered' | 'of sent' } {
   return c.delivered > 0 ? { base: c.delivered, label: 'of delivered' } : { base: c.sent, label: 'of sent' };
+}
+
+/**
+ * The Results drawer: totals mix channels (SendGrid email with no delivered, texts with it), so the base for All is
+ * each channel's own base added up.
+ */
+export function resultsRateBase(counts: NewsletterResultCounts, channel: ChannelFilter): { base: number; label: RateLabel } {
+  if (channel !== 'all') return rateBase(counts[channel]);
+  const parts = [counts.email, counts.sms].filter((c) => c && c.sent > 0).map(rateBase);
+  if (!parts.length) return rateBase(counts);
+  const labels = new Set(parts.map((p) => p.label));
+  return { base: parts.reduce((sum, p) => sum + p.base, 0), label: labels.size === 1 ? parts[0].label : 'of delivered or sent' };
+}
+
+/** The list has totals only: out of sent, unless everything sent was delivered (then the two are the same). */
+export function listRateBase(c: Pick<NewsletterCounts, 'delivered' | 'sent'>): number {
+  return c.delivered === c.sent ? c.delivered : c.sent;
+}
+
+/**
+ * The Delivered tile. Email services may never report delivery (a dash, and say so); texts are confirmed by the
+ * phone company a little later, so while sending that is what a gap means.
+ */
+export function deliveredTile(c: Pick<NewsletterCounts, 'delivered' | 'sent'>, channel: ChannelFilter, status: NewsletterStatus): { dash: boolean; note: string | null } {
+  if (status === 'sending') {
+    return { dash: false, note: channel === 'sms' && c.delivered < c.sent ? 'Waiting for the phone company to confirm' : null };
+  }
+  if (channel !== 'sms' && c.delivered === 0 && c.sent > 0) return { dash: true, note: 'Not every email service reports this' };
+  return { dash: false, note: null };
+}
+
+const LIVE_WINDOW_MS = 10 * 60 * 1000;
+
+/** Worth checking again soon: sending, or scheduled to go within about 10 minutes (or overdue). */
+export function isLive(n: Pick<NewsletterSummary, 'status' | 'scheduled_at'>, now: Date = new Date()): boolean {
+  if (n.status === 'sending') return true;
+  if (n.status !== 'scheduled' || !n.scheduled_at) return false;
+  const at = new Date(n.scheduled_at).getTime();
+  return Number.isFinite(at) && at <= now.getTime() + LIVE_WINDOW_MS;
+}
+
+/** The drawer's poll fetches results only; it re-reads the newsletter when its status may have moved on. */
+export function needsStatusCheck(n: Pick<NewsletterSummary, 'status' | 'scheduled_at'>, c: NewsletterCounts, now: Date = new Date()): boolean {
+  if (n.status === 'scheduled') {
+    const at = n.scheduled_at ? new Date(n.scheduled_at).getTime() : NaN;
+    return Number.isFinite(at) && at <= now.getTime();
+  }
+  if (n.status === 'sending') return c.recipients > 0 && c.sent + c.failed + c.skipped >= c.recipients;
+  return false;
 }
 
 export type ChannelFilter = 'all' | NewsletterChannel;

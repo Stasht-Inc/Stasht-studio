@@ -15,7 +15,8 @@ import { GENERIC_ERROR } from './lib/apiResult';
 import { formatCount } from './lib/audience';
 import { httpsUrl } from './lib/urls';
 import {
-  CHANNEL_FILTERS, RESULT_STATUS_FILTERS, canCancel, countLabel, countsFor, rate, rateBase, whenText, type ChannelFilter,
+  CHANNEL_FILTERS, RESULT_STATUS_FILTERS, canCancel, countLabel, countsFor, deliveredTile, isLive, listRateBase, needsStatusCheck, rate,
+  resultsRateBase, whenText, type ChannelFilter,
 } from './lib/newsletterList';
 import { BUTTON_SMALL, LABEL, LINK_BUTTON, inputClass } from './lib/ui';
 
@@ -82,33 +83,43 @@ export default function NewsletterResults({ newsletterId, onOpenChange, onChange
   const [cancelling, setCancelling] = useState(false);
   // Only the latest request may update the screen (filters can change while one is on its way).
   const requestRef = useRef(0);
+  const newsletterRef = useRef<Newsletter | null>(null);
+  newsletterRef.current = newsletter;
 
   useEffect(() => {
     setNewsletter(null); setResults(null); setChannel('all'); setStatus(''); setPage(1); setError(null);
   }, [newsletterId]);
 
-  const load = useCallback(async () => {
+  /** withNewsletter false: results only (the poll), unless the status may have moved on. */
+  const load = useCallback(async (withNewsletter = true) => {
     if (newsletterId === null) return;
     const request = ++requestRef.current;
     setLoading(true);
-    const [n, r] = await Promise.all([
-      newslettersAPI.get(newsletterId),
-      newslettersAPI.results(newsletterId, { channel: channel === 'all' ? undefined : channel, status: status || undefined, page }),
-    ]);
+    const query = { channel: channel === 'all' ? undefined : channel, status: status || undefined, page };
+    const current = newsletterRef.current;
+    let n: Awaited<ReturnType<typeof newslettersAPI.get>> | null = null;
+    let r: Awaited<ReturnType<typeof newslettersAPI.results>>;
+    if (withNewsletter || !current) {
+      [n, r] = await Promise.all([newslettersAPI.get(newsletterId), newslettersAPI.results(newsletterId, query)]);
+    } else {
+      r = await newslettersAPI.results(newsletterId, query);
+      if (r.ok && r.data && needsStatusCheck(current, r.data.counts)) n = await newslettersAPI.get(newsletterId);
+    }
     if (request !== requestRef.current) return;
     setLoading(false);
-    if (n.ok && n.data) setNewsletter(n.data);
+    if (n?.ok && n.data) setNewsletter(n.data);
     if (r.ok && r.data) { setResults(r.data); setError(null); } else setError(r.error ?? GENERIC_ERROR);
   }, [newsletterId, channel, status, page]);
 
   useEffect(() => { void load(); }, [load]);
 
-  // While it is going out, keep the numbers moving.
+  // While it is going out (or about to), keep the numbers moving; not while the tab is hidden.
+  const live = newsletter ? isLive(newsletter) : false;
   useEffect(() => {
-    if (newsletterId === null || newsletter?.status !== 'sending') return undefined;
-    const timer = window.setInterval(() => void load(), SENDING_REFRESH_MS);
+    if (newsletterId === null || !live) return undefined;
+    const timer = window.setInterval(() => { if (!document.hidden) void load(false); }, SENDING_REFRESH_MS);
     return () => window.clearInterval(timer);
-  }, [newsletterId, newsletter?.status, load]);
+  }, [newsletterId, live, load]);
 
   const cancel = async () => {
     if (!newsletter) return;
@@ -121,11 +132,16 @@ export default function NewsletterResults({ newsletterId, onOpenChange, onChange
       toast.success('Newsletter cancelled. Nothing more will be sent.');
       onChanged();
       void load();
-    } else toast.error(res.error ?? GENERIC_ERROR);
+    } else {
+      toast.error(res.error ?? GENERIC_ERROR);
+      // 409: it was sent or cancelled meanwhile; show where it is now.
+      if (res.conflict) { void load(); onChanged(); }
+    }
   };
 
   const counts: NewsletterCounts | null = results ? countsFor(results.counts, channel) : newsletter?.counts ?? null;
-  const base = counts ? rateBase(counts) : null;
+  // Per channel in the drawer (totals mix SendGrid email and texts); totals only before results arrive.
+  const base = results ? resultsRateBase(results.counts, channel) : counts ? { base: listRateBase(counts), label: 'of sent' } : null;
   const rows = results?.recipients.data ?? [];
   const meta = results?.recipients.meta;
   const webVersion = httpsUrl(newsletter?.public_url ?? null);
@@ -151,7 +167,7 @@ export default function NewsletterResults({ newsletterId, onOpenChange, onChange
           </div>
         </SheetHeader>
 
-        <div className="min-w-0 space-y-5 px-5 py-5">
+        <div className="min-w-0 space-y-5 px-5 py-5" aria-busy={loading}>
           <div className="flex flex-wrap items-end justify-between gap-3">
             <div>
               <span className={LABEL} aria-hidden="true">Channel</span>
@@ -169,13 +185,14 @@ export default function NewsletterResults({ newsletterId, onOpenChange, onChange
             <div>
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
                 {TILES.map((t) => {
-                  // SendGrid never reports delivered: 0 with messages sent means "not reported", not "none" (contract note 10).
-                  const notReported = t.key === 'delivered' && counts.delivered === 0 && counts.sent > 0;
+                  // SendGrid never reports delivered: 0 with emails sent means "not reported", not "none" (contract
+                  // note 10). Texts are confirmed a little later, so while sending a gap means "waiting".
+                  const tile = t.key === 'delivered' && newsletter ? deliveredTile(counts, channel, newsletter.status) : { dash: false, note: null };
                   return (
                     <div key={t.key} className="min-w-0 rounded-xl border border-gray-200 p-3">
                       <p className="text-xs font-medium text-gray-500">{countLabel(t.key, channel)}</p>
-                      <p className="mt-0.5 text-lg font-bold text-gray-900">{notReported ? '—' : formatCount(counts[t.key])}</p>
-                      {notReported ? <p className="text-xs text-gray-500">Not every email service reports this</p> : null}
+                      <p className="mt-0.5 text-lg font-bold text-gray-900">{tile.dash ? '—' : formatCount(counts[t.key])}</p>
+                      {tile.note ? <p className="text-xs text-gray-500">{tile.note}</p> : null}
                       {t.rated && base ? <p className="text-xs text-gray-500">{rate(counts[t.key], base.base)} {base.label}</p> : null}
                     </div>
                   );

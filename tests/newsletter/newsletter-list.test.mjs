@@ -65,3 +65,65 @@ test('countsFor picks totals or one channel', () => {
   assert.equal(countsFor(counts, 'sms').recipients, 1);
   assert.equal('email' in countsFor(counts, 'all'), false, 'totals only');
 });
+
+// Review fixes (Tasks 13–14).
+import { listRateBase, resultsRateBase, deliveredTile, isLive, needsStatusCheck } from '../../components/newsletters/lib/newsletterList.ts';
+
+const Z = { recipients: 0, sent: 0, delivered: 0, opened: 0, clicked: 0, unsubscribed: 0, failed: 0, skipped: 0 };
+// 1,000 emails through the SendGrid fallback (no delivered) and 100 Twilio texts (all delivered).
+const MIXED = {
+  ...Z, recipients: 1100, sent: 1100, delivered: 100, opened: 420, clicked: 60,
+  email: { ...Z, recipients: 1000, sent: 1000, delivered: 0, opened: 400, clicked: 50 },
+  sms: { ...Z, recipients: 100, sent: 100, delivered: 100, opened: 20, clicked: 10 },
+};
+
+test('rates never go over 100%', () => {
+  assert.equal(rate(420, 100), '100%');
+  assert.equal(rate(50, 100), '50%');
+});
+
+test('drawer rate base is worked out per channel, so mixed channels never pass 100%', () => {
+  assert.deepEqual(resultsRateBase(MIXED, 'all'), { base: 1100, label: 'of delivered or sent' });
+  assert.equal(rate(MIXED.opened, resultsRateBase(MIXED, 'all').base), '38%');
+  assert.deepEqual(resultsRateBase(MIXED, 'email'), { base: 1000, label: 'of sent' });
+  assert.deepEqual(resultsRateBase(MIXED, 'sms'), { base: 100, label: 'of delivered' });
+  const both = { ...Z, sent: 1300, delivered: 1280, email: { ...Z, sent: 1000, delivered: 990 }, sms: { ...Z, sent: 300, delivered: 290 } };
+  assert.deepEqual(resultsRateBase(both, 'all'), { base: 1280, label: 'of delivered' });
+  const sendgridOnly = { ...Z, sent: 300, email: { ...Z, sent: 300 }, sms: { ...Z } };
+  assert.deepEqual(resultsRateBase(sendgridOnly, 'all'), { base: 300, label: 'of sent' });
+});
+
+test('list rate base: totals only, so out of sent unless everything sent was delivered', () => {
+  assert.equal(listRateBase({ sent: 1100, delivered: 100 }), 1100);
+  assert.equal(rate(420, listRateBase({ sent: 1100, delivered: 100 })), '38%');
+  assert.equal(listRateBase({ sent: 300, delivered: 300 }), 300);
+  assert.equal(listRateBase({ sent: 1198, delivered: 1180 }), 1198);
+});
+
+test('delivered tile wording follows the channel and the status', () => {
+  assert.deepEqual(deliveredTile({ sent: 300, delivered: 0 }, 'email', 'sent'), { dash: true, note: 'Not every email service reports this' });
+  assert.deepEqual(deliveredTile({ sent: 300, delivered: 0 }, 'all', 'sent'), { dash: true, note: 'Not every email service reports this' });
+  assert.deepEqual(deliveredTile({ sent: 100, delivered: 0 }, 'sms', 'sent'), { dash: false, note: null });
+  assert.deepEqual(deliveredTile({ sent: 100, delivered: 40 }, 'sms', 'sending'), { dash: false, note: 'Waiting for the phone company to confirm' });
+  assert.deepEqual(deliveredTile({ sent: 300, delivered: 0 }, 'email', 'sending'), { dash: false, note: null });
+  assert.deepEqual(deliveredTile({ sent: 300, delivered: 280 }, 'email', 'sent'), { dash: false, note: null });
+});
+
+test('polling: sending, or scheduled within about 10 minutes', () => {
+  const now = new Date('2026-10-20T12:00:00Z');
+  assert.equal(isLive({ status: 'sending', scheduled_at: null }, now), true);
+  assert.equal(isLive({ status: 'scheduled', scheduled_at: '2026-10-20T12:09:00Z' }, now), true);
+  assert.equal(isLive({ status: 'scheduled', scheduled_at: '2026-10-20T11:50:00Z' }, now), true, 'overdue: about to go');
+  assert.equal(isLive({ status: 'scheduled', scheduled_at: '2026-10-21T12:00:00Z' }, now), false);
+  assert.equal(isLive({ status: 'sent', scheduled_at: null }, now), false);
+  assert.equal(isLive({ status: 'draft', scheduled_at: null }, now), false);
+});
+
+test('the drawer re-reads the newsletter only when its status may have changed', () => {
+  const now = new Date('2026-10-20T12:00:00Z');
+  assert.equal(needsStatusCheck({ status: 'scheduled', scheduled_at: '2026-10-20T11:59:00Z' }, { ...Z }, now), true, 'scheduled time passed');
+  assert.equal(needsStatusCheck({ status: 'scheduled', scheduled_at: '2026-10-20T12:05:00Z' }, { ...Z }, now), false);
+  assert.equal(needsStatusCheck({ status: 'sending', scheduled_at: null }, { ...Z, recipients: 10, sent: 6, failed: 2, skipped: 2 }, now), true, 'nobody left waiting');
+  assert.equal(needsStatusCheck({ status: 'sending', scheduled_at: null }, { ...Z, recipients: 10, sent: 6 }, now), false);
+  assert.equal(needsStatusCheck({ status: 'sending', scheduled_at: null }, { ...Z }, now), false, 'recipient rows not built yet');
+});

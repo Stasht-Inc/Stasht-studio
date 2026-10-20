@@ -38,6 +38,18 @@ function ToolbarButton({ label, onClick, children }: { label: string; onClick():
   );
 }
 
+/** The caret position under the pointer: caretRangeFromPoint (Chrome, Safari) or caretPositionFromPoint (Firefox). */
+function rangeFromPoint(x: number, y: number): Range | null {
+  const doc = document as Document & { caretPositionFromPoint?: (x: number, y: number) => { offsetNode: Node; offset: number } | null };
+  if (typeof document.caretRangeFromPoint === 'function') return document.caretRangeFromPoint(x, y);
+  const pos = doc.caretPositionFromPoint?.(x, y);
+  if (!pos) return null;
+  const range = document.createRange();
+  range.setStart(pos.offsetNode, pos.offset);
+  range.collapse(true);
+  return range;
+}
+
 export default function TextBlockEditor({ blockId, data, selected, readOnly, onChange }: BlockEditorProps<TextBlockData>) {
   const ref = useRef<HTMLDivElement>(null);
   const savedRange = useRef<Range | null>(null);
@@ -115,13 +127,18 @@ export default function TextBlockEditor({ blockId, data, selected, readOnly, onC
     e.preventDefault(); // paste words only, never someone else's HTML
     document.execCommand('insertText', false, e.clipboardData.getData('text/plain'));
   };
-  // Dropped text (or a dragged link or picture) arrives as words only, where it was dropped.
+  // Text dragged within this editor moves as usual (the browser keeps its formatting; the save sanitises it).
+  // Anything dropped from outside (text, a link or a picture) arrives as words only, where it was dropped.
+  const draggingInside = useRef(false);
+  const onDragStart = () => { draggingInside.current = true; };
+  const onDragEnd = () => { draggingInside.current = false; };
   const onDrop = (e: DragEvent<HTMLDivElement>) => {
+    if (draggingInside.current) { draggingInside.current = false; return; }
     e.preventDefault();
     if (readOnly) return;
     const text = e.dataTransfer.getData('text/plain');
     if (!text) return;
-    const at = document.caretRangeFromPoint?.(e.clientX, e.clientY);
+    const at = rangeFromPoint(e.clientX, e.clientY);
     ref.current?.focus();
     if (at && ref.current?.contains(at.startContainer)) {
       const sel = window.getSelection();
@@ -188,7 +205,7 @@ export default function TextBlockEditor({ blockId, data, selected, readOnly, onC
         onBlur={() => { lastRange.current = rangeInEditor()?.cloneRange() ?? lastRange.current; emit(); }}
         onPaste={onPaste}
         onDragOver={(e) => { if (!readOnly) e.preventDefault(); }}
-        onDrop={onDrop}
+        onDrop={onDrop} onDragStart={onDragStart} onDragEnd={onDragEnd}
         onKeyDown={onKeyDown}
         onClick={(e) => { if ((e.target as HTMLElement).closest('a')) e.preventDefault(); }}
         className={`min-h-[1.625rem] break-words outline-none ${TEXT_CLASS}`}

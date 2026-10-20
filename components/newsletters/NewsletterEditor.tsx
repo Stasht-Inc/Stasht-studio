@@ -1,4 +1,4 @@
-import { Fragment, memo, useCallback, useMemo, useRef, useState } from 'react';
+import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import type { BlockType, NewsletterBlock, NewsletterHeader } from '../../services/newslettersAPI';
 import type { NewsletterDraft } from './lib/draft';
@@ -102,6 +102,11 @@ export default function NewsletterEditor({
     handlersRef.current.set(id, made);
     return made;
   }, []);
+  // Forget the callbacks of deleted sections.
+  useEffect(() => {
+    const ids = new Set(blocks.map((b) => b.id));
+    for (const id of handlersRef.current.keys()) if (!ids.has(id)) handlersRef.current.delete(id);
+  }, [blocks]);
   const full = blocks.length >= LIMITS.blocks;
   const phone = device === 'phone';
   // The email narrows its side padding to 20 px under 620 px wide; the phone view and small screens do too.
