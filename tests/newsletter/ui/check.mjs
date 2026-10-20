@@ -30,6 +30,8 @@ const blocked = new Set();
 async function open({ view = 'composer', query = '', width = 1440, height = 1000, api = createMockApi() } = {}) {
   const context = await browser.newContext({ viewport: { width, height }, serviceWorkers: 'block' });
   await context.addInitScript((user) => {
+    // Playwright runs init scripts in every frame; the exact-email preview is a sandboxed iframe with no storage.
+    if (window.top !== window) return;
     localStorage.setItem('stasht_token', 'nl-harness-token');
     localStorage.setItem('stasht_user', JSON.stringify(user));
     localStorage.setItem('view_type', 'personal');
@@ -41,7 +43,8 @@ async function open({ view = 'composer', query = '', width = 1440, height = 1000
     return api.route(route);
   });
   const page = await context.newPage();
-  page.on('pageerror', (e) => pageErrors.push(e.message));
+  // Playwright's own service-worker blocker also runs inside the sandboxed preview iframe and throws there.
+  page.on('pageerror', (e) => { if (!/sandboxed and lacks the 'allow-same-origin' flag/.test(e.message)) pageErrors.push(e.message); });
   await page.goto(`${BASE}/tests/newsletter/ui/harness.html?view=${view}${query}`);
   return { context, page, api };
 }

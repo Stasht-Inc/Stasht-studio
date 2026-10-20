@@ -91,7 +91,7 @@ function previewHtml(n) {
     return '';
   }).join('');
   return `<!doctype html><html><body style="margin:0;background:#f4f4f7;font-family:Arial,sans-serif"><table width="100%"><tr><td align="center">`
-    + `<table width="600" style="background:#fff"><tr><td style="background:${esc(n.header?.background_color || '#6C60FF')};color:#fff;padding:24px;text-align:center">`
+    + `<table width="100%" style="width:100%;max-width:600px;background:#fff"><tr><td style="background:${esc(n.header?.background_color || '#6C60FF')};color:#fff;padding:24px;text-align:center">`
     + `<h1 id="mock-preview-title">${esc(n.header?.title)}</h1></td></tr><tr><td style="padding:24px">${blocks}</td></tr>`
     + `<tr><td style="padding:16px;text-align:center;color:#888;font-size:12px">Powered by Stasht</td></tr></table></td></tr></table></body></html>`;
 }
@@ -277,7 +277,12 @@ export function createMockApi(options = {}) {
         return ok(copy, 201);
       }
       if (action === 'preview') return ok({ html: previewHtml(n) });
-      if (action === 'test') return ok({ sent_to: body?.channel === 'sms' ? '+1 416 555 0100' : 'samantha@serpachrysler.ca' });
+      if (action === 'test') {
+        // NewsletterTestSendController: 422 channel when the profile has no address, 422 sms_text for an empty text.
+        if (body?.channel === 'email' && !state.owner.email) return fail(422, { message: 'Add an email address to your profile to get a test email.', errors: { channel: ['Add an email address to your profile to get a test email.'] } });
+        if (body?.channel === 'sms' && !String(n.sms_text ?? '').trim()) return fail(422, { message: 'Write the text message first.', errors: { sms_text: ['Write the text message first.'] } });
+        return ok({ sent_to: body?.channel === 'sms' ? '+14165550100' : state.owner.email });
+      }
       if (action === 'send' || action === 'schedule') {
         const errors = sendErrors(n);
         if (Object.keys(errors).length) {

@@ -8,14 +8,19 @@ import { useNewsletterBrand } from './hooks/useNewsletterBrand';
 import { useNewsletterDraft } from './hooks/useNewsletterDraft';
 import { useSenderProfile } from './hooks/useSenderProfile';
 import { fieldProblems, type NewsletterDraft } from './lib/draft';
-import { GENERIC_ERROR, PLAN_REQUIRED_ERROR } from './lib/apiResult';
-import { BUTTON_OUTLINE, BUTTON_PRIMARY, BUTTON_SECONDARY, LAYER } from './lib/ui';
+import { GENERIC_ERROR, PLAN_REQUIRED_ERROR, type NlResult } from './lib/apiResult';
+import { BUTTON_OUTLINE, BUTTON_PRIMARY, BUTTON_SECONDARY, LAYER, LINK_BUTTON } from './lib/ui';
 import StepCard from './StepCard';
 import NewsletterEditor from './NewsletterEditor';
 import DeviceToggle, { type PreviewDevice } from './DeviceToggle';
 import TemplatePicker from './TemplatePicker';
 import AudiencePicker from './AudiencePicker';
 import { useAudienceCount } from './hooks/useAudienceCount';
+import { newslettersAPI, type NewsletterChannel } from '../../services/newslettersAPI';
+import ScheduleStep from './ScheduleStep';
+import PreviewDialog from './PreviewDialog';
+import SendTestButton from './SendTestButton';
+import { type ScheduleChoice } from './lib/schedule';
 import SaveIndicator from './SaveIndicator';
 import UpgradeCard from './UpgradeCard';
 import ComposerDialog from './ComposerDialog';
@@ -93,6 +98,37 @@ const NewsletterComposer = forwardRef<NewsletterComposerHandle, NewsletterCompos
   // True after the first Send / Schedule attempt: from then on, unfinished steps and sections show their problems.
   const [attempted, setAttempted] = useState(false);
   void setAttempted; // set by the send checks (Task 12)
+  // Not stored on the draft (alignment decision 7): scheduled_at is set only by /schedule.
+  const [schedule, setSchedule] = useState<ScheduleChoice>({ mode: 'now' });
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [testing, setTesting] = useState(false);
+
+  // The exact email and the test both render the saved draft, so save first (this also creates a new draft).
+  const loadPreview = async (): Promise<NlResult<{ html: string }>> => {
+    const saved = await state.saveNow();
+    if (!saved.newsletter) return { ok: false, error: saved.error ?? GENERIC_ERROR, fieldErrors: {} };
+    return newslettersAPI.preview(saved.newsletter.id);
+  };
+
+  const sendTest = async (channel: NewsletterChannel) => {
+    setTesting(true);
+    const saved = await state.saveNow();
+    if (!saved.newsletter) {
+      setTesting(false);
+      toast.error(saved.error ?? GENERIC_ERROR);
+      return;
+    }
+    const res = await newslettersAPI.sendTest(saved.newsletter.id, channel);
+    setTesting(false);
+    if (res.ok && res.data) toast.success(`Test sent to ${res.data.sent_to}.`);
+    else {
+      // 422 channel (no email / mobile on the profile) or sms_text; 429 the hourly test limit; 502 not sent.
+      if (res.fieldErrors.sms_text) state.setFieldErrors(res.fieldErrors);
+      toast.error(res.fieldErrors.channel ?? res.fieldErrors.sms_text ?? res.error ?? GENERIC_ERROR);
+    }
+  };
+
+  const later = schedule.mode === 'later';
   const saveAddress = async (address: string): Promise<boolean> => {
     const res = await brand.saveAddress(address);
     if (!res.ok) toast.error(res.error ?? GENERIC_ERROR);
@@ -179,7 +215,7 @@ const NewsletterComposer = forwardRef<NewsletterComposerHandle, NewsletterCompos
         <div className="order-3 flex w-full justify-center md:order-none md:w-auto md:flex-1">{switcher}</div>
         <div className="ml-auto flex items-center gap-3">
           <SaveIndicator state={state.saveState} />
-          {enabled ? <div className="hidden items-center gap-2 md:flex">{actionButtons('Send now')}</div> : null}
+          {enabled ? <div className="hidden items-center gap-2 md:flex">{actionButtons(later ? 'Schedule' : 'Send now')}</div> : null}
         </div>
       </header>
 
@@ -238,20 +274,23 @@ const NewsletterComposer = forwardRef<NewsletterComposerHandle, NewsletterCompos
                 <TemplatePicker value={draft.template} readOnly={readOnly} />
               </StepCard>
 
-              {/* Step 6: ScheduleStep (Task 11) */}
-              <StepCard number={6} title="Schedule" id="nl-step-schedule">
-                <p className="text-sm text-gray-600">Send now.</p>
-              </StepCard>
+              <ScheduleStep value={schedule} onChange={setSchedule} readOnly={readOnly} />
 
-              <div className="flex items-center justify-end gap-2 pb-[max(2rem,env(safe-area-inset-bottom))] sm:gap-3">
-                {actionButtons('Send Now', ROW_BUTTON)}
+              <div className="flex flex-col gap-3 pb-[max(2rem,env(safe-area-inset-bottom))] sm:flex-row sm:items-center sm:justify-between">
+                {readOnly || !enabled ? <span /> : <SendTestButton channels={draft.channels} busy={testing} onSend={sendTest} />}
+                <div className="flex items-center justify-end gap-2 sm:gap-3">
+                  {actionButtons(later ? 'Schedule' : 'Send Now', ROW_BUTTON)}
+                </div>
               </div>
             </div>
 
             <aside aria-label="Email preview" className="min-w-0 self-start lg:sticky lg:top-6 lg:max-h-[calc(100vh-7rem)] lg:overflow-y-auto lg:overflow-x-hidden">
               <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
                 <p className="text-xs font-semibold uppercase tracking-[0.12em] text-gray-500">Email preview</p>
-                <DeviceToggle value={device} onChange={setDevice} />
+                <div className="flex items-center gap-3">
+                  <button type="button" onClick={() => setPreviewOpen(true)} className={LINK_BUTTON}>Preview exact email</button>
+                  <DeviceToggle value={device} onChange={setDevice} />
+                </div>
               </div>
               <NewsletterEditor
                 draft={draft}
@@ -269,6 +308,7 @@ const NewsletterComposer = forwardRef<NewsletterComposerHandle, NewsletterCompos
           </div>
         )}
       </div>
+      <PreviewDialog open={previewOpen} onOpenChange={setPreviewOpen} load={loadPreview} />
       <ComposerDialog
         open={unsaved !== null}
         onOpenChange={(o) => { if (!o) setUnsaved(null); }}

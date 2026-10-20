@@ -48,6 +48,7 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
   expect(api.state.newsletters[0]?.reply_to_email === 'sales@serpachrysler.ca', 'fixed reply-to saved');
   await page.locator('aside').getByRole('button', { name: 'Add a section at the top' }).click();
   await expectVisible(page.getByRole('menuitem', { name: /^Title/ }), 'add-section menu open');
+  await page.waitForTimeout(250); // let the menu finish opening (its Escape listener attaches after mount)
   await page.keyboard.press('Escape');
   await page.waitForTimeout(200);
   expect(await page.getByRole('menuitem', { name: /^Title/ }).count() === 0, 'Escape closed the menu');
