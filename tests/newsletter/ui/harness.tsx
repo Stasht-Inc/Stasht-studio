@@ -13,6 +13,38 @@ import ButtonBlockEditor from '../../../components/newsletters/blocks/ButtonBloc
 import DividerBlockEditor from '../../../components/newsletters/blocks/DividerBlockEditor';
 import ImageBlockEditor from '../../../components/newsletters/blocks/ImageBlockEditor';
 import YoutubeBlockEditor from '../../../components/newsletters/blocks/YoutubeBlockEditor';
+import HeaderEditor from '../../../components/newsletters/HeaderEditor';
+import EcardFooter from '../../../components/newsletters/EcardFooter';
+import { useSenderProfile } from '../../../components/newsletters/hooks/useSenderProfile';
+import { newslettersAPI, type NewsletterHeader } from '../../../services/newslettersAPI';
+
+function HeaderGallery() {
+  const [header, setHeader] = useState<NewsletterHeader>({ logo_url: null, banner_url: null, background_color: '#6C60FF', title: 'Serpa Chrysler' });
+  return (
+    <>
+      <HeaderEditor header={header} onChange={setHeader} selected onSelect={() => {}} readOnly={false} />
+      <pre data-testid="gallery-data" className="mx-6 mt-2 whitespace-pre-wrap break-all rounded bg-gray-50 p-2 text-xs text-gray-500">{JSON.stringify(header)}</pre>
+    </>
+  );
+}
+
+function FooterGallery() {
+  const profile = useSenderProfile();
+  const [address, setAddress] = useState<string | null>(null);
+  return (
+    <EcardFooter
+      profile={profile}
+      fromName="Serpa Chrysler"
+      businessAddress={address}
+      readOnly={false}
+      onSaveAddress={async (value) => {
+        const res = await newslettersAPI.updateBrand({ business_address: value });
+        if (res.ok) setAddress(value);
+        return res.ok;
+      }}
+    />
+  );
+}
 
 const params = new URLSearchParams(window.location.search);
 
@@ -47,6 +79,8 @@ const GALLERY: Array<{ name: string; render: () => ReactElement }> = [
   { name: 'Divider', render: () => <Stateful initial={{ style: 'line' as const }}>{(d, set) => <DividerBlockEditor blockId="g-divider" data={d} selected readOnly={false} onChange={set} />}</Stateful> },
   { name: 'Image', render: () => <Stateful initial={{ url: '', alt: '', link: null as string | null }}>{(d, set) => <ImageBlockEditor blockId="g-image" data={d} selected readOnly={false} onChange={set} />}</Stateful> },
   { name: 'YouTube', render: () => <Stateful initial={{ url: '' }}>{(d, set) => <YoutubeBlockEditor blockId="g-youtube" data={d} selected readOnly={false} onChange={set} />}</Stateful> },
+  { name: 'Header', render: () => <HeaderGallery /> },
+  { name: 'Footer', render: () => <FooterGallery /> },
   // New gallery entries go above this line.
 ];
 
