@@ -1,10 +1,10 @@
-import { Fragment, useMemo, useState } from 'react';
+import { Fragment, memo, useCallback, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import type { BlockType, NewsletterHeader } from '../../services/newslettersAPI';
+import type { BlockType, NewsletterBlock, NewsletterHeader } from '../../services/newslettersAPI';
 import type { NewsletterDraft } from './lib/draft';
 import { initialsFrom, type SenderProfile } from './lib/profile';
 import { LIMITS } from './lib/rules';
-import { blocksProblems, createBlock, insertBlock, moveBlock, newBlockId, removeBlock, updateBlockData } from './lib/blocks';
+import { blocksProblems, createBlock, insertBlock, liveBlockProblems, moveBlock, newBlockId, removeBlock, updateBlockData } from './lib/blocks';
 import InboxRow from './InboxRow';
 import HeaderEditor from './HeaderEditor';
 import EcardFooter from './EcardFooter';
@@ -22,8 +22,9 @@ export interface NewsletterEditorProps {
   /** After a Send / Schedule attempt: mark unfinished sections. */
   showProblems: boolean;
   fieldErrors: Record<string, string>;
-  onChange(patch: Partial<NewsletterDraft>): void;
-  onHeaderChange(header: NewsletterHeader): void;
+  /** A patch, or a function of the latest draft (null: nothing to change). */
+  onChange(patch: Partial<NewsletterDraft> | ((latest: NewsletterDraft) => Partial<NewsletterDraft> | null)): void;
+  onHeaderChange(header: NewsletterHeader | ((latest: NewsletterHeader) => NewsletterHeader)): void;
   onSaveAddress(address: string): Promise<boolean>;
 }
 
@@ -36,6 +37,33 @@ function serverBlockError(fieldErrors: Record<string, string>, index: number): s
   return key ? fieldErrors[key] : null;
 }
 
+interface BlockHandlers {
+  onSelect(): void;
+  onMoveUp(): void;
+  onMoveDown(): void;
+  onDelete(): void;
+  onChange(data: Record<string, unknown>): void;
+}
+
+/** One section with its frame. Memoised: typing in one section doesn't re-render the others. */
+const BlockRow = memo(function BlockRow({ block, index, count, selected, readOnly, problem, padClass, handlers }: {
+  block: NewsletterBlock;
+  index: number;
+  count: number;
+  selected: boolean;
+  readOnly: boolean;
+  problem: string | null;
+  padClass: string;
+  handlers: BlockHandlers;
+}) {
+  return (
+    <BlockFrame label={BLOCK_LABEL[block.type]} index={index} count={count} selected={selected} readOnly={readOnly} problem={problem} padClass={padClass}
+      onSelect={handlers.onSelect} onMoveUp={handlers.onMoveUp} onMoveDown={handlers.onMoveDown} onDelete={handlers.onDelete}>
+      <BlockEditor block={block} selected={selected} readOnly={readOnly} onChange={handlers.onChange} />
+    </BlockFrame>
+  );
+});
+
 /**
  * The right-hand EMAIL PREVIEW, edited in place. It is drawn like the email the server sends
  * (emails/newsletter/*.blade.php): grey page, "View in browser", a 600 px white card with the header,
@@ -46,7 +74,34 @@ export default function NewsletterEditor({
 }: NewsletterEditorProps) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const { blocks } = draft;
-  const problems = useMemo(() => (showProblems ? blocksProblems(blocks) : {}), [blocks, showProblems]);
+  // Over-long text shows while typing (it can't be saved); everything else after a Send / Schedule attempt.
+  const problems = useMemo(() => (showProblems ? blocksProblems(blocks) : liveBlockProblems(blocks)), [blocks, showProblems]);
+
+  // Every section's callbacks work on the latest draft (never a copy captured at render), and are made once per
+  // section id so the memoised rows only re-render when their own section changes. An upload that finishes
+  // after its section was deleted finds no section and changes nothing.
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
+  const handlersRef = useRef(new Map<string, BlockHandlers>());
+  const handlersFor = useCallback((id: string): BlockHandlers => {
+    const known = handlersRef.current.get(id);
+    if (known) return known;
+    const onBlocks = (fn: (list: NewsletterBlock[], index: number) => NewsletterBlock[]) => onChangeRef.current((d) => {
+      const index = d.blocks.findIndex((b) => b.id === id);
+      if (index < 0) return null;
+      const next = fn(d.blocks, index);
+      return next === d.blocks ? null : { blocks: next };
+    });
+    const made: BlockHandlers = {
+      onSelect: () => setSelectedId(id),
+      onMoveUp: () => onBlocks((list, index) => moveBlock(list, index, -1)),
+      onMoveDown: () => onBlocks((list, index) => moveBlock(list, index, 1)),
+      onDelete: () => { onBlocks((list) => removeBlock(list, id)); setSelectedId(null); },
+      onChange: (data) => onBlocks((list) => updateBlockData(list, id, data)),
+    };
+    handlersRef.current.set(id, made);
+    return made;
+  }, []);
   const full = blocks.length >= LIMITS.blocks;
   const phone = device === 'phone';
   // The email narrows its side padding to 20 px under 620 px wide; the phone view and small screens do too.
@@ -59,7 +114,7 @@ export default function NewsletterEditor({
       toast.error(`You can add up to ${LIMITS.blocks} sections.`);
       return;
     }
-    onChange({ blocks: next });
+    onChange((d) => ({ blocks: insertBlock(d.blocks, index, block) }));
     setSelectedId(block.id);
   };
   const plus = (index: number, label: string, alwaysVisible = false) =>
@@ -81,22 +136,8 @@ export default function NewsletterEditor({
               {blocks.length === 0 && !readOnly ? <p className={`${padClass} pb-3 text-center text-sm text-gray-500`}>Tap + to add your first section.</p> : null}
               {blocks.map((block, index) => (
                 <Fragment key={block.id}>
-                  <BlockFrame
-                    label={BLOCK_LABEL[block.type]}
-                    index={index}
-                    count={blocks.length}
-                    selected={selectedId === block.id}
-                    readOnly={readOnly}
-                    problem={problems[block.id] ?? serverBlockError(fieldErrors, index)}
-                    padClass={padClass}
-                    onSelect={() => setSelectedId(block.id)}
-                    onMoveUp={() => onChange({ blocks: moveBlock(blocks, index, -1) })}
-                    onMoveDown={() => onChange({ blocks: moveBlock(blocks, index, 1) })}
-                    onDelete={() => { onChange({ blocks: removeBlock(blocks, block.id) }); setSelectedId(null); }}
-                  >
-                    <BlockEditor block={block} selected={selectedId === block.id} readOnly={readOnly}
-                      onChange={(data) => onChange({ blocks: updateBlockData(blocks, block.id, data) })} />
-                  </BlockFrame>
+                  <BlockRow block={block} index={index} count={blocks.length} selected={selectedId === block.id} readOnly={readOnly}
+                    problem={problems[block.id] ?? serverBlockError(fieldErrors, index)} padClass={padClass} handlers={handlersFor(block.id)} />
                   {plus(index + 1, `Add a section after section ${index + 1}`)}
                 </Fragment>
               ))}

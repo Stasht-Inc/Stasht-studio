@@ -6,6 +6,7 @@ import { createAutosaver, type Autosaver } from '../lib/autosave';
 import { draftFromNewsletter, emptyDraft, headerFrom, mergeUntouched, savableChanges, type NewsletterDraft } from '../lib/draft';
 
 export type SaveState = 'idle' | 'saving' | 'saved' | 'error';
+export type DraftPatch = Partial<NewsletterDraft> | ((latest: NewsletterDraft) => Partial<NewsletterDraft> | null);
 export interface SaveOutcome { newsletter: Newsletter | null; error: string | null }
 
 export interface NewsletterDraftState {
@@ -20,7 +21,9 @@ export interface NewsletterDraftState {
   saveError: string | null;
   fieldErrors: Record<string, string>;
   planRequired: boolean;
-  update(patch: Partial<NewsletterDraft>): void;
+  /** A patch, or a function of the latest draft (null: nothing to change). Use the function form from anything
+   *  that finishes later (an upload) or acts on one section, so it never merges a stale copy over newer edits. */
+  update(patch: DraftPatch): void;
   /** Save now, creating the draft if needed. */
   saveNow(): Promise<SaveOutcome>;
   /** Finish any pending save. `error` is set when something is still not saved (a failed save, or a field
@@ -182,8 +185,10 @@ export function useNewsletterDraft(newsletterId: number | null, enabled: boolean
     });
   }, []);
 
-  const update = useCallback((patch: Partial<NewsletterDraft>) => {
+  const update = useCallback((change: DraftPatch) => {
     if (readOnlyRef.current) return;
+    const patch = typeof change === 'function' ? change(draftRef.current) : change;
+    if (!patch || Object.keys(patch).length === 0) return;
     for (const key of Object.keys(patch)) touchedRef.current.add(key);
     discardedRef.current = false;
     const next = { ...draftRef.current, ...patch };

@@ -379,7 +379,7 @@ const NewsletterComposer = forwardRef<NewsletterComposerHandle, NewsletterCompos
                 showProblems={attempted}
                 fieldErrors={state.fieldErrors}
                 onChange={update}
-                onHeaderChange={(header) => update({ header })}
+                onHeaderChange={(next) => update((d) => ({ header: typeof next === 'function' ? next(d.header) : next }))}
                 onSaveAddress={saveAddress}
               />
             </aside>

@@ -138,6 +138,8 @@ export function createMockApi(options = {}) {
     failPuts: options.failPuts ?? 0,
     // How many /user/storage-overview calls fail (500) before it answers: the plan check's "Try again".
     planFailures: options.planFailures ?? 0,
+    // Image uploads answer after this many ms (to act while one is on its way).
+    uploadDelayMs: options.uploadDelayMs ?? 0,
     calls: [],
   };
   const ok = (data, status = 200) => ({ status, json: { success: true, data } });
@@ -342,6 +344,7 @@ export function createMockApi(options = {}) {
     }
     const call = { method: request.method(), path, query: url.search, body };
     state.calls.push(call);
+    if (path === '/newsletters/images' && state.uploadDelayMs) await new Promise((r) => setTimeout(r, state.uploadDelayMs));
     const { status, json } = handle(request.method(), path, url.searchParams, body);
     call.status = status;
     return route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(json) });

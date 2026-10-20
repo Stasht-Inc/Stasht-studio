@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { sanitizeTextHtml, textHtmlIsEmpty, parseTextHtml, decodeEntities, safeLinkHref } from '../../components/newsletters/lib/textHtml.ts';
+import { sanitizeTextHtml, textHtmlIsEmpty, parseTextHtml, decodeEntities, safeLinkHref, editorHtml } from '../../components/newsletters/lib/textHtml.ts';
 
 const NBSP = ' ';
 
@@ -56,4 +56,13 @@ test('emptiness and parse shape', () => {
   assert.equal(textHtmlIsEmpty(null), true);
   assert.equal(textHtmlIsEmpty('<p>x</p>'), false);
   assert.deepEqual(parseTextHtml('<p>a<br>b</p>'), [{ kind: 'el', tag: 'p', children: [{ kind: 'text', text: 'a' }, { kind: 'br' }, { kind: 'text', text: 'b' }] }]);
+});
+
+// Review fix 8: a cleared editor leaves <p><br></p>; it is saved as '' so the placeholder shows.
+test('editorHtml cleans what contentEditable holds and treats a blank editor as empty', () => {
+  assert.equal(editorHtml('<p><br></p>'), '');
+  assert.equal(editorHtml('<div><br></div>'), '');
+  assert.equal(editorHtml('&nbsp;'), '');
+  assert.equal(editorHtml('<b>Hi</b>'), '<p><strong>Hi</strong></p>');
+  assert.equal(safeLinkHref("https://a.ca/it's"), 'https://a.ca/it%27s', 'a quote in an https link is encoded, not refused');
 });

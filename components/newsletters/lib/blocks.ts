@@ -94,7 +94,7 @@ export function blockProblem(block: NewsletterBlock): string | null {
       return block.data.text.length > LIMITS.title ? `Keep titles to ${LIMITS.title} characters.` : null;
     case 'text':
       if (textHtmlIsEmpty(block.data.html)) return 'Write some text, or remove this section.';
-      return block.data.html.length > LIMITS.text_html ? 'This text is too long. Split it into two sections.' : null;
+      return block.data.html.length > LIMITS.text_html ? TEXT_TOO_LONG : null;
     case 'youtube':
       return youtubeVideoId(str(block.data.url)) ? null : 'Paste a YouTube link, like https://www.youtube.com/watch?v=…';
     case 'button':
@@ -105,6 +105,20 @@ export function blockProblem(block: NewsletterBlock): string | null {
     default:
       return null;
   }
+}
+
+const TEXT_TOO_LONG = 'This text is too long. Split it into two sections.';
+
+/** Text sections over the API's html limit: the PUT would refuse the whole draft, so autosave holds them back. */
+export function overLimitTextIds(blocks: readonly NewsletterBlock[]): Set<string> {
+  return new Set(blocks.filter((b) => b.type === 'text' && b.data.html.length > LIMITS.text_html).map((b) => b.id));
+}
+
+/** Problems shown while typing, before any send attempt: only the ones that stop the draft saving. */
+export function liveBlockProblems(blocks: readonly NewsletterBlock[]): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const id of overLimitTextIds(blocks)) out[id] = TEXT_TOO_LONG;
+  return out;
 }
 
 export function blocksProblems(blocks: NewsletterBlock[]): Record<string, string> {

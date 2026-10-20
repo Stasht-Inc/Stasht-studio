@@ -1,14 +1,19 @@
 import { LIMITS } from './rules.ts';
 
-/** A valid https URL with a dotted host, normalised (quotes and spaces encoded), or null. */
+/**
+ * A valid https URL with a dotted host, normalised (quotes and spaces encoded), or null. The API's isHttpsUrl
+ * refuses a ' anywhere and filter_var refuses _ in a host name, and one refused link fails the whole PUT, so ' is
+ * encoded (URL keeps it as is) and such hosts give null.
+ */
 export function httpsUrl(value: unknown): string | null {
   if (typeof value !== 'string') return null;
   const v = value.trim();
   if (!v || v.length > LIMITS.url) return null;
   try {
     const u = new URL(v);
-    if (u.protocol !== 'https:' || !u.hostname.includes('.')) return null;
-    return u.href.length > LIMITS.url ? null : u.href;
+    if (u.protocol !== 'https:' || !u.hostname.includes('.') || u.hostname.includes('_')) return null;
+    const href = u.href.replace(/'/g, '%27');
+    return href.length > LIMITS.url ? null : href;
   } catch {
     return null;
   }
@@ -28,7 +33,7 @@ export function youtubeVideoId(value: string): string | null {
   const url = toHttpsUrl(value ?? '');
   if (!url) return null;
   const u = new URL(url);
-  const host = u.hostname.replace(/^(www|m)\./, '');
+  const host = u.hostname.replace(/^(www|m|music)\./, ''); // as NewsletterContent::youtubeId
   let id: string | null = null;
   if (host === 'youtu.be') {
     id = u.pathname.split('/')[1] || null;

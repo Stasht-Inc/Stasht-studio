@@ -2,7 +2,7 @@ import type {
   AudienceItem, Newsletter, NewsletterBlock, NewsletterChannel, NewsletterHeader, NewsletterInput,
 } from '../../../services/newslettersAPI.ts';
 import { LIMITS, isPlausibleEmail } from './rules.ts';
-import { normaliseBlocks } from './blocks.ts';
+import { normaliseBlocks, overLimitTextIds } from './blocks.ts';
 
 /** What the composer edits. Text fields are never null here ('' instead). */
 export interface NewsletterDraft {
@@ -92,6 +92,20 @@ export function savableChanges(saved: NewsletterDraft, current: NewsletterDraft)
   for (const key of held) {
     delete patch[key];
     nextSaved[key] = saved[key];
+  }
+  // An over-long text section keeps its saved version (a new one is left out); every other section still saves.
+  const tooLong = overLimitTextIds(current.blocks);
+  if (tooLong.size && 'blocks' in patch) {
+    const savedById = new Map(saved.blocks.map((b) => [b.id, b]));
+    const savable = current.blocks.flatMap((b) => {
+      if (!tooLong.has(b.id)) return [b];
+      const before = savedById.get(b.id);
+      return before ? [before] : [];
+    });
+    if (JSON.stringify(savable) === JSON.stringify(saved.blocks)) delete patch.blocks;
+    else patch.blocks = savable;
+    nextSaved.blocks = savable;
+    held.push('blocks');
   }
   return { patch: patch as NewsletterInput, nextSaved: nextSaved as unknown as NewsletterDraft, held };
 }

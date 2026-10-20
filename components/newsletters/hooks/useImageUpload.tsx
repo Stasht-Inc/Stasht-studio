@@ -11,14 +11,20 @@ export function useImageUpload(onUploaded: (url: string) => void, testId?: strin
   const onUploadedRef = useRef(onUploaded);
   onUploadedRef.current = onUploaded;
 
+  // One upload at a time: a second file chosen or dropped while one is on its way is ignored.
+  const busyRef = useRef(false);
+
   const upload = useCallback(async (file: File) => {
+    if (busyRef.current) return;
     const problem = imageFileProblem(file);
     if (problem) {
       toast.error(problem);
       return;
     }
+    busyRef.current = true;
     setUploading(true);
     const res = await newslettersAPI.uploadImage(file);
+    busyRef.current = false;
     setUploading(false);
     const url = res.ok ? httpsUrl(res.data?.url) : null;
     if (url) onUploadedRef.current(url);

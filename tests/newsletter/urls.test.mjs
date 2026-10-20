@@ -31,3 +31,17 @@ test('youtubeVideoId reads watch, short, shorts and embed links', () => {
   assert.equal(youtubeVideoId('https://www.youtube.com/watch?v=short'), null);
   assert.equal(youtubeThumbnail('dQw4w9WgXcQ'), 'https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg');
 });
+
+// Review fix 1: the API's isHttpsUrl refuses ' and filter_var refuses _ in a host name, and one bad link 422s the whole PUT.
+test("httpsUrl encodes ' and refuses host names with _", () => {
+  assert.equal(httpsUrl("https://serpachrysler.ca/it's-here"), 'https://serpachrysler.ca/it%27s-here');
+  assert.equal(httpsUrl("https://a.ca/?q='x'"), 'https://a.ca/?q=%27x%27');
+  assert.equal(httpsUrl('https://my_shop.serpachrysler.ca/'), null);
+  assert.equal(toHttpsUrl("serpachrysler.ca/o'clock"), 'https://serpachrysler.ca/o%27clock');
+  assert.equal(toHttpsUrl('my_shop.ca'), null);
+  assert.equal(httpsUrl('https://a.ca/path_with_underscore'), 'https://a.ca/path_with_underscore', 'underscores in the path are fine');
+});
+
+test('youtubeVideoId accepts music.youtube.com, like the server', () => {
+  assert.equal(youtubeVideoId('https://music.youtube.com/watch?v=dQw4w9WgXcQ'), 'dQw4w9WgXcQ');
+});

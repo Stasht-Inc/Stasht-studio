@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  BLOCK_TYPES, newBlockId, createBlock, insertBlock, moveBlock, removeBlock, updateBlockData, blockProblem, blocksProblems, normaliseBlocks,
+  BLOCK_TYPES, newBlockId, createBlock, insertBlock, moveBlock, removeBlock, updateBlockData, blockProblem, blocksProblems, normaliseBlocks, liveBlockProblems, overLimitTextIds,
 } from '../../components/newsletters/lib/blocks.ts';
 
 const title = (id, text = 'Hi') => ({ id, type: 'title', data: { text, size: 'large' } });
@@ -76,4 +76,13 @@ test('normaliseBlocks turns what the API returns into editor data', () => {
     { id: 'd', type: 'divider', data: { style: 'space' } },
   ]);
   assert.deepEqual(normaliseBlocks(undefined), []);
+});
+
+// Review fix 4: an over-long text shows while typing, not only after a send attempt.
+test('liveBlockProblems flags only over-long text while typing', () => {
+  const long = { id: 't1', type: 'text', data: { html: `<p>${'x'.repeat(20001)}</p>` } };
+  const blocks = [title('a', ''), long, { id: 't2', type: 'text', data: { html: '<p>ok</p>' } }];
+  assert.deepEqual(liveBlockProblems(blocks), { t1: 'This text is too long. Split it into two sections.' });
+  assert.deepEqual([...overLimitTextIds(blocks)], ['t1']);
+  assert.deepEqual(liveBlockProblems([title('a', '')]), {}, 'unfinished sections wait for a send attempt');
 });

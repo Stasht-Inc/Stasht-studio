@@ -106,3 +106,26 @@ test('savableChanges holds back a field that would not pass, and keeps it dirty'
   assert.deepEqual(changedFields(nextSaved, { ...current, reply_to_email: 'sales@serpa.ca' }), { reply_to_email: 'sales@serpa.ca' });
   assert.deepEqual(savableChanges(saved, saved), { patch: {}, nextSaved: saved, held: [] });
 });
+
+// Review fix 4: an over-long text block stays out of the autosave patch (kept dirty) so other edits still save.
+test('savableChanges keeps an over-long text block out of the patch and the rest saves', () => {
+  const saved = { ...draftFromNewsletter(SPEC_NEWSLETTER), blocks: [{ id: 't1', type: 'text', data: { html: '<p>short</p>' } }] };
+  const long = { id: 't1', type: 'text', data: { html: `<p>${'x'.repeat(20001)}</p>` } };
+  const added = { id: 'b9', type: 'title', data: { text: 'New', size: 'large' } };
+  const current = { ...saved, subject: 'New subject', blocks: [long, added] };
+  const { patch, nextSaved, held } = savableChanges(saved, current);
+  assert.equal(patch.subject, 'New subject');
+  assert.deepEqual(patch.blocks, [saved.blocks[0], added], 'the long block keeps its saved version; the new title saves');
+  assert.deepEqual(held, ['blocks']);
+  assert.deepEqual(nextSaved.blocks, [saved.blocks[0], added]);
+  assert.notDeepEqual(nextSaved.blocks, current.blocks, 'still dirty');
+  // A new over-long block that was never saved is left out entirely; nothing else changed, so no blocks in the patch.
+  const fresh = { ...saved, blocks: [saved.blocks[0], { ...long, id: 't2' }] };
+  const r = savableChanges(saved, fresh);
+  assert.equal('blocks' in r.patch, false);
+  assert.deepEqual(r.held, ['blocks']);
+  // Fixed: saves as usual.
+  const fixed = savableChanges(nextSaved, { ...current, blocks: [{ ...long, data: { html: '<p>short again</p>' } }, added] });
+  assert.deepEqual(fixed.held, []);
+  assert.equal(fixed.patch.blocks[0].data.html, '<p>short again</p>');
+});

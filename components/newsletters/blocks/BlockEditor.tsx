@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import type { BlockType, NewsletterBlock } from '../../../services/newslettersAPI';
 import ImageBlockEditor from './ImageBlockEditor';
 import TitleBlockEditor from './TitleBlockEditor';
@@ -10,7 +11,7 @@ export const BLOCK_LABEL: Record<BlockType, string> = {
   image: 'Image', title: 'Title', text: 'Text', youtube: 'YouTube', button: 'Button', divider: 'Divider',
 };
 
-export default function BlockEditor({ block, selected, readOnly, onChange }: {
+function BlockEditor({ block, selected, readOnly, onChange }: {
   block: NewsletterBlock;
   selected: boolean;
   readOnly: boolean;
@@ -26,3 +27,5 @@ export default function BlockEditor({ block, selected, readOnly, onChange }: {
     default: return <DividerBlockEditor {...common} data={block.data} />;
   }
 }
+
+export default memo(BlockEditor);

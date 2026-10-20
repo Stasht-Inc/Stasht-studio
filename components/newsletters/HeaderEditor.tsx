@@ -20,7 +20,8 @@ const BACKGROUNDS = [
  */
 export default function HeaderEditor({ header, onChange, selected, onSelect, readOnly, padClass = 'px-10' }: {
   header: NewsletterHeader;
-  onChange(header: NewsletterHeader): void;
+  /** The new header, or (for uploads, which finish later) a function of the latest one. */
+  onChange(header: NewsletterHeader | ((latest: NewsletterHeader) => NewsletterHeader)): void;
   selected: boolean;
   onSelect(): void;
   readOnly: boolean;
@@ -33,8 +34,8 @@ export default function HeaderEditor({ header, onChange, selected, onSelect, rea
   const ink = contrastInk(color);
   const [mode, setMode] = useState<'color' | 'banner'>(banner ? 'banner' : 'color');
   useEffect(() => { if (banner) setMode('banner'); }, [banner]);
-  const logoUpload = useImageUpload((url) => onChange({ ...header, logo_url: url }), 'nl-logo-input');
-  const bannerUpload = useImageUpload((url) => onChange({ ...header, banner_url: url }), 'nl-banner-input');
+  const logoUpload = useImageUpload((url) => onChange((h) => ({ ...h, logo_url: url })), 'nl-logo-input');
+  const bannerUpload = useImageUpload((url) => onChange((h) => ({ ...h, banner_url: url })), 'nl-banner-input');
   const title = header.title?.trim() ?? '';
   const placeholder = !title && !logo && !readOnly;
 
@@ -44,8 +45,10 @@ export default function HeaderEditor({ header, onChange, selected, onSelect, rea
   };
 
   return (
-    <div role="group" aria-label="Header" tabIndex={-1} onClick={onSelect} onFocusCapture={onSelect}
-      className={`relative outline outline-2 -outline-offset-2 transition-[outline-color] ${selected ? 'outline-[#6C60FF]' : 'outline-transparent hover:outline-[#6C60FF]/30'}`}>
+    // A tab stop of its own (Enter or Space selects it), so the header can be edited without a mouse.
+    <div role="group" aria-label="Header" tabIndex={readOnly ? -1 : 0} onClick={onSelect} onFocusCapture={onSelect}
+      onKeyDown={(e) => { if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); onSelect(); } }}
+      className={`relative outline outline-2 -outline-offset-2 transition-[outline-color] focus-visible:outline-[#6C60FF]/60 ${selected ? 'outline-[#6C60FF]' : 'outline-transparent hover:outline-[#6C60FF]/30'}`}>
       <div style={{ backgroundColor: color }}>
         {banner ? <img src={banner} alt={title} className="block h-auto w-full" /> : null}
         {title || logo || placeholder ? (

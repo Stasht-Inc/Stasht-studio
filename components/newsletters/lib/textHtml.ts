@@ -165,3 +165,10 @@ function plainText(nodes: TextNode[]): string {
 export function textHtmlIsEmpty(html: string | null | undefined): boolean {
   return plainText(parseTextHtml(html)).split(NBSP).join(' ').trim() === '';
 }
+
+/** What the text editor holds (contentEditable's innerHTML), cleaned for saving. A blank editor (Chrome leaves
+ *  <p><br></p> behind) is '', so the placeholder shows and the section counts as empty. */
+export function editorHtml(raw: string): string {
+  const html = sanitizeTextHtml(raw);
+  return textHtmlIsEmpty(html) ? '' : html;
+}
