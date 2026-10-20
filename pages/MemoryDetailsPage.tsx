@@ -15322,6 +15322,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                             <Activity className="w-12 h-12 text-gray-400 mx-auto mb-4" />
                             <h3 className="text-lg font-medium text-gray-900 mb-2">No moments yet</h3>
                             <p className="text-gray-500 mb-4">Start capturing campaigns by adding your first moment.</p>
+                            {!isInventoryDetail && (
                             <Button
                               onClick={() => setIsAddMomentModalOpen(true)}
                               className="bg-[#6C60FF] hover:bg-[#5A52E6] text-white"
@@ -15330,6 +15331,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                               <ImageIcon className="w-4 h-4 mr-2" />
                               Add First Moment
                             </Button>
+                            )}
                           </div>
                         )}
                         {/* Pinned "Share Request a Moment" buttons — always after the last item */}
