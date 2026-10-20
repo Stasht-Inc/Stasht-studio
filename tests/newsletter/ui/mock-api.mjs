@@ -156,17 +156,24 @@ export function createMockApi(options = {}) {
     return { email: channels.includes('email') ? email : 0, sms: channels.includes('sms') ? sms : 0, skipped: { no_email: 24, no_phone: 0, unsubscribed: 3, duplicate: 11 } };
   }
 
+  // NewsletterSendCheck::assertReady (plus the reply-to rule for an account with no email).
   function sendErrors(n) {
     if (state.sendErrors) return state.sendErrors;
     const errors = {};
-    if (!n.subject) errors.subject = ['Add a subject line.'];
-    if (!n.blocks?.length) errors.blocks = ['Add at least one section.'];
-    // PUT keeps unfinished sections; send names each one (contract note 6).
-    (n.blocks || []).forEach((b, i) => {
-      if (b.type === 'image' && !b.data?.url) (errors.blocks ||= []).push(`Section ${i + 1} (Image) needs a picture.`);
-    });
-    if (!n.channels?.length) errors.channels = ['Choose email, text or both.'];
-    if (!state.brand.business_address) errors.business_address = ['Add your business address.'];
+    const channels = (n.channels || []).filter((c) => c === 'email' || c === 'sms');
+    if (!String(n.subject ?? '').trim()) errors.subject = ['Add a subject line.'];
+    // PUT keeps unfinished sections; send names the first one (contract note 6).
+    const missing = (n.blocks || []).flatMap((b, i) => (b.type === 'image' && !b.data?.url ? [`Section ${i + 1} (Image) needs a picture.`] : []));
+    if (!n.blocks?.length) errors.blocks = ['Add at least one section to your newsletter.'];
+    else if (missing.length) errors.blocks = [missing[0]];
+    if (!channels.length) errors.channels = ['Choose email, text message or both.'];
+    if (channels.includes('sms') && !String(n.sms_text ?? '').trim()) errors.sms_text = ['Write the text message people will get.'];
+    if (!String(state.brand.business_address ?? '').trim()) errors.business_address = ['Add your business address. It is shown at the bottom of every newsletter.'];
+    if (channels.length) {
+      const c = audienceCount(n.audience, channels);
+      if (channels.reduce((sum, ch) => sum + c[ch], 0) === 0) errors.audience = ['No one on your recipient lists can be reached by the channels you chose.'];
+    }
+    if (channels.includes('email') && !n.reply_to_email && !state.owner.email) errors.reply_to_email = ['Add a reply-to email so people can answer you.'];
     return errors;
   }
 
@@ -284,6 +291,13 @@ export function createMockApi(options = {}) {
         return ok({ sent_to: body?.channel === 'sms' ? '+14165550100' : state.owner.email });
       }
       if (action === 'send' || action === 'schedule') {
+        if (n.status !== 'draft') return fail(409, { success: false, message: 'Only drafts can be sent. Duplicate this newsletter to send it again.' });
+        // NewsletterSendController::schedule validates scheduled_at before the send checks.
+        if (action === 'schedule') {
+          const at = Date.parse(body?.scheduled_at ?? '');
+          if (!at) return fail(422, { message: 'Pick a date and time.', errors: { scheduled_at: ['Pick a date and time.'] } });
+          if (at <= Date.now()) return fail(422, { message: 'Pick a time in the future.', errors: { scheduled_at: ['Pick a time in the future.'] } });
+        }
         const errors = sendErrors(n);
         if (Object.keys(errors).length) {
           // Allowance 422 carries a top-level {channel, needed, remaining} (contract note 4).
@@ -291,7 +305,9 @@ export function createMockApi(options = {}) {
         }
         const c = audienceCount(n.audience, n.channels);
         n.status = 'scheduled';
-        n.scheduled_at = action === 'send' ? now() : body?.scheduled_at;
+        n.scheduled_at = action === 'send' ? now() : new Date(body.scheduled_at).toISOString();
+        n.from_name ||= state.owner.name;
+        n.reply_to_email ||= state.owner.email;
         n.counts = { ...COUNTS0, recipients: c.email + c.sms };
         return ok(n);
       }

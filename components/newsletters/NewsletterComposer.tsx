@@ -16,11 +16,13 @@ import DeviceToggle, { type PreviewDevice } from './DeviceToggle';
 import TemplatePicker from './TemplatePicker';
 import AudiencePicker from './AudiencePicker';
 import { useAudienceCount } from './hooks/useAudienceCount';
-import { newslettersAPI, type NewsletterChannel } from '../../services/newslettersAPI';
+import { newslettersAPI, type Newsletter, type NewsletterChannel } from '../../services/newslettersAPI';
 import ScheduleStep from './ScheduleStep';
 import PreviewDialog from './PreviewDialog';
 import SendTestButton from './SendTestButton';
-import { type ScheduleChoice } from './lib/schedule';
+import { formatSendTime, type ScheduleChoice } from './lib/schedule';
+import { firstProblemStep, preSendProblems, stepDomId, stepErrorsFrom, type StepKey } from './lib/sendChecks';
+import SendConfirmDialog from './SendConfirmDialog';
 import SaveIndicator from './SaveIndicator';
 import UpgradeCard from './UpgradeCard';
 import ComposerDialog from './ComposerDialog';
@@ -49,6 +51,9 @@ const STATUS_WORDS: Record<string, string> = { scheduled: 'scheduled', sending: 
 
 const PLAN_CHECK_PATIENCE_MS = 20000;
 
+// 422 keys shown under their own field (so the step card doesn't repeat them).
+const INLINE_KEYS = new Set(['name', 'from_name', 'reply_to_email', 'subject', 'preview_text', 'audience', 'channels', 'sms_text']);
+
 // Phones: the three buttons share the row; from sm up they keep their natural width.
 const ROW_BUTTON = 'min-w-0 flex-1 whitespace-nowrap px-2 sm:flex-none sm:px-5';
 
@@ -56,6 +61,7 @@ const NewsletterComposer = forwardRef<NewsletterComposerHandle, NewsletterCompos
   { newsletterId, switcher, hidden = false, onClose, onChanged, onSwitchToStoreel },
   ref,
 ) {
+  const rootRef = useRef<HTMLDivElement>(null);
   const nameRef = useRef<HTMLInputElement | null>(null);
   // focusName() can arrive while the plan is still loading (no name field yet): focus it once it mounts.
   const focusNamePendingRef = useRef(false);
@@ -97,7 +103,6 @@ const NewsletterComposer = forwardRef<NewsletterComposerHandle, NewsletterCompos
   const [device, setDevice] = useState<PreviewDevice>('desktop');
   // True after the first Send / Schedule attempt: from then on, unfinished steps and sections show their problems.
   const [attempted, setAttempted] = useState(false);
-  void setAttempted; // set by the send checks (Task 12)
   // Not stored on the draft (alignment decision 7): scheduled_at is set only by /schedule.
   const [schedule, setSchedule] = useState<ScheduleChoice>({ mode: 'now' });
   const [previewOpen, setPreviewOpen] = useState(false);
@@ -129,6 +134,65 @@ const NewsletterComposer = forwardRef<NewsletterComposerHandle, NewsletterCompos
   };
 
   const later = schedule.mode === 'later';
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [starting, setStarting] = useState(false);
+
+  // A 403 plan_required from any call: apiRequest has already asked App to open the upgrade plans, which sit
+  // under this layer, so step out of the way.
+  useEffect(() => {
+    if (state.planRequired) onClose();
+  }, [state.planRequired, onClose]);
+
+  // Studio's own checks once Send was pressed, then the API's 422 answer. Keys a step's fields already show
+  // (name, from, subject, recipients' audience / channels / text) appear under the field, not twice.
+  const problems = attempted ? preSendProblems(draft, audienceCount.counts, schedule) : {};
+  const serverSteps = stepErrorsFrom(Object.fromEntries(Object.entries(state.fieldErrors).filter(([key]) => !INLINE_KEYS.has(key.split('.')[0]))));
+  const stepError = (key: StepKey): string | undefined => problems[key] ?? serverSteps[key];
+
+  const showStep = (key: StepKey) => {
+    const el = document.getElementById(stepDomId(key));
+    el?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    el?.focus({ preventScroll: true });
+  };
+
+  const startSend = async () => {
+    setAttempted(true);
+    const first = firstProblemStep(preSendProblems(draft, audienceCount.counts, schedule));
+    if (first) {
+      showStep(first);
+      toast.error('Finish the steps marked in red, then try again.');
+      return;
+    }
+    setStarting(true);
+    const saved = await state.saveNow();
+    setStarting(false);
+    if (!saved.newsletter) {
+      toast.error(saved.error ?? GENERIC_ERROR);
+      return;
+    }
+    setConfirmOpen(true);
+  };
+
+  const onSent = (n: Newsletter) => {
+    setConfirmOpen(false);
+    state.adopt(n);
+    toast.success(later ? `Scheduled for ${formatSendTime(n.scheduled_at)}.` : 'Sending now. Follow it in Campaigns › Newsletters.');
+    onChanged?.();
+    onClose();
+  };
+
+  const onSendFailed = (res: NlResult<Newsletter>) => {
+    setConfirmOpen(false);
+    if (res.planRequired) { onClose(); return; }
+    state.setFieldErrors(res.fieldErrors);
+    const first = firstProblemStep(stepErrorsFrom(res.fieldErrors));
+    if (first) {
+      showStep(first);
+      toast.error('Finish the steps marked in red, then try again.');
+    } else {
+      toast.error(res.error ?? GENERIC_ERROR);
+    }
+  };
   const saveAddress = async (address: string): Promise<boolean> => {
     const res = await brand.saveAddress(address);
     if (!res.ok) toast.error(res.error ?? GENERIC_ERROR);
@@ -190,14 +254,27 @@ const NewsletterComposer = forwardRef<NewsletterComposerHandle, NewsletterCompos
     <>
       <button type="button" onClick={close} disabled={closing} className={`${BUTTON_OUTLINE} ${extra}`}>Cancel</button>
       <button type="button" onClick={saveDraft} disabled={!enabled || readOnly || state.saveState === 'saving'} className={`${BUTTON_SECONDARY} ${extra}`}>Save Draft</button>
-      <button type="button" disabled className={`${BUTTON_PRIMARY} ${extra}`}><Globe className={`h-4 w-4 flex-shrink-0 ${extra ? 'hidden min-[400px]:block' : ''}`} aria-hidden="true" />{sendLabel}</button>
+      <button type="button" onClick={startSend} disabled={!enabled || readOnly || starting} className={`${BUTTON_PRIMARY} ${extra}`}>
+        {starting ? <Loader2 className="h-4 w-4 flex-shrink-0 animate-spin" aria-hidden="true" /> : <Globe className={`h-4 w-4 flex-shrink-0 ${extra ? 'hidden min-[400px]:block' : ''}`} aria-hidden="true" />}{sendLabel}
+      </button>
     </>
   );
 
   return (
     // Focus stays inside while the composer shows (Radix popovers and dialogs inside pause this trap).
-    <FocusScope asChild loop trapped={!hidden}>
+    <FocusScope
+      asChild
+      loop
+      trapped={!hidden}
+      // Don't jump to the first button (Back) with a focus ring: a new draft focuses its name field itself;
+      // otherwise the layer itself takes focus.
+      onMountAutoFocus={(e) => {
+        e.preventDefault();
+        if (!rootRef.current?.contains(document.activeElement)) rootRef.current?.focus({ preventScroll: true });
+      }}
+    >
     <div
+      ref={rootRef}
       role="dialog"
       aria-modal="true"
       aria-labelledby="nl-composer-title"
@@ -251,7 +328,7 @@ const NewsletterComposer = forwardRef<NewsletterComposerHandle, NewsletterCompos
                 </p>
               ) : null}
 
-              <NameStep value={draft.name} onChange={(name) => update({ name })} fieldError={fieldError('name')} readOnly={readOnly} inputRef={setNameInput} autoFocus={!newsletterId} />
+              <NameStep value={draft.name} onChange={(name) => update({ name })} fieldError={fieldError('name')} stepError={stepError('name')} readOnly={readOnly} inputRef={setNameInput} autoFocus={!newsletterId} />
 
               <AudiencePicker
                 audience={draft.audience}
@@ -261,20 +338,21 @@ const NewsletterComposer = forwardRef<NewsletterComposerHandle, NewsletterCompos
                 readOnly={readOnly}
                 enabled={enabled}
                 fieldErrors={{ ...state.fieldErrors, ...live }}
+                stepError={stepError('recipients')}
                 onChange={update}
               />
 
               <FromStep fromName={draft.from_name} replyTo={draft.reply_to_email} onChange={update}
-                errors={{ from_name: fieldError('from_name'), reply_to_email: fieldError('reply_to_email') }} readOnly={readOnly} />
+                errors={{ from_name: fieldError('from_name'), reply_to_email: fieldError('reply_to_email') }} stepError={stepError('from')} readOnly={readOnly} />
 
               <SubjectStep subject={draft.subject} previewText={draft.preview_text} onChange={update}
-                errors={{ subject: fieldError('subject'), preview_text: fieldError('preview_text') }} readOnly={readOnly} />
+                errors={{ subject: fieldError('subject'), preview_text: fieldError('preview_text') }} stepError={stepError('subject')} readOnly={readOnly} />
 
-              <StepCard number={5} title="Content" id="nl-step-content">
+              <StepCard number={5} title="Content" id="nl-step-content" error={stepError('content')}>
                 <TemplatePicker value={draft.template} readOnly={readOnly} />
               </StepCard>
 
-              <ScheduleStep value={schedule} onChange={setSchedule} readOnly={readOnly} />
+              <ScheduleStep value={schedule} onChange={setSchedule} stepError={stepError('schedule')} readOnly={readOnly} />
 
               <div className="flex flex-col gap-3 pb-[max(2rem,env(safe-area-inset-bottom))] sm:flex-row sm:items-center sm:justify-between">
                 {readOnly || !enabled ? <span /> : <SendTestButton channels={draft.channels} busy={testing} onSend={sendTest} />}
@@ -309,6 +387,19 @@ const NewsletterComposer = forwardRef<NewsletterComposerHandle, NewsletterCompos
         )}
       </div>
       <PreviewDialog open={previewOpen} onOpenChange={setPreviewOpen} load={loadPreview} />
+      <SendConfirmDialog
+        open={confirmOpen}
+        onOpenChange={setConfirmOpen}
+        newsletterId={state.newsletter?.id ?? null}
+        channels={draft.channels}
+        counts={audienceCount.counts}
+        countsLoading={audienceCount.loading}
+        schedule={schedule}
+        businessAddress={brand.brand?.business_address ?? null}
+        onSaveAddress={saveAddress}
+        onSent={onSent}
+        onFailed={onSendFailed}
+      />
       <ComposerDialog
         open={unsaved !== null}
         onOpenChange={(o) => { if (!o) setUnsaved(null); }}
