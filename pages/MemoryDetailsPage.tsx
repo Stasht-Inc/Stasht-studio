@@ -7803,7 +7803,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
     return (
       <div className="relative mt-8">
         <div className="border-b border-dashed border-[#6C60FF]/40 group-hover/border:border-[#6C60FF]/40" />
-        <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 opacity-0 group-hover/border:opacity-100 transition-opacity duration-200 z-10">
+        <div className={`absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 opacity-0 group-hover/border:opacity-100 transition-opacity duration-200 z-10 ${isInventoryDetail ? 'hidden' : ''}`}>
           <Popover>
             <PopoverTrigger asChild>
               <div className="w-7 h-7 rounded-full border border-[#6C60FF] bg-white hover:bg-[#6C60FF]/10 flex items-center justify-center cursor-pointer transition-colors duration-200">
@@ -7880,7 +7880,8 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
     );
   };
 
-  const renderPlusDivider = (key: string, afterPostId?: string) => (
+  // No "add between posts" on read-only inventory (cars, catalogue products).
+  const renderPlusDivider = (key: string, afterPostId?: string) => isInventoryDetail ? null : (
     <div className="relative flex items-center justify-center h-10 md:hidden" style={{ zIndex: 10 }}>
       {/* Purple horizontal line */}
       <div className="absolute left-0 right-0 h-px bg-[#6C60FF]" />
@@ -9477,7 +9478,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                           <div className="flex items-center gap-1.5 mt-1 text-gray-400 text-sm"><span>Now</span></div>
                           <div className="relative mt-8">
                             <div className="border-b border-dashed border-[#6C60FF]/40 group-hover/border:border-[#6C60FF]/40" />
-                            <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 opacity-0 group-hover/border:opacity-100 transition-opacity duration-200 z-10">
+                            <div className={`absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 opacity-0 group-hover/border:opacity-100 transition-opacity duration-200 z-10 ${isInventoryDetail ? 'hidden' : ''}`}>
                               <Popover><PopoverTrigger asChild><div className="w-7 h-7 rounded-full border border-[#6C60FF] bg-white hover:bg-[#6C60FF]/10 flex items-center justify-center cursor-pointer"><Plus className="w-4 h-4 text-[#6C60FF]" /></div></PopoverTrigger>
                                 <PopoverContent side="right" align="center" className="w-80 p-0 rounded-xl shadow-lg border border-gray-200 bg-white" sideOffset={8}>
                                   <div className="p-4 pb-2"><h4 className="text-base font-semibold text-gray-900">Add Widget</h4><p className="text-sm text-gray-500">Choose a widget to add to your timeline</p></div>
@@ -9558,7 +9559,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                 </div>
                                 <div className="relative mt-8">
                                   <div className="border-b border-dashed border-[#6C60FF]/40 group-hover/border:border-[#6C60FF]/40" />
-                                  <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 opacity-0 group-hover/border:opacity-100 transition-opacity duration-200 z-10">
+                                  <div className={`absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 opacity-0 group-hover/border:opacity-100 transition-opacity duration-200 z-10 ${isInventoryDetail ? 'hidden' : ''}`}>
                                     <Popover><PopoverTrigger asChild><div className="w-7 h-7 rounded-full border border-[#6C60FF] bg-white hover:bg-[#6C60FF]/10 flex items-center justify-center cursor-pointer"><Plus className="w-4 h-4 text-[#6C60FF]" /></div></PopoverTrigger>
                                       <PopoverContent side="right" align="center" className="w-80 p-0 rounded-xl shadow-lg border border-gray-200 bg-white" sideOffset={8}>
                                         <div className="p-4 pb-2"><h4 className="text-base font-semibold text-gray-900">Add Widget</h4><p className="text-sm text-gray-500">Choose a widget to add to your timeline</p></div>
@@ -9773,7 +9774,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
 
         {/* Add Moment Modal */}
         <AddMomentModal
-          isOpen={isAddMomentModalOpen}
+          isOpen={isAddMomentModalOpen && !isInventoryDetail} // never on read-only inventory (cars, catalogue products)
           onClose={() => {
             setIsAddMomentModalOpen(false);
             insertAfterPostIdRef.current = null; setInsertAfterPostId(null);
@@ -12562,6 +12563,8 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                 <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mr-1"><path d="M15 18l-6-6 6-6"/></svg>
                                 Back
                               </Button>
+                              {/* Edit Cover: none on read-only inventory (cars, catalogue products) */}
+                              {!isInventoryDetail && (
                               <div className="flex items-center gap-1">
                                 {/* Edit Cover - directly opens file picker on mobile (no intermediate modal) */}
                                 <label
@@ -12658,6 +12661,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                   </>
                                 )}
                               </div>
+                              )}
                             </div>
                             )}
                             {/* Mobile - Publish button (top-right), hidden when cover video is playing and on read-only inventory */}
@@ -12725,7 +12729,8 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                 )}
                               </div>
                             )}
-                            {/* Desktop - popover with options */}
+                            {/* Desktop - popover with options (no cover edits on read-only inventory) */}
+                            {!isInventoryDetail && (
                             <Popover open={isCoverPhotoMenuOpen} onOpenChange={setIsCoverPhotoMenuOpen}>
                               <PopoverTrigger asChild>
                                 <Button
@@ -12788,6 +12793,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                 </div>
                               </PopoverContent>
                             </Popover>
+                            )}
                           </div>
                         </div>
                       )}
@@ -13549,7 +13555,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                         </div>
                         <div className="relative mt-8">
                           <div className="border-b border-dashed border-[#6C60FF]/40 group-hover/border:border-[#6C60FF]/40" />
-                          <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 opacity-0 group-hover/border:opacity-100 transition-opacity duration-200 z-10">
+                          <div className={`absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 opacity-0 group-hover/border:opacity-100 transition-opacity duration-200 z-10 ${isInventoryDetail ? 'hidden' : ''}`}>
                             <Popover>
                               <PopoverTrigger asChild>
                                 <div className="w-7 h-7 rounded-full border border-[#6C60FF] bg-white hover:bg-[#6C60FF]/10 flex items-center justify-center cursor-pointer transition-colors duration-200">
@@ -13681,7 +13687,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                             </div>
                             <div className="relative mt-8">
                               <div className="border-b border-dashed border-[#6C60FF]/40 group-hover/border:border-[#6C60FF]/40" />
-                              <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 opacity-0 group-hover/border:opacity-100 transition-opacity duration-200 z-10">
+                              <div className={`absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 opacity-0 group-hover/border:opacity-100 transition-opacity duration-200 z-10 ${isInventoryDetail ? 'hidden' : ''}`}>
                                 <Popover>
                                   <PopoverTrigger asChild>
                                     <div className="w-7 h-7 rounded-full border border-[#6C60FF] bg-white hover:bg-[#6C60FF]/10 flex items-center justify-center cursor-pointer transition-colors duration-200">
@@ -13851,7 +13857,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                             </div>
                             <div className="relative mt-8">
                               <div className="border-b border-dashed border-[#6C60FF]/40 group-hover/border:border-[#6C60FF]/40" />
-                              <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 opacity-0 group-hover/border:opacity-100 transition-opacity duration-200 z-10">
+                              <div className={`absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 opacity-0 group-hover/border:opacity-100 transition-opacity duration-200 z-10 ${isInventoryDetail ? 'hidden' : ''}`}>
                                 <Popover>
                                   <PopoverTrigger asChild>
                                     <div className="w-7 h-7 rounded-full border border-[#6C60FF] bg-white hover:bg-[#6C60FF]/10 flex items-center justify-center cursor-pointer transition-colors duration-200">
@@ -13984,7 +13990,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                             </div>
                             <div className="relative mt-8">
                               <div className="border-b border-dashed border-[#6C60FF]/40 group-hover/border:border-[#6C60FF]/40" />
-                              <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 opacity-0 group-hover/border:opacity-100 transition-opacity duration-200 z-10">
+                              <div className={`absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 opacity-0 group-hover/border:opacity-100 transition-opacity duration-200 z-10 ${isInventoryDetail ? 'hidden' : ''}`}>
                                 <Popover>
                                   <PopoverTrigger asChild>
                                     <div className="w-7 h-7 rounded-full border border-[#6C60FF] bg-white hover:bg-[#6C60FF]/10 flex items-center justify-center cursor-pointer transition-colors duration-200">
@@ -14224,7 +14230,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                             </div>
                             <div className="relative mt-8">
                               <div className="border-b border-dashed border-[#6C60FF]/40 group-hover/border:border-[#6C60FF]/40" />
-                              <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 opacity-0 group-hover/border:opacity-100 transition-opacity duration-200 z-10">
+                              <div className={`absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 opacity-0 group-hover/border:opacity-100 transition-opacity duration-200 z-10 ${isInventoryDetail ? 'hidden' : ''}`}>
                                 <Popover>
                                   <PopoverTrigger asChild>
                                     <div className="w-7 h-7 rounded-full border border-[#6C60FF] bg-white hover:bg-[#6C60FF]/10 flex items-center justify-center cursor-pointer transition-colors duration-200">
@@ -14360,7 +14366,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                 </div>
                                 <div className="relative mt-8">
                                   <div className="border-b border-dashed border-[#6C60FF]/40 group-hover/border:border-[#6C60FF]/40" />
-                                  <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 opacity-0 group-hover/border:opacity-100 transition-opacity duration-200 z-10">
+                                  <div className={`absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 opacity-0 group-hover/border:opacity-100 transition-opacity duration-200 z-10 ${isInventoryDetail ? 'hidden' : ''}`}>
                                     <Popover>
                                       <PopoverTrigger asChild>
                                         <div className="w-7 h-7 rounded-full border border-[#6C60FF] bg-white hover:bg-[#6C60FF]/10 flex items-center justify-center cursor-pointer transition-colors duration-200">
@@ -14529,7 +14535,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                 </div>
                                 <div className="relative mt-8">
                                   <div className="border-b border-dashed border-[#6C60FF]/40 group-hover/border:border-[#6C60FF]/40" />
-                                  <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 opacity-0 group-hover/border:opacity-100 transition-opacity duration-200 z-10">
+                                  <div className={`absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 opacity-0 group-hover/border:opacity-100 transition-opacity duration-200 z-10 ${isInventoryDetail ? 'hidden' : ''}`}>
                                     <Popover>
                                       <PopoverTrigger asChild>
                                         <div className="w-7 h-7 rounded-full border border-[#6C60FF] bg-white hover:bg-[#6C60FF]/10 flex items-center justify-center cursor-pointer transition-colors duration-200">
@@ -14661,7 +14667,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                 </div>
                                 <div className="relative mt-8">
                                   <div className="border-b border-dashed border-[#6C60FF]/40 group-hover/border:border-[#6C60FF]/40" />
-                                  <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 opacity-0 group-hover/border:opacity-100 transition-opacity duration-200 z-10">
+                                  <div className={`absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 opacity-0 group-hover/border:opacity-100 transition-opacity duration-200 z-10 ${isInventoryDetail ? 'hidden' : ''}`}>
                                     <Popover>
                                       <PopoverTrigger asChild>
                                         <div className="w-7 h-7 rounded-full border border-[#6C60FF] bg-white hover:bg-[#6C60FF]/10 flex items-center justify-center cursor-pointer transition-colors duration-200">
@@ -14912,8 +14918,8 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                         )}
                       </div>
 
-                      {/* Edit Introduction Button - Outside overflow-hidden so popover isn't clipped */}
-                      {!isSuggestedCategory && (
+                      {/* Edit Introduction Button - Outside overflow-hidden so popover isn't clipped (none on read-only inventory) */}
+                      {!isSuggestedCategory && !isInventoryDetail && (
                         <div className="absolute top-0 left-0 right-0 p-4 z-10">
                           <div className="flex items-start justify-end">
                             <Popover open={isCenterCoverPhotoMenuOpen} onOpenChange={setIsCenterCoverPhotoMenuOpen}>
@@ -15468,7 +15474,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                             }
                           </Button>
 
-                          {!isSuggestedCategory && (
+                          {!isSuggestedCategory && !isInventoryDetail && (
                             <Button
                               variant="outline"
                               size="sm"
@@ -15523,6 +15529,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                         <p className="text-gray-600 mb-6">
                           Start capturing campaigns by adding your first photo to this campaign.
                         </p>
+                        {!isInventoryDetail && (
                         <Button 
                           className="bg-[#6C60FF] hover:bg-[#5A52E6] text-white disabled:opacity-50 disabled:cursor-not-allowed"
                           onClick={() => setIsAddMomentModalOpen(true)}
@@ -15531,6 +15538,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                           <ImageIcon className="w-4 h-4 mr-2" />
                           Add Photos
                         </Button>
+                        )}
                       </div>
                     )}
                   </CardContent>
@@ -16163,6 +16171,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                         <p className="text-sm text-gray-500 mb-4">
                           Start capturing campaigns by adding your first moment.
                         </p>
+                        {!isInventoryDetail && (
                         <Button
                           onClick={() => setIsAddMomentModalOpen(true)}
                           className="bg-[#6C60FF] hover:bg-[#5A52E6] text-white"
@@ -16171,6 +16180,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                           <ImageIcon className="w-4 h-4 mr-2" />
                           Add First Moment
                         </Button>
+                        )}
                       </div>
 
                       {/* E-Business Card - Real Mobile (no moments state) */}
@@ -17493,7 +17503,8 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                   </span>
                 )}
               </div>
-              {!isSuggestedCategory && (
+              {/* No uploads on read-only inventory (cars, catalogue products) */}
+              {!isSuggestedCategory && !isInventoryDetail && (
                 <Button
                   variant="outline"
                   size="sm"
@@ -17860,6 +17871,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                 <ImageIcon className="w-12 h-12 text-gray-300 mx-auto mb-4" />
                 <h4 className="text-lg font-medium text-gray-900 mb-2">No photos yet</h4>
                 <p className="text-gray-600 mb-4 text-sm">Add your first photo to this campaign.</p>
+                {!isInventoryDetail && (
                 <Button
                   className="bg-[#6C60FF] hover:bg-[#5A52E6] text-white"
                   onClick={() => setIsAddMomentModalOpen(true)}
@@ -17868,6 +17880,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                   <ImageIcon className="w-4 h-4 mr-2" />
                   Add Photos
                 </Button>
+                )}
               </div>
             )}
           </div>
@@ -18726,7 +18739,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
 
       {/* Add Moment Modal */}
       <AddMomentModal
-        isOpen={isAddMomentModalOpen}
+        isOpen={isAddMomentModalOpen && !isInventoryDetail} // never on read-only inventory (cars, catalogue products)
         onClose={() => {
           setIsAddMomentModalOpen(false);
           insertAfterPostIdRef.current = null; setInsertAfterPostId(null);
