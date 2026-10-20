@@ -124,8 +124,8 @@ const SAMPLE_STOREELS = {
 // App passes its categories state (a stable array); without it MemoriesPage's `categories = []` default is a new
 // array every render, which re-runs CreateMemory's open effect and empties the Storeel form while typing.
 const SAMPLE_CATEGORIES = [
-  { id: 7, name: 'Personal', is_owner: true, can_add_story: true },
-  { id: 8, name: 'Service', is_owner: true, can_add_story: true },
+  { id: 7, name: 'Personal', count: 2, is_owner: true, can_add_story: true },
+  { id: 8, name: 'Service', count: 1, is_owner: true, can_add_story: true },
 ];
 
 // The Campaigns page as App mounts it (sidebar toggle included, so phones keep it on both views).
