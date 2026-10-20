@@ -183,7 +183,8 @@ export function createMockApi(options = {}) {
     if (path === '/user/check-memory-limit') {
       return ok({ limit_status: { status: options.storeelLimit ? 'limit_exceeded' : 'within_limit', current_memories: options.storeelLimit ? 5 : 2, memory_limit: 5 } });
     }
-    if (path === '/lead-groups' && method === 'GET') return ok(state.groups);
+    // LeadGroupsController::index answers {groups: [...]} with no success envelope.
+    if (path === '/lead-groups' && method === 'GET') return { status: 200, json: { groups: state.groups } };
     if (state.plan === 'Starter' && (path.startsWith('/newsletter') || path.startsWith('/contact-lists'))) {
       return fail(403, { success: false, code: 'plan_required', message: 'Newsletters are available on paid plans' });
     }

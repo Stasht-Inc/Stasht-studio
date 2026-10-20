@@ -1,6 +1,6 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState, type ReactNode } from 'react';
 import { FocusScope } from '@radix-ui/react-focus-scope';
-import { ArrowLeft, Globe, Loader2, User } from 'lucide-react';
+import { ArrowLeft, Globe, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useIsStarterPlan } from '../../hooks/usePlan';
 import { requestUpgrade } from '../../utils/planEvents';
@@ -9,11 +9,13 @@ import { useNewsletterDraft } from './hooks/useNewsletterDraft';
 import { useSenderProfile } from './hooks/useSenderProfile';
 import { fieldProblems, type NewsletterDraft } from './lib/draft';
 import { GENERIC_ERROR, PLAN_REQUIRED_ERROR } from './lib/apiResult';
-import { BUTTON_OUTLINE, BUTTON_PRIMARY, BUTTON_SECONDARY, LABEL, LAYER } from './lib/ui';
+import { BUTTON_OUTLINE, BUTTON_PRIMARY, BUTTON_SECONDARY, LAYER } from './lib/ui';
 import StepCard from './StepCard';
 import NewsletterEditor from './NewsletterEditor';
 import DeviceToggle, { type PreviewDevice } from './DeviceToggle';
 import TemplatePicker from './TemplatePicker';
+import AudiencePicker from './AudiencePicker';
+import { useAudienceCount } from './hooks/useAudienceCount';
 import SaveIndicator from './SaveIndicator';
 import UpgradeCard from './UpgradeCard';
 import ComposerDialog from './ComposerDialog';
@@ -84,6 +86,8 @@ const NewsletterComposer = forwardRef<NewsletterComposerHandle, NewsletterCompos
   const state = useNewsletterDraft(newsletterId, enabled, brand.brand?.header ?? null);
   const profile = useSenderProfile(enabled);
   const { draft, update, readOnly } = state;
+  // Live recipient counts only while the Newsletter tab shows on a paid plan (debounced in the hook).
+  const audienceCount = useAudienceCount(draft.audience, draft.channels, enabled && !hidden && !state.loading);
   const [closing, setClosing] = useState(false);
   const [device, setDevice] = useState<PreviewDevice>('desktop');
   // True after the first Send / Schedule attempt: from then on, unfinished steps and sections show their problems.
@@ -213,16 +217,16 @@ const NewsletterComposer = forwardRef<NewsletterComposerHandle, NewsletterCompos
 
               <NameStep value={draft.name} onChange={(name) => update({ name })} fieldError={fieldError('name')} readOnly={readOnly} inputRef={setNameInput} autoFocus={!newsletterId} />
 
-              {/* Step 2: AudiencePicker (Task 9) */}
-              <StepCard number={2} title="Recipients" id="nl-step-recipients" aside="All leads">
-                <p className={LABEL}>Send to</p>
-                <p className="flex h-9 items-center rounded-lg border border-gray-200 bg-white px-3 text-sm text-gray-900">All leads, by email</p>
-                <div className="mt-3 flex items-center gap-2 rounded-lg bg-gray-50 px-4 py-3 text-sm text-gray-700">
-                  <User className="h-4 w-4 flex-shrink-0 text-gray-500" aria-hidden="true" />
-                  <span>Estimated recipients</span>
-                  <span className="ml-auto font-semibold text-gray-900">—</span>
-                </div>
-              </StepCard>
+              <AudiencePicker
+                audience={draft.audience}
+                channels={draft.channels}
+                smsText={draft.sms_text}
+                count={audienceCount}
+                readOnly={readOnly}
+                enabled={enabled}
+                fieldErrors={{ ...state.fieldErrors, ...live }}
+                onChange={update}
+              />
 
               <FromStep fromName={draft.from_name} replyTo={draft.reply_to_email} onChange={update}
                 errors={{ from_name: fieldError('from_name'), reply_to_email: fieldError('reply_to_email') }} readOnly={readOnly} />
