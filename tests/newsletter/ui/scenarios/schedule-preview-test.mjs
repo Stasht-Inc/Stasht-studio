@@ -52,6 +52,15 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
   await expectVisible(page.getByText('Add an email address to your profile to get a test email.'), 'no-email 422 toast');
   await context.close();
 
+  // The hourly test limit (429): said plainly, and asked once (no automatic retries).
+  ({ page, api, context } = await open({ width: 1280, height: 1200, api: createMockApi({ testsLeft: 0 }) }));
+  await page.locator('#nl-name').fill('Too many tests');
+  await page.getByRole('button', { name: 'Send a test to me' }).click();
+  await expectVisible(page.getByText("You've sent the most test messages for this hour. Try again later."), 'hourly test limit toast');
+  await page.waitForTimeout(1500);
+  expect(api.state.calls.filter((c) => /\/test$/.test(c.path)).length === 1, 'the limited test was not retried');
+  await context.close();
+
   // Phones.
   for (const width of [360, 375, 390]) {
     const phone = await open({ width, height: 844 });

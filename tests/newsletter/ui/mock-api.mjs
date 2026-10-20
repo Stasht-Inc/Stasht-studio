@@ -140,6 +140,8 @@ export function createMockApi(options = {}) {
     planFailures: options.planFailures ?? 0,
     // Image uploads answer after this many ms (to act while one is on its way).
     uploadDelayMs: options.uploadDelayMs ?? 0,
+    // Tests left this hour (NewsletterTestSendController's RateLimiter); then 429 with its own message.
+    testsLeft: options.testsLeft ?? Infinity,
     calls: [],
   };
   const ok = (data, status = 200) => ({ status, json: { success: true, data } });
@@ -287,6 +289,8 @@ export function createMockApi(options = {}) {
       }
       if (action === 'preview') return ok({ html: previewHtml(n) });
       if (action === 'test') {
+        if (state.testsLeft <= 0) return fail(429, { success: false, message: "You've sent the most tests allowed this hour. Try again later." });
+        state.testsLeft -= 1;
         // NewsletterTestSendController: 422 channel when the profile has no address, 422 sms_text for an empty text.
         if (body?.channel === 'email' && !state.owner.email) return fail(422, { message: 'Add an email address to your profile to get a test email.', errors: { channel: ['Add an email address to your profile to get a test email.'] } });
         if (body?.channel === 'sms' && !String(n.sms_text ?? '').trim()) return fail(422, { message: 'Write the text message first.', errors: { sms_text: ['Write the text message first.'] } });

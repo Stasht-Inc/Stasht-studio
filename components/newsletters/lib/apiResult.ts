@@ -11,6 +11,8 @@ export interface NlResult<T> {
   conflict?: boolean;
   /** 403 plan_required: the account is on the free Starter plan. */
   planRequired?: boolean;
+  /** 429: still throttled (apiRequest's own retries, if any, are spent). */
+  rateLimited?: boolean;
   /** 422 allowance: which channel ran out, what this send needs, what is left (contract note 4). */
   allowance?: AllowanceShortfall;
 }
@@ -39,6 +41,7 @@ export interface ApiLikeResponse {
 export const GENERIC_ERROR = 'Something went wrong. Please try again.';
 export const RATE_LIMITED_ERROR = 'Too many requests. Wait a minute and try again.';
 export const PLAN_REQUIRED_ERROR = 'Newsletters are available on paid plans.';
+export const TEST_LIMIT_ERROR = "You've sent the most test messages for this hour. Try again later.";
 
 /** The server body is {success, data}; apiRequest wraps it once more. Peel exactly one envelope. */
 export function unwrap<T>(body: unknown): T | undefined {
@@ -86,14 +89,21 @@ export function toResult<T>(res: ApiLikeResponse | null | undefined): NlResult<T
     fieldErrors,
     conflict: res.conflict === true || res.statusCode === 409,
     planRequired,
+    ...(rateLimited ? { rateLimited: true } : {}),
     allowance: allowanceFrom(res.allowance),
   };
+}
+
+/** POST /newsletters/{id}/test answers 429 when the hourly test limit is reached (NewsletterTestSendController);
+ *  apiRequest replaces the server's words with a generic "too many requests", so say what happened. */
+export function testSendResult<T>(r: NlResult<T>): NlResult<T> {
+  return !r.ok && r.rateLimited ? { ...r, error: TEST_LIMIT_ERROR } : r;
 }
 
 /** Same mapping for a raw fetch (the multipart image upload), which skips apiRequest. */
 export function resultFromRaw<T>(status: number, body: unknown): NlResult<T> {
   const b = (body && typeof body === 'object' ? body : {}) as Record<string, unknown>;
-  if (status === 429) return { ok: false, error: RATE_LIMITED_ERROR, fieldErrors: {} };
+  if (status === 429) return { ok: false, error: RATE_LIMITED_ERROR, fieldErrors: {}, rateLimited: true };
   if (status === 403 && b.code === 'plan_required') {
     return { ok: false, error: String(b.message || PLAN_REQUIRED_ERROR), fieldErrors: {}, planRequired: true };
   }

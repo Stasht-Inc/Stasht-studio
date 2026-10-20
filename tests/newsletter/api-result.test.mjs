@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  unwrap, flattenFieldErrors, toResult, resultFromRaw, GENERIC_ERROR, RATE_LIMITED_ERROR, PLAN_REQUIRED_ERROR,
+  unwrap, flattenFieldErrors, toResult, resultFromRaw, testSendResult, GENERIC_ERROR, RATE_LIMITED_ERROR, PLAN_REQUIRED_ERROR, TEST_LIMIT_ERROR,
 } from '../../components/newsletters/lib/apiResult.ts';
 
 test('unwrap peels exactly one {success, data} envelope', () => {
@@ -68,4 +68,17 @@ test('resultFromRaw maps a multipart upload response', () => {
   assert.equal(resultFromRaw(403, { code: 'plan_required' }).planRequired, true);
   assert.equal(resultFromRaw(429, null).error, RATE_LIMITED_ERROR);
   assert.equal(resultFromRaw(500, null).error, GENERIC_ERROR);
+});
+
+// The test send's hourly limit is a 429 too; apiRequest swaps the server's message for a generic one.
+test('testSendResult says the hourly test limit was reached on a 429, and leaves everything else alone', () => {
+  assert.equal(TEST_LIMIT_ERROR, "You've sent the most test messages for this hour. Try again later.");
+  const limited = toResult({ success: false, error: 'Too many requests right now. Please wait a moment and try again.', message: "You've sent the most tests allowed this hour. Try again later.", rateLimited: true, statusCode: 429 });
+  assert.equal(limited.rateLimited, true);
+  assert.equal(testSendResult(limited).error, TEST_LIMIT_ERROR);
+  assert.equal(testSendResult(resultFromRaw(429, null)).error, TEST_LIMIT_ERROR);
+  const other = toResult({ success: false, message: 'Add an email address to your profile to get a test email.', errors: { channel: ['Add an email address to your profile to get a test email.'] } });
+  assert.deepEqual(testSendResult(other), other);
+  const ok = toResult({ success: true, data: { success: true, data: { sent_to: 'a@b.ca' } } });
+  assert.deepEqual(testSendResult(ok), ok);
 });

@@ -1,6 +1,6 @@
 import { apiRequest, fetchWithRateLimitRetry, getApiBaseUrl } from '../utils/authUtils';
 import { requestUpgrade } from '../utils/planEvents';
-import { toResult, resultFromRaw, GENERIC_ERROR } from '../components/newsletters/lib/apiResult';
+import { toResult, resultFromRaw, testSendResult, GENERIC_ERROR } from '../components/newsletters/lib/apiResult';
 import type { NlResult, ApiLikeResponse } from '../components/newsletters/lib/apiResult';
 
 // Newsletter campaigns API (spec 2026-10-13 §8). Every route is under /api/react behind auth:react_api and
@@ -195,7 +195,10 @@ export const newslettersAPI = {
   audienceCount: (audience: AudienceItem[], channels: NewsletterChannel[]) =>
     write<AudienceCount>('POST', '/newsletters/audience-count', { audience, channels }),
   preview: (id: number) => write<{ html: string }>('POST', `${nl(id)}/preview`),
-  sendTest: (id: number, channel: NewsletterChannel) => write<{ sent_to: string }>('POST', `${nl(id)}/test`, { channel }),
+  // The hourly test limit (429) is a real answer, not a blip: no retries, and say so plainly.
+  sendTest: async (id: number, channel: NewsletterChannel) => testSendResult(
+    await call<{ sent_to: string }>(`${nl(id)}/test`, { method: 'POST', body: JSON.stringify({ channel }), noRateLimitRetry: true } as RequestInit),
+  ),
   send: (id: number) => write<Newsletter>('POST', `${nl(id)}/send`),
   schedule: (id: number, scheduledAt: string) => write<Newsletter>('POST', `${nl(id)}/schedule`, { scheduled_at: scheduledAt }),
   cancel: (id: number) => write<Newsletter>('POST', `${nl(id)}/cancel`),
