@@ -121,13 +121,20 @@ const SAMPLE_STOREELS = {
   },
 };
 
+// App passes its categories state (a stable array); without it MemoriesPage's `categories = []` default is a new
+// array every render, which re-runs CreateMemory's open effect and empties the Storeel form while typing.
+const SAMPLE_CATEGORIES = [
+  { id: 7, name: 'Personal', is_owner: true, can_add_story: true },
+  { id: 8, name: 'Service', is_owner: true, can_add_story: true },
+];
+
 // The Campaigns page as App mounts it (sidebar toggle included, so phones keep it on both views).
 function CampaignsHarness() {
   const [sidebar, setSidebar] = useState(false);
   return (
     // pt-20: App's 80 px top bar, which the page's sticky headers (top-20) sit under.
     <div className="min-h-screen bg-[#F8F8FA] px-2 pt-20 md:px-6 md:pb-6">
-      <MemoriesPage onMemorySelect={() => {}} apiMemoriesData={params.get('storeels') === '0' ? undefined : SAMPLE_STOREELS}
+      <MemoriesPage onMemorySelect={() => {}} apiMemoriesData={params.get('storeels') === '0' ? undefined : SAMPLE_STOREELS} categories={SAMPLE_CATEGORIES}
         showMobileSidebar={sidebar} onToggleMobileSidebar={() => setSidebar((v) => !v)} onCloseMobileSidebar={() => setSidebar(false)} />
     </div>
   );

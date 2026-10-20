@@ -167,6 +167,8 @@ export function createMockApi(options = {}) {
     rejectPut: options.rejectPut ?? {},
     // Send / schedule find the newsletter already scheduled (sent from another tab): 409, and it is no longer a draft.
     sendConflict: options.sendConflict ?? false,
+    // Storeels made with POST /memories.
+    storeels: [],
     calls: [],
   };
   const ok = (data, status = 200) => ({ status, json: { success: true, data } });
@@ -218,6 +220,15 @@ export function createMockApi(options = {}) {
     if (path === '/website-catalogue') return ok({ available: false });
     if (path === '/user/check-memory-limit') {
       return ok({ limit_status: { status: options.storeelLimit ? 'limit_exceeded' : 'within_limit', current_memories: options.storeelLimit ? 5 : 2, memory_limit: 5, ai_connects: 120 } });
+    }
+    // The Storeel form: its categories, and POST /memories (MemoryController::store) to create a Storeel.
+    if (path === '/memories/categories-labels') {
+      return ok({ categories: [{ id: 7, name: 'Personal', is_owner: true, can_add_story: true }, { id: 8, name: 'Service', is_owner: true, can_add_story: true }], labels: [] });
+    }
+    if (path === '/memories' && method === 'POST') {
+      const memory = { id: state.nextId++, ...body };
+      state.storeels.push(memory);
+      return ok({ memory }, 201);
     }
     // LeadGroupsController::index answers {groups: [...]} with no success envelope.
     if (path === '/lead-groups' && method === 'GET') return { status: 200, json: { groups: state.groups } };
