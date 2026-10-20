@@ -11,6 +11,8 @@ import TitleBlockEditor from '../../../components/newsletters/blocks/TitleBlockE
 import TextBlockEditor from '../../../components/newsletters/blocks/TextBlockEditor';
 import ButtonBlockEditor from '../../../components/newsletters/blocks/ButtonBlockEditor';
 import DividerBlockEditor from '../../../components/newsletters/blocks/DividerBlockEditor';
+import ImageBlockEditor from '../../../components/newsletters/blocks/ImageBlockEditor';
+import YoutubeBlockEditor from '../../../components/newsletters/blocks/YoutubeBlockEditor';
 
 const params = new URLSearchParams(window.location.search);
 
@@ -43,6 +45,8 @@ const GALLERY: Array<{ name: string; render: () => ReactElement }> = [
   { name: 'Text', render: () => <Stateful initial={{ html: '<p>Hello <strong>there</strong>, see our <a href="https://serpachrysler.ca/deals">deals</a>.</p>' }}>{(d, set) => <TextBlockEditor blockId="g-text" data={d} selected readOnly={false} onChange={set} />}</Stateful> },
   { name: 'Button', render: () => <Stateful initial={{ label: 'Book a test drive', url: '', color: '#6C60FF' }}>{(d, set) => <ButtonBlockEditor blockId="g-button" data={d} selected readOnly={false} onChange={set} />}</Stateful> },
   { name: 'Divider', render: () => <Stateful initial={{ style: 'line' as const }}>{(d, set) => <DividerBlockEditor blockId="g-divider" data={d} selected readOnly={false} onChange={set} />}</Stateful> },
+  { name: 'Image', render: () => <Stateful initial={{ url: '', alt: '', link: null as string | null }}>{(d, set) => <ImageBlockEditor blockId="g-image" data={d} selected readOnly={false} onChange={set} />}</Stateful> },
+  { name: 'YouTube', render: () => <Stateful initial={{ url: '' }}>{(d, set) => <YoutubeBlockEditor blockId="g-youtube" data={d} selected readOnly={false} onChange={set} />}</Stateful> },
   // New gallery entries go above this line.
 ];
 
