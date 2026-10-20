@@ -17,6 +17,7 @@ import HeaderEditor from '../../../components/newsletters/HeaderEditor';
 import EcardFooter from '../../../components/newsletters/EcardFooter';
 import { useSenderProfile } from '../../../components/newsletters/hooks/useSenderProfile';
 import { newslettersAPI, type NewsletterHeader } from '../../../services/newslettersAPI';
+import NewsletterResults from '../../../components/newsletters/NewsletterResults';
 
 function HeaderGallery() {
   const [header, setHeader] = useState<NewsletterHeader>({ logo_url: null, banner_url: null, background_color: '#6C60FF', title: 'Serpa Chrysler' });
@@ -97,9 +98,21 @@ function BlocksHarness() {
   );
 }
 
+function ResultsHarness() {
+  const first = Number(params.get('id') || 21);
+  const [id, setId] = useState<number | null>(first);
+  return (
+    <div className="p-6">
+      <button type="button" onClick={() => setId(first)}>Open results</button>
+      <NewsletterResults newsletterId={id} onOpenChange={(o) => { if (!o) setId(null); }} onChanged={() => console.log('changed')} />
+    </div>
+  );
+}
+
 const VIEWS: Record<string, () => ReactElement> = {
   composer: ComposerHarness,
   blocks: BlocksHarness,
+  results: ResultsHarness,
 };
 const View = VIEWS[params.get('view') || 'composer'] ?? ComposerHarness;
 

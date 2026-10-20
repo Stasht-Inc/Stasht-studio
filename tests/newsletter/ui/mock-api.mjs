@@ -60,6 +60,10 @@ const CHANNEL_COUNTS = {
     email: { recipients: 300, sent: 300, delivered: 0, opened: 90, clicked: 12, unsubscribed: 1, failed: 0, skipped: 0 },
     sms: { ...COUNTS0 },
   },
+  25: {
+    email: { recipients: 700, sent: 320, delivered: 300, opened: 51, clicked: 7, unsubscribed: 0, failed: 2, skipped: 8 },
+    sms: { recipients: 200, sent: 80, delivered: 78, opened: 9, clicked: 2, unsubscribed: 0, failed: 0, skipped: 1 },
+  },
 };
 
 export function seedNewsletters() {
@@ -80,6 +84,11 @@ export function seedNewsletters() {
       blocks: [{ id: 'b1', type: 'title', data: { text: 'Fall service', size: 'large' } }],
       counts: { recipients: 300, sent: 300, delivered: 0, opened: 90, clicked: 12, unsubscribed: 1, failed: 0, skipped: 0 },
     }),
+    newsletter(25, {
+      name: 'Open house this weekend', subject: 'Come see the new Wagoneer', status: 'sending', channels: ['email', 'sms'], scheduled_at: new Date(Date.now() - 600000).toISOString(),
+      blocks: [{ id: 'b1', type: 'title', data: { text: 'Open house', size: 'large' } }],
+      counts: { recipients: 900, sent: 400, delivered: 378, opened: 60, clicked: 9, unsubscribed: 0, failed: 2, skipped: 9 },
+    }),
   ];
 }
 
@@ -96,16 +105,22 @@ function previewHtml(n) {
     + `<tr><td style="padding:16px;text-align:center;color:#888;font-size:12px">Powered by Stasht</td></tr></table></td></tr></table></body></html>`;
 }
 
+// NewsletterResultsController: 50 people a page; status filters on the row status, or on opened_at / clicked_at /
+// unsubscribed_at for opened, clicked, unsubscribed; counts = totals + email + sms.
+const RESULTS_PER_PAGE = 50;
 function results(n, params) {
   const all = [];
-  for (let i = 1; i <= 23; i++) {
-    const channel = i % 3 === 0 ? 'sms' : 'email';
-    const status = i % 7 === 0 ? 'failed' : i % 5 === 0 ? 'skipped' : 'delivered';
+  const people = ['draft', 'scheduled'].includes(n.status) ? 0 : Math.min(n.counts.recipients, 120);
+  const hasSms = (CHANNEL_COUNTS[n.id]?.sms.recipients ?? 0) > 0;
+  for (let i = 1; i <= people; i++) {
+    const channel = hasSms && i % 3 === 0 ? 'sms' : 'email';
+    const status = n.status === 'sending' && i > 30 ? 'queued' : i % 7 === 0 ? 'failed' : i % 5 === 0 ? 'skipped' : n.id === 24 ? 'sent' : 'delivered';
+    const reached = status === 'delivered' || status === 'sent';
     all.push({
-      name: `Lead ${i}`, address: channel === 'sms' ? `+1416555${1000 + i}` : `lead${i}@example.com`, channel, status,
-      sent_at: status === 'skipped' ? null : '2026-10-16T14:00:00Z',
-      opened_at: status === 'delivered' && i % 2 ? '2026-10-16T15:00:00Z' : null,
-      clicked_at: status === 'delivered' && i % 4 === 1 ? '2026-10-16T15:05:00Z' : null,
+      name: i % 11 === 0 ? null : `Lead ${i}`, address: channel === 'sms' ? `+1416555${1000 + i}` : `lead${i}@example.com`, channel, status,
+      sent_at: reached || status === 'failed' ? '2026-10-16T14:00:00Z' : null,
+      opened_at: reached && i % 2 ? '2026-10-16T15:00:00Z' : null,
+      clicked_at: reached && i % 4 === 1 ? '2026-10-16T15:05:00Z' : null,
       unsubscribed_at: i === 9 ? '2026-10-16T16:00:00Z' : null,
     });
   }
@@ -115,10 +130,15 @@ function results(n, params) {
   const matches = (r) => !status
     || (status === 'opened' ? Boolean(r.opened_at) : status === 'clicked' ? Boolean(r.clicked_at) : status === 'unsubscribed' ? Boolean(r.unsubscribed_at) : r.status === status);
   const rows = all.filter((r) => (!channel || r.channel === channel) && matches(r));
-  const per = 10;
   // Totals plus the same eight numbers per channel (contract note 2).
   const split = CHANNEL_COUNTS[n.id] ?? { email: { ...n.counts }, sms: { ...COUNTS0 } };
-  return { counts: { ...n.counts, ...split }, recipients: { data: rows.slice((page - 1) * per, page * per), meta: { page, total_pages: Math.max(1, Math.ceil(rows.length / per)), total: rows.length } } };
+  return {
+    counts: { ...n.counts, email: split.email, sms: split.sms },
+    recipients: {
+      data: rows.slice((page - 1) * RESULTS_PER_PAGE, page * RESULTS_PER_PAGE),
+      meta: { page, total_pages: Math.max(1, Math.ceil(rows.length / RESULTS_PER_PAGE)), total: rows.length },
+    },
+  };
 }
 
 export function createMockApi(options = {}) {
@@ -267,10 +287,10 @@ export function createMockApi(options = {}) {
     if (m) {
       const n = find(Number(m[1]));
       const action = m[2];
-      if (!n) return fail(404, { success: false, message: 'Not found.' });
+      if (!n) return fail(404, { success: false, message: 'Newsletter not found' });
       if (!action && method === 'GET') return ok(n);
       if (!action && method === 'PUT') {
-        if (n.status !== 'draft') return fail(409, { success: false, message: 'Only drafts can be changed.' });
+        if (n.status !== 'draft') return fail(409, { success: false, message: 'Only drafts can be changed. Duplicate this newsletter to make changes.' });
         if (state.failPuts) return fail(state.failPuts, { success: false, message: 'Server Error' });
         const errors = updateErrors(body);
         if (Object.keys(errors).length) return fail(422, { message: Object.values(errors)[0][0], errors });
@@ -284,7 +304,8 @@ export function createMockApi(options = {}) {
         return ok({});
       }
       if (action === 'duplicate') {
-        const copy = newsletter(state.nextId++, { ...pickEditable(n), name: `${n.name || 'Newsletter'} (copy)` });
+        // NewsletterController::duplicate: "Copy of <name>" (120 max), a new draft with the same content.
+        const copy = newsletter(state.nextId++, { ...pickEditable(n), name: `Copy of ${n.name ?? ''}`.slice(0, 120) });
         state.newsletters.push(copy);
         return ok(copy, 201);
       }
@@ -319,7 +340,12 @@ export function createMockApi(options = {}) {
         return ok(n);
       }
       if (action === 'cancel') {
-        if (!['scheduled', 'sending'].includes(n.status)) return fail(409, { success: false, message: 'Only scheduled newsletters can be cancelled.' });
+        // NewsletterSendController::cancel: scheduled or sending → cancelled; people not sent to yet are skipped.
+        if (!['scheduled', 'sending'].includes(n.status)) return fail(409, { success: false, message: 'Only scheduled or sending newsletters can be cancelled.' });
+        if (n.status === 'sending') {
+          const queued = n.counts.recipients - n.counts.sent - n.counts.failed - n.counts.skipped;
+          n.counts = { ...n.counts, skipped: n.counts.skipped + Math.max(0, queued) };
+        }
         n.status = 'cancelled';
         return ok(n);
       }
