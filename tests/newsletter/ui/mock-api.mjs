@@ -129,7 +129,8 @@ export function createMockApi(options = {}) {
     brand: { header: { logo_url: null, banner_url: null, background_color: '#6C60FF', title: 'Serpa Chrysler' }, business_address: options.businessAddress ?? null },
     lists: options.lists ?? [{ id: 9, name: 'Open house sign-ups', source: 'import', member_count: 212, email_count: 198, sms_count: 140, created_at: now() }],
     groups: options.groups ?? [{ id: 4, name: 'VIP buyers', member_count: 38, members: [], created_at: now(), updated_at: now() }],
-    allowance: options.allowance ?? { plan: 'Professional', email_limit: 5000, sms_limit: 500, email_used: 1200, sms_used: 40, resets_at: '2026-11-01T00:00:00Z' },
+    // NewsletterAllowance::summary: *_pending = held back for newsletters sending or scheduled.
+    allowance: options.allowance ?? { plan: 'Professional', email_limit: 5000, sms_limit: 500, email_used: 1200, sms_used: 40, email_pending: 0, sms_pending: 0, resets_at: '2026-11-01T00:00:00Z' },
     sendErrors: options.sendErrors ?? null,
     // The signed-in owner (NewsletterController::store pre-fills from name and email). null email: the
     // account has none, so send needs a reply-to (422 reply_to_email).

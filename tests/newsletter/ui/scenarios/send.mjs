@@ -67,6 +67,19 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
   await shot(page, '1280-03-allowance');
   await context.close();
 
+  // Emails held back for scheduled / sending newsletters come off what is left (limit − used − pending).
+  ({ page, api, context } = await open({ width: 1280, height: 1900, api: createMockApi({
+    businessAddress: '4505 Steeles Ave W',
+    allowance: { plan: 'Professional', email_limit: 5000, sms_limit: 500, email_used: 1200, sms_used: 40, email_pending: 2900, sms_pending: 0, resets_at: '2026-11-01T00:00:00Z' },
+  }) }));
+  await fillAll(page);
+  await sendButton(page).click();
+  const dp = confirmDialog(page);
+  await expectVisible(dp.getByText('Your plan has 900 emails left this month. It resets on Nov 1.'), 'pending emails taken off what is left');
+  await expectVisible(dp.getByText('This needs 1,180 emails, but your plan has 900 left this month.'), 'over the allowance once pending counts');
+  expect(await dp.getByRole('button', { name: 'Send now' }).isDisabled(), 'Send now disabled when pending leaves too few');
+  await context.close();
+
   // Contract note 6, server side: errors.blocks messages show on the Content step.
   ({ page, api, context } = await open({ width: 1280, height: 1900, api: createMockApi({
     businessAddress: '4505 Steeles Ave W',

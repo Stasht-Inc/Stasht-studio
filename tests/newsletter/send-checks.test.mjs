@@ -66,3 +66,14 @@ test('allowance', () => {
   assert.equal(allowanceLine(allowance, ['email']), 'Your plan has 3,800 emails left this month. It resets on Nov 1.');
   assert.equal(allowanceLine(allowance, ['email', 'sms']), 'Your plan has 3,800 emails and 460 texts left this month. It resets on Nov 1.');
 });
+
+// GET /newsletter-allowance also says what is held back for newsletters sending or scheduled (email_pending,
+// sms_pending): left = limit − used − pending, never below 0; a missing pending counts as 0.
+test('allowance left takes off what is pending', () => {
+  const withPending = { ...allowance, email_pending: 1000, sms_pending: 500 };
+  assert.deepEqual(allowanceLeft(withPending), { email: 2800, sms: 0 });
+  assert.deepEqual(allowanceLeft(allowance), { email: 3800, sms: 460 }, 'missing pending counts as 0');
+  assert.equal(allowanceLine(withPending, ['email', 'sms']), 'Your plan has 2,800 emails and 0 texts left this month. It resets on Nov 1.');
+  assert.equal(allowanceProblem(withPending, counts, ['email']), null);
+  assert.equal(allowanceProblem(withPending, { ...counts, email: 3000 }, ['email']), 'This needs 3,000 emails, but your plan has 2,800 left this month.');
+});

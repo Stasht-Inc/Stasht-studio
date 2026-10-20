@@ -114,6 +114,9 @@ export interface NewsletterAllowance {
   sms_limit: number;
   email_used: number;
   sms_used: number;
+  /** Held back for newsletters sending or scheduled (not sent yet). Optional: older API versions leave them out. */
+  email_pending?: number;
+  sms_pending?: number;
   resets_at: string;
 }
 

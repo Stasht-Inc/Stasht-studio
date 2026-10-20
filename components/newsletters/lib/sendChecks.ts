@@ -65,8 +65,14 @@ export function firstProblemStep(problems: StepProblems): StepKey | null {
   return STEP_ORDER.find((key) => problems[key]) ?? null;
 }
 
+/** What is left this month: the limit, less what went out, less what newsletters sending or scheduled will use
+ *  (email_pending / sms_pending; an older API without them counts as 0). */
 export function allowanceLeft(a: NewsletterAllowance): { email: number; sms: number } {
-  return { email: Math.max(0, a.email_limit - a.email_used), sms: Math.max(0, a.sms_limit - a.sms_used) };
+  const pending = (v: number | undefined) => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
+  return {
+    email: Math.max(0, a.email_limit - a.email_used - pending(a.email_pending)),
+    sms: Math.max(0, a.sms_limit - a.sms_used - pending(a.sms_pending)),
+  };
 }
 
 export function allowanceProblem(a: NewsletterAllowance | null, counts: AudienceCount | null, channels: NewsletterChannel[]): string | null {
