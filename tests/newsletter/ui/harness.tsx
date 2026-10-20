@@ -7,6 +7,10 @@ import '../../../styles/globals.css';
 import { AuthProvider } from '../../../contexts/AuthContext';
 import { PropertyProvider } from '../../../contexts/PropertyContext';
 import CreateMemory from '../../../components/CreateMemory';
+import TitleBlockEditor from '../../../components/newsletters/blocks/TitleBlockEditor';
+import TextBlockEditor from '../../../components/newsletters/blocks/TextBlockEditor';
+import ButtonBlockEditor from '../../../components/newsletters/blocks/ButtonBlockEditor';
+import DividerBlockEditor from '../../../components/newsletters/blocks/DividerBlockEditor';
 
 const params = new URLSearchParams(window.location.search);
 
@@ -22,8 +26,42 @@ function ComposerHarness() {
   );
 }
 
+// One editor per gallery entry, selected, in the email's 600 px column (40 px side padding, as the email has).
+// The <pre> shows what the editor saved.
+function Stateful<D>({ initial, children }: { initial: D; children: (data: D, set: (patch: Partial<D>) => void) => ReactElement }) {
+  const [data, setData] = useState<D>(initial);
+  return (
+    <>
+      <div className="px-10 py-3">{children(data, (patch) => setData((d) => ({ ...d, ...patch })))}</div>
+      <pre data-testid="gallery-data" className="mx-6 mt-2 whitespace-pre-wrap break-all rounded bg-gray-50 p-2 text-xs text-gray-500">{JSON.stringify(data)}</pre>
+    </>
+  );
+}
+
+const GALLERY: Array<{ name: string; render: () => ReactElement }> = [
+  { name: 'Title', render: () => <Stateful initial={{ text: 'This month at Serpa', size: 'large' as const }}>{(d, set) => <TitleBlockEditor blockId="g-title" data={d} selected readOnly={false} onChange={set} />}</Stateful> },
+  { name: 'Text', render: () => <Stateful initial={{ html: '<p>Hello <strong>there</strong>, see our <a href="https://serpachrysler.ca/deals">deals</a>.</p>' }}>{(d, set) => <TextBlockEditor blockId="g-text" data={d} selected readOnly={false} onChange={set} />}</Stateful> },
+  { name: 'Button', render: () => <Stateful initial={{ label: 'Book a test drive', url: '', color: '#6C60FF' }}>{(d, set) => <ButtonBlockEditor blockId="g-button" data={d} selected readOnly={false} onChange={set} />}</Stateful> },
+  { name: 'Divider', render: () => <Stateful initial={{ style: 'line' as const }}>{(d, set) => <DividerBlockEditor blockId="g-divider" data={d} selected readOnly={false} onChange={set} />}</Stateful> },
+  // New gallery entries go above this line.
+];
+
+function BlocksHarness() {
+  return (
+    <div className="mx-auto max-w-[600px] space-y-6 p-6">
+      {GALLERY.map((entry) => (
+        <section key={entry.name} data-testid={`gallery-${entry.name}`} aria-label={`${entry.name} gallery`} className="rounded-xl border border-gray-200 bg-white py-4">
+          <h2 className="px-6 pb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">{entry.name}</h2>
+          {entry.render()}
+        </section>
+      ))}
+    </div>
+  );
+}
+
 const VIEWS: Record<string, () => ReactElement> = {
   composer: ComposerHarness,
+  blocks: BlocksHarness,
 };
 const View = VIEWS[params.get('view') || 'composer'] ?? ComposerHarness;
 
