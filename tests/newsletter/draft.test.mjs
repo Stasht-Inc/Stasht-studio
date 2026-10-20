@@ -67,3 +67,8 @@ test('fieldProblems flags long text and a bad reply-to address', () => {
   assert.equal(p.name, 'Use 120 characters or fewer.');
   assert.equal(p.reply_to_email, 'Enter an email address like sales@yourbusiness.com.');
 });
+
+test('draftFromNewsletter gives the editor strings where the API stores null', () => {
+  const d = draftFromNewsletter({ ...SPEC_NEWSLETTER, blocks: [{ id: 'b1', type: 'button', data: { label: 'Go', url: null, color: '#6C60FF' } }] });
+  assert.deepEqual(d.blocks, [{ id: 'b1', type: 'button', data: { label: 'Go', url: '', color: '#6C60FF' } }]);
+});

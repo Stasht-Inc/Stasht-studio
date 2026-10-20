@@ -2,6 +2,7 @@ import type {
   AudienceItem, Newsletter, NewsletterBlock, NewsletterChannel, NewsletterHeader, NewsletterInput,
 } from '../../../services/newslettersAPI.ts';
 import { LIMITS, isPlausibleEmail } from './rules.ts';
+import { normaliseBlocks } from './blocks.ts';
 
 /** What the composer edits. Text fields are never null here ('' instead). */
 export interface NewsletterDraft {
@@ -44,7 +45,7 @@ export function draftFromNewsletter(n: Newsletter): NewsletterDraft {
     sms_text: n.sms_text ?? '',
     template: 'basic',
     header: headerFrom(n.header),
-    blocks: Array.isArray(n.blocks) ? n.blocks : [],
+    blocks: normaliseBlocks(n.blocks),
     audience: Array.isArray(n.audience) ? n.audience : [],
   };
 }
