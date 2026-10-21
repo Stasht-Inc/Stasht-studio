@@ -87,4 +87,27 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
   await expectVisible(limited.page.getByText('Campaign Limit Reached'), 'limit notice inline on the Storeel tab');
   await shot(limited.page, '1280-storeel-limit');
   await limited.context.close();
+
+  // The limit check said yes but POST /memories says 403 memory_limit_reached: the same inline notice (with the
+  // server's words), scrolled to and focused, not a browser alert.
+  for (const width of [1280, 390]) {
+    const raced = await open({ api: createMockApi({ storeelServerLimit: true }), width, height: width < 768 ? 844 : 1000 });
+    const alerts = [];
+    raced.page.on('dialog', (d) => { alerts.push(d.message()); void d.dismiss(); });
+    await raced.page.getByRole('radio', { name: 'Storeel', exact: true }).click();
+    await expectVisible(raced.page.getByText('Create New Campaign'), `Storeel form at ${width}`);
+    expect(await raced.page.getByText('Campaign Limit Reached').count() === 0, `no limit notice before creating at ${width}`);
+    await raced.page.waitForTimeout(800); // categories load
+    await raced.page.getByPlaceholder('Give your campaign a meaningful title').fill('Raced past the limit');
+    await raced.page.getByRole('button', { name: 'Create Campaign', exact: true }).click();
+    const notice = raced.page.getByRole('alert').filter({ hasText: 'Campaign Limit Reached' });
+    await expectVisible(notice, `server limit shown inline at ${width}`);
+    await expectVisible(notice.getByText(/You've reached your plan's campaign limit/), `server limit message at ${width}`);
+    await raced.page.waitForTimeout(500);
+    expect(await notice.evaluate((el) => el === document.activeElement), `limit notice focused at ${width}`);
+    expect(alerts.length === 0, `no browser alert for the server limit at ${width} (got ${alerts.join(' | ')})`);
+    expect(raced.api.state.calls.some((c) => c.method === 'POST' && c.path === '/memories'), `POST /memories was tried at ${width}`);
+    await shot(raced.page, `${width}-storeel-server-limit`);
+    await raced.context.close();
+  }
 }

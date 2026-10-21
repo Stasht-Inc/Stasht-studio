@@ -118,6 +118,19 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
   // The Storeel campaign limit only applies to the Storeel tab (alignment decision 6): it shows inline there,
   // because a z-50 dialog would sit under this z-99999 modal.
   const storeelLimitRef = useRef<HTMLDivElement>(null);
+  // The API's own answer (403 memory_limit_reached on POST /memories) when the limit check above said yes,
+  // e.g. a campaign was made in another tab meanwhile. Shown in the same notice, in the server's words.
+  const [serverLimitMessage, setServerLimitMessage] = useState<string | null>(null);
+  // Bumped on each refusal; the notice is focused once it has rendered.
+  const [serverLimitTick, setServerLimitTick] = useState(0);
+  useEffect(() => { if (!open) setServerLimitMessage(null); }, [open]);
+  const showStoreelLimit = () => {
+    window.requestAnimationFrame(() => {
+      storeelLimitRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      storeelLimitRef.current?.focus({ preventScroll: true });
+    });
+  };
+  useEffect(() => { if (serverLimitTick) showStoreelLimit(); }, [serverLimitTick]); // eslint-disable-line react-hooks/exhaustive-deps
   const { openDrivePicker, isPickerLoading: isDrivePickerLoading } = useGoogleDrivePicker();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const titleInputRef = useRef<HTMLInputElement>(null);
@@ -1939,10 +1952,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
 
     if (limitReached) {
       // Shown inline at the top of the Storeel form (the dialog would be hidden under this modal).
-      window.requestAnimationFrame(() => {
-        storeelLimitRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-        storeelLimitRef.current?.focus({ preventScroll: true });
-      });
+      showStoreelLimit();
       return;
     }
 
@@ -2127,8 +2137,13 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
       } else {
         console.error('Failed to create memory:', response);
 
-        // Check if the error is about title validation
-        if (response.errors && response.errors.title) {
+        if ((response as { code?: string }).code === 'memory_limit_reached') {
+          // The plan's campaign limit, checked again by the API: the inline notice, not an alert.
+          setServerLimitMessage(response.message || response.error || "You've reached your plan's campaign limit.");
+          setServerLimitTick((t) => t + 1);
+          void checkLimit();
+        } else if (response.errors && response.errors.title) {
+          // Check if the error is about title validation
           // Display title-specific error
           setTitleError(response.errors.title[0] || 'This title is already taken.');
         } else if (response.message && response.message.toLowerCase().includes('title')) {
@@ -2184,7 +2199,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
         <div className="flex flex-shrink-0 justify-center px-4 pt-3">
           <CampaignTypeSwitch value="storeel" onChange={chooseCampaignType} />
         </div>
-        {isLimitExceeded && (
+        {(isLimitExceeded || serverLimitMessage) && (
           <div
             ref={storeelLimitRef}
             tabIndex={-1}
@@ -2199,8 +2214,12 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
             <div className="min-w-0">
               <p className="text-sm font-semibold text-amber-900">Campaign Limit Reached</p>
               <p className="mt-0.5 text-sm text-amber-800">
-                Your plan limit has been reached. You have reached your campaign limit of <strong>{limitData.memory_limit || 0} campaigns</strong>.
-                Go to account to upgrade your plan or delete some campaigns. Newsletters are not affected.
+                {isLimitExceeded ? (
+                  <>
+                    Your plan limit has been reached. You have reached your campaign limit of <strong>{limitData.memory_limit || 0} campaigns</strong>.
+                    Go to account to upgrade your plan or delete some campaigns.
+                  </>
+                ) : serverLimitMessage}{' '}Newsletters are not affected.
               </p>
               {/* The upgrade plans (z-[60]) would open under this modal, so close it first. */}
               <button

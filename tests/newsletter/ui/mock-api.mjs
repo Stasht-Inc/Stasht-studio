@@ -228,6 +228,11 @@ export function createMockApi(options = {}) {
     if (path === '/memories/categories-labels') {
       return ok({ categories: [{ id: 7, name: 'Personal', is_owner: true, can_add_story: true }, { id: 8, name: 'Service', is_owner: true, can_add_story: true }], labels: [] });
     }
+    // The web API's own Storeel limit check (MemoryController), which can say no although check-memory-limit
+    // just said yes (another tab or device made one meanwhile).
+    if (options.storeelServerLimit && method === 'POST' && (path === '/memories' || path === '/memories/create-with-images')) {
+      return fail(403, { success: false, code: 'memory_limit_reached', message: "You've reached your plan's campaign limit. Upgrade your plan to create more campaigns." });
+    }
     if (path === '/memories' && method === 'POST') {
       const memory = { id: state.nextId++, ...body };
       state.storeels.push(memory);
