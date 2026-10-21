@@ -16,7 +16,7 @@ import {
   CHAT_MESSAGE_MAX, CHAT_FILE_TYPES, readChatToken, writeChatToken, clearChatToken, messagesUrl, chatMessageFrom,
   mergeMessages, lastMessageId, acceptChatFiles, chatSendProblem, nextPollDelay, backoffDelay, hasUnreadTeamMessage,
   autoReplyAnchor, firstServerError, chatOpenHeaderValue, CHAT_MAX_FILES,
-  TYPING_DELAY_MS, AI_NOTICE, aiNoticeBefore, campaignCardText, productCardText, bodyWithoutLink, joinedText, repJoinedBefore,
+  TYPING_DELAY_MS, AI_NOTICE, aiNoticeBefore, campaignCardText, bodyWithoutLink, joinedText, repJoinedBefore,
   POWERED_BY_URL, STASHT_MARK_VIEWBOX, STASHT_MARK_PATH, linkParts, linkTarget, shouldReopenChat,
   hitRectFor, HIT_RECTS_MAX, pathShown,
   hasContactChoice, contactMethodLabel, fieldsForMethod, submissionValues, DEFAULT_CONTACT_METHOD, CONTACT_METHODS,
@@ -501,7 +501,7 @@ function campaignCard(c) {
     products ? productThumb(c.image) : h('span', { class: 'camp-icon', 'aria-hidden': 'true' }, carIcon()),
     h('span', { class: 'camp-text' },
       h('span', { class: 'camp-title' }, c.title),
-      h('span', { class: 'camp-cta' }, products ? productCardText(c.products) : campaignCardText(c.vehicles))),
+      h('span', { class: 'camp-cta' }, products ? campaignCardText(c.products, 'products') : campaignCardText(c.vehicles))),
     h('span', { class: 'camp-go', 'aria-hidden': 'true' }, chevronIcon()));
 }
 

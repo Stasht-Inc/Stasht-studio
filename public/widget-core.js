@@ -477,16 +477,15 @@ export function campaignFrom(raw) {
   return { title, url, linkText, vehicles };
 }
 
-/** "View 6 vehicles" / "View 1 vehicle" (no count: "View vehicles"). */
-export function campaignCardText(vehicles) {
-  if (!vehicles) return 'View vehicles';
-  return `View ${vehicles} ${vehicles === 1 ? 'vehicle' : 'vehicles'}`;
-}
-
-/** "View 3 products" / "View 1 product" (no count: "View products"). */
-export function productCardText(products) {
-  if (!products) return 'View products';
-  return `View ${products} ${products === 1 ? 'product' : 'products'}`;
+/**
+ * "View 6 vehicles" / "View 1 vehicle" (no count: "View vehicles"); with kind "products",
+ * "View 3 products" / "View 1 product" / "View products". One export for both, so a cached older
+ * widget-core.js next to a newer widget-embed.js never misses an import (both cache for 5 minutes).
+ */
+export function campaignCardText(count, kind) {
+  const [one, many] = kind === 'products' ? ['product', 'products'] : ['vehicle', 'vehicles'];
+  if (!count) return `View ${many}`;
+  return `View ${count} ${count === 1 ? one : many}`;
 }
 
 /** The reply's text without the campaign link: the card under it carries the link. */

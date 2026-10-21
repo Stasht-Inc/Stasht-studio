@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  TYPING_DELAY_MS, AI_RUN_GAP_MS, AI_NOTICE, campaignFrom, campaignCardText, productCardText, bodyWithoutLink, chatMessageFrom,
+  TYPING_DELAY_MS, AI_RUN_GAP_MS, AI_NOTICE, campaignFrom, campaignCardText, bodyWithoutLink, chatMessageFrom,
   aiNoticeBefore, autoReplyAnchor, joinedText, repJoinedBefore,
 } from '../../public/widget-core.js';
 
@@ -85,10 +85,11 @@ test('campaignFrom reads a products card: item count and an https photo only', (
   );
 });
 
-test('productCardText', () => {
-  assert.equal(productCardText(3), 'View 3 products');
-  assert.equal(productCardText(1), 'View 1 product');
-  assert.equal(productCardText(0), 'View products');
+test('campaignCardText for products', () => {
+  assert.equal(campaignCardText(3, 'products'), 'View 3 products');
+  assert.equal(campaignCardText(1, 'products'), 'View 1 product');
+  assert.equal(campaignCardText(0, 'products'), 'View products');
+  assert.equal(campaignCardText(2, 'something-else'), 'View 2 vehicles');
 });
 
 test('bodyWithoutLink drops the link the card carries', () => {
