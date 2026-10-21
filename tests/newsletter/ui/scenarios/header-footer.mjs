@@ -17,7 +17,12 @@ export async function run({ open, shot, expectVisible, expect }) {
   await h.getByRole('radio', { name: 'Banner image' }).click();
   await h.getByTestId('nl-banner-input').setInputFiles(FILE);
   await h.getByLabel('Header title').fill('Serpa Chrysler Jeep');
-  const header = await data('Header');
+  // The banner upload finishes on its own time; give it a moment before reading what was saved.
+  let header = await data('Header');
+  for (let i = 0; i < 40 && header.banner_url !== IMG; i += 1) {
+    await page.waitForTimeout(100);
+    header = await data('Header');
+  }
   expect(header.banner_url === IMG && header.logo_url === IMG && header.title === 'Serpa Chrysler Jeep', `header saved (got ${JSON.stringify(header)})`);
   await shot(page, '00-header-banner');
   await h.getByRole('radio', { name: 'Colour', exact: true }).click();
