@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  TYPING_DELAY_MS, AI_RUN_GAP_MS, AI_NOTICE, campaignFrom, campaignCardText, bodyWithoutLink, chatMessageFrom,
+  TYPING_DELAY_MS, AI_RUN_GAP_MS, AI_NOTICE, campaignFrom, campaignCardText, productCardText, bodyWithoutLink, chatMessageFrom,
   aiNoticeBefore, autoReplyAnchor, joinedText, repJoinedBefore,
 } from '../../public/widget-core.js';
 
@@ -59,6 +59,36 @@ test('campaignCardText', () => {
   assert.equal(campaignCardText(6), 'View 6 vehicles');
   assert.equal(campaignCardText(1), 'View 1 vehicle');
   assert.equal(campaignCardText(0), 'View vehicles');
+});
+
+// Website Catalogue products (wdy2xh2ecy): the same card, with the product photo and product wording.
+const PHOTO = 'https://stasht-data.s3.us-east-2.amazonaws.com/catalog/7/p-1.jpg';
+
+test('campaignFrom reads a products card: item count and an https photo only', () => {
+  assert.deepEqual(
+    campaignFrom({ title: ' Oak tables ', url: LINK, kind: 'products', products: 3, image: PHOTO }),
+    { title: 'Oak tables', url: LINK, linkText: LINK, kind: 'products', products: 3, image: PHOTO },
+  );
+  assert.equal(campaignFrom({ title: 'x', url: LINK, kind: 'products', products: 2, image: 'http://insecure.example/p.jpg' }).image, null);
+  assert.equal(campaignFrom({ title: 'x', url: LINK, kind: 'products', products: 2, image: 'javascript:alert(1)' }).image, null);
+  assert.equal(campaignFrom({ title: 'x', url: LINK, kind: 'products' }).products, 0);
+  assert.equal(campaignFrom({ title: 'x', url: LINK, kind: 'products', products: '3' }).products, 0);
+  assert.equal(campaignFrom({ title: 'x', url: 'http://insecure.example/x', kind: 'products', products: 1 }), null);
+  assert.deepEqual(
+    campaignFrom({ title: 'Jeeps', url: LINK, vehicles: 1, kind: 'something-else', image: PHOTO }),
+    { title: 'Jeeps', url: LINK, linkText: LINK, vehicles: 1 },
+    'anything but a products card stays the vehicle card, exactly as before',
+  );
+  assert.deepEqual(
+    chatMessageFrom({ id: 30, from: 'team', body: `Here: ${LINK}`, is_ai: true, campaign: { title: 'Oak', url: LINK, kind: 'products', products: 1, image: null } }).campaign,
+    { title: 'Oak', url: LINK, linkText: LINK, kind: 'products', products: 1, image: null },
+  );
+});
+
+test('productCardText', () => {
+  assert.equal(productCardText(3), 'View 3 products');
+  assert.equal(productCardText(1), 'View 1 product');
+  assert.equal(productCardText(0), 'View products');
 });
 
 test('bodyWithoutLink drops the link the card carries', () => {
