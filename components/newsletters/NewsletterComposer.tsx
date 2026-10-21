@@ -22,6 +22,7 @@ import PreviewDialog from './PreviewDialog';
 import SendTestButton from './SendTestButton';
 import { formatSendTime, type ScheduleChoice } from './lib/schedule';
 import { firstProblemStep, preSendProblems, stepDomId, stepErrorsFrom, type StepKey } from './lib/sendChecks';
+import { formatSentTo } from './lib/phoneDisplay';
 import SendConfirmDialog from './SendConfirmDialog';
 import SaveIndicator from './SaveIndicator';
 import UpgradeCard from './UpgradeCard';
@@ -125,7 +126,7 @@ const NewsletterComposer = forwardRef<NewsletterComposerHandle, NewsletterCompos
     }
     const res = await newslettersAPI.sendTest(saved.newsletter.id, channel);
     setTesting(false);
-    if (res.ok && res.data) toast.success(`Test sent to ${res.data.sent_to}.`);
+    if (res.ok && res.data) toast.success(`Test sent to ${formatSentTo(res.data.sent_to)}.`);
     else {
       // 422 channel (no email / mobile on the profile) or sms_text; 429 the hourly test limit; 502 not sent.
       if (res.fieldErrors.sms_text) state.setFieldErrors(res.fieldErrors);

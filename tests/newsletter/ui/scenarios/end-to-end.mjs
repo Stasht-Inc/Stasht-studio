@@ -122,7 +122,7 @@ async function journey({ open, shot, expectVisible, expect, hasOverflow }, width
   await page.waitForTimeout(300);
   await page.getByRole('button', { name: 'Send a test to me' }).click();
   await page.getByRole('menuitem', { name: 'Text me a test' }).click();
-  await expectVisible(page.getByText(/^Test sent to \+1/), `text test sent at ${tag}`);
+  await expectVisible(page.getByText('Test sent to +1 416 555 0100.', { exact: true }), `text test sent at ${tag}`);
 
   // 6 Schedule for tomorrow 09:30; the confirmation has the counts, the allowance and asks for the address.
   const list = api.state.lists.find((l) => l.name === 'Winter event sign-ups');
