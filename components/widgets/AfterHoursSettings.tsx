@@ -141,8 +141,8 @@ export function AfterHoursSettings({ value, onChange, errors, idPrefix, publicId
           />
         </div>
         <p id={id('ai-help')} className="text-xs text-gray-400 mt-1">
-          The AI answers chat messages immediately, can send matching vehicles from your inventory, and tells visitors
-          it's an AI. Each reply uses 1 AI credit. When someone on your team replies, they take over and the AI steps
+          The AI answers chat messages immediately, can send matching vehicles from your inventory or products from
+          your Website Catalogue, and tells visitors it's an AI. Each reply uses 1 AI credit. When someone on your team replies, they take over and the AI steps
           back for 12 hours.
         </p>
       </div>
