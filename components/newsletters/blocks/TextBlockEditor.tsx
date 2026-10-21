@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent, type ReactNode } from 'react';
 import * as Popover from '@radix-ui/react-popover';
 import { Bold, Italic, Link as LinkIcon } from 'lucide-react';
-import { toast } from 'sonner';
+import { composerToast } from '../ComposerToaster';
 import type { TextBlockData } from '../../../services/newslettersAPI';
 import { editorHtml, parseTextHtml, safeLinkHref, type TextNode } from '../lib/textHtml';
 import { toHttpsUrl } from '../lib/urls';
@@ -102,7 +102,7 @@ export default function TextBlockEditor({ blockId, data, selected, readOnly, onC
     if (!rangeInEditor()) select(lastRange.current);
     const range = rangeInEditor();
     if (!range || range.collapsed) {
-      toast.info('Select the words to link first.');
+      composerToast.info('Select the words to link first.');
       return;
     }
     savedRange.current = range.cloneRange();

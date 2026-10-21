@@ -2,6 +2,7 @@ import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useSta
 import { FocusScope } from '@radix-ui/react-focus-scope';
 import { ArrowLeft, Globe, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
+import ComposerToaster, { composerToast } from './ComposerToaster';
 import { useIsStarterPlan } from '../../hooks/usePlan';
 import { requestUpgrade } from '../../utils/planEvents';
 import { useNewsletterBrand } from './hooks/useNewsletterBrand';
@@ -63,6 +64,7 @@ const NewsletterComposer = forwardRef<NewsletterComposerHandle, NewsletterCompos
   ref,
 ) {
   const rootRef = useRef<HTMLDivElement>(null);
+  const headerRef = useRef<HTMLElement>(null);
   const nameRef = useRef<HTMLInputElement | null>(null);
   // focusName() can arrive while the plan is still loading (no name field yet): focus it once it mounts.
   const focusNamePendingRef = useRef(false);
@@ -121,16 +123,16 @@ const NewsletterComposer = forwardRef<NewsletterComposerHandle, NewsletterCompos
     const saved = await state.saveNow();
     if (!saved.newsletter) {
       setTesting(false);
-      toast.error(saved.error ?? GENERIC_ERROR);
+      composerToast.error(saved.error ?? GENERIC_ERROR);
       return;
     }
     const res = await newslettersAPI.sendTest(saved.newsletter.id, channel);
     setTesting(false);
-    if (res.ok && res.data) toast.success(`Test sent to ${formatSentTo(res.data.sent_to)}.`);
+    if (res.ok && res.data) composerToast.success(`Test sent to ${formatSentTo(res.data.sent_to)}.`);
     else {
       // 422 channel (no email / mobile on the profile) or sms_text; 429 the hourly test limit; 502 not sent.
       if (res.fieldErrors.sms_text) state.setFieldErrors(res.fieldErrors);
-      toast.error(res.fieldErrors.channel ?? res.fieldErrors.sms_text ?? res.error ?? GENERIC_ERROR);
+      composerToast.error(res.fieldErrors.channel ?? res.fieldErrors.sms_text ?? res.error ?? GENERIC_ERROR);
     }
   };
 
@@ -161,14 +163,14 @@ const NewsletterComposer = forwardRef<NewsletterComposerHandle, NewsletterCompos
     const first = firstProblemStep(preSendProblems(draft, audienceCount.counts, schedule));
     if (first) {
       showStep(first);
-      toast.error('Finish the steps marked in red, then try again.');
+      composerToast.error('Finish the steps marked in red, then try again.');
       return;
     }
     setStarting(true);
     const saved = await state.saveNow();
     setStarting(false);
     if (!saved.newsletter) {
-      toast.error(saved.error ?? GENERIC_ERROR);
+      composerToast.error(saved.error ?? GENERIC_ERROR);
       return;
     }
     setConfirmOpen(true);
@@ -177,6 +179,7 @@ const NewsletterComposer = forwardRef<NewsletterComposerHandle, NewsletterCompos
   const onSent = (n: Newsletter) => {
     setConfirmOpen(false);
     state.adopt(n);
+    // The composer closes now, so this one goes to App's Toaster.
     toast.success(later ? `Scheduled for ${formatSendTime(n.scheduled_at)}.` : 'Sending now. Follow it in Campaigns › Newsletters.');
     onChanged?.();
     onClose();
@@ -187,7 +190,7 @@ const NewsletterComposer = forwardRef<NewsletterComposerHandle, NewsletterCompos
     if (res.planRequired) { onClose(); return; }
     if (res.conflict) {
       // Sent or scheduled somewhere else meanwhile: show it as it is now (read-only).
-      toast.error(res.error ?? GENERIC_ERROR);
+      composerToast.error(res.error ?? GENERIC_ERROR);
       const id = state.newsletter?.id;
       if (id) void newslettersAPI.get(id).then((r) => { if (r.ok && r.data) state.adopt(r.data); });
       onChanged?.();
@@ -197,14 +200,14 @@ const NewsletterComposer = forwardRef<NewsletterComposerHandle, NewsletterCompos
     const first = firstProblemStep(stepErrorsFrom(res.fieldErrors));
     if (first) {
       showStep(first);
-      toast.error('Finish the steps marked in red, then try again.');
+      composerToast.error('Finish the steps marked in red, then try again.');
     } else {
-      toast.error(res.error ?? GENERIC_ERROR);
+      composerToast.error(res.error ?? GENERIC_ERROR);
     }
   };
   const saveAddress = async (address: string): Promise<boolean> => {
     const res = await brand.saveAddress(address);
-    if (!res.ok) toast.error(res.error ?? GENERIC_ERROR);
+    if (!res.ok) composerToast.error(res.error ?? GENERIC_ERROR);
     return res.ok;
   };
 
@@ -252,10 +255,10 @@ const NewsletterComposer = forwardRef<NewsletterComposerHandle, NewsletterCompos
   const saveDraft = async () => {
     const result = await state.saveNow();
     if (result.newsletter) {
-      toast.success('Draft saved.');
+      composerToast.success('Draft saved.');
       onChanged?.();
     } else {
-      toast.error(result.error ?? GENERIC_ERROR);
+      composerToast.error(result.error ?? GENERIC_ERROR);
     }
   };
 
@@ -291,7 +294,7 @@ const NewsletterComposer = forwardRef<NewsletterComposerHandle, NewsletterCompos
       className="fixed inset-0 flex flex-col bg-[#F8F8FA] outline-none"
       style={{ zIndex: LAYER.composer, display: hidden ? 'none' : undefined }}
     >
-      <header className="flex flex-shrink-0 flex-wrap items-center gap-x-3 gap-y-2 border-b border-gray-200 bg-white px-4 py-3 md:px-6">
+      <header ref={headerRef} className="flex flex-shrink-0 flex-wrap items-center gap-x-3 gap-y-2 border-b border-gray-200 bg-white px-4 py-3 md:px-6">
         <div className="flex min-w-0 items-center gap-3">
           <button type="button" onClick={close} aria-label="Back" className="-ml-1.5 rounded-lg p-1.5 text-gray-600 hover:bg-gray-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#6C60FF]/40">
             <ArrowLeft className="h-5 w-5" />
@@ -395,6 +398,7 @@ const NewsletterComposer = forwardRef<NewsletterComposerHandle, NewsletterCompos
           </div>
         )}
       </div>
+      {hidden ? null : <ComposerToaster headerRef={headerRef} />}
       <PreviewDialog open={previewOpen} onOpenChange={setPreviewOpen} load={loadPreview} />
       <SendConfirmDialog
         open={confirmOpen}

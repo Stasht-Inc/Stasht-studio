@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState } from 'react';
-import { toast } from 'sonner';
+import { composerToast } from '../ComposerToaster';
 import { newslettersAPI } from '../../../services/newslettersAPI';
 import { IMAGE_ACCEPT, imageFileProblem } from '../lib/images';
 import { httpsUrl } from '../lib/urls';
@@ -18,7 +18,7 @@ export function useImageUpload(onUploaded: (url: string) => void, testId?: strin
     if (busyRef.current) return;
     const problem = imageFileProblem(file);
     if (problem) {
-      toast.error(problem);
+      composerToast.error(problem);
       return;
     }
     busyRef.current = true;
@@ -28,7 +28,7 @@ export function useImageUpload(onUploaded: (url: string) => void, testId?: strin
     setUploading(false);
     const url = res.ok ? httpsUrl(res.data?.url) : null;
     if (url) onUploadedRef.current(url);
-    else toast.error(res.fieldErrors.file ?? res.error ?? 'The image could not be uploaded. Try again.');
+    else composerToast.error(res.fieldErrors.file ?? res.error ?? 'The image could not be uploaded. Try again.');
   }, []);
 
   const input = (

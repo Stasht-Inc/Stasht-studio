@@ -1,5 +1,5 @@
 import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { toast } from 'sonner';
+import { composerToast } from './ComposerToaster';
 import type { BlockType, NewsletterBlock, NewsletterHeader } from '../../services/newslettersAPI';
 import type { NewsletterDraft } from './lib/draft';
 import { initialsFrom, type SenderProfile } from './lib/profile';
@@ -116,7 +116,7 @@ export default function NewsletterEditor({
     const block = createBlock(type, newBlockId(blocks));
     const next = insertBlock(blocks, index, block);
     if (next === blocks) {
-      toast.error(`You can add up to ${LIMITS.blocks} sections.`);
+      composerToast.error(`You can add up to ${LIMITS.blocks} sections.`);
       return;
     }
     onChange((d) => ({ blocks: insertBlock(d.blocks, index, block) }));

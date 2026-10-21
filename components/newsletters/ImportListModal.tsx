@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { FileUp, Loader2 } from 'lucide-react';
-import { toast } from 'sonner';
+import { composerToast } from './ComposerToaster';
 import { newslettersAPI, type ContactList } from '../../services/newslettersAPI';
 import ComposerDialog from './ComposerDialog';
 import SegmentedSwitch from './SegmentedSwitch';
@@ -90,7 +90,7 @@ export default function ImportListModal({ open, onOpenChange, groups, onCreated 
       setBusy(false);
       // ContactListController::import 422 keys: name, consent, rows.
       if (!res.ok || !res.data) { setError(res.fieldErrors.name ?? res.fieldErrors.rows ?? res.fieldErrors.consent ?? res.error ?? GENERIC_ERROR); return; }
-      toast.success(importSummary(res.data));
+      composerToast.success(importSummary(res.data));
       onCreated(res.data);
       onOpenChange(false);
       return;
@@ -99,7 +99,7 @@ export default function ImportListModal({ open, onOpenChange, groups, onCreated 
     setBusy(false);
     // fromLeads 422 keys: name, lead_group_id.
     if (!res.ok || !res.data) { setError(res.fieldErrors.name ?? res.fieldErrors.lead_group_id ?? res.error ?? GENERIC_ERROR); return; }
-    toast.success(`Made the list "${res.data.name}" with ${formatCount(res.data.member_count)} people.`);
+    composerToast.success(`Made the list "${res.data.name}" with ${formatCount(res.data.member_count)} people.`);
     onCreated(res.data);
     onOpenChange(false);
   };
