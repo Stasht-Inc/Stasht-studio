@@ -352,6 +352,8 @@ export function chatMessageFrom(raw) {
     isAi,
     autoReply: isAi && raw.auto_reply === true,
     campaign: fromTeam ? campaignFrom(raw.campaign) : null,
+    // One card per product, each opening its page on the business's website (wdy2xh2kp0).
+    products: isAi ? productsFrom(raw.products) : [],
   };
 }
 
@@ -493,6 +495,73 @@ export function bodyWithoutLink(body, linkText) {
   const text = String(body || '');
   if (!linkText) return text;
   return text.split(linkText).join('').replace(/[ \t]{2,}/g, ' ').replace(/[ \t]+\n/g, '\n').trim();
+}
+
+// --- Product cards (ClickUp wdy2xh2kp0) -----------------------------------------------------------
+// Chris, 2026-10-22: "show each individually, and keep them in the website. Stasht is a separate
+// function." The AI's products are no longer a Stasht campaign: each is a card (the campaign card's
+// look, its photo, its title and "View product") opening that product's own page on the business's
+// website. The server ends the reply with those pages, one per card (WidgetAiReplyWriter::finish()),
+// and sends the cards as `products`; the bubble hides the pages the cards carry.
+//
+// The embed reaches these through `import * as core` (never a named import): widget-core.js and
+// widget-embed.js cache separately for 5 minutes, and a named import missing from an older cached core
+// would stop the whole embed from loading. With an older core, messages simply have no `products`.
+
+export const PRODUCT_CARDS_MAX = 4;
+export const PRODUCT_CARD_TEXT = 'View product';
+
+/**
+ * An http(s) link for a product card, or null. Unlike safeHttpsUrl, http: is allowed: the card opens the
+ * business's own website, which the chat doesn't control, and some small shops still serve plain http
+ * (the server checks the page belongs to the business's own catalogue). Never one with a user name or
+ * password in it.
+ */
+export function safeWebUrl(value) {
+  if (typeof value !== 'string') return null;
+  try {
+    const url = new URL(value.trim());
+    if (url.protocol !== 'https:' && url.protocol !== 'http:') return null;
+    if (url.username || url.password || !url.hostname) return null;
+    return url.href;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The AI's product cards, or []: at most 4 { title, url, linkText, image }, one per page. url is an http(s)
+ * link (safeWebUrl), title a trimmed non-empty string, image an https photo or null (the bag icon then);
+ * linkText is the page exactly as the reply's text spells it, for bodyWithoutProducts().
+ */
+export function productsFrom(raw) {
+  if (!Array.isArray(raw)) return [];
+  const cards = [];
+  for (const p of raw) {
+    if (cards.length === PRODUCT_CARDS_MAX) break;
+    if (!p || typeof p !== 'object') continue;
+    const url = safeWebUrl(p.url);
+    const title = typeof p.title === 'string' ? p.title.trim() : '';
+    if (!url || !title || cards.some((c) => c.url === url)) continue;
+    cards.push({ title, url, linkText: String(p.url).trim(), image: safeHttpsUrl(p.image) });
+  }
+  return cards;
+}
+
+/**
+ * The reply's text without the pages its product cards carry: the links at the very end of the reply,
+ * where the server puts them. A link there that isn't a card stays (as an ordinary link), and so does any
+ * link inside the text, even one to the same page.
+ */
+export function bodyWithoutProducts(body, products) {
+  const text = String(body || '');
+  const links = new Set((Array.isArray(products) ? products : []).map((p) => p && p.linkText).filter(Boolean));
+  if (!links.size) return text;
+  const words = text.trimEnd().split(/(\s+)/); // words at even indexes, the spaces between them at odd ones
+  for (let i = words.length - 1; i >= 0 && /^https?:\/\/\S+$/i.test(words[i]); i -= 2) {
+    if (links.has(words[i])) words[i] = '';
+  }
+  return words.join('').replace(/[ \t]{2,}/g, ' ').replace(/[ \t]+\n/g, '\n').trim();
 }
 
 /**
