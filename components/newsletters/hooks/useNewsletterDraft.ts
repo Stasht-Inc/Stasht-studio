@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { newslettersAPI, type Newsletter, type NewsletterHeader } from '../../../services/newslettersAPI';
-import { GENERIC_ERROR, type NlResult } from '../lib/apiResult';
+import { GENERIC_ERROR, retryableSaveFailure, type NlResult } from '../lib/apiResult';
 import { createAutosaver, type Autosaver } from '../lib/autosave';
 import { changedFields, draftFromNewsletter, emptyDraft, headerFrom, mergeUntouched, rejectedKeys, savableChanges, type NewsletterDraft } from '../lib/draft';
-import { backupKey, backupToOffer, browserStorage, clearBackup, readBackup, writeBackup, type DraftBackup } from '../lib/draftBackup';
+import { backupKey, backupToOffer, browserStorage, clearBackup, readBackup, staleBackupToOffer, writeBackup, type OfferedBackup } from '../lib/draftBackup';
 
 export type SaveState = 'idle' | 'saving' | 'saved' | 'error';
 export type DraftPatch = Partial<NewsletterDraft> | ((latest: NewsletterDraft) => Partial<NewsletterDraft> | null);
@@ -26,8 +26,9 @@ export interface NewsletterDraftState {
   stale: boolean;
   /** A failed save that "Try again" can help with (not a held field, not stale). */
   canRetry: boolean;
-  /** A newer copy of this draft kept in this browser (a save that never reached the server). */
-  restoreOffer: DraftBackup | null;
+  /** A copy of this draft kept in this browser (a save that never reached the server). olderBase: made before
+   *  the newsletter was changed elsewhere (offered after a stale Reload). */
+  restoreOffer: OfferedBackup | null;
   /** Put the kept copy back (it then saves as usual). */
   restore(): void;
   /** Forget the kept copy. */
@@ -79,7 +80,7 @@ export function useNewsletterDraft(newsletterId: number | null, enabled: boolean
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [planRequired, setPlanRequired] = useState(false);
   const [stale, setStale] = useState(false);
-  const [restoreOffer, setRestoreOffer] = useState<DraftBackup | null>(null);
+  const [restoreOffer, setRestoreOffer] = useState<OfferedBackup | null>(null);
 
   const draftRef = useRef(draft);
   const savedRef = useRef<NewsletterDraft | null>(null);
@@ -88,6 +89,8 @@ export function useNewsletterDraft(newsletterId: number | null, enabled: boolean
   // The fields the person has changed. After the draft is created, every other field takes the server's default.
   const touchedRef = useRef<Set<string>>(new Set());
   const lastErrorRef = useRef<string | null>(null);
+  // The last failed save was a lost connection or a server error: worth trying again by itself (review fix 10).
+  const retryableRef = useRef(false);
   // Fields a PUT answered 422 for, with the value that was refused and its messages. While the value stays the
   // same it is left out of every save (still dirty, its message still showing), so one bad field never blocks
   // the others; a new value is sent again.
@@ -127,6 +130,7 @@ export function useNewsletterDraft(newsletterId: number | null, enabled: boolean
   }, []);
 
   const fail = useCallback((res: NlResult<unknown>) => {
+    retryableRef.current = retryableSaveFailure(res);
     const plain = !res.stale && !res.conflict && !res.planRequired && Object.keys(res.fieldErrors).length === 0;
     // A server or connection failure: say what it means for the person's work, not "Server Error".
     const raw = res.error ?? GENERIC_ERROR;
@@ -206,6 +210,7 @@ export function useNewsletterDraft(newsletterId: number | null, enabled: boolean
       return;
     }
     lastErrorRef.current = null;
+    retryableRef.current = false;
     setSaveState('saved');
     setSaveError(null);
     // Everything on screen is on the server now: the kept copy is no longer needed.
@@ -360,16 +365,18 @@ export function useNewsletterDraft(newsletterId: number | null, enabled: boolean
     setFieldErrors({});
     setSaveState('idle');
     setSaveError(null);
+    // The edits this tab couldn't save were made on the older version: keep them on offer, with a warning,
+    // instead of throwing them away (review fix 6). Read before take(): nothing here writes the copy.
+    const kept = staleBackupToOffer(readBackup(storageRef.current, backupKey(userIdRef.current, id)), res.data);
     take(res.data, true);
-    // The edits this tab couldn't save stay on offer, so nothing is lost by reloading.
-    offerBackup(res.data);
-  }, [take, offerBackup]);
+    setRestoreOffer(kept);
+  }, [take]);
 
   // A failed save tries again by itself when the connection comes back or the person returns to the tab.
   useEffect(() => {
     if (!enabled) return undefined;
     const again = () => {
-      if (!lastErrorRef.current || lastErrorRef.current === HELD_ERROR || staleRef.current || discardedRef.current) return;
+      if (!lastErrorRef.current || lastErrorRef.current === HELD_ERROR || staleRef.current || discardedRef.current || !retryableRef.current) return;
       retry();
     };
     const onVisible = () => { if (document.visibilityState === 'visible') again(); };

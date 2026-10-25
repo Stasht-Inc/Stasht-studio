@@ -2,6 +2,7 @@
 // is wrapped: private windows, full storage or blocked site data just mean no backup.
 import type { Newsletter } from '../../../services/newslettersAPI.ts';
 import { changedFields, draftFromNewsletter, emptyDraft, type NewsletterDraft } from './draft.ts';
+import { NL_BACKUP_PREFIX } from '../../../utils/newsletterBackups.ts';
 
 export interface DraftBackup {
   draft: NewsletterDraft;
@@ -17,8 +18,10 @@ export interface BackupStorage {
   removeItem(key: string): void;
 }
 
-export function backupKey(userId: number | string | null | undefined, newsletterId: number | null): string {
-  return `stasht_nl_backup:${userId || 0}:${newsletterId ?? 'new'}`;
+/** Null without a signed-in user id: no copy is kept then (never a key shared between accounts). */
+export function backupKey(userId: number | string | null | undefined, newsletterId: number | null): string | null {
+  if (userId === null || userId === undefined || userId === '' || userId === 0) return null;
+  return `${NL_BACKUP_PREFIX}${userId}:${newsletterId ?? 'new'}`;
 }
 
 /** The browser's localStorage, or null when it can't be reached. */
@@ -30,8 +33,8 @@ export function browserStorage(): BackupStorage | null {
   }
 }
 
-export function readBackup(storage: BackupStorage | null, key: string): DraftBackup | null {
-  if (!storage) return null;
+export function readBackup(storage: BackupStorage | null, key: string | null): DraftBackup | null {
+  if (!storage || !key) return null;
   try {
     const raw = storage.getItem(key);
     if (!raw) return null;
@@ -43,8 +46,8 @@ export function readBackup(storage: BackupStorage | null, key: string): DraftBac
   }
 }
 
-export function writeBackup(storage: BackupStorage | null, key: string, backup: DraftBackup): void {
-  if (!storage) return;
+export function writeBackup(storage: BackupStorage | null, key: string | null, backup: DraftBackup): void {
+  if (!storage || !key) return;
   try {
     storage.setItem(key, JSON.stringify(backup));
   } catch {
@@ -52,8 +55,8 @@ export function writeBackup(storage: BackupStorage | null, key: string, backup: 
   }
 }
 
-export function clearBackup(storage: BackupStorage | null, key: string): void {
-  if (!storage) return;
+export function clearBackup(storage: BackupStorage | null, key: string | null): void {
+  if (!storage || !key) return;
   try {
     storage.removeItem(key);
   } catch {
@@ -61,15 +64,19 @@ export function clearBackup(storage: BackupStorage | null, key: string): void {
   }
 }
 
-export function moveBackup(storage: BackupStorage | null, from: string, to: string): void {
+export function moveBackup(storage: BackupStorage | null, from: string | null, to: string | null): void {
   const b = readBackup(storage, from);
   clearBackup(storage, from);
   if (b) writeBackup(storage, to, b);
 }
 
+const differsFrom = (server: Newsletter, backup: DraftBackup): boolean =>
+  Object.keys(changedFields(draftFromNewsletter(server), backup.draft)).length > 0;
+
 /**
- * The copy worth offering as "Restore unsaved changes", or null. It must differ from what the server has, and be
- * newer: made on top of the server's current version, or written after the server's last change.
+ * The copy worth offering as "Restore unsaved changes", or null. It must differ from what the server has and be
+ * made on top of exactly the server's current version (same updated_at). The browser clock is never compared with
+ * the server's: a copy made on another version is not offered (the caller forgets it).
  */
 export function backupToOffer(backup: DraftBackup | null, server: Newsletter | null): DraftBackup | null {
   if (!backup) return null;
@@ -77,8 +84,17 @@ export function backupToOffer(backup: DraftBackup | null, server: Newsletter | n
     const changed = changedFields(emptyDraft(backup.draft.header), backup.draft) as Record<string, unknown>;
     return Object.keys(changed).length > 0 ? backup : null;
   }
-  if (Object.keys(changedFields(draftFromNewsletter(server), backup.draft)).length === 0) return null;
-  const serverTime = Date.parse(server.updated_at);
   const sameBase = backup.baseUpdatedAt !== null && backup.baseUpdatedAt === server.updated_at;
-  return sameBase || !Number.isFinite(serverTime) || backup.savedAt > serverTime ? backup : null;
+  return sameBase && differsFrom(server, backup) ? backup : null;
+}
+
+export type OfferedBackup = DraftBackup & { olderBase?: boolean };
+
+/**
+ * After a stale save and Reload: this tab's edits, made on an older version, are still offered (marked olderBase,
+ * so the notice says restoring replaces the other tab's changes) instead of being thrown away.
+ */
+export function staleBackupToOffer(backup: DraftBackup | null, server: Newsletter): OfferedBackup | null {
+  if (!backup || !differsFrom(server, backup)) return null;
+  return { ...backup, olderBase: backup.baseUpdatedAt !== server.updated_at };
 }

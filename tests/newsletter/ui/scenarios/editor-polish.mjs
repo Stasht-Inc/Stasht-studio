@@ -50,7 +50,8 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
   await imgGallery.getByTestId('g-image-image-input').setInputFiles({ name: 'IMG_0043.HEIC', mimeType: 'image/heic', buffer: Buffer.from('not really a heic file') });
   await expectVisible(page.getByText("This browser can't open HEIC photos. Save the photo as a JPG and try again."), 'HEIC message');
   expect(api.state.uploads.length === uploadsBefore, 'nothing uploaded for an unreadable HEIC');
-  expect((await imgGallery.getByTestId('g-image-image-input').getAttribute('accept')).includes('image/heic'), 'the picker offers HEIC photos');
+  // Review fix 3: the picker doesn't ask for HEIC, so iPhones hand over a JPEG (a dropped HEIC is still handled).
+  expect(!/heic|heif/i.test(await imgGallery.getByTestId('g-image-image-input').getAttribute('accept')), 'the picker does not offer HEIC');
   await context.close();
 
   // 2. Composer: Undo a deleted section; "Send Now" on both buttons; the size hint in the exact preview.

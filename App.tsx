@@ -1,4 +1,5 @@
 ﻿import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { clearNewsletterBackups } from './utils/newsletterBackups';
 import { useRegisterSW } from 'virtual:pwa-register/react';
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import { useProperty } from "./contexts/PropertyContext";
@@ -88,6 +89,7 @@ if (propertyToken && propertyParam === '1') {
   if (currentToken) {
     console.log('🏠 [PropertyLink GLOBAL] User is logged in, logging out before registration...');
     localStorage.removeItem('stasht_token');
+    clearNewsletterBackups();
     localStorage.removeItem('stasht_user');
     localStorage.removeItem('admin_switch_data');
     localStorage.removeItem('selected_property');
@@ -378,6 +380,7 @@ function MainApp() {
       if (urlParams.get('email')) {
         localStorage.removeItem('stasht_user');
         localStorage.removeItem('stasht_token');
+        clearNewsletterBackups();
         sessionStorage.removeItem('stasht_session');
         window.location.reload();
       }
@@ -660,6 +663,7 @@ function MainApp() {
         // Clear user session
         localStorage.removeItem('stasht_user');
         localStorage.removeItem('stasht_token');
+        clearNewsletterBackups();
         sessionStorage.removeItem('stasht_session');
 
         // Show toast
@@ -784,6 +788,7 @@ function MainApp() {
         // Logout current user
         localStorage.removeItem('stasht_user');
         localStorage.removeItem('stasht_token');
+        clearNewsletterBackups();
         sessionStorage.removeItem('stasht_session');
 
         // Store email for prefill
@@ -841,6 +846,7 @@ function MainApp() {
         // Logout current user
         localStorage.removeItem('stasht_user');
         localStorage.removeItem('stasht_token');
+        clearNewsletterBackups();
         sessionStorage.removeItem('stasht_session');
 
         // Store email for prefill
@@ -3757,6 +3763,7 @@ function MainApp() {
         // Logout immediately (without redirect)
         localStorage.removeItem('stasht_user');
         localStorage.removeItem('stasht_token');
+        clearNewsletterBackups();
         sessionStorage.removeItem('stasht_session');
 
         // Force reload to show login page

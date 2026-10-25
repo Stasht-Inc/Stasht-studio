@@ -9,6 +9,7 @@ import {
 import { newslettersAPI, type NewsletterSummary } from '../../services/newslettersAPI';
 import { useIsStarterPlan } from '../../hooks/usePlan';
 import { requestUpgrade } from '../../utils/planEvents';
+import { clearNewsletterBackups } from '../../utils/newsletterBackups';
 import SegmentedSwitch from './SegmentedSwitch';
 import StatusChip from './StatusChip';
 import NewsletterResults from './NewsletterResults';
@@ -151,6 +152,8 @@ export default function NewslettersView({ onCreate, onEdit, onToggleMobileSideba
     const res = action === 'cancel' ? await newslettersAPI.cancel(item.id) : await newslettersAPI.remove(item.id);
     setBusyId(null);
     if (res.ok) {
+      // A deleted newsletter's copies kept in this browser go with it.
+      if (action === 'delete') clearNewsletterBackups(undefined, item.id);
       toast.success(action === 'cancel' ? 'Newsletter cancelled. Nothing more will be sent.' : 'Newsletter deleted.');
       announceNewslettersChanged();
     } else {

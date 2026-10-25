@@ -37,6 +37,8 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
   expect(await page.locator('#nl-subject').inputValue() === 'Changed in the other tab', 'Reload shows the latest copy');
   const restore = page.getByRole('button', { name: 'Restore unsaved changes' });
   await expectVisible(restore, 'this tab\'s edits stay on offer after Reload');
+  // Review fix 6: made on the older version, so the notice says restoring replaces the other tab's changes.
+  await expectVisible(page.getByText('They were made before this newsletter was changed in another tab. Restoring them replaces those changes.'), 'older-copy warning');
   await shot(page, '1280-02-restore-after-reload');
   await restore.click();
   await page.waitForTimeout(1600);

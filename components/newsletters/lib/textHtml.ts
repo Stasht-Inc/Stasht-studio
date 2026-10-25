@@ -154,13 +154,41 @@ export function serializeTextNodes(nodes: TextNode[]): string {
   return out.join('');
 }
 
+/** Google Docs marks bold and italic with styled spans: <span style="font-weight:700"> → <strong>, font-style:italic → <em>. */
+function styledSpans(html: string): string {
+  const closers: string[] = [];
+  return html.replace(/<span\b([^>]*)>|<\/span\s*>/gi, (tag, attrs: string | undefined) => {
+    if (attrs === undefined) return closers.pop() ?? '';
+    const style = /style\s*=\s*("([^"]*)"|'([^']*)')/i.exec(attrs);
+    const css = (style?.[2] ?? style?.[3] ?? '').toLowerCase();
+    const bold = /font-weight\s*:\s*(bold|bolder|[6-9]00)/.test(css);
+    const italic = /font-style\s*:\s*italic/.test(css);
+    closers.push(`${italic ? '</em>' : ''}${bold ? '</strong>' : ''}</span>`);
+    return `<span>${bold ? '<strong>' : ''}${italic ? '<em>' : ''}`;
+  });
+}
+
+/** Word's bullet paragraphs (class MsoListParagraph..., the bullet in an mso-list:Ignore span) → <ul><li>. Best effort. */
+function wordLists(html: string): string {
+  if (!/MsoListParagraph/i.test(html)) return html;
+  const items = html.replace(/<p\b[^>]*class\s*=\s*["']?MsoListParagraph[^>]*>([\s\S]*?)<\/p\s*>/gi, (_m, inner: string) => {
+    let body = inner
+      .replace(/<!\[if !supportLists\]>[\s\S]*?<!\[endif\]>/gi, '')
+      .replace(/<span\b[^>]*mso-list\s*:\s*Ignore[^>]*>(?:[^<]|<span\b[^>]*>[^<]*<\/span\s*>)*<\/span\s*>/gi, '');
+    // A bullet left as plain text: ·, o, §, •, or "1." / "a)" followed by spaces.
+    body = body.replace(/^(\s|&nbsp;|\u00a0)*([\u00b7o\u00a7\u2022\-]|\d+[.)]|[a-z][.)])(\s|&nbsp;|\u00a0)+/i, '');
+    return `<li>${body}</li>`;
+  });
+  return items.replace(/(?:<li>[\s\S]*?<\/li>\s*)+/g, (run) => `<ul>${run.trim()}</ul>`);
+}
+
 /**
  * Pasted HTML (from a web page, Word or Google Docs) as allowed nodes. Word's conditional markers and Google
  * Docs' all-wrapping non-bold <b> are removed first. A single paragraph comes back as its words, so a paste
  * into the middle of a line stays on that line.
  */
 export function pastedTextNodes(html: string): TextNode[] {
-  const cleaned = String(html ?? '')
+  const cleaned = styledSpans(wordLists(String(html ?? '')))
     .replace(/<!\[(?:if|endif)[^\]]*\]>/gi, '')
     .replace(/<b\b[^>]*(?:font-weight:\s*normal|docs-internal-guid)[^>]*>/gi, '<span>');
   const nodes = parseTextHtml(cleaned).filter((n) => !(n.kind === 'text' && !n.text.trim()));

@@ -1120,6 +1120,14 @@ function MemoriesPageContent({
     onRequestCreateCategory?.();
   };
 
+  /** Close Create Campaign and forget what it was opened with (category, photos, the newsletter being edited). */
+  const closeCreateMemory = () => {
+    setShowCreateMemory(false);
+    setSelectedCategoryForCreate(undefined);
+    setEditNewsletterId(null);
+    setPhotosForCreate(null);
+  };
+
   const handleCreateMemory = async (categoryName?: string, photos?: File[]) => {
     // Main "Create a Campaign" button (no specific category): unlike the left-side
     // CategoryNav create button (which always passes an explicit categoryName), this
@@ -1148,6 +1156,8 @@ function MemoriesPageContent({
     }
 
     // Open modal + focus synchronously (before any await) — only way to open keyboard on iOS
+    // A new campaign: never the newsletter that was last edited.
+    setEditNewsletterId(null);
     setSelectedCategoryForCreate(resolvedCategory);
     setPhotosForCreate(photos && photos.length ? photos : null);
     proxyInputRef.current?.focus();
@@ -3613,19 +3623,15 @@ function MemoriesPageContent({
         ref={createMemoryRef}
         open={showCreateMemory}
         onOpenChange={(open) => {
-          setShowCreateMemory(open);
-          // Clear selected category when modal closes
-          if (!open) {
-            setSelectedCategoryForCreate(undefined);
-            setEditNewsletterId(null);
-            setPhotosForCreate(null);
-          }
+          if (open) setShowCreateMemory(true);
+          else closeCreateMemory();
         }}
         newsletterId={editNewsletterId}
         initialPhotos={photosForCreate}
         beforeStoreel={() => {
           if (!categoryGateBlocks()) return true;
-          setShowCreateMemory(false);
+          // Same reset as closing, so the next Create Campaign doesn't reopen this newsletter or these photos.
+          closeCreateMemory();
           sendToCreateCategory();
           return false;
         }}

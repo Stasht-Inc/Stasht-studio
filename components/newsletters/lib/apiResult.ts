@@ -21,6 +21,8 @@ export interface NlResult<T> {
   stale?: boolean;
   /** Sending is switched off: for everyone (`all`) or for this account (`account`). */
   paused?: 'all' | 'account';
+  /** The HTTP status when the server answered (none: the request never got an answer). */
+  status?: number;
 }
 
 export interface AllowanceShortfall {
@@ -111,8 +113,16 @@ export function toResult<T>(res: ApiLikeResponse | null | undefined): NlResult<T
     ...(rateLimited ? { rateLimited: true } : {}),
     allowance: allowanceFrom(res.allowance),
     ...(typeof res.code === 'string' && res.code ? { code: res.code } : {}),
+    ...(typeof res.statusCode === 'number' ? { status: res.statusCode } : {}),
     ...special(res.code),
   };
+}
+
+/** A failed save worth trying again by itself (back online, tab shown again): no answer at all, or a server error. */
+export function retryableSaveFailure(r: NlResult<unknown>): boolean {
+  if (r.ok || r.stale || r.planRequired || r.rateLimited || r.paused) return false;
+  if (Object.keys(r.fieldErrors ?? {}).length) return false;
+  return r.status === undefined || r.status >= 500;
 }
 
 /** POST /newsletters/{id}/test answers 429 when the hourly test limit is reached (NewsletterTestSendController);
@@ -130,7 +140,7 @@ export function resultFromRaw<T>(status: number, body: unknown): NlResult<T> {
   }
   if (status < 200 || status >= 300 || b.success !== true) {
     const fieldErrors = flattenFieldErrors(b.errors);
-    return { ok: false, error: String(b.message || b.error || Object.values(fieldErrors)[0] || GENERIC_ERROR), fieldErrors, conflict: status === 409, ...special(b.code) };
+    return { ok: false, error: String(b.message || b.error || Object.values(fieldErrors)[0] || GENERIC_ERROR), fieldErrors, conflict: status === 409, status, ...special(b.code) };
   }
   return { ok: true, data: b.data as T, fieldErrors: {} };
 }

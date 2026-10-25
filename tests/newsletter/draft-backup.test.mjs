@@ -24,7 +24,9 @@ const server = (over = {}) => ({
 test('backupKey: per account and per newsletter, "new" before the draft exists', () => {
   assert.equal(backupKey(5, 7), 'stasht_nl_backup:5:7');
   assert.equal(backupKey(5, null), 'stasht_nl_backup:5:new');
-  assert.equal(backupKey(null, 7), 'stasht_nl_backup:0:7');
+  // Review fix 5: no shared key 0 — no backup without a signed-in user id.
+  assert.equal(backupKey(null, 7), null);
+  assert.equal(backupKey(0, 7), null);
 });
 
 test('write, read and clear round-trip', () => {
@@ -72,12 +74,14 @@ test('backupToOffer: offers a changed copy made on top of the same server versio
   assert.equal(backupToOffer(b, n), b);
 });
 
-test('backupToOffer: a server copy saved after the local one wins (no offer)', () => {
+test('backupToOffer: a copy made on another server version is never offered (no clock comparison)', () => {
+  // Review fix 1: the browser clock and the server's updated_at are never compared.
   const n = server({ updated_at: '2026-10-20T12:00:00Z' });
   const b = { draft: { ...emptyDraft(), subject: 'Old' }, savedAt: Date.parse('2026-10-20T11:00:00Z'), baseUpdatedAt: '2026-10-20T10:00:00Z' };
   assert.equal(backupToOffer(b, n), null);
-  const newer = { ...b, savedAt: Date.parse('2026-10-20T12:30:00Z') };
-  assert.equal(backupToOffer(newer, n), newer);
+  const laterClock = { ...b, savedAt: Date.parse('2026-10-20T12:30:00Z') };
+  assert.equal(backupToOffer(laterClock, n), null);
+  assert.equal(backupToOffer({ ...b, baseUpdatedAt: null }, n), null, 'no base: not offered for a saved draft');
 });
 
 test('backupToOffer for a new newsletter: only a copy that differs from an empty draft', () => {

@@ -83,6 +83,16 @@ export function restoreBlock(blocks: NewsletterBlock[], block: NewsletterBlock, 
   return insertBlock(blocks, index, block);
 }
 
+/** Toasts with an action (Undo, View) stay this long, so there is time to use it. */
+export const ACTION_TOAST_MS = 10000;
+
+/** Undo a delete, saying what happened: put back, already back (Undo tapped twice), or the email is full. */
+export function undoDelete(blocks: NewsletterBlock[], block: NewsletterBlock, index: number): { blocks: NewsletterBlock[]; outcome: 'restored' | 'already' | 'full' } {
+  if (blocks.some((b) => b.id === block.id)) return { blocks, outcome: 'already' };
+  const next = insertBlock(blocks, index, block);
+  return next === blocks ? { blocks, outcome: 'full' } : { blocks: next, outcome: 'restored' };
+}
+
 export function updateBlockData(blocks: NewsletterBlock[], id: string, data: Record<string, unknown>): NewsletterBlock[] {
   return blocks.map((b) => (b.id === id ? ({ ...b, data: { ...b.data, ...data } } as NewsletterBlock) : b));
 }

@@ -4,7 +4,7 @@ import type { BlockType, NewsletterBlock, NewsletterHeader } from '../../service
 import type { NewsletterDraft } from './lib/draft';
 import { initialsFrom, type SenderProfile } from './lib/profile';
 import { LIMITS } from './lib/rules';
-import { blocksProblems, createBlock, insertBlock, liveBlockProblems, moveBlock, newBlockId, removeBlock, restoreBlock, updateBlockData } from './lib/blocks';
+import { ACTION_TOAST_MS, blocksProblems, createBlock, insertBlock, liveBlockProblems, moveBlock, newBlockId, removeBlock, undoDelete, updateBlockData } from './lib/blocks';
 import InboxRow from './InboxRow';
 import HeaderEditor from './HeaderEditor';
 import EcardFooter from './EcardFooter';
@@ -103,14 +103,21 @@ export default function NewsletterEditor({
         const gone = removed as { block: NewsletterBlock; index: number } | null;
         if (!gone) return;
         composerToast.info('Section deleted.', {
+          duration: ACTION_TOAST_MS,
           action: {
             label: 'Undo',
             onClick: () => {
+              // Filled in by the updater, which runs straight away (a ref, so TypeScript doesn't narrow it).
+              const result = { outcome: 'restored' as 'restored' | 'already' | 'full' };
               onChangeRef.current((d) => {
-                const next = restoreBlock(d.blocks, gone.block, gone.index);
-                return next === d.blocks ? null : { blocks: next };
+                const r = undoDelete(d.blocks, gone.block, gone.index);
+                result.outcome = r.outcome;
+                return r.outcome === 'restored' ? { blocks: r.blocks } : null;
               });
-              setSelectedId(gone.block.id);
+              const { outcome } = result;
+              if (outcome === 'full') composerToast.error(`Your email already has ${LIMITS.blocks} sections. Remove one, then add this back.`);
+              else if (outcome === 'already') composerToast.info('That section is already back.');
+              else setSelectedId(gone.block.id);
             },
           },
         });

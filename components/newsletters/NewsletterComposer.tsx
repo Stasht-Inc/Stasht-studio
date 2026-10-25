@@ -27,6 +27,7 @@ import { formatSendTime, plannedFromSchedule, sameInstant, scheduleFromPlanned, 
 import { firstProblemStep, preSendProblems, stepDomId, stepErrorsFrom, type StepKey } from './lib/sendChecks';
 import { formatSentTo } from './lib/phoneDisplay';
 import { smsPartsInfo } from './lib/smsParts';
+import { ACTION_TOAST_MS } from './lib/blocks';
 import SendConfirmDialog from './SendConfirmDialog';
 import SaveIndicator from './SaveIndicator';
 import DraftNotices from './DraftNotices';
@@ -207,6 +208,7 @@ const NewsletterComposer = forwardRef<NewsletterComposerHandle, NewsletterCompos
     state.adopt(n);
     // The composer closes now, so this one goes to App's Toaster.
     toast.success(later ? `Scheduled for ${formatSendTime(n.scheduled_at)}.` : 'Sending now. Follow it in Campaigns › Newsletters.', {
+      duration: ACTION_TOAST_MS,
       action: { label: 'View', onClick: () => openNewsletterResults(n.id) },
     });
     onChanged?.();
