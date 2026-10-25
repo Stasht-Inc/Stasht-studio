@@ -53,7 +53,14 @@ export function canCancel(status: NewsletterStatus): boolean {
   return status === 'scheduled' || status === 'sending';
 }
 
-export function whenText(n: Pick<NewsletterSummary, 'status' | 'scheduled_at' | 'sent_at' | 'updated_at'>, now: Date = new Date()): string {
+/** Why a newsletter failed (failure_reason, follow-up wdy2xh2p3h), in plain words. */
+export function failureText(reason: NewsletterSummary['failure_reason']): string {
+  return reason === 'too_late'
+    ? "It was more than 6 hours late, so it wasn't sent. Duplicate it to send it now."
+    : 'Something went wrong before it started sending.';
+}
+
+export function whenText(n: Pick<NewsletterSummary, 'status' | 'scheduled_at' | 'sent_at' | 'updated_at'> & Partial<Pick<NewsletterSummary, 'failure_reason'>>, now: Date = new Date()): string {
   switch (n.status) {
     case 'draft':
       return `Edited ${formatSendTime(n.updated_at)}`;
@@ -67,7 +74,7 @@ export function whenText(n: Pick<NewsletterSummary, 'status' | 'scheduled_at' | 
     case 'sent':
       return `Sent ${formatSendTime(n.sent_at ?? n.updated_at)}`;
     case 'failed':
-      return 'Could not be sent';
+      return n.failure_reason === 'too_late' ? 'Too late to send' : 'Could not be sent';
     default:
       return 'Cancelled';
   }

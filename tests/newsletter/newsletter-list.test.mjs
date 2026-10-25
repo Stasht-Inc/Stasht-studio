@@ -128,3 +128,14 @@ test('the drawer re-reads the newsletter only when its status may have changed',
   assert.equal(needsStatusCheck({ status: 'sending', scheduled_at: null }, { ...Z, recipients: 10, sent: 6 }, now), false);
   assert.equal(needsStatusCheck({ status: 'sending', scheduled_at: null }, { ...Z }, now), false, 'recipient rows not built yet');
 });
+
+// Follow-up wdy2xh2p3h (Studio part): why a failed newsletter failed, in plain words.
+import { failureText } from '../../components/newsletters/lib/newsletterList.ts';
+
+test('failure_reason in plain words', () => {
+  assert.equal(failureText('too_late'), "It was more than 6 hours late, so it wasn't sent. Duplicate it to send it now.");
+  assert.equal(failureText('error'), 'Something went wrong before it started sending.');
+  assert.equal(failureText(null), 'Something went wrong before it started sending.');
+  assert.equal(whenText({ status: 'failed', failure_reason: 'too_late', scheduled_at: null, sent_at: null, updated_at: '2026-10-15T14:00:00Z' }), 'Too late to send');
+  assert.equal(whenText({ status: 'failed', failure_reason: 'error', scheduled_at: null, sent_at: null, updated_at: '2026-10-15T14:00:00Z' }), 'Could not be sent');
+});

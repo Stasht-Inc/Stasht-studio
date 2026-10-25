@@ -15,7 +15,7 @@ import { GENERIC_ERROR } from './lib/apiResult';
 import { formatCount } from './lib/audience';
 import { httpsUrl } from './lib/urls';
 import {
-  CHANNEL_FILTERS, RESULT_STATUS_FILTERS, canCancel, countLabel, countsFor, deliveredTile, isLive, listRateBase, needsStatusCheck, rate,
+  CHANNEL_FILTERS, RESULT_STATUS_FILTERS, canCancel, countLabel, failureText, countsFor, deliveredTile, isLive, listRateBase, needsStatusCheck, rate,
   resultsRateBase, whenText, type ChannelFilter,
 } from './lib/newsletterList';
 import { BUTTON_SMALL, LABEL, LINK_BUTTON, inputClass } from './lib/ui';
@@ -148,7 +148,8 @@ export default function NewsletterResults({ newsletterId, onOpenChange, onChange
   const rows = results?.recipients.data ?? [];
   const meta = results?.recipients.meta;
   const webVersion = httpsUrl(newsletter?.public_url ?? null);
-  const emptyText = newsletter?.status === 'scheduled' || newsletter?.status === 'draft' ? 'Nobody has been sent this yet.' : 'Nobody matches these filters.';
+  const emptyText = newsletter?.status === 'scheduled' || newsletter?.status === 'draft' ? 'Nobody has been sent this yet.'
+    : newsletter?.status === 'failed' && !status && channel === 'all' ? 'Nobody was sent this.' : 'Nobody matches these filters.';
 
   return (
     <Sheet open={newsletterId !== null} onOpenChange={onOpenChange}>
@@ -178,6 +179,9 @@ export default function NewsletterResults({ newsletterId, onOpenChange, onChange
         </SheetHeader>
 
         <div className="min-w-0 space-y-5 px-5 py-5" aria-busy={loading}>
+          {newsletter?.status === 'failed' ? (
+            <p role="status" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{failureText(newsletter.failure_reason)}</p>
+          ) : null}
           <div className="flex flex-wrap items-end justify-between gap-3">
             <div>
               <span className={LABEL} aria-hidden="true">Channel</span>

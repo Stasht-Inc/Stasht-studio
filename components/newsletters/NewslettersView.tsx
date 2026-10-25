@@ -15,7 +15,7 @@ import NewsletterResults from './NewsletterResults';
 import { GENERIC_ERROR, PLAN_REQUIRED_ERROR } from './lib/apiResult';
 import { formatCount } from './lib/audience';
 import { NEWSLETTER_FILTERS, NEWSLETTERS_CHANGED_EVENT, announceNewslettersChanged, type NewsletterFilter } from './lib/campaignsView';
-import { ACTION_LABEL, actionsFor, isLive, listRateBase, plural, primaryAction, rate, whenText, type NewsletterAction } from './lib/newsletterList';
+import { ACTION_LABEL, actionsFor, failureText, isLive, listRateBase, plural, primaryAction, rate, whenText, type NewsletterAction } from './lib/newsletterList';
 import { BUTTON_OUTLINE, BUTTON_PRIMARY } from './lib/ui';
 
 const POLL_MS = 30000;
@@ -221,8 +221,8 @@ export default function NewslettersView({ onCreate, onEdit, onToggleMobileSideba
                       <span className="block truncate text-xs text-gray-500">{n.subject || 'No subject yet'}</span>
                     </button>
                   </div>
-                  <div role="cell"><StatusChip status={n.status} /></div>
-                  <div role="cell" className="text-gray-600">{whenText(n)}</div>
+                  <div role="cell"><StatusChip status={n.status} title={n.status === 'failed' ? failureText(n.failure_reason) : undefined} /></div>
+                  <div role="cell" className="text-gray-600" title={n.status === 'failed' ? failureText(n.failure_reason) : undefined}>{whenText(n)}</div>
                   <div role="cell" className="text-right tabular-nums text-gray-900">{n.counts.recipients > 0 ? formatCount(n.counts.recipients) : '—'}</div>
                   <div role="cell" className="text-right tabular-nums text-gray-900">{notSent ? '—' : rate(n.counts.opened, base)}</div>
                   <div role="cell" className="text-right tabular-nums text-gray-900">{notSent ? '—' : rate(n.counts.clicked, base)}</div>
@@ -240,10 +240,11 @@ export default function NewslettersView({ onCreate, onEdit, onToggleMobileSideba
                 <span className="mb-1 block truncate text-sm font-semibold text-gray-900">{n.name || 'Untitled newsletter'}</span>
                 <span className="block truncate text-xs text-gray-500">{n.subject || 'No subject yet'}</span>
                 <span className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-gray-600">
-                  <StatusChip status={n.status} />
+                  <StatusChip status={n.status} title={n.status === 'failed' ? failureText(n.failure_reason) : undefined} />
                   <span>{whenText(n)}</span>
                   {n.status === 'sent' || n.status === 'sending' ? <span>· {rate(n.counts.opened, listRateBase(n.counts))} opened</span> : null}
                 </span>
+                {n.status === 'failed' ? <span className="mt-1.5 block text-xs text-red-700">{failureText(n.failure_reason)}</span> : null}
               </button>
               <RowMenu item={n} busy={busyId === n.id} onAction={act} />
             </li>
