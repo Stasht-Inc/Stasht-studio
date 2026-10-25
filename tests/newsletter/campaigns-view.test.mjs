@@ -12,3 +12,11 @@ test('the Campaigns page opens on Storeels, with Newsletters beside it', () => {
 test('the Newsletters list filters by the statuses the API takes', () => {
   assert.deepEqual(NEWSLETTER_FILTERS.map((o) => [o.value, o.label]), [['all', 'All'], ['draft', 'Drafts'], ['scheduled', 'Scheduled'], ['sent', 'Sent']]);
 });
+
+test('openNewsletterResults leaves the id for the Campaigns page to take once', async () => {
+  const { openNewsletterResults, takePendingNewsletterResults } = await import('../../components/newsletters/lib/campaignsView.ts');
+  assert.equal(takePendingNewsletterResults(), null);
+  openNewsletterResults(42); // no window in node: just remembers it
+  assert.equal(takePendingNewsletterResults(), 42);
+  assert.equal(takePendingNewsletterResults(), null);
+});

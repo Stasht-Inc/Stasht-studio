@@ -32,3 +32,25 @@ export const NEWSLETTERS_CHANGED_EVENT = 'stasht-newsletters-changed';
 export function announceNewslettersChanged(): void {
   if (typeof window !== 'undefined') window.dispatchEvent(new Event(NEWSLETTERS_CHANGED_EVENT));
 }
+
+/** Fired (with the newsletter id as detail) to show one newsletter's results on Campaigns › Newsletters. */
+export const OPEN_NEWSLETTER_RESULTS_EVENT = 'stasht-open-newsletter-results';
+
+let pendingResultsId: number | null = null;
+
+/**
+ * "View" on the sent / scheduled toast: go to the Campaigns page, switch to Newsletters and open the results. The
+ * id waits here until the page takes it (it may not be mounted yet when App navigates).
+ */
+export function openNewsletterResults(id: number): void {
+  pendingResultsId = id;
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(new CustomEvent('app-navigate', { detail: 'memories' }));
+  window.dispatchEvent(new CustomEvent(OPEN_NEWSLETTER_RESULTS_EVENT, { detail: id }));
+}
+
+export function takePendingNewsletterResults(): number | null {
+  const id = pendingResultsId;
+  pendingResultsId = null;
+  return id;
+}

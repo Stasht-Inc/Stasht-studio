@@ -1169,7 +1169,7 @@ function MainApp() {
 
   // State variables (moved up to fix dependency order)
   const [selectedMemoryCategory, setSelectedMemoryCategory] = useState<string | null>(null);
-  const [createMemoryTrigger, setCreateMemoryTrigger] = useState<{ category?: string; timestamp: number } | null>(null);
+  const [createMemoryTrigger, setCreateMemoryTrigger] = useState<{ category?: string; timestamp: number; photos?: File[] } | null>(null);
   const [createCategorySignal, setCreateCategorySignal] = useState(0); // bump to open the sidebar's "New Category" popover
   const [openPublishedEntrySignal, setOpenPublishedEntrySignal] = useState<{ entry: any; nonce: number } | null>(null); // set to open a published-author entry from the desktop sidebar
   const [showPlusPopover, setShowPlusPopover] = useState(false);
@@ -2403,9 +2403,9 @@ function MainApp() {
     setExpandedMemoryCategories(expandedCategories);
   };
 
-  const handleCreateMemoryRequest = (categoryName?: string) => {
+  const handleCreateMemoryRequest = (categoryName?: string, photos?: File[]) => {
     console.log('🎯 Create memory requested for category:', categoryName);
-    setCreateMemoryTrigger({ category: categoryName, timestamp: Date.now() });
+    setCreateMemoryTrigger({ category: categoryName, timestamp: Date.now(), ...(Array.isArray(photos) && photos.length ? { photos } : {}) });
   };
 
   const handleClearCreateMemoryTrigger = () => {
@@ -4487,7 +4487,8 @@ function MainApp() {
               const files = Array.from(e.target.files || []);
               if (files.length > 0) {
                 handleNavigation("memories");
-                handleCreateMemoryRequest();
+                // The photo goes along: Create Campaign opens on Storeel with it ready to add.
+                handleCreateMemoryRequest(undefined, files);
               }
               e.target.value = '';
             }}

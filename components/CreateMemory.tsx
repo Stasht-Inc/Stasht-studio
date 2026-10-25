@@ -42,6 +42,8 @@ interface CreateMemoryProps {
   categories?: any[]; // Pre-loaded categories from parent (avoids redundant fetch)
   newsletterId?: number | null; // Open this newsletter on the Newsletter tab (Campaigns > Newsletters)
   onNewsletterChanged?: () => void; // A newsletter was saved, sent or scheduled
+  initialPhotos?: File[] | null; // Photos passed in (Scan Photo): opens on Storeel with them ready to add
+  beforeStoreel?: () => boolean; // Asked before switching to the Storeel tab; false keeps the Newsletter tab
 }
 
 export interface CreateMemoryHandle {
@@ -83,13 +85,17 @@ function CampaignVideoThumbnail({ src, className }: { src: string; className?: s
   );
 }
 
-const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function CreateMemory({ open, onOpenChange, onMemoryCreated, onOpenMediaLibrary, selectedMediaLibraryImages, defaultCategory, categories: categoriesProp, newsletterId = null, onNewsletterChanged }, ref) {
+const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function CreateMemory({ open, onOpenChange, onMemoryCreated, onOpenMediaLibrary, selectedMediaLibraryImages, defaultCategory, categories: categoriesProp, newsletterId = null, onNewsletterChanged, initialPhotos = null, beforeStoreel }, ref) {
   const { isAuthenticated, user } = useAuth();
   const { viewType, currentProperty } = useProperty();
   const { isLimitExceeded, limitData, checkLimit } = useMemoryLimit();
   // Newsletter | Storeel switch (spec 2026-10-13). Newsletter is the default; null = follow initialCampaignType.
   const [campaignTypeChoice, setCampaignTypeChoice] = useState<CampaignType | null>(null);
-  const campaignType: CampaignType = campaignTypeChoice ?? initialCampaignType({ newsletterId, defaultCategory, mediaCount: selectedMediaLibraryImages?.length ?? 0 });
+  const starterPlan = useIsStarterPlan();
+  const campaignType: CampaignType = campaignTypeChoice ?? initialCampaignType({
+    newsletterId, defaultCategory, mediaCount: selectedMediaLibraryImages?.length ?? 0, photoCount: initialPhotos?.length ?? 0,
+    isStarter: starterPlan.known && starterPlan.isStarter,
+  });
   const campaignTypeRef = useRef<CampaignType>(campaignType);
   campaignTypeRef.current = campaignType;
   const newsletterComposerRef = useRef<NewsletterComposerHandle>(null);
@@ -101,7 +107,10 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
   }, [open, campaignType]);
   // Switching tabs swaps the whole layer, so focus would fall to <body>: put it on the newly shown switch.
   const focusSwitchRef = useRef(false);
+  const beforeStoreelRef = useRef(beforeStoreel);
+  beforeStoreelRef.current = beforeStoreel;
   const chooseCampaignType = useCallback((type: CampaignType) => {
+    if (type === 'storeel' && beforeStoreelRef.current && !beforeStoreelRef.current()) return;
     focusSwitchRef.current = true;
     setCampaignTypeChoice(type);
   }, []);
@@ -1221,6 +1230,23 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
   }, []);
 
   // Don't return null if we have a success dialog to show
+  // Scan Photo: the photo taken arrives with the request; offer it like one picked in the form's own photo button.
+  const handledPhotosRef = useRef<File[] | null>(null);
+  useEffect(() => {
+    if (!open) { handledPhotosRef.current = null; return; }
+    if (!initialPhotos?.length || handledPhotosRef.current === initialPhotos) return;
+    handledPhotosRef.current = initialPhotos;
+    const valid = initialPhotos.filter((f) => ['image/jpeg', 'image/jpg', 'image/png'].includes(f.type.toLowerCase()));
+    if (!valid.length) {
+      toast.error('That photo type can’t be added here. Use a JPG or PNG photo.');
+      return;
+    }
+    const dt = new DataTransfer();
+    valid.forEach((f) => dt.items.add(f));
+    setMomentFiles(dt.files);
+    setIsAddMomentOpen(true);
+  }, [open, initialPhotos]);
+
   if (!open && !showSuccessDialog) return null;
 
   // Debug current state when modal is open

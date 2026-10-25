@@ -1,6 +1,6 @@
 // Dev-only harness for the newsletter screenshot checks (tests/newsletter/ui/check.mjs). Not part of the app
 // build: Vite builds index.html only. It mounts the real components with the providers App gives them.
-import { useState, type ReactElement } from 'react';
+import { useEffect, useState, type ReactElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Toaster } from 'sonner';
 import '../../../styles/globals.css';
@@ -53,11 +53,17 @@ const params = new URLSearchParams(window.location.search);
 function ComposerHarness() {
   const [open, setOpen] = useState(true);
   const id = params.get('newsletterId');
+  // ?photos=1: a photo passed in, as Scan Photo does (App → MemoriesPage → CreateMemory initialPhotos).
+  const [photos, setPhotos] = useState<File[] | null>(null);
+  useEffect(() => {
+    if (params.get('photos') !== '1') return;
+    void fetch('/pwa-icon-512.png').then((r) => r.blob()).then((b) => setPhotos([new File([b], 'scan.png', { type: 'image/png' })]));
+  }, []);
   return (
     <div className="p-6">
       <button type="button" onClick={() => setOpen(true)}>Open Create Campaign</button>
       <CreateMemory open={open} onOpenChange={setOpen} newsletterId={id ? Number(id) : null} defaultCategory={params.get('category') || undefined}
-        onNewsletterChanged={() => console.log('newsletter changed')} />
+        initialPhotos={photos} onNewsletterChanged={() => console.log('newsletter changed')} />
     </div>
   );
 }

@@ -8,6 +8,8 @@ import { requestUpgrade } from '../../utils/planEvents';
 import { useNewsletterBrand } from './hooks/useNewsletterBrand';
 import { useNewsletterDraft } from './hooks/useNewsletterDraft';
 import { useSenderProfile } from './hooks/useSenderProfile';
+import { useBackToClose } from './hooks/useBackToClose';
+import { openNewsletterResults } from './lib/campaignsView';
 import { fieldProblems, type NewsletterDraft } from './lib/draft';
 import { GENERIC_ERROR, PLAN_REQUIRED_ERROR, type NlResult } from './lib/apiResult';
 import { BUTTON_OUTLINE, BUTTON_PRIMARY, BUTTON_SECONDARY, LAYER, LINK_BUTTON } from './lib/ui';
@@ -181,7 +183,9 @@ const NewsletterComposer = forwardRef<NewsletterComposerHandle, NewsletterCompos
     setConfirmOpen(false);
     state.adopt(n);
     // The composer closes now, so this one goes to App's Toaster.
-    toast.success(later ? `Scheduled for ${formatSendTime(n.scheduled_at)}.` : 'Sending now. Follow it in Campaigns › Newsletters.');
+    toast.success(later ? `Scheduled for ${formatSendTime(n.scheduled_at)}.` : 'Sending now. Follow it in Campaigns › Newsletters.', {
+      action: { label: 'View', onClick: () => openNewsletterResults(n.id) },
+    });
     onChanged?.();
     onClose();
   };
@@ -222,17 +226,19 @@ const NewsletterComposer = forwardRef<NewsletterComposerHandle, NewsletterCompos
 
   // Cancel, Back and Escape. If the last changes can't be saved, ask instead of closing silently.
   const [unsaved, setUnsaved] = useState<string | null>(null);
-  const close = async () => {
-    if (closing) return;
+  /** True when the composer closed; false when it stays open (still closing, or changes aren't saved). */
+  const close = async (): Promise<boolean> => {
+    if (closing) return false;
     setClosing(true);
     const outcome = await state.flush();
     setClosing(false);
     if (outcome.error) {
       setUnsaved(outcome.error);
-      return;
+      return false;
     }
     if (outcome.newsletter) onChanged?.();
     onClose();
+    return true;
   };
   const discardAndClose = () => {
     setUnsaved(null);
@@ -242,6 +248,9 @@ const NewsletterComposer = forwardRef<NewsletterComposerHandle, NewsletterCompos
   };
   const closeRef = useRef(close);
   closeRef.current = close;
+
+  // The browser's Back button works like Cancel (it asks first if the last changes aren't saved).
+  useBackToClose(!hidden, () => closeRef.current());
 
   // aria-modal: Escape works like Cancel. Radix layers (popovers, dialogs) handle their own Escape first and
   // mark it handled (defaultPrevented); while one is open (even just mounting, before its own listener is
@@ -270,7 +279,7 @@ const NewsletterComposer = forwardRef<NewsletterComposerHandle, NewsletterCompos
 
   const actionButtons = (sendLabel: string, extra = '') => (
     <>
-      <button type="button" onClick={close} disabled={closing} className={`${BUTTON_OUTLINE} ${extra}`}>Cancel</button>
+      <button type="button" onClick={() => { void close(); }} disabled={closing} className={`${BUTTON_OUTLINE} ${extra}`}>Cancel</button>
       <button type="button" onClick={saveDraft} disabled={!enabled || readOnly || state.saveState === 'saving'} className={`${BUTTON_SECONDARY} ${extra}`}>Save Draft</button>
       <button type="button" onClick={startSend} disabled={!enabled || readOnly || starting} className={`${BUTTON_PRIMARY} ${extra}`}>
         {starting ? <Loader2 className="h-4 w-4 flex-shrink-0 animate-spin" aria-hidden="true" /> : <Globe className={`h-4 w-4 flex-shrink-0 ${extra ? 'hidden min-[400px]:block' : ''}`} aria-hidden="true" />}{sendLabel}
@@ -302,7 +311,7 @@ const NewsletterComposer = forwardRef<NewsletterComposerHandle, NewsletterCompos
     >
       <header ref={headerRef} className="flex flex-shrink-0 flex-wrap items-center gap-x-3 gap-y-2 border-b border-gray-200 bg-white px-4 py-3 md:px-6">
         <div className="flex min-w-0 items-center gap-3">
-          <button type="button" onClick={close} aria-label="Back" className="-ml-1.5 rounded-lg p-1.5 text-gray-600 hover:bg-gray-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#6C60FF]/40">
+          <button type="button" onClick={() => { void close(); }} aria-label="Back" className="-ml-1.5 rounded-lg p-1.5 text-gray-600 hover:bg-gray-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#6C60FF]/40">
             <ArrowLeft className="h-5 w-5" />
           </button>
           <h2 id="nl-composer-title" className="truncate text-lg font-semibold text-gray-900">Create Campaign</h2>

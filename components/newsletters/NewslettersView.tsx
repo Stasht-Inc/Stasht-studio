@@ -29,6 +29,8 @@ export interface NewslettersViewProps {
   /** Phones: the Campaigns page's sidebar toggle, shown in this header as in All Campaigns. */
   onToggleMobileSidebar?(): void;
   showMobileSidebar?: boolean;
+  /** Open this newsletter's results ("View" on the sent / scheduled toast); a new nonce opens it again. */
+  openResults?: { id: number; nonce: number } | null;
 }
 
 function RowMenu({ item, busy, onAction }: { item: NewsletterSummary; busy: boolean; onAction(action: NewsletterAction, item: NewsletterSummary): void }) {
@@ -59,14 +61,17 @@ function RowMenu({ item, busy, onAction }: { item: NewsletterSummary; busy: bool
 }
 
 /** Campaigns page → Newsletters (spec decision 3): drafts, scheduled, sending and sent, with their results. */
-export default function NewslettersView({ onCreate, onEdit, onToggleMobileSidebar, showMobileSidebar = false }: NewslettersViewProps) {
+export default function NewslettersView({ onCreate, onEdit, onToggleMobileSidebar, showMobileSidebar = false, openResults = null }: NewslettersViewProps) {
   const { isStarter, known } = useIsStarterPlan();
   // Paid plans only, and only once the plan is known: a Starter account would get 403 plan_required (contract note 1).
   const enabled = known && !isStarter;
   const [filter, setFilter] = useState<NewsletterFilter>('all');
   const [items, setItems] = useState<NewsletterSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [resultsId, setResultsId] = useState<number | null>(null);
+  const [resultsId, setResultsId] = useState<number | null>(openResults?.id ?? null);
+  useEffect(() => {
+    if (openResults) setResultsId(openResults.id);
+  }, [openResults]);
   const [confirm, setConfirm] = useState<{ action: 'cancel' | 'delete'; item: NewsletterSummary } | null>(null);
   const [busyId, setBusyId] = useState<number | null>(null);
 
