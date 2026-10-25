@@ -85,3 +85,27 @@ test('testSendResult says the hourly test limit was reached on a 429, and leaves
   const ok = toResult({ success: true, data: { success: true, data: { sent_to: 'a@b.ca' } } });
   assert.deepEqual(testSendResult(ok), ok);
 });
+
+test('toResult keeps the server code, and a 409 stale is a stale result, not a status conflict', async () => {
+  const { toResult, STALE_ERROR } = await import('../../components/newsletters/lib/apiResult.ts');
+  const r = toResult({ success: false, conflict: true, code: 'stale', message: 'Changed elsewhere.' });
+  assert.equal(r.code, 'stale');
+  assert.equal(r.stale, true);
+  assert.equal(r.conflict, false);
+  assert.equal(r.error, STALE_ERROR);
+  assert.equal(toResult({ success: false, conflict: true, message: 'Only drafts can be changed.' }).conflict, true);
+});
+
+test('paused sending: plain words for the whole service and for one account, never a status conflict', async () => {
+  const { toResult, PAUSED_ERROR, ACCOUNT_PAUSED_ERROR } = await import('../../components/newsletters/lib/apiResult.ts');
+  const all = toResult({ success: false, conflict: true, code: 'newsletters_paused', message: 'Newsletters are paused. Try again later.' });
+  assert.equal(all.error, PAUSED_ERROR);
+  assert.equal(PAUSED_ERROR, 'Newsletters are paused right now. Your draft is saved. Try again later.');
+  assert.equal(all.paused, 'all');
+  assert.equal(all.conflict, false);
+  const one = toResult({ success: false, code: 'newsletters_account_paused', message: 'x' });
+  assert.equal(one.error, ACCOUNT_PAUSED_ERROR);
+  assert.equal(ACCOUNT_PAUSED_ERROR, 'Sending is paused for your account. Contact support.');
+  assert.equal(one.paused, 'account');
+  assert.equal(toResult({ success: false, message: 'no' }).paused, undefined);
+});

@@ -15,6 +15,12 @@ export interface NlResult<T> {
   rateLimited?: boolean;
   /** 422 allowance: which channel ran out, what this send needs, what is left (contract note 4). */
   allowance?: AllowanceShortfall;
+  /** The server's `code`, when it sent one. */
+  code?: string;
+  /** 409 stale: the draft was saved from another tab or device since this one loaded it. */
+  stale?: boolean;
+  /** Sending is switched off: for everyone (`all`) or for this account (`account`). */
+  paused?: 'all' | 'account';
 }
 
 export interface AllowanceShortfall {
@@ -42,6 +48,17 @@ export const GENERIC_ERROR = 'Something went wrong. Please try again.';
 export const RATE_LIMITED_ERROR = 'Too many requests. Wait a minute and try again.';
 export const PLAN_REQUIRED_ERROR = 'Newsletters are available on paid plans.';
 export const TEST_LIMIT_ERROR = "You've sent the most test messages for this hour. Try again later.";
+export const STALE_ERROR = 'This newsletter was changed in another tab. Reload to see the latest.';
+export const PAUSED_ERROR = 'Newsletters are paused right now. Your draft is saved. Try again later.';
+export const ACCOUNT_PAUSED_ERROR = 'Sending is paused for your account. Contact support.';
+
+/** The codes that get their own words and flags (they are 409s or 503s, but never "no longer a draft"). */
+function special(code: unknown): Partial<NlResult<never>> | null {
+  if (code === 'stale') return { code, stale: true, conflict: false, error: STALE_ERROR };
+  if (code === 'newsletters_paused') return { code, paused: 'all', conflict: false, error: PAUSED_ERROR };
+  if (code === 'newsletters_account_paused') return { code, paused: 'account', conflict: false, error: ACCOUNT_PAUSED_ERROR };
+  return null;
+}
 
 /** The server body is {success, data}; apiRequest wraps it once more. Peel exactly one envelope. */
 export function unwrap<T>(body: unknown): T | undefined {
@@ -93,6 +110,8 @@ export function toResult<T>(res: ApiLikeResponse | null | undefined): NlResult<T
     planRequired,
     ...(rateLimited ? { rateLimited: true } : {}),
     allowance: allowanceFrom(res.allowance),
+    ...(typeof res.code === 'string' && res.code ? { code: res.code } : {}),
+    ...special(res.code),
   };
 }
 
@@ -111,7 +130,7 @@ export function resultFromRaw<T>(status: number, body: unknown): NlResult<T> {
   }
   if (status < 200 || status >= 300 || b.success !== true) {
     const fieldErrors = flattenFieldErrors(b.errors);
-    return { ok: false, error: String(b.message || b.error || Object.values(fieldErrors)[0] || GENERIC_ERROR), fieldErrors, conflict: status === 409 };
+    return { ok: false, error: String(b.message || b.error || Object.values(fieldErrors)[0] || GENERIC_ERROR), fieldErrors, conflict: status === 409, ...special(b.code) };
   }
   return { ok: true, data: b.data as T, fieldErrors: {} };
 }

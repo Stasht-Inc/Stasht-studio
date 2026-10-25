@@ -170,6 +170,11 @@ export function createMockApi(options = {}) {
     sendConflict: options.sendConflict ?? false,
     // Per-channel results counts by newsletter id, on top of the seeded ones.
     channelCounts: options.channelCounts ?? {},
+    // Send / schedule answer as the API does while sending is switched off: 'all' (503 newsletters_paused, the
+    // .env switch) or 'account' (409 newsletters_account_paused, one account held).
+    sendPaused: options.sendPaused ?? null,
+    // POST /newsletters/{id}/preview's size_kb (NewsletterSendCheck's rendered size), when set.
+    previewSizeKb: options.previewSizeKb ?? null,
     // Storeels made with POST /memories.
     storeels: [],
     calls: [],
@@ -315,6 +320,10 @@ export function createMockApi(options = {}) {
       if (!action && method === 'PUT') {
         if (n.status !== 'draft') return fail(409, { success: false, message: 'Only drafts can be changed. Duplicate this newsletter to make changes.' });
         if (state.failPuts) return fail(state.failPuts, { success: false, message: 'Server Error' });
+        // NewsletterController::update: saved elsewhere since this tab's copy (if_unmodified_since is optional).
+        if (body?.if_unmodified_since && body.if_unmodified_since !== n.updated_at) {
+          return fail(409, { success: false, code: 'stale', message: 'This newsletter was changed somewhere else. Reload to see the latest.' });
+        }
         const errors = updateErrors(body);
         for (const [field, message] of Object.entries(state.rejectPut)) if (body && field in body) errors[field] = [message];
         if (Object.keys(errors).length) return fail(422, { message: Object.values(errors)[0][0], errors });
@@ -333,7 +342,7 @@ export function createMockApi(options = {}) {
         state.newsletters.push(copy);
         return ok(copy, 201);
       }
-      if (action === 'preview') return ok({ html: previewHtml(n) });
+      if (action === 'preview') return ok({ html: previewHtml(n), ...(state.previewSizeKb != null ? { size_kb: state.previewSizeKb } : {}) });
       if (action === 'test') {
         if (state.testsLeft <= 0) return fail(429, { success: false, message: "You've sent the most tests allowed this hour. Try again later." });
         state.testsLeft -= 1;
@@ -345,6 +354,8 @@ export function createMockApi(options = {}) {
       if (action === 'send' || action === 'schedule') {
         if (state.sendConflict && n.status === 'draft') { n.status = 'scheduled'; n.scheduled_at = now(); }
         if (n.status !== 'draft') return fail(409, { success: false, message: 'Only drafts can be sent. Duplicate this newsletter to send it again.' });
+        if (state.sendPaused === 'all') return fail(503, { success: false, code: 'newsletters_paused', message: 'Newsletters are paused. Try again later.' });
+        if (state.sendPaused === 'account') return fail(409, { success: false, code: 'newsletters_account_paused', message: 'Sending is paused for this account.' });
         // NewsletterSendController::schedule validates scheduled_at before the send checks.
         if (action === 'schedule') {
           const at = Date.parse(body?.scheduled_at ?? '');
@@ -410,5 +421,12 @@ export function createMockApi(options = {}) {
     return route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(json) });
   }
 
-  return { route, state };
+  /** Another tab saves this draft: its updated_at moves on, so this tab's next PUT is stale. */
+  function editElsewhere(id, patch = {}) {
+    const n = find(id);
+    if (!n) return;
+    Object.assign(n, patch, { updated_at: new Date(Math.max(Date.now(), Date.parse(n.updated_at) + 1000)).toISOString() });
+  }
+
+  return { route, state, editElsewhere };
 }

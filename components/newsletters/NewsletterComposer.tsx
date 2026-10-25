@@ -26,6 +26,7 @@ import { firstProblemStep, preSendProblems, stepDomId, stepErrorsFrom, type Step
 import { formatSentTo } from './lib/phoneDisplay';
 import SendConfirmDialog from './SendConfirmDialog';
 import SaveIndicator from './SaveIndicator';
+import DraftNotices from './DraftNotices';
 import UpgradeCard from './UpgradeCard';
 import ComposerDialog from './ComposerDialog';
 import NameStep from './steps/NameStep';
@@ -188,6 +189,11 @@ const NewsletterComposer = forwardRef<NewsletterComposerHandle, NewsletterCompos
   const onSendFailed = (res: NlResult<Newsletter>) => {
     setConfirmOpen(false);
     if (res.planRequired) { onClose(); return; }
+    if (res.paused) {
+      // Sending is switched off (for everyone, or for this account): the draft stays as it is.
+      composerToast.error(res.error ?? GENERIC_ERROR);
+      return;
+    }
     if (res.conflict) {
       // Sent or scheduled somewhere else meanwhile: show it as it is now (read-only).
       composerToast.error(res.error ?? GENERIC_ERROR);
@@ -303,7 +309,7 @@ const NewsletterComposer = forwardRef<NewsletterComposerHandle, NewsletterCompos
         </div>
         <div className="order-3 flex w-full justify-center md:order-none md:w-auto md:flex-1">{switcher}</div>
         <div className="ml-auto flex items-center gap-3">
-          <SaveIndicator state={state.saveState} />
+          <SaveIndicator state={state.saveState} reason={state.saveError} onRetry={state.canRetry ? state.retry : undefined} />
           {enabled ? <div className="hidden items-center gap-2 md:flex">{actionButtons(later ? 'Schedule' : 'Send now')}</div> : null}
         </div>
       </header>
@@ -339,6 +345,11 @@ const NewsletterComposer = forwardRef<NewsletterComposerHandle, NewsletterCompos
                   This newsletter is {STATUS_WORDS[state.newsletter.status] ?? state.newsletter.status}, so it can't be changed. To send something similar, duplicate it from Campaigns › Newsletters.
                 </p>
               ) : null}
+
+              {readOnly ? null : (
+                <DraftNotices saveError={state.saveError} stale={state.stale} canRetry={state.canRetry} restoreOffer={state.restoreOffer}
+                  onRetry={state.retry} onReload={() => { void state.reload(); }} onRestore={state.restore} onDismissRestore={state.dismissRestore} />
+              )}
 
               <NameStep value={draft.name} onChange={(name) => update({ name })} fieldError={fieldError('name')} stepError={stepError('name')} readOnly={readOnly} inputRef={setNameInput} autoFocus={!newsletterId} />
 

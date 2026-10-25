@@ -192,7 +192,10 @@ export const newslettersAPI = {
   list: (status?: NewsletterStatus) => get<NewsletterSummary[]>(`/newsletters${query({ status })}`),
   create: (name?: string) => write<Newsletter>('POST', '/newsletters', name ? { name } : {}),
   get: (id: number) => get<Newsletter>(nl(id)),
-  update: (id: number, input: NewsletterInput) => write<Newsletter>('PUT', nl(id), input),
+  // ifUnmodifiedSince: the draft's updated_at as this tab last saw it. The API answers 409 code `stale` when it
+  // was saved elsewhere since (requests without it are still accepted).
+  update: (id: number, input: NewsletterInput, ifUnmodifiedSince?: string | null) =>
+    write<Newsletter>('PUT', nl(id), ifUnmodifiedSince ? { ...input, if_unmodified_since: ifUnmodifiedSince } : input),
   remove: (id: number) => write<Record<string, never>>('DELETE', nl(id)),
   duplicate: (id: number) => write<Newsletter>('POST', `${nl(id)}/duplicate`),
   audienceCount: (audience: AudienceItem[], channels: NewsletterChannel[]) =>

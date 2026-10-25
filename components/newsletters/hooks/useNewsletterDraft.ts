@@ -3,7 +3,8 @@ import { toast } from 'sonner';
 import { newslettersAPI, type Newsletter, type NewsletterHeader } from '../../../services/newslettersAPI';
 import { GENERIC_ERROR, type NlResult } from '../lib/apiResult';
 import { createAutosaver, type Autosaver } from '../lib/autosave';
-import { draftFromNewsletter, emptyDraft, headerFrom, mergeUntouched, rejectedKeys, savableChanges, type NewsletterDraft } from '../lib/draft';
+import { changedFields, draftFromNewsletter, emptyDraft, headerFrom, mergeUntouched, rejectedKeys, savableChanges, type NewsletterDraft } from '../lib/draft';
+import { backupKey, backupToOffer, browserStorage, clearBackup, readBackup, writeBackup, type DraftBackup } from '../lib/draftBackup';
 
 export type SaveState = 'idle' | 'saving' | 'saved' | 'error';
 export type DraftPatch = Partial<NewsletterDraft> | ((latest: NewsletterDraft) => Partial<NewsletterDraft> | null);
@@ -21,6 +22,20 @@ export interface NewsletterDraftState {
   saveError: string | null;
   fieldErrors: Record<string, string>;
   planRequired: boolean;
+  /** The draft was saved from another tab or device: saving stops until reload(). */
+  stale: boolean;
+  /** A failed save that "Try again" can help with (not a held field, not stale). */
+  canRetry: boolean;
+  /** A newer copy of this draft kept in this browser (a save that never reached the server). */
+  restoreOffer: DraftBackup | null;
+  /** Put the kept copy back (it then saves as usual). */
+  restore(): void;
+  /** Forget the kept copy. */
+  dismissRestore(): void;
+  /** Try the failed save again now. */
+  retry(): void;
+  /** Load the server's latest copy (after a stale save). */
+  reload(): Promise<void>;
   /** A patch, or a function of the latest draft (null: nothing to change). Use the function form from anything
    *  that finishes later (an upload) or acts on one section, so it never merges a stale copy over newer edits. */
   update(patch: DraftPatch): void;
@@ -39,6 +54,20 @@ export interface NewsletterDraftState {
 const AUTOSAVE_DELAY_MS = 800;
 export const HELD_ERROR = 'Fix the fields marked in red so they can be saved.';
 export const UNMOUNT_SAVE_ERROR = 'Your latest newsletter changes could not be saved. Open the draft from Campaigns › Newsletters to check it.';
+export const SAVE_FAILED_ERROR = "Your latest changes couldn't be saved just now. They're kept on this device.";
+export const OFFLINE_ERROR = "You're offline. Your changes are kept on this device and will save when you're back online.";
+
+function currentUserId(): number | string | null {
+  try {
+    const raw = window.localStorage.getItem('stasht_user');
+    const user = raw ? JSON.parse(raw) : null;
+    return user && (typeof user.id === 'number' || typeof user.id === 'string') ? user.id : null;
+  } catch {
+    return null;
+  }
+}
+
+const isOffline = () => typeof navigator !== 'undefined' && navigator.onLine === false;
 
 export function useNewsletterDraft(newsletterId: number | null, enabled: boolean, brandHeader: NewsletterHeader | null): NewsletterDraftState {
   const [loading, setLoading] = useState<boolean>(Boolean(newsletterId));
@@ -49,6 +78,8 @@ export function useNewsletterDraft(newsletterId: number | null, enabled: boolean
   const [saveError, setSaveError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [planRequired, setPlanRequired] = useState(false);
+  const [stale, setStale] = useState(false);
+  const [restoreOffer, setRestoreOffer] = useState<DraftBackup | null>(null);
 
   const draftRef = useRef(draft);
   const savedRef = useRef<NewsletterDraft | null>(null);
@@ -62,6 +93,9 @@ export function useNewsletterDraft(newsletterId: number | null, enabled: boolean
   // the others; a new value is sent again.
   const rejectedRef = useRef(new Map<string, { value: string; errors: Record<string, string> }>());
   const discardedRef = useRef(false);
+  const staleRef = useRef(false);
+  const storageRef = useRef(browserStorage());
+  const userIdRef = useRef(currentUserId());
   const brandHeaderRef = useRef(brandHeader);
   brandHeaderRef.current = brandHeader;
   // Not enabled (plan unknown or Starter): never call the API, whatever happens (contract note 1).
@@ -84,8 +118,25 @@ export function useNewsletterDraft(newsletterId: number | null, enabled: boolean
     }
   }, []);
 
+  // After loading a draft: offer the copy kept in this browser if it is newer; forget one that isn't.
+  const offerBackup = useCallback((n: Newsletter) => {
+    const key = backupKey(userIdRef.current, n.id);
+    const offer = n.status === 'draft' ? backupToOffer(readBackup(storageRef.current, key), n) : null;
+    if (!offer) clearBackup(storageRef.current, key);
+    setRestoreOffer(offer);
+  }, []);
+
   const fail = useCallback((res: NlResult<unknown>) => {
-    lastErrorRef.current = res.error ?? GENERIC_ERROR;
+    const plain = !res.stale && !res.conflict && !res.planRequired && Object.keys(res.fieldErrors).length === 0;
+    // A server or connection failure: say what it means for the person's work, not "Server Error".
+    const raw = res.error ?? GENERIC_ERROR;
+    const serverSide = plain && (raw === GENERIC_ERROR || /^(server error|http \d+|internal server error)\.?$/i.test(raw.trim()));
+    lastErrorRef.current = plain && isOffline() ? OFFLINE_ERROR : serverSide ? SAVE_FAILED_ERROR : raw;
+    if (res.stale) {
+      // Saved from another tab: stop saving (each save would be refused) until the person reloads.
+      staleRef.current = true;
+      setStale(true);
+    }
     setSaveState('error');
     setSaveError(lastErrorRef.current);
     setFieldErrors(res.fieldErrors);
@@ -97,12 +148,15 @@ export function useNewsletterDraft(newsletterId: number | null, enabled: boolean
   }, [take]);
 
   const run = useCallback(async () => {
-    if (readOnlyRef.current || !enabledRef.current) return;
+    if (readOnlyRef.current || !enabledRef.current || staleRef.current) return;
     setSaveState('saving');
     if (!idRef.current) {
       const created = await newslettersAPI.create(draftRef.current.name.trim() || undefined);
       if (!created.ok || !created.data) { fail(created); return; }
       take(created.data, false);
+      // The copy kept as "new" now belongs to this draft.
+      clearBackup(storageRef.current, backupKey(userIdRef.current, null));
+      writeBackup(storageRef.current, backupKey(userIdRef.current, created.data.id), { draft: draftRef.current, savedAt: Date.now(), baseUpdatedAt: created.data.updated_at });
       const server = draftFromNewsletter(created.data);
       savedRef.current = server;
       // Show the server's defaults (name, from name, reply-to, header) in every field not touched yet.
@@ -128,7 +182,7 @@ export function useNewsletterDraft(newsletterId: number | null, enabled: boolean
       else rejected.delete(key); // changed: try it again
     }
     if (Object.keys(body).length > 0) {
-      let res = await newslettersAPI.update(idRef.current as number, body);
+      let res = await newslettersAPI.update(idRef.current as number, body, newsletterRef.current?.updated_at);
       // A 422 on some fields: hold those back and save the rest once more.
       const refused = !res.ok && !res.conflict && !res.planRequired ? rejectedKeys(body, res.fieldErrors) : [];
       if (refused.length) {
@@ -137,7 +191,7 @@ export function useNewsletterDraft(newsletterId: number | null, enabled: boolean
           rejected.set(key, { value: JSON.stringify(body[key]), errors });
           holdBack(key);
         }
-        if (Object.keys(body).length > 0) res = await newslettersAPI.update(idRef.current as number, body);
+        if (Object.keys(body).length > 0) res = await newslettersAPI.update(idRef.current as number, body, newsletterRef.current?.updated_at);
         else res = { ok: true, data: newsletterRef.current ?? undefined, fieldErrors: {} };
       }
       if (!res.ok || !res.data) { fail(res); return; }
@@ -154,6 +208,8 @@ export function useNewsletterDraft(newsletterId: number | null, enabled: boolean
     lastErrorRef.current = null;
     setSaveState('saved');
     setSaveError(null);
+    // Everything on screen is on the server now: the kept copy is no longer needed.
+    if (Object.keys(changedFields(nextSaved, draftRef.current)).length === 0) clearBackup(storageRef.current, backupKey(userIdRef.current, idRef.current));
   }, [fail, take]);
 
   const runRef = useRef(run);
@@ -172,6 +228,10 @@ export function useNewsletterDraft(newsletterId: number | null, enabled: boolean
     lastErrorRef.current = null;
     rejectedRef.current = new Map();
     discardedRef.current = false;
+    staleRef.current = false;
+    setStale(false);
+    setRestoreOffer(null);
+    userIdRef.current = currentUserId();
     const fresh = emptyDraft(brandHeaderRef.current);
     draftRef.current = fresh;
     setDraft(fresh);
@@ -182,20 +242,23 @@ export function useNewsletterDraft(newsletterId: number | null, enabled: boolean
     setLoadError(null);
     if (!newsletterId) {
       setLoading(false);
+      setRestoreOffer(backupToOffer(readBackup(storageRef.current, backupKey(userIdRef.current, null)), null));
       return undefined;
     }
     setLoading(true);
     newslettersAPI.get(newsletterId).then((res) => {
       if (cancelled) return;
       setLoading(false);
-      if (res.ok && res.data) take(res.data, true);
-      else {
+      if (res.ok && res.data) {
+        take(res.data, true);
+        offerBackup(res.data);
+      } else {
         setLoadError(res.error ?? GENERIC_ERROR);
         if (res.planRequired) setPlanRequired(true);
       }
     });
     return () => { cancelled = true; };
-  }, [newsletterId, enabled, take]);
+  }, [newsletterId, enabled, take, offerBackup]);
 
   // A new, untouched draft takes the account's last header when the brand arrives.
   useEffect(() => {
@@ -226,6 +289,7 @@ export function useNewsletterDraft(newsletterId: number | null, enabled: boolean
     const next = { ...draftRef.current, ...patch };
     draftRef.current = next;
     setDraft(next);
+    writeBackup(storageRef.current, backupKey(userIdRef.current, idRef.current), { draft: next, savedAt: Date.now(), baseUpdatedAt: newsletterRef.current?.updated_at ?? null });
     saverRef.current?.schedule();
   }, []);
 
@@ -248,12 +312,94 @@ export function useNewsletterDraft(newsletterId: number | null, enabled: boolean
   const discard = useCallback(() => {
     discardedRef.current = true;
     saverRef.current?.cancel();
+    clearBackup(storageRef.current, backupKey(userIdRef.current, idRef.current));
   }, []);
 
-  const adopt = useCallback((n: Newsletter) => take(n, true), [take]);
+  const adopt = useCallback((n: Newsletter) => {
+    take(n, true);
+    if (n.status !== 'draft') clearBackup(storageRef.current, backupKey(userIdRef.current, n.id));
+  }, [take]);
+
+  const restore = useCallback(() => {
+    const offer = restoreOffer;
+    setRestoreOffer(null);
+    if (!offer) return;
+    const current = draftRef.current as unknown as Record<string, unknown>;
+    const kept = offer.draft as unknown as Record<string, unknown>;
+    const patch = Object.fromEntries(Object.keys(kept).filter((k) => JSON.stringify(kept[k]) !== JSON.stringify(current[k])).map((k) => [k, kept[k]]));
+    update(patch as Partial<NewsletterDraft>);
+  }, [restoreOffer, update]);
+
+  const dismissRestore = useCallback(() => {
+    setRestoreOffer(null);
+    // Edits made since opening are a fresh copy worth keeping.
+    if (touchedRef.current.size === 0) clearBackup(storageRef.current, backupKey(userIdRef.current, idRef.current));
+  }, []);
+
+  const retry = useCallback(() => {
+    const saver = saverRef.current;
+    if (!saver || readOnlyRef.current || staleRef.current) return;
+    saver.schedule();
+    void saver.flush();
+  }, []);
+
+  const reload = useCallback(async () => {
+    const id = idRef.current;
+    if (!id) return;
+    const res = await newslettersAPI.get(id);
+    if (!res.ok || !res.data) {
+      setSaveError(res.error ?? GENERIC_ERROR);
+      return;
+    }
+    saverRef.current?.cancel();
+    staleRef.current = false;
+    setStale(false);
+    touchedRef.current = new Set();
+    rejectedRef.current = new Map();
+    lastErrorRef.current = null;
+    setFieldErrors({});
+    setSaveState('idle');
+    setSaveError(null);
+    take(res.data, true);
+    // The edits this tab couldn't save stay on offer, so nothing is lost by reloading.
+    offerBackup(res.data);
+  }, [take, offerBackup]);
+
+  // A failed save tries again by itself when the connection comes back or the person returns to the tab.
+  useEffect(() => {
+    if (!enabled) return undefined;
+    const again = () => {
+      if (!lastErrorRef.current || lastErrorRef.current === HELD_ERROR || staleRef.current || discardedRef.current) return;
+      retry();
+    };
+    const onVisible = () => { if (document.visibilityState === 'visible') again(); };
+    window.addEventListener('online', again);
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      window.removeEventListener('online', again);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [enabled, retry]);
+
+  // Closing or reloading the browser tab while a save is on its way, or after one failed: the browser asks first.
+  useEffect(() => {
+    if (!enabled) return undefined;
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      const saver = saverRef.current;
+      if (readOnlyRef.current || discardedRef.current || !saver) return;
+      if (!saver.pending && !lastErrorRef.current) return;
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, [enabled]);
+
+  const canRetry = saveState === 'error' && !stale && saveError !== HELD_ERROR;
 
   return {
     loading, loadError, newsletter, draft, readOnly, saveState, saveError, fieldErrors, planRequired,
+    stale, canRetry, restoreOffer, restore, dismissRestore, retry, reload,
     update, saveNow, flush, discard, adopt, setFieldErrors,
   };
 }
