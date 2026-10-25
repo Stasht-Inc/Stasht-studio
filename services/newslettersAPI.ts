@@ -165,7 +165,7 @@ async function call<T>(endpoint: string, init: RequestInit): Promise<NlResult<T>
 }
 
 const get = <T>(endpoint: string) => call<T>(endpoint, FRESH);
-const write = <T>(method: 'POST' | 'PUT' | 'DELETE', endpoint: string, body?: unknown) =>
+const write = <T>(method: 'POST' | 'PUT' | 'PATCH' | 'DELETE', endpoint: string, body?: unknown) =>
   call<T>(endpoint, { method, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
 
 function query(params: Record<string, string | number | undefined>): string {
@@ -238,5 +238,7 @@ export const newslettersAPI = {
     write<ImportResult>('POST', '/contact-lists/import', input),
   listFromLeads: (input: { name: string; lead_group_id?: number }) => write<ContactList>('POST', '/contact-lists/from-leads', input),
   listMembers: (id: number, page = 1) => get<ContactListMembers>(`${list(id)}/members${query({ page })}`),
+  // 409 while a scheduled or sending newsletter uses the list ("Cancel it first").
   deleteList: (id: number) => write<Record<string, never>>('DELETE', list(id)),
+  renameList: (id: number, name: string) => write<ContactList>('PATCH', list(id), { name }),
 };

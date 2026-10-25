@@ -327,8 +327,38 @@ export function createMockApi(options = {}) {
     }
     let m = path.match(/^\/contact-lists\/(\d+)(\/members)?$/);
     if (m) {
-      if (m[2]) return ok({ data: [{ name: 'Lead 1', email: 'lead1@example.com', phone: null }], meta: { page: 1, total_pages: 1, total: 1 } });
-      if (method === 'DELETE') { state.lists = state.lists.filter((l) => l.id !== Number(m[1])); return ok({}); }
+      // ContactListController::findOwnedList: anyone else's (or a deleted) list is a 404.
+      const list = state.lists.find((l) => l.id === Number(m[1]));
+      if (!list) return fail(404, { success: false, message: 'List not found' });
+      if (m[2]) {
+        // members(): 50 a page, ordered by id, with each person's consent record.
+        const page = Math.max(1, Number(params.get('page') || 1));
+        const total = list.member_count;
+        const rows = [];
+        for (let i = (page - 1) * 50 + 1; i <= Math.min(total, page * 50); i++) {
+          rows.push({
+            name: i % 9 === 0 ? null : `Contact ${i}`, email: i % 4 === 0 ? null : `contact${i}@example.com`, phone: i % 3 === 0 ? `+1416555${String(1000 + i).slice(-4)}` : null,
+            consent_type: list.consent_type ?? null, consent_source: list.consent_type ? (list.source === 'import' ? 'import' : 'lead') : null,
+            consent_at: list.consent_type ? '2026-05-01T04:00:00Z' : null,
+          });
+        }
+        return ok({ data: rows, meta: { page, total_pages: Math.max(1, Math.ceil(total / 50)), total } });
+      }
+      if (method === 'PATCH') {
+        // update(): name required, max 120, trimmed; answers the list summary.
+        const name = String(body?.name ?? '').trim();
+        if (!name) return fail(422, { message: 'Give the list a name.', errors: { name: ['Give the list a name.'] } });
+        if (name.length > 120) return fail(422, { message: 'Keep the list name to 120 characters or fewer.', errors: { name: ['Keep the list name to 120 characters or fewer.'] } });
+        list.name = name;
+        return ok(list);
+      }
+      if (method === 'DELETE') {
+        // destroy(): a scheduled or sending newsletter that still needs the list blocks it.
+        const inUse = state.newsletters.some((n) => ['scheduled', 'sending'].includes(n.status) && (n.audience || []).some((a) => a.type === 'list' && a.id === list.id));
+        if (inUse) return fail(409, { success: false, message: 'This list is used by a scheduled newsletter. Cancel it first.' });
+        state.lists = state.lists.filter((l) => l !== list);
+        return ok({});
+      }
     }
     m = path.match(/^\/newsletters\/(\d+)(?:\/([a-z-]+))?$/);
     if (m) {

@@ -4,6 +4,8 @@ import { ChevronDown, Mail, MessageSquare, Plus, User } from 'lucide-react';
 import type { AudienceItem, NewsletterChannel } from '../../services/newslettersAPI';
 import StepCard from './StepCard';
 import ImportListModal from './ImportListModal';
+import ManageListsDialog from './ManageListsDialog';
+import { withoutList } from './lib/manageLists';
 import { moveFocusWithArrows } from './arrowKeys';
 import { useAudienceSources } from './hooks/useAudienceSources';
 import type { AudienceCountState } from './hooks/useAudienceCount';
@@ -12,7 +14,7 @@ import {
 } from './lib/audience';
 import { LIMITS } from './lib/rules';
 import { smsPartsInfo } from './lib/smsParts';
-import { LABEL, LAYER, inputClass, textareaClass } from './lib/ui';
+import { LABEL, LAYER, LINK_BUTTON, inputClass, textareaClass } from './lib/ui';
 
 export interface AudiencePickerProps {
   audience: AudienceItem[];
@@ -39,6 +41,7 @@ export default function AudiencePicker({ audience, channels, smsText, fromName, 
   const sources = useAudienceSources(enabled);
   const [open, setOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
+  const [manageOpen, setManageOpen] = useState(false);
   const label = audienceLabel(audience, sources.groups, sources.lists);
   const sms = smsInfo(smsText);
   const skipped = skippedSummary(count.counts, channels);
@@ -72,7 +75,10 @@ export default function AudiencePicker({ audience, channels, smsText, fromName, 
     <StepCard number={2} title="Recipients" id="nl-step-recipients" aside={label} error={stepError}>
       <div className="space-y-4">
         <div>
-          <p id="nl-send-to-label" className={LABEL}>Send to</p>
+          <div className="flex items-baseline justify-between gap-3">
+            <p id="nl-send-to-label" className={LABEL}>Send to</p>
+            {readOnly ? null : <button type="button" onClick={() => setManageOpen(true)} className={`${LINK_BUTTON} mb-1.5`}>Manage lists</button>}
+          </div>
           <Popover.Root open={open} onOpenChange={setOpen}>
             <Popover.Trigger asChild>
               <button type="button" disabled={readOnly} aria-labelledby="nl-send-to-label nl-send-to-value"
@@ -142,6 +148,15 @@ export default function AudiencePicker({ audience, channels, smsText, fromName, 
           </div>
         ) : null}
       </div>
+      <ManageListsDialog
+        open={manageOpen}
+        onOpenChange={setManageOpen}
+        onChanged={() => { void sources.reload(); }}
+        onDeleted={(id) => {
+          const next = withoutList(audience, id);
+          if (next !== audience) onChange({ audience: next });
+        }}
+      />
       <ImportListModal
         open={importOpen}
         onOpenChange={setImportOpen}
