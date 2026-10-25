@@ -9,7 +9,7 @@ const QUIET_HOURS_ERROR = 'Texts can only go out between 8am and 9pm. Pick a tim
 const now = () => new Date().toISOString();
 export const COUNTS0 = { recipients: 0, sent: 0, delivered: 0, opened: 0, clicked: 0, unsubscribed: 0, failed: 0, skipped: 0 };
 export const IMG = 'https://127.0.0.1/nl-img/pwa-icon-512.png';
-const EDITABLE = ['name', 'subject', 'preview_text', 'from_name', 'reply_to_email', 'channels', 'sms_text', 'template', 'header', 'blocks', 'audience'];
+const EDITABLE = ['name', 'subject', 'preview_text', 'from_name', 'reply_to_email', 'channels', 'sms_text', 'template', 'header', 'blocks', 'audience', 'planned_send_at'];
 // GET /user/profile's real keys: `phone` (not phone_number) and `avatar` (not profile_image); no profile_color.
 const PROFILE = {
   name: 'Samantha Smith', email: 'samantha@serpachrysler.ca', phone: '+1 416 555 0100', avatar: null,
@@ -24,6 +24,7 @@ function updateErrors(body) {
   if (body && 'name' in body && (typeof body.name !== 'string' || body.name.trim() === '')) errors.name = ['The name field is required.'];
   if (body?.reply_to_email != null && !EMAIL.test(String(body.reply_to_email))) errors.reply_to_email = ['Enter a reply-to email address like name@business.com.'];
   if (body?.template != null && body.template !== 'basic') errors.template = ['That template is coming soon. Use Basic for now.'];
+  if (body?.planned_send_at != null && Number.isNaN(Date.parse(String(body.planned_send_at)))) errors.planned_send_at = ['Pick a date and time.'];
   for (const field of ['logo_url', 'banner_url']) {
     const v = body?.header?.[field];
     if (v != null && v !== '' && !HTTPS.test(v)) errors[`header.${field}`] = ['Use an image link that starts with https://'];
@@ -50,7 +51,7 @@ export function newsletter(id, over = {}) {
   return {
     id, name: null, subject: null, preview_text: null, from_name: null, reply_to_email: null, channels: ['email'], sms_text: null,
     template: 'basic', header: { logo_url: null, banner_url: null, background_color: '#6C60FF', title: 'Serpa Chrysler' },
-    blocks: [], audience: [{ type: 'all_leads' }], status: 'draft', scheduled_at: null, sent_at: null, public_url: null,
+    blocks: [], audience: [{ type: 'all_leads' }], status: 'draft', scheduled_at: null, planned_send_at: null, sent_at: null, failure_reason: null, public_url: null,
     counts: { ...COUNTS0 }, created_at: now(), updated_at: now(), ...over,
   };
 }
@@ -183,6 +184,8 @@ export function createMockApi(options = {}) {
     sendPaused: options.sendPaused ?? null,
     // POST /newsletters/{id}/preview's size_kb (NewsletterSendCheck's rendered size), when set.
     previewSizeKb: options.previewSizeKb ?? null,
+    // POST /newsletters/{id}/unschedule finds sending already started (409).
+    unscheduleStarted: options.unscheduleStarted ?? false,
     // Files that reached POST /newsletters/images: {bytes, type, name}.
     uploads: [],
     // Storeels made with POST /memories.
@@ -377,6 +380,8 @@ export function createMockApi(options = {}) {
         for (const [field, message] of Object.entries(state.rejectPut)) if (body && field in body) errors[field] = [message];
         if (Object.keys(errors).length) return fail(422, { message: Object.values(errors)[0][0], errors });
         Object.assign(n, pickEditable(body), { updated_at: now() });
+        // The presenter answers every time in UTC with a Z and no milliseconds.
+        if (n.planned_send_at) n.planned_send_at = new Date(n.planned_send_at).toISOString().replace('.000Z', 'Z');
         if (body && 'header' in body) state.brand.header = structuredClone(body.header); // the header is the brand header (note 8)
         return ok(n);
       }
@@ -427,6 +432,17 @@ export function createMockApi(options = {}) {
         n.from_name ||= state.owner.name;
         n.reply_to_email ||= state.owner.email;
         return ok(n);
+      }
+      if (action === 'unschedule') {
+        // NewsletterUnscheduleController: only while nothing was created or sent; the time moves to planned_send_at.
+        if (n.status === 'scheduled' && !state.unscheduleStarted) {
+          Object.assign(n, { status: 'draft', planned_send_at: n.scheduled_at, scheduled_at: null, updated_at: now() });
+          return ok(n);
+        }
+        if (n.status === 'scheduled') n.status = 'sending'; // it started meanwhile
+        return fail(409, { success: false, message: ['sending', 'sent'].includes(n.status)
+          ? 'This newsletter has started sending, so it can no longer be edited. Duplicate it to make changes.'
+          : 'Only scheduled newsletters can be moved back to drafts.' });
       }
       if (action === 'cancel') {
         // NewsletterSendController::cancel: scheduled or sending → cancelled; people not sent to yet are skipped.

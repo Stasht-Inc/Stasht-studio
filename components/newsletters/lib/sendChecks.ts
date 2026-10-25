@@ -115,3 +115,17 @@ export function allowanceLine(a: NewsletterAllowance, channels: NewsletterChanne
   const reset = formatResetDate(a.resets_at);
   return `Your plan has ${parts.join(' and ')} left this month.${reset ? ` It resets on ${reset}.` : ''}`;
 }
+
+/** [wdy2xh2p3m] A newsletter scheduled for the monthly reset or later uses next month's allowance; the API checks that
+ *  month, so Studio doesn't judge it against what is left this month. */
+export function usesNextMonthAllowance(a: NewsletterAllowance | null, scheduledIso: string | null): boolean {
+  if (!a || !scheduledIso) return false;
+  const reset = Date.parse(a.resets_at);
+  const at = Date.parse(scheduledIso);
+  return Number.isFinite(reset) && Number.isFinite(at) && at >= reset;
+}
+
+export function nextMonthLine(a: NewsletterAllowance, locale: string = userLocale()): string {
+  const reset = formatResetDate(a.resets_at, locale);
+  return `It goes out after your plan resets${reset ? ` on ${reset}` : ''}, so it uses next month\u2019s allowance.`;
+}

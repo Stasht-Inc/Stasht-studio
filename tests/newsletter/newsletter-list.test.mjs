@@ -10,7 +10,8 @@ test('status chips and actions per status', () => {
   assert.deepEqual(Object.values(STATUS_META).map((m) => m.label), ['Draft', 'Scheduled', 'Sending', 'Sent', 'Failed', 'Cancelled']);
   assert.equal(RECIPIENT_STATUS_META.queued.label, 'Waiting');
   assert.deepEqual(actionsFor('draft'), ['edit', 'duplicate', 'delete']);
-  assert.deepEqual(actionsFor('scheduled'), ['results', 'duplicate', 'cancel']);
+  assert.deepEqual(actionsFor('scheduled'), ['editScheduled', 'results', 'duplicate', 'cancel']);
+  assert.equal(ACTION_LABEL.editScheduled, 'Edit');
   assert.deepEqual(actionsFor('sending'), ['results', 'duplicate', 'cancel']);
   assert.deepEqual(actionsFor('sent'), ['results', 'duplicate']);
   assert.deepEqual(actionsFor('failed'), ['results', 'duplicate']);

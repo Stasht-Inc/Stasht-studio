@@ -67,7 +67,11 @@ export interface Newsletter {
   audience: AudienceItem[];
   status: NewsletterStatus;
   scheduled_at: string | null;
+  /** The time picked on a draft (Schedule for later), kept for the composer; null until the API has the column. */
+  planned_send_at?: string | null;
   sent_at: string | null;
+  /** Why a failed newsletter failed: too_late (over 6 hours late, nothing sent) or error (before it started). */
+  failure_reason?: 'too_late' | 'error' | null;
   public_url: string | null;
   counts: NewsletterCounts;
   created_at: string;
@@ -80,7 +84,7 @@ export type NewsletterSummary = Omit<Newsletter, 'blocks'>;
 /** PUT /newsletters/{id}: any editable field (only drafts can be edited). Unfinished sections are accepted;
  *  send / schedule reject them (contract note 6). Saving `header` also saves the account's brand header (note 8). */
 export type NewsletterInput = Partial<Pick<Newsletter,
-  'name' | 'subject' | 'preview_text' | 'from_name' | 'reply_to_email' | 'channels' | 'sms_text' | 'template' | 'header' | 'blocks' | 'audience'>>;
+  'name' | 'subject' | 'preview_text' | 'from_name' | 'reply_to_email' | 'channels' | 'sms_text' | 'template' | 'header' | 'blocks' | 'audience' | 'planned_send_at'>>;
 
 export interface AudienceCount {
   email: number;
@@ -225,6 +229,8 @@ export const newslettersAPI = {
   send: (id: number) => write<Newsletter>('POST', `${nl(id)}/send`),
   schedule: (id: number, scheduledAt: string) => write<Newsletter>('POST', `${nl(id)}/schedule`, { scheduled_at: scheduledAt }),
   cancel: (id: number) => write<Newsletter>('POST', `${nl(id)}/cancel`),
+  // Scheduled → draft so it can be edited (the time is kept in planned_send_at); 409 once sending has started.
+  unschedule: (id: number) => write<Newsletter>('POST', `${nl(id)}/unschedule`),
   results: (id: number, q: ResultsQuery = {}) =>
     get<NewsletterResults>(`${nl(id)}/results${query({ channel: q.channel, status: q.status, page: q.page })}`),
   uploadImage,

@@ -7,8 +7,8 @@ import ComposerDialog from './ComposerDialog';
 import type { NlResult } from './lib/apiResult';
 import { formatCount } from './lib/audience';
 import { formatSendTime, localDateTimeToIso, timeZoneName, type ScheduleChoice } from './lib/schedule';
-import { allowanceLine, allowanceProblem } from './lib/sendChecks';
-import { BUTTON_OUTLINE, BUTTON_PRIMARY, LABEL, textareaClass } from './lib/ui';
+import { allowanceLine, allowanceProblem, nextMonthLine, usesNextMonthAllowance } from './lib/sendChecks';
+import { BUTTON_OUTLINE, BUTTON_PRIMARY, LABEL, LINK_BUTTON, textareaClass } from './lib/ui';
 
 export interface SendConfirmDialogProps {
   open: boolean;
@@ -26,25 +26,32 @@ export interface SendConfirmDialogProps {
   onSent(n: Newsletter): void;
   /** Any other failure (422 on a step, 409, network): the composer shows it on the steps. */
   onFailed(res: NlResult<Newsletter>): void;
+  /** Over the allowance: close the composer and open the plans. */
+  onSeePlans?(): void;
 }
 
 /** Last check before sending: who gets it, when, the monthly allowance, and the business address on the first send. */
 export default function SendConfirmDialog({
-  open, onOpenChange, newsletterId, channels, counts, countsLoading = false, smsParts = 1, schedule, businessAddress, onSaveAddress, onSent, onFailed,
+  open, onOpenChange, newsletterId, channels, counts, countsLoading = false, smsParts = 1, schedule, businessAddress, onSaveAddress, onSent, onFailed, onSeePlans,
 }: SendConfirmDialogProps) {
   const [allowance, setAllowance] = useState<NewsletterAllowance | null>(null);
   const [address, setAddress] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // The API's 422 allowance answer (its own words, for this month or, after the reset, for next month).
+  const [allowanceError, setAllowanceError] = useState<string | null>(null);
   const later = schedule.mode === 'later';
   const iso = schedule.mode === 'later' ? localDateTimeToIso(schedule.date, schedule.time) : null;
   const needsAddress = !businessAddress;
-  const overLimit = allowanceProblem(allowance, counts, channels, smsParts);
+  // A send after the monthly reset uses next month's allowance: only the API can check that (wdy2xh2p3m).
+  const nextMonth = usesNextMonthAllowance(allowance, iso);
+  const overLimit = allowanceError ?? (nextMonth ? null : allowanceProblem(allowance, counts, channels, smsParts));
 
   useEffect(() => {
     if (!open) return undefined;
     let cancelled = false;
     setError(null);
+    setAllowanceError(null);
     setAddress('');
     newslettersAPI.allowance().then((res) => { if (!cancelled && res.ok && res.data) setAllowance(res.data); });
     return () => { cancelled = true; };
@@ -67,7 +74,8 @@ export default function SendConfirmDialog({
     if (res.ok && res.data) { onSent(res.data); return; }
     // The allowance message already has the numbers ("needs N emails, but your plan has M left"). A refused time
     // (scheduled_at, e.g. texts in quiet hours) goes back to step 6 with the composer's other step errors.
-    const inline = res.fieldErrors.allowance ?? res.fieldErrors.business_address;
+    if (res.fieldErrors.allowance) { setAllowanceError(res.fieldErrors.allowance); return; }
+    const inline = res.fieldErrors.business_address;
     if (inline) { setError(inline); return; }
     onFailed(res);
   };
@@ -98,8 +106,13 @@ export default function SendConfirmDialog({
           <div className="flex justify-between gap-3"><dt className="text-gray-600">Text message</dt><dd className="text-right font-semibold text-gray-900">{counts && !countsLoading ? `${formatCount(counts.sms)} people${smsParts > 1 ? ` · ${smsParts} parts each` : ''}` : countsLoading ? 'Counting…' : '—'}</dd></div>
         ) : null}
       </dl>
-      {allowance ? <p className="mt-3 text-sm text-gray-600">{allowanceLine(allowance, channels)}</p> : null}
-      {overLimit ? <p role="alert" className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">{overLimit}</p> : null}
+      {allowance ? <p className="mt-3 text-sm text-gray-600">{nextMonth ? nextMonthLine(allowance) : allowanceLine(allowance, channels)}</p> : null}
+      {overLimit ? (
+        <div role="alert" className="mt-3 flex flex-wrap items-center justify-between gap-x-3 gap-y-2 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">
+          <p className="min-w-0 flex-1 basis-56">{overLimit}</p>
+          {onSeePlans ? <button type="button" onClick={onSeePlans} className={`${LINK_BUTTON} whitespace-nowrap`}>See plans</button> : null}
+        </div>
+      ) : null}
       {needsAddress ? (
         <div className="mt-4">
           <label htmlFor="nl-confirm-address" className={LABEL}>Business address</label>

@@ -23,17 +23,18 @@ export const RECIPIENT_STATUS_META: Record<RecipientStatus, { label: string; cla
   skipped: { label: 'Skipped', className: 'bg-gray-100 text-gray-500' },
 };
 
-export type NewsletterAction = 'edit' | 'results' | 'duplicate' | 'cancel' | 'delete';
+// editScheduled: move a scheduled newsletter back to a draft (POST /newsletters/{id}/unschedule), then edit it.
+export type NewsletterAction = 'edit' | 'editScheduled' | 'results' | 'duplicate' | 'cancel' | 'delete';
 
 export const ACTION_LABEL: Record<NewsletterAction, string> = {
-  edit: 'Edit draft', results: 'View results', duplicate: 'Duplicate', cancel: 'Cancel sending', delete: 'Delete',
+  edit: 'Edit draft', editScheduled: 'Edit', results: 'View results', duplicate: 'Duplicate', cancel: 'Cancel sending', delete: 'Delete',
 };
 
 // §8: only drafts can be edited; drafts and cancelled can be deleted; scheduled and sending can be cancelled
 // (NewsletterSendController::cancel stops a sending one before its next batch).
 const ACTIONS: Record<NewsletterStatus, NewsletterAction[]> = {
   draft: ['edit', 'duplicate', 'delete'],
-  scheduled: ['results', 'duplicate', 'cancel'],
+  scheduled: ['editScheduled', 'results', 'duplicate', 'cancel'],
   sending: ['results', 'duplicate', 'cancel'],
   sent: ['results', 'duplicate'],
   failed: ['results', 'duplicate'],

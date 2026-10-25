@@ -17,6 +17,8 @@ export interface NewsletterDraft {
   header: NewsletterHeader;
   blocks: NewsletterBlock[];
   audience: AudienceItem[];
+  /** The time picked under Schedule for later, kept while it is a draft (never used to send). ISO UTC or null. */
+  planned_send_at: string | null;
 }
 
 export const DEFAULT_HEADER: NewsletterHeader = { logo_url: null, banner_url: null, background_color: '#6C60FF', title: null };
@@ -31,6 +33,7 @@ export function emptyDraft(header?: Partial<NewsletterHeader> | null): Newslette
   return {
     name: '', subject: '', preview_text: '', from_name: '', reply_to_email: '',
     channels: ['email'], sms_text: '', template: 'basic', header: headerFrom(header), blocks: [], audience: [{ type: 'all_leads' }],
+    planned_send_at: null,
   };
 }
 
@@ -47,13 +50,16 @@ export function draftFromNewsletter(n: Newsletter): NewsletterDraft {
     header: headerFrom(n.header),
     blocks: normaliseBlocks(n.blocks),
     audience: Array.isArray(n.audience) ? n.audience : [],
+    planned_send_at: typeof n.planned_send_at === 'string' && n.planned_send_at ? n.planned_send_at : null,
   };
 }
 
 /** The PUT body for a draft: text trimmed, empty text as null. A blank name is left out: the API requires a
  *  name whenever one is sent (`name: sometimes|required`), and every draft already has the server's default. */
 export function draftToInput(d: NewsletterDraft): NewsletterInput {
-  const input: NewsletterInput = { channels: d.channels, template: d.template, header: d.header, blocks: d.blocks, audience: d.audience };
+  const input: NewsletterInput = {
+    channels: d.channels, template: d.template, header: d.header, blocks: d.blocks, audience: d.audience, planned_send_at: d.planned_send_at ?? null,
+  };
   for (const key of TEXT_FIELDS) {
     const value = d[key].trim();
     if (key === 'name' && value === '') continue;

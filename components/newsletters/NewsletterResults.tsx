@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ChevronLeft, ChevronRight, ExternalLink, Eye, Loader2, Mail, MessageSquare, RefreshCw } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ExternalLink, Eye, Loader2, Mail, MessageSquare, Pencil, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '../ui/sheet';
 import {
@@ -65,13 +65,15 @@ export interface NewsletterResultsProps {
   onOpenChange(open: boolean): void;
   /** Cancelled from here: the list should refresh. */
   onChanged(): void;
+  /** "Edit" on a scheduled newsletter: back to a draft, then the composer (wdy2xh2p3m). */
+  onEditScheduled?(id: number): void;
 }
 
 /**
  * Results for one newsletter (spec §2): the counts (totals, or email / text to match the Channel switch), "opens
  * are approximate", and who got what, filtered by channel and status, 50 people a page.
  */
-export default function NewsletterResults({ newsletterId, onOpenChange, onChanged }: NewsletterResultsProps) {
+export default function NewsletterResults({ newsletterId, onOpenChange, onChanged, onEditScheduled }: NewsletterResultsProps) {
   const [newsletter, setNewsletter] = useState<Newsletter | null>(null);
   const [results, setResults] = useState<ResultsData | null>(null);
   const [channel, setChannel] = useState<ChannelFilter>('all');
@@ -162,8 +164,15 @@ export default function NewsletterResults({ newsletterId, onOpenChange, onChange
             <button type="button" onClick={() => setPreviewOpen(true)} disabled={!newsletter} className={LINK_BUTTON}><Eye className="h-4 w-4" aria-hidden="true" />View exact email</button>
             {webVersion ? <a href={webVersion} target="_blank" rel="noopener noreferrer" className={LINK_BUTTON}><ExternalLink className="h-4 w-4" aria-hidden="true" />Open web version</a> : null}
             <button type="button" onClick={() => void load()} disabled={loading} className={LINK_BUTTON}><RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} aria-hidden="true" />Refresh</button>
-            {newsletter && canCancel(newsletter.status) ? (
-              <button type="button" onClick={() => setConfirmCancel(true)} className={`${BUTTON_SMALL} ml-auto border-red-200 text-red-600 hover:bg-red-50`}>Cancel sending</button>
+            {newsletter && (canCancel(newsletter.status) || (newsletter.status === 'scheduled' && onEditScheduled)) ? (
+              <div className="ml-auto flex flex-wrap gap-2">
+                {newsletter.status === 'scheduled' && onEditScheduled ? (
+                  <button type="button" onClick={() => onEditScheduled(newsletter.id)} className={BUTTON_SMALL}><Pencil className="h-3.5 w-3.5" aria-hidden="true" />Edit</button>
+                ) : null}
+                {canCancel(newsletter.status) ? (
+                  <button type="button" onClick={() => setConfirmCancel(true)} className={`${BUTTON_SMALL} border-red-200 text-red-600 hover:bg-red-50`}>Cancel sending</button>
+                ) : null}
+              </div>
             ) : null}
           </div>
         </SheetHeader>

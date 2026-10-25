@@ -84,3 +84,22 @@ export function textQuietHoursProblem(choice: ScheduleChoice, channels: readonly
   if (hour >= TEXT_HOURS.start && hour < TEXT_HOURS.end) return null;
   return `Texts can only go out between ${hourWord(TEXT_HOURS.start)} and ${hourWord(TEXT_HOURS.end)}${easternSuffix(browserTz)}. Pick a time in that window.`;
 }
+
+/** [wdy2xh2p3m] Schedule for later with a whole date and time is kept on the draft as planned_send_at. */
+export function plannedFromSchedule(choice: ScheduleChoice): string | null {
+  return choice.mode === 'later' ? localDateTimeToIso(choice.date, choice.time) : null;
+}
+
+/** A draft's planned_send_at back as the Schedule step's choice, in the person's time zone. */
+export function scheduleFromPlanned(iso: string | null | undefined): ScheduleChoice {
+  const d = iso ? new Date(iso) : null;
+  if (!d || Number.isNaN(d.getTime())) return { mode: 'now' };
+  return { mode: 'later', date: dateInputValue(d), time: `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}` };
+}
+
+/** Two ISO times (or nulls) for the same moment: the API answers "…Z" for the "….000Z" Studio sends. */
+export function sameInstant(a: string | null | undefined, b: string | null | undefined): boolean {
+  const ta = a ? Date.parse(a) : NaN;
+  const tb = b ? Date.parse(b) : NaN;
+  return Number.isNaN(ta) && Number.isNaN(tb) ? true : ta === tb;
+}

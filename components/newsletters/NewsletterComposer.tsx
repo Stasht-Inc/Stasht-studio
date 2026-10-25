@@ -23,7 +23,7 @@ import { newslettersAPI, type Newsletter, type NewsletterChannel } from '../../s
 import ScheduleStep from './ScheduleStep';
 import PreviewDialog from './PreviewDialog';
 import SendTestButton from './SendTestButton';
-import { formatSendTime, type ScheduleChoice } from './lib/schedule';
+import { formatSendTime, plannedFromSchedule, sameInstant, scheduleFromPlanned, type ScheduleChoice } from './lib/schedule';
 import { firstProblemStep, preSendProblems, stepDomId, stepErrorsFrom, type StepKey } from './lib/sendChecks';
 import { formatSentTo } from './lib/phoneDisplay';
 import { smsPartsInfo } from './lib/smsParts';
@@ -114,8 +114,17 @@ const NewsletterComposer = forwardRef<NewsletterComposerHandle, NewsletterCompos
   const [device, setDevice] = useState<PreviewDevice>('desktop');
   // True after the first Send / Schedule attempt: from then on, unfinished steps and sections show their problems.
   const [attempted, setAttempted] = useState(false);
-  // Not stored on the draft (alignment decision 7): scheduled_at is set only by /schedule.
+  // scheduled_at is set only by /schedule (alignment decision 7); the picked time is kept on the draft as
+  // planned_send_at (wdy2xh2p3m) so it comes back when the draft is opened again.
   const [schedule, setSchedule] = useState<ScheduleChoice>({ mode: 'now' });
+  // The draft's planned time (opening a draft, restoring a kept copy, Reload) shows in the Schedule step, unless
+  // the step already says the same moment (or is still being filled in with no whole time yet).
+  useEffect(() => {
+    if (state.loading || sameInstant(draft.planned_send_at, plannedFromSchedule(schedule))) return;
+    if (!draft.planned_send_at && schedule.mode === 'later' && !plannedFromSchedule(schedule)) return;
+    setSchedule(scheduleFromPlanned(draft.planned_send_at));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draft.planned_send_at, state.loading]);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [testing, setTesting] = useState(false);
 
@@ -148,6 +157,8 @@ const NewsletterComposer = forwardRef<NewsletterComposerHandle, NewsletterCompos
   // A time the API refused (422 scheduled_at) stops applying once another time is picked.
   const changeSchedule = (next: ScheduleChoice) => {
     setSchedule(next);
+    const planned = plannedFromSchedule(next);
+    if (!sameInstant(planned, draft.planned_send_at)) update({ planned_send_at: planned });
     if (state.fieldErrors.scheduled_at) {
       state.setFieldErrors(Object.fromEntries(Object.entries(state.fieldErrors).filter(([key]) => key.split('.')[0] !== 'scheduled_at')));
     }
@@ -200,6 +211,12 @@ const NewsletterComposer = forwardRef<NewsletterComposerHandle, NewsletterCompos
     });
     onChanged?.();
     onClose();
+  };
+
+  // Over the plan's allowance: the plans open once the composer has closed (they sit under this layer).
+  const seePlans = async () => {
+    setConfirmOpen(false);
+    if (await close()) requestUpgrade('Upgrade your plan to send more newsletters this month.');
   };
 
   const onSendFailed = (res: NlResult<Newsletter>) => {
@@ -446,6 +463,7 @@ const NewsletterComposer = forwardRef<NewsletterComposerHandle, NewsletterCompos
         onSaveAddress={saveAddress}
         onSent={onSent}
         onFailed={onSendFailed}
+        onSeePlans={() => { void seePlans(); }}
       />
       <ComposerDialog
         open={unsaved !== null}

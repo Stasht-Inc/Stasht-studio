@@ -113,8 +113,20 @@ export default function NewslettersView({ onCreate, onEdit, onToggleMobileSideba
     return () => { window.clearInterval(timer); document.removeEventListener('visibilitychange', onVisible); };
   }, [enabled, live, load]);
 
+  // A scheduled newsletter goes back to being a draft (its time is kept), then opens in the composer. Once it has
+  // started sending the API answers 409 with what to do instead.
+  const editScheduled = async (id: number) => {
+    setBusyId(id);
+    const res = await newslettersAPI.unschedule(id);
+    setBusyId(null);
+    announceNewslettersChanged();
+    if (res.ok) { onEdit(id); return; }
+    toast.error(res.error ?? GENERIC_ERROR);
+  };
+
   const act = async (action: NewsletterAction, item: NewsletterSummary) => {
     if (action === 'edit') { onEdit(item.id); return; }
+    if (action === 'editScheduled') { await editScheduled(item.id); return; }
     if (action === 'results') { setResultsId(item.id); return; }
     if (action === 'cancel' || action === 'delete') { setConfirm({ action, item }); return; }
     setBusyId(item.id);
@@ -275,7 +287,8 @@ export default function NewslettersView({ onCreate, onEdit, onToggleMobileSideba
 
       {body}
 
-      <NewsletterResults newsletterId={resultsId} onOpenChange={(o) => { if (!o) setResultsId(null); }} onChanged={announceNewslettersChanged} />
+      <NewsletterResults newsletterId={resultsId} onOpenChange={(o) => { if (!o) setResultsId(null); }} onChanged={announceNewslettersChanged}
+        onEditScheduled={(id) => { setResultsId(null); void editScheduled(id); }} />
 
       <AlertDialog open={confirm !== null} onOpenChange={(o) => { if (!o) setConfirm(null); }}>
         <AlertDialogContent className="bg-white">
