@@ -25,7 +25,15 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
   await page.getByRole('button', { name: 'Actions for Winter tires', exact: true }).click();
   await shot(page, '1280-01-menu');
   await page.getByRole('menuitem', { name: 'Edit', exact: true }).click();
+  // Final review: it asks first, and nothing changes until the person agrees.
+  const ask = page.getByRole('alertdialog', { name: 'Edit this scheduled newsletter?' });
+  await expectVisible(ask.getByText('To edit it, we take it off the schedule. Press Schedule when you’re done.'), 'asks before taking it off the schedule');
+  expect(!api.state.calls.some((c) => c.path.endsWith('/unschedule')), 'not unscheduled before agreeing');
+  await page.waitForTimeout(300);
+  await shot(page, '1280-01b-confirm');
+  await ask.getByRole('button', { name: 'Edit it' }).click();
   await expectVisible(page.getByRole('heading', { name: 'Create Campaign' }), 'composer opened');
+  await expectVisible(page.getByText('This newsletter is off the schedule while you edit it. Press Schedule to put it back.'), 'off-schedule banner');
   expect(api.state.calls.some((c) => c.method === 'POST' && c.path === '/newsletters/22/unschedule'), 'unschedule called');
   expect(api.state.newsletters.find((n) => n.id === 22)?.status === 'draft', 'now a draft');
   const schedule = page.locator('#nl-step-schedule');
@@ -35,21 +43,64 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
   await schedule.scrollIntoViewIfNeeded();
   await shot(page, '1280-02-restored');
 
-  // 2. A new time is kept on the draft (planned_send_at) and comes back when it is opened again.
+  // 2. A new time is kept on the draft (planned_send_at). Closing offers to put it back on the schedule; leaving it
+  // as a draft keeps the time, which comes back when it is opened again.
   await schedule.getByLabel('Time').fill('11:15');
   await page.waitForTimeout(1500);
   const put = [...api.state.calls].reverse().find((c) => c.method === 'PUT' && c.body && 'planned_send_at' in c.body);
   expect(put && torontoTime(Date.parse(put.body.planned_send_at)) === '11:15', `PUT planned_send_at (got ${JSON.stringify(put?.body)})`);
   await page.getByRole('button', { name: 'Cancel' }).first().click();
+  const offer = page.getByRole('dialog', { name: 'Put it back on the schedule?' });
+  await expectVisible(offer.getByText(/It was set to go out .*11:15/), 'offer with the time');
+  await shot(page, '1280-02b-put-back');
+  await offer.getByRole('button', { name: 'Leave it as a draft' }).click();
   await expectVisible(page.getByRole('heading', { name: 'Newsletters', exact: true }), 'back on the list');
+  expect(api.state.newsletters.find((n) => n.id === 22)?.status === 'draft', 'left as a draft');
   await page.getByRole('button', { name: /^Winter tires/ }).first().click();
   await expectVisible(page.getByRole('heading', { name: 'Create Campaign' }), 'draft opened again');
   await expectVisible(page.locator('#nl-step-schedule').getByRole('radio', { name: 'Schedule for later', checked: true }), 'still Schedule for later');
   expect(await page.locator('#nl-step-schedule').getByLabel('Time').inputValue() === '11:15', 'the new time came back');
+  expect(!(await page.getByText('This newsletter is off the schedule while you edit it.').count()), 'no banner once left as a draft');
   // Send now clears it.
   await page.locator('#nl-step-schedule').getByText('Send now').click();
   await page.waitForTimeout(1500);
   expect(api.state.newsletters.find((n) => n.id === 22)?.planned_send_at === null, 'Send now: planned_send_at null');
+  await context.close();
+
+  // 2b. Put it back: the same time, scheduled again on closing.
+  const ready22 = seedNewsletters();
+  Object.assign(ready22.find((n) => n.id === 22), { blocks: [{ id: 'b1', type: 'title', data: { text: 'Tires', size: 'large' } }] });
+  api = createMockApi({ newsletters: ready22, businessAddress: '4505 Steeles Ave W' });
+  ({ page, context } = await open({ view: 'campaigns', width: 1280, height: 1000, api, timezoneId: TZ }));
+  await toNewsletters(page);
+  await page.getByRole('button', { name: 'Actions for Winter tires', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Edit', exact: true }).click();
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Edit it' }).click();
+  await expectVisible(page.getByText('This newsletter is off the schedule while you edit it.'), 'banner before closing');
+  await page.waitForTimeout(500); // the confirm dialog finishes closing (it takes Escape while it animates out)
+  await page.keyboard.press('Escape');
+  const back = page.getByRole('dialog', { name: 'Put it back on the schedule?' });
+  await expectVisible(back, 'Escape offers to put it back');
+  await back.getByRole('button', { name: 'Put it back' }).click();
+  await expectVisible(page.getByText(/Back on the schedule for/), 'scheduled again');
+  expect(api.state.newsletters.find((n) => n.id === 22)?.status === 'scheduled', 'scheduled again in the API');
+  await context.close();
+
+  // 2c. A time that has passed: it says it stays a draft.
+  const passed = seedNewsletters();
+  passed.find((n) => n.id === 22).scheduled_at = new Date(Date.now() + 2 * 60000).toISOString();
+  api = createMockApi({ newsletters: passed });
+  ({ page, context } = await open({ view: 'campaigns', width: 1280, height: 1000, api, timezoneId: TZ }));
+  await toNewsletters(page);
+  await page.getByRole('button', { name: 'Actions for Winter tires', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Edit', exact: true }).click();
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Edit it' }).click();
+  await expectVisible(page.getByText('This newsletter is off the schedule while you edit it.'), 'banner for a passed time');
+  await page.getByRole('button', { name: 'Cancel' }).first().click();
+  const stays = page.getByRole('dialog', { name: 'It stays a draft' });
+  await expectVisible(stays.getByText(/at least 5 minutes from now/), 'too soon: stays a draft');
+  await stays.getByRole('button', { name: 'OK' }).click();
+  expect(api.state.newsletters.find((n) => n.id === 22)?.status === 'draft', 'still a draft');
   await context.close();
 
   // 3. Sending already started: the API's 409 words, nothing opens.
@@ -58,6 +109,7 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
   await toNewsletters(page);
   await page.getByRole('button', { name: 'Actions for Winter tires', exact: true }).click();
   await page.getByRole('menuitem', { name: 'Edit', exact: true }).click();
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Edit it' }).click();
   await expectVisible(page.getByText('This newsletter has started sending, so it can no longer be edited. Duplicate it to make changes.'), '409 message');
   expect(!(await page.getByRole('heading', { name: 'Create Campaign' }).count()), 'composer not opened');
   await context.close();
@@ -72,6 +124,7 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
   await page.waitForTimeout(700); // the drawer slides in
   await shot(page, '1280-03-drawer');
   await drawer.getByRole('button', { name: 'Edit', exact: true }).click();
+  await page.getByRole('alertdialog', { name: 'Edit this scheduled newsletter?' }).getByRole('button', { name: 'Edit it' }).click();
   await expectVisible(page.getByRole('heading', { name: 'Create Campaign' }), 'composer from the drawer');
   expect(api.state.newsletters.find((n) => n.id === 22)?.status === 'draft', 'drawer Edit unscheduled it');
   await context.close();

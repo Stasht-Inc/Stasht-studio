@@ -67,7 +67,14 @@ export function skippedSummary(counts: AudienceCount | null, channels: Newslette
   if (s.duplicate) parts.push(`${formatCount(s.duplicate)} listed twice`);
   const out = parts.length ? [`Not included: ${parts.join(', ')}.`] : [];
   // [wdy2xh2p3e / 2p3f] Older API versions leave these two out.
-  if (s.consent_expired) out.push(`${formatCount(s.consent_expired)} left out: their consent is older than 6 months.`);
+  // Counted per channel by the API: one person can be an email and a text.
+  if (s.consent_expired) {
+    const n = s.consent_expired;
+    const email = channels.includes('email');
+    const sms = channels.includes('sms');
+    const what = email && sms ? 'emails or texts' : sms ? (n === 1 ? 'text' : 'texts') : (n === 1 ? 'email' : 'emails');
+    out.push(`${formatCount(n)} ${what} left out: their consent is older than 6 months.`);
+  }
   if (channels.includes('sms') && s.unsupported_number) {
     out.push(`${formatCount(s.unsupported_number)} phone ${s.unsupported_number === 1 ? 'number' : 'numbers'} can't get texts (only Canadian and US mobile numbers).`);
   }

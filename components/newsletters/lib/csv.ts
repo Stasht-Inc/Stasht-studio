@@ -130,11 +130,91 @@ export function detectColumns(table: string[][]): ColumnMap {
   return map;
 }
 
-export function buildImportRows(table: string[][], map: ColumnMap): { rows: ImportRow[]; invalid: number; total: number } {
+export type DateOrder = 'dmy' | 'mdy';
+const NUMERIC_DATE = /^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})$/;
+const ISO_DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
+
+/** Slashed dates in a column: day first (some first part > 12), month first (some second part > 12), the same either
+ *  way (every day equals its month), ambiguous (the person is asked), or null (no such dates). */
+export function consentDateOrder(values: string[]): DateOrder | 'ambiguous' | null {
+  let seen = false;
+  let dayFirst = false;
+  let monthFirst = false;
+  let differs = false;
+  for (const v of values) {
+    const m = NUMERIC_DATE.exec((v ?? '').trim());
+    if (!m) continue;
+    seen = true;
+    const a = Number(m[1]);
+    const b = Number(m[2]);
+    if (a > 12) dayFirst = true;
+    if (b > 12) monthFirst = true;
+    if (a !== b) differs = true;
+  }
+  if (!seen) return null;
+  if (dayFirst && !monthFirst) return 'dmy';
+  if (monthFirst && !dayFirst) return 'mdy';
+  if (!differs) return 'dmy';
+  return 'ambiguous';
+}
+
+const pad = (n: number) => String(n).padStart(2, '0');
+
+function validDate(y: number, mo: number, d: number, now: Date): string | null {
+  const date = new Date(y, mo - 1, d);
+  if (date.getFullYear() !== y || date.getMonth() !== mo - 1 || date.getDate() !== d) return null;
+  if (y < 1990 || date.getTime() > now.getTime()) return null;
+  return `${y}-${pad(mo)}-${pad(d)}`;
+}
+
+/**
+ * Consent dates read in the browser (the API gets ISO): yyyy-mm-dd and full ISO times as they are; dd/mm/yyyy or
+ * mm/dd/yyyy by the column's order (or the person's answer when the column can't tell); a written date like
+ * "May 3, 2026". Empty cells are null and not counted; anything else unreadable, in the future or before 1990 is
+ * null and counted (the API then uses the import time).
+ */
+export function readConsentDates(values: string[], order: DateOrder | null, now: Date = new Date()): { values: (string | null)[]; unreadable: number; needsOrder: boolean } {
+  const detected = consentDateOrder(values);
+  const use: DateOrder | null = detected === 'ambiguous' ? order : detected;
+  let unreadable = 0;
+  const out = values.map((raw) => {
+    const v = (raw ?? '').trim();
+    if (!v) return null;
+    let iso: string | null = null;
+    const isoDate = ISO_DATE.exec(v);
+    const numeric = NUMERIC_DATE.exec(v);
+    if (isoDate) iso = validDate(Number(isoDate[1]), Number(isoDate[2]), Number(isoDate[3]), now);
+    else if (numeric) {
+      if (use) {
+        const [a, b, y] = [Number(numeric[1]), Number(numeric[2]), Number(numeric[3])];
+        iso = use === 'dmy' ? validDate(y, b, a, now) : validDate(y, a, b, now);
+      }
+    } else if (/^\d{4}-\d{2}-\d{2}T/.test(v)) {
+      const t = Date.parse(v);
+      iso = Number.isFinite(t) && t <= now.getTime() && new Date(t).getFullYear() >= 1990 ? new Date(t).toISOString() : null;
+    } else if (/[a-z]/i.test(v) && /\d{4}/.test(v) && v.length <= MAX_DATE_LENGTH) {
+      const t = new Date(v);
+      iso = Number.isNaN(t.getTime()) ? null : validDate(t.getFullYear(), t.getMonth() + 1, t.getDate(), now);
+    }
+    if (!iso) unreadable++;
+    return iso;
+  });
+  return { values: out, unreadable, needsOrder: detected === 'ambiguous' && !order };
+}
+
+/** The consent-date column's cells (under any header row). */
+export function consentDateCells(table: string[][], map: ColumnMap): string[] {
+  if (map.consentAt === null) return [];
+  return (map.hasHeader ? table.slice(1) : table).map((r) => (r[map.consentAt as number] ?? '').trim());
+}
+
+export function buildImportRows(table: string[][], map: ColumnMap, dateOrder: DateOrder | null = null, now: Date = new Date()): { rows: ImportRow[]; invalid: number; total: number; unreadableDates: number; needsDateOrder: boolean } {
   const body = map.hasHeader ? table.slice(1) : table;
   const rows: ImportRow[] = [];
   let invalid = 0;
-  for (const r of body) {
+  let unreadableDates = 0;
+  const dates = map.consentAt === null ? null : readConsentDates(consentDateCells(table, map), dateOrder, now);
+  for (const [index, r] of body.entries()) {
     const cell = (i: number | null): string => (i === null ? '' : (r[i] ?? '').trim());
     const rawEmail = cell(map.email).toLowerCase();
     const email = isPlausibleEmail(rawEmail) ? rawEmail : '';
@@ -144,15 +224,16 @@ export function buildImportRows(table: string[][], map: ColumnMap): { rows: Impo
       invalid++;
       continue;
     }
+    if (dates && cell(map.consentAt) && !dates.values[index]) unreadableDates++;
     const row: ImportRow = {};
     if (name) row.name = name;
     if (email) row.email = email;
     if (phone) row.phone = phone;
-    const consentAt = cell(map.consentAt ?? null);
-    if (consentAt && consentAt.length <= MAX_DATE_LENGTH) row.consent_at = consentAt;
+    const consentAt = dates?.values[index];
+    if (consentAt) row.consent_at = consentAt;
     rows.push(row);
   }
-  return { rows, invalid, total: body.length };
+  return { rows, invalid, total: body.length, unreadableDates, needsDateOrder: dates?.needsOrder ?? false };
 }
 
 export function columnLabels(table: string[][], hasHeader: boolean): string[] {

@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { clearNewsletterBackups } from '../utils/newsletterBackups';
 import { authAPI, tokenUtils, userUtils, dashboardAPI } from '../utils/authUtils';
 import { initializeAccountCreation } from '../utils/passwordSecurityStorage';
 import SessionValidator from '../utils/sessionValidator';
@@ -436,6 +437,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
     // Clear authentication data
     userUtils.clearAuthData();
+    // The person chose to log out: newsletter drafts kept in this browser go too. (Not on a token expiry or a 401,
+    // which also clear the auth data: that is exactly when the kept copy is needed after logging back in.)
+    clearNewsletterBackups();
     resetMediaCache();
 
     // Force a hard page reload BEFORE setting user to null

@@ -15,7 +15,7 @@ test('a date column is found by its header and kept as consent_at', () => {
   assert.deepEqual(buildImportRows(table, detectColumns(table)).rows, [
     { name: 'Ava', email: 'ava@example.com', consent_at: '2026-05-01' },
     { name: 'Ben', email: 'ben@example.com' },
-    { name: 'Cy', email: 'cy@example.com', consent_at: 'May 3, 2026' },
+    { name: 'Cy', email: 'cy@example.com', consent_at: '2026-05-03' },
   ]);
 });
 
@@ -23,7 +23,7 @@ test('no date column: no consent_at, and a too-long cell is left out (the API ig
   const plain = [['Name', 'Email'], ['Ava', 'ava@example.com']];
   assert.equal(detectColumns(plain).consentAt, null);
   assert.deepEqual(buildImportRows(plain, detectColumns(plain)).rows, [{ name: 'Ava', email: 'ava@example.com' }]);
-  const long = [['Email', 'Date'], ['ava@example.com', 'x'.repeat(41)]];
+  const long = [['Email', 'Date'], ['ava@example.com', 'x'.repeat(41)]]; // unreadable: no date sent
   assert.deepEqual(buildImportRows(long, detectColumns(long)).rows, [{ email: 'ava@example.com' }]);
 });
 
@@ -43,10 +43,10 @@ test('consent choices: express and implied, in plain words', () => {
 test('skipped counts include expired consent and numbers that cannot get texts', () => {
   const counts = { email: 10, sms: 4, skipped: { no_email: 0, no_phone: 0, unsubscribed: 2, duplicate: 0, consent_expired: 5, unsupported_number: 3 } };
   assert.equal(skippedSummary(counts, ['email', 'sms']),
-    "Not included: 2 unsubscribed. 5 left out: their consent is older than 6 months. 3 phone numbers can't get texts (only Canadian and US mobile numbers).");
+    "Not included: 2 unsubscribed. 5 emails or texts left out: their consent is older than 6 months. 3 phone numbers can't get texts (only Canadian and US mobile numbers).");
   // Phone numbers only matter when texts are on.
-  assert.equal(skippedSummary(counts, ['email']), 'Not included: 2 unsubscribed. 5 left out: their consent is older than 6 months.');
-  assert.equal(skippedSummary({ ...counts, skipped: { ...counts.skipped, unsubscribed: 0 } }, ['email']), '5 left out: their consent is older than 6 months.');
+  assert.equal(skippedSummary(counts, ['email']), 'Not included: 2 unsubscribed. 5 emails left out: their consent is older than 6 months.');
+  assert.equal(skippedSummary({ ...counts, skipped: { ...counts.skipped, unsubscribed: 0 } }, ['email']), '5 emails left out: their consent is older than 6 months.');
   // An older API without the new keys.
   assert.equal(skippedSummary({ email: 1, sms: 0, skipped: { no_email: 1, no_phone: 0, unsubscribed: 0, duplicate: 0 } }, ['email']), 'Not included: 1 with no email address.');
   assert.equal(ZERO_COUNT.skipped.consent_expired, 0);

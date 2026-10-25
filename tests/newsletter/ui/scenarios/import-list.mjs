@@ -26,7 +26,10 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
   await expectVisible(dialog.getByRole('cell', { name: 'ava@example.com' }), 'email lower-cased');
   expect(await dialog.getByLabel('List name').inputValue() === 'open house', 'list named after the file');
   const importButton = dialog.getByRole('button', { name: 'Import 3 contacts' });
-  expect(await importButton.isDisabled(), 'import waits for the consent choice');
+  // Final review: the button stays enabled and pressing it says what is missing.
+  await importButton.click();
+  await expectVisible(dialog.getByText('Choose how these people agreed to hear from you.'), 'consent message on Import');
+  expect(!api.state.calls.some((c) => c.path === '/contact-lists/import'), 'nothing imported without a consent choice');
   // [wdy2xh2p3e] The date column is found and the consent question has two plain choices and the 6-month hint.
   expect(await dialog.getByLabel(/Date they agreed/).inputValue() === '3', 'the "Signed up" column is the consent date');
   await expectVisible(dialog.getByText('How did these people agree to hear from you?'), 'consent question');

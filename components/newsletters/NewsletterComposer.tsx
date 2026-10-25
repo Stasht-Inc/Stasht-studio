@@ -27,6 +27,7 @@ import { formatSendTime, plannedFromSchedule, sameInstant, scheduleFromPlanned, 
 import { firstProblemStep, preSendProblems, stepDomId, stepErrorsFrom, type StepKey } from './lib/sendChecks';
 import { formatSentTo } from './lib/phoneDisplay';
 import { smsPartsInfo } from './lib/smsParts';
+import { OFF_SCHEDULE_BANNER, clearUnscheduled, putBackProblem, unscheduledFor } from './lib/editScheduled';
 import { ACTION_TOAST_MS } from './lib/blocks';
 import SendConfirmDialog from './SendConfirmDialog';
 import SaveIndicator from './SaveIndicator';
@@ -205,6 +206,7 @@ const NewsletterComposer = forwardRef<NewsletterComposerHandle, NewsletterCompos
 
   const onSent = (n: Newsletter) => {
     setConfirmOpen(false);
+    clearUnscheduled(n.id);
     state.adopt(n);
     // The composer closes now, so this one goes to App's Toaster.
     toast.success(later ? `Scheduled for ${formatSendTime(n.scheduled_at)}.` : 'Sending now. Follow it in Campaigns › Newsletters.', {
@@ -218,7 +220,7 @@ const NewsletterComposer = forwardRef<NewsletterComposerHandle, NewsletterCompos
   // Over the plan's allowance: the plans open once the composer has closed (they sit under this layer).
   const seePlans = async () => {
     setConfirmOpen(false);
-    if (await close()) requestUpgrade('Upgrade your plan to send more newsletters this month.');
+    if (await close({ askPutBack: false })) requestUpgrade('Upgrade your plan to send more newsletters this month.');
   };
 
   const onSendFailed = (res: NlResult<Newsletter>) => {
@@ -257,8 +259,13 @@ const NewsletterComposer = forwardRef<NewsletterComposerHandle, NewsletterCompos
 
   // Cancel, Back and Escape. If the last changes can't be saved, ask instead of closing silently.
   const [unsaved, setUnsaved] = useState<string | null>(null);
-  /** True when the composer closed; false when it stays open (still closing, or changes aren't saved). */
-  const close = async (): Promise<boolean> => {
+  // A scheduled newsletter opened with Edit is off the schedule until it is scheduled again (final review).
+  const offSchedule = state.newsletter?.status === 'draft' ? unscheduledFor(state.newsletter.id) : null;
+  const [putBack, setPutBack] = useState<{ plannedAt: string | null; problem: string | null } | null>(null);
+  const [puttingBack, setPuttingBack] = useState(false);
+  /** True when the composer closed; false when it stays open (still closing, changes aren't saved, or it asks
+   *  whether to put an edited scheduled newsletter back on the schedule). */
+  const close = async ({ askPutBack = true }: { askPutBack?: boolean } = {}): Promise<boolean> => {
     if (closing) return false;
     setClosing(true);
     const outcome = await state.flush();
@@ -268,12 +275,41 @@ const NewsletterComposer = forwardRef<NewsletterComposerHandle, NewsletterCompos
       return false;
     }
     if (outcome.newsletter) onChanged?.();
+    if (askPutBack && offSchedule && state.newsletter) {
+      setPutBack({ plannedAt: draft.planned_send_at, problem: putBackProblem(draft.planned_send_at, draft.channels) });
+      return false;
+    }
+    if (state.newsletter) clearUnscheduled(state.newsletter.id);
     onClose();
     return true;
+  };
+  const leaveAsDraft = (say = true) => {
+    setPutBack(null);
+    clearUnscheduled(state.newsletter?.id);
+    if (say) toast.info('It\u2019s a draft now. Open it from Campaigns › Newsletters and press Schedule when you\u2019re ready.');
+    onChanged?.();
+    onClose();
+  };
+  const scheduleAgain = async () => {
+    const id = state.newsletter?.id;
+    if (!id || !putBack?.plannedAt) return;
+    setPuttingBack(true);
+    const res = await newslettersAPI.schedule(id, putBack.plannedAt);
+    setPuttingBack(false);
+    setPutBack(null);
+    clearUnscheduled(id);
+    if (res.ok && res.data) {
+      toast.success(`Back on the schedule for ${formatSendTime(res.data.scheduled_at)}.`);
+    } else {
+      toast.error(`${res.error ?? GENERIC_ERROR} It stays a draft.`);
+    }
+    onChanged?.();
+    onClose();
   };
   const discardAndClose = () => {
     setUnsaved(null);
     state.discard();
+    clearUnscheduled(state.newsletter?.id);
     if (state.newsletter) onChanged?.();
     onClose();
   };
@@ -387,8 +423,13 @@ const NewsletterComposer = forwardRef<NewsletterComposerHandle, NewsletterCompos
               ) : null}
 
               {readOnly ? null : (
+                <>
+                {offSchedule ? (
+                  <p role="status" className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">{OFF_SCHEDULE_BANNER}</p>
+                ) : null}
                 <DraftNotices saveError={state.saveError} stale={state.stale} canRetry={state.canRetry} restoreOffer={state.restoreOffer}
                   onRetry={state.retry} onReload={() => { void state.reload(); }} onRestore={state.restore} onDismissRestore={state.dismissRestore} />
+                </>
               )}
 
               <NameStep value={draft.name} onChange={(name) => update({ name })} fieldError={fieldError('name')} stepError={stepError('name')} readOnly={readOnly} inputRef={setNameInput} autoFocus={!newsletterId} />
@@ -466,6 +507,26 @@ const NewsletterComposer = forwardRef<NewsletterComposerHandle, NewsletterCompos
         onSent={onSent}
         onFailed={onSendFailed}
         onSeePlans={() => { void seePlans(); }}
+      />
+      <ComposerDialog
+        open={putBack !== null}
+        onOpenChange={(o) => { if (!o && !puttingBack) setPutBack(null); }}
+        title={putBack && !putBack.problem ? 'Put it back on the schedule?' : 'It stays a draft'}
+        description={putBack
+          ? putBack.problem
+            ? `${putBack.plannedAt ? `It can't go out ${formatSendTime(putBack.plannedAt)}: ` : ''}${putBack.problem} Open it from Campaigns › Newsletters and press Schedule when you're ready.`
+            : `It was set to go out ${formatSendTime(putBack.plannedAt)}. Put it back for that time, or leave it as a draft.`
+          : undefined}
+        footer={putBack && !putBack.problem ? (
+          <>
+            <button type="button" onClick={() => leaveAsDraft()} disabled={puttingBack} className={BUTTON_OUTLINE}>Leave it as a draft</button>
+            <button type="button" onClick={() => { void scheduleAgain(); }} disabled={puttingBack} className={BUTTON_PRIMARY}>
+              {puttingBack ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : null}Put it back
+            </button>
+          </>
+        ) : (
+          <button type="button" onClick={() => leaveAsDraft(false)} className={BUTTON_PRIMARY}>OK</button>
+        )}
       />
       <ComposerDialog
         open={unsaved !== null}

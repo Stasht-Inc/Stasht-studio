@@ -11,8 +11,22 @@ const GSM_EXTENDED = new Set([...'^{}\\[~]|€\f']);
 export const MAX_SMS_PARTS = 3;
 /** NewsletterRenderer::SMS_FROM_MAX: the business name before the text is cut to this many characters. */
 export const SMS_FROM_MAX = 25;
-/** NewsletterSms::finalText's stand-in link: production NEWSLETTER_PUBLIC_URL + /n/r/ + a 32-character token. */
-export const SMS_LINK_STAND_IN = `https://restapi.stasht.com/n/r/${'x'.repeat(32)}`;
+/**
+ * The web API's NEWSLETTER_PUBLIC_URL (texts link there). Studio's VITE_API_BASE_URL is not it (production calls the
+ * API through studio.stasht.com's own /api/react), so the production value is the default; VITE_NEWSLETTER_PUBLIC_URL
+ * overrides it if the API's public URL ever changes.
+ */
+const PUBLIC_BASE = (() => {
+  try {
+    const env = (import.meta as unknown as { env?: Record<string, string | undefined> }).env;
+    const value = env?.VITE_NEWSLETTER_PUBLIC_URL?.trim();
+    return value ? value.replace(/\/+$/, '') : 'https://restapi.stasht.com';
+  } catch {
+    return 'https://restapi.stasht.com';
+  }
+})();
+/** NewsletterSms::finalText's stand-in link: NEWSLETTER_PUBLIC_URL + /n/r/ + a 32-character token. */
+export const SMS_LINK_STAND_IN = `${PUBLIC_BASE}/n/r/${'x'.repeat(32)}`;
 
 export interface SmsSegments { encoding: 'GSM-7' | 'UCS-2'; segments: number; units: number }
 

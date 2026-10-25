@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { ArrowLeft, ChevronLeft, ChevronRight, Loader2 } from 'lucide-react';
 import { composerToast } from './ComposerToaster';
 import { newslettersAPI, type ContactList, type ContactListMembers } from '../../services/newslettersAPI';
@@ -35,6 +35,11 @@ export default function ManageListsDialog({ open, onOpenChange, onChanged, onDel
   const [busy, setBusy] = useState(false);
   const [rowError, setRowError] = useState<{ id: number; message: string } | null>(null);
   const requestRef = useRef(0);
+  const yesRef = useRef<HTMLButtonElement>(null);
+  const doneRef = useRef<HTMLButtonElement>(null);
+  const listRef = useRef<HTMLUListElement>(null);
+  // Where focus goes after the rows change: a row's Delete button (Keep it), or the row now in the deleted one's place.
+  const [focusAfter, setFocusAfter] = useState<{ kind: 'button'; id: number; action: 'delete' | 'rename' } | { kind: 'index'; index: number } | null>(null);
 
   const load = useCallback(async () => {
     setLoadError(null);
@@ -51,7 +56,8 @@ export default function ManageListsDialog({ open, onOpenChange, onChanged, onDel
     void load();
   }, [open, load]);
 
-  // Members of the list being viewed, 50 a page; only the latest request may update the table.
+  // Members of the list being viewed, 50 a page; only the latest request may update the table. A list deleted
+  // elsewhere (404) takes the person back to their lists, reloaded.
   useEffect(() => {
     if (!viewing) return;
     const request = ++requestRef.current;
@@ -59,9 +65,26 @@ export default function ManageListsDialog({ open, onOpenChange, onChanged, onDel
     void newslettersAPI.listMembers(viewing.id, page).then((res) => {
       if (request !== requestRef.current) return;
       if (res.ok && res.data) setMembers(res.data);
-      else setMembersError(res.error ?? GENERIC_ERROR);
+      else if (res.status === 404) {
+        setViewing(null); setMembers(null); setPage(1);
+        void load().then(() => { setLoadError('That list was deleted somewhere else.'); onChanged(); });
+      } else setMembersError(res.error ?? GENERIC_ERROR);
     });
-  }, [viewing, page]);
+  }, [viewing, page, load, onChanged]);
+
+  // "Yes, delete it" takes focus when the question shows.
+  useEffect(() => { if (deleting !== null) yesRef.current?.focus(); }, [deleting]);
+  useLayoutEffect(() => {
+    if (!focusAfter) return;
+    setFocusAfter(null);
+    if (focusAfter.kind === 'button') {
+      listRef.current?.querySelector<HTMLButtonElement>(`[data-list-id="${focusAfter.id}"] [data-action="${focusAfter.action}"]`)?.focus();
+      return;
+    }
+    const rows = listRef.current?.querySelectorAll<HTMLElement>('[data-list-id]');
+    const row = rows?.[Math.min(focusAfter.index, (rows?.length ?? 1) - 1)];
+    (row?.querySelector<HTMLButtonElement>('[data-action="view"]') ?? doneRef.current)?.focus();
+  }, [focusAfter, lists]);
 
   const saveName = async () => {
     if (!renaming) return;
@@ -70,11 +93,21 @@ export default function ManageListsDialog({ open, onOpenChange, onChanged, onDel
     setBusy(true);
     const res = await newslettersAPI.renameList(renaming.id, name);
     setBusy(false);
-    if (!res.ok || !res.data) { setRowError({ id: renaming.id, message: res.fieldErrors.name ?? res.error ?? GENERIC_ERROR }); return; }
+    if (!res.ok || !res.data) {
+      if (res.status === 404) {
+        // Deleted somewhere else: show the lists as they are now.
+        setRenaming(null);
+        void load().then(() => { setLoadError('That list was deleted somewhere else.'); onChanged(); });
+        return;
+      }
+      setRowError({ id: renaming.id, message: res.fieldErrors.name ?? res.error ?? GENERIC_ERROR });
+      return;
+    }
     const renamed = res.data;
     setLists((prev) => prev?.map((l) => (l.id === renamed.id ? { ...l, ...renamed } : l)) ?? prev);
     setRenaming(null);
     setRowError(null);
+    setFocusAfter({ kind: 'button', id: renamed.id, action: 'rename' });
     composerToast.success('List renamed.');
     onChanged();
   };
@@ -88,16 +121,19 @@ export default function ManageListsDialog({ open, onOpenChange, onChanged, onDel
       // 409: a scheduled or sending newsletter still uses it. 404: deleted elsewhere.
       setRowError({ id: list.id, message: res.error ?? GENERIC_ERROR });
       if (!res.conflict) void load();
+      setFocusAfter({ kind: 'button', id: list.id, action: 'delete' });
       return;
     }
+    const index = lists?.findIndex((l) => l.id === list.id) ?? 0;
     setLists((prev) => prev?.filter((l) => l.id !== list.id) ?? prev);
+    setFocusAfter({ kind: 'index', index: Math.max(0, index) });
     setRowError(null);
     composerToast.success(`Deleted the list "${list.name}".`);
     onDeleted(list.id);
     onChanged();
   };
 
-  const footer = <button type="button" onClick={() => onOpenChange(false)} className={BUTTON_OUTLINE}>Done</button>;
+  const footer = <button ref={doneRef} type="button" onClick={() => onOpenChange(false)} className={BUTTON_OUTLINE}>Done</button>;
 
   let body;
   if (viewing) {
@@ -157,9 +193,9 @@ export default function ManageListsDialog({ open, onOpenChange, onChanged, onDel
         {loadError ? <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{loadError}</p> : null}
         {lists.length === 0 && !loadError ? <p className="py-6 text-center text-sm text-gray-500">No lists yet. Use Add a list to bring in your contacts.</p> : null}
         {lists.length ? (
-          <ul aria-label="Your lists" className="divide-y divide-gray-100 rounded-xl border border-gray-200">
+          <ul ref={listRef} aria-label="Your lists" className="divide-y divide-gray-100 rounded-xl border border-gray-200">
             {lists.map((l) => (
-              <li key={l.id} className="space-y-2 px-4 py-3">
+              <li key={l.id} data-list-id={l.id} className="space-y-2 px-4 py-3">
                 {renaming?.id === l.id ? (
                   <div className="flex flex-col gap-2 min-[420px]:flex-row min-[420px]:items-center">
                     <label htmlFor={`nl-rename-${l.id}`} className="sr-only">New name for {l.name}</label>
@@ -169,7 +205,7 @@ export default function ManageListsDialog({ open, onOpenChange, onChanged, onDel
                       className={`${inputClass(rowError?.id === l.id)} min-w-0 flex-1`} />
                     <div className="flex gap-2">
                       <button type="button" onClick={() => void saveName()} disabled={busy} className={SMALL_PRIMARY}>{busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> : null}Save</button>
-                      <button type="button" onClick={() => { setRenaming(null); setRowError(null); }} disabled={busy} className={BUTTON_SMALL}>Cancel</button>
+                      <button type="button" onClick={() => { const id = l.id; setRenaming(null); setRowError(null); setFocusAfter({ kind: 'button', id, action: 'rename' }); }} disabled={busy} className={BUTTON_SMALL}>Cancel</button>
                     </div>
                   </div>
                 ) : (
@@ -182,15 +218,15 @@ export default function ManageListsDialog({ open, onOpenChange, onChanged, onDel
                   <div role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800">
                     <p>Delete &ldquo;{l.name}&rdquo;? The people on it are removed for good. Newsletters already sent keep their results.</p>
                     <div className="mt-2 flex flex-wrap gap-2">
-                      <button type="button" onClick={() => void remove(l)} disabled={busy} className={`${SMALL_DANGER} bg-white`}>{busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> : null}Yes, delete it</button>
-                      <button type="button" onClick={() => setDeleting(null)} disabled={busy} className={BUTTON_SMALL}>Keep it</button>
+                      <button ref={yesRef} type="button" onClick={() => void remove(l)} disabled={busy} className={`${SMALL_DANGER} bg-white`}>{busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> : null}Yes, delete it</button>
+                      <button type="button" onClick={() => { setDeleting(null); setFocusAfter({ kind: 'button', id: l.id, action: 'delete' }); }} disabled={busy} className={BUTTON_SMALL}>Keep it</button>
                     </div>
                   </div>
                 ) : renaming?.id === l.id ? null : (
                   <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-                    <button type="button" onClick={() => { setViewing(l); setMembers(null); setPage(1); }} className={LINK_BUTTON}>View people</button>
-                    <button type="button" onClick={() => { setRenaming({ id: l.id, name: l.name }); setDeleting(null); setRowError(null); }} className={LINK_BUTTON}>Rename</button>
-                    <button type="button" onClick={() => { setDeleting(l.id); setRenaming(null); setRowError(null); }} className={`${LINK_BUTTON} text-red-600`}>Delete</button>
+                    <button type="button" data-action="view" onClick={() => { setViewing(l); setMembers(null); setPage(1); }} className={LINK_BUTTON}>View people</button>
+                    <button type="button" data-action="rename" onClick={() => { setRenaming({ id: l.id, name: l.name }); setDeleting(null); setRowError(null); }} className={LINK_BUTTON}>Rename</button>
+                    <button type="button" data-action="delete" onClick={() => { setDeleting(l.id); setRenaming(null); setRowError(null); }} className={`${LINK_BUTTON} text-red-600`}>Delete</button>
                   </div>
                 )}
                 {rowError?.id === l.id ? <p role="alert" className="text-xs text-red-600">{rowError.message}</p> : null}
@@ -204,6 +240,11 @@ export default function ManageListsDialog({ open, onOpenChange, onChanged, onDel
 
   return (
     <ComposerDialog open={open} onOpenChange={(o) => { if (!busy) onOpenChange(o); }} title="Manage lists" wide
+      // Escape while renaming (or asked to delete) cancels that only; the dialog stays open.
+      onEscapeKeyDown={(e) => {
+        if (renaming) { e.preventDefault(); const id = renaming.id; setRenaming(null); setRowError(null); setFocusAfter({ kind: 'button', id, action: 'rename' }); }
+        else if (deleting !== null) { e.preventDefault(); const id = deleting; setDeleting(null); setFocusAfter({ kind: 'button', id, action: 'delete' }); }
+      }}
       description="See who is on each list, rename it or delete it." footer={footer}>
       {body}
     </ComposerDialog>

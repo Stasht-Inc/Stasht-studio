@@ -8,6 +8,7 @@ import { GENERIC_ERROR } from './lib/apiResult';
 import { formatCount, type GroupOption } from './lib/audience';
 import {
   MAX_IMPORT_BYTES, MAX_IMPORT_ROWS, buildImportRows, columnLabels, csvFileProblem, detectColumns, importSummary, listNameFromFile, parseCsv, type ColumnMap,
+  type DateOrder,
 } from './lib/csv';
 import { CONSENT_HINT, CONSENT_OPTIONS } from './lib/consent';
 import { LIMITS } from './lib/rules';
@@ -37,6 +38,8 @@ export default function ImportListModal({ open, onOpenChange, groups, onCreated 
   const [map, setMap] = useState<ColumnMap | null>(null);
   // How these people agreed (CASL): required, never pre-chosen.
   const [consent, setConsent] = useState<ConsentType | null>(null);
+  // Only asked when the date column can't tell day/month from month/day.
+  const [dateOrder, setDateOrder] = useState<DateOrder | null>(null);
   const [groupId, setGroupId] = useState('all');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -45,18 +48,19 @@ export default function ImportListModal({ open, onOpenChange, groups, onCreated 
   useEffect(() => {
     if (open) return;
     setSource('csv'); setName(''); setFileName(null); setTable(null); setMap(null);
-    setConsent(null); setGroupId('all'); setBusy(false); setError(null);
+    setConsent(null); setDateOrder(null); setGroupId('all'); setBusy(false); setError(null);
   }, [open]);
 
-  const preview = useMemo(() => (table && map ? buildImportRows(table, map) : null), [table, map]);
+  const preview = useMemo(() => (table && map ? buildImportRows(table, map, dateOrder) : null), [table, map, dateOrder]);
   const ready = preview?.rows.length ?? 0;
   const tooMany = ready > MAX_IMPORT_ROWS;
   const columns = table ? columnLabels(table, map?.hasHeader ?? false) : [];
 
   const readFile = async (file: File) => {
     setError(null);
-    // A different file needs its own consent.
+    // A different file needs its own consent (and its own date order).
     setConsent(null);
+    setDateOrder(null);
     if (file.size > MAX_IMPORT_BYTES) { setError('This file is bigger than 5 MB. Split it into smaller files.'); return; }
     let text: string;
     try {
@@ -89,7 +93,10 @@ export default function ImportListModal({ open, onOpenChange, groups, onCreated 
     if (!name.trim()) { setError('Give the list a name.'); return; }
     setBusy(true);
     if (source === 'csv') {
-      if (!preview || !ready || !consent || tooMany) { setBusy(false); if (!consent && ready) setError('Choose how these people agreed to hear from you.'); return; }
+      if (!preview || !ready || tooMany) { setBusy(false); return; }
+      // Said on pressing Import (the button stays enabled, so it's clear what is missing).
+      if (!consent) { setBusy(false); setError('Choose how these people agreed to hear from you.'); return; }
+      if (preview.needsDateOrder) { setBusy(false); setError('Choose whether the dates are day/month or month/day.'); return; }
       const res = await newslettersAPI.importList({ name: name.trim(), consent: true, consent_type: consent, consent_source: 'import', rows: preview.rows });
       setBusy(false);
       // ContactListController::import 422 keys: name, consent, consent_type, rows.
@@ -114,7 +121,7 @@ export default function ImportListModal({ open, onOpenChange, groups, onCreated 
   const footer = (
     <>
       <button type="button" onClick={() => onOpenChange(false)} disabled={busy} className={BUTTON_OUTLINE}>Cancel</button>
-      <button type="button" onClick={submit} disabled={busy || (source === 'csv' && (!consent || !ready || tooMany))} className={BUTTON_PRIMARY}>
+      <button type="button" onClick={submit} disabled={busy || (source === 'csv' && (!ready || tooMany))} className={BUTTON_PRIMARY}>
         {busy ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : null}
         {source === 'csv' ? `Import ${formatCount(ready)} ${ready === 1 ? 'contact' : 'contacts'}` : 'Make the list'}
       </button>
@@ -168,6 +175,22 @@ export default function ImportListModal({ open, onOpenChange, groups, onCreated 
                   {ready ? `${formatCount(ready)} ${ready === 1 ? 'contact' : 'contacts'} ready to import.` : 'No contacts with an email address or mobile number yet.'}
                   {preview?.invalid ? ` ${formatCount(preview.invalid)} rows have no email address or mobile number we can use, so they will be skipped.` : ''}
                 </p>
+                {preview?.needsDateOrder || (dateOrder && map.consentAt !== null) ? (
+                  <fieldset className="rounded-lg border border-gray-200 p-3">
+                    <legend className="px-1 text-sm font-medium text-gray-900">Are dates day/month or month/day?</legend>
+                    <div className="flex flex-col gap-2 sm:flex-row sm:gap-6">
+                      {([['dmy', 'Day/month (31/12/2026)'], ['mdy', 'Month/day (12/31/2026)']] as const).map(([value, label]) => (
+                        <label key={value} className="flex cursor-pointer items-center gap-2 text-sm text-gray-800">
+                          <input type="radio" name="nl-date-order" checked={dateOrder === value} onChange={() => setDateOrder(value)} className="h-4 w-4 accent-[#6C60FF]" />
+                          {label}
+                        </label>
+                      ))}
+                    </div>
+                  </fieldset>
+                ) : null}
+                {preview?.unreadableDates && !preview.needsDateOrder ? (
+                  <p className="text-sm text-amber-800">{`${formatCount(preview.unreadableDates)} ${preview.unreadableDates === 1 ? 'date couldn\u2019t' : 'dates couldn\u2019t'} be read \u2014 we\u2019ll use today\u2019s date.`}</p>
+                ) : null}
                 {tooMany ? <p role="alert" className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">This file has more than {formatCount(MAX_IMPORT_ROWS)} contacts. Split it into smaller files.</p> : null}
                 {ready ? (
                   <div className="rounded-lg border border-gray-200">

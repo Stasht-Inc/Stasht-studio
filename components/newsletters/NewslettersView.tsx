@@ -10,6 +10,7 @@ import { newslettersAPI, type NewsletterSummary } from '../../services/newslette
 import { useIsStarterPlan } from '../../hooks/usePlan';
 import { requestUpgrade } from '../../utils/planEvents';
 import { clearNewsletterBackups } from '../../utils/newsletterBackups';
+import { EDIT_SCHEDULED_CONFIRM, markUnscheduled } from './lib/editScheduled';
 import SegmentedSwitch from './SegmentedSwitch';
 import StatusChip from './StatusChip';
 import NewsletterResults from './NewsletterResults';
@@ -73,7 +74,7 @@ export default function NewslettersView({ onCreate, onEdit, onToggleMobileSideba
   useEffect(() => {
     if (openResults) setResultsId(openResults.id);
   }, [openResults]);
-  const [confirm, setConfirm] = useState<{ action: 'cancel' | 'delete'; item: NewsletterSummary } | null>(null);
+  const [confirm, setConfirm] = useState<{ action: 'cancel' | 'delete' | 'editScheduled'; item: Pick<NewsletterSummary, 'id' | 'name'> } | null>(null);
   const [busyId, setBusyId] = useState<number | null>(null);
 
   // Only the latest request may update the list (the filter can change while one is on its way).
@@ -114,20 +115,25 @@ export default function NewslettersView({ onCreate, onEdit, onToggleMobileSideba
     return () => { window.clearInterval(timer); document.removeEventListener('visibilitychange', onVisible); };
   }, [enabled, live, load]);
 
-  // A scheduled newsletter goes back to being a draft (its time is kept), then opens in the composer. Once it has
-  // started sending the API answers 409 with what to do instead.
+  // After the person agrees: a scheduled newsletter goes back to being a draft (its time is kept), then opens in the
+  // composer, which says it is off the schedule and offers to put it back on closing. Once it has started sending
+  // the API answers 409 with what to do instead.
   const editScheduled = async (id: number) => {
     setBusyId(id);
     const res = await newslettersAPI.unschedule(id);
     setBusyId(null);
     announceNewslettersChanged();
-    if (res.ok) { onEdit(id); return; }
+    if (res.ok) {
+      markUnscheduled(id, res.data?.planned_send_at ?? null);
+      onEdit(id);
+      return;
+    }
     toast.error(res.error ?? GENERIC_ERROR);
   };
 
   const act = async (action: NewsletterAction, item: NewsletterSummary) => {
     if (action === 'edit') { onEdit(item.id); return; }
-    if (action === 'editScheduled') { await editScheduled(item.id); return; }
+    if (action === 'editScheduled') { setConfirm({ action, item }); return; }
     if (action === 'results') { setResultsId(item.id); return; }
     if (action === 'cancel' || action === 'delete') { setConfirm({ action, item }); return; }
     setBusyId(item.id);
@@ -148,6 +154,7 @@ export default function NewslettersView({ onCreate, onEdit, onToggleMobileSideba
     if (!confirm) return;
     const { action, item } = confirm;
     setConfirm(null);
+    if (action === 'editScheduled') { await editScheduled(item.id); return; }
     setBusyId(item.id);
     const res = action === 'cancel' ? await newslettersAPI.cancel(item.id) : await newslettersAPI.remove(item.id);
     setBusyId(null);
@@ -292,20 +299,24 @@ export default function NewslettersView({ onCreate, onEdit, onToggleMobileSideba
       {body}
 
       <NewsletterResults newsletterId={resultsId} onOpenChange={(o) => { if (!o) setResultsId(null); }} onChanged={announceNewslettersChanged}
-        onEditScheduled={(id) => { setResultsId(null); void editScheduled(id); }} />
+        onEditScheduled={(id) => {
+          setResultsId(null);
+          setConfirm({ action: 'editScheduled', item: items?.find((n) => n.id === id) ?? { id, name: null } });
+        }} />
 
       <AlertDialog open={confirm !== null} onOpenChange={(o) => { if (!o) setConfirm(null); }}>
         <AlertDialogContent className="bg-white">
           <AlertDialogHeader>
-            <AlertDialogTitle>{confirm?.action === 'delete' ? 'Delete this newsletter?' : 'Cancel this newsletter?'}</AlertDialogTitle>
+            <AlertDialogTitle>{confirm?.action === 'delete' ? 'Delete this newsletter?' : confirm?.action === 'editScheduled' ? 'Edit this scheduled newsletter?' : 'Cancel this newsletter?'}</AlertDialogTitle>
             <AlertDialogDescription>
-              {confirm?.action === 'delete' ? "This can't be undone." : 'Nothing more will be sent. People who already got it keep it.'}
+              {confirm?.action === 'delete' ? "This can't be undone." : confirm?.action === 'editScheduled' ? EDIT_SCHEDULED_CONFIRM : 'Nothing more will be sent. People who already got it keep it.'}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Keep it</AlertDialogCancel>
-            <AlertDialogAction onClick={() => void runConfirmed()} className="bg-red-600 text-white hover:bg-red-700">
-              {confirm?.action === 'delete' ? 'Yes, delete it' : 'Yes, cancel it'}
+            <AlertDialogCancel>{confirm?.action === 'editScheduled' ? 'Not now' : 'Keep it'}</AlertDialogCancel>
+            <AlertDialogAction onClick={() => void runConfirmed()}
+              className={confirm?.action === 'editScheduled' ? 'bg-[#6C60FF] text-white hover:bg-[#5B50E6]' : 'bg-red-600 text-white hover:bg-red-700'}>
+              {confirm?.action === 'delete' ? 'Yes, delete it' : confirm?.action === 'editScheduled' ? 'Edit it' : 'Yes, cancel it'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import * as Popover from '@radix-ui/react-popover';
 import { ChevronDown, Mail, MessageSquare, Plus, User } from 'lucide-react';
 import type { AudienceItem, NewsletterChannel } from '../../services/newslettersAPI';
@@ -16,6 +16,8 @@ import { LIMITS } from './lib/rules';
 import { smsPartsInfo } from './lib/smsParts';
 import { LABEL, LAYER, LINK_BUTTON, inputClass, textareaClass } from './lib/ui';
 
+type AudiencePatch = { audience?: AudienceItem[]; channels?: NewsletterChannel[]; sms_text?: string };
+
 export interface AudiencePickerProps {
   audience: AudienceItem[];
   channels: NewsletterChannel[];
@@ -28,7 +30,8 @@ export interface AudiencePickerProps {
   enabled: boolean;
   fieldErrors: Record<string, string>;
   stepError?: string;
-  onChange(patch: { audience?: AudienceItem[]; channels?: NewsletterChannel[]; sms_text?: string }): void;
+  /** A patch, or a function of the latest draft (null: no change), so a later answer never undoes newer edits. */
+  onChange(patch: AudiencePatch | ((latest: { audience: AudienceItem[] }) => AudiencePatch | null)): void;
 }
 
 const GROUP_HEADING = 'px-3 pb-1 pt-3 text-xs font-semibold uppercase tracking-wide text-gray-500';
@@ -46,6 +49,14 @@ export default function AudiencePicker({ audience, channels, smsText, fromName, 
   const sms = smsInfo(smsText);
   const skipped = skippedSummary(count.counts, channels);
   const parts = smsPartsInfo(fromName, smsText);
+  // Screen readers hear the parts line only when the number of parts changes, not on every key.
+  const [partsAnnouncement, setPartsAnnouncement] = useState('');
+  const lastParts = useRef(parts.parts);
+  useEffect(() => {
+    if (lastParts.current === parts.parts) return;
+    lastParts.current = parts.parts;
+    setPartsAnnouncement(parts.tooLong ? (parts.problem ?? '') : `Uses ${parts.parts} text message ${parts.parts === 1 ? 'part' : 'parts'} per person.`);
+  }, [parts.parts, parts.tooLong, parts.problem]);
   const smsError = fieldErrors.sms_text ?? (sms.over ? `Use ${LIMITS.sms_text} characters or fewer.` : undefined) ?? parts.problem ?? undefined;
 
   const option = (item: AudienceItem, title: string, detail: string) => (
@@ -139,8 +150,9 @@ export default function AudiencePicker({ audience, channels, smsText, fromName, 
               <span aria-live="polite" className={`whitespace-nowrap ${sms.over ? 'text-red-600' : sms.remaining < 10 ? 'text-amber-600' : 'text-gray-500'}`}>{sms.length} / {LIMITS.sms_text}</span>
             </div>
             {parts.tooLong ? null : (
-              <p className="mt-1.5 text-xs text-gray-600" aria-live="polite">Uses {parts.parts} text message {parts.parts === 1 ? 'part' : 'parts'} per person.</p>
+              <p className="mt-1.5 text-xs text-gray-600">Uses {parts.parts} text message {parts.parts === 1 ? 'part' : 'parts'} per person.</p>
             )}
+            <span className="sr-only" aria-live="polite">{partsAnnouncement}</span>
             {parts.unicode ? (
               <p className="mt-1.5 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">Emoji and some special characters make each part hold 70 characters instead of 160, so the text may use more parts.</p>
             ) : null}
@@ -152,10 +164,10 @@ export default function AudiencePicker({ audience, channels, smsText, fromName, 
         open={manageOpen}
         onOpenChange={setManageOpen}
         onChanged={() => { void sources.reload(); }}
-        onDeleted={(id) => {
-          const next = withoutList(audience, id);
-          if (next !== audience) onChange({ audience: next });
-        }}
+        onDeleted={(id) => onChange((latest) => {
+          const next = withoutList(latest.audience, id);
+          return next === latest.audience ? null : { audience: next };
+        })}
       />
       <ImportListModal
         open={importOpen}

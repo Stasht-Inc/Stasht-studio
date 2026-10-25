@@ -1,5 +1,4 @@
 import { requestUpgrade } from './planEvents';
-import { clearNewsletterBackups } from './newsletterBackups';
 
 // Auth utility functions for API integration
 
@@ -1896,8 +1895,6 @@ export const userUtils = {
     localStorageKeysToRemove.forEach(key => {
       localStorage.removeItem(key);
     });
-    // Newsletter drafts kept in this browser belong to the account that logged out.
-    clearNewsletterBackups();
 
     // Clear specific sessionStorage keys (not all to preserve SessionValidator data)
     const sessionStorageKeysToRemove = [

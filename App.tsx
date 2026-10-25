@@ -494,6 +494,7 @@ function MainApp() {
 
             // Clear session (use userUtils.clearAuthData for a thorough clear)
             userUtils.clearAuthData();
+            clearNewsletterBackups(); // another account takes over this browser
 
             toast.warning('Please sign up with the invited email address');
 
@@ -1335,6 +1336,7 @@ function MainApp() {
 
           // Don't clear pendingDeepLink - keep it for after re-login
           userUtils.clearAuthData();
+          clearNewsletterBackups(); // another account takes over this browser
           resetMediaCache();
           window.location.href = '/login';
         }
