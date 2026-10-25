@@ -38,7 +38,7 @@ export async function run({ open, shot, expectVisible, expect }) {
     const headerButtons = [
       header.getByRole('button', { name: 'Cancel', exact: true }),
       header.getByRole('button', { name: 'Save Draft', exact: true }),
-      header.getByRole('button', { name: 'Send now', exact: true }),
+      header.getByRole('button', { name: 'Send Now', exact: true }),
     ];
 
     await headerButtons[1].click();
@@ -56,7 +56,7 @@ export async function run({ open, shot, expectVisible, expect }) {
       page.getByRole('button', { name: 'Send a test to me' }),
       page.getByRole('button', { name: 'Cancel', exact: true }).last(),
       page.getByRole('button', { name: 'Save Draft', exact: true }).last(),
-      page.getByRole('button', { name: 'Send Now', exact: true }),
+      page.getByRole('button', { name: 'Send Now', exact: true }).last(),
     ]);
     expect(box && [...hb, ...row].every((b) => !intersects(box, b)), `test toast clear of the header and bottom buttons at ${width}`);
     expect(await inFront(page, toast), `test toast in front of the composer at ${width}`);
@@ -73,7 +73,7 @@ export async function run({ open, shot, expectVisible, expect }) {
       page.getByRole('button', { name: 'Send a test to me' }),
       page.getByRole('button', { name: 'Cancel', exact: true }).last(),
       page.getByRole('button', { name: 'Save Draft', exact: true }).last(),
-      page.getByRole('button', { name: 'Send Now', exact: true }),
+      page.getByRole('button', { name: 'Send Now', exact: true }).last(),
     ];
     // Bottom of the screen and middle of the screen: the row is in the page flow, so try both.
     for (const where of ['end', 'center']) {

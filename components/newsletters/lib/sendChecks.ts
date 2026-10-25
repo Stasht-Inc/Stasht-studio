@@ -5,6 +5,7 @@ import { fieldProblems } from './draft.ts';
 import { blocksProblems } from './blocks.ts';
 import { formatCount, reachable } from './audience.ts';
 import { scheduleProblem } from './schedule.ts';
+import { userLocale } from './locale.ts';
 
 export type StepKey = 'name' | 'recipients' | 'from' | 'subject' | 'content' | 'schedule';
 export type StepProblems = Partial<Record<StepKey, string>>;
@@ -88,9 +89,15 @@ export function allowanceProblem(a: NewsletterAllowance | null, counts: Audience
 }
 
 /** The monthly reset is a calendar date: read it in UTC so it doesn't slip to the day before in the Americas. */
-export function formatResetDate(iso: string): string {
+export function formatResetDate(iso: string, locale: string = userLocale()): string {
   const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? '' : new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' }).format(d);
+  return Number.isNaN(d.getTime()) ? '' : new Intl.DateTimeFormat(locale, { month: 'short', day: 'numeric', timeZone: 'UTC' }).format(d);
+}
+
+/** POST /newsletters/{id}/preview's size_kb: from 80 KB, say Gmail cuts emails over about 100 KB. */
+export function previewSizeHint(sizeKb: unknown): string | null {
+  if (typeof sizeKb !== 'number' || !Number.isFinite(sizeKb) || sizeKb < 80) return null;
+  return `About ${Math.round(sizeKb)} KB — Gmail hides the end of emails over about 100 KB.`;
 }
 
 export function allowanceLine(a: NewsletterAllowance, channels: NewsletterChannel[]): string {

@@ -200,7 +200,8 @@ export const newslettersAPI = {
   duplicate: (id: number) => write<Newsletter>('POST', `${nl(id)}/duplicate`),
   audienceCount: (audience: AudienceItem[], channels: NewsletterChannel[]) =>
     write<AudienceCount>('POST', '/newsletters/audience-count', { audience, channels }),
-  preview: (id: number) => write<{ html: string }>('POST', `${nl(id)}/preview`),
+  // size_kb: the rendered email's size (Gmail hides the end of emails over about 100 KB).
+  preview: (id: number) => write<{ html: string; size_kb?: number }>('POST', `${nl(id)}/preview`),
   // The hourly test limit (429) is a real answer, not a blip: no retries, and say so plainly.
   sendTest: async (id: number, channel: NewsletterChannel) => testSendResult(
     await call<{ sent_to: string }>(`${nl(id)}/test`, { method: 'POST', body: JSON.stringify({ channel }), noRateLimitRetry: true } as RequestInit),

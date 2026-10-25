@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import type { NlResult } from './lib/apiResult';
+import { previewSizeHint } from './lib/sendChecks';
 import ComposerDialog from './ComposerDialog';
 import DeviceToggle, { type PreviewDevice } from './DeviceToggle';
 
@@ -11,9 +12,10 @@ import DeviceToggle, { type PreviewDevice } from './DeviceToggle';
 export default function PreviewDialog({ open, onOpenChange, load }: {
   open: boolean;
   onOpenChange(open: boolean): void;
-  load(): Promise<NlResult<{ html: string }>>;
+  load(): Promise<NlResult<{ html: string; size_kb?: number }>>;
 }) {
   const [html, setHtml] = useState<string | null>(null);
+  const [sizeHint, setSizeHint] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [device, setDevice] = useState<PreviewDevice>('desktop');
   const loadRef = useRef(load);
@@ -24,9 +26,13 @@ export default function PreviewDialog({ open, onOpenChange, load }: {
     let cancelled = false;
     setHtml(null);
     setError(null);
+    setSizeHint(null);
     loadRef.current().then((res) => {
       if (cancelled) return;
-      if (res.ok && typeof res.data?.html === 'string') setHtml(res.data.html);
+      if (res.ok && typeof res.data?.html === 'string') {
+        setHtml(res.data.html);
+        setSizeHint(previewSizeHint(res.data.size_kb));
+      }
       else setError(res.error ?? 'The preview could not be made. Try again.');
     });
     return () => { cancelled = true; };
@@ -37,6 +43,9 @@ export default function PreviewDialog({ open, onOpenChange, load }: {
       description="The email exactly as people will get it. Links are switched off here.">
       {/* On a phone the dialog is already phone width. */}
       <div className="mb-3 hidden justify-end sm:flex"><DeviceToggle value={device} onChange={setDevice} /></div>
+      {sizeHint && html !== null ? (
+        <p role="status" className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">{sizeHint}</p>
+      ) : null}
       {error ? (
         <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>
       ) : html === null ? (

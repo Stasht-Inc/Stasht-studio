@@ -27,8 +27,9 @@ const failures = [];
 const pageErrors = [];
 const blocked = new Set();
 
-async function open({ view = 'composer', query = '', width = 1440, height = 1000, api = createMockApi() } = {}) {
-  const context = await browser.newContext({ viewport: { width, height }, serviceWorkers: 'block' });
+// Dates and numbers follow the browser's language (wdy2xh2p3p): pinned to en-US so the checks read the same anywhere.
+async function open({ view = 'composer', query = '', width = 1440, height = 1000, api = createMockApi(), locale = 'en-US' } = {}) {
+  const context = await browser.newContext({ viewport: { width, height }, serviceWorkers: 'block', locale });
   await context.addInitScript((user) => {
     // Playwright runs init scripts in every frame; the exact-email preview is a sandboxed iframe with no storage.
     if (window.top !== window) return;

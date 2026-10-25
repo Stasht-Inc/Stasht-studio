@@ -77,6 +77,12 @@ export function removeBlock(blocks: NewsletterBlock[], id: string): NewsletterBl
   return blocks.filter((b) => b.id !== id);
 }
 
+/** Undo a delete: the section goes back at its old place (unchanged if it is already there, or the list is full). */
+export function restoreBlock(blocks: NewsletterBlock[], block: NewsletterBlock, index: number): NewsletterBlock[] {
+  if (blocks.some((b) => b.id === block.id)) return blocks;
+  return insertBlock(blocks, index, block);
+}
+
 export function updateBlockData(blocks: NewsletterBlock[], id: string, data: Record<string, unknown>): NewsletterBlock[] {
   return blocks.map((b) => (b.id === id ? ({ ...b, data: { ...b.data, ...data } } as NewsletterBlock) : b));
 }

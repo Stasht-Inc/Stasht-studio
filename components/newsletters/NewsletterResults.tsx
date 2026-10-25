@@ -19,6 +19,7 @@ import {
   resultsRateBase, whenText, type ChannelFilter,
 } from './lib/newsletterList';
 import { BUTTON_SMALL, LABEL, LINK_BUTTON, inputClass } from './lib/ui';
+import { userLocale } from './lib/locale';
 
 const TILES: Array<{ key: keyof NewsletterCounts; rated?: boolean }> = [
   { key: 'recipients' }, { key: 'delivered' }, { key: 'opened', rated: true }, { key: 'clicked', rated: true },
@@ -31,7 +32,7 @@ const SENDING_REFRESH_MS = 15000;
 function shortTime(iso: string | null): string {
   if (!iso) return '—';
   const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? '—' : new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }).format(d);
+  return Number.isNaN(d.getTime()) ? '—' : new Intl.DateTimeFormat(userLocale(), { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }).format(d);
 }
 
 function ChannelIcon({ channel }: { channel: RecipientRow['channel'] }) {

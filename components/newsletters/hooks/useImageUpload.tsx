@@ -1,7 +1,7 @@
 import { useCallback, useRef, useState } from 'react';
 import { composerToast } from '../ComposerToaster';
 import { newslettersAPI } from '../../../services/newslettersAPI';
-import { IMAGE_ACCEPT, imageFileProblem } from '../lib/images';
+import { PICK_ACCEPT, imageFileProblem, prepareImage } from '../lib/images';
 import { httpsUrl } from '../lib/urls';
 
 /** A hidden file input plus upload to /newsletters/images. Render `input` once; call `choose()` from a button. */
@@ -14,16 +14,20 @@ export function useImageUpload(onUploaded: (url: string) => void, testId?: strin
   // One upload at a time: a second file chosen or dropped while one is on its way is ignored.
   const busyRef = useRef(false);
 
-  const upload = useCallback(async (file: File) => {
+  const upload = useCallback(async (picked: File) => {
     if (busyRef.current) return;
-    const problem = imageFileProblem(file);
-    if (problem) {
-      composerToast.error(problem);
-      return;
-    }
     busyRef.current = true;
     setUploading(true);
-    const res = await newslettersAPI.uploadImage(file);
+    // Phone photos: shrunk and saved as JPEG in the browser first (HEIC too, where the browser can open it).
+    const prepared = await prepareImage(picked);
+    const problem = 'error' in prepared ? prepared.error : imageFileProblem(prepared.file);
+    if (problem || 'error' in prepared) {
+      busyRef.current = false;
+      setUploading(false);
+      composerToast.error(problem ?? 'The image could not be uploaded. Try again.');
+      return;
+    }
+    const res = await newslettersAPI.uploadImage(prepared.file);
     busyRef.current = false;
     setUploading(false);
     const url = res.ok ? httpsUrl(res.data?.url) : null;
@@ -35,7 +39,7 @@ export function useImageUpload(onUploaded: (url: string) => void, testId?: strin
     <input
       ref={inputRef}
       type="file"
-      accept={IMAGE_ACCEPT}
+      accept={PICK_ACCEPT}
       className="hidden"
       tabIndex={-1}
       aria-hidden="true"

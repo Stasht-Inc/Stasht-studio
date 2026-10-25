@@ -154,6 +154,20 @@ export function serializeTextNodes(nodes: TextNode[]): string {
   return out.join('');
 }
 
+/**
+ * Pasted HTML (from a web page, Word or Google Docs) as allowed nodes. Word's conditional markers and Google
+ * Docs' all-wrapping non-bold <b> are removed first. A single paragraph comes back as its words, so a paste
+ * into the middle of a line stays on that line.
+ */
+export function pastedTextNodes(html: string): TextNode[] {
+  const cleaned = String(html ?? '')
+    .replace(/<!\[(?:if|endif)[^\]]*\]>/gi, '')
+    .replace(/<b\b[^>]*(?:font-weight:\s*normal|docs-internal-guid)[^>]*>/gi, '<span>');
+  const nodes = parseTextHtml(cleaned).filter((n) => !(n.kind === 'text' && !n.text.trim()));
+  if (nodes.length === 1 && nodes[0].kind === 'el' && nodes[0].tag === 'p') return nodes[0].children;
+  return nodes;
+}
+
 export function sanitizeTextHtml(html: string): string {
   return serializeTextNodes(parseTextHtml(html));
 }

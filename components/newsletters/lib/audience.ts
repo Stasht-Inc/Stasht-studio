@@ -1,5 +1,6 @@
 import type { AudienceCount, AudienceItem, ContactList, NewsletterChannel } from '../../../services/newslettersAPI.ts';
 import { LIMITS, smsPlain } from './rules.ts';
+import { userLocale } from './locale.ts';
 
 export { smsPlain };
 
@@ -38,8 +39,8 @@ export function audienceLabel(audience: AudienceItem[], groups: GroupOption[], l
   return audience.length === 1 ? first : `${first} + ${audience.length - 1} more`;
 }
 
-export function formatCount(n: number): string {
-  return new Intl.NumberFormat('en-US').format(Math.max(0, Math.round(Number(n) || 0)));
+export function formatCount(n: number, locale: string = userLocale()): string {
+  return new Intl.NumberFormat(locale).format(Math.max(0, Math.round(Number(n) || 0)));
 }
 
 export function reachable(counts: AudienceCount | null, channels: NewsletterChannel[]): number {

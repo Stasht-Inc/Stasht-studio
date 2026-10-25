@@ -115,7 +115,7 @@ const NewsletterComposer = forwardRef<NewsletterComposerHandle, NewsletterCompos
   const [testing, setTesting] = useState(false);
 
   // The exact email and the test both render the saved draft, so save first (this also creates a new draft).
-  const loadPreview = async (): Promise<NlResult<{ html: string }>> => {
+  const loadPreview = async (): Promise<NlResult<{ html: string; size_kb?: number }>> => {
     const saved = await state.saveNow();
     if (!saved.newsletter) return { ok: false, error: saved.error ?? GENERIC_ERROR, fieldErrors: {} };
     return newslettersAPI.preview(saved.newsletter.id);
@@ -319,7 +319,7 @@ const NewsletterComposer = forwardRef<NewsletterComposerHandle, NewsletterCompos
         <div className="order-3 flex w-full justify-center md:order-none md:w-auto md:flex-1">{switcher}</div>
         <div className="ml-auto flex items-center gap-3">
           <SaveIndicator state={state.saveState} reason={state.saveError} onRetry={state.canRetry ? state.retry : undefined} />
-          {enabled ? <div className="hidden items-center gap-2 md:flex">{actionButtons(later ? 'Schedule' : 'Send now')}</div> : null}
+          {enabled ? <div className="hidden items-center gap-2 md:flex">{actionButtons(later ? 'Schedule' : 'Send Now')}</div> : null}
         </div>
       </header>
 

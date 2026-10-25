@@ -1,3 +1,4 @@
+import { userLocale } from './locale.ts';
 export type ScheduleChoice = { mode: 'now' } | { mode: 'later'; date: string; time: string };
 
 /** A scheduled send must be at least this far ahead (the API needs a future time; this leaves room to confirm). */
@@ -52,11 +53,11 @@ export function timeZoneName(): string {
 }
 
 /** "Thu, Oct 22, 9:30 AM" in the user's time zone. */
-export function formatSendTime(iso: string | null): string {
+export function formatSendTime(iso: string | null, locale: string = userLocale()): string {
   if (!iso) return '';
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return '';
-  return new Intl.DateTimeFormat('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }).format(d);
+  return new Intl.DateTimeFormat(locale, { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }).format(d);
 }
 
 export function dateInputValue(d: Date): string {

@@ -74,7 +74,7 @@ export default function SendConfirmDialog({
       <button type="button" onClick={() => onOpenChange(false)} disabled={busy} className={BUTTON_OUTLINE}>Back</button>
       <button type="button" onClick={confirm} disabled={busy || countsLoading || Boolean(overLimit) || !newsletterId} className={BUTTON_PRIMARY}>
         {busy ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Send className="h-4 w-4" aria-hidden="true" />}
-        {later ? 'Schedule' : 'Send now'}
+        {later ? 'Schedule' : 'Send Now'}
       </button>
     </>
   );

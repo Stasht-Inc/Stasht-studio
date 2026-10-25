@@ -3,7 +3,7 @@ import * as Popover from '@radix-ui/react-popover';
 import { Bold, Italic, Link as LinkIcon } from 'lucide-react';
 import { composerToast } from '../ComposerToaster';
 import type { TextBlockData } from '../../../services/newslettersAPI';
-import { editorHtml, parseTextHtml, safeLinkHref, type TextNode } from '../lib/textHtml';
+import { editorHtml, parseTextHtml, pastedTextNodes, safeLinkHref, type TextNode } from '../lib/textHtml';
 import { toHttpsUrl } from '../lib/urls';
 import { BUTTON_PRIMARY, LABEL, LAYER, inputClass } from '../lib/ui';
 import type { BlockEditorProps } from './types';
@@ -20,6 +20,18 @@ export function renderTextNodes(nodes: TextNode[], prefix = 'n'): ReactNode[] {
     if (node.kind === 'a') return <a key={key} href={node.href}>{renderTextNodes(node.children, key)}</a>;
     const Tag = node.tag;
     return <Tag key={key}>{renderTextNodes(node.children, key)}</Tag>;
+  });
+}
+
+/** Allowed nodes → DOM nodes for a paste (built element by element; no HTML string reaches the page). */
+function domNodes(nodes: TextNode[]): Node[] {
+  return nodes.map((node) => {
+    if (node.kind === 'text') return document.createTextNode(node.text);
+    if (node.kind === 'br') return document.createElement('br');
+    const el = document.createElement(node.kind === 'a' ? 'a' : node.tag);
+    if (node.kind === 'a') el.setAttribute('href', node.href);
+    for (const child of domNodes(node.children)) el.appendChild(child);
+    return el;
   });
 }
 
@@ -124,8 +136,25 @@ export default function TextBlockEditor({ blockId, data, selected, readOnly, onC
     emit();
   };
   const onPaste = (e: ClipboardEvent<HTMLDivElement>) => {
-    e.preventDefault(); // paste words only, never someone else's HTML
-    document.execCommand('insertText', false, e.clipboardData.getData('text/plain'));
+    e.preventDefault(); // never someone else's HTML as it is
+    // Formatted text keeps what the email allows (bold, italic, links, paragraphs, lists); everything else goes.
+    const html = e.clipboardData.getData('text/html');
+    const nodes = html ? pastedTextNodes(html) : [];
+    const range = rangeInEditor();
+    if (!nodes.length || !range) {
+      document.execCommand('insertText', false, e.clipboardData.getData('text/plain'));
+      return;
+    }
+    range.deleteContents();
+    const fragment = document.createDocumentFragment();
+    const made = domNodes(nodes);
+    made.forEach((n) => fragment.appendChild(n));
+    range.insertNode(fragment);
+    const after = document.createRange();
+    after.setStartAfter(made[made.length - 1]);
+    after.collapse(true);
+    select(after);
+    emit();
   };
   // Text dragged within this editor moves as usual (the browser keeps its formatting; the save sanitises it).
   // Anything dropped from outside (text, a link or a picture) arrives as words only, where it was dropped.

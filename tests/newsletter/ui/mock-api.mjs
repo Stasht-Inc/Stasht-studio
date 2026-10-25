@@ -175,6 +175,8 @@ export function createMockApi(options = {}) {
     sendPaused: options.sendPaused ?? null,
     // POST /newsletters/{id}/preview's size_kb (NewsletterSendCheck's rendered size), when set.
     previewSizeKb: options.previewSizeKb ?? null,
+    // Files that reached POST /newsletters/images: {bytes, type, name}.
+    uploads: [],
     // Storeels made with POST /memories.
     storeels: [],
     calls: [],
@@ -415,7 +417,13 @@ export function createMockApi(options = {}) {
     }
     const call = { method: request.method(), path, query: url.search, body };
     state.calls.push(call);
-    if (path === '/newsletters/images' && state.uploadDelayMs) await new Promise((r) => setTimeout(r, state.uploadDelayMs));
+    if (path === '/newsletters/images') {
+      // What reached the upload: the multipart file part's type, name and size (after any shrinking in the browser).
+      const buf = request.postDataBuffer();
+      const head = buf ? buf.subarray(0, 600).toString('latin1') : '';
+      state.uploads.push({ bytes: buf?.length ?? 0, type: /Content-Type:\s*([^\r\n]+)/i.exec(head)?.[1]?.trim() ?? null, name: /filename="([^"]*)"/.exec(head)?.[1] ?? null });
+      if (state.uploadDelayMs) await new Promise((r) => setTimeout(r, state.uploadDelayMs));
+    }
     const { status, json } = handle(request.method(), path, url.searchParams, body);
     call.status = status;
     return route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(json) });

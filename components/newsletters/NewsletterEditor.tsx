@@ -4,7 +4,7 @@ import type { BlockType, NewsletterBlock, NewsletterHeader } from '../../service
 import type { NewsletterDraft } from './lib/draft';
 import { initialsFrom, type SenderProfile } from './lib/profile';
 import { LIMITS } from './lib/rules';
-import { blocksProblems, createBlock, insertBlock, liveBlockProblems, moveBlock, newBlockId, removeBlock, updateBlockData } from './lib/blocks';
+import { blocksProblems, createBlock, insertBlock, liveBlockProblems, moveBlock, newBlockId, removeBlock, restoreBlock, updateBlockData } from './lib/blocks';
 import InboxRow from './InboxRow';
 import HeaderEditor from './HeaderEditor';
 import EcardFooter from './EcardFooter';
@@ -96,7 +96,25 @@ export default function NewsletterEditor({
       onSelect: () => setSelectedId(id),
       onMoveUp: () => onBlocks((list, index) => moveBlock(list, index, -1)),
       onMoveDown: () => onBlocks((list, index) => moveBlock(list, index, 1)),
-      onDelete: () => { onBlocks((list) => removeBlock(list, id)); setSelectedId(null); },
+      onDelete: () => {
+        let removed: { block: NewsletterBlock; index: number } | null = null;
+        onBlocks((list, index) => { removed = { block: list[index], index }; return removeBlock(list, id); });
+        setSelectedId(null);
+        const gone = removed as { block: NewsletterBlock; index: number } | null;
+        if (!gone) return;
+        composerToast.info('Section deleted.', {
+          action: {
+            label: 'Undo',
+            onClick: () => {
+              onChangeRef.current((d) => {
+                const next = restoreBlock(d.blocks, gone.block, gone.index);
+                return next === d.blocks ? null : { blocks: next };
+              });
+              setSelectedId(gone.block.id);
+            },
+          },
+        });
+      },
       onChange: (data) => onBlocks((list) => updateBlockData(list, id, data)),
     };
     handlersRef.current.set(id, made);
