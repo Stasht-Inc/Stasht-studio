@@ -8,7 +8,8 @@
 // part 2, amended 2026-10-03): the visitor's message shows at once with a "typing…" bubble, then the
 // AI notice, replies tagged "AI" and a card for the vehicles it shares; when it can't answer, its
 // fallback notice looks like the auto-reply. When a rep takes over, "{name} has joined the
-// conversation" shows before their message.
+// conversation" shows before their message. Products the AI finds show as one card each, opening the
+// product's page on the business's website (wdy2xh2kp0).
 import {
   safeColor, safeHttpsUrl, contrastInk, hostOrigin, clampPosition, panelWidth, panelMaxHeight, MESSAGE_MAX,
   configUrl, ROOT_PAD, formFieldsFrom, validateValues, consentText, placeholderFor, autoReplyText, initialsFrom,
@@ -22,6 +23,9 @@ import {
   hasContactChoice, contactMethodLabel, fieldsForMethod, submissionValues, DEFAULT_CONTACT_METHOD, CONTACT_METHODS,
   CONTACT_CHOICE_LEGEND,
 } from './widget-core.js';
+// Helpers newer than this file's named imports (product cards, wdy2xh2kp0) are read from the namespace:
+// a cached older widget-core.js lacks them, and a missing named import would stop the whole embed.
+import * as core from './widget-core.js';
 
 const params = new URLSearchParams(location.search);
 const widgetId = params.get('w') || '';
@@ -150,6 +154,7 @@ const carIcon = () => icon([
   'M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1.1.4-1.4.9l-1.4 2.9A3.7 3.7 0 0 0 2 12v4c0 .6.4 1 1 1h2',
   'M5 17a2 2 0 1 0 4 0a2 2 0 1 0 -4 0', 'M9 17h6', 'M15 17a2 2 0 1 0 4 0a2 2 0 1 0 -4 0',
 ]);
+const bagIcon = () => icon(['M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z', 'M3 6h18', 'M16 10a4 4 0 0 1-8 0']);
 const chevronIcon = () => icon(['m9 18 6-6-6-6']);
 
 // Measured synchronously: the iframe starts hidden/0x0 and browsers may defer
@@ -469,15 +474,20 @@ function messageRow(m) {
 
   // Team: the rep's first name and photo (or initials on their colour). Messages without a Stasht
   // sender (the AI assistant) use the widget's agent picture and name; AI replies carry an "AI" tag
-  // and, when the AI shared vehicles, a campaign card under the text (which then drops the raw link).
+  // and, when the AI shared vehicles, a campaign card under the text (which then drops the raw link);
+  // products it found are one card each, and the text drops their pages too (wdy2xh2kp0).
   const who = m.sender ? m.sender.name : (state.config.agent_name || '');
-  const text = m.campaign ? bodyWithoutLink(m.body, m.campaign.linkText) : m.body;
+  // An older cached widget-core.js gives no `products`: the pages then stay in the text as links.
+  const products = Array.isArray(m.products) && typeof core.bodyWithoutProducts === 'function' ? m.products : [];
+  let text = m.campaign ? bodyWithoutLink(m.body, m.campaign.linkText) : m.body;
+  if (products.length > 0) text = core.bodyWithoutProducts(text, products);
   const meta = [who, m.isAi && h('span', { class: 'ai-tag' }, 'AI'), (who || m.isAi) && time && ' · ', time].filter(Boolean);
   return h('div', { class: 'row bot' },
     m.sender ? personMini(m.sender) : h('span', { class: 'mini' }, agentPicture('')),
     h('div', { class: 'stack' },
       text.trim() !== '' && h('div', { class: 'bubble' }, richText(text)),
       m.campaign && campaignCard(m.campaign),
+      products.length > 0 && h('div', { class: 'camps' }, products.map(productCard)),
       m.attachments.length > 0 && h('div', { class: 'atts' }, m.attachments.map(attachmentView)),
       meta.length > 0 && h('span', { class: 'time' }, meta)));
 }
@@ -492,14 +502,45 @@ function joinedRow(name) {
   return h('div', { class: 'sys joined', role: 'note' }, joinedText(name));
 }
 
-// The vehicles the AI shared: a card under its reply, opening the campaign in a new tab.
+// The vehicles the AI shared: a card under its reply, opening the campaign in a new tab. Products
+// (wdy2xh2ecy) use the same card with the first product's photo (a bag icon without one) and "View 3 products".
 function campaignCard(c) {
+  const products = c.kind === 'products';
   return h('a', { class: 'camp', href: c.url, target: '_blank', rel: 'noopener noreferrer' },
-    h('span', { class: 'camp-icon', 'aria-hidden': 'true' }, carIcon()),
+    products ? productThumb(c.image) : h('span', { class: 'camp-icon', 'aria-hidden': 'true' }, carIcon()),
     h('span', { class: 'camp-text' },
       h('span', { class: 'camp-title' }, c.title),
-      h('span', { class: 'camp-cta' }, campaignCardText(c.vehicles))),
+      h('span', { class: 'camp-cta' }, products ? campaignCardText(c.products, 'products') : campaignCardText(c.vehicles))),
     h('span', { class: 'camp-go', 'aria-hidden': 'true' }, chevronIcon()));
+}
+
+// One product the AI found (wdy2xh2kp0): the campaign card's look, with its photo, its title and "View
+// product", opening its page on the business's website. On the site the widget is running on, that
+// page replaces the visitor's (and the chat opens again there), so they stay on the website; any other
+// site opens in a new tab. Same rule as links in the text (linkTarget).
+function productCard(p) {
+  const how = linkTarget(p.url, HOST_PAGE);
+  return h('a', { class: 'camp', href: p.url, ...how, onclick: how.target === '_top' ? rememberReopen : undefined },
+    productThumb(p.image),
+    h('span', { class: 'camp-text' },
+      h('span', { class: 'camp-title' }, p.title),
+      h('span', { class: 'camp-cta' }, core.PRODUCT_CARD_TEXT)),
+    h('span', { class: 'camp-go', 'aria-hidden': 'true' }, chevronIcon()));
+}
+
+// The product photo on a products card; the bag icon when there is none or it doesn't load.
+function productThumb(image) {
+  const box = h('span', { class: 'camp-icon camp-photo', 'aria-hidden': 'true' });
+  if (!image) {
+    box.append(bagIcon());
+    return box;
+  }
+  box.append(h('img', {
+    src: image, alt: '', loading: 'lazy', referrerpolicy: 'no-referrer',
+    onerror: () => { box.classList.remove('has-img'); box.replaceChildren(bagIcon()); },
+  }));
+  box.classList.add('has-img');
+  return box;
 }
 
 // The visitor's message on its way: shown at once (the AI answers inside the request).

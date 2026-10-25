@@ -348,10 +348,12 @@ export function chatMessageFrom(raw) {
     sentAt: sentAt && !Number.isNaN(sentAt.getTime()) ? sentAt : null,
     attachments,
     sender: fromTeam ? publicPersonFrom(raw.sender) : null,
-    // Widget AI (spec part 2 §3): an AI reply, its fallback notice, and the vehicles it shared.
+    // Widget AI (spec part 2 §3): an AI reply, its fallback notice, and the vehicles or products it shared.
     isAi,
     autoReply: isAi && raw.auto_reply === true,
     campaign: fromTeam ? campaignFrom(raw.campaign) : null,
+    // One card per product, each opening its page on the business's website (wdy2xh2kp0).
+    products: isAi ? productsFrom(raw.products) : [],
   };
 }
 
@@ -458,20 +460,34 @@ export const POWERED_BY_URL = 'https://stasht.com/?utm_source=contact-widget&utm
 export const STASHT_MARK_VIEWBOX = '0 0 78.99 52.48';
 export const STASHT_MARK_PATH = 'M75.57,52.48h3.42c-5.63-1.56-12.32-2.8-19.72-3.6.58-1.96.88-4.15.88-6.55,0-3.19-.46-5.9-1.37-8.12-.91-2.23-2.34-4.16-4.28-5.81-1.94-1.65-4.89-3.33-8.83-5.05-5.31-2.21-8.52-3.67-9.63-4.39-1.11-.72-1.67-1.58-1.67-2.6,0-1.65,1.59-2.47,4.78-2.47,1.82,0,4.18.43,7.07,1.29,2.89.86,5.62,1.9,8.21,3.13l5.27-13.25c-3.52-1.65-6.91-2.9-10.17-3.76-3.27-.86-6.76-1.29-10.47-1.29-7.4,0-13.12,1.54-17.17,4.63-4.05,3.08-6.07,7.4-6.07,12.94,0,4.38,1.03,8,3.09,10.86,2.06,2.86,5.67,5.41,10.85,7.65,5.67,2.38,9.1,3.99,10.27,4.81,1.18.82,1.77,1.76,1.77,2.81,0,2.04-2.11,3.05-6.32,3.05-2.82,0-6.03-.45-9.63-1.37-3.6-.91-6.91-2.07-9.93-3.47v7.43c-5.9.78-11.27,1.85-15.91,3.14h1.99c10.72-1.33,23.32-2.1,36.79-2.1s26.06.77,36.79,2.1Z';
 
-/** The AI's campaign link card, or null: an https link and a title (vehicles 0 when unknown). */
+/**
+ * The AI's campaign link card, or null: an https link and a title (vehicles 0 when unknown).
+ * A Website Catalogue card (kind "products", wdy2xh2ecy) has its item count and the first product's
+ * photo (https only, else null) instead of a vehicle count.
+ */
 export function campaignFrom(raw) {
   if (!raw || typeof raw !== 'object') return null;
   const url = safeHttpsUrl(raw.url);
   const title = typeof raw.title === 'string' ? raw.title.trim() : '';
   if (!url || !title) return null;
+  const linkText = String(raw.url).trim();
+  if (raw.kind === 'products') {
+    const products = Number.isInteger(raw.products) && raw.products > 0 ? raw.products : 0;
+    return { title, url, linkText, kind: 'products', products, image: safeHttpsUrl(raw.image) };
+  }
   const vehicles = Number.isInteger(raw.vehicles) && raw.vehicles > 0 ? raw.vehicles : 0;
-  return { title, url, linkText: String(raw.url).trim(), vehicles };
+  return { title, url, linkText, vehicles };
 }
 
-/** "View 6 vehicles" / "View 1 vehicle" (no count: "View vehicles"). */
-export function campaignCardText(vehicles) {
-  if (!vehicles) return 'View vehicles';
-  return `View ${vehicles} ${vehicles === 1 ? 'vehicle' : 'vehicles'}`;
+/**
+ * "View 6 vehicles" / "View 1 vehicle" (no count: "View vehicles"); with kind "products",
+ * "View 3 products" / "View 1 product" / "View products". One export for both, so a cached older
+ * widget-core.js next to a newer widget-embed.js never misses an import (both cache for 5 minutes).
+ */
+export function campaignCardText(count, kind) {
+  const [one, many] = kind === 'products' ? ['product', 'products'] : ['vehicle', 'vehicles'];
+  if (!count) return `View ${many}`;
+  return `View ${count} ${count === 1 ? one : many}`;
 }
 
 /** The reply's text without the campaign link: the card under it carries the link. */
@@ -479,6 +495,73 @@ export function bodyWithoutLink(body, linkText) {
   const text = String(body || '');
   if (!linkText) return text;
   return text.split(linkText).join('').replace(/[ \t]{2,}/g, ' ').replace(/[ \t]+\n/g, '\n').trim();
+}
+
+// --- Product cards (ClickUp wdy2xh2kp0) -----------------------------------------------------------
+// Chris, 2026-10-22: "show each individually, and keep them in the website. Stasht is a separate
+// function." The AI's products are no longer a Stasht campaign: each is a card (the campaign card's
+// look, its photo, its title and "View product") opening that product's own page on the business's
+// website. The server ends the reply with those pages, one per card (WidgetAiReplyWriter::finish()),
+// and sends the cards as `products`; the bubble hides the pages the cards carry.
+//
+// The embed reaches these through `import * as core` (never a named import): widget-core.js and
+// widget-embed.js cache separately for 5 minutes, and a named import missing from an older cached core
+// would stop the whole embed from loading. With an older core, messages simply have no `products`.
+
+export const PRODUCT_CARDS_MAX = 4;
+export const PRODUCT_CARD_TEXT = 'View product';
+
+/**
+ * An http(s) link for a product card, or null. Unlike safeHttpsUrl, http: is allowed: the card opens the
+ * business's own website, which the chat doesn't control, and some small shops still serve plain http
+ * (the server checks the page belongs to the business's own catalogue). Never one with a user name or
+ * password in it.
+ */
+export function safeWebUrl(value) {
+  if (typeof value !== 'string') return null;
+  try {
+    const url = new URL(value.trim());
+    if (url.protocol !== 'https:' && url.protocol !== 'http:') return null;
+    if (url.username || url.password || !url.hostname) return null;
+    return url.href;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The AI's product cards, or []: at most 4 { title, url, linkText, image }, one per page. url is an http(s)
+ * link (safeWebUrl), title a trimmed non-empty string, image an https photo or null (the bag icon then);
+ * linkText is the page exactly as the reply's text spells it, for bodyWithoutProducts().
+ */
+export function productsFrom(raw) {
+  if (!Array.isArray(raw)) return [];
+  const cards = [];
+  for (const p of raw) {
+    if (cards.length === PRODUCT_CARDS_MAX) break;
+    if (!p || typeof p !== 'object') continue;
+    const url = safeWebUrl(p.url);
+    const title = typeof p.title === 'string' ? p.title.trim() : '';
+    if (!url || !title || cards.some((c) => c.url === url)) continue;
+    cards.push({ title, url, linkText: String(p.url).trim(), image: safeHttpsUrl(p.image) });
+  }
+  return cards;
+}
+
+/**
+ * The reply's text without the pages its product cards carry: the links at the very end of the reply,
+ * where the server puts them. A link there that isn't a card stays (as an ordinary link), and so does any
+ * link inside the text, even one to the same page.
+ */
+export function bodyWithoutProducts(body, products) {
+  const text = String(body || '');
+  const links = new Set((Array.isArray(products) ? products : []).map((p) => p && p.linkText).filter(Boolean));
+  if (!links.size) return text;
+  const words = text.trimEnd().split(/(\s+)/); // words at even indexes, the spaces between them at odd ones
+  for (let i = words.length - 1; i >= 0 && /^https?:\/\/\S+$/i.test(words[i]); i -= 2) {
+    if (links.has(words[i])) words[i] = '';
+  }
+  return words.join('').replace(/[ \t]{2,}/g, ' ').replace(/[ \t]+\n/g, '\n').trim();
 }
 
 /**
