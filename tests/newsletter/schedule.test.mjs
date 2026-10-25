@@ -45,3 +45,21 @@ test('a time skipped by the clock change is a problem, not silently moved', () =
   assert.equal(scheduleProblem({ mode: 'later', date: '2027-03-14', time: '02:30' }, new Date('2027-03-01T12:00:00Z')), DST_GAP_PROBLEM);
   assert.equal(scheduleProblem({ mode: 'later', date: '2027-02-30', time: '09:00' }, new Date('2027-02-01T12:00:00Z')), "That date doesn't exist. Pick another.");
 });
+
+// [wdy2xh2p3f] Texts go out only between 8:00 and 21:00 Toronto time (the API's quiet hours; no owner timezone yet).
+import { textQuietHoursProblem, textHoursNote } from '../../components/newsletters/lib/schedule.ts';
+
+test('quiet hours: texts only between 8am and 9pm in Toronto', () => {
+  const later = (date, time) => ({ mode: 'later', date, time });
+  assert.equal(textQuietHoursProblem(later('2026-10-26', '08:00'), ['email', 'sms']), null);
+  assert.equal(textQuietHoursProblem(later('2026-10-26', '20:59'), ['sms']), null);
+  assert.equal(textQuietHoursProblem(later('2026-10-26', '21:00'), ['sms']), 'Texts can only go out between 8am and 9pm. Pick a time in that window.');
+  assert.equal(textQuietHoursProblem(later('2026-10-26', '07:59'), ['sms']), 'Texts can only go out between 8am and 9pm. Pick a time in that window.');
+  assert.equal(textQuietHoursProblem(later('2026-10-26', '23:00'), ['email']), null, 'email only: any time');
+  assert.equal(textQuietHoursProblem({ mode: 'now' }, ['sms']), null, 'Send now at night is allowed (texts wait)');
+  assert.equal(textQuietHoursProblem(later('', ''), ['sms']), null, 'no time yet: the schedule check says so');
+  // Someone outside Toronto: the window is in Eastern time, and the words say so.
+  assert.equal(textQuietHoursProblem(later('2026-10-26', '07:30'), ['sms'], 'Europe/London'), 'Texts can only go out between 8am and 9pm Eastern time. Pick a time in that window.');
+  assert.equal(textHoursNote('America/Toronto'), 'Texts go out only between 8am and 9pm.');
+  assert.equal(textHoursNote('Asia/Kolkata'), 'Texts go out only between 8am and 9pm Eastern time.');
+});

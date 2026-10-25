@@ -28,8 +28,9 @@ const pageErrors = [];
 const blocked = new Set();
 
 // Dates and numbers follow the browser's language (wdy2xh2p3p): pinned to en-US so the checks read the same anywhere.
-async function open({ view = 'composer', query = '', width = 1440, height = 1000, api = createMockApi(), locale = 'en-US' } = {}) {
-  const context = await browser.newContext({ viewport: { width, height }, serviceWorkers: 'block', locale });
+// timezoneId: the browser's time zone (default: this machine's), for checks that depend on local times.
+async function open({ view = 'composer', query = '', width = 1440, height = 1000, api = createMockApi(), locale = 'en-US', timezoneId } = {}) {
+  const context = await browser.newContext({ viewport: { width, height }, serviceWorkers: 'block', locale, ...(timezoneId ? { timezoneId } : {}) });
   await context.addInitScript((user) => {
     // Playwright runs init scripts in every frame; the exact-email preview is a sandboxed iframe with no storage.
     if (window.top !== window) return;

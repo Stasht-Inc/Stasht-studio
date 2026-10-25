@@ -1,10 +1,12 @@
 import StepCard from './StepCard';
-import { dateInputValue, maxScheduleDate, timeZoneName, type ScheduleChoice } from './lib/schedule';
+import { dateInputValue, maxScheduleDate, textHoursNote, timeZoneName, type ScheduleChoice } from './lib/schedule';
 import { LABEL, inputClass } from './lib/ui';
 
 /** Step 6 (prototype s-later): Send now | Schedule for later, then Date and Time side by side (the user's time zone). */
-export default function ScheduleStep({ value, onChange, stepError, readOnly }: {
+export default function ScheduleStep({ value, onChange, stepError, readOnly, texts = false }: {
   value: ScheduleChoice;
+  /** Texts are on: they only go out in the daytime (wdy2xh2p3f). */
+  texts?: boolean;
   onChange(value: ScheduleChoice): void;
   stepError?: string;
   readOnly: boolean;
@@ -44,7 +46,7 @@ export default function ScheduleStep({ value, onChange, stepError, readOnly }: {
               aria-describedby="nl-send-when-help"
               onChange={(e) => onChange({ mode: 'later', date, time: e.target.value })} className={`${inputClass()} min-w-0`} />
           </div>
-          <p id="nl-send-when-help" className="col-span-2 text-xs text-gray-500">Times are in your time zone ({timeZoneName()}).</p>
+          <p id="nl-send-when-help" className="col-span-2 text-xs text-gray-500">Times are in your time zone ({timeZoneName()}).{texts ? ` ${textHoursNote()}` : ''}</p>
         </div>
       ) : null}
     </StepCard>

@@ -106,10 +106,10 @@ export async function run({ open, shot, expectVisible, expect }) {
   await expectVisible(dialog.getByText('This file isn’t a CSV file. Save it as CSV and try again.'), 'spreadsheet refused');
   await dialog.getByTestId('nl-csv-input').setInputFiles(LATIN);
   await expectVisible(dialog.getByRole('cell', { name: 'Renée Roy' }), 'windows-1252 read as Renée');
-  await dialog.getByRole('checkbox', { name: /These people agreed/ }).check();
+  await dialog.getByRole('radio', { name: /signed up or asked to hear from us/ }).check();
   await dialog.getByTestId('nl-csv-input').setInputFiles(OTHER);
   await expectVisible(dialog.getByRole('cell', { name: 'Bo Chen' }), 'second file read');
-  expect(!(await dialog.getByRole('checkbox', { name: /These people agreed/ }).isChecked()), 'consent asked again for the new file');
+  expect(!(await dialog.getByRole('radio', { name: /signed up or asked to hear from us/ }).isChecked()), 'consent asked again for the new file');
   await shot(page, '1280-02-import');
   await context.close();
 }

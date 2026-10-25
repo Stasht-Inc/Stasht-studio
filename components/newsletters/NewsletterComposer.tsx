@@ -26,6 +26,7 @@ import SendTestButton from './SendTestButton';
 import { formatSendTime, type ScheduleChoice } from './lib/schedule';
 import { firstProblemStep, preSendProblems, stepDomId, stepErrorsFrom, type StepKey } from './lib/sendChecks';
 import { formatSentTo } from './lib/phoneDisplay';
+import { smsPartsInfo } from './lib/smsParts';
 import SendConfirmDialog from './SendConfirmDialog';
 import SaveIndicator from './SaveIndicator';
 import DraftNotices from './DraftNotices';
@@ -103,6 +104,10 @@ const NewsletterComposer = forwardRef<NewsletterComposerHandle, NewsletterCompos
   const state = useNewsletterDraft(newsletterId, enabled, brand.brand?.header ?? null);
   const profile = useSenderProfile(enabled);
   const { draft, update, readOnly } = state;
+  // The name the API puts before a text when the From name is empty: the owner's name (NewsletterSendCheck::fromNameFor).
+  const fallbackFromName = profile?.name?.trim().slice(0, 80) || 'Stasht';
+  const smsFromName = draft.from_name.trim() || fallbackFromName;
+  const smsParts = smsPartsInfo(smsFromName, draft.sms_text).parts;
   // Live recipient counts only while the Newsletter tab shows on a paid plan (debounced in the hook).
   const audienceCount = useAudienceCount(draft.audience, draft.channels, enabled && !hidden && !state.loading);
   const [closing, setClosing] = useState(false);
@@ -140,6 +145,13 @@ const NewsletterComposer = forwardRef<NewsletterComposerHandle, NewsletterCompos
   };
 
   const later = schedule.mode === 'later';
+  // A time the API refused (422 scheduled_at) stops applying once another time is picked.
+  const changeSchedule = (next: ScheduleChoice) => {
+    setSchedule(next);
+    if (state.fieldErrors.scheduled_at) {
+      state.setFieldErrors(Object.fromEntries(Object.entries(state.fieldErrors).filter(([key]) => key.split('.')[0] !== 'scheduled_at')));
+    }
+  };
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [starting, setStarting] = useState(false);
 
@@ -151,7 +163,7 @@ const NewsletterComposer = forwardRef<NewsletterComposerHandle, NewsletterCompos
 
   // Studio's own checks once Send was pressed, then the API's 422 answer. Keys a step's fields already show
   // (name, from, subject, recipients' audience / channels / text) appear under the field, not twice.
-  const problems = attempted ? preSendProblems(draft, audienceCount.counts, schedule) : {};
+  const problems = attempted ? preSendProblems(draft, audienceCount.counts, schedule, undefined, fallbackFromName) : {};
   const serverSteps = stepErrorsFrom(Object.fromEntries(Object.entries(state.fieldErrors).filter(([key]) => !INLINE_KEYS.has(key.split('.')[0]))));
   const stepError = (key: StepKey): string | undefined => problems[key] ?? serverSteps[key];
 
@@ -163,7 +175,7 @@ const NewsletterComposer = forwardRef<NewsletterComposerHandle, NewsletterCompos
 
   const startSend = async () => {
     setAttempted(true);
-    const first = firstProblemStep(preSendProblems(draft, audienceCount.counts, schedule));
+    const first = firstProblemStep(preSendProblems(draft, audienceCount.counts, schedule, undefined, fallbackFromName));
     if (first) {
       showStep(first);
       composerToast.error('Finish the steps marked in red, then try again.');
@@ -366,6 +378,7 @@ const NewsletterComposer = forwardRef<NewsletterComposerHandle, NewsletterCompos
                 audience={draft.audience}
                 channels={draft.channels}
                 smsText={draft.sms_text}
+                fromName={smsFromName}
                 count={audienceCount}
                 readOnly={readOnly}
                 enabled={enabled}
@@ -384,7 +397,7 @@ const NewsletterComposer = forwardRef<NewsletterComposerHandle, NewsletterCompos
                 <TemplatePicker value={draft.template} readOnly={readOnly} />
               </StepCard>
 
-              <ScheduleStep value={schedule} onChange={setSchedule} stepError={stepError('schedule')} readOnly={readOnly} />
+              <ScheduleStep value={schedule} onChange={changeSchedule} stepError={stepError('schedule')} readOnly={readOnly} texts={draft.channels.includes('sms')} />
 
               <div className="flex flex-col gap-3 pb-[max(2rem,env(safe-area-inset-bottom))] sm:flex-row sm:items-center sm:justify-between">
                 {readOnly || !enabled ? <span /> : <SendTestButton channels={draft.channels} busy={testing} onSend={sendTest} />}
@@ -427,6 +440,7 @@ const NewsletterComposer = forwardRef<NewsletterComposerHandle, NewsletterCompos
         channels={draft.channels}
         counts={audienceCount.counts}
         countsLoading={audienceCount.loading}
+        smsParts={smsParts}
         schedule={schedule}
         businessAddress={brand.brand?.business_address ?? null}
         onSaveAddress={saveAddress}

@@ -4,7 +4,8 @@ import type { ScheduleChoice } from './schedule.ts';
 import { fieldProblems } from './draft.ts';
 import { blocksProblems } from './blocks.ts';
 import { formatCount, reachable } from './audience.ts';
-import { scheduleProblem } from './schedule.ts';
+import { scheduleProblem, textQuietHoursProblem } from './schedule.ts';
+import { smsPartsInfo } from './smsParts.ts';
 import { userLocale } from './locale.ts';
 
 export type StepKey = 'name' | 'recipients' | 'from' | 'subject' | 'content' | 'schedule';
@@ -32,8 +33,9 @@ export function stepErrorsFrom(fieldErrors: Record<string, string>): StepProblem
   return out;
 }
 
-/** Everything Studio can check before asking the API to send (the API checks again). */
-export function preSendProblems(d: NewsletterDraft, counts: AudienceCount | null, schedule: ScheduleChoice, now: Date = new Date()): StepProblems {
+/** Everything Studio can check before asking the API to send (the API checks again). fallbackFromName: the name the
+ *  API puts before the text when the From name is empty (the owner's name). */
+export function preSendProblems(d: NewsletterDraft, counts: AudienceCount | null, schedule: ScheduleChoice, now: Date = new Date(), fallbackFromName = 'Stasht'): StepProblems {
   const out: StepProblems = {};
   const live = fieldProblems(d);
   const email = d.channels.includes('email');
@@ -45,6 +47,9 @@ export function preSendProblems(d: NewsletterDraft, counts: AudienceCount | null
   else if (!d.channels.length) out.recipients = 'Choose email, text or both.';
   else if (d.channels.includes('sms') && !d.sms_text.trim()) out.recipients = 'Write the text message.';
   else if (live.sms_text) out.recipients = live.sms_text;
+  else if (d.channels.includes('sms') && smsPartsInfo(d.from_name.trim() || fallbackFromName, d.sms_text).problem) {
+    out.recipients = smsPartsInfo(d.from_name.trim() || fallbackFromName, d.sms_text).problem as string;
+  }
   else if (counts && reachable(counts, d.channels) === 0) out.recipients = 'Nobody on these lists can get this newsletter yet.';
 
   // Alignment decision 5: an empty from name or reply-to never blocks (pre-filled, and the API fills them in on
@@ -57,7 +62,7 @@ export function preSendProblems(d: NewsletterDraft, counts: AudienceCount | null
   if (!d.blocks.length) out.content = 'Add at least one section to the email.';
   else if (Object.keys(blocksProblems(d.blocks)).length) out.content = 'Finish or remove the sections marked in red.';
 
-  const when = scheduleProblem(schedule, now);
+  const when = scheduleProblem(schedule, now) ?? textQuietHoursProblem(schedule, d.channels);
   if (when) out.schedule = when;
   return out;
 }
@@ -76,14 +81,16 @@ export function allowanceLeft(a: NewsletterAllowance): { email: number; sms: num
   };
 }
 
-export function allowanceProblem(a: NewsletterAllowance | null, counts: AudienceCount | null, channels: NewsletterChannel[]): string | null {
+/** smsParts: the parts one text takes (the text allowance counts parts, wdy2xh2p3f). */
+export function allowanceProblem(a: NewsletterAllowance | null, counts: AudienceCount | null, channels: NewsletterChannel[], smsParts = 1): string | null {
   if (!a || !counts) return null;
   const left = allowanceLeft(a);
   if (channels.includes('email') && counts.email > left.email) {
     return `This needs ${formatCount(counts.email)} emails, but your plan has ${formatCount(left.email)} left this month.`;
   }
-  if (channels.includes('sms') && counts.sms > left.sms) {
-    return `This needs ${formatCount(counts.sms)} texts, but your plan has ${formatCount(left.sms)} left this month.`;
+  const sms = counts.sms * Math.max(1, smsParts);
+  if (channels.includes('sms') && sms > left.sms) {
+    return `This needs ${formatCount(sms)} text message parts, but your plan has ${formatCount(left.sms)} left this month.`;
   }
   return null;
 }
@@ -104,7 +111,7 @@ export function allowanceLine(a: NewsletterAllowance, channels: NewsletterChanne
   const left = allowanceLeft(a);
   const parts: string[] = [];
   if (channels.includes('email')) parts.push(`${formatCount(left.email)} emails`);
-  if (channels.includes('sms')) parts.push(`${formatCount(left.sms)} texts`);
+  if (channels.includes('sms')) parts.push(`${formatCount(left.sms)} text message parts`);
   const reset = formatResetDate(a.resets_at);
   return `Your plan has ${parts.join(' and ')} left this month.${reset ? ` It resets on ${reset}.` : ''}`;
 }

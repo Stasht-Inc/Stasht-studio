@@ -1,6 +1,11 @@
 // In-memory stand-in for /api/react used by the newsletter screenshot checks. Shapes follow spec 2026-10-13 §8.
 // Nothing leaves the machine: route() aborts every non-local request except the image hosts it answers itself.
+import { smsPartsInfo } from '../../../components/newsletters/lib/smsParts.ts';
+
 const PUBLIC_DIR = new URL('../../../public/', import.meta.url).pathname;
+// NewsletterSendController::schedule: texts only between 8:00 and 21:00 in NEWSLETTER_DEFAULT_TIMEZONE.
+const torontoHour = (ms) => Number(new Intl.DateTimeFormat('en-US', { timeZone: 'America/Toronto', hour: 'numeric', hourCycle: 'h23' }).format(new Date(ms)));
+const QUIET_HOURS_ERROR = 'Texts can only go out between 8am and 9pm. Pick a time in that window.';
 const now = () => new Date().toISOString();
 export const COUNTS0 = { recipients: 0, sent: 0, delivered: 0, opened: 0, clicked: 0, unsubscribed: 0, failed: 0, skipped: 0 };
 export const IMG = 'https://127.0.0.1/nl-img/pwa-icon-512.png';
@@ -215,6 +220,8 @@ export function createMockApi(options = {}) {
     else if (missing.length) errors.blocks = [missing[0]];
     if (!channels.length) errors.channels = ['Choose email, text message or both.'];
     if (channels.includes('sms') && !String(n.sms_text ?? '').trim()) errors.sms_text = ['Write the text message people will get.'];
+    // NewsletterSendCheck::smsTooLong, with the From name queue() fills in.
+    else if (channels.includes('sms') && smsPartsInfo(n.from_name || state.owner.name || 'Stasht', n.sms_text).problem) errors.sms_text = [smsPartsInfo(n.from_name || state.owner.name || 'Stasht', n.sms_text).problem];
     if (!String(state.brand.business_address ?? '').trim()) errors.business_address = ['Add your business address. It is shown at the bottom of every newsletter.'];
     if (channels.length) {
       const c = audienceCount(n.audience, channels);
@@ -361,6 +368,8 @@ export function createMockApi(options = {}) {
         // NewsletterTestSendController: 422 channel when the profile has no address, 422 sms_text for an empty text.
         if (body?.channel === 'email' && !state.owner.email) return fail(422, { message: 'Add an email address to your profile to get a test email.', errors: { channel: ['Add an email address to your profile to get a test email.'] } });
         if (body?.channel === 'sms' && !String(n.sms_text ?? '').trim()) return fail(422, { message: 'Write the text message first.', errors: { sms_text: ['Write the text message first.'] } });
+        const tooLong = body?.channel === 'sms' ? smsPartsInfo(n.from_name || state.owner.name || 'Stasht', n.sms_text).problem : null;
+        if (tooLong) return fail(422, { message: tooLong, errors: { sms_text: [tooLong] } });
         return ok({ sent_to: body?.channel === 'sms' ? '+14165550100' : state.owner.email });
       }
       if (action === 'send' || action === 'schedule') {
@@ -373,6 +382,8 @@ export function createMockApi(options = {}) {
           const at = Date.parse(body?.scheduled_at ?? '');
           if (!at) return fail(422, { message: 'Pick a date and time.', errors: { scheduled_at: ['Pick a date and time.'] } });
           if (at <= Date.now()) return fail(422, { message: 'Pick a time in the future.', errors: { scheduled_at: ['Pick a time in the future.'] } });
+          const hour = torontoHour(at);
+          if ((n.channels || []).includes('sms') && (hour < 8 || hour >= 21)) return fail(422, { message: QUIET_HOURS_ERROR, errors: { scheduled_at: [QUIET_HOURS_ERROR] } });
         }
         const errors = sendErrors(n);
         if (Object.keys(errors).length) {

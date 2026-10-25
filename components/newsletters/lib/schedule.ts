@@ -63,3 +63,24 @@ export function formatSendTime(iso: string | null, locale: string = userLocale()
 export function dateInputValue(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
+
+/** [wdy2xh2p3f] Texts go out only between these hours, in the API's default timezone (users have no timezone yet). */
+export const TEXT_HOURS = { start: 8, end: 21, timeZone: 'America/Toronto' } as const;
+
+const hourWord = (h: number): string => `${h % 12 || 12}${h < 12 ? 'am' : 'pm'}`;
+const easternSuffix = (browserTz: string): string => (browserTz === TEXT_HOURS.timeZone ? '' : ' Eastern time');
+
+/** The line under Schedule when texts are on. */
+export function textHoursNote(browserTz: string = timeZoneName()): string {
+  return `Texts go out only between ${hourWord(TEXT_HOURS.start)} and ${hourWord(TEXT_HOURS.end)}${easternSuffix(browserTz)}.`;
+}
+
+/** NewsletterSendController::schedule refuses a newsletter with texts at a time outside 8:00 to 21:00 (422 scheduled_at). */
+export function textQuietHoursProblem(choice: ScheduleChoice, channels: readonly string[], browserTz: string = timeZoneName()): string | null {
+  if (choice.mode !== 'later' || !channels.includes('sms')) return null;
+  const iso = localDateTimeToIso(choice.date, choice.time);
+  if (!iso) return null;
+  const hour = Number(new Intl.DateTimeFormat('en-US', { timeZone: TEXT_HOURS.timeZone, hour: 'numeric', hourCycle: 'h23' }).format(new Date(iso)));
+  if (hour >= TEXT_HOURS.start && hour < TEXT_HOURS.end) return null;
+  return `Texts can only go out between ${hourWord(TEXT_HOURS.start)} and ${hourWord(TEXT_HOURS.end)}${easternSuffix(browserTz)}. Pick a time in that window.`;
+}

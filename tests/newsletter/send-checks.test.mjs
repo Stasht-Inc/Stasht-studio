@@ -61,10 +61,10 @@ test('allowance', () => {
   assert.deepEqual(allowanceLeft(allowance), { email: 3800, sms: 460 });
   assert.equal(allowanceProblem(allowance, counts, ['email']), null);
   assert.equal(allowanceProblem(allowance, { ...counts, email: 4000 }, ['email']), 'This needs 4,000 emails, but your plan has 3,800 left this month.');
-  assert.equal(allowanceProblem(allowance, { ...counts, sms: 900 }, ['email', 'sms']), 'This needs 900 texts, but your plan has 460 left this month.');
+  assert.equal(allowanceProblem(allowance, { ...counts, sms: 900 }, ['email', 'sms']), 'This needs 900 text message parts, but your plan has 460 left this month.');
   assert.equal(formatResetDate('2026-11-01T00:00:00Z'), 'Nov 1');
   assert.equal(allowanceLine(allowance, ['email']), 'Your plan has 3,800 emails left this month. It resets on Nov 1.');
-  assert.equal(allowanceLine(allowance, ['email', 'sms']), 'Your plan has 3,800 emails and 460 texts left this month. It resets on Nov 1.');
+  assert.equal(allowanceLine(allowance, ['email', 'sms']), 'Your plan has 3,800 emails and 460 text message parts left this month. It resets on Nov 1.');
 });
 
 // GET /newsletter-allowance also says what is held back for newsletters sending or scheduled (email_pending,
@@ -73,7 +73,28 @@ test('allowance left takes off what is pending', () => {
   const withPending = { ...allowance, email_pending: 1000, sms_pending: 500 };
   assert.deepEqual(allowanceLeft(withPending), { email: 2800, sms: 0 });
   assert.deepEqual(allowanceLeft(allowance), { email: 3800, sms: 460 }, 'missing pending counts as 0');
-  assert.equal(allowanceLine(withPending, ['email', 'sms']), 'Your plan has 2,800 emails and 0 texts left this month. It resets on Nov 1.');
+  assert.equal(allowanceLine(withPending, ['email', 'sms']), 'Your plan has 2,800 emails and 0 text message parts left this month. It resets on Nov 1.');
   assert.equal(allowanceProblem(withPending, counts, ['email']), null);
   assert.equal(allowanceProblem(withPending, { ...counts, email: 3000 }, ['email']), 'This needs 3,000 emails, but your plan has 2,800 left this month.');
+});
+
+// [wdy2xh2p3f] Texts are counted in parts: a 2-part text to 300 people needs 600.
+test('allowance counts text message parts', () => {
+  assert.equal(allowanceProblem(allowance, { ...counts, sms: 300 }, ['sms'], 2), 'This needs 600 text message parts, but your plan has 460 left this month.');
+  assert.equal(allowanceProblem(allowance, { ...counts, sms: 230 }, ['sms'], 2), null);
+});
+
+test('preSendProblems: a text over 3 parts and a text time in quiet hours', () => {
+  const base = { ...emptyDraft(), name: 'Oct', subject: 'Hi', channels: ['email', 'sms'], blocks: [{ id: 'b1', type: 'title', data: { text: 'Hi', size: 'large' } }] };
+  const now = new Date('2026-10-22T13:20:00Z');
+  const long = preSendProblems({ ...base, sms_text: 'ą'.repeat(120), from_name: 'Serpa Chrysler' }, null, { mode: 'now' }, now);
+  assert.match(long.recipients, /^This text is too long once sent \(\d parts\)\. Shorten it or remove emoji\.$/);
+  const tz = process.env.TZ;
+  process.env.TZ = 'America/Toronto';
+  try {
+    const night = preSendProblems({ ...base, sms_text: 'Hi' }, null, { mode: 'later', date: '2026-10-26', time: '22:00' }, now);
+    assert.equal(night.schedule, 'Texts can only go out between 8am and 9pm. Pick a time in that window.');
+  } finally {
+    if (tz === undefined) delete process.env.TZ; else process.env.TZ = tz;
+  }
 });

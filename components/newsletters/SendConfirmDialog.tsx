@@ -18,6 +18,8 @@ export interface SendConfirmDialogProps {
   counts: AudienceCount | null;
   /** The live count is still on its way (shown as "Counting…" rather than "—"). */
   countsLoading?: boolean;
+  /** Text message parts per person (the text allowance counts parts). */
+  smsParts?: number;
   schedule: ScheduleChoice;
   businessAddress: string | null;
   onSaveAddress(address: string): Promise<boolean>;
@@ -28,7 +30,7 @@ export interface SendConfirmDialogProps {
 
 /** Last check before sending: who gets it, when, the monthly allowance, and the business address on the first send. */
 export default function SendConfirmDialog({
-  open, onOpenChange, newsletterId, channels, counts, countsLoading = false, schedule, businessAddress, onSaveAddress, onSent, onFailed,
+  open, onOpenChange, newsletterId, channels, counts, countsLoading = false, smsParts = 1, schedule, businessAddress, onSaveAddress, onSent, onFailed,
 }: SendConfirmDialogProps) {
   const [allowance, setAllowance] = useState<NewsletterAllowance | null>(null);
   const [address, setAddress] = useState('');
@@ -37,7 +39,7 @@ export default function SendConfirmDialog({
   const later = schedule.mode === 'later';
   const iso = schedule.mode === 'later' ? localDateTimeToIso(schedule.date, schedule.time) : null;
   const needsAddress = !businessAddress;
-  const overLimit = allowanceProblem(allowance, counts, channels);
+  const overLimit = allowanceProblem(allowance, counts, channels, smsParts);
 
   useEffect(() => {
     if (!open) return undefined;
@@ -63,8 +65,9 @@ export default function SendConfirmDialog({
     const res = later && iso ? await newslettersAPI.schedule(newsletterId, iso) : await newslettersAPI.send(newsletterId);
     setBusy(false);
     if (res.ok && res.data) { onSent(res.data); return; }
-    // The allowance message already has the numbers ("needs N emails, but your plan has M left").
-    const inline = res.fieldErrors.allowance ?? res.fieldErrors.business_address ?? res.fieldErrors.scheduled_at;
+    // The allowance message already has the numbers ("needs N emails, but your plan has M left"). A refused time
+    // (scheduled_at, e.g. texts in quiet hours) goes back to step 6 with the composer's other step errors.
+    const inline = res.fieldErrors.allowance ?? res.fieldErrors.business_address;
     if (inline) { setError(inline); return; }
     onFailed(res);
   };
@@ -92,7 +95,7 @@ export default function SendConfirmDialog({
           <div className="flex justify-between gap-3"><dt className="text-gray-600">Email</dt><dd className="font-semibold text-gray-900">{counts && !countsLoading ? `${formatCount(counts.email)} people` : countsLoading ? 'Counting…' : '—'}</dd></div>
         ) : null}
         {channels.includes('sms') ? (
-          <div className="flex justify-between gap-3"><dt className="text-gray-600">Text message</dt><dd className="font-semibold text-gray-900">{counts && !countsLoading ? `${formatCount(counts.sms)} people` : countsLoading ? 'Counting…' : '—'}</dd></div>
+          <div className="flex justify-between gap-3"><dt className="text-gray-600">Text message</dt><dd className="text-right font-semibold text-gray-900">{counts && !countsLoading ? `${formatCount(counts.sms)} people${smsParts > 1 ? ` · ${smsParts} parts each` : ''}` : countsLoading ? 'Counting…' : '—'}</dd></div>
         ) : null}
       </dl>
       {allowance ? <p className="mt-3 text-sm text-gray-600">{allowanceLine(allowance, channels)}</p> : null}

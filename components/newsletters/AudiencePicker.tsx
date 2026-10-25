@@ -11,12 +11,15 @@ import {
   audienceKey, audienceLabel, countSummary, formatCount, hasAudienceItem, skippedSummary, smsInfo, smsPreview, toggleAudienceItem, toggleChannel,
 } from './lib/audience';
 import { LIMITS } from './lib/rules';
+import { smsPartsInfo } from './lib/smsParts';
 import { LABEL, LAYER, inputClass, textareaClass } from './lib/ui';
 
 export interface AudiencePickerProps {
   audience: AudienceItem[];
   channels: NewsletterChannel[];
   smsText: string;
+  /** The name put before the text (the From name, else the owner's name, as the API does). */
+  fromName: string;
   count: AudienceCountState;
   readOnly: boolean;
   /** Load lead groups and lists (paid plan, Newsletter tab showing). */
@@ -32,14 +35,15 @@ const GROUP_HEADING = 'px-3 pb-1 pt-3 text-xs font-semibold uppercase tracking-w
  * Step 2 (prototype: "Send to" + the grey "Estimated recipients" row): who gets it (All leads, lead groups,
  * lists), by email and/or text, with live counts.
  */
-export default function AudiencePicker({ audience, channels, smsText, count, readOnly, enabled, fieldErrors, stepError, onChange }: AudiencePickerProps) {
+export default function AudiencePicker({ audience, channels, smsText, fromName, count, readOnly, enabled, fieldErrors, stepError, onChange }: AudiencePickerProps) {
   const sources = useAudienceSources(enabled);
   const [open, setOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const label = audienceLabel(audience, sources.groups, sources.lists);
   const sms = smsInfo(smsText);
   const skipped = skippedSummary(count.counts, channels);
-  const smsError = fieldErrors.sms_text ?? (sms.over ? `Use ${LIMITS.sms_text} characters or fewer.` : undefined);
+  const parts = smsPartsInfo(fromName, smsText);
+  const smsError = fieldErrors.sms_text ?? (sms.over ? `Use ${LIMITS.sms_text} characters or fewer.` : undefined) ?? parts.problem ?? undefined;
 
   const option = (item: AudienceItem, title: string, detail: string) => (
     <label key={audienceKey(item)} className="flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2 focus-within:bg-gray-50 hover:bg-gray-50">
@@ -128,6 +132,12 @@ export default function AudiencePicker({ audience, channels, smsText, count, rea
               <span className={smsError ? 'text-red-600' : 'text-gray-500'}>{smsError ?? 'We add a link to the newsletter and "Reply STOP to opt out."'}</span>
               <span aria-live="polite" className={`whitespace-nowrap ${sms.over ? 'text-red-600' : sms.remaining < 10 ? 'text-amber-600' : 'text-gray-500'}`}>{sms.length} / {LIMITS.sms_text}</span>
             </div>
+            {parts.tooLong ? null : (
+              <p className="mt-1.5 text-xs text-gray-600" aria-live="polite">Uses {parts.parts} text message {parts.parts === 1 ? 'part' : 'parts'} per person.</p>
+            )}
+            {parts.unicode ? (
+              <p className="mt-1.5 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">Emoji and some special characters make each part hold 70 characters instead of 160, so the text may use more parts.</p>
+            ) : null}
             <p className="mt-2 break-words rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-600"><span className="font-medium text-gray-700">People get: </span>{smsPreview(smsText)}</p>
           </div>
         ) : null}

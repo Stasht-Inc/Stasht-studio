@@ -27,7 +27,7 @@ async function journey({ open, shot, expectVisible, expect, hasOverflow }, width
   const tag = String(width);
   const NAME = `November Newsletter ${width}`;
   const api = createMockApi({ newsletters: seedNewsletters() });
-  const { page, context } = await open({ view: 'campaigns', width, height: phone ? 844 : 1100, api });
+  const { page, context } = await open({ view: 'campaigns', width, height: phone ? 844 : 1100, api, timezoneId: 'America/Toronto' });
   const rootFont = await page.evaluate(() => getComputedStyle(document.documentElement).fontSize);
   expect(rootFont === '16px', `root font size is 16px at ${tag} (got ${rootFont})`);
   await expectVisible(page.getByRole('heading', { name: 'All Campaigns' }), `Campaigns page at ${tag}`);
@@ -53,7 +53,7 @@ async function journey({ open, shot, expectVisible, expect, hasOverflow }, width
   await importDialog.getByTestId('nl-csv-input').setInputFiles(CSV);
   await expectVisible(importDialog.getByText(/3 contacts ready to import\./), `CSV preview at ${tag}`);
   await importDialog.getByLabel('List name').fill('Winter event sign-ups');
-  await importDialog.getByRole('checkbox', { name: /These people agreed/ }).check();
+  await importDialog.getByRole('radio', { name: /signed up or asked to hear from us/ }).check();
   expect(!(await hasOverflow(page)), `no sideways scroll in the import dialog at ${tag}`);
   await importDialog.getByRole('button', { name: 'Import 3 contacts' }).click();
   await expectVisible(page.getByText('Imported 3 contacts.'), `import toast at ${tag}`);
@@ -124,7 +124,7 @@ async function journey({ open, shot, expectVisible, expect, hasOverflow }, width
   await page.getByRole('menuitem', { name: 'Text me a test' }).click();
   await expectVisible(page.getByText('Test sent to +1 416 555 0100.', { exact: true }), `text test sent at ${tag}`);
 
-  // 6 Schedule for tomorrow 09:30; the confirmation has the counts, the allowance and asks for the address.
+  // 6 Schedule for tomorrow 09:30 Toronto time (texts only go out 8am to 9pm there); the confirmation has the counts, the allowance and asks for the address.
   const list = api.state.lists.find((l) => l.name === 'Winter event sign-ups');
   const emails = 1180 + 36 + (list?.email_count ?? 0);
   const texts = 310 + 30 + (list?.sms_count ?? 0);
@@ -136,7 +136,7 @@ async function journey({ open, shot, expectVisible, expect, hasOverflow }, width
   const dialog = page.getByRole('dialog', { name: 'Schedule this newsletter?' });
   await expectVisible(dialog.getByText(`${emails.toLocaleString('en-US')} people`), `email count (all leads + VIP buyers + the list) at ${tag}`);
   await expectVisible(dialog.getByText(`${texts.toLocaleString('en-US')} people`), `text count at ${tag}`);
-  await expectVisible(dialog.getByText(/Your plan has 3,800 emails and 460 texts left this month/), `allowance at ${tag}`);
+  await expectVisible(dialog.getByText(/Your plan has 3,800 emails and 460 text message parts left this month/), `allowance at ${tag}`);
   await expectVisible(dialog.getByText(/It goes out .*9:30/), `the time at ${tag}`);
   await dialog.getByLabel('Business address').fill('4505 Steeles Ave W, Toronto, ON');
   expect(!(await hasOverflow(page)), `no sideways scroll in the confirmation at ${tag}`);
