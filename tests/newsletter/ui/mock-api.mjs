@@ -148,7 +148,10 @@ export function createMockApi(options = {}) {
     nextId: 100,
     newsletters: options.newsletters ?? [],
     brand: { header: { logo_url: null, banner_url: null, background_color: '#6C60FF', title: 'Serpa Chrysler' }, business_address: options.businessAddress ?? null },
-    lists: options.lists ?? [{ id: 9, name: 'Open house sign-ups', source: 'import', member_count: 212, email_count: 198, sms_count: 140, created_at: now() }],
+    // ContactListController::summary: consent_type (null for lists made before consent was recorded) and created_at.
+    lists: options.lists ?? [{ id: 9, name: 'Open house sign-ups', source: 'import', member_count: 212, email_count: 198, sms_count: 140, consent_type: 'express', created_at: '2026-10-02T15:00:00Z' }],
+    // AudienceResolver's skipped counts on top of the defaults (consent_expired, unsupported_number, ...).
+    skipped: options.skipped ?? {},
     groups: options.groups ?? [{ id: 4, name: 'VIP buyers', member_count: 38, members: [], created_at: now(), updated_at: now() }],
     // NewsletterAllowance::summary: *_pending = held back for newsletters sending or scheduled.
     allowance: options.allowance ?? { plan: 'Professional', email_limit: 5000, sms_limit: 500, email_used: 1200, sms_used: 40, email_pending: 0, sms_pending: 0, resets_at: '2026-11-01T00:00:00Z' },
@@ -194,7 +197,10 @@ export function createMockApi(options = {}) {
       if (a.type === 'lead_group') { email += 36; sms += 30; }
       if (a.type === 'list') { const l = state.lists.find((x) => x.id === a.id); if (l) { email += l.email_count; sms += l.sms_count; } }
     }
-    return { email: channels.includes('email') ? email : 0, sms: channels.includes('sms') ? sms : 0, skipped: { no_email: 24, no_phone: 0, unsubscribed: 3, duplicate: 11 } };
+    return {
+      email: channels.includes('email') ? email : 0, sms: channels.includes('sms') ? sms : 0,
+      skipped: { no_email: 24, no_phone: 0, unsubscribed: 3, duplicate: 11, unsupported_number: 0, consent_expired: 0, ...state.skipped },
+    };
   }
 
   // NewsletterSendCheck::assertReady (plus the reply-to rule for an account with no email).
@@ -275,10 +281,13 @@ export function createMockApi(options = {}) {
     if (path === '/newsletter-allowance') return ok(state.allowance);
     if (path === '/contact-lists' && method === 'GET') return ok(state.lists);
     if (path === '/contact-lists/import') {
-      // ContactListController::import: name, consent (accepted), rows; then ContactListBuilder::merge.
+      // ContactListController::import: name, consent (accepted), consent_type (express|implied), consent_source, rows;
+      // then ContactListBuilder::merge.
       const errors = {};
       if (!String(body?.name ?? '').trim()) errors.name = ['Give the list a name.'];
       if (body?.consent !== true) errors.consent = ['Confirm these people agreed to hear from you.'];
+      if (!['express', 'implied'].includes(body?.consent_type)) errors.consent_type = ['Choose how these people agreed to hear from you.'];
+      if (body?.consent_source != null && String(body.consent_source).length > 120) errors.consent_source = ['Keep the consent note to 120 characters or fewer.'];
       if (!Array.isArray(body?.rows) || !body.rows.length) errors.rows = ['The file has no rows.'];
       else if (body.rows.length > 10000) errors.rows = ['You can import up to 10,000 people at a time.'];
       if (Object.keys(errors).length) return fail(422, { message: Object.values(errors)[0][0], errors });
@@ -294,7 +303,7 @@ export function createMockApi(options = {}) {
       if (!seen.size) return fail(422, { message: 'None of the rows has a valid email address or mobile number.', errors: { rows: ['None of the rows has a valid email address or mobile number.'] } });
       const members = [...seen.values()];
       const merged = body.rows.length - invalid - members.length;
-      const list = { id: state.nextId++, name: body.name.trim(), source: 'import', member_count: members.length, email_count: members.filter((m) => m.email).length, sms_count: members.filter((m) => m.phone).length, created_at: now() };
+      const list = { id: state.nextId++, name: body.name.trim(), source: 'import', member_count: members.length, email_count: members.filter((m) => m.email).length, sms_count: members.filter((m) => m.phone).length, consent_type: body.consent_type, created_at: now() };
       state.lists.unshift(list);
       return ok({ ...list, imported: members.length, skipped_invalid: invalid, merged_duplicates: merged }, 201);
     }
@@ -304,7 +313,8 @@ export function createMockApi(options = {}) {
         return fail(422, { message: 'That lead group was not found.', errors: { lead_group_id: ['That lead group was not found.'] } });
       }
       const group = Boolean(body?.lead_group_id);
-      const list = { id: state.nextId++, name: body.name, source: group ? 'lead_group' : 'leads', member_count: group ? 38 : 1210, email_count: group ? 36 : 1180, sms_count: group ? 30 : 310, created_at: now() };
+      // Leads are implied consent (fromLeads).
+      const list = { id: state.nextId++, name: body.name, source: group ? 'lead_group' : 'leads', member_count: group ? 38 : 1210, email_count: group ? 36 : 1180, sms_count: group ? 30 : 310, consent_type: 'implied', created_at: now() };
       state.lists.unshift(list);
       return ok(list, 201);
     }

@@ -85,7 +85,9 @@ export type NewsletterInput = Partial<Pick<Newsletter,
 export interface AudienceCount {
   email: number;
   sms: number;
-  skipped: { no_email: number; no_phone: number; unsubscribed: number; duplicate: number };
+  /** consent_expired (implied consent over 6 months old) and unsupported_number (not a Canadian or US mobile,
+   *  texts only): newer API versions only. */
+  skipped: { no_email: number; no_phone: number; unsubscribed: number; duplicate: number; consent_expired?: number; unsupported_number?: number };
 }
 
 export type RecipientStatus = 'queued' | 'sent' | 'delivered' | 'failed' | 'skipped';
@@ -121,6 +123,8 @@ export interface NewsletterAllowance {
 }
 
 export type ContactListSource = 'import' | 'leads' | 'lead_group';
+/** CASL: express = they asked to hear from you; implied = customers and recent enquiries (expires after 6 months). */
+export type ConsentType = 'express' | 'implied';
 export interface ContactList {
   id: number;
   name: string;
@@ -128,11 +132,23 @@ export interface ContactList {
   member_count: number;
   email_count: number;
   sms_count: number;
-  created_at: string;
+  /** Null for lists made before consent was recorded (or before the API's consent columns exist). */
+  consent_type?: ConsentType | null;
+  /** When the list was imported or made. */
+  created_at: string | null;
 }
-export interface ImportRow { name?: string; email?: string; phone?: string }
+/** consent_at: the date this person agreed, as written in the file (the API reads it; a bad or future date is ignored). */
+export interface ImportRow { name?: string; email?: string; phone?: string; consent_at?: string }
+export interface ImportInput { name: string; consent: true; consent_type: ConsentType; consent_source?: string; rows: ImportRow[] }
 export type ImportResult = ContactList & { imported: number; skipped_invalid: number; merged_duplicates: number };
-export interface ContactListMember { name: string | null; email: string | null; phone: string | null }
+export interface ContactListMember {
+  name: string | null;
+  email: string | null;
+  phone: string | null;
+  consent_type?: ConsentType | null;
+  consent_source?: string | null;
+  consent_at?: string | null;
+}
 export interface ContactListMembers { data: ContactListMember[]; meta: PageMeta }
 
 // Lists and drafts must never be stale right after a write, so reads skip apiRequest's 15 s GET cache.
@@ -218,7 +234,7 @@ export const newslettersAPI = {
     write<NewsletterBrand>('PUT', '/newsletter-brand', input),
   allowance: () => get<NewsletterAllowance>('/newsletter-allowance'),
   contactLists: () => get<ContactList[]>('/contact-lists'),
-  importList: (input: { name: string; consent: true; rows: ImportRow[] }) =>
+  importList: (input: ImportInput) =>
     write<ImportResult>('POST', '/contact-lists/import', input),
   listFromLeads: (input: { name: string; lead_group_id?: number }) => write<ContactList>('POST', '/contact-lists/from-leads', input),
   listMembers: (id: number, page = 1) => get<ContactListMembers>(`${list(id)}/members${query({ page })}`),

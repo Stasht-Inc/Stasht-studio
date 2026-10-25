@@ -21,7 +21,7 @@ test('parseCsv handles quotes, commas, CRLF, BOM, other delimiters and blank lin
 });
 
 test('detectColumns reads common header names', () => {
-  assert.deepEqual(detectColumns([['Full Name', 'E-mail', 'Mobile']]), { name: 0, firstName: null, lastName: null, email: 1, phone: 2, hasHeader: true });
+  assert.deepEqual(detectColumns([['Full Name', 'E-mail', 'Mobile']]), { name: 0, firstName: null, lastName: null, email: 1, phone: 2, consentAt: null, hasHeader: true });
   const m = detectColumns([['First name', 'Last name', 'Email address', 'Cell']]);
   assert.deepEqual([m.firstName, m.lastName, m.name, m.email, m.phone, m.hasHeader], [0, 1, null, 2, 3, true]);
 });
@@ -29,7 +29,7 @@ test('detectColumns reads common header names', () => {
 test('detectColumns guesses from the values when there is no header row', () => {
   assert.deepEqual(
     detectColumns([['Ava Chen', 'ava@example.com', '416-555-0101'], ['Ben Ortiz', 'ben@example.com', '(647) 555-0199']]),
-    { name: 0, firstName: null, lastName: null, email: 1, phone: 2, hasHeader: false },
+    { name: 0, firstName: null, lastName: null, email: 1, phone: 2, consentAt: null, hasHeader: false },
   );
 });
 

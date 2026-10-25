@@ -6,7 +6,7 @@ export { smsPlain };
 
 export interface GroupOption { id: number; name: string; member_count: number }
 
-export const ZERO_COUNT: AudienceCount = { email: 0, sms: 0, skipped: { no_email: 0, no_phone: 0, unsubscribed: 0, duplicate: 0 } };
+export const ZERO_COUNT: AudienceCount = { email: 0, sms: 0, skipped: { no_email: 0, no_phone: 0, unsubscribed: 0, duplicate: 0, consent_expired: 0, unsupported_number: 0 } };
 
 export function audienceKey(item: AudienceItem): string {
   return item.type === 'all_leads' ? 'all_leads' : `${item.type}:${item.id}`;
@@ -65,7 +65,13 @@ export function skippedSummary(counts: AudienceCount | null, channels: Newslette
   if (channels.includes('sms') && s.no_phone) parts.push(`${formatCount(s.no_phone)} with no mobile number`);
   if (s.unsubscribed) parts.push(`${formatCount(s.unsubscribed)} unsubscribed`);
   if (s.duplicate) parts.push(`${formatCount(s.duplicate)} listed twice`);
-  return parts.length ? `Not included: ${parts.join(', ')}.` : '';
+  const out = parts.length ? [`Not included: ${parts.join(', ')}.`] : [];
+  // [wdy2xh2p3e / 2p3f] Older API versions leave these two out.
+  if (s.consent_expired) out.push(`${formatCount(s.consent_expired)} left out: their consent is older than 6 months.`);
+  if (channels.includes('sms') && s.unsupported_number) {
+    out.push(`${formatCount(s.unsupported_number)} phone ${s.unsupported_number === 1 ? 'number' : 'numbers'} can't get texts (only Canadian and US mobile numbers).`);
+  }
+  return out.join(' ');
 }
 
 /** Counted as it is texted (smsPlain): "…" is three characters, curly quotes one. */

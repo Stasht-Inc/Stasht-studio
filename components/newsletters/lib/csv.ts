@@ -66,18 +66,25 @@ export interface ColumnMap {
   lastName: number | null;
   email: number | null;
   phone: number | null;
+  /** The date each person agreed (sent as consent_at). Only found by its header name. */
+  consentAt: number | null;
   hasHeader: boolean;
 }
 
-const HEADERS: Record<'email' | 'phone' | 'firstName' | 'lastName' | 'name', string[]> = {
+const HEADERS: Record<'email' | 'phone' | 'firstName' | 'lastName' | 'name' | 'consentAt', string[]> = {
   // "E-mail 1 - Value" / "Phone 1 - Value": Google Contacts exports.
   email: ['email', 'emailaddress', 'mail', 'emailid', 'emailvalue'],
   phone: ['phone', 'phonenumber', 'mobile', 'mobilenumber', 'mobilephone', 'cell', 'cellphone', 'telephone', 'tel', 'sms', 'phonevalue'],
   firstName: ['firstname', 'first', 'givenname', 'fname'],
   lastName: ['lastname', 'last', 'surname', 'familyname', 'lname'],
   name: ['name', 'fullname', 'contactname', 'contact', 'customer', 'customername'],
+  // When they agreed: becomes each row's consent_at (the API reads it as a date, else uses the import time).
+  consentAt: ['date', 'signedup', 'signedupon', 'signupdate', 'consentdate', 'consentgiven', 'consentedon', 'optindate', 'optedin', 'optedinon',
+    'dateadded', 'subscribed', 'subscribedon', 'subscribedate', 'subscriptiondate', 'joined', 'joinedon', 'datejoined'],
 };
-const FIELD_ORDER = ['email', 'phone', 'firstName', 'lastName', 'name'] as const;
+const FIELD_ORDER = ['email', 'phone', 'firstName', 'lastName', 'name', 'consentAt'] as const;
+/** The API ignores consent dates longer than this (NewsletterConsent::parseDate). */
+const MAX_DATE_LENGTH = 40;
 
 export function cleanPhone(value: string): string | null {
   const v = (value ?? '').trim();
@@ -88,7 +95,7 @@ export function cleanPhone(value: string): string | null {
 }
 
 export function detectColumns(table: string[][]): ColumnMap {
-  const map: ColumnMap = { name: null, firstName: null, lastName: null, email: null, phone: null, hasHeader: false };
+  const map: ColumnMap = { name: null, firstName: null, lastName: null, email: null, phone: null, consentAt: null, hasHeader: false };
   (table[0] ?? []).forEach((cell, index) => {
     const key = cell.toLowerCase().replace(/[^a-z]/g, '');
     for (const field of FIELD_ORDER) {
@@ -107,7 +114,7 @@ export function detectColumns(table: string[][]): ColumnMap {
     const values = sample.map((r) => r[col] ?? '').filter(Boolean);
     return values.length ? values.filter(test).length / values.length : 0;
   };
-  const taken = (col: number) => [map.name, map.firstName, map.lastName, map.email, map.phone].includes(col);
+  const taken = (col: number) => [map.name, map.firstName, map.lastName, map.email, map.phone, map.consentAt].includes(col);
   for (let col = 0; col < width; col++) {
     if (taken(col)) continue;
     if (map.email === null && share(col, isPlausibleEmail) >= 0.6) map.email = col;
@@ -115,7 +122,7 @@ export function detectColumns(table: string[][]): ColumnMap {
   }
   if (map.hasHeader) return map;
   for (let col = 0; col < width; col++) {
-    if (col !== map.email && col !== map.phone && share(col, (v) => /[a-z]/i.test(v)) >= 0.6) {
+    if (col !== map.email && col !== map.phone && col !== map.consentAt && share(col, (v) => /[a-z]/i.test(v)) >= 0.6) {
       map.name = col;
       break;
     }
@@ -141,6 +148,8 @@ export function buildImportRows(table: string[][], map: ColumnMap): { rows: Impo
     if (name) row.name = name;
     if (email) row.email = email;
     if (phone) row.phone = phone;
+    const consentAt = cell(map.consentAt ?? null);
+    if (consentAt && consentAt.length <= MAX_DATE_LENGTH) row.consent_at = consentAt;
     rows.push(row);
   }
   return { rows, invalid, total: body.length };

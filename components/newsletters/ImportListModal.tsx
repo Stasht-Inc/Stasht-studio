@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { FileUp, Loader2 } from 'lucide-react';
 import { composerToast } from './ComposerToaster';
-import { newslettersAPI, type ContactList } from '../../services/newslettersAPI';
+import { newslettersAPI, type ConsentType, type ContactList } from '../../services/newslettersAPI';
 import ComposerDialog from './ComposerDialog';
 import SegmentedSwitch from './SegmentedSwitch';
 import { GENERIC_ERROR } from './lib/apiResult';
@@ -9,6 +9,7 @@ import { formatCount, type GroupOption } from './lib/audience';
 import {
   MAX_IMPORT_BYTES, MAX_IMPORT_ROWS, buildImportRows, columnLabels, csvFileProblem, detectColumns, importSummary, listNameFromFile, parseCsv, type ColumnMap,
 } from './lib/csv';
+import { CONSENT_HINT, CONSENT_OPTIONS } from './lib/consent';
 import { LIMITS } from './lib/rules';
 import { BUTTON_OUTLINE, BUTTON_PRIMARY, LABEL, LINK_BUTTON, inputClass } from './lib/ui';
 
@@ -16,7 +17,9 @@ const SOURCES = [
   { value: 'csv', label: 'Upload a CSV file' },
   { value: 'leads', label: 'From leads' },
 ] as const;
-const FIELD_LABEL = { name: 'Name', email: 'Email', phone: 'Mobile' } as const;
+const FIELD_LABEL = { name: 'Name', email: 'Email', phone: 'Mobile', consentAt: 'Date they agreed' } as const;
+const COLUMN_FIELDS = ['name', 'email', 'phone', 'consentAt'] as const;
+type ColumnField = typeof COLUMN_FIELDS[number];
 const PREVIEW_ROWS = 5;
 
 export interface ImportListModalProps {
@@ -32,7 +35,8 @@ export default function ImportListModal({ open, onOpenChange, groups, onCreated 
   const [fileName, setFileName] = useState<string | null>(null);
   const [table, setTable] = useState<string[][] | null>(null);
   const [map, setMap] = useState<ColumnMap | null>(null);
-  const [consent, setConsent] = useState(false);
+  // How these people agreed (CASL): required, never pre-chosen.
+  const [consent, setConsent] = useState<ConsentType | null>(null);
   const [groupId, setGroupId] = useState('all');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -41,7 +45,7 @@ export default function ImportListModal({ open, onOpenChange, groups, onCreated 
   useEffect(() => {
     if (open) return;
     setSource('csv'); setName(''); setFileName(null); setTable(null); setMap(null);
-    setConsent(false); setGroupId('all'); setBusy(false); setError(null);
+    setConsent(null); setGroupId('all'); setBusy(false); setError(null);
   }, [open]);
 
   const preview = useMemo(() => (table && map ? buildImportRows(table, map) : null), [table, map]);
@@ -52,7 +56,7 @@ export default function ImportListModal({ open, onOpenChange, groups, onCreated 
   const readFile = async (file: File) => {
     setError(null);
     // A different file needs its own consent.
-    setConsent(false);
+    setConsent(null);
     if (file.size > MAX_IMPORT_BYTES) { setError('This file is bigger than 5 MB. Split it into smaller files.'); return; }
     let text: string;
     try {
@@ -74,7 +78,7 @@ export default function ImportListModal({ open, onOpenChange, groups, onCreated 
     setName((current) => (current.trim() ? current : listNameFromFile(file.name)));
   };
 
-  const setColumn = (field: 'name' | 'email' | 'phone', value: string) => {
+  const setColumn = (field: ColumnField, value: string) => {
     if (!map) return;
     const index = value === '' ? null : Number(value);
     setMap({ ...map, [field]: index, ...(field === 'name' ? { firstName: null, lastName: null } : {}) });
@@ -85,11 +89,14 @@ export default function ImportListModal({ open, onOpenChange, groups, onCreated 
     if (!name.trim()) { setError('Give the list a name.'); return; }
     setBusy(true);
     if (source === 'csv') {
-      if (!preview || !ready || !consent || tooMany) { setBusy(false); return; }
-      const res = await newslettersAPI.importList({ name: name.trim(), consent: true, rows: preview.rows });
+      if (!preview || !ready || !consent || tooMany) { setBusy(false); if (!consent && ready) setError('Choose how these people agreed to hear from you.'); return; }
+      const res = await newslettersAPI.importList({ name: name.trim(), consent: true, consent_type: consent, consent_source: 'import', rows: preview.rows });
       setBusy(false);
-      // ContactListController::import 422 keys: name, consent, rows.
-      if (!res.ok || !res.data) { setError(res.fieldErrors.name ?? res.fieldErrors.rows ?? res.fieldErrors.consent ?? res.error ?? GENERIC_ERROR); return; }
+      // ContactListController::import 422 keys: name, consent, consent_type, rows.
+      if (!res.ok || !res.data) {
+        setError(res.fieldErrors.name ?? res.fieldErrors.rows ?? res.fieldErrors.consent_type ?? res.fieldErrors.consent ?? res.error ?? GENERIC_ERROR);
+        return;
+      }
       composerToast.success(importSummary(res.data));
       onCreated(res.data);
       onOpenChange(false);
@@ -142,12 +149,12 @@ export default function ImportListModal({ open, onOpenChange, groups, onCreated 
 
             {map && table ? (
               <div className="space-y-3">
-                <div className="grid gap-3 sm:grid-cols-3">
-                  {(['name', 'email', 'phone'] as const).map((field) => (
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {COLUMN_FIELDS.map((field) => (
                     <div key={field}>
-                      <label htmlFor={`nl-col-${field}`} className={LABEL}>{FIELD_LABEL[field]} column</label>
+                      <label htmlFor={`nl-col-${field}`} className={LABEL}>{FIELD_LABEL[field]}{field === 'consentAt' ? <span className="font-normal text-gray-500"> (optional)</span> : ' column'}</label>
                       <select id={`nl-col-${field}`} value={map[field] ?? ''} onChange={(e) => setColumn(field, e.target.value)} className={inputClass()}>
-                        <option value="">{field === 'name' && map.name === null && map.firstName !== null ? 'First and last name' : 'None'}</option>
+                        <option value="">{field === 'name' && map.name === null && map.firstName !== null ? 'First and last name' : field === 'consentAt' ? 'None (use today)' : 'None'}</option>
                         {columns.map((label, i) => <option key={i} value={i}>{label}</option>)}
                       </select>
                     </div>
@@ -182,10 +189,19 @@ export default function ImportListModal({ open, onOpenChange, groups, onCreated 
                     </table>
                   </div>
                 ) : null}
-                <label className="flex items-start gap-2 rounded-lg bg-gray-50 p-3 text-sm text-gray-800">
-                  <input type="checkbox" checked={consent} aria-required="true" onChange={(e) => setConsent(e.target.checked)} className="mt-0.5 h-4 w-4 accent-[#6C60FF]" />
-                  <span>These people agreed to get emails or texts from my business. <span className="text-gray-500">(Required)</span></span>
-                </label>
+                <fieldset className="rounded-lg bg-gray-50 p-3" aria-describedby="nl-consent-hint">
+                  <legend className="float-left mb-2 w-full text-sm font-medium text-gray-900">How did these people agree to hear from you? <span className="font-normal text-gray-500">(Required)</span></legend>
+                  <div className="clear-both space-y-2">
+                    {CONSENT_OPTIONS.map((o) => (
+                      <label key={o.value} className="flex cursor-pointer items-start gap-2 text-sm text-gray-800">
+                        <input type="radio" name="nl-consent-type" value={o.value} checked={consent === o.value} required
+                          onChange={() => setConsent(o.value)} className="mt-0.5 h-4 w-4 flex-shrink-0 accent-[#6C60FF]" />
+                        <span>{o.label}</span>
+                      </label>
+                    ))}
+                  </div>
+                  <p id="nl-consent-hint" className="mt-2 text-xs text-gray-500">{CONSENT_HINT}</p>
+                </fieldset>
               </div>
             ) : null}
           </>
