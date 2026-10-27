@@ -1,5 +1,5 @@
 ﻿import React, { useState, useEffect, useRef } from 'react';
-import { Search, X, MoreHorizontal, MessageSquare, Clock, RefreshCw, Trash2, Archive, Check, Send, Users, ChevronLeft, Sparkles, Heart, Gift, Calendar, MessageCircle, ThumbsUp, TrendingUp, Lightbulb, UserRound, MapPin, CheckCircle2 } from 'lucide-react';
+import { Search, X, MoreHorizontal, MessageSquare, Clock, RefreshCw, Trash2, Archive, Check, Send, Users, ChevronLeft, Sparkles, Heart, Gift, Calendar, MessageCircle, ThumbsUp, TrendingUp, Lightbulb, UserRound, MapPin, CheckCircle2, SlidersHorizontal } from 'lucide-react';
 import { useMemoryLimit, recheckMemoryLimit } from '../hooks/useMemoryLimit';
 import { useDialogBehavior } from '../hooks/useDialogBehavior';
 import { toast } from 'sonner';
@@ -13,6 +13,10 @@ import { mapLimit } from '../utils/requestLimit';
 import LeadsInboxTable from './leads/LeadsInboxTable';
 import CampaignDeletedTag from './leads/CampaignDeletedTag';
 import LeadConfirmDialog, { type LeadConfirmKind } from './leads/LeadConfirmDialog';
+import LeadsFilterSheet from './leads/LeadsFilterSheet';
+import PullToRefreshIndicator from './PullToRefreshIndicator';
+import { usePullToRefresh } from '../hooks/usePullToRefresh';
+import { useIsMobile } from './ui/use-mobile';
 
 const STATUS_TRIGGER_CLASS: Record<string, string> = {
   hot: 'bg-red-100 text-red-600 border-red-200 hover:bg-red-100 focus:ring-0',
@@ -831,6 +835,25 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
   };
 
   const hasActiveFilters = searchQuery.trim() !== '' || (statusFilter !== 'all' && statusFilter !== '') || timeFilter !== 'all' || assignedFilter !== 'all';
+  // Phone "Filters" button badge: the filters that live in the sheet (search has its own field).
+  const activeSheetFilterCount = [statusFilter !== 'all' && statusFilter !== '', assignedFilter !== 'all', timeFilter !== 'all'].filter(Boolean).length;
+
+  // Reloads whatever sub-tab is showing — the Refresh button (md+) and phone pull-to-refresh.
+  const refreshCurrentView = async () => {
+    if (leadsView === 'leads') await fetchLeads();
+    else if (leadsView === 'groups') await fetchLeadGroups();
+    else await fetchMyConversations();
+  };
+
+  // Phone filters sheet; pull-to-refresh is phone-only and paused while a sheet/popover is open.
+  const [showFilterSheet, setShowFilterSheet] = useState(false);
+  const isPhone = useIsMobile();
+  const pullToRefresh = usePullToRefresh(refreshCurrentView, {
+    enabled: isPhone && !showFilterSheet && !showSearchGroup && !showMessageGroup && !confirming,
+  });
+  // Keep the list on screen during a pull refresh; the floating spinner shows progress.
+  const showListLoading = isLoading && !pullToRefresh.isRefreshing;
+  const showConversationsLoading = isLoadingConversations && !pullToRefresh.isRefreshing;
 
   // Admin-only teammate options for the "Assigned to" filter: everyone currently
   // assigned a lead in view (kept once seen, so filtering by one doesn't drop the rest).
@@ -895,19 +918,27 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
   })();
 
   return (
-    <div className="space-y-4 sm:space-y-6">
-      {/* Sub-tab toggle (Leads / Groups / My Conversations) + Refresh on the far right */}
+    <div className="space-y-3 md:space-y-6" {...pullToRefresh.handlers}>
+      <PullToRefreshIndicator
+        isPulling={pullToRefresh.isPulling}
+        isRefreshing={pullToRefresh.isRefreshing}
+        pullDistance={pullToRefresh.pullDistance}
+        threshold={pullToRefresh.threshold}
+        className="md:hidden"
+      />
+      {/* Sub-tab toggle (Leads / Groups / My Conversations) + Refresh on the far right.
+          Phones: tabs span the width; Leads Report / Refresh are gone (pull to refresh). */}
       <div className="flex flex-wrap items-center justify-between gap-3">
-      <div className="inline-flex items-center gap-1 bg-gray-100 rounded-lg p-1">
+      <div className="flex w-full md:inline-flex md:w-auto items-center gap-1 bg-gray-100 rounded-lg p-1">
         <button
           onClick={() => { setLeadsView('leads'); onGroupSelect?.(null); onConversationSelect?.(null); }}
-          className={`h-8 px-4 rounded-md text-sm font-medium transition-colors ${leadsView === 'leads' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-700'}`}
+          className={`h-8 px-2 md:px-4 flex-1 md:flex-none rounded-md text-sm font-medium transition-colors ${leadsView === 'leads' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-700'}`}
         >
           Leads
         </button>
         <button
           onClick={() => { setLeadsView('groups'); onGroupSelect?.(null); onLeadSelect(null); onConversationSelect?.(null); }}
-          className={`h-8 px-4 rounded-md text-sm font-medium transition-colors flex items-center gap-1.5 ${leadsView === 'groups' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-700'}`}
+          className={`h-8 px-2 md:px-4 flex-1 md:flex-none justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors flex items-center gap-1.5 ${leadsView === 'groups' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-700'}`}
         >
           Groups
           {leadGroups.length > 0 && (
@@ -918,7 +949,7 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
         </button>
         <button
           onClick={() => { setLeadsView('conversations'); onLeadSelect(null); onGroupSelect?.(null); onConversationSelect?.(null); fetchMyConversations(); }}
-          className={`h-8 px-4 rounded-md text-sm font-medium transition-colors flex items-center gap-1.5 ${leadsView === 'conversations' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-700'}`}
+          className={`h-8 px-2 md:px-4 flex-1 md:flex-none justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors flex items-center gap-1.5 ${leadsView === 'conversations' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-700'}`}
         >
           My Conversations
           {conversationsUnread > 0 && (
@@ -929,8 +960,8 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
         </button>
       </div>
 
-      {/* Right side of the tabs row: Leads Report + Refresh */}
-      <div className="flex items-center gap-2">
+      {/* Right side of the tabs row: Leads Report + Refresh (md+ only — Chris) */}
+      <div className="hidden md:flex items-center gap-2">
         {/* Leads Report (internally "Storeel") — teal, distinct from the purple
             actions; opens in a new tab. */}
         {onViewStoreelReport && (
@@ -946,11 +977,7 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
       {/* Refresh whatever tab is showing */}
       <button
         type="button"
-        onClick={() => {
-          if (leadsView === 'leads') fetchLeads();
-          else if (leadsView === 'groups') fetchLeadGroups();
-          else fetchMyConversations();
-        }}
+        onClick={() => { refreshCurrentView(); }}
         disabled={isLoading || isLoadingConversations}
         className="h-9 px-3.5 inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 hover:text-[#6C60FF] transition-colors shrink-0 disabled:opacity-50"
       >
@@ -967,8 +994,9 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
       {leadsView === 'leads' ? (
       <>
       {/* Search & Filter Bar */}
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200 px-3 sm:px-4 md:px-6 py-3 sm:py-4">
-        <div className="relative flex flex-wrap items-center gap-2 sm:gap-3">
+      {/* Phones: just the search field + a Filters button (the sheet holds the rest). */}
+      <div className="md:bg-white md:rounded-lg md:shadow-sm md:border md:border-gray-200 md:px-6 md:py-4">
+        <div className="relative flex flex-wrap items-center gap-2 md:gap-3">
           {/* Search — takes remaining width (wraps the filters below it on narrow screens) */}
           <div className="relative flex-1 min-w-[10rem]">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
@@ -976,13 +1004,37 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
               placeholder="Search users or emails..."
               value={searchQuery}
               onChange={(e) => handleSearchChange(e.target.value)}
-              className="pl-9 w-full bg-gray-50 border-gray-200 placeholder:text-gray-400 h-9 text-sm"
+              enterKeyHint="search"
+              onKeyDown={(e) => {
+                // Phones: Enter searches straight away (no 300ms wait) and closes the keyboard.
+                if (!isPhone || e.key !== 'Enter') return;
+                if (searchTimeout.current) clearTimeout(searchTimeout.current);
+                fetchLeads(searchQuery, statusFilter, undefined, undefined, 1);
+                (e.target as HTMLInputElement).blur();
+              }}
+              className="pl-9 w-full bg-gray-50 border-gray-200 placeholder:text-gray-400 h-10 md:h-9 text-base md:text-sm"
             />
           </div>
 
+          {/* Phone: Filters button (count badge when any sheet filter is on) */}
+          <button
+            type="button"
+            onClick={() => setShowFilterSheet(true)}
+            aria-label={activeSheetFilterCount > 0 ? `Filters, ${activeSheetFilterCount} on` : 'Filters'}
+            className={`md:hidden relative h-10 px-3 inline-flex items-center gap-1.5 rounded-md border text-sm font-medium shrink-0 transition-colors ${activeSheetFilterCount > 0 ? 'border-[#6C60FF] text-[#6C60FF] bg-purple-50' : 'border-gray-200 text-gray-700 bg-white active:bg-gray-50'}`}
+          >
+            <SlidersHorizontal className="w-4 h-4" />
+            Filters
+            {activeSheetFilterCount > 0 && (
+              <span className="flex items-center justify-center min-w-[20px] h-5 px-1 rounded-full bg-[#6C60FF] text-white text-xs font-bold">
+                {activeSheetFilterCount}
+              </span>
+            )}
+          </button>
+
           {/* Status filter */}
           <Select value={statusFilter} onValueChange={handleStatusFilterChange}>
-            <SelectTrigger className="w-32 bg-white border-gray-200 h-9 text-sm shrink-0 !ring-0 !outline-none !shadow-none focus:!ring-0 focus-visible:!ring-2 focus-visible:!ring-[#6C60FF] focus-visible:!ring-offset-1">
+            <SelectTrigger className="hidden md:flex w-32 bg-white border-gray-200 h-9 text-sm shrink-0 !ring-0 !outline-none !shadow-none focus:!ring-0 focus-visible:!ring-2 focus-visible:!ring-[#6C60FF] focus-visible:!ring-offset-1">
               {statusFilter === 'hot' && <span className="flex items-center gap-1.5"><img src="/hot-icon.svg" className="w-3 h-3.5" />Hot</span>}
               {statusFilter === 'warm' && <span className="flex items-center gap-1.5"><img src="/warm-icon.svg" className="w-2 h-3.5" />Warm</span>}
               {statusFilter === 'cold' && <span className="flex items-center gap-1.5"><img src="/cold-icon.svg" className="w-3.5 h-3.5" />Cold</span>}
@@ -1003,7 +1055,7 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
           {/* Assigned to — Me / Unassigned for everyone; admins also get each
               teammate seen in the list. */}
           <Select value={assignedFilter} onValueChange={handleAssignedChange}>
-            <SelectTrigger aria-label="Assigned to" className="w-auto min-w-[11rem] gap-2 whitespace-nowrap bg-white border-gray-200 h-9 text-sm shrink-0 !ring-0 !outline-none !shadow-none focus:!ring-0 focus-visible:!ring-2 focus-visible:!ring-[#6C60FF] focus-visible:!ring-offset-1">
+            <SelectTrigger aria-label="Assigned to" className="hidden md:flex w-auto min-w-[11rem] gap-2 whitespace-nowrap bg-white border-gray-200 h-9 text-sm shrink-0 !ring-0 !outline-none !shadow-none focus:!ring-0 focus-visible:!ring-2 focus-visible:!ring-[#6C60FF] focus-visible:!ring-offset-1">
               <SelectValue placeholder="Assigned to" />
             </SelectTrigger>
             <SelectContent>
@@ -1019,7 +1071,7 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
 
           {/* Time filter — leads by first-seen period */}
           <Select value={timeFilter} onValueChange={(v) => setTimeFilter(v as typeof timeFilter)}>
-            <SelectTrigger className="w-32 bg-white border-gray-200 h-9 text-sm shrink-0 !ring-0 !outline-none !shadow-none focus:!ring-0 focus-visible:!ring-2 focus-visible:!ring-[#6C60FF] focus-visible:!ring-offset-1">
+            <SelectTrigger className="hidden md:flex w-32 bg-white border-gray-200 h-9 text-sm shrink-0 !ring-0 !outline-none !shadow-none focus:!ring-0 focus-visible:!ring-2 focus-visible:!ring-[#6C60FF] focus-visible:!ring-offset-1">
               <SelectValue placeholder="All Time" />
             </SelectTrigger>
             <SelectContent>
@@ -1034,7 +1086,7 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
           {/* Message Group — bulk messaging */}
           <Button
             onClick={() => (showMessageGroup ? setShowMessageGroup(false) : openMessageGroup())}
-            className="h-9 px-4 text-sm bg-[#6C60FF] hover:bg-[#5A4FE5] text-white shrink-0 gap-1.5"
+            className="hidden md:inline-flex h-9 px-4 text-sm bg-[#6C60FF] hover:bg-[#5A4FE5] text-white shrink-0 gap-1.5"
           >
             <MessageSquare className="w-4 h-4" />
             <span className="hidden sm:inline">Message Group</span>
@@ -1044,7 +1096,7 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
           <Button
             variant="outline"
             onClick={() => (showSearchGroup ? setShowSearchGroup(false) : openSearchGroup())}
-            className={`h-9 px-4 text-sm shrink-0 gap-1.5 border-[#6C60FF] text-[#6C60FF] hover:bg-purple-50 hover:text-[#6C60FF] ${showSearchGroup ? 'bg-purple-50' : ''}`}
+            className={`hidden md:inline-flex h-9 px-4 text-sm shrink-0 gap-1.5 border-[#6C60FF] text-[#6C60FF] hover:bg-purple-50 hover:text-[#6C60FF] ${showSearchGroup ? 'bg-purple-50' : ''}`}
           >
             <Search className="w-4 h-4" />
             <span className="hidden sm:inline">Search Group</span>
@@ -1054,7 +1106,7 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
           <Button
             variant="outline"
             onClick={handleClear}
-            className="h-9 px-4 text-sm border-gray-200 text-gray-600 hover:bg-gray-50 shrink-0"
+            className="hidden md:inline-flex h-9 px-4 text-sm border-gray-200 text-gray-600 hover:bg-gray-50 shrink-0"
           >
             Clear
           </Button>
@@ -1416,6 +1468,22 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
         ))}
       </div>
 
+      <LeadsFilterSheet
+        open={showFilterSheet && isPhone}
+        onOpenChange={setShowFilterSheet}
+        statusFilter={statusFilter}
+        onStatusChange={handleStatusFilterChange}
+        assignedFilter={assignedFilter}
+        onAssignedChange={handleAssignedChange}
+        assigneeOptions={assigneeOptions}
+        timeFilter={timeFilter}
+        onTimeChange={setTimeFilter}
+        hasActiveFilters={hasActiveFilters}
+        onClear={handleClear}
+        onMessageGroup={() => { setShowFilterSheet(false); setShowSearchGroup(false); openMessageGroup(); }}
+        onSearchGroup={() => { setShowFilterSheet(false); setShowMessageGroup(false); openSearchGroup(); }}
+      />
+
       <LeadConfirmDialog
         kind={confirming?.kind ?? null}
         leadName={confirming ? (confirming.lead.user?.name?.trim() || confirming.lead.user?.phone_number || confirming.lead.user?.email || 'This lead') : ''}
@@ -1423,11 +1491,11 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
         onConfirm={runConfirmed}
       />
 
-      {/* Inbox list */}
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200">
+      {/* Inbox list — phones render each lead as its own card, so no outer card there */}
+      <div className="md:bg-white md:rounded-lg md:shadow-sm md:border md:border-gray-200">
         <LeadsInboxTable
           leads={displayLeads}
-          isLoading={isLoading}
+          isLoading={showListLoading}
           error={error}
           emptyState={
             <>
@@ -1447,8 +1515,8 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
         />
 
         {/* Pagination footer */}
-        {!isLoading && !error && total > 0 && (
-          <div className="flex items-center justify-between gap-3 px-4 sm:px-6 py-3 border-t border-gray-100">
+        {!showListLoading && !error && total > 0 && (
+          <div className="flex items-center justify-between gap-3 px-1 md:px-6 py-3 md:border-t md:border-gray-100">
             <span className="text-xs sm:text-sm text-gray-600">
               Showing {(page - 1) * perPage + 1}–{Math.min(page * perPage, total)} of {total}
             </span>
@@ -1587,7 +1655,7 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
       ) : (
         /* ─── My Conversations view ───────────────────────────────── */
         <div className="bg-white rounded-lg shadow-sm border border-gray-200">
-          {isLoadingConversations ? (
+          {showConversationsLoading ? (
             <div className="flex items-center justify-center gap-2 py-16">
               <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-[#6C60FF]" />
               <span className="text-sm text-gray-600">Loading conversations...</span>
