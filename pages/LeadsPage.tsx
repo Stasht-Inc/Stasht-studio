@@ -21,10 +21,14 @@ interface LeadsPageProps {
   openLeadId?: number | null;
   openLeadHint?: string | null;
   onLeadOpened?: () => void;
+  // Set by App when "Send Message" is picked from the phone "+" menu; opens the
+  // Send Message dialog, then cleared through onSendMessageOpened.
+  openSendMessage?: boolean;
+  onSendMessageOpened?: () => void;
 }
 
 // Leads — its own top-level page (previously the first tab of the Users page).
-export default function LeadsPage({ openConversationLeadId, onConversationOpened, onNavigate, onViewStoreelReport, openLeadId: requestedLeadId, openLeadHint, onLeadOpened }: LeadsPageProps = {}) {
+export default function LeadsPage({ openConversationLeadId, onConversationOpened, onNavigate, onViewStoreelReport, openLeadId: requestedLeadId, openLeadHint, onLeadOpened, openSendMessage, onSendMessageOpened }: LeadsPageProps = {}) {
   const { isAuthenticated } = useAuth();
 
   // Lead / group / conversation panel state
@@ -47,6 +51,12 @@ export default function LeadsPage({ openConversationLeadId, onConversationOpened
       onLeadOpened?.();
     }
   }, [requestedLeadId]);
+  useEffect(() => {
+    if (openSendMessage) {
+      setShowSendMessage(true);
+      onSendMessageOpened?.();
+    }
+  }, [openSendMessage]);
   // Full breakdown from GET /leads/unread-count, threaded down to LeadsTab for the
   // Groups sub-tab's unread summary cards — avoids a second call for the same data.
   const [leadsUnreadBreakdown, setLeadsUnreadBreakdown] = useState<{ total_unread_messages: number; total_unread_comments: number; total_unread: number } | null>(null);
@@ -113,12 +123,14 @@ export default function LeadsPage({ openConversationLeadId, onConversationOpened
       <div className={`transition-all duration-300 min-w-0 ${isLeadFullView ? 'hidden' : isPanelOpen ? 'hidden sm:block sm:w-[70%]' : 'w-full'}`}>
         <div className="py-2 sm:p-3 md:p-4">
           <div className="w-full sm:px-3 bg-white">
-            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-3 sm:p-4 md:p-6 mb-4 sm:mb-6 flex items-start justify-between gap-3">
+            {/* Phones get a plain "Leads" title — no card, subtitle or Send Message
+                button (that lives in the "+" menu there, per Chris). md+ unchanged. */}
+            <div className="pt-1 md:bg-white md:rounded-lg md:shadow-sm md:border md:border-gray-200 md:p-6 mb-3 md:mb-6 flex items-start justify-between gap-3">
               <div className="min-w-0">
-                <h1 className="text-lg sm:text-xl md:text-2xl font-semibold text-gray-900">Leads</h1>
-                <p className="text-xs sm:text-sm md:text-base text-gray-600 mt-0.5 sm:mt-1">Follow up with the people engaging with your campaigns</p>
+                <h1 className="text-2xl font-bold md:font-semibold text-gray-900">Leads</h1>
+                <p className="hidden md:block text-base text-gray-600 mt-1">Follow up with the people engaging with your campaigns</p>
               </div>
-              <div className="shrink-0 flex flex-wrap items-center justify-end gap-2">
+              <div className="shrink-0 hidden md:flex flex-wrap items-center justify-end gap-2">
               <button
                 type="button"
                 onClick={() => setShowSendMessage(true)}
