@@ -87,8 +87,15 @@ function rowBackground(selected: boolean, unread: boolean): string {
   return 'hover:bg-gray-50 focus-visible:bg-gray-50';
 }
 
-function UnreadDot() {
-  return <span className="shrink-0 h-2 w-2 rounded-full bg-red-500" aria-label="Unread" />;
+// Red on the desktop table; purple on the phone cards (Chris's cleanup, 2026-10-27).
+function UnreadDot({ className = 'bg-red-500' }: { className?: string }) {
+  return <span role="img" className={`shrink-0 h-2 w-2 rounded-full ${className}`} aria-label="Unread" />;
+}
+
+// Phone card: white with a light border; unread gets a purple left accent, the open lead a purple tint.
+function phoneCardClass(selected: boolean, unread: boolean): string {
+  const tone = selected ? 'bg-purple-50 border-purple-200' : 'bg-white border-gray-200 active:bg-gray-50';
+  return `${tone} ${unread ? 'border-l-[3px] border-l-[#6C60FF] pl-[calc(0.875rem-2px)]' : ''}`;
 }
 
 type ActionProps = Pick<Props, 'isClosedTab' | 'onSelect' | 'onArchive' | 'onDelete' | 'onMarkRead' | 'onLeadPatched'> & { lead: Lead };
@@ -290,31 +297,36 @@ export default function LeadsInboxTable(props: Props) {
         </table>
       </div>
 
-      {/* Mobile */}
-      <div className="md:hidden divide-y divide-gray-100">
-        {status ?? leads.map((lead) => {
+      {/* Mobile: one card per lead (Chris: "no distinction between the leads") */}
+      <div className="md:hidden space-y-2">
+        {status ? <div className="bg-white rounded-xl border border-gray-200">{status}</div> : leads.map((lead) => {
           const unread = isUnread(lead);
+          const selected = selectedLeadId === lead.id;
           const contact = [leadPhone(lead), leadEmail(lead)].filter(Boolean).join(' · ') || '—';
           const name = lead.user?.name?.trim();
           return (
-            <div key={lead.id} onClick={() => onSelect(lead)} className={`px-4 py-2.5 cursor-pointer ${unread ? 'bg-amber-50 active:bg-amber-100' : 'active:bg-gray-50'}`}>
-              <div className="flex items-center justify-between gap-2">
-                <div className={`flex items-center gap-1.5 min-w-0 text-[15px] text-gray-900 ${unread ? 'font-semibold' : 'font-medium'}`}>
+            <div
+              key={lead.id}
+              onClick={() => onSelect(lead)}
+              className={`rounded-xl border px-3.5 py-3 cursor-pointer transition-colors min-w-0 ${phoneCardClass(selected, unread)}`}
+            >
+              <div className="flex items-center justify-between gap-2 min-w-0">
+                <div className={`flex items-center gap-1.5 min-w-0 text-[15px] text-gray-900 ${unread ? 'font-bold' : 'font-medium'}`}>
+                  {unread && <UnreadDot className="bg-[#6C60FF]" />}
                   <span className="truncate">{name || contact}</span>
                   <StatusIndicator status={lead.status} />
-                  {unread && <UnreadDot />}
                 </div>
-                <span className="shrink-0 text-xs text-gray-500 whitespace-nowrap">
+                <span className={`shrink-0 text-xs whitespace-nowrap ${unread ? 'text-[#6C60FF] font-semibold' : 'text-gray-500'}`}>
                   {formatInboxDateShort(lead.last_activity_at || lead.last_engaged_at)}
                 </span>
               </div>
-              <p className={`mt-0.5 text-sm truncate ${unread ? 'font-semibold' : ''}`}>{excerptOf(lead, unread)}</p>
-              <div className="mt-1 flex items-center justify-between gap-2">
+              <p className={`mt-1 text-sm truncate ${unread ? 'font-medium' : ''}`}>{excerptOf(lead, unread)}</p>
+              <div className="mt-2 flex items-center justify-between gap-2 min-w-0">
                 <span className="min-w-0 flex items-center gap-1.5">
-                  <span className="min-w-0 truncate text-[13px] text-gray-600">{name ? contact : leadViaLabel(lead)}</span>
+                  <span className="min-w-0 truncate text-[13px] text-gray-500">{name ? contact : leadViaLabel(lead)}</span>
                   {lead.campaign_deleted && <CampaignDeletedTag />}
                 </span>
-                <div className="flex items-center gap-1 shrink-0">
+                <div className="flex items-center gap-1 shrink-0 -mr-1">
                   {lead.assignee && <AssigneeBadge assignee={lead.assignee} size="sm" nameClassName="hidden" />}
                   <RowActions {...props} lead={lead} className="flex" />
                 </div>
