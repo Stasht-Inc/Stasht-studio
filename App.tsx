@@ -50,7 +50,7 @@ import { maybeAskForDesktopAlerts } from './components/leads/desktopAlertsPrompt
 import { UploadProgressProvider } from './contexts/UploadProgressContext';
 import { SyncProgressProvider } from './contexts/SyncProgressContext';
 import { GoogleOAuthProvider } from '@react-oauth/google';
-import { LayoutDashboard, FolderOpen, Camera, Users, Grid3x3, Plus, BookOpen, ScanLine, X as XIcon, Clock, Target } from 'lucide-react';
+import { LayoutDashboard, FolderOpen, Camera, Users, Grid3x3, Plus, BookOpen, ScanLine, X as XIcon, Clock, Target, MessageSquarePlus } from 'lucide-react';
 import { CameraInterface } from './components/CameraInterface';
 import { AddMomentModal } from './components/AddMomentModal';
 import exifr from 'exifr';
@@ -1136,6 +1136,13 @@ function MainApp() {
   const handleOpenLead = useCallback((leadId: number, hint?: string | null) => {
     setPendingLeadId(leadId);
     setPendingLeadHint(hint ?? null);
+    handleNavigation('leads');
+  }, [handleNavigation]);
+  // Phone "+" menu → Send Message: opens the Leads page's Send Message dialog.
+  // Consumed (and cleared) by LeadsPage, like pendingLeadId above.
+  const [pendingSendMessage, setPendingSendMessage] = useState(false);
+  const handleOpenSendMessage = useCallback(() => {
+    setPendingSendMessage(true);
     handleNavigation('leads');
   }, [handleNavigation]);
   const handleOpenConversation = useCallback((leadId: number) => {
@@ -4006,7 +4013,7 @@ function MainApp() {
     }
 
     if (currentPage === "leads") {
-      return <LeadsPage openConversationLeadId={pendingConversationLeadId} onConversationOpened={() => setPendingConversationLeadId(null)} openLeadId={pendingLeadId} openLeadHint={pendingLeadHint} onLeadOpened={() => setPendingLeadId(null)} onNavigate={handleNavigation} onViewStoreelReport={handleViewStoreelReport} />;
+      return <LeadsPage openConversationLeadId={pendingConversationLeadId} onConversationOpened={() => setPendingConversationLeadId(null)} openLeadId={pendingLeadId} openLeadHint={pendingLeadHint} onLeadOpened={() => setPendingLeadId(null)} openSendMessage={pendingSendMessage} onSendMessageOpened={() => setPendingSendMessage(false)} onNavigate={handleNavigation} onViewStoreelReport={handleViewStoreelReport} />;
     }
 
     if (currentPage === "users") {
@@ -4504,6 +4511,25 @@ function MainApp() {
           {/* Plus Popover Card */}
           {showPlusPopover && (
             <div className="md:hidden fixed bottom-[calc(163px+env(safe-area-inset-bottom))] left-1/2 -translate-x-1/2 z-[9999] bg-gray-100/75 backdrop-blur-2xl rounded-3xl shadow-2xl border border-white/60 w-72 overflow-hidden">
+              {/* Send Message — moved here from the Leads header on phones (Chris) */}
+              <button
+                className="flex items-center gap-4 w-full px-4 py-4 hover:bg-white/40 active:bg-white/60 transition-colors"
+                onClick={() => {
+                  setShowPlusPopover(false);
+                  handleOpenSendMessage();
+                }}
+              >
+                <div className="w-11 h-11 rounded-xl bg-[#6C60FF]/15 flex items-center justify-center flex-shrink-0">
+                  <MessageSquarePlus className="w-6 h-6 text-[#6C60FF]" />
+                </div>
+                <div className="text-left">
+                  <p className="text-sm font-semibold text-gray-900">Send Message</p>
+                  <p className="text-xs text-gray-500">Text or email anyone</p>
+                </div>
+              </button>
+
+              <div className="h-px bg-white mx-4" />
+
               {/* Create a Campaign */}
               <button
                 className="flex items-center gap-4 w-full px-4 py-4 hover:bg-white/40 active:bg-white/60 transition-colors"
