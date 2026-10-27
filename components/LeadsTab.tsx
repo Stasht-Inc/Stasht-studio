@@ -543,6 +543,7 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
     }
   };
 
+  const [silentLeadsFetch, setSilentLeadsFetch] = useState(false);
   const fetchLeads = async (
     search?: string,
     status?: string,
@@ -551,7 +552,11 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
     pageNum?: number,
     closed?: boolean,
     assigned?: string,
+    opts?: { silent?: boolean },
   ) => {
+    // A phone pull refresh keeps the list on screen; any other fetch (e.g. a filter
+    // changed mid-refresh) clears the flag so its loading state shows as usual.
+    setSilentLeadsFetch(!!opts?.silent);
     setIsLoading(true);
     setError(null);
     try {
@@ -838,22 +843,53 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
   // Phone "Filters" button badge: the filters that live in the sheet (search has its own field).
   const activeSheetFilterCount = [statusFilter !== 'all' && statusFilter !== '', assignedFilter !== 'all', timeFilter !== 'all'].filter(Boolean).length;
 
-  // Reloads whatever sub-tab is showing — the Refresh button (md+) and phone pull-to-refresh.
-  const refreshCurrentView = async () => {
-    if (leadsView === 'leads') await fetchLeads();
-    else if (leadsView === 'groups') await fetchLeadGroups();
-    else await fetchMyConversations();
+  // Reloads whatever sub-tab is showing — the Refresh button (md+) and phone
+  // pull-to-refresh (silent: the list stays up, the floating spinner shows progress).
+  const refreshCurrentView = async (silent = false) => {
+    if (leadsView === 'leads') {
+      await fetchLeads(undefined, undefined, undefined, undefined, undefined, undefined, undefined, { silent });
+    } else if (leadsView === 'groups') {
+      await fetchLeadGroups();
+    } else {
+      setSilentConversationsFetch(silent);
+      try { await fetchMyConversations(); } finally { setSilentConversationsFetch(false); }
+    }
   };
+  const [silentConversationsFetch, setSilentConversationsFetch] = useState(false);
 
   // Phone filters sheet; pull-to-refresh is phone-only and paused while a sheet/popover is open.
   const [showFilterSheet, setShowFilterSheet] = useState(false);
   const isPhone = useIsMobile();
-  const pullToRefresh = usePullToRefresh(refreshCurrentView, {
+  useEffect(() => { if (!isPhone) setShowFilterSheet(false); }, [isPhone]);
+  const filtersButtonRef = useRef<HTMLButtonElement>(null);
+  // Group tool picked in the sheet: opened once the sheet has finished closing, with
+  // focus back on the Filters button so the panel returns focus there when it closes.
+  const pendingGroupToolRef = useRef<'message' | 'search' | null>(null);
+  const handleFilterSheetCloseAutoFocus = (e: Event) => {
+    const tool = pendingGroupToolRef.current;
+    if (!tool) return;
+    pendingGroupToolRef.current = null;
+    e.preventDefault();
+    // Next tick: this runs while the sheet's focus trap is still tearing down, and
+    // the trap would pull an immediate focus() straight back into the sheet.
+    setTimeout(() => {
+      filtersButtonRef.current?.focus();
+      if (tool === 'message') { setShowSearchGroup(false); openMessageGroup(); }
+      else { setShowMessageGroup(false); openSearchGroup(); }
+    }, 0);
+  };
+  const handleClearSheetFilters = () => {
+    setStatusFilter('all');
+    setTimeFilter('all');
+    setAssignedFilter('all');
+    setPage(1);
+    fetchLeads(searchQuery, 'all', sortField, sortDirection, 1, showClosed, 'all');
+  };
+  const pullToRefresh = usePullToRefresh(() => refreshCurrentView(true), {
     enabled: isPhone && !showFilterSheet && !showSearchGroup && !showMessageGroup && !confirming,
   });
-  // Keep the list on screen during a pull refresh; the floating spinner shows progress.
-  const showListLoading = isLoading && !pullToRefresh.isRefreshing;
-  const showConversationsLoading = isLoadingConversations && !pullToRefresh.isRefreshing;
+  const showListLoading = isLoading && !silentLeadsFetch;
+  const showConversationsLoading = isLoadingConversations && !silentConversationsFetch;
 
   // Admin-only teammate options for the "Assigned to" filter: everyone currently
   // assigned a lead in view (kept once seen, so filtering by one doesn't drop the rest).
@@ -1018,6 +1054,7 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
 
           {/* Phone: Filters button (count badge when any sheet filter is on) */}
           <button
+            ref={filtersButtonRef}
             type="button"
             onClick={() => setShowFilterSheet(true)}
             aria-label={activeSheetFilterCount > 0 ? `Filters, ${activeSheetFilterCount} on` : 'Filters'}
@@ -1469,7 +1506,7 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
       </div>
 
       <LeadsFilterSheet
-        open={showFilterSheet && isPhone}
+        open={showFilterSheet}
         onOpenChange={setShowFilterSheet}
         statusFilter={statusFilter}
         onStatusChange={handleStatusFilterChange}
@@ -1478,10 +1515,11 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
         assigneeOptions={assigneeOptions}
         timeFilter={timeFilter}
         onTimeChange={setTimeFilter}
-        hasActiveFilters={hasActiveFilters}
-        onClear={handleClear}
-        onMessageGroup={() => { setShowFilterSheet(false); setShowSearchGroup(false); openMessageGroup(); }}
-        onSearchGroup={() => { setShowFilterSheet(false); setShowMessageGroup(false); openSearchGroup(); }}
+        canClear={activeSheetFilterCount > 0}
+        onClear={handleClearSheetFilters}
+        onMessageGroup={() => { pendingGroupToolRef.current = 'message'; setShowFilterSheet(false); }}
+        onSearchGroup={() => { pendingGroupToolRef.current = 'search'; setShowFilterSheet(false); }}
+        onCloseAutoFocus={handleFilterSheetCloseAutoFocus}
       />
 
       <LeadConfirmDialog

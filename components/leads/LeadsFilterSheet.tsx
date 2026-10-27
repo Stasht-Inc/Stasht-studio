@@ -1,3 +1,4 @@
+import { useId } from 'react';
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 import { CheckCircle2, MapPin, MessageSquare, Search, X } from 'lucide-react';
 
@@ -21,10 +22,13 @@ interface Props {
   assigneeOptions: { id: number; name: string | null }[];
   timeFilter: TimeFilter;
   onTimeChange: (value: TimeFilter) => void;
-  hasActiveFilters: boolean;
+  // Only the sheet's own filters (status / assigned / first seen) — not the search box.
+  canClear: boolean;
   onClear: () => void;
   onMessageGroup: () => void;
   onSearchGroup: () => void;
+  // Lets LeadsTab open a group panel after the sheet closes, without focus jumping back.
+  onCloseAutoFocus?: (e: Event) => void;
 }
 
 const STATUS_OPTIONS: { value: string; label: string; icon?: React.ReactNode }[] = [
@@ -58,11 +62,13 @@ function Chip({ selected, onClick, children }: { selected: boolean; onClick: () 
   );
 }
 
+// A labelled group of toggle chips (each chip is aria-pressed).
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
+  const id = useId();
   return (
     <section>
-      <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">{title}</h3>
-      <div className="flex flex-wrap gap-2">{children}</div>
+      <h3 id={id} className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">{title}</h3>
+      <div role="group" aria-labelledby={id} className="flex flex-wrap gap-2">{children}</div>
     </section>
   );
 }
@@ -82,7 +88,7 @@ function ToolRow({ icon, title, subtitle, onClick }: { icon: React.ReactNode; ti
 export default function LeadsFilterSheet(props: Props) {
   const {
     open, onOpenChange, statusFilter, onStatusChange, assignedFilter, onAssignedChange, assigneeOptions,
-    timeFilter, onTimeChange, hasActiveFilters, onClear, onMessageGroup, onSearchGroup,
+    timeFilter, onTimeChange, canClear, onClear, onMessageGroup, onSearchGroup, onCloseAutoFocus,
   } = props;
 
   return (
@@ -91,6 +97,7 @@ export default function LeadsFilterSheet(props: Props) {
         <DialogPrimitive.Overlay className="md:hidden fixed inset-0 z-[10001] bg-black/40 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0" />
         <DialogPrimitive.Content
           aria-describedby={undefined}
+          onCloseAutoFocus={onCloseAutoFocus}
           className="md:hidden fixed inset-x-0 bottom-0 z-[10002] flex flex-col max-h-[85dvh] bg-white rounded-t-2xl shadow-2xl pb-[env(safe-area-inset-bottom)] focus:outline-none data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:slide-out-to-bottom data-[state=open]:slide-in-from-bottom data-[state=closed]:duration-200 data-[state=open]:duration-300"
         >
           <div className="mx-auto mt-2 h-1 w-10 rounded-full bg-gray-300" aria-hidden="true" />
@@ -150,7 +157,7 @@ export default function LeadsFilterSheet(props: Props) {
             <button
               type="button"
               onClick={onClear}
-              disabled={!hasActiveFilters}
+              disabled={!canClear}
               className="flex-1 h-11 rounded-lg border border-gray-200 text-sm font-medium text-gray-700 active:bg-gray-50 disabled:opacity-40"
             >
               Clear filters

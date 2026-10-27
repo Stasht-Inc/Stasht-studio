@@ -86,7 +86,13 @@ export function useDialogBehavior(opts: {
       // newly-clicked row before this cleanup runs — yanking it back to the
       // old opener would both steal focus from the click and cause the next
       // drawer's mount effect to capture the wrong element as its opener.
-      if (panel.contains(document.activeElement)) {
+      //
+      // Focus on <body> also counts: when the panel is rendered conditionally by the
+      // same component that owns this hook (LeadsTab's Message/Search Group panels),
+      // React detaches the panel before this cleanup runs, so the browser has already
+      // dropped focus to <body> and the contains() check alone never matched.
+      const active = document.activeElement;
+      if (!active || active === document.body || panel.contains(active)) {
         openerRef.current?.focus();
       }
     };

@@ -2,7 +2,7 @@
 // Imports the TypeScript source directly — needs Node >= 22.18 (built-in type stripping).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { PULL_THRESHOLD, pullDistanceFor, shouldTriggerRefresh, pullIndicatorStyle } from '../../utils/pullToRefresh.ts';
+import { PULL_THRESHOLD, pullDistanceFor, shouldTriggerRefresh, pullIndicatorStyle, pullAxis } from '../../utils/pullToRefresh.ts';
 
 test('threshold matches the campaign details page (80px)', () => {
   assert.equal(PULL_THRESHOLD, 80);
@@ -37,4 +37,18 @@ test('indicator: travels at most 60px, fades in over the threshold, spins with t
 test('indicator: resting / refreshing state is fully visible at the top, CSS spin only', () => {
   assert.deepEqual(pullIndicatorStyle(0, false, true), { translateY: 0, opacity: 1, rotate: null });
   assert.deepEqual(pullIndicatorStyle(90, true, true), { translateY: 60, opacity: 1, rotate: null });
+});
+
+test('axis: undecided until the finger moves past the slop', () => {
+  assert.equal(pullAxis(0, 0), null);
+  assert.equal(pullAxis(3, 5), null);
+  assert.equal(pullAxis(-5, -5), null);
+});
+
+test('axis: vertical only when vertical movement beats horizontal', () => {
+  assert.equal(pullAxis(2, 12), 'y');
+  assert.equal(pullAxis(-4, -9), 'y');
+  assert.equal(pullAxis(12, 3), 'x');
+  assert.equal(pullAxis(-10, 10), 'x'); // a tie is not a pull
+  assert.equal(pullAxis(1, 3, 2), 'y');
 });

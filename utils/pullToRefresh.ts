@@ -31,3 +31,10 @@ export function pullIndicatorStyle(
     rotate: isRefreshing ? null : distance * 2,
   };
 }
+
+// Which way a touch is heading: null until it has moved `slop` px, then 'y' only
+// when vertical movement beats horizontal (a sideways swipe never starts a pull).
+export function pullAxis(dx: number, dy: number, slop = 6): 'x' | 'y' | null {
+  if (Math.max(Math.abs(dx), Math.abs(dy)) < slop) return null;
+  return Math.abs(dy) > Math.abs(dx) ? 'y' : 'x';
+}

@@ -308,7 +308,7 @@ export default function LeadsInboxTable(props: Props) {
             <div
               key={lead.id}
               onClick={() => onSelect(lead)}
-              className={`rounded-xl border px-3.5 py-3 cursor-pointer transition-colors min-w-0 ${phoneCardClass(selected, unread)}`}
+              className={`rounded-xl border px-3.5 pt-3 pb-1.5 cursor-pointer transition-colors min-w-0 ${phoneCardClass(selected, unread)}`}
             >
               <div className="flex items-center justify-between gap-2 min-w-0">
                 <div className={`flex items-center gap-1.5 min-w-0 text-[15px] text-gray-900 ${unread ? 'font-bold' : 'font-medium'}`}>
@@ -321,14 +321,15 @@ export default function LeadsInboxTable(props: Props) {
                 </span>
               </div>
               <p className={`mt-1 text-sm truncate ${unread ? 'font-medium' : ''}`}>{excerptOf(lead, unread)}</p>
-              <div className="mt-2 flex items-center justify-between gap-2 min-w-0">
+              <div className="mt-1 flex items-center justify-between gap-2 min-w-0">
                 <span className="min-w-0 flex items-center gap-1.5">
                   <span className="min-w-0 truncate text-[13px] text-gray-500">{name ? contact : leadViaLabel(lead)}</span>
                   {lead.campaign_deleted && <CampaignDeletedTag />}
                 </span>
-                <div className="flex items-center gap-1 shrink-0 -mr-1">
+                <div className="flex items-center gap-1 shrink-0 -mr-2.5">
                   {lead.assignee && <AssigneeBadge assignee={lead.assignee} size="sm" nameClassName="hidden" />}
-                  <RowActions {...props} lead={lead} className="flex" />
+                  {/* 40px tap targets on phones; the icons stay the same size. */}
+                  <RowActions {...props} lead={lead} className="flex !gap-0 [&_button]:h-10 [&_button]:w-10" />
                 </div>
               </div>
             </div>

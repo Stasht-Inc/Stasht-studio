@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { PULL_THRESHOLD, pullDistanceFor, shouldTriggerRefresh } from '../utils/pullToRefresh';
+import { PULL_THRESHOLD, pullAxis, pullDistanceFor, shouldTriggerRefresh } from '../utils/pullToRefresh';
 
 // Touch pull-to-refresh, behaving like the campaign details page's
 // (pages/MemoryDetailsPage.tsx): pull down from the top of the page, release past
@@ -23,6 +23,9 @@ export function usePullToRefresh(onRefresh: () => Promise<unknown> | void, { ena
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   const startYRef = useRef<number | null>(null);
+  const startXRef = useRef(0);
+  // Decided on the first few px of movement: 'x' (sideways swipe) cancels the pull.
+  const axisRef = useRef<'x' | 'y' | null>(null);
   const distanceRef = useRef(0);
   const refreshingRef = useRef(false);
   const mountedRef = useRef(true);
@@ -36,6 +39,7 @@ export function usePullToRefresh(onRefresh: () => Promise<unknown> | void, { ena
 
   const reset = useCallback(() => {
     startYRef.current = null;
+    axisRef.current = null;
     distanceRef.current = 0;
     setIsPulling(false);
     setPullDistance(0);
@@ -50,6 +54,8 @@ export function usePullToRefresh(onRefresh: () => Promise<unknown> | void, { ena
     if (!(e.target instanceof Node) || !e.currentTarget.contains(e.target)) return;
     if (!atTop(e.currentTarget)) return;
     startYRef.current = e.touches[0].clientY;
+    startXRef.current = e.touches[0].clientX;
+    axisRef.current = null;
   };
 
   const onTouchMove = (e: React.TouchEvent<HTMLElement>) => {
@@ -58,7 +64,16 @@ export function usePullToRefresh(onRefresh: () => Promise<unknown> | void, { ena
       reset();
       return;
     }
-    const distance = pullDistanceFor(startYRef.current, e.touches[0].clientY, threshold);
+    const touch = e.touches[0];
+    if (axisRef.current === null) {
+      axisRef.current = pullAxis(touch.clientX - startXRef.current, touch.clientY - startYRef.current);
+      if (axisRef.current === null) return;
+    }
+    if (axisRef.current === 'x') {
+      reset();
+      return;
+    }
+    const distance = pullDistanceFor(startYRef.current, touch.clientY, threshold);
     distanceRef.current = distance;
     if (distance > 0) {
       setIsPulling(true);
@@ -70,6 +85,7 @@ export function usePullToRefresh(onRefresh: () => Promise<unknown> | void, { ena
     if (startYRef.current === null || refreshingRef.current) return;
     const distance = distanceRef.current;
     startYRef.current = null;
+    axisRef.current = null;
     distanceRef.current = 0;
     if (!shouldTriggerRefresh(distance, threshold)) {
       reset();
