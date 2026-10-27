@@ -125,7 +125,7 @@ export default function LeadsPage({ openConversationLeadId, onConversationOpened
           <div className="w-full sm:px-3 bg-white">
             {/* Phones get a plain "Leads" title — no card, subtitle or Send Message
                 button (that lives in the "+" menu there, per Chris). md+ unchanged. */}
-            <div className="pt-1 md:pt-0 md:bg-white md:rounded-lg md:shadow-sm md:border md:border-gray-200 md:p-6 mb-3 md:mb-6 flex items-start justify-between gap-3">
+            <div className="pt-1 md:bg-white md:rounded-lg md:shadow-sm md:border md:border-gray-200 md:p-6 mb-3 md:mb-6 flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <h1 className="text-2xl font-bold md:font-semibold text-gray-900">Leads</h1>
                 <p className="hidden md:block text-base text-gray-600 mt-1">Follow up with the people engaging with your campaigns</p>
