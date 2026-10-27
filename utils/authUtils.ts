@@ -547,7 +547,8 @@ const performApiRequest = async <T = any>(
           message: data.message,
           conflict: true,
           currentUser: data.currentUser,
-          ...data // Include all response data
+          ...data, // Include all response data
+          statusCode: response.status,
         };
       }
 
@@ -556,7 +557,9 @@ const performApiRequest = async <T = any>(
         error: data.message || data.error || `HTTP ${response.status}`,
         message: data.message,
         errors: data.errors, // Preserve validation errors
-        ...data // Include all response data
+        ...data, // Include all response data
+        // The HTTP status, so callers can tell a server error (5xx, worth retrying) from a refusal (4xx).
+        statusCode: response.status,
       };
     }
 

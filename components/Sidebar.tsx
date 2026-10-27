@@ -14,7 +14,6 @@ import { catalogueAPI } from "../services/catalogueAPI";
 import { CONNECTORS_COUNT_EVENT } from "./connectors/catalog";
 import { useAuth } from "../contexts/AuthContext";
 import { useMemoryCounts } from "../hooks/useMemoryCounts";
-import { MemoryLimitDialog } from "./MemoryLimitDialog";
 import { useUploadProgress } from "../contexts/UploadProgressContext";
 import { useSyncProgress } from "../contexts/SyncProgressContext";
 import { useProperty } from "../contexts/PropertyContext";
@@ -280,7 +279,6 @@ export default function Sidebar({
   const { memoryCounts, refreshMemoryCounts } = useMemoryCounts();
   const { isUploading } = useUploadProgress();
   const { syncProgress, clearSync } = useSyncProgress();
-  const [showMemoryLimitAlert, setShowMemoryLimitAlert] = useState(false);
   const [showCreateMemory, setShowCreateMemory] = useState(false);
   const [videoStep, setVideoStep] = useState<number | null>(null);
   const alvinOn = useAlvinEnabled();
@@ -415,23 +413,11 @@ export default function Sidebar({
 
   // Note: Memory limit updates now handled by global event system in useMemoryLimit hook
 
-  const handleAddMemory = async () => {
-    // Check latest memory limit before opening create dialog
-    await checkLimit();
-
-    // Get fresh limit data after the check
-    const response = await dashboardAPI.checkMemoryLimit();
-    if (response.success && response.data) {
-      const data = response.data.data || response.data;
-      const limitStatus = data.limit_status || data;
-
-      if (limitStatus.status === 'limit_exceeded') {
-        setShowMemoryLimitAlert(true);
-        return;
-      }
-    }
-
+  // Create Campaign always opens (alignment decision 6, newsletters 2026-10-13): the Storeel campaign limit
+  // only applies to the Storeel tab, which shows it inline. Refresh it in the background for that tab.
+  const handleAddMemory = () => {
     setShowCreateMemory(true);
+    void checkLimit();
   };
 
   const handleMemoryCreated = async () => {
@@ -652,9 +638,7 @@ export default function Sidebar({
       primaryAction: (memoryCounts?.total_memories || 0) > 0 ? undefined : {
         text: "Create Now",
         onClick: () => {
-          if (!isLimitExceeded) {
-            handleAddMemory();
-          }
+          handleAddMemory();
         }
       },
       secondaryAction: alvinOn ? askAlvin('Help me create my first campaign.', 2, (memoryCounts?.total_memories || 0) > 0) : (memoryCounts?.total_memories || 0) > 0 || watchedSteps.includes(2) ? undefined : {
@@ -711,15 +695,9 @@ export default function Sidebar({
         {/* Minimized Create Button - Only show for property owners */}
         {isPropertyOwner && (
           <button
-            onClick={isLimitExceeded ? undefined : handleAddMemory}
-            disabled={isLimitExceeded}
-            className={
-              isLimitExceeded
-                ? "w-10 h-10 rounded-lg bg-gray-300 text-gray-500 cursor-not-allowed flex items-center justify-center"
-                : "w-10 h-10 rounded-lg bg-[#6C60FF] hover:bg-[#5A4FE5] text-white flex items-center justify-center transition-colors"
-            }
-            style={isLimitExceeded ? { backgroundColor: '#EFEFEF', color: '#9CA3AF' } : undefined}
-            title={isLimitExceeded ? "Campaign limit reached" : "Create a Campaign"}
+            onClick={handleAddMemory}
+            className="w-10 h-10 rounded-lg bg-[#6C60FF] hover:bg-[#5A4FE5] text-white flex items-center justify-center transition-colors"
+            title="Create a Campaign"
           >
             <Plus className="w-5 h-5" />
           </button>
@@ -776,14 +754,14 @@ export default function Sidebar({
         {/* Create Memory Button - Only show for property owners */}
         {isPropertyOwner && (
           <button
-            onClick={(isLimitExceeded || isUploading) ? undefined : handleAddMemory}
-            disabled={isLimitExceeded || isUploading}
+            onClick={isUploading ? undefined : handleAddMemory}
+            disabled={isUploading}
             className={
-              (isLimitExceeded || isUploading)
+              isUploading
                 ? "w-full py-3 px-4 rounded-lg font-medium text-sm bg-gray-300 text-gray-500 cursor-not-allowed flex items-center justify-center gap-2"
                 : "w-full py-3 px-4 rounded-lg font-medium text-sm bg-[#6C60FF] hover:bg-[#5B52FF] text-white shadow-lg hover:shadow-xl transition-all duration-200 flex items-center justify-center gap-2"
             }
-            style={(isLimitExceeded || isUploading) ? { backgroundColor: '#EFEFEF', color: '#9CA3AF' } : undefined}
+            style={isUploading ? { backgroundColor: '#EFEFEF', color: '#9CA3AF' } : undefined}
           >
             <Plus className="w-4 h-4" />
             {isUploading ? 'Uploading...' : 'Create a Campaign'}
@@ -1108,13 +1086,6 @@ export default function Sidebar({
           setShowCreateMemory(false);
           handleNavigation('media');
         }}
-      />
-
-      <MemoryLimitDialog
-        isOpen={showMemoryLimitAlert}
-        onClose={() => setShowMemoryLimitAlert(false)}
-        memoryCount={limitData?.current_memories}
-        memoryLimit={limitData?.memory_limit}
       />
 
       {videoStep !== null && (

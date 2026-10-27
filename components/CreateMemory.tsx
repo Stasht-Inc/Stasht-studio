@@ -21,12 +21,16 @@ import { useProperty } from '../contexts/PropertyContext';
 import { useMemoryLimit, recheckMemoryLimit } from '../hooks/useMemoryLimit';
 import { triggerMemoryCountsRefresh } from '../hooks/useMemoryCounts';
 import { MemoryCreatedDialog } from "./MemoryCreatedDialog";
-import { MemoryLimitDialog } from "./MemoryLimitDialog";
 import { ExifProgressModal } from "./ExifProgressModal";
 import MediaLibrarySelectionModal from "./MediaLibrarySelectionModal";
 import { AddMomentModal } from "./AddMomentModal";
 import { VideoRecorderModal } from "./VideoRecorderModal";
 import { useGoogleDrivePicker } from '../hooks/useGoogleDrivePicker';
+import NewsletterComposer, { type NewsletterComposerHandle } from './newsletters/NewsletterComposer';
+import CampaignTypeSwitch from './newsletters/CampaignTypeSwitch';
+import { initialCampaignType, type CampaignType } from './newsletters/lib/campaignType';
+import { announceNewslettersChanged } from './newsletters/lib/campaignsView';
+import { requestUpgrade } from '../utils/planEvents';
 
 interface CreateMemoryProps {
   open: boolean;
@@ -36,6 +40,10 @@ interface CreateMemoryProps {
   selectedMediaLibraryImages?: any[];
   defaultCategory?: string; // Default category to pre-select when creating a memory
   categories?: any[]; // Pre-loaded categories from parent (avoids redundant fetch)
+  newsletterId?: number | null; // Open this newsletter on the Newsletter tab (Campaigns > Newsletters)
+  onNewsletterChanged?: () => void; // A newsletter was saved, sent or scheduled
+  initialPhotos?: File[] | null; // Photos passed in (Scan Photo): opens on Storeel with them ready to add
+  beforeStoreel?: () => boolean; // Asked before switching to the Storeel tab; false keeps the Newsletter tab
 }
 
 export interface CreateMemoryHandle {
@@ -77,10 +85,61 @@ function CampaignVideoThumbnail({ src, className }: { src: string; className?: s
   );
 }
 
-const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function CreateMemory({ open, onOpenChange, onMemoryCreated, onOpenMediaLibrary, selectedMediaLibraryImages, defaultCategory, categories: categoriesProp }, ref) {
+const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function CreateMemory({ open, onOpenChange, onMemoryCreated, onOpenMediaLibrary, selectedMediaLibraryImages, defaultCategory, categories: categoriesProp, newsletterId = null, onNewsletterChanged, initialPhotos = null, beforeStoreel }, ref) {
   const { isAuthenticated, user } = useAuth();
   const { viewType, currentProperty } = useProperty();
   const { isLimitExceeded, limitData, checkLimit } = useMemoryLimit();
+  // Newsletter | Storeel switch (spec 2026-10-13). Newsletter is the default; null = follow initialCampaignType.
+  const [campaignTypeChoice, setCampaignTypeChoice] = useState<CampaignType | null>(null);
+  const starterPlan = useIsStarterPlan();
+  const campaignType: CampaignType = campaignTypeChoice ?? initialCampaignType({
+    newsletterId, defaultCategory, mediaCount: selectedMediaLibraryImages?.length ?? 0, photoCount: initialPhotos?.length ?? 0,
+    isStarter: starterPlan.known && starterPlan.isStarter,
+  });
+  const campaignTypeRef = useRef<CampaignType>(campaignType);
+  campaignTypeRef.current = campaignType;
+  const newsletterComposerRef = useRef<NewsletterComposerHandle>(null);
+  // The composer stays mounted (keeps its draft) while the Storeel tab is showing.
+  const [composerMounted, setComposerMounted] = useState(false);
+  useEffect(() => {
+    if (!open) { setCampaignTypeChoice(null); setComposerMounted(false); return; }
+    if (campaignType === 'newsletter') setComposerMounted(true);
+  }, [open, campaignType]);
+  // Switching tabs swaps the whole layer, so focus would fall to <body>: put it on the newly shown switch.
+  const focusSwitchRef = useRef(false);
+  const beforeStoreelRef = useRef(beforeStoreel);
+  beforeStoreelRef.current = beforeStoreel;
+  const chooseCampaignType = useCallback((type: CampaignType) => {
+    if (type === 'storeel' && beforeStoreelRef.current && !beforeStoreelRef.current()) return;
+    focusSwitchRef.current = true;
+    setCampaignTypeChoice(type);
+  }, []);
+  useEffect(() => {
+    if (!focusSwitchRef.current) return undefined;
+    focusSwitchRef.current = false;
+    const frame = window.requestAnimationFrame(() => {
+      const groups = Array.from(document.querySelectorAll<HTMLElement>('[role="radiogroup"][aria-label="Campaign type"]'));
+      const shown = groups.find((g) => g.offsetParent !== null);
+      shown?.querySelector<HTMLElement>('[role="radio"][aria-checked="true"]')?.focus();
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [campaignType]);
+  // The Storeel campaign limit only applies to the Storeel tab (alignment decision 6): it shows inline there,
+  // because a z-50 dialog would sit under this z-99999 modal.
+  const storeelLimitRef = useRef<HTMLDivElement>(null);
+  // The API's own answer (403 memory_limit_reached on POST /memories) when the limit check above said yes,
+  // e.g. a campaign was made in another tab meanwhile. Shown in the same notice, in the server's words.
+  const [serverLimitMessage, setServerLimitMessage] = useState<string | null>(null);
+  // Bumped on each refusal; the notice is focused once it has rendered.
+  const [serverLimitTick, setServerLimitTick] = useState(0);
+  useEffect(() => { if (!open) setServerLimitMessage(null); }, [open]);
+  const showStoreelLimit = () => {
+    window.requestAnimationFrame(() => {
+      storeelLimitRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      storeelLimitRef.current?.focus({ preventScroll: true });
+    });
+  };
+  useEffect(() => { if (serverLimitTick) showStoreelLimit(); }, [serverLimitTick]); // eslint-disable-line react-hooks/exhaustive-deps
   const { openDrivePicker, isPickerLoading: isDrivePickerLoading } = useGoogleDrivePicker();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const titleInputRef = useRef<HTMLInputElement>(null);
@@ -95,7 +154,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
   const [isVideoRecorderOpen, setIsVideoRecorderOpen] = useState(false);
 
   useImperativeHandle(ref, () => ({
-    focusTitle: () => titleInputRef.current?.focus(),
+    focusTitle: () => (campaignTypeRef.current === 'newsletter' ? newsletterComposerRef.current?.focusName() : titleInputRef.current?.focus()),
   }));
 
   const [currentTag, setCurrentTag] = useState('');
@@ -169,7 +228,6 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
   } | null>(null);
 
   // Limit exceeded dialog state
-  const [showLimitDialog, setShowLimitDialog] = useState(false);
 
   // Photos with metadata state
   const [photosWithMetadata, setPhotosWithMetadata] = useState<Array<{
@@ -239,7 +297,8 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
     if (open) setAdvancedFiltersOverride(null);
   }, [open]);
 
-  useVisualViewportSheet(modalOverlayRef, open);
+  // Only the Storeel sheet follows the visual viewport; the Newsletter tab is its own full-window layer.
+  useVisualViewportSheet(modalOverlayRef, open && campaignType === 'storeel');
 
   // Scroll the just-added collaborator chip into view (after the touch keyboard has
   // started closing) and fade its highlight out.
@@ -1171,6 +1230,23 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
   }, []);
 
   // Don't return null if we have a success dialog to show
+  // Scan Photo: the photo taken arrives with the request; offer it like one picked in the form's own photo button.
+  const handledPhotosRef = useRef<File[] | null>(null);
+  useEffect(() => {
+    if (!open) { handledPhotosRef.current = null; return; }
+    if (!initialPhotos?.length || handledPhotosRef.current === initialPhotos) return;
+    handledPhotosRef.current = initialPhotos;
+    const valid = initialPhotos.filter((f) => ['image/jpeg', 'image/jpg', 'image/png'].includes(f.type.toLowerCase()));
+    if (!valid.length) {
+      toast.error('That photo type can’t be added here. Use a JPG or PNG photo.');
+      return;
+    }
+    const dt = new DataTransfer();
+    valid.forEach((f) => dt.items.add(f));
+    setMomentFiles(dt.files);
+    setIsAddMomentOpen(true);
+  }, [open, initialPhotos]);
+
   if (!open && !showSuccessDialog) return null;
 
   // Debug current state when modal is open
@@ -1895,11 +1971,14 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
       return;
     }
 
-    // Check latest memory limit before creating
-    await checkLimit();
+    // Check latest memory limit before creating. checkLimit returns the fresh status; the hook's
+    // isLimitExceeded in this closure is from the last render, so it is only the fallback.
+    const latestLimit = await checkLimit();
+    const limitReached = latestLimit ? latestLimit.status === 'limit_exceeded' : isLimitExceeded;
 
-    if (isLimitExceeded) {
-      setShowLimitDialog(true);
+    if (limitReached) {
+      // Shown inline at the top of the Storeel form (the dialog would be hidden under this modal).
+      showStoreelLimit();
       return;
     }
 
@@ -2084,8 +2163,13 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
       } else {
         console.error('Failed to create memory:', response);
 
-        // Check if the error is about title validation
-        if (response.errors && response.errors.title) {
+        if ((response as { code?: string }).code === 'memory_limit_reached') {
+          // The plan's campaign limit, checked again by the API: the inline notice, not an alert.
+          setServerLimitMessage(response.message || response.error || "You've reached your plan's campaign limit.");
+          setServerLimitTick((t) => t + 1);
+          void checkLimit();
+        } else if (response.errors && response.errors.title) {
+          // Check if the error is about title validation
           // Display title-specific error
           setTitleError(response.errors.title[0] || 'This title is already taken.');
         } else if (response.message && response.message.toLowerCase().includes('title')) {
@@ -2136,6 +2220,44 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
             <X className="w-4 h-4" />
           </button>
         </div>
+
+        {/* Newsletter | Storeel switch; the Storeel form below is unchanged */}
+        <div className="flex flex-shrink-0 justify-center px-4 pt-3">
+          <CampaignTypeSwitch value="storeel" onChange={chooseCampaignType} />
+        </div>
+        {(isLimitExceeded || serverLimitMessage) && (
+          <div
+            ref={storeelLimitRef}
+            tabIndex={-1}
+            role="alert"
+            className="mx-4 mt-3 flex flex-shrink-0 items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 p-3 outline-none"
+          >
+            <div className="mt-0.5 flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-amber-100">
+              <svg className="h-4 w-4 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 15.5c-.77.833.192 2.5 1.732 2.5z" />
+              </svg>
+            </div>
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-amber-900">Campaign Limit Reached</p>
+              <p className="mt-0.5 text-sm text-amber-800">
+                {isLimitExceeded ? (
+                  <>
+                    Your plan limit has been reached. You have reached your campaign limit of <strong>{limitData.memory_limit || 0} campaigns</strong>.
+                    Go to account to upgrade your plan or delete some campaigns.
+                  </>
+                ) : serverLimitMessage}{' '}Newsletters are not affected.
+              </p>
+              {/* The upgrade plans (z-[60]) would open under this modal, so close it first. */}
+              <button
+                type="button"
+                onClick={() => { handleModalClose(); requestUpgrade('Upgrade your plan for more campaigns.'); }}
+                className="mt-2 inline-flex h-8 items-center rounded-lg bg-[#6C60FF] px-3 text-sm font-medium text-white hover:bg-[#5B50E6] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#6C60FF]/40"
+              >
+                Upgrade
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Scrollable Form Content */}
         <div className="flex-1 overflow-y-auto overflow-x-hidden modal-scrollbar">
@@ -3667,7 +3789,20 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
   return (
     <>
       {/* Render modal in portal only when open */}
-      {open && createPortal(modalContent, document.body)}
+      {open && campaignType === 'storeel' && createPortal(modalContent, document.body)}
+      {open && (campaignType === 'newsletter' || composerMounted) && createPortal(
+        <NewsletterComposer
+          ref={newsletterComposerRef}
+          newsletterId={newsletterId}
+          hidden={campaignType !== 'newsletter'}
+          switcher={<CampaignTypeSwitch value="newsletter" onChange={chooseCampaignType} />}
+          onClose={handleModalClose}
+          // Wherever Create Campaign was opened from (Sidebar or Campaigns page), the Newsletters view refreshes.
+          onChanged={() => { onNewsletterChanged?.(); announceNewslettersChanged(); }}
+          onSwitchToStoreel={() => chooseCampaignType('storeel')}
+        />,
+        document.body,
+      )}
 
       {/* Success Dialog */}
       {createPortal(
@@ -3684,16 +3819,6 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
         document.body
       )}
       
-      {/* Memory Limit Dialog */}
-      {createPortal(
-        <MemoryLimitDialog
-          isOpen={showLimitDialog}
-          onClose={() => setShowLimitDialog(false)}
-          memoryCount={limitData.current_memories}
-          memoryLimit={limitData.memory_limit}
-        />,
-        document.body
-      )}
 
       {/* EXIF Progress Modal - Separate Modal on Right Side */}
       <ExifProgressModal

@@ -28,14 +28,11 @@ export default function AllMemoriesEmptyState({ onClearFilters, onCreateMemory, 
       {/* Action Buttons */}
       <div className="flex flex-col sm:flex-row gap-3 items-center justify-center">
         {onCreateMemory && (
+          // Always enabled: Create Campaign opens on Newsletter; the Storeel limit shows on the Storeel tab.
           <Button
-            onClick={isLimitExceeded ? undefined : onCreateMemory}
-            disabled={isLimitExceeded}
-            className={isLimitExceeded
-              ? "bg-gray-400 text-white hover:bg-gray-400 cursor-not-allowed opacity-60"
-              : "bg-[#6C60FF] text-white hover:bg-[#5B52FF]"
-            }
-            title={isLimitExceeded ? "Campaign limit reached - cannot create new campaigns" : "Create Campaign"}
+            onClick={onCreateMemory}
+            className="bg-[#6C60FF] text-white hover:bg-[#5B52FF]"
+            title="Create Campaign"
           >
             <Plus className="w-4 h-4 mr-2" />
             Create Campaign

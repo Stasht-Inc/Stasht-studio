@@ -24,7 +24,6 @@ import { Avatar, AvatarFallback, AvatarImage } from "../components/ui/avatar";
 import EmptyMemoriesState from "../components/EmptyMemoriesState";
 import AllMemoriesEmptyState from "../components/AllMemoriesEmptyState";
 import MemoryActionMenu from "../components/MemoryActionMenu";
-import { MemoryLimitDialog } from "../components/MemoryLimitDialog";
 import { useNotificationsRefresh } from '../hooks/useNotificationsRefresh';
 import CategoryNav from "../components/CategoryNav";
 import { SHOPIFY_COLOR, CARS_COLOR, WEBSITE_CATALOG_COLOR } from "../utils/categoryColorManager";
@@ -37,6 +36,11 @@ import MergeStoriesModal from "../components/MergeStoriesModal";
 import { UpgradePlanModal } from "../components/UpgradePlanModal";
 import { mapLimit } from "../utils/requestLimit";
 import { runWhenIdle } from "../utils/deferIdle";
+import NewslettersView from "../components/newsletters/NewslettersView";
+import SegmentedSwitch from "../components/newsletters/SegmentedSwitch";
+import { CAMPAIGNS_VIEW_OPTIONS, DEFAULT_CAMPAIGNS_VIEW, OPEN_NEWSLETTER_RESULTS_EVENT, takePendingNewsletterResults, type CampaignsView } from "../components/newsletters/lib/campaignsView";
+import { initialCampaignType, needsCategoryFirst } from "../components/newsletters/lib/campaignType";
+import { useIsStarterPlan } from "../hooks/usePlan";
 const imgSunnyBeach = 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=400&h=300&fit=crop';
 
 interface ApiMemory {
@@ -279,7 +283,7 @@ interface MemoriesPageProps {
   showMobileSidebar?: boolean;
   onCloseMobileSidebar?: () => void;
   onToggleMobileSidebar?: () => void;
-  createMemoryTrigger?: { category?: string; timestamp: number } | null;
+  createMemoryTrigger?: { category?: string; timestamp: number; photos?: File[] } | null;
   onClearCreateMemoryTrigger?: () => void;
   onPublishedEntryViewChange?: (isViewing: boolean) => void;
   onAIWizardProgress?: (progress: number) => void;
@@ -390,9 +394,28 @@ function MemoriesPageContent({
   const [selectedFilterTab, setSelectedFilterTab] = useState('All Categories');
   const [showCreateMemory, setShowCreateMemory] = useState(false);
   const createMemoryRef = useRef<CreateMemoryHandle>(null);
+  // Campaigns page: Storeels | Newsletters (spec 2026-10-13). Always opens on Storeels, so loading this page never
+  // calls a newsletter endpoint; NewslettersView mounts (and fetches, on a paid plan) only once Newsletters is picked.
+  const [campaignsView, setCampaignsView] = useState<CampaignsView>(DEFAULT_CAMPAIGNS_VIEW);
+  const [editNewsletterId, setEditNewsletterId] = useState<number | null>(null);
+  // "View" on the newsletter sent / scheduled toast: Newsletters view, with that newsletter's results open.
+  const [newsletterResultsRequest, setNewsletterResultsRequest] = useState<{ id: number; nonce: number } | null>(null);
+  useEffect(() => {
+    const takeRequest = () => {
+      const id = takePendingNewsletterResults();
+      if (id === null) return;
+      setCampaignsView('newsletters');
+      setNewsletterResultsRequest({ id, nonce: Date.now() });
+    };
+    takeRequest();
+    window.addEventListener(OPEN_NEWSLETTER_RESULTS_EVENT, takeRequest);
+    return () => window.removeEventListener(OPEN_NEWSLETTER_RESULTS_EVENT, takeRequest);
+  }, []);
+  const starterPlan = useIsStarterPlan();
+  // Photos passed in by Scan Photo, handed to the Storeel form.
+  const [photosForCreate, setPhotosForCreate] = useState<File[] | null>(null);
   const proxyInputRef = useRef<HTMLInputElement>(null);
   const [selectedCategoryForCreate, setSelectedCategoryForCreate] = useState<string | undefined>(undefined);
-  const [showLimitDialog, setShowLimitDialog] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [memoryToDelete, setMemoryToDelete] = useState<any>(null);
   const [showPublishModal, setShowPublishModal] = useState(false);
@@ -501,7 +524,7 @@ function MemoriesPageContent({
   useEffect(() => {
     if (createMemoryTrigger) {
       console.log('🎯 Create memory trigger received:', createMemoryTrigger);
-      handleCreateMemory(createMemoryTrigger.category);
+      handleCreateMemory(createMemoryTrigger.category, createMemoryTrigger.photos);
       // Clear the trigger after handling it to prevent re-opening on navigation
       if (onClearCreateMemoryTrigger) {
         onClearCreateMemoryTrigger();
@@ -1087,7 +1110,25 @@ function MemoriesPageContent({
     setSortConfig({ key: null, direction: 'asc' });
   };
 
-  const handleCreateMemory = async (categoryName?: string) => {
+  // A property account with no category of its own makes one first, but only for a Storeel (newsletters have none).
+  const categoryGateBlocks = (): boolean => {
+    const gateCats = Array.isArray(mergedCategories) ? mergedCategories : [];
+    return needsCategoryFirst({ viewType, ownedCategories: gateCats.filter(isAddableOwnCategory).length, opensOn: 'storeel' });
+  };
+  const sendToCreateCategory = () => {
+    sonnerToast.info("You don't have your own category yet. Create one first, then add your campaign.");
+    onRequestCreateCategory?.();
+  };
+
+  /** Close Create Campaign and forget what it was opened with (category, photos, the newsletter being edited). */
+  const closeCreateMemory = () => {
+    setShowCreateMemory(false);
+    setSelectedCategoryForCreate(undefined);
+    setEditNewsletterId(null);
+    setPhotosForCreate(null);
+  };
+
+  const handleCreateMemory = async (categoryName?: string, photos?: File[]) => {
     // Main "Create a Campaign" button (no specific category): unlike the left-side
     // CategoryNav create button (which always passes an explicit categoryName), this
     // deliberately does NOT auto-pick a category — per Profile Settings > Categories
@@ -1106,34 +1147,29 @@ function MemoriesPageContent({
       console.log('🟣 CreateCampaign gate — addable own categories:', ownedCats.map((c: any) => c?.name), 'from', gateCats.map((c: any) => `${c?.name}:is_owner=${c?.is_owner},can_add_story=${c?.can_add_story}`));
       // Ownership gate is a PROPERTY-account concept only: if a property owner has no addable
       // category yet, route them to create one. Personal accounts are never gated.
-      if (viewType === 'property' && ownedCats.length === 0) {
-        sonnerToast.info("You don't have your own category yet. Create one first, then add your campaign.");
-        onRequestCreateCategory?.();
+      // Create Campaign opens on Newsletter (no category needed), so the gate waits for the Storeel tab.
+      const opensOn = initialCampaignType({ photoCount: photos?.length ?? 0, isStarter: starterPlan.known && starterPlan.isStarter });
+      if (needsCategoryFirst({ viewType, ownedCategories: ownedCats.length, opensOn })) {
+        sendToCreateCategory();
         return;
       }
     }
 
     // Open modal + focus synchronously (before any await) — only way to open keyboard on iOS
+    // A new campaign: never the newsletter that was last edited.
+    setEditNewsletterId(null);
     setSelectedCategoryForCreate(resolvedCategory);
+    setPhotosForCreate(photos && photos.length ? photos : null);
     proxyInputRef.current?.focus();
     flushSync(() => setShowCreateMemory(true));
     createMemoryRef.current?.focusTitle();
 
-    // Check limit in background — close modal if exceeded
+    // Refresh the Storeel limit in the background. Create Campaign stays open either way (alignment
+    // decision 6, newsletters 2026-10-13): the Storeel tab shows the limit inline; newsletters are never blocked.
     try {
       await checkLimit();
-      const response = await dashboardAPI.checkMemoryLimit();
-      if (response.success && response.data) {
-        const data = response.data.data || response.data;
-        const limitStatus = data.limit_status || data;
-        if (limitStatus.status === 'limit_exceeded') {
-          setShowCreateMemory(false);
-          setShowLimitDialog(true);
-        }
-      }
     } catch (error) {
       console.error('❌ Error checking memory limit:', error);
-      // Modal stays open on error — better than silently failing
     }
   };
 
@@ -2553,8 +2589,29 @@ function MemoriesPageContent({
         </div>
       ))}
 
+      {/* Storeels | Newsletters (spec 2026-10-13) */}
+      {isPropertyOwner && (
+        <div className="flex items-center">
+          <SegmentedSwitch
+            label="Campaigns to show"
+            options={CAMPAIGNS_VIEW_OPTIONS}
+            value={campaignsView}
+            onChange={(view) => setCampaignsView(view)}
+          />
+        </div>
+      )}
+
       {/* Conditional Content Based on Category Selection */}
-      {false && selectedCategory ? (
+      {isPropertyOwner && campaignsView === 'newsletters' ? (
+        // "Create a Newsletter" opens Create Campaign directly: the Storeel campaign limit doesn't apply (decision 6).
+        <NewslettersView
+          onCreate={() => { setEditNewsletterId(null); setSelectedCategoryForCreate(undefined); setShowCreateMemory(true); }}
+          onEdit={(id) => { setEditNewsletterId(id); setSelectedCategoryForCreate(undefined); setShowCreateMemory(true); }}
+          onToggleMobileSidebar={onToggleMobileSidebar}
+          showMobileSidebar={showMobileSidebar}
+          openResults={newsletterResultsRequest}
+        />
+      ) : false && selectedCategory ? (
         // Disabled: Show category-filtered memories when a category is selected in filter dropdown
         <div className="space-y-6">
           {/* Filtered Memory Cards */}
@@ -2655,13 +2712,8 @@ function MemoriesPageContent({
                       Publish
                     </Button>
                     <Button
-                      onClick={isLimitExceeded ? undefined : () => handleCreateMemory()}
-                      disabled={isLimitExceeded}
-                      className={isLimitExceeded
-                        ? "bg-gray-300 text-gray-500 hover:bg-gray-300 cursor-not-allowed"
-                        : "bg-[#6C60FF] hover:bg-[#6C60FF]/90 text-white"
-                      }
-                      style={isLimitExceeded ? { backgroundColor: '#EFEFEF', color: '#9CA3AF' } : undefined}
+                      onClick={() => handleCreateMemory()}
+                      className="bg-[#6C60FF] hover:bg-[#6C60FF]/90 text-white"
                     >
                       <Plus className="w-4 h-4 mr-2" />
                       Create a Campaign
@@ -2771,13 +2823,8 @@ function MemoriesPageContent({
                         <span className="hidden sm:inline">Publish</span>
                       </Button>
                       <Button
-                        onClick={(isLimitExceeded ) ? undefined : () => handleCreateMemory()}
-                        disabled={isLimitExceeded }
-                        className={(isLimitExceeded )
-                          ? "bg-gray-300 text-gray-500 hover:bg-gray-300 cursor-not-allowed md:flex-initial"
-                          : "bg-[#6C60FF] text-white hover:bg-[#5B52FF] focus:ring-2 focus:ring-[#6C60FF] focus:ring-opacity-50 active:bg-[#6C60FF] md:flex-initial"
-                        }
-                        style={isLimitExceeded ? { backgroundColor: '#EFEFEF', color: '#9CA3AF' } : undefined}
+                        onClick={() => handleCreateMemory()}
+                        className="bg-[#6C60FF] text-white hover:bg-[#5B52FF] focus:ring-2 focus:ring-[#6C60FF] focus:ring-opacity-50 active:bg-[#6C60FF] md:flex-initial"
                       >
                         <Plus className="w-4 h-4 -mr-1" />
                         <span className="sm:hidden">Create</span>
@@ -3576,11 +3623,17 @@ function MemoriesPageContent({
         ref={createMemoryRef}
         open={showCreateMemory}
         onOpenChange={(open) => {
-          setShowCreateMemory(open);
-          // Clear selected category when modal closes
-          if (!open) {
-            setSelectedCategoryForCreate(undefined);
-          }
+          if (open) setShowCreateMemory(true);
+          else closeCreateMemory();
+        }}
+        newsletterId={editNewsletterId}
+        initialPhotos={photosForCreate}
+        beforeStoreel={() => {
+          if (!categoryGateBlocks()) return true;
+          // Same reset as closing, so the next Create Campaign doesn't reopen this newsletter or these photos.
+          closeCreateMemory();
+          sendToCreateCategory();
+          return false;
         }}
         onMemoryCreated={handleMemoryCreated}
         onOpenMediaLibrary={() => {
@@ -3596,14 +3649,6 @@ function MemoriesPageContent({
         selectedMediaLibraryImages={selectedMediaLibraryImagesForCreate}
         defaultCategory={selectedCategoryForCreate}
         categories={createMemoryCategories}
-      />
-
-      {/* Memory Limit Dialog */}
-      <MemoryLimitDialog
-        isOpen={showLimitDialog}
-        onClose={() => setShowLimitDialog(false)}
-        memoryCount={limitData?.current_memories}
-        memoryLimit={limitData?.memory_limit}
       />
 
       {/* Mobile Sidebar Drawer */}
