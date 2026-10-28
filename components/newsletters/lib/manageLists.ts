@@ -4,16 +4,17 @@ import { consentLabel } from './consent.ts';
 import { formatCount } from './audience.ts';
 import { userLocale } from './locale.ts';
 
-function dateText(iso: string | null | undefined, locale: string): string {
+/** "Oct 2, 2026" in the person's language; '' when there is no (readable) date. */
+export function shortDate(iso: string | null | undefined, locale: string = userLocale()): string {
   if (!iso) return '';
   const d = new Date(iso);
   return Number.isNaN(d.getTime()) ? '' : new Intl.DateTimeFormat(locale, { month: 'short', day: 'numeric', year: 'numeric' }).format(d);
 }
 
-const ORIGIN: Record<string, string> = { import: 'Imported', leads: 'Made from leads', lead_group: 'Made from a lead group' };
+const ORIGIN: Record<string, string> = { import: 'Imported', leads: 'Made from leads', lead_group: 'Made from a lead group', manual: 'Created here' };
 
 export function listOrigin(list: Pick<ContactList, 'source' | 'created_at'>, locale: string = userLocale()): string {
-  const date = dateText(list.created_at, locale);
+  const date = shortDate(list.created_at, locale);
   const origin = ORIGIN[list.source] ?? 'Made';
   return date ? `${origin} ${date}` : origin;
 }
@@ -26,7 +27,7 @@ export function listDetails(list: Pick<ContactList, 'source' | 'created_at' | 'm
 export function memberConsentText(m: { consent_type?: ConsentType | null; consent_at?: string | null }, locale: string = userLocale()): string {
   if (!m.consent_type) return '—';
   const type = m.consent_type === 'express' ? 'Express' : 'Implied';
-  const date = dateText(m.consent_at, locale);
+  const date = shortDate(m.consent_at, locale);
   return date ? `${type}, ${date}` : type;
 }
 
