@@ -1,21 +1,26 @@
 import { memo } from 'react';
-import type { BlockType, NewsletterBlock } from '../../../services/newslettersAPI';
+import type { BlockType, CampaignItem, NewsletterBlock } from '../../../services/newslettersAPI';
 import ImageBlockEditor from './ImageBlockEditor';
 import TitleBlockEditor from './TitleBlockEditor';
 import TextBlockEditor from './TextBlockEditor';
 import YoutubeBlockEditor from './YoutubeBlockEditor';
 import ButtonBlockEditor from './ButtonBlockEditor';
 import DividerBlockEditor from './DividerBlockEditor';
+import CampaignsBlockEditor from './CampaignsBlockEditor';
 
 export const BLOCK_LABEL: Record<BlockType, string> = {
-  image: 'Image', title: 'Title', text: 'Text', youtube: 'YouTube', button: 'Button', divider: 'Divider',
+  image: 'Image', title: 'Title', text: 'Text', youtube: 'YouTube', button: 'Button', divider: 'Divider', campaigns: 'Campaigns',
 };
 
-function BlockEditor({ block, selected, readOnly, onChange }: {
+function BlockEditor({ block, selected, readOnly, onChange, serverItems, accent, onPick }: {
   block: NewsletterBlock;
   selected: boolean;
   readOnly: boolean;
   onChange(data: Record<string, unknown>): void;
+  /** Campaigns: the saved copy's cards, the button colour and the picker. */
+  serverItems?: CampaignItem[];
+  accent?: string | null;
+  onPick?(): void;
 }) {
   const common = { blockId: block.id, selected, readOnly, onChange };
   switch (block.type) {
@@ -24,6 +29,7 @@ function BlockEditor({ block, selected, readOnly, onChange }: {
     case 'text': return <TextBlockEditor {...common} data={block.data} />;
     case 'youtube': return <YoutubeBlockEditor {...common} data={block.data} />;
     case 'button': return <ButtonBlockEditor {...common} data={block.data} />;
+    case 'campaigns': return <CampaignsBlockEditor {...common} data={block.data} serverItems={serverItems} accent={accent} onPick={onPick} />;
     default: return <DividerBlockEditor {...common} data={block.data} />;
   }
 }

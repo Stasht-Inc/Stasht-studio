@@ -1,4 +1,4 @@
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState, type ReactNode } from 'react';
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type ReactNode } from 'react';
 import { FocusScope } from '@radix-ui/react-focus-scope';
 import { ArrowLeft, Globe, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -28,7 +28,7 @@ import { firstProblemStep, preSendProblems, stepDomId, stepErrorsFrom, type Step
 import { formatSentTo } from './lib/phoneDisplay';
 import { smsPartsInfo } from './lib/smsParts';
 import { OFF_SCHEDULE_BANNER, clearUnscheduled, putBackProblem, unscheduledFor } from './lib/editScheduled';
-import { ACTION_TOAST_MS } from './lib/blocks';
+import { ACTION_TOAST_MS, normaliseBlocks } from './lib/blocks';
 import SendConfirmDialog from './SendConfirmDialog';
 import SaveIndicator from './SaveIndicator';
 import DraftNotices from './DraftNotices';
@@ -106,6 +106,8 @@ const NewsletterComposer = forwardRef<NewsletterComposerHandle, NewsletterCompos
   const state = useNewsletterDraft(newsletterId, enabled, brand.brand?.header ?? null);
   const profile = useSenderProfile(enabled);
   const { draft, update, readOnly } = state;
+  // The sections as the API last saved them (a Campaigns section's cards are the server's snapshot).
+  const savedBlocks = useMemo(() => normaliseBlocks(state.newsletter?.blocks), [state.newsletter]);
   // The name the API puts before a text when the From name is empty: the owner's name (NewsletterSendCheck::fromNameFor).
   const fallbackFromName = profile?.name?.trim().slice(0, 80) || 'Stasht';
   const smsFromName = draft.from_name.trim() || fallbackFromName;
@@ -228,6 +230,12 @@ const NewsletterComposer = forwardRef<NewsletterComposerHandle, NewsletterCompos
     if (res.planRequired) { onClose(); return; }
     if (res.paused) {
       // Sending is switched off (for everyone, or for this account): the draft stays as it is.
+      composerToast.error(res.error ?? GENERIC_ERROR);
+      return;
+    }
+    if (res.stale) {
+      // The draft kept changing while it was being sent (another tab): it stays a draft here; Reload shows the latest.
+      state.markStale(res.error ?? GENERIC_ERROR);
       composerToast.error(res.error ?? GENERIC_ERROR);
       return;
     }
@@ -486,6 +494,7 @@ const NewsletterComposer = forwardRef<NewsletterComposerHandle, NewsletterCompos
                 onChange={update}
                 onHeaderChange={(next) => update((d) => ({ header: typeof next === 'function' ? next(d.header) : next }))}
                 onSaveAddress={saveAddress}
+                savedBlocks={savedBlocks}
               />
             </aside>
           </div>

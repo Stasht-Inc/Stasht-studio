@@ -1,6 +1,6 @@
 import { useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import * as Popover from '@radix-ui/react-popover';
-import { Heading, Image as ImageIcon, Minus, MousePointerClick, Plus, Type, Youtube } from 'lucide-react';
+import { Heading, Image as ImageIcon, LayoutGrid, Minus, MousePointerClick, Plus, Type, Youtube } from 'lucide-react';
 import type { BlockType } from '../../services/newslettersAPI';
 import { LIMITS } from './lib/rules';
 import { LAYER } from './lib/ui';
@@ -12,6 +12,7 @@ const ITEMS: Array<{ type: BlockType; label: string; desc: string; icon: ReactNo
   { type: 'youtube', label: 'YouTube', desc: 'A video people tap to watch', icon: <Youtube className="h-5 w-5 text-[#FF4444]" /> },
   { type: 'button', label: 'Button', desc: 'A button with a link', icon: <MousePointerClick className="h-5 w-5 text-[#6C60FF]" /> },
   { type: 'divider', label: 'Divider', desc: 'A line or space between sections', icon: <Minus className="h-5 w-5 text-[#F59E0B]" /> },
+  { type: 'campaigns', label: 'Campaigns', desc: 'Show your campaigns', icon: <LayoutGrid className="h-5 w-5 text-[#6C60FF]" /> },
 ];
 
 /** The dashed line with a "+" from the Storeel timeline (MemoryDetailsPage "Add Widget"), here "Add section". */
