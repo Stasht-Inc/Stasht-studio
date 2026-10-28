@@ -10,7 +10,9 @@ const firstRowId = (page, selector) => page.locator(selector).first().getAttribu
 export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
   const api = createMockApi({ newsletters: seedNewsletters(), businessAddress: '4505 Steeles Ave W, Toronto, ON' });
   const { page, context } = await open({ view: 'campaigns', width: 1280, height: 1000, api });
-  await expectVisible(page.getByRole('radio', { name: 'Storeels', checked: true }), 'opens on Storeels the first time');
+  await expectVisible(page.getByRole('radio', { name: 'Newsletters', checked: true }), 'opens on Newsletters the first time');
+  await page.getByRole('radio', { name: 'Storeels' }).click();
+  expect(await page.evaluate((k) => localStorage.getItem(k), KEY) === 'storeels', 'Storeels is remembered');
   await page.getByRole('radio', { name: 'Newsletters' }).click();
   expect(await page.evaluate((k) => localStorage.getItem(k), KEY) === 'newsletters', 'the choice is remembered on this device');
 

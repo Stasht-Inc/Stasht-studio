@@ -10,7 +10,11 @@ import { createMockApi, seedNewsletters } from '../mock-api.mjs';
 const FILE = new URL('../../../../public/pwa-icon-192.png', import.meta.url).pathname;
 const DIR = '/private/tmp/claude-501/newsletters-ui';
 const CSV = `${DIR}/winter-event.csv`;
-const newsletterCalls = (api) => api.state.calls.filter((c) => /^\/(newsletter|contact-lists)/.test(c.path));
+// The switch's Newsletters count (GET /newsletters, paid plans) is the one call the Campaigns page itself makes.
+const isCountCall = (c) => c.method === 'GET' && c.path === '/newsletters' && !/[?&]status=/.test(c.query || '');
+const newsletterCalls = (api) => api.state.calls.filter((c) => /^\/(newsletter|contact-lists)/.test(c.path) && !isCountCall(c));
+// Starter: not even the count.
+const anyNewsletterCalls = (api) => api.state.calls.filter((c) => /^\/(newsletter|contact-lists)/.test(c.path));
 
 function tomorrow() {
   const t = new Date(Date.now() + 24 * 3600 * 1000);
@@ -27,7 +31,7 @@ async function journey({ open, shot, expectVisible, expect, hasOverflow }, width
   const tag = String(width);
   const NAME = `November Newsletter ${width}`;
   const api = createMockApi({ newsletters: seedNewsletters() });
-  const { page, context } = await open({ view: 'campaigns', width, height: phone ? 844 : 1100, api, timezoneId: 'America/Toronto' });
+  const { page, context } = await open({ view: 'campaigns', campaignsView: 'storeels', width, height: phone ? 844 : 1100, api, timezoneId: 'America/Toronto' });
   const rootFont = await page.evaluate(() => getComputedStyle(document.documentElement).fontSize);
   expect(rootFont === '16px', `root font size is 16px at ${tag} (got ${rootFont})`);
   await expectVisible(page.getByRole('heading', { name: 'All Campaigns' }), `Campaigns page at ${tag}`);
@@ -229,7 +233,7 @@ export async function run(ctx) {
   for (const width of [1280, 390]) {
     const phone = width < 768;
     const api = createMockApi({ storeelLimit: true, newsletters: seedNewsletters() });
-    const { page, context } = await open({ view: 'campaigns', width, height: phone ? 844 : 1000, api });
+    const { page, context } = await open({ view: 'campaigns', campaignsView: 'storeels', width, height: phone ? 844 : 1000, api });
     await expectVisible(page.getByRole('heading', { name: 'All Campaigns' }), `Campaigns page with the limit at ${width}`);
     await createButton(page, phone).click();
     await expectVisible(page.getByRole('heading', { name: 'Campaign name' }), `Newsletter opens with the Storeel limit reached at ${width}`);
@@ -254,7 +258,7 @@ export async function run(ctx) {
   for (const width of [1280, 390]) {
     const phone = width < 768;
     const api = createMockApi({ plan: 'Starter', newsletters: seedNewsletters() });
-    const { page, context } = await open({ view: 'campaigns', width, height: phone ? 844 : 1000, api });
+    const { page, context } = await open({ view: 'campaigns', campaignsView: 'storeels', width, height: phone ? 844 : 1000, api });
     await expectVisible(page.getByRole('heading', { name: 'All Campaigns' }), `Starter Campaigns page at ${width}`);
     await createButton(page, phone).click();
     await expectVisible(page.getByText('Newsletters are part of paid plans'), `Starter upgrade card in Create Campaign at ${width}`);
@@ -268,14 +272,14 @@ export async function run(ctx) {
     await page.getByRole('radio', { name: 'Newsletters' }).click();
     await expectVisible(page.getByText('Newsletters are part of paid plans'), `Starter card on the Newsletters view at ${width}`);
     await page.waitForTimeout(1000);
-    expect(newsletterCalls(api).length === 0, `Starter makes no newsletter calls at ${width} (got ${newsletterCalls(api).map((c) => c.path).join(', ')})`);
+    expect(anyNewsletterCalls(api).length === 0, `Starter makes no newsletter calls at ${width} (got ${newsletterCalls(api).map((c) => c.path).join(', ')})`);
     await context.close();
   }
 
   // Overflow at 360, 375 and 390: composer (with every section), Newsletters list, results.
   for (const width of [360, 375, 390]) {
     const api = createMockApi({ newsletters: seedNewsletters() });
-    const { page, context } = await open({ view: 'campaigns', width, height: 844, api });
+    const { page, context } = await open({ view: 'campaigns', campaignsView: 'storeels', width, height: 844, api });
     await expectVisible(page.getByRole('heading', { name: 'All Campaigns' }), `Campaigns at ${width}`);
     expect(!(await hasOverflow(page)), `no sideways scroll on Storeels at ${width}`);
     await page.getByRole('radio', { name: 'Newsletters' }).click();

@@ -38,6 +38,7 @@ import { mapLimit } from "../utils/requestLimit";
 import { runWhenIdle } from "../utils/deferIdle";
 import NewslettersView from "../components/newsletters/NewslettersView";
 import SegmentedSwitch from "../components/newsletters/SegmentedSwitch";
+import { useNewsletterCount } from "../components/newsletters/hooks/useNewsletterCount";
 import { CAMPAIGNS_VIEW_OPTIONS, OPEN_NEWSLETTER_DRAFT_EVENT, OPEN_NEWSLETTER_RESULTS_EVENT, campaignsViewForPlan, readCampaignsView, takePendingNewsletterHighlight, takePendingNewsletterResults, writeCampaignsView, type CampaignsView } from "../components/newsletters/lib/campaignsView";
 import { initialCampaignType, needsCategoryFirst } from "../components/newsletters/lib/campaignType";
 import { useIsStarterPlan } from "../hooks/usePlan";
@@ -434,6 +435,8 @@ function MemoriesPageContent({
   }, [setCampaignsView]);
   const starterPlan = useIsStarterPlan();
   const campaignsView: CampaignsView = campaignsPicked ? campaignsChoice : campaignsViewForPlan(campaignsChoice, starterPlan);
+  // Paid plans only (a Starter account would get 403 plan_required, contract note 1).
+  const newslettersTotal = useNewsletterCount(isPropertyOwner && starterPlan.known && !starterPlan.isStarter);
   // Photos passed in by Scan Photo, handed to the Storeel form.
   const [photosForCreate, setPhotosForCreate] = useState<File[] | null>(null);
   const proxyInputRef = useRef<HTMLInputElement>(null);
@@ -1828,6 +1831,12 @@ function MemoriesPageContent({
     return realCount + carsCards.length + shopifyCards.length + catalogueCards.length;
   }, [allMemories, latestMemories, propMemories, selectedCategory, expandedCategories, viewType, carsCards, shopifyCards, catalogueCards]);
 
+  // The Storeels count on the Storeels | Newsletters switch: every campaign card, whatever the filters.
+  const storeelsTotal = useMemo(() => {
+    const memoriesToCount = allMemories.length > 0 ? allMemories : (latestMemories.length > 0 ? latestMemories : propMemories);
+    return memoriesToCount.length + carsCards.length + shopifyCards.length + catalogueCards.length;
+  }, [allMemories, latestMemories, propMemories, carsCards, shopifyCards, catalogueCards]);
+
   const handleOpenAIWizard = async () => {
     try {
       const creditCheck = await aiCreditsAPI.checkSufficientCredits('ai_memory_wizard', 2);
@@ -2616,7 +2625,7 @@ function MemoriesPageContent({
         <div className="flex items-center">
           <SegmentedSwitch
             label="Campaigns to show"
-            options={CAMPAIGNS_VIEW_OPTIONS}
+            options={CAMPAIGNS_VIEW_OPTIONS.map((o) => ({ ...o, count: o.value === 'newsletters' ? newslettersTotal : storeelsTotal }))}
             value={campaignsView}
             onChange={(view) => setCampaignsView(view)}
           />
