@@ -19,6 +19,7 @@ import { useSenderProfile } from '../../../components/newsletters/hooks/useSende
 import { newslettersAPI, type NewsletterHeader } from '../../../services/newslettersAPI';
 import NewsletterResults from '../../../components/newsletters/NewsletterResults';
 import MemoriesPage from '../../../pages/MemoriesPage';
+import LeadsPage from '../../../pages/LeadsPage';
 
 function HeaderGallery() {
   const [header, setHeader] = useState<NewsletterHeader>({ logo_url: null, banner_url: null, background_color: '#6C60FF', title: 'Serpa Chrysler' });
@@ -146,11 +147,21 @@ function CampaignsHarness() {
   );
 }
 
+// The Leads page as App mounts it (under App's 80 px top bar), for the Lists tab checks.
+function LeadsHarness() {
+  return (
+    <div className="min-h-screen bg-white px-2 pt-20 md:px-6">
+      <LeadsPage />
+    </div>
+  );
+}
+
 const VIEWS: Record<string, () => ReactElement> = {
   composer: ComposerHarness,
   blocks: BlocksHarness,
   results: ResultsHarness,
   campaigns: CampaignsHarness,
+  leads: LeadsHarness,
 };
 const View = VIEWS[params.get('view') || 'composer'] ?? ComposerHarness;
 

@@ -17,6 +17,9 @@ import LeadsFilterSheet from './leads/LeadsFilterSheet';
 import PullToRefreshIndicator from './PullToRefreshIndicator';
 import { usePullToRefresh } from '../hooks/usePullToRefresh';
 import { useIsMobile } from './ui/use-mobile';
+import { useIsStarterPlan } from '../hooks/usePlan';
+import ListsTab, { type ListsTabHandle } from './leads/lists/ListsTab';
+import { useContactLists } from './leads/lists/useContactLists';
 
 const STATUS_TRIGGER_CLASS: Record<string, string> = {
   hot: 'bg-red-100 text-red-600 border-red-200 hover:bg-red-100 focus:ring-0',
@@ -213,7 +216,7 @@ interface LeadsTabProps {
 }
 
 // One summary-card row above the sub-tab content, scoped to whichever
-// sub-tab (Leads / Groups / My Conversations) is currently active.
+// sub-tab (Groups / My Conversations) is currently active. Lists has its own row.
 interface SummaryCardData {
   label: string;
   value: number | string;
@@ -621,7 +624,16 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
   };
 
   const [leadGroups, setLeadGroups] = useState<LeadGroupSummary[]>([]);
-  const [leadsView, setLeadsView] = useState<'leads' | 'groups' | 'conversations'>('leads');
+  const [leadsView, setLeadsView] = useState<'leads' | 'lists' | 'groups' | 'conversations'>('leads');
+  // Lists (newsletter contact lists): paid plans only. Nothing is asked of the API until the plan is known
+  // to be paid, so a Starter account never gets 403 plan_required (or a badge).
+  const plan = useIsStarterPlan();
+  const listsEnabled = plan.known && !plan.isStarter;
+  const contactLists = useContactLists(listsEnabled);
+  const listsRef = useRef<ListsTabHandle>(null);
+  const listCount = listsEnabled ? contactLists.lists?.length ?? 0 : 0;
+  // Refresh spins for the lists fetch only while Lists shows (the badge's background fetch stays quiet).
+  const listsRefreshing = leadsView === 'lists' && contactLists.loading;
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [isLoadingConversations, setIsLoadingConversations] = useState(false);
 
@@ -850,6 +862,8 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
       await fetchLeads(undefined, undefined, undefined, undefined, undefined, undefined, undefined, { silent });
     } else if (leadsView === 'groups') {
       await fetchLeadGroups();
+    } else if (leadsView === 'lists') {
+      await listsRef.current?.refresh();
     } else {
       setSilentConversationsFetch(silent);
       try { await fetchMyConversations(); } finally { setSilentConversationsFetch(false); }
@@ -962,34 +976,47 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
         threshold={pullToRefresh.threshold}
         className="md:hidden"
       />
-      {/* Sub-tab toggle (Leads / Groups / My Conversations) + Refresh on the far right.
+      {/* Sub-tab toggle (Leads / Lists / Groups / My Conversations) + Refresh on the far right.
           Phones: tabs span the width; Leads Report / Refresh are gone (pull to refresh). */}
       <div className="flex flex-wrap items-center justify-between gap-3">
-      <div className="flex w-full md:inline-flex md:w-auto items-center gap-1 bg-gray-100 rounded-lg p-1">
+      <div className="flex w-full md:inline-flex md:w-auto items-center gap-0.5 md:gap-1 bg-gray-100 rounded-lg p-1">
         <button
           onClick={() => { setLeadsView('leads'); onGroupSelect?.(null); onConversationSelect?.(null); }}
-          className={`h-8 px-2 md:px-4 flex-1 md:flex-none rounded-md text-sm font-medium transition-colors ${leadsView === 'leads' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-700'}`}
+          className={`h-10 md:h-8 px-1 md:px-4 flex-auto md:flex-none rounded-md text-sm font-medium transition-colors ${leadsView === 'leads' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-700'}`}
         >
           Leads
         </button>
         <button
+          onClick={() => { setLeadsView('lists'); onGroupSelect?.(null); onLeadSelect(null); onConversationSelect?.(null); if (listsEnabled) void contactLists.reload(); }}
+          className={`h-10 md:h-8 px-1 md:px-4 flex-auto md:flex-none justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors flex items-center gap-1 md:gap-1.5 ${leadsView === 'lists' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-700'}`}
+        >
+          Lists
+          {listCount > 0 && (
+            <span className="flex items-center justify-center min-w-[18px] md:min-w-[20px] h-5 px-0.5 md:px-1 rounded-full bg-[#6C60FF] text-white text-[12px] font-bold">
+              {listCount}
+            </span>
+          )}
+        </button>
+        <button
           onClick={() => { setLeadsView('groups'); onGroupSelect?.(null); onLeadSelect(null); onConversationSelect?.(null); }}
-          className={`h-8 px-2 md:px-4 flex-1 md:flex-none justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors flex items-center gap-1.5 ${leadsView === 'groups' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-700'}`}
+          className={`h-10 md:h-8 px-1 md:px-4 flex-auto md:flex-none justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors flex items-center gap-1 md:gap-1.5 ${leadsView === 'groups' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-700'}`}
         >
           Groups
           {leadGroups.length > 0 && (
-            <span className="flex items-center justify-center min-w-[20px] h-5 px-1 rounded-full bg-[#6C60FF] text-white text-[12px] font-bold">
+            <span className="flex items-center justify-center min-w-[18px] md:min-w-[20px] h-5 px-0.5 md:px-1 rounded-full bg-[#6C60FF] text-white text-[12px] font-bold">
               {leadGroups.length}
             </span>
           )}
         </button>
         <button
           onClick={() => { setLeadsView('conversations'); onLeadSelect(null); onGroupSelect?.(null); onConversationSelect?.(null); fetchMyConversations(); }}
-          className={`h-8 px-2 md:px-4 flex-1 md:flex-none justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors flex items-center gap-1.5 ${leadsView === 'conversations' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-700'}`}
+          className={`h-10 md:h-8 px-1 md:px-4 flex-auto md:flex-none justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors flex items-center gap-1 md:gap-1.5 ${leadsView === 'conversations' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-700'}`}
         >
-          My Conversations
+          {/* Phones under 400px read "Conversations" so the four tabs fit 360px with two-digit badges;
+              "My " stays for screen readers. */}
+          <span className="whitespace-nowrap"><span className="sr-only min-[400px]:not-sr-only">My{'\u00A0'}</span>Conversations</span>
           {conversationsUnread > 0 && (
-            <span className="flex items-center justify-center min-w-[20px] h-5 px-1 rounded-full bg-red-500 text-white text-[12px] font-bold">
+            <span className="flex items-center justify-center min-w-[18px] md:min-w-[20px] h-5 px-0.5 md:px-1 rounded-full bg-red-500 text-white text-[12px] font-bold">
               {conversationsUnread}
             </span>
           )}
@@ -1014,10 +1041,10 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
       <button
         type="button"
         onClick={() => { refreshCurrentView(); }}
-        disabled={isLoading || isLoadingConversations}
+        disabled={isLoading || isLoadingConversations || listsRefreshing}
         className="h-9 px-3.5 inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 hover:text-[#6C60FF] transition-colors shrink-0 disabled:opacity-50"
       >
-        <RefreshCw className={`w-4 h-4 ${isLoading || isLoadingConversations ? 'animate-spin' : ''}`} />
+        <RefreshCw className={`w-4 h-4 ${isLoading || isLoadingConversations || listsRefreshing ? 'animate-spin' : ''}`} />
         Refresh
       </button>
       </div>
@@ -1025,7 +1052,7 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
 
       {/* Summary cards — scoped to the active sub-tab, above its content. The
           Leads inbox has none: its counts live on the Open / Closed tabs. */}
-      {leadsView !== 'leads' && <SummaryCardRow cards={summaryCards} />}
+      {leadsView !== 'leads' && leadsView !== 'lists' && <SummaryCardRow cards={summaryCards} />}
 
       {leadsView === 'leads' ? (
       <>
@@ -1579,6 +1606,14 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
         )}
       </div>
       </>
+      ) : leadsView === 'lists' ? (
+        /* ─── Lists view (newsletter contact lists; own summary cards) ─── */
+        <ListsTab
+          ref={listsRef}
+          state={contactLists}
+          plan={plan}
+          groups={leadGroups.map((g) => ({ id: g.id, name: g.name, member_count: g.member_count ?? 0 }))}
+        />
       ) : leadsView === 'groups' ? (
         /* ─── Groups view (table) ─────────────────────────────────── */
         <div className="bg-white rounded-lg shadow-sm border border-gray-200">

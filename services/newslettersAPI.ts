@@ -1,7 +1,9 @@
-import { apiRequest, fetchWithRateLimitRetry, getApiBaseUrl } from '../utils/authUtils';
+import { apiRequest, fetchWithRateLimitRetry, getApiBaseUrl, tokenUtils, userUtils } from '../utils/authUtils';
+import { STALE_TAB_MESSAGE, isTabStale } from '../utils/accountSwitch';
 import { requestUpgrade } from '../utils/planEvents';
 import { toResult, resultFromRaw, testSendResult, GENERIC_ERROR } from '../components/newsletters/lib/apiResult';
 import type { NlResult, ApiLikeResponse } from '../components/newsletters/lib/apiResult';
+import { filenameFromDisposition } from '../components/newsletters/lib/lists';
 
 // Newsletter campaigns API (spec 2026-10-13 §8). Every route is under /api/react behind auth:react_api and
 // RequirePaidPlan. apiRequest wraps the server body {success, data}, so each call peels one envelope (toResult).
@@ -147,7 +149,8 @@ export interface NewsletterAllowance {
   resets_at: string;
 }
 
-export type ContactListSource = 'import' | 'leads' | 'lead_group';
+/** manual: made empty on the Leads page's Lists tab (POST /contact-lists). */
+export type ContactListSource = 'import' | 'leads' | 'lead_group' | 'manual';
 /** CASL: express = they asked to hear from you; implied = customers and recent enquiries (expires after 6 months). */
 export type ConsentType = 'express' | 'implied';
 export interface ContactList {
@@ -161,20 +164,42 @@ export interface ContactList {
   consent_type?: ConsentType | null;
   /** When the list was imported or made. */
   created_at: string | null;
+  /** When the list or anyone on it last changed (newer API versions). */
+  updated_at?: string | null;
+  /** People on it who unsubscribed, bounced, complained or replied STOP (newer API versions). */
+  unsubscribed_count?: number;
 }
 /** consent_at: the date this person agreed, as written in the file (the API reads it; a bad or future date is ignored). */
 export interface ImportRow { name?: string; email?: string; phone?: string; consent_at?: string }
 export interface ImportInput { name: string; consent: true; consent_type: ConsentType; consent_source?: string; rows: ImportRow[] }
 export type ImportResult = ContactList & { imported: number; skipped_invalid: number; merged_duplicates: number };
+/** null: no email address (or no mobile number) on file. */
+export type MemberEmailStatus = 'subscribed' | 'unsubscribed' | 'bounced' | 'complained';
+export type MemberSmsStatus = 'subscribed' | 'stopped';
 export interface ContactListMember {
+  /** Newer API versions (the Lists tab needs it to edit or remove someone). */
+  id?: number;
   name: string | null;
   email: string | null;
   phone: string | null;
+  email_status?: MemberEmailStatus | null;
+  sms_status?: MemberSmsStatus | null;
   consent_type?: ConsentType | null;
   consent_source?: string | null;
   consent_at?: string | null;
+  added_at?: string | null;
 }
-export interface ContactListMembers { data: ContactListMember[]; meta: PageMeta }
+export type MemberStatusFilter = 'all' | 'subscribed' | 'unsubscribed';
+/** counts: the whole list by status, whatever the search (newer API versions). */
+export interface ContactListMembers { data: ContactListMember[]; meta: PageMeta & { counts?: Record<MemberStatusFilter, number> } }
+export interface MembersQuery { page?: number; search?: string; status?: MemberStatusFilter }
+export interface MemberInput { name?: string | null; email?: string | null; phone?: string | null }
+export interface NewMemberInput extends MemberInput { consent_type: ConsentType; consent_source?: string }
+/** POST /contact-lists/{id}/import and /members/copy: what the merge did, and the list as it is now. unchanged
+ *  (import, newer API versions): people already on the list with nothing new to fill in. Add, edit, import and copy
+ *  can also answer 409 "Someone changed this list at the same time. Please try again." (shown as the API words it). */
+export interface MergeResult { added: number; updated: number; skipped: number; unchanged?: number; list: ContactList }
+export interface ExportFile { blob: Blob; filename: string }
 
 // Lists and drafts must never be stale right after a write, so reads skip apiRequest's 15 s GET cache.
 const FRESH = { method: 'GET', skipCache: true } as RequestInit;
@@ -229,6 +254,52 @@ async function uploadImage(file: File): Promise<NlResult<{ url: string }>> {
   return result;
 }
 
+// GET /contact-lists/{id}/export answers a CSV file, not JSON, so it skips apiRequest. It keeps apiRequest's
+// sign-in handling (an expired token is cleared before asking; a 401 clears it and goes to /login) and its
+// 403 plan_required / 429 handling.
+async function exportList(id: number, fallbackName: string): Promise<NlResult<ExportFile>> {
+  const token = localStorage.getItem('stasht_token');
+  if (token && tokenUtils.isTokenExpired(token)) {
+    userUtils.clearAuthData();
+    return { ok: false, error: 'Authentication token has expired. Please log in again.', fieldErrors: {}, status: 401 };
+  }
+  let response: Response;
+  try {
+    response = await fetchWithRateLimitRetry(`${getApiBaseUrl()}${list(id)}/export`, {
+      method: 'GET',
+      headers: { Accept: 'text/csv, application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    });
+  } catch {
+    // A tab that switched account elsewhere refuses API calls (utils/accountSwitch.ts): say so, not "connection".
+    if (isTabStale()) return { ok: false, error: STALE_TAB_MESSAGE, fieldErrors: {} };
+    return { ok: false, error: 'The file could not be downloaded. Check your connection and try again.', fieldErrors: {} };
+  }
+  if (response.status === 401) {
+    userUtils.clearAuthData();
+    window.setTimeout(() => { window.location.href = '/login'; }, 100);
+    return { ok: false, error: 'Authentication failed. Please log in again.', fieldErrors: {}, status: 401 };
+  }
+  const type = response.headers.get('Content-Type') || '';
+  if (response.ok && !type.includes('application/json')) {
+    try {
+      const blob = await response.blob();
+      return { ok: true, data: { blob, filename: filenameFromDisposition(response.headers.get('Content-Disposition'), fallbackName) }, fieldErrors: {} };
+    } catch {
+      return { ok: false, error: 'The file could not be downloaded. Check your connection and try again.', fieldErrors: {} };
+    }
+  }
+  let body: unknown = null;
+  try {
+    const text = await response.text();
+    body = text ? JSON.parse(text) : null;
+  } catch {
+    body = null;
+  }
+  const result = resultFromRaw<ExportFile>(response.ok ? 500 : response.status, body);
+  if (result.planRequired) requestUpgrade(result.error);
+  return result;
+}
+
 export const newslettersAPI = {
   list: (status?: NewsletterStatus) => get<NewsletterSummary[]>(`/newsletters${query({ status })}`),
   create: (name?: string) => write<Newsletter>('POST', '/newsletters', name ? { name } : {}),
@@ -267,7 +338,21 @@ export const newslettersAPI = {
   importList: (input: ImportInput) =>
     write<ImportResult>('POST', '/contact-lists/import', input),
   listFromLeads: (input: { name: string; lead_group_id?: number }) => write<ContactList>('POST', '/contact-lists/from-leads', input),
-  listMembers: (id: number, page = 1) => get<ContactListMembers>(`${list(id)}/members${query({ page })}`),
+  listMembers: (id: number, page = 1, q: Omit<MembersQuery, 'page'> = {}) =>
+    get<ContactListMembers>(`${list(id)}/members${query({ page, search: q.search?.trim() || undefined, status: q.status && q.status !== 'all' ? q.status : undefined })}`),
+  // Lists tab (Leads page). An empty list made here (source manual).
+  createList: (name: string) => write<ContactList>('POST', '/contact-lists', { name }),
+  // 409: the email or mobile number is already on this list. 422 keys: email, phone, consent_type, name.
+  addMember: (id: number, input: NewMemberInput) => write<ContactListMember>('POST', `${list(id)}/members`, input),
+  updateMember: (id: number, memberId: number, input: MemberInput) =>
+    write<ContactListMember>('PATCH', `${list(id)}/members/${encodeURIComponent(String(memberId))}`, input),
+  removeMembers: (id: number, ids: number[]) => write<{ removed: number; list: ContactList }>('POST', `${list(id)}/members/remove`, { ids }),
+  // Same body as importList minus name; merges into the list.
+  importIntoList: (id: number, input: Omit<ImportInput, 'name'>) => write<MergeResult>('POST', `${list(id)}/import`, input),
+  duplicateList: (id: number, name?: string) => write<ContactList>('POST', `${list(id)}/duplicate`, name ? { name } : {}),
+  copyMembers: (id: number, ids: number[], targetListId: number) =>
+    write<MergeResult>('POST', `${list(id)}/members/copy`, { ids, target_list_id: targetListId }),
+  exportList,
   // 409 while a scheduled or sending newsletter uses the list ("Cancel it first").
   deleteList: (id: number) => write<Record<string, never>>('DELETE', list(id)),
   renameList: (id: number, name: string) => write<ContactList>('PATCH', list(id), { name }),
