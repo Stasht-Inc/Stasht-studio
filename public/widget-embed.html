@@ -45,6 +45,10 @@
       .face img, .face .ini { display: flex; align-items: center; justify-content: center; width: 100%; height: 100%;
         border-radius: 50%; object-fit: cover; font-size: 11.5px; font-weight: 700; }
       .face .dot { position: absolute; right: -2px; bottom: -2px; width: 10px; height: 10px; border-radius: 50%; background: #22c55e; border: 2px solid #fff; }
+      /* The AI assistant's face, last in the stack (wdy2xh2upu): its picture, else the chat icon on the brand colour. */
+      .face .icon { display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; border-radius: 50%;
+        background: var(--brand); color: var(--brand-ink); }
+      .face .icon svg { width: 15px; height: 15px; }
 
       /* ---- Open panel ---- */
       .panel { width: var(--panel-w); background: #fff; border-radius: 18px; max-height: var(--panel-max-h); overflow-x: hidden; overflow-y: auto;
@@ -56,6 +60,15 @@
         object-fit: cover; background: rgba(255, 255, 255, .22); }
       .hav svg { width: 21px; height: 21px; }
       .hav .dot { position: absolute; top: -1px; right: -1px; width: 12px; height: 12px; border-radius: 50%; background: #22c55e; border: 2px solid var(--brand); }
+      /* Team faces stacked in the header (Chris, 2026-10-29, wdy2xh2upu): overlapping, a green dot each, the assistant last. */
+      .hfaces { flex: none; display: flex; }
+      .hface { position: relative; width: 40px; height: 40px; margin-left: -11px; border-radius: 50%; border: 2px solid #fff; background: #fff; }
+      .hface:first-child { margin-left: 0; }
+      .hface img, .hface .ini, .hface .icon { display: flex; align-items: center; justify-content: center; width: 100%; height: 100%;
+        border-radius: 50%; object-fit: cover; font-size: 13px; font-weight: 700; }
+      .hface .icon { background: rgba(255, 255, 255, .22); color: var(--brand-ink); }
+      .hface svg { width: 19px; height: 19px; }
+      .hface .dot { position: absolute; right: -2px; bottom: -1px; width: 12px; height: 12px; border-radius: 50%; background: #22c55e; border: 2px solid var(--brand); }
       .who { min-width: 0; }
       .who h2 { margin: 0; font-size: 17px; font-weight: 700; line-height: 1.25; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
       .who p { display: flex; align-items: center; gap: 6px; margin: 2px 0 0; font-size: 14px; opacity: .92; }

@@ -9,7 +9,9 @@
 // AI notice, replies tagged "AI" and a card for the vehicles it shares; when it can't answer, its
 // fallback notice looks like the auto-reply. When a rep takes over, "{name} has joined the
 // conversation" shows before their message. Products the AI finds show as one card each, opening the
-// product's page on the business's website (wdy2xh2kp0).
+// product's page on the business's website (wdy2xh2kp0). The teaser and the header stack the online
+// team's faces with the assistant's last, behind them; a rep's "Take over" in Studio shows as "{name} has
+// joined the conversation" and puts them in front (wdy2xh2upu).
 import {
   safeColor, safeHttpsUrl, contrastInk, hostOrigin, clampPosition, panelWidth, panelMaxHeight, MESSAGE_MAX,
   configUrl, ROOT_PAD, formFieldsFrom, validateValues, consentText, placeholderFor, autoReplyText, initialsFrom,
@@ -225,6 +227,8 @@ function refreshChat() {
   }
   log.replaceChildren(...logRows());
   if (stick) log.scrollTop = log.scrollHeight;
+  // Who is in front can change with the new messages (a rep took over, or handed back).
+  document.querySelector('.panel > .head')?.replaceWith(head());
   reportSize();
 }
 
@@ -289,17 +293,43 @@ function face(member) {
   return h('span', { class: 'face' }, inner, h('span', { class: 'dot' }));
 }
 
+// The AI assistant in a face stack: its picture (the agent picture), else the chat icon on the brand colour.
+function assistantInner(assistant) {
+  return assistant.avatarUrl ? h('img', { src: assistant.avatarUrl, alt: '' }) : h('span', { class: 'icon' }, chatIcon());
+}
+
+// Who the stacks show (wdy2xh2upu): the rep handling the chat in front, the online team, the assistant
+// last. Null with a widget-core.js older than these helpers (cached separately): the old look then.
+function stackFor(maxPeople) {
+  if (typeof core.teamStack !== 'function') return null;
+  const team = teamOnlineFrom(state.config);
+  const assistant = core.assistantFrom(state.config);
+  const faces = core.teamStack({ team, handler: core.handlingRep(state.messages), assistant, max: maxPeople });
+  return { team, assistant, faces };
+}
+
+// The front face sits on top: each face is drawn over the next one.
+const stacked = (el, index, count) => {
+  el.style.zIndex = String(count - index);
+  return el;
+};
+
 function closed() {
   const cfg = state.config;
   const title = cfg.callout_text || DEFAULT_CALLOUT;
   const team = teamOnlineFrom(cfg);
   const left = clampPosition(cfg.theme?.bubble_position) === 'bottom-left';
+  const stack = stackFor(core.STACK_PEOPLE_MAX);
+  const faces = stack
+    ? stack.faces.map((f, i, all) => stacked(f.person ? face(f.person) : h('span', { class: 'face ai' }, assistantInner(f.assistant), h('span', { class: 'dot' })), i, all.length))
+    : team.map(face);
+  const countText = stack ? core.teaserOnlineText(team, stack.assistant) : onlineCountText(team);
 
   const callout = !state.calloutDismissed && h('div', { class: 'callout' },
     h('button', { class: 'callout-body', type: 'button', onclick: openPanel },
-      team.length > 0 && h('span', { class: 'team' },
-        h('span', { class: 'faces', 'aria-hidden': 'true' }, team.map(face)),
-        h('span', { class: 'count' }, onlineCountText(team))),
+      faces.length > 0 && h('span', { class: 'team' },
+        h('span', { class: 'faces', 'aria-hidden': 'true' }, faces),
+        countText && h('span', { class: 'count' }, countText)),
       h('span', { class: 'title' }, title),
       h('span', { class: 'sub' }, CALLOUT_SUBTEXT)),
     h('button', { class: 'dismiss', type: 'button', 'aria-label': 'Dismiss', onclick: dismissCallout }, '×'));
@@ -319,19 +349,50 @@ function agentPicture(className) {
 }
 
 function panel() {
-  const cfg = state.config;
-  const online = teamOnlineFrom(cfg).length > 0;
   const inChat = state.phase === 'chat';
-
-  const head = h('div', { class: 'head' },
-    h('span', { class: 'hav' }, agentPicture('icon'), online && h('span', { class: 'dot' })),
-    h('div', { class: 'who' },
-      h('h2', { id: 'w-title' }, cfg.agent_name || 'Chat with us'),
-      h('p', {}, online ? [h('span', { class: 'on' }), 'Online now'] : "We'll reply soon")),
-    h('button', { class: 'iconbtn close', type: 'button', 'aria-label': 'Close', onclick: closePanel }, closeIcon()));
-
   return h('div', { class: inChat ? 'panel chat' : 'panel', role: 'dialog', 'aria-labelledby': 'w-title' },
-    head, inChat ? [chatLog(), composer()] : form(), poweredBy());
+    head(), inChat ? [chatLog(), composer()] : form(), poweredBy());
+}
+
+// Chris's header (wdy2xh2upu): the online team's faces stacked, each with a green dot, the assistant's
+// last; then the business's name and "Online now". Nobody online and no assistant: the agent picture
+// and "We'll reply soon", as before. An older cached widget-core.js keeps the old header.
+function head() {
+  const cfg = state.config;
+  const close = h('button', { class: 'iconbtn close', type: 'button', 'aria-label': 'Close', onclick: closePanel }, closeIcon());
+  const stack = stackFor(core.stackPeopleMax?.(panelWidth(Number(params.get('vw')))));
+
+  if (!stack) {
+    const online = teamOnlineFrom(cfg).length > 0;
+    return h('div', { class: 'head' },
+      h('span', { class: 'hav' }, agentPicture('icon'), online && h('span', { class: 'dot' })),
+      h('div', { class: 'who' },
+        h('h2', { id: 'w-title' }, cfg.agent_name || 'Chat with us'),
+        h('p', {}, online ? [h('span', { class: 'on' }), 'Online now'] : "We'll reply soon")),
+      close);
+  }
+
+  const status = core.headerStatusText(stack.team, stack.assistant);
+  const faces = stack.faces.length > 0
+    ? h('span', { class: 'hfaces', 'aria-hidden': 'true' }, stack.faces.map((f, i, all) => stacked(
+      h('span', { class: f.assistant ? 'hface ai' : 'hface' }, f.assistant ? assistantInner(f.assistant) : personInner(f.person), h('span', { class: 'dot' })),
+      i, all.length)))
+    : h('span', { class: 'hav' }, agentPicture('icon'));
+  return h('div', { class: 'head' },
+    faces,
+    h('div', { class: 'who' },
+      h('h2', { id: 'w-title' }, core.headerTitle(cfg)),
+      h('p', {}, status === core.ONLINE_NOW ? [h('span', { class: 'on' }), status] : status)),
+    close);
+}
+
+// A person's photo, else their initials on their colour.
+function personInner(person) {
+  if (person.avatarUrl) return h('img', { src: person.avatarUrl, alt: '' });
+  const el = h('span', { class: 'ini' }, person.initials);
+  el.style.background = person.color;
+  el.style.color = initialsInk(person.color);
+  return el;
 }
 
 // The Stasht "S", filled in Stasht purple whatever the widget's brand colour is.
@@ -449,6 +510,8 @@ function logRows() {
   for (const m of state.messages) {
     if (notices.has(m.id)) rows.push(aiNoticeRow());
     if (joined.has(m.id)) rows.push(joinedRow(m.sender.name));
+    // A "Take over" is only its joined line; a hand back shows nothing (wdy2xh2upu).
+    if (m.event) continue;
     rows.push(messageRow(m));
     if (m.id === anchor) rows.push(botRow(autoReplyText(state.visitorName), m.sentAt ? clock(m.sentAt) : null));
   }
@@ -892,7 +955,7 @@ function applyIncoming(list) {
     markSeen();
     refreshChat();
   } else {
-    if (fresh.some((m) => m.from === 'team')) state.unread = true;
+    if (fresh.some((m) => m.from === 'team' && !m.event)) state.unread = true;
     render();
   }
   return true;
