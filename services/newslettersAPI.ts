@@ -194,8 +194,10 @@ export interface ContactListMembers { data: ContactListMember[]; meta: PageMeta 
 export interface MembersQuery { page?: number; search?: string; status?: MemberStatusFilter }
 export interface MemberInput { name?: string | null; email?: string | null; phone?: string | null }
 export interface NewMemberInput extends MemberInput { consent_type: ConsentType; consent_source?: string }
-/** POST /contact-lists/{id}/import and /members/copy: what the merge did, and the list as it is now. */
-export interface MergeResult { added: number; updated: number; skipped: number; list: ContactList }
+/** POST /contact-lists/{id}/import and /members/copy: what the merge did, and the list as it is now. unchanged
+ *  (import, newer API versions): people already on the list with nothing new to fill in. Add, edit, import and copy
+ *  can also answer 409 "Someone changed this list at the same time. Please try again." (shown as the API words it). */
+export interface MergeResult { added: number; updated: number; skipped: number; unchanged?: number; list: ContactList }
 export interface ExportFile { blob: Blob; filename: string }
 
 // Lists and drafts must never be stale right after a write, so reads skip apiRequest's 15 s GET cache.

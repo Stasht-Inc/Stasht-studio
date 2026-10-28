@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   LISTS_CHANGED_EVENT, MAX_SELECTED, announceListsChanged, emailStatusChip, filenameFromDisposition, listSourceLabel, listTotals,
-  listUpdatedText, memberFormProblems, mergeResultText, pageSelection, peopleText, smsStatusChip, toggleSelected, togglePage, withListSummary,
+  listUpdatedText, memberFormProblems, mergeResultText, copyResultText, pageSelection, peopleText, smsStatusChip, toggleSelected, togglePage, withListSummary,
 } from '../../components/newsletters/lib/lists.ts';
 import { listOrigin } from '../../components/newsletters/lib/manageLists.ts';
 
@@ -49,6 +49,22 @@ test('what an import or copy did', () => {
   assert.equal(mergeResultText({ added: 0, updated: 5, skipped: 0 }, 'en-US'), 'Added 0, updated 5.');
   assert.equal(mergeResultText({ added: 1200, updated: 0, skipped: 2 }, 'en-US'), 'Added 1,200, skipped 2.');
   assert.equal(mergeResultText({}, 'en-US'), 'Added 0.');
+  // Nothing changed (everyone was already there): the caller's own words instead of "Added 0."
+  assert.equal(mergeResultText({ added: 0, updated: 0, skipped: 0 }, 'en-US', 'Everyone in this file is already on the list.'), 'Everyone in this file is already on the list.');
+  assert.equal(mergeResultText({ added: 0, updated: 0, skipped: 2 }, 'en-US', 'Everyone in this file is already on the list.'), 'Added 0, skipped 2.');
+  // unchanged (newer API): people in the file already on the list with nothing new to fill in.
+  assert.equal(mergeResultText({ added: 812, updated: 40, skipped: 12, unchanged: 5 }, 'en-US'), 'Added 812, updated 40, skipped 12, 5 already on the list.');
+  assert.equal(mergeResultText({ added: 3, updated: 0, skipped: 0, unchanged: 1 }, 'en-US'), 'Added 3, 1 already on the list.');
+  assert.equal(mergeResultText({ added: 0, updated: 0, skipped: 0, unchanged: 7 }, 'en-US'), 'Everyone in this file is already on the list.');
+  assert.equal(mergeResultText({ added: 0, updated: 0, skipped: 1, unchanged: 7 }, 'en-US'), 'Everyone in this file is already on the list. Skipped 1.');
+  assert.equal(mergeResultText({ added: 0, updated: 2, skipped: 0, unchanged: 7 }, 'en-US'), 'Added 0, updated 2, 7 already on the list.');
+});
+
+test('a copy where everyone chosen was already on the other list', () => {
+  assert.equal(copyResultText({ added: 2, updated: 0, skipped: 0 }, 'VIP', 'en-US'), 'Copied to \u201cVIP\u201d. Added 2.');
+  assert.equal(copyResultText({ added: 1, updated: 1, skipped: 3 }, 'VIP', 'en-US'), 'Copied to \u201cVIP\u201d. Added 1, updated 1, skipped 3.');
+  assert.equal(copyResultText({ added: 0, updated: 0, skipped: 3 }, 'VIP', 'en-US'), 'Everyone you chose is already on \u201cVIP\u201d.');
+  assert.equal(copyResultText({ added: 0, updated: 0, skipped: 1 }, 'VIP', 'en-US'), 'This person is already on \u201cVIP\u201d.');
 });
 
 test('the download name from Content-Disposition', () => {

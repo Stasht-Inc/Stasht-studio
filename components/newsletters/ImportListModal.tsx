@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { FileUp, Loader2 } from 'lucide-react';
 import { composerToast } from './ComposerToaster';
-import { newslettersAPI, type ConsentType, type ContactList } from '../../services/newslettersAPI';
+import { newslettersAPI, type ConsentType, type ContactList, type MergeResult } from '../../services/newslettersAPI';
 import ComposerDialog from './ComposerDialog';
 import SegmentedSwitch from './SegmentedSwitch';
 import { GENERIC_ERROR } from './lib/apiResult';
@@ -11,6 +11,7 @@ import {
   type DateOrder,
 } from './lib/csv';
 import { CONSENT_HINT, CONSENT_OPTIONS } from './lib/consent';
+import { ALREADY_ON_LIST, mergeResultText } from './lib/lists';
 import { LIMITS } from './lib/rules';
 import { BUTTON_OUTLINE, BUTTON_PRIMARY, LABEL, LINK_BUTTON, inputClass } from './lib/ui';
 
@@ -28,9 +29,12 @@ export interface ImportListModalProps {
   onOpenChange(open: boolean): void;
   groups: GroupOption[];
   onCreated(list: ContactList): void;
+  /** Add the file's people to this list instead of making a new one (CSV only; people already on it keep their details). */
+  intoList?: Pick<ContactList, 'id' | 'name'> | null;
+  onMerged?(result: MergeResult): void;
 }
 
-export default function ImportListModal({ open, onOpenChange, groups, onCreated }: ImportListModalProps) {
+export default function ImportListModal({ open, onOpenChange, groups, onCreated, intoList = null, onMerged }: ImportListModalProps) {
   const [source, setSource] = useState<'csv' | 'leads'>('csv');
   const [name, setName] = useState('');
   const [fileName, setFileName] = useState<string | null>(null);
@@ -90,8 +94,24 @@ export default function ImportListModal({ open, onOpenChange, groups, onCreated 
 
   const submit = async () => {
     setError(null);
-    if (!name.trim()) { setError('Give the list a name.'); return; }
+    if (!intoList && !name.trim()) { setError('Give the list a name.'); return; }
     setBusy(true);
+    if (intoList) {
+      if (!preview || !ready || tooMany) { setBusy(false); return; }
+      if (!consent) { setBusy(false); setError('Choose how these people agreed to hear from you.'); return; }
+      if (preview.needsDateOrder) { setBusy(false); setError('Choose whether the dates are day/month or month/day.'); return; }
+      const res = await newslettersAPI.importIntoList(intoList.id, { consent: true, consent_type: consent, consent_source: 'import', rows: preview.rows });
+      setBusy(false);
+      // 422 keys: rows (also "This list can hold up to N people."), consent_type, consent.
+      if (!res.ok || !res.data) {
+        setError(res.fieldErrors.rows ?? res.fieldErrors.consent_type ?? res.fieldErrors.consent ?? res.error ?? GENERIC_ERROR);
+        return;
+      }
+      composerToast.success(mergeResultText(res.data, undefined, ALREADY_ON_LIST));
+      onMerged?.(res.data);
+      onOpenChange(false);
+      return;
+    }
     if (source === 'csv') {
       if (!preview || !ready || tooMany) { setBusy(false); return; }
       // Said on pressing Import (the button stays enabled, so it's clear what is missing).
@@ -118,28 +138,37 @@ export default function ImportListModal({ open, onOpenChange, groups, onCreated 
     onOpenChange(false);
   };
 
+  // Into an existing list: always a CSV file.
+  const csv = Boolean(intoList) || source === 'csv';
   const footer = (
     <>
       <button type="button" onClick={() => onOpenChange(false)} disabled={busy} className={BUTTON_OUTLINE}>Cancel</button>
-      <button type="button" onClick={submit} disabled={busy || (source === 'csv' && (!ready || tooMany))} className={BUTTON_PRIMARY}>
+      <button type="button" onClick={submit} disabled={busy || (csv && (!ready || tooMany))} className={BUTTON_PRIMARY}>
         {busy ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : null}
-        {source === 'csv' ? `Import ${formatCount(ready)} ${ready === 1 ? 'contact' : 'contacts'}` : 'Make the list'}
+        {csv ? `Import ${formatCount(ready)} ${ready === 1 ? 'contact' : 'contacts'}` : 'Make the list'}
       </button>
     </>
   );
 
   return (
-    <ComposerDialog open={open} onOpenChange={(o) => { if (!busy) onOpenChange(o); }} title="Add a list"
-      description="Bring in your own contacts, or save a copy of your leads as a list." footer={footer}>
+    <ComposerDialog open={open} onOpenChange={(o) => { if (!busy) onOpenChange(o); }} title={intoList ? `Import into “${intoList.name}”` : 'Add a list'}
+      description={intoList
+        ? 'New people are added. People already on the list keep their details; we only fill in what is missing.'
+        : 'Bring in your own contacts, or save a copy of your leads as a list.'}
+      footer={footer}>
       <div className="space-y-4">
-        <SegmentedSwitch label="List source" options={SOURCES} value={source} onChange={(v) => { setSource(v); setError(null); }} />
-        <div>
-          <label htmlFor="nl-list-name" className={LABEL}>List name</label>
-          <input id="nl-list-name" type="text" value={name} maxLength={LIMITS.name} placeholder="e.g. Open house sign-ups"
-            onChange={(e) => setName(e.target.value)} className={inputClass()} />
-        </div>
+        {intoList ? null : (
+          <>
+            <SegmentedSwitch label="List source" options={SOURCES} value={source} onChange={(v) => { setSource(v); setError(null); }} />
+            <div>
+              <label htmlFor="nl-list-name" className={LABEL}>List name</label>
+              <input id="nl-list-name" type="text" value={name} maxLength={LIMITS.name} placeholder="e.g. Open house sign-ups"
+                onChange={(e) => setName(e.target.value)} className={inputClass()} />
+            </div>
+          </>
+        )}
 
-        {source === 'csv' ? (
+        {csv ? (
           <>
             <div
               onDragOver={(e) => e.preventDefault()}

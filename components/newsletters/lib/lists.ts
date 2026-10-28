@@ -45,12 +45,31 @@ export function peopleText(n: number, locale: string = userLocale()): string {
   return `${formatCount(n, locale)} ${n === 1 ? 'person' : 'people'}`;
 }
 
-/** "Added 812, updated 40, skipped 12." — the parts that are zero (besides Added) are left out. */
-export function mergeResultText(r: { added?: number; updated?: number; skipped?: number }, locale: string = userLocale()): string {
+type Merge = { added?: number; updated?: number; skipped?: number; unchanged?: number };
+
+export const ALREADY_ON_LIST = 'Everyone in this file is already on the list.';
+
+/** "Added 812, updated 40, skipped 12, 5 already on the list." — the parts that are zero (besides Added) are left
+ *  out. unchanged: people already on the list with nothing new to fill in (newer API versions). `nothing`: the
+ *  words for when every count is 0 (an older API's answer to a file of people already on the list). */
+export function mergeResultText(r: Merge, locale: string = userLocale(), nothing?: string): string {
+  if (!r.added && !r.updated && r.unchanged) {
+    return r.skipped ? `${ALREADY_ON_LIST} Skipped ${formatCount(r.skipped, locale)}.` : ALREADY_ON_LIST;
+  }
+  if (nothing && !r.added && !r.updated && !r.skipped) return nothing;
   const parts = [`Added ${formatCount(r.added ?? 0, locale)}`];
   if (r.updated) parts.push(`updated ${formatCount(r.updated, locale)}`);
   if (r.skipped) parts.push(`skipped ${formatCount(r.skipped, locale)}`);
+  if (r.unchanged) parts.push(`${formatCount(r.unchanged, locale)} already on the list`);
   return `${parts.join(', ')}.`;
+}
+
+/** Copy to list: `skipped` there means already on the other list with nothing to fill in. */
+export function copyResultText(r: Merge, targetName: string, locale: string = userLocale()): string {
+  if (!r.added && !r.updated && r.skipped) {
+    return r.skipped === 1 ? `This person is already on \u201c${targetName}\u201d.` : `Everyone you chose is already on \u201c${targetName}\u201d.`;
+  }
+  return `Copied to \u201c${targetName}\u201d. ${mergeResultText(r, locale)}`;
 }
 
 const baseName = (name: string): string => name.split(/[\\/]/).pop()?.trim() ?? '';
