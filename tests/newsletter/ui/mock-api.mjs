@@ -293,6 +293,8 @@ export function createMockApi(options = {}) {
     if (options.storeelServerLimit && method === 'POST' && (path === '/memories' || path === '/memories/create-with-images')) {
       return fail(403, { success: false, code: 'memory_limit_reached', message: "You've reached your plan's campaign limit. Upgrade your plan to create more campaigns." });
     }
+    // Add a Moment's photo upload (dashboardAPI.uploadImageWithMetadata): the uploaded file's link.
+    if (path === '/user/upload-image-with-metadata' && method === 'POST') return ok({ fileUrl: IMG, imageName: 'scan.png' });
     if (path === '/memories' && method === 'POST') {
       const memory = { id: state.nextId++, ...body };
       state.storeels.push(memory);
