@@ -63,7 +63,15 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
     .flatMap((el) => el.getAttribute('aria-describedby').split(/\s+/).filter((id) => !document.getElementById(id)).map((id) => `${el.id || el.tagName}→${id}`)), COMPOSER);
   expect(dangling.length === 0, `aria-describedby points at missing ids: ${dangling.join(', ')}`);
 
+  // Tabbing landed on a part of the email, which opened its editor: the first Escape closes that editor
+  // (wdy2xh2t3x), the next one closes the composer.
+  const editing = await page.locator('[data-nl-selected="true"]').count();
   await page.keyboard.press('Escape');
+  if (editing) {
+    await page.waitForTimeout(200);
+    expect(await page.locator(COMPOSER).count() === 1 && !(await page.locator('[data-nl-selected="true"]').count()), 'the first Escape closed the open editor only');
+    await page.keyboard.press('Escape');
+  }
   await page.waitForTimeout(400);
   expect(await page.locator(COMPOSER).count() === 0, 'Escape closed the composer');
   await context.close();

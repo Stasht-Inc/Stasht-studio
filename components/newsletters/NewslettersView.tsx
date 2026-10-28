@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Loader2, Mail, MoreHorizontal, Plus } from 'lucide-react';
+import { Loader2, Mail, MoreHorizontal, Pencil, Plus } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '../ui/button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '../ui/dropdown-menu';
@@ -16,13 +16,15 @@ import StatusChip from './StatusChip';
 import NewsletterResults from './NewsletterResults';
 import { GENERIC_ERROR, PLAN_REQUIRED_ERROR } from './lib/apiResult';
 import { formatCount } from './lib/audience';
-import { NEWSLETTER_FILTERS, NEWSLETTERS_CHANGED_EVENT, announceNewslettersChanged, type NewsletterFilter } from './lib/campaignsView';
+import { NEWSLETTER_FILTERS, NEWSLETTERS_CHANGED_EVENT, announceNewslettersChanged, withHighlightFirst, type NewsletterFilter } from './lib/campaignsView';
 import { ACTION_LABEL, actionsFor, failureText, isLive, listRateBase, plural, primaryAction, rate, whenText, type NewsletterAction } from './lib/newsletterList';
-import { BUTTON_OUTLINE, BUTTON_PRIMARY } from './lib/ui';
+import { BUTTON_OUTLINE, BUTTON_PRIMARY, BUTTON_SMALL } from './lib/ui';
 
 const POLL_MS = 30000;
 // The All Campaigns list: a grey header row and rows of the same grid.
-const GRID = 'grid grid-cols-[minmax(0,1fr)_100px_200px_96px_80px_80px_40px] items-center gap-3';
+// The last column holds a draft's Edit (icon only until xl, where there is room for the word) and the menu.
+const GRID = 'grid grid-cols-[minmax(0,1fr)_88px_150px_72px_64px_64px_80px] lg:grid-cols-[minmax(0,1fr)_96px_192px_88px_72px_72px_80px] xl:grid-cols-[minmax(0,1fr)_96px_200px_88px_72px_72px_104px] items-center gap-3';
+const HIGHLIGHT_MS = 4000;
 const CREATE_BUTTON = 'bg-[#6C60FF] text-white hover:bg-[#5B52FF] focus:ring-2 focus:ring-[#6C60FF] focus:ring-opacity-50 active:bg-[#6C60FF]';
 
 export interface NewslettersViewProps {
@@ -33,6 +35,8 @@ export interface NewslettersViewProps {
   showMobileSidebar?: boolean;
   /** Open this newsletter's results ("View" on the sent / scheduled toast); a new nonce opens it again. */
   openResults?: { id: number; nonce: number } | null;
+  /** Save Draft: show this newsletter at the top, highlighted for a moment; a new nonce highlights it again. */
+  highlight?: { id: number; nonce: number } | null;
 }
 
 function RowMenu({ item, busy, onAction }: { item: NewsletterSummary; busy: boolean; onAction(action: NewsletterAction, item: NewsletterSummary): void }) {
@@ -63,7 +67,17 @@ function RowMenu({ item, busy, onAction }: { item: NewsletterSummary; busy: bool
 }
 
 /** Campaigns page → Newsletters (spec decision 3): drafts, scheduled, sending and sent, with their results. */
-export default function NewslettersView({ onCreate, onEdit, onToggleMobileSidebar, showMobileSidebar = false, openResults = null }: NewslettersViewProps) {
+/** A draft's main action, beside its menu (wdy2xh2t3y). */
+function EditButton({ item, onEdit, compact = false }: { item: NewsletterSummary; onEdit(id: number): void; compact?: boolean }) {
+  return (
+    <button type="button" onClick={() => onEdit(item.id)} aria-label={`Edit ${item.name || 'this newsletter'}`} title="Edit"
+      className={`${BUTTON_SMALL} flex-shrink-0 ${compact ? 'px-2 xl:px-3' : ''}`}>
+      <Pencil className="h-3.5 w-3.5" aria-hidden="true" /><span className={compact ? 'hidden xl:inline' : undefined}>Edit</span>
+    </button>
+  );
+}
+
+export default function NewslettersView({ onCreate, onEdit, onToggleMobileSidebar, showMobileSidebar = false, openResults = null, highlight = null }: NewslettersViewProps) {
   const { isStarter, known } = useIsStarterPlan();
   // Paid plans only, and only once the plan is known: a Starter account would get 403 plan_required (contract note 1).
   const enabled = known && !isStarter;
@@ -74,6 +88,18 @@ export default function NewslettersView({ onCreate, onEdit, onToggleMobileSideba
   useEffect(() => {
     if (openResults) setResultsId(openResults.id);
   }, [openResults]);
+  // The newsletter Save Draft just saved: first in the list (while this view is open), glowing for a moment.
+  const [topId, setTopId] = useState<number | null>(highlight?.id ?? null);
+  const [glowId, setGlowId] = useState<number | null>(highlight?.id ?? null);
+  useEffect(() => {
+    if (!highlight) return undefined;
+    setTopId(highlight.id);
+    setGlowId(highlight.id);
+    // A draft shows under All (and Drafts); any other filter would hide it.
+    setFilter((f) => (f === 'all' || f === 'draft' ? f : 'all'));
+    const timer = window.setTimeout(() => setGlowId(null), HIGHLIGHT_MS);
+    return () => window.clearTimeout(timer);
+  }, [highlight]);
   const [confirm, setConfirm] = useState<{ action: 'cancel' | 'delete' | 'editScheduled'; item: Pick<NewsletterSummary, 'id' | 'name'> } | null>(null);
   const [busyId, setBusyId] = useState<number | null>(null);
 
@@ -171,6 +197,13 @@ export default function NewslettersView({ onCreate, onEdit, onToggleMobileSideba
   };
 
   const open = (item: NewsletterSummary) => void act(primaryAction(item.status), item);
+  const rows = items ? withHighlightFirst(items, topId) : null;
+  const glowing = Boolean(glowId && items?.some((n) => n.id === glowId));
+  useEffect(() => {
+    if (!glowing) return;
+    document.querySelector(`[data-newsletter-row="${glowId}"]`)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }, [glowing, glowId]);
+  const glow = (id: number) => (id === glowId ? 'bg-[#6C60FF]/10 ring-2 ring-inset ring-[#6C60FF]/40' : '');
   const count = items ? plural(items.length, 'newsletter', 'newsletters') : known && isStarter ? 'Paid plans' : 'Loading…';
 
   const sidebarToggle = onToggleMobileSidebar && !showMobileSidebar ? (
@@ -220,11 +253,11 @@ export default function NewslettersView({ onCreate, onEdit, onToggleMobileSideba
             </div>
           </div>
           <div role="rowgroup" className="divide-y divide-gray-100">
-            {items.map((n) => {
+            {(rows ?? []).map((n) => {
               const base = listRateBase(n.counts);
               const notSent = n.status === 'draft' || n.status === 'scheduled';
               return (
-                <div key={n.id} role="row" className={`${GRID} px-6 py-4 text-sm transition-colors hover:bg-gray-50`}>
+                <div key={n.id} role="row" data-newsletter-row={n.id} className={`${GRID} px-6 py-4 text-sm transition-colors duration-700 hover:bg-gray-50 ${glow(n.id)}`}>
                   <div role="cell" className="min-w-0">
                     <button type="button" onClick={() => open(n)} className="block max-w-full rounded text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-[#6C60FF]/40">
                       <span className="block truncate font-medium text-gray-900 hover:text-[#6C60FF]">{n.name || 'Untitled newsletter'}</span>
@@ -236,7 +269,10 @@ export default function NewslettersView({ onCreate, onEdit, onToggleMobileSideba
                   <div role="cell" className="text-right tabular-nums text-gray-900">{n.counts.recipients > 0 ? formatCount(n.counts.recipients) : '—'}</div>
                   <div role="cell" className="text-right tabular-nums text-gray-900">{notSent ? '—' : rate(n.counts.opened, base)}</div>
                   <div role="cell" className="text-right tabular-nums text-gray-900">{notSent ? '—' : rate(n.counts.clicked, base)}</div>
-                  <div role="cell" className="flex justify-end"><RowMenu item={n} busy={busyId === n.id} onAction={act} /></div>
+                  <div role="cell" className="flex items-center justify-end gap-1">
+                    {n.status === 'draft' ? <EditButton item={n} onEdit={onEdit} compact /> : null}
+                    <RowMenu item={n} busy={busyId === n.id} onAction={act} />
+                  </div>
                 </div>
               );
             })}
@@ -244,8 +280,8 @@ export default function NewslettersView({ onCreate, onEdit, onToggleMobileSideba
         </div>
         {/* Phones: the All Campaigns card rows. */}
         <ul aria-label="Your newsletters" className="divide-y divide-gray-100 md:hidden">
-          {items.map((n) => (
-            <li key={n.id} className="flex items-start justify-between gap-3 px-4 py-4">
+          {(rows ?? []).map((n) => (
+            <li key={n.id} data-newsletter-row={n.id} className={`flex items-start justify-between gap-3 px-4 py-4 transition-colors duration-700 ${glow(n.id)}`}>
               <button type="button" onClick={() => open(n)} className="min-w-0 flex-1 rounded text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-[#6C60FF]/40">
                 <span className="mb-1 block truncate text-sm font-semibold text-gray-900">{n.name || 'Untitled newsletter'}</span>
                 <span className="block truncate text-xs text-gray-500">{n.subject || 'No subject yet'}</span>
@@ -256,7 +292,10 @@ export default function NewslettersView({ onCreate, onEdit, onToggleMobileSideba
                 </span>
                 {n.status === 'failed' ? <span className="mt-1.5 block text-xs text-red-700">{failureText(n.failure_reason)}</span> : null}
               </button>
-              <RowMenu item={n} busy={busyId === n.id} onAction={act} />
+              <div className="flex flex-shrink-0 items-center gap-1">
+                {n.status === 'draft' ? <EditButton item={n} onEdit={onEdit} /> : null}
+                <RowMenu item={n} busy={busyId === n.id} onAction={act} />
+              </div>
             </li>
           ))}
         </ul>

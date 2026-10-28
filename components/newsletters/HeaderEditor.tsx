@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { X } from 'lucide-react';
 import type { NewsletterHeader } from '../../services/newslettersAPI';
 import ColorSwatches from './ColorSwatches';
 import SegmentedSwitch from './SegmentedSwitch';
@@ -6,7 +7,7 @@ import { useImageUpload } from './hooks/useImageUpload';
 import { contrastInk, safeHexColor } from './lib/colors';
 import { LIMITS } from './lib/rules';
 import { httpsUrl } from './lib/urls';
-import { BUTTON_SMALL, LABEL, LINK_BUTTON, PURPLE, inputClass } from './lib/ui';
+import { BUTTON_SMALL, BUTTON_SMALL_PRIMARY, LABEL, LINK_BUTTON, PURPLE, inputClass } from './lib/ui';
 
 const BACKGROUNDS = [
   { value: 'color', label: 'Colour' },
@@ -18,12 +19,14 @@ const BACKGROUNDS = [
  * is one, then the logo and title on the background colour. It is part of the draft; the newsletter PUT also
  * saves it as the account's brand header, which pre-fills the next newsletter (contract note 8).
  */
-export default function HeaderEditor({ header, onChange, selected, onSelect, readOnly, padClass = 'px-10' }: {
+export default function HeaderEditor({ header, onChange, selected, onSelect, onDone, readOnly, padClass = 'px-10' }: {
   header: NewsletterHeader;
   /** The new header, or (for uploads, which finish later) a function of the latest one. */
   onChange(header: NewsletterHeader | ((latest: NewsletterHeader) => NewsletterHeader)): void;
   selected: boolean;
   onSelect(): void;
+  /** Done / × : close the editor (changes are already saved). */
+  onDone?(): void;
   readOnly: boolean;
   /** Side padding of the email column (40 px wide, 20 px on phones). */
   padClass?: string;
@@ -46,7 +49,7 @@ export default function HeaderEditor({ header, onChange, selected, onSelect, rea
 
   return (
     // A tab stop of its own (Enter or Space selects it), so the header can be edited without a mouse.
-    <div role="group" aria-label="Header" tabIndex={readOnly ? -1 : 0} onClick={onSelect} onFocusCapture={onSelect}
+    <div role="group" aria-label="Header" data-nl-header="" data-nl-selected={selected && !readOnly ? 'true' : undefined} tabIndex={readOnly ? -1 : 0} onClick={onSelect} onFocusCapture={onSelect}
       onKeyDown={(e) => { if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); onSelect(); } }}
       className={`relative outline outline-2 -outline-offset-2 transition-[outline-color] focus-visible:outline-[#6C60FF]/60 ${selected ? 'outline-[#6C60FF]' : 'outline-transparent hover:outline-[#6C60FF]/30'}`}>
       <div style={{ backgroundColor: color }}>
@@ -63,8 +66,14 @@ export default function HeaderEditor({ header, onChange, selected, onSelect, rea
       {logoUpload.input}
       {bannerUpload.input}
       {selected && !readOnly ? (
-        <div className="grid gap-4 border-b border-gray-100 bg-gray-50 p-4">
-          <div>
+        <div className="relative grid gap-4 border-b border-gray-100 bg-gray-50 p-4">
+          {onDone ? (
+            <button type="button" aria-label="Close editor" title="Close editor" onClick={(e) => { e.stopPropagation(); onDone(); }}
+              className="absolute right-2 top-2 flex h-8 w-8 items-center justify-center rounded-md text-gray-600 hover:bg-gray-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#6C60FF]/40">
+              <X className="h-4 w-4" aria-hidden="true" />
+            </button>
+          ) : null}
+          <div className="pr-8">
             <label htmlFor="nl-header-title" className={LABEL}>Header title</label>
             <input id="nl-header-title" type="text" value={header.title ?? ''} maxLength={LIMITS.title} placeholder="Your business name"
               onChange={(e) => onChange({ ...header, title: e.target.value })} className={inputClass()} />
@@ -90,7 +99,10 @@ export default function HeaderEditor({ header, onChange, selected, onSelect, rea
             <ColorSwatches label={mode === 'banner' ? 'Colour behind the logo and title' : 'Background colour'} idPrefix="nl-header-color" value={color}
               onChange={(c) => onChange({ ...header, background_color: c })} />
           </div>
-          <p className="text-xs text-gray-500">Your header is saved for your next newsletter too.</p>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="text-xs text-gray-500">Your header is saved for your next newsletter too.</p>
+            {onDone ? <button type="button" onClick={(e) => { e.stopPropagation(); onDone(); }} className={`${BUTTON_SMALL_PRIMARY} ml-auto`}>Done</button> : null}
+          </div>
         </div>
       ) : null}
     </div>

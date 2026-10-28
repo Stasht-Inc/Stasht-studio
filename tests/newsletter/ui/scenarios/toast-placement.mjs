@@ -1,6 +1,7 @@
 // Composer toasts never cover the composer's own action buttons: the header's Cancel / Save Draft / Send now on
 // wide screens, and the Cancel / Save Draft / Send Now row (and "Send a test to me") on phones. They also sit in
-// front of the composer layer (z-index 99999) and inside the screen.
+// front of the composer layer (z-index 99999) and inside the screen. (Save Draft closes the composer since
+// wdy2xh2t3y, so its toast goes to the page; the test-send toast is the composer toast checked here.)
 
 function intersects(a, b) {
   return a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
@@ -41,17 +42,12 @@ export async function run({ open, shot, expectVisible, expect }) {
       header.getByRole('button', { name: 'Send Now', exact: true }),
     ];
 
-    await headerButtons[1].click();
-    let toast = await toastBox(page, 'Draft saved.', `draft saved toast at ${width}`, expectVisible);
-    let box = await toast.boundingBox();
     const hb = await boxes(headerButtons);
     expect(hb.length === 3, `header buttons measured at ${width}`);
-    expect(box && hb.every((b) => !intersects(box, b)), `Draft saved toast clear of the header buttons at ${width}`);
-    expect(await inFront(page, toast), `Draft saved toast in front of the composer at ${width}`);
 
     await page.getByRole('button', { name: 'Send a test to me' }).click();
-    toast = await toastBox(page, 'Test sent to samantha@serpachrysler.ca.', `test toast at ${width}`, expectVisible);
-    box = await toast.boundingBox();
+    const toast = await toastBox(page, 'Test sent to samantha@serpachrysler.ca.', `test toast at ${width}`, expectVisible);
+    const box = await toast.boundingBox();
     const row = await boxes([
       page.getByRole('button', { name: 'Send a test to me' }),
       page.getByRole('button', { name: 'Cancel', exact: true }).last(),
@@ -79,8 +75,9 @@ export async function run({ open, shot, expectVisible, expect }) {
     for (const where of ['end', 'center']) {
       await rowButtons[3].evaluate((el, block) => el.scrollIntoView({ block }), where);
       await page.waitForTimeout(300);
-      await rowButtons[2].click();
-      const toast = await toastBox(page, 'Draft saved.', `draft saved toast at ${width} (${where})`, expectVisible);
+      await rowButtons[0].click();
+      await page.getByRole('menuitem', { name: 'Email me a test' }).click();
+      const toast = await toastBox(page, 'Test sent to', `test toast at ${width} (${where})`, expectVisible);
       const box = await toast.boundingBox();
       const rb = await boxes(rowButtons);
       expect(rb.length === 4, `bottom row measured at ${width}`);

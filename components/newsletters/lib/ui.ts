@@ -13,6 +13,7 @@ export const BUTTON_OUTLINE = `inline-flex h-10 items-center justify-center gap-
 export const BUTTON_SECONDARY = `inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-gray-300 bg-white px-5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 ${FOCUS}`;
 export const BUTTON_PRIMARY = `inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-[#6C60FF] px-5 text-sm font-medium text-white hover:bg-[#5B50E6] disabled:cursor-not-allowed disabled:opacity-50 ${FOCUS}`;
 export const BUTTON_SMALL = `inline-flex h-8 items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 ${FOCUS}`;
+export const BUTTON_SMALL_PRIMARY = `inline-flex h-8 items-center gap-1.5 rounded-lg bg-[#6C60FF] px-4 text-xs font-medium text-white hover:bg-[#5B50E6] disabled:opacity-50 ${FOCUS}`;
 export const LINK_BUTTON = `inline-flex items-center gap-1.5 rounded text-sm font-medium text-[#6C60FF] hover:underline disabled:opacity-50 ${FOCUS}`;
 export const LABEL = 'mb-1.5 block text-sm font-medium text-gray-900';
 

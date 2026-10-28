@@ -5,8 +5,9 @@ import { LIMITS } from './rules.ts';
 import { DEFAULT_BUTTON_COLOR, safeHexColor } from './colors.ts';
 import { httpsUrl, youtubeVideoId } from './urls.ts';
 import { textHtmlIsEmpty } from './textHtml.ts';
+import { normaliseCampaignIds, normaliseCampaignItems } from './campaignsBlock.ts';
 
-export const BLOCK_TYPES: readonly BlockType[] = ['image', 'title', 'text', 'youtube', 'button', 'divider'];
+export const BLOCK_TYPES: readonly BlockType[] = ['image', 'title', 'text', 'youtube', 'button', 'divider', 'campaigns'];
 const TITLE_SIZES: readonly TitleSize[] = ['small', 'medium', 'large'];
 
 /** A short id not used by any block yet ('b' + random base-36). The API accepts [A-Za-z0-9_-]{1,40}. */
@@ -28,6 +29,7 @@ export function createBlock(type: BlockType, id: string): NewsletterBlock {
     case 'text': return { id, type: 'text', data: { html: '' } };
     case 'youtube': return { id, type: 'youtube', data: { url: '' } };
     case 'button': return { id, type: 'button', data: { label: 'Learn more', url: '', color: DEFAULT_BUTTON_COLOR } };
+    case 'campaigns': return { id, type: 'campaigns', data: { campaign_ids: [] } };
     default: return { id, type: 'divider', data: { style: 'line' } };
   }
 }
@@ -52,6 +54,8 @@ export function normaliseBlocks(raw: unknown): NewsletterBlock[] {
       case 'text': out.push({ id, type: 'text', data: { html: str(d.html) } }); break;
       case 'youtube': out.push({ id, type: 'youtube', data: { url: str(d.url) } }); break;
       case 'button': out.push({ id, type: 'button', data: { label: str(d.label), url: str(d.url), color: safeHexColor(d.color, DEFAULT_BUTTON_COLOR) } }); break;
+      // The API's snapshot (items) comes back on every save; Studio never sends it (blocksToInput).
+      case 'campaigns': out.push({ id, type: 'campaigns', data: { campaign_ids: normaliseCampaignIds(d.campaign_ids), items: normaliseCampaignItems(d.items) } }); break;
       default: out.push({ id, type: 'divider', data: { style: d.style === 'space' ? 'space' : 'line' } });
     }
   }
@@ -118,9 +122,16 @@ export function blockProblem(block: NewsletterBlock): string | null {
       if (block.data.label.length > LIMITS.button_label) return `Keep button text to ${LIMITS.button_label} characters.`;
       if (!httpsUrl(block.data.url)) return 'Add the link the button opens (https://…).';
       return safeHexColor(block.data.color, '') ? null : 'Pick a button colour.';
+    case 'campaigns':
+      return block.data.campaign_ids.length ? null : 'Pick at least one campaign, or remove this section.';
     default:
       return null;
   }
+}
+
+/** The blocks as a PUT sends them: a Campaigns section sends its campaign_ids only (the API builds the cards). */
+export function blocksToInput(blocks: readonly NewsletterBlock[]): NewsletterBlock[] {
+  return blocks.map((b) => (b.type === 'campaigns' ? { id: b.id, type: 'campaigns', data: { campaign_ids: [...b.data.campaign_ids] } } : b));
 }
 
 const TEXT_TOO_LONG = 'This text is too long. Split it into two sections.';

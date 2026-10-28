@@ -1,4 +1,4 @@
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState, type ReactNode } from 'react';
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type ReactNode } from 'react';
 import { FocusScope } from '@radix-ui/react-focus-scope';
 import { ArrowLeft, Globe, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -9,7 +9,7 @@ import { useNewsletterBrand } from './hooks/useNewsletterBrand';
 import { useNewsletterDraft } from './hooks/useNewsletterDraft';
 import { useSenderProfile } from './hooks/useSenderProfile';
 import { useBackToClose } from './hooks/useBackToClose';
-import { openNewsletterResults } from './lib/campaignsView';
+import { DRAFT_SAVED_MESSAGE, openNewsletterDraft, openNewsletterResults } from './lib/campaignsView';
 import { fieldProblems, type NewsletterDraft } from './lib/draft';
 import { GENERIC_ERROR, PLAN_REQUIRED_ERROR, type NlResult } from './lib/apiResult';
 import { BUTTON_OUTLINE, BUTTON_PRIMARY, BUTTON_SECONDARY, LAYER, LINK_BUTTON } from './lib/ui';
@@ -28,7 +28,7 @@ import { firstProblemStep, preSendProblems, stepDomId, stepErrorsFrom, type Step
 import { formatSentTo } from './lib/phoneDisplay';
 import { smsPartsInfo } from './lib/smsParts';
 import { OFF_SCHEDULE_BANNER, clearUnscheduled, putBackProblem, unscheduledFor } from './lib/editScheduled';
-import { ACTION_TOAST_MS } from './lib/blocks';
+import { ACTION_TOAST_MS, normaliseBlocks } from './lib/blocks';
 import SendConfirmDialog from './SendConfirmDialog';
 import SaveIndicator from './SaveIndicator';
 import DraftNotices from './DraftNotices';
@@ -106,6 +106,8 @@ const NewsletterComposer = forwardRef<NewsletterComposerHandle, NewsletterCompos
   const state = useNewsletterDraft(newsletterId, enabled, brand.brand?.header ?? null);
   const profile = useSenderProfile(enabled);
   const { draft, update, readOnly } = state;
+  // The sections as the API last saved them (a Campaigns section's cards are the server's snapshot).
+  const savedBlocks = useMemo(() => normaliseBlocks(state.newsletter?.blocks), [state.newsletter]);
   // The name the API puts before a text when the From name is empty: the owner's name (NewsletterSendCheck::fromNameFor).
   const fallbackFromName = profile?.name?.trim().slice(0, 80) || 'Stasht';
   const smsFromName = draft.from_name.trim() || fallbackFromName;
@@ -231,6 +233,12 @@ const NewsletterComposer = forwardRef<NewsletterComposerHandle, NewsletterCompos
       composerToast.error(res.error ?? GENERIC_ERROR);
       return;
     }
+    if (res.stale) {
+      // The draft kept changing while it was being sent (another tab): it stays a draft here; Reload shows the latest.
+      state.markStale(res.error ?? GENERIC_ERROR);
+      composerToast.error(res.error ?? GENERIC_ERROR);
+      return;
+    }
     if (res.conflict) {
       // Sent or scheduled somewhere else meanwhile: show it as it is now (read-only).
       composerToast.error(res.error ?? GENERIC_ERROR);
@@ -284,11 +292,14 @@ const NewsletterComposer = forwardRef<NewsletterComposerHandle, NewsletterCompos
     return true;
   };
   const leaveAsDraft = (say = true) => {
+    const id = state.newsletter?.id;
     setPutBack(null);
-    clearUnscheduled(state.newsletter?.id);
+    clearUnscheduled(id);
     if (say) toast.info('It\u2019s a draft now. Open it from Campaigns › Newsletters and press Schedule when you\u2019re ready.');
     onChanged?.();
     onClose();
+    // Like Save Draft: land on Campaigns › Newsletters with the draft highlighted at the top.
+    if (id) openNewsletterDraft(id);
   };
   const scheduleAgain = async () => {
     const id = state.newsletter?.id;
@@ -334,14 +345,20 @@ const NewsletterComposer = forwardRef<NewsletterComposerHandle, NewsletterCompos
     return () => document.removeEventListener('keydown', onKeyDown);
   }, [hidden]);
 
+  // Save Draft: save, close, and show the draft at the top of Campaigns › Newsletters (wdy2xh2t3y). Autosaves only
+  // change the small indicator in the top bar.
   const saveDraft = async () => {
     const result = await state.saveNow();
-    if (result.newsletter) {
-      composerToast.success('Draft saved.');
-      onChanged?.();
-    } else {
+    if (!result.newsletter) {
       composerToast.error(result.error ?? GENERIC_ERROR);
+      return;
     }
+    const id = result.newsletter.id;
+    onChanged?.();
+    // An edited scheduled newsletter asks whether to put it back on the schedule first (close() keeps it open).
+    if (!(await close())) return;
+    toast.success(DRAFT_SAVED_MESSAGE);
+    openNewsletterDraft(id);
   };
 
   const actionButtons = (sendLabel: string, extra = '') => (
@@ -486,6 +503,8 @@ const NewsletterComposer = forwardRef<NewsletterComposerHandle, NewsletterCompos
                 onChange={update}
                 onHeaderChange={(next) => update((d) => ({ header: typeof next === 'function' ? next(d.header) : next }))}
                 onSaveAddress={saveAddress}
+                savedBlocks={savedBlocks}
+                active={!hidden}
               />
             </aside>
           </div>

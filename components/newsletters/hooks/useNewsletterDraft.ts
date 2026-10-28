@@ -3,7 +3,8 @@ import { toast } from 'sonner';
 import { newslettersAPI, type Newsletter, type NewsletterHeader } from '../../../services/newslettersAPI';
 import { GENERIC_ERROR, retryableSaveFailure, type NlResult } from '../lib/apiResult';
 import { createAutosaver, type Autosaver } from '../lib/autosave';
-import { changedFields, draftFromNewsletter, emptyDraft, headerFrom, mergeUntouched, rejectedKeys, savableChanges, type NewsletterDraft } from '../lib/draft';
+import { normaliseBlocks } from '../lib/blocks';
+import { adoptCampaignSnapshots, changedFields, draftFromNewsletter, emptyDraft, headerFrom, mergeUntouched, rejectedKeys, savableChanges, type NewsletterDraft } from '../lib/draft';
 import { backupKey, backupToOffer, browserStorage, clearBackup, readBackup, staleBackupToOffer, writeBackup, type OfferedBackup } from '../lib/draftBackup';
 
 export type SaveState = 'idle' | 'saving' | 'saved' | 'error';
@@ -50,6 +51,8 @@ export interface NewsletterDraftState {
   /** Take the copy the server returned from send / schedule / cancel. */
   adopt(n: Newsletter): void;
   setFieldErrors(errors: Record<string, string>): void;
+  /** Send / schedule answered 409 stale: say so, with Reload, and stop saving until then. */
+  markStale(message: string): void;
 }
 
 const AUTOSAVE_DELAY_MS = 800;
@@ -174,6 +177,7 @@ export function useNewsletterDraft(newsletterId: number | null, enabled: boolean
     const { patch, nextSaved, held } = savableChanges(saved, current);
     const body = patch as Record<string, unknown>;
     const next = nextSaved as unknown as Record<string, unknown>;
+    let savedAfter = nextSaved;
     const holdBack = (key: string) => {
       delete body[key];
       next[key] = (saved as unknown as Record<string, unknown>)[key];
@@ -200,8 +204,15 @@ export function useNewsletterDraft(newsletterId: number | null, enabled: boolean
       }
       if (!res.ok || !res.data) { fail(res); return; }
       take(res.data, false);
+      // Campaigns sections: the API's fresh snapshot (and any campaign it dropped) shows straight away.
+      const adopted = adoptCampaignSnapshots(draftRef.current, savedAfter, normaliseBlocks(res.data.blocks));
+      savedAfter = adopted.saved;
+      if (adopted.draft !== draftRef.current) {
+        draftRef.current = adopted.draft;
+        setDraft(adopted.draft);
+      }
     }
-    savedRef.current = nextSaved;
+    savedRef.current = savedAfter;
     setFieldErrors(Object.assign({}, ...[...rejected.values()].map((r) => r.errors)));
     if (held.length) {
       lastErrorRef.current = HELD_ERROR;
@@ -214,7 +225,7 @@ export function useNewsletterDraft(newsletterId: number | null, enabled: boolean
     setSaveState('saved');
     setSaveError(null);
     // Everything on screen is on the server now: the kept copy is no longer needed.
-    if (Object.keys(changedFields(nextSaved, draftRef.current)).length === 0) clearBackup(storageRef.current, backupKey(userIdRef.current, idRef.current));
+    if (Object.keys(changedFields(savedAfter, draftRef.current)).length === 0) clearBackup(storageRef.current, backupKey(userIdRef.current, idRef.current));
   }, [fail, take]);
 
   const runRef = useRef(run);
@@ -402,11 +413,20 @@ export function useNewsletterDraft(newsletterId: number | null, enabled: boolean
     return () => window.removeEventListener('beforeunload', onBeforeUnload);
   }, [enabled]);
 
+  const markStale = useCallback((message: string) => {
+    saverRef.current?.cancel();
+    staleRef.current = true;
+    lastErrorRef.current = message;
+    setStale(true);
+    setSaveState('error');
+    setSaveError(message);
+  }, []);
+
   const canRetry = saveState === 'error' && !stale && saveError !== HELD_ERROR;
 
   return {
     loading, loadError, newsletter, draft, readOnly, saveState, saveError, fieldErrors, planRequired,
     stale, canRetry, restoreOffer, restore, dismissRestore, retry, reload,
-    update, saveNow, flush, discard, adopt, setFieldErrors,
+    update, saveNow, flush, discard, adopt, setFieldErrors, markStale,
   };
 }

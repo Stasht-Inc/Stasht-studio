@@ -7,7 +7,7 @@ import {
 const title = (id, text = 'Hi') => ({ id, type: 'title', data: { text, size: 'large' } });
 
 test('createBlock makes every type with the §8 fields', () => {
-  assert.deepEqual(BLOCK_TYPES, ['image', 'title', 'text', 'youtube', 'button', 'divider']);
+  assert.deepEqual(BLOCK_TYPES, ['image', 'title', 'text', 'youtube', 'button', 'divider', 'campaigns']);
   assert.deepEqual(createBlock('image', 'b1'), { id: 'b1', type: 'image', data: { url: '', alt: '', link: null } });
   assert.deepEqual(createBlock('title', 'b2').data, { text: '', size: 'large' });
   assert.deepEqual(createBlock('text', 'b3').data, { html: '' });

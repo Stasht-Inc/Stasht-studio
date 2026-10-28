@@ -2,7 +2,7 @@ import type {
   AudienceItem, Newsletter, NewsletterBlock, NewsletterChannel, NewsletterHeader, NewsletterInput,
 } from '../../../services/newslettersAPI.ts';
 import { LIMITS, isPlausibleEmail, smsPlain } from './rules.ts';
-import { normaliseBlocks, overLimitTextIds } from './blocks.ts';
+import { blocksToInput, normaliseBlocks, overLimitTextIds } from './blocks.ts';
 
 /** What the composer edits. Text fields are never null here ('' instead). */
 export interface NewsletterDraft {
@@ -58,7 +58,7 @@ export function draftFromNewsletter(n: Newsletter): NewsletterDraft {
  *  name whenever one is sent (`name: sometimes|required`), and every draft already has the server's default. */
 export function draftToInput(d: NewsletterDraft): NewsletterInput {
   const input: NewsletterInput = {
-    channels: d.channels, template: d.template, header: d.header, blocks: d.blocks, audience: d.audience, planned_send_at: d.planned_send_at ?? null,
+    channels: d.channels, template: d.template, header: d.header, blocks: blocksToInput(d.blocks), audience: d.audience, planned_send_at: d.planned_send_at ?? null,
   };
   for (const key of TEXT_FIELDS) {
     const value = d[key].trim();
@@ -108,8 +108,8 @@ export function savableChanges(saved: NewsletterDraft, current: NewsletterDraft)
       const before = savedById.get(b.id);
       return before ? [before] : [];
     });
-    if (JSON.stringify(savable) === JSON.stringify(saved.blocks)) delete patch.blocks;
-    else patch.blocks = savable;
+    if (JSON.stringify(blocksToInput(savable)) === JSON.stringify(blocksToInput(saved.blocks))) delete patch.blocks;
+    else patch.blocks = blocksToInput(savable);
     nextSaved.blocks = savable;
     held.push('blocks');
   }
@@ -147,4 +147,35 @@ export function fieldProblems(d: NewsletterDraft): Partial<Record<keyof Newslett
   const reply = d.reply_to_email.trim();
   if (reply && !isPlausibleEmail(reply)) out.reply_to_email = 'Enter an email address like sales@yourbusiness.com.';
   return out;
+}
+
+type CampaignsBlock = Extract<NewsletterBlock, { type: 'campaigns' }>;
+
+/**
+ * After a PUT: the API refreshes every Campaigns section's snapshot and drops campaigns that can no longer be
+ * shared. Each section takes the server's campaigns, in the draft and in the saved copy, unless it was changed
+ * while the save was on its way (then the new pick stays in the draft and saves next). Nothing else changes.
+ */
+export function adoptCampaignSnapshots(current: NewsletterDraft, sent: NewsletterDraft, serverBlocks: readonly NewsletterBlock[]): { draft: NewsletterDraft; saved: NewsletterDraft } {
+  const server = new Map<string, CampaignsBlock>();
+  for (const b of serverBlocks) if (b.type === 'campaigns') server.set(b.id, b);
+  if (!server.size) return { draft: current, saved: sent };
+  const sentIds = new Map(sent.blocks.flatMap((b) => (b.type === 'campaigns' ? [[b.id, JSON.stringify(b.data.campaign_ids)] as const] : [])));
+  const take = (blocks: NewsletterBlock[], onlyUnchanged: boolean) => {
+    let changed = false;
+    const next = blocks.map((b) => {
+      const s = b.type === 'campaigns' ? server.get(b.id) : undefined;
+      if (!s || b.type !== 'campaigns') return b;
+      if (onlyUnchanged && sentIds.get(b.id) !== JSON.stringify(b.data.campaign_ids)) return b;
+      changed = true;
+      return { ...b, data: { campaign_ids: [...s.data.campaign_ids], items: s.data.items ?? [] } };
+    });
+    return changed ? next : blocks;
+  };
+  const draftBlocks = take(current.blocks, true);
+  const savedBlocks = take(sent.blocks, false);
+  return {
+    draft: draftBlocks === current.blocks ? current : { ...current, blocks: draftBlocks },
+    saved: savedBlocks === sent.blocks ? sent : { ...sent, blocks: savedBlocks },
+  };
 }

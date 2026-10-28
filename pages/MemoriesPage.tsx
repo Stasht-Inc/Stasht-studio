@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { flushSync } from "react-dom";
 import { ChevronDown, ChevronUp, MoreHorizontal, MoreVertical, Search, Filter, ArrowUpDown, Plus, Grid3X3, List, X, Image as ImageIcon, Globe, Pencil, Tag, Copy, GitMerge, Trash2, Sparkles, Calendar, ChevronLeft, BookOpen, ArrowLeft, Share2, QrCode, Mail, Facebook, Linkedin, Instagram, Zap, Code } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
@@ -38,7 +38,7 @@ import { mapLimit } from "../utils/requestLimit";
 import { runWhenIdle } from "../utils/deferIdle";
 import NewslettersView from "../components/newsletters/NewslettersView";
 import SegmentedSwitch from "../components/newsletters/SegmentedSwitch";
-import { CAMPAIGNS_VIEW_OPTIONS, DEFAULT_CAMPAIGNS_VIEW, OPEN_NEWSLETTER_RESULTS_EVENT, takePendingNewsletterResults, type CampaignsView } from "../components/newsletters/lib/campaignsView";
+import { CAMPAIGNS_VIEW_OPTIONS, OPEN_NEWSLETTER_DRAFT_EVENT, OPEN_NEWSLETTER_RESULTS_EVENT, campaignsViewForPlan, readCampaignsView, takePendingNewsletterHighlight, takePendingNewsletterResults, writeCampaignsView, type CampaignsView } from "../components/newsletters/lib/campaignsView";
 import { initialCampaignType, needsCategoryFirst } from "../components/newsletters/lib/campaignType";
 import { useIsStarterPlan } from "../hooks/usePlan";
 const imgSunnyBeach = 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=400&h=300&fit=crop';
@@ -394,9 +394,30 @@ function MemoriesPageContent({
   const [selectedFilterTab, setSelectedFilterTab] = useState('All Categories');
   const [showCreateMemory, setShowCreateMemory] = useState(false);
   const createMemoryRef = useRef<CreateMemoryHandle>(null);
-  // Campaigns page: Storeels | Newsletters (spec 2026-10-13). Always opens on Storeels, so loading this page never
-  // calls a newsletter endpoint; NewslettersView mounts (and fetches, on a paid plan) only once Newsletters is picked.
-  const [campaignsView, setCampaignsView] = useState<CampaignsView>(DEFAULT_CAMPAIGNS_VIEW);
+  // Campaigns page: Storeels | Newsletters (spec 2026-10-13). Opens on the last choice made on this device
+  // (wdy2xh2t3y). NewslettersView fetches only once the plan is known to be paid; a remembered Newsletters choice
+  // shows Storeels on a Starter plan (campaignsViewForPlan), so this page never calls a newsletter endpoint for one.
+  const [campaignsChoice, setCampaignsChoice] = useState<CampaignsView>(() => readCampaignsView());
+  // True once the person picks a view on this page (a Starter account that picks Newsletters sees the upgrade card).
+  const [campaignsPicked, setCampaignsPicked] = useState(false);
+  const setCampaignsView = useCallback((view: CampaignsView) => {
+    setCampaignsChoice(view);
+    setCampaignsPicked(true);
+    writeCampaignsView(view);
+  }, []);
+  // Save Draft: the saved draft, highlighted at the top of the Newsletters list (a new nonce highlights it again).
+  const [newsletterHighlight, setNewsletterHighlight] = useState<{ id: number; nonce: number } | null>(null);
+  useEffect(() => {
+    const takeRequest = () => {
+      const id = takePendingNewsletterHighlight();
+      if (id === null) return;
+      setCampaignsView('newsletters');
+      setNewsletterHighlight({ id, nonce: Date.now() });
+    };
+    takeRequest();
+    window.addEventListener(OPEN_NEWSLETTER_DRAFT_EVENT, takeRequest);
+    return () => window.removeEventListener(OPEN_NEWSLETTER_DRAFT_EVENT, takeRequest);
+  }, [setCampaignsView]);
   const [editNewsletterId, setEditNewsletterId] = useState<number | null>(null);
   // "View" on the newsletter sent / scheduled toast: Newsletters view, with that newsletter's results open.
   const [newsletterResultsRequest, setNewsletterResultsRequest] = useState<{ id: number; nonce: number } | null>(null);
@@ -410,8 +431,9 @@ function MemoriesPageContent({
     takeRequest();
     window.addEventListener(OPEN_NEWSLETTER_RESULTS_EVENT, takeRequest);
     return () => window.removeEventListener(OPEN_NEWSLETTER_RESULTS_EVENT, takeRequest);
-  }, []);
+  }, [setCampaignsView]);
   const starterPlan = useIsStarterPlan();
+  const campaignsView: CampaignsView = campaignsPicked ? campaignsChoice : campaignsViewForPlan(campaignsChoice, starterPlan);
   // Photos passed in by Scan Photo, handed to the Storeel form.
   const [photosForCreate, setPhotosForCreate] = useState<File[] | null>(null);
   const proxyInputRef = useRef<HTMLInputElement>(null);
@@ -2610,6 +2632,7 @@ function MemoriesPageContent({
           onToggleMobileSidebar={onToggleMobileSidebar}
           showMobileSidebar={showMobileSidebar}
           openResults={newsletterResultsRequest}
+          highlight={newsletterHighlight}
         />
       ) : false && selectedCategory ? (
         // Disabled: Show category-filtered memories when a category is selected in filter dropdown

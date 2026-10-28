@@ -20,7 +20,7 @@ export interface NewsletterHeader {
   title: string | null;
 }
 
-export type BlockType = 'image' | 'title' | 'text' | 'youtube' | 'button' | 'divider';
+export type BlockType = 'image' | 'title' | 'text' | 'youtube' | 'button' | 'divider' | 'campaigns';
 export type TitleSize = 'large' | 'medium' | 'small';
 export type DividerStyle = 'line' | 'space';
 
@@ -30,6 +30,24 @@ export interface TextBlockData { html: string }
 export interface YoutubeBlockData { url: string }
 export interface ButtonBlockData { label: string; url: string; color: string }
 export interface DividerBlockData { style: DividerStyle }
+/** One campaign card as the API snapshots it on every save of a draft (frozen once sent). description: plain
+ *  text, 160 characters at most; cover_url: https or null; url: the campaign's public page. */
+export interface CampaignItem { id: number; title: string; description: string; cover_url: string | null; url: string; date: string | null }
+/** Studio sends campaign_ids only (1–6, in order; none while unfinished). The API drops ids the owner can't share
+ *  and answers with `items`, built on the server, so the email never depends on what the browser sent. */
+export interface CampaignsBlockData { campaign_ids: number[]; items?: CampaignItem[] }
+/** GET /newsletters/campaign-options rows: the owner's campaigns, newest first. shareable: it has a public link
+ *  people can open from an email; otherwise `reason` says what to do. */
+export interface CampaignOption {
+  id: number;
+  title: string;
+  description: string | null;
+  cover_url: string | null;
+  date: string | null;
+  public_url: string | null;
+  shareable: boolean;
+  reason: string | null;
+}
 
 export type NewsletterBlock =
   | { id: string; type: 'image'; data: ImageBlockData }
@@ -37,7 +55,8 @@ export type NewsletterBlock =
   | { id: string; type: 'text'; data: TextBlockData }
   | { id: string; type: 'youtube'; data: YoutubeBlockData }
   | { id: string; type: 'button'; data: ButtonBlockData }
-  | { id: string; type: 'divider'; data: DividerBlockData };
+  | { id: string; type: 'divider'; data: DividerBlockData }
+  | { id: string; type: 'campaigns'; data: CampaignsBlockData };
 
 export type AudienceItem = { type: 'all_leads' } | { type: 'lead_group'; id: number } | { type: 'list'; id: number };
 
@@ -112,6 +131,8 @@ export interface PageMeta { page: number; total_pages: number; total: number }
 export interface NewsletterResultCounts extends NewsletterCounts { email: NewsletterCounts; sms: NewsletterCounts }
 export interface NewsletterResults { counts: NewsletterResultCounts; recipients: { data: RecipientRow[]; meta: PageMeta } }
 export interface ResultsQuery { channel?: NewsletterChannel; status?: ResultsStatusFilter; page?: number }
+
+export interface CampaignOptionsPage { data: CampaignOption[]; meta: PageMeta }
 
 export interface NewsletterBrand { header: NewsletterHeader; business_address: string | null }
 export interface NewsletterAllowance {
@@ -234,6 +255,9 @@ export const newslettersAPI = {
   results: (id: number, q: ResultsQuery = {}) =>
     get<NewsletterResults>(`${nl(id)}/results${query({ channel: q.channel, status: q.status, page: q.page })}`),
   uploadImage,
+  // The owner's campaigns for a Campaigns section, 20 a page (shared contract 2026-10-28).
+  campaignOptions: (q: { search?: string; page?: number } = {}) =>
+    get<CampaignOptionsPage>(`/newsletters/campaign-options${query({ search: q.search?.trim() || undefined, page: q.page })}`),
   getBrand: () => get<NewsletterBrand>('/newsletter-brand'),
   // Only used to set business_address: a newsletter's header reaches the brand through PUT /newsletters/{id}.
   updateBrand: (input: { header?: NewsletterHeader; business_address?: string | null }) =>

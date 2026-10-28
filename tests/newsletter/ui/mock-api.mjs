@@ -35,6 +35,8 @@ function updateErrors(body) {
     if (b.type === 'image' && bad(b.data?.url)) errors[`${key}.url`] = ['Use an image link that starts with https://'];
     if (b.type === 'image' && bad(b.data?.link)) errors[`${key}.link`] = ['Use a link that starts with https://'];
     if (b.type === 'button' && bad(b.data?.url)) errors[`${key}.url`] = ['Use a link that starts with https://'];
+    if (b.type === 'campaigns' && (!Array.isArray(b.data?.campaign_ids) || b.data.campaign_ids.some((id) => !Number.isInteger(id)))) errors[`${key}.campaign_ids`] = ['The campaigns could not be read.'];
+    else if (b.type === 'campaigns' && b.data.campaign_ids.length > 6) errors[`${key}.campaign_ids`] = ['A Campaigns section can show up to 6 campaigns.'];
     if (b.type === 'youtube' && bad(b.data?.url)) errors[`${key}.url`] = ['Use a YouTube link, like https://www.youtube.com/watch?v=…'];
   });
   return errors;
@@ -98,10 +100,33 @@ export function seedNewsletters() {
   ];
 }
 
+// [wdy2xh2t3w] The owner's campaigns for a Campaigns section (GET /newsletters/campaign-options), newest first.
+// shareable: it has a public page people can open from an email (the "Published Campaign … Live" link).
+export const STUDIO = 'https://127.0.0.1/studio';
+export function seedCampaigns(count = 9) {
+  const titles = ['Fall service event', '2026 Grand Cherokee arrivals', 'Customer stories', 'Winter tire swap', 'Open house weekend',
+    'Wagoneer launch night', 'Summer road trip tips', 'Meet the service team', 'Community car wash', 'Holiday hours', 'Spring clean-up', 'Ram truck month'];
+  return Array.from({ length: count }, (_, i) => {
+    const id = 601 + i;
+    const draft = i === 2; // "Customer stories" isn't published yet
+    const privateOne = i === 5; // published as Private (token only): no link people can open from an email
+    return {
+      id, title: titles[i % titles.length] + (i >= titles.length ? ` ${i + 1}` : ''),
+      description: i === 0 ? 'Book your fall service before the snow arrives. Free multi-point inspection and a coffee on us while you wait — this week only at Serpa.' : `Photos and stories from ${titles[i % titles.length].toLowerCase()}.`,
+      cover_url: i % 4 === 3 ? null : IMG,
+      date: new Date(Date.UTC(2026, 9, 27 - i * 3)).toISOString().slice(0, 10),
+      public_url: draft || privateOne ? null : `${STUDIO}/published-memory/campaign-${id}${i === 4 ? '?viewonly=1' : ''}`,
+      shareable: !draft && !privateOne,
+      reason: draft ? 'Publish it first to add it' : privateOne ? 'It is private. Make it public to add it' : null,
+    };
+  });
+}
+
 function previewHtml(n) {
   const blocks = (n.blocks || []).map((b) => {
     if (b.type === 'title') return `<h2>${esc(b.data.text)}</h2>`;
     if (b.type === 'text') return `<div>${esc(String(b.data.html).replace(/<[^>]+>/g, ''))}</div>`;
+    if (b.type === 'campaigns') return (b.data.items || []).map((c) => `<div class="mock-campaign"><strong>${esc(c.title)}</strong><p>${esc(c.description)}</p><a href="${esc(c.url)}">View campaign</a></div>`).join('');
     if (b.type === 'button') return `<p><a style="background:#6C60FF;color:#fff;padding:12px 20px;border-radius:8px;text-decoration:none" href="#">${esc(b.data.label)}</a></p>`;
     return '';
   }).join('');
@@ -177,6 +202,8 @@ export function createMockApi(options = {}) {
     rejectPut: options.rejectPut ?? {},
     // Send / schedule find the newsletter already scheduled (sent from another tab): 409, and it is no longer a draft.
     sendConflict: options.sendConflict ?? false,
+    // Send / schedule answer 409 code stale (the draft changed while it was being sent).
+    sendStale: options.sendStale ?? false,
     // Per-channel results counts by newsletter id, on top of the seeded ones.
     channelCounts: options.channelCounts ?? {},
     // Send / schedule answer as the API does while sending is switched off: 'all' (503 newsletters_paused, the
@@ -190,6 +217,12 @@ export function createMockApi(options = {}) {
     uploads: [],
     // Storeels made with POST /memories.
     storeels: [],
+    // The owner's campaigns a Campaigns section can show.
+    campaigns: options.campaigns ?? seedCampaigns(),
+    // What PUTs sent as each Campaigns section's data (to check Studio sends campaign_ids only).
+    campaignBodies: [],
+    // GET /newsletters/campaign-options answers after this many ms.
+    optionsDelayMs: options.optionsDelayMs ?? 0,
     calls: [],
   };
   const ok = (data, status = 200) => ({ status, json: { success: true, data } });
@@ -218,7 +251,11 @@ export function createMockApi(options = {}) {
     const channels = (n.channels || []).filter((c) => c === 'email' || c === 'sms');
     if (!String(n.subject ?? '').trim()) errors.subject = ['Add a subject line.'];
     // PUT keeps unfinished sections; send names the first one (contract note 6).
-    const missing = (n.blocks || []).flatMap((b, i) => (b.type === 'image' && !b.data?.url ? [`Section ${i + 1} (Image) needs a picture.`] : []));
+    const missing = (n.blocks || []).flatMap((b, i) => {
+      if (b.type === 'image' && !b.data?.url) return [`Section ${i + 1} (Image) needs a picture.`];
+      if (b.type === 'campaigns' && !b.data?.campaign_ids?.length) return [`Section ${i + 1} (Campaigns) needs at least one campaign.`];
+      return [];
+    });
     if (!n.blocks?.length) errors.blocks = ['Add at least one section to your newsletter.'];
     else if (missing.length) errors.blocks = [missing[0]];
     if (!channels.length) errors.channels = ['Choose email, text message or both.'];
@@ -256,6 +293,8 @@ export function createMockApi(options = {}) {
     if (options.storeelServerLimit && method === 'POST' && (path === '/memories' || path === '/memories/create-with-images')) {
       return fail(403, { success: false, code: 'memory_limit_reached', message: "You've reached your plan's campaign limit. Upgrade your plan to create more campaigns." });
     }
+    // Add a Moment's photo upload (dashboardAPI.uploadImageWithMetadata): the uploaded file's link.
+    if (path === '/user/upload-image-with-metadata' && method === 'POST') return ok({ fileUrl: IMG, imageName: 'scan.png' });
     if (path === '/memories' && method === 'POST') {
       const memory = { id: state.nextId++, ...body };
       state.storeels.push(memory);
@@ -281,6 +320,13 @@ export function createMockApi(options = {}) {
     }
     if (path === '/newsletters/audience-count') return ok(audienceCount(body?.audience, body?.channels || []));
     if (path === '/newsletters/images') return ok({ url: IMG }, 201);
+    if (path === '/newsletters/campaign-options' && method === 'GET') {
+      // 20 a page, newest first; search matches the title.
+      const search = (params.get('search') || '').toLowerCase();
+      const page = Math.max(1, Number(params.get('page') || 1));
+      const rows = state.campaigns.filter((c) => !search || c.title.toLowerCase().includes(search));
+      return ok({ data: rows.slice((page - 1) * 20, page * 20), meta: { page, total_pages: Math.max(1, Math.ceil(rows.length / 20)), total: rows.length } });
+    }
     if (path === '/newsletter-brand') {
       if (method === 'PUT') {
         if (body && 'header' in body) state.brand.header = body.header;
@@ -380,6 +426,20 @@ export function createMockApi(options = {}) {
         for (const [field, message] of Object.entries(state.rejectPut)) if (body && field in body) errors[field] = [message];
         if (Object.keys(errors).length) return fail(422, { message: Object.values(errors)[0][0], errors });
         Object.assign(n, pickEditable(body), { updated_at: now() });
+        // A Campaigns section: drop ids the owner can't share, then the server's own snapshot (never the client's),
+        // refreshed by every PUT that sends blocks (and by duplicate).
+        if (body && 'blocks' in body) {
+          n.blocks = n.blocks.map((b) => {
+            if (b.type !== 'campaigns') return b;
+            state.campaignBodies.push(structuredClone(b.data));
+            const ids = (b.data?.campaign_ids || []).filter((id) => state.campaigns.some((c) => c.id === id && c.shareable)).slice(0, 6);
+            const items = ids.map((id) => {
+              const c = state.campaigns.find((x) => x.id === id);
+              return { id, title: c.title, description: c.description.slice(0, 160), cover_url: c.cover_url, url: c.public_url, date: c.date };
+            });
+            return { ...b, data: { campaign_ids: ids, items } };
+          });
+        }
         // The presenter answers every time in UTC with a Z and no milliseconds.
         if (n.planned_send_at) n.planned_send_at = new Date(n.planned_send_at).toISOString().replace('.000Z', 'Z');
         if (body && 'header' in body) state.brand.header = structuredClone(body.header); // the header is the brand header (note 8)
@@ -409,6 +469,8 @@ export function createMockApi(options = {}) {
       }
       if (action === 'send' || action === 'schedule') {
         if (state.sendConflict && n.status === 'draft') { n.status = 'scheduled'; n.scheduled_at = now(); }
+        // The draft kept changing while it was being sent (NewsletterSendController's stale check).
+        if (state.sendStale && n.status === 'draft') return fail(409, { success: false, code: 'stale', message: 'This newsletter was changed in another tab. Reload to see the latest.' });
         if (n.status !== 'draft') return fail(409, { success: false, message: 'Only drafts can be sent. Duplicate this newsletter to send it again.' });
         if (state.sendPaused === 'all') return fail(503, { success: false, code: 'newsletters_paused', message: 'Newsletters are paused. Try again later.' });
         if (state.sendPaused === 'account') return fail(409, { success: false, code: 'newsletters_account_paused', message: 'Sending is paused for this account.' });
@@ -491,6 +553,7 @@ export function createMockApi(options = {}) {
       state.uploads.push({ bytes: buf?.length ?? 0, type: /Content-Type:\s*([^\r\n]+)/i.exec(head)?.[1]?.trim() ?? null, name: /filename="([^"]*)"/.exec(head)?.[1] ?? null });
       if (state.uploadDelayMs) await new Promise((r) => setTimeout(r, state.uploadDelayMs));
     }
+    if (path === '/newsletters/campaign-options' && state.optionsDelayMs) await new Promise((r) => setTimeout(r, state.optionsDelayMs));
     const { status, json } = handle(request.method(), path, url.searchParams, body);
     call.status = status;
     return route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(json) });

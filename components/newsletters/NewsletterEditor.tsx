@@ -1,6 +1,6 @@
 import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { composerToast } from './ComposerToaster';
-import type { BlockType, NewsletterBlock, NewsletterHeader } from '../../services/newslettersAPI';
+import type { BlockType, CampaignItem, NewsletterBlock, NewsletterHeader } from '../../services/newslettersAPI';
 import type { NewsletterDraft } from './lib/draft';
 import { initialsFrom, type SenderProfile } from './lib/profile';
 import { LIMITS } from './lib/rules';
@@ -11,6 +11,7 @@ import EcardFooter from './EcardFooter';
 import AddSectionPopover from './AddSectionPopover';
 import BlockFrame from './BlockFrame';
 import BlockEditor, { BLOCK_LABEL } from './blocks/BlockEditor';
+import CampaignPickerDialog from './CampaignPickerDialog';
 import type { PreviewDevice } from './DeviceToggle';
 
 export interface NewsletterEditorProps {
@@ -26,6 +27,10 @@ export interface NewsletterEditorProps {
   onChange(patch: Partial<NewsletterDraft> | ((latest: NewsletterDraft) => Partial<NewsletterDraft> | null)): void;
   onHeaderChange(header: NewsletterHeader | ((latest: NewsletterHeader) => NewsletterHeader)): void;
   onSaveAddress(address: string): Promise<boolean>;
+  /** The sections as last saved (the API's copy): a Campaigns section's cards come from here. */
+  savedBlocks?: NewsletterBlock[];
+  /** False while the composer is hidden (the Storeel tab shows): Escape is not this editor's then. */
+  active?: boolean;
 }
 
 const HEADER_ID = '__header__';
@@ -39,14 +44,18 @@ function serverBlockError(fieldErrors: Record<string, string>, index: number): s
 
 interface BlockHandlers {
   onSelect(): void;
+  /** Done / × : close the editor, focus back on the section. */
+  onDone(): void;
   onMoveUp(): void;
   onMoveDown(): void;
   onDelete(): void;
   onChange(data: Record<string, unknown>): void;
+  /** Campaigns: open the picker. */
+  onPick(): void;
 }
 
 /** One section with its frame. Memoised: typing in one section doesn't re-render the others. */
-const BlockRow = memo(function BlockRow({ block, index, count, selected, readOnly, problem, padClass, handlers }: {
+const BlockRow = memo(function BlockRow({ block, index, count, selected, readOnly, problem, padClass, handlers, serverItems, accent }: {
   block: NewsletterBlock;
   index: number;
   count: number;
@@ -55,11 +64,16 @@ const BlockRow = memo(function BlockRow({ block, index, count, selected, readOnl
   problem: string | null;
   padClass: string;
   handlers: BlockHandlers;
+  serverItems?: CampaignItem[];
+  accent?: string | null;
 }) {
+  const campaigns = block.type === 'campaigns';
   return (
-    <BlockFrame label={BLOCK_LABEL[block.type]} index={index} count={count} selected={selected} readOnly={readOnly} problem={problem} padClass={padClass}
-      onSelect={handlers.onSelect} onMoveUp={handlers.onMoveUp} onMoveDown={handlers.onMoveDown} onDelete={handlers.onDelete}>
-      <BlockEditor block={block} selected={selected} readOnly={readOnly} onChange={handlers.onChange} />
+    <BlockFrame blockId={block.id} label={BLOCK_LABEL[block.type]} index={index} count={count} selected={selected} readOnly={readOnly} problem={problem} padClass={padClass}
+      onSelect={handlers.onSelect} onDone={handlers.onDone} onMoveUp={handlers.onMoveUp} onMoveDown={handlers.onMoveDown} onDelete={handlers.onDelete}
+      onEdit={campaigns ? handlers.onPick : undefined} editLabel={campaigns ? 'Change campaigns' : undefined}>
+      <BlockEditor block={block} selected={selected} readOnly={readOnly} onChange={handlers.onChange}
+        serverItems={campaigns ? serverItems : undefined} accent={campaigns ? accent : undefined} onPick={campaigns ? handlers.onPick : undefined} />
     </BlockFrame>
   );
 });
@@ -70,9 +84,49 @@ const BlockRow = memo(function BlockRow({ block, index, count, selected, readOnl
  * the sections (40 px side padding, 20 px on phones) and the e-card footer. "+" lines sit between sections.
  */
 export default function NewsletterEditor({
-  draft, readOnly, device, profile, businessAddress, showProblems, fieldErrors, onChange, onHeaderChange, onSaveAddress,
+  draft, readOnly, device, profile, businessAddress, showProblems, fieldErrors, onChange, onHeaderChange, onSaveAddress, savedBlocks, active = true,
 }: NewsletterEditorProps) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const selectedRef = useRef(selectedId);
+  selectedRef.current = selectedId;
+  // True while focus is moved back to a part on purpose (after Done), so that focus doesn't select it again.
+  const refocusingRef = useRef(false);
+  const select = useCallback((id: string) => { if (!refocusingRef.current) setSelectedId(id); }, []);
+  /** Close the open editor (changes are autosaved). focus: put keyboard focus back on that part. */
+  const deselect = useCallback((focus: boolean) => {
+    const id = selectedRef.current;
+    if (!id) return;
+    setSelectedId(null);
+    if (!focus) return;
+    const el = rootRef.current?.querySelector<HTMLElement>(id === HEADER_ID ? '[data-nl-header]' : `[data-block-id="${CSS.escape(id)}"]`);
+    refocusingRef.current = true;
+    try { el?.focus({ preventScroll: true }); } finally { refocusingRef.current = false; }
+  }, []);
+  // Escape closes the open editor first (the composer's own Escape, Cancel, comes next time). A popover or dialog
+  // that is open handles its own Escape.
+  useEffect(() => {
+    if (!selectedId || !active) return undefined;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape' || e.defaultPrevented) return;
+      if (document.querySelector('[data-radix-popper-content-wrapper], [role="dialog"][data-state="open"], [role="alertdialog"][data-state="open"]')) return;
+      e.preventDefault();
+      deselect(true);
+    };
+    document.addEventListener('keydown', onKeyDown, true);
+    return () => document.removeEventListener('keydown', onKeyDown, true);
+  }, [selectedId, active, deselect]);
+  // The Campaigns section whose picker is open.
+  const [pickerFor, setPickerFor] = useState<string | null>(null);
+  // The section the picker was last opened for (focus goes back to it once the picker has closed).
+  const pickedForRef = useRef<string | null>(null);
+  if (pickerFor) pickedForRef.current = pickerFor;
+  // Each saved Campaigns section's cards, by section id (the API's snapshot).
+  const savedItems = useMemo(() => {
+    const out = new Map<string, CampaignItem[]>();
+    for (const b of savedBlocks ?? []) if (b.type === 'campaigns') out.set(b.id, b.data.items ?? []);
+    return out;
+  }, [savedBlocks]);
   const { blocks } = draft;
   // Over-long text shows while typing (it can't be saved); everything else after a Send / Schedule attempt.
   const problems = useMemo(() => (showProblems ? blocksProblems(blocks) : liveBlockProblems(blocks)), [blocks, showProblems]);
@@ -93,7 +147,8 @@ export default function NewsletterEditor({
       return next === d.blocks ? null : { blocks: next };
     });
     const made: BlockHandlers = {
-      onSelect: () => setSelectedId(id),
+      onSelect: () => select(id),
+      onDone: () => deselect(true),
       onMoveUp: () => onBlocks((list, index) => moveBlock(list, index, -1)),
       onMoveDown: () => onBlocks((list, index) => moveBlock(list, index, 1)),
       onDelete: () => {
@@ -123,10 +178,11 @@ export default function NewsletterEditor({
         });
       },
       onChange: (data) => onBlocks((list) => updateBlockData(list, id, data)),
+      onPick: () => { setSelectedId(id); setPickerFor(id); },
     };
     handlersRef.current.set(id, made);
     return made;
-  }, []);
+  }, [select, deselect]);
   // Forget the callbacks of deleted sections.
   useEffect(() => {
     const ids = new Set(blocks.map((b) => b.id));
@@ -146,28 +202,41 @@ export default function NewsletterEditor({
     }
     onChange((d) => ({ blocks: insertBlock(d.blocks, index, block) }));
     setSelectedId(block.id);
+    // A Campaigns section starts by choosing its campaigns.
+    if (type === 'campaigns') setPickerFor(block.id);
   };
+  const pickerBlock = pickerFor ? blocks.find((b) => b.id === pickerFor) : undefined;
+  const picking = pickerBlock?.type === 'campaigns' ? pickerBlock : null;
   const plus = (index: number, label: string, alwaysVisible = false) =>
     readOnly ? null : <AddSectionPopover label={label} onAdd={(type) => add(index, type)} disabled={full} alwaysVisible={alwaysVisible} />;
 
   return (
-    <div className="overflow-hidden rounded-xl border border-gray-200 bg-white">
+    // A tap anywhere in the preview outside the selected part closes its editor (a tap on another part selects
+    // that one instead). Clicks from popovers and dialogs (portals) don't count.
+    <div ref={rootRef} className="overflow-hidden rounded-xl border border-gray-200 bg-white"
+      onClick={(e) => {
+        const target = e.target as Element;
+        if (!selectedRef.current || !rootRef.current?.contains(target)) return;
+        if (target.closest('[data-nl-selected="true"], [data-block-id], [data-nl-header]')) return;
+        deselect(false);
+      }}>
       <p className="border-b border-gray-100 bg-gray-50 px-4 py-2.5 text-xs font-semibold uppercase tracking-[0.08em] text-gray-500">Inbox</p>
       <InboxRow fromName={draft.from_name} subject={draft.subject} previewText={draft.preview_text}
         initial={initialsFrom(profile?.name || draft.from_name).slice(0, 1)} photoUrl={profile?.photoUrl ?? null} color={profile?.color ?? null} />
-      <div className={`bg-[#F3F4F8] ${phone ? 'px-2 py-5 sm:px-4' : 'px-2 py-6 sm:px-4'}`} onClick={(e) => { if (e.target === e.currentTarget) setSelectedId(null); }}>
+      <div className={`bg-[#F3F4F8] ${phone ? 'px-2 py-5 sm:px-4' : 'px-2 py-6 sm:px-4'}`} >
         <div className={phone ? 'mx-auto w-[375px] max-w-full rounded-[2rem] border-[6px] border-gray-900 bg-[#F3F4F8] px-2 py-4' : ''}>
           <p className="mb-3 text-center text-xs text-gray-500"><span className="underline">View in browser</span></p>
           <div className="mx-auto w-full max-w-[600px] overflow-hidden rounded-2xl border border-[#ECEDF3] bg-white">
             <HeaderEditor header={draft.header} onChange={onHeaderChange} selected={selectedId === HEADER_ID}
-              onSelect={() => { if (!readOnly) setSelectedId(HEADER_ID); }} readOnly={readOnly} padClass={padClass} />
+              onSelect={() => { if (!readOnly) select(HEADER_ID); }} onDone={() => deselect(true)} readOnly={readOnly} padClass={padClass} />
             <div className="py-3">
               {plus(0, 'Add a section at the top', blocks.length === 0)}
               {blocks.length === 0 && !readOnly ? <p className={`${padClass} pb-3 text-center text-sm text-gray-500`}>Tap + to add your first section.</p> : null}
               {blocks.map((block, index) => (
                 <Fragment key={block.id}>
                   <BlockRow block={block} index={index} count={blocks.length} selected={selectedId === block.id} readOnly={readOnly}
-                    problem={problems[block.id] ?? serverBlockError(fieldErrors, index)} padClass={padClass} handlers={handlersFor(block.id)} />
+                    problem={problems[block.id] ?? serverBlockError(fieldErrors, index)} padClass={padClass} handlers={handlersFor(block.id)}
+                    serverItems={savedItems.get(block.id)} accent={draft.header.background_color} />
                   {plus(index + 1, `Add a section after section ${index + 1}`)}
                 </Fragment>
               ))}
@@ -177,6 +246,21 @@ export default function NewsletterEditor({
           </div>
         </div>
       </div>
+      {readOnly ? null : (
+        <CampaignPickerDialog
+          open={picking !== null}
+          onOpenChange={(o) => { if (!o) setPickerFor(null); }}
+          initialIds={picking?.data.campaign_ids ?? []}
+          knownItems={picking ? [...(picking.data.items ?? []), ...(savedItems.get(picking.id) ?? [])] : []}
+          onDone={(ids, items) => { if (picking) handlersFor(picking.id).onChange({ campaign_ids: ids, items }); }}
+          onCloseAutoFocus={(e) => {
+            // Back to the section (it stays selected), not to the + that has gone.
+            const id = pickedForRef.current;
+            const el = id ? document.querySelector<HTMLElement>(`[data-block-id="${CSS.escape(id)}"]`) : null;
+            if (el) { e.preventDefault(); el.focus({ preventScroll: true }); }
+          }}
+        />
+      )}
     </div>
   );
 }

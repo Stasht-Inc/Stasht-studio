@@ -4,7 +4,7 @@ import { X } from 'lucide-react';
 import { LAYER } from './lib/ui';
 
 /** Dialogs opened from inside Create Campaign (portal at z-index 99999) must sit above it: components/ui/dialog is z-50. */
-export default function ComposerDialog({ open, onOpenChange, title, description, wide = false, footer, children, onEscapeKeyDown }: {
+export default function ComposerDialog({ open, onOpenChange, title, description, wide = false, footer, children, onEscapeKeyDown, onCloseAutoFocus }: {
   open: boolean;
   onOpenChange(open: boolean): void;
   title: string;
@@ -14,6 +14,8 @@ export default function ComposerDialog({ open, onOpenChange, title, description,
   children?: ReactNode;
   /** Escape inside the dialog: call event.preventDefault() to keep it open (e.g. Escape cancels a rename first). */
   onEscapeKeyDown?(event: KeyboardEvent): void;
+  /** Focus after closing: call event.preventDefault() and focus something else (Radix goes back to the opener). */
+  onCloseAutoFocus?(event: Event): void;
 }) {
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
@@ -22,6 +24,7 @@ export default function ComposerDialog({ open, onOpenChange, title, description,
         <Dialog.Content
           style={{ zIndex: LAYER.dialog }}
           onEscapeKeyDown={onEscapeKeyDown}
+          onCloseAutoFocus={onCloseAutoFocus}
           {...(description ? {} : { 'aria-describedby': undefined })}
           className={`fixed left-1/2 top-1/2 flex max-h-[90vh] w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 flex-col rounded-xl bg-white shadow-xl outline-none ${wide ? 'max-w-[760px]' : 'max-w-lg'}`}
         >

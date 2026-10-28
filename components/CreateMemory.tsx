@@ -1,6 +1,6 @@
 ﻿import React, { useState, useRef, useEffect, useCallback, useImperativeHandle, forwardRef } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Upload, Calendar, MapPin, Tag, Users, Plus, Camera, Image as ImageIcon, CheckCircle, Loader2, File as FileIcon, Search, Video, Pencil, Globe, Eye, Lock, ChevronRight } from 'lucide-react';
+import { X, Upload, Calendar, MapPin, Tag, Users, Plus, Camera, Image as ImageIcon, CheckCircle, Loader2, File as FileIcon, Search, Video, Pencil, Globe, Eye, Lock, ChevronRight, ArrowLeft } from 'lucide-react';
 import { toast } from 'sonner';
 import { isValidCollaboratorPhone, collaboratorPhoneValue } from '../utils/phoneUtils';
 import { useVisualViewportSheet } from '../hooks/useVisualViewportSheet';
@@ -31,6 +31,9 @@ import CampaignTypeSwitch from './newsletters/CampaignTypeSwitch';
 import { initialCampaignType, type CampaignType } from './newsletters/lib/campaignType';
 import { announceNewslettersChanged } from './newsletters/lib/campaignsView';
 import { requestUpgrade } from '../utils/planEvents';
+import StoreelLivePreview from './storeel/StoreelLivePreview';
+import { storeelPreviewMedia } from './storeel/storeelPreview';
+import { BUTTON_OUTLINE, BUTTON_PRIMARY, BUTTON_SECONDARY } from './newsletters/lib/ui';
 
 interface CreateMemoryProps {
   open: boolean;
@@ -285,6 +288,22 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
     collaborators: [] as string[]
   });
 
+  // [wdy2xh2t3z] The live preview: the first picked image (an object URL for a file, freed when it changes) and how
+  // many photos there are, from the same lists the form shows.
+  const { first: storeelFirstMedia, count: storeelMomentCount } = storeelPreviewMedia<File>({
+    withMetadata: photosWithMetadata, mainPhotos: mainPhotosArray, mediaFiles: formData.mediaFiles,
+  });
+  const [storeelPreviewCover, setStoreelPreviewCover] = useState<string | null>(null);
+  useEffect(() => {
+    const src = storeelFirstMedia;
+    if (!src) { setStoreelPreviewCover(null); return undefined; }
+    if (typeof src === 'string') { setStoreelPreviewCover(isCampaignVideoUrl(src) ? null : src); return undefined; }
+    if (src.type && !src.type.startsWith('image/')) { setStoreelPreviewCover(null); return undefined; }
+    const url = URL.createObjectURL(src);
+    setStoreelPreviewCover(url);
+    return () => URL.revokeObjectURL(url);
+  }, [storeelFirstMedia]);
+
   const advancedFiltersCount = (formData.label ? 1 : 0) + formData.tags.length;
   const advancedFiltersOpen = advancedFiltersOverride ?? advancedFiltersCount > 0;
   // Latch the automatic open: once something is set, removing it inside the section
@@ -330,6 +349,8 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
   const [deviceLocation, setDeviceLocation] = useState<string>(''); // Store device location
 
   const [publishPopoverOpen, setPublishPopoverOpen] = useState(false);
+  // The top bar's Publish (wider screens); the phone footer keeps its own.
+  const [headerPublishOpen, setHeaderPublishOpen] = useState(false);
 
   // Select from Existing Campaigns
   const [selectFromExisting, setSelectFromExisting] = useState(false);
@@ -2189,79 +2210,133 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
   };
 
 
+  // Publish: who can see the published Storeel (the same three choices in the top bar and the phone footer).
+  const publishOptions = [
+    { type: 2 as const, icon: <Eye className="w-5 h-5 text-gray-700" />, label: 'View Only', desc: 'Users can only view the campaign, no comments allowed' },
+    { type: 1 as const, icon: <Globe className="w-5 h-5 text-[#7B68EE]" />, label: 'Public', desc: 'Anyone can view and leave comments' },
+    { type: 3 as const, icon: <Lock className="w-5 h-5 text-orange-500" />, label: 'Private', desc: 'Only visible with a valid access token' },
+  ];
+  const storeelSubmitDisabled = !formData.title.trim() || !formData.category || isSubmitting || isUploadingVideo;
+  const renderPublishMenu = (isOpen: boolean, setIsOpen: (o: boolean) => void, side: 'top' | 'bottom', trigger: React.ReactNode) => (
+    <Popover.Root open={isOpen} onOpenChange={setIsOpen}>
+      <Popover.Trigger asChild>{trigger}</Popover.Trigger>
+      <Popover.Portal>
+        <Popover.Content
+          side={side}
+          align={side === 'top' ? 'center' : 'end'}
+          sideOffset={8}
+          collisionPadding={12}
+          style={{ zIndex: 100002 }}
+          className="w-72 max-w-[calc(100vw-24px)] bg-white rounded-2xl shadow-xl border border-gray-100 p-2 outline-none"
+        >
+          {publishOptions.map(({ type, icon, label, desc }) => (
+            <button
+              key={type}
+              type="button"
+              onClick={() => { setIsOpen(false); handleSubmit(true, type); }}
+              className="w-full flex items-start gap-3 px-3 py-3 rounded-xl hover:bg-gray-50 transition-colors text-left"
+            >
+              <div className="mt-0.5 flex-shrink-0">{icon}</div>
+              <div>
+                <p className="text-sm font-semibold text-gray-900">{label}</p>
+                <p className="text-xs text-gray-500 mt-0.5">{desc}</p>
+              </div>
+            </button>
+          ))}
+        </Popover.Content>
+      </Popover.Portal>
+    </Popover.Root>
+  );
+
+  // [wdy2xh2t3z] The Storeel tab in the same full-window frame as the Newsletter tab (NewsletterComposer): the top
+  // bar (Back, Create Campaign, Newsletter | Storeel, Cancel / Create Campaign / Publish), no app sidebar, the form
+  // in one white card on the left and the live preview on the right (below the form on smaller screens).
   const modalContent = (
     <div
       ref={modalOverlayRef}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="storeel-create-title"
       // Phones: top/height follow window.visualViewport (useVisualViewportSheet) so the
-      // footer stays above the iOS keyboard; desktop keeps inset-0.
-      className="fixed inset-x-0 top-[var(--vv-top,0px)] h-[var(--vv-height,100%)] md:top-0 md:bottom-0 md:h-auto md:bg-black md:bg-opacity-50 flex items-center justify-center  p-0 md:p-4"
+      // footer stays above the iOS keyboard; wider screens fill the window.
+      className="fixed inset-x-0 top-[var(--vv-top,0px)] h-[var(--vv-height,100%)] md:inset-0 md:h-auto flex flex-col bg-[#F8F8FA]"
       style={{ zIndex: 99999 }}
-      onClick={handleBackdropClick}
     >
-      <div
-        className="bg-white md:rounded-lg md:shadow-2xl w-full md:max-w-md relative flex flex-col h-full md:h-[85vh] md:max-h-[85vh] overflow-x-hidden"
-        style={{
-          zIndex: 100000
-        }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Header */}
-        <div className="flex items-center justify-between p-4 border-b border-gray-100 flex-shrink-0">
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 bg-[#7B68EE] rounded-full flex items-center justify-center">
-              <Plus className="w-4 h-4 text-white" />
-            </div>
-            <h2 className="text-lg font-semibold text-gray-900">Create New Campaign</h2>
-          </div>
-          <button
-            onClick={handleModalClose}
-            className="text-gray-400 hover:text-gray-600 p-1 rounded-full hover:bg-gray-100"
-          >
-            <X className="w-4 h-4" />
+      <header className="flex flex-shrink-0 flex-wrap items-center gap-x-3 gap-y-2 border-b border-gray-200 bg-white px-4 py-3 md:px-6">
+        <div className="flex min-w-0 items-center gap-3">
+          <button type="button" onClick={handleModalClose} aria-label="Back" className="-ml-1.5 rounded-lg p-1.5 text-gray-600 hover:bg-gray-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#6C60FF]/40">
+            <ArrowLeft className="h-5 w-5" />
           </button>
+          <h2 id="storeel-create-title" className="truncate text-lg font-semibold text-gray-900">Create Campaign</h2>
         </div>
-
-        {/* Newsletter | Storeel switch; the Storeel form below is unchanged */}
-        <div className="flex flex-shrink-0 justify-center px-4 pt-3">
+        <div className="order-3 flex w-full justify-center md:order-none md:w-auto md:flex-1">
           <CampaignTypeSwitch value="storeel" onChange={chooseCampaignType} />
         </div>
-        {(isLimitExceeded || serverLimitMessage) && (
-          <div
-            ref={storeelLimitRef}
-            tabIndex={-1}
-            role="alert"
-            className="mx-4 mt-3 flex flex-shrink-0 items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 p-3 outline-none"
+        <div className="ml-auto hidden items-center gap-2 md:flex">
+          <button type="button" onClick={handleModalClose} className={BUTTON_OUTLINE}>Cancel</button>
+          <button
+            type="button"
+            onClick={() => handleSubmit(false)}
+            disabled={storeelSubmitDisabled}
+            aria-label={isSubmitting ? 'Saving' : 'Create Campaign'}
+            className={BUTTON_SECONDARY}
           >
-            <div className="mt-0.5 flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-amber-100">
-              <svg className="h-4 w-4 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 15.5c-.77.833.192 2.5 1.732 2.5z" />
-              </svg>
-            </div>
-            <div className="min-w-0">
-              <p className="text-sm font-semibold text-amber-900">Campaign Limit Reached</p>
-              <p className="mt-0.5 text-sm text-amber-800">
-                {isLimitExceeded ? (
-                  <>
-                    Your plan limit has been reached. You have reached your campaign limit of <strong>{limitData.memory_limit || 0} campaigns</strong>.
-                    Go to account to upgrade your plan or delete some campaigns.
-                  </>
-                ) : serverLimitMessage}{' '}Newsletters are not affected.
-              </p>
-              {/* The upgrade plans (z-[60]) would open under this modal, so close it first. */}
-              <button
-                type="button"
-                onClick={() => { handleModalClose(); requestUpgrade('Upgrade your plan for more campaigns.'); }}
-                className="mt-2 inline-flex h-8 items-center rounded-lg bg-[#6C60FF] px-3 text-sm font-medium text-white hover:bg-[#5B50E6] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#6C60FF]/40"
-              >
-                Upgrade
-              </button>
-            </div>
-          </div>
-        )}
+            {isSubmitting ? <><Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />Saving...</> : 'Create Campaign'}
+          </button>
+          {renderPublishMenu(headerPublishOpen, setHeaderPublishOpen, 'bottom', (
+            <button type="button" disabled={storeelSubmitDisabled} className={BUTTON_PRIMARY}>
+              <Globe className="h-4 w-4" aria-hidden="true" />Publish
+            </button>
+          ))}
+        </div>
+      </header>
 
-        {/* Scrollable Form Content */}
-        <div className="flex-1 overflow-y-auto overflow-x-hidden modal-scrollbar">
-          <div className="p-4 space-y-3">
+      {/* Scrollable content: the form card, then (or beside it) the live preview */}
+      <div className="flex-1 overflow-y-auto overflow-x-hidden modal-scrollbar">
+        <div className="mx-auto grid max-w-[1040px] gap-6 px-4 py-6 md:px-6 lg:grid-cols-[minmax(0,1fr)_320px] lg:gap-8">
+          <div className="min-w-0 space-y-4">
+            {(isLimitExceeded || serverLimitMessage) && (
+              <div
+                ref={storeelLimitRef}
+                tabIndex={-1}
+                role="alert"
+                className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 p-3 outline-none"
+              >
+                <div className="mt-0.5 flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-amber-100">
+                  <svg className="h-4 w-4 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 15.5c-.77.833.192 2.5 1.732 2.5z" />
+                  </svg>
+                </div>
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-amber-900">Campaign Limit Reached</p>
+                  <p className="mt-0.5 text-sm text-amber-800">
+                    {isLimitExceeded ? (
+                      <>
+                        Your plan limit has been reached. You have reached your campaign limit of <strong>{limitData.memory_limit || 0} campaigns</strong>.
+                        Go to account to upgrade your plan or delete some campaigns.
+                      </>
+                    ) : serverLimitMessage}{' '}Newsletters are not affected.
+                  </p>
+                  {/* The upgrade plans (z-[60]) would open under this modal, so close it first. */}
+                  <button
+                    type="button"
+                    onClick={() => { handleModalClose(); requestUpgrade('Upgrade your plan for more campaigns.'); }}
+                    className="mt-2 inline-flex h-8 items-center rounded-lg bg-[#6C60FF] px-3 text-sm font-medium text-white hover:bg-[#5B50E6] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#6C60FF]/40"
+                  >
+                    Upgrade
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <section aria-labelledby="storeel-form-title" className="rounded-xl border border-gray-200 bg-white">
+              <div className="flex items-center gap-3 border-b border-gray-100 px-4 py-3.5 md:px-5">
+                <div className="w-8 h-8 bg-[#7B68EE] rounded-full flex items-center justify-center flex-shrink-0">
+                  <Plus className="w-4 h-4 text-white" />
+                </div>
+                <h3 id="storeel-form-title" className="text-lg font-semibold text-gray-900">Create New Campaign</h3>
+              </div>
+          <div className="p-4 md:p-5 space-y-3">
 
             {/* Memory Title */}
             <div>
@@ -3708,12 +3783,22 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
               )}
             </div>
           </div>
-        </div>
+            </section>
+          </div>
 
-        {/* Sticky Footer — phones: one compact row (Cancel / Save / wider Publish) above
-            the home indicator, so Publish is always on screen; desktop: Cancel + Create
-            Campaign, then Publish full width, as before. */}
-        <div className="flex items-stretch gap-2 md:flex-col px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] md:p-4 border-t border-gray-100 bg-gray-50 flex-shrink-0 rounded-b-lg">
+          <aside aria-label="Storeel preview" className="min-w-0 self-start pb-[max(1rem,env(safe-area-inset-bottom))] lg:sticky lg:top-0">
+            <StoreelLivePreview
+              input={{ title: formData.title, images: storeelPreviewCover ? [storeelPreviewCover] : [], momentCount: storeelMomentCount, location: formData.location, date: formData.date, authorName: user?.name }}
+              avatarUrl={user?.avatar ?? null}
+              avatarColor={user?.profile_color ?? null}
+            />
+          </aside>
+        </div>
+      </div>
+
+        {/* Sticky Footer — phones only: one compact row (Cancel / Save / wider Publish) above
+            the home indicator, so Publish is always on screen. Wider screens have these in the top bar. */}
+        <div className="md:hidden flex items-stretch gap-2 px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] border-t border-gray-100 bg-white flex-shrink-0">
           {/* Cancel + Save */}
           <div className="flex flex-[2] md:flex-none gap-2 md:gap-3 min-w-0">
             <Button
@@ -3739,50 +3824,18 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
               )}
             </Button>
           </div>
-          {/* Publish — wider on phones, full width row on desktop */}
-          <Popover.Root open={publishPopoverOpen} onOpenChange={setPublishPopoverOpen}>
-            <Popover.Trigger asChild>
-              <button
-                type="button"
-                disabled={!formData.title.trim() || !formData.category || isSubmitting || isUploadingVideo}
-                className="flex-[2] md:flex-none md:w-full min-w-0 bg-[#6C60FF] hover:bg-[#5A4FE5] disabled:opacity-50 disabled:pointer-events-none text-white text-sm font-semibold md:font-medium rounded-md flex items-center justify-center gap-2 h-11 md:h-auto md:py-2"
-              >
-                <Globe className="w-4 h-4" />
-                Publish
-              </button>
-            </Popover.Trigger>
-            <Popover.Portal>
-              <Popover.Content
-                side="top"
-                align="center"
-                sideOffset={8}
-                collisionPadding={12}
-                style={{ zIndex: 100002 }}
-                className="w-72 max-w-[calc(100vw-24px)] bg-white rounded-2xl shadow-xl border border-gray-100 p-2 outline-none"
-              >
-                {[
-                  { type: 2 as const, icon: <Eye className="w-5 h-5 text-gray-700" />, label: 'View Only', desc: 'Users can only view the campaign, no comments allowed' },
-                  { type: 1 as const, icon: <Globe className="w-5 h-5 text-[#7B68EE]" />, label: 'Public', desc: 'Anyone can view and leave comments' },
-                  { type: 3 as const, icon: <Lock className="w-5 h-5 text-orange-500" />, label: 'Private', desc: 'Only visible with a valid access token' },
-                ].map(({ type, icon, label, desc }) => (
-                  <button
-                    key={type}
-                    type="button"
-                    onClick={() => { setPublishPopoverOpen(false); handleSubmit(true, type); }}
-                    className="w-full flex items-start gap-3 px-3 py-3 rounded-xl hover:bg-gray-50 transition-colors text-left"
-                  >
-                    <div className="mt-0.5 flex-shrink-0">{icon}</div>
-                    <div>
-                      <p className="text-sm font-semibold text-gray-900">{label}</p>
-                      <p className="text-xs text-gray-500 mt-0.5">{desc}</p>
-                    </div>
-                  </button>
-                ))}
-              </Popover.Content>
-            </Popover.Portal>
-          </Popover.Root>
+          {/* Publish — wider on phones */}
+          {renderPublishMenu(publishPopoverOpen, setPublishPopoverOpen, 'top', (
+            <button
+              type="button"
+              disabled={storeelSubmitDisabled}
+              className="flex-[2] min-w-0 bg-[#6C60FF] hover:bg-[#5A4FE5] disabled:opacity-50 disabled:pointer-events-none text-white text-sm font-semibold rounded-md flex items-center justify-center gap-2 h-11"
+            >
+              <Globe className="w-4 h-4" />
+              Publish
+            </button>
+          ))}
         </div>
-      </div>
     </div>
   );
 
