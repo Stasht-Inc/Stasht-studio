@@ -6,6 +6,7 @@
 type StoredUser = { id?: unknown; email?: unknown; phone_number?: unknown; name?: unknown };
 
 const SWITCH_NOTICE_KEY = 'stasht_account_switched_to';
+const NOTICE_MAX_AGE_MS = 60_000;
 
 function parse(raw: string | null): StoredUser | null {
   if (!raw) return null;
@@ -21,19 +22,20 @@ function text(value: unknown): string {
   return value === null || value === undefined ? '' : String(value).trim();
 }
 
-function identity(user: StoredUser | null): string {
-  if (!user) return '';
-  const id = text(user.id);
-  if (id) return `id:${id}`;
-  const contact = text(user.email) || text(user.phone_number);
-  return contact ? `contact:${contact.toLowerCase()}` : '';
+function contact(user: StoredUser): string {
+  return (text(user.email) || text(user.phone_number)).toLowerCase();
 }
 
-/** True only when both values name an account and they are different accounts. */
+/** True only when both values name an account and they are different accounts. Ids are compared when both
+ * sides have one; otherwise email/phone on both sides. */
 export function isDifferentAccount(oldRaw: string | null, newRaw: string | null): boolean {
-  const before = identity(parse(oldRaw));
-  const after = identity(parse(newRaw));
-  return before !== '' && after !== '' && before !== after;
+  const before = parse(oldRaw);
+  const after = parse(newRaw);
+  if (!before || !after) return false;
+  const [idBefore, idAfter] = [text(before.id), text(after.id)];
+  if (idBefore && idAfter) return idBefore !== idAfter;
+  const [cBefore, cAfter] = [contact(before), contact(after)];
+  return cBefore !== '' && cAfter !== '' && cBefore !== cAfter;
 }
 
 /** The account's name for a notice: name, else email, else phone. */
@@ -46,7 +48,7 @@ export function accountLabel(raw: string | null): string | null {
 /** Remember (for this tab only, across its reload) which account it was moved to. */
 export function rememberSwitchNotice(newRaw: string | null): void {
   try {
-    sessionStorage.setItem(SWITCH_NOTICE_KEY, accountLabel(newRaw) ?? '');
+    sessionStorage.setItem(SWITCH_NOTICE_KEY, JSON.stringify({ label: accountLabel(newRaw) ?? '', at: Date.now() }));
   } catch {
     // Private mode etc.: the reload still happens, just without the notice.
   }
@@ -55,9 +57,12 @@ export function rememberSwitchNotice(newRaw: string | null): void {
 /** The notice left by rememberSwitchNotice, read once. null when there is none. */
 export function takeSwitchNotice(): string | null {
   try {
-    const label = sessionStorage.getItem(SWITCH_NOTICE_KEY);
-    if (label === null) return null;
+    const raw = sessionStorage.getItem(SWITCH_NOTICE_KEY);
+    if (raw === null) return null;
     sessionStorage.removeItem(SWITCH_NOTICE_KEY);
+    // Only right after the reload: a notice left behind (e.g. the tab was signed out instead) must not pop up later.
+    const { label, at } = JSON.parse(raw) as { label?: string; at?: number };
+    if (typeof at !== 'number' || Date.now() - at > NOTICE_MAX_AGE_MS) return null;
     return label ? `You switched to ${label} in another tab, so this tab has been updated.` : 'You switched account in another tab, so this tab has been updated.';
   } catch {
     return null;
@@ -75,7 +80,7 @@ export function isTabStale(): boolean {
 
 /** Does this request go to the Stasht API (anything that reads or saves account data)? */
 export function isApiRequest(url: string): boolean {
-  return /\/api\//.test(url) || /(^|\/\/)restapi\.stasht\.com/.test(url);
+  return /\/(sso-)?api\//.test(url) || /(^|\/\/)restapi\.stasht\.com/.test(url);
 }
 
 /**
@@ -104,7 +109,10 @@ export function markTabStale(): void {
   } as typeof XMLHttpRequest.prototype.open;
   XMLHttpRequest.prototype.send = function send(this: Guarded, body?: Document | XMLHttpRequestBodyInit | null) {
     if (this.stashtBlocked) {
-      window.setTimeout(() => this.dispatchEvent(new ProgressEvent('error')), 0);
+      window.setTimeout(() => {
+        this.dispatchEvent(new ProgressEvent('error'));
+        this.dispatchEvent(new ProgressEvent('loadend'));
+      }, 0);
       return;
     }
     realSend.call(this, body);

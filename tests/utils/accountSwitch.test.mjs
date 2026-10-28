@@ -46,6 +46,12 @@ test('isApiRequest matches Stasht API calls only', async () => {
   assert.equal(isApiRequest('/api/react/newsletters'), true);
   assert.equal(isApiRequest('https://studio.stasht.com/api/react/memories'), true);
   assert.equal(isApiRequest('https://restapi.stasht.com/public/x'), true);
+  assert.equal(isApiRequest('/sso-api/sso/exchange'), true);
   assert.equal(isApiRequest('/assets/index.js'), false);
   assert.equal(isApiRequest('https://fonts.googleapis.com/css2'), false);
+});
+
+test('one side without an id compares by email (no false switch)', () => {
+  assert.equal(isDifferentAccount(stasht, JSON.stringify({ email: 'developers@stasht.com' })), false);
+  assert.equal(isDifferentAccount(stasht, JSON.stringify({ email: 'bgerrits@royalwoodshop.com' })), true);
 });
