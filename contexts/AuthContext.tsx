@@ -7,6 +7,8 @@ import { resetMediaCache } from '../services/mediaAPI';
 import { crossTabAuth } from '../utils/crossTabAuth';
 import StashtLogo from '../components/StashtLogo';
 import { webPushLogin, webPushLogout } from '../utils/webPush';
+import { toast } from 'sonner';
+import { isDifferentAccount, markTabStale, rememberSwitchNotice, STALE_TAB_MESSAGE } from '../utils/accountSwitch';
 
 // Module-level guard: survives React StrictMode's double-invoke (and any remount)
 // in the same page load, so a single-use SSO code is exchanged exactly once.
@@ -233,6 +235,20 @@ export function AuthProvider({ children }: AuthProviderProps) {
             performCrossTabLogout();
           }
         }
+      }
+
+      // Another tab switched business (Profile menu) or account: this tab still shows the old one while every
+      // request now carries the new token, so reload it into the account that is really signed in.
+      if (e.key === 'stasht_user' && isDifferentAccount(e.oldValue, e.newValue)) {
+        // Block saving first: the reload can be held up by a "Leave site?" prompt the person cancels.
+        markTabStale();
+        rememberSwitchNotice(e.newValue);
+        toast.error(STALE_TAB_MESSAGE, {
+          duration: Infinity,
+          action: { label: 'Reload', onClick: () => window.location.reload() },
+        });
+        window.location.reload();
+        return;
       }
 
       // Handle direct token/user changes for immediate logout
