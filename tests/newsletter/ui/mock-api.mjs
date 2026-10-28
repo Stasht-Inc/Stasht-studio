@@ -226,6 +226,8 @@ export function createMockApi(options = {}) {
     // People on each list (Lists tab), made from member_count the first time a list's people are asked for.
     members: new Map(),
     nextMemberId: 50000000,
+    // GET /my-conversations rows (the Leads page's My Conversations tab and its unread badge).
+    conversations: options.conversations ?? [],
     // newsletters.limits.import_rows: per request, and the most one list can hold.
     listCap: options.listCap ?? 10000,
     // CSV files GET /contact-lists/{id}/export answered: {listId, filename, body}.
@@ -548,7 +550,8 @@ export function createMockApi(options = {}) {
     // The Leads page (Lists tab checks): an empty inbox.
     if (path === '/leads' && method === 'GET') return ok({ leads: [], total: 0, status_counts: {}, messages_total: 0, meta: { total_pages: 1 }, tab_counts: { open: 0, closed: 0 } });
     if (path === '/leads/unread-count') return ok({ total_unread: 0, total_unread_messages: 0, total_unread_comments: 0 });
-    if (path === '/my-conversations' && method === 'GET') return ok({ total: 0, conversations: [] });
+    // leadsAPI.getMyConversations reads {total, conversations} straight off the body (as LeadsTab uses it).
+    if (path === '/my-conversations' && method === 'GET') return { status: 200, json: { total: state.conversations.length, conversations: state.conversations } };
     if (state.plan === 'Starter' && (path.startsWith('/newsletter') || path.startsWith('/contact-lists'))) {
       return fail(403, { success: false, code: 'plan_required', message: 'Newsletters are available on paid plans' });
     }

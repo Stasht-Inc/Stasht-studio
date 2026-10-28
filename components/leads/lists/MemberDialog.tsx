@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Loader2 } from 'lucide-react';
-import { newslettersAPI, type ConsentType, type ContactListMember } from '../../../services/newslettersAPI';
+import { newslettersAPI, type ConsentType, type ContactListMember, type MemberInput } from '../../../services/newslettersAPI';
 import ComposerDialog from '../../newsletters/ComposerDialog';
 import { GENERIC_ERROR } from '../../newsletters/lib/apiResult';
 import { CONSENT_HINT, CONSENT_OPTIONS } from '../../newsletters/lib/consent';
@@ -44,10 +44,18 @@ export default function MemberDialog({ open, onOpenChange, listId, listName, mem
     if (!editing && !consent) problems.consent_type = CONSENT_REQUIRED;
     setErrors(problems);
     if (Object.keys(problems).length) return;
-    setBusy(true);
     const clean = (v: string) => v.trim() || null;
+    // Editing: only what changed (PATCH takes any of the three). Nothing changed: nothing to save.
+    const patch: MemberInput = {};
+    if (editing) {
+      if (clean(name) !== (member!.name ?? null)) patch.name = clean(name);
+      if (clean(email) !== (member!.email ?? null)) patch.email = clean(email);
+      if (clean(phone) !== (member!.phone ?? null)) patch.phone = clean(phone);
+      if (!Object.keys(patch).length) { onOpenChange(false); return; }
+    }
+    setBusy(true);
     const res = editing
-      ? await newslettersAPI.updateMember(listId, member!.id!, { name: clean(name), email: clean(email), phone: clean(phone) })
+      ? await newslettersAPI.updateMember(listId, member!.id!, patch)
       : await newslettersAPI.addMember(listId, {
         ...(clean(name) ? { name: clean(name) } : {}),
         ...(clean(email) ? { email: clean(email) } : {}),

@@ -632,6 +632,8 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
   const contactLists = useContactLists(listsEnabled);
   const listsRef = useRef<ListsTabHandle>(null);
   const listCount = listsEnabled ? contactLists.lists?.length ?? 0 : 0;
+  // Refresh spins for the lists fetch only while Lists shows (the badge's background fetch stays quiet).
+  const listsRefreshing = leadsView === 'lists' && contactLists.loading;
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [isLoadingConversations, setIsLoadingConversations] = useState(false);
 
@@ -980,39 +982,41 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
       <div className="flex w-full md:inline-flex md:w-auto items-center gap-0.5 md:gap-1 bg-gray-100 rounded-lg p-1">
         <button
           onClick={() => { setLeadsView('leads'); onGroupSelect?.(null); onConversationSelect?.(null); }}
-          className={`h-10 md:h-8 px-1.5 md:px-4 flex-auto md:flex-none rounded-md text-sm font-medium transition-colors ${leadsView === 'leads' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-700'}`}
+          className={`h-10 md:h-8 px-1 md:px-4 flex-auto md:flex-none rounded-md text-sm font-medium transition-colors ${leadsView === 'leads' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-700'}`}
         >
           Leads
         </button>
         <button
           onClick={() => { setLeadsView('lists'); onGroupSelect?.(null); onLeadSelect(null); onConversationSelect?.(null); if (listsEnabled) void contactLists.reload(); }}
-          className={`h-10 md:h-8 px-1.5 md:px-4 flex-auto md:flex-none justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors flex items-center gap-1 md:gap-1.5 ${leadsView === 'lists' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-700'}`}
+          className={`h-10 md:h-8 px-1 md:px-4 flex-auto md:flex-none justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors flex items-center gap-1 md:gap-1.5 ${leadsView === 'lists' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-700'}`}
         >
           Lists
           {listCount > 0 && (
-            <span className="flex items-center justify-center min-w-[20px] h-5 px-1 rounded-full bg-[#6C60FF] text-white text-[12px] font-bold">
+            <span className="flex items-center justify-center min-w-[18px] md:min-w-[20px] h-5 px-0.5 md:px-1 rounded-full bg-[#6C60FF] text-white text-[12px] font-bold">
               {listCount}
             </span>
           )}
         </button>
         <button
           onClick={() => { setLeadsView('groups'); onGroupSelect?.(null); onLeadSelect(null); onConversationSelect?.(null); }}
-          className={`h-10 md:h-8 px-1.5 md:px-4 flex-auto md:flex-none justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors flex items-center gap-1 md:gap-1.5 ${leadsView === 'groups' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-700'}`}
+          className={`h-10 md:h-8 px-1 md:px-4 flex-auto md:flex-none justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors flex items-center gap-1 md:gap-1.5 ${leadsView === 'groups' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-700'}`}
         >
           Groups
           {leadGroups.length > 0 && (
-            <span className="flex items-center justify-center min-w-[20px] h-5 px-1 rounded-full bg-[#6C60FF] text-white text-[12px] font-bold">
+            <span className="flex items-center justify-center min-w-[18px] md:min-w-[20px] h-5 px-0.5 md:px-1 rounded-full bg-[#6C60FF] text-white text-[12px] font-bold">
               {leadGroups.length}
             </span>
           )}
         </button>
         <button
           onClick={() => { setLeadsView('conversations'); onLeadSelect(null); onGroupSelect?.(null); onConversationSelect?.(null); fetchMyConversations(); }}
-          className={`h-10 md:h-8 px-1.5 md:px-4 flex-auto md:flex-none justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors flex items-center gap-1 md:gap-1.5 ${leadsView === 'conversations' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-700'}`}
+          className={`h-10 md:h-8 px-1 md:px-4 flex-auto md:flex-none justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors flex items-center gap-1 md:gap-1.5 ${leadsView === 'conversations' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-700'}`}
         >
-          My Conversations
+          {/* Phones under 400px read "Conversations" so the four tabs fit 360px with two-digit badges;
+              "My " stays for screen readers. */}
+          <span className="whitespace-nowrap"><span className="sr-only min-[400px]:not-sr-only">My{'\u00A0'}</span>Conversations</span>
           {conversationsUnread > 0 && (
-            <span className="flex items-center justify-center min-w-[20px] h-5 px-1 rounded-full bg-red-500 text-white text-[12px] font-bold">
+            <span className="flex items-center justify-center min-w-[18px] md:min-w-[20px] h-5 px-0.5 md:px-1 rounded-full bg-red-500 text-white text-[12px] font-bold">
               {conversationsUnread}
             </span>
           )}
@@ -1037,10 +1041,10 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
       <button
         type="button"
         onClick={() => { refreshCurrentView(); }}
-        disabled={isLoading || isLoadingConversations || contactLists.loading}
+        disabled={isLoading || isLoadingConversations || listsRefreshing}
         className="h-9 px-3.5 inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 hover:text-[#6C60FF] transition-colors shrink-0 disabled:opacity-50"
       >
-        <RefreshCw className={`w-4 h-4 ${isLoading || isLoadingConversations || contactLists.loading ? 'animate-spin' : ''}`} />
+        <RefreshCw className={`w-4 h-4 ${isLoading || isLoadingConversations || listsRefreshing ? 'animate-spin' : ''}`} />
         Refresh
       </button>
       </div>

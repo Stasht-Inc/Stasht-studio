@@ -19,6 +19,9 @@ const NEWSLETTERS = () => [
 
 const listCalls = (api) => api.state.calls.filter((c) => c.path.startsWith('/contact-lists') || c.path.startsWith('/newsletter'));
 
+/** The text of whatever has focus. */
+const focusedText = (page) => page.evaluate(() => document.activeElement?.textContent?.trim() ?? '');
+
 /** The harness's toasts sit top right, over the list's buttons at 1280: wait until they have gone. */
 async function toastsGone(page) {
   for (let i = 0; i < 40 && (await page.locator('[data-sonner-toast]').count()); i++) await page.waitForTimeout(250);
@@ -28,7 +31,7 @@ async function toastsGone(page) {
 async function tabRow(page) {
   return page.evaluate(() => {
     const leads = [...document.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Leads');
-    return leads ? [...leads.parentElement.children].map((b) => b.textContent.trim()) : [];
+    return leads ? [...leads.parentElement.children].map((b) => b.textContent.replace(/\u00A0/g, ' ').trim()) : [];
   });
 }
 
@@ -81,10 +84,14 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
   await dialog.getByRole('button', { name: 'Create list' }).click();
   await expectVisible(page.getByRole('heading', { name: 'VIP open house' }), 'new list opens');
   await expectVisible(page.getByText('Nobody is on this list yet'), 'empty list');
+  await page.waitForTimeout(300);
+  expect(await focusedText(page) === 'VIP open house', `focus on the new list's heading (got ${await focusedText(page)})`);
   const create = api.state.calls.find((c) => c.method === 'POST' && c.path === '/contact-lists');
   expect(create?.body?.name === 'VIP open house' && create?.status === 201, `create body (got ${JSON.stringify(create)})`);
   await page.getByRole('button', { name: 'All lists' }).click();
   await expectVisible(page.getByRole('button', { name: /^Lists/ }).getByText('3'), 'badge counts the new list');
+  await page.waitForTimeout(300);
+  expect(await focusedText(page) === 'VIP open house', `focus back on the list's row (got ${await focusedText(page)})`);
 
   // ── Import CSV → a new list ──
   await page.getByRole('button', { name: 'Import CSV' }).click();
@@ -103,6 +110,7 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
   await expectVisible(page.getByText('Page 1 of 5'), 'pages');
   await expectVisible(page.getByRole('radio', { name: /Unsubscribed\s*\d+/ }), 'filter counts');
   await expectVisible(page.getByText('Express, May 1, 2026').first(), 'how they agreed');
+  await expectVisible(page.getByRole('cell', { name: '+1 416 555 1006' }), 'mobiles read as +1 416 555 1006');
   await shot(page, '1280-03-list-detail');
 
   // Search (debounced): one request with the words, not one per key.
@@ -153,7 +161,7 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
   await dialog.getByRole('button', { name: 'Save' }).click();
   await expectVisible(page.getByRole('cell', { name: 'Jane Doe-Smith' }), 'edited name');
   const patch = api.state.calls.find((c) => c.method === 'PATCH' && /\/contact-lists\/9\/members\/\d+$/.test(c.path));
-  expect(patch?.body?.name === 'Jane Doe-Smith' && patch?.body?.email === 'jane.doe@example.com', `edit body (got ${JSON.stringify(patch?.body)})`);
+  expect(JSON.stringify(patch?.body) === JSON.stringify({ name: 'Jane Doe-Smith' }), `edit sends only what changed (got ${JSON.stringify(patch?.body)})`);
 
   // ── Remove one ──
   await page.getByRole('button', { name: 'Actions for Jane Doe-Smith' }).click();
@@ -268,6 +276,8 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
   await dialog.getByRole('button', { name: 'Delete list' }).click();
   await expectVisible(page.getByText('Deleted the list “Open house 2026”.'), 'deleted toast');
   await expectVisible(page.getByRole('cell', { name: 'Spring buyers' }), 'back to all lists');
+  await page.waitForTimeout(300);
+  expect(await focusedText(page) === 'Your lists', `focus on the lists heading after deleting (got ${await focusedText(page)})`);
 
   // A list a scheduled newsletter uses can't go: the API's 409 words, and it stays.
   await page.getByRole('button', { name: 'Actions for Spring buyers' }).click();
@@ -315,6 +325,13 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
     if (process.env.NL_VIEWPORT_SHOTS) await p.screenshot({ path: `${process.env.NL_VIEWPORT_SHOTS}/detail-${width}.png` });
     await p.locator('input[aria-label="Choose Contact 2"]:visible').check();
     await expectVisible(p.getByText('1 chosen'), `bulk bar at ${width}`);
+    if (width === 360) {
+      // Everyone on the page, from the phone's own checkbox (the table header's is hidden).
+      await p.getByLabel('Choose everyone on this page').filter({ visible: true }).check();
+      await expectVisible(p.getByText('50 chosen'), 'phone: everyone on the page chosen');
+      await p.getByLabel('Choose everyone on this page').filter({ visible: true }).uncheck();
+      await p.locator('input[aria-label="Choose Contact 2"]:visible').check();
+    }
     expect(!(await hasOverflow(p)), `no sideways scroll with people chosen at ${width}`);
     if (width === 390) await shot(p, '390-04-chosen');
     if (process.env.NL_VIEWPORT_SHOTS) await p.screenshot({ path: `${process.env.NL_VIEWPORT_SHOTS}/chosen-${width}.png` });
@@ -323,6 +340,34 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
     expect(!(await hasOverflow(p)), `no sideways scroll in Add a person at ${width}`);
     if (width === 390) await shot(p, '390-05-add-person');
     if (process.env.NL_VIEWPORT_SHOTS) await p.screenshot({ path: `${process.env.NL_VIEWPORT_SHOTS}/add-${width}.png` });
+    await phone.context.close();
+  }
+
+  // ── Two-digit badges on Lists, Groups and My Conversations still fit 360px ──
+  const many = (n, make) => Array.from({ length: n }, (_, i) => make(i));
+  for (const width of [360, 375, 390]) {
+    const busy = createMockApi({
+      lists: many(12, (i) => ({ id: 200 + i, name: `List ${i + 1}`, source: 'manual', member_count: 0, email_count: 0, sms_count: 0, unsubscribed_count: 0, consent_type: null, created_at: '2026-10-01T15:00:00Z', updated_at: '2026-10-01T15:00:00Z' })),
+      groups: many(12, (i) => ({ id: 300 + i, name: `Group ${i + 1}`, member_count: 3, members: [], created_at: '2026-10-01T15:00:00Z', updated_at: '2026-10-01T15:00:00Z' })),
+      conversations: many(12, (i) => ({ lead_id: 400 + i, owner: { id: 9, name: `Owner ${i + 1}` }, story: null, last_message: null, unread_count: 1, last_message_at: '2026-10-27T15:00:00Z' })),
+    });
+    const phone = await open({ view: 'leads', width, height: 844, api: busy });
+    const p = phone.page;
+    await expectVisible(p.getByRole('button', { name: /^Lists/ }).getByText('12'), `lists badge 12 at ${width}`);
+    await expectVisible(p.getByRole('button', { name: /^Groups/ }).getByText('12'), `groups badge 12 at ${width}`);
+    await expectVisible(p.getByRole('button', { name: /Conversations/ }).getByText('12'), `conversations badge 12 at ${width}`);
+    const fits = await p.evaluate(() => {
+      const leads = [...document.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Leads');
+      const row = leads?.parentElement;
+      if (!row) return 'no row';
+      const box = row.getBoundingClientRect();
+      const over = [...row.children].filter((b) => { const r = b.getBoundingClientRect(); return r.left < box.left - 1 || r.right > box.right + 1; });
+      return row.scrollWidth <= row.clientWidth + 1 && !over.length ? 'ok' : `content ${row.scrollWidth}px in ${row.clientWidth}px`;
+    });
+    expect(fits === 'ok', `four tabs with two-digit badges fit at ${width} (${fits})`);
+    expect(!(await hasOverflow(p)), `no sideways scroll with two-digit badges at ${width}`);
+    expect(JSON.stringify(await tabRow(p)) === JSON.stringify(['Leads', 'Lists12', 'Groups12', 'My Conversations12']), `tab names keep "My Conversations" for screen readers (got ${JSON.stringify(await tabRow(p))})`);
+    if (width === 360) await shot(p, '360-06-two-digit-badges');
     await phone.context.close();
   }
 }

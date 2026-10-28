@@ -1,4 +1,5 @@
-import { apiRequest, fetchWithRateLimitRetry, getApiBaseUrl } from '../utils/authUtils';
+import { apiRequest, fetchWithRateLimitRetry, getApiBaseUrl, tokenUtils, userUtils } from '../utils/authUtils';
+import { STALE_TAB_MESSAGE, isTabStale } from '../utils/accountSwitch';
 import { requestUpgrade } from '../utils/planEvents';
 import { toResult, resultFromRaw, testSendResult, GENERIC_ERROR } from '../components/newsletters/lib/apiResult';
 import type { NlResult, ApiLikeResponse } from '../components/newsletters/lib/apiResult';
@@ -253,9 +254,15 @@ async function uploadImage(file: File): Promise<NlResult<{ url: string }>> {
   return result;
 }
 
-// GET /contact-lists/{id}/export answers a CSV file, not JSON, so it skips apiRequest too (same 403/429 handling).
+// GET /contact-lists/{id}/export answers a CSV file, not JSON, so it skips apiRequest. It keeps apiRequest's
+// sign-in handling (an expired token is cleared before asking; a 401 clears it and goes to /login) and its
+// 403 plan_required / 429 handling.
 async function exportList(id: number, fallbackName: string): Promise<NlResult<ExportFile>> {
   const token = localStorage.getItem('stasht_token');
+  if (token && tokenUtils.isTokenExpired(token)) {
+    userUtils.clearAuthData();
+    return { ok: false, error: 'Authentication token has expired. Please log in again.', fieldErrors: {}, status: 401 };
+  }
   let response: Response;
   try {
     response = await fetchWithRateLimitRetry(`${getApiBaseUrl()}${list(id)}/export`, {
@@ -263,7 +270,14 @@ async function exportList(id: number, fallbackName: string): Promise<NlResult<Ex
       headers: { Accept: 'text/csv, application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
     });
   } catch {
+    // A tab that switched account elsewhere refuses API calls (utils/accountSwitch.ts): say so, not "connection".
+    if (isTabStale()) return { ok: false, error: STALE_TAB_MESSAGE, fieldErrors: {} };
     return { ok: false, error: 'The file could not be downloaded. Check your connection and try again.', fieldErrors: {} };
+  }
+  if (response.status === 401) {
+    userUtils.clearAuthData();
+    window.setTimeout(() => { window.location.href = '/login'; }, 100);
+    return { ok: false, error: 'Authentication failed. Please log in again.', fieldErrors: {}, status: 401 };
   }
   const type = response.headers.get('Content-Type') || '';
   if (response.ok && !type.includes('application/json')) {

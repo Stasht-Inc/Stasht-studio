@@ -14,6 +14,7 @@ import {
   MAX_SELECTED, copyResultText, emailStatusChip, listSourceLabel, pageSelection, peopleText, smsStatusChip, toggleSelected, togglePage, type StatusChipInfo,
 } from '../../newsletters/lib/lists';
 import { memberConsentText, shortDate } from '../../newsletters/lib/manageLists';
+import { formatSentTo } from '../../newsletters/lib/phoneDisplay';
 import { BUTTON_PRIMARY, BUTTON_SECONDARY, LINK_BUTTON } from '../../newsletters/lib/ui';
 import { ConfirmDialog, CopyToListDialog, ErrorNote } from './ListDialogs';
 import MemberDialog from './MemberDialog';
@@ -42,7 +43,9 @@ function Chips({ m }: { m: ContactListMember }) {
   return <span className="flex flex-wrap gap-1"><Chip info={email} /><Chip info={sms} /></span>;
 }
 
-const displayName = (m: ContactListMember) => m.name || m.email || m.phone || 'Someone';
+// Mobiles come as E.164 (+14165550100); they read as +1 416 555 0100.
+const phoneText = (phone: string) => formatSentTo(phone);
+const displayName = (m: ContactListMember) => m.name || m.email || (m.phone ? phoneText(m.phone) : '') || 'Someone';
 
 /** Opens dialogs after the menu has closed, or Radix leaves the page unclickable. */
 const later = (fn: () => void) => () => window.setTimeout(fn, 0);
@@ -80,7 +83,9 @@ export default function ListDetail({ list, otherLists, onBack, onAction, onListC
   const [loading, setLoading] = useState(false);
   const request = useRef(0);
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // The page's "choose everyone" checkboxes: the table header (md+) and the row above the phone cards.
   const headerBox = useRef<HTMLInputElement>(null);
+  const phoneBox = useRef<HTMLInputElement>(null);
 
   const load = useCallback(async () => {
     const mine = ++request.current;
@@ -116,7 +121,9 @@ export default function ListDetail({ list, otherLists, onBack, onAction, onListC
   const rows = members?.data ?? [];
   const pageIds = useMemo(() => rows.map((m) => m.id).filter((id): id is number => typeof id === 'number'), [rows]);
   const pageState = pageSelection(selected, pageIds);
-  useEffect(() => { if (headerBox.current) headerBox.current.indeterminate = pageState === 'some'; }, [pageState]);
+  useEffect(() => {
+    [headerBox.current, phoneBox.current].forEach((box) => { if (box) box.indeterminate = pageState === 'some'; });
+  }, [pageState, rows]);
   const meta = members?.meta;
   const counts = meta?.counts;
   const filtered = Boolean(search) || status !== 'all';
@@ -232,7 +239,7 @@ export default function ListDetail({ list, otherLists, onBack, onAction, onListC
                     <td className="py-3 pl-4 align-top">{box(m, label)}</td>
                     <td className="px-3 py-3 align-top font-medium text-gray-900 [overflow-wrap:anywhere]">{m.name ?? <span className="text-gray-400">—</span>}</td>
                     <td className="px-3 py-3 align-top text-gray-700 [overflow-wrap:anywhere]">{m.email ?? <span className="text-gray-400">—</span>}</td>
-                    <td className="px-3 py-3 align-top text-gray-700 [overflow-wrap:anywhere]">{m.phone ?? <span className="text-gray-400">—</span>}</td>
+                    <td className="px-3 py-3 align-top text-gray-700 [overflow-wrap:anywhere]">{m.phone ? phoneText(m.phone) : <span className="text-gray-400">—</span>}</td>
                     <td className="px-3 py-3 align-top"><Chips m={m} /></td>
                     <td className="px-3 py-3 align-top text-gray-700 lg:whitespace-nowrap" title={m.consent_source ?? undefined}>{memberConsentText(m)}</td>
                     <td className="whitespace-nowrap px-3 py-3 align-top text-gray-600">{shortDate(m.added_at) || '—'}</td>
@@ -245,6 +252,13 @@ export default function ListDetail({ list, otherLists, onBack, onAction, onListC
         </div>
 
         {/* Phone cards */}
+        <label className="flex min-h-[44px] cursor-pointer items-center gap-3 border-b border-gray-100 px-4 py-1 text-sm text-gray-700 md:hidden">
+          <span className="-m-2 inline-flex h-10 w-10 flex-shrink-0 items-center justify-center">
+            <input ref={phoneBox} type="checkbox" checked={pageState === 'all'} disabled={!pageIds.length || (full && pageState === 'none')}
+              onChange={() => setSelected((s) => togglePage(s, pageIds))} className="h-4 w-4 accent-[#6C60FF]" />
+          </span>
+          Choose everyone on this page
+        </label>
         <ul className="divide-y divide-gray-100 md:hidden" aria-label={`People on ${list.name}`}>
           {rows.map((m, i) => {
             const label = displayName(m);
@@ -255,7 +269,7 @@ export default function ListDetail({ list, otherLists, onBack, onAction, onListC
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-semibold text-gray-900 [overflow-wrap:anywhere]">{label}</p>
                   {m.name && m.email ? <p className="text-sm text-gray-700 [overflow-wrap:anywhere]">{m.email}</p> : null}
-                  {m.phone && (m.name || m.email) ? <p className="text-sm text-gray-700">{m.phone}</p> : null}
+                  {m.phone && (m.name || m.email) ? <p className="text-sm text-gray-700">{phoneText(m.phone)}</p> : null}
                   <div className="mt-1.5"><Chips m={m} /></div>
                   <p className="mt-1.5 text-xs text-gray-600">{memberConsentText(m)}{m.added_at ? ` · Added ${shortDate(m.added_at)}` : ''}</p>
                 </div>
@@ -277,7 +291,7 @@ export default function ListDetail({ list, otherLists, onBack, onAction, onListC
       <div className="rounded-xl border border-gray-200 bg-white p-4 md:p-5">
         <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
           <div className="min-w-0">
-            <h2 className="break-words text-lg font-semibold text-gray-900 md:text-xl">{list.name}</h2>
+            <h2 data-lists-focus="detail" tabIndex={-1} className="break-words rounded text-lg font-semibold text-gray-900 outline-none focus-visible:ring-2 focus-visible:ring-[#6C60FF]/40 md:text-xl">{list.name}</h2>
             <p className="mt-1 text-sm text-gray-600">{summary}</p>
             <p className="mt-0.5 text-xs text-gray-500">{listSourceLabel(list.source)} · {consentLabel(list.consent_type)}</p>
           </div>
@@ -324,7 +338,7 @@ export default function ListDetail({ list, otherLists, onBack, onAction, onListC
           />
           <div className="relative w-full md:max-w-xs">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" aria-hidden="true" />
-            <input type="search" value={searchInput} onChange={(e) => onSearchChange(e.target.value)} placeholder="Search name, email or mobile"
+            <input type="search" maxLength={191} value={searchInput} onChange={(e) => onSearchChange(e.target.value)} placeholder="Search name, email or mobile"
               aria-label="Search people on this list" enterKeyHint="search"
               onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); if (searchTimer.current) clearTimeout(searchTimer.current); applySearch(searchInput); } }}
               className="h-10 w-full rounded-lg border border-gray-200 bg-gray-50 pl-9 pr-3 text-base text-gray-900 placeholder:text-gray-400 outline-none focus:border-[#6C60FF] focus:ring-2 focus:ring-[#6C60FF]/20 md:h-9 md:text-sm" />

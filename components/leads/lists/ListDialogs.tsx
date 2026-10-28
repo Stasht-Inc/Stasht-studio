@@ -13,7 +13,7 @@ export function ErrorNote({ children }: { children: ReactNode }) {
 }
 
 /** Create a list, or rename one. onSubmit answers an error to show, or null when it worked (the dialog closes). */
-export function NameDialog({ open, onOpenChange, title, description, submitLabel, initialName = '', onSubmit }: {
+export function NameDialog({ open, onOpenChange, title, description, submitLabel, initialName = '', onSubmit, onCloseAutoFocus }: {
   open: boolean;
   onOpenChange(open: boolean): void;
   title: string;
@@ -21,6 +21,8 @@ export function NameDialog({ open, onOpenChange, title, description, submitLabel
   submitLabel: string;
   initialName?: string;
   onSubmit(name: string): Promise<string | null>;
+  /** Where focus goes after closing (preventDefault and focus something else; Radix goes back to the opener). */
+  onCloseAutoFocus?(event: Event): void;
 }) {
   const [name, setName] = useState(initialName);
   const [error, setError] = useState<string | null>(null);
@@ -40,7 +42,7 @@ export function NameDialog({ open, onOpenChange, title, description, submitLabel
   };
 
   return (
-    <ComposerDialog open={open} onOpenChange={(o) => { if (!busy) onOpenChange(o); }} title={title} description={description}
+    <ComposerDialog open={open} onOpenChange={(o) => { if (!busy) onOpenChange(o); }} title={title} description={description} onCloseAutoFocus={onCloseAutoFocus}
       footer={(
         <>
           <button type="button" onClick={() => onOpenChange(false)} disabled={busy} className={BUTTON_OUTLINE}>Cancel</button>
@@ -62,13 +64,14 @@ export function NameDialog({ open, onOpenChange, title, description, submitLabel
 }
 
 /** "Are you sure?" for deleting a list or removing people. onConfirm answers an error to show, or null (closes). */
-export function ConfirmDialog({ open, onOpenChange, title, children, confirmLabel, onConfirm }: {
+export function ConfirmDialog({ open, onOpenChange, title, children, confirmLabel, onConfirm, onCloseAutoFocus }: {
   open: boolean;
   onOpenChange(open: boolean): void;
   title: string;
   children: ReactNode;
   confirmLabel: string;
   onConfirm(): Promise<string | null>;
+  onCloseAutoFocus?(event: Event): void;
 }) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -81,7 +84,7 @@ export function ConfirmDialog({ open, onOpenChange, title, children, confirmLabe
     else onOpenChange(false);
   };
   return (
-    <ComposerDialog open={open} onOpenChange={(o) => { if (!busy) onOpenChange(o); }} title={title}
+    <ComposerDialog open={open} onOpenChange={(o) => { if (!busy) onOpenChange(o); }} title={title} onCloseAutoFocus={onCloseAutoFocus}
       footer={(
         <>
           <button type="button" onClick={() => onOpenChange(false)} disabled={busy} className={BUTTON_OUTLINE}>Cancel</button>

@@ -1,4 +1,4 @@
-import { forwardRef, useCallback, useImperativeHandle, useState } from 'react';
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import { ChevronRight, Copy, Download, Eye, FileUp, ListChecks, Loader2, MoreHorizontal, Pencil, Plus, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { newslettersAPI, type ContactList } from '../../../services/newslettersAPI';
@@ -70,6 +70,32 @@ const ListsTab = forwardRef<ListsTabHandle, ListsTabProps>(function ListsTab({ s
   const [exportingId, setExportingId] = useState<number | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const enabled = plan.known && !plan.isStarter;
+  // Where focus goes once the view has changed: the opened list's heading, the lists heading, or a list's row.
+  type FocusTarget = { kind: 'detail' } | { kind: 'overview' } | { kind: 'row'; id: number };
+  const pendingFocus = useRef<FocusTarget | null>(null);
+  const root = useRef<HTMLDivElement>(null);
+  const focusPending = useCallback(() => {
+    const target = pendingFocus.current;
+    const box = root.current;
+    if (!target || !box) return false;
+    const selector = target.kind === 'row' ? `[data-list-row="${target.id}"]` : `[data-lists-focus="${target.kind}"]`;
+    // The table (md+) and the phone cards both have a row button: the one on screen.
+    const el = [...box.querySelectorAll<HTMLElement>(selector)].find((e) => e.offsetParent !== null);
+    if (!el) return false;
+    pendingFocus.current = null;
+    el.focus();
+    return true;
+  }, []);
+  // After a dialog closes (Create list, Delete): focus the new view instead of the dialog's opener, which is gone.
+  const focusAfterDialog = useCallback((event: Event) => {
+    if (!pendingFocus.current) return;
+    event.preventDefault();
+    if (!focusPending()) pendingFocus.current = null;
+  }, [focusPending]);
+  // "All lists" (no dialog): once the lists show again.
+  useEffect(() => {
+    if (pendingFocus.current?.kind === 'row' && openId === null) focusPending();
+  }, [openId, lists, focusPending]);
 
   useImperativeHandle(ref, () => ({
     refresh: async () => {
@@ -135,6 +161,7 @@ const ListsTab = forwardRef<ListsTabHandle, ListsTabProps>(function ListsTab({ s
     setLists((prev) => (prev ? withListSummary(prev, created) : [created]));
     announceListsChanged();
     toast.success(`Created the list “${created.name}”.`);
+    pendingFocus.current = { kind: 'detail' };
     setOpenId(created.id);
     return null;
   };
@@ -162,6 +189,7 @@ const ListsTab = forwardRef<ListsTabHandle, ListsTabProps>(function ListsTab({ s
     }
     setLists((prev) => prev?.filter((l) => l.id !== list.id) ?? prev);
     if (openId === list.id) setOpenId(null);
+    pendingFocus.current = { kind: 'overview' };
     announceListsChanged();
     toast.success(`Deleted the list “${list.name}”.`);
     return null;
@@ -170,11 +198,11 @@ const ListsTab = forwardRef<ListsTabHandle, ListsTabProps>(function ListsTab({ s
   const dialogs = (
     <>
       <NameDialog open={createOpen} onOpenChange={setCreateOpen} title="Create a list" description="Start an empty list, then add people or import a CSV file."
-        submitLabel="Create list" onSubmit={createList} />
+        submitLabel="Create list" onSubmit={createList} onCloseAutoFocus={focusAfterDialog} />
       <NameDialog open={renaming !== null} onOpenChange={(o) => { if (!o) setRenaming(null); }} title="Rename list" submitLabel="Save"
         initialName={renaming?.name ?? ''} onSubmit={renameList} />
       <ConfirmDialog open={deleting !== null} onOpenChange={(o) => { if (!o) setDeleting(null); }} title={`Delete “${deleting?.name ?? ''}”?`}
-        confirmLabel="Delete list" onConfirm={deleteList}>
+        confirmLabel="Delete list" onConfirm={deleteList} onCloseAutoFocus={focusAfterDialog}>
         <p>The {deleting ? peopleText(deleting.member_count) : 'people'} on it are removed for good. Newsletters already sent keep their results.</p>
       </ConfirmDialog>
       <ImportListModal open={importOpen} onOpenChange={setImportOpen} groups={groups}
@@ -205,22 +233,26 @@ const ListsTab = forwardRef<ListsTabHandle, ListsTabProps>(function ListsTab({ s
   }
 
   const open = openId !== null ? lists?.find((l) => l.id === openId) ?? null : null;
+  // The dialogs stay in one place in the tree whichever view shows, so an open dialog isn't remounted when the
+  // view changes under it (Create list opens the new list; Delete in a list goes back to all lists).
   if (open) {
     return (
-      <>
-        <ListDetail
+      <div ref={root}>
+        <div>
+          <ListDetail
           list={open}
           otherLists={(lists ?? []).filter((l) => l.id !== open.id)}
-          onBack={() => setOpenId(null)}
+          onBack={() => { pendingFocus.current = { kind: 'row', id: open.id }; setOpenId(null); }}
           onAction={onAction}
           onListChanged={changed}
           onListsStale={stale}
           onGone={gone}
           exporting={exportingId === open.id}
           refreshKey={refreshKey}
-        />
+          />
+        </div>
         {dialogs}
-      </>
+      </div>
     );
   }
 
@@ -286,7 +318,7 @@ const ListsTab = forwardRef<ListsTabHandle, ListsTabProps>(function ListsTab({ s
                   <td className="px-6 py-3">
                     <div className="flex items-center gap-2.5">
                       <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-purple-100"><ListChecks className="h-4 w-4 text-[#6C60FF]" aria-hidden="true" /></span>
-                      <button type="button" onClick={(e) => { e.stopPropagation(); setOpenId(l.id); }}
+                      <button type="button" data-list-row={l.id} onClick={(e) => { e.stopPropagation(); setOpenId(l.id); }}
                         className="min-w-0 break-words rounded text-left text-base font-semibold text-gray-900 hover:text-[#6C60FF] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#6C60FF]/40">
                         {l.name}
                       </button>
@@ -308,7 +340,7 @@ const ListsTab = forwardRef<ListsTabHandle, ListsTabProps>(function ListsTab({ s
         <ul className="divide-y divide-gray-100 md:hidden" aria-label="Your lists">
           {lists.map((l) => (
             <li key={l.id} className="flex items-center gap-2 py-1 pl-4 pr-2">
-              <button type="button" onClick={() => setOpenId(l.id)} className="flex min-w-0 flex-1 items-center gap-3 py-2.5 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-[#6C60FF]/40">
+              <button type="button" data-list-row={l.id} onClick={() => setOpenId(l.id)} className="flex min-w-0 flex-1 items-center gap-3 py-2.5 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-[#6C60FF]/40">
                 <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-purple-100"><ListChecks className="h-4 w-4 text-[#6C60FF]" aria-hidden="true" /></span>
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-sm font-semibold text-gray-900">{l.name}</span>
@@ -326,12 +358,13 @@ const ListsTab = forwardRef<ListsTabHandle, ListsTabProps>(function ListsTab({ s
   }
 
   return (
-    <div className="space-y-3 md:space-y-6">
+    <div ref={root}>
+      <div className="space-y-3 md:space-y-6">
       <Cards cards={cards} />
       <div className="rounded-lg border border-gray-200 bg-white shadow-sm">
         <div className="flex flex-col gap-3 border-b border-gray-100 px-4 py-3 md:flex-row md:items-center md:justify-between md:px-6">
           <div>
-            <h2 className="text-base font-semibold text-gray-900">Your lists</h2>
+            <h2 data-lists-focus="overview" tabIndex={-1} className="rounded text-base font-semibold text-gray-900 outline-none focus-visible:ring-2 focus-visible:ring-[#6C60FF]/40">Your lists</h2>
             <p className="text-sm text-gray-600">People you can email and text with newsletters.</p>
           </div>
           <div className="flex gap-2">
@@ -341,6 +374,7 @@ const ListsTab = forwardRef<ListsTabHandle, ListsTabProps>(function ListsTab({ s
         </div>
         {error ? <div className="px-4 pt-3 md:px-6"><ErrorNote>{error}</ErrorNote></div> : null}
         {body}
+      </div>
       </div>
       {dialogs}
     </div>
