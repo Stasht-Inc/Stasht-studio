@@ -56,7 +56,8 @@ export function writeCampaignsView(a: ViewStorage | CampaignsView, b?: Campaigns
 export function campaignsViewForPlan(view: CampaignsView, plan: { known: boolean; isStarter: boolean; failed?: boolean }): CampaignsView {
   if (view !== 'newsletters') return view;
   if (plan.known) return plan.isStarter ? 'storeels' : view;
-  return plan.failed ? 'storeels' : view;
+  // Still loading: the stored account already says Starter, so don't flash "Loading newsletters…" first.
+  return plan.failed || plan.isStarter ? 'storeels' : view;
 }
 
 export type NewsletterFilter = 'all' | Extract<NewsletterStatus, 'draft' | 'scheduled' | 'sent'>;

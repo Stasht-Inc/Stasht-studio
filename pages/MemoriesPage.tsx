@@ -1831,11 +1831,13 @@ function MemoriesPageContent({
     return realCount + carsCards.length + shopifyCards.length + catalogueCards.length;
   }, [allMemories, latestMemories, propMemories, selectedCategory, expandedCategories, viewType, carsCards, shopifyCards, catalogueCards]);
 
-  // The Storeels count on the Storeels | Newsletters switch: every campaign card, whatever the filters.
+  // The Storeels count on the Newsletters | Storeels switch: the cards the Storeels grid shows with no filters (own,
+  // shared with you, cars, Shopify, catalogue). No number while they load.
   const storeelsTotal = useMemo(() => {
+    if (isLoadingMemories) return null;
     const memoriesToCount = allMemories.length > 0 ? allMemories : (latestMemories.length > 0 ? latestMemories : propMemories);
-    return memoriesToCount.length + carsCards.length + shopifyCards.length + catalogueCards.length;
-  }, [allMemories, latestMemories, propMemories, carsCards, shopifyCards, catalogueCards]);
+    return memoriesToCount.length + sharedWithMemories.length + carsCards.length + shopifyCards.length + catalogueCards.length;
+  }, [isLoadingMemories, allMemories, latestMemories, propMemories, sharedWithMemories, carsCards, shopifyCards, catalogueCards]);
 
   const handleOpenAIWizard = async () => {
     try {
