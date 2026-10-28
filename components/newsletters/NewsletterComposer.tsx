@@ -9,7 +9,7 @@ import { useNewsletterBrand } from './hooks/useNewsletterBrand';
 import { useNewsletterDraft } from './hooks/useNewsletterDraft';
 import { useSenderProfile } from './hooks/useSenderProfile';
 import { useBackToClose } from './hooks/useBackToClose';
-import { openNewsletterResults } from './lib/campaignsView';
+import { DRAFT_SAVED_MESSAGE, openNewsletterDraft, openNewsletterResults } from './lib/campaignsView';
 import { fieldProblems, type NewsletterDraft } from './lib/draft';
 import { GENERIC_ERROR, PLAN_REQUIRED_ERROR, type NlResult } from './lib/apiResult';
 import { BUTTON_OUTLINE, BUTTON_PRIMARY, BUTTON_SECONDARY, LAYER, LINK_BUTTON } from './lib/ui';
@@ -342,14 +342,20 @@ const NewsletterComposer = forwardRef<NewsletterComposerHandle, NewsletterCompos
     return () => document.removeEventListener('keydown', onKeyDown);
   }, [hidden]);
 
+  // Save Draft: save, close, and show the draft at the top of Campaigns › Newsletters (wdy2xh2t3y). Autosaves only
+  // change the small indicator in the top bar.
   const saveDraft = async () => {
     const result = await state.saveNow();
-    if (result.newsletter) {
-      composerToast.success('Draft saved.');
-      onChanged?.();
-    } else {
+    if (!result.newsletter) {
       composerToast.error(result.error ?? GENERIC_ERROR);
+      return;
     }
+    const id = result.newsletter.id;
+    onChanged?.();
+    // An edited scheduled newsletter asks whether to put it back on the schedule first (close() keeps it open).
+    if (!(await close())) return;
+    toast.success(DRAFT_SAVED_MESSAGE);
+    openNewsletterDraft(id);
   };
 
   const actionButtons = (sendLabel: string, extra = '') => (

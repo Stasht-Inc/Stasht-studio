@@ -27,7 +27,7 @@ export const RECIPIENT_STATUS_META: Record<RecipientStatus, { label: string; cla
 export type NewsletterAction = 'edit' | 'editScheduled' | 'results' | 'duplicate' | 'cancel' | 'delete';
 
 export const ACTION_LABEL: Record<NewsletterAction, string> = {
-  edit: 'Edit draft', editScheduled: 'Edit', results: 'View results', duplicate: 'Duplicate', cancel: 'Cancel sending', delete: 'Delete',
+  edit: 'Edit', editScheduled: 'Edit', results: 'View results', duplicate: 'Duplicate', cancel: 'Cancel sending', delete: 'Delete',
 };
 
 // §8: only drafts can be edited; drafts and cancelled can be deleted; scheduled and sending can be cancelled

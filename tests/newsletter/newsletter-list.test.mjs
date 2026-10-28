@@ -12,6 +12,7 @@ test('status chips and actions per status', () => {
   assert.deepEqual(actionsFor('draft'), ['edit', 'duplicate', 'delete']);
   assert.deepEqual(actionsFor('scheduled'), ['editScheduled', 'results', 'duplicate', 'cancel']);
   assert.equal(ACTION_LABEL.editScheduled, 'Edit');
+  assert.equal(ACTION_LABEL.edit, 'Edit', 'a draft’s main action (wdy2xh2t3y)');
   assert.deepEqual(actionsFor('sending'), ['results', 'duplicate', 'cancel']);
   assert.deepEqual(actionsFor('sent'), ['results', 'duplicate']);
   assert.deepEqual(actionsFor('failed'), ['results', 'duplicate']);
