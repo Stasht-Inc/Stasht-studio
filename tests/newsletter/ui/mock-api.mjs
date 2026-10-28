@@ -223,6 +223,13 @@ export function createMockApi(options = {}) {
     campaignBodies: [],
     // GET /newsletters/campaign-options answers after this many ms.
     optionsDelayMs: options.optionsDelayMs ?? 0,
+    // People on each list (Lists tab), made from member_count the first time a list's people are asked for.
+    members: new Map(),
+    nextMemberId: 50000000,
+    // newsletters.limits.import_rows: per request, and the most one list can hold.
+    listCap: options.listCap ?? 10000,
+    // CSV files GET /contact-lists/{id}/export answered: {listId, filename, body}.
+    exports: [],
     calls: [],
   };
   const ok = (data, status = 200) => ({ status, json: { success: true, data } });
@@ -271,6 +278,242 @@ export function createMockApi(options = {}) {
     return errors;
   }
 
+  // ── Lists tab (shared brief 2026-10-28) ────────────────────────────────────────────────────────────────────
+  // Contact 1 has the highest id, so newest first (id desc) still starts with Contact 1, as before.
+  function membersOf(list) {
+    if (!state.members.has(list.id)) {
+      const total = list.member_count;
+      const rows = [];
+      for (let i = 1; i <= total; i++) {
+        const email = i % 4 === 0 ? null : `contact${i}@example.com`;
+        // Everyone on a list has an email address or a mobile number (the API never keeps anyone with neither).
+        const phone = i % 3 === 0 || !email ? `+1416555${String(1000 + i).slice(-4)}` : null;
+        rows.push({
+          id: list.id * 100000 + (total - i + 1),
+          name: i % 9 === 0 ? null : `Contact ${i}`, email, phone,
+          email_status: email ? (i % 17 === 0 ? 'unsubscribed' : i % 29 === 0 ? 'bounced' : 'subscribed') : null,
+          sms_status: phone ? (i % 15 === 0 ? 'stopped' : 'subscribed') : null,
+          consent_type: list.consent_type ?? null, consent_source: list.consent_type ? (list.source === 'import' ? 'import' : 'lead') : null,
+          consent_at: list.consent_type ? '2026-05-01T04:00:00Z' : null,
+          added_at: list.created_at ?? '2026-10-01T15:00:00Z',
+        });
+      }
+      state.members.set(list.id, rows);
+    }
+    return state.members.get(list.id);
+  }
+  const unsubscribed = (m) => (m.email_status && m.email_status !== 'subscribed') || m.sms_status === 'stopped';
+  function recount(list) {
+    const rows = membersOf(list);
+    Object.assign(list, {
+      member_count: rows.length, email_count: rows.filter((m) => m.email).length, sms_count: rows.filter((m) => m.phone).length,
+      unsubscribed_count: rows.filter(unsubscribed).length, updated_at: now(),
+    });
+    return list;
+  }
+  const digits = (v) => String(v ?? '').replace(/\D/g, '');
+  const normEmail = (v) => { const e = String(v ?? '').trim().toLowerCase(); return EMAIL.test(e) ? e : null; };
+  // NewsletterContacts::phone: Canadian and US mobile numbers only (+1 and ten digits); anything else is not kept.
+  const normPhone = (v) => {
+    const t = String(v ?? '').trim();
+    if (!t || /[a-z@]/i.test(t)) return null;
+    const d = digits(t);
+    if (d.length === 10) return `+1${d}`;
+    return d.length === 11 && d.startsWith('1') ? `+${d}` : null;
+  };
+  const samePhone = (a, b) => Boolean(a && b && digits(a) === digits(b));
+  const memberRow = (m) => ({ ...m });
+  // ContactListBuilder::merge into an existing list: a match by email or phone only fills what is missing.
+  // Import: skipped = rows with nothing usable + duplicates in the file; unchanged = a match with nothing to fill.
+  // Copy: skipped = people already on the target with nothing to fill.
+  function mergeInto(list, rows, consent, mode = 'import') {
+    const members = membersOf(list);
+    const seen = new Set();
+    let added = 0;
+    let updated = 0;
+    let skipped = 0;
+    let unchanged = 0;
+    const fresh = [];
+    for (const r of rows) {
+      const email = normEmail(r.email);
+      const phone = normPhone(r.phone);
+      if (!email && !phone) { skipped++; continue; }
+      if ((email && seen.has(`e:${email}`)) || (phone && seen.has(`p:${digits(phone)}`))) { skipped++; continue; }
+      if (email) seen.add(`e:${email}`);
+      if (phone) seen.add(`p:${digits(phone)}`);
+      const match = members.find((m) => (email && m.email === email) || (phone && samePhone(m.phone, phone)));
+      if (match) {
+        let filled = false;
+        if (!match.name && r.name) { match.name = String(r.name).trim(); filled = true; }
+        if (!match.email && email) { match.email = email; match.email_status = 'subscribed'; filled = true; }
+        if (!match.phone && phone) { match.phone = phone; match.sms_status = 'subscribed'; filled = true; }
+        if (filled) updated++;
+        else if (mode === 'copy') skipped++;
+        else unchanged++;
+        continue;
+      }
+      fresh.push({
+        id: state.nextMemberId++, name: r.name ? String(r.name).trim() : null, email, phone,
+        email_status: email ? 'subscribed' : null, sms_status: phone ? 'subscribed' : null,
+        consent_type: consent.consent_type ?? r.consent_type ?? null, consent_source: consent.consent_source ?? r.consent_source ?? null,
+        consent_at: r.consent_at ?? now(), added_at: now(),
+      });
+      added++;
+    }
+    if (members.length + fresh.length > state.listCap) return { error: `This list can hold up to ${state.listCap.toLocaleString('en-US')} people.` };
+    members.push(...fresh);
+    recount(list);
+    return mode === 'copy' ? { added, updated, skipped, list } : { added, updated, skipped, unchanged, list };
+  }
+  const tooMany = (msg, field = 'rows') => fail(422, { message: msg, errors: { [field]: [msg] } });
+  function idsError(ids) {
+    if (!ids.length) return tooMany('Choose at least one person.', 'ids');
+    if (ids.length > 500) return tooMany('Choose up to 500 people at a time.', 'ids');
+    return null;
+  }
+  function membersPage(list, params) {
+    const rows = [...membersOf(list)].sort((a, b) => b.id - a.id);
+    const q = String(params.get('search') || '').trim().toLowerCase();
+    const qd = digits(q);
+    const status = params.get('status') || 'all';
+    const counts = { all: rows.length, subscribed: rows.filter((m) => !unsubscribed(m)).length, unsubscribed: rows.filter(unsubscribed).length };
+    const hits = rows.filter((m) => {
+      if (status === 'subscribed' && unsubscribed(m)) return false;
+      if (status === 'unsubscribed' && !unsubscribed(m)) return false;
+      if (!q) return true;
+      return [m.name, m.email, m.phone].some((v) => v && v.toLowerCase().includes(q)) || (qd.length >= 3 && m.phone && digits(m.phone).includes(qd));
+    });
+    const page = Math.max(1, Number(params.get('page') || 1));
+    return { data: hits.slice((page - 1) * 50, page * 50).map(memberRow), meta: { page, total_pages: Math.max(1, Math.ceil(hits.length / 50)), total: hits.length, counts } };
+  }
+  const NOT_FOUND = () => fail(404, { success: false, message: 'List not found' });
+  const csvCell = (v) => { let t = String(v ?? ''); if (/^[=+\-@\t\r]/.test(t)) t = `'${t}`; return /[",\r\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t; };
+
+  function listsTab(method, path, params, body) {
+    if (path === '/contact-lists' && method === 'POST') {
+      const name = String(body?.name ?? '').trim();
+      if (!name) return fail(422, { message: 'Give the list a name.', errors: { name: ['Give the list a name.'] } });
+      if (name.length > 120) return fail(422, { message: 'Keep the list name to 120 characters or fewer.', errors: { name: ['Keep the list name to 120 characters or fewer.'] } });
+      const list = { id: state.nextId++, name, source: 'manual', member_count: 0, email_count: 0, sms_count: 0, unsubscribed_count: 0, consent_type: null, created_at: now(), updated_at: now() };
+      state.lists.unshift(list);
+      state.members.set(list.id, []);
+      return ok(list, 201);
+    }
+    const m = path.match(/^\/contact-lists\/(\d+)\/(members\/remove|members\/copy|members\/(\d+)|members|import|duplicate|export)$/);
+    if (!m) return null;
+    const list = state.lists.find((l) => l.id === Number(m[1]));
+    if (!list) return NOT_FOUND();
+    const action = m[2];
+    if (action === 'members' && method === 'GET') return ok(membersPage(list, params));
+    if (action === 'members' && method === 'POST') {
+      const errors = {};
+      const rawEmail = String(body?.email ?? '').trim();
+      const rawPhone = String(body?.phone ?? '').trim();
+      const email = normEmail(rawEmail);
+      const phone = normPhone(rawPhone);
+      if (!rawEmail && !rawPhone) errors.email = ['Add an email address or a mobile number.'];
+      else if (rawEmail && !email) errors.email = ['Enter an email address like name@example.com.'];
+      if (rawPhone && !phone) errors.phone = ['Enter a mobile number with its country code, like +1 416 555 0100.'];
+      if (!['express', 'implied'].includes(body?.consent_type)) errors.consent_type = ['Choose how this person agreed to hear from you.'];
+      if (Object.keys(errors).length) return fail(422, { message: Object.values(errors)[0][0], errors });
+      const rows = membersOf(list);
+      if (rows.some((r) => (email && r.email === email) || (phone && samePhone(r.phone, phone)))) {
+        return fail(409, { success: false, message: 'This person is already on this list.' });
+      }
+      const row = {
+        id: state.nextMemberId++, name: String(body?.name ?? '').trim() || null, email, phone,
+        email_status: email ? 'subscribed' : null, sms_status: phone ? 'subscribed' : null,
+        consent_type: body.consent_type, consent_source: body.consent_source ?? null, consent_at: now(), added_at: now(),
+      };
+      rows.push(row);
+      recount(list);
+      return ok(memberRow(row), 201);
+    }
+    if (m[3] && method === 'PATCH') {
+      const rows = membersOf(list);
+      const row = rows.find((r) => r.id === Number(m[3]));
+      if (!row) return fail(404, { success: false, message: 'Person not found' });
+      const next = { ...row };
+      const errors = {};
+      if (body && 'name' in body) next.name = String(body.name ?? '').trim() || null;
+      if (body && 'email' in body) {
+        const raw = String(body.email ?? '').trim();
+        next.email = raw ? normEmail(raw) : null;
+        if (raw && !next.email) errors.email = ['Enter an email address like name@example.com.'];
+      }
+      if (body && 'phone' in body) {
+        const raw = String(body.phone ?? '').trim();
+        next.phone = raw ? normPhone(raw) : null;
+        if (raw && !next.phone) errors.phone = ['Enter a mobile number with its country code, like +1 416 555 0100.'];
+      }
+      if (!errors.email && !errors.phone && !next.email && !next.phone) errors.email = ['Add an email address or a mobile number.'];
+      if (!errors.email && next.email && rows.some((r) => r !== row && r.email === next.email)) errors.email = ['Someone on this list already has this email address.'];
+      if (!errors.phone && next.phone && rows.some((r) => r !== row && samePhone(r.phone, next.phone))) errors.phone = ['Someone on this list already has this mobile number.'];
+      if (Object.keys(errors).length) return fail(422, { message: Object.values(errors)[0][0], errors });
+      if (next.email !== row.email) next.email_status = next.email ? 'subscribed' : null;
+      if (next.phone !== row.phone) next.sms_status = next.phone ? 'subscribed' : null;
+      Object.assign(row, next);
+      recount(list);
+      return ok(memberRow(row));
+    }
+    if (action === 'members/remove' && method === 'POST') {
+      const ids = Array.isArray(body?.ids) ? body.ids : [];
+      if (idsError(ids)) return idsError(ids);
+      const rows = membersOf(list);
+      const keep = rows.filter((r) => !ids.includes(r.id));
+      const removed = rows.length - keep.length;
+      state.members.set(list.id, keep);
+      recount(list);
+      return ok({ removed, list });
+    }
+    if (action === 'members/copy' && method === 'POST') {
+      const ids = Array.isArray(body?.ids) ? body.ids : [];
+      if (idsError(ids)) return idsError(ids);
+      if (body?.target_list_id == null) return tooMany('Choose a list to copy these people to.', 'target_list_id');
+      if (body?.target_list_id === list.id) return fail(422, { message: 'Choose a different list.', errors: { target_list_id: ['Choose a different list.'] } });
+      const target = state.lists.find((l) => l.id === body?.target_list_id);
+      if (!target) return NOT_FOUND();
+      const people = membersOf(list).filter((r) => ids.includes(r.id));
+      const r = mergeInto(target, people, {}, 'copy');
+      if (r.error) return tooMany(r.error, 'ids');
+      return ok(r);
+    }
+    if (action === 'import' && method === 'POST') {
+      const errors = {};
+      if (body?.consent !== true) errors.consent = ['Confirm these people agreed to hear from you.'];
+      if (!['express', 'implied'].includes(body?.consent_type)) errors.consent_type = ['Choose how these people agreed to hear from you.'];
+      if (!Array.isArray(body?.rows) || !body.rows.length) errors.rows = ['The file has no rows.'];
+      else if (body.rows.length > 10000) errors.rows = ['You can import up to 10,000 people at a time.'];
+      if (Object.keys(errors).length) return fail(422, { message: Object.values(errors)[0][0], errors });
+      const r = mergeInto(list, body.rows, { consent_type: body.consent_type, consent_source: body.consent_source ?? null });
+      if (r.error) return tooMany(r.error);
+      return ok(r);
+    }
+    if (action === 'duplicate' && method === 'POST') {
+      const name = (String(body?.name ?? '').trim() || `${list.name} (copy)`).slice(0, 120);
+      const copy = { ...list, id: state.nextId++, name, created_at: now(), updated_at: now() };
+      state.members.set(copy.id, membersOf(list).map((r) => ({ ...r, id: state.nextMemberId++ })));
+      recount(copy);
+      state.lists.unshift(copy);
+      return ok(copy, 201);
+    }
+    if (action === 'export' && method === 'GET') {
+      const stamp = new Date().toISOString().slice(0, 10);
+      const filename = `${list.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')}-${stamp}.csv`;
+      const lines = [['Name', 'Email', 'Mobile', 'Email status', 'Text status', 'Consent', 'Consent note', 'Consent date', 'Added']];
+      // Statuses capitalised, dates as Y-m-d H:i in America/Toronto (the API's export).
+      const cap = (v) => (v ? v[0].toUpperCase() + v.slice(1) : '');
+      const when = (iso) => (iso ? new Intl.DateTimeFormat('sv-SE', { timeZone: 'America/Toronto', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date(iso)) : '');
+      for (const r of [...membersOf(list)].sort((a, b) => b.id - a.id)) {
+        lines.push([r.name, r.email, r.phone, cap(r.email_status), cap(r.sms_status), cap(r.consent_type), r.consent_source, when(r.consent_at), when(r.added_at)]);
+      }
+      const csv = `\uFEFF${lines.map((l) => l.map(csvCell).join(',')).join('\r\n')}\r\n`;
+      state.exports.push({ listId: list.id, filename, body: csv });
+      return { status: 200, raw: csv, headers: { 'Content-Type': 'text/csv; charset=UTF-8', 'Content-Disposition': `attachment; filename="${filename}"` } };
+    }
+    return null;
+  }
+
   function handle(method, path, params, body) {
     if (path === '/user/storage-overview') {
       if (state.planFailures > 0) {
@@ -302,6 +545,10 @@ export function createMockApi(options = {}) {
     }
     // LeadGroupsController::index answers {groups: [...]} with no success envelope.
     if (path === '/lead-groups' && method === 'GET') return { status: 200, json: { groups: state.groups } };
+    // The Leads page (Lists tab checks): an empty inbox.
+    if (path === '/leads' && method === 'GET') return ok({ leads: [], total: 0, status_counts: {}, messages_total: 0, meta: { total_pages: 1 }, tab_counts: { open: 0, closed: 0 } });
+    if (path === '/leads/unread-count') return ok({ total_unread: 0, total_unread_messages: 0, total_unread_comments: 0 });
+    if (path === '/my-conversations' && method === 'GET') return ok({ total: 0, conversations: [] });
     if (state.plan === 'Starter' && (path.startsWith('/newsletter') || path.startsWith('/contact-lists'))) {
       return fail(403, { success: false, code: 'plan_required', message: 'Newsletters are available on paid plans' });
     }
@@ -336,6 +583,8 @@ export function createMockApi(options = {}) {
     }
     if (path === '/newsletter-allowance') return ok(state.allowance);
     if (path === '/contact-lists' && method === 'GET') return ok(state.lists);
+    const listsAnswer = listsTab(method, path, params, body);
+    if (listsAnswer) return listsAnswer;
     if (path === '/contact-lists/import') {
       // ContactListController::import: name, consent (accepted), consent_type (express|implied), consent_source, rows;
       // then ContactListBuilder::merge.
@@ -380,7 +629,7 @@ export function createMockApi(options = {}) {
       const list = state.lists.find((l) => l.id === Number(m[1]));
       if (!list) return fail(404, { success: false, message: 'List not found' });
       if (m[2]) {
-        // members(): 50 a page, ordered by id, with each person's consent record.
+        // (Answered by listsTab above; kept for reference.) members(): 50 a page, with each person's consent record.
         const page = Math.max(1, Number(params.get('page') || 1));
         const total = list.member_count;
         const rows = [];
@@ -554,9 +803,10 @@ export function createMockApi(options = {}) {
       if (state.uploadDelayMs) await new Promise((r) => setTimeout(r, state.uploadDelayMs));
     }
     if (path === '/newsletters/campaign-options' && state.optionsDelayMs) await new Promise((r) => setTimeout(r, state.optionsDelayMs));
-    const { status, json } = handle(request.method(), path, url.searchParams, body);
-    call.status = status;
-    return route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(json) });
+    const answer = handle(request.method(), path, url.searchParams, body);
+    call.status = answer.status;
+    if (answer.raw !== undefined) return route.fulfill({ status: answer.status, headers: answer.headers, body: answer.raw });
+    return route.fulfill({ status: answer.status, contentType: 'application/json', body: JSON.stringify(answer.json) });
   }
 
   /** Another tab saves this draft: its updated_at moves on, so this tab's next PUT is stale. */
