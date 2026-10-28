@@ -337,7 +337,9 @@ export function chatMessageFrom(raw) {
     }))
     .filter((a) => a.url);
   const body = typeof raw.body === 'string' ? raw.body : '';
-  if (body.trim() === '' && attachments.length === 0) return null;
+  // A rep's "Take over" / "Hand back" (wdy2xh2upu) is an event with an empty body, kept for the log.
+  const event = raw.from === 'team' && TAKEOVER_EVENTS.includes(raw.event) ? raw.event : null;
+  if (body.trim() === '' && attachments.length === 0 && !event) return null;
   const sentAt = raw.sent_at ? new Date(raw.sent_at) : null;
   const fromTeam = raw.from === 'team';
   const isAi = fromTeam && raw.is_ai === true;
@@ -354,6 +356,8 @@ export function chatMessageFrom(raw) {
     campaign: fromTeam ? campaignFrom(raw.campaign) : null,
     // One card per product, each opening its page on the business's website (wdy2xh2kp0).
     products: isAi ? productsFrom(raw.products) : [],
+    // 'takeover' | 'handback' | null (wdy2xh2upu): drawn as a line (or nothing), never as a bubble.
+    event,
   };
 }
 
@@ -412,9 +416,9 @@ export function backoffDelay(baseMs, failures) {
   return Math.min(POLL_MAX_BACKOFF_MS, baseMs * 2 ** Math.min(failures, 6));
 }
 
-/** A team message newer than when the visitor last looked (the launcher's unread dot on return). */
+/** A team message newer than when the visitor last looked (the launcher's unread dot on return). Events aren't messages. */
 export function hasUnreadTeamMessage(messages, seenAt) {
-  return messages.some((m) => m.from === 'team' && m.sentAt instanceof Date && m.sentAt.getTime() > seenAt);
+  return messages.some((m) => m.from === 'team' && !m.event && m.sentAt instanceof Date && m.sentAt.getTime() > seenAt);
 }
 
 /**
@@ -595,6 +599,10 @@ export function joinedText(name) {
  * (a reply or its fallback notice), or the first after 12 h+ since the previous person message in a
  * conversation the AI has touched (the AI is back in charge by then). Never in conversations the AI
  * never touched. Unknown times count as no gap.
+ *
+ * A "takeover" event (Studio's Take over button, wdy2xh2upu) always gets the line: it is drawn in the
+ * event's place, so the rep's own next message doesn't repeat it. A "handback" event is drawn as nothing;
+ * the AI's next reply starts a new run, so the next person message joins again.
  */
 export function repJoinedBefore(messages) {
   const ids = new Set();
@@ -602,7 +610,7 @@ export function repJoinedBefore(messages) {
   let aiSinceRep = false;
   let lastRep = null;
   for (const m of messages) {
-    if (m.from !== 'team') continue;
+    if (m.from !== 'team' || m.event === 'handback') continue;
     if (m.isAi) {
       aiEver = true;
       aiSinceRep = true;
@@ -610,11 +618,99 @@ export function repJoinedBefore(messages) {
     }
     if (!m.sender) continue;
     const gap = m.sentAt instanceof Date && lastRep?.sentAt instanceof Date ? m.sentAt - lastRep.sentAt : 0;
-    if (aiSinceRep || (aiEver && lastRep && gap >= AI_RUN_GAP_MS)) ids.add(m.id);
+    if (m.event === 'takeover' || aiSinceRep || (aiEver && lastRep && gap >= AI_RUN_GAP_MS)) ids.add(m.id);
     aiSinceRep = false;
     lastRep = m;
   }
   return ids;
+}
+
+// --- Team + assistant faces, and taking over (ClickUp wdy2xh2upu) --------------------------------
+// Chris, 2026-10-29: the teaser and the open chat's header show the online team's faces stacked and
+// overlapping, each with a green dot, reps in front, and the AI assistant's face (the agent picture)
+// last, behind them. A rep who took over the chat (Studio's "Take over", or simply replying) is in front.
+// The embed reads these through `import * as core` (see the cache note above PRODUCT_CARDS_MAX).
+
+/** The events a rep's "Take over" / "Hand back to Chip" leave in the conversation. */
+export const TAKEOVER_EVENTS = ['takeover', 'handback'];
+
+/** Most people in a face stack; the assistant comes on top of these. */
+export const STACK_PEOPLE_MAX = 4;
+
+export const ONLINE_NOW = 'Online now';
+export const REPLY_SOON = "We'll reply soon";
+
+/**
+ * The AI assistant's face when it answers this widget (config.assistant_online): its name (the agent
+ * name) and an https picture (theme.logo_url) or null (the chat icon then). Null when the AI is off.
+ */
+export function assistantFrom(config) {
+  if (!config || config.assistant_online !== true) return null;
+  return {
+    name: String(config.agent_name || '').trim() || 'AI assistant',
+    avatarUrl: safeHttpsUrl(config.theme?.logo_url),
+  };
+}
+
+/**
+ * The person handling the chat now, as their public sender, or null: the latest person event (a reply
+ * from a rep, or their "Take over") in the last 12 h, unless an AI message or a "handback" came after it.
+ * The server's rule (WidgetChatTakeover::handlerId); unknown times count as recent.
+ */
+export function handlingRep(messages, now = Date.now()) {
+  let handler = null;
+  for (const m of Array.isArray(messages) ? messages : []) {
+    if (!m || m.from !== 'team') continue;
+    if (m.isAi || m.event === 'handback') handler = null;
+    else if (m.sender) handler = m;
+  }
+  if (!handler) return null;
+  if (handler.sentAt instanceof Date && now - handler.sentAt.getTime() >= AI_RUN_GAP_MS) return null;
+  return handler.sender;
+}
+
+const personKey = (p) => `${p.name}|${p.avatarUrl || ''}|${p.initials}`;
+
+/**
+ * The faces to stack, front first: the rep handling the chat, then the online team (each person once),
+ * at most `max` people, then the assistant last. Each is { person } or { assistant }.
+ */
+export function teamStack({ team = [], handler = null, assistant = null, max = STACK_PEOPLE_MAX } = {}) {
+  const seen = new Set();
+  const people = [];
+  for (const p of [handler, ...(Array.isArray(team) ? team : [])]) {
+    if (!p || typeof p.name !== 'string' || seen.has(personKey(p))) continue;
+    seen.add(personKey(p));
+    people.push(p);
+  }
+  const faces = people.slice(0, Math.max(0, max)).map((person) => ({ person }));
+  if (assistant) faces.push({ assistant });
+  return faces;
+}
+
+/** The header's title: the business's name (Chris: "Stasht Support"), else the agent's, else "Chat with us". */
+export function headerTitle(config) {
+  for (const value of [config?.business_name, config?.agent_name]) {
+    if (typeof value === 'string' && value.trim() !== '') return value.trim();
+  }
+  return 'Chat with us';
+}
+
+/** "Online now" with anyone online, the assistant included (it always answers); else "We'll reply soon". */
+export function headerStatusText(team, assistant) {
+  return (team || []).length > 0 || assistant ? ONLINE_NOW : REPLY_SOON;
+}
+
+/** The teaser's line beside the faces: "2 online" (people only), "Online now" for the assistant alone, else ''. */
+export function teaserOnlineText(team, assistant) {
+  const people = (team || []).length;
+  if (people > 0) return onlineCountText(team);
+  return assistant ? ONLINE_NOW : '';
+}
+
+/** People the header has room for: two on a narrow (phone) panel, else four. */
+export function stackPeopleMax(panelW) {
+  return Number(panelW) > 0 && Number(panelW) < 360 ? 2 : STACK_PEOPLE_MAX;
 }
 
 // --- Links in chat bubbles (ClickUp wdy2xh1tdp) ---------------------------------------------------

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import { Mail, Phone, MessageSquare, X, Paperclip, Send, ChevronDown, Smile, RefreshCw, Eye, Sparkles, Search, Heart, Gift, Calendar, MessageCircle, ThumbsUp, TrendingUp, Lightbulb, FileText, UserRound, Plus, ChevronLeft } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from './ui/avatar';
-import { Lead, LeadMessage, LeadMessageAttachment, leadsAPI, CommentaryTarget, messageChannelLabel } from '../services/leadsAPI';
+import { Lead, LeadMessage, LeadMessageAttachment, leadsAPI, CommentaryTarget, messageChannelLabel, WidgetAiState } from '../services/leadsAPI';
 import { useAuth } from '../contexts/AuthContext';
 import { useMemoryLimit, recheckMemoryLimit } from '../hooks/useMemoryLimit';
 import { useDialogBehavior } from '../hooks/useDialogBehavior';
@@ -150,6 +150,47 @@ interface Props {
   onNavigate?: (page: string) => void;
 }
 
+// The website chat's AI bar (ClickUp wdy2xh2upu): "Chip is answering this chat · Take over", then
+// "You're handling this chat · Hand back to Chip" (or "{Name} is handling this chat" for teammates).
+export function WidgetAiBar({ state, assistantName, busy, onTakeOver, onHandBack }: {
+  state: WidgetAiState;
+  assistantName: string;
+  busy: boolean;
+  onTakeOver: () => void;
+  onHandBack: () => void;
+}) {
+  const handler = state.handled_by;
+  const button = 'shrink-0 h-9 px-3.5 rounded-lg text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#6C60FF] focus-visible:ring-offset-1 disabled:opacity-50 disabled:cursor-default';
+  return (
+    <div
+      className={`mb-3 flex items-center gap-3 rounded-xl border px-3.5 py-2 ${handler ? 'border-gray-200 bg-gray-50' : 'border-[#6C60FF]/25 bg-[#6C60FF]/[0.06]'}`}
+      data-testid="widget-ai-bar"
+    >
+      <span className={`flex items-center justify-center w-8 h-8 rounded-full shrink-0 ${handler ? 'bg-white text-gray-600 border border-gray-200' : 'bg-[#6C60FF] text-white'}`} aria-hidden="true">
+        {handler ? <UserRound className="w-4 h-4" /> : <Sparkles className="w-4 h-4" />}
+      </span>
+      <p className="flex-1 min-w-0 text-sm text-gray-700" role="status">
+        {!handler ? (
+          <><span className="font-semibold text-gray-900">{assistantName}</span> is answering this chat</>
+        ) : handler.is_me ? (
+          <><span className="font-semibold text-gray-900">You're</span> handling this chat</>
+        ) : (
+          <><span className="font-semibold text-gray-900">{handler.name}</span> is handling this chat</>
+        )}
+      </p>
+      {!handler ? (
+        <button type="button" onClick={onTakeOver} disabled={busy} className={`${button} bg-[#6C60FF] text-white hover:bg-[#5b50e6]`}>
+          {busy ? 'Taking over…' : 'Take over'}
+        </button>
+      ) : handler.is_me ? (
+        <button type="button" onClick={onHandBack} disabled={busy} className={`${button} bg-white text-[#6C60FF] border border-[#6C60FF]/40 hover:bg-[#6C60FF]/[0.06]`}>
+          {busy ? 'Handing back…' : `Hand back to ${assistantName}`}
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
 export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, isArchived = false, highlightTarget, onTargetHandled, onNavigate }: Props) {
   const { user } = useAuth();
   const { limitData } = useMemoryLimit();
@@ -173,6 +214,14 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
   // visitor_online, re-read on the 5 s refresh), and the one-line notice after they left.
   const [visitorOnline, setVisitorOnline] = useState(false);
   const [chatNotice, setChatNotice] = useState<string | null>(null);
+  // Website chat's AI assistant (ClickUp wdy2xh2upu): on or off, and who is handling the chat instead
+  // (the thread's widget_ai, re-read on the 5 s refresh). Drives the "Chip is answering · Take over" bar.
+  const [widgetAi, setWidgetAiState] = useState<WidgetAiState | null>(null);
+  const [widgetAiBusy, setWidgetAiBusy] = useState(false);
+  // Only a real change re-renders: the 5 s refresh hands back an equal object almost every time.
+  const setWidgetAi = (next: WidgetAiState | null | undefined) => {
+    setWidgetAiState((prev) => (JSON.stringify(prev) === JSON.stringify(next ?? null) ? prev : (next ?? null)));
+  };
   const [isSending, setIsSending] = useState(false);
   const [showViaDropdown, setShowViaDropdown] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
@@ -272,6 +321,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
       replyIdemKeysRef.current = {};
       setVisitorOnline(false);
       setChatNotice(null);
+      setWidgetAiState(null);
       autoChatBlockedRef.current = false;
       if (scrollBodyRef.current) scrollBodyRef.current.scrollTop = 0;
       fetchMessages(lead.id);
@@ -327,6 +377,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
         const res = await leadsAPI.getMessages(leadId, true);
         if (cancelled || !res.success || !res.data?.messages) return;
         setVisitorOnline(!!res.data.visitor_online);
+        setWidgetAi(res.data.widget_ai);
         const next = res.data.messages;
         const prev = messagesRef.current;
         const unchanged = next.length === prev.length
@@ -383,6 +434,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
       if (res.success && res.data?.messages) {
         setMessages(res.data.messages);
         setVisitorOnline(!!res.data.visitor_online);
+        setWidgetAi(res.data.widget_ai);
       }
       // mark-read also clears this user's bell notifications for the lead.
       leadsAPI.markRead(leadId).then(() => window.dispatchEvent(new CustomEvent('notifications-count-refresh')));
@@ -429,6 +481,35 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
   // Website chat is offered only on leads that came from the Contact Us widget (spec 2026-09-29).
   const isWidgetLead = lead?.source === 'widget';
   const leadHasPhone = !!(lead?.user?.phone_number || lead?.user?.phone);
+
+  // "Chip is answering this chat · Take over" (ClickUp wdy2xh2upu): widget leads with the AI on, for
+  // people who may message the lead (rollup/archived leads have no composer, so no bar either).
+  const showWidgetAiBar = isWidgetLead && !!widgetAi?.ai_enabled && !lead?.is_rollup && !isArchived && lead?.can_message !== false;
+  const assistantName = widgetAi?.assistant_name || 'Chip';
+
+  // Take over: the AI stops at once, no message is sent (the visitor's widget says you joined).
+  // Hand back: the AI answers again from the visitor's next message.
+  const handleWidgetAi = async (action: 'take-over' | 'hand-back') => {
+    if (!lead || widgetAiBusy) return;
+    setWidgetAiBusy(true);
+    try {
+      const res = action === 'take-over' ? await leadsAPI.takeOverChat(lead.id) : await leadsAPI.handBackChat(lead.id);
+      const next = res.success ? res.data?.widget_ai : (res as any)?.widget_ai;
+      if (next) setWidgetAi(next);
+      if (res.success) {
+        const mine = next?.handled_by?.is_me;
+        toast.success(action === 'take-over'
+          ? (mine ? `${assistantName} has stopped. You're handling this chat.` : `${next?.handled_by?.name ?? 'A teammate'} is already handling this chat.`)
+          : `${assistantName} will answer their next message.`);
+      } else {
+        toast.error((res as any)?.message || 'Something went wrong. Please try again.');
+      }
+    } catch (err: any) {
+      toast.error(err?.message || 'Something went wrong. Please try again.');
+    } finally {
+      setWidgetAiBusy(false);
+    }
+  };
 
   // Both channels may carry attachments (texts go as MMS), so a bare attachment
   // with no words can be sent either way.
@@ -1274,6 +1355,15 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
           </div>
         )}
         <div className={`px-4 sm:px-6 xl:px-8 pt-4 pb-5 bg-white border-t border-gray-200 ${(isArchived || lead.is_rollup || !hasAnyContact) ? 'hidden' : ''}`}>
+          {showWidgetAiBar && widgetAi && (
+            <WidgetAiBar
+              state={widgetAi}
+              assistantName={assistantName}
+              busy={widgetAiBusy}
+              onTakeOver={() => handleWidgetAi('take-over')}
+              onHandBack={() => handleWidgetAi('hand-back')}
+            />
+          )}
           <div className="border border-gray-200 rounded-2xl bg-white px-5 pt-4 pb-4 shadow-sm">
             <textarea
               ref={composeInputRef}

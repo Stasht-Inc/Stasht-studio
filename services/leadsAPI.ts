@@ -118,6 +118,14 @@ export interface Lead {
   notes_updated_by?: { id: number; name: string | null } | null;
 }
 
+// Website chat (ClickUp wdy2xh2upu): whether the widget's AI assistant answers this chat, and which
+// person is handling it instead (they pressed "Take over" or replied in the last 12 h). Null when the AI answers.
+export interface WidgetAiState {
+  ai_enabled: boolean;
+  assistant_name: string;
+  handled_by: { user_id: number; name: string; is_me: boolean } | null;
+}
+
 export interface LeadAssignee {
   id: number;
   name: string | null;
@@ -375,7 +383,7 @@ export const leadsAPI = {
   // visitor_online: a Contact Us widget lead whose widget checked in within the last 20 s
   // ("On your website now"; false for every other lead).
   getMessages: async (leadId: number, fresh = false) => {
-    return apiRequest<{ messages: LeadMessage[]; visitor_online?: boolean }>(
+    return apiRequest<{ messages: LeadMessage[]; visitor_online?: boolean; widget_ai?: WidgetAiState | null }>(
       `/leads/${leadId}/messages${partialAdminQuery('?')}`,
       { method: 'GET', ...(fresh ? { skipCache: true } : {}) } as RequestInit,
     );
@@ -536,6 +544,23 @@ export const leadsAPI = {
         ...partialAdminBody(),
         ...(idempotencyKey ? { idempotency_key: idempotencyKey } : {}),
       }),
+    });
+  },
+
+  // Website chat (ClickUp wdy2xh2upu): stop the AI assistant answering this chat at once (no message
+  // is sent; the visitor's widget shows "{name} has joined the conversation"), or let it answer again
+  // from the visitor's next message. Same rights as sendChat; 422 {code: 'ai_off'} when the AI is off.
+  takeOverChat: async (leadId: number) => {
+    return apiRequest<{ widget_ai: WidgetAiState }>(`/leads/${leadId}/widget-ai/take-over`, {
+      method: 'POST',
+      body: JSON.stringify({ ...partialAdminBody() }),
+    });
+  },
+
+  handBackChat: async (leadId: number) => {
+    return apiRequest<{ widget_ai: WidgetAiState }>(`/leads/${leadId}/widget-ai/hand-back`, {
+      method: 'POST',
+      body: JSON.stringify({ ...partialAdminBody() }),
     });
   },
 
