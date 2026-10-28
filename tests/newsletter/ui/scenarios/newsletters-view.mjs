@@ -1,19 +1,30 @@
-// Task 14: the Campaigns page opens on Storeels with no newsletter calls; → Newsletters: the All Campaigns list look
+// Task 14: the Campaigns page opens on Newsletters (first on the switch, with counts); Storeels makes only the count call; → Newsletters: the All Campaigns list look
 // with drafts, scheduled, sending and sent rows (chips, times, rates; out of sent for SendGrid-sent ones); a row
 // opens its results; duplicate, cancel, delete, filter; a draft opens in the composer; a new newsletter shows up
 // after it's saved; the empty state; Starter makes no newsletter calls; phones keep the sidebar toggle and never
 // scroll sideways.
 import { createMockApi, seedNewsletters } from '../mock-api.mjs';
 
-const newsletterCalls = (api) => api.state.calls.filter((c) => /^\/(newsletter|contact-lists)/.test(c.path));
+// The switch's Newsletters count (GET /newsletters, paid plans) is the one call the Campaigns page itself makes.
+const isCountCall = (c) => c.method === 'GET' && c.path === '/newsletters' && !/[?&]status=/.test(c.query || '');
+const newsletterCalls = (api) => api.state.calls.filter((c) => /^\/(newsletter|contact-lists)/.test(c.path) && !isCountCall(c));
+// Starter: not even the count.
+const anyNewsletterCalls = (api) => api.state.calls.filter((c) => /^\/(newsletter|contact-lists)/.test(c.path));
 
 export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
   let api = createMockApi({ newsletters: seedNewsletters() });
   let { page, context } = await open({ view: 'campaigns', width: 1280, height: 1000, api });
-  await expectVisible(page.getByRole('radio', { name: 'Storeels', checked: true }), 'Storeels | Newsletters switch, Storeels first');
+  await expectVisible(page.getByRole('radio', { name: /^Newsletters/, checked: true }), 'opens on Newsletters the first time');
+  const order = await page.getByRole('radio').evaluateAll((els) => els.map((e) => e.textContent.trim()));
+  expect(/^Newsletters\s*5$/.test(order[0] ?? '') && /^Storeels\s*\d+$/.test(order[1] ?? ''), `Newsletters first, both with counts (got ${JSON.stringify(order)})`);
+  await shot(page, '1280-00a-switch-counts');
+  await context.close();
+  api = createMockApi({ newsletters: seedNewsletters() });
+  ({ page, context } = await open({ view: 'campaigns', width: 1280, height: 1000, api, campaignsView: 'storeels' }));
+  await expectVisible(page.getByRole('radio', { name: /^Storeels/, checked: true }), 'a remembered Storeels choice stands');
   await expectVisible(page.getByRole('heading', { name: 'All Campaigns' }), 'All Campaigns on Storeels');
   await page.waitForTimeout(1500);
-  expect(newsletterCalls(api).length === 0, `Campaigns page load makes no newsletter calls (got ${newsletterCalls(api).map((c) => c.path).join(', ')})`);
+  expect(newsletterCalls(api).length === 0, `Campaigns page load on Storeels makes no newsletter calls but the count (got ${newsletterCalls(api).map((c) => c.path).join(', ')})`);
   // The All Campaigns list view, to compare the Newsletters list with.
   await page.locator('button:has(svg.lucide-list)').first().click();
   await page.waitForTimeout(400);
@@ -105,14 +116,14 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
   await page.getByRole('radio', { name: 'Newsletters' }).click();
   await expectVisible(page.getByText('Newsletters are part of paid plans'), 'Starter card');
   await page.waitForTimeout(1200);
-  expect(newsletterCalls(api).length === 0, `Starter makes no newsletter calls (got ${newsletterCalls(api).map((c) => c.path).join(', ')})`);
+  expect(anyNewsletterCalls(api).length === 0, `Starter makes no newsletter calls (got ${anyNewsletterCalls(api).map((c) => c.path).join(', ')})`);
   await shot(page, '1280-04-starter');
   await context.close();
 
   // Phones.
   for (const width of [360, 375, 390]) {
     api = createMockApi({ newsletters: seedNewsletters() });
-    ({ page, context } = await open({ view: 'campaigns', width, height: 844, api }));
+    ({ page, context } = await open({ view: 'campaigns', width, height: 844, api, campaignsView: 'storeels' }));
     await expectVisible(page.getByRole('heading', { name: 'All Campaigns' }), `Storeels at ${width}`);
     await page.waitForTimeout(800);
     expect(!(await hasOverflow(page)), `no sideways scroll on Storeels at ${width}`);

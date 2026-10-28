@@ -3,18 +3,19 @@ import type { NewsletterStatus } from '../../../services/newslettersAPI.ts';
 
 export type CampaignsView = 'storeels' | 'newsletters';
 
+// Newsletters first: Create Campaign opens on the Newsletter tab, so the page leads with it too.
 export const CAMPAIGNS_VIEW_OPTIONS: ReadonlyArray<{ value: CampaignsView; label: string }> = [
-  { value: 'storeels', label: 'Storeels' },
   { value: 'newsletters', label: 'Newsletters' },
+  { value: 'storeels', label: 'Storeels' },
 ];
 
 /**
- * The Campaigns page opens on Storeels the first time; after that it opens on the last choice made on this device
+ * The Campaigns page opens on Newsletters the first time (Storeels on a Starter plan); after that it opens on the last choice made on this device
  * (wdy2xh2t3y). Opening on Newsletters calls no newsletter endpoint by itself: the Newsletters view waits until the
  * plan is known to be paid (a Starter account would get a 403 that opens the upgrade plans, contract note 1), and
  * a Starter account goes back to Storeels (campaignsViewForPlan).
  */
-export const DEFAULT_CAMPAIGNS_VIEW: CampaignsView = 'storeels';
+export const DEFAULT_CAMPAIGNS_VIEW: CampaignsView = 'newsletters';
 
 /** localStorage key for the Storeels | Newsletters choice (per device). */
 export const CAMPAIGNS_VIEW_KEY = 'stasht_campaigns_view';
@@ -29,7 +30,7 @@ function defaultStorage(): ViewStorage {
   }
 }
 
-/** The remembered choice, or Storeels (nothing saved, an unknown value, or storage that can't be read). */
+/** The remembered choice, or the default (nothing saved, an unknown value, or storage that can't be read). */
 export function readCampaignsView(storage: ViewStorage = defaultStorage()): CampaignsView {
   try {
     const value = storage?.getItem(CAMPAIGNS_VIEW_KEY);
@@ -55,7 +56,8 @@ export function writeCampaignsView(a: ViewStorage | CampaignsView, b?: Campaigns
 export function campaignsViewForPlan(view: CampaignsView, plan: { known: boolean; isStarter: boolean; failed?: boolean }): CampaignsView {
   if (view !== 'newsletters') return view;
   if (plan.known) return plan.isStarter ? 'storeels' : view;
-  return plan.failed ? 'storeels' : view;
+  // Still loading: the stored account already says Starter, so don't flash "Loading newsletters…" first.
+  return plan.failed || plan.isStarter ? 'storeels' : view;
 }
 
 export type NewsletterFilter = 'all' | Extract<NewsletterStatus, 'draft' | 'scheduled' | 'sent'>;
@@ -126,4 +128,10 @@ export function withHighlightFirst<T extends { id: number }>(rows: T[], id: numb
   const index = rows.findIndex((r) => r.id === id);
   if (index < 0) return rows;
   return [rows[index], ...rows.slice(0, index), ...rows.slice(index + 1)];
+}
+
+/** The number shown beside a switch option: none while it isn't known yet, 999+ past that. */
+export function switchCountLabel(count: number | null | undefined): string | null {
+  if (typeof count !== 'number' || !Number.isFinite(count) || count < 0) return null;
+  return count > 999 ? '999+' : String(Math.floor(count));
 }

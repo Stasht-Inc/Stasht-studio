@@ -29,15 +29,17 @@ const blocked = new Set();
 
 // Dates and numbers follow the browser's language (wdy2xh2p3p): pinned to en-US so the checks read the same anywhere.
 // timezoneId: the browser's time zone (default: this machine's), for checks that depend on local times.
-async function open({ view = 'composer', query = '', width = 1440, height = 1000, api = createMockApi(), locale = 'en-US', timezoneId } = {}) {
+// campaignsView: a Storeels | Newsletters choice already remembered on this device (set once; later clicks stand).
+async function open({ view = 'composer', query = '', width = 1440, height = 1000, api = createMockApi(), locale = 'en-US', timezoneId, campaignsView } = {}) {
   const context = await browser.newContext({ viewport: { width, height }, serviceWorkers: 'block', locale, ...(timezoneId ? { timezoneId } : {}) });
-  await context.addInitScript((user) => {
+  await context.addInitScript(([user, view]) => {
     // Playwright runs init scripts in every frame; the exact-email preview is a sandboxed iframe with no storage.
     if (window.top !== window) return;
     localStorage.setItem('stasht_token', 'nl-harness-token');
     localStorage.setItem('stasht_user', JSON.stringify(user));
     localStorage.setItem('view_type', 'personal');
-  }, USER);
+    if (view && !localStorage.getItem('stasht_campaigns_view')) localStorage.setItem('stasht_campaigns_view', view);
+  }, [USER, campaignsView ?? null]);
   // Context-wide, so popups and workers are covered too. mock-api aborts every non-local host.
   await context.route('**/*', (route) => {
     const host = new URL(route.request().url()).hostname;
