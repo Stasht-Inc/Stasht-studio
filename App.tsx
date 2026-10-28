@@ -55,6 +55,7 @@ import { LayoutDashboard, FolderOpen, Camera, Users, Grid3x3, Plus, BookOpen, Sc
 import { CameraInterface } from './components/CameraInterface';
 import { AddMomentModal } from './components/AddMomentModal';
 import exifr from 'exifr';
+import { takeSwitchNotice } from './utils/accountSwitch';
 
 // CAPTURE EMAIL PARAMETER IMMEDIATELY (before React even starts)
 // This runs as soon as the file is loaded, before any component mounts
@@ -270,6 +271,16 @@ function MainApp() {
     console.log('📍 App.tsx: User state changed from AuthContext:', user);
     console.log('📍 App.tsx: User location:', user?.location);
     console.log('📍 App.tsx: User email:', user?.email);
+  }, [user]);
+
+  // After another tab switched account, this tab reloaded into the new one: say so once (utils/accountSwitch).
+  // Waits for the signed-in app (the Toaster only exists then).
+  useEffect(() => {
+    if (!user) return undefined;
+    const notice = takeSwitchNotice();
+    // No cleanup: the notice is read once, so a quick user refresh must not cancel it.
+    if (notice) window.setTimeout(() => toast.info(notice, { duration: 8000 }), 500);
+    return undefined;
   }, [user]);
   const [showSignup, setShowSignup] = useState(() => {
     // Check if login=0 in URL or force_show_signup flag is set
