@@ -292,11 +292,14 @@ const NewsletterComposer = forwardRef<NewsletterComposerHandle, NewsletterCompos
     return true;
   };
   const leaveAsDraft = (say = true) => {
+    const id = state.newsletter?.id;
     setPutBack(null);
-    clearUnscheduled(state.newsletter?.id);
+    clearUnscheduled(id);
     if (say) toast.info('It\u2019s a draft now. Open it from Campaigns › Newsletters and press Schedule when you\u2019re ready.');
     onChanged?.();
     onClose();
+    // Like Save Draft: land on Campaigns › Newsletters with the draft highlighted at the top.
+    if (id) openNewsletterDraft(id);
   };
   const scheduleAgain = async () => {
     const id = state.newsletter?.id;
@@ -501,6 +504,7 @@ const NewsletterComposer = forwardRef<NewsletterComposerHandle, NewsletterCompos
                 onHeaderChange={(next) => update((d) => ({ header: typeof next === 'function' ? next(d.header) : next }))}
                 onSaveAddress={saveAddress}
                 savedBlocks={savedBlocks}
+                active={!hidden}
               />
             </aside>
           </div>

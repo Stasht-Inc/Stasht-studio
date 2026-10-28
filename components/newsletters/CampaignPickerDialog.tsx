@@ -3,7 +3,8 @@ import { Image as ImageIcon, Loader2, Search } from 'lucide-react';
 import { newslettersAPI, type CampaignItem, type CampaignOption } from '../../services/newslettersAPI';
 import ComposerDialog from './ComposerDialog';
 import { GENERIC_ERROR } from './lib/apiResult';
-import { CAMPAIGNS_MAX, campaignsPickerSummary, formatCampaignDate, itemFromOption, toggleCampaign } from './lib/campaignsBlock';
+import { httpsUrl } from './lib/urls';
+import { CAMPAIGNS_MAX, campaignOptionDisabled, campaignsPickerSummary, formatCampaignDate, itemFromOption, toggleCampaign } from './lib/campaignsBlock';
 import { BUTTON_OUTLINE, BUTTON_PRIMARY, BUTTON_SMALL, inputClass } from './lib/ui';
 
 const SEARCH_DELAY_MS = 300;
@@ -126,7 +127,8 @@ export default function CampaignPickerDialog({ open, onOpenChange, initialIds, k
         <ul aria-label="Your campaigns" className="divide-y divide-gray-100">
           {rows.map((o) => {
             const checked = picked.includes(o.id);
-            const disabled = !o.shareable || (!checked && full);
+            const disabled = campaignOptionDisabled(o, checked, full);
+            const cover = httpsUrl(o.cover_url);
             const date = formatCampaignDate(o.date);
             const inputId = `nl-campaign-${o.id}`;
             return (
@@ -137,7 +139,7 @@ export default function CampaignPickerDialog({ open, onOpenChange, initialIds, k
                     onChange={() => setPicked((ids) => toggleCampaign(ids, o.id))}
                     className="h-4 w-4 flex-shrink-0 rounded border-gray-300 accent-[#6C60FF]" />
                   <span aria-hidden="true" className={`flex h-12 w-16 flex-shrink-0 items-center justify-center overflow-hidden rounded-lg bg-gradient-to-br from-[#6C60FF]/20 to-[#6C60FF]/5 ${o.shareable ? '' : 'opacity-50'}`}>
-                    {o.cover_url ? <img src={o.cover_url} alt="" className="h-full w-full object-cover" /> : <ImageIcon className="h-5 w-5 text-[#6C60FF]/60" />}
+                    {cover ? <img src={cover} alt="" className="h-full w-full object-cover" /> : <ImageIcon className="h-5 w-5 text-[#6C60FF]/60" />}
                   </span>
                   <span className="min-w-0 flex-1">
                     <span className={`block truncate text-sm font-medium ${o.shareable ? 'text-gray-900' : 'text-gray-500'}`}>{o.title || 'Untitled campaign'}</span>

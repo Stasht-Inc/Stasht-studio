@@ -105,3 +105,13 @@ test('adoptCampaignSnapshots takes the server’s campaigns unless the section c
   assert.equal(c.draft, plain);
   assert.equal(c.saved, plain);
 });
+
+// Review fix: a ticked campaign that stopped being shareable can still be unticked.
+test('campaignOptionDisabled lets a picked campaign be unticked, whatever happens', async () => {
+  const { campaignOptionDisabled } = await import('../../components/newsletters/lib/campaignsBlock.ts');
+  assert.equal(campaignOptionDisabled({ shareable: false }, true, false), false, 'ticked but no longer shareable: can untick');
+  assert.equal(campaignOptionDisabled({ shareable: false }, false, false), true);
+  assert.equal(campaignOptionDisabled({ shareable: true }, false, true), true, 'a seventh');
+  assert.equal(campaignOptionDisabled({ shareable: true }, true, true), false);
+  assert.equal(campaignOptionDisabled({ shareable: true }, false, false), false);
+});

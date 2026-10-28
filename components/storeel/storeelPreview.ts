@@ -53,3 +53,26 @@ export function storeelPreviewModel(input: StoreelPreviewInput, locale?: string)
     date: formatDay(input.date ?? '', locale),
   };
 }
+
+type PreviewFile = { name?: string; type?: string };
+
+const isHeic = (f: PreviewFile) => /heic|heif/i.test(f.type ?? '') || /\.(heic|heif)$/i.test(f.name ?? '');
+
+/**
+ * The form's photos as the preview needs them, from the same lists the form counts ("N files selected"): how many,
+ * and the first one — its uploaded link once there is one, the file before that. A HEIC file can't be shown by the
+ * browser, so the preview keeps its gradient for it.
+ */
+export function storeelPreviewMedia<F extends PreviewFile>(lists: {
+  withMetadata: Array<{ file: F; fileUrl?: string }>;
+  mainPhotos: Array<{ fileUrl?: string }>;
+  mediaFiles: F[];
+}): { first: F | string | null; count: number } {
+  const count = Math.max(lists.withMetadata.length, lists.mainPhotos.length, lists.mediaFiles.length);
+  let first: F | string | null = null;
+  if (lists.withMetadata.length) first = lists.withMetadata[0].fileUrl || lists.withMetadata[0].file;
+  else if (lists.mainPhotos.length) first = lists.mainPhotos[0].fileUrl || null;
+  else if (lists.mediaFiles.length) first = lists.mediaFiles[0];
+  if (first && typeof first !== 'string' && isHeic(first)) first = null;
+  return { first, count };
+}

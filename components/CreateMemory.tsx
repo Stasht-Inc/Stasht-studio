@@ -32,6 +32,7 @@ import { initialCampaignType, type CampaignType } from './newsletters/lib/campai
 import { announceNewslettersChanged } from './newsletters/lib/campaignsView';
 import { requestUpgrade } from '../utils/planEvents';
 import StoreelLivePreview from './storeel/StoreelLivePreview';
+import { storeelPreviewMedia } from './storeel/storeelPreview';
 import { BUTTON_OUTLINE, BUTTON_PRIMARY, BUTTON_SECONDARY } from './newsletters/lib/ui';
 
 interface CreateMemoryProps {
@@ -289,16 +290,15 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
 
   // [wdy2xh2t3z] The live preview: the first picked image (an object URL for a file, freed when it changes) and how
   // many photos there are, from the same lists the form shows.
-  const storeelMomentCount = photosWithMetadata.length || mainPhotosArray.length || formData.mediaFiles.length;
-  const storeelFirstMedia: File | string | null = photosWithMetadata[0]
-    ? (photosWithMetadata[0].fileUrl ?? photosWithMetadata[0].file)
-    : mainPhotosArray[0]?.fileUrl ?? formData.mediaFiles[0] ?? null;
+  const { first: storeelFirstMedia, count: storeelMomentCount } = storeelPreviewMedia<File>({
+    withMetadata: photosWithMetadata, mainPhotos: mainPhotosArray, mediaFiles: formData.mediaFiles,
+  });
   const [storeelPreviewCover, setStoreelPreviewCover] = useState<string | null>(null);
   useEffect(() => {
     const src = storeelFirstMedia;
     if (!src) { setStoreelPreviewCover(null); return undefined; }
     if (typeof src === 'string') { setStoreelPreviewCover(isCampaignVideoUrl(src) ? null : src); return undefined; }
-    if (!src.type?.startsWith('image/')) { setStoreelPreviewCover(null); return undefined; }
+    if (src.type && !src.type.startsWith('image/')) { setStoreelPreviewCover(null); return undefined; }
     const url = URL.createObjectURL(src);
     setStoreelPreviewCover(url);
     return () => URL.revokeObjectURL(url);

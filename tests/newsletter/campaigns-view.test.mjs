@@ -60,3 +60,10 @@ test('a highlighted newsletter goes to the top of the list', async () => {
   assert.equal(withHighlightFirst(rows, null), rows);
   assert.equal(withHighlightFirst(rows, 9), rows);
 });
+
+// Review fix: a failed plan check never leaves a remembered Newsletters view loading forever.
+test('campaignsViewForPlan goes back to Storeels when the plan check failed', async () => {
+  const { campaignsViewForPlan } = await import('../../components/newsletters/lib/campaignsView.ts');
+  assert.equal(campaignsViewForPlan('newsletters', { known: false, isStarter: false, failed: true }), 'storeels');
+  assert.equal(campaignsViewForPlan('newsletters', { known: false, isStarter: false, failed: false }), 'newsletters');
+});

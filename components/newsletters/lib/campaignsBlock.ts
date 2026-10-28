@@ -53,6 +53,13 @@ export function toggleCampaign(ids: readonly number[], id: number, max: number =
   return [...ids, id];
 }
 
+/** A row in the picker can't be ticked when the campaign can't be shared or 6 are picked; a ticked one can always
+ *  be unticked (it may have stopped being shareable since it was picked). */
+export function campaignOptionDisabled(option: Pick<CampaignOption, 'shareable'>, checked: boolean, full: boolean): boolean {
+  if (checked) return false;
+  return !option.shareable || full;
+}
+
 /** The cards to draw, in the section's order: the server's snapshot first (what the email will show), then the
  *  picked campaigns' own details until the save comes back. Ids with neither are left out. */
 export function resolveCampaignItems(ids: readonly number[], server: readonly CampaignItem[] | undefined, local: readonly CampaignItem[] | undefined): CampaignItem[] {

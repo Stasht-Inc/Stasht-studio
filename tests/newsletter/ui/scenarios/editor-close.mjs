@@ -70,6 +70,16 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
   await preview.getByText('Powered by Stasht').click();
   expect(!(await section('Button').getByLabel('Button text').count()), 'a tap outside the section closes its editor');
 
+  // A selected part, then the Storeel tab: Escape there is not the hidden composer's (review fix).
+  await section('Button').click();
+  await page.getByRole('radio', { name: 'Storeel', exact: true }).click();
+  await page.evaluate(() => { window.__escPrevented = null; window.addEventListener('keydown', (e) => { if (e.key === 'Escape') window.__escPrevented = e.defaultPrevented; }); });
+  await page.keyboard.press('Escape');
+  expect(await page.evaluate(() => window.__escPrevented) === false, 'Escape on the Storeel tab is not taken by the hidden newsletter editor');
+  await page.getByRole('radio', { name: 'Newsletter', exact: true }).click();
+  await expectVisible(page.locator('#nl-composer-title'), 'back on the Newsletter tab');
+  await page.getByText('Powered by Stasht').click();
+
   // With nothing selected, Escape still works like Cancel.
   await page.keyboard.press('Escape');
   await page.waitForTimeout(800);

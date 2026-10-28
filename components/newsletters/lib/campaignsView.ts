@@ -50,9 +50,12 @@ export function writeCampaignsView(a: ViewStorage | CampaignsView, b?: Campaigns
   }
 }
 
-/** A remembered Newsletters choice stands on a paid plan (or while the plan is still loading: the view waits). */
-export function campaignsViewForPlan(view: CampaignsView, plan: { known: boolean; isStarter: boolean }): CampaignsView {
-  return view === 'newsletters' && plan.known && plan.isStarter ? 'storeels' : view;
+/** A remembered Newsletters choice stands on a paid plan (or while the plan is still loading: the view waits). A
+ *  Starter plan, or a plan check that failed, goes back to Storeels. */
+export function campaignsViewForPlan(view: CampaignsView, plan: { known: boolean; isStarter: boolean; failed?: boolean }): CampaignsView {
+  if (view !== 'newsletters') return view;
+  if (plan.known) return plan.isStarter ? 'storeels' : view;
+  return plan.failed ? 'storeels' : view;
 }
 
 export type NewsletterFilter = 'all' | Extract<NewsletterStatus, 'draft' | 'scheduled' | 'sent'>;

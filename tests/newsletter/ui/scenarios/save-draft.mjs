@@ -39,6 +39,18 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
   await page.waitForTimeout(4500);
   expect(!/ring-/.test(await page.locator('[role="row"][data-newsletter-row="23"]').getAttribute('class')), 'the highlight fades after a moment');
 
+  // Leave it as a draft (after editing a scheduled newsletter) lands the same way.
+  await page.getByRole('button', { name: 'Actions for Winter tires' }).click();
+  await page.getByRole('menuitem', { name: 'Edit', exact: true }).click();
+  await page.getByRole('button', { name: 'Edit it' }).click();
+  await expectVisible(page.locator('#nl-name'), 'scheduled newsletter opened as a draft');
+  await page.getByRole('button', { name: 'Cancel' }).first().click();
+  await page.getByRole('button', { name: 'Leave it as a draft' }).click();
+  await expectVisible(page.locator('[role="row"][data-newsletter-row="22"]'), 'back on the list');
+  await page.waitForTimeout(500);
+  expect(await firstRowId(page, '[role="row"][data-newsletter-row]') === '22', 'the left-as-draft newsletter is at the top');
+  expect(/ring-/.test(await page.locator('[role="row"][data-newsletter-row="22"]').getAttribute('class')), 'and highlighted');
+
   // Remembered after a reload.
   await page.reload();
   await expectVisible(page.getByRole('radio', { name: 'Newsletters', checked: true }), 'Campaigns opens on Newsletters next time');
@@ -69,6 +81,16 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
     expect(!(await hasOverflow(p.page)), `no sideways scroll at ${width}`);
     await p.context.close();
   }
+
+  // The plan check fails: a remembered Newsletters choice shows Storeels instead of loading forever.
+  const failApi = createMockApi({ planFailures: 99, newsletters: seedNewsletters() });
+  const failing = await open({ view: 'campaigns', width: 1280, height: 900, api: failApi });
+  await failing.page.evaluate((k) => localStorage.setItem(k, 'newsletters'), KEY);
+  await failing.page.reload();
+  await failing.page.waitForTimeout(2500);
+  await expectVisible(failing.page.getByRole('radio', { name: 'Storeels', checked: true }), 'failed plan check goes back to Storeels');
+  expect(!(await failing.page.getByText('Loading newsletters…').count()), 'no endless Loading newsletters…');
+  await failing.context.close();
 
   // Starter: a remembered Newsletters choice shows Storeels, and no newsletter endpoint is called.
   const starterApi = createMockApi({ plan: 'Starter', newsletters: seedNewsletters() });

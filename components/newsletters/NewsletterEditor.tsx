@@ -29,6 +29,8 @@ export interface NewsletterEditorProps {
   onSaveAddress(address: string): Promise<boolean>;
   /** The sections as last saved (the API's copy): a Campaigns section's cards come from here. */
   savedBlocks?: NewsletterBlock[];
+  /** False while the composer is hidden (the Storeel tab shows): Escape is not this editor's then. */
+  active?: boolean;
 }
 
 const HEADER_ID = '__header__';
@@ -82,7 +84,7 @@ const BlockRow = memo(function BlockRow({ block, index, count, selected, readOnl
  * the sections (40 px side padding, 20 px on phones) and the e-card footer. "+" lines sit between sections.
  */
 export default function NewsletterEditor({
-  draft, readOnly, device, profile, businessAddress, showProblems, fieldErrors, onChange, onHeaderChange, onSaveAddress, savedBlocks,
+  draft, readOnly, device, profile, businessAddress, showProblems, fieldErrors, onChange, onHeaderChange, onSaveAddress, savedBlocks, active = true,
 }: NewsletterEditorProps) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -104,7 +106,7 @@ export default function NewsletterEditor({
   // Escape closes the open editor first (the composer's own Escape, Cancel, comes next time). A popover or dialog
   // that is open handles its own Escape.
   useEffect(() => {
-    if (!selectedId) return undefined;
+    if (!selectedId || !active) return undefined;
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key !== 'Escape' || e.defaultPrevented) return;
       if (document.querySelector('[data-radix-popper-content-wrapper], [role="dialog"][data-state="open"], [role="alertdialog"][data-state="open"]')) return;
@@ -113,7 +115,7 @@ export default function NewsletterEditor({
     };
     document.addEventListener('keydown', onKeyDown, true);
     return () => document.removeEventListener('keydown', onKeyDown, true);
-  }, [selectedId, deselect]);
+  }, [selectedId, active, deselect]);
   // The Campaigns section whose picker is open.
   const [pickerFor, setPickerFor] = useState<string | null>(null);
   // The section the picker was last opened for (focus goes back to it once the picker has closed).
