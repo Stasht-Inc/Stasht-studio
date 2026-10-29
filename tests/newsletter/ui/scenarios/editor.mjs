@@ -32,6 +32,8 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
   await page.keyboard.press('Enter');
   await expectVisible(page.getByRole('menu', { name: 'Sections' }), 'Add section popover');
   await shot(page, '1280-01-add-section');
+  // Campaign is first (Chris, 29 Oct), then Image, then Title.
+  await page.keyboard.press('ArrowDown');
   await page.keyboard.press('ArrowDown');
   await page.keyboard.press('Enter');
   await preview.getByLabel('Title', { exact: true }).fill('This month at Serpa');

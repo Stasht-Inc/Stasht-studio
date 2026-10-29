@@ -1,18 +1,19 @@
-import { useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import * as Popover from '@radix-ui/react-popover';
-import { Heading, Image as ImageIcon, LayoutGrid, Minus, MousePointerClick, Plus, Type, Youtube } from 'lucide-react';
+import { ChevronDown, Heading, Image as ImageIcon, LayoutGrid, Minus, MousePointerClick, Plus, Type, Youtube } from 'lucide-react';
 import type { BlockType } from '../../services/newslettersAPI';
 import { LIMITS } from './lib/rules';
 import { LAYER } from './lib/ui';
 
+// Campaign first (Chris, 29 Oct): it is the one people look for.
 const ITEMS: Array<{ type: BlockType; label: string; desc: string; icon: ReactNode }> = [
+  { type: 'campaigns', label: 'Campaign', desc: 'Add one of your campaigns', icon: <LayoutGrid className="h-5 w-5 text-[#6C60FF]" /> },
   { type: 'image', label: 'Image', desc: 'A photo or graphic', icon: <ImageIcon className="h-5 w-5 text-[#6C60FF]" /> },
   { type: 'title', label: 'Title', desc: 'A heading', icon: <Heading className="h-5 w-5 text-[#6C60FF]" /> },
   { type: 'text', label: 'Text', desc: 'A paragraph with bold, italic and links', icon: <Type className="h-5 w-5 text-[#009689]" /> },
   { type: 'youtube', label: 'YouTube', desc: 'A video people tap to watch', icon: <Youtube className="h-5 w-5 text-[#FF4444]" /> },
   { type: 'button', label: 'Button', desc: 'A button with a link', icon: <MousePointerClick className="h-5 w-5 text-[#6C60FF]" /> },
   { type: 'divider', label: 'Divider', desc: 'A line or space between sections', icon: <Minus className="h-5 w-5 text-[#F59E0B]" /> },
-  { type: 'campaigns', label: 'Campaigns', desc: 'Show your campaigns', icon: <LayoutGrid className="h-5 w-5 text-[#6C60FF]" /> },
 ];
 
 /** The dashed line with a "+" from the Storeel timeline (MemoryDetailsPage "Add Widget"), here "Add section". */
@@ -30,6 +31,19 @@ export default function AddSectionPopover({ label, onAdd, disabled = false, alwa
     setOpen(next);
   };
   const itemRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  // Only when the window is too short for the whole list (phones, short windows): a fade and "More below".
+  const [menuEl, setMenuEl] = useState<HTMLDivElement | null>(null);
+  const [moreBelow, setMoreBelow] = useState(false);
+  const checkMore = useCallback(() => {
+    if (menuEl) setMoreBelow(menuEl.scrollHeight - menuEl.scrollTop - menuEl.clientHeight > 4);
+  }, [menuEl]);
+  useEffect(() => {
+    if (!menuEl) return undefined;
+    checkMore();
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(checkMore);
+    observer?.observe(menuEl);
+    return () => observer?.disconnect();
+  }, [menuEl, checkMore]);
   const onItemKeyDown = (e: KeyboardEvent<HTMLButtonElement>, index: number) => {
     let next: number | null = null;
     if (e.key === 'ArrowDown') next = (index + 1) % ITEMS.length;
@@ -56,26 +70,35 @@ export default function AddSectionPopover({ label, onAdd, disabled = false, alwa
               <Plus className="h-4 w-4" aria-hidden="true" />
             </button>
           </Popover.Trigger>
+          {/* Never taller than the room Radix finds on screen; the list scrolls only when that is too little. */}
           <Popover.Portal>
-            <Popover.Content side={side} align="center" sideOffset={8} collisionPadding={12} style={{ zIndex: LAYER.popover }}
+            <Popover.Content side={side} align="center" sideOffset={8} collisionPadding={12}
+              style={{ zIndex: LAYER.popover, maxHeight: 'min(600px, var(--radix-popover-content-available-height, 600px))' }}
               onOpenAutoFocus={(e) => { e.preventDefault(); itemRefs.current[0]?.focus(); }}
-              className="w-[min(20rem,calc(100vw-1.5rem))] rounded-xl border border-gray-200 bg-white p-0 shadow-lg outline-none">
-              <div className="p-4 pb-2">
+              className="flex w-[min(20rem,calc(100vw-1.5rem))] flex-col rounded-xl border border-gray-200 bg-white p-0 shadow-lg outline-none">
+              <div className="flex-shrink-0 p-4 pb-2">
                 <h4 className="text-base font-semibold text-gray-900">Add section</h4>
                 <p className="text-sm text-gray-500">Choose what to add to your email</p>
               </div>
-              <div role="menu" aria-label="Sections" className="max-h-[min(320px,60vh)] overflow-y-auto pb-2">
-                {ITEMS.map((item, index) => (
-                  <button key={item.type} ref={(el) => { itemRefs.current[index] = el; }} type="button" role="menuitem"
-                    onKeyDown={(e) => onItemKeyDown(e, index)} onClick={() => { setOpen(false); onAdd(item.type); }}
-                    className="flex w-full items-center gap-4 px-5 py-3 text-left hover:bg-gray-50 focus:bg-gray-50 focus:outline-none">
-                    <span aria-hidden="true" className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-gray-50">{item.icon}</span>
-                    <span className="min-w-0">
-                      <span className="block text-sm font-medium text-gray-900">{item.label}</span>
-                      <span className="block text-xs text-gray-500">{item.desc}</span>
-                    </span>
-                  </button>
-                ))}
+              <div className="relative flex min-h-0 flex-1 flex-col">
+                <div ref={setMenuEl} onScroll={checkMore} role="menu" aria-label="Sections" className="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-2">
+                  {ITEMS.map((item, index) => (
+                    <button key={item.type} ref={(el) => { itemRefs.current[index] = el; }} type="button" role="menuitem"
+                      onKeyDown={(e) => onItemKeyDown(e, index)} onClick={() => { setOpen(false); onAdd(item.type); }}
+                      className="flex w-full items-center gap-4 px-5 py-2.5 text-left hover:bg-gray-50 focus:bg-gray-50 focus:outline-none">
+                      <span aria-hidden="true" className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-gray-50">{item.icon}</span>
+                      <span className="min-w-0">
+                        <span className="block text-sm font-medium text-gray-900">{item.label}</span>
+                        <span className="block text-xs text-gray-500">{item.desc}</span>
+                      </span>
+                    </button>
+                  ))}
+                </div>
+                {moreBelow ? (
+                  <div aria-hidden="true" data-more-below className="pointer-events-none absolute inset-x-0 bottom-0 flex h-14 items-end justify-center rounded-b-xl bg-gradient-to-t from-white via-white/90 to-white/0 pb-1.5">
+                    <span className="flex items-center gap-1 text-xs font-medium text-[#6C60FF]">More below <ChevronDown className="h-3.5 w-3.5" /></span>
+                  </div>
+                ) : null}
               </div>
             </Popover.Content>
           </Popover.Portal>
