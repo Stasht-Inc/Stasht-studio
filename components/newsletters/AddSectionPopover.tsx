@@ -7,7 +7,7 @@ import { LAYER } from './lib/ui';
 
 // Campaign first (Chris, 29 Oct): it is the one people look for.
 const ITEMS: Array<{ type: BlockType; label: string; desc: string; icon: ReactNode }> = [
-  { type: 'campaigns', label: 'Campaign', desc: 'Add one of your campaigns', icon: <LayoutGrid className="h-5 w-5 text-[#6C60FF]" /> },
+  { type: 'campaigns', label: 'Campaign', desc: 'Add campaigns, products or vehicles', icon: <LayoutGrid className="h-5 w-5 text-[#6C60FF]" /> },
   { type: 'image', label: 'Image', desc: 'A photo or graphic', icon: <ImageIcon className="h-5 w-5 text-[#6C60FF]" /> },
   { type: 'title', label: 'Title', desc: 'A heading', icon: <Heading className="h-5 w-5 text-[#6C60FF]" /> },
   { type: 'text', label: 'Text', desc: 'A paragraph with bold, italic and links', icon: <Type className="h-5 w-5 text-[#009689]" /> },

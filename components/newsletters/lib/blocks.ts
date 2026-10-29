@@ -1,11 +1,11 @@
 // The newsletter's sections (spec §8 blocks): create, insert, move, remove, update, and what still needs
 // doing before sending. Pure; the preview editor (NewsletterEditor) calls these.
-import type { BlockType, NewsletterBlock, TitleSize } from '../../../services/newslettersAPI.ts';
+import type { BlockType, CampaignSelection, NewsletterBlock, TitleSize } from '../../../services/newslettersAPI.ts';
 import { LIMITS } from './rules.ts';
 import { DEFAULT_BUTTON_COLOR, safeHexColor } from './colors.ts';
 import { httpsUrl, youtubeVideoId } from './urls.ts';
 import { textHtmlIsEmpty } from './textHtml.ts';
-import { normaliseCampaignIds, normaliseCampaignItems } from './campaignsBlock.ts';
+import { campaignIdsOf, normaliseCampaignItems, normaliseSelections } from './campaignsBlock.ts';
 
 export const BLOCK_TYPES: readonly BlockType[] = ['image', 'title', 'text', 'youtube', 'button', 'divider', 'campaigns'];
 const TITLE_SIZES: readonly TitleSize[] = ['small', 'medium', 'large'];
@@ -29,7 +29,7 @@ export function createBlock(type: BlockType, id: string): NewsletterBlock {
     case 'text': return { id, type: 'text', data: { html: '' } };
     case 'youtube': return { id, type: 'youtube', data: { url: '' } };
     case 'button': return { id, type: 'button', data: { label: 'Learn more', url: '', color: DEFAULT_BUTTON_COLOR } };
-    case 'campaigns': return { id, type: 'campaigns', data: { campaign_ids: [] } };
+    case 'campaigns': return { id, type: 'campaigns', data: { selections: [], campaign_ids: [] } };
     default: return { id, type: 'divider', data: { style: 'line' } };
   }
 }
@@ -54,8 +54,13 @@ export function normaliseBlocks(raw: unknown): NewsletterBlock[] {
       case 'text': out.push({ id, type: 'text', data: { html: str(d.html) } }); break;
       case 'youtube': out.push({ id, type: 'youtube', data: { url: str(d.url) } }); break;
       case 'button': out.push({ id, type: 'button', data: { label: str(d.label), url: str(d.url), color: safeHexColor(d.color, DEFAULT_BUTTON_COLOR) } }); break;
-      // The API's snapshot (items) comes back on every save; Studio never sends it (blocksToInput).
-      case 'campaigns': out.push({ id, type: 'campaigns', data: { campaign_ids: normaliseCampaignIds(d.campaign_ids), items: normaliseCampaignItems(d.items) } }); break;
+      // The API's snapshot (items) comes back on every save; Studio never sends it (blocksToInput). A block saved
+      // before products and vehicles has campaign_ids only: those are campaign selections.
+      case 'campaigns': {
+        const selections = normaliseSelections(d.selections, d.campaign_ids);
+        out.push({ id, type: 'campaigns', data: { selections, campaign_ids: campaignIdsOf(selections), items: normaliseCampaignItems(d.items) } });
+        break;
+      }
       default: out.push({ id, type: 'divider', data: { style: d.style === 'space' ? 'space' : 'line' } });
     }
   }
@@ -123,15 +128,25 @@ export function blockProblem(block: NewsletterBlock): string | null {
       if (!httpsUrl(block.data.url)) return 'Add the link the button opens (https://…).';
       return safeHexColor(block.data.color, '') ? null : 'Pick a button colour.';
     case 'campaigns':
-      return block.data.campaign_ids.length ? null : 'Pick at least one campaign, or remove this section.';
+      return campaignSelections(block.data).length ? null : 'Pick at least one campaign, product or vehicle, or remove this section.';
     default:
       return null;
   }
 }
 
-/** The blocks as a PUT sends them: a Campaigns section sends its campaign_ids only (the API builds the cards). */
+/** A Campaigns section's picks, also for data that only has campaign_ids (a block from before products). */
+export function campaignSelections(data: { selections?: unknown; campaign_ids?: unknown }): CampaignSelection[] {
+  return normaliseSelections(data.selections, data.campaign_ids);
+}
+
+/** The blocks as a PUT sends them: a Campaigns section sends its selections and their campaign_ids only (the API
+ *  builds the cards). */
 export function blocksToInput(blocks: readonly NewsletterBlock[]): NewsletterBlock[] {
-  return blocks.map((b) => (b.type === 'campaigns' ? { id: b.id, type: 'campaigns', data: { campaign_ids: [...b.data.campaign_ids] } } : b));
+  return blocks.map((b) => {
+    if (b.type !== 'campaigns') return b;
+    const selections = campaignSelections(b.data);
+    return { id: b.id, type: 'campaigns', data: { selections, campaign_ids: campaignIdsOf(selections) } };
+  });
 }
 
 const TEXT_TOO_LONG = 'This text is too long. Split it into two sections.';

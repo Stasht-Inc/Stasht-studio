@@ -4,7 +4,8 @@ import type { BlockType, CampaignItem, NewsletterBlock, NewsletterHeader } from 
 import type { NewsletterDraft } from './lib/draft';
 import { initialsFrom, type SenderProfile } from './lib/profile';
 import { LIMITS } from './lib/rules';
-import { ACTION_TOAST_MS, blocksProblems, createBlock, insertBlock, liveBlockProblems, moveBlock, newBlockId, removeBlock, undoDelete, updateBlockData } from './lib/blocks';
+import { ACTION_TOAST_MS, blocksProblems, campaignSelections, createBlock, insertBlock, liveBlockProblems, moveBlock, newBlockId, removeBlock, undoDelete, updateBlockData } from './lib/blocks';
+import { CHANGE_ITEMS_LABEL, campaignIdsOf } from './lib/campaignsBlock';
 import InboxRow from './InboxRow';
 import HeaderEditor from './HeaderEditor';
 import EcardFooter from './EcardFooter';
@@ -71,7 +72,7 @@ const BlockRow = memo(function BlockRow({ block, index, count, selected, readOnl
   return (
     <BlockFrame blockId={block.id} label={BLOCK_LABEL[block.type]} index={index} count={count} selected={selected} readOnly={readOnly} problem={problem} padClass={padClass}
       onSelect={handlers.onSelect} onDone={handlers.onDone} onMoveUp={handlers.onMoveUp} onMoveDown={handlers.onMoveDown} onDelete={handlers.onDelete}
-      onEdit={campaigns ? handlers.onPick : undefined} editLabel={campaigns ? 'Change campaigns' : undefined}>
+      onEdit={campaigns ? handlers.onPick : undefined} editLabel={campaigns ? CHANGE_ITEMS_LABEL : undefined}>
       <BlockEditor block={block} selected={selected} readOnly={readOnly} onChange={handlers.onChange}
         serverItems={campaigns ? serverItems : undefined} accent={campaigns ? accent : undefined} onPick={campaigns ? handlers.onPick : undefined} />
     </BlockFrame>
@@ -251,9 +252,9 @@ export default function NewsletterEditor({
         <CampaignPickerDialog
           open={picking !== null}
           onOpenChange={(o) => { if (!o) setPickerFor(null); }}
-          initialIds={picking?.data.campaign_ids ?? []}
+          initialSelections={picking ? campaignSelections(picking.data) : []}
           knownItems={picking ? [...(picking.data.items ?? []), ...(savedItems.get(picking.id) ?? [])] : []}
-          onDone={(ids, items) => { if (picking) handlersFor(picking.id).onChange({ campaign_ids: ids, items }); }}
+          onDone={(selections, items) => { if (picking) handlersFor(picking.id).onChange({ selections, campaign_ids: campaignIdsOf(selections), items }); }}
           onCloseAutoFocus={(e) => {
             // Back to the section (it stays selected), not to the + that has gone.
             const id = pickedForRef.current;

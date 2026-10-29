@@ -11,12 +11,12 @@ const item = (id, over = {}) => ({ id, title: `Campaign ${id}`, description: 'Ab
 
 test('campaigns is a block type; a new one has no campaigns yet', () => {
   assert.ok(BLOCK_TYPES.includes('campaigns'));
-  assert.deepEqual(createBlock('campaigns', 'c1'), { id: 'c1', type: 'campaigns', data: { campaign_ids: [] } });
+  assert.deepEqual(createBlock('campaigns', 'c1'), { id: 'c1', type: 'campaigns', data: { selections: [], campaign_ids: [] } });
   assert.equal(CAMPAIGNS_MAX, 6);
 });
 
 test('a campaigns section needs at least one campaign', () => {
-  assert.equal(blockProblem(createBlock('campaigns', 'c')), 'Pick at least one campaign, or remove this section.');
+  assert.equal(blockProblem(createBlock('campaigns', 'c')), 'Pick at least one campaign, product or vehicle, or remove this section.');
   assert.equal(blockProblem({ id: 'c', type: 'campaigns', data: { campaign_ids: [12] } }), null);
 });
 
@@ -26,20 +26,20 @@ test('normaliseBlocks keeps ids (order, unique, max 6) and the server snapshot',
   assert.deepEqual(b.data.campaign_ids, [12, 34, 5, 6, 7, 8]);
   assert.deepEqual(b.data.items.map((i) => i.id), [12, 34]);
   assert.equal(b.data.items[1].cover_url, null);
-  assert.deepEqual(normaliseBlocks([{ id: 'c', type: 'campaigns', data: null }])[0].data, { campaign_ids: [], items: [] });
+  assert.deepEqual(normaliseBlocks([{ id: 'c', type: 'campaigns', data: null }])[0].data, { selections: [], campaign_ids: [], items: [] });
 });
 
-test('Studio sends only campaign_ids: the API builds the snapshot itself', () => {
+test('Studio sends selections (and campaign_ids), never items: the API builds the snapshot itself', () => {
   const d = { ...emptyDraft(), blocks: [{ id: 'c', type: 'campaigns', data: { campaign_ids: [12, 34], items: [item(12), item(34)] } }] };
-  assert.deepEqual(draftToInput(d).blocks, [{ id: 'c', type: 'campaigns', data: { campaign_ids: [12, 34] } }]);
+  assert.deepEqual(draftToInput(d).blocks, [{ id: 'c', type: 'campaigns', data: { selections: [{ kind: 'campaign', id: 12 }, { kind: 'campaign', id: 34 }], campaign_ids: [12, 34] } }]);
   // A new snapshot from the server is not a change to save.
   const fresher = { ...d, blocks: [{ id: 'c', type: 'campaigns', data: { campaign_ids: [12, 34], items: [item(12, { title: 'New' })] } }] };
   assert.deepEqual(changedFields(d, fresher), {});
   // The over-long-text path sends blocks too, still without items.
   const long = { id: 't', type: 'text', data: { html: `<p>${'x'.repeat(20001)}</p>` } };
-  const withLong = { ...d, blocks: [...d.blocks.map((b) => ({ ...b, data: { ...b.data, campaign_ids: [12] } })), long] };
+  const withLong = { ...d, blocks: [...d.blocks.map((b) => ({ ...b, data: { ...b.data, selections: [{ kind: 'campaign', id: 12 }], campaign_ids: [12] } })), long] };
   const { patch } = savableChanges(d, withLong);
-  assert.deepEqual(patch.blocks, [{ id: 'c', type: 'campaigns', data: { campaign_ids: [12] } }]);
+  assert.deepEqual(patch.blocks, [{ id: 'c', type: 'campaigns', data: { selections: [{ kind: 'campaign', id: 12 }], campaign_ids: [12] } }]);
 });
 
 test('toggleCampaign keeps the picking order and stops at 6', () => {
@@ -53,9 +53,10 @@ test('toggleCampaign keeps the picking order and stops at 6', () => {
 test('resolveCampaignItems: server snapshot first, then what was picked, in the section order', () => {
   const server = [item(12, { title: 'Server 12' })];
   const local = [item(12, { title: 'Local 12' }), item(34)];
-  assert.deepEqual(resolveCampaignItems([34, 12, 99], server, local).map((i) => i.title), ['Campaign 34', 'Server 12']);
+  const picks = (...ids) => ids.map((id) => ({ kind: 'campaign', id }));
+  assert.deepEqual(resolveCampaignItems(picks(34, 12, 99), server, local).map((i) => i.title), ['Campaign 34', 'Server 12']);
   assert.deepEqual(resolveCampaignItems([], server, local), []);
-  assert.deepEqual(resolveCampaignItems([1], undefined, undefined), []);
+  assert.deepEqual(resolveCampaignItems(picks(1), undefined, undefined), []);
 });
 
 test('itemFromOption turns a campaign option into a card', () => {
@@ -91,7 +92,7 @@ test('adoptCampaignSnapshots takes the server’s campaigns unless the section c
   const server = [{ id: 't', type: 'title', data: { text: 'Hi', size: 'large' } }, { id: 'c', type: 'campaigns', data: { campaign_ids: [34], items: [item(34, { title: 'Fresh' })] } }];
   // Nothing changed meanwhile: both the draft and the saved copy take the server's campaigns.
   const a = adoptCampaignSnapshots(sent, sent, server);
-  assert.deepEqual(a.draft.blocks[1].data, { campaign_ids: [34], items: [item(34, { title: 'Fresh' })] });
+  assert.deepEqual(a.draft.blocks[1].data, { selections: [{ kind: 'campaign', id: 34 }], campaign_ids: [34], items: [item(34, { title: 'Fresh' })] });
   assert.deepEqual(a.saved.blocks[1].data.campaign_ids, [34]);
   assert.equal(a.draft.blocks[0], title, 'other sections are untouched');
   // Picked again while the save was on its way: the new pick stays and saves next.
