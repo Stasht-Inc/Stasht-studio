@@ -27,10 +27,11 @@ function tomorrow() {
 export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
   let { page, api, context } = await open({ width: 1280, height: 1900 });
   await page.locator('#nl-name').fill('Send check');
+  await page.locator('#nl-subject').fill(''); // the subject followed the name (Chris, 29 Oct)
   await page.locator('#nl-from-name').fill('');
   await page.locator('#nl-reply-to').fill('');
   await sendButton(page).click();
-  await expectVisible(page.locator('#nl-step-subject').getByText('Add a subject line.'), 'Subject step marked');
+  await expectVisible(page.locator('#nl-step-name').getByText('Add a subject line.'), 'step 1 marked for the subject');
   await expectVisible(page.locator('#nl-step-content').getByText('Add at least one section to the email.'), 'Content step marked');
   await expectVisible(page.getByText('Finish the steps marked in red, then try again.'), 'toast says what to do');
   expect(await page.locator('#nl-step-from [role="alert"]').count() === 0, 'empty from name and reply-to do not block (decision 5)');
@@ -161,8 +162,9 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
     const phone = await open({ width, height: 844 });
     const p = phone.page;
     await p.locator('#nl-name').fill('Phone send');
+    await p.locator('#nl-subject').fill('');
     await sendButton(p).click();
-    await expectVisible(p.locator('#nl-step-subject').getByText('Add a subject line.'), `step errors at ${width}`);
+    await expectVisible(p.locator('#nl-step-name').getByText('Add a subject line.'), `step errors at ${width}`);
     expect(!(await hasOverflow(p)), `no sideways scroll with step errors at ${width}`);
     if (width === 390) await shot(p, '390-01-problems');
     await p.locator('#nl-subject').fill('October deals');

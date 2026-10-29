@@ -40,7 +40,7 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
   await shot(page, '01-unsaved');
   await unsaved.getByRole('button', { name: 'Keep editing' }).click();
   expect(await unsaved.count() === 0, 'dialog closed');
-  await expectVisible(page.getByRole('heading', { name: 'Campaign name' }), 'still editing');
+  await expectVisible(page.getByRole('heading', { name: 'Name and subject' }), 'still editing');
 
   // 4. Fixed: it saves; Escape inside a popover closes only the popover; Escape then closes like Cancel.
   await page.locator('#nl-reply-to').fill('sales@serpachrysler.ca');
@@ -84,7 +84,7 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
   await page.waitForTimeout(800);
   expect(await page.evaluate(() => document.activeElement !== document.body && document.activeElement?.closest('[role="dialog"], .fixed') !== null), 'focus inside the Storeel form');
   await page.getByRole('radio', { name: 'Newsletter' }).click();
-  await expectVisible(page.getByRole('heading', { name: 'Campaign name' }), 'back on Newsletter');
+  await expectVisible(page.getByRole('heading', { name: 'Name and subject' }), 'back on Newsletter');
   await page.waitForTimeout(200);
   expect(await page.evaluate(() => document.activeElement?.textContent === 'Newsletter' && document.activeElement?.getAttribute('aria-checked') === 'true'), 'focus on the checked Newsletter radio');
   await context.close();

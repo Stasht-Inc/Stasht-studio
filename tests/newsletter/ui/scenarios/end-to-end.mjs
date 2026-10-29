@@ -1,5 +1,5 @@
 // Task 15: one account, the whole journey, at 1280 and at 390: Campaigns → Create a Campaign (Newsletter is the
-// default tab) → all six steps (a lead group, an imported CSV list, email and text, header, every section type) →
+// default tab) → all five steps (a lead group, an imported CSV list, email and text, header, every section type) →
 // exact email → a test by text → schedule (address on the first send) → Newsletters view lists it as Scheduled →
 // results of a sent one → cancel the scheduled one → duplicate → delete. Plus: the Storeel tab still creates a
 // Storeel; the Storeel limit shows on the Storeel tab only; Starter gets the upgrade card and makes no newsletter
@@ -44,7 +44,7 @@ async function journey({ open, shot, expectVisible, expect, hasOverflow }, width
   const preview = page.locator('aside');
   await expectVisible(preview.getByText('Serpa Chrysler').first(), `brand header at ${tag}`);
 
-  // 1 Campaign name
+  // 1 Name and subject
   await page.locator('#nl-name').fill(NAME);
 
   // 2 Recipients: a lead group, an imported CSV list, and text messages too.
@@ -66,14 +66,14 @@ async function journey({ open, shot, expectVisible, expect, hasOverflow }, width
   await step2.getByRole('checkbox', { name: /Text message/ }).check();
   await step2.getByLabel('Text message', { exact: true }).fill('November deals are here.');
 
-  // 3 From, 4 Subject
+  // 3 From, and step 1's subject line and preview text
   await page.locator('#nl-from-name').fill('Serpa Chrysler');
   await page.locator('#nl-reply-to').fill('sales@serpachrysler.ca');
   await page.locator('#nl-subject').fill('November deals are here');
   await page.locator('#nl-preview-text').fill('Winter tires and service specials');
   await expectVisible(preview.getByText('November deals are here').first(), `subject in the inbox row at ${tag}`);
 
-  // 5 Content: the header and one of every section.
+  // 4 Content: the header and one of every section.
   await preview.getByRole('group', { name: 'Header' }).click();
   await preview.getByLabel('Header title').fill('Serpa Chrysler Jeep');
   await preview.getByTestId('nl-logo-input').setInputFiles(FILE);
@@ -128,7 +128,7 @@ async function journey({ open, shot, expectVisible, expect, hasOverflow }, width
   await page.getByRole('menuitem', { name: 'Text me a test' }).click();
   await expectVisible(page.getByText('Test sent to +1 416 555 0100.', { exact: true }), `text test sent at ${tag}`);
 
-  // 6 Schedule for tomorrow 09:30 Toronto time (texts only go out 8am to 9pm there); the confirmation has the counts, the allowance and asks for the address.
+  // 5 Schedule for tomorrow 09:30 Toronto time (texts only go out 8am to 9pm there); the confirmation has the counts, the allowance and asks for the address.
   const list = api.state.lists.find((l) => l.name === 'Winter event sign-ups');
   const emails = 1180 + 36 + (list?.email_count ?? 0);
   const texts = 310 + 30 + (list?.sms_count ?? 0);
@@ -236,7 +236,7 @@ export async function run(ctx) {
     const { page, context } = await open({ view: 'campaigns', campaignsView: 'storeels', width, height: phone ? 844 : 1000, api });
     await expectVisible(page.getByRole('heading', { name: 'All Campaigns' }), `Campaigns page with the limit at ${width}`);
     await createButton(page, phone).click();
-    await expectVisible(page.getByRole('heading', { name: 'Campaign name' }), `Newsletter opens with the Storeel limit reached at ${width}`);
+    await expectVisible(page.getByRole('heading', { name: 'Name and subject' }), `Newsletter opens with the Storeel limit reached at ${width}`);
     // (The Campaigns page has its own limit banner behind the modal; these look inside Create Campaign only.)
     expect(await page.getByRole('dialog').getByText('Campaign Limit Reached').count() === 0, `no limit notice on the Newsletter tab at ${width}`);
     await page.getByRole('radio', { name: 'Storeel', exact: true }).click();
@@ -292,7 +292,7 @@ export async function run(ctx) {
     await page.keyboard.press('Escape');
     await page.waitForTimeout(400);
     await page.getByRole('button', { name: 'Create', exact: true }).click(); // "Create a Newsletter" on wider screens
-    await expectVisible(page.getByRole('heading', { name: 'Campaign name' }), `composer at ${width}`);
+    await expectVisible(page.getByRole('heading', { name: 'Name and subject' }), `composer at ${width}`);
     const preview = page.locator('aside');
     await page.locator('#nl-name').fill('Overflow check');
     for (const [i, item] of ['Image', 'Title', 'Text', 'YouTube', 'Button', 'Divider'].entries()) {

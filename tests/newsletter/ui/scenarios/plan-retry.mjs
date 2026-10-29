@@ -10,7 +10,7 @@ export async function run({ open, shot, expectVisible, expect }) {
   expect(api.state.calls.every((c) => !/^\/(newsletter|contact-lists)/.test(c.path)), 'no newsletter calls while the plan is unknown');
   await shot(page, '01-plan-failed');
   await retry.click();
-  await expectVisible(page.getByRole('heading', { name: 'Campaign name' }), 'composer shows after Try again');
+  await expectVisible(page.getByRole('heading', { name: 'Name and subject' }), 'composer shows after Try again');
   expect(await page.getByText('We couldn’t check your plan.').count() === 0, 'failure message gone');
   await context.close();
 }

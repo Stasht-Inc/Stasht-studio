@@ -11,9 +11,9 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
   await page.locator('#nl-name').fill('Campaigns check');
 
   await preview.getByRole('button', { name: 'Add a section at the top' }).click();
-  const item = page.getByRole('menuitem', { name: /^Campaigns/ });
-  await expectVisible(item, 'Campaigns in Add section');
-  expect(/Show your campaigns/.test(await item.textContent()), 'subtitle "Show your campaigns"');
+  const item = page.getByRole('menuitem', { name: /^Campaign\b/ });
+  await expectVisible(item, 'Campaign in Add section');
+  expect(/Add one of your campaigns/.test(await item.textContent()), 'subtitle "Add one of your campaigns"');
   await item.click();
 
   const picker = page.getByRole('dialog', { name: 'Choose campaigns' });
@@ -74,7 +74,7 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
 
   // An empty Campaigns section is unfinished: send says so. (Adding it saves the sections.)
   await preview.getByRole('button', { name: 'Add a section after section 1' }).click();
-  await page.getByRole('menuitem', { name: /^Campaigns/ }).click();
+  await page.getByRole('menuitem', { name: /^Campaign\b/ }).click();
   await expectVisible(picker, 'picker for the second section');
   await picker.getByRole('button', { name: 'Cancel' }).click();
   await expectVisible(preview.getByText('Show your campaigns in this email.'), 'empty section placeholder');

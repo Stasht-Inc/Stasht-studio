@@ -221,7 +221,8 @@ export default function NewsletterEditor({
         deselect(false);
       }}>
       <p className="border-b border-gray-100 bg-gray-50 px-4 py-2.5 text-xs font-semibold uppercase tracking-[0.08em] text-gray-500">Inbox</p>
-      <InboxRow fromName={draft.from_name} subject={draft.subject} previewText={draft.preview_text}
+      {/* An empty From name sends as the business's own name (NewsletterSendCheck::fromNameFor): show that. */}
+      <InboxRow fromName={draft.from_name.trim() || profile?.name?.trim().slice(0, 80) || ''} subject={draft.subject} previewText={draft.preview_text}
         initial={initialsFrom(profile?.name || draft.from_name).slice(0, 1)} photoUrl={profile?.photoUrl ?? null} color={profile?.color ?? null} />
       <div className={`bg-[#F3F4F8] ${phone ? 'px-2 py-5 sm:px-4' : 'px-2 py-6 sm:px-4'}`} >
         <div className={phone ? 'mx-auto w-[375px] max-w-full rounded-[2rem] border-[6px] border-gray-900 bg-[#F3F4F8] px-2 py-4' : ''}>
