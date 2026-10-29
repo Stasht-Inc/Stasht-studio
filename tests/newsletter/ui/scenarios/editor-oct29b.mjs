@@ -13,7 +13,7 @@ const puts = (api) => api.state.calls.filter((c) => c.method === 'PUT');
 
 /** The cards' boxes in the preview (left, top, width), rounded. */
 async function cardBoxes(section) {
-  return section.getByRole('list', { name: 'Campaigns in this section' }).evaluate((ul) => [...ul.children].map((li) => {
+  return section.getByRole('list', { name: 'Campaigns in this section' }).evaluate((ul) => [...ul.querySelectorAll(':scope > li[data-card-key]')].map((li) => {
     const r = li.getBoundingClientRect();
     return { left: Math.round(r.left), top: Math.round(r.top), width: Math.round(r.width) };
   }));
@@ -309,5 +309,87 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
     await ro.page.locator('aside').getByText('Edited for October').click();
     expect(!(await ro.page.getByRole('button', { name: /^Edit card/ }).count()), 'nothing to edit when read-only');
     await ro.context.close();
+  }
+
+  // ---- 3c. Review: the card editor opens right under its card's row and comes into view; ✕ gives focus back to the
+  //      card's "Edit card"; covers capped at 320 px only in 1 column; the description keeps its line breaks while typing.
+  {
+    const four = [card(601, 'Fall service event'), card(602, '2026 Grand Cherokee arrivals'), card(604, 'Winter tire swap'), card(605, 'Open house weekend')];
+    const sel = four.map((c) => ({ kind: 'campaign', id: c.id }));
+    const blocks = [
+      { id: 'c1', type: 'campaigns', data: { selections: sel, campaign_ids: sel.map((x) => x.id), columns: 2, items: four } },
+      { id: 'c2', type: 'campaigns', data: { selections: sel.slice(0, 1), campaign_ids: [601], columns: 1, items: four.slice(0, 1) } },
+    ];
+    for (const width of [1280, 390]) {
+      const api = createMockApi({ newsletters: [newsletter(76, { name: 'Editor placement', blocks })] });
+      const { page, context } = await open({ width, height: width === 1280 ? 1000 : 860, query: '&newsletterId=76', api });
+      const preview = page.locator('aside');
+      const section = preview.getByRole('group', { name: 'Campaigns section' }).first();
+      await expectVisible(section.getByText('Open house weekend'), `four cards at ${width}`);
+      if (width === 1280) {
+        const caps = await preview.evaluate((aside) => [...aside.querySelectorAll('li[data-card-key] img')].map((img) => getComputedStyle(img).maxHeight));
+        expect(caps.slice(0, 4).every((m) => m === 'none'), `2 columns: covers not capped (got ${caps.slice(0, 4)})`);
+        expect(caps[4] === '320px', `1 column: covers capped at 320 px (got ${caps[4]})`);
+      }
+      await section.click();
+      await section.getByRole('button', { name: 'Edit card: Fall service event' }).click();
+      const panel = section.getByRole('group', { name: 'Edit card: Fall service event' });
+      await expectVisible(panel, `editor open at ${width}`);
+      await page.waitForTimeout(400);
+      const place = await section.evaluate((el) => {
+        const box = (k) => el.querySelector(`li[data-card-key="${k}"]`).getBoundingClientRect();
+        const p = el.querySelector('[data-nl-card-editor]').getBoundingClientRect();
+        return { first: box('campaign:601'), second: box('campaign:602'), third: box('campaign:604'), panel: p, vh: window.innerHeight };
+      });
+      if (width === 1280) {
+        expect(place.panel.top >= Math.max(place.first.bottom, place.second.bottom) && place.panel.bottom <= place.third.top, 'in 2 columns: right under the first row, before the second');
+      } else {
+        expect(place.panel.top >= place.first.bottom && place.panel.bottom <= place.second.top, 'in 1 column: right under the card, before the next one');
+      }
+      expect(place.panel.top < place.vh && place.panel.bottom > 0, `the editor is on screen at ${width}`);
+      await shot(page, `${width}-07-editor-under-card`);
+
+      // The description keeps a line break while typing; one paragraph once the box is left.
+      const description = panel.getByLabel('Description', { exact: true });
+      await description.click();
+      await page.keyboard.type('Line one');
+      await page.keyboard.press('Enter');
+      await page.keyboard.type('line two');
+      expect(await description.inputValue() === 'Line one\nline two', `kept as typed (got ${JSON.stringify(await description.inputValue())})`);
+      await expectVisible(section.locator('li[data-card-key="campaign:601"]').getByText('Line one line two'), 'the card shows one paragraph');
+      await panel.getByLabel('Title', { exact: true }).focus();
+      expect(await description.inputValue() === 'Line one line two', 'one paragraph after leaving the box');
+
+      await panel.getByRole('button', { name: 'Close card editor' }).click();
+      expect(!(await panel.count()), 'editor closed');
+      expect(await page.evaluate(() => document.activeElement?.getAttribute('aria-label')) === 'Edit card: Fall service event', 'focus back on that card’s Edit card');
+      expect(!(await hasOverflow(page)), `no sideways scroll at ${width}`);
+      await context.close();
+    }
+  }
+
+  // ---- 3d. An upload that finishes after its card was taken out changes nothing.
+  {
+    const blocks = [{ id: 'c1', type: 'campaigns', data: { selections: [{ kind: 'campaign', id: 601 }, { kind: 'campaign', id: 604 }], campaign_ids: [601, 604], columns: 2, items: [card(601, 'Fall service event'), card(604, 'Winter tire swap')] } }];
+    const api = createMockApi({ newsletters: [newsletter(77, { name: 'Late upload', blocks })] });
+    const { page, context } = await open({ width: 1280, height: 1400, query: '&newsletterId=77', api });
+    const section = page.locator('aside').getByRole('group', { name: 'Campaigns section' }).first();
+    await expectVisible(section.getByText('Winter tire swap'), 'cards open');
+    await section.click();
+    await section.getByRole('button', { name: 'Edit card: Winter tire swap' }).click();
+    api.state.uploadDelayMs = 2500;
+    await page.getByTestId('c1-card-image-input').setInputFiles(new URL('../../../../public/pwa-icon-192.png', import.meta.url).pathname);
+    await section.getByRole('button', { name: EDIT }).filter({ hasText: 'Edit' }).click();
+    const picker = page.getByRole('dialog', { name: 'Choose campaigns' });
+    await picker.getByRole('checkbox', { name: /^Winter tire swap/ }).uncheck();
+    await picker.getByRole('button', { name: 'Done' }).click();
+    const upload = api.state.calls.find((c) => c.path === '/newsletters/images');
+    expect(upload && upload.status === undefined, 'the upload was still on its way when the card was taken out');
+    await page.waitForTimeout(4500);
+    expect(upload?.status === 201, 'and then finished');
+    const body = api.state.campaignBodies.at(-1);
+    expect(api.state.uploads.length === 1, 'the upload went out');
+    expect(JSON.stringify(body?.selections) === JSON.stringify([{ kind: 'campaign', id: 601 }]) && !body?.overrides, `the late upload left no edit behind (got ${JSON.stringify(body)})`);
+    await context.close();
   }
 }

@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react';
 import { Image as ImageIcon, RotateCcw, X } from 'lucide-react';
 import type { CampaignItem, CardOverride } from '../../../services/newslettersAPI';
 import { useImageUpload } from '../hooks/useImageUpload';
-import { CARD_LIMITS, cardEditNote, cardHasEdits, displayCard, itemButtonLabel, oneParagraph } from '../lib/campaignsBlock';
+import { CARD_LIMITS, cardEditNote, cardHasEdits, displayCard, itemButtonLabel, plainCardText } from '../lib/campaignsBlock';
 import { httpsUrl } from '../lib/urls';
 import { BUTTON_SMALL, LABEL, inputClass, textareaClass } from '../lib/ui';
 
@@ -25,12 +25,16 @@ export default function CampaignCardEditor({ blockId, item, override, onChange, 
   const shown = displayCard(item, override);
   const imageEdited = Boolean(httpsUrl(override?.image_url ?? ''));
   const edited = cardHasEdits(override);
-  // Opening the editor puts the cursor in the title.
+  // Opening the editor puts the cursor in the title and brings the editor into view (only as far as needed).
+  const rootRef = useRef<HTMLDivElement>(null);
   const titleRef = useRef<HTMLInputElement>(null);
-  useEffect(() => { titleRef.current?.focus(); }, []);
+  useEffect(() => {
+    titleRef.current?.focus({ preventScroll: true });
+    rootRef.current?.scrollIntoView?.({ block: 'nearest' });
+  }, []);
 
   return (
-    <div role="group" aria-label={`Edit card: ${item.title}`} data-nl-card-editor className="mt-3 grid gap-3 rounded-lg border border-[#6C60FF]/40 bg-gray-50 p-3">
+    <div ref={rootRef} role="group" aria-label={`Edit card: ${item.title}`} data-nl-card-editor className="grid gap-3 rounded-lg border border-[#6C60FF]/40 bg-gray-50 p-3">
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <p className="text-sm font-semibold text-gray-900">Edit card</p>
@@ -69,7 +73,10 @@ export default function CampaignCardEditor({ blockId, item, override, onChange, 
         <label htmlFor={`${id}-description`} className={LABEL}>Description</label>
         <textarea id={`${id}-description`} rows={3} value={override?.description ?? ''} maxLength={CARD_LIMITS.description}
           placeholder={item.description || 'Add a short description'}
-          onChange={(e) => onChange({ description: oneParagraph(e.target.value) })} className={`${textareaClass()} resize-y`} />
+          onChange={(e) => onChange({ description: e.target.value })}
+          // Kept as typed (the cursor stays put); one paragraph once the box is left, as it saves.
+          onBlur={(e) => { const plain = plainCardText(e.target.value); if (plain !== e.target.value) onChange({ description: plain }); }}
+          className={`${textareaClass()} resize-y`} />
       </div>
       <div>
         <label htmlFor={`${id}-button`} className={LABEL}>Button text</label>

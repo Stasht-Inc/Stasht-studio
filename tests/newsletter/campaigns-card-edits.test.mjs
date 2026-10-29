@@ -133,3 +133,31 @@ test('pruneOverrides: a card taken out in the picker loses its edits', () => {
   assert.deepEqual(pruneOverrides({ 'product:881': { title: 'A' }, 'campaign:12': { title: 'B' } }, [c(12)]), { 'campaign:12': { title: 'B' } });
   assert.deepEqual(pruneOverrides(undefined, [c(12)]), undefined);
 });
+
+// Review 29 Oct: edits are worked out from the section as it is at the moment of the change.
+test('cardEditPatch: from the latest data; a card no longer picked (an upload that finished late) changes nothing', async () => {
+  const { cardEditPatch, cardResetPatch } = await import('../../components/newsletters/lib/campaignsBlock.ts');
+  const latest = { selections: [p(881), c(12)], campaign_ids: [12], overrides: { 'campaign:12': { title: 'Typed meanwhile' } } };
+  assert.deepEqual(cardEditPatch(latest, 'product:881', { image_url: 'https://cdn.x.ca/a.jpg' }), {
+    overrides: { 'campaign:12': { title: 'Typed meanwhile' }, 'product:881': { image_url: 'https://cdn.x.ca/a.jpg' } },
+  });
+  assert.equal(cardEditPatch({ ...latest, selections: [c(12)] }, 'product:881', { image_url: 'https://cdn.x.ca/a.jpg' }), null);
+  assert.equal(cardEditPatch({ campaign_ids: [12] }, 'campaign:12', { title: 'Old shape' }).overrides['campaign:12'].title, 'Old shape');
+  assert.deepEqual(cardResetPatch(latest, 'campaign:12'), { overrides: {} });
+});
+
+test('plainCardText: what the description box becomes when it loses focus', async () => {
+  const { plainCardText } = await import('../../components/newsletters/lib/campaignsBlock.ts');
+  assert.equal(plainCardText('  One\n\n two   three '), 'One two three');
+});
+
+// Review 29 Oct: the card editor opens right under its card's row.
+test('cardEditorAfter: the last card of the edited card’s row', async () => {
+  const { cardEditorAfter } = await import('../../components/newsletters/lib/campaignsBlock.ts');
+  assert.equal(cardEditorAfter(0, 4, 2), 1);
+  assert.equal(cardEditorAfter(1, 4, 2), 1);
+  assert.equal(cardEditorAfter(2, 3, 2), 2, 'an odd last card is its own row');
+  assert.equal(cardEditorAfter(3, 4, 2), 3);
+  assert.equal(cardEditorAfter(0, 4, 1), 0);
+  assert.equal(cardEditorAfter(2, 4, 1), 2);
+});

@@ -292,12 +292,10 @@ export function resetCardOverride(overrides: CardOverrides | undefined, key: str
   return out;
 }
 
-/** A description is one paragraph: line breaks become spaces (the email shows it as one). */
-export const oneParagraph = (v: string): string => v.replace(/\s*[\r\n]+\s*/g, ' ');
-
 /** Card text as the API keeps it (29 Oct): plain, every run of spaces or line breaks one space, trimmed; the limits
  *  count after that. */
-const plainText = (v: string): string => v.replace(/\s+/g, ' ').trim();
+export const plainCardText = (v: string): string => v.replace(/\s+/g, ' ').trim();
+const plainText = plainCardText;
 
 const cleanField = (f: OverrideField, v: unknown): string | null => {
   if (typeof v !== 'string') return null;
@@ -351,3 +349,19 @@ export function cardEditNote(kind: CampaignKind | undefined): string {
   return `Changes show in this newsletter only. Leave a box empty to keep the original. The card still opens ${PAGE_OF[kindOf(kind)]}.`;
 }
 
+/** The section change for one card's edit, worked out from the section as it is now (never a copy from an earlier
+ *  render). null when the card is no longer picked (an upload that finished after it was taken out). */
+export function cardEditPatch(latest: { selections?: unknown; campaign_ids?: unknown; overrides?: CardOverrides }, key: string, patch: CardOverride): { overrides: CardOverrides } | null {
+  if (!normaliseSelections(latest.selections, latest.campaign_ids).some((s) => selectionKey(s) === key)) return null;
+  return { overrides: setCardOverride(latest.overrides, key, patch) };
+}
+
+/** "Reset to original" as a section change, from the section as it is now. */
+export function cardResetPatch(latest: { overrides?: CardOverrides }, key: string): { overrides: CardOverrides } {
+  return { overrides: resetCardOverride(latest.overrides, key) };
+}
+
+/** Where a card's editor goes: after the last card of that card's row (perRow: the cards a row as shown). */
+export function cardEditorAfter(index: number, count: number, perRow: 1 | 2): number {
+  return perRow === 2 ? Math.min(index | 1, count - 1) : index;
+}

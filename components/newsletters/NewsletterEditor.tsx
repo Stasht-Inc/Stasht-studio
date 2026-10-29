@@ -1,6 +1,6 @@
 import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { composerToast } from './ComposerToaster';
-import type { BlockType, CampaignItem, NewsletterBlock, NewsletterHeader } from '../../services/newslettersAPI';
+import type { BlockType, CampaignItem, CardOverrides, NewsletterBlock, NewsletterHeader } from '../../services/newslettersAPI';
 import type { NewsletterDraft } from './lib/draft';
 import { initialsFrom, type SenderProfile } from './lib/profile';
 import { LIMITS } from './lib/rules';
@@ -51,6 +51,8 @@ interface BlockHandlers {
   onMoveDown(): void;
   onDelete(): void;
   onChange(data: Record<string, unknown>): void;
+  /** A change worked out from the section's data as it is at that moment (null: nothing to change). */
+  onUpdate(fn: (latest: Record<string, unknown>) => Record<string, unknown> | null): void;
   /** Campaigns: open the picker. */
   onPick(): void;
 }
@@ -74,7 +76,7 @@ const BlockRow = memo(function BlockRow({ block, index, count, selected, readOnl
     <BlockFrame blockId={block.id} label={BLOCK_LABEL[block.type]} index={index} count={count} selected={selected} readOnly={readOnly} problem={problem} padClass={padClass}
       onSelect={handlers.onSelect} onDone={handlers.onDone} onMoveUp={handlers.onMoveUp} onMoveDown={handlers.onMoveDown} onDelete={handlers.onDelete}
       onEdit={campaigns ? handlers.onPick : undefined} editLabel={campaigns ? EDIT_ITEMS_LABEL : undefined}>
-      <BlockEditor block={block} selected={selected} readOnly={readOnly} onChange={handlers.onChange}
+      <BlockEditor block={block} selected={selected} readOnly={readOnly} onChange={handlers.onChange} onUpdate={campaigns ? handlers.onUpdate : undefined}
         serverItems={campaigns ? serverItems : undefined} accent={campaigns ? accent : undefined} onPick={campaigns ? handlers.onPick : undefined} phone={phone} />
     </BlockFrame>
   );
@@ -181,6 +183,10 @@ export default function NewsletterEditor({
         });
       },
       onChange: (data) => onBlocks((list) => updateBlockData(list, id, data)),
+      onUpdate: (fn) => onBlocks((list, index) => {
+        const patch = fn(list[index].data as unknown as Record<string, unknown>);
+        return patch ? updateBlockData(list, id, patch) : list;
+      }),
       onPick: () => { setSelectedId(id); setPickerFor(id); },
     };
     handlersRef.current.set(id, made);
@@ -259,8 +265,10 @@ export default function NewsletterEditor({
           onDone={(selections, items) => {
             if (!picking) return;
             // A card taken out loses its edits (picked again later, it starts from the item's own words).
-            const overrides = pruneOverrides(picking.data.overrides, selections);
-            handlersFor(picking.id).onChange({ selections, campaign_ids: campaignIdsOf(selections), items, ...(overrides ? { overrides } : {}) });
+            handlersFor(picking.id).onUpdate((latest) => {
+              const overrides = pruneOverrides(latest.overrides as CardOverrides | undefined, selections);
+              return { selections, campaign_ids: campaignIdsOf(selections), items, ...(overrides ? { overrides } : {}) };
+            });
           }}
           onCloseAutoFocus={(e) => {
             // Back to the section (it stays selected), not to the + that has gone.
