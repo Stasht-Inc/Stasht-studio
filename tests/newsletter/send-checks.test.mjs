@@ -12,8 +12,9 @@ const ready = {
 };
 const allowance = { plan: 'Professional', email_limit: 5000, sms_limit: 500, email_used: 1200, sms_used: 40, resets_at: '2026-11-01T00:00:00Z' };
 
+// Chris, 29 Oct: the subject line and preview text live in step 1 ("Name and subject").
 test('step order and DOM ids', () => {
-  assert.deepEqual(STEP_ORDER, ['name', 'recipients', 'from', 'subject', 'content', 'schedule']);
+  assert.deepEqual(STEP_ORDER, ['name', 'recipients', 'from', 'content', 'schedule']);
   assert.equal(stepDomId('from'), 'nl-step-from');
 });
 
@@ -26,12 +27,19 @@ test('a finished newsletter has no problems', () => {
 test('an empty draft points at each unfinished step', () => {
   const p = preSendProblems(emptyDraft(), counts, { mode: 'now' });
   assert.deepEqual(p, {
-    name: 'Give your newsletter a name.',
-    subject: 'Add a subject line.',
+    name: 'Give your newsletter a name and a subject line.',
     content: 'Add at least one section to the email.',
   });
   assert.equal(firstProblemStep(p), 'name');
   assert.equal(firstProblemStep({}), null);
+});
+
+test('name and subject share step 1', () => {
+  assert.equal(preSendProblems({ ...ready, name: '' }, counts, { mode: 'now' }).name, 'Give your newsletter a name.');
+  assert.equal(preSendProblems({ ...ready, subject: '' }, counts, { mode: 'now' }).name, 'Add a subject line.');
+  assert.equal(preSendProblems({ ...ready, subject: 'x'.repeat(151) }, counts, { mode: 'now' }).name, 'Use 150 characters or fewer.');
+  assert.equal(preSendProblems({ ...ready, preview_text: 'x'.repeat(201) }, counts, { mode: 'now' }).name, 'Use 200 characters or fewer.');
+  assert.equal(preSendProblems({ ...ready, name: 'x'.repeat(121), subject: '' }, counts, { mode: 'now' }).name, 'Use 120 characters or fewer.', 'the name problem first');
 });
 
 test('recipients, SMS, reply-to, sections and schedule', () => {
@@ -48,8 +56,9 @@ test('recipients, SMS, reply-to, sections and schedule', () => {
 
 test('stepErrorsFrom maps API 422 keys to steps', () => {
   assert.deepEqual(stepErrorsFrom({ 'blocks.2.data.url': 'Use https.', blocks: 'Use https.', allowance: 'Not enough emails left.', business_address: 'Add your address.', subject: 'Add a subject line.' }), {
-    content: 'Use https.', recipients: 'Not enough emails left.', subject: 'Add a subject line.',
+    content: 'Use https.', recipients: 'Not enough emails left.', name: 'Add a subject line.',
   });
+  assert.deepEqual(stepErrorsFrom({ preview_text: 'Too long.' }), { name: 'Too long.' });
   assert.deepEqual(stepErrorsFrom({ audience: 'Nobody here.', sms_text: 'Too long.' }), { recipients: 'Nobody here.' });
   assert.deepEqual(stepErrorsFrom({ scheduled_at: 'Must be in the future.' }), { schedule: 'Must be in the future.' });
   // The API's 422 when the account has no email and the reply-to is empty.

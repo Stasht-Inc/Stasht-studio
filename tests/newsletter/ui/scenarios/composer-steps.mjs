@@ -1,4 +1,4 @@
-// Task 3: the Newsletter tab opens by default, shows six steps and the preview, autosaves once, and the
+// Task 3: the Newsletter tab opens by default, shows five steps and the preview, autosaves once, and the
 // Storeel tab still shows today's form. The Storeel campaign limit shows inline on the Storeel tab only.
 import { createMockApi } from '../mock-api.mjs';
 
@@ -6,7 +6,7 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
   const { page, api, context } = await open({ width: 1280, height: 1700 });
   await expectVisible(page.getByRole('heading', { name: 'Create Campaign' }), 'composer header');
   await expectVisible(page.getByRole('radio', { name: 'Newsletter', checked: true }), 'Newsletter tab selected by default');
-  for (const title of ['Campaign name', 'Recipients', 'From', 'Subject', 'Content', 'Schedule']) {
+  for (const title of ['Name and subject', 'Recipients', 'From', 'Content', 'Schedule']) {
     await expectVisible(page.getByRole('heading', { name: title, exact: true }), `step "${title}"`);
   }
   await expectVisible(page.getByText('Email preview', { exact: true }), 'EMAIL PREVIEW label');
@@ -37,7 +37,7 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
   expect(await page.getByText('Campaign Limit Reached').count() === 0, 'no limit notice when within the limit');
   await shot(page, '1280-storeel');
   await page.getByRole('radio', { name: 'Newsletter' }).first().click();
-  await expectVisible(page.getByRole('heading', { name: 'Campaign name' }), 'back on Newsletter');
+  await expectVisible(page.getByRole('heading', { name: 'Name and subject' }), 'back on Newsletter');
   expect(await page.locator('#nl-name').inputValue() === 'October Newsletter 2026', 'draft kept while on the Storeel tab');
   await page.locator('#nl-subject').fill('October deals are here!');
   await page.waitForTimeout(1500);
@@ -47,7 +47,7 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
   // Phones: no sideways scroll at 360, 375 and 390, on both tabs.
   for (const width of [360, 375, 390]) {
     const phone = await open({ width, height: 844 });
-    await expectVisible(phone.page.getByRole('heading', { name: 'Campaign name' }), `phone layout ${width}`);
+    await expectVisible(phone.page.getByRole('heading', { name: 'Name and subject' }), `phone layout ${width}`);
     expect(!(await hasOverflow(phone.page)), `no sideways scroll on the Newsletter tab at ${width} px`);
     if (width === 390) {
       await shot(phone.page, '390-newsletter');
@@ -81,7 +81,7 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
 
   // Storeel campaign limit reached: Newsletter still opens and works; the Storeel tab shows the limit inline.
   const limited = await open({ api: createMockApi({ storeelLimit: true }), width: 1280 });
-  await expectVisible(limited.page.getByRole('heading', { name: 'Campaign name' }), 'Newsletter tab opens with the Storeel limit reached');
+  await expectVisible(limited.page.getByRole('heading', { name: 'Name and subject' }), 'Newsletter tab opens with the Storeel limit reached');
   expect(await limited.page.getByText('Campaign Limit Reached').count() === 0, 'no limit notice on the Newsletter tab');
   await limited.page.getByRole('radio', { name: 'Storeel' }).click();
   await expectVisible(limited.page.getByText('Campaign Limit Reached'), 'limit notice inline on the Storeel tab');

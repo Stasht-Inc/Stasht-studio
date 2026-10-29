@@ -32,7 +32,7 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
   await shot(page, '1280-02-exact-preview');
   await page.keyboard.press('Escape');
   await page.waitForTimeout(300);
-  expect(await page.getByRole('heading', { name: 'Campaign name' }).isVisible(), 'Escape closed only the preview');
+  expect(await page.getByRole('heading', { name: 'Name and subject' }).isVisible(), 'Escape closed only the preview');
 
   await page.getByRole('button', { name: 'Send a test to me' }).click();
   await expectVisible(page.getByText('Test sent to samantha@serpachrysler.ca.'), 'test toast');

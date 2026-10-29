@@ -8,10 +8,11 @@ import { scheduleProblem, textQuietHoursProblem } from './schedule.ts';
 import { smsPartsInfo } from './smsParts.ts';
 import { userLocale } from './locale.ts';
 
-export type StepKey = 'name' | 'recipients' | 'from' | 'subject' | 'content' | 'schedule';
+// Step 1 holds the name, subject line and preview text (Chris, 29 Oct), so those all point at 'name'.
+export type StepKey = 'name' | 'recipients' | 'from' | 'content' | 'schedule';
 export type StepProblems = Partial<Record<StepKey, string>>;
 
-export const STEP_ORDER: StepKey[] = ['name', 'recipients', 'from', 'subject', 'content', 'schedule'];
+export const STEP_ORDER: StepKey[] = ['name', 'recipients', 'from', 'content', 'schedule'];
 export const stepDomId = (key: StepKey): string => `nl-step-${key}`;
 
 /** Spec §8 send/schedule 422 keys (and the editable fields) → the step that fixes them. */
@@ -19,7 +20,7 @@ const STEP_FOR_FIELD: Record<string, StepKey> = {
   name: 'name',
   audience: 'recipients', channels: 'recipients', sms_text: 'recipients', allowance: 'recipients',
   from_name: 'from', reply_to_email: 'from',
-  subject: 'subject', preview_text: 'subject',
+  subject: 'name', preview_text: 'name',
   blocks: 'content', header: 'content', template: 'content', business_address: 'content',
   scheduled_at: 'schedule',
 };
@@ -40,8 +41,14 @@ export function preSendProblems(d: NewsletterDraft, counts: AudienceCount | null
   const live = fieldProblems(d);
   const email = d.channels.includes('email');
 
-  if (!d.name.trim()) out.name = 'Give your newsletter a name.';
+  // Step 1: the name's problem first, then the subject's (one message; both missing say so together).
+  const noName = !d.name.trim();
+  const noSubject = !d.subject.trim();
+  if (noName && noSubject) out.name = 'Give your newsletter a name and a subject line.';
+  else if (noName) out.name = 'Give your newsletter a name.';
   else if (live.name) out.name = live.name;
+  else if (noSubject) out.name = 'Add a subject line.';
+  else if (live.subject || live.preview_text) out.name = live.subject ?? live.preview_text;
 
   if (!d.audience.length) out.recipients = 'Choose who gets this newsletter.';
   else if (!d.channels.length) out.recipients = 'Choose email, text or both.';
@@ -55,9 +62,6 @@ export function preSendProblems(d: NewsletterDraft, counts: AudienceCount | null
   // Alignment decision 5: an empty from name or reply-to never blocks (pre-filled, and the API fills them in on
   // send). Only what can't be sent is flagged; the API's 422 reply_to_email (account with no email) maps here too.
   if (email && (live.from_name || live.reply_to_email)) out.from = live.from_name ?? live.reply_to_email;
-
-  if (!d.subject.trim()) out.subject = 'Add a subject line.';
-  else if (live.subject || live.preview_text) out.subject = live.subject ?? live.preview_text;
 
   if (!d.blocks.length) out.content = 'Add at least one section to the email.';
   else if (Object.keys(blocksProblems(d.blocks)).length) out.content = 'Finish or remove the sections marked in red.';

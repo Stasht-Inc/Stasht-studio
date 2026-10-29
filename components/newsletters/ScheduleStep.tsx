@@ -18,7 +18,7 @@ export default function ScheduleStep({ value, onChange, stepError, readOnly, tex
     `flex min-w-0 items-center gap-3 rounded-lg border-2 px-4 py-2.5 ${checked ? 'border-[#6C60FF] bg-[#6C60FF]/5' : 'border-gray-200 bg-white'} ${readOnly ? 'opacity-70' : 'cursor-pointer'}`;
 
   return (
-    <StepCard number={6} title="Schedule" id="nl-step-schedule" error={stepError}>
+    <StepCard number={5} title="Schedule" id="nl-step-schedule" error={stepError}>
       <fieldset>
         <legend className="sr-only">When to send</legend>
         <div className="grid gap-3 min-[400px]:grid-cols-2">

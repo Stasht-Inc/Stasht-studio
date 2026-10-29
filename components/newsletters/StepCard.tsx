@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 
-/** One numbered card in the left column (prototype: "1 Campaign name" … "6 Schedule"). */
+/** One numbered card in the left column ("1 Name and subject" … "5 Schedule"). */
 export default function StepCard({ number, title, id, aside, error, children }: {
   number: number;
   title: string;

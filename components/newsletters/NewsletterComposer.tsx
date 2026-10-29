@@ -25,6 +25,7 @@ import PreviewDialog from './PreviewDialog';
 import SendTestButton from './SendTestButton';
 import { formatSendTime, plannedFromSchedule, sameInstant, scheduleFromPlanned, type ScheduleChoice } from './lib/schedule';
 import { firstProblemStep, preSendProblems, stepDomId, stepErrorsFrom, type StepKey } from './lib/sendChecks';
+import { nextSubjectForName } from './lib/subjectSync';
 import { formatSentTo } from './lib/phoneDisplay';
 import { smsPartsInfo } from './lib/smsParts';
 import { OFF_SCHEDULE_BANNER, clearUnscheduled, putBackProblem, unscheduledFor } from './lib/editScheduled';
@@ -36,7 +37,6 @@ import UpgradeCard from './UpgradeCard';
 import ComposerDialog from './ComposerDialog';
 import NameStep from './steps/NameStep';
 import FromStep from './steps/FromStep';
-import SubjectStep from './steps/SubjectStep';
 
 export interface NewsletterComposerHandle {
   focusName(): void;
@@ -262,6 +262,12 @@ const NewsletterComposer = forwardRef<NewsletterComposerHandle, NewsletterCompos
     return res.ok;
   };
 
+  // Chris, 29 Oct: a subject that is empty or still the name follows the name as it is typed (and so does the
+  // preview's subject); one typed in the Subject line field stays. Function form: always from the latest draft.
+  const changeName = (name: string) => update((d) => {
+    const subject = nextSubjectForName(d.name, name, d.subject);
+    return subject === d.subject ? { name } : { name, subject };
+  });
   const live = fieldProblems(draft);
   const fieldError = (key: keyof NewsletterDraft): string | undefined => live[key] ?? state.fieldErrors[key];
 
@@ -449,7 +455,9 @@ const NewsletterComposer = forwardRef<NewsletterComposerHandle, NewsletterCompos
                 </>
               )}
 
-              <NameStep value={draft.name} onChange={(name) => update({ name })} fieldError={fieldError('name')} stepError={stepError('name')} readOnly={readOnly} inputRef={setNameInput} autoFocus={!newsletterId} />
+              <NameStep name={draft.name} subject={draft.subject} previewText={draft.preview_text} onNameChange={changeName} onChange={update}
+                errors={{ name: fieldError('name'), subject: fieldError('subject'), preview_text: fieldError('preview_text') }}
+                stepError={stepError('name')} readOnly={readOnly} inputRef={setNameInput} autoFocus={!newsletterId} />
 
               <AudiencePicker
                 audience={draft.audience}
@@ -467,10 +475,7 @@ const NewsletterComposer = forwardRef<NewsletterComposerHandle, NewsletterCompos
               <FromStep fromName={draft.from_name} replyTo={draft.reply_to_email} onChange={update}
                 errors={{ from_name: fieldError('from_name'), reply_to_email: fieldError('reply_to_email') }} stepError={stepError('from')} readOnly={readOnly} />
 
-              <SubjectStep subject={draft.subject} previewText={draft.preview_text} onChange={update}
-                errors={{ subject: fieldError('subject'), preview_text: fieldError('preview_text') }} stepError={stepError('subject')} readOnly={readOnly} />
-
-              <StepCard number={5} title="Content" id="nl-step-content" error={stepError('content')}>
+              <StepCard number={4} title="Content" id="nl-step-content" error={stepError('content')}>
                 <TemplatePicker value={draft.template} readOnly={readOnly} />
               </StepCard>
 
