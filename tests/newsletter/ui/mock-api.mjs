@@ -6,6 +6,7 @@ const PUBLIC_DIR = new URL('../../../public/', import.meta.url).pathname;
 // NewsletterSendController::schedule: texts only between 8:00 and 21:00 in NEWSLETTER_DEFAULT_TIMEZONE.
 const torontoHour = (ms) => Number(new Intl.DateTimeFormat('en-US', { timeZone: 'America/Toronto', hour: 'numeric', hourCycle: 'h23' }).format(new Date(ms)));
 const QUIET_HOURS_ERROR = 'Texts can only go out between 8am and 9pm. Pick a time in that window.';
+const NA_MOBILES_ONLY = 'Text messages can only go to Canadian and US mobile numbers for now.';
 const now = () => new Date().toISOString();
 export const COUNTS0 = { recipients: 0, sent: 0, delivered: 0, opened: 0, clicked: 0, unsubscribed: 0, failed: 0, skipped: 0 };
 export const IMG = 'https://127.0.0.1/nl-img/pwa-icon-512.png';
@@ -280,6 +281,8 @@ export function createMockApi(options = {}) {
     optionsDelayMs: options.optionsDelayMs ?? 0,
     // Results rows carry skip_reason / skip_note (Chris, 29 Oct round 2, item 6). Off by default.
     textSkips: options.textSkips ?? false,
+    // Add / edit person answers a non-North-American mobile with the API's Canada/US message (item 8). Off by default.
+    naMobilesOnly: options.naMobilesOnly ?? false,
     // People on each list (Lists tab), made from member_count the first time a list's people are asked for.
     members: new Map(),
     nextMemberId: 50000000,
@@ -497,6 +500,8 @@ export function createMockApi(options = {}) {
       if (!rawEmail && !rawPhone) errors.email = ['Add an email address or a mobile number.'];
       else if (rawEmail && !email) errors.email = ['Enter an email address like name@example.com.'];
       if (rawPhone && !phone) errors.phone = ['Enter a mobile number with its country code, like +1 416 555 0100.'];
+      // Chris, 29 Oct (round 2), item 8: the API's words for a number outside Canada and the US (naMobilesOnly).
+      if (state.naMobilesOnly && errors.phone) errors.phone = [NA_MOBILES_ONLY];
       if (!['express', 'implied'].includes(body?.consent_type)) errors.consent_type = ['Choose how this person agreed to hear from you.'];
       if (Object.keys(errors).length) return fail(422, { message: Object.values(errors)[0][0], errors });
       const rows = membersOf(list);
@@ -528,6 +533,7 @@ export function createMockApi(options = {}) {
         const raw = String(body.phone ?? '').trim();
         next.phone = raw ? normPhone(raw) : null;
         if (raw && !next.phone) errors.phone = ['Enter a mobile number with its country code, like +1 416 555 0100.'];
+        if (state.naMobilesOnly && errors.phone) errors.phone = [NA_MOBILES_ONLY];
       }
       if (!errors.email && !errors.phone && !next.email && !next.phone) errors.email = ['Add an email address or a mobile number.'];
       if (!errors.email && next.email && rows.some((r) => r !== row && r.email === next.email)) errors.email = ['Someone on this list already has this email address.'];

@@ -2,16 +2,20 @@ import { useEffect, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import { newslettersAPI, type ConsentType, type ContactListMember, type MemberInput } from '../../../services/newslettersAPI';
 import ComposerDialog from '../../newsletters/ComposerDialog';
+import CountrySelect from '../../CountrySelect';
 import { GENERIC_ERROR } from '../../newsletters/lib/apiResult';
 import { CONSENT_HINT, CONSENT_OPTIONS } from '../../newsletters/lib/consent';
 import { memberFormProblems } from '../../newsletters/lib/lists';
 import { BUTTON_OUTLINE, BUTTON_PRIMARY, LABEL, inputClass } from '../../newsletters/lib/ui';
 import { ErrorNote } from './ListDialogs';
+import { MEMBER_DIAL_CODE, memberPhoneParts, memberPhoneProblem, memberPhoneValue } from './memberPhone';
+import { splitTypedPhone } from '../../../utils/phoneUtils';
 
 type Field = 'name' | 'email' | 'phone' | 'consent_type';
 const CONSENT_REQUIRED = 'Choose how this person agreed to hear from you.';
 
-/** Add one person to a list (with how they agreed), or edit someone's name, email or mobile number. */
+/** Add one person to a list (with how they agreed), or edit someone's name, email or mobile number. The mobile has
+ *  the country-code picker used elsewhere in Studio (+1 first) and is saved as E.164 (Chris, 29 Oct round 2). */
 export default function MemberDialog({ open, onOpenChange, listId, listName, member, onSaved, onGone }: {
   open: boolean;
   onOpenChange(open: boolean): void;
@@ -26,7 +30,9 @@ export default function MemberDialog({ open, onOpenChange, listId, listName, mem
   const editing = Boolean(member && member.id != null);
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
+  // The number box (national number) and its country code; what is saved is memberPhoneValue(code, number).
   const [phone, setPhone] = useState('');
+  const [phoneCode, setPhoneCode] = useState(MEMBER_DIAL_CODE);
   const [consent, setConsent] = useState<ConsentType | null>(null);
   const [errors, setErrors] = useState<Partial<Record<Field, string>>>({});
   const [error, setError] = useState<string | null>(null);
@@ -34,13 +40,17 @@ export default function MemberDialog({ open, onOpenChange, listId, listName, mem
 
   useEffect(() => {
     if (!open) return;
-    setName(member?.name ?? ''); setEmail(member?.email ?? ''); setPhone(member?.phone ?? '');
+    const parts = memberPhoneParts(member?.phone);
+    setName(member?.name ?? ''); setEmail(member?.email ?? ''); setPhone(parts.number); setPhoneCode(parts.countryCode);
     setConsent(null); setErrors({}); setError(null); setBusy(false);
   }, [open, member]);
 
   const save = async () => {
     setError(null);
-    const problems: Partial<Record<Field, string>> = memberFormProblems({ email, phone });
+    const phoneValue = memberPhoneValue(phoneCode, phone);
+    const problems: Partial<Record<Field, string>> = memberFormProblems({ email, phone: phoneValue });
+    const phoneProblem = memberPhoneProblem(phoneCode, phone);
+    if (phoneProblem) problems.phone = phoneProblem;
     if (!editing && !consent) problems.consent_type = CONSENT_REQUIRED;
     setErrors(problems);
     if (Object.keys(problems).length) return;
@@ -50,7 +60,10 @@ export default function MemberDialog({ open, onOpenChange, listId, listName, mem
     if (editing) {
       if (clean(name) !== (member!.name ?? null)) patch.name = clean(name);
       if (clean(email) !== (member!.email ?? null)) patch.email = clean(email);
-      if (clean(phone) !== (member!.phone ?? null)) patch.phone = clean(phone);
+      // Compared as saved (E.164), so opening and saving an unchanged number sends nothing.
+      const was = memberPhoneParts(member!.phone);
+      const before = memberPhoneValue(was.countryCode, was.number);
+      if (phoneValue !== before) patch.phone = phoneValue || null;
       if (!Object.keys(patch).length) { onOpenChange(false); return; }
     }
     setBusy(true);
@@ -59,7 +72,7 @@ export default function MemberDialog({ open, onOpenChange, listId, listName, mem
       : await newslettersAPI.addMember(listId, {
         ...(clean(name) ? { name: clean(name) } : {}),
         ...(clean(email) ? { email: clean(email) } : {}),
-        ...(clean(phone) ? { phone: clean(phone) } : {}),
+        ...(phoneValue ? { phone: phoneValue } : {}),
         consent_type: consent!,
         consent_source: 'manual',
       });
@@ -104,7 +117,25 @@ export default function MemberDialog({ open, onOpenChange, listId, listName, mem
       <form id="lists-member-form" noValidate className="space-y-4" onSubmit={(e) => { e.preventDefault(); void save(); }}>
         {field('name', 'Name', name, setName, { placeholder: 'e.g. Jane Doe', autoComplete: 'off' })}
         {field('email', 'Email', email, setEmail, { type: 'email', placeholder: 'name@example.com', autoComplete: 'off', inputMode: 'email' })}
-        {field('phone', 'Mobile', phone, setPhone, { type: 'tel', placeholder: '+1 416 555 0100', autoComplete: 'off', inputMode: 'tel' })}
+        <div>
+          <label htmlFor="lists-member-phone" className={LABEL}>Mobile</label>
+          <div className="flex gap-2">
+            <CountrySelect value={phoneCode} ariaLabel="Country code"
+              onChange={(code) => { setPhoneCode(code); if (errors.phone) setErrors((p) => ({ ...p, phone: undefined })); }}
+              className={`h-9 w-28 flex-shrink-0 rounded-lg border bg-white text-sm text-gray-900 outline-none transition-colors focus:border-[#6C60FF] focus:ring-2 focus:ring-[#6C60FF]/20 ${errors.phone ? 'border-red-400' : 'border-gray-200'}`} />
+            <input id="lists-member-phone" type="tel" value={phone} placeholder="416 555 0100" autoComplete="off" inputMode="tel"
+              aria-invalid={Boolean(errors.phone)} aria-describedby={errors.phone ? 'lists-member-phone-error' : undefined}
+              onChange={(e) => {
+                // A full number pasted with its code ("+44 7911…") moves the code to the picker.
+                const next = splitTypedPhone(phoneCode, e.target.value);
+                setPhoneCode(next.countryCode);
+                setPhone(next.number);
+                if (errors.phone) setErrors((p) => ({ ...p, phone: undefined }));
+              }}
+              className={`${inputClass(Boolean(errors.phone))} min-w-0 flex-1`} />
+          </div>
+          {errors.phone ? <p id="lists-member-phone-error" className="mt-1.5 text-xs text-red-600">{errors.phone}</p> : null}
+        </div>
         {editing ? null : (
           <fieldset className="rounded-lg bg-gray-50 p-3" aria-describedby="lists-member-consent-hint">
             <legend className="float-left mb-2 w-full text-sm font-medium text-gray-900">How did this person agree to hear from you? <span className="font-normal text-gray-500">(Required)</span></legend>
