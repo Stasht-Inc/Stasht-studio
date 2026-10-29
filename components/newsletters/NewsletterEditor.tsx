@@ -82,7 +82,8 @@ const BlockRow = memo(function BlockRow({ block, index, count, selected, readOnl
 /**
  * The right-hand EMAIL PREVIEW, edited in place. It is drawn like the email the server sends
  * (emails/newsletter/*.blade.php): grey page, "View in browser", a 600 px white card with the header,
- * the sections (40 px side padding, 20 px on phones) and the e-card footer. "+" lines sit between sections.
+ * the sections (40 px side padding, 20 px on phones) and the e-card footer. "+" lines sit between sections, always
+ * shown.
  */
 export default function NewsletterEditor({
   draft, readOnly, device, profile, businessAddress, showProblems, fieldErrors, onChange, onHeaderChange, onSaveAddress, savedBlocks, active = true,
@@ -208,8 +209,8 @@ export default function NewsletterEditor({
   };
   const pickerBlock = pickerFor ? blocks.find((b) => b.id === pickerFor) : undefined;
   const picking = pickerBlock?.type === 'campaigns' ? pickerBlock : null;
-  const plus = (index: number, label: string, alwaysVisible = false) =>
-    readOnly ? null : <AddSectionPopover label={label} onAdd={(type) => add(index, type)} disabled={full} alwaysVisible={alwaysVisible} />;
+  const plus = (index: number, label: string) =>
+    readOnly ? null : <AddSectionPopover label={label} onAdd={(type) => add(index, type)} disabled={full} />;
 
   return (
     // A tap anywhere in the preview outside the selected part closes its editor (a tap on another part selects
@@ -232,7 +233,7 @@ export default function NewsletterEditor({
             <HeaderEditor header={draft.header} onChange={onHeaderChange} selected={selectedId === HEADER_ID}
               onSelect={() => { if (!readOnly) select(HEADER_ID); }} onDone={() => deselect(true)} readOnly={readOnly} padClass={padClass} />
             <div className="py-3">
-              {plus(0, 'Add a section at the top', blocks.length === 0)}
+              {plus(0, 'Add a section at the top')}
               {blocks.length === 0 && !readOnly ? <p className={`${padClass} pb-3 text-center text-sm text-gray-500`}>Tap + to add your first section.</p> : null}
               {blocks.map((block, index) => (
                 <Fragment key={block.id}>

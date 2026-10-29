@@ -16,12 +16,12 @@ const ITEMS: Array<{ type: BlockType; label: string; desc: string; icon: ReactNo
   { type: 'divider', label: 'Divider', desc: 'A line or space between sections', icon: <Minus className="h-5 w-5 text-[#F59E0B]" /> },
 ];
 
-/** The dashed line with a "+" from the Storeel timeline (MemoryDetailsPage "Add Widget"), here "Add section". */
-export default function AddSectionPopover({ label, onAdd, disabled = false, alwaysVisible = false }: {
+/** The dashed line with a "+" from the Storeel timeline (MemoryDetailsPage "Add Widget"), here "Add section".
+ *  Always shown, on every screen (Chris, 29 Oct: "Otherwise you don't know it is there."). */
+export default function AddSectionPopover({ label, onAdd, disabled = false }: {
   label: string;
   onAdd(type: BlockType): void;
   disabled?: boolean;
-  alwaysVisible?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   // To the side on wide screens (as on a Storeel); below the "+" on phones, where there is no room beside it.
@@ -54,15 +54,10 @@ export default function AddSectionPopover({ label, onAdd, disabled = false, alwa
     e.preventDefault();
     itemRefs.current[next]?.focus();
   };
-  // Hidden until hover / focus on wide screens (as in the Storeel timeline); always shown on touch screens.
-  const visibility = alwaysVisible || open
-    ? 'opacity-100'
-    : 'opacity-100 md:opacity-0 md:group-hover/add:opacity-100 md:group-focus-within/add:opacity-100';
-
   return (
-    <div className="group/add relative h-7">
-      <div className={`absolute inset-x-6 top-1/2 border-b border-dashed border-[#6C60FF]/40 transition-opacity ${visibility}`} />
-      <div className={`absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 transition-opacity duration-200 ${visibility}`}>
+    <div data-nl-add className="relative h-7">
+      <div aria-hidden="true" className="absolute inset-x-6 top-1/2 border-b border-dashed border-[#6C60FF]/40" />
+      <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2">
         <Popover.Root open={open} onOpenChange={openChange}>
           <Popover.Trigger asChild>
             <button type="button" aria-label={label} disabled={disabled} title={disabled ? `You can add up to ${LIMITS.blocks} sections.` : label}
