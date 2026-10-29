@@ -115,12 +115,13 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
     await expectVisible(section.getByText('Royalwood · Doors'), 'details on the product card');
     await page.waitForTimeout(1500);
     const sent = api.state.campaignBodies.at(-1);
-    const want = { selections: [{ kind: 'product', id: 882 }, { kind: 'product', id: 881 }, { kind: 'campaign', id: 601 }], campaign_ids: [601] };
+    // columns: 2 for a new section (Chris, 29 Oct round 2).
+    const want = { selections: [{ kind: 'product', id: 882 }, { kind: 'product', id: 881 }, { kind: 'campaign', id: 601 }], campaign_ids: [601], columns: 2 };
     expect(JSON.stringify(sent) === JSON.stringify(want), `Studio sends selections + campaign_ids, no items (got ${JSON.stringify(sent)})`);
     const saved = api.state.newsletters[0];
     expect(saved?.blocks?.[0]?.data?.items?.length === 3, 'the API stored its own snapshot of all three');
     expect(JSON.stringify(await cardTitles(section)) === JSON.stringify(order), 'same order after the save');
-    await expectVisible(section.getByRole('button', { name: 'Change campaigns, products or vehicles' }).first(), 'Change button named for all three kinds');
+    await expectVisible(section.getByRole('button', { name: 'Edit campaigns, products or vehicles' }).first(), 'Edit button named for all three kinds');
     await shot(page, '1280-02-cards');
     await context.close();
 
@@ -162,7 +163,7 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
     await expectVisible(section.getByText('View vehicle', { exact: true }), 'View vehicle on the card');
     await expectVisible(section.getByText('2021 · 45,000 km · Automatic'), 'vehicle details on the card');
     await page.waitForTimeout(1500);
-    expect(JSON.stringify(api.state.campaignBodies.at(-1)) === JSON.stringify({ selections: [{ kind: 'vehicle', id: 45 }], campaign_ids: [] }), `vehicle pick sent (got ${JSON.stringify(api.state.campaignBodies.at(-1))})`);
+    expect(JSON.stringify(api.state.campaignBodies.at(-1)) === JSON.stringify({ selections: [{ kind: 'vehicle', id: 45 }], campaign_ids: [], columns: 2 }), `vehicle pick sent (got ${JSON.stringify(api.state.campaignBodies.at(-1))})`);
     await shot(page, '1280-03-vehicle-card');
     await context.close();
   }
@@ -193,7 +194,7 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
     await expectVisible(phone.page.getByText('Solid oak interior door').first(), `cards on a ${width} phone`);
     expect(!(await hasOverflow(phone.page)), `no sideways scroll at ${width} (cards)`);
     await group.click();
-    await group.getByRole('button', { name: 'Change campaigns, products or vehicles' }).last().click();
+    await group.getByRole('button', { name: 'Edit campaigns, products or vehicles' }).last().click();
     const picker = phone.page.getByRole('dialog', { name: TITLE });
     await expectVisible(picker.locator('#nl-campaign-product-883'), `Products picker on a ${width} phone`);
     await expectVisible(picker.locator('#nl-campaign-category'), `category filter on a ${width} phone`);

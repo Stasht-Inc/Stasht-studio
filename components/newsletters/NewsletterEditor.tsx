@@ -1,11 +1,11 @@
 import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { composerToast } from './ComposerToaster';
-import type { BlockType, CampaignItem, NewsletterBlock, NewsletterHeader } from '../../services/newslettersAPI';
+import type { BlockType, CampaignItem, CardOverrides, NewsletterBlock, NewsletterHeader } from '../../services/newslettersAPI';
 import type { NewsletterDraft } from './lib/draft';
 import { initialsFrom, type SenderProfile } from './lib/profile';
 import { LIMITS } from './lib/rules';
 import { ACTION_TOAST_MS, blocksProblems, campaignSelections, createBlock, insertBlock, liveBlockProblems, moveBlock, newBlockId, removeBlock, undoDelete, updateBlockData } from './lib/blocks';
-import { CHANGE_ITEMS_LABEL, campaignIdsOf } from './lib/campaignsBlock';
+import { EDIT_ITEMS_LABEL, campaignIdsOf, pruneOverrides } from './lib/campaignsBlock';
 import InboxRow from './InboxRow';
 import HeaderEditor from './HeaderEditor';
 import EcardFooter from './EcardFooter';
@@ -51,12 +51,14 @@ interface BlockHandlers {
   onMoveDown(): void;
   onDelete(): void;
   onChange(data: Record<string, unknown>): void;
+  /** A change worked out from the section's data as it is at that moment (null: nothing to change). */
+  onUpdate(fn: (latest: Record<string, unknown>) => Record<string, unknown> | null): void;
   /** Campaigns: open the picker. */
   onPick(): void;
 }
 
 /** One section with its frame. Memoised: typing in one section doesn't re-render the others. */
-const BlockRow = memo(function BlockRow({ block, index, count, selected, readOnly, problem, padClass, handlers, serverItems, accent }: {
+const BlockRow = memo(function BlockRow({ block, index, count, selected, readOnly, problem, padClass, handlers, serverItems, accent, phone }: {
   block: NewsletterBlock;
   index: number;
   count: number;
@@ -67,14 +69,15 @@ const BlockRow = memo(function BlockRow({ block, index, count, selected, readOnl
   handlers: BlockHandlers;
   serverItems?: CampaignItem[];
   accent?: string | null;
+  phone: boolean;
 }) {
   const campaigns = block.type === 'campaigns';
   return (
     <BlockFrame blockId={block.id} label={BLOCK_LABEL[block.type]} index={index} count={count} selected={selected} readOnly={readOnly} problem={problem} padClass={padClass}
       onSelect={handlers.onSelect} onDone={handlers.onDone} onMoveUp={handlers.onMoveUp} onMoveDown={handlers.onMoveDown} onDelete={handlers.onDelete}
-      onEdit={campaigns ? handlers.onPick : undefined} editLabel={campaigns ? CHANGE_ITEMS_LABEL : undefined}>
-      <BlockEditor block={block} selected={selected} readOnly={readOnly} onChange={handlers.onChange}
-        serverItems={campaigns ? serverItems : undefined} accent={campaigns ? accent : undefined} onPick={campaigns ? handlers.onPick : undefined} />
+      onEdit={campaigns ? handlers.onPick : undefined} editLabel={campaigns ? EDIT_ITEMS_LABEL : undefined}>
+      <BlockEditor block={block} selected={selected} readOnly={readOnly} onChange={handlers.onChange} onUpdate={campaigns ? handlers.onUpdate : undefined}
+        serverItems={campaigns ? serverItems : undefined} accent={campaigns ? accent : undefined} onPick={campaigns ? handlers.onPick : undefined} phone={phone} />
     </BlockFrame>
   );
 });
@@ -82,7 +85,8 @@ const BlockRow = memo(function BlockRow({ block, index, count, selected, readOnl
 /**
  * The right-hand EMAIL PREVIEW, edited in place. It is drawn like the email the server sends
  * (emails/newsletter/*.blade.php): grey page, "View in browser", a 600 px white card with the header,
- * the sections (40 px side padding, 20 px on phones) and the e-card footer. "+" lines sit between sections.
+ * the sections (40 px side padding, 20 px on phones) and the e-card footer. "+" lines sit between sections, always
+ * shown.
  */
 export default function NewsletterEditor({
   draft, readOnly, device, profile, businessAddress, showProblems, fieldErrors, onChange, onHeaderChange, onSaveAddress, savedBlocks, active = true,
@@ -179,6 +183,10 @@ export default function NewsletterEditor({
         });
       },
       onChange: (data) => onBlocks((list) => updateBlockData(list, id, data)),
+      onUpdate: (fn) => onBlocks((list, index) => {
+        const patch = fn(list[index].data as unknown as Record<string, unknown>);
+        return patch ? updateBlockData(list, id, patch) : list;
+      }),
       onPick: () => { setSelectedId(id); setPickerFor(id); },
     };
     handlersRef.current.set(id, made);
@@ -208,8 +216,8 @@ export default function NewsletterEditor({
   };
   const pickerBlock = pickerFor ? blocks.find((b) => b.id === pickerFor) : undefined;
   const picking = pickerBlock?.type === 'campaigns' ? pickerBlock : null;
-  const plus = (index: number, label: string, alwaysVisible = false) =>
-    readOnly ? null : <AddSectionPopover label={label} onAdd={(type) => add(index, type)} disabled={full} alwaysVisible={alwaysVisible} />;
+  const plus = (index: number, label: string) =>
+    readOnly ? null : <AddSectionPopover label={label} onAdd={(type) => add(index, type)} disabled={full} />;
 
   return (
     // A tap anywhere in the preview outside the selected part closes its editor (a tap on another part selects
@@ -232,13 +240,13 @@ export default function NewsletterEditor({
             <HeaderEditor header={draft.header} onChange={onHeaderChange} selected={selectedId === HEADER_ID}
               onSelect={() => { if (!readOnly) select(HEADER_ID); }} onDone={() => deselect(true)} readOnly={readOnly} padClass={padClass} />
             <div className="py-3">
-              {plus(0, 'Add a section at the top', blocks.length === 0)}
+              {plus(0, 'Add a section at the top')}
               {blocks.length === 0 && !readOnly ? <p className={`${padClass} pb-3 text-center text-sm text-gray-500`}>Tap + to add your first section.</p> : null}
               {blocks.map((block, index) => (
                 <Fragment key={block.id}>
                   <BlockRow block={block} index={index} count={blocks.length} selected={selectedId === block.id} readOnly={readOnly}
                     problem={problems[block.id] ?? serverBlockError(fieldErrors, index)} padClass={padClass} handlers={handlersFor(block.id)}
-                    serverItems={savedItems.get(block.id)} accent={draft.header.background_color} />
+                    serverItems={savedItems.get(block.id)} accent={draft.header.background_color} phone={phone} />
                   {plus(index + 1, `Add a section after section ${index + 1}`)}
                 </Fragment>
               ))}
@@ -254,7 +262,14 @@ export default function NewsletterEditor({
           onOpenChange={(o) => { if (!o) setPickerFor(null); }}
           initialSelections={picking ? campaignSelections(picking.data) : []}
           knownItems={picking ? [...(picking.data.items ?? []), ...(savedItems.get(picking.id) ?? [])] : []}
-          onDone={(selections, items) => { if (picking) handlersFor(picking.id).onChange({ selections, campaign_ids: campaignIdsOf(selections), items }); }}
+          onDone={(selections, items) => {
+            if (!picking) return;
+            // A card taken out loses its edits (picked again later, it starts from the item's own words).
+            handlersFor(picking.id).onUpdate((latest) => {
+              const overrides = pruneOverrides(latest.overrides as CardOverrides | undefined, selections);
+              return { selections, campaign_ids: campaignIdsOf(selections), items, ...(overrides ? { overrides } : {}) };
+            });
+          }}
           onCloseAutoFocus={(e) => {
             // Back to the section (it stays selected), not to the + that has gone.
             const id = pickedForRef.current;
