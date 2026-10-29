@@ -1,5 +1,7 @@
 // [wdy2xh2t3w] The Campaigns section: pick up to 6 of your own campaigns, cards in the preview, Studio sends
-// campaign_ids only and shows the API's snapshot (including campaigns it drops), the send check, read-only copy.
+// selections + campaign_ids (never items) and shows the API's snapshot (including campaigns it drops), the send
+// check, read-only copy. An account with campaigns only sees today's picker (no tabs); products and vehicles are
+// in products-vehicles.mjs.
 import { IMG, createMockApi, newsletter, STUDIO } from '../mock-api.mjs';
 
 const card = (id, title) => ({ id, title, description: `About ${title}.`, cover_url: IMG, url: `${STUDIO}/published-memory/campaign-${id}`, date: '2026-10-20' });
@@ -13,7 +15,7 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
   await preview.getByRole('button', { name: 'Add a section at the top' }).click();
   const item = page.getByRole('menuitem', { name: /^Campaign\b/ });
   await expectVisible(item, 'Campaign in Add section');
-  expect(/Add one of your campaigns/.test(await item.textContent()), 'subtitle "Add one of your campaigns"');
+  expect(/Add campaigns, products or vehicles/.test(await item.textContent()), 'subtitle "Add campaigns, products or vehicles"');
   await item.click();
 
   const picker = page.getByRole('dialog', { name: 'Choose campaigns' });
@@ -24,6 +26,8 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
   await expectVisible(picker.getByText('Publish it first to add it'), 'reason shown for an unpublished campaign');
   await expectVisible(picker.getByText('It is private. Make it public to add it'), 'the API’s own reason shown for a private campaign');
   await expectVisible(picker.getByText('Pick up to 6 campaigns.'), 'summary before picking');
+  expect(!(await picker.getByRole('radiogroup', { name: 'Show' }).count()), 'campaigns only: no Campaigns | Products | Vehicles tabs');
+  expect(!(await picker.locator('#nl-campaign-category').count()), 'campaigns only: no category filter');
   await shot(page, '1280-01-picker');
 
   // Search goes to the API.
@@ -47,7 +51,8 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
   expect(await section.getByText('View campaign').count() === 3, 'a View campaign button on each card');
   await page.waitForTimeout(1500);
   const sent = api.state.campaignBodies.at(-1);
-  expect(JSON.stringify(sent) === JSON.stringify({ campaign_ids: [601, 602, 604] }), `Studio sends campaign_ids only, in picking order (got ${JSON.stringify(sent)})`);
+  const want = { selections: [601, 602, 604].map((id) => ({ kind: 'campaign', id })), campaign_ids: [601, 602, 604] };
+  expect(JSON.stringify(sent) === JSON.stringify(want), `Studio sends selections + campaign_ids (no items), in picking order (got ${JSON.stringify(sent)})`);
   const savedBlock = api.state.newsletters[0]?.blocks?.[0];
   expect(savedBlock?.type === 'campaigns' && savedBlock.data.items.length === 3, 'the API stored its own snapshot');
   expect(await page.evaluate(() => document.activeElement?.getAttribute('aria-label')) === 'Campaigns section', 'focus back on the section after Done');
@@ -83,7 +88,7 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
   expect(!(await section.first().textContent()).includes('Grand Cherokee'), 'Grand Cherokee card gone');
   await page.locator('#nl-subject').fill('October at Serpa');
   await page.getByRole('button', { name: 'Send Now' }).first().click();
-  await expectVisible(preview.getByText('Pick at least one campaign, or remove this section.'), 'empty Campaigns section marked');
+  await expectVisible(preview.getByText('Pick at least one campaign, product or vehicle, or remove this section.'), 'empty Campaigns section marked');
   await shot(page, '1280-04-problem');
   await context.close();
 

@@ -16,6 +16,7 @@ const PROFILE = {
   website: 'https://serpachrysler.ca', instagram_url: 'https://instagram.com/serpachrysler', linkedin_url: '', tiktok_url: null,
   facebook_url: 'https://facebook.com/serpachrysler', is_business: 1,
 };
+const KINDS = ['campaign', 'product', 'vehicle'];
 // PUT /newsletters/{id} rules, as NewsletterController::rules() and NewsletterContent::normalise*() answer them.
 const HTTPS = /^https:\/\/[^\s<>"'\\]+$/i;
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -35,7 +36,12 @@ function updateErrors(body) {
     if (b.type === 'image' && bad(b.data?.url)) errors[`${key}.url`] = ['Use an image link that starts with https://'];
     if (b.type === 'image' && bad(b.data?.link)) errors[`${key}.link`] = ['Use a link that starts with https://'];
     if (b.type === 'button' && bad(b.data?.url)) errors[`${key}.url`] = ['Use a link that starts with https://'];
-    if (b.type === 'campaigns' && (!Array.isArray(b.data?.campaign_ids) || b.data.campaign_ids.some((id) => !Number.isInteger(id)))) errors[`${key}.campaign_ids`] = ['The campaigns could not be read.'];
+    // Shared brief 2026-10-29: selections (kind + id) when present, else an older client's campaign_ids.
+    const picks = b.type === 'campaigns' ? b.data?.selections : undefined;
+    if (b.type === 'campaigns' && picks !== undefined) {
+      if (!Array.isArray(picks) || picks.some((p) => !p || !KINDS.includes(p.kind) || !Number.isInteger(p.id))) errors[`${key}.selections`] = ['The campaigns, products or vehicles could not be read.'];
+      else if (picks.length > 6) errors[`${key}.selections`] = ['A Campaigns section can show up to 6 campaigns, products or vehicles.'];
+    } else if (b.type === 'campaigns' && (!Array.isArray(b.data?.campaign_ids) || b.data.campaign_ids.some((id) => !Number.isInteger(id)))) errors[`${key}.campaign_ids`] = ['The campaigns could not be read.'];
     else if (b.type === 'campaigns' && b.data.campaign_ids.length > 6) errors[`${key}.campaign_ids`] = ['A Campaigns section can show up to 6 campaigns.'];
     if (b.type === 'youtube' && bad(b.data?.url)) errors[`${key}.url`] = ['Use a YouTube link, like https://www.youtube.com/watch?v=…'];
   });
@@ -122,11 +128,56 @@ export function seedCampaigns(count = 9) {
   });
 }
 
+const BUTTON_LABEL = { campaign: 'View campaign', product: 'View product', vehicle: 'View vehicle' };
+
+// Website Catalogue products as a Royalwood-like shop has them (catalog_items): newest first, some in each
+// category, a few with no page of their own on the website (they can't be added).
+export const ROYALWOOD = 'https://royalwood.example.ca';
+export function seedProducts(count = 30) {
+  const kinds = [
+    ['Door Hardware', 'Brass lever handle'], ['Doors', 'Solid oak interior door'], ['Mouldings', 'Colonial baseboard 8 ft'],
+    ['Stair Parts', 'Maple stair tread'], ['Door Hardware', 'Matte black hinge set'], ['Doors', 'Shaker pine closet door'],
+  ];
+  return Array.from({ length: count }, (_, i) => {
+    const [category, name] = kinds[i % kinds.length];
+    const noPage = i % 9 === 4; // e.g. a product only listed on a category page
+    return {
+      id: 881 + i, title: `${name}${i >= kinds.length ? ` ${i + 1}` : ''}`, category, brand: 'Royalwood', sku: `RW-${1000 + i}`,
+      description: i === 0 ? 'Solid brass with a satin finish. Fits standard 2 3/8 in. backsets; screws included.' : `${name} from the Royalwood shop.`,
+      cover_url: i % 5 === 2 ? null : IMG, date: new Date(Date.UTC(2026, 9, 28 - i)).toISOString().slice(0, 10),
+      url: noPage ? null : `${ROYALWOOD}/products/rw-${1000 + i}`,
+      // The API adds the currency when catalog_items.currency has one ("$129.99 CAD"); meta is "brand · category".
+      price_text: i % 7 === 6 ? null : `$${(29 + i * 7.5).toFixed(2)}${i % 8 === 3 ? ' CAD' : ''}`, meta: `Royalwood · ${category}`.slice(0, 80),
+    };
+  });
+}
+
+// A dealer's vehicles (cars + car_images), newest first; the page is the vehicle's own listing on the website.
+// category: cars.category as the inventory import stores it (lowercase).
+export const DEALER = 'https://dealer.example.ca';
+export function seedVehicles() {
+  const cars = [
+    ['2021 Jeep Grand Cherokee Limited', 'preowned', '$34,995', '2021 · 45,000 km · Automatic'],
+    ['2023 Ram 1500 Big Horn', 'preowned', '$49,500', '2023 · 18,200 km · Automatic'],
+    ['2024 Chrysler Pacifica Hybrid', 'hybrid', '$52,995', '2024 · 9,800 km · Automatic'],
+    ['2022 Jeep Wrangler Sahara', 'preowned', null, '2022 · 30,500 km · Manual'],
+  ];
+  return cars.map(([title, category, price, meta], i) => {
+    const [, make, ...model] = title.split(' ');
+    return {
+      id: 45 + i, title, category, make, model: model.join(' '), stock_number: `S${2300 + i}`,
+      description: `${title}, one owner, clean history.`, cover_url: IMG,
+      date: new Date(Date.UTC(2026, 9, 26 - i * 2)).toISOString().slice(0, 10),
+      url: `${DEALER}/inventory/${45 + i}`, price_text: price, meta,
+    };
+  });
+}
+
 function previewHtml(n) {
   const blocks = (n.blocks || []).map((b) => {
     if (b.type === 'title') return `<h2>${esc(b.data.text)}</h2>`;
     if (b.type === 'text') return `<div>${esc(String(b.data.html).replace(/<[^>]+>/g, ''))}</div>`;
-    if (b.type === 'campaigns') return (b.data.items || []).map((c) => `<div class="mock-campaign"><strong>${esc(c.title)}</strong><p>${esc(c.description)}</p><a href="${esc(c.url)}">View campaign</a></div>`).join('');
+    if (b.type === 'campaigns') return (b.data.items || []).map((c) => `<div class="mock-campaign"><strong>${esc(c.title)}</strong>${c.price_text ? `<p><b>${esc(c.price_text)}</b></p>` : ''}${c.meta ? `<p style="color:#6b7280;font-size:13px">${esc(c.meta)}</p>` : ''}<p>${esc(c.description)}</p><a href="${esc(c.url)}">${BUTTON_LABEL[c.kind] || 'View campaign'}</a></div>`).join('');
     if (b.type === 'button') return `<p><a style="background:#6C60FF;color:#fff;padding:12px 20px;border-radius:8px;text-decoration:none" href="#">${esc(b.data.label)}</a></p>`;
     return '';
   }).join('');
@@ -219,7 +270,11 @@ export function createMockApi(options = {}) {
     storeels: [],
     // The owner's campaigns a Campaigns section can show.
     campaigns: options.campaigns ?? seedCampaigns(),
-    // What PUTs sent as each Campaigns section's data (to check Studio sends campaign_ids only).
+    // The owner's Website Catalogue products and dealer vehicles (shared brief 2026-10-29). None by default: an
+    // account with campaigns only, as before.
+    products: options.products ?? [],
+    vehicles: options.vehicles ?? [],
+    // What PUTs sent as each Campaigns section's data (to check Studio sends selections, never items).
     campaignBodies: [],
     // GET /newsletters/campaign-options answers after this many ms.
     optionsDelayMs: options.optionsDelayMs ?? 0,
@@ -238,6 +293,30 @@ export function createMockApi(options = {}) {
   const fail = (status, json) => ({ status, json });
   const find = (id) => state.newsletters.find((n) => n.id === id);
   const summary = ({ blocks, ...rest }) => rest;
+
+  // campaign-options rows for one kind (only what can be listed: available products, vehicles still for sale).
+  function optionsOf(kind) {
+    if (kind === 'campaign') return state.campaigns.map((c) => ({ kind, ...c, price_text: null, meta: null, category: null, searchText: c.title.toLowerCase() }));
+    const list = kind === 'product' ? state.products : state.vehicles;
+    return list.filter((x) => x.available !== false).map((x) => {
+      const url = /^https?:\/\//i.test(x.url || '') ? x.url : null;
+      return {
+        kind, id: x.id, title: x.title, description: x.description ?? null, cover_url: x.cover_url ?? null, date: x.date ?? null,
+        public_url: url, shareable: Boolean(url), reason: url ? null : 'This item has no web page',
+        price_text: x.price_text ?? null, meta: x.meta ?? null, category: x.category ?? null,
+        searchText: [x.title, x.sku, x.brand, x.make, x.model, x.stock_number].filter(Boolean).join(' ').toLowerCase(),
+      };
+    });
+  }
+  // NewsletterCampaigns: the card for one pick, or null when it can't be shown (dropped from the snapshot).
+  function snapshotItem(kind, id) {
+    const o = KINDS.includes(kind) ? optionsOf(kind).find((x) => x.id === id) : null;
+    if (!o || !o.shareable) return null;
+    return {
+      kind, id, title: o.title, description: String(o.description ?? '').slice(0, 160), cover_url: o.cover_url, url: o.public_url,
+      date: o.date, price_text: o.price_text, meta: o.meta,
+    };
+  }
 
   function audienceCount(audience, channels) {
     let email = 0;
@@ -262,7 +341,7 @@ export function createMockApi(options = {}) {
     // PUT keeps unfinished sections; send names the first one (contract note 6).
     const missing = (n.blocks || []).flatMap((b, i) => {
       if (b.type === 'image' && !b.data?.url) return [`Section ${i + 1} (Image) needs a picture.`];
-      if (b.type === 'campaigns' && !b.data?.campaign_ids?.length) return [`Section ${i + 1} (Campaigns) needs at least one campaign.`];
+      if (b.type === 'campaigns' && !(b.data?.selections ?? b.data?.campaign_ids)?.length) return [`Section ${i + 1} (Campaigns) needs at least one campaign, product or vehicle.`];
       return [];
     });
     if (!n.blocks?.length) errors.blocks = ['Add at least one section to your newsletter.'];
@@ -571,11 +650,21 @@ export function createMockApi(options = {}) {
     if (path === '/newsletters/audience-count') return ok(audienceCount(body?.audience, body?.channels || []));
     if (path === '/newsletters/images') return ok({ url: IMG }, 201);
     if (path === '/newsletters/campaign-options' && method === 'GET') {
-      // 20 a page, newest first; search matches the title.
+      // 20 a page, newest first. kind defaults to campaign. search matches the title (+ sku/brand for products,
+      // make/model/stock number for vehicles); category narrows products and vehicles.
+      const kind = params.get('kind') || 'campaign';
+      if (!KINDS.includes(kind)) return fail(422, { message: 'Pick campaigns, products or vehicles.', errors: { kind: ['Pick campaigns, products or vehicles.'] } });
       const search = (params.get('search') || '').toLowerCase();
+      const category = params.get('category') || '';
       const page = Math.max(1, Number(params.get('page') || 1));
-      const rows = state.campaigns.filter((c) => !search || c.title.toLowerCase().includes(search));
-      return ok({ data: rows.slice((page - 1) * 20, page * 20), meta: { page, total_pages: Math.max(1, Math.ceil(rows.length / 20)), total: rows.length } });
+      const pool = optionsOf(kind);
+      const rows = pool.filter((o) => (!search || o.searchText.includes(search)) && (!category || o.category === category));
+      const meta = {
+        page, total_pages: Math.max(1, Math.ceil(rows.length / 20)), total: rows.length,
+        counts: { campaign: state.campaigns.length, product: optionsOf('product').length, vehicle: optionsOf('vehicle').length },
+        categories: kind === 'campaign' ? [] : [...new Set(pool.map((o) => o.category).filter(Boolean))].sort(),
+      };
+      return ok({ data: rows.slice((page - 1) * 20, page * 20).map(({ searchText, ...o }) => o), meta });
     }
     if (path === '/newsletter-brand') {
       if (method === 'PUT') {
@@ -684,12 +773,11 @@ export function createMockApi(options = {}) {
           n.blocks = n.blocks.map((b) => {
             if (b.type !== 'campaigns') return b;
             state.campaignBodies.push(structuredClone(b.data));
-            const ids = (b.data?.campaign_ids || []).filter((id) => state.campaigns.some((c) => c.id === id && c.shareable)).slice(0, 6);
-            const items = ids.map((id) => {
-              const c = state.campaigns.find((x) => x.id === id);
-              return { id, title: c.title, description: c.description.slice(0, 160), cover_url: c.cover_url, url: c.public_url, date: c.date };
-            });
-            return { ...b, data: { campaign_ids: ids, items } };
+            // selections when sent (campaign_ids are then ignored), else an older client's campaign_ids.
+            const asked = Array.isArray(b.data?.selections) ? b.data.selections : (b.data?.campaign_ids || []).map((id) => ({ kind: 'campaign', id }));
+            const items = asked.map((p) => snapshotItem(p.kind, p.id)).filter(Boolean).slice(0, 6);
+            const selections = items.map((i) => ({ kind: i.kind, id: i.id }));
+            return { ...b, data: { selections, campaign_ids: selections.filter((p) => p.kind === 'campaign').map((p) => p.id), items } };
           });
         }
         // The presenter answers every time in UTC with a Z and no milliseconds.

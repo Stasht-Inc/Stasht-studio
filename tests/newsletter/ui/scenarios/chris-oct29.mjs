@@ -45,7 +45,7 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
     expect(fit.inWindow, `menu inside the window at 1280×${height}`);
     expect(!fit.cue, `no "More below" cue when nothing is hidden at 1280×${height}`);
     const first = menu.getByRole('menuitem').first();
-    expect(/Add one of your campaigns/.test(await first.textContent()), 'Campaign subtitle');
+    expect(/Add campaigns, products or vehicles/.test(await first.textContent()), 'Campaign subtitle');
     expect(await first.evaluate((el) => el === document.activeElement), 'focus starts on Campaign');
     if (height === 800) await shot(page, '1280-menu');
     await context.close();
