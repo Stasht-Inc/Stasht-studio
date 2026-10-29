@@ -92,7 +92,8 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
     await picker.getByRole('button', { name: 'Done' }).click();
     await page.waitForTimeout(1500);
     const sent = api.state.campaignBodies.at(-1);
-    expect(JSON.stringify(sent) === JSON.stringify({ selections: [{ kind: 'product', id: 881 }], campaign_ids: [] }), `the removed page-2 pick is gone from the save (got ${JSON.stringify(sent)})`);
+    // Picks only: the section's layout fields (columns, overrides) ride along in the same body.
+    expect(JSON.stringify({ selections: sent?.selections, campaign_ids: sent?.campaign_ids }) === JSON.stringify({ selections: [{ kind: 'product', id: 881 }], campaign_ids: [] }), `the removed page-2 pick is gone from the save (got ${JSON.stringify(sent)})`);
     await context.close();
   }
 
