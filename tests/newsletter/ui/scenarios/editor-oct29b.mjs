@@ -249,6 +249,12 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
     expect(await title.inputValue() === 'Hi there', `typing keeps its space across a save (got "${await title.inputValue()}")`);
     await page.waitForTimeout(1500);
     expect(lastOverrides()?.['campaign:601']?.title === 'Hi there', 'saved as typed');
+    // Card text is plain (as the API keeps it): extra spaces show and save as one; the box keeps what was typed.
+    await button.fill('Book   now');
+    await expectVisible(fall.getByText('Book now', { exact: true }), 'extra spaces show as one on the card');
+    await page.waitForTimeout(1500);
+    expect(lastOverrides()?.['campaign:601']?.button_text === 'Book now', `saved with one space (got ${JSON.stringify(lastOverrides())})`);
+    expect(await button.inputValue() === 'Book   now', 'the box keeps what was typed');
     const settled = puts(api).length;
     await page.waitForTimeout(2500);
     expect(puts(api).length === settled, `no save loop (${puts(api).length - settled} extra saves)`);

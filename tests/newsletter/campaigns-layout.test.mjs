@@ -61,11 +61,16 @@ test('after a save: the server’s columns are taken; a section whose columns ch
   assert.equal(b.draft.blocks[0].data.columns, 1);
   assert.equal(b.saved.blocks[0].data.columns, 2);
   assert.equal(Object.keys(changedFields(b.saved, b.draft)).length, 1, 'one more save, for the new choice');
-  // An API that doesn't answer with columns yet: the section keeps what it sent (no flip back, no save loop).
+  // The presenter leaves columns out unless stored: missing is 1 (API, 29 Oct). Taken as such, with no save loop.
   const older = [{ id: 's', type: 'campaigns', data: { selections: [c(1)], campaign_ids: [1], items: [item('campaign', 1)] } }];
   const d = adoptCampaignSnapshots(sent, sent, normaliseBlocks(older));
-  assert.equal(d.draft.blocks[0].data.columns, 2);
+  assert.equal(campaignColumns(d.draft.blocks[0].data), 1);
+  assert.equal(campaignColumns(d.saved.blocks[0].data), 1);
   assert.deepEqual(changedFields(d.saved, d.draft), {});
+  // An empty new section keeps its 2 columns through a save.
+  const empty = { ...emptyDraft(), blocks: [{ id: 'e', type: 'campaigns', data: { selections: [], campaign_ids: [], columns: 2 } }] };
+  const e = adoptCampaignSnapshots(empty, empty, [{ id: 'e', type: 'campaigns', data: { selections: [], campaign_ids: [], items: [], columns: 2 } }]);
+  assert.equal(e.draft.blocks[0].data.columns, 2);
 });
 
 test('the section’s picker button reads "Edit"', () => {

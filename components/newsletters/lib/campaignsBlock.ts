@@ -295,10 +295,14 @@ export function resetCardOverride(overrides: CardOverrides | undefined, key: str
 /** A description is one paragraph: line breaks become spaces (the email shows it as one). */
 export const oneParagraph = (v: string): string => v.replace(/\s*[\r\n]+\s*/g, ' ');
 
+/** Card text as the API keeps it (29 Oct): plain, every run of spaces or line breaks one space, trimmed; the limits
+ *  count after that. */
+const plainText = (v: string): string => v.replace(/\s+/g, ' ').trim();
+
 const cleanField = (f: OverrideField, v: unknown): string | null => {
   if (typeof v !== 'string') return null;
   if (f === 'image_url') return httpsUrl(v.trim()) ?? null;
-  const text = (f === 'description' ? oneParagraph(v) : v).trim().slice(0, CARD_LIMITS[f]).trim();
+  const text = plainText(v).slice(0, CARD_LIMITS[f]).trim();
   return text || null;
 };
 

@@ -157,8 +157,8 @@ type CampaignsBlock = Extract<NewsletterBlock, { type: 'campaigns' }>;
  * can no longer be shared (and their card edits). Each section takes the server's campaigns, columns and card edits,
  * in the draft and in the saved copy, unless it was changed while the save was on its way (picks, columns or edits:
  * then the new choice stays in the draft and saves next). Card edits that save the same as the server's (a trailing
- * space still being typed) stay as typed. An API that doesn't answer with columns or edits leaves the section's own.
- * Nothing else changes.
+ * or double space still being typed) stay as typed. Missing columns are 1 and missing edits none (the API's
+ * presenter leaves them out unless stored). Nothing else changes.
  */
 export function adoptCampaignSnapshots(current: NewsletterDraft, sent: NewsletterDraft, serverBlocks: readonly NewsletterBlock[]): { draft: NewsletterDraft; saved: NewsletterDraft } {
   const server = new Map<string, CampaignsBlock>();
@@ -175,9 +175,10 @@ export function adoptCampaignSnapshots(current: NewsletterDraft, sent: Newslette
       if (onlyUnchanged && sentIds.get(b.id) !== picksOf(b)) return b;
       changed = true;
       const selections = campaignSelections(s.data);
-      const columns = s.data.columns ?? b.data.columns;
+      // The presenter leaves columns and overrides out unless stored: missing columns is 1, missing overrides {}.
+      const columns = s.data.columns;
       const sameEdits = JSON.stringify(overridesForInput(b.data.overrides, selections)) === JSON.stringify(overridesForInput(s.data.overrides, selections));
-      const overrides = s.data.overrides === undefined || sameEdits ? pruneOverrides(b.data.overrides, selections) : s.data.overrides;
+      const overrides = sameEdits ? pruneOverrides(b.data.overrides, selections) : s.data.overrides;
       return { ...b, data: {
         selections, campaign_ids: campaignIdsOf(selections), items: s.data.items ?? [], ...(columns ? { columns } : {}), ...(overrides ? { overrides } : {}),
       } };

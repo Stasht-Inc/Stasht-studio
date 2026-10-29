@@ -59,14 +59,15 @@ function updateErrors(body) {
   return errors;
 }
 // Shared brief 2026-10-29 round 2: what the API keeps of a Campaigns section's layout (columns, absent = 1) and its
-// per-card edits (only cards still picked, only the four fields, trimmed; answered as {} when there are none).
+// per-card edits (only cards still picked, only the four fields, plain text: runs of spaces one space, trimmed;
+// answered as {} when there are none).
 const OVERRIDE_FIELDS = ['image_url', 'title', 'description', 'button_text'];
 function campaignLayout(data, selections = []) {
   const keys = new Set(selections.map((p) => `${p.kind}:${p.id}`));
   const overrides = {};
   for (const [k, o] of Object.entries(data?.overrides && typeof data.overrides === 'object' ? data.overrides : {})) {
     if (!keys.has(k) || !o || typeof o !== 'object') continue;
-    const kept = Object.fromEntries(OVERRIDE_FIELDS.filter((f) => typeof o[f] === 'string' && o[f].trim()).map((f) => [f, o[f].trim()]));
+    const kept = Object.fromEntries(OVERRIDE_FIELDS.filter((f) => typeof o[f] === 'string' && o[f].trim()).map((f) => [f, f === 'image_url' ? o[f].trim() : o[f].replace(/\s+/g, ' ').trim()]));
     if (Object.keys(kept).length) overrides[k] = kept;
   }
   return { ...([1, 2].includes(data?.columns) ? { columns: data.columns } : {}), overrides };

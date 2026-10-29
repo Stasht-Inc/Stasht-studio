@@ -81,6 +81,18 @@ test('PUT sends overrides only when there are some; a cleaned-up copy (never the
   assert.deepEqual(sent, { selections: [p(881), c(12)], campaign_ids: [12], columns: 2, overrides: { 'product:881': { title: 'Shop this' } } });
 });
 
+test('card text is plain, as the API keeps it: runs of spaces and line breaks become one space; limits count after that', () => {
+  const out = overridesForInput({ 'campaign:12': { title: 'Big   sale\t now', description: 'One\n\n two   three', button_text: ' Shop   now ' } }, [c(12)]);
+  assert.deepEqual(out['campaign:12'], { title: 'Big sale now', description: 'One two three', button_text: 'Shop now' });
+  assert.equal(overridesForInput({ 'campaign:12': { title: `${'a '.repeat(70)}` } }, [c(12)])['campaign:12'].title.length <= 120, true);
+  assert.equal(displayCard(item('campaign', 12), { title: 'Big   sale' }).title, 'Big sale', 'the preview shows the collapsed text');
+  // A double space typed while saving is the same edit as the server's collapsed copy: kept as typed.
+  const sent = { ...emptyDraft(), blocks: [block({ overrides: { 'product:881': { title: 'Big sale' } } })] };
+  const typing = { ...sent, blocks: [block({ overrides: { 'product:881': { title: 'Big  sale' } } })] };
+  const server = [{ id: 's', type: 'campaigns', data: { selections: [p(881), c(12)], campaign_ids: [12], columns: 2, items: [], overrides: { 'product:881': { title: 'Big sale' } } } }];
+  assert.equal(adoptCampaignSnapshots(typing, sent, server).draft.blocks[0].data.overrides['product:881'].title, 'Big  sale');
+});
+
 test('typing a trailing space is not a change to save; a real edit is', () => {
   const saved = { ...emptyDraft(), blocks: [block({ overrides: { 'product:881': { title: 'Two' } } })] };
   const spaced = { ...saved, blocks: [block({ overrides: { 'product:881': { title: 'Two ' } } })] };
@@ -106,11 +118,15 @@ test('after a save: the server’s overrides are taken (it drops cards it droppe
   const d = adoptCampaignSnapshots(more, sent, server);
   assert.equal(d.draft.blocks[0].data.overrides['product:881'].title, 'Two words');
   assert.equal(Object.keys(changedFields(d.saved, d.draft)).length, 1);
-  // An API that doesn't answer with overrides yet: the section keeps its own (for the cards still picked), no loop.
-  const older = [{ id: 's', type: 'campaigns', data: { selections: [p(881), c(12)], campaign_ids: [12], items: [item('product', 881), item('campaign', 12)] } }];
+  // The presenter leaves overrides out unless stored: missing is {} (API, 29 Oct). Taken as such, with no save loop.
+  const older = [{ id: 's', type: 'campaigns', data: { selections: [p(881), c(12)], campaign_ids: [12], columns: 2, items: [item('product', 881), item('campaign', 12)] } }];
   const e = adoptCampaignSnapshots(sent, sent, normaliseBlocks(older));
-  assert.deepEqual(e.draft.blocks[0].data.overrides, sent.blocks[0].data.overrides);
+  assert.deepEqual(overridesForInput(e.draft.blocks[0].data.overrides, [p(881), c(12)]), {});
   assert.deepEqual(changedFields(e.saved, e.draft), {});
+  // Boxes holding only spaces save as nothing: kept as typed when the server has none.
+  const spaces = { ...sent, blocks: [block({ overrides: { 'product:881': { title: '  ' } } })] };
+  const f = adoptCampaignSnapshots(spaces, spaces, normaliseBlocks(older));
+  assert.equal(f.draft.blocks[0].data.overrides['product:881'].title, '  ');
 });
 
 test('pruneOverrides: a card taken out in the picker loses its edits', () => {
