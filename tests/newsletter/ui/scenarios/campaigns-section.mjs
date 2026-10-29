@@ -82,7 +82,7 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
   await page.getByRole('menuitem', { name: /^Campaign\b/ }).click();
   await expectVisible(picker, 'picker for the second section');
   await picker.getByRole('button', { name: 'Cancel' }).click();
-  await expectVisible(preview.getByText('Show your campaigns in this email.'), 'empty section placeholder');
+  await expectVisible(preview.getByText('Show campaigns, products or vehicles in this email.'), 'empty section placeholder');
   await page.waitForTimeout(1500);
   expect(await cards.count() === 2, `the dropped campaign leaves the preview (got ${await cards.count()})`);
   expect(!(await section.first().textContent()).includes('Grand Cherokee'), 'Grand Cherokee card gone');

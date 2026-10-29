@@ -30,8 +30,8 @@ export default function CampaignsBlockEditor({ data, selected, readOnly, serverI
     return (
       <div className="flex flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed border-gray-200 bg-gray-50 px-4 py-8 text-center">
         <LayoutGrid className="h-6 w-6 text-[#6C60FF]" aria-hidden="true" />
-        <p className="text-sm text-gray-600">{readOnly ? 'No campaigns' : 'Show your campaigns in this email.'}</p>
-        {canPick ? <button type="button" onClick={(e) => { e.stopPropagation(); onPick?.(); }} className={LINK_BUTTON}>Choose campaigns</button> : null}
+        <p className="text-sm text-gray-600">{readOnly ? 'Nothing picked yet' : 'Show campaigns, products or vehicles in this email.'}</p>
+        {canPick ? <button type="button" onClick={(e) => { e.stopPropagation(); onPick?.(); }} className={LINK_BUTTON}>Choose</button> : null}
       </div>
     );
   }
@@ -54,7 +54,7 @@ export default function CampaignsBlockEditor({ data, selected, readOnly, serverI
       </ul>
       {cards.length < selections.length ? (
         <p className="mt-2 text-xs text-gray-500">
-          {serverItems ? missingItemsNote(selections, cards) : 'Getting your campaigns…'}
+          {serverItems ? missingItemsNote(selections, cards) : 'Getting your picks…'}
         </p>
       ) : null}
       {selected && canPick ? (
