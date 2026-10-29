@@ -320,15 +320,18 @@ export default function CampaignPickerDialog({ open, onOpenChange, initialSelect
       {chosen.length ? (
         <section aria-labelledby="nl-chosen-heading" className="mb-3 rounded-lg bg-[#6C60FF]/5 px-3 py-2.5">
           <h3 id="nl-chosen-heading" className="text-xs font-semibold text-gray-700">{chosenHeading(chosen.length)}</h3>
-          <ul ref={chosenRef} aria-labelledby="nl-chosen-heading" className="mt-2 flex flex-wrap gap-2">
+          {/* Phones: compact chips, several to a row, and the strip scrolls on its own after about two rows so the tabs
+              and the list stay in view. From sm up: as before. */}
+          <ul ref={chosenRef} aria-labelledby="nl-chosen-heading"
+            className="-m-0.5 mt-1.5 flex max-h-[4.75rem] flex-wrap gap-1.5 overflow-y-auto p-0.5 sm:max-h-none sm:gap-2 sm:overflow-visible">
             {chosen.map((c, index) => {
               const title = c.title ?? KIND_WORDS[c.kind].untitled;
               return (
-                <li key={c.key} className="flex min-w-0 max-w-full items-center gap-1.5 rounded-full border border-[#6C60FF]/25 bg-white py-0.5 pl-0.5 pr-0.5 text-xs text-gray-900">
-                  <span aria-hidden="true" className="flex h-6 w-6 flex-shrink-0 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-[#6C60FF]/20 to-[#6C60FF]/5">
+                <li key={c.key} className="flex min-w-0 max-w-[min(10rem,calc(50%-0.1875rem))] items-center gap-1 rounded-full border border-[#6C60FF]/25 bg-white py-0.5 pl-2 pr-0.5 text-xs text-gray-900 sm:max-w-full sm:gap-1.5 sm:pl-0.5">
+                  <span aria-hidden="true" className="hidden h-6 w-6 flex-shrink-0 sm:flex items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-[#6C60FF]/20 to-[#6C60FF]/5">
                     {c.cover ? <img src={c.cover} alt="" className="h-full w-full object-cover" /> : <ImageIcon className="h-3.5 w-3.5 text-[#6C60FF]/60" />}
                   </span>
-                  <span className="min-w-0 max-w-[11rem] truncate sm:max-w-[14rem]">{title}</span>
+                  <span title={title} className="min-w-0 flex-1 truncate sm:max-w-[14rem] sm:flex-none">{title}</span>
                   <button type="button" data-chosen-remove="" aria-label={`Remove ${title}`} onClick={() => removePick(c.key, index)}
                     className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full text-gray-500 hover:bg-gray-100 hover:text-gray-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#6C60FF]/40">
                     <X className="h-3.5 w-3.5" aria-hidden="true" />

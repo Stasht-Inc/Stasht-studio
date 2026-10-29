@@ -183,6 +183,25 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
       });
     });
     expect(inside, `chips inside the dialog at ${width}`);
+    // Compact on phones: several chips to a row, the strip about two rows tall (it scrolls on its own), and the tabs
+    // and the first products still in view.
+    const compact = await picker.evaluate((el) => {
+      const ul = el.querySelector('ul[aria-labelledby="nl-chosen-heading"]');
+      const lis = [...ul.querySelectorAll('li')].map((li) => li.getBoundingClientRect());
+      const firstRow = lis.filter((b) => Math.abs(b.top - lis[0].top) < 2).length;
+      const tabs = el.querySelector('[role="radiogroup"]')?.getBoundingClientRect();
+      const firstRowItem = el.querySelector('ul[aria-label="Your products"] li')?.getBoundingClientRect();
+      return {
+        firstRow, height: ul.getBoundingClientRect().height, scrolls: ul.scrollHeight > ul.clientHeight,
+        tabsInView: Boolean(tabs && tabs.bottom <= window.innerHeight), listInView: Boolean(firstRowItem && firstRowItem.top < window.innerHeight - 160),
+        titled: [...ul.querySelectorAll('li span[title]')].every((sp) => sp.getAttribute('title') === sp.textContent),
+      };
+    });
+    expect(compact.firstRow >= 2, `several chips to a row at ${width} (got ${compact.firstRow})`);
+    expect(compact.height <= 80, `the strip is about two rows tall at ${width} (got ${compact.height}px)`);
+    expect(compact.scrolls, `six chips scroll inside the strip at ${width}`);
+    expect(compact.tabsInView && compact.listInView, `tabs and the list stay in view at ${width} (${JSON.stringify(compact)})`);
+    expect(compact.titled, 'each chip name has its full title');
     if (width === 390) {
       await shot(phone.page, '390-01-chosen-strip');
       api.state.optionsDelayMs = 1500;
