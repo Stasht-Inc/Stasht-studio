@@ -48,12 +48,19 @@ export default function ImportListModal({ open, onOpenChange, groups, onCreated,
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const errorRef = useRef<HTMLParagraphElement>(null);
 
   useEffect(() => {
     if (open) return;
     setSource('csv'); setName(''); setFileName(null); setTable(null); setMap(null);
     setConsent(null); setDateOrder(null); setGroupId('all'); setBusy(false); setError(null);
   }, [open]);
+
+  // Chris, 29 Oct (round 2), item 7: a problem shows next to the Import button (always in view, never below the
+  // fold) and takes focus so it is read out.
+  useEffect(() => {
+    if (error) errorRef.current?.focus({ preventScroll: true });
+  }, [error]);
 
   const preview = useMemo(() => (table && map ? buildImportRows(table, map, dateOrder) : null), [table, map, dateOrder]);
   const ready = preview?.rows.length ?? 0;
@@ -140,10 +147,16 @@ export default function ImportListModal({ open, onOpenChange, groups, onCreated,
 
   // Into an existing list: always a CSV file.
   const csv = Boolean(intoList) || source === 'csv';
+  const tooManyText = `This file has more than ${formatCount(MAX_IMPORT_ROWS)} contacts. Split it into smaller files.`;
+  const footerProblem = error ?? (csv && tooMany ? tooManyText : null);
   const footer = (
     <>
+      {footerProblem ? (
+        <p ref={errorRef} id="nl-import-error" role="alert" tabIndex={-1}
+          className={`basis-full rounded-lg px-3 py-2 text-sm outline-none ${error ? 'bg-red-50 text-red-700' : 'bg-amber-50 text-amber-800'}`}>{footerProblem}</p>
+      ) : null}
       <button type="button" onClick={() => onOpenChange(false)} disabled={busy} className={BUTTON_OUTLINE}>Cancel</button>
-      <button type="button" onClick={submit} disabled={busy || (csv && (!ready || tooMany))} className={BUTTON_PRIMARY}>
+      <button type="button" onClick={submit} disabled={busy || (csv && (!ready || tooMany))} aria-describedby={footerProblem ? 'nl-import-error' : undefined} className={BUTTON_PRIMARY}>
         {busy ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : null}
         {csv ? `Import ${formatCount(ready)} ${ready === 1 ? 'contact' : 'contacts'}` : 'Make the list'}
       </button>
@@ -220,7 +233,6 @@ export default function ImportListModal({ open, onOpenChange, groups, onCreated,
                 {preview?.unreadableDates && !preview.needsDateOrder ? (
                   <p className="text-sm text-amber-800">{`${formatCount(preview.unreadableDates)} ${preview.unreadableDates === 1 ? 'date couldn\u2019t' : 'dates couldn\u2019t'} be read \u2014 we\u2019ll use today\u2019s date.`}</p>
                 ) : null}
-                {tooMany ? <p role="alert" className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">This file has more than {formatCount(MAX_IMPORT_ROWS)} contacts. Split it into smaller files.</p> : null}
                 {ready ? (
                   <div className="rounded-lg border border-gray-200">
                     <table className="w-full table-fixed text-left text-xs sm:text-sm">
@@ -267,8 +279,6 @@ export default function ImportListModal({ open, onOpenChange, groups, onCreated,
             <p className="mt-1.5 text-xs text-gray-500">The list is a copy made now. New leads are not added to it later.</p>
           </div>
         )}
-
-        {error ? <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p> : null}
       </div>
     </ComposerDialog>
   );
