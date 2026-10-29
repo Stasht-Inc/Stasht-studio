@@ -2,7 +2,8 @@ import type {
   AudienceItem, Newsletter, NewsletterBlock, NewsletterChannel, NewsletterHeader, NewsletterInput,
 } from '../../../services/newslettersAPI.ts';
 import { LIMITS, isPlausibleEmail, smsPlain } from './rules.ts';
-import { blocksToInput, normaliseBlocks, overLimitTextIds } from './blocks.ts';
+import { blocksToInput, campaignSelections, normaliseBlocks, overLimitTextIds } from './blocks.ts';
+import { campaignIdsOf } from './campaignsBlock.ts';
 
 /** What the composer edits. Text fields are never null here ('' instead). */
 export interface NewsletterDraft {
@@ -152,23 +153,25 @@ export function fieldProblems(d: NewsletterDraft): Partial<Record<keyof Newslett
 type CampaignsBlock = Extract<NewsletterBlock, { type: 'campaigns' }>;
 
 /**
- * After a PUT: the API refreshes every Campaigns section's snapshot and drops campaigns that can no longer be
- * shared. Each section takes the server's campaigns, in the draft and in the saved copy, unless it was changed
+ * After a PUT: the API refreshes every Campaigns section's snapshot and drops campaigns, products and vehicles that
+ * can no longer be shared. Each section takes the server's campaigns, in the draft and in the saved copy, unless it was changed
  * while the save was on its way (then the new pick stays in the draft and saves next). Nothing else changes.
  */
 export function adoptCampaignSnapshots(current: NewsletterDraft, sent: NewsletterDraft, serverBlocks: readonly NewsletterBlock[]): { draft: NewsletterDraft; saved: NewsletterDraft } {
   const server = new Map<string, CampaignsBlock>();
   for (const b of serverBlocks) if (b.type === 'campaigns') server.set(b.id, b);
   if (!server.size) return { draft: current, saved: sent };
-  const sentIds = new Map(sent.blocks.flatMap((b) => (b.type === 'campaigns' ? [[b.id, JSON.stringify(b.data.campaign_ids)] as const] : [])));
+  const picksOf = (b: CampaignsBlock) => JSON.stringify(campaignSelections(b.data));
+  const sentIds = new Map(sent.blocks.flatMap((b) => (b.type === 'campaigns' ? [[b.id, picksOf(b)] as const] : [])));
   const take = (blocks: NewsletterBlock[], onlyUnchanged: boolean) => {
     let changed = false;
     const next = blocks.map((b) => {
       const s = b.type === 'campaigns' ? server.get(b.id) : undefined;
       if (!s || b.type !== 'campaigns') return b;
-      if (onlyUnchanged && sentIds.get(b.id) !== JSON.stringify(b.data.campaign_ids)) return b;
+      if (onlyUnchanged && sentIds.get(b.id) !== picksOf(b)) return b;
       changed = true;
-      return { ...b, data: { campaign_ids: [...s.data.campaign_ids], items: s.data.items ?? [] } };
+      const selections = campaignSelections(s.data);
+      return { ...b, data: { selections, campaign_ids: campaignIdsOf(selections), items: s.data.items ?? [] } };
     });
     return changed ? next : blocks;
   };
