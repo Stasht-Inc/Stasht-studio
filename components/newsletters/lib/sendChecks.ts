@@ -85,16 +85,22 @@ export function allowanceLeft(a: NewsletterAllowance): { email: number; sms: num
   };
 }
 
+/** "1 email" / "2 emails", "1 text message part" / "2 text message parts" (as the API words them). */
+export function allowanceUnits(n: number, channel: NewsletterChannel): string {
+  const word = channel === 'email' ? 'email' : 'text message part';
+  return `${formatCount(n)} ${word}${n === 1 ? '' : 's'}`;
+}
+
 /** smsParts: the parts one text takes (the text allowance counts parts, wdy2xh2p3f). */
 export function allowanceProblem(a: NewsletterAllowance | null, counts: AudienceCount | null, channels: NewsletterChannel[], smsParts = 1): string | null {
   if (!a || !counts) return null;
   const left = allowanceLeft(a);
   if (channels.includes('email') && counts.email > left.email) {
-    return `This needs ${formatCount(counts.email)} emails, but your plan has ${formatCount(left.email)} left this month.`;
+    return `This needs ${allowanceUnits(counts.email, 'email')}, but your plan has ${formatCount(left.email)} left this month.`;
   }
   const sms = counts.sms * Math.max(1, smsParts);
   if (channels.includes('sms') && sms > left.sms) {
-    return `This needs ${formatCount(sms)} text message parts, but your plan has ${formatCount(left.sms)} left this month.`;
+    return `This needs ${allowanceUnits(sms, 'sms')}, but your plan has ${formatCount(left.sms)} left this month.`;
   }
   return null;
 }
@@ -114,8 +120,8 @@ export function previewSizeHint(sizeKb: unknown): string | null {
 export function allowanceLine(a: NewsletterAllowance, channels: NewsletterChannel[]): string {
   const left = allowanceLeft(a);
   const parts: string[] = [];
-  if (channels.includes('email')) parts.push(`${formatCount(left.email)} emails`);
-  if (channels.includes('sms')) parts.push(`${formatCount(left.sms)} text message parts`);
+  if (channels.includes('email')) parts.push(allowanceUnits(left.email, 'email'));
+  if (channels.includes('sms')) parts.push(allowanceUnits(left.sms, 'sms'));
   const reset = formatResetDate(a.resets_at);
   return `Your plan has ${parts.join(' and ')} left this month.${reset ? ` It resets on ${reset}.` : ''}`;
 }
@@ -132,4 +138,49 @@ export function usesNextMonthAllowance(a: NewsletterAllowance | null, scheduledI
 export function nextMonthLine(a: NewsletterAllowance, locale: string = userLocale()): string {
   const reset = formatResetDate(a.resets_at, locale);
   return `It goes out after your plan resets${reset ? ` on ${reset}` : ''}, so it uses next month\u2019s allowance.`;
+}
+
+export interface SendAllowance {
+  /** Why Send / Schedule can't go ahead (shown at the button), or null. */
+  problem: string | null;
+  /** Text messages that will be skipped because the plan has no text parts left for them. */
+  skippedTexts: number;
+  /** The note at the button when texts will be skipped but the emails still go out, or null. */
+  note: string | null;
+}
+
+/**
+ * Chris, 29 Oct (round 2), item 6 (Deepak's decision): when the emails can go (email chosen, at least one person
+ * with an email address), Send / Schedule go ahead even with too few text parts; the API skips the texts beyond
+ * what is left. When only texts would go out and they don't fit, it is refused as before (allowanceProblem). Too few
+ * emails is always refused. A newer API may say how many texts it will skip (audience-count `sms_will_skip`);
+ * when it does, that number is used. smsParts: the parts one text takes.
+ */
+export function sendAllowance(a: NewsletterAllowance | null, counts: AudienceCount | null, channels: NewsletterChannel[], smsParts = 1): SendAllowance {
+  const none: SendAllowance = { problem: null, skippedTexts: 0, note: null };
+  if (!a || !counts) return none;
+  const left = allowanceLeft(a);
+  const emailsGo = channels.includes('email') && counts.email > 0;
+  if (channels.includes('email') && counts.email > left.email) return { ...none, problem: allowanceProblem(a, counts, channels, smsParts) };
+  if (!channels.includes('sms') || counts.sms <= 0) return none;
+  const parts = Math.max(1, smsParts);
+  const textsThatFit = Math.floor(left.sms / parts);
+  const serverSkip = (counts as AudienceCount & { sms_will_skip?: unknown }).sms_will_skip;
+  const skipped = typeof serverSkip === 'number' && Number.isFinite(serverSkip) && serverSkip >= 0
+    ? Math.min(Math.floor(serverSkip), counts.sms)
+    : Math.max(0, counts.sms - textsThatFit);
+  if (!skipped) return none;
+  const why = textsThatFit === 0 || skipped >= counts.sms ? 'no text parts left this month' : 'not enough text parts left this month';
+  const what = skipped === 1 ? '1 text message' : `${formatCount(skipped)} text messages`;
+  if (!emailsGo) return { ...none, problem: allowanceProblem(a, counts, ['sms'], parts) ?? `${what} can't be sent: ${why}.` };
+  return { problem: null, skippedTexts: skipped, note: `${what} won't be sent: ${why}. Emails will still go out.` };
+}
+
+/** Whenever Send / Schedule is off, the reason shown right at the button (busy shows its spinner instead). */
+export function sendBlockedReason(s: { busy: boolean; countsLoading: boolean; problem: string | null; saved: boolean }): string | null {
+  if (s.busy) return null;
+  if (s.countsLoading) return 'Counting who gets it…';
+  if (s.problem) return s.problem;
+  if (!s.saved) return 'Save the newsletter first, then try again.';
+  return null;
 }

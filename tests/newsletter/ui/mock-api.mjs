@@ -278,6 +278,8 @@ export function createMockApi(options = {}) {
     campaignBodies: [],
     // GET /newsletters/campaign-options answers after this many ms.
     optionsDelayMs: options.optionsDelayMs ?? 0,
+    // Results rows carry skip_reason / skip_note (Chris, 29 Oct round 2, item 6). Off by default.
+    textSkips: options.textSkips ?? false,
     // People on each list (Lists tab), made from member_count the first time a list's people are asked for.
     members: new Map(),
     nextMemberId: 50000000,
@@ -855,6 +857,12 @@ export function createMockApi(options = {}) {
         }
         n.status = 'cancelled';
         return ok(n);
+      }
+      // Chris, 29 Oct (round 2), item 6: with textSkips, skipped texts say why (skip_reason / skip_note), as newer APIs do.
+      if (action === 'results' && state.textSkips) {
+        const answer = results(n, params, state.channelCounts);
+        answer.recipients.data = answer.recipients.data.map((r) => ({ ...r, ...(r.status === 'skipped' && r.channel === 'sms' ? { skip_reason: 'no_text_parts', skip_note: 'Not sent: no text parts left' } : { skip_reason: null, skip_note: null }) }));
+        return ok(answer);
       }
       if (action === 'results') return ok(results(n, params, state.channelCounts));
     }
