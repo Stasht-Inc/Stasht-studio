@@ -40,7 +40,8 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
     expect(await picker.locator('#nl-campaign-product-885').isDisabled(), 'a product with no web page can’t be picked');
     await expectVisible(picker.locator('#nl-campaign-product-885-reason').getByText('This item has no web page'), 'its reason is shown');
     await expectVisible(picker.getByText('Pick up to 6.'), 'summary "Pick up to 6."');
-    expect(await picker.getByRole('button', { name: 'Show more' }).count() === 1, '30 products: Show more for the second page');
+    // Chris, 29 Oct (round 2): no Show more; the second page loads as the list scrolls (picker-chosen-scroll).
+    expect(!(await picker.getByRole('button', { name: 'Show more' }).count()), '30 products: no Show more button');
     await shot(page, '1280-01-picker-products');
 
     // Category filter.
