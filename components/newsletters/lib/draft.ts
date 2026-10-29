@@ -154,14 +154,16 @@ type CampaignsBlock = Extract<NewsletterBlock, { type: 'campaigns' }>;
 
 /**
  * After a PUT: the API refreshes every Campaigns section's snapshot and drops campaigns, products and vehicles that
- * can no longer be shared. Each section takes the server's campaigns, in the draft and in the saved copy, unless it was changed
- * while the save was on its way (then the new pick stays in the draft and saves next). Nothing else changes.
+ * can no longer be shared. Each section takes the server's campaigns and columns, in the draft and in the saved copy,
+ * unless it was changed while the save was on its way (picks or columns: then the new choice stays in the draft and
+ * saves next). An API that doesn't answer with columns leaves the section's own. Nothing else changes.
  */
 export function adoptCampaignSnapshots(current: NewsletterDraft, sent: NewsletterDraft, serverBlocks: readonly NewsletterBlock[]): { draft: NewsletterDraft; saved: NewsletterDraft } {
   const server = new Map<string, CampaignsBlock>();
   for (const b of serverBlocks) if (b.type === 'campaigns') server.set(b.id, b);
   if (!server.size) return { draft: current, saved: sent };
-  const picksOf = (b: CampaignsBlock) => JSON.stringify(campaignSelections(b.data));
+  // What the section saves (picks and columns), as the PUT sends it.
+  const picksOf = (b: CampaignsBlock) => JSON.stringify(blocksToInput([b])[0].data);
   const sentIds = new Map(sent.blocks.flatMap((b) => (b.type === 'campaigns' ? [[b.id, picksOf(b)] as const] : [])));
   const take = (blocks: NewsletterBlock[], onlyUnchanged: boolean) => {
     let changed = false;
@@ -171,7 +173,8 @@ export function adoptCampaignSnapshots(current: NewsletterDraft, sent: Newslette
       if (onlyUnchanged && sentIds.get(b.id) !== picksOf(b)) return b;
       changed = true;
       const selections = campaignSelections(s.data);
-      return { ...b, data: { selections, campaign_ids: campaignIdsOf(selections), items: s.data.items ?? [] } };
+      const columns = s.data.columns ?? b.data.columns;
+      return { ...b, data: { selections, campaign_ids: campaignIdsOf(selections), items: s.data.items ?? [], ...(columns ? { columns } : {}) } };
     });
     return changed ? next : blocks;
   };

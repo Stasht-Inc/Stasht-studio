@@ -11,7 +11,8 @@ const item = (id, over = {}) => ({ id, title: `Campaign ${id}`, description: 'Ab
 
 test('campaigns is a block type; a new one has no campaigns yet', () => {
   assert.ok(BLOCK_TYPES.includes('campaigns'));
-  assert.deepEqual(createBlock('campaigns', 'c1'), { id: 'c1', type: 'campaigns', data: { selections: [], campaign_ids: [] } });
+  // 2 columns for a new section (Chris, 29 Oct round 2: campaigns-layout.test.mjs).
+  assert.deepEqual(createBlock('campaigns', 'c1'), { id: 'c1', type: 'campaigns', data: { selections: [], campaign_ids: [], columns: 2 } });
   assert.equal(CAMPAIGNS_MAX, 6);
 });
 
@@ -31,7 +32,8 @@ test('normaliseBlocks keeps ids (order, unique, max 6) and the server snapshot',
 
 test('Studio sends selections (and campaign_ids), never items: the API builds the snapshot itself', () => {
   const d = { ...emptyDraft(), blocks: [{ id: 'c', type: 'campaigns', data: { campaign_ids: [12, 34], items: [item(12), item(34)] } }] };
-  assert.deepEqual(draftToInput(d).blocks, [{ id: 'c', type: 'campaigns', data: { selections: [{ kind: 'campaign', id: 12 }, { kind: 'campaign', id: 34 }], campaign_ids: [12, 34] } }]);
+  // columns: 1 for a section that has none (an older one).
+  assert.deepEqual(draftToInput(d).blocks, [{ id: 'c', type: 'campaigns', data: { selections: [{ kind: 'campaign', id: 12 }, { kind: 'campaign', id: 34 }], campaign_ids: [12, 34], columns: 1 } }]);
   // A new snapshot from the server is not a change to save.
   const fresher = { ...d, blocks: [{ id: 'c', type: 'campaigns', data: { campaign_ids: [12, 34], items: [item(12, { title: 'New' })] } }] };
   assert.deepEqual(changedFields(d, fresher), {});
@@ -39,7 +41,7 @@ test('Studio sends selections (and campaign_ids), never items: the API builds th
   const long = { id: 't', type: 'text', data: { html: `<p>${'x'.repeat(20001)}</p>` } };
   const withLong = { ...d, blocks: [...d.blocks.map((b) => ({ ...b, data: { ...b.data, selections: [{ kind: 'campaign', id: 12 }], campaign_ids: [12] } })), long] };
   const { patch } = savableChanges(d, withLong);
-  assert.deepEqual(patch.blocks, [{ id: 'c', type: 'campaigns', data: { selections: [{ kind: 'campaign', id: 12 }], campaign_ids: [12] } }]);
+  assert.deepEqual(patch.blocks, [{ id: 'c', type: 'campaigns', data: { selections: [{ kind: 'campaign', id: 12 }], campaign_ids: [12], columns: 1 } }]);
 });
 
 test('toggleCampaign keeps the picking order and stops at 6', () => {

@@ -2,7 +2,7 @@
 // description, "View campaign" / "View product" / "View vehicle"). Pure, so `node --test` loads it directly.
 // Shared contracts 2026-10-28 and 2026-10-29: Studio sends selections (+ campaign_ids); the API keeps what the
 // owner can share and answers with its own `items` snapshot.
-import type { CampaignItem, CampaignKind, CampaignOption, CampaignSelection } from '../../../services/newslettersAPI.ts';
+import type { CampaignColumns, CampaignItem, CampaignKind, CampaignOption, CampaignSelection } from '../../../services/newslettersAPI.ts';
 import { httpsUrl } from './urls.ts';
 import { contrastInk, safeHexColor } from './colors.ts';
 import { formatCarCategory } from '../../../utils/carCategories.ts';
@@ -202,8 +202,28 @@ export function campaignButtonColor(headerColor: string | null | undefined): str
   return contrastInk(brand) === '#FFFFFF' ? brand : '#6C60FF';
 }
 
-/** The section's "Change" button and toolbar icon (the picker holds all three kinds). */
-export const CHANGE_ITEMS_LABEL = 'Change campaigns, products or vehicles';
+/** The section's "Edit" button and toolbar icon: they open the picker (which holds all three kinds). Was "Change"
+ *  until Chris's 29 Oct feedback. */
+export const EDIT_ITEMS_LABEL = 'Edit campaigns, products or vehicles';
+
+/** A new section's layout (shared brief 2026-10-29 round 2): cards side by side. */
+export const NEW_SECTION_COLUMNS: CampaignColumns = 2;
+
+/** columns as the API sends them: 1 or 2, or undefined (a section from before columns, which reads as 1). */
+export function normaliseColumns(raw: unknown): CampaignColumns | undefined {
+  const n = typeof raw === 'string' && /^[12]$/.test(raw) ? Number(raw) : raw;
+  return n === 1 || n === 2 ? n : undefined;
+}
+
+/** The section's layout: 2 only when it says so (absent = 1, so older sections look as they always did). */
+export function campaignColumns(data: { columns?: unknown }): CampaignColumns {
+  return normaliseColumns(data.columns) ?? 1;
+}
+
+/** The most cards side by side in the preview: the email shows 1 column on phones, whatever the section says. */
+export function previewColumns(data: { columns?: unknown }, phone: boolean): CampaignColumns {
+  return phone ? 1 : campaignColumns(data);
+}
 
 const MISSING_NOTES: Record<CampaignKind, string> = {
   campaign: 'A campaign picked here can’t be shown any more (it may no longer be published), so it’s left out of the email.',

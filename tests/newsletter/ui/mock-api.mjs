@@ -44,8 +44,14 @@ function updateErrors(body) {
     } else if (b.type === 'campaigns' && (!Array.isArray(b.data?.campaign_ids) || b.data.campaign_ids.some((id) => !Number.isInteger(id)))) errors[`${key}.campaign_ids`] = ['The campaigns could not be read.'];
     else if (b.type === 'campaigns' && b.data.campaign_ids.length > 6) errors[`${key}.campaign_ids`] = ['A Campaigns section can show up to 6 campaigns.'];
     if (b.type === 'youtube' && bad(b.data?.url)) errors[`${key}.url`] = ['Use a YouTube link, like https://www.youtube.com/watch?v=…'];
+    // Shared brief 2026-10-29 round 2: columns 1 | 2 (absent = 1).
+    if (b.type === 'campaigns' && b.data?.columns != null && ![1, 2].includes(b.data.columns)) errors[`${key}.columns`] = ['Choose 1 or 2 columns.'];
   });
   return errors;
+}
+// Shared brief 2026-10-29 round 2: what the API keeps of a Campaigns section's layout (columns, absent = 1).
+function campaignLayout(data) {
+  return [1, 2].includes(data?.columns) ? { columns: data.columns } : {};
 }
 const MONTH_NAME = () => {
   const d = new Date();
@@ -777,7 +783,7 @@ export function createMockApi(options = {}) {
             const asked = Array.isArray(b.data?.selections) ? b.data.selections : (b.data?.campaign_ids || []).map((id) => ({ kind: 'campaign', id }));
             const items = asked.map((p) => snapshotItem(p.kind, p.id)).filter(Boolean).slice(0, 6);
             const selections = items.map((i) => ({ kind: i.kind, id: i.id }));
-            return { ...b, data: { selections, campaign_ids: selections.filter((p) => p.kind === 'campaign').map((p) => p.id), items } };
+            return { ...b, data: { selections, campaign_ids: selections.filter((p) => p.kind === 'campaign').map((p) => p.id), items, ...campaignLayout(b.data) } };
           });
         }
         // The presenter answers every time in UTC with a Z and no milliseconds.

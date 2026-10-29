@@ -51,15 +51,16 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
   expect(await section.getByText('View campaign').count() === 3, 'a View campaign button on each card');
   await page.waitForTimeout(1500);
   const sent = api.state.campaignBodies.at(-1);
-  const want = { selections: [601, 602, 604].map((id) => ({ kind: 'campaign', id })), campaign_ids: [601, 602, 604] };
+  // columns: 2 for a new section (Chris, 29 Oct round 2: editor-oct29b.mjs).
+  const want = { selections: [601, 602, 604].map((id) => ({ kind: 'campaign', id })), campaign_ids: [601, 602, 604], columns: 2 };
   expect(JSON.stringify(sent) === JSON.stringify(want), `Studio sends selections + campaign_ids (no items), in picking order (got ${JSON.stringify(sent)})`);
   const savedBlock = api.state.newsletters[0]?.blocks?.[0];
   expect(savedBlock?.type === 'campaigns' && savedBlock.data.items.length === 3, 'the API stored its own snapshot');
   expect(await page.evaluate(() => document.activeElement?.getAttribute('aria-label')) === 'Campaigns section', 'focus back on the section after Done');
   await shot(page, '1280-02-cards');
 
-  // Change campaigns from the toolbar: the picks come back; 6 is the most; Cancel changes nothing.
-  await section.getByRole('button', { name: 'Change campaigns' }).first().click();
+  // Edit (was Change) from the toolbar: the picks come back; 6 is the most; Cancel changes nothing.
+  await section.getByRole('button', { name: 'Edit campaigns' }).first().click();
   await expectVisible(picker, 'picker opens again');
   expect(await picker.getByRole('checkbox', { name: /^Winter tire swap/ }).isChecked(), 'picked campaigns are ticked');
   for (const name of ['Open house weekend', 'Summer road trip tips', 'Meet the service team']) await picker.getByRole('checkbox', { name: new RegExp(`^${name}`) }).check();
@@ -113,7 +114,7 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
     await expectVisible(phone.page.getByText('Winter tire swap').first(), `cards on a ${width} phone`);
     expect(!(await hasOverflow(phone.page)), `no sideways scroll at ${width} (cards)`);
     await phone.page.getByRole('group', { name: 'Campaigns section' }).click();
-    await phone.page.getByRole('group', { name: 'Campaigns section' }).getByRole('button', { name: 'Change campaigns' }).last().click();
+    await phone.page.getByRole('group', { name: 'Campaigns section' }).getByRole('button', { name: 'Edit campaigns' }).last().click();
     await expectVisible(phone.page.getByRole('dialog', { name: 'Choose campaigns' }).getByRole('checkbox').first(), `picker on a ${width} phone`);
     expect(!(await hasOverflow(phone.page)), `no sideways scroll at ${width} (picker)`);
     if (width === 390) {
@@ -130,6 +131,6 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
     newsletters: [newsletter(52, { name: 'Sent one', status: 'sent', sent_at: '2026-10-27T14:00:00Z', blocks: [{ id: 'c1', type: 'campaigns', data: { campaign_ids: [601], items: [card(601, 'Fall service event')] } }] })],
   }) });
   await expectVisible(ro.page.locator('aside').getByText('Fall service event'), 'frozen card on a sent newsletter');
-  expect(!(await ro.page.getByRole('button', { name: 'Change campaigns' }).count()), 'no Change campaigns when read-only');
+  expect(!(await ro.page.getByRole('button', { name: 'Edit campaigns' }).count()), 'no Edit campaigns when read-only');
   await ro.context.close();
 }

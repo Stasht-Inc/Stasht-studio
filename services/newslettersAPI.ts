@@ -53,7 +53,15 @@ export interface CampaignItem {
 /** Studio sends selections (0–6, in order) and campaign_ids (the campaign-kind ids, for older readers; the API
  *  ignores them when selections is there). The API drops what the owner can't share and answers with `items`,
  *  built on the server, so the email never depends on what the browser sent. */
-export interface CampaignsBlockData { selections: CampaignSelection[]; campaign_ids: number[]; items?: CampaignItem[] }
+export interface CampaignsBlockData {
+  selections: CampaignSelection[];
+  campaign_ids: number[];
+  items?: CampaignItem[];
+  /** Cards side by side (2) or one under another (1). Absent: a section from before columns, which is 1 (shared brief
+   *  2026-10-29 round 2). Studio sets 2 on a new section; phones always get 1 in the sent email. */
+  columns?: CampaignColumns;
+}
+export type CampaignColumns = 1 | 2;
 /** GET /newsletters/campaign-options rows, newest first. shareable: it has a page people can open from an email;
  *  otherwise `reason` says why ("This item has no web page"). public_url: that page. kind is missing from an
  *  older API (then it is the kind asked for). */

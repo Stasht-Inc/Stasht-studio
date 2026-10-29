@@ -5,7 +5,7 @@ import { LIMITS } from './rules.ts';
 import { DEFAULT_BUTTON_COLOR, safeHexColor } from './colors.ts';
 import { httpsUrl, youtubeVideoId } from './urls.ts';
 import { textHtmlIsEmpty } from './textHtml.ts';
-import { campaignIdsOf, normaliseCampaignItems, normaliseSelections } from './campaignsBlock.ts';
+import { NEW_SECTION_COLUMNS, campaignColumns, campaignIdsOf, normaliseCampaignItems, normaliseColumns, normaliseSelections } from './campaignsBlock.ts';
 
 export const BLOCK_TYPES: readonly BlockType[] = ['image', 'title', 'text', 'youtube', 'button', 'divider', 'campaigns'];
 const TITLE_SIZES: readonly TitleSize[] = ['small', 'medium', 'large'];
@@ -29,7 +29,7 @@ export function createBlock(type: BlockType, id: string): NewsletterBlock {
     case 'text': return { id, type: 'text', data: { html: '' } };
     case 'youtube': return { id, type: 'youtube', data: { url: '' } };
     case 'button': return { id, type: 'button', data: { label: 'Learn more', url: '', color: DEFAULT_BUTTON_COLOR } };
-    case 'campaigns': return { id, type: 'campaigns', data: { selections: [], campaign_ids: [] } };
+    case 'campaigns': return { id, type: 'campaigns', data: { selections: [], campaign_ids: [], columns: NEW_SECTION_COLUMNS } };
     default: return { id, type: 'divider', data: { style: 'line' } };
   }
 }
@@ -55,10 +55,12 @@ export function normaliseBlocks(raw: unknown): NewsletterBlock[] {
       case 'youtube': out.push({ id, type: 'youtube', data: { url: str(d.url) } }); break;
       case 'button': out.push({ id, type: 'button', data: { label: str(d.label), url: str(d.url), color: safeHexColor(d.color, DEFAULT_BUTTON_COLOR) } }); break;
       // The API's snapshot (items) comes back on every save; Studio never sends it (blocksToInput). A block saved
-      // before products and vehicles has campaign_ids only: those are campaign selections.
+      // before products and vehicles has campaign_ids only: those are campaign selections. columns is left out
+      // when the API has none (an older section: 1 column, and it stays so until the person changes it).
       case 'campaigns': {
         const selections = normaliseSelections(d.selections, d.campaign_ids);
-        out.push({ id, type: 'campaigns', data: { selections, campaign_ids: campaignIdsOf(selections), items: normaliseCampaignItems(d.items) } });
+        const columns = normaliseColumns(d.columns);
+        out.push({ id, type: 'campaigns', data: { selections, campaign_ids: campaignIdsOf(selections), items: normaliseCampaignItems(d.items), ...(columns ? { columns } : {}) } });
         break;
       }
       default: out.push({ id, type: 'divider', data: { style: d.style === 'space' ? 'space' : 'line' } });
@@ -139,13 +141,13 @@ export function campaignSelections(data: { selections?: unknown; campaign_ids?: 
   return normaliseSelections(data.selections, data.campaign_ids);
 }
 
-/** The blocks as a PUT sends them: a Campaigns section sends its selections and their campaign_ids only (the API
- *  builds the cards). */
+/** The blocks as a PUT sends them: a Campaigns section sends its selections, their campaign_ids and its columns
+ *  (1 for an older section that has none), never items (the API builds the cards). */
 export function blocksToInput(blocks: readonly NewsletterBlock[]): NewsletterBlock[] {
   return blocks.map((b) => {
     if (b.type !== 'campaigns') return b;
     const selections = campaignSelections(b.data);
-    return { id: b.id, type: 'campaigns', data: { selections, campaign_ids: campaignIdsOf(selections) } };
+    return { id: b.id, type: 'campaigns', data: { selections, campaign_ids: campaignIdsOf(selections), columns: campaignColumns(b.data) } };
   });
 }
 

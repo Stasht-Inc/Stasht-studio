@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { createBlock, blockProblem, blocksToInput, normaliseBlocks } from '../../components/newsletters/lib/blocks.ts';
 import { adoptCampaignSnapshots, emptyDraft } from '../../components/newsletters/lib/draft.ts';
 import {
-  CAMPAIGNS_MAX, CHANGE_ITEMS_LABEL, campaignIdsOf, categoryLabel, missingItemsNote, itemButtonLabel, itemFromOption, normaliseCampaignItems, normaliseSelections, optionLine,
+  CAMPAIGNS_MAX, EDIT_ITEMS_LABEL, campaignIdsOf, categoryLabel, missingItemsNote, itemButtonLabel, itemFromOption, normaliseCampaignItems, normaliseSelections, optionLine,
   pickerDefaultKind, pickerKinds, pickerSummary, pickerTitle, resolveCampaignItems, selectionKey, toggleSelection,
 } from '../../components/newsletters/lib/campaignsBlock.ts';
 
@@ -40,13 +40,13 @@ test('toggleSelection: picking order kept across kinds, 6 in all is the most', (
 });
 
 test('a new section has no selections; blocks read old and new data; PUT sends selections and campaign_ids', () => {
-  assert.deepEqual(createBlock('campaigns', 'c1').data, { selections: [], campaign_ids: [] });
+  assert.deepEqual(createBlock('campaigns', 'c1').data, { selections: [], campaign_ids: [], columns: 2 });
   const [old] = normaliseBlocks([{ id: 'c', type: 'campaigns', data: { campaign_ids: [12, 34] } }]);
   assert.deepEqual(old.data.selections, [c(12), c(34)]);
   const [mixed] = normaliseBlocks([{ id: 'c', type: 'campaigns', data: { selections: [p(881), c(12), v(45)], campaign_ids: [12], items: [] } }]);
   assert.deepEqual(mixed.data.selections, [p(881), c(12), v(45)]);
   assert.deepEqual(mixed.data.campaign_ids, [12]);
-  assert.deepEqual(blocksToInput([mixed]), [{ id: 'c', type: 'campaigns', data: { selections: [p(881), c(12), v(45)], campaign_ids: [12] } }]);
+  assert.deepEqual(blocksToInput([mixed]), [{ id: 'c', type: 'campaigns', data: { selections: [p(881), c(12), v(45)], campaign_ids: [12], columns: 1 } }]);
 });
 
 test('a section with only products or vehicles is finished; an empty one names all three kinds', () => {
@@ -152,7 +152,7 @@ test('missingItemsNote says what was left out, in the words of its kind', () => 
   assert.equal(missingItemsNote([v(3), c(1)], [card('campaign', 1)]), 'A vehicle picked here can’t be shown any more (it may have sold), so it’s left out of the email.');
   assert.equal(missingItemsNote([v(3), p(2), c(1)], [card('campaign', 1)]), 'Some picks here can’t be shown any more, so they’re left out of the email.');
   assert.equal(missingItemsNote([c(1)], [card('campaign', 1)]), '');
-  assert.equal(CHANGE_ITEMS_LABEL, 'Change campaigns, products or vehicles');
+  assert.equal(EDIT_ITEMS_LABEL, 'Edit campaigns, products or vehicles');
 });
 
 // The API sends vehicle categories as cars.category has them ("preowned"); they read as Studio's cars cards do.

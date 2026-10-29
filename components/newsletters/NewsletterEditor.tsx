@@ -5,7 +5,7 @@ import type { NewsletterDraft } from './lib/draft';
 import { initialsFrom, type SenderProfile } from './lib/profile';
 import { LIMITS } from './lib/rules';
 import { ACTION_TOAST_MS, blocksProblems, campaignSelections, createBlock, insertBlock, liveBlockProblems, moveBlock, newBlockId, removeBlock, undoDelete, updateBlockData } from './lib/blocks';
-import { CHANGE_ITEMS_LABEL, campaignIdsOf } from './lib/campaignsBlock';
+import { EDIT_ITEMS_LABEL, campaignIdsOf } from './lib/campaignsBlock';
 import InboxRow from './InboxRow';
 import HeaderEditor from './HeaderEditor';
 import EcardFooter from './EcardFooter';
@@ -56,7 +56,7 @@ interface BlockHandlers {
 }
 
 /** One section with its frame. Memoised: typing in one section doesn't re-render the others. */
-const BlockRow = memo(function BlockRow({ block, index, count, selected, readOnly, problem, padClass, handlers, serverItems, accent }: {
+const BlockRow = memo(function BlockRow({ block, index, count, selected, readOnly, problem, padClass, handlers, serverItems, accent, phone }: {
   block: NewsletterBlock;
   index: number;
   count: number;
@@ -67,14 +67,15 @@ const BlockRow = memo(function BlockRow({ block, index, count, selected, readOnl
   handlers: BlockHandlers;
   serverItems?: CampaignItem[];
   accent?: string | null;
+  phone: boolean;
 }) {
   const campaigns = block.type === 'campaigns';
   return (
     <BlockFrame blockId={block.id} label={BLOCK_LABEL[block.type]} index={index} count={count} selected={selected} readOnly={readOnly} problem={problem} padClass={padClass}
       onSelect={handlers.onSelect} onDone={handlers.onDone} onMoveUp={handlers.onMoveUp} onMoveDown={handlers.onMoveDown} onDelete={handlers.onDelete}
-      onEdit={campaigns ? handlers.onPick : undefined} editLabel={campaigns ? CHANGE_ITEMS_LABEL : undefined}>
+      onEdit={campaigns ? handlers.onPick : undefined} editLabel={campaigns ? EDIT_ITEMS_LABEL : undefined}>
       <BlockEditor block={block} selected={selected} readOnly={readOnly} onChange={handlers.onChange}
-        serverItems={campaigns ? serverItems : undefined} accent={campaigns ? accent : undefined} onPick={campaigns ? handlers.onPick : undefined} />
+        serverItems={campaigns ? serverItems : undefined} accent={campaigns ? accent : undefined} onPick={campaigns ? handlers.onPick : undefined} phone={phone} />
     </BlockFrame>
   );
 });
@@ -239,7 +240,7 @@ export default function NewsletterEditor({
                 <Fragment key={block.id}>
                   <BlockRow block={block} index={index} count={blocks.length} selected={selectedId === block.id} readOnly={readOnly}
                     problem={problems[block.id] ?? serverBlockError(fieldErrors, index)} padClass={padClass} handlers={handlersFor(block.id)}
-                    serverItems={savedItems.get(block.id)} accent={draft.header.background_color} />
+                    serverItems={savedItems.get(block.id)} accent={draft.header.background_color} phone={phone} />
                   {plus(index + 1, `Add a section after section ${index + 1}`)}
                 </Fragment>
               ))}
