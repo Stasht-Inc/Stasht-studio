@@ -94,6 +94,60 @@ export function cleanPhone(value: string): string | null {
   return (v.startsWith('+') ? '+' : '') + digits;
 }
 
+// Chris, 29 Oct (round 2), item 7: auto-match never takes a date or time column for Mobile, Name or Email (a
+// Mailchimp export's OPTIN_TIME "2024-03-05 14:22:01" has 14 digits, so a phone check alone takes it).
+const DATE_TOKENS = new Set(['date', 'time', 'datetime', 'timestamp', 'changed', 'created', 'updated', 'modified', 'birthday', 'birthdate', 'dob', 'day', 'month', 'year']);
+
+const CONTACT_WORD = /phone|mobile|cell|^tel$/;
+const NOT_DATE_WORDS = new Set(['update', 'updates', 'candidate', 'candidates', 'mandate', 'validate', 'overtime', 'runtime', 'anytime', 'lifetime', 'sometime']);
+
+/** Header words, split on anything that isn't a letter and on camelCase ("OPTIN_TIME", "createdAt"). */
+const headerTokens = (header: string): string[] =>
+  (header ?? '').replace(/([a-z])([A-Z])/g, '$1 $2').toLowerCase().split(/[^a-z]+/).filter(Boolean);
+
+/** A header that names a date or time: OPTIN_TIME, CONFIRM_TIME, LAST_CHANGED, …_DATE, Date, Created, updated_at… */
+export function isDateTimeHeader(header: string): boolean {
+  const tokens = headerTokens(header);
+  // A header that names a phone ("Cell (Daytime)", "Phone (Daytime)") is a phone column, never a date.
+  if (tokens.some((t) => CONTACT_WORD.test(t))) return false;
+  if (tokens.some((t) => DATE_TOKENS.has(t))) return true;
+  const last = tokens[tokens.length - 1] ?? '';
+  // "…time" / "…date" run together (OPTINTIME, signupdate): the last word only, and not words like "update".
+  if (/(date|time|timestamp)$/.test(last) && !NOT_DATE_WORDS.has(last)) return true;
+  return tokens.length > 1 && last === 'at';
+}
+
+/** Headers for other things a value check could mistake for a mobile number: ids, IP addresses, map positions. */
+function isOtherDataHeader(header: string): boolean {
+  const tokens = headerTokens(header);
+  const key = tokens.join('');
+  return /id$/.test(key) || tokens.some((t) => ['ip', 'lat', 'latitude', 'lng', 'lon', 'longitude', 'gmtoff', 'dstoff', 'timezone', 'rating', 'zip', 'zipcode', 'postal', 'postcode'].includes(t));
+}
+
+const MONTH_NAME = /\b(jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|sept|september|oct|october|nov|november|dec|december)\.?(?![a-z])/i;
+const two = (s: string, max: number, min = 0) => Number(s) >= min && Number(s) <= max;
+
+/** A value that reads as a date and/or time: 2024-03-05, 2024-03-05 14:22:01, 03/05/2024, 14:22, Mar 5, 2024, or a
+ *  compact 20240305142201. */
+export function looksLikeDateTime(value: string): boolean {
+  const v = (value ?? '').trim();
+  if (!v || v.length > MAX_DATE_LENGTH) return false;
+  if (/^\d{4}-\d{1,2}-\d{1,2}([ T]\d{1,2}:\d{2}(:\d{2}(\.\d+)?)?\s*(Z|[+-]\d{2}:?\d{2})?)?$/i.test(v)) return true;
+  if (/^\d{1,2}[/.-]\d{1,2}[/.-](\d{2}|\d{4})(,?\s+\d{1,2}:\d{2}(:\d{2})?(\s*[ap]\.?m\.?)?)?$/i.test(v)) return true;
+  if (/^\d{1,2}:\d{2}(:\d{2})?(\s*[ap]\.?m\.?)?$/i.test(v)) return true;
+  const compact = /^((?:19|20)\d{2})(\d{2})(\d{2})(?:(\d{2})(\d{2})(\d{2})?)?$/.exec(v);
+  if (compact && two(compact[2], 12, 1) && two(compact[3], 31, 1) && (compact[4] === undefined || (two(compact[4], 23) && two(compact[5], 59) && (compact[6] === undefined || two(compact[6], 59))))) return true;
+  return MONTH_NAME.test(v) && /\d/.test(v) && !Number.isNaN(Date.parse(v));
+}
+
+/** A cell that could be a mobile number: digits as cleanPhone reads them, but not a date, time, IP address or
+ *  decimal number (a latitude). */
+function phoneLike(v: string): boolean {
+  const t = (v ?? '').trim();
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(t) || /^[+-]?\d+\.\d+$/.test(t)) return false;
+  return cleanPhone(t) !== null && !looksLikeDateTime(t);
+}
+
 export function detectColumns(table: string[][]): ColumnMap {
   const map: ColumnMap = { name: null, firstName: null, lastName: null, email: null, phone: null, consentAt: null, hasHeader: false };
   (table[0] ?? []).forEach((cell, index) => {
@@ -107,22 +161,33 @@ export function detectColumns(table: string[][]): ColumnMap {
     }
   });
   // Guess from the values (the first 20 rows under any header row): every column with no header row, or the email
-  // and phone columns a header row didn't name.
+  // and phone columns a header row didn't name. A date or time column (by its header or its values) is never taken.
   const sample = table.slice(map.hasHeader ? 1 : 0, (map.hasHeader ? 1 : 0) + 20);
   const width = Math.max(0, ...sample.map((r) => r.length));
   const share = (col: number, test: (v: string) => boolean): number => {
     const values = sample.map((r) => r[col] ?? '').filter(Boolean);
     return values.length ? values.filter(test).length / values.length : 0;
   };
+  const header = (col: number) => (map.hasHeader ? table[0]?.[col] ?? '' : '');
+  const dateColumn = (col: number) => (map.hasHeader && isDateTimeHeader(header(col))) || share(col, looksLikeDateTime) >= 0.6;
   const taken = (col: number) => [map.name, map.firstName, map.lastName, map.email, map.phone, map.consentAt].includes(col);
+  // A header row with no exact Mobile name: a header with mobile or cell, then phone ("Mobile Phone Number", "Work
+  // Phone"), when its cells are phone numbers (or empty so far).
+  if (map.hasHeader && map.phone === null) {
+    const named = (word: RegExp) => Array.from({ length: Math.max(width, table[0]?.length ?? 0) }, (_, col) => col).find((col) =>
+      !taken(col) && word.test(headerTokens(header(col)).join('')) && !dateColumn(col)
+      && (sample.every((r) => !(r[col] ?? '').trim()) || share(col, phoneLike) >= 0.5));
+    const col = named(/mobile|cell/) ?? named(/phone/);
+    if (col !== undefined) map.phone = col;
+  }
   for (let col = 0; col < width; col++) {
-    if (taken(col)) continue;
+    if (taken(col) || dateColumn(col) || (map.hasHeader && isOtherDataHeader(header(col)))) continue;
     if (map.email === null && share(col, isPlausibleEmail) >= 0.6) map.email = col;
-    else if (map.phone === null && share(col, (v) => cleanPhone(v) !== null) >= 0.6) map.phone = col;
+    else if (map.phone === null && share(col, phoneLike) >= 0.6) map.phone = col;
   }
   if (map.hasHeader) return map;
   for (let col = 0; col < width; col++) {
-    if (col !== map.email && col !== map.phone && col !== map.consentAt && share(col, (v) => /[a-z]/i.test(v)) >= 0.6) {
+    if (col !== map.email && col !== map.phone && col !== map.consentAt && !dateColumn(col) && share(col, (v) => /[a-z]/i.test(v)) >= 0.6) {
       map.name = col;
       break;
     }

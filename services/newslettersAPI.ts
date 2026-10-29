@@ -163,6 +163,10 @@ export interface RecipientRow {
   opened_at: string | null;
   clicked_at: string | null;
   unsubscribed_at: string | null;
+  /** Why a skipped row wasn't sent (e.g. no_text_parts) and its plain words ("Not sent: no text parts left").
+   *  Newer API versions only (Chris, 29 Oct round 2, item 6). */
+  skip_reason?: string | null;
+  skip_note?: string | null;
 }
 export interface PageMeta { page: number; total_pages: number; total: number }
 /** Results totals plus the same eight numbers per channel (contract note 2). */

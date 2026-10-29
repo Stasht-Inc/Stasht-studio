@@ -20,6 +20,7 @@ import {
 } from './lib/newsletterList';
 import { BUTTON_SMALL, LABEL, LINK_BUTTON, inputClass } from './lib/ui';
 import { userLocale } from './lib/locale';
+import { recipientSkipNote } from './lib/skipNote';
 
 const TILES: Array<{ key: keyof NewsletterCounts; rated?: boolean }> = [
   { key: 'recipients' }, { key: 'delivered' }, { key: 'opened', rated: true }, { key: 'clicked', rated: true },
@@ -244,7 +245,10 @@ export default function NewsletterResults({ newsletterId, onOpenChange, onChange
                     <tr key={`${r.channel}-${r.address}-${i}`} className="align-top hover:bg-gray-50">
                       <td className="min-w-0 py-3 pl-4 pr-2"><PersonCell r={r} /></td>
                       <td className="px-2 py-3"><ChannelIcon channel={r.channel} /></td>
-                      <td className="px-2 py-3"><StatusChip status={r.status} recipient /></td>
+                      <td className="px-2 py-3">
+                        <StatusChip status={r.status} recipient />
+                        {recipientSkipNote(r) ? <p className="mt-1 text-xs text-gray-500">{recipientSkipNote(r)}</p> : null}
+                      </td>
                       <td className="py-3 pl-2 pr-4 text-xs leading-5 text-gray-700"><Activity r={r} /></td>
                     </tr>
                   ))}
@@ -259,6 +263,7 @@ export default function NewsletterResults({ newsletterId, onOpenChange, onChange
                     </div>
                     <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-500">
                       <ChannelIcon channel={r.channel} />
+                      {recipientSkipNote(r) ? <span>{recipientSkipNote(r)}</span> : null}
                       <Activity r={r} inline />
                     </div>
                   </li>

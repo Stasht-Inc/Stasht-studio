@@ -47,13 +47,23 @@ export default function ImportListModal({ open, onOpenChange, groups, onCreated,
   const [groupId, setGroupId] = useState('all');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Counts every failed try, so the same message is focused and read out again each time.
+  const [errorNonce, setErrorNonce] = useState(0);
+  const fail = (message: string) => { setError(message); setErrorNonce((n) => n + 1); };
   const fileRef = useRef<HTMLInputElement>(null);
+  const errorRef = useRef<HTMLParagraphElement>(null);
 
   useEffect(() => {
     if (open) return;
     setSource('csv'); setName(''); setFileName(null); setTable(null); setMap(null);
     setConsent(null); setDateOrder(null); setGroupId('all'); setBusy(false); setError(null);
   }, [open]);
+
+  // Chris, 29 Oct (round 2), item 7: a problem shows next to the Import button (always in view, never below the
+  // fold) and takes focus so it is read out.
+  useEffect(() => {
+    if (error) errorRef.current?.focus({ preventScroll: true });
+  }, [error, errorNonce]);
 
   const preview = useMemo(() => (table && map ? buildImportRows(table, map, dateOrder) : null), [table, map, dateOrder]);
   const ready = preview?.rows.length ?? 0;
@@ -65,21 +75,21 @@ export default function ImportListModal({ open, onOpenChange, groups, onCreated,
     // A different file needs its own consent (and its own date order).
     setConsent(null);
     setDateOrder(null);
-    if (file.size > MAX_IMPORT_BYTES) { setError('This file is bigger than 5 MB. Split it into smaller files.'); return; }
+    if (file.size > MAX_IMPORT_BYTES) { fail('This file is bigger than 5 MB. Split it into smaller files.'); return; }
     let text: string;
     try {
       const bytes = new Uint8Array(await file.arrayBuffer());
       const problem = csvFileProblem(file.name, bytes.subarray(0, 64));
-      if (problem) { setError(problem); return; }
+      if (problem) { fail(problem); return; }
       text = new TextDecoder('utf-8').decode(bytes);
       // Not UTF-8 (Excel on Windows saves CSV as windows-1252): read it that way so "Renée" stays Renée.
       if (text.includes('\uFFFD')) text = new TextDecoder('windows-1252').decode(bytes);
     } catch {
-      setError('This file could not be read. Try again, or choose another file.');
+      fail('This file could not be read. Try again, or choose another file.');
       return;
     }
     const rows = parseCsv(text);
-    if (!rows.length) { setError('This file is empty.'); return; }
+    if (!rows.length) { fail('This file is empty.'); return; }
     setTable(rows);
     setMap(detectColumns(rows));
     setFileName(file.name);
@@ -94,17 +104,17 @@ export default function ImportListModal({ open, onOpenChange, groups, onCreated,
 
   const submit = async () => {
     setError(null);
-    if (!intoList && !name.trim()) { setError('Give the list a name.'); return; }
+    if (!intoList && !name.trim()) { fail('Give the list a name.'); return; }
     setBusy(true);
     if (intoList) {
       if (!preview || !ready || tooMany) { setBusy(false); return; }
-      if (!consent) { setBusy(false); setError('Choose how these people agreed to hear from you.'); return; }
-      if (preview.needsDateOrder) { setBusy(false); setError('Choose whether the dates are day/month or month/day.'); return; }
+      if (!consent) { setBusy(false); fail('Choose how these people agreed to hear from you.'); return; }
+      if (preview.needsDateOrder) { setBusy(false); fail('Choose whether the dates are day/month or month/day.'); return; }
       const res = await newslettersAPI.importIntoList(intoList.id, { consent: true, consent_type: consent, consent_source: 'import', rows: preview.rows });
       setBusy(false);
       // 422 keys: rows (also "This list can hold up to N people."), consent_type, consent.
       if (!res.ok || !res.data) {
-        setError(res.fieldErrors.rows ?? res.fieldErrors.consent_type ?? res.fieldErrors.consent ?? res.error ?? GENERIC_ERROR);
+        fail(res.fieldErrors.rows ?? res.fieldErrors.consent_type ?? res.fieldErrors.consent ?? res.error ?? GENERIC_ERROR);
         return;
       }
       composerToast.success(mergeResultText(res.data, undefined, ALREADY_ON_LIST));
@@ -115,13 +125,13 @@ export default function ImportListModal({ open, onOpenChange, groups, onCreated,
     if (source === 'csv') {
       if (!preview || !ready || tooMany) { setBusy(false); return; }
       // Said on pressing Import (the button stays enabled, so it's clear what is missing).
-      if (!consent) { setBusy(false); setError('Choose how these people agreed to hear from you.'); return; }
-      if (preview.needsDateOrder) { setBusy(false); setError('Choose whether the dates are day/month or month/day.'); return; }
+      if (!consent) { setBusy(false); fail('Choose how these people agreed to hear from you.'); return; }
+      if (preview.needsDateOrder) { setBusy(false); fail('Choose whether the dates are day/month or month/day.'); return; }
       const res = await newslettersAPI.importList({ name: name.trim(), consent: true, consent_type: consent, consent_source: 'import', rows: preview.rows });
       setBusy(false);
       // ContactListController::import 422 keys: name, consent, consent_type, rows.
       if (!res.ok || !res.data) {
-        setError(res.fieldErrors.name ?? res.fieldErrors.rows ?? res.fieldErrors.consent_type ?? res.fieldErrors.consent ?? res.error ?? GENERIC_ERROR);
+        fail(res.fieldErrors.name ?? res.fieldErrors.rows ?? res.fieldErrors.consent_type ?? res.fieldErrors.consent ?? res.error ?? GENERIC_ERROR);
         return;
       }
       composerToast.success(importSummary(res.data));
@@ -132,7 +142,7 @@ export default function ImportListModal({ open, onOpenChange, groups, onCreated,
     const res = await newslettersAPI.listFromLeads({ name: name.trim(), ...(groupId !== 'all' ? { lead_group_id: Number(groupId) } : {}) });
     setBusy(false);
     // fromLeads 422 keys: name, lead_group_id.
-    if (!res.ok || !res.data) { setError(res.fieldErrors.name ?? res.fieldErrors.lead_group_id ?? res.error ?? GENERIC_ERROR); return; }
+    if (!res.ok || !res.data) { fail(res.fieldErrors.name ?? res.fieldErrors.lead_group_id ?? res.error ?? GENERIC_ERROR); return; }
     composerToast.success(`Made the list "${res.data.name}" with ${formatCount(res.data.member_count)} people.`);
     onCreated(res.data);
     onOpenChange(false);
@@ -140,10 +150,16 @@ export default function ImportListModal({ open, onOpenChange, groups, onCreated,
 
   // Into an existing list: always a CSV file.
   const csv = Boolean(intoList) || source === 'csv';
+  const tooManyText = `This file has more than ${formatCount(MAX_IMPORT_ROWS)} contacts. Split it into smaller files.`;
+  const footerProblem = error ?? (csv && tooMany ? tooManyText : null);
   const footer = (
     <>
+      {footerProblem ? (
+        <p key={errorNonce} ref={errorRef} id="nl-import-error" role="alert" tabIndex={-1}
+          className={`basis-full rounded-lg px-3 py-2 text-sm outline-none ${error ? 'bg-red-50 text-red-700' : 'bg-amber-50 text-amber-800'}`}>{footerProblem}</p>
+      ) : null}
       <button type="button" onClick={() => onOpenChange(false)} disabled={busy} className={BUTTON_OUTLINE}>Cancel</button>
-      <button type="button" onClick={submit} disabled={busy || (csv && (!ready || tooMany))} className={BUTTON_PRIMARY}>
+      <button type="button" onClick={submit} disabled={busy || (csv && (!ready || tooMany))} aria-describedby={footerProblem ? 'nl-import-error' : undefined} className={BUTTON_PRIMARY}>
         {busy ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : null}
         {csv ? `Import ${formatCount(ready)} ${ready === 1 ? 'contact' : 'contacts'}` : 'Make the list'}
       </button>
@@ -220,7 +236,6 @@ export default function ImportListModal({ open, onOpenChange, groups, onCreated,
                 {preview?.unreadableDates && !preview.needsDateOrder ? (
                   <p className="text-sm text-amber-800">{`${formatCount(preview.unreadableDates)} ${preview.unreadableDates === 1 ? 'date couldn\u2019t' : 'dates couldn\u2019t'} be read \u2014 we\u2019ll use today\u2019s date.`}</p>
                 ) : null}
-                {tooMany ? <p role="alert" className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">This file has more than {formatCount(MAX_IMPORT_ROWS)} contacts. Split it into smaller files.</p> : null}
                 {ready ? (
                   <div className="rounded-lg border border-gray-200">
                     <table className="w-full table-fixed text-left text-xs sm:text-sm">
@@ -267,8 +282,6 @@ export default function ImportListModal({ open, onOpenChange, groups, onCreated,
             <p className="mt-1.5 text-xs text-gray-500">The list is a copy made now. New leads are not added to it later.</p>
           </div>
         )}
-
-        {error ? <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p> : null}
       </div>
     </ComposerDialog>
   );

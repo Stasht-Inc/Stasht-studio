@@ -7,7 +7,7 @@ import ComposerDialog from './ComposerDialog';
 import type { NlResult } from './lib/apiResult';
 import { formatCount } from './lib/audience';
 import { formatSendTime, localDateTimeToIso, timeZoneName, type ScheduleChoice } from './lib/schedule';
-import { allowanceLine, allowanceProblem, nextMonthLine, usesNextMonthAllowance } from './lib/sendChecks';
+import { allowanceLine, nextMonthLine, sendAllowance, sendBlockedReason, usesNextMonthAllowance } from './lib/sendChecks';
 import { BUTTON_OUTLINE, BUTTON_PRIMARY, LABEL, LINK_BUTTON, textareaClass } from './lib/ui';
 
 export interface SendConfirmDialogProps {
@@ -30,7 +30,9 @@ export interface SendConfirmDialogProps {
   onSeePlans?(): void;
 }
 
-/** Last check before sending: who gets it, when, the monthly allowance, and the business address on the first send. */
+/** Last check before sending: who gets it, when, the monthly allowance, and the business address on the first send.
+ *  Chris, 29 Oct (round 2), item 6: with too few text parts the emails still go (the texts beyond are skipped), said
+ *  right at the button; whenever Send / Schedule is off, why is said right at the button too. */
 export default function SendConfirmDialog({
   open, onOpenChange, newsletterId, channels, counts, countsLoading = false, smsParts = 1, schedule, businessAddress, onSaveAddress, onSent, onFailed, onSeePlans,
 }: SendConfirmDialogProps) {
@@ -45,7 +47,11 @@ export default function SendConfirmDialog({
   const needsAddress = !businessAddress;
   // A send after the monthly reset uses next month's allowance: only the API can check that (wdy2xh2p3m).
   const nextMonth = usesNextMonthAllowance(allowance, iso);
-  const overLimit = allowanceError ?? (nextMonth ? null : allowanceProblem(allowance, counts, channels, smsParts));
+  const check = nextMonth ? null : sendAllowance(allowance, counts, channels, smsParts);
+  const overLimit = allowanceError ?? check?.problem ?? null;
+  // Texts the plan has no parts left for are skipped; the emails still go (not when the API has refused).
+  const skipNote = allowanceError ? null : check?.note ?? null;
+  const blockedReason = sendBlockedReason({ busy, countsLoading, problem: overLimit, saved: Boolean(newsletterId) });
 
   useEffect(() => {
     if (!open) return undefined;
@@ -80,10 +86,21 @@ export default function SendConfirmDialog({
     onFailed(res);
   };
 
+  // Said right at the button: why it is off (with See plans when it's the allowance), or which texts won't go out.
+  const atButton = blockedReason ?? skipNote;
+  // The allowance (refused, or texts skipped): amber, with See plans.
+  const aboutAllowance = blockedReason ? blockedReason === overLimit : Boolean(skipNote);
   const footer = (
     <>
+      {atButton ? (
+        <div id="nl-send-note" role={blockedReason && aboutAllowance ? 'alert' : 'status'}
+          className={`flex basis-full flex-wrap items-center justify-between gap-x-3 gap-y-1 rounded-lg px-3 py-2 text-sm ${aboutAllowance ? 'bg-amber-50 text-amber-800' : 'bg-gray-50 text-gray-700'}`}>
+          <p className="min-w-0 flex-1 basis-56">{atButton}</p>
+          {aboutAllowance && onSeePlans ? <button type="button" onClick={onSeePlans} className={`${LINK_BUTTON} whitespace-nowrap`}>See plans</button> : null}
+        </div>
+      ) : null}
       <button type="button" onClick={() => onOpenChange(false)} disabled={busy} className={BUTTON_OUTLINE}>Back</button>
-      <button type="button" onClick={confirm} disabled={busy || countsLoading || Boolean(overLimit) || !newsletterId} className={BUTTON_PRIMARY}>
+      <button type="button" onClick={confirm} disabled={busy || Boolean(blockedReason)} aria-describedby={atButton ? 'nl-send-note' : undefined} className={BUTTON_PRIMARY}>
         {busy ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Send className="h-4 w-4" aria-hidden="true" />}
         {later ? 'Schedule' : 'Send Now'}
       </button>
@@ -107,12 +124,6 @@ export default function SendConfirmDialog({
         ) : null}
       </dl>
       {allowance ? <p className="mt-3 text-sm text-gray-600">{nextMonth ? nextMonthLine(allowance) : allowanceLine(allowance, channels)}</p> : null}
-      {overLimit ? (
-        <div role="alert" className="mt-3 flex flex-wrap items-center justify-between gap-x-3 gap-y-2 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">
-          <p className="min-w-0 flex-1 basis-56">{overLimit}</p>
-          {onSeePlans ? <button type="button" onClick={onSeePlans} className={`${LINK_BUTTON} whitespace-nowrap`}>See plans</button> : null}
-        </div>
-      ) : null}
       {needsAddress ? (
         <div className="mt-4">
           <label htmlFor="nl-confirm-address" className={LABEL}>Business address</label>
