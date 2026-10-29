@@ -5,7 +5,7 @@ import { LIMITS } from './rules.ts';
 import { DEFAULT_BUTTON_COLOR, safeHexColor } from './colors.ts';
 import { httpsUrl, youtubeVideoId } from './urls.ts';
 import { textHtmlIsEmpty } from './textHtml.ts';
-import { NEW_SECTION_COLUMNS, campaignColumns, campaignIdsOf, normaliseCampaignItems, normaliseColumns, normaliseSelections } from './campaignsBlock.ts';
+import { NEW_SECTION_COLUMNS, campaignColumns, campaignIdsOf, normaliseCampaignItems, normaliseColumns, normaliseOverrides, normaliseSelections, overridesForInput } from './campaignsBlock.ts';
 
 export const BLOCK_TYPES: readonly BlockType[] = ['image', 'title', 'text', 'youtube', 'button', 'divider', 'campaigns'];
 const TITLE_SIZES: readonly TitleSize[] = ['small', 'medium', 'large'];
@@ -60,7 +60,10 @@ export function normaliseBlocks(raw: unknown): NewsletterBlock[] {
       case 'campaigns': {
         const selections = normaliseSelections(d.selections, d.campaign_ids);
         const columns = normaliseColumns(d.columns);
-        out.push({ id, type: 'campaigns', data: { selections, campaign_ids: campaignIdsOf(selections), items: normaliseCampaignItems(d.items), ...(columns ? { columns } : {}) } });
+        const overrides = normaliseOverrides(d.overrides);
+        out.push({ id, type: 'campaigns', data: {
+          selections, campaign_ids: campaignIdsOf(selections), items: normaliseCampaignItems(d.items), ...(columns ? { columns } : {}), ...(overrides ? { overrides } : {}),
+        } });
         break;
       }
       default: out.push({ id, type: 'divider', data: { style: d.style === 'space' ? 'space' : 'line' } });
@@ -141,13 +144,17 @@ export function campaignSelections(data: { selections?: unknown; campaign_ids?: 
   return normaliseSelections(data.selections, data.campaign_ids);
 }
 
-/** The blocks as a PUT sends them: a Campaigns section sends its selections, their campaign_ids and its columns
- *  (1 for an older section that has none), never items (the API builds the cards). */
+/** The blocks as a PUT sends them: a Campaigns section sends its selections, their campaign_ids, its columns (1 for
+ *  an older section that has none) and its card edits when it has any (cleaned up: overridesForInput), never items
+ *  (the API builds the cards). */
 export function blocksToInput(blocks: readonly NewsletterBlock[]): NewsletterBlock[] {
   return blocks.map((b) => {
     if (b.type !== 'campaigns') return b;
     const selections = campaignSelections(b.data);
-    return { id: b.id, type: 'campaigns', data: { selections, campaign_ids: campaignIdsOf(selections), columns: campaignColumns(b.data) } };
+    const overrides = overridesForInput(b.data.overrides, selections);
+    return { id: b.id, type: 'campaigns', data: {
+      selections, campaign_ids: campaignIdsOf(selections), columns: campaignColumns(b.data), ...(Object.keys(overrides).length ? { overrides } : {}),
+    } };
   });
 }
 

@@ -46,12 +46,30 @@ function updateErrors(body) {
     if (b.type === 'youtube' && bad(b.data?.url)) errors[`${key}.url`] = ['Use a YouTube link, like https://www.youtube.com/watch?v=…'];
     // Shared brief 2026-10-29 round 2: columns 1 | 2 (absent = 1).
     if (b.type === 'campaigns' && b.data?.columns != null && ![1, 2].includes(b.data.columns)) errors[`${key}.columns`] = ['Choose 1 or 2 columns.'];
+    // Per-card edits: the contract's limits and messages.
+    for (const o of b.type === 'campaigns' && b.data?.overrides && typeof b.data.overrides === 'object' ? Object.values(b.data.overrides) : []) {
+      const long = (f, max) => typeof o?.[f] === 'string' && o[f].length > max;
+      const message = long('title', 120) ? 'Keep the card title to 120 characters or fewer.'
+        : long('description', 300) ? 'Keep the description to 300 characters or fewer.'
+          : long('button_text', 30) ? 'Keep the button text to 30 characters or fewer.'
+            : bad(o?.image_url) ? 'The card image must be an https link.' : null;
+      if (message) { errors[`${key}.overrides`] = [message]; break; }
+    }
   });
   return errors;
 }
-// Shared brief 2026-10-29 round 2: what the API keeps of a Campaigns section's layout (columns, absent = 1).
-function campaignLayout(data) {
-  return [1, 2].includes(data?.columns) ? { columns: data.columns } : {};
+// Shared brief 2026-10-29 round 2: what the API keeps of a Campaigns section's layout (columns, absent = 1) and its
+// per-card edits (only cards still picked, only the four fields, trimmed; answered as {} when there are none).
+const OVERRIDE_FIELDS = ['image_url', 'title', 'description', 'button_text'];
+function campaignLayout(data, selections = []) {
+  const keys = new Set(selections.map((p) => `${p.kind}:${p.id}`));
+  const overrides = {};
+  for (const [k, o] of Object.entries(data?.overrides && typeof data.overrides === 'object' ? data.overrides : {})) {
+    if (!keys.has(k) || !o || typeof o !== 'object') continue;
+    const kept = Object.fromEntries(OVERRIDE_FIELDS.filter((f) => typeof o[f] === 'string' && o[f].trim()).map((f) => [f, o[f].trim()]));
+    if (Object.keys(kept).length) overrides[k] = kept;
+  }
+  return { ...([1, 2].includes(data?.columns) ? { columns: data.columns } : {}), overrides };
 }
 const MONTH_NAME = () => {
   const d = new Date();
@@ -783,7 +801,7 @@ export function createMockApi(options = {}) {
             const asked = Array.isArray(b.data?.selections) ? b.data.selections : (b.data?.campaign_ids || []).map((id) => ({ kind: 'campaign', id }));
             const items = asked.map((p) => snapshotItem(p.kind, p.id)).filter(Boolean).slice(0, 6);
             const selections = items.map((i) => ({ kind: i.kind, id: i.id }));
-            return { ...b, data: { selections, campaign_ids: selections.filter((p) => p.kind === 'campaign').map((p) => p.id), items, ...campaignLayout(b.data) } };
+            return { ...b, data: { selections, campaign_ids: selections.filter((p) => p.kind === 'campaign').map((p) => p.id), items, ...campaignLayout(b.data, selections) } };
           });
         }
         // The presenter answers every time in UTC with a Z and no milliseconds.

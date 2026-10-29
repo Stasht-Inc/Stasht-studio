@@ -60,8 +60,15 @@ export interface CampaignsBlockData {
   /** Cards side by side (2) or one under another (1). Absent: a section from before columns, which is 1 (shared brief
    *  2026-10-29 round 2). Studio sets 2 on a new section; phones always get 1 in the sent email. */
   columns?: CampaignColumns;
+  /** Per-card edits for this newsletter only, keyed "<kind>:<id>" as in selections (shared brief 2026-10-29 round
+   *  2). Every field is optional; empty or missing = the item's own value. The card's link can't be changed. */
+  overrides?: CardOverrides;
 }
 export type CampaignColumns = 1 | 2;
+/** One card's edits: image_url https (from POST /newsletters/images), title ≤ 120, description ≤ 300 (plain text,
+ *  one paragraph), button_text ≤ 30. */
+export interface CardOverride { image_url?: string | null; title?: string | null; description?: string | null; button_text?: string | null }
+export type CardOverrides = Record<string, CardOverride>;
 /** GET /newsletters/campaign-options rows, newest first. shareable: it has a page people can open from an email;
  *  otherwise `reason` says why ("This item has no web page"). public_url: that page. kind is missing from an
  *  older API (then it is the kind asked for). */

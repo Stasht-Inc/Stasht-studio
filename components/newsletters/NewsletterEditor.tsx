@@ -5,7 +5,7 @@ import type { NewsletterDraft } from './lib/draft';
 import { initialsFrom, type SenderProfile } from './lib/profile';
 import { LIMITS } from './lib/rules';
 import { ACTION_TOAST_MS, blocksProblems, campaignSelections, createBlock, insertBlock, liveBlockProblems, moveBlock, newBlockId, removeBlock, undoDelete, updateBlockData } from './lib/blocks';
-import { EDIT_ITEMS_LABEL, campaignIdsOf } from './lib/campaignsBlock';
+import { EDIT_ITEMS_LABEL, campaignIdsOf, pruneOverrides } from './lib/campaignsBlock';
 import InboxRow from './InboxRow';
 import HeaderEditor from './HeaderEditor';
 import EcardFooter from './EcardFooter';
@@ -256,7 +256,12 @@ export default function NewsletterEditor({
           onOpenChange={(o) => { if (!o) setPickerFor(null); }}
           initialSelections={picking ? campaignSelections(picking.data) : []}
           knownItems={picking ? [...(picking.data.items ?? []), ...(savedItems.get(picking.id) ?? [])] : []}
-          onDone={(selections, items) => { if (picking) handlersFor(picking.id).onChange({ selections, campaign_ids: campaignIdsOf(selections), items }); }}
+          onDone={(selections, items) => {
+            if (!picking) return;
+            // A card taken out loses its edits (picked again later, it starts from the item's own words).
+            const overrides = pruneOverrides(picking.data.overrides, selections);
+            handlersFor(picking.id).onChange({ selections, campaign_ids: campaignIdsOf(selections), items, ...(overrides ? { overrides } : {}) });
+          }}
           onCloseAutoFocus={(e) => {
             // Back to the section (it stays selected), not to the + that has gone.
             const id = pickedForRef.current;

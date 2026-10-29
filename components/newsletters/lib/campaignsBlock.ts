@@ -2,7 +2,7 @@
 // description, "View campaign" / "View product" / "View vehicle"). Pure, so `node --test` loads it directly.
 // Shared contracts 2026-10-28 and 2026-10-29: Studio sends selections (+ campaign_ids); the API keeps what the
 // owner can share and answers with its own `items` snapshot.
-import type { CampaignColumns, CampaignItem, CampaignKind, CampaignOption, CampaignSelection } from '../../../services/newslettersAPI.ts';
+import type { CampaignColumns, CampaignItem, CampaignKind, CampaignOption, CampaignSelection, CardOverride, CardOverrides } from '../../../services/newslettersAPI.ts';
 import { httpsUrl } from './urls.ts';
 import { contrastInk, safeHexColor } from './colors.ts';
 import { formatCarCategory } from '../../../utils/carCategories.ts';
@@ -245,3 +245,105 @@ export function missingItemsNote(selections: readonly CampaignSelection[], cards
 export function categoryLabel(kind: CampaignKind, raw: string): string {
   return kind === 'vehicle' ? formatCarCategory(raw) : raw;
 }
+
+// ---- Per-card edits (Chris, 29 Oct round 2): for this newsletter only; the catalogue and the campaign never change.
+
+/** The API's limits for a card's edits (shared brief 2026-10-29 round 2). */
+export const CARD_LIMITS = { title: 120, description: 300, button_text: 30 } as const;
+const OVERRIDE_FIELDS = ['image_url', 'title', 'description', 'button_text'] as const;
+type OverrideField = typeof OVERRIDE_FIELDS[number];
+const KEY = /^(campaign|product|vehicle):[1-9]\d*$/;
+
+/** A card's edits as the API sends them: known keys and fields, non-empty strings only. An empty PHP array ([]) is no
+ *  edits; nothing at all (an API from before edits, or an older section) stays undefined. */
+export function normaliseOverrides(raw: unknown): CardOverrides | undefined {
+  if (raw === undefined || raw === null) return undefined;
+  if (typeof raw !== 'object' || Array.isArray(raw)) return {};
+  const out: CardOverrides = {};
+  for (const [key, v] of Object.entries(raw as Record<string, unknown>)) {
+    if (!KEY.test(key) || !v || typeof v !== 'object' || Array.isArray(v)) continue;
+    const r = v as Record<string, unknown>;
+    const o: CardOverride = {};
+    for (const f of OVERRIDE_FIELDS) if (typeof r[f] === 'string' && (r[f] as string).trim()) o[f] = r[f] as string;
+    if (Object.keys(o).length) out[key] = o;
+  }
+  return out;
+}
+
+/** True when the card has an edit that would show. */
+export function cardHasEdits(o: CardOverride | undefined | null): boolean {
+  return Boolean(o && OVERRIDE_FIELDS.some((f) => typeof o[f] === 'string' && (o[f] as string).trim()));
+}
+
+/** Change some of one card's fields (as typed; '' or null clears that field). A card with no field left is dropped. */
+export function setCardOverride(overrides: CardOverrides | undefined, key: string, patch: CardOverride): CardOverrides {
+  const card: CardOverride = { ...(overrides?.[key] ?? {}), ...patch };
+  for (const f of OVERRIDE_FIELDS) if (card[f] === '' || card[f] === null || card[f] === undefined) delete card[f];
+  const out: CardOverrides = { ...(overrides ?? {}) };
+  if (Object.keys(card).length) out[key] = card;
+  else delete out[key];
+  return out;
+}
+
+/** "Reset to original": the card shows the item's own image and words again. */
+export function resetCardOverride(overrides: CardOverrides | undefined, key: string): CardOverrides {
+  const out: CardOverrides = { ...(overrides ?? {}) };
+  delete out[key];
+  return out;
+}
+
+/** A description is one paragraph: line breaks become spaces (the email shows it as one). */
+export const oneParagraph = (v: string): string => v.replace(/\s*[\r\n]+\s*/g, ' ');
+
+const cleanField = (f: OverrideField, v: unknown): string | null => {
+  if (typeof v !== 'string') return null;
+  if (f === 'image_url') return httpsUrl(v.trim()) ?? null;
+  const text = (f === 'description' ? oneParagraph(v) : v).trim().slice(0, CARD_LIMITS[f]).trim();
+  return text || null;
+};
+
+/** The edits as a PUT sends them: only cards still picked (in the picks' order), only the four fields (in a fixed
+ *  order), trimmed, within the limits, https images. Empty fields and cards are left out. */
+export function overridesForInput(overrides: CardOverrides | undefined, selections: readonly CampaignSelection[]): CardOverrides {
+  const out: CardOverrides = {};
+  if (!overrides) return out;
+  for (const s of selections) {
+    const key = selectionKey(s);
+    const raw = overrides[key];
+    if (!raw || typeof raw !== 'object') continue;
+    const o: CardOverride = {};
+    for (const f of OVERRIDE_FIELDS) {
+      const v = cleanField(f, raw[f]);
+      if (v) o[f] = v;
+    }
+    if (Object.keys(o).length) out[key] = o;
+  }
+  return out;
+}
+
+/** Edits of cards no longer picked are dropped (the picker took them out). */
+export function pruneOverrides(overrides: CardOverrides | undefined, selections: readonly CampaignSelection[]): CardOverrides | undefined {
+  if (!overrides) return overrides;
+  const keep = new Set(selections.map(selectionKey));
+  return Object.fromEntries(Object.entries(overrides).filter(([key]) => keep.has(key)));
+}
+
+/** A card as the email draws it: the edit when there is one, the item's own value otherwise. The link is always
+ *  the item's own. */
+export function displayCard(item: CampaignItem, o: CardOverride | undefined | null): { image: string | null; title: string; description: string; button: string; url: string } {
+  const pick = (f: OverrideField) => (o ? cleanField(f, o[f]) : null);
+  return {
+    image: pick('image_url') ?? item.cover_url,
+    title: pick('title') ?? item.title,
+    description: pick('description') ?? item.description,
+    button: pick('button_text') ?? itemButtonLabel(item.kind),
+    url: item.url,
+  };
+}
+
+const PAGE_OF: Record<CampaignKind, string> = { campaign: 'the campaign’s page', product: 'the product’s page', vehicle: 'the vehicle’s page' };
+/** The note in a card's editor: what changes, and that the link doesn't. */
+export function cardEditNote(kind: CampaignKind | undefined): string {
+  return `Changes show in this newsletter only. Leave a box empty to keep the original. The card still opens ${PAGE_OF[kindOf(kind)]}.`;
+}
+

@@ -3,6 +3,8 @@
 // 2. A Campaign section shows its cards in 1 or 2 columns (2 for a new section; an older one stays 1 until changed);
 //    the phone view (and a phone screen) shows 1, as the email; the section's "Change" button is now "Edit", with the
 //    column choice next to it.
+// 3. Each card can be edited for this newsletter only (image, title, description, button text; the link can't be
+//    changed); the original values show as placeholders; "Reset to original" per card.
 import { IMG, STUDIO, createMockApi, newsletter } from '../mock-api.mjs';
 
 const EDIT = 'Edit campaigns, products or vehicles';
@@ -163,5 +165,143 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
       }
       await context.close();
     }
+  }
+
+  // ---- 3. Edit each card on its own.
+  {
+    const noCover = { ...card(604, 'Winter tire swap'), cover_url: null };
+    const blocks = [{ id: 'c1', type: 'campaigns', data: { selections: [{ kind: 'campaign', id: 601 }, { kind: 'campaign', id: 604 }], campaign_ids: [601, 604], columns: 2, items: [card(601, 'Fall service event'), noCover] } }];
+    const api = createMockApi({ newsletters: [newsletter(73, { name: 'Card edits', blocks })] });
+    const { page, context } = await open({ width: 1280, height: 1800, query: '&newsletterId=73', api });
+    const preview = page.locator('aside');
+    const section = preview.getByRole('group', { name: 'Campaigns section' }).first();
+    const fall = section.locator('li[data-card-key="campaign:601"]');
+    const winter = section.locator('li[data-card-key="campaign:604"]');
+    const lastOverrides = () => api.state.campaignBodies.at(-1)?.overrides;
+    await expectVisible(fall.getByText('Fall service event'), 'cards open');
+    expect(!(await section.getByRole('button', { name: /^Edit card/ }).count()), 'no Edit card until the section is selected');
+    await section.click();
+    expect(await section.getByRole('button', { name: /^Edit card/ }).count() === 2, 'an Edit card button on each card');
+    await section.getByRole('button', { name: 'Edit card: Fall service event' }).click();
+    const panel = section.getByRole('group', { name: 'Edit card: Fall service event' });
+    await expectVisible(panel, 'the card’s editor opens');
+    const title = panel.getByLabel('Title', { exact: true });
+    const description = panel.getByLabel('Description', { exact: true });
+    const button = panel.getByLabel('Button text', { exact: true });
+    expect(await title.evaluate((el) => el === document.activeElement), 'the cursor is in the title');
+    expect(await title.getAttribute('placeholder') === 'Fall service event', 'title placeholder: the original title');
+    expect(await description.getAttribute('placeholder') === 'About Fall service event.', 'description placeholder: the original description');
+    expect(await button.getAttribute('placeholder') === 'View campaign', 'button placeholder: the original button text');
+    expect(await title.getAttribute('maxlength') === '120' && await description.getAttribute('maxlength') === '300' && await button.getAttribute('maxlength') === '30', 'limits 120 / 300 / 30');
+    expect(!(await panel.getByLabel(/link/i).count()) && !(await panel.locator('input[inputmode="url"]').count()), 'no link field: the card opens the item’s own page');
+    await expectVisible(panel.getByText('The card still opens the campaign’s page.', { exact: false }), 'says the link stays');
+    expect(await panel.getByRole('button', { name: 'Reset to original' }).isDisabled(), 'Reset is off until something is edited');
+
+    await title.fill('Fall service — 20% off');
+    await description.fill('Book before Nov 15.\nCoffee is on us.');
+    await button.fill('Book now');
+    await expectVisible(fall.getByText('Fall service — 20% off'), 'the card shows the new title');
+    await expectVisible(fall.getByText('Book before Nov 15. Coffee is on us.'), 'the card shows the new description (one paragraph)');
+    await expectVisible(fall.getByText('Book now', { exact: true }), 'the card shows the new button text');
+    expect(!(await fall.getByText('View campaign', { exact: true }).count()), 'the old button text is gone');
+    await expectVisible(fall.getByText('Edited', { exact: true }), '"Edited" on the card');
+    await page.waitForTimeout(1500);
+    const want601 = { title: 'Fall service — 20% off', description: 'Book before Nov 15. Coffee is on us.', button_text: 'Book now' };
+    expect(JSON.stringify(lastOverrides()) === JSON.stringify({ 'campaign:601': want601 }), `edits saved as overrides (got ${JSON.stringify(lastOverrides())})`);
+    expect(!JSON.stringify(api.state.campaignBodies.at(-1)).includes('"url"'), 'no url is ever sent');
+    await panel.scrollIntoViewIfNeeded();
+    await shot(page, '1280-05-card-editor');
+
+    // A card with no picture: add one, then back to the original (none).
+    await section.getByRole('button', { name: 'Edit card: Winter tire swap' }).click();
+    const panel2 = section.getByRole('group', { name: 'Edit card: Winter tire swap' });
+    await expectVisible(panel2, 'switches to the other card');
+    expect(!(await panel.count()), 'one card editor at a time');
+    expect(!(await winter.locator('img').count()), 'no picture before');
+    await panel2.getByRole('button', { name: 'Add image' }).click({ trial: true });
+    await page.getByTestId('c1-card-image-input').setInputFiles(new URL('../../../../public/pwa-icon-192.png', import.meta.url).pathname);
+    await expectVisible(winter.locator(`img[src="${IMG}"]`), 'the uploaded picture on the card');
+    await expectVisible(panel2.getByRole('button', { name: 'Use original image' }), '"Use original image" after an upload');
+    await page.waitForTimeout(1500);
+    expect(lastOverrides()?.['campaign:604']?.image_url === IMG, `uploaded image saved (got ${JSON.stringify(lastOverrides())})`);
+    await winter.scrollIntoViewIfNeeded();
+    await shot(page, '1280-06-card-image');
+    await panel2.getByRole('button', { name: 'Use original image' }).click();
+    expect(!(await winter.locator('img').count()), 'back to the original (no picture)');
+    await page.waitForTimeout(1500);
+    expect(!lastOverrides()?.['campaign:604'], 'the image edit is gone from the save');
+
+    // Reset to original.
+    await section.getByRole('button', { name: 'Edit card: Fall service event' }).click();
+    await panel.getByRole('button', { name: 'Reset to original' }).click();
+    await expectVisible(fall.getByText('Fall service event', { exact: true }), 'the original title is back');
+    await expectVisible(fall.getByText('View campaign', { exact: true }), 'the original button text is back');
+    expect(await panel.getByLabel('Title', { exact: true }).inputValue() === '', 'the title box is empty again (placeholder shows)');
+    expect(await panel.getByRole('button', { name: 'Reset to original' }).isDisabled(), 'nothing left to reset');
+    await page.waitForTimeout(1500);
+    expect(lastOverrides() === undefined, `no overrides sent after the reset (got ${JSON.stringify(lastOverrides())})`);
+
+    // A pause after a space while typing doesn't eat the space when the save answers.
+    await title.click();
+    await page.keyboard.type('Hi ');
+    await page.waitForTimeout(1600);
+    await page.keyboard.type('there');
+    expect(await title.inputValue() === 'Hi there', `typing keeps its space across a save (got "${await title.inputValue()}")`);
+    await page.waitForTimeout(1500);
+    expect(lastOverrides()?.['campaign:601']?.title === 'Hi there', 'saved as typed');
+    const settled = puts(api).length;
+    await page.waitForTimeout(2500);
+    expect(puts(api).length === settled, `no save loop (${puts(api).length - settled} extra saves)`);
+    await context.close();
+
+    // Opened again: the edit is still there.
+    const again = await open({ width: 1280, height: 1400, query: '&newsletterId=73', api });
+    const fall2 = again.page.locator('aside li[data-card-key="campaign:601"]');
+    await expectVisible(fall2.getByText('Hi there', { exact: true }), 'the edit is kept after reopening');
+    await again.page.waitForTimeout(2000);
+    const putsAfterOpen = puts(api).length;
+    // Taking the card out in the picker drops its edit.
+    const s2 = again.page.locator('aside').getByRole('group', { name: 'Campaigns section' }).first();
+    await s2.click();
+    await s2.getByRole('button', { name: EDIT }).filter({ hasText: 'Edit' }).click();
+    const picker = again.page.getByRole('dialog', { name: 'Choose campaigns' });
+    await picker.getByRole('checkbox', { name: /^Fall service event/ }).uncheck();
+    await picker.getByRole('button', { name: 'Done' }).click();
+    await again.page.waitForTimeout(1500);
+    expect(puts(api).length > putsAfterOpen && !api.state.campaignBodies.at(-1)?.overrides, `a card taken out loses its edit (got ${JSON.stringify(api.state.campaignBodies.at(-1))})`);
+    await again.context.close();
+  }
+
+  // ---- 3b. Phones: the card editor fits; a sent newsletter shows its edits, with nothing to edit.
+  for (const width of [360, 375, 390]) {
+    const blocks = [{ id: 'c1', type: 'campaigns', data: { selections: [{ kind: 'campaign', id: 601 }, { kind: 'campaign', id: 604 }], campaign_ids: [601, 604], columns: 2,
+      items: [card(601, 'Fall service event'), card(604, 'Winter tire swap')], overrides: { 'campaign:604': { title: 'Tires: book this week', button_text: 'Book' } } } }];
+    const api = createMockApi({ newsletters: [newsletter(74, { name: 'Phone edits', blocks })] });
+    const { page, context } = await open({ width, height: 900, query: '&newsletterId=74', api });
+    const section = page.locator('aside').getByRole('group', { name: 'Campaigns section' }).first();
+    await expectVisible(section.getByText('Tires: book this week'), `edited card shows at ${width}`);
+    await section.click();
+    await section.getByRole('button', { name: 'Edit card: Winter tire swap' }).click();
+    const panel = section.getByRole('group', { name: 'Edit card: Winter tire swap' });
+    await expectVisible(panel, `card editor at ${width}`);
+    expect(await panel.getByLabel('Title', { exact: true }).inputValue() === 'Tires: book this week', 'the saved edit is in the box');
+    expect(!(await hasOverflow(page)), `no sideways scroll at ${width} (card editor)`);
+    const fits = await panel.evaluate((el) => { const r = el.getBoundingClientRect(); return r.left >= 0 && r.right <= window.innerWidth; });
+    expect(fits, `card editor inside the screen at ${width}`);
+    if (width === 390) {
+      await panel.scrollIntoViewIfNeeded();
+      await shot(page, '390-03-card-editor');
+    }
+    await page.waitForTimeout(1500);
+    expect(!puts(api).length, `opening a card editor saves nothing at ${width}`);
+    await context.close();
+  }
+  {
+    const blocks = [{ id: 'c1', type: 'campaigns', data: { selections: [{ kind: 'campaign', id: 601 }], campaign_ids: [601], columns: 2, items: [card(601, 'Fall service event')], overrides: { 'campaign:601': { title: 'Edited for October' } } } }];
+    const ro = await open({ width: 1280, height: 1200, query: '&newsletterId=75', api: createMockApi({ newsletters: [newsletter(75, { name: 'Sent', status: 'sent', sent_at: '2026-10-27T14:00:00Z', blocks })] }) });
+    await expectVisible(ro.page.locator('aside').getByText('Edited for October'), 'a sent newsletter shows its card edits');
+    await ro.page.locator('aside').getByText('Edited for October').click();
+    expect(!(await ro.page.getByRole('button', { name: /^Edit card/ }).count()), 'nothing to edit when read-only');
+    await ro.context.close();
   }
 }
