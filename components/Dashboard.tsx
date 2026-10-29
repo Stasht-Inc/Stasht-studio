@@ -196,6 +196,27 @@ export default function Dashboard({
   );
   const [isLoadingActivity, setIsLoadingActivity] = useState(false);
 
+  // Trial of the account's first owned property with a trial date (from /properties, owned_properties).
+  const [trialProperty, setTrialProperty] = useState<any | null>(null);
+
+  useEffect(() => {
+    if (!isAuthenticated || authLoading) return;
+    let cancelled = false;
+    const loadTrial = async () => {
+      try {
+        const res = await dashboardAPI.getProperties();
+        const d = res?.data?.data || res?.data || {};
+        const owned: any[] = d.owned_properties || [];
+        const withTrial = owned.find((p: any) => p?.trial_ends_at);
+        if (!cancelled) setTrialProperty(withTrial || null);
+      } catch (err) {
+        console.error('Dashboard: could not load trial status', err);
+      }
+    };
+    loadTrial();
+    return () => { cancelled = true; };
+  }, [isAuthenticated, authLoading]);
+
   // Get actual memory count from the centralized hook
   const actualMemoryCount = memoryCounts?.total_memories || 0;
 
@@ -369,8 +390,40 @@ export default function Dashboard({
     }
   }, [timePeriod, isAuthenticated, authLoading]);
 
+  // Trial banner data: days left while the trial runs, or an ended notice once it has finished.
+  const trialBanner = (() => {
+    if (!trialProperty?.trial_ends_at) return null;
+    const endsOn = new Date(trialProperty.trial_ends_at);
+    const today = new Date();
+    const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+    const startOfEnd = new Date(endsOn.getFullYear(), endsOn.getMonth(), endsOn.getDate());
+    const daysLeft = Math.round((startOfEnd.getTime() - startOfToday.getTime()) / (1000 * 60 * 60 * 24));
+    const ended = Boolean(trialProperty.trial_ended) || daysLeft < 0;
+    const endDate = endsOn.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+    return { ended, daysLeft, endDate, name: trialProperty.name as string | undefined };
+  })();
+
   return (
     <div className="w-full space-y-4 md:space-y-8">
+      {trialBanner && (
+        <div
+          role="status"
+          className={`mx-0 md:mx-4 rounded-lg border p-4 ${
+            trialBanner.ended
+              ? 'bg-amber-50 border-amber-300 text-amber-900'
+              : 'bg-indigo-50 border-indigo-300 text-indigo-900'
+          }`}
+        >
+          <h3 className="text-sm font-semibold mb-1">
+            {trialBanner.ended ? 'Trial ended' : 'Free trial'}
+          </h3>
+          <p className="text-sm">
+            {trialBanner.ended
+              ? `Your trial${trialBanner.name ? ` for ${trialBanner.name}` : ''} ended on ${trialBanner.endDate}. Your account has moved to the Starter plan.`
+              : `Your trial${trialBanner.name ? ` for ${trialBanner.name}` : ''} ends on ${trialBanner.endDate} (${trialBanner.daysLeft} ${trialBanner.daysLeft === 1 ? 'day' : 'days'} left). After that your account moves to the Starter plan.`}
+          </p>
+        </div>
+      )}
       {/* Page Header */}
       <div className="flex items-center justify-between gap-3 px-0 md:px-4">
         <h1 className="text-xl md:text-2xl font-bold text-gray-900">Dashboard</h1>
