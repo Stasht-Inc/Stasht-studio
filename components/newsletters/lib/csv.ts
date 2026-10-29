@@ -98,6 +98,9 @@ export function cleanPhone(value: string): string | null {
 // Mailchimp export's OPTIN_TIME "2024-03-05 14:22:01" has 14 digits, so a phone check alone takes it).
 const DATE_TOKENS = new Set(['date', 'time', 'datetime', 'timestamp', 'changed', 'created', 'updated', 'modified', 'birthday', 'birthdate', 'dob', 'day', 'month', 'year']);
 
+const CONTACT_WORD = /phone|mobile|cell|^tel$/;
+const NOT_DATE_WORDS = new Set(['update', 'updates', 'candidate', 'candidates', 'mandate', 'validate', 'overtime', 'runtime', 'anytime', 'lifetime', 'sometime']);
+
 /** Header words, split on anything that isn't a letter and on camelCase ("OPTIN_TIME", "createdAt"). */
 const headerTokens = (header: string): string[] =>
   (header ?? '').replace(/([a-z])([A-Z])/g, '$1 $2').toLowerCase().split(/[^a-z]+/).filter(Boolean);
@@ -105,10 +108,13 @@ const headerTokens = (header: string): string[] =>
 /** A header that names a date or time: OPTIN_TIME, CONFIRM_TIME, LAST_CHANGED, …_DATE, Date, Created, updated_at… */
 export function isDateTimeHeader(header: string): boolean {
   const tokens = headerTokens(header);
+  // A header that names a phone ("Cell (Daytime)", "Phone (Daytime)") is a phone column, never a date.
+  if (tokens.some((t) => CONTACT_WORD.test(t))) return false;
   if (tokens.some((t) => DATE_TOKENS.has(t))) return true;
-  const key = tokens.join('');
-  if (key === 'candidate') return false;
-  return /(date|time|timestamp)$/.test(key) || (tokens.length > 1 && tokens[tokens.length - 1] === 'at');
+  const last = tokens[tokens.length - 1] ?? '';
+  // "…time" / "…date" run together (OPTINTIME, signupdate): the last word only, and not words like "update".
+  if (/(date|time|timestamp)$/.test(last) && !NOT_DATE_WORDS.has(last)) return true;
+  return tokens.length > 1 && last === 'at';
 }
 
 /** Headers for other things a value check could mistake for a mobile number: ids, IP addresses, map positions. */

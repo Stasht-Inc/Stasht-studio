@@ -70,3 +70,14 @@ test('looksLikeDateTime', () => {
   for (const v of ['2024-03-05', '2024-03-05 14:22:01', '2024-03-05T14:22:01Z', '03/05/2024', '5.3.2024 14:22', '14:22', '2:22 pm', 'Mar 5, 2024', '5 March 2024']) assert.equal(looksLikeDateTime(v), true, v);
   for (const v of ['416-555-0101', '+1 416 555 0101', '(647) 555-0199', '4165550101', 'Ava Chen', '192.168.1.10', '']) assert.equal(looksLikeDateTime(v), false, v);
 });
+
+// Review: the date/time suffix rule looks at the last word only, and a header naming a phone is never a date column.
+test('isDateTimeHeader: last word only; phone, mobile, cell and tel headers are never dates; no "Update" false positive', () => {
+  for (const h of ['Cell (Daytime)', 'Phone (Daytime)', 'Mobile (evening time)', 'Tel - daytime', 'Telephone Date Added', 'Update', 'Last update', 'Candidate', 'Timeline notes', 'Datestamp source']) {
+    assert.equal(isDateTimeHeader(h), false, h);
+  }
+  for (const h of ['OPTINTIME', 'Optin_time', 'signupdate', 'datetime', 'Last changed', 'created_at', 'Sent at']) assert.equal(isDateTimeHeader(h), true, h);
+  // Eligible for Mobile: a "(Daytime)" phone column is taken.
+  assert.equal(detectColumns([['Name', 'Email', 'Cell (Daytime)'], ['Ava', 'a@x.ca', '416 555 0101']]).phone, 2);
+  assert.equal(detectColumns([['Name', 'Email', 'Phone (Daytime)'], ['Ava', 'a@x.ca', '416 555 0101']]).phone, 2);
+});

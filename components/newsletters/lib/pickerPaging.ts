@@ -45,3 +45,11 @@ export function nextPageToLoad(s: { page: number; totalPages: number; loading: b
   if (s.loading || s.failed || s.page >= s.totalPages) return null;
   return s.page + 1;
 }
+
+/** The list a page belongs to: the request that started it and the tab, search and category it was asked with. */
+export interface PickerList { request: number; kind: CampaignKind; query: string; category: string }
+
+/** campaign-options for one page of that list (campaigns take no category). */
+export function pageRequest(list: PickerList, page: number): { kind: CampaignKind; search: string; category: string | undefined; page: number } {
+  return { kind: list.kind, search: list.query, category: list.kind === 'campaign' || !list.category ? undefined : list.category, page };
+}

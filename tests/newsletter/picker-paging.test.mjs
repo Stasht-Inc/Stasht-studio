@@ -41,3 +41,12 @@ test('nextPageToLoad: the next page while there are more, nothing while loading,
   assert.equal(nextPageToLoad({ page: 1, totalPages: 3, loading: false, failed: true }), null);
   assert.equal(nextPageToLoad({ page: 4, totalPages: 3, loading: false, failed: false }), null);
 });
+
+// Review: a later page is asked for with the list it belongs to (its request id, tab, search and category taken
+// together from one snapshot), never with a newer search's words under an older id or the other way round.
+test('pageRequest: the snapshot’s tab, search and category, and the page; campaigns never send a category', async () => {
+  const { pageRequest } = await import('../../components/newsletters/lib/pickerPaging.ts');
+  assert.deepEqual(pageRequest({ request: 4, kind: 'product', query: 'oak', category: 'Doors' }, 2), { kind: 'product', search: 'oak', category: 'Doors', page: 2 });
+  assert.deepEqual(pageRequest({ request: 5, kind: 'campaign', query: '', category: 'Doors' }, 3), { kind: 'campaign', search: '', category: undefined, page: 3 });
+  assert.deepEqual(pageRequest({ request: 6, kind: 'vehicle', query: '', category: '' }, 2), { kind: 'vehicle', search: '', category: undefined, page: 2 });
+});

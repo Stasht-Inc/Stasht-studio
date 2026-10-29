@@ -62,6 +62,12 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
     const where = await errorAtImport(page, dialog);
     expect(where === 'ok', `the message is next to Import, in view and focused at ${width} (got ${where})`);
     expect(!api.state.calls.some((c) => c.path === '/contact-lists/import'), 'nothing imported without consent');
+    // Review: the same message again on the next try is focused (and read out) again.
+    await dialog.getByLabel('List name').focus();
+    await dialog.getByRole('button', { name: 'Import 6 contacts' }).click();
+    await page.waitForTimeout(200);
+    const again = await page.evaluate(() => document.activeElement?.id);
+    expect(again === 'nl-import-error', `the same message takes focus again on a second try at ${width} (got ${again})`);
     if (width === 390) expect(!(await hasOverflow(page)), 'no sideways scroll at 390');
     await shot(page, `${width}-01-error-at-import`);
     // Choosing consent clears the message; Import works.

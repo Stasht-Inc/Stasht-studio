@@ -11,7 +11,7 @@ import {
   CAMPAIGNS_MAX, campaignOptionDisabled, categoryLabel, itemFromOption, optionLine, pickerDefaultKind, pickerKinds, pickerSummary,
   pickerTitle, selectionKey, toggleSelection, type KindCounts,
 } from './lib/campaignsBlock';
-import { chosenEntries, chosenHeading, mergeOptionRows, nextPageToLoad } from './lib/pickerPaging';
+import { chosenEntries, chosenHeading, mergeOptionRows, nextPageToLoad, pageRequest, type PickerList } from './lib/pickerPaging';
 import { BUTTON_OUTLINE, BUTTON_PRIMARY, BUTTON_SMALL, inputClass } from './lib/ui';
 
 const SEARCH_DELAY_MS = 300;
@@ -77,6 +77,10 @@ export default function CampaignPickerDialog({ open, onOpenChange, initialSelect
   // Every option seen while the picker is open, so a picked item's card can be drawn before the save answers.
   const seenRef = useRef(new Map<string, CampaignItem>());
   const requestRef = useRef(0);
+  // The list showing: its request id with the tab, search and category it was asked with, set together by the
+  // first-page effect. Later pages read all of them from here, so a page is never asked with one list's words under
+  // another list's id.
+  const listRef = useRef<PickerList>({ request: 0, kind: 'campaign', query: '', category: '' });
   // The list request (requestRef) a later page is loading for: one page at a time per list.
   const moreRef = useRef<number | null>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
@@ -117,13 +121,14 @@ export default function CampaignPickerDialog({ open, onOpenChange, initialSelect
     if (!open) return;
     const request = ++requestRef.current;
     const asked = kind;
+    listRef.current = { request, kind: asked, query, category: asked === 'campaign' ? '' : category };
     setRows(null);
     setError(null);
     setMoreError(null);
     setLoadingMore(false);
     moreRef.current = null;
     setPage(1);
-    void newslettersAPI.campaignOptions({ kind: asked, search: query, category: asked === 'campaign' ? undefined : category, page: 1 }).then((res) => {
+    void newslettersAPI.campaignOptions(pageRequest(listRef.current, 1)).then((res) => {
       if (request !== requestRef.current) return;
       if (res.ok && res.data) {
         const meta = res.data.meta;
@@ -153,13 +158,13 @@ export default function CampaignPickerDialog({ open, onOpenChange, initialSelect
   // The next page of the same tab, search and category. Only an answer for the list still showing is used (a new
   // search or category starts the list again), and rows already listed aren't added twice.
   const loadPage = async (next: number) => {
-    const request = requestRef.current;
-    if (moreRef.current === request) return;
+    const list0 = listRef.current;
+    const { request, kind: asked } = list0;
+    if (request !== requestRef.current || moreRef.current === request) return;
     moreRef.current = request;
-    const asked = kind;
     setLoadingMore(true);
     setMoreError(null);
-    const res = await newslettersAPI.campaignOptions({ kind: asked, search: query, category: asked === 'campaign' ? undefined : category, page: next });
+    const res = await newslettersAPI.campaignOptions(pageRequest(list0, next));
     if (request !== requestRef.current) return;
     moreRef.current = null;
     setLoadingMore(false);
