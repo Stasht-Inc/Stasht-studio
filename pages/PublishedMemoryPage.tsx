@@ -21,6 +21,7 @@ import exifr from "exifr";
 import { dashboardAPI } from "../utils/authUtils";
 import { useAuth } from "../contexts/AuthContext";
 import { useStoreelTracking } from "../hooks/useStoreelTracking";
+import { endOfTimelinePostId } from "../utils/addMomentPosition";
 
 // Custom Comment Icon Component (for mobile)
 const CommentIcon = ({ className = "" }: { className?: string }) => (
@@ -1584,7 +1585,7 @@ export default function PublishedMemoryPage() {
   };
 
   // "Add a moment" bar, fixed to the bottom of the screen: any visitor can send a moment for review on every
-  // published campaign (the API takes guest moments when published is 1, 2 or 3). Off for view-only links, inside
+  // published campaign, added at the end of the timeline (after the last post shown) (the API takes guest moments when published is 1, 2 or 3). Off for view-only links, inside
   // an iframe, and while the image viewer, the comments sheet, the author card, the car viewer or the form is open.
   // The loading, error and access-token screens return earlier, so it never shows there.
   const publishedValue = memoryData?.published;
@@ -3864,7 +3865,7 @@ export default function PublishedMemoryPage() {
             <button
               ref={addMomentButtonRef}
               type="button"
-              onClick={() => { formFromBarRef.current = true; openRequestMoment(null); }}
+              onClick={() => { formFromBarRef.current = true; openRequestMoment(endOfTimelinePostId(publishedTimelineItems)); }}
               className="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-[#6C60FF] text-base font-semibold text-white transition-colors hover:bg-[#5B52FF] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#6C60FF] focus-visible:ring-offset-2"
             >
               <Camera className="h-5 w-5" aria-hidden="true" />

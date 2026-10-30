@@ -35,6 +35,10 @@ const WITH_MOMENTS = memory([post(11, 1), post(12, 2, { after_post_id: 11 }), po
 const EMPTY = memory([]);
 
 const failures = [];
+// What the form sent to /memories/submit-photo (the mock answers the upload and the submit).
+const submits = [];
+// A 1x1 PNG for the form's photo.
+const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64');
 const pageErrors = [];
 const blocked = new Set();
 const expect = (ok, label) => { if (!ok) failures.push(label); };
@@ -59,6 +63,13 @@ async function open({ width, height, memoryData = WITH_MOMENTS, query = '' }) {
     if (url.pathname.startsWith('/pm-img/')) return route.fulfill({ contentType: 'image/svg+xml', body: svg(Number(url.pathname.match(/(\d+)/)?.[1] ?? 0)) });
     if (/^\/(sso-api|s3-proxy)(\/|$)/.test(url.pathname)) return route.abort('blockedbyclient');
     if (url.pathname === '/api/react/published-memories') return route.fulfill({ json: { success: true, data: { memory: memoryData, order_by: 'asc' } } });
+    if (url.pathname === '/api/react/public/upload-image-with-metadata') {
+      return route.fulfill({ json: { success: true, data: { fileUrl: `${BASE}/pm-img/9.jpg`, location: null, capture_date: null, originalSizeMB: 0.01 } } });
+    }
+    if (url.pathname === '/api/react/memories/submit-photo') {
+      submits.push(JSON.parse(route.request().postData() || 'null'));
+      return route.fulfill({ json: { success: true, message: 'Submitted' } });
+    }
     if (url.pathname.startsWith('/api/')) return route.fulfill({ json: { success: true, data: [] } });
     return route.continue();
   });
@@ -118,6 +129,24 @@ async function bottomOf(page, text) {
   }, text);
 }
 
+/** Opens the form from the bar, adds a photo and a name, submits; returns what reached the API. */
+async function submitFromBar(page, label) {
+  const count = submits.length;
+  await barButton(page).click();
+  const dialog = page.getByRole('dialog');
+  await dialog.waitFor({ state: 'visible', timeout: 5000 });
+  await dialog.locator('input[type=file]').setInputFiles({ name: 'moment.png', mimeType: 'image/png', buffer: PNG });
+  await dialog.getByPlaceholder('Your name').fill('Jamie Guest');
+  const submit = dialog.getByRole('button', { name: 'Submit', exact: true });
+  await submit.waitFor({ state: 'visible' });
+  for (let i = 0; i < 40 && (await submit.isDisabled()); i++) await page.waitForTimeout(100);
+  await submit.click();
+  for (let i = 0; i < 40 && submits.length === count; i++) await page.waitForTimeout(100);
+  if (submits.length === count) failures.push(`${label}: nothing submitted`);
+  await dialog.waitFor({ state: 'hidden', timeout: 5000 }).catch(() => failures.push(`${label}: form did not close after submitting`));
+  return submits[submits.length - 1] ?? null;
+}
+
 async function noOverflow(page) {
   return page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth);
 }
@@ -174,6 +203,11 @@ try {
     await page.keyboard.press('Escape');
     await page.waitForTimeout(300);
     expect(await barButton(page).isVisible(), `${tag}: bar back after the viewer closes`);
+
+    // The moment goes at the END of the timeline: after the last post shown (14).
+    const sent = await submitFromBar(page, tag);
+    expect(sent?.after_post_id === 14, `${tag}: submitted after the last post (after_post_id ${sent?.after_post_id})`);
+    expect(sent?.memory_id === 501 && sent?.name === 'Jamie Guest', `${tag}: submitted for this campaign (${JSON.stringify(sent)})`);
     await context.close();
 
     // View-only links: no bar.
@@ -194,6 +228,8 @@ try {
     const emptyPowered = await bottomOf(empty.page, 'Powered by Stasht');
     expect(emptyPowered !== null && emptyPowered <= emptyBarTop, `${tag}: empty: "Powered by Stasht" above the bar`);
     await shot(empty.page, `${tag}-07-empty-bottom`);
+    const emptySent = await submitFromBar(empty.page, `${tag} empty`);
+    expect(emptySent !== null && emptySent.after_post_id === null, `${tag}: no moments yet, so no position (after_post_id ${emptySent?.after_post_id})`);
     await empty.context.close();
   }
 
