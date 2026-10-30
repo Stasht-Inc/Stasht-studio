@@ -196,6 +196,22 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
     expect(!(await panel.getByLabel(/link/i).count()) && !(await panel.locator('input[inputmode="url"]').count()), 'no link field: the card opens the item’s own page');
     await expectVisible(panel.getByText('The card still opens the campaign’s page.', { exact: false }), 'says the link stays');
     expect(await panel.getByRole('button', { name: 'Reset to original' }).isDisabled(), 'Reset is off until something is edited');
+    // The boxes start with what the card shows (Deepak, 30 Oct), so a few letters can be changed.
+    expect(await title.inputValue() === 'Fall service event', `title box prefilled (got "${await title.inputValue()}")`);
+    expect(await description.inputValue() === 'About Fall service event.', 'description box prefilled');
+    expect(await button.inputValue() === 'View campaign', 'button box prefilled');
+    await title.press('End');
+    await title.press('Backspace');
+    await page.waitForTimeout(1500);
+    expect(lastOverrides()?.['campaign:601']?.title === 'Fall service even', `one letter changed is saved (got ${JSON.stringify(lastOverrides())})`);
+    await title.press('End');
+    await page.keyboard.type('t');
+    await page.waitForTimeout(1500);
+    expect(!lastOverrides()?.['campaign:601']?.title, `typed back to the original: no title edit (got ${JSON.stringify(lastOverrides())})`);
+    await title.fill('');
+    expect(await title.inputValue() === '', 'an emptied box stays empty while typing');
+    await button.click();
+    expect(await title.inputValue() === 'Fall service event', 'and refills with the original once left');
 
     await title.fill('Fall service — 20% off');
     await description.fill('Book before Nov 15.\nCoffee is on us.');
@@ -236,13 +252,13 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
     await panel.getByRole('button', { name: 'Reset to original' }).click();
     await expectVisible(fall.getByText('Fall service event', { exact: true }), 'the original title is back');
     await expectVisible(fall.getByText('View campaign', { exact: true }), 'the original button text is back');
-    expect(await panel.getByLabel('Title', { exact: true }).inputValue() === '', 'the title box is empty again (placeholder shows)');
+    expect(await panel.getByLabel('Title', { exact: true }).inputValue() === 'Fall service event', 'the title box shows the original again');
     expect(await panel.getByRole('button', { name: 'Reset to original' }).isDisabled(), 'nothing left to reset');
     await page.waitForTimeout(1500);
     expect(lastOverrides() === undefined, `no overrides sent after the reset (got ${JSON.stringify(lastOverrides())})`);
 
     // A pause after a space while typing doesn't eat the space when the save answers.
-    await title.click();
+    await title.fill('');
     await page.keyboard.type('Hi ');
     await page.waitForTimeout(1600);
     await page.keyboard.type('there');
@@ -351,7 +367,7 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
 
       // The description keeps a line break while typing; one paragraph once the box is left.
       const description = panel.getByLabel('Description', { exact: true });
-      await description.click();
+      await description.fill('');
       await page.keyboard.type('Line one');
       await page.keyboard.press('Enter');
       await page.keyboard.type('line two');

@@ -346,7 +346,7 @@ export function displayCard(item: CampaignItem, o: CardOverride | undefined | nu
 const PAGE_OF: Record<CampaignKind, string> = { campaign: 'the campaign’s page', product: 'the product’s page', vehicle: 'the vehicle’s page' };
 /** The note in a card's editor: what changes, and that the link doesn't. */
 export function cardEditNote(kind: CampaignKind | undefined): string {
-  return `Changes show in this newsletter only. Leave a box empty to keep the original. The card still opens ${PAGE_OF[kindOf(kind)]}.`;
+  return `Changes show in this newsletter only. The card still opens ${PAGE_OF[kindOf(kind)]}.`;
 }
 
 /** The section change for one card's edit, worked out from the section as it is now (never a copy from an earlier

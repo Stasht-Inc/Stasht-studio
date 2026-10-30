@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Image as ImageIcon, RotateCcw, X } from 'lucide-react';
 import type { CampaignItem, CardOverride } from '../../../services/newslettersAPI';
 import { useImageUpload } from '../hooks/useImageUpload';
@@ -8,9 +8,12 @@ import { BUTTON_SMALL, LABEL, inputClass, textareaClass } from '../lib/ui';
 
 /**
  * One card's edits for this newsletter only (Chris, 29 Oct round 2): its image (upload, replace, back to the
- * original), title, description and button text. An empty box keeps the item's own value, shown as the placeholder.
- * The card's link can't be changed. "Reset to original" drops every edit of this card.
+ * original), title, description and button text. The boxes start filled with what the card shows now, so a few
+ * letters can be changed (Deepak, 30 Oct). Text equal to the original, or an emptied box, keeps the item's own value;
+ * an emptied box refills with it once left. The card's link can't be changed. "Reset to original" drops every edit.
  */
+type TextField = 'title' | 'description' | 'button_text';
+
 export default function CampaignCardEditor({ blockId, item, override, onChange, onReset, onClose }: {
   blockId: string;
   item: CampaignItem;
@@ -21,6 +24,25 @@ export default function CampaignCardEditor({ blockId, item, override, onChange, 
   onClose(): void;
 }) {
   const id = `${blockId}-card-${item.kind}-${item.id}`;
+  const originals: Record<TextField, string> = { title: item.title ?? '', description: item.description ?? '', button_text: itemButtonLabel(item.kind) };
+  const startText = (field: TextField) => override?.[field] || originals[field];
+  // What each box shows while editing (an emptied box stays empty until it is left).
+  const [text, setText] = useState<Record<TextField, string>>(() => ({ title: startText('title'), description: startText('description'), button_text: startText('button_text') }));
+  const type = (field: TextField, value: string) => {
+    setText((t) => ({ ...t, [field]: value }));
+    // Back to the original (ignoring spacing) or empty: no edit for this field.
+    const plain = plainCardText(value);
+    onChange({ [field]: plain === '' || plain === plainCardText(originals[field]) ? '' : value });
+  };
+  const leave = (field: TextField, value: string) => {
+    const plain = plainCardText(value);
+    if (plain === '') setText((t) => ({ ...t, [field]: originals[field] }));
+    else if (field === 'description' && plain !== value) type(field, plain);
+  };
+  const reset = () => {
+    setText({ ...originals });
+    onReset();
+  };
   const { uploading, choose, input } = useImageUpload((url) => onChange({ image_url: url }), `${blockId}-card-image-input`);
   const shown = displayCard(item, override);
   const imageEdited = Boolean(httpsUrl(override?.image_url ?? ''));
@@ -66,26 +88,26 @@ export default function CampaignCardEditor({ blockId, item, override, onChange, 
 
       <div>
         <label htmlFor={`${id}-title`} className={LABEL}>Title</label>
-        <input ref={titleRef} id={`${id}-title`} type="text" value={override?.title ?? ''} maxLength={CARD_LIMITS.title} placeholder={item.title}
-          onChange={(e) => onChange({ title: e.target.value })} className={inputClass()} />
+        <input ref={titleRef} id={`${id}-title`} type="text" value={text.title} maxLength={CARD_LIMITS.title} placeholder={item.title}
+          onChange={(e) => type('title', e.target.value)} onBlur={(e) => leave('title', e.target.value)} className={inputClass()} />
       </div>
       <div>
         <label htmlFor={`${id}-description`} className={LABEL}>Description</label>
-        <textarea id={`${id}-description`} rows={3} value={override?.description ?? ''} maxLength={CARD_LIMITS.description}
+        <textarea id={`${id}-description`} rows={3} value={text.description} maxLength={CARD_LIMITS.description}
           placeholder={item.description || 'Add a short description'}
-          onChange={(e) => onChange({ description: e.target.value })}
+          onChange={(e) => type('description', e.target.value)}
           // Kept as typed (the cursor stays put); one paragraph once the box is left, as it saves.
-          onBlur={(e) => { const plain = plainCardText(e.target.value); if (plain !== e.target.value) onChange({ description: plain }); }}
+          onBlur={(e) => leave('description', e.target.value)}
           className={`${textareaClass()} resize-y`} />
       </div>
       <div>
         <label htmlFor={`${id}-button`} className={LABEL}>Button text</label>
-        <input id={`${id}-button`} type="text" value={override?.button_text ?? ''} maxLength={CARD_LIMITS.button_text} placeholder={itemButtonLabel(item.kind)}
-          onChange={(e) => onChange({ button_text: e.target.value })} className={inputClass()} />
+        <input id={`${id}-button`} type="text" value={text.button_text} maxLength={CARD_LIMITS.button_text} placeholder={itemButtonLabel(item.kind)}
+          onChange={(e) => type('button_text', e.target.value)} onBlur={(e) => leave('button_text', e.target.value)} className={inputClass()} />
       </div>
 
       <div>
-        <button type="button" onClick={(e) => { e.stopPropagation(); onReset(); }} disabled={!edited} className={BUTTON_SMALL}>
+        <button type="button" onClick={(e) => { e.stopPropagation(); reset(); }} disabled={!edited} className={BUTTON_SMALL}>
           <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" />Reset to original
         </button>
       </div>
