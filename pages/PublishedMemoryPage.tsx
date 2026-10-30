@@ -513,6 +513,14 @@ export default function PublishedMemoryPage() {
       return true;
     }
   });
+  // Inside an iframe (the embed HTML): the "Add a moment" bar stays off there.
+  const [isEmbedded] = useState<boolean>(() => {
+    try {
+      return window.self !== window.top;
+    } catch {
+      return true;
+    }
+  });
   const [isLoadingSubMemory, setIsLoadingSubMemory] = useState(false);
   const sortedPostsRef = useRef<any[]>([]);
   useEffect(() => {
@@ -684,6 +692,10 @@ export default function PublishedMemoryPage() {
   const [showRequestMomentModal, setShowRequestMomentModal] = useState(false);
   // Which post the submission should land after; null = top of the timeline.
   const [requestMomentAfterPostId, setRequestMomentAfterPostId] = useState<string | null>(null);
+  // The "Add a moment" bar's button, and whether it opened the form: it is hidden while the form shows, so focus
+  // is put back on it by hand when the form closes.
+  const addMomentButtonRef = useRef<HTMLButtonElement>(null);
+  const formFromBarRef = useRef(false);
 
   // Cars aren't real Memory records (see handleLinkedMemoryClick), so clicking one
   // opens a public, read-only, timeline-style view built entirely from the data on
@@ -1571,6 +1583,20 @@ export default function PublishedMemoryPage() {
     setShowRequestMomentModal(true);
   };
 
+  // "Add a moment" bar, fixed to the bottom of the screen: any visitor can send a moment for review on every
+  // published campaign (the API takes guest moments when published is 1, 2 or 3). Off for view-only links, inside
+  // an iframe, and while the image viewer, the comments sheet, the author card, the car viewer or the form is open.
+  // The loading, error and access-token screens return earlier, so it never shows there.
+  const publishedValue = memoryData?.published;
+  const acceptsGuestMoments = publishedValue === undefined || publishedValue === null || [1, 2, 3].includes(Number(publishedValue));
+  const addMomentBarOn = !viewOnly && !isEmbedded && acceptsGuestMoments && !!memoryData?.id;
+  // Hidden (not unmounted) while something covers the page, so closing the form puts focus back on the button.
+  const addMomentBarCovered = imageViewer.isOpen || showMobileComments || showAuthorModal || showDesktopAuthorModal
+    || !!selectedCarDetail || showRequestMomentModal;
+  // The bar: 12px + 48px button + 12px, plus its 1px top border. Content keeps the same room at the bottom
+  // (also while the bar is hidden under a viewer, so nothing behind it moves).
+  const addMomentRoom = addMomentBarOn ? { paddingBottom: 'calc(73px + env(safe-area-inset-bottom))' } : undefined;
+
   // Title + subtitle + type icon for a widget's entry in the left timeline nav.
   // Mirrors the Studio (MemoryDetailsPage) sidebar widget entries.
   const widgetNodeMeta = (w: any): { title: string; subtitle: string; Icon: React.ComponentType<{ className?: string }> } => {
@@ -1955,7 +1981,7 @@ export default function PublishedMemoryPage() {
       </Helmet>
 
       {/* MOBILE LAYOUT */}
-      <div className="lg:hidden min-h-screen bg-[#F8F8FA]">
+      <div className="lg:hidden min-h-screen bg-[#F8F8FA]" style={addMomentRoom}>
         {/* Header Image with Overlay - shorter height to allow cards to overlap */}
         <div ref={mobileHeaderImageRef} className="relative" style={{ height: '78vh' }}>
           {(() => {
@@ -2404,7 +2430,7 @@ export default function PublishedMemoryPage() {
       </div>
 
       {/* DESKTOP TWO-COLUMN LAYOUT */}
-      <div className="hidden lg:block h-screen bg-[#F8F8FA] overflow-y-hidden">
+      <div className="hidden lg:block h-screen bg-[#F8F8FA] overflow-y-hidden" style={addMomentRoom}>
         {/* Main Two-Column Container */}
         <div className="relative max-w-4xl mx-auto px-6 md:px-8 py-6 h-full">
           {/* Back to Campaigns - show for authenticated users, sub-memory, or when opened from an author page */}
@@ -3827,6 +3853,27 @@ export default function PublishedMemoryPage() {
         </>
       )}
 
+      {/* ── "Add a moment" bar: fixed to the bottom on phones and desktop ── */}
+      {addMomentBarOn && (
+        <div
+          className={`fixed inset-x-0 bottom-0 z-[45] border-t border-gray-200 bg-white/90 backdrop-blur-md shadow-[0_-4px_16px_rgba(0,0,0,0.06)] ${addMomentBarCovered ? 'hidden' : ''}`}
+          style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
+          data-add-moment-bar
+        >
+          <div className="mx-auto w-full max-w-md px-4 py-3">
+            <button
+              ref={addMomentButtonRef}
+              type="button"
+              onClick={() => { formFromBarRef.current = true; openRequestMoment(null); }}
+              className="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-[#6C60FF] text-base font-semibold text-white transition-colors hover:bg-[#5B52FF] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#6C60FF] focus-visible:ring-offset-2"
+            >
+              <Camera className="h-5 w-5" aria-hidden="true" />
+              Add a moment
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* ── Request a Moment submission modal ─────────────────────────────── */}
       <RequestMomentModal
         open={showRequestMomentModal}
@@ -3834,6 +3881,13 @@ export default function PublishedMemoryPage() {
         memoryId={memoryData?.id}
         afterPostId={requestMomentAfterPostId}
         variant="public"
+        onCloseAutoFocus={(e) => {
+          if (!formFromBarRef.current) return;
+          formFromBarRef.current = false;
+          if (!addMomentButtonRef.current) return;
+          e.preventDefault();
+          addMomentButtonRef.current.focus();
+        }}
       />
 
       {/* ── Car photo viewer: opens directly from the campaign (filmstrip + spec sheet, no comments) ── */}
