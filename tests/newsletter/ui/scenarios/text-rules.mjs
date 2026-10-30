@@ -18,7 +18,7 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
   const api = createMockApi({ newsletters: [ready()], businessAddress: '4505 Steeles Ave W, Toronto, ON' });
   const { page, context } = await open({ width: 1280, height: 1900, api, query: '&newsletterId=23', timezoneId: TZ });
   const step = page.locator('#nl-step-recipients');
-  const box = step.getByLabel('Text message', { exact: true });
+  const box = step.getByLabel('Text message (SMS only)', { exact: true });
   await expectVisible(step.getByText('Uses 1 text message part per person.'), 'one part');
 
   await box.fill('Sale 😀 this weekend only');
@@ -78,7 +78,7 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
     const phone = await open({ width, height: 844, api: createMockApi({ newsletters: [ready({ sms_text: 'Sale 😀 this weekend only' })] }), query: '&newsletterId=23', timezoneId: TZ });
     const s = phone.page.locator('#nl-step-recipients');
     await expectVisible(s.getByText(/Emoji and some special/), `warning at ${width}`);
-    await s.getByLabel('Text message', { exact: true }).scrollIntoViewIfNeeded();
+    await s.getByLabel('Text message (SMS only)', { exact: true }).scrollIntoViewIfNeeded();
     expect(!(await hasOverflow(phone.page)), `no sideways scroll at ${width}`);
     if (width === 390) await shot(phone.page, '390-01-parts');
     await phone.context.close();
