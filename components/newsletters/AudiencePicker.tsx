@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import * as Popover from '@radix-ui/react-popover';
 import { ChevronDown, Mail, MessageSquare, Plus, User } from 'lucide-react';
-import type { AudienceItem, NewsletterChannel } from '../../services/newslettersAPI';
+import type { AudienceItem, NewsletterBlock, NewsletterChannel } from '../../services/newslettersAPI';
 import StepCard from './StepCard';
 import ImportListModal from './ImportListModal';
 import ManageListsDialog from './ManageListsDialog';
@@ -14,9 +14,12 @@ import {
 } from './lib/audience';
 import { LIMITS } from './lib/rules';
 import { smsPartsInfo } from './lib/smsParts';
+import { appendSmsToEmail, canAddSmsToEmail } from './lib/smsToEmail';
+import { newBlockId } from './lib/blocks';
+import { composerToast } from './ComposerToaster';
 import { LABEL, LAYER, LINK_BUTTON, inputClass, textareaClass } from './lib/ui';
 
-type AudiencePatch = { audience?: AudienceItem[]; channels?: NewsletterChannel[]; sms_text?: string };
+type AudiencePatch = { audience?: AudienceItem[]; channels?: NewsletterChannel[]; sms_text?: string; blocks?: NewsletterBlock[] };
 
 export interface AudiencePickerProps {
   audience: AudienceItem[];
@@ -31,7 +34,7 @@ export interface AudiencePickerProps {
   fieldErrors: Record<string, string>;
   stepError?: string;
   /** A patch, or a function of the latest draft (null: no change), so a later answer never undoes newer edits. */
-  onChange(patch: AudiencePatch | ((latest: { audience: AudienceItem[] }) => AudiencePatch | null)): void;
+  onChange(patch: AudiencePatch | ((latest: { audience: AudienceItem[]; blocks: NewsletterBlock[] }) => AudiencePatch | null)): void;
 }
 
 const GROUP_HEADING = 'px-3 pb-1 pt-3 text-xs font-semibold uppercase tracking-wide text-gray-500';
@@ -57,6 +60,21 @@ export default function AudiencePicker({ audience, channels, smsText, fromName, 
     lastParts.current = parts.parts;
     setPartsAnnouncement(parts.tooLong ? (parts.problem ?? '') : `Uses ${parts.parts} text message ${parts.parts === 1 ? 'part' : 'parts'} per person.`);
   }, [parts.parts, parts.tooLong, parts.problem]);
+  // "Add this to the email too": the text box is the SMS only; this copies its text to the end of the email as a
+  // Text section, through the same draft update as the editor (so autosave sends it).
+  const canAddToEmail = canAddSmsToEmail(smsText, readOnly);
+  const addTextToEmail = () => {
+    if (!canAddToEmail) return;
+    // Filled in by the updater, which runs straight away (an object, so TypeScript doesn't narrow it).
+    const result = { outcome: 'empty' as 'added' | 'empty' | 'full' };
+    onChange((latest) => {
+      const r = appendSmsToEmail(latest.blocks, smsText, newBlockId(latest.blocks));
+      result.outcome = r.outcome;
+      return r.outcome === 'added' ? { blocks: r.blocks } : null;
+    });
+    if (result.outcome === 'added') composerToast.success('Added to the email as a Text section.');
+    else if (result.outcome === 'full') composerToast.error(`You can add up to ${LIMITS.blocks} sections. Remove one, then try again.`);
+  };
   const smsError = fieldErrors.sms_text ?? (sms.over ? `Use ${LIMITS.sms_text} characters or fewer.` : undefined) ?? parts.problem ?? undefined;
 
   const option = (item: AudienceItem, title: string, detail: string) => (
@@ -141,14 +159,17 @@ export default function AudiencePicker({ audience, channels, smsText, fromName, 
 
         {channels.includes('sms') ? (
           <div>
-            <label htmlFor="nl-sms-text" className={LABEL}>Text message</label>
+            <label htmlFor="nl-sms-text" className={LABEL}>Text message (SMS only)</label>
+            <p id="nl-sms-only" className="-mt-0.5 mb-1.5 text-xs text-gray-500">Only sent as a text. It isn't added to the email.</p>
             <textarea id="nl-sms-text" rows={2} value={smsText} disabled={readOnly} placeholder="October deals are here."
-              aria-invalid={Boolean(smsError)} aria-describedby="nl-sms-help"
+              aria-invalid={Boolean(smsError)} aria-describedby="nl-sms-only nl-sms-help"
               onChange={(e) => onChange({ sms_text: e.target.value })} className={textareaClass(Boolean(smsError))} />
             <div id="nl-sms-help" className="mt-1.5 flex items-start justify-between gap-3 text-xs">
               <span className={smsError ? 'text-red-600' : 'text-gray-500'}>{smsError ?? 'We add a link to the newsletter and "Reply STOP to opt out."'}</span>
               <span aria-live="polite" className={`whitespace-nowrap ${sms.over ? 'text-red-600' : sms.remaining < 10 ? 'text-amber-600' : 'text-gray-500'}`}>{sms.length} / {LIMITS.sms_text}</span>
             </div>
+            <button type="button" onClick={addTextToEmail} disabled={!canAddToEmail}
+              className={`${LINK_BUTTON} mt-1.5 disabled:cursor-not-allowed disabled:no-underline`}>Add this to the email too</button>
             {parts.tooLong ? null : (
               <p className="mt-1.5 text-xs text-gray-600">Uses {parts.parts} text message {parts.parts === 1 ? 'part' : 'parts'} per person.</p>
             )}

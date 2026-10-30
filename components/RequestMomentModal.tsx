@@ -41,6 +41,8 @@ export interface RequestMomentModalProps {
   prefillEmail?: string | null;
   prefillPhone?: string | null;
   onSubmitted?: () => void;
+  /** Where focus goes when the form closes (Radix's onCloseAutoFocus); default: back to what opened it. */
+  onCloseAutoFocus?: (event: Event) => void;
 }
 
 export default function RequestMomentModal({
@@ -53,6 +55,7 @@ export default function RequestMomentModal({
   prefillEmail,
   prefillPhone,
   onSubmitted,
+  onCloseAutoFocus,
 }: RequestMomentModalProps) {
   const isAuthed = variant === 'authenticated';
 
@@ -304,6 +307,7 @@ export default function RequestMomentModal({
           onInteractOutside={(e) => e.preventDefault()}
           onPointerDownOutside={(e) => e.preventDefault()}
           onEscapeKeyDown={(e) => e.preventDefault()}
+          onCloseAutoFocus={onCloseAutoFocus}
           className="max-w-none md:max-w-[560px] w-full h-full md:h-auto md:w-[calc(100%-30px)] md:max-h-[90vh] bg-white p-0 md:p-6 border-0 shadow-xl md:rounded-lg rounded-none top-0 left-0 translate-x-0 translate-y-0 md:top-[50%] md:left-[50%] md:translate-x-[-50%] md:translate-y-[-50%] flex flex-col [&>button[data-slot=dialog-default-close]]:hidden md:[&>button[data-slot=dialog-default-close]]:flex">
           {/* Mobile header */}
           <div className="flex md:hidden items-center justify-between px-4 py-3 border-b border-gray-100 flex-shrink-0">

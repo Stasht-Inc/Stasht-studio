@@ -64,7 +64,7 @@ async function journey({ open, shot, expectVisible, expect, hasOverflow }, width
   // Importing closes the dialog and the Send to list, with the new list ticked.
   await expectVisible(step2.getByText('All leads + 2 more').first(), `Send to summary at ${tag}`);
   await step2.getByRole('checkbox', { name: /Text message/ }).check();
-  await step2.getByLabel('Text message', { exact: true }).fill('November deals are here.');
+  await step2.getByLabel('Text message (SMS only)', { exact: true }).fill('November deals are here.');
 
   // 3 From, and step 1's subject line and preview text
   await page.locator('#nl-from-name').fill('Serpa Chrysler');
