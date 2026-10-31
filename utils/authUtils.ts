@@ -4830,11 +4830,12 @@ export const dashboardAPI = {
   },
 
   // Update property status (activate/deactivate)
-  updatePropertyStatus: async (propertyId: number, status: boolean): Promise<ApiResponse<any>> => {
-    devLog(`🔄 dashboardAPI.updatePropertyStatus: Updating status for property ${propertyId} to ${status}`);
+  // Deactivate (active: false) / reactivate (active: true). `status` repeats it for API builds that predate `active`.
+  updatePropertyStatus: async (propertyId: number, active: boolean): Promise<ApiResponse<any>> => {
+    devLog(`🔄 dashboardAPI.updatePropertyStatus: property ${propertyId} active=${active}`);
     return await apiRequest(`/properties/${propertyId}/status`, {
       method: 'POST',
-      body: JSON.stringify({ status }),
+      body: JSON.stringify({ active, status: active }),
     });
   },
 
