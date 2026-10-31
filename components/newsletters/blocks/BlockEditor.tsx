@@ -7,6 +7,8 @@ import YoutubeBlockEditor from './YoutubeBlockEditor';
 import ButtonBlockEditor from './ButtonBlockEditor';
 import DividerBlockEditor from './DividerBlockEditor';
 import CampaignsBlockEditor from './CampaignsBlockEditor';
+import MessageBlockView from './MessageBlockView';
+import { isMessageBlock } from '../lib/messageBlock';
 
 export const BLOCK_LABEL: Record<BlockType, string> = {
   image: 'Image', title: 'Title', text: 'Text', youtube: 'YouTube', button: 'Button', divider: 'Divider', campaigns: 'Campaigns',
@@ -30,7 +32,9 @@ function BlockEditor({ block, selected, readOnly, onChange, onUpdate, serverItem
   switch (block.type) {
     case 'image': return <ImageBlockEditor {...common} data={block.data} />;
     case 'title': return <TitleBlockEditor {...common} data={block.data} />;
-    case 'text': return <TextBlockEditor {...common} data={block.data} />;
+    // The Message section is kept in step with the Message box, so it is shown, not edited, here.
+    case 'text': return isMessageBlock(block) ? <MessageBlockView data={block.data} selected={selected} readOnly={readOnly} />
+      : <TextBlockEditor {...common} data={block.data} />;
     case 'youtube': return <YoutubeBlockEditor {...common} data={block.data} />;
     case 'button': return <ButtonBlockEditor {...common} data={block.data} />;
     case 'campaigns': return <CampaignsBlockEditor {...common} data={block.data} serverItems={serverItems} accent={accent} onPick={onPick} phone={phone}

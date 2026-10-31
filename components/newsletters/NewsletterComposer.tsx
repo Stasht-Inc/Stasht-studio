@@ -30,6 +30,7 @@ import { formatSentTo } from './lib/phoneDisplay';
 import { smsPartsInfo } from './lib/smsParts';
 import { OFF_SCHEDULE_BANNER, clearUnscheduled, putBackProblem, unscheduledFor } from './lib/editScheduled';
 import { ACTION_TOAST_MS, normaliseBlocks } from './lib/blocks';
+import { addMissingMessageBlock } from './lib/messageBlock';
 import SendConfirmDialog from './SendConfirmDialog';
 import SaveIndicator from './SaveIndicator';
 import DraftNotices from './DraftNotices';
@@ -106,6 +107,18 @@ const NewsletterComposer = forwardRef<NewsletterComposerHandle, NewsletterCompos
   const state = useNewsletterDraft(newsletterId, enabled, brand.brand?.header ?? null);
   const profile = useSenderProfile(enabled);
   const { draft, update, readOnly } = state;
+  // An older draft with a message but no Message section (Chris, 31 Oct): opening it adds the section at the top of
+  // the email once, through update() so autosave saves it. Never on a scheduled, sending or sent newsletter.
+  const messageCheckedRef = useRef<number | null>(null);
+  useEffect(() => {
+    const n = state.newsletter;
+    if (state.loading || !n || n.status !== 'draft' || readOnly || messageCheckedRef.current === n.id) return;
+    messageCheckedRef.current = n.id;
+    update((d) => {
+      const blocks = addMissingMessageBlock(d.blocks, d.sms_text);
+      return blocks === d.blocks ? null : { blocks };
+    });
+  }, [state.loading, state.newsletter, readOnly, update]);
   // The sections as the API last saved them (a Campaigns section's cards are the server's snapshot).
   const savedBlocks = useMemo(() => normaliseBlocks(state.newsletter?.blocks), [state.newsletter]);
   // The name the API puts before a text when the From name is empty: the owner's name (NewsletterSendCheck::fromNameFor).

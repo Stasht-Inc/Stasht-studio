@@ -22,7 +22,7 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
   expect(countCalls().length - before === 1, `two quick picks, one count call (got ${countCalls().length - before})`);
 
   await step.getByRole('checkbox', { name: /Text message/ }).check();
-  await step.getByLabel('Text message (SMS only)', { exact: true }).fill('October deals are here.');
+  await step.getByLabel('Message (optional)', { exact: true }).fill('October deals are here.');
   await expectVisible(step.getByText('23 / 120'), 'character counter');
   await expectVisible(step.getByText('1,414 emails · 480 texts'), 'both channel counts');
   await expectVisible(step.getByText('Not included: 24 with no email address, 3 unsubscribed, 11 listed twice.'), 'not-included line');

@@ -14,9 +14,7 @@ import {
 } from './lib/audience';
 import { LIMITS } from './lib/rules';
 import { smsPartsInfo } from './lib/smsParts';
-import { appendSmsToEmail, canAddSmsToEmail } from './lib/smsToEmail';
-import { newBlockId } from './lib/blocks';
-import { composerToast } from './ComposerToaster';
+import { syncMessageBlock } from './lib/messageBlock';
 import { LABEL, LAYER, LINK_BUTTON, inputClass, textareaClass } from './lib/ui';
 
 type AudiencePatch = { audience?: AudienceItem[]; channels?: NewsletterChannel[]; sms_text?: string; blocks?: NewsletterBlock[] };
@@ -60,22 +58,15 @@ export default function AudiencePicker({ audience, channels, smsText, fromName, 
     lastParts.current = parts.parts;
     setPartsAnnouncement(parts.tooLong ? (parts.problem ?? '') : `Uses ${parts.parts} text message ${parts.parts === 1 ? 'part' : 'parts'} per person.`);
   }, [parts.parts, parts.tooLong, parts.problem]);
-  // "Add this to the email too": the text box is the SMS only; this copies its text to the end of the email as a
-  // Text section, through the same draft update as the editor (so autosave sends it).
-  const canAddToEmail = canAddSmsToEmail(smsText, readOnly);
-  const addTextToEmail = () => {
-    if (!canAddToEmail) return;
-    // Filled in by the updater, which runs straight away (an object, so TypeScript doesn't narrow it).
-    const result = { outcome: 'empty' as 'added' | 'empty' | 'full' };
-    onChange((latest) => {
-      const r = appendSmsToEmail(latest.blocks, smsText, newBlockId(latest.blocks));
-      result.outcome = r.outcome;
-      return r.outcome === 'added' ? { blocks: r.blocks } : null;
-    });
-    if (result.outcome === 'added') composerToast.success('Added to the email as a Text section.');
-    else if (result.outcome === 'full') composerToast.error(`You can add up to ${LIMITS.blocks} sections. Remove one, then try again.`);
-  };
-  const smsError = fieldErrors.sms_text ?? (sms.over ? `Use ${LIMITS.sms_text} characters or fewer.` : undefined) ?? parts.problem ?? undefined;
+  // The Message box (Chris, 31 Oct): always shown. Its text goes at the top of the email as the Message section,
+  // updated in the same draft update as sms_text so autosave sends both together; it is the text too when Text
+  // message is ticked.
+  const texts = channels.includes('sms');
+  const changeMessage = (value: string) => onChange((latest) => {
+    const blocks = syncMessageBlock(latest.blocks, value);
+    return blocks === latest.blocks ? { sms_text: value } : { sms_text: value, blocks };
+  });
+  const smsError = fieldErrors.sms_text ?? (sms.over ? `Use ${LIMITS.sms_text} characters or fewer.` : undefined) ?? (texts ? parts.problem : null) ?? undefined;
 
   const option = (item: AudienceItem, title: string, detail: string) => (
     <label key={audienceKey(item)} className="flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2 focus-within:bg-gray-50 hover:bg-gray-50">
@@ -157,29 +148,29 @@ export default function AudiencePicker({ audience, channels, smsText, fromName, 
           {fieldErrors.channels ? <p role="alert" className="mt-1.5 text-xs text-red-600">{fieldErrors.channels}</p> : null}
         </fieldset>
 
-        {channels.includes('sms') ? (
-          <div>
-            <label htmlFor="nl-sms-text" className={LABEL}>Text message (SMS only)</label>
-            <p id="nl-sms-only" className="-mt-0.5 mb-1.5 text-xs text-gray-500">Only sent as a text. It isn't added to the email.</p>
-            <textarea id="nl-sms-text" rows={2} value={smsText} disabled={readOnly} placeholder="October deals are here."
-              aria-invalid={Boolean(smsError)} aria-describedby="nl-sms-only nl-sms-help"
-              onChange={(e) => onChange({ sms_text: e.target.value })} className={textareaClass(Boolean(smsError))} />
-            <div id="nl-sms-help" className="mt-1.5 flex items-start justify-between gap-3 text-xs">
-              <span className={smsError ? 'text-red-600' : 'text-gray-500'}>{smsError ?? 'We add a link to the newsletter and "Reply STOP to opt out."'}</span>
-              <span aria-live="polite" className={`whitespace-nowrap ${sms.over ? 'text-red-600' : sms.remaining < 10 ? 'text-amber-600' : 'text-gray-500'}`}>{sms.length} / {LIMITS.sms_text}</span>
-            </div>
-            <button type="button" onClick={addTextToEmail} disabled={!canAddToEmail}
-              className={`${LINK_BUTTON} mt-1.5 disabled:cursor-not-allowed disabled:no-underline`}>Add this to the email too</button>
-            {parts.tooLong ? null : (
-              <p className="mt-1.5 text-xs text-gray-600">Uses {parts.parts} text message {parts.parts === 1 ? 'part' : 'parts'} per person.</p>
-            )}
-            <span className="sr-only" aria-live="polite">{partsAnnouncement}</span>
-            {parts.unicode ? (
-              <p className="mt-1.5 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">Emoji and some special characters make each part hold 70 characters instead of 160, so the text may use more parts.</p>
-            ) : null}
-            <p className="mt-2 break-words rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-600"><span className="font-medium text-gray-700">People get: </span>{smsPreview(smsText)}</p>
+        <div>
+          <label htmlFor="nl-sms-text" className={LABEL}>Message<span className="font-normal text-gray-500"> (optional)</span></label>
+          <p id="nl-message-hint" className="-mt-0.5 mb-1.5 text-xs text-gray-500">A short note at the top of your email, above your sections. If Text message is ticked, it's also sent as the text.</p>
+          <textarea id="nl-sms-text" rows={2} value={smsText} disabled={readOnly} placeholder="October deals are here."
+            aria-invalid={Boolean(smsError)} aria-describedby="nl-message-hint nl-sms-help"
+            onChange={(e) => changeMessage(e.target.value)} className={textareaClass(Boolean(smsError))} />
+          <div id="nl-sms-help" className="mt-1.5 flex items-start justify-between gap-3 text-xs">
+            <span className={smsError ? 'text-red-600' : 'text-gray-500'}>{smsError ?? (texts ? 'We add a link to the newsletter and "Reply STOP to opt out."' : null)}</span>
+            <span aria-live="polite" className={`whitespace-nowrap ${sms.over ? 'text-red-600' : sms.remaining < 10 ? 'text-amber-600' : 'text-gray-500'}`}>{sms.length} / {LIMITS.sms_text}</span>
           </div>
-        ) : null}
+          {texts ? (
+            <>
+              {parts.tooLong ? null : (
+                <p className="mt-1.5 text-xs text-gray-600">Uses {parts.parts} text message {parts.parts === 1 ? 'part' : 'parts'} per person.</p>
+              )}
+              <span className="sr-only" aria-live="polite">{partsAnnouncement}</span>
+              {parts.unicode ? (
+                <p className="mt-1.5 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">Emoji and some special characters make each part hold 70 characters instead of 160, so the text may use more parts.</p>
+              ) : null}
+              <p className="mt-2 break-words rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-600"><span className="font-medium text-gray-700">People get: </span>{smsPreview(smsText)}</p>
+            </>
+          ) : null}
+        </div>
       </div>
       <ManageListsDialog
         open={manageOpen}

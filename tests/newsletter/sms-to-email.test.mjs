@@ -1,8 +1,8 @@
-// "Add this to the email too" (Chris, 30 Oct): the text message box is SMS only; this copies its text into the email
-// as a Text section at the end, in the same shape "+ → Text" makes.
+// The Message box's text as a Text section (Chris, 31 Oct: it goes at the top of the email; messageBlock.ts), in the
+// same shape "+ → Text" makes.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { smsTextHtml, smsTextBlock, appendSmsToEmail, canAddSmsToEmail } from '../../components/newsletters/lib/smsToEmail.ts';
+import { smsTextHtml, smsTextBlock } from '../../components/newsletters/lib/smsToEmail.ts';
 import { createBlock, blockProblem } from '../../components/newsletters/lib/blocks.ts';
 import { sanitizeTextHtml, textHtmlIsEmpty } from '../../components/newsletters/lib/textHtml.ts';
 
@@ -40,30 +40,4 @@ test('the block is a Text section, the same shape "+ → Text" makes, with nothi
   // What the editor would save is the same HTML (it is already the allowed subset).
   assert.equal(sanitizeTextHtml(block.data.html), block.data.html);
   assert.equal(textHtmlIsEmpty(block.data.html), false);
-});
-
-test('appendSmsToEmail adds it at the end and leaves the other sections alone', () => {
-  const blocks = [title('a'), title('b')];
-  const r = appendSmsToEmail(blocks, 'Sale on now', 'bnew');
-  assert.equal(r.outcome, 'added');
-  assert.deepEqual(r.blocks.map((b) => b.id), ['a', 'b', 'bnew']);
-  assert.deepEqual(r.blocks[2], { id: 'bnew', type: 'text', data: { html: '<p>Sale on now</p>' } });
-  assert.deepEqual(blocks.map((b) => b.id), ['a', 'b'], 'the list passed in is not changed');
-  assert.deepEqual(appendSmsToEmail([], 'Hi', 'b1').blocks.map((b) => b.id), ['b1']);
-});
-
-test('appendSmsToEmail: blank text or a full email changes nothing', () => {
-  const blocks = [title('a')];
-  assert.deepEqual(appendSmsToEmail(blocks, '  ', 'b1'), { blocks, outcome: 'empty' });
-  const full = Array.from({ length: 40 }, (_, i) => title(`x${i}`));
-  const r = appendSmsToEmail(full, 'Hi', 'b1');
-  assert.equal(r.outcome, 'full');
-  assert.equal(r.blocks, full);
-});
-
-test('canAddSmsToEmail: only with some text and when the newsletter can be changed', () => {
-  assert.equal(canAddSmsToEmail('Hi', false), true);
-  assert.equal(canAddSmsToEmail('', false), false);
-  assert.equal(canAddSmsToEmail(' \n ', false), false);
-  assert.equal(canAddSmsToEmail('Hi', true), false);
 });
