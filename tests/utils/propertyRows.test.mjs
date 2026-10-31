@@ -114,10 +114,34 @@ test('row actions on an older API (no can_manage / is_active / account_type) beh
 test('delete message says exactly what happens', () => {
   assert.equal(
     deletePropertyMessage(externalActive),
-    "Closes Bob Bozic's account: they can't sign in, their own campaigns, leads and newsletters are removed, and any subscription is cancelled. Campaigns you transferred to it come back to you.",
+    "Removes Bob Bozic from your properties. If this account was created for this property, it's closed: they can't sign in, its own campaigns, leads and newsletters are removed and any subscription is cancelled. Campaigns you transferred to it come back to you.",
   );
-  assert.equal(deletePropertyMessage(internalRow), 'Removes the property. Campaigns you transferred to it come back to you.');
-  assert.equal(deletePropertyMessage({ ...externalActive, name: '  ' }).startsWith("Closes this property's account:"), true);
+  assert.equal(deletePropertyMessage(internalRow), 'Removes the property. Campaigns in it come back to your account — nothing is deleted.');
+  assert.equal(deletePropertyMessage({ ...externalActive, name: '  ' }).startsWith('Removes this property from your properties.'), true);
+});
+
+test('delete toast follows the API answer', async () => {
+  const { deletePropertyToast } = await import('../../utils/propertyRows.ts');
+  // apiRequest hands back the JSON body as response.data; the fields may sit at its top level or under data.
+  assert.equal(deletePropertyToast('Bob Bozic', { success: true, data: { success: true, data: { account_closed: true, campaigns_returned: 3 } } }),
+    "Bob Bozic's account was closed. 3 campaigns came back to you.");
+  assert.equal(deletePropertyToast('Bob Bozic', { success: true, data: { success: true, account_closed: false, campaigns_returned: 1 } }),
+    'Bob Bozic was removed from your properties. 1 campaign came back to you.');
+  assert.equal(deletePropertyToast('Pedalheads North', { success: true, data: { account_closed: false, campaigns_returned: 0 } }),
+    'Pedalheads North was removed from your properties.');
+  assert.equal(deletePropertyToast('Pedalheads North', { success: true, data: { data: { account_closed: 'false', campaigns_returned: '2' } } }),
+    'Pedalheads North was removed from your properties. 2 campaigns came back to you.');
+  // Older API: no fields.
+  assert.equal(deletePropertyToast('Old', { success: true, data: { message: 'Property deleted' } }), 'Old was removed from your properties.');
+  assert.equal(deletePropertyToast('', { success: true, data: { account_closed: true } }), "The property's account was closed.");
+});
+
+test('login rows that already carry account_type and user_id need no extra lookup', async () => {
+  const { needsFullPropertyRow } = await import('../../utils/propertyRows.ts');
+  assert.equal(needsFullPropertyRow({ id: 2, account_type: 'external', user_id: 901, is_active: true }), false);
+  assert.equal(needsFullPropertyRow({ id: 2, account_type: 'internal', user_id: 707 }), false);
+  assert.equal(needsFullPropertyRow({ id: 2, name: 'Old login row' }), true);
+  assert.equal(needsFullPropertyRow({ id: 2, account_type: 'external' }), true);
 });
 
 test('findPropertyRow finds a row in any properties list shape', async () => {

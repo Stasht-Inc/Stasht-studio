@@ -33,7 +33,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '../components/ui/alert-dialog';
-import { deletePropertyMessage, propertyRowActions, propertyStatusBadge, propertyTypeLabel, type BadgeTone } from '../utils/propertyRows';
+import { deletePropertyMessage, deletePropertyToast, propertyRowActions, propertyStatusBadge, propertyTypeLabel, type BadgeTone } from '../utils/propertyRows';
 import { toast } from 'sonner';
 
 interface User {
@@ -802,7 +802,7 @@ export default function UsersPage({ onNavigate, onViewStoreelReport }: UsersPage
       const refusal = apiRefusal(response, 'Failed to delete property');
 
       if (!refusal) {
-        toast.success('Property deleted');
+        toast.success(deletePropertyToast(propertyToDelete.name, response));
 
         // Close modal
         setShowDeletePropertyModal(false);

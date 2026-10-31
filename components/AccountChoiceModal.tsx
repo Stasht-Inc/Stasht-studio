@@ -6,7 +6,7 @@ import { dashboardAPI, clearPartialAdminFlags } from '../utils/authUtils';
 import { toast } from 'sonner';
 import { useProperty } from '../contexts/PropertyContext';
 import { switchDataForPropertyAccount, switchDataIsStale } from '../utils/propertyAccountSwitch';
-import { findPropertyRow, opensAsFullAccount, propertyRowActions } from '../utils/propertyRows';
+import { findPropertyRow, needsFullPropertyRow, opensAsFullAccount, propertyRowActions } from '../utils/propertyRows';
 
 // Collaborator type for admin access
 export interface AdminCollaborator {
@@ -674,7 +674,8 @@ export function AccountChoiceModal({
   };
 
   // External properties (a separate full account) switch into that account; everything else keeps today's
-  // property view. Login rows may not carry account_type / user_id / is_active, so read the full row first.
+  // property view. Sign-in rows carry account_type / user_id / is_active; an older API's don't, so then the full
+  // row is read from /properties first.
   const handleSharedPropertyClick = async (property: any, fallback: () => void) => {
     setIsLoading(true);
     setLoadingType(`property_${property.id}`);
@@ -693,7 +694,7 @@ export function AccountChoiceModal({
       localStorage.setItem('stasht_user', JSON.stringify(personalUser));
 
       let row = property;
-      if (!property?.account_type || property?.user_id === undefined) {
+      if (needsFullPropertyRow(property)) {
         const response = await dashboardAPI.getProperties();
         row = { ...property, ...(findPropertyRow(response, property.id) || {}) };
       }

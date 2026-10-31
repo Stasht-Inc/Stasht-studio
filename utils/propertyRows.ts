@@ -102,10 +102,30 @@ export function propertyRowActions(row: PropertyRow): PropertyRowActions {
 export function deletePropertyMessage(row: PropertyRow): string {
   if (isExternalProperty(row)) {
     const name = row?.name === null || row?.name === undefined ? '' : String(row.name).trim();
-    const owner = name ? `${name}'s` : "this property's";
-    return `Closes ${owner} account: they can't sign in, their own campaigns, leads and newsletters are removed, and any subscription is cancelled. Campaigns you transferred to it come back to you.`;
+    return `Removes ${name || 'this property'} from your properties. If this account was created for this property, it's closed: they can't sign in, its own campaigns, leads and newsletters are removed and any subscription is cancelled. Campaigns you transferred to it come back to you.`;
   }
-  return 'Removes the property. Campaigns you transferred to it come back to you.';
+  return 'Removes the property. Campaigns in it come back to your account — nothing is deleted.';
+}
+
+/** The success toast after DELETE /properties/{id}: `account_closed` and `campaigns_returned` from the API
+ * (at the body's top level or under data). An older API sends neither: "… was removed from your properties." */
+export function deletePropertyToast(name: string, response: any): string {
+  const body = response?.data;
+  const pick = (key: string) => body?.data?.[key] ?? body?.[key];
+  const label = String(name ?? '').trim();
+  const head = flag(pick('account_closed')) === true
+    ? `${label ? `${label}'s` : "The property's"} account was closed.`
+    : `${label || 'The property'} was removed from your properties.`;
+  const returned = Number(pick('campaigns_returned'));
+  if (!Number.isFinite(returned) || returned <= 0) return head;
+  return `${head} ${returned} campaign${returned === 1 ? '' : 's'} came back to you.`;
+}
+
+/** Sign-in rows used to lack account_type / user_id; only then is the full row read from /properties. */
+export function needsFullPropertyRow(row: PropertyRow): boolean {
+  if (!propertyAccountType(row)) return true;
+  const ownerId = row?.user_id;
+  return ownerId === null || ownerId === undefined || String(ownerId).trim() === '';
 }
 
 /** The row for property `id` in a getProperties response (any of its list shapes), or null. */

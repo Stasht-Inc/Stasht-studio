@@ -14,8 +14,8 @@ mkdirSync(OUT, { recursive: true });
 // role 2 + a Professional plan: what shows the Properties tab (UsersPage).
 const MAIN = { id: 70, external_user_id: 707, name: 'Main Dealer', email: 'main@dealer.test', role: '2', status: 1 };
 const BOB = { id: 90, external_user_id: 901, name: 'Bob Bozic', email: 'bob@dealer.test', role: '3', status: 1 };
-const DELETE_EXTERNAL = "Closes Bob Bozic's account: they can't sign in, their own campaigns, leads and newsletters are removed, and any subscription is cancelled. Campaigns you transferred to it come back to you.";
-const DELETE_INTERNAL = 'Removes the property. Campaigns you transferred to it come back to you.';
+const DELETE_EXTERNAL = "Removes Bob Bozic from your properties. If this account was created for this property, it's closed: they can't sign in, its own campaigns, leads and newsletters are removed and any subscription is cancelled. Campaigns you transferred to it come back to you.";
+const DELETE_INTERNAL = 'Removes the property. Campaigns in it come back to your account — nothing is deleted.';
 const REFUSED = 'Only the main account or an admin of this property can do that.';
 
 const base = { location: 'Toronto, ON', memories_count: 2, users_count: 1, invited_users: [], labels: [], invite_link: null, created_at: '2026-10-01T10:00:00Z' };
@@ -83,7 +83,9 @@ async function open({ width, height }) {
       if (m && req.method() === 'DELETE') {
         state.deleteCalls.push({ id: Number(m[1]), auth });
         state.rows = state.rows.filter((r) => r.id !== Number(m[1]));
-        return route.fulfill({ json: { success: true, message: 'Property deleted' } });
+        // Internal: campaigns go back to their owners. External Sam Seller: an account made for the property, closed.
+        const closed = Number(m[1]) === 3;
+        return route.fulfill({ json: { success: true, message: 'Property deleted', data: { account_closed: closed, campaigns_returned: closed ? 0 : 2 } } });
       }
       if (path === '/user/storage-overview') {
         return route.fulfill({ json: { success: true, data: { storage_overview: { plan_name: 'Professional' } } } });
@@ -235,7 +237,7 @@ try {
     await (await openMenu(page, 'Pedalheads North', width)).getByRole('menuitem', { name: 'Delete Property' }).click();
     await dialog.waitFor({ state: 'visible', timeout: 5000 });
     const int = (await dialog.textContent()) || '';
-    expect(int.includes(DELETE_INTERNAL) && !int.includes('Closes'), `${tag}: internal delete text (${int})`);
+    expect(int.includes(DELETE_INTERNAL) && !int.includes('closed'), `${tag}: internal delete text (${int})`);
     await page.waitForTimeout(300);
     await shot(page, `${tag}-07-delete-internal`);
     await dialog.getByRole('button', { name: 'Delete', exact: true }).click();
@@ -243,7 +245,20 @@ try {
     await page.waitForTimeout(600);
     expect(state.deleteCalls.length === 1 && state.deleteCalls[0].id === 1, `${tag}: DELETE /properties/1 sent (${JSON.stringify(state.deleteCalls)})`);
     expect((await rowOf(page, 'Pedalheads North', width).count()) === 0, `${tag}: deleted row gone after refresh`);
+    const toasts2 = await toastText(page);
+    expect(toasts2.some((t) => t.includes('Pedalheads North was removed from your properties. 2 campaigns came back to you.')), `${tag}: internal delete toast (${toasts2})`);
     await shot(page, `${tag}-08-after-delete`);
+
+    // Delete the external Sam Seller (made for the property): the API closes it, and the toast says so.
+    await (await openMenu(page, 'Sam Seller', width)).getByRole('menuitem', { name: 'Delete Property' }).click();
+    await dialog.waitFor({ state: 'visible', timeout: 5000 });
+    await dialog.getByRole('button', { name: 'Delete', exact: true }).click();
+    await dialog.waitFor({ state: 'hidden', timeout: 5000 }).catch(() => failures.push(`${tag}: dialog stays after Delete (external)`));
+    await page.waitForTimeout(600);
+    expect(state.deleteCalls.length === 2 && state.deleteCalls[1].id === 3, `${tag}: DELETE /properties/3 sent (${JSON.stringify(state.deleteCalls)})`);
+    const toasts3 = await toastText(page);
+    expect(toasts3.some((t) => t.includes("Sam Seller's account was closed.") && !t.includes('came back')), `${tag}: external delete toast (${toasts3})`);
+    await shot(page, `${tag}-08b-after-external-delete`);
 
     // View on the external row: switches into that account (login-as-admin), not the property view.
     await (await openMenu(page, 'Bob Bozic', width)).getByRole('menuitem', { name: /View Property/ }).click();
