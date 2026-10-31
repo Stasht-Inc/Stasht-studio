@@ -1,10 +1,12 @@
-﻿import React, { useState } from 'react';
+﻿import React, { useRef, useState } from 'react';
 import { X, User, Loader2 } from 'lucide-react';
 import { Button } from './ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from './ui/avatar';
 import { dashboardAPI, clearPartialAdminFlags } from '../utils/authUtils';
 import { toast } from 'sonner';
 import { useProperty } from '../contexts/PropertyContext';
+import { switchDataForPropertyAccount, switchDataIsStale } from '../utils/propertyAccountSwitch';
+import { findPropertyRow, needsFullPropertyRow, opensAsFullAccount, propertyRowActions } from '../utils/propertyRows';
 
 // Collaborator type for admin access
 export interface AdminCollaborator {
@@ -112,14 +114,12 @@ export const getAdminSwitchData = (): AdminSwitchData | null => {
     // Guard against stale data left behind by a previous account (e.g. signup,
     // SSO, or a login that never hit "Sign out"). If the currently logged-in
     // user doesn't match who this admin data was stored for, discard it.
+    // While switched into another account, stasht_user is that account: still this data only while the token in
+    // use is the one the switch produced (utils/propertyAccountSwitch.ts).
     const currentUserStr = localStorage.getItem('stasht_user');
     if (currentUserStr) {
       const currentUser = JSON.parse(currentUserStr);
-      const storedPersonalUser = parsed.personal_account?.user;
-      const currentId = currentUser?.id ?? currentUser?.email ?? currentUser?.phone_number;
-      const storedId = storedPersonalUser?.id ?? storedPersonalUser?.email ?? storedPersonalUser?.phone_number;
-
-      if (currentId && storedId && String(currentId) !== String(storedId)) {
+      if (switchDataIsStale(parsed, currentUser, localStorage.getItem('stasht_token'))) {
         console.log('getAdminSwitchData: Stale data for a different user detected, clearing.');
         localStorage.removeItem('admin_switch_data');
         return null;
@@ -276,6 +276,49 @@ export const switchAccount = async (owner_id?: string | null): Promise<boolean> 
   }
 };
 
+// Open an EXTERNAL property (a separate full account) from the account that is signed in now: login-as-admin
+// with the current token, then the same switch the Profile menu does, so the user lands in that account with
+// everything it has (Leads, Newsletters, Users…). "Switch to …" in the Profile menu brings them back.
+// Internal properties keep the property view (switchToProperty) and never come here.
+export const switchIntoPropertyAccount = async (
+  property: { user_id?: unknown; name?: unknown },
+): Promise<{ ok: boolean; name: string; error: string }> => {
+  const ownerId = String(property?.user_id ?? '').trim();
+  if (!ownerId) return { ok: false, name: '', error: 'This property has no account to open.' };
+
+  const signedInToken = localStorage.getItem('stasht_token') || '';
+  let signedInUser: any = null;
+  try {
+    signedInUser = JSON.parse(localStorage.getItem('stasht_user') || 'null');
+  } catch {
+    signedInUser = null;
+  }
+  const existing = getAdminSwitchData();
+
+  try {
+    const response = await dashboardAPI.loginAsAdmin(ownerId);
+    const data: any = (response.data as any)?.data || response.data;
+    if (!response.success || !data?.user || !data?.token) {
+      return { ok: false, name: '', error: response.error || (response as any).message || 'Could not open this account.' };
+    }
+
+    storeAdminSwitchData(switchDataForPropertyAccount(existing, { user: signedInUser, token: signedInToken }, ownerId, data.token));
+    localStorage.setItem('stasht_user', JSON.stringify(data.user));
+    localStorage.setItem('stasht_token', data.token);
+    clearPartialAdminFlags();
+    // A full account, not the property view.
+    localStorage.setItem('view_type', 'personal');
+    localStorage.removeItem('selected_property');
+    localStorage.removeItem('pending_property_switch');
+
+    const name = String(data.user.name || data.user.email || property?.name || 'the account');
+    return { ok: true, name, error: '' };
+  } catch (error: any) {
+    console.error('switchIntoPropertyAccount failed:', error);
+    return { ok: false, name: '', error: error?.message || 'Could not open this account.' };
+  }
+};
+
 export function AccountChoiceModal({
   isOpen,
   onClose,
@@ -293,6 +336,8 @@ export function AccountChoiceModal({
   const [isAdminSectionExpanded, setIsAdminSectionExpanded] = useState(false);
   const [isPropertiesSectionExpanded, setIsPropertiesSectionExpanded] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  // One property-account switch at a time (a second click before the first answers would race it).
+  const propertySwitchInFlight = useRef(false);
 
   if (!isOpen) return null;
 
@@ -628,6 +673,91 @@ export function AccountChoiceModal({
     } finally {
       setIsLoading(false);
       setLoadingType(null);
+    }
+  };
+
+  // External properties (a separate full account) switch into that account; everything else keeps today's
+  // property view. Sign-in rows carry account_type / user_id / is_active; an older API's don't, so then the full
+  // row is read from /properties first.
+  const handleSharedPropertyClick = async (property: any, fallback: () => void) => {
+    if (propertySwitchInFlight.current) return;
+    propertySwitchInFlight.current = true;
+    setIsLoading(true);
+    setLoadingType(`property_${property.id}`);
+    const hadExistingToken = !!localStorage.getItem('stasht_token');
+    const undoSignIn = () => {
+      if (!hadExistingToken) {
+        localStorage.removeItem('stasht_token');
+        localStorage.removeItem('stasht_user');
+        clearAdminSwitchData();
+      }
+    };
+
+    try {
+      // apiRequest reads the token from localStorage; the login page has not stored it yet.
+      localStorage.setItem('stasht_token', personalToken);
+      localStorage.setItem('stasht_user', JSON.stringify(personalUser));
+
+      let row = property;
+      if (needsFullPropertyRow(property)) {
+        try {
+          const response = await dashboardAPI.getProperties();
+          row = { ...property, ...(findPropertyRow(response, property.id) || {}) };
+        } catch (error) {
+          // Without the full row it can't be told apart from an internal one: keep today's property view.
+          console.warn('AccountChoiceModal: could not read the property row, using the property view:', error);
+        }
+      }
+
+      if (!opensAsFullAccount(row)) {
+        undoSignIn();
+        setIsLoading(false);
+        setLoadingType(null);
+        propertySwitchInFlight.current = false;
+        fallback();
+        return;
+      }
+      if (propertyRowActions(row).view.disabled) {
+        undoSignIn();
+        toast.error(`${row.name || 'This property'} is deactivated.`);
+        return;
+      }
+
+      // Keep the user's other admin accounts switchable, as the personal sign-in does.
+      storeAdminSwitchData({
+        has_admin_access: true,
+        current_mode: 'personal',
+        current_admin_owner_id: undefined,
+        personal_account: { user: personalUser, token: personalToken },
+        admin_accounts: adminCollaborators.map(collab => {
+          const collabName = collab.owner?.name || collab.owner_name || '';
+          const collabEmail = collab.owner?.email || collab.owner_email || '';
+          const collabLocation = collab.owner?.location || collab.location || '';
+          return {
+            owner_id: collab.owner_id || collab.user_id || '',
+            user: collabName || collabEmail ? { name: collabName, email: collabEmail, location: collabLocation } : null,
+            token: '',
+            isPartialAdmin: collab.isPartialAdmin || false,
+          };
+        }),
+      });
+
+      const result = await switchIntoPropertyAccount(row);
+      if (result.ok) {
+        toast.success(`Logged in as ${result.name}`);
+        onComplete();
+      } else {
+        undoSignIn();
+        toast.error(result.error);
+      }
+    } catch (error) {
+      console.error('AccountChoiceModal: Error opening property account:', error);
+      undoSignIn();
+      toast.error('An error occurred. Please try again.');
+    } finally {
+      setIsLoading(false);
+      setLoadingType(null);
+      propertySwitchInFlight.current = false;
     }
   };
 
@@ -987,6 +1117,7 @@ export function AccountChoiceModal({
                               const propertyName = property.name || `Property ${index + 1}`;
                               const propertyLocation = property.location || '';
                               const isCurrentLoading = loadingType === `property_${property.id}`;
+                              const deactivatedNote = propertyRowActions(property).view.note;
 
                               return (
                                 <button
@@ -999,9 +1130,9 @@ export function AccountChoiceModal({
                                       location: propertyLocation,
                                       properties: [property]
                                     };
-                                    handleLoginAsAdmin(fakeCollab as any);
+                                    handleSharedPropertyClick(property, () => handleLoginAsAdmin(fakeCollab as any));
                                   }}
-                                  disabled={isLoading}
+                                  disabled={isLoading || !!deactivatedNote}
                                   className="w-full p-3 hover:bg-white transition-all duration-200 text-left disabled:opacity-50 disabled:cursor-not-allowed border-b border-gray-200 last:border-b-0"
                                 >
                                   <div className="flex items-center gap-3">
@@ -1035,6 +1166,9 @@ export function AccountChoiceModal({
                                         </p>
                                       )}
                                     </div>
+                                    {deactivatedNote && (
+                                      <span className="text-xs text-gray-500 flex-shrink-0">{deactivatedNote}</span>
+                                    )}
                                     {isCurrentLoading && (
                                       <Loader2 className="w-4 h-4 text-blue-600 animate-spin flex-shrink-0" />
                                     )}

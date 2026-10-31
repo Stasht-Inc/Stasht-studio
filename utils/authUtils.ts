@@ -1889,6 +1889,8 @@ export const userUtils = {
       'stasht_session_change',
       'is_partial_admin',
       'partial_admin_email',
+      // Admin / property-account switch data holds the personal account's token: never outlive the sign-in.
+      'admin_switch_data',
     ];
 
     devLog('🧹 Clearing localStorage keys:', localStorageKeysToRemove);
@@ -4830,11 +4832,12 @@ export const dashboardAPI = {
   },
 
   // Update property status (activate/deactivate)
-  updatePropertyStatus: async (propertyId: number, status: boolean): Promise<ApiResponse<any>> => {
-    devLog(`🔄 dashboardAPI.updatePropertyStatus: Updating status for property ${propertyId} to ${status}`);
+  // Deactivate (active: false) / reactivate (active: true). `status` repeats it for API builds that predate `active`.
+  updatePropertyStatus: async (propertyId: number, active: boolean): Promise<ApiResponse<any>> => {
+    devLog(`🔄 dashboardAPI.updatePropertyStatus: property ${propertyId} active=${active}`);
     return await apiRequest(`/properties/${propertyId}/status`, {
       method: 'POST',
-      body: JSON.stringify({ status }),
+      body: JSON.stringify({ active, status: active }),
     });
   },
 

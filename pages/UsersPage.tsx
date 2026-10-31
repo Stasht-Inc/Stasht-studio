@@ -22,6 +22,18 @@ import { Elements } from '@stripe/react-stripe-js';
 const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY);
 import PublishLandingPagesModal from '../components/PublishLandingPagesModal';
 import TransferMemoryDialog from '../components/TransferMemoryDialog';
+import { switchIntoPropertyAccount } from '../components/AccountChoiceModal';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '../components/ui/alert-dialog';
+import { deletePropertyMessage, deletePropertyToast, propertyRowActions, propertyStatusBadge, propertyTypeLabel, type BadgeTone } from '../utils/propertyRows';
 import { toast } from 'sonner';
 
 interface User {
@@ -79,6 +91,19 @@ const getDisplayStatus = (status: number): string => {
 // collaborator_type values GET /user/collaborators-and-non-collaborators returns;
 // 'property_user' is deliberately absent — those people already joined the property.
 const RESENDABLE_INVITE_TYPES = ['user', 'non_user', 'partial_admin', 'pending_property_user'];
+
+const BADGE_TONE_CLASS: Record<BadgeTone, string> = {
+  green: 'bg-green-100 text-green-800',
+  red: 'bg-red-100 text-red-800',
+  orange: 'bg-orange-100 text-orange-800',
+  gray: 'bg-gray-100 text-gray-800',
+};
+
+// A 2xx answer can still carry { success: false, message } — treat that as a refusal too.
+const apiRefusal = (response: any, fallback: string): string | null => {
+  const ok = (response?.success || response?.status === 'success') && response?.data?.success !== false;
+  return ok ? null : (response?.error || response?.message || response?.data?.message || fallback);
+};
 
 const canResendInvite = (user: User): boolean =>
   getDisplayStatus(user.status) === 'pending' &&
@@ -159,6 +184,8 @@ export default function UsersPage({ onNavigate, onViewStoreelReport }: UsersPage
   const [propertyToDelete, setPropertyToDelete] = useState<any>(null);
   const [showDeletePropertyModal, setShowDeletePropertyModal] = useState(false);
   const [isDeletingProperty, setIsDeletingProperty] = useState(false);
+  // One external-property account switch at a time (View Property clicked twice).
+  const accountSwitchInFlight = useRef(false);
 
   // Property payment state (uses StripePaymentForm — same as billing page)
   const [propertyPaymentState, setPropertyPaymentState] = useState<{
@@ -471,6 +498,8 @@ export default function UsersPage({ onNavigate, onViewStoreelReport }: UsersPage
             isCreator: prop.is_creator,
             canEdit: prop.can_edit,
             status: prop.status,
+            // The row as the API sent it: account_type / is_active / can_manage / user_id (utils/propertyRows).
+            apiRow: prop,
             created: new Date(prop.created_at).toLocaleDateString('en-US', {
               year: 'numeric',
               month: 'short',
@@ -772,19 +801,19 @@ export default function UsersPage({ onNavigate, onViewStoreelReport }: UsersPage
       console.log('🗑️ Deleting property:', propertyToDelete.id);
 
       const response = await dashboardAPI.deleteProperty(propertyToDelete.id);
+      const refusal = apiRefusal(response, 'Failed to delete property');
 
-      if (response.success || response.status === 'success') {
-        toast.success('Property deleted successfully');
+      if (!refusal) {
+        toast.success(deletePropertyToast(propertyToDelete.name, response));
 
         // Close modal
         setShowDeletePropertyModal(false);
         setPropertyToDelete(null);
-
-        // Refresh properties list
-        await fetchProperties();
       } else {
-        toast.error(response.error || response.message || 'Failed to delete property');
+        toast.error(refusal);
       }
+      // Refresh the list either way: a refusal can mean the row changed meanwhile.
+      await fetchProperties();
     } catch (error: any) {
       console.error('❌ Error deleting property:', error);
       toast.error(error.message || 'An error occurred while deleting property');
@@ -793,22 +822,18 @@ export default function UsersPage({ onNavigate, onViewStoreelReport }: UsersPage
     }
   };
 
-  // Handle updating property status (activate/deactivate)
-  const handleUpdatePropertyStatus = async (property: any) => {
+  // Handle deactivating / reactivating a property (nextActive comes from propertyRowActions)
+  const handleUpdatePropertyStatus = async (property: any, nextActive: boolean) => {
     try {
-      const newStatus = !property.status;
-      console.log('🔄 Updating property status:', property.id, 'Current status:', property.status, 'New status:', newStatus);
+      const response = await dashboardAPI.updatePropertyStatus(property.id, nextActive);
+      const refusal = apiRefusal(response, `Could not ${nextActive ? 'reactivate' : 'deactivate'} ${property.name}`);
 
-      const response = await dashboardAPI.updatePropertyStatus(property.id, newStatus);
-
-      if (response.success || response.status === 'success') {
-        toast.success(`Property ${newStatus ? 'activated' : 'deactivated'} successfully`);
-
-        // Refresh properties list
-        await fetchProperties();
+      if (!refusal) {
+        toast.success(`${property.name} ${nextActive ? 'reactivated' : 'deactivated'}`);
       } else {
-        toast.error(response.error || response.message || 'Failed to update property status');
+        toast.error(refusal);
       }
+      await fetchProperties();
     } catch (error: any) {
       console.error('❌ Error updating property status:', error);
       toast.error(error.message || 'An error occurred while updating property status');
@@ -816,8 +841,24 @@ export default function UsersPage({ onNavigate, onViewStoreelReport }: UsersPage
   };
 
   // Handle viewing property (switch to property account)
-  const handleViewProperty = (property: any) => {
+  const handleViewProperty = async (property: any) => {
     console.log('👁️ Viewing property:', property.name, property.id);
+
+    // An external property is its own full account: switch into it like an admin account.
+    const view = propertyRowActions(property.apiRow).view;
+    if (view.mode === 'account') {
+      if (view.disabled || accountSwitchInFlight.current) return;
+      accountSwitchInFlight.current = true;
+      const result = await switchIntoPropertyAccount(property.apiRow);
+      if (result.ok) {
+        toast.success(`Switching to ${result.name}...`);
+        window.location.href = '/'; // stays locked: the page is leaving
+      } else {
+        accountSwitchInFlight.current = false;
+        toast.error(result.error);
+      }
+      return;
+    }
 
     // Prepare property data in the format expected by PropertyContext
     const propertyData = {
@@ -834,8 +875,9 @@ export default function UsersPage({ onNavigate, onViewStoreelReport }: UsersPage
     // Store property data in localStorage for persistence across page navigation
     localStorage.setItem('selected_property', JSON.stringify(propertyData));
 
-    // Set a flag to indicate pending property switch
-    localStorage.setItem('pending_property_switch', 'first');
+    // Set a flag to indicate pending property switch: THIS property ('first' made the next page open the first
+    // property in the list instead of the one clicked).
+    localStorage.setItem('pending_property_switch', String(property.id));
 
     // Switch to the property account
     switchToProperty(propertyData);
@@ -2320,15 +2362,15 @@ export default function UsersPage({ onNavigate, onViewStoreelReport }: UsersPage
                           </div>
                         </td>
                         <td className="px-3 sm:px-6 py-4 whitespace-nowrap">
-                          {property.propertyType ? (
+                          {propertyTypeLabel(property.apiRow) ? (
                             <Badge
-                              className={`text-xs px-2.5 py-1 font-medium border-0 capitalize ${
-                                String(property.propertyType).toLowerCase() === 'internal'
+                              className={`text-xs px-2.5 py-1 font-medium border-0 ${
+                                propertyTypeLabel(property.apiRow) === 'Internal'
                                   ? 'bg-blue-100 text-blue-800'
                                   : 'bg-purple-100 text-purple-800'
                               }`}
                             >
-                              {property.propertyType}
+                              {propertyTypeLabel(property.apiRow)}
                             </Badge>
                           ) : (
                             <span className="text-sm text-gray-400">—</span>
@@ -2363,23 +2405,9 @@ export default function UsersPage({ onNavigate, onViewStoreelReport }: UsersPage
                         </td>
                         <td className="px-3 sm:px-6 py-4 whitespace-nowrap">
                           <Badge
-                            className={`text-xs px-2.5 py-1 font-medium border-0 ${
-                              String(property.status).toLowerCase() === 'active'
-                                ? 'bg-green-100 text-green-800'
-                                : String(property.status).toLowerCase() === 'inactive'
-                                ? 'bg-red-100 text-red-800'
-                                : String(property.status).toLowerCase() === 'pending_payment'
-                                ? 'bg-orange-100 text-orange-800'
-                                : String(property.status) === '1'
-                                ? 'bg-blue-100 text-blue-800'
-                                : 'bg-gray-100 text-gray-800'
-                            }`}
+                            className={`text-xs px-2.5 py-1 font-medium border-0 ${BADGE_TONE_CLASS[propertyStatusBadge(property.apiRow).tone]}`}
                           >
-                            {String(property.status).toLowerCase() === 'pending_payment'
-                              ? 'Pending Payment'
-                              : String(property.status) === '1'
-                              ? 'Internal'
-                              : property.status}
+                            {propertyStatusBadge(property.apiRow).label}
                           </Badge>
                         </td>
                         <td className="px-3 sm:px-6 py-4 whitespace-nowrap text-sm text-gray-500">
@@ -2435,29 +2463,37 @@ export default function UsersPage({ onNavigate, onViewStoreelReport }: UsersPage
                                 Leads Report
                               </DropdownMenuItem>
                               <DropdownMenuItem
+                                disabled={propertyRowActions(property.apiRow).view.disabled}
                                 onClick={() => handleViewProperty(property)}
                                 className="cursor-pointer hover:bg-gray-100 rounded px-3 py-2 flex items-center"
                               >
                                 <Eye className="mr-2 h-4 w-4" />
                                 View Property
+                                {propertyRowActions(property.apiRow).view.note && (
+                                  <span className="ml-auto pl-3 text-xs text-gray-500">{propertyRowActions(property.apiRow).view.note}</span>
+                                )}
                               </DropdownMenuItem>
-                              <DropdownMenuItem
-                                onClick={() => handleUpdatePropertyStatus(property)}
-                                className="cursor-pointer hover:bg-red-50 text-red-600 rounded px-3 py-2 flex items-center"
-                              >
-                                <Ban className="mr-2 h-4 w-4" />
-                                {property.status ? 'Deactivate' : 'Activate'}
-                              </DropdownMenuItem>
-                              <DropdownMenuItem
-                                onClick={() => {
-                                  setPropertyToDelete(property);
-                                  setShowDeletePropertyModal(true);
-                                }}
-                                className="cursor-pointer hover:bg-red-50 text-red-600 rounded px-3 py-2 flex items-center"
-                              >
-                                <Trash2 className="mr-2 h-4 w-4" />
-                                Delete Property
-                              </DropdownMenuItem>
+                              {propertyRowActions(property.apiRow).toggle && (
+                                <DropdownMenuItem
+                                  onClick={() => handleUpdatePropertyStatus(property, propertyRowActions(property.apiRow).toggle!.nextActive)}
+                                  className="cursor-pointer hover:bg-red-50 text-red-600 rounded px-3 py-2 flex items-center"
+                                >
+                                  <Ban className="mr-2 h-4 w-4" />
+                                  {propertyRowActions(property.apiRow).toggle!.label}
+                                </DropdownMenuItem>
+                              )}
+                              {propertyRowActions(property.apiRow).canDelete && (
+                                <DropdownMenuItem
+                                  onClick={() => {
+                                    setPropertyToDelete(property);
+                                    setShowDeletePropertyModal(true);
+                                  }}
+                                  className="cursor-pointer hover:bg-red-50 text-red-600 rounded px-3 py-2 flex items-center"
+                                >
+                                  <Trash2 className="mr-2 h-4 w-4" />
+                                  Delete Property
+                                </DropdownMenuItem>
+                              )}
                             </DropdownMenuContent>
                           </DropdownMenu>
                         </td>
@@ -2498,13 +2534,9 @@ export default function UsersPage({ onNavigate, onViewStoreelReport }: UsersPage
                             <h4 className="text-sm font-medium text-gray-900">{property.name}</h4>
                             <span className="text-xs text-gray-500">{property.code}</span>
                             <Badge
-                              className={`text-[12px] px-1.5 py-0.5 font-medium border-0 ${
-                                property.status
-                                  ? 'bg-green-100 text-green-800'
-                                  : 'bg-red-100 text-red-800'
-                              }`}
+                              className={`text-[12px] px-1.5 py-0.5 font-medium border-0 ${BADGE_TONE_CLASS[propertyStatusBadge(property.apiRow).tone]}`}
                             >
-                              {property.status ? 'Active' : 'Inactive'}
+                              {propertyStatusBadge(property.apiRow).label}
                             </Badge>
                           </div>
                           <div className="flex items-center text-xs text-gray-600 mb-2">
@@ -2548,15 +2580,15 @@ export default function UsersPage({ onNavigate, onViewStoreelReport }: UsersPage
                             ) : (
                               <span className="text-xs text-gray-400">No labels</span>
                             )}
-                            {property.propertyType && (
+                            {propertyTypeLabel(property.apiRow) && (
                               <Badge
-                                className={`text-[12px] px-1.5 py-0.5 font-medium border-0 capitalize ${
-                                  String(property.propertyType).toLowerCase() === 'internal'
+                                className={`text-[12px] px-1.5 py-0.5 font-medium border-0 ${
+                                  propertyTypeLabel(property.apiRow) === 'Internal'
                                     ? 'bg-blue-100 text-blue-800'
                                     : 'bg-purple-100 text-purple-800'
                                 }`}
                               >
-                                {property.propertyType}
+                                {propertyTypeLabel(property.apiRow)}
                               </Badge>
                             )}
                           </div>
@@ -2632,29 +2664,37 @@ export default function UsersPage({ onNavigate, onViewStoreelReport }: UsersPage
                             Leads Report
                           </DropdownMenuItem>
                           <DropdownMenuItem
+                            disabled={propertyRowActions(property.apiRow).view.disabled}
                             onClick={() => handleViewProperty(property)}
                             className="cursor-pointer hover:bg-gray-100 rounded px-3 py-2 flex items-center"
                           >
                             <Eye className="mr-2 h-4 w-4" />
                             View Property
+                            {propertyRowActions(property.apiRow).view.note && (
+                              <span className="ml-auto pl-3 text-xs text-gray-500">{propertyRowActions(property.apiRow).view.note}</span>
+                            )}
                           </DropdownMenuItem>
-                          <DropdownMenuItem
-                            onClick={() => handleUpdatePropertyStatus(property)}
-                            className="cursor-pointer hover:bg-red-50 text-red-600 rounded px-3 py-2 flex items-center"
-                          >
-                            <Ban className="mr-2 h-4 w-4" />
-                            {property.status ? 'Deactivate' : 'Activate'}
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            onClick={() => {
-                              setPropertyToDelete(property);
-                              setShowDeletePropertyModal(true);
-                            }}
-                            className="cursor-pointer hover:bg-red-50 text-red-600 rounded px-3 py-2 flex items-center"
-                          >
-                            <Trash2 className="mr-2 h-4 w-4" />
-                            Delete Property
-                          </DropdownMenuItem>
+                          {propertyRowActions(property.apiRow).toggle && (
+                            <DropdownMenuItem
+                              onClick={() => handleUpdatePropertyStatus(property, propertyRowActions(property.apiRow).toggle!.nextActive)}
+                              className="cursor-pointer hover:bg-red-50 text-red-600 rounded px-3 py-2 flex items-center"
+                            >
+                              <Ban className="mr-2 h-4 w-4" />
+                              {propertyRowActions(property.apiRow).toggle!.label}
+                            </DropdownMenuItem>
+                          )}
+                          {propertyRowActions(property.apiRow).canDelete && (
+                            <DropdownMenuItem
+                              onClick={() => {
+                                setPropertyToDelete(property);
+                                setShowDeletePropertyModal(true);
+                              }}
+                              className="cursor-pointer hover:bg-red-50 text-red-600 rounded px-3 py-2 flex items-center"
+                            >
+                              <Trash2 className="mr-2 h-4 w-4" />
+                              Delete Property
+                            </DropdownMenuItem>
+                          )}
                         </DropdownMenuContent>
                       </DropdownMenu>
                       </div>
@@ -2755,45 +2795,48 @@ export default function UsersPage({ onNavigate, onViewStoreelReport }: UsersPage
       />
 
       {/* Delete Property Confirmation Modal */}
-      {showDeletePropertyModal && propertyToDelete && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-lg p-6 max-w-md w-full">
-            <div className="flex items-start gap-4">
-              <div className="flex-shrink-0">
-                <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center">
-                  <Trash2 className="w-6 h-6 text-red-600" />
-                </div>
-              </div>
-              <div className="flex-1">
-                <h3 className="text-lg font-semibold text-gray-900 mb-2">Delete Property</h3>
-                <p className="text-sm text-gray-600 mb-4">
-                  Are you sure you want to delete <span className="font-semibold">{propertyToDelete.name}</span>?
-                  This action cannot be undone and will remove all associated data.
-                </p>
-                <div className="flex gap-3 justify-end">
-                  <Button
-                    variant="outline"
-                    onClick={() => {
-                      setShowDeletePropertyModal(false);
-                      setPropertyToDelete(null);
-                    }}
-                    disabled={isDeletingProperty}
-                  >
-                    Cancel
-                  </Button>
-                  <Button
-                    onClick={handleDeleteProperty}
-                    disabled={isDeletingProperty}
-                    className="bg-red-600 hover:bg-red-700 text-white"
-                  >
-                    {isDeletingProperty ? 'Deleting...' : 'Delete'}
-                  </Button>
-                </div>
+      <AlertDialog
+        open={showDeletePropertyModal && !!propertyToDelete}
+        onOpenChange={(open) => {
+          if (!open && !isDeletingProperty) {
+            setShowDeletePropertyModal(false);
+            setPropertyToDelete(null);
+          }
+        }}
+      >
+        <AlertDialogContent className="bg-white max-w-[calc(100%-2rem)] sm:max-w-md">
+          <div className="flex items-start gap-4">
+            <div className="flex-shrink-0">
+              <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center">
+                <Trash2 className="w-6 h-6 text-red-600" />
               </div>
             </div>
+            <div className="flex-1">
+              <AlertDialogHeader className="text-left">
+                <AlertDialogTitle className="text-lg font-semibold text-gray-900">
+                  Delete {propertyToDelete?.name || 'property'}?
+                </AlertDialogTitle>
+                <AlertDialogDescription className="text-sm text-gray-600">
+                  {deletePropertyMessage(propertyToDelete?.apiRow ?? { name: propertyToDelete?.name })}
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter className="mt-4 gap-3">
+                <AlertDialogCancel disabled={isDeletingProperty}>Cancel</AlertDialogCancel>
+                <AlertDialogAction
+                  onClick={(e) => {
+                    e.preventDefault();
+                    handleDeleteProperty();
+                  }}
+                  disabled={isDeletingProperty}
+                  className="bg-red-600 hover:bg-red-700 text-white"
+                >
+                  {isDeletingProperty ? 'Deleting...' : 'Delete'}
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </div>
           </div>
-        </div>
-      )}
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Publish Landing Pages Modal */}
       <PublishLandingPagesModal
