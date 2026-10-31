@@ -14,16 +14,18 @@ mkdirSync(OUT, { recursive: true });
 // role 2 + a Professional plan: what shows the Properties tab (UsersPage).
 const MAIN = { id: 70, external_user_id: 707, name: 'Main Dealer', email: 'main@dealer.test', role: '2', status: 1 };
 const BOB = { id: 90, external_user_id: 901, name: 'Bob Bozic', email: 'bob@dealer.test', role: '3', status: 1 };
-const DELETE_EXTERNAL = "Removes Bob Bozic from your properties. If this account was created for this property, it's closed: they can't sign in, its own campaigns, leads and newsletters are removed and any subscription is cancelled. Campaigns you transferred to it come back to you.";
+// Bob Bozic: an existing account that joined (delete only unlinks). Sam Seller: an account made for the property (closed).
+const DELETE_EXTERNAL_UNLINK = 'Removes Bob Bozic from your properties. Their own account stays open — you just lose access to it. Campaigns you transferred to it come back to you.';
+const DELETE_EXTERNAL_CLOSE = "Removes Sam Seller from your properties. If this account was created for this property, it's closed: they can't sign in, its own campaigns, leads and newsletters are removed and any subscription is cancelled. Campaigns you transferred to it come back to you.";
 const DELETE_INTERNAL = 'Removes the property. Campaigns in it come back to your account — nothing is deleted.';
 const REFUSED = 'Only the main account or an admin of this property can do that.';
 
 const base = { location: 'Toronto, ON', memories_count: 2, users_count: 1, invited_users: [], labels: [], invite_link: null, created_at: '2026-10-01T10:00:00Z' };
 function rows() {
   return [
-    { ...base, id: 1, name: 'Pedalheads North', unique_id: 'PH-1', user_id: 707, is_creator: true, user_role: 'admin', property_type: 'internal', status: 'inactive', account_type: 'internal', is_active: true, can_manage: true },
-    { ...base, id: 2, name: 'Bob Bozic', unique_id: 'BB-2', user_id: 901, parent_user_id: 707, is_creator: false, user_role: 'admin', property_type: 'external', status: 1, account_type: 'external', is_active: true, can_manage: true },
-    { ...base, id: 3, name: 'Sam Seller', unique_id: 'SS-3', user_id: 902, parent_user_id: 707, is_creator: false, user_role: 'admin', property_type: 'external', status: 0, account_type: 'external', is_active: false, can_manage: true },
+    { ...base, id: 1, name: 'Pedalheads North', unique_id: 'PH-1', user_id: 707, is_creator: true, user_role: 'admin', property_type: 'internal', status: 'inactive', account_type: 'internal', is_active: true, can_manage: true, account_created_for_property: false },
+    { ...base, id: 2, name: 'Bob Bozic', unique_id: 'BB-2', user_id: 901, parent_user_id: 707, is_creator: false, user_role: 'admin', property_type: 'external', status: 1, account_type: 'external', is_active: true, can_manage: true, account_created_for_property: false },
+    { ...base, id: 3, name: 'Sam Seller', unique_id: 'SS-3', user_id: 902, parent_user_id: 707, is_creator: false, user_role: 'admin', property_type: 'external', status: 0, account_type: 'external', is_active: false, can_manage: true, account_created_for_property: true },
     { ...base, id: 4, name: 'Rita Rep', unique_id: 'RR-4', user_id: 903, parent_user_id: 555, is_creator: false, user_role: 'viewer', property_type: 'external', status: 1, account_type: 'external', is_active: true, can_manage: false },
   ];
 }
@@ -82,9 +84,10 @@ async function open({ width, height }) {
       m = path.match(/^\/properties\/(\d+)$/);
       if (m && req.method() === 'DELETE') {
         state.deleteCalls.push({ id: Number(m[1]), auth });
+        const gone = state.rows.find((r) => r.id === Number(m[1]));
         state.rows = state.rows.filter((r) => r.id !== Number(m[1]));
-        // Internal: campaigns go back to their owners. External Sam Seller: an account made for the property, closed.
-        const closed = Number(m[1]) === 3;
+        // As the API: only an external account made for the property is closed; otherwise campaigns come back.
+        const closed = gone?.account_type === 'external' && gone?.account_created_for_property === true;
         return route.fulfill({ json: { success: true, message: 'Property deleted', data: { account_closed: closed, campaigns_returned: closed ? 0 : 2 } } });
       }
       if (path === '/user/storage-overview') {
@@ -227,7 +230,7 @@ try {
     const dialog = page.getByRole('alertdialog');
     await dialog.waitFor({ state: 'visible', timeout: 5000 });
     const ext = (await dialog.textContent()) || '';
-    expect(ext.includes(DELETE_EXTERNAL), `${tag}: external delete text (${ext})`);
+    expect(ext.includes(DELETE_EXTERNAL_UNLINK) && !ext.includes('closed'), `${tag}: joined external: unlink text (${ext})`);
     await page.waitForTimeout(300);
     await shot(page, `${tag}-06-delete-external`);
     await dialog.getByRole('button', { name: 'Cancel' }).click();
@@ -252,6 +255,10 @@ try {
     // Delete the external Sam Seller (made for the property): the API closes it, and the toast says so.
     await (await openMenu(page, 'Sam Seller', width)).getByRole('menuitem', { name: 'Delete Property' }).click();
     await dialog.waitFor({ state: 'visible', timeout: 5000 });
+    const made = (await dialog.textContent()) || '';
+    expect(made.includes(DELETE_EXTERNAL_CLOSE), `${tag}: made-for-property external: close text (${made})`);
+    await page.waitForTimeout(300);
+    await shot(page, `${tag}-07b-delete-external-made-for-property`);
     await dialog.getByRole('button', { name: 'Delete', exact: true }).click();
     await dialog.waitFor({ state: 'hidden', timeout: 5000 }).catch(() => failures.push(`${tag}: dialog stays after Delete (external)`));
     await page.waitForTimeout(600);

@@ -112,11 +112,16 @@ test('row actions on an older API (no can_manage / is_active / account_type) beh
 });
 
 test('delete message says exactly what happens', () => {
-  assert.equal(
-    deletePropertyMessage(externalActive),
-    "Removes Bob Bozic from your properties. If this account was created for this property, it's closed: they can't sign in, its own campaigns, leads and newsletters are removed and any subscription is cancelled. Campaigns you transferred to it come back to you.",
-  );
+  const CLOSES = "Removes Bob Bozic from your properties. If this account was created for this property, it's closed: they can't sign in, its own campaigns, leads and newsletters are removed and any subscription is cancelled. Campaigns you transferred to it come back to you.";
+  const UNLINKS = 'Removes Bob Bozic from your properties. Their own account stays open — you just lose access to it. Campaigns you transferred to it come back to you.';
+  // An account made for this property: delete closes it.
+  assert.equal(deletePropertyMessage({ ...externalActive, account_created_for_property: true }), CLOSES);
+  assert.equal(deletePropertyMessage({ ...externalActive, account_created_for_property: 1 }), CLOSES);
+  // An existing account that joined: delete only unlinks it. Missing field → the unlink wording (never over-promise a close).
+  assert.equal(deletePropertyMessage({ ...externalActive, account_created_for_property: false }), UNLINKS);
+  assert.equal(deletePropertyMessage(externalActive), UNLINKS);
   assert.equal(deletePropertyMessage(internalRow), 'Removes the property. Campaigns in it come back to your account — nothing is deleted.');
+  assert.equal(deletePropertyMessage({ ...internalRow, account_created_for_property: true }), 'Removes the property. Campaigns in it come back to your account — nothing is deleted.');
   assert.equal(deletePropertyMessage({ ...externalActive, name: '  ' }).startsWith('Removes this property from your properties.'), true);
 });
 

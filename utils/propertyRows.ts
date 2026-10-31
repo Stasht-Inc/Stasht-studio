@@ -4,6 +4,8 @@
 //   account_type  'internal' | 'external'  — external = a separate full account (signed up via a property invite)
 //   is_active     boolean                  — the real on/off switch (deactivate / reactivate)
 //   can_manage    boolean                  — may this user deactivate / reactivate / delete it
+//   account_created_for_property boolean   — external only: the account was made for this property (delete closes
+//                                            it); false = an existing account that joined (delete only unlinks)
 //   user_id       the property account's id (for external rows: the account we switch into)
 //   status        legacy: a computed invite status ('active'/'inactive'/'pending_payment') on own rows,
 //                 the raw column (1/0) on shared rows
@@ -23,6 +25,7 @@ export type PropertyRow = {
   account_type?: unknown;
   is_active?: unknown;
   can_manage?: unknown;
+  account_created_for_property?: unknown;
 } | null | undefined;
 
 export type BadgeTone = 'green' | 'red' | 'orange' | 'gray';
@@ -102,7 +105,13 @@ export function propertyRowActions(row: PropertyRow): PropertyRowActions {
 export function deletePropertyMessage(row: PropertyRow): string {
   if (isExternalProperty(row)) {
     const name = row?.name === null || row?.name === undefined ? '' : String(row.name).trim();
-    return `Removes ${name || 'this property'} from your properties. If this account was created for this property, it's closed: they can't sign in, its own campaigns, leads and newsletters are removed and any subscription is cancelled. Campaigns you transferred to it come back to you.`;
+    const label = name || 'this property';
+    // Only an account made for this property is closed; an existing account that joined is just unlinked.
+    // Missing field (older API) → the unlink wording, so the dialog never promises a close that won't happen.
+    if (flag(row?.account_created_for_property) === true) {
+      return `Removes ${label} from your properties. If this account was created for this property, it's closed: they can't sign in, its own campaigns, leads and newsletters are removed and any subscription is cancelled. Campaigns you transferred to it come back to you.`;
+    }
+    return `Removes ${label} from your properties. Their own account stays open — you just lose access to it. Campaigns you transferred to it come back to you.`;
   }
   return 'Removes the property. Campaigns in it come back to your account — nothing is deleted.';
 }
