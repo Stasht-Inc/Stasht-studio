@@ -35,7 +35,11 @@ export async function run({ open, shot, expectVisible, expect }) {
   await expectVisible(f.getByText('serpachrysler.ca', { exact: true }), 'website without https://');
   await expectVisible(f.getByRole('img', { name: 'Instagram' }), 'social icon');
   await expectVisible(f.getByText('Unsubscribe'), 'unsubscribe line');
-  await expectVisible(f.getByText('Powered by Stasht'), 'Powered by Stasht');
+  await expectVisible(f.getByText('Powered by', { exact: false }), 'Powered by');
+  const stashtLink = f.getByRole('link', { name: 'Stasht' });
+  await expectVisible(stashtLink, 'Stasht logo link');
+  expect(await stashtLink.getAttribute('href') === 'https://stasht.com', 'the logo links to stasht.com');
+  expect(await stashtLink.locator('img').evaluate((i) => i.complete && i.naturalWidth > 0), 'the logo image loads');
   await f.getByLabel('Business address').fill('4505 Steeles Ave W, Toronto, ON');
   await f.getByRole('button', { name: 'Save address' }).click();
   await expectVisible(f.getByText('4505 Steeles Ave W, Toronto, ON'), 'address shown');

@@ -83,7 +83,13 @@ export default function EcardFooter({ profile, fromName, businessAddress, onSave
             {!readOnly ? <> · <button type="button" onClick={() => { setValue(businessAddress); setEditing(true); }} className={`${LINK_BUTTON} text-xs`}>Edit</button></> : null}
           </p>
         ) : null}
-        <p className="text-gray-400">Powered by Stasht</p>
+        {/* As in the email: "Powered by" + the Stasht logo, linking to stasht.com. */}
+        <p className="flex items-center justify-center gap-1.5 text-gray-400">
+          Powered by
+          <a href="https://stasht.com" target="_blank" rel="noopener noreferrer" aria-label="Stasht" className="inline-flex rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-[#6C60FF]/40">
+            <img src="/stasht-wordmark.svg" alt="Stasht" width={69} height={18} className="h-[18px] w-auto" />
+          </a>
+        </p>
       </div>
     </footer>
   );
