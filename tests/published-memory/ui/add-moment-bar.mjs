@@ -233,6 +233,27 @@ try {
     await empty.context.close();
   }
 
+  // An owner's "Share a Moment" button (CTA saved as request_moment) is left out while the bar shows (Chris, 31 Oct):
+  // one way to add a moment, not two. Other CTAs stay. Where the bar is off (view-only), the owner's button is kept.
+  {
+    const cta = (id, data) => ({ id, widget_type: 'cta', widget_data: data, after_post_id: null, widget_order: id, is_visible: true, admin_approval: 1, memory_id: 501 });
+    const withCtas = { ...EMPTY, widgets: [cta(901, { mode: 'request_moment', title: '', buttonText: 'Share a Moment' }), cta(902, { title: 'Book a test drive', buttonText: 'Book now', buttonLink: 'https://serpachrysler.ca' })] };
+    for (const width of [1280, 390]) {
+      const one = await open({ width, height: 900, memoryData: withCtas });
+      await one.page.waitForTimeout(800);
+      expect(await barButton(one.page).isVisible(), `${width}: the bar shows`);
+      expect(await one.page.getByRole('button', { name: 'Share a Moment' }).count() === 0, `${width}: no second "Share a Moment" button`);
+      expect(await one.page.getByText('Book now').count() > 0, `${width}: other CTAs still show`);
+      await shot(one.page, `${width}-09-no-duplicate`);
+      await one.context.close();
+    }
+    const vo = await open({ width: 390, height: 900, memoryData: withCtas, query: '?viewonly=1' });
+    await vo.page.waitForTimeout(800);
+    expect(await barButton(vo.page).count() === 0, 'view-only: no bar');
+    expect(await vo.page.getByRole('button', { name: 'Share a Moment' }).count() === 1, 'view-only: the owner\'s Share a Moment button is kept');
+    await vo.context.close();
+  }
+
   for (const width of [360, 375]) {
     const { page, context } = await open({ width, height: 780 });
     await barAtBottom(page, `${width}`);
