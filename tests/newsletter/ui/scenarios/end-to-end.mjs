@@ -64,7 +64,7 @@ async function journey({ open, shot, expectVisible, expect, hasOverflow }, width
   // Importing closes the dialog and the Send to list, with the new list ticked.
   await expectVisible(step2.getByText('All leads + 2 more').first(), `Send to summary at ${tag}`);
   await step2.getByRole('checkbox', { name: /Text message/ }).check();
-  await step2.getByLabel('Text message (SMS only)', { exact: true }).fill('November deals are here.');
+  await step2.getByLabel('Message (optional)', { exact: true }).fill('November deals are here.');
 
   // 3 From, and step 1's subject line and preview text
   await page.locator('#nl-from-name').fill('Serpa Chrysler');
@@ -152,7 +152,9 @@ async function journey({ open, shot, expectVisible, expect, hasOverflow }, width
   const saved = api.state.newsletters.find((n) => n.name === NAME);
   const types = (saved?.blocks || []).map((b) => b.type);
   expect(saved?.status === 'scheduled' && Boolean(saved?.scheduled_at), `scheduled with a time at ${tag}`);
-  expect(JSON.stringify(types) === JSON.stringify(['image', 'title', 'text', 'youtube', 'button', 'divider']), `every section saved in order at ${tag} (got ${types})`);
+  // The Message (typed in step 2) went in at the top; every section added above it after that pushed it down.
+  expect(JSON.stringify(types) === JSON.stringify(['image', 'title', 'text', 'youtube', 'button', 'divider', 'text']), `every section saved in order at ${tag} (got ${types})`);
+  expect(saved?.blocks?.[6]?.id === 'nl-message' && saved?.blocks?.[6]?.data?.html === '<p>November deals are here.</p>', `the Message section saved at ${tag}`);
   expect(saved?.header?.title === 'Serpa Chrysler Jeep' && Boolean(saved?.header?.logo_url), `header saved at ${tag}`);
   expect(saved?.sms_text === 'November deals are here.' && JSON.stringify(saved?.channels) === '["email","sms"]', `channels and text saved at ${tag}`);
   expect(JSON.stringify(saved?.audience) === JSON.stringify([{ type: 'all_leads' }, { type: 'lead_group', id: 4 }, { type: 'list', id: list?.id }]), `audience saved at ${tag} (got ${JSON.stringify(saved?.audience)})`);
@@ -193,7 +195,7 @@ async function journey({ open, shot, expectVisible, expect, hasOverflow }, width
   await expectVisible(page.getByText('Copied. The copy is a draft.'), `duplicate toast at ${tag}`);
   await expectVisible(item(`Copy of ${NAME}`).getByText('Draft', { exact: true }), `copy listed as a draft at ${tag}`);
   const copy = api.state.newsletters.find((n) => n.name === `Copy of ${NAME}`);
-  expect(copy?.status === 'draft' && copy?.blocks?.length === 6 && copy?.sms_text === 'November deals are here.', `copy keeps the content at ${tag}`);
+  expect(copy?.status === 'draft' && copy?.blocks?.length === 7 && copy?.sms_text === 'November deals are here.', `copy keeps the content at ${tag}`);
 
   // Delete the cancelled one.
   await page.getByRole('button', { name: `Actions for ${NAME}`, exact: true }).first().click();

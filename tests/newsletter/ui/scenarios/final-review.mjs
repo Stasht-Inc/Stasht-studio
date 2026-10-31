@@ -89,10 +89,10 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
   const step = page.locator('#nl-step-recipients');
   await step.getByRole('checkbox', { name: /Text message/ }).check();
   const live = step.locator('span.sr-only[aria-live="polite"]');
-  await step.getByLabel('Text message (SMS only)', { exact: true }).fill('Hello');
+  await step.getByLabel('Message (optional)', { exact: true }).fill('Hello');
   await page.waitForTimeout(200);
   expect(await live.textContent() === '', 'nothing announced while it stays at 1 part');
-  await step.getByLabel('Text message (SMS only)', { exact: true }).fill('Sale 😀 this weekend');
+  await step.getByLabel('Message (optional)', { exact: true }).fill('Sale 😀 this weekend');
   await page.waitForTimeout(200);
   expect(await live.textContent() === 'Uses 2 text message parts per person.', 'announced when it becomes 2 parts');
   expect(!(await step.locator('p[aria-live]').filter({ hasText: 'Uses' }).count()), 'the visible line is not a live region');
