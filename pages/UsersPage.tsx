@@ -2807,7 +2807,7 @@ export default function UsersPage({ onNavigate, onViewStoreelReport }: UsersPage
               </div>
             </div>
             <div className="flex-1">
-              <AlertDialogHeader>
+              <AlertDialogHeader className="text-left">
                 <AlertDialogTitle className="text-lg font-semibold text-gray-900">
                   Delete {propertyToDelete?.name || 'property'}?
                 </AlertDialogTitle>
