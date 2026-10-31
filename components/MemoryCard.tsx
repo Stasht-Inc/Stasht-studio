@@ -654,14 +654,8 @@ export default function MemoryCard({
               </div>
             )}
 
-            {/* Subtitle — a small info line under the location/date (e.g. a car's spec
-                summary "STK# … / … km / …"), shown only when provided. On whiteFooter
-                cards it renders in the white footer instead (see below). */}
-            {subtitle && !whiteFooter && (
-              <p className="text-white/90 truncate" style={{ fontSize: '14px', fontWeight: 400, lineHeight: '18px' }} title={subtitle}>
-                {subtitle}
-              </p>
-            )}
+            {/* The subtitle (e.g. a car's "STK# … / … km / …") shows only under the card, beside the author
+                (Chris, 31 Oct): inside the photo it repeated that line and pushed the title over the price. */}
           </div>
 
           {/* Right: Add Media button */}
