@@ -11,7 +11,8 @@
 //                 the raw column (1/0) on shared rows
 //
 // Older API responses have none of the new fields. Then rows behave as they do today:
-//   - never treated as external accounts (no account_type → property view, no login-as-admin guess);
+//   - never opened as an account (no account_type / account_created_for_property → property view, no
+//     login-as-admin guess);
 //   - active state read from `status` (1/true/'1'/'active' = active, 0/false/'0'/'inactive' = inactive);
 //   - can_manage assumed true (the API itself refuses, and the toast shows its message);
 //   - the Type badge shows the old property_type.
@@ -60,10 +61,14 @@ export function isExternalProperty(row: PropertyRow): boolean {
   return propertyAccountType(row) === 'external';
 }
 
-/** Opening it switches into that account (login-as-admin) rather than the property view: someone else's
- * external property with an account id to switch to. */
+/** Opening it switches into that account (login-as-admin) rather than the property view. Only what the API's
+ * login-as-admin allows: someone else's external property whose account was made for this property
+ * (account_created_for_property true), that this user may manage (the main account and the property's admins;
+ * reps / viewers keep the property view; missing can_manage = as before), with an account id to switch to.
+ * A joined / linked account, or a row without the flag, keeps today's property view. */
 export function opensAsFullAccount(row: PropertyRow): boolean {
-  if (!isExternalProperty(row) || flag(row?.is_creator) === true) return false;
+  if (!isExternalProperty(row) || flag(row?.is_creator) === true || flag(row?.can_manage) === false) return false;
+  if (flag(row?.account_created_for_property) !== true) return false;
   const ownerId = row?.user_id;
   return ownerId !== null && ownerId !== undefined && String(ownerId).trim() !== '';
 }
@@ -85,6 +90,7 @@ export function propertyTypeLabel(row: PropertyRow): 'Internal' | 'External' | n
 }
 
 export function propertyStatusBadge(row: PropertyRow): { label: string; tone: BadgeTone } {
+  if (flag(row?.is_active) === false) return { label: 'Inactive', tone: 'red' }; // deactivated wins over payment state
   if (lower(row?.status) === 'pending_payment') return { label: 'Pending Payment', tone: 'orange' };
   return propertyIsActive(row) ? { label: 'Active', tone: 'green' } : { label: 'Inactive', tone: 'red' };
 }
@@ -109,7 +115,7 @@ export function deletePropertyMessage(row: PropertyRow): string {
     // Only an account made for this property is closed; an existing account that joined is just unlinked.
     // Missing field (older API) → the unlink wording, so the dialog never promises a close that won't happen.
     if (flag(row?.account_created_for_property) === true) {
-      return `Removes ${label} from your properties. If this account was created for this property, it's closed: they can't sign in, its own campaigns, leads and newsletters are removed and any subscription is cancelled. Campaigns you transferred to it come back to you.`;
+      return `Removes ${label} from your properties and closes their account: they can't sign in, its own campaigns, leads and newsletters are removed and any subscription is cancelled. Campaigns you transferred to it come back to you.`;
     }
     return `Removes ${label} from your properties. Their own account stays open — you just lose access to it. Campaigns you transferred to it come back to you.`;
   }
@@ -130,9 +136,12 @@ export function deletePropertyToast(name: string, response: any): string {
   return `${head} ${returned} campaign${returned === 1 ? '' : 's'} came back to you.`;
 }
 
-/** Sign-in rows used to lack account_type / user_id; only then is the full row read from /properties. */
+/** Sign-in rows used to lack account_type / user_id / account_created_for_property; only then is the full row
+ * read from /properties. */
 export function needsFullPropertyRow(row: PropertyRow): boolean {
-  if (!propertyAccountType(row)) return true;
+  const type = propertyAccountType(row);
+  if (!type) return true;
+  if (type === 'external' && (row?.account_created_for_property === undefined || row?.account_created_for_property === null)) return true;
   const ownerId = row?.user_id;
   return ownerId === null || ownerId === undefined || String(ownerId).trim() === '';
 }
