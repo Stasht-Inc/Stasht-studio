@@ -18,7 +18,7 @@ import { GENERIC_ERROR, PLAN_REQUIRED_ERROR } from './lib/apiResult';
 import { formatCount } from './lib/audience';
 import { NEWSLETTER_FILTERS, NEWSLETTERS_CHANGED_EVENT, announceNewslettersChanged, withHighlightFirst, type NewsletterFilter } from './lib/campaignsView';
 import { ACTION_LABEL, actionsFor, failureText, isLive, listRateBase, plural, primaryAction, rate, whenText, type NewsletterAction } from './lib/newsletterList';
-import { BUTTON_OUTLINE, BUTTON_PRIMARY, BUTTON_SMALL } from './lib/ui';
+import { BUTTON_OUTLINE, BUTTON_PRIMARY } from './lib/ui';
 
 const POLL_MS = 30000;
 // The All Campaigns list: a grey header row and rows of the same grid.
@@ -71,7 +71,8 @@ function RowMenu({ item, busy, onAction }: { item: NewsletterSummary; busy: bool
 function EditButton({ item, onEdit, compact = false }: { item: NewsletterSummary; onEdit(id: number): void; compact?: boolean }) {
   return (
     <button type="button" onClick={() => onEdit(item.id)} aria-label={`Edit ${item.name || 'this newsletter'}`} title="Edit"
-      className={`${BUTTON_SMALL} flex-shrink-0 ${compact ? 'px-2 xl:px-3' : ''}`}>
+      // Plain, like row actions elsewhere in Studio (Lists, Campaigns): no border, grey, light-grey on hover.
+      className={`inline-flex h-8 flex-shrink-0 items-center gap-1.5 rounded-lg px-2.5 text-xs font-medium text-gray-700 hover:bg-gray-100 hover:text-gray-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#6C60FF]/40 ${compact ? 'px-2 xl:px-2.5' : ''}`}>
       <Pencil className="h-3.5 w-3.5" aria-hidden="true" /><span className={compact ? 'hidden xl:inline' : undefined}>Edit</span>
     </button>
   );
