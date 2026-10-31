@@ -150,6 +150,22 @@ test('delete message says exactly what happens', () => {
   assert.equal(deletePropertyMessage({ ...externalActive, name: '  ', account_created_for_property: false }).startsWith('Removes this property from your properties.'), true);
 });
 
+test('delete_closes_account decides the delete text when the API sends it', () => {
+  const CLOSES = "Removes Bob Bozic from your properties and closes their account: they can't sign in, its own campaigns, leads and newsletters are removed and any subscription is cancelled. Campaigns you transferred to it come back to you.";
+  const UNLINKS = 'Removes Bob Bozic from your properties. Their own account stays open — you just lose access to it. Campaigns you transferred to it come back to you.';
+  // Present and false: unlink, even for an account made for the property.
+  assert.equal(deletePropertyMessage({ ...externalActive, account_created_for_property: true, delete_closes_account: false }), UNLINKS);
+  assert.equal(deletePropertyMessage({ ...externalActive, account_created_for_property: true, delete_closes_account: 0 }), UNLINKS);
+  // Present and true: close.
+  assert.equal(deletePropertyMessage({ ...externalActive, account_created_for_property: true, delete_closes_account: true }), CLOSES);
+  assert.equal(deletePropertyMessage({ ...externalActive, account_created_for_property: false, delete_closes_account: '1' }), CLOSES);
+  // Missing (or null): falls back to account_created_for_property.
+  assert.equal(deletePropertyMessage({ ...externalActive, account_created_for_property: true, delete_closes_account: null }), CLOSES);
+  assert.equal(deletePropertyMessage({ ...externalActive, account_created_for_property: false }), UNLINKS);
+  // Internal rows never use it.
+  assert.equal(deletePropertyMessage({ ...internalRow, delete_closes_account: true }), 'Removes the property. Campaigns in it come back to your account — nothing is deleted.');
+});
+
 test('delete toast follows the API answer', async () => {
   const { deletePropertyToast } = await import('../../utils/propertyRows.ts');
   // apiRequest hands back the JSON body as response.data; the fields may sit at its top level or under data.

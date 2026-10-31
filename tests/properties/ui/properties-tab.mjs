@@ -19,6 +19,8 @@ const SAM = { id: 92, external_user_id: 902, name: 'Sam Seller', email: 'sam@dea
 // accounts made for the property (Sam active: opens as his account; Dana deactivated: can't be opened; delete closes).
 const DELETE_EXTERNAL_UNLINK = 'Removes Bob Bozic from your properties. Their own account stays open — you just lose access to it. Campaigns you transferred to it come back to you.';
 const DELETE_EXTERNAL_CLOSE = "Removes Dana Dealer from your properties and closes their account: they can't sign in, its own campaigns, leads and newsletters are removed and any subscription is cancelled. Campaigns you transferred to it come back to you.";
+// Eve Emerson: made for the property, but the API says this delete won't close it (delete_closes_account false).
+const DELETE_EXTERNAL_UNLINK_EVE = 'Removes Eve Emerson from your properties. Their own account stays open — you just lose access to it. Campaigns you transferred to it come back to you.';
 const DELETE_INTERNAL = 'Removes the property. Campaigns in it come back to your account — nothing is deleted.';
 const REFUSED = 'Only the main account or an admin of this property can do that.';
 
@@ -28,8 +30,9 @@ function rows() {
     { ...base, id: 1, name: 'Pedalheads North', unique_id: 'PH-1', user_id: 707, is_creator: true, user_role: 'admin', property_type: 'internal', status: 'inactive', account_type: 'internal', is_active: true, can_manage: true, account_created_for_property: false },
     { ...base, id: 2, name: 'Bob Bozic', unique_id: 'BB-2', user_id: 901, parent_user_id: 707, is_creator: false, user_role: 'admin', property_type: 'external', status: 1, account_type: 'external', is_active: true, can_manage: true, account_created_for_property: false },
     { ...base, id: 3, name: 'Sam Seller', unique_id: 'SS-3', user_id: 902, parent_user_id: 707, is_creator: false, user_role: 'admin', property_type: 'external', status: 1, account_type: 'external', is_active: true, can_manage: true, account_created_for_property: true },
+    { ...base, id: 6, name: 'Eve Emerson', unique_id: 'EE-6', user_id: 905, parent_user_id: 707, is_creator: false, user_role: 'admin', property_type: 'external', status: 1, account_type: 'external', is_active: true, can_manage: true, account_created_for_property: true, delete_closes_account: false },
     { ...base, id: 4, name: 'Rita Rep', unique_id: 'RR-4', user_id: 903, parent_user_id: 555, is_creator: false, user_role: 'viewer', property_type: 'external', status: 1, account_type: 'external', is_active: true, can_manage: false, account_created_for_property: true },
-    { ...base, id: 5, name: 'Dana Dealer', unique_id: 'DD-5', user_id: 904, parent_user_id: 707, is_creator: false, user_role: 'admin', property_type: 'external', status: 0, account_type: 'external', is_active: false, can_manage: true, account_created_for_property: true },
+    { ...base, id: 5, name: 'Dana Dealer', unique_id: 'DD-5', user_id: 904, parent_user_id: 707, is_creator: false, user_role: 'admin', property_type: 'external', status: 0, account_type: 'external', is_active: false, can_manage: true, account_created_for_property: true, delete_closes_account: true },
   ];
 }
 
@@ -94,7 +97,7 @@ async function open({ width, height, seed = { user: MAIN, token: 'main-token', s
         const gone = state.rows.find((r) => r.id === Number(m[1]));
         state.rows = state.rows.filter((r) => r.id !== Number(m[1]));
         // As the API: only an external account made for the property is closed; otherwise campaigns come back.
-        const closed = gone?.account_type === 'external' && gone?.account_created_for_property === true;
+        const closed = gone?.account_type === 'external' && (gone?.delete_closes_account ?? gone?.account_created_for_property) === true;
         return route.fulfill({ json: { success: true, message: 'Property deleted', data: { account_closed: closed, campaigns_returned: closed ? 0 : 2 } } });
       }
       if (path === '/user/storage-overview') {
@@ -245,6 +248,17 @@ try {
     await dialog.getByRole('button', { name: 'Cancel' }).click();
     await dialog.waitFor({ state: 'hidden', timeout: 5000 });
     expect(state.deleteCalls.length === 0, `${tag}: Cancel deletes nothing`);
+
+    // Made for the property but delete_closes_account false: the unlink text, not the close text.
+    await (await openMenu(page, 'Eve Emerson', width)).getByRole('menuitem', { name: 'Delete Property' }).click();
+    await dialog.waitFor({ state: 'visible', timeout: 5000 });
+    const eve = (await dialog.textContent()) || '';
+    expect(eve.includes(DELETE_EXTERNAL_UNLINK_EVE) && !eve.includes('closes'), `${tag}: delete_closes_account false: unlink text (${eve})`);
+    await page.waitForTimeout(300);
+    await shot(page, `${tag}-06b-delete-external-no-close`);
+    await dialog.getByRole('button', { name: 'Cancel' }).click();
+    await dialog.waitFor({ state: 'hidden', timeout: 5000 });
+    expect(state.deleteCalls.length === 0, `${tag}: Cancel deletes nothing (Eve)`);
 
     await (await openMenu(page, 'Pedalheads North', width)).getByRole('menuitem', { name: 'Delete Property' }).click();
     await dialog.waitFor({ state: 'visible', timeout: 5000 });
