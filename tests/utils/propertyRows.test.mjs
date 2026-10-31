@@ -119,3 +119,12 @@ test('delete message says exactly what happens', () => {
   assert.equal(deletePropertyMessage(internalRow), 'Removes the property. Campaigns you transferred to it come back to you.');
   assert.equal(deletePropertyMessage({ ...externalActive, name: '  ' }).startsWith("Closes this property's account:"), true);
 });
+
+test('findPropertyRow finds a row in any properties list shape', async () => {
+  const { findPropertyRow } = await import('../../utils/propertyRows.ts');
+  const row = { id: 2, name: 'Bob Bozic', account_type: 'external' };
+  assert.deepEqual(findPropertyRow({ data: { owned_properties: [], shared_properties: [row] } }, 2), row);
+  assert.deepEqual(findPropertyRow({ data: { data: { properties: [row] } } }, '2'), row);
+  assert.equal(findPropertyRow({ data: { shared_properties: [row] } }, 3), null);
+  assert.equal(findPropertyRow(null, 2), null);
+});

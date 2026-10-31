@@ -22,6 +22,7 @@ import { Elements } from '@stripe/react-stripe-js';
 const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY);
 import PublishLandingPagesModal from '../components/PublishLandingPagesModal';
 import TransferMemoryDialog from '../components/TransferMemoryDialog';
+import { switchIntoPropertyAccount } from '../components/AccountChoiceModal';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -838,8 +839,22 @@ export default function UsersPage({ onNavigate, onViewStoreelReport }: UsersPage
   };
 
   // Handle viewing property (switch to property account)
-  const handleViewProperty = (property: any) => {
+  const handleViewProperty = async (property: any) => {
     console.log('👁️ Viewing property:', property.name, property.id);
+
+    // An external property is its own full account: switch into it like an admin account.
+    const view = propertyRowActions(property.apiRow).view;
+    if (view.mode === 'account') {
+      if (view.disabled) return;
+      const result = await switchIntoPropertyAccount(property.apiRow);
+      if (result.ok) {
+        toast.success(`Switching to ${result.name}...`);
+        window.location.href = '/';
+      } else {
+        toast.error(result.error);
+      }
+      return;
+    }
 
     // Prepare property data in the format expected by PropertyContext
     const propertyData = {

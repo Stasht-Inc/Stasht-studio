@@ -4,7 +4,9 @@ const imgFemaleAvatar = 'https://images.unsplash.com/photo-1494790108755-2616b61
 import { imgFemaleAvatar1 } from "./svg-2rf14";
 import { useAuth } from "../contexts/AuthContext";
 import { Avatar, AvatarFallback, AvatarImage } from "../components/ui/avatar";
-import { getAdminSwitchData, switchAccount, clearAdminSwitchData } from "../components/AccountChoiceModal";
+import { getAdminSwitchData, switchAccount, clearAdminSwitchData, switchIntoPropertyAccount } from "../components/AccountChoiceModal";
+import { opensAsFullAccount, propertyRowActions } from "../utils/propertyRows";
+import { toast } from "sonner";
 import { dashboardAPI } from "../utils/authUtils";
 import { useProperty } from "../contexts/PropertyContext";
 import useAlvinEnabled from "../components/alvin/useAlvinEnabled";
@@ -850,11 +852,26 @@ export function ProfileDropdownMenu({ isOpen, onClose, user, onShowProfileSettin
                         const propertyName = property.name || `Property ${index + 1}`;
                         const propertyLocation = property.location || '';
                         const userRole = property.user_role || 'viewer';
+                        const deactivatedNote = propertyRowActions(property).view.note;
+                        const switchKey = `property_${property.id}`;
 
                         return (
                           <button
                             key={property.id || index}
-                            onClick={() => {
+                            onClick={async () => {
+                              // An external property is its own full account: switch into it (login-as-admin).
+                              if (opensAsFullAccount(property)) {
+                                setSwitchingAccountId(switchKey);
+                                const result = await switchIntoPropertyAccount(property);
+                                if (result.ok) {
+                                  onClose();
+                                  window.location.href = '/';
+                                } else {
+                                  toast.error(result.error);
+                                  setSwitchingAccountId(null);
+                                }
+                                return;
+                              }
                               console.log('🏠 Switching to shared property:', property);
                               localStorage.setItem('view_type', 'property');
                               localStorage.setItem('selected_property', JSON.stringify(property));
@@ -862,7 +879,8 @@ export function ProfileDropdownMenu({ isOpen, onClose, user, onShowProfileSettin
                               onClose();
                               window.location.reload();
                             }}
-                            className="w-full px-4 py-2 text-left hover:bg-white transition-all duration-200 border-b border-gray-100 last:border-b-0"
+                            disabled={!!deactivatedNote || switchingAccountId === switchKey}
+                            className="w-full px-4 py-2 text-left hover:bg-white transition-all duration-200 border-b border-gray-100 last:border-b-0 disabled:opacity-50 disabled:cursor-not-allowed"
                           >
                             <div className="flex items-center gap-3">
                               <div className="w-8 h-8 rounded-lg overflow-hidden bg-blue-100 flex items-center justify-center flex-shrink-0">
@@ -882,6 +900,9 @@ export function ProfileDropdownMenu({ isOpen, onClose, user, onShowProfileSettin
                                   <div className="text-xs text-gray-500 truncate mt-0.5" title={propertyLocation}>{propertyLocation}</div>
                                 )}
                               </div>
+                              {deactivatedNote && (
+                                <span className="text-xs text-gray-500 flex-shrink-0">{deactivatedNote}</span>
+                              )}
                             </div>
                           </button>
                         );

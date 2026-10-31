@@ -107,3 +107,20 @@ export function deletePropertyMessage(row: PropertyRow): string {
   }
   return 'Removes the property. Campaigns you transferred to it come back to you.';
 }
+
+/** The row for property `id` in a getProperties response (any of its list shapes), or null. */
+export function findPropertyRow(response: any, id: unknown): any | null {
+  const want = String(id ?? '');
+  if (!want) return null;
+  const containers = [response?.data, response?.data?.data, response];
+  for (const box of containers) {
+    if (!box || typeof box !== 'object') continue;
+    for (const key of ['shared_properties', 'owned_properties', 'properties', 'all_properties']) {
+      const list = box[key];
+      if (!Array.isArray(list)) continue;
+      const hit = list.find((p: any) => p && String(p.id) === want);
+      if (hit) return hit;
+    }
+  }
+  return null;
+}
