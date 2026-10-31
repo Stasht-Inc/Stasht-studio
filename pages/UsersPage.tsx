@@ -184,6 +184,8 @@ export default function UsersPage({ onNavigate, onViewStoreelReport }: UsersPage
   const [propertyToDelete, setPropertyToDelete] = useState<any>(null);
   const [showDeletePropertyModal, setShowDeletePropertyModal] = useState(false);
   const [isDeletingProperty, setIsDeletingProperty] = useState(false);
+  // One external-property account switch at a time (View Property clicked twice).
+  const accountSwitchInFlight = useRef(false);
 
   // Property payment state (uses StripePaymentForm — same as billing page)
   const [propertyPaymentState, setPropertyPaymentState] = useState<{
@@ -845,12 +847,14 @@ export default function UsersPage({ onNavigate, onViewStoreelReport }: UsersPage
     // An external property is its own full account: switch into it like an admin account.
     const view = propertyRowActions(property.apiRow).view;
     if (view.mode === 'account') {
-      if (view.disabled) return;
+      if (view.disabled || accountSwitchInFlight.current) return;
+      accountSwitchInFlight.current = true;
       const result = await switchIntoPropertyAccount(property.apiRow);
       if (result.ok) {
         toast.success(`Switching to ${result.name}...`);
-        window.location.href = '/';
+        window.location.href = '/'; // stays locked: the page is leaving
       } else {
+        accountSwitchInFlight.current = false;
         toast.error(result.error);
       }
       return;
@@ -871,8 +875,9 @@ export default function UsersPage({ onNavigate, onViewStoreelReport }: UsersPage
     // Store property data in localStorage for persistence across page navigation
     localStorage.setItem('selected_property', JSON.stringify(propertyData));
 
-    // Set a flag to indicate pending property switch
-    localStorage.setItem('pending_property_switch', 'first');
+    // Set a flag to indicate pending property switch: THIS property ('first' made the next page open the first
+    // property in the list instead of the one clicked).
+    localStorage.setItem('pending_property_switch', String(property.id));
 
     // Switch to the property account
     switchToProperty(propertyData);
@@ -2799,7 +2804,7 @@ export default function UsersPage({ onNavigate, onViewStoreelReport }: UsersPage
           }
         }}
       >
-        <AlertDialogContent className="bg-white max-w-md">
+        <AlertDialogContent className="bg-white max-w-[calc(100%-2rem)] sm:max-w-md">
           <div className="flex items-start gap-4">
             <div className="flex-shrink-0">
               <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center">

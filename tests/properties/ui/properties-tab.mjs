@@ -1,5 +1,6 @@
 // Users → Properties: Active/Inactive + Internal/External badges, Deactivate / Reactivate / Delete, and opening
-// an external property as its own account (login-as-admin) instead of the property view (31 Oct, wdy2xh2x97).
+// an external property made for the property as its own account (login-as-admin); everything else keeps the
+// property view (31 Oct, wdy2xh2x97).
 // node tests/properties/ui/properties-tab.mjs   (needs the dev server: PR_BASE, default http://localhost:5263)
 // The app's API calls are answered here and every non-local request is aborted: nothing leaves this machine.
 // Screenshots: PR_SHOTS (default /private/tmp/claude-501/properties-ui/shots).
@@ -13,10 +14,11 @@ mkdirSync(OUT, { recursive: true });
 
 // role 2 + a Professional plan: what shows the Properties tab (UsersPage).
 const MAIN = { id: 70, external_user_id: 707, name: 'Main Dealer', email: 'main@dealer.test', role: '2', status: 1 };
-const BOB = { id: 90, external_user_id: 901, name: 'Bob Bozic', email: 'bob@dealer.test', role: '3', status: 1 };
-// Bob Bozic: an existing account that joined (delete only unlinks). Sam Seller: an account made for the property (closed).
+const SAM = { id: 92, external_user_id: 902, name: 'Sam Seller', email: 'sam@dealer.test', role: '3', status: 1 };
+// Bob Bozic: an existing account that joined (property view; delete only unlinks). Sam Seller and Dana Dealer:
+// accounts made for the property (Sam active: opens as his account; Dana deactivated: can't be opened; delete closes).
 const DELETE_EXTERNAL_UNLINK = 'Removes Bob Bozic from your properties. Their own account stays open — you just lose access to it. Campaigns you transferred to it come back to you.';
-const DELETE_EXTERNAL_CLOSE = "Removes Sam Seller from your properties. If this account was created for this property, it's closed: they can't sign in, its own campaigns, leads and newsletters are removed and any subscription is cancelled. Campaigns you transferred to it come back to you.";
+const DELETE_EXTERNAL_CLOSE = "Removes Dana Dealer from your properties and closes their account: they can't sign in, its own campaigns, leads and newsletters are removed and any subscription is cancelled. Campaigns you transferred to it come back to you.";
 const DELETE_INTERNAL = 'Removes the property. Campaigns in it come back to your account — nothing is deleted.';
 const REFUSED = 'Only the main account or an admin of this property can do that.';
 
@@ -25,8 +27,9 @@ function rows() {
   return [
     { ...base, id: 1, name: 'Pedalheads North', unique_id: 'PH-1', user_id: 707, is_creator: true, user_role: 'admin', property_type: 'internal', status: 'inactive', account_type: 'internal', is_active: true, can_manage: true, account_created_for_property: false },
     { ...base, id: 2, name: 'Bob Bozic', unique_id: 'BB-2', user_id: 901, parent_user_id: 707, is_creator: false, user_role: 'admin', property_type: 'external', status: 1, account_type: 'external', is_active: true, can_manage: true, account_created_for_property: false },
-    { ...base, id: 3, name: 'Sam Seller', unique_id: 'SS-3', user_id: 902, parent_user_id: 707, is_creator: false, user_role: 'admin', property_type: 'external', status: 0, account_type: 'external', is_active: false, can_manage: true, account_created_for_property: true },
-    { ...base, id: 4, name: 'Rita Rep', unique_id: 'RR-4', user_id: 903, parent_user_id: 555, is_creator: false, user_role: 'viewer', property_type: 'external', status: 1, account_type: 'external', is_active: true, can_manage: false },
+    { ...base, id: 3, name: 'Sam Seller', unique_id: 'SS-3', user_id: 902, parent_user_id: 707, is_creator: false, user_role: 'admin', property_type: 'external', status: 1, account_type: 'external', is_active: true, can_manage: true, account_created_for_property: true },
+    { ...base, id: 4, name: 'Rita Rep', unique_id: 'RR-4', user_id: 903, parent_user_id: 555, is_creator: false, user_role: 'viewer', property_type: 'external', status: 1, account_type: 'external', is_active: true, can_manage: false, account_created_for_property: true },
+    { ...base, id: 5, name: 'Dana Dealer', unique_id: 'DD-5', user_id: 904, parent_user_id: 707, is_creator: false, user_role: 'admin', property_type: 'external', status: 0, account_type: 'external', is_active: false, can_manage: true, account_created_for_property: true },
   ];
 }
 
@@ -37,18 +40,22 @@ const expect = (ok, label) => { if (!ok) failures.push(label); };
 
 const browser = await chromium.launch({ headless: true, channel: 'chrome' });
 
-async function open({ width, height }) {
+// seed: who is signed in on the first load (default: Main Dealer, personal) and any stored switch data.
+async function open({ width, height, seed = { user: MAIN, token: 'main-token', switchData: null } }) {
   const state = { rows: rows(), statusCalls: [], deleteCalls: [], switchCalls: [], propertyFetches: 0 };
   const context = await browser.newContext({ viewport: { width, height }, serviceWorkers: 'block', locale: 'en-US', hasTouch: width < 1024, isMobile: width < 1024 });
-  await context.addInitScript(([user]) => {
+  await context.addInitScript(([seedData]) => {
+    // Open on the Properties tab whenever /users loads (a fresh dev server reloads the first page once).
+    if (location.pathname === '/users') sessionStorage.setItem('users_open_tab', 'properties');
     if (sessionStorage.getItem('pr-seeded')) return; // only the first load: later loads keep what the app stored
     sessionStorage.setItem('pr-seeded', '1');
     localStorage.clear();
-    localStorage.setItem('stasht_token', 'main-token');
-    localStorage.setItem('stasht_user', JSON.stringify(user));
+    localStorage.setItem('stasht_token', seedData.token);
+    localStorage.setItem('stasht_user', JSON.stringify(seedData.user));
+    if (seedData.switchData) localStorage.setItem('admin_switch_data', JSON.stringify(seedData.switchData));
     localStorage.setItem('view_type', 'personal');
     sessionStorage.setItem('users_open_tab', 'properties');
-  }, [MAIN]);
+  }, [seed]);
   await context.route('**/*', async (route) => {
     const req = route.request();
     const url = new URL(req.url());
@@ -77,7 +84,7 @@ async function open({ width, height }) {
         const body = JSON.parse(req.postData() || 'null');
         state.statusCalls.push({ id: Number(m[1]), body, auth });
         const row = state.rows.find((r) => r.id === Number(m[1]));
-        if (row.id === 3) return route.fulfill({ status: 403, json: { success: false, message: REFUSED } });
+        if (row.id === 5) return route.fulfill({ status: 403, json: { success: false, message: REFUSED } });
         row.is_active = !!body.active;
         return route.fulfill({ json: { success: true, data: row } });
       }
@@ -95,7 +102,7 @@ async function open({ width, height }) {
       }
       if (path === '/login-as-admin') {
         state.switchCalls.push({ body: JSON.parse(req.postData() || 'null'), auth });
-        return route.fulfill({ json: { success: true, data: { user: BOB, token: 'bob-token', collaborators: [], properties: [] } } });
+        return route.fulfill({ json: { success: true, data: { user: SAM, token: 'sam-token', collaborators: [], properties: [] } } });
       }
       return route.fulfill({ json: { success: true, data: [] } });
     }
@@ -176,12 +183,14 @@ try {
     const b2 = await badgesOf(page, 'Bob Bozic', width);
     const b3 = await badgesOf(page, 'Sam Seller', width);
     const b4 = await badgesOf(page, 'Rita Rep', width);
-    console.log(tag, 'badges', JSON.stringify({ b1, b2, b3, b4 }));
+    const b5 = await badgesOf(page, 'Dana Dealer', width);
+    console.log(tag, 'badges', JSON.stringify({ b1, b2, b3, b4, b5 }));
     expect(b1.includes('Active') && b1.includes('Internal') && !b1.includes('Inactive'), `${tag}: internal row Active + Internal (${b1})`);
-    expect(b2.includes('Active') && b2.includes('External'), `${tag}: external active row Active + External (${b2})`);
-    expect(b3.includes('Inactive') && b3.includes('External'), `${tag}: external inactive row Inactive + External (${b3})`);
+    expect(b2.includes('Active') && b2.includes('External'), `${tag}: joined external row Active + External (${b2})`);
+    expect(b3.includes('Active') && b3.includes('External'), `${tag}: made-for-property external row Active + External (${b3})`);
     expect(b4.includes('Active') && b4.includes('External'), `${tag}: no-manage row Active + External (${b4})`);
-    for (const b of [b1, b2, b3, b4]) expect(!b.some((t) => t === '1' || t === '0'), `${tag}: no raw status numbers (${b})`);
+    expect(b5.includes('Inactive') && b5.includes('External'), `${tag}: external inactive row Inactive + External (${b5})`);
+    for (const b of [b1, b2, b3, b4, b5]) expect(!b.some((t) => t === '1' || t === '0'), `${tag}: no raw status numbers (${b})`);
 
     // Menus.
     const has = (items, text) => items.some((i) => i.text.startsWith(text));
@@ -192,7 +201,7 @@ try {
     expect(has(m2, 'Deactivate') && has(m2, 'Delete Property') && !m2.find((i) => i.text.startsWith('View Property')).disabled, `${tag}: external active menu (${JSON.stringify(m2)})`);
     await shot(page, `${tag}-02-menu-external-active`);
     await closeMenu(page);
-    const m3 = await menuItems(page, 'Sam Seller', width);
+    const m3 = await menuItems(page, 'Dana Dealer', width);
     const view3 = m3.find((i) => i.text.startsWith('View Property'));
     expect(has(m3, 'Reactivate') && !has(m3, 'Deactivate') && has(m3, 'Delete Property'), `${tag}: external inactive menu (${JSON.stringify(m3)})`);
     expect(view3?.disabled && /Deactivated/.test(view3.text), `${tag}: inactive external can't be opened (${JSON.stringify(view3)})`);
@@ -204,10 +213,10 @@ try {
     await closeMenu(page);
 
     // Reactivate refused: the API's message in a toast, nothing changes.
-    await (await openMenu(page, 'Sam Seller', width)).getByRole('menuitem', { name: 'Reactivate' }).click();
+    await (await openMenu(page, 'Dana Dealer', width)).getByRole('menuitem', { name: 'Reactivate' }).click();
     await page.waitForTimeout(500);
     const refusedCall = state.statusCalls.at(-1);
-    expect(refusedCall?.id === 3 && refusedCall.body?.active === true, `${tag}: Reactivate sends {active: true} (${JSON.stringify(refusedCall)})`);
+    expect(refusedCall?.id === 5 && refusedCall.body?.active === true, `${tag}: Reactivate sends {active: true} (${JSON.stringify(refusedCall)})`);
     const toasts1 = await toastText(page);
     expect(toasts1.some((t) => t.includes(REFUSED)), `${tag}: refusal message shown (${toasts1})`);
     await shot(page, `${tag}-05-refused-toast`);
@@ -252,8 +261,8 @@ try {
     expect(toasts2.some((t) => t.includes('Pedalheads North was removed from your properties. 2 campaigns came back to you.')), `${tag}: internal delete toast (${toasts2})`);
     await shot(page, `${tag}-08-after-delete`);
 
-    // Delete the external Sam Seller (made for the property): the API closes it, and the toast says so.
-    await (await openMenu(page, 'Sam Seller', width)).getByRole('menuitem', { name: 'Delete Property' }).click();
+    // Delete the external Dana Dealer (made for the property): the API closes it, and the toast says so.
+    await (await openMenu(page, 'Dana Dealer', width)).getByRole('menuitem', { name: 'Delete Property' }).click();
     await dialog.waitFor({ state: 'visible', timeout: 5000 });
     const made = (await dialog.textContent()) || '';
     expect(made.includes(DELETE_EXTERNAL_CLOSE), `${tag}: made-for-property external: close text (${made})`);
@@ -262,16 +271,16 @@ try {
     await dialog.getByRole('button', { name: 'Delete', exact: true }).click();
     await dialog.waitFor({ state: 'hidden', timeout: 5000 }).catch(() => failures.push(`${tag}: dialog stays after Delete (external)`));
     await page.waitForTimeout(600);
-    expect(state.deleteCalls.length === 2 && state.deleteCalls[1].id === 3, `${tag}: DELETE /properties/3 sent (${JSON.stringify(state.deleteCalls)})`);
+    expect(state.deleteCalls.length === 2 && state.deleteCalls[1].id === 5, `${tag}: DELETE /properties/5 sent (${JSON.stringify(state.deleteCalls)})`);
     const toasts3 = await toastText(page);
-    expect(toasts3.some((t) => t.includes("Sam Seller's account was closed.") && !t.includes('came back')), `${tag}: external delete toast (${toasts3})`);
+    expect(toasts3.some((t) => t.includes("Dana Dealer's account was closed.") && !t.includes('came back')), `${tag}: external delete toast (${toasts3})`);
     await shot(page, `${tag}-08b-after-external-delete`);
 
-    // View on the external row: switches into that account (login-as-admin), not the property view.
-    await (await openMenu(page, 'Bob Bozic', width)).getByRole('menuitem', { name: /View Property/ }).click();
+    // View on the made-for-property external row: switches into that account (login-as-admin), not the property view.
+    await (await openMenu(page, 'Sam Seller', width)).getByRole('menuitem', { name: /View Property/ }).click();
     await page.waitForURL((u) => u.pathname === '/', { timeout: 10000 }).catch(() => failures.push(`${tag}: did not go to / after switching`));
     await page.waitForTimeout(1500);
-    expect(state.switchCalls.length === 1 && String(state.switchCalls[0].body?.owner_id) === '901', `${tag}: login-as-admin for owner 901 (${JSON.stringify(state.switchCalls)})`);
+    expect(state.switchCalls.length === 1 && String(state.switchCalls[0].body?.owner_id) === '902', `${tag}: login-as-admin for owner 902 (${JSON.stringify(state.switchCalls)})`);
     expect(state.switchCalls[0]?.auth === 'Bearer main-token', `${tag}: switch asked with the main account's token (${state.switchCalls[0]?.auth})`);
     const stored = await page.evaluate(() => ({
       token: localStorage.getItem('stasht_token'),
@@ -281,13 +290,13 @@ try {
       switchData: JSON.parse(localStorage.getItem('admin_switch_data') || 'null'),
     }));
     console.log(tag, 'after switch', JSON.stringify({ ...stored, user: stored.user?.name }));
-    expect(stored.token === 'bob-token' && stored.user?.name === 'Bob Bozic', `${tag}: signed in as Bob Bozic's account`);
+    expect(stored.token === 'sam-token' && stored.user?.name === 'Sam Seller', `${tag}: signed in as Sam Seller's account`);
     expect(stored.view !== 'property' && !stored.selected, `${tag}: not the property view (${stored.view}, ${stored.selected})`);
     expect(stored.switchData?.personal_account?.token === 'main-token' && stored.switchData?.current_mode === 'admin', `${tag}: can switch back to the main account (${JSON.stringify(stored.switchData)})`);
     await shot(page, `${tag}-09-in-external-account`);
 
     // And back: the Profile menu offers "Switch to Main Dealer".
-    await openProfileMenu(page, 'BB', width);
+    await openProfileMenu(page, 'SS', width);
     const back = page.getByRole('button', { name: /Switch to Main Dealer/ }).filter({ visible: true }).first();
     await back.waitFor({ state: 'visible', timeout: 5000 }).catch(() => failures.push(`${tag}: no "Switch to Main Dealer" in the Profile menu`));
     await shot(page, `${tag}-10-profile-switch-back`);
@@ -299,6 +308,47 @@ try {
       expect(token === 'main-token', `${tag}: back in the main account (${token})`);
     }
     await context.close();
+  }
+
+  // Property view, never login-as-admin (the API would refuse): a rep / viewer of an external property
+  // (can_manage false), and a joined / linked external account (account_created_for_property false).
+  for (const [name, id] of [['Rita Rep', 4], ['Bob Bozic', 2]]) {
+    const { page, context, state } = await open({ width: 1280, height: 900 });
+    await (await openMenu(page, name, 1280)).getByRole('menuitem', { name: /View Property/ }).click();
+    await page.waitForTimeout(1500);
+    const stored = await page.evaluate(() => ({ view: localStorage.getItem('view_type'), selected: JSON.parse(localStorage.getItem('selected_property') || 'null'), token: localStorage.getItem('stasht_token') }));
+    expect(state.switchCalls.length === 0, `${name} View: no login-as-admin (${JSON.stringify(state.switchCalls)})`);
+    expect(stored.view === 'property' && stored.selected?.id === id && stored.token === 'main-token', `${name} View: property view of ${name} (${JSON.stringify(stored)})`);
+    await context.close();
+  }
+
+  // Regular admin switch still comes back, and switch data is dropped when the token in use isn't the switch's.
+  {
+    const ownerA = { id: 91, external_user_id: 55, name: 'Owner Alpha', email: 'a@dealer.test', role: '2', status: 1 };
+    const switchData = {
+      has_admin_access: true, current_mode: 'admin', current_admin_owner_id: '55',
+      personal_account: { user: MAIN, token: 'main-token' },
+      admin_accounts: [{ owner_id: '55', user: ownerA, token: 'owner-a-token' }],
+    };
+    const kept = await open({ width: 1280, height: 900, seed: { user: ownerA, token: 'owner-a-token', switchData } });
+    await openProfileMenu(kept.page, 'OA', 1280);
+    const back = kept.page.getByRole('button', { name: /Switch to Main Dealer/ }).filter({ visible: true }).first();
+    await back.waitFor({ state: 'visible', timeout: 5000 }).catch(() => failures.push('admin switch: no "Switch to Main Dealer"'));
+    if (await back.isVisible()) {
+      await back.click();
+      await kept.page.waitForLoadState('load');
+      await kept.page.waitForTimeout(1500);
+      expect((await kept.page.evaluate(() => localStorage.getItem('stasht_token'))) === 'main-token', 'admin switch: back in the main account');
+    }
+    await kept.context.close();
+
+    // Owner Alpha signing in on this browser with their own token: the main account's switch data must not apply.
+    const own = await open({ width: 1280, height: 900, seed: { user: ownerA, token: 'owner-a-own-login', switchData } });
+    await openProfileMenu(own.page, 'OA', 1280);
+    expect((await own.page.getByRole('button', { name: /Switch to Main Dealer/ }).filter({ visible: true }).count()) === 0, 'own sign-in: no "Switch to Main Dealer"');
+    expect((await own.page.evaluate(() => localStorage.getItem('admin_switch_data'))) === null, 'own sign-in: stale switch data removed');
+    await shot(own.page, '1280-12-own-sign-in-no-switch-back');
+    await own.context.close();
   }
 
   // Internal property: View keeps today's property view — no account switch.
@@ -317,17 +367,19 @@ try {
     const { page, context, state } = await open({ width, height });
     await openProfileMenu(page, 'MD', width);
     await page.getByRole('button', { name: /Property Accounts/ }).filter({ visible: true }).first().click();
-    const sam = page.getByRole('button', { name: /Sam Seller/ }).filter({ visible: true }).first();
-    await sam.waitFor({ state: 'visible', timeout: 5000 });
-    expect(await sam.isDisabled(), `${width} profile: inactive external disabled`);
-    expect(/Deactivated/.test((await sam.textContent()) || ''), `${width} profile: says Deactivated`);
-    await sam.scrollIntoViewIfNeeded();
+    const dana = page.getByRole('button', { name: /Dana Dealer/ }).filter({ visible: true }).first();
+    await dana.waitFor({ state: 'visible', timeout: 5000 });
+    expect(await dana.isDisabled(), `${width} profile: inactive external disabled`);
+    expect(/Deactivated/.test((await dana.textContent()) || ''), `${width} profile: says Deactivated`);
+    const bob = page.getByRole('button', { name: /Bob Bozic/ }).filter({ visible: true }).first();
+    expect(!(await bob.isDisabled()) && !/Deactivated/.test((await bob.textContent()) || ''), `${width} profile: joined external enabled`);
+    await dana.scrollIntoViewIfNeeded();
     await shot(page, `${width}-11-profile-property-accounts`);
-    await page.getByRole('button', { name: /Bob Bozic/ }).filter({ visible: true }).first().click();
+    await page.getByRole('button', { name: /Sam Seller/ }).filter({ visible: true }).first().click();
     await page.waitForURL((u) => u.pathname === '/', { timeout: 10000 }).catch(() => {});
     await page.waitForTimeout(1500);
-    expect(state.switchCalls.length === 1 && String(state.switchCalls[0].body?.owner_id) === '901', `${width} profile: Bob Bozic opens with login-as-admin (${JSON.stringify(state.switchCalls)})`);
-    expect((await page.evaluate(() => localStorage.getItem('stasht_token'))) === 'bob-token', `${width} profile: signed in as Bob Bozic's account`);
+    expect(state.switchCalls.length === 1 && String(state.switchCalls[0].body?.owner_id) === '902', `${width} profile: Sam Seller opens with login-as-admin (${JSON.stringify(state.switchCalls)})`);
+    expect((await page.evaluate(() => localStorage.getItem('stasht_token'))) === 'sam-token', `${width} profile: signed in as Sam Seller's account`);
     await context.close();
   }
 } catch (e) {
