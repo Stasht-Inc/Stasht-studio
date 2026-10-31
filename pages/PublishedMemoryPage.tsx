@@ -1540,8 +1540,16 @@ export default function PublishedMemoryPage() {
   // ── Widgets (html / youtube / quote / cta) from the API response ──
   // Group visible/approved widgets by after_post_id so each renders after its post,
   // in widget_order. Widgets with a null/empty after_post_id render at the top.
+  // Whether the fixed "Add a moment" bar shows (details where it's drawn, below).
+  const publishedValue = memoryData?.published;
+  const acceptsGuestMoments = publishedValue === undefined || publishedValue === null || [1, 2, 3].includes(Number(publishedValue));
+  const addMomentBarOn = !viewOnly && !isEmbedded && acceptsGuestMoments && !!memoryData?.id;
+  // While that bar shows, an owner's "Share a Moment" button (a CTA saved as request_moment) would be a second
+  // copy of it (Chris, 31 Oct): leave those out. They still show where the bar doesn't (view-only, iframes).
+  const isRequestMomentCta = (w: any) => w?.widget_type === 'cta' && w?.widget_data?.mode === 'request_moment';
   const publishedWidgets = (memoryData?.widgets || [])
     .filter((w: any) => w && w.is_visible !== false && w.admin_approval !== 0)
+    .filter((w: any) => !(addMomentBarOn && isRequestMomentCta(w)))
     .slice()
     .sort((a: any, b: any) => (a.widget_order ?? 0) - (b.widget_order ?? 0));
   // Widgets pinned to bottom render at the very end of the timeline regardless of their
@@ -1588,9 +1596,6 @@ export default function PublishedMemoryPage() {
   // published campaign, added at the end of the timeline (after the last post shown) (the API takes guest moments when published is 1, 2 or 3). Off for view-only links, inside
   // an iframe, and while the image viewer, the comments sheet, the author card, the car viewer or the form is open.
   // The loading, error and access-token screens return earlier, so it never shows there.
-  const publishedValue = memoryData?.published;
-  const acceptsGuestMoments = publishedValue === undefined || publishedValue === null || [1, 2, 3].includes(Number(publishedValue));
-  const addMomentBarOn = !viewOnly && !isEmbedded && acceptsGuestMoments && !!memoryData?.id;
   // Hidden (not unmounted) while something covers the page, so closing the form puts focus back on the button.
   const addMomentBarCovered = imageViewer.isOpen || showMobileComments || showAuthorModal || showDesktopAuthorModal
     || !!selectedCarDetail || showRequestMomentModal;
