@@ -334,6 +334,8 @@ export function ProfileDropdownMenu({ isOpen, onClose, user, onShowProfileSettin
   };
 
   const [switchingAccountId, setSwitchingAccountId] = useState<string | null>(null);
+  // One external-property account switch at a time (a second click before the first answers would race it).
+  const propertySwitchInFlight = useRef(false);
   const [isAdminSectionExpanded, setIsAdminSectionExpanded] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [propertySearchQuery, setPropertySearchQuery] = useState('');
@@ -861,12 +863,15 @@ export function ProfileDropdownMenu({ isOpen, onClose, user, onShowProfileSettin
                             onClick={async () => {
                               // An external property is its own full account: switch into it (login-as-admin).
                               if (opensAsFullAccount(property)) {
+                                if (propertySwitchInFlight.current) return;
+                                propertySwitchInFlight.current = true;
                                 setSwitchingAccountId(switchKey);
                                 const result = await switchIntoPropertyAccount(property);
                                 if (result.ok) {
                                   onClose();
-                                  window.location.href = '/';
+                                  window.location.href = '/'; // stays locked: the page is leaving
                                 } else {
+                                  propertySwitchInFlight.current = false;
                                   toast.error(result.error);
                                   setSwitchingAccountId(null);
                                 }

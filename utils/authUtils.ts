@@ -1889,6 +1889,8 @@ export const userUtils = {
       'stasht_session_change',
       'is_partial_admin',
       'partial_admin_email',
+      // Admin / property-account switch data holds the personal account's token: never outlive the sign-in.
+      'admin_switch_data',
     ];
 
     devLog('🧹 Clearing localStorage keys:', localStorageKeysToRemove);

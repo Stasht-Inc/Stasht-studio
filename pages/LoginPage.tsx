@@ -614,7 +614,8 @@ export default function LoginPage({ onLogin, onSwitchToSignup, onSocialLogin }: 
         }
 
         // No admin collaborator - normal flow
-        // Store auth data directly (same as AuthContext does)
+        // Store auth data directly (same as AuthContext does). A direct sign-in has no account to switch back to.
+        localStorage.removeItem('admin_switch_data');
         localStorage.setItem('stasht_user', JSON.stringify(response.user));
         localStorage.setItem('stasht_token', response.token);
 
@@ -1236,6 +1237,7 @@ export default function LoginPage({ onLogin, onSwitchToSignup, onSocialLogin }: 
 
         // 2. Save authentication token (AuthContext checks this first)
         console.log('🔐 Step 2: Saving stasht_token...');
+        localStorage.removeItem('admin_switch_data'); // a direct sign-in has no account to switch back to
         localStorage.setItem('stasht_token', tokenData);
         console.log('✅ stasht_token saved');
 
@@ -1417,7 +1419,8 @@ export default function LoginPage({ onLogin, onSwitchToSignup, onSocialLogin }: 
         if (response.success && response.user && response.token) {
           console.log('✅ User authenticated successfully!');
 
-          // Store auth data
+          // Store auth data (a direct sign-in has no account to switch back to)
+          localStorage.removeItem('admin_switch_data');
           localStorage.setItem('stasht_user', JSON.stringify(response.user));
           localStorage.setItem('stasht_token', response.token);
 

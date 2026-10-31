@@ -1,4 +1,4 @@
-﻿import React, { useState } from 'react';
+﻿import React, { useRef, useState } from 'react';
 import { X, User, Loader2 } from 'lucide-react';
 import { Button } from './ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from './ui/avatar';
@@ -114,11 +114,12 @@ export const getAdminSwitchData = (): AdminSwitchData | null => {
     // Guard against stale data left behind by a previous account (e.g. signup,
     // SSO, or a login that never hit "Sign out"). If the currently logged-in
     // user doesn't match who this admin data was stored for, discard it.
-    // While switched into another account, stasht_user is that account: still this user's data.
+    // While switched into another account, stasht_user is that account: still this data only while the token in
+    // use is the one the switch produced (utils/propertyAccountSwitch.ts).
     const currentUserStr = localStorage.getItem('stasht_user');
     if (currentUserStr) {
       const currentUser = JSON.parse(currentUserStr);
-      if (switchDataIsStale(parsed, currentUser)) {
+      if (switchDataIsStale(parsed, currentUser, localStorage.getItem('stasht_token'))) {
         console.log('getAdminSwitchData: Stale data for a different user detected, clearing.');
         localStorage.removeItem('admin_switch_data');
         return null;
@@ -301,7 +302,7 @@ export const switchIntoPropertyAccount = async (
       return { ok: false, name: '', error: response.error || (response as any).message || 'Could not open this account.' };
     }
 
-    storeAdminSwitchData(switchDataForPropertyAccount(existing, { user: signedInUser, token: signedInToken }, ownerId));
+    storeAdminSwitchData(switchDataForPropertyAccount(existing, { user: signedInUser, token: signedInToken }, ownerId, data.token));
     localStorage.setItem('stasht_user', JSON.stringify(data.user));
     localStorage.setItem('stasht_token', data.token);
     clearPartialAdminFlags();
@@ -335,6 +336,8 @@ export function AccountChoiceModal({
   const [isAdminSectionExpanded, setIsAdminSectionExpanded] = useState(false);
   const [isPropertiesSectionExpanded, setIsPropertiesSectionExpanded] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  // One property-account switch at a time (a second click before the first answers would race it).
+  const propertySwitchInFlight = useRef(false);
 
   if (!isOpen) return null;
 
@@ -677,6 +680,8 @@ export function AccountChoiceModal({
   // property view. Sign-in rows carry account_type / user_id / is_active; an older API's don't, so then the full
   // row is read from /properties first.
   const handleSharedPropertyClick = async (property: any, fallback: () => void) => {
+    if (propertySwitchInFlight.current) return;
+    propertySwitchInFlight.current = true;
     setIsLoading(true);
     setLoadingType(`property_${property.id}`);
     const hadExistingToken = !!localStorage.getItem('stasht_token');
@@ -695,14 +700,20 @@ export function AccountChoiceModal({
 
       let row = property;
       if (needsFullPropertyRow(property)) {
-        const response = await dashboardAPI.getProperties();
-        row = { ...property, ...(findPropertyRow(response, property.id) || {}) };
+        try {
+          const response = await dashboardAPI.getProperties();
+          row = { ...property, ...(findPropertyRow(response, property.id) || {}) };
+        } catch (error) {
+          // Without the full row it can't be told apart from an internal one: keep today's property view.
+          console.warn('AccountChoiceModal: could not read the property row, using the property view:', error);
+        }
       }
 
       if (!opensAsFullAccount(row)) {
         undoSignIn();
         setIsLoading(false);
         setLoadingType(null);
+        propertySwitchInFlight.current = false;
         fallback();
         return;
       }
@@ -746,6 +757,7 @@ export function AccountChoiceModal({
     } finally {
       setIsLoading(false);
       setLoadingType(null);
+      propertySwitchInFlight.current = false;
     }
   };
 
