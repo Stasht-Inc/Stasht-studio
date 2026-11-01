@@ -2753,7 +2753,10 @@ function MemoriesPageContent({
             {/* Sticky wrapper — contains header row + edit action bar so both stick together */}
             <div className={`sticky top-20 bg-white z-10${isEditMode ? ' pb-[6px]' : ''}`}>
             {/* Header */}
-               <div className="flex sm:flex-row items-center sm:items-center justify-between gap-3 sm:gap-0 py-4 px-0 lg:px-4">
+               {/* Wraps (review, batch 3): beside App's two sidebars at 1280 px the buttons ran past the right edge
+                   ("Create a Campaign" cut off); now they move under the title when they don't fit. One row as before
+                   wherever they fit. */}
+               <div className="flex flex-wrap sm:flex-row items-center sm:items-center justify-between gap-3 sm:gap-x-0 sm:gap-y-3 py-4 px-0 lg:px-4">
                 {/* Mobile: Icon + Title */}
                 <div className="md:hidden flex items-center gap-3 flex-1">
                   {/* Mobile Menu Icon - Only show on mobile and when sidebar is not visible */}
@@ -2777,12 +2780,12 @@ function MemoriesPageContent({
                 </div>
 
                 {/* Desktop: Title only */}
-                <div className="hidden md:block">
+                <div className="hidden md:block shrink-0 whitespace-nowrap">
                   <h2 className="text-xl font-bold text-gray-900">All Campaigns</h2>
                   <p className="text-gray-600 mt-1">{filteredMemoriesCount} campaigns found</p>
                 </div>
 
-                <div className="flex items-center gap-2 md:gap-3 md:w-auto">
+                <div className="flex flex-wrap items-center justify-end gap-2 md:gap-3 md:w-auto md:ml-auto">
                   {/* AI Campaign Wizard Button */}
                   {isPropertyOwner && <Button
                     variant="outline"
