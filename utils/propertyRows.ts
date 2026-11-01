@@ -167,3 +167,18 @@ export function findPropertyRow(response: any, id: unknown): any | null {
   }
   return null;
 }
+
+/** Users page tab for a property row: 'external' (account_type external — salespeople and other external accounts)
+ * or 'properties' (internal properties, and older rows without account_type, which were never treated as external). */
+export function propertyTab(row: PropertyRow): 'external' | 'properties' {
+  return isExternalProperty(row) ? 'external' : 'properties';
+}
+
+/** The rows of one Users page tab. `apiRowOf` picks the API row out of a page row (UsersPage keeps it in apiRow). */
+export function rowsForPropertyTab<T>(
+  rows: T[] | null | undefined,
+  tab: 'external' | 'properties',
+  apiRowOf: (row: T) => PropertyRow = (row) => row as unknown as PropertyRow,
+): T[] {
+  return (Array.isArray(rows) ? rows : []).filter((row) => propertyTab(apiRowOf(row)) === tab);
+}

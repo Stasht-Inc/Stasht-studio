@@ -33,7 +33,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '../components/ui/alert-dialog';
-import { deletePropertyMessage, deletePropertyToast, propertyRowActions, propertyStatusBadge, propertyTypeLabel, type BadgeTone } from '../utils/propertyRows';
+import { deletePropertyMessage, deletePropertyToast, propertyRowActions, propertyStatusBadge, propertyTypeLabel, rowsForPropertyTab, type BadgeTone } from '../utils/propertyRows';
 import { withoutOwnExternalProperties } from '../utils/salespersonLanding';
 import { propertyImageErrorMessage } from '../utils/propertyImage';
 import { toast } from 'sonner';
@@ -164,9 +164,16 @@ export default function UsersPage({ onNavigate, onViewStoreelReport }: UsersPage
   const [resendingInviteKey, setResendingInviteKey] = useState<string | null>(null);
 
   // Tab state and shared memories data
-  const [activeTab, setActiveTab] = useState<'users' | 'shared-with' | 'properties'>(
-    () => sessionStorage.getItem('users_open_tab') === 'properties' ? 'properties' : 'users'
-  );
+  // External (Chris, 1 Nov 2026): external accounts (account_type 'external': salespeople and other accounts that
+  // signed up through the account invite) have their own tab; Properties lists internal properties only.
+  const [activeTab, setActiveTab] = useState<'users' | 'shared-with' | 'external' | 'properties'>(() => {
+    const open = sessionStorage.getItem('users_open_tab');
+    return open === 'properties' || open === 'external' ? open : 'users';
+  });
+  // The Properties and External tabs share one list (GET /properties), split by account_type (utils/propertyRows).
+  const isPropertyListTab = activeTab === 'properties' || activeTab === 'external';
+  // Same test as the Properties table's role 2 / 4 check below (role arrives as a number or a string).
+  const hasPropertyTableRole = ['2', '4'].includes(String(currentUser?.role ?? ''));
   const [sharedMemories, setSharedMemories] = useState<any[]>([]);
   const [isRemovingCollaboration, setIsRemovingCollaboration] = useState(false);
   const [isLoadingShared, setIsLoadingShared] = useState(false);
@@ -179,6 +186,9 @@ export default function UsersPage({ onNavigate, onViewStoreelReport }: UsersPage
   const [showCreatePropertyModal, setShowCreatePropertyModal] = useState(false);
   const [showPublishLandingPagesModal, setShowPublishLandingPagesModal] = useState(false);
   const [properties, setProperties] = useState<any[]>([]);
+  // The rows of the open tab: External = account_type 'external', Properties = everything else.
+  const tabProperties = rowsForPropertyTab(properties, activeTab === 'external' ? 'external' : 'properties', (p: any) => p.apiRow);
+  const externalCountLabel = `${tabProperties.length} external account${tabProperties.length === 1 ? '' : 's'}`;
   const [isLoadingProperties, setIsLoadingProperties] = useState(false);
   const [propertiesError, setPropertiesError] = useState<string | null>(null);
   const getUrlButtonRef = React.useRef<HTMLButtonElement>(null);
@@ -962,7 +972,7 @@ export default function UsersPage({ onNavigate, onViewStoreelReport }: UsersPage
 
   // Fetch personal invite link when properties tab is active
   useEffect(() => {
-    if (activeTab === 'properties' && isAuthenticated && !personalInviteLink) {
+    if (isPropertyListTab && isAuthenticated && !personalInviteLink) {
       setIsLoadingPersonalInviteLink(true);
       dashboardAPI.getPersonalInviteLink()
         .then(res => {
@@ -1008,14 +1018,14 @@ export default function UsersPage({ onNavigate, onViewStoreelReport }: UsersPage
     if (activeTab === 'shared-with') {
       setSelectedPropertyId(undefined);
       fetchSharedMemories();
-    } else if (activeTab === 'properties') {
+    } else if (isPropertyListTab) {
       setSelectedPropertyId(undefined);
     }
   }, [activeTab, isAuthenticated]);
 
-  // Fetch properties when properties tab is active
+  // Fetch properties when the Properties or External tab is active
   useEffect(() => {
-    if (activeTab === 'properties') {
+    if (isPropertyListTab) {
       fetchProperties();
     }
   }, [activeTab, isAuthenticated]);
@@ -1452,7 +1462,7 @@ export default function UsersPage({ onNavigate, onViewStoreelReport }: UsersPage
         {/* Tabs */}
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 mb-4 sm:mb-6">
           {/* Mobile-only action buttons row */}
-          {(activeTab === 'users' || (activeTab === 'properties' && (currentUser?.role === 2 || currentUser?.role === '2' || currentUser?.role === 4 || currentUser?.role === '4'))) && (
+          {(activeTab === 'users' || (isPropertyListTab && (currentUser?.role === 2 || currentUser?.role === '2' || currentUser?.role === 4 || currentUser?.role === '4'))) && (
             <div className="flex sm:hidden items-center justify-end gap-2 px-3 py-2 border-b border-gray-100">
               {activeTab === 'users' && (
                 <>
@@ -1473,9 +1483,12 @@ export default function UsersPage({ onNavigate, onViewStoreelReport }: UsersPage
                   </Button>
                 </>
               )}
+              {activeTab === 'external' && hasPropertyTableRole && (
+                <span className="text-xs text-gray-600 mr-1">{externalCountLabel}</span>
+              )}
               {activeTab === 'properties' && (currentUser?.role === 2 || currentUser?.role === '2' || currentUser?.role === 4 || currentUser?.role === '4') && (
                 <>
-                  <span className="text-xs text-gray-600 mr-1">{properties.length} properties</span>
+                  <span className="text-xs text-gray-600 mr-1">{tabProperties.length} properties</span>
                   <Button
                     ref={getUrlButtonRef}
                     onClick={() => setShowPublishLandingPagesModal(true)}
@@ -1520,6 +1533,18 @@ export default function UsersPage({ onNavigate, onViewStoreelReport }: UsersPage
               >
                 Shared with
               </button>
+              {planName !== 'starter' && (hasPropertyTableRole || planName === 'intermediate' || planName === 'professional' || currentUser?.is_internal) && (
+                <button
+                  onClick={() => setActiveTab('external')}
+                  className={`flex-1 sm:flex-none px-3 sm:px-6 py-3 text-xs sm:text-sm font-medium transition-colors relative whitespace-nowrap text-center ${
+                    activeTab === 'external'
+                      ? 'text-[#6C60FF] border-b-2 border-[#6C60FF] -mb-[1px]'
+                      : 'text-gray-600 hover:text-gray-900'
+                  }`}
+                >
+                  External
+                </button>
+              )}
               {planName !== 'starter' && (currentUser?.role === 2 || currentUser?.role === '2' || currentUser?.role === 4 || currentUser?.role === '4' || planName === 'intermediate' || planName === 'professional' || currentUser?.is_internal) && (
                 <button
                   onClick={() => setActiveTab('properties')}
@@ -1554,9 +1579,12 @@ export default function UsersPage({ onNavigate, onViewStoreelReport }: UsersPage
                   </Button>
                 </>
               )}
+              {activeTab === 'external' && hasPropertyTableRole && (
+                <span className="text-sm text-gray-600">{externalCountLabel}</span>
+              )}
               {activeTab === 'properties' && (currentUser?.role === 2 || currentUser?.role === '2' || currentUser?.role === 4 || currentUser?.role === '4') && (
                 <>
-                  <span className="text-sm text-gray-600">{properties.length} properties</span>
+                  <span className="text-sm text-gray-600">{tabProperties.length} properties</span>
                   <Button
                     ref={getUrlButtonRef}
                     onClick={() => setShowPublishLandingPagesModal(true)}
@@ -1579,8 +1607,8 @@ export default function UsersPage({ onNavigate, onViewStoreelReport }: UsersPage
           </div>
         </div>
 
-        {/* Personal Account Invite Link Card */}
-        {activeTab === 'properties' && (
+        {/* Personal Account Invite Link Card (it signs up external accounts, so the External tab shows it too) */}
+        {isPropertyListTab && (
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 px-4 py-3 mb-4 sm:mb-6">
             {isLoadingPersonalInviteLink ? (
               <div className="flex items-center gap-2 text-xs text-gray-400 py-1">
@@ -2208,8 +2236,8 @@ export default function UsersPage({ onNavigate, onViewStoreelReport }: UsersPage
           </div>
         )}
 
-        {/* Properties Table - only visible for users with role 2 or 4 */}
-        {activeTab === 'properties' && (currentUser?.role === 2 || currentUser?.role === '2' || currentUser?.role === 4 || currentUser?.role === '4') && (
+        {/* Properties / External Table - only visible for users with role 2 or 4 */}
+        {isPropertyListTab && (currentUser?.role === 2 || currentUser?.role === '2' || currentUser?.role === 4 || currentUser?.role === '4') && (
           <>
             {/* Search and Filters */}
             <div className="bg-white rounded-lg shadow-sm border border-gray-200 px-3 sm:px-4 md:px-6 py-3 sm:py-4 mb-4 sm:mb-6">
@@ -2286,20 +2314,26 @@ export default function UsersPage({ onNavigate, onViewStoreelReport }: UsersPage
                       </tr>
                     </thead>
                     <tbody className="bg-white divide-y divide-gray-200">
-                      {properties.length === 0 ? (
+                      {tabProperties.length === 0 ? (
                         <tr>
                           <td colSpan={10} className="px-3 sm:px-6 py-12 text-center">
-                            <p className="text-gray-600 mb-4">No properties found</p>
-                            <Button
-                              onClick={() => setShowCreatePropertyModal(true)}
-                              className="bg-[#6C60FF] hover:bg-[#5A4FE5] text-white"
-                            >
-                              Create Your First Property
-                            </Button>
+                            {activeTab === 'external' ? (
+                              <p className="text-gray-600">No external accounts yet</p>
+                            ) : (
+                              <>
+                                <p className="text-gray-600 mb-4">No properties found</p>
+                                <Button
+                                  onClick={() => setShowCreatePropertyModal(true)}
+                                  className="bg-[#6C60FF] hover:bg-[#5A4FE5] text-white"
+                                >
+                                  Create Your First Property
+                                </Button>
+                              </>
+                            )}
                           </td>
                         </tr>
                       ) : (
-                        properties.map((property) => (
+                        tabProperties.map((property) => (
                       <tr key={property.id} className="hover:bg-gray-50">
                         <td className="px-3 sm:px-6 py-4 whitespace-nowrap">
                           <div className="flex items-center">
@@ -2511,19 +2545,25 @@ export default function UsersPage({ onNavigate, onViewStoreelReport }: UsersPage
 
                 {/* Mobile Card View */}
                 <div className="lg:hidden">
-                  {properties.length === 0 ? (
+                  {tabProperties.length === 0 ? (
                     <div className="p-8 text-center">
-                      <p className="text-gray-600 mb-4">No properties found</p>
-                      <Button
-                        onClick={() => setShowCreatePropertyModal(true)}
-                        className="bg-[#6C60FF] hover:bg-[#5A4FE5] text-white"
-                      >
-                        Create Your First Property
-                      </Button>
+                      {activeTab === 'external' ? (
+                        <p className="text-gray-600">No external accounts yet</p>
+                      ) : (
+                        <>
+                          <p className="text-gray-600 mb-4">No properties found</p>
+                          <Button
+                            onClick={() => setShowCreatePropertyModal(true)}
+                            className="bg-[#6C60FF] hover:bg-[#5A4FE5] text-white"
+                          >
+                            Create Your First Property
+                          </Button>
+                        </>
+                      )}
                     </div>
                   ) : (
                     <div className="divide-y divide-gray-200">
-                      {properties.map((property) => (
+                      {tabProperties.map((property) => (
                   <div key={property.id} className="p-3 hover:bg-gray-50">
                     <div className="flex items-start justify-between gap-3">
                       <div className="flex items-start gap-2.5 flex-1 min-w-0">

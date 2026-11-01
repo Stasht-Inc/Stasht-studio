@@ -131,6 +131,15 @@ async function shot(page, file) {
   console.log('shot', path);
 }
 
+// Users page tabs (1 Nov): external accounts (account_type 'external') are on the External tab, internal properties
+// on Properties. Shows the tab a row lives on before it is looked at.
+const INTERNAL_ROWS = new Set(['Pedalheads North']);
+async function showTabFor(page, name) {
+  const tab = INTERNAL_ROWS.has(name) ? 'Properties' : 'External';
+  await page.getByRole('button', { name: tab, exact: true }).filter({ visible: true }).first().click();
+  await page.waitForTimeout(150);
+}
+
 // The visible row (desktop table row or phone card) for a property.
 function rowOf(page, name, width) {
   return width >= 1024
@@ -138,6 +147,7 @@ function rowOf(page, name, width) {
     : page.locator('div.p-3', { hasText: name }).filter({ visible: true }).first();
 }
 async function openMenu(page, name, width) {
+  await showTabFor(page, name);
   await rowOf(page, name, width).locator('button').last().click();
   const menu = page.getByRole('menu');
   await menu.waitFor({ state: 'visible', timeout: 5000 });
@@ -158,6 +168,7 @@ async function closeMenu(page) {
   }
 }
 async function badgesOf(page, name, width) {
+  await showTabFor(page, name);
   return rowOf(page, name, width).locator('[data-slot=badge], .inline-flex').evaluateAll((els) => els.map((el) => el.textContent.trim()).filter(Boolean));
 }
 async function toastText(page) {
@@ -270,6 +281,7 @@ try {
     await dialog.waitFor({ state: 'hidden', timeout: 5000 }).catch(() => failures.push(`${tag}: dialog stays after Delete`));
     await page.waitForTimeout(600);
     expect(state.deleteCalls.length === 1 && state.deleteCalls[0].id === 1, `${tag}: DELETE /properties/1 sent (${JSON.stringify(state.deleteCalls)})`);
+    await showTabFor(page, 'Pedalheads North');
     expect((await rowOf(page, 'Pedalheads North', width).count()) === 0, `${tag}: deleted row gone after refresh`);
     const toasts2 = await toastText(page);
     expect(toasts2.some((t) => t.includes('Pedalheads North was removed from your properties. 2 campaigns came back to you.')), `${tag}: internal delete toast (${toasts2})`);

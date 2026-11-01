@@ -200,3 +200,20 @@ test('findPropertyRow finds a row in any properties list shape', async () => {
   assert.equal(findPropertyRow({ data: { shared_properties: [row] } }, 3), null);
   assert.equal(findPropertyRow(null, 2), null);
 });
+
+test('Users page tabs: external accounts go to External, everything else stays in Properties', async () => {
+  const { propertyTab, rowsForPropertyTab } = await import('../../utils/propertyRows.ts');
+  assert.equal(propertyTab(externalActive), 'external');
+  assert.equal(propertyTab(externalInactive), 'external');
+  assert.equal(propertyTab(externalNoManage), 'external');
+  assert.equal(propertyTab(internalRow), 'properties');
+  // Older API (no account_type): never guessed external, so it stays where it always was.
+  assert.equal(propertyTab({ id: 9, property_type: 'external' }), 'properties');
+  assert.equal(propertyTab(null), 'properties');
+
+  // Users page rows keep the API row in apiRow.
+  const rows = [internalRow, externalActive, externalInactive, { id: 9, name: 'Old row' }].map((r) => ({ id: r.id, apiRow: r }));
+  assert.deepEqual(rowsForPropertyTab(rows, 'properties', (r) => r.apiRow).map((r) => r.id), [1, 9]);
+  assert.deepEqual(rowsForPropertyTab(rows, 'external', (r) => r.apiRow).map((r) => r.id), [2, 3]);
+  assert.deepEqual(rowsForPropertyTab(null, 'external'), []);
+});
