@@ -120,7 +120,7 @@ export function deletePropertyMessage(row: PropertyRow): string {
     // never promises a close that won't happen.
     const closes = flag(row?.delete_closes_account) ?? flag(row?.account_created_for_property);
     if (closes === true) {
-      return `Removes ${label} from your properties and closes their account: they can't sign in, its own campaigns, leads and newsletters are removed and any subscription is cancelled. Campaigns you transferred to it come back to you.`;
+      return `Removes ${label} from your properties and closes their account: they can't sign in, its own campaigns and newsletters are removed and any subscription is cancelled. Their leads and campaigns you transferred to it come back to you.`;
     }
     return `Removes ${label} from your properties. Their own account stays open — you just lose access to it. Campaigns you transferred to it come back to you.`;
   }

@@ -135,7 +135,7 @@ test('row actions on an older API (no can_manage / is_active / account_type) beh
 });
 
 test('delete message says exactly what happens', () => {
-  const CLOSES = "Removes Bob Bozic from your properties and closes their account: they can't sign in, its own campaigns, leads and newsletters are removed and any subscription is cancelled. Campaigns you transferred to it come back to you.";
+  const CLOSES = "Removes Bob Bozic from your properties and closes their account: they can't sign in, its own campaigns and newsletters are removed and any subscription is cancelled. Their leads and campaigns you transferred to it come back to you.";
   const UNLINKS = 'Removes Bob Bozic from your properties. Their own account stays open — you just lose access to it. Campaigns you transferred to it come back to you.';
   // An account made for this property: delete closes it.
   assert.equal(deletePropertyMessage({ ...externalActive, account_created_for_property: true }), CLOSES);
@@ -151,7 +151,7 @@ test('delete message says exactly what happens', () => {
 });
 
 test('delete_closes_account decides the delete text when the API sends it', () => {
-  const CLOSES = "Removes Bob Bozic from your properties and closes their account: they can't sign in, its own campaigns, leads and newsletters are removed and any subscription is cancelled. Campaigns you transferred to it come back to you.";
+  const CLOSES = "Removes Bob Bozic from your properties and closes their account: they can't sign in, its own campaigns and newsletters are removed and any subscription is cancelled. Their leads and campaigns you transferred to it come back to you.";
   const UNLINKS = 'Removes Bob Bozic from your properties. Their own account stays open — you just lose access to it. Campaigns you transferred to it come back to you.';
   // Present and false: unlink, even for an account made for the property.
   assert.equal(deletePropertyMessage({ ...externalActive, account_created_for_property: true, delete_closes_account: false }), UNLINKS);
