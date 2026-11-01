@@ -16,6 +16,8 @@ import {
   isOwnExternalProperty,
   resolvePendingPropertySwitch,
   propertyViewHasLeads,
+  groupPropertyAccounts,
+  groupedPropertyCounts,
   inventoryItemIsReadOnly,
   carOwnerAuthor,
 } from '../../utils/salespersonLanding.ts';
@@ -97,6 +99,32 @@ test('Leads in the property view: only in the signed-in salesperson\'s own Exter
   assert.equal(propertyViewHasLeads({ ...bonsOwnRow, account_created_for_property: false }, bon), false, 'a linked account: no');
   assert.equal(propertyViewHasLeads(null, bon), false);
   assert.equal(propertyViewHasLeads(bonsOwnRow, null), false);
+});
+
+test('chooser / Profile menu groups: the salesperson\'s own External account is listed under External, first', () => {
+  const otherShared = { id: 40, name: 'Partner lot', account_type: 'external', account_created_for_property: true, user_id: 501 };
+  const bonsLot = { ...internalRow, id: 97, user_id: 966 };
+  const g = groupPropertyAccounts({ owned: [bonsLot, bonsOwnRow], shared: [otherShared] }, bon);
+  assert.deepEqual(g.owned.map((p) => p.id), [97], 'Internal keeps his internal property');
+  assert.deepEqual(g.shared.map((p) => p.id), [96, 40], 'External: his own External account first');
+  assert.equal(g.moved, 1);
+  const flagged = { id: 96, name: 'Bon Sun', is_own_external_account: true };
+  assert.deepEqual(groupPropertyAccounts({ owned: [flagged], shared: [] }, bon).shared, [flagged]);
+});
+
+test('chooser / Profile menu groups: everyone else unchanged, junk tolerated', () => {
+  const serpas = groupPropertyAccounts({ owned: [internalRow], shared: [bonAsSeenBySerpa] }, serpa);
+  assert.deepEqual(serpas, { owned: [internalRow], shared: [bonAsSeenBySerpa], moved: 0 }, 'the main account');
+  const linked = { ...bonsOwnRow, account_created_for_property: false };
+  assert.deepEqual(groupPropertyAccounts({ owned: [linked], shared: [] }, bon).owned, [linked], 'a linked account stays where it was');
+  assert.deepEqual(groupPropertyAccounts({ owned: undefined, shared: null }, bon), { owned: [], shared: [], moved: 0 });
+});
+
+test('the counts follow: "0 internal, 1 external" for Bon, never below 0, total unchanged', () => {
+  assert.deepEqual(groupedPropertyCounts({ owned: 1, shared: 0, total: 1 }, 1), { owned: 0, shared: 1, total: 1 });
+  assert.deepEqual(groupedPropertyCounts({ owned: 2, shared: 1, total: 3 }, 1), { owned: 1, shared: 2, total: 3 });
+  assert.deepEqual(groupedPropertyCounts({ owned: 0, shared: 0, total: 1 }, 1), { owned: 0, shared: 1, total: 1 });
+  assert.deepEqual(groupedPropertyCounts({ owned: 3, shared: 2, total: 5 }, 0), { owned: 3, shared: 2, total: 5 });
 });
 
 test('inventory rows: own or unknown stay editable; parent\'s rows are read-only', () => {

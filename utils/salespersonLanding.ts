@@ -8,9 +8,9 @@
 // They choose each time they sign in (Deepak, 1 Nov 2026, after Chris: "They should still have an External
 // account, and a personal account"): the account chooser lists that row as their External account, shown as
 // representing the main account (its name, the main account's name and logo from invited_by, the Property
-// badge), next to their personal account. The row is listed, opened and restored like any other property — the
-// morning's version that hid it (and its helpers) is gone. In that External view they also get Leads
-// (propertyViewHasLeads), and the main account's cars and website-catalogue items, read-only.
+// badge), next to their personal account, under External (groupPropertyAccounts). It is opened and restored like
+// any other property — the morning's version that hid it (and its helpers) is gone. In that External view they also
+// get Leads (propertyViewHasLeads), and the main account's cars and website-catalogue items, read-only.
 //
 // Inventory: a salesperson sees the main account's cars and website-catalogue items, read-only.
 // inventoryItemIsReadOnly hides edit/delete on rows that are not theirs.
@@ -76,6 +76,31 @@ export function propertyViewHasLeads(row: Row, user: unknown): boolean {
   if (!row || !me) return false;
   if (present(row.user_id) && String(row.user_id).trim() !== me) return false;
   return isOwnExternalProperty(row, user);
+}
+
+/**
+ * The account chooser's and the Profile menu's Internal / External groups (owned / shared lists): the signed-in
+ * salesperson's own External account goes under External, first — Chris calls it their External account — though the
+ * API lists it as owned. Everything else stays where the API put it. `moved`: how many rows went across.
+ */
+export function groupPropertyAccounts<T = any>(
+  lists: { owned?: T[] | null; shared?: T[] | null },
+  user: unknown,
+): { owned: T[]; shared: T[]; moved: number } {
+  const owned = Array.isArray(lists.owned) ? lists.owned : [];
+  const shared = Array.isArray(lists.shared) ? lists.shared : [];
+  const own = owned.filter((p) => isOwnExternalProperty(p as Row, user));
+  return { owned: owned.filter((p) => !own.includes(p)), shared: [...own, ...shared], moved: own.length };
+}
+
+/** The API's owned / shared / total counts after groupPropertyAccounts moved `moved` rows to External. */
+export function groupedPropertyCounts(
+  counts: { owned: number; shared: number; total: number },
+  moved: number,
+): { owned: number; shared: number; total: number } {
+  const owned = Number(counts.owned) || 0;
+  const by = Math.max(0, Number(moved) || 0);
+  return { owned: Math.max(0, owned - by), shared: (Number(counts.shared) || 0) + by, total: Number(counts.total) || 0 };
 }
 
 export type PendingPropertySwitch = { action: 'switch'; property: any } | { action: 'clear' } | { action: 'none' };

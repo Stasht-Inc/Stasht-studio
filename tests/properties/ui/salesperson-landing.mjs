@@ -214,6 +214,9 @@ try {
     expect(await props.count() > 0, '1: chooser offers Properties (1)');
     await props.click();
     await page.waitForTimeout(400);
+    // Chris calls it his External account: grouped and counted under External, not Internal.
+    expect(await page.getByText('0 internal, 1 external').filter({ visible: true }).count() > 0, '1: chooser counts "0 internal, 1 external"');
+    expect(await page.getByText('External (1)').filter({ visible: true }).count() > 0 && await page.getByText(/^Internal \(/).filter({ visible: true }).count() === 0, '1: chooser lists it under External (1), no Internal group');
     // The personal card is named "Bon Sun" too: the External account is the row naming Serpa Chrysler.
     const externalRow = externalChoice(page);
     expect(await externalRow.count() > 0, '1: chooser lists the External account "Bon Sun · Serpa Chrysler"');
@@ -252,7 +255,18 @@ try {
     await accountView(page, '1 back to personal');
     await openProfileMenu(page);
     expect(await page.getByText('Property Accounts (1)').filter({ visible: true }).count() > 0, '1: personal Profile menu lists Property Accounts (1)');
+    expect(await page.getByText('0 internal, 1 external').filter({ visible: true }).count() > 0, '1: Profile menu counts "0 internal, 1 external"');
+    await page.getByText('Property Accounts (1)').filter({ visible: true }).first().click();
+    await page.waitForTimeout(400);
+    const menuExternal = page.locator('button').filter({ hasText: 'Bon Sun' }).filter({ hasText: 'Serpa Chrysler' }).filter({ visible: true });
+    expect(await page.getByText('External (1)').filter({ visible: true }).count() > 0 && await menuExternal.count() > 0, '1: Profile menu lists "Bon Sun · Serpa Chrysler" under External (1)');
+    expect(await menuExternal.first().locator(`img[src="${SERPA_LOGO}"]`).count() > 0, '1: ... with Serpa\'s logo');
     await shot(page, '06-personal-profile-menu-lists-external');
+    // Picking it there opens the External view again.
+    await menuExternal.first().click();
+    await waitForApp(page);
+    await externalView(page, '1 External view from the Profile menu');
+    await shot(page, '06b-external-view-from-profile-menu');
     await context.close();
   }
 
@@ -363,6 +377,7 @@ try {
     expect(await page.locator('tr', { hasText: 'Bons Lot' }).filter({ visible: true }).count() > 0, '8: Users → Properties lists his internal property');
     await openProfileMenu(page);
     expect(await page.getByText('Property Accounts (2)').filter({ visible: true }).count() > 0, '8: Profile menu counts both');
+    expect(await page.getByText('1 internal, 1 external').filter({ visible: true }).count() > 0, '8: Profile menu: "1 internal, 1 external" (Bons Lot internal, his External account external)');
     await context.close();
   }
 
