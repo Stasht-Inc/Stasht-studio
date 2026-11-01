@@ -104,7 +104,7 @@ const NewsletterComposer = forwardRef<NewsletterComposerHandle, NewsletterCompos
   const planStuck = !known && (plan.failed || planSlow);
   const retryPlan = () => { setPlanSlow(false); plan.retry(); };
   const brand = useNewsletterBrand(enabled);
-  const state = useNewsletterDraft(newsletterId, enabled, brand.brand?.header ?? null);
+  const state = useNewsletterDraft(newsletterId, enabled, brand.brand?.header ?? null, brand.brand?.default_message ?? null);
   const profile = useSenderProfile(enabled);
   const { draft, update, readOnly } = state;
   // An older draft with a message but no Message section (Chris, 31 Oct): opening it adds the section at the top of
@@ -483,6 +483,12 @@ const NewsletterComposer = forwardRef<NewsletterComposerHandle, NewsletterCompos
                 fieldErrors={{ ...state.fieldErrors, ...live }}
                 stepError={stepError('recipients')}
                 onChange={update}
+                defaultMessage={brand.loaded ? brand.brand?.default_message ?? null : undefined}
+                onDefaultMessageChange={async (message) => {
+                  const res = await brand.saveDefaultMessage(message);
+                  if (!res.ok) composerToast.error(res.error ?? GENERIC_ERROR);
+                  return res.ok;
+                }}
               />
 
               <FromStep fromName={draft.from_name} replyTo={draft.reply_to_email} onChange={update}

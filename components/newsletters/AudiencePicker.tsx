@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import * as Popover from '@radix-ui/react-popover';
-import { ChevronDown, Mail, MessageSquare, Plus, User } from 'lucide-react';
+import { ChevronDown, Loader2, Mail, MessageSquare, Plus, User } from 'lucide-react';
 import type { AudienceItem, NewsletterBlock, NewsletterChannel } from '../../services/newslettersAPI';
 import StepCard from './StepCard';
 import ImportListModal from './ImportListModal';
@@ -15,6 +15,7 @@ import {
 import { LIMITS } from './lib/rules';
 import { smsPartsInfo } from './lib/smsParts';
 import { syncMessageBlock } from './lib/messageBlock';
+import { canSetDefaultMessage, isDefaultMessage } from './lib/defaultMessage';
 import { LABEL, LAYER, LINK_BUTTON, inputClass, textareaClass } from './lib/ui';
 
 type AudiencePatch = { audience?: AudienceItem[]; channels?: NewsletterChannel[]; sms_text?: string; blocks?: NewsletterBlock[] };
@@ -33,6 +34,10 @@ export interface AudiencePickerProps {
   stepError?: string;
   /** A patch, or a function of the latest draft (null: no change), so a later answer never undoes newer edits. */
   onChange(patch: AudiencePatch | ((latest: { audience: AudienceItem[]; blocks: NewsletterBlock[] }) => AudiencePatch | null)): void;
+  /** The account's saved default message (null: none; undefined: not loaded yet, so the box can't be ticked yet). */
+  defaultMessage?: string | null;
+  /** Save (text) or clear (null) the default message; resolves false when it wasn't saved (the composer says why). */
+  onDefaultMessageChange?(message: string | null): Promise<boolean>;
 }
 
 const GROUP_HEADING = 'px-3 pb-1 pt-3 text-xs font-semibold uppercase tracking-wide text-gray-500';
@@ -41,7 +46,7 @@ const GROUP_HEADING = 'px-3 pb-1 pt-3 text-xs font-semibold uppercase tracking-w
  * Step 2 (prototype: "Send to" + the grey "Estimated recipients" row): who gets it (All leads, lead groups,
  * lists), by email and/or text, with live counts.
  */
-export default function AudiencePicker({ audience, channels, smsText, fromName, count, readOnly, enabled, fieldErrors, stepError, onChange }: AudiencePickerProps) {
+export default function AudiencePicker({ audience, channels, smsText, fromName, count, readOnly, enabled, fieldErrors, stepError, onChange, defaultMessage, onDefaultMessageChange }: AudiencePickerProps) {
   const sources = useAudienceSources(enabled);
   const [open, setOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
@@ -67,6 +72,24 @@ export default function AudiencePicker({ audience, channels, smsText, fromName, 
     return blocks === latest.blocks ? { sms_text: value } : { sms_text: value, blocks };
   });
   const smsError = fieldErrors.sms_text ?? (sms.over ? `Use ${LIMITS.sms_text} characters or fewer.` : undefined) ?? (texts ? parts.problem : null) ?? undefined;
+  // "Set as my default message" (Chris, 1 Nov; as the Storeel invite message has): ticked while the box shows the
+  // account's saved default, which pre-fills every new newsletter. Ticking saves this text; unticking clears it.
+  // While a save is on its way the box shows what was asked for (savingDefault: the text, or null to clear).
+  const [savingDefault, setSavingDefault] = useState<string | null | undefined>(undefined);
+  const saving = savingDefault !== undefined;
+  const isDefault = saving ? savingDefault !== null && isDefaultMessage(savingDefault, smsText) : isDefaultMessage(defaultMessage, smsText);
+  const canTickDefault = !readOnly && !saving && defaultMessage !== undefined && Boolean(onDefaultMessageChange)
+    && (isDefault || canSetDefaultMessage(smsText));
+  const toggleDefault = async (checked: boolean) => {
+    if (!onDefaultMessageChange) return;
+    const wanted = checked ? smsText.trim() : null;
+    setSavingDefault(wanted);
+    try {
+      await onDefaultMessageChange(wanted);
+    } finally {
+      setSavingDefault(undefined);
+    }
+  };
 
   const option = (item: AudienceItem, title: string, detail: string) => (
     <label key={audienceKey(item)} className="flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2 focus-within:bg-gray-50 hover:bg-gray-50">
@@ -158,6 +181,14 @@ export default function AudiencePicker({ audience, channels, smsText, fromName, 
             <span className={smsError ? 'text-red-600' : 'text-gray-500'}>{smsError ?? (texts ? 'We add a link to the newsletter and "Reply STOP to opt out."' : null)}</span>
             <span aria-live="polite" className={`whitespace-nowrap ${sms.over ? 'text-red-600' : sms.remaining < 10 ? 'text-amber-600' : 'text-gray-500'}`}>{sms.length} / {LIMITS.sms_text}</span>
           </div>
+          {onDefaultMessageChange ? (
+            <label className={`mt-2 inline-flex items-center gap-2 select-none ${canTickDefault ? 'cursor-pointer' : saving ? 'cursor-wait' : 'cursor-default opacity-60'}`}>
+              <input type="checkbox" checked={isDefault} disabled={!canTickDefault} onChange={(e) => { void toggleDefault(e.target.checked); }}
+                className="h-4 w-4 flex-shrink-0 accent-[#6C60FF]" />
+              <span className="text-sm text-gray-700">Set as my default message</span>
+              {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin text-gray-500" aria-label="Saving" /> : null}
+            </label>
+          ) : null}
           {texts ? (
             <>
               {parts.tooLong ? null : (

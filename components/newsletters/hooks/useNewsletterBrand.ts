@@ -5,14 +5,23 @@ import { headerFrom } from '../lib/draft';
 
 // The account's newsletter brand. GET pre-fills a new draft's header and gives the footer's business address.
 // The header is never PUT here: saving a newsletter's header saves the brand header too (contract note 8).
-// PUT is only for setting the business address (asked for on the first send if missing).
+// PUT is only for setting the business address (asked for on the first send if missing) and the default Message box
+// text ("Set as my default message", Chris, 1 Nov), which pre-fills every new newsletter.
 export interface BrandState {
   brand: NewsletterBrand | null;
   loaded: boolean;
   saveAddress(address: string): Promise<NlResult<NewsletterBrand>>;
+  /** Null clears it. Not ok when the API did not keep exactly this text (refused, or an API without the column). */
+  saveDefaultMessage(message: string | null): Promise<NlResult<NewsletterBrand>>;
 }
 
-const normalise = (b: NewsletterBrand): NewsletterBrand => ({ header: headerFrom(b.header), business_address: b.business_address ?? null });
+const normalise = (b: NewsletterBrand): NewsletterBrand => ({
+  header: headerFrom(b.header),
+  business_address: b.business_address ?? null,
+  default_message: typeof b.default_message === 'string' && b.default_message.trim() ? b.default_message : null,
+});
+
+export const DEFAULT_MESSAGE_ERROR = "Your default message couldn't be saved. Try again.";
 
 export function useNewsletterBrand(enabled: boolean): BrandState {
   const [brand, setBrand] = useState<NewsletterBrand | null>(null);
@@ -35,5 +44,14 @@ export function useNewsletterBrand(enabled: boolean): BrandState {
     return res;
   }, []);
 
-  return { brand, loaded, saveAddress };
+  const saveDefaultMessage = useCallback(async (message: string | null) => {
+    const wanted = message?.trim() || null;
+    const res = await newslettersAPI.updateBrand({ default_message: wanted });
+    if (!res.ok || !res.data) return res;
+    const next = normalise(res.data);
+    setBrand(next);
+    return next.default_message === wanted ? res : { ok: false, error: DEFAULT_MESSAGE_ERROR, fieldErrors: {} };
+  }, []);
+
+  return { brand, loaded, saveAddress, saveDefaultMessage };
 }
