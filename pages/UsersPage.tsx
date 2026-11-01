@@ -34,7 +34,8 @@ import {
   AlertDialogTitle,
 } from '../components/ui/alert-dialog';
 import { canEditProperty, deletePropertyMessage, deletePropertyToast, propertyRowActions, propertyStatusBadge, propertyTypeLabel, rowsForPropertyTab, type BadgeTone } from '../utils/propertyRows';
-import { propertyImageErrorMessage } from '../utils/propertyImage';
+import { propertyImageErrorMessage, propertyRowAvatar } from '../utils/propertyImage';
+import { countLabel } from '../utils/countLabel';
 import { toast } from 'sonner';
 
 interface User {
@@ -188,7 +189,7 @@ export default function UsersPage({ onNavigate, onViewStoreelReport }: UsersPage
   const [properties, setProperties] = useState<any[]>([]);
   // The rows of the open tab: External = account_type 'external', Properties = everything else.
   const tabProperties = rowsForPropertyTab(properties, activeTab === 'external' ? 'external' : 'properties', (p: any) => p.apiRow);
-  const externalCountLabel = `${tabProperties.length} external account${tabProperties.length === 1 ? '' : 's'}`;
+  const externalCountLabel = countLabel(tabProperties.length, 'external account');
   const [isLoadingProperties, setIsLoadingProperties] = useState(false);
   const [propertiesError, setPropertiesError] = useState<string | null>(null);
   const getUrlButtonRef = React.useRef<HTMLButtonElement>(null);
@@ -1483,7 +1484,7 @@ export default function UsersPage({ onNavigate, onViewStoreelReport }: UsersPage
               )}
               {activeTab === 'properties' && (currentUser?.role === 2 || currentUser?.role === '2' || currentUser?.role === 4 || currentUser?.role === '4') && (
                 <>
-                  <span className="text-xs text-gray-600 mr-1">{tabProperties.length} properties</span>
+                  <span className="text-xs text-gray-600 mr-1">{countLabel(tabProperties.length, 'property', 'properties')}</span>
                   <Button
                     ref={getUrlButtonRef}
                     onClick={() => setShowPublishLandingPagesModal(true)}
@@ -1579,7 +1580,7 @@ export default function UsersPage({ onNavigate, onViewStoreelReport }: UsersPage
               )}
               {activeTab === 'properties' && (currentUser?.role === 2 || currentUser?.role === '2' || currentUser?.role === 4 || currentUser?.role === '4') && (
                 <>
-                  <span className="text-sm text-gray-600">{tabProperties.length} properties</span>
+                  <span className="text-sm text-gray-600">{countLabel(tabProperties.length, 'property', 'properties')}</span>
                   <Button
                     ref={getUrlButtonRef}
                     onClick={() => setShowPublishLandingPagesModal(true)}
@@ -1746,7 +1747,7 @@ export default function UsersPage({ onNavigate, onViewStoreelReport }: UsersPage
           <div className="px-3 sm:px-4 md:px-6 py-3 sm:py-4 border-b border-gray-200">
             <div className="flex items-center justify-between">
               <h3 className="text-xs sm:text-sm md:text-base font-medium text-gray-900">All Users</h3>
-              <span className="text-[12px] sm:text-xs md:text-sm text-gray-500">{filteredUsers.length} of {totalUsers} users</span>
+              <span className="text-[12px] sm:text-xs md:text-sm text-gray-500">{filteredUsers.length} of {countLabel(totalUsers, 'user')}</span>
             </div>
           </div>
 
@@ -2041,7 +2042,7 @@ export default function UsersPage({ onNavigate, onViewStoreelReport }: UsersPage
             <div className="px-3 sm:px-4 md:px-6 py-3 sm:py-4 border-b border-gray-200">
               <div className="flex items-center justify-between">
                 <h3 className="text-xs sm:text-sm md:text-base font-medium text-gray-900">Shared With Me</h3>
-                <span className="text-[12px] sm:text-xs md:text-sm text-gray-500">{sharedMemories.length} campaigns</span>
+                <span className="text-[12px] sm:text-xs md:text-sm text-gray-500">{countLabel(sharedMemories.length, 'campaign')}</span>
               </div>
             </div>
 
@@ -2333,8 +2334,9 @@ export default function UsersPage({ onNavigate, onViewStoreelReport }: UsersPage
                         <td className="px-3 sm:px-6 py-4 whitespace-nowrap">
                           <div className="flex items-center">
                             <div className="h-10 w-10 flex-shrink-0 rounded-md overflow-hidden bg-gray-100 flex items-center justify-center">
-                              {property.image ? (
-                                <img src={property.image} alt={property.name} className="h-full w-full object-cover" />
+                              {/* The property's image, else (External rows) the external account's logo, else the shield. */}
+                              {propertyRowAvatar(property.apiRow ?? property) ? (
+                                <img src={propertyRowAvatar(property.apiRow ?? property)!} alt={property.name} className="h-full w-full object-cover" />
                               ) : (
                                 <Shield className="h-5 w-5 text-purple-600" />
                               )}
@@ -2565,8 +2567,8 @@ export default function UsersPage({ onNavigate, onViewStoreelReport }: UsersPage
                     <div className="flex items-start justify-between gap-3">
                       <div className="flex items-start gap-2.5 flex-1 min-w-0">
                         <div className="h-12 w-12 flex-shrink-0 rounded-md overflow-hidden bg-gray-100 flex items-center justify-center">
-                          {property.image ? (
-                            <img src={property.image} alt={property.name} className="h-full w-full object-cover" />
+                          {propertyRowAvatar(property.apiRow ?? property) ? (
+                            <img src={propertyRowAvatar(property.apiRow ?? property)!} alt={property.name} className="h-full w-full object-cover" />
                           ) : (
                             <Shield className="h-6 w-6 text-purple-600" />
                           )}

@@ -1,6 +1,7 @@
 ﻿import { useState, useEffect } from 'react';
 import { CreditCard, Download, Plus, Info, Check, Crown, TrendingUp, Calendar, DollarSign, Loader2, AlertTriangle, Clock, X, Zap, ChevronLeft, ChevronRight } from 'lucide-react';
 import UpgradePlanModal, { plans as allPlans } from '../components/UpgradePlanModal';
+import { coveredByNote, offersUpgrade, planCoveredBy, planKey, planLabel } from '../utils/effectivePlan';
 import AddPaymentMethodModal from '../components/AddPaymentMethodModal';
 import { PurchaseCreditsModal } from '../components/PurchaseCreditsModal';
 import { stripeApi, BillingHistoryItem, PaymentMethod, SubscriptionItem, ScheduledChange } from '../utils/stripeApi';
@@ -15,6 +16,8 @@ interface StorageOverview {
   labels_count: number;
   plan_id: number;
   plan_name: string;
+  // The main account whose plan this is (a covered external account), or null (web API 1 Nov 2026).
+  plan_covered_by?: { id: number; name: string | null } | null;
   created_on: string;
   is_unlimited: boolean;
   memories_storage_gb: number;
@@ -312,8 +315,8 @@ export default function BillingPage({ onNavigateToMemory }: BillingPageProps = {
 
   // Helper function to format plan display name for billing history
   const formatPlanDisplay = (planName: string, paymentDate: string) => {
-    // Capitalize first letter of plan name
-    const formattedPlan = planName.charAt(0).toUpperCase() + planName.slice(1);
+    // The name Studio sells it under (Starter / Teams / Business), else the name capitalised.
+    const formattedPlan = capitalizePlan(planName);
 
     // Get month and year from payment date
     const date = new Date(paymentDate);
@@ -323,10 +326,11 @@ export default function BillingPage({ onNavigateToMemory }: BillingPageProps = {
     return `${formattedPlan} Plan - ${month} ${year}`;
   };
 
-  // Helper function to capitalize plan name
-  const capitalizePlan = (planName: string) => {
-    return planName.charAt(0).toUpperCase() + planName.slice(1);
-  };
+  // A plan's display name: Starter / Teams / Business (utils/effectivePlan planLabel, so "professional" reads Business
+  // as on the badges), else the name capitalised.
+  function capitalizePlan(planName: string) {
+    return planLabel(planName) || (planName ? planName.charAt(0).toUpperCase() + planName.slice(1) : '');
+  }
 
   // Helper function to format member since date (Month Year)
   const formatMemberSince = (dateString: string) => {
@@ -505,6 +509,10 @@ export default function BillingPage({ onNavigateToMemory }: BillingPageProps = {
               <Zap className="w-5 h-5" />
               Buy more Credits
             </button>
+            {/* Not when the main account already covers Business (utils/effectivePlan). */}
+            {/* Only once the plan is known (no flash before storage-overview answers), and not when the main account
+                already covers Business (utils/effectivePlan). */}
+            {!isLoadingStorage && offersUpgrade(storageData?.plan_name, planCoveredBy(storageData)) && (
             <button
               onClick={() => setShowUpgradeModal(true)}
               className="bg-[#f6339A] hover:bg-[#d42982] text-white px-4 sm:px-6 py-2.5 rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
@@ -512,6 +520,7 @@ export default function BillingPage({ onNavigateToMemory }: BillingPageProps = {
               <Crown className="w-5 h-5" />
               Upgrade Plan
             </button>
+            )}
           </div>
         </div>
 
@@ -533,15 +542,22 @@ export default function BillingPage({ onNavigateToMemory }: BillingPageProps = {
                     <>
                       <div className="flex flex-wrap items-center justify-between gap-2 mb-6">
                         <h2 className="text-lg sm:text-xl font-semibold text-gray-900">Current Plan</h2>
-                        <span className={`px-2 sm:px-3 py-1 rounded-full text-xs sm:text-sm font-medium ${
-                          storageData?.plan_name?.toLowerCase() === 'professional'
-                            ? 'bg-purple-100 text-purple-700'
-                            : storageData?.plan_name?.toLowerCase() === 'intermediate'
-                            ? 'bg-pink-100 text-pink-700'
-                            : 'bg-blue-100 text-blue-700'
-                        }`}>
-                          {storageData?.plan_name ? capitalizePlan(storageData.plan_name) : 'Starter'}
-                        </span>
+                        {/* The effective plan: a covered external account sees its main account's plan and who covers
+                            it, never its own Starter (utils/effectivePlan; Deepak, 1 Nov 2026). */}
+                        <div className="flex flex-wrap items-center justify-end gap-x-2 gap-y-1">
+                          {coveredByNote(planCoveredBy(storageData)) && (
+                            <span className="text-xs text-gray-500" data-testid="billing-plan-covered">{coveredByNote(planCoveredBy(storageData))}</span>
+                          )}
+                          <span data-testid="billing-plan-badge" className={`px-2 sm:px-3 py-1 rounded-full text-xs sm:text-sm font-medium ${
+                            planKey(storageData?.plan_name) === 'professional'
+                              ? 'bg-purple-100 text-purple-700'
+                              : planKey(storageData?.plan_name) === 'intermediate'
+                              ? 'bg-pink-100 text-pink-700'
+                              : 'bg-blue-100 text-blue-700'
+                          }`}>
+                            {planLabel(storageData?.plan_name) || (storageData?.plan_name ? capitalizePlan(storageData.plan_name) : 'Starter')}
+                          </span>
+                        </div>
                       </div>
 
                       {/* Subscription Period Info */}
@@ -690,7 +706,8 @@ export default function BillingPage({ onNavigateToMemory }: BillingPageProps = {
 
                   {/* Plan Includes - dynamic from plans data */}
                   {(() => {
-                    const activePlanName = (currentSubscription?.plan_name || storageData?.plan_name || 'starter').toLowerCase();
+                    // As UpgradePlanModal's ids: a plans row named "Business" is professional (utils/effectivePlan).
+                    const activePlanName = planKey(currentSubscription?.plan_name || storageData?.plan_name) || 'starter';
                     const currentPlanData = allPlans.find(p => p.id === activePlanName) || allPlans[0];
                     const currentPlanIndex = allPlans.findIndex(p => p.id === activePlanName);
                     const nextPlanData = currentPlanIndex < allPlans.length - 1 ? allPlans[currentPlanIndex + 1] : null;
@@ -792,9 +809,9 @@ export default function BillingPage({ onNavigateToMemory }: BillingPageProps = {
                                   </div>
                                   <div>
                                     <span className={`px-2 sm:px-3 py-1 rounded-full text-xs sm:text-sm font-medium ${
-                                      change.new_plan_name === 'professional'
+                                      planKey(change.new_plan_name) === 'professional'
                                         ? 'bg-purple-100 text-purple-700'
-                                        : change.new_plan_name === 'intermediate'
+                                        : planKey(change.new_plan_name) === 'intermediate'
                                         ? 'bg-pink-100 text-pink-700'
                                         : 'bg-blue-100 text-blue-700'
                                     }`}>
@@ -1343,7 +1360,7 @@ export default function BillingPage({ onNavigateToMemory }: BillingPageProps = {
       <UpgradePlanModal
         isOpen={showUpgradeModal}
         onClose={() => setShowUpgradeModal(false)}
-        currentPlan={storageData?.plan_name}
+        currentPlan={planKey(storageData?.plan_name) || storageData?.plan_name}
         onSuccess={handleSubscriptionUpdate}
       />
 

@@ -444,7 +444,8 @@ export default function PersonalAccountRegisterPage() {
                       Verifying...
                     </>
                   ) : (
-                    'Verify & Create Account'
+                    // Short label (Chris, 1 Nov 2026: no long buttons).
+                    'Verify'
                   )}
                 </button>
               </div>

@@ -1,7 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { X, Users, AlertCircle, Send, Paperclip, Smile, Sparkles, Lightbulb, RefreshCw, MessageSquare, Heart, Gift, Calendar, MessageCircle, ThumbsUp, TrendingUp, FileText } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from './ui/avatar';
-import { LeadGroup, LeadMessageAttachment, leadsAPI } from '../services/leadsAPI';
+import { LeadGroup, LeadGroupMember, LeadMessageAttachment, leadsAPI } from '../services/leadsAPI';
+import { groupMemberName, initialsOf } from '../utils/leadNames';
 import { useMemoryLimit, recheckMemoryLimit } from '../hooks/useMemoryLimit';
 import { useDialogBehavior } from '../hooks/useDialogBehavior';
 import { toast } from 'sonner';
@@ -46,9 +47,9 @@ function fileToDataUrl(file: File): Promise<string> {
   });
 }
 
-function getInitials(name: string): string {
-  return name.split(' ').map((n) => n[0]).join('').toUpperCase().slice(0, 2);
-}
+// Null-safe (review, batch 3): a lead with no account can have no user block, or a user block with no name.
+const getInitials = initialsOf;
+const memberName = (m: LeadGroupMember) => groupMemberName({ name: m.user?.name, email: m.user?.email, phone: m.user?.phone_number });
 
 function formatDateTime(s: string): string {
   if (!s) return '';
@@ -344,8 +345,8 @@ export default function GroupDetailDrawer({ groupId, open, onClose }: Props) {
                 <div className="flex items-center mt-3">
                   {group.members.slice(0, 6).map((m, i) => (
                     <Avatar key={m.lead_id} className={`h-7 w-7 border-2 border-white ${i > 0 ? '-ml-2' : ''}`}>
-                      <AvatarImage src={m.user.profile_image} alt={m.user.name} />
-                      <AvatarFallback className="bg-[#6C60FF] text-white text-[12px] font-medium">{getInitials(m.user.name)}</AvatarFallback>
+                      <AvatarImage src={m.user?.profile_image ?? undefined} alt={memberName(m)} />
+                      <AvatarFallback className="bg-[#6C60FF] text-white text-[12px] font-medium">{getInitials(memberName(m))}</AvatarFallback>
                     </Avatar>
                   ))}
                   {group.member_count > 6 && (
@@ -372,13 +373,13 @@ export default function GroupDetailDrawer({ groupId, open, onClose }: Props) {
               {group.members.map((m) => (
                 <div key={m.lead_id} className="flex items-center gap-3 px-5 py-3">
                   <Avatar className="h-9 w-9 shrink-0">
-                    <AvatarImage src={m.user.profile_image} alt={m.user.name} />
-                    <AvatarFallback className="bg-[#6C60FF] text-white text-xs font-medium">{getInitials(m.user.name)}</AvatarFallback>
+                    <AvatarImage src={m.user?.profile_image ?? undefined} alt={memberName(m)} />
+                    <AvatarFallback className="bg-[#6C60FF] text-white text-xs font-medium">{getInitials(memberName(m))}</AvatarFallback>
                   </Avatar>
                   <div className="flex-1 min-w-0">
-                    <div className="text-sm font-semibold text-gray-900 truncate">{m.user.name}</div>
+                    <div className="text-sm font-semibold text-gray-900 truncate">{memberName(m)}</div>
                     <div className="text-xs text-gray-600 truncate">
-                      {m.has_email ? m.user.email : m.has_phone ? m.user.phone_number : <span className="text-red-500">No contact info</span>}
+                      {m.has_email ? m.user?.email : m.has_phone ? m.user?.phone_number : <span className="text-red-500">No contact info</span>}
                     </div>
                   </div>
                   {!m.has_email && !m.has_phone && (
@@ -509,7 +510,9 @@ export default function GroupDetailDrawer({ groupId, open, onClose }: Props) {
             onChange={handleFilesSelected}
           />
 
-          <div className="flex items-center gap-2 mt-2">
+          {/* Wraps (review, batch 3): in a narrow drawer (about 280 px at 1280 beside App's sidebar) "Send to N" was
+              squeezed onto two lines and pushed past the card's edge; now it drops to its own row, right-aligned. */}
+          <div className="flex flex-wrap items-center gap-2 mt-2">
             <button
               onClick={() => fileInputRef.current?.click()}
               disabled={!group}
@@ -630,7 +633,7 @@ export default function GroupDetailDrawer({ groupId, open, onClose }: Props) {
             <button
               onClick={handleSend}
               disabled={!group || !canSend || isSending}
-              className="ml-auto flex items-center gap-2 h-10 px-5 rounded-xl bg-[#6C60FF] hover:bg-[#5A4FE5] text-white text-sm font-medium disabled:opacity-50 transition-colors"
+              className="ml-auto flex shrink-0 items-center gap-2 h-10 px-5 rounded-xl bg-[#6C60FF] hover:bg-[#5A4FE5] text-white text-sm font-medium whitespace-nowrap disabled:opacity-50 transition-colors"
             >
               <Send className="w-4 h-4" />
               {isSending ? 'Sending...' : `Send to ${reachableCount}`}

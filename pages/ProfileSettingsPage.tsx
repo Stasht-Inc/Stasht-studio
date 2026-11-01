@@ -10,6 +10,7 @@ import { parsePhonePrefill } from "../utils/phoneUtils";
 import PasswordStrengthIndicator from "../components/PasswordStrengthIndicator";
 import { savePasswordSecurity, getPasswordSecurity } from "../utils/passwordSecurityStorage";
 import UpgradePlanModal from "../components/UpgradePlanModal";
+import { coveredByNote, offersUpgrade, planCoveredBy, planKey, planLabel } from "../utils/effectivePlan";
 import { Switch } from "../components/ui/switch";
 import DesktopAlertsSetting from "../components/leads/DesktopAlertsSetting";
 import { getCategoryColor } from "../constants/mediaConstants";
@@ -882,34 +883,26 @@ function PersonalInformation({ user, profileData, isLoadingProfile, sectionRef, 
                 </AvatarFallback>
               </Avatar>
               <div>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                   <h3 className="text-lg font-semibold text-gray-900">
                     {profileData?.name || user?.name || 'User'}
                   </h3>
                   {(() => {
-                    const planName = (profileData?.plan_name || user?.plan_name || '').toLowerCase();
-
-                    if (planName === 'professional') {
-                      return (
-                        <span className="inline-block px-2.5 py-1 rounded-full text-xs font-semibold bg-purple-100 text-purple-700">
-                          Professional
+                    // The plan the account is on: a covered external account sees its main account's plan with who
+                    // covers it, never its own Starter (utils/effectivePlan; Deepak, 1 Nov 2026).
+                    const planName = profileData?.plan_name || user?.plan_name || '';
+                    const key = planKey(planName);
+                    if (!key) return null;
+                    const tone = key === 'professional' ? 'bg-purple-100 text-purple-700' : key === 'intermediate' ? 'bg-pink-100 text-pink-700' : 'bg-blue-100 text-blue-700';
+                    const note = coveredByNote(planCoveredBy(profileData));
+                    return (
+                      <>
+                        <span className={`inline-block px-2.5 py-1 rounded-full text-xs font-semibold ${tone}`} data-testid="profile-plan-badge">
+                          {planLabel(planName)}
                         </span>
-                      );
-                    } else if (planName === 'intermediate') {
-                      return (
-                        <span className="inline-block px-2.5 py-1 rounded-full text-xs font-semibold bg-pink-100 text-pink-700">
-                          Intermediate
-                        </span>
-                      );
-                    } else if (planName === 'starter') {
-                      return (
-                        <span className="inline-block px-2.5 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-700">
-                          Starter
-                        </span>
-                      );
-                    }
-
-                    return null;
+                        {note && <span className="text-xs text-gray-500" data-testid="profile-plan-covered">{note}</span>}
+                      </>
+                    );
                   })()}
                 </div>
                 <p className="text-gray-600">{profileData?.email || user?.email || ''}</p>
@@ -1593,6 +1586,9 @@ function StorageManagement({ sectionRef }: { sectionRef: React.RefObject<HTMLDiv
   });
   const [isLoading, setIsLoading] = useState(true);
   const [isUpgradeModalOpen, setIsUpgradeModalOpen] = useState(false);
+  // The effective plan and who covers it (storage-overview): no "Need More Storage? Upgrade Plan" when the main account
+  // already covers the top plan (utils/effectivePlan).
+  const [planInfo, setPlanInfo] = useState<{ name: string; coveredBy: ReturnType<typeof planCoveredBy> }>({ name: '', coveredBy: null });
 
   const handleUpgrade = (planId: string, isYearly: boolean) => {
     console.log('Upgrading to plan:', planId, 'Yearly:', isYearly);
@@ -1634,6 +1630,7 @@ function StorageManagement({ sectionRef }: { sectionRef: React.RefObject<HTMLDiv
           memoryImagesStorageSize = overview.memory_images_storage_mb || 0;
           
           planId = overview.plan_id;
+          setPlanInfo({ name: overview.plan_name || '', coveredBy: planCoveredBy(overview) });
         }
 
         setStorageData({
@@ -1785,6 +1782,7 @@ function StorageManagement({ sectionRef }: { sectionRef: React.RefObject<HTMLDiv
           </div>
         </div>
 
+        {offersUpgrade(planInfo.name, planInfo.coveredBy) && (
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
           <div className="flex items-start gap-3">
             <svg className="w-5 h-5 text-blue-600 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1801,6 +1799,7 @@ function StorageManagement({ sectionRef }: { sectionRef: React.RefObject<HTMLDiv
             </div>
           </div>
         </div>
+        )}
 
         <div className="border-t pt-6">
           <h4 className="text-base font-semibold text-gray-900 mb-1">Your Data</h4>

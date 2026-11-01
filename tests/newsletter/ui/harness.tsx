@@ -140,15 +140,35 @@ function CampaignsHarness() {
   const [sidebar, setSidebar] = useState(false);
   return (
     // pt-20: App's 80 px top bar, which the page's sticky headers (top-20) sit under.
+    // ?appSidebars=1: App's main column beside both sidebars open (main's md:ml-[39.5rem], no side padding), as on
+    // the Campaigns page in Studio: about 650 px at a 1280 px window (batch 3).
+    params.get('appSidebars') === '1' ? (
+      <div className="min-h-screen bg-white pt-20">
+        <div data-testid="app-main" className="mx-4 md:mx-0 md:ml-[39.5rem]">
+          <MemoriesPage onMemorySelect={() => {}} apiMemoriesData={params.get('storeels') === '0' ? undefined : SAMPLE_STOREELS} categories={SAMPLE_CATEGORIES}
+            showMobileSidebar={sidebar} onToggleMobileSidebar={() => setSidebar((v) => !v)} onCloseMobileSidebar={() => setSidebar(false)} />
+        </div>
+      </div>
+    ) : (
     <div className="min-h-screen bg-[#F8F8FA] px-2 pt-20 md:px-6 md:pb-6">
       <MemoriesPage onMemorySelect={() => {}} apiMemoriesData={params.get('storeels') === '0' ? undefined : SAMPLE_STOREELS} categories={SAMPLE_CATEGORIES}
         showMobileSidebar={sidebar} onToggleMobileSidebar={() => setSidebar((v) => !v)} onCloseMobileSidebar={() => setSidebar(false)} />
     </div>
+    )
   );
 }
 
 // The Leads page as App mounts it (under App's 80 px top bar), for the Lists tab checks.
+// ?appSidebars=1: in App's main column beside its expanded sidebar (main's md:ml-[21.5rem], no side padding), as
+// Studio shows the Leads page: about 940 px at a 1280 px window, so the group drawer (30%) is about 280 px (batch 3).
 function LeadsHarness() {
+  if (params.get('appSidebars') === '1') {
+    return (
+      <div className="min-h-screen bg-white pt-20">
+        <div className="mx-4 md:mx-0 md:ml-[21.5rem]"><LeadsPage /></div>
+      </div>
+    );
+  }
   return (
     <div className="min-h-screen bg-white px-2 pt-20 md:px-6">
       <LeadsPage />

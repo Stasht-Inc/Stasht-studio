@@ -12,7 +12,8 @@ import { useProperty } from "../contexts/PropertyContext";
 import useAlvinEnabled from "../components/alvin/useAlvinEnabled";
 import { Camera } from "lucide-react";
 import { PROPERTY_IMAGE_ACCEPT, canChangePropertyImage, propertyAvatarImage, propertyImageErrorMessage, propertyImageFileError } from "../utils/propertyImage";
-import { groupPropertyAccounts, groupedPropertyCounts, isOwnExternalProperty, signedInUserOr } from "../utils/salespersonLanding";
+import { externalRowAvatar, groupPropertyAccounts, groupedPropertyCounts, isOwnExternalProperty, propertyAccountGroups, signedInUserOr } from "../utils/salespersonLanding";
+import { planKey } from "../utils/effectivePlan";
 
 // __APP_BUILD_TIME__ is injected at build time (see vite.config.ts's `define`)
 // as the ISO timestamp of when this exact bundle was built.
@@ -152,11 +153,12 @@ function ProfileInfo({ user }: { user?: { name?: string; email?: string; phone_n
 
   // Get plan badge styling
   const getPlanBadge = (plan: string) => {
-    const planLower = plan.toLowerCase();
-    if (planLower === 'professional') {
-      return { label: 'Professional', className: 'bg-purple-100 text-purple-700', show: true };
-    } else if (planLower === 'intermediate') {
-      return { label: 'Intermediate', className: 'bg-pink-100 text-pink-700', show: true };
+    // The names Studio sells (utils/effectivePlan): a plans row named "Business" is Business too.
+    const key = planKey(plan);
+    if (key === 'professional') {
+      return { label: 'Business', className: 'bg-purple-100 text-purple-700', show: true };
+    } else if (key === 'intermediate') {
+      return { label: 'Teams', className: 'bg-pink-100 text-pink-700', show: true };
     } else {
       return { label: '', className: '', show: false };
     }
@@ -283,6 +285,7 @@ export function ProfileDropdownMenu({ isOpen, onClose, user, onShowProfileSettin
   const [propertyCounts, setPropertyCounts] = useState({ owned: 0, shared: 0, total: 0 });
   const [isLoadingProperties, setIsLoadingProperties] = useState(false);
   const [isPropertySectionExpanded, setIsPropertySectionExpanded] = useState(false);
+  const [isExternalSectionExpanded, setIsExternalSectionExpanded] = useState(false);
 
   // Check for admin switch data
   const adminSwitchData = getAdminSwitchData();
@@ -339,6 +342,7 @@ export function ProfileDropdownMenu({ isOpen, onClose, user, onShowProfileSettin
   const [isAdminSectionExpanded, setIsAdminSectionExpanded] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [propertySearchQuery, setPropertySearchQuery] = useState('');
+  const [externalSearchQuery, setExternalSearchQuery] = useState('');
 
   // Separate admin collaborators from properties
   const actualAdminAccounts = adminSwitchData?.admin_accounts?.filter(admin =>
@@ -366,8 +370,8 @@ export function ProfileDropdownMenu({ isOpen, onClose, user, onShowProfileSettin
   });
 
   const filteredSharedProperties = sharedProperties.filter(p => {
-    if (!propertySearchQuery.trim()) return true;
-    const q = propertySearchQuery.toLowerCase();
+    if (!externalSearchQuery.trim()) return true;
+    const q = externalSearchQuery.toLowerCase();
     return (p.name || '').toLowerCase().includes(q) || (p.location || '').toLowerCase().includes(q);
   });
 
@@ -589,6 +593,125 @@ export function ProfileDropdownMenu({ isOpen, onClose, user, onShowProfileSettin
   console.log('🎨 displayLocation (FINAL):', displayLocation);
   console.log('🎨 =====================================');
 
+  // One row of the Profile menu's Properties dropdown (the account's own properties: the property view).
+  const renderOwnedPropertyRow = (property: any, index: number) => {
+    const propertyName = property.name || `Property ${index + 1}`;
+    const propertyLocation = property.location || '';
+    const { invitedBy, avatarImage } = resolvePropertyAvatar(property, user);
+
+    return (
+      <button
+        key={property.id || index}
+        onClick={() => {
+          console.log('🏠 Switching to owned property:', property);
+          localStorage.setItem('view_type', 'property');
+          localStorage.setItem('selected_property', JSON.stringify(property));
+          switchToProperty(property);
+          onClose();
+          window.location.reload();
+        }}
+        className="w-full px-4 py-2 text-left hover:bg-white transition-all duration-200 border-b border-gray-100 last:border-b-0"
+      >
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-8 rounded-lg overflow-hidden bg-purple-100 flex items-center justify-center flex-shrink-0">
+            {avatarImage ? (
+              <img src={avatarImage} alt={propertyName} className="w-full h-full object-cover" />
+            ) : (
+              <svg className="w-4 h-4 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+              </svg>
+            )}
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="text-gray-900 font-medium text-sm truncate">
+              {propertyName}
+            </div>
+            {propertyLocation && (
+              <div className="text-xs text-gray-500 truncate mt-0.5" title={propertyLocation}>{propertyLocation}</div>
+            )}
+            {invitedBy?.name && (
+              <div className="text-xs text-gray-600 truncate mt-0.5" title={invitedBy.name}>{invitedBy.name}</div>
+            )}
+          </div>
+        </div>
+      </button>
+    );
+  };
+
+  // One row of the External dropdown (external accounts, a salesperson's own External account first).
+  const renderSharedPropertyRow = (property: any, index: number) => {
+    const propertyName = property.name || `Property ${index + 1}`;
+    const propertyLocation = property.location || '';
+    const userRole = property.user_role || 'viewer';
+    const deactivatedNote = propertyRowActions(property).view.note;
+    const switchKey = `property_${property.id}`;
+    // The salesperson's own External account represents the main account (its logo and name).
+    const ownExternalLook = isOwnExternalProperty(property, signedInUserOr(authUser ?? user)) ? resolvePropertyAvatar(property, user) : null;
+    // The Users page rule (property image, then the account's own image), then the main account's logo for the
+    // salesperson's own External row (utils/salespersonLanding externalRowAvatar).
+    const sharedAvatar = externalRowAvatar(property, signedInUserOr(authUser ?? user));
+
+    return (
+      <button
+        key={property.id || index}
+        onClick={async () => {
+          // An external property is its own full account: switch into it (login-as-admin).
+          if (opensAsFullAccount(property)) {
+            if (propertySwitchInFlight.current) return;
+            propertySwitchInFlight.current = true;
+            setSwitchingAccountId(switchKey);
+            const result = await switchIntoPropertyAccount(property);
+            if (result.ok) {
+              onClose();
+              window.location.href = '/'; // stays locked: the page is leaving
+            } else {
+              propertySwitchInFlight.current = false;
+              toast.error(result.error);
+              setSwitchingAccountId(null);
+            }
+            return;
+          }
+          console.log('🏠 Switching to shared property:', property);
+          localStorage.setItem('view_type', 'property');
+          localStorage.setItem('selected_property', JSON.stringify(property));
+          switchToProperty(property);
+          onClose();
+          window.location.reload();
+        }}
+        disabled={!!deactivatedNote || switchingAccountId === switchKey}
+        className="w-full px-4 py-2 text-left hover:bg-white transition-all duration-200 border-b border-gray-100 last:border-b-0 disabled:opacity-50 disabled:cursor-not-allowed"
+      >
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-8 rounded-lg overflow-hidden bg-blue-100 flex items-center justify-center flex-shrink-0">
+            {sharedAvatar ? (
+              <img src={sharedAvatar} alt={propertyName} className="w-full h-full object-cover" />
+            ) : (
+              <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+              </svg>
+            )}
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="text-gray-900 font-medium text-sm truncate">
+              {propertyName}
+            </div>
+            {propertyLocation && (
+              <div className="text-xs text-gray-500 truncate mt-0.5" title={propertyLocation}>{propertyLocation}</div>
+            )}
+            {ownExternalLook?.invitedBy?.name && (
+              <div className="text-xs text-gray-600 truncate mt-0.5" title={ownExternalLook.invitedBy.name}>{ownExternalLook.invitedBy.name}</div>
+            )}
+          </div>
+          {deactivatedNote && (
+            <span className="text-xs text-gray-500 flex-shrink-0">{deactivatedNote}</span>
+          )}
+        </div>
+      </button>
+    );
+  };
+
+  const propertyGroups = propertyAccountGroups({ owned: ownedProperties, shared: sharedProperties });
+
   const displayName = user?.name || 'User';
   const displayEmail = user?.email || user?.phone_number || 'No contact info';
 
@@ -796,12 +919,20 @@ export function ProfileDropdownMenu({ isOpen, onClose, user, onShowProfileSettin
               Settings
             </button>
 
-            {/* Property Accounts Section */}
-            {propertyCounts.total > 0 && (
-          <div className="border-t border-gray-100">
-            {/* Property Accounts Header - Collapsible */}
+            {/* Property accounts: two dropdowns, "Properties (N)" and "External (N)" (Chris, 1 Nov 2026; was one
+                "Property Accounts (N) · n internal, n external"). Each only when it has rows. */}
+            {propertyGroups.map((group) => {
+              const isProperties = group.key === 'properties';
+              const expanded = isProperties ? isPropertySectionExpanded : isExternalSectionExpanded;
+              const setExpanded = isProperties ? setIsPropertySectionExpanded : setIsExternalSectionExpanded;
+              const query = isProperties ? propertySearchQuery : externalSearchQuery;
+              const setQuery = isProperties ? setPropertySearchQuery : setExternalSearchQuery;
+              const rows = isProperties ? filteredOwnedProperties : filteredSharedProperties;
+              return (
+          <div key={group.key} className="border-t border-gray-100" data-testid={`profile-${group.key}-section`}>
             <button
-              onClick={() => setIsPropertySectionExpanded(!isPropertySectionExpanded)}
+              onClick={() => setExpanded(!expanded)}
+              aria-expanded={expanded}
               className="w-full px-4 py-2 text-left hover:bg-gray-50 transition-all duration-200 flex items-center gap-3"
             >
               <svg className="w-4 h-4 text-[#6C60FF]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -809,14 +940,11 @@ export function ProfileDropdownMenu({ isOpen, onClose, user, onShowProfileSettin
               </svg>
               <div className="flex-1 min-w-0">
                 <div className="text-gray-900 font-medium text-sm">
-                  Property Accounts ({propertyCounts.total})
-                </div>
-                <div className="text-xs text-gray-500 mt-0.5">
-                  {propertyCounts.owned} internal, {propertyCounts.shared} external
+                  {group.label} ({group.rows.length})
                 </div>
               </div>
               <svg
-                className={`w-4 h-4 text-gray-400 transition-transform duration-200 ${isPropertySectionExpanded ? 'rotate-180' : ''}`}
+                className={`w-4 h-4 text-gray-400 transition-transform duration-200 ${expanded ? 'rotate-180' : ''}`}
                 fill="none"
                 stroke="currentColor"
                 viewBox="0 0 24 24"
@@ -825,8 +953,7 @@ export function ProfileDropdownMenu({ isOpen, onClose, user, onShowProfileSettin
               </svg>
             </button>
 
-            {/* Expanded Property Accounts Section */}
-            {isPropertySectionExpanded && (
+            {expanded && (
               <div className="bg-gray-50 border-t border-gray-100">
                 {/* Search Bar */}
                 <div className="px-3 py-2">
@@ -841,160 +968,28 @@ export function ProfileDropdownMenu({ isOpen, onClose, user, onShowProfileSettin
                     </svg>
                     <input
                       type="text"
-                      placeholder="Search properties..."
-                      value={propertySearchQuery}
-                      onChange={(e) => setPropertySearchQuery(e.target.value)}
+                      placeholder={isProperties ? 'Search properties...' : 'Search external accounts...'}
+                      value={query}
+                      onChange={(e) => setQuery(e.target.value)}
                       className="w-full pl-8 pr-3 py-1.5 border border-gray-300 rounded text-xs focus:outline-none focus:ring-1 focus:ring-[#6C60FF] focus:border-transparent bg-white"
                     />
                   </div>
                 </div>
 
-                {/* Property Accounts List - Scrollable */}
+                {/* List - Scrollable */}
                 <div className="max-h-[240px] overflow-y-auto">
-                  {/* Owned Properties */}
-                  {filteredOwnedProperties.length > 0 && (
-                    <>
-                      <div className="px-4 py-2 bg-purple-50 border-b border-gray-200">
-                        <div className="text-xs font-semibold text-purple-700 uppercase tracking-wide">
-                          Internal ({filteredOwnedProperties.length})
-                        </div>
-                      </div>
-                      {filteredOwnedProperties.map((property, index) => {
-                        const propertyName = property.name || `Property ${index + 1}`;
-                        const propertyLocation = property.location || '';
-                        const { invitedBy, avatarImage } = resolvePropertyAvatar(property, user);
-
-                        return (
-                          <button
-                            key={property.id || index}
-                            onClick={() => {
-                              console.log('🏠 Switching to owned property:', property);
-                              localStorage.setItem('view_type', 'property');
-                              localStorage.setItem('selected_property', JSON.stringify(property));
-                              switchToProperty(property);
-                              onClose();
-                              window.location.reload();
-                            }}
-                            className="w-full px-4 py-2 text-left hover:bg-white transition-all duration-200 border-b border-gray-100 last:border-b-0"
-                          >
-                            <div className="flex items-center gap-3">
-                              <div className="w-8 h-8 rounded-lg overflow-hidden bg-purple-100 flex items-center justify-center flex-shrink-0">
-                                {avatarImage ? (
-                                  <img src={avatarImage} alt={propertyName} className="w-full h-full object-cover" />
-                                ) : (
-                                  <svg className="w-4 h-4 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
-                                  </svg>
-                                )}
-                              </div>
-                              <div className="flex-1 min-w-0">
-                                <div className="text-gray-900 font-medium text-sm truncate">
-                                  {propertyName}
-                                </div>
-                                {propertyLocation && (
-                                  <div className="text-xs text-gray-500 truncate mt-0.5" title={propertyLocation}>{propertyLocation}</div>
-                                )}
-                                {invitedBy?.name && (
-                                  <div className="text-xs text-gray-600 truncate mt-0.5" title={invitedBy.name}>{invitedBy.name}</div>
-                                )}
-                              </div>
-                            </div>
-                          </button>
-                        );
-                      })}
-                    </>
-                  )}
-
-                  {/* Shared Properties */}
-                  {filteredSharedProperties.length > 0 && (
-                    <>
-                      <div className="px-4 py-2 bg-blue-50 border-b border-gray-200">
-                        <div className="text-xs font-semibold text-blue-700 uppercase tracking-wide">
-                          External ({filteredSharedProperties.length})
-                        </div>
-                      </div>
-                      {filteredSharedProperties.map((property, index) => {
-                        const propertyName = property.name || `Property ${index + 1}`;
-                        const propertyLocation = property.location || '';
-                        const userRole = property.user_role || 'viewer';
-                        const deactivatedNote = propertyRowActions(property).view.note;
-                        const switchKey = `property_${property.id}`;
-                        // The salesperson's own External account represents the main account (its logo and name).
-                        const ownExternalLook = isOwnExternalProperty(property, signedInUserOr(authUser ?? user)) ? resolvePropertyAvatar(property, user) : null;
-                        const sharedAvatar = ownExternalLook ? ownExternalLook.avatarImage : property.image;
-
-                        return (
-                          <button
-                            key={property.id || index}
-                            onClick={async () => {
-                              // An external property is its own full account: switch into it (login-as-admin).
-                              if (opensAsFullAccount(property)) {
-                                if (propertySwitchInFlight.current) return;
-                                propertySwitchInFlight.current = true;
-                                setSwitchingAccountId(switchKey);
-                                const result = await switchIntoPropertyAccount(property);
-                                if (result.ok) {
-                                  onClose();
-                                  window.location.href = '/'; // stays locked: the page is leaving
-                                } else {
-                                  propertySwitchInFlight.current = false;
-                                  toast.error(result.error);
-                                  setSwitchingAccountId(null);
-                                }
-                                return;
-                              }
-                              console.log('🏠 Switching to shared property:', property);
-                              localStorage.setItem('view_type', 'property');
-                              localStorage.setItem('selected_property', JSON.stringify(property));
-                              switchToProperty(property);
-                              onClose();
-                              window.location.reload();
-                            }}
-                            disabled={!!deactivatedNote || switchingAccountId === switchKey}
-                            className="w-full px-4 py-2 text-left hover:bg-white transition-all duration-200 border-b border-gray-100 last:border-b-0 disabled:opacity-50 disabled:cursor-not-allowed"
-                          >
-                            <div className="flex items-center gap-3">
-                              <div className="w-8 h-8 rounded-lg overflow-hidden bg-blue-100 flex items-center justify-center flex-shrink-0">
-                                {sharedAvatar ? (
-                                  <img src={sharedAvatar} alt={propertyName} className="w-full h-full object-cover" />
-                                ) : (
-                                  <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
-                                  </svg>
-                                )}
-                              </div>
-                              <div className="flex-1 min-w-0">
-                                <div className="text-gray-900 font-medium text-sm truncate">
-                                  {propertyName}
-                                </div>
-                                {propertyLocation && (
-                                  <div className="text-xs text-gray-500 truncate mt-0.5" title={propertyLocation}>{propertyLocation}</div>
-                                )}
-                                {ownExternalLook?.invitedBy?.name && (
-                                  <div className="text-xs text-gray-600 truncate mt-0.5" title={ownExternalLook.invitedBy.name}>{ownExternalLook.invitedBy.name}</div>
-                                )}
-                              </div>
-                              {deactivatedNote && (
-                                <span className="text-xs text-gray-500 flex-shrink-0">{deactivatedNote}</span>
-                              )}
-                            </div>
-                          </button>
-                        );
-                      })}
-                    </>
-                  )}
-
-                  {/* No results */}
-                  {filteredOwnedProperties.length === 0 && filteredSharedProperties.length === 0 && (
+                  {rows.map((property, index) => (isProperties ? renderOwnedPropertyRow(property, index) : renderSharedPropertyRow(property, index)))}
+                  {rows.length === 0 && (
                     <div className="px-4 py-3 text-center text-gray-500 text-xs">
-                      No properties found
+                      {isProperties ? 'No properties found' : 'No external accounts found'}
                     </div>
                   )}
                 </div>
               </div>
             )}
           </div>
-        )}
+              );
+            })}
 
         {/* Switch Account Buttons - Show all admin accounts if user has admin access */}
         {hasAdminAccess && adminSwitchData && (

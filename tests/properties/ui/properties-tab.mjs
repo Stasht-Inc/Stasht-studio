@@ -388,11 +388,12 @@ try {
     await context.close();
   }
 
-  // Profile menu → Property Accounts: the inactive external one is disabled ("Deactivated"); an active one switches.
+  // Profile menu → External (its own dropdown since 1 Nov, next to Properties): the inactive external one is disabled
+  // ("Deactivated"); an active one switches.
   for (const [width, height] of [[1280, 900], [390, 844]]) {
     const { page, context, state } = await open({ width, height });
     await openProfileMenu(page, 'MD', width);
-    await page.getByRole('button', { name: /Property Accounts/ }).filter({ visible: true }).first().click();
+    await page.getByRole('button', { name: /^External \(\d+\)$/ }).filter({ visible: true }).first().click();
     const dana = page.getByRole('button', { name: /Dana Dealer/ }).filter({ visible: true }).first();
     await dana.waitFor({ state: 'visible', timeout: 5000 });
     expect(await dana.isDisabled(), `${width} profile: inactive external disabled`);

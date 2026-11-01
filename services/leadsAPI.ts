@@ -211,13 +211,14 @@ export interface CommentaryTarget {
 export interface LeadGroupMember {
   lead_id: number;
   status: 'hot' | 'warm' | 'cold' | 'visited' | 'sold' | null;
+  /** null when a lead with no account left no name, email or phone; id and name are null for a guest. */
   user: {
-    id: number;
-    name: string;
+    id: number | null;
+    name: string | null;
     email: string | null;
-    profile_image?: string;
+    profile_image?: string | null;
     phone_number?: string | null;
-  };
+  } | null;
   has_email: boolean;
   has_phone: boolean;
 }
@@ -246,8 +247,11 @@ export interface LeadGroup {
 // Lightweight member preview included in the GET /lead-groups list response.
 export interface LeadGroupMemberPreview {
   lead_id: number;
-  name: string;
+  /** null for a lead with no account (LeadGroupsController@index): show utils/leadNames groupMemberName. */
+  name: string | null;
   profile_image: string | null;
+  email?: string | null;
+  phone?: string | null;
 }
 
 // Response from POST /lead-groups/{id}/broadcast. Note: sent/skipped_no_channel/

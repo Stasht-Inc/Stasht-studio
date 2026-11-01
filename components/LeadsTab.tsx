@@ -1,4 +1,5 @@
 ﻿import React, { useState, useEffect, useRef } from 'react';
+import { groupMemberName, initialsOf } from '../utils/leadNames';
 import { Search, X, MoreHorizontal, MessageSquare, Clock, RefreshCw, Trash2, Archive, Check, Send, Users, ChevronLeft, Sparkles, Heart, Gift, Calendar, MessageCircle, ThumbsUp, TrendingUp, Lightbulb, UserRound, MapPin, CheckCircle2, SlidersHorizontal } from 'lucide-react';
 import { useMemoryLimit, recheckMemoryLimit } from '../hooks/useMemoryLimit';
 import { useDialogBehavior } from '../hooks/useDialogBehavior';
@@ -44,9 +45,8 @@ function formatDate(dateString: string): string {
   return new Date(dateString).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
-function getInitials(name: string): string {
-  return name.split(' ').map((n) => n[0]).join('').toUpperCase().slice(0, 2);
-}
+// Null-safe (review, batch 3): a group member with no account comes with name null, which crashed Leads → Groups.
+const getInitials = initialsOf;
 
 // Guest leads (photo submitted from a published page, no account) carry a
 // `user` block with name/email/phone but a null `id`. Malformed rows can
@@ -246,6 +246,9 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
   const [showClosed, setShowClosed] = useState(false);
   const [assignedFilter, setAssignedFilter] = useState<string>('all');
   const [tabCounts, setTabCounts] = useState<{ open: number; closed: number }>({ open: 0, closed: 0 });
+  // Which tab counts have loaded at least once: until then the tab shows no number (never a "0" that then jumps).
+  const [countsLoaded, setCountsLoaded] = useState({ leads: false, groups: false, conversations: false });
+  const markLoaded = (key: 'leads' | 'groups' | 'conversations') => setCountsLoaded((c) => (c[key] ? c : { ...c, [key]: true }));
   // Lead the parent wants opened (see the openLeadId effect below); read by fetchLeads.
   const openLeadIdRef = useRef<number | null>(null);
   openLeadIdRef.current = openLeadId ?? null;
@@ -588,7 +591,10 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
         setStatusCounts(res.data.status_counts ?? {});
         setMessagesTotal(res.data.messages_total ?? 0);
         setTotalPages(res.data.meta?.total_pages ?? 1);
-        if (res.data.tab_counts) setTabCounts(res.data.tab_counts);
+        if (res.data.tab_counts) {
+          setTabCounts(res.data.tab_counts);
+          markLoaded('leads');
+        }
         onLeadsRefreshed?.(freshLeads);
         const wanted = openLeadIdRef.current;
         if (wanted) {
@@ -631,7 +637,8 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
   const listsEnabled = plan.known && !plan.isStarter;
   const contactLists = useContactLists(listsEnabled);
   const listsRef = useRef<ListsTabHandle>(null);
-  const listCount = listsEnabled ? contactLists.lists?.length ?? 0 : 0;
+  // null until the lists have loaded (and always on Starter, where they can't be).
+  const listTabCount = listsEnabled && contactLists.lists ? contactLists.lists.length : null;
   // Refresh spins for the lists fetch only while Lists shows (the badge's background fetch stays quiet).
   const listsRefreshing = leadsView === 'lists' && contactLists.loading;
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -641,7 +648,10 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
     setIsLoadingConversations(true);
     try {
       const res = await leadsAPI.getMyConversations();
-      if (res.success && res.data) setConversations(res.data.conversations ?? []);
+      if (res.success && res.data) {
+        setConversations(res.data.conversations ?? []);
+        markLoaded('conversations');
+      }
     } catch {
       // silently ignore
     } finally {
@@ -670,6 +680,7 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
       if (res.success && res.data) {
         const data = res.data as LeadGroupSummary[] | { groups: LeadGroupSummary[] };
         setLeadGroups(Array.isArray(data) ? data : (data.groups ?? []));
+        markLoaded('groups');
       }
     } catch {
       // silently ignore — groups are supplementary
@@ -913,6 +924,14 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
   }
   const assigneeOptions = Array.from(assigneeOptionsRef.current.values()).sort((a, b) => (a.name ?? '').localeCompare(b.name ?? ''));
   const conversationsUnread = conversations.reduce((sum, c) => sum + (c.unread_count ?? 0), 0);
+  // Every tab in the Leads | Lists | Groups | My Conversations row shows its count as plain number text, no pill
+  // (Chris, 1 Nov). Leads = Open + Closed for the current search / "Assigned to" (as the Open / Closed counts below);
+  // Lists only once lists can be loaded (paid plans), so a Starter account never shows a made-up 0. No number at all
+  // until that tab's count has loaded (null).
+  const tabCount = (n: number | null) => (n === null ? null : (
+    // Under 400px a size smaller (12px) so the four tabs still fit 360px with three-digit counts and unread replies.
+    <span data-tab-count="" className="text-xs min-[400px]:text-sm font-medium tabular-nums text-gray-500">{n}</span>
+  ));
 
   // Summary cards scoped to the ACTIVE sub-tab only (Task M4 / product
   // decision): switching sub-tabs swaps the whole card row, it never mixes
@@ -976,45 +995,40 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
         threshold={pullToRefresh.threshold}
         className="md:hidden"
       />
-      {/* Sub-tab toggle (Leads / Lists / Groups / My Conversations) + Refresh on the far right.
+      {/* Sub-tab toggle (Leads / Lists / Groups / My Conversations, each with its count) + Refresh on the far right.
           Phones: tabs span the width; Leads Report / Refresh are gone (pull to refresh). */}
       <div className="flex flex-wrap items-center justify-between gap-3">
       <div className="flex w-full md:inline-flex md:w-auto items-center gap-0.5 md:gap-1 bg-gray-100 rounded-lg p-1">
         <button
           onClick={() => { setLeadsView('leads'); onGroupSelect?.(null); onConversationSelect?.(null); }}
-          className={`h-10 md:h-8 px-1 md:px-4 flex-auto md:flex-none rounded-md text-sm font-medium transition-colors ${leadsView === 'leads' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-700'}`}
+          className={`h-10 md:h-8 px-0.5 min-[400px]:px-1 md:px-4 flex-auto md:flex-none justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors flex items-center gap-0.5 min-[400px]:gap-1 md:gap-1.5 ${leadsView === 'leads' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-700'}`}
         >
           Leads
+          {tabCount(countsLoaded.leads ? tabCounts.open + tabCounts.closed : null)}
         </button>
         <button
           onClick={() => { setLeadsView('lists'); onGroupSelect?.(null); onLeadSelect(null); onConversationSelect?.(null); if (listsEnabled) void contactLists.reload(); }}
-          className={`h-10 md:h-8 px-1 md:px-4 flex-auto md:flex-none justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors flex items-center gap-1 md:gap-1.5 ${leadsView === 'lists' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-700'}`}
+          className={`h-10 md:h-8 px-0.5 min-[400px]:px-1 md:px-4 flex-auto md:flex-none justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors flex items-center gap-0.5 min-[400px]:gap-1 md:gap-1.5 ${leadsView === 'lists' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-700'}`}
         >
           Lists
-          {listCount > 0 && (
-            <span className="flex items-center justify-center min-w-[18px] md:min-w-[20px] h-5 px-0.5 md:px-1 rounded-full bg-[#6C60FF] text-white text-[12px] font-bold">
-              {listCount}
-            </span>
-          )}
+          {tabCount(listTabCount)}
         </button>
         <button
           onClick={() => { setLeadsView('groups'); onGroupSelect?.(null); onLeadSelect(null); onConversationSelect?.(null); }}
-          className={`h-10 md:h-8 px-1 md:px-4 flex-auto md:flex-none justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors flex items-center gap-1 md:gap-1.5 ${leadsView === 'groups' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-700'}`}
+          className={`h-10 md:h-8 px-0.5 min-[400px]:px-1 md:px-4 flex-auto md:flex-none justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors flex items-center gap-0.5 min-[400px]:gap-1 md:gap-1.5 ${leadsView === 'groups' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-700'}`}
         >
           Groups
-          {leadGroups.length > 0 && (
-            <span className="flex items-center justify-center min-w-[18px] md:min-w-[20px] h-5 px-0.5 md:px-1 rounded-full bg-[#6C60FF] text-white text-[12px] font-bold">
-              {leadGroups.length}
-            </span>
-          )}
+          {tabCount(countsLoaded.groups ? leadGroups.length : null)}
         </button>
         <button
           onClick={() => { setLeadsView('conversations'); onLeadSelect(null); onGroupSelect?.(null); onConversationSelect?.(null); fetchMyConversations(); }}
-          className={`h-10 md:h-8 px-1 md:px-4 flex-auto md:flex-none justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors flex items-center gap-1 md:gap-1.5 ${leadsView === 'conversations' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-700'}`}
+          className={`h-10 md:h-8 px-0.5 min-[400px]:px-1 md:px-4 flex-auto md:flex-none justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors flex items-center gap-0.5 min-[400px]:gap-1 md:gap-1.5 ${leadsView === 'conversations' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-700'}`}
         >
           {/* Phones under 400px read "Conversations" so the four tabs fit 360px with two-digit badges;
               "My " stays for screen readers. */}
           <span className="whitespace-nowrap"><span className="sr-only min-[400px]:not-sr-only">My{'\u00A0'}</span>Conversations</span>
+          {tabCount(countsLoaded.conversations ? conversations.length : null)}
+          {/* Unread replies keep their red alert badge (not a count of the tab's rows). */}
           {conversationsUnread > 0 && (
             <span className="flex items-center justify-center min-w-[18px] md:min-w-[20px] h-5 px-0.5 md:px-1 rounded-full bg-red-500 text-white text-[12px] font-bold">
               {conversationsUnread}
@@ -1660,8 +1674,8 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
                             <div className="flex items-center">
                               {(g.members ?? []).slice(0, 4).map((m, i) => (
                                 <Avatar key={m.lead_id} className={`h-8 w-8 border-2 border-white ${i > 0 ? '-ml-2' : ''}`}>
-                                  <AvatarImage src={m.profile_image ?? undefined} alt={m.name} />
-                                  <AvatarFallback className="bg-[#6C60FF] text-white text-[12px] font-medium">{getInitials(m.name)}</AvatarFallback>
+                                  <AvatarImage src={m.profile_image ?? undefined} alt={groupMemberName(m)} />
+                                  <AvatarFallback className="bg-[#6C60FF] text-white text-[12px] font-medium">{getInitials(groupMemberName(m))}</AvatarFallback>
                                 </Avatar>
                               ))}
                               {g.member_count > 4 && (
@@ -1707,8 +1721,8 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
                         <div className="flex items-center shrink-0">
                           {(g.members ?? []).slice(0, 3).map((m, i) => (
                             <Avatar key={m.lead_id} className={`h-7 w-7 border-2 border-white ${i > 0 ? '-ml-2' : ''}`}>
-                              <AvatarImage src={m.profile_image ?? undefined} alt={m.name} />
-                              <AvatarFallback className="bg-[#6C60FF] text-white text-[12px] font-medium">{getInitials(m.name)}</AvatarFallback>
+                              <AvatarImage src={m.profile_image ?? undefined} alt={groupMemberName(m)} />
+                              <AvatarFallback className="bg-[#6C60FF] text-white text-[12px] font-medium">{getInitials(groupMemberName(m))}</AvatarFallback>
                             </Avatar>
                           ))}
                           {g.member_count > 3 && (

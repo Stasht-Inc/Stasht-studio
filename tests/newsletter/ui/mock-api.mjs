@@ -255,7 +255,9 @@ export function createMockApi(options = {}) {
     plan: options.plan ?? 'Professional',
     nextId: 100,
     newsletters: options.newsletters ?? [],
-    brand: { header: { logo_url: null, banner_url: null, background_color: '#6C60FF', title: 'Serpa Chrysler' }, business_address: options.businessAddress ?? null },
+    // default_message: "Set as my default message" (batch 3). defaultMessageColumn: false = an API before
+    // docs/sql/2026-11-01-newsletter-default-message.sql ran (accepts the field, keeps nothing).
+    brand: { header: { logo_url: null, banner_url: null, background_color: '#6C60FF', title: 'Serpa Chrysler' }, business_address: options.businessAddress ?? null, default_message: options.defaultMessage ?? null },
     // ContactListController::summary: consent_type (null for lists made before consent was recorded) and created_at.
     lists: options.lists ?? [{ id: 9, name: 'Open house sign-ups', source: 'import', member_count: 212, email_count: 198, sms_count: 140, consent_type: 'express', created_at: '2026-10-02T15:00:00Z' }],
     // AudienceResolver's skipped counts on top of the defaults (consent_expired, unsupported_number, ...).
@@ -304,6 +306,8 @@ export function createMockApi(options = {}) {
     campaignBodies: [],
     // GET /newsletters/campaign-options answers after this many ms.
     optionsDelayMs: options.optionsDelayMs ?? 0,
+    // The Leads page's tab-count sources (/leads, /lead-groups, /my-conversations, /contact-lists) answer this late.
+    leadsDelayMs: options.leadsDelayMs ?? 0,
     // Results rows carry skip_reason / skip_note (Chris, 29 Oct round 2, item 6). Off by default.
     textSkips: options.textSkips ?? false,
     // Add / edit person answers a non-North-American mobile with the API's Canada/US message (item 8). Off by default.
@@ -659,8 +663,17 @@ export function createMockApi(options = {}) {
     }
     // LeadGroupsController::index answers {groups: [...]} with no success envelope.
     if (path === '/lead-groups' && method === 'GET') return { status: 200, json: { groups: state.groups } };
+    // LeadGroupsController::show (formatGroup with members): options.groupDetails[id], else the summary with no members.
+    const groupMatch = /^\/lead-groups\/(\d+)$/.exec(path);
+    if (groupMatch && method === 'GET') {
+      const id = Number(groupMatch[1]);
+      const detail = options.groupDetails?.[id] ?? { ...(state.groups.find((g) => g.id === id) ?? {}), members: [] };
+      return { status: 200, json: detail };
+    }
     // The Leads page (Lists tab checks): an empty inbox.
-    if (path === '/leads' && method === 'GET') return ok({ leads: [], total: 0, status_counts: {}, messages_total: 0, meta: { total_pages: 1 }, tab_counts: { open: 0, closed: 0 } });
+    // LeadsController@index answers with the payload itself (no success/data wrapper; LeadsTab reads it off the body).
+    // options.leadTabCounts: the Open / Closed counts (the Leads tab shows their sum).
+    if (path === '/leads' && method === 'GET') return { status: 200, json: { leads: [], total: 0, status_counts: {}, messages_total: 0, meta: { total_pages: 1 }, tab_counts: options.leadTabCounts ?? { open: 0, closed: 0 } } };
     if (path === '/leads/unread-count') return ok({ total_unread: 0, total_unread_messages: 0, total_unread_comments: 0 });
     // leadsAPI.getMyConversations reads {total, conversations} straight off the body (as LeadsTab uses it).
     if (path === '/my-conversations' && method === 'GET') return { status: 200, json: { total: state.conversations.length, conversations: state.conversations } };
@@ -703,6 +716,10 @@ export function createMockApi(options = {}) {
       if (method === 'PUT') {
         if (body && 'header' in body) state.brand.header = body.header;
         if (body && 'business_address' in body) state.brand.business_address = body.business_address;
+        if (body && 'default_message' in body && options.defaultMessageColumn !== false) {
+          const text = typeof body.default_message === 'string' ? body.default_message.trim() : '';
+          state.brand.default_message = text || null;
+        }
       }
       return ok(state.brand);
     }
@@ -933,6 +950,7 @@ export function createMockApi(options = {}) {
       if (state.uploadDelayMs) await new Promise((r) => setTimeout(r, state.uploadDelayMs));
     }
     if (path === '/newsletters/campaign-options' && state.optionsDelayMs) await new Promise((r) => setTimeout(r, state.optionsDelayMs));
+    if (state.leadsDelayMs && request.method() === 'GET' && ['/leads', '/lead-groups', '/my-conversations', '/contact-lists'].includes(path)) await new Promise((r) => setTimeout(r, state.leadsDelayMs));
     const answer = handle(request.method(), path, url.searchParams, body);
     call.status = answer.status;
     if (answer.raw !== undefined) return route.fulfill({ status: answer.status, headers: answer.headers, body: answer.raw });

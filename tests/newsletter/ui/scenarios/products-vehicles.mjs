@@ -1,6 +1,6 @@
 // Products and vehicles in the Campaigns section (shared brief 2026-10-29): Website Catalogue products and dealer
 // vehicles go into the newsletter without publishing; their cards open the item's own page on the business's site.
-// The picker has Campaigns | Products | Vehicles tabs (a tab only when the account has some), search, a category
+// The picker has Vehicles | Products | Campaigns tabs (a tab only when the account has some), search, a category
 // filter, picks kept across tabs (6 in all), and the preview cards show price, details and the right button.
 import { IMG, ROYALWOOD, createMockApi, newsletter, seedCampaigns, seedProducts, seedVehicles } from '../mock-api.mjs';
 
@@ -78,8 +78,10 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
     await page.getByRole('menuitem', { name: /^Campaign\b/ }).click();
     const picker = page.getByRole('dialog', { name: TITLE });
     const tabs = picker.getByRole('radiogroup', { name: 'Show' });
-    await expectVisible(picker.locator('#nl-campaign-campaign-601'), 'campaigns listed');
-    expect(await tabs.getByRole('radio', { name: 'Campaigns' }).isChecked(), 'opens on Campaigns when there are campaigns');
+    // Batch 3 (Chris, 1 Nov): Vehicles | Products | Campaigns, opening on the first with something in it.
+    await expectVisible(picker.locator('#nl-campaign-product-882'), 'products listed first');
+    expect(await tabs.getByRole('radio', { name: 'Products' }).isChecked(), 'opens on Products (before Campaigns) when there are products');
+    expect(JSON.stringify(await tabs.getByRole('radio').allTextContents()) === JSON.stringify(['Products', 'Campaigns']), `tab order Products | Campaigns (got ${JSON.stringify(await tabs.getByRole('radio').allTextContents())})`);
 
     await tabs.getByRole('radio', { name: 'Products' }).click();
     await expectVisible(picker.locator('#nl-campaign-product-882'), 'Products tab lists products');
@@ -134,7 +136,7 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
     await again.context.close();
   }
 
-  // ---- 3. A dealer: Campaigns | Vehicles, "View vehicle".
+  // ---- 3. A dealer: Vehicles | Campaigns, "View vehicle".
   {
     const api = createMockApi({ campaigns: seedCampaigns(3), vehicles: seedVehicles(), businessAddress: ADDRESS });
     const { page, context } = await open({ width: 1280, height: 1600, api });
@@ -145,6 +147,11 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
     const tabs = picker.getByRole('radiogroup', { name: 'Show' });
     await expectVisible(tabs.getByRole('radio', { name: 'Vehicles' }), 'Vehicles tab for a dealer');
     expect(!(await tabs.getByRole('radio', { name: 'Products' }).count()), 'no Products tab without products');
+    // Batch 3 (Chris, 1 Nov): "The vehicles are the most important": Vehicles first and chosen, even with campaigns.
+    await expectVisible(picker.locator('#nl-campaign-vehicle-45'), 'opens straight on the vehicles');
+    expect(await tabs.getByRole('radio', { name: 'Vehicles' }).isChecked(), 'Vehicles chosen by default');
+    expect(JSON.stringify(await tabs.getByRole('radio').allTextContents()) === JSON.stringify(['Vehicles', 'Campaigns']), `tab order Vehicles | Campaigns (got ${JSON.stringify(await tabs.getByRole('radio').allTextContents())})`);
+    await shot(page, '1280-03a-vehicles-first');
     await tabs.getByRole('radio', { name: 'Vehicles' }).click();
     await expectVisible(picker.locator('#nl-campaign-vehicle-45'), 'vehicles listed');
     await expectVisible(picker.getByText('2021 · 45,000 km · Automatic'), 'vehicle details on the row');

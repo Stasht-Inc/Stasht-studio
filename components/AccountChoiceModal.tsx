@@ -8,7 +8,7 @@ import { useProperty } from '../contexts/PropertyContext';
 import { switchDataForPropertyAccount, switchDataIsStale } from '../utils/propertyAccountSwitch';
 import { findPropertyRow, needsFullPropertyRow, opensAsFullAccount, propertyRowActions } from '../utils/propertyRows';
 import { propertyAvatarImage } from '../utils/propertyImage';
-import { groupPropertyAccounts, isOwnExternalProperty } from '../utils/salespersonLanding';
+import { externalRowAvatar, groupPropertyAccounts, isOwnExternalProperty, propertyAccountGroups } from '../utils/salespersonLanding';
 
 // Collaborator type for admin access
 export interface AdminCollaborator {
@@ -337,6 +337,7 @@ export function AccountChoiceModal({
   const [selectedAdminOwnerId, setSelectedAdminOwnerId] = useState<string | null>(null);
   const [isAdminSectionExpanded, setIsAdminSectionExpanded] = useState(false);
   const [isPropertiesSectionExpanded, setIsPropertiesSectionExpanded] = useState(false);
+  const [isExternalSectionExpanded, setIsExternalSectionExpanded] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   // One property-account switch at a time (a second click before the first answers would race it).
   const propertySwitchInFlight = useRef(false);
@@ -411,6 +412,159 @@ export function AccountChoiceModal({
 
     return name.includes(query) || location.includes(query);
   });
+
+  // One row of the chooser's Properties card (the account's own properties).
+  const renderOwnedPropertyRow = (property: any, index: number) => {
+    const propertyName = property.name || `Property ${index + 1}`;
+    const propertyLocation = property.location || '';
+    const isCurrentLoading = loadingType === `property_${property.id}`;
+    // The property's own image first; without one, the inviter's logo when a different
+    // user invited the logged-in user (external_user_id mismatch), then the icon
+    // (utils/propertyImage).
+    const invitedBy = property.invited_by;
+    const showInvitedBy = !!invitedBy &&
+      String(personalUser?.external_user_id ?? '') !== String(invitedBy.external_user_id ?? '');
+    const avatarImage = propertyAvatarImage(property, personalUser).image;
+
+    return (
+      <button
+        key={property.id || index}
+        onClick={() => {
+          // Create a fake admin collaborator object for owned property
+          const fakeCollab = {
+            owner_id: `property_${property.id}`,
+            owner_name: propertyName,
+            location: propertyLocation,
+            properties: [property]
+          };
+          handleLoginAsAdmin(fakeCollab as any);
+        }}
+        disabled={isLoading}
+        className="w-full p-3 hover:bg-white transition-all duration-200 text-left disabled:opacity-50 disabled:cursor-not-allowed border-b border-gray-200 last:border-b-0"
+      >
+        <div className="flex items-center gap-3">
+          {avatarImage ? (
+            <Avatar className="w-10 h-10 flex-shrink-0">
+              <AvatarImage
+                src={avatarImage}
+                alt={propertyName}
+                className="object-cover"
+              />
+              <AvatarFallback className="bg-gradient-to-br from-purple-500 to-pink-500">
+                <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                </svg>
+              </AvatarFallback>
+            </Avatar>
+          ) : (
+            <div className="w-10 h-10 bg-gradient-to-br from-purple-500 to-pink-500 rounded-full flex items-center justify-center flex-shrink-0">
+              <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+              </svg>
+            </div>
+          )}
+          <div className="flex-1 min-w-0">
+            <h3 className="text-sm font-medium text-gray-900 truncate">
+              {propertyName}
+            </h3>
+            {propertyLocation && (
+              <p className="text-xs text-gray-400 truncate mt-0.5">
+                {propertyLocation}
+              </p>
+            )}
+            {showInvitedBy && invitedBy?.name && (
+              <p className="text-xs text-gray-500 truncate mt-0.5">
+                {invitedBy.name}
+              </p>
+            )}
+          </div>
+          {isCurrentLoading && (
+            <Loader2 className="w-4 h-4 text-purple-600 animate-spin flex-shrink-0" />
+          )}
+        </div>
+      </button>
+    );
+  };
+
+  // One row of the External card (external accounts; a salesperson's own External account first).
+  const renderSharedPropertyRow = (property: any, index: number) => {
+    const propertyName = property.name || `Property ${index + 1}`;
+    const propertyLocation = property.location || '';
+    const isCurrentLoading = loadingType === `property_${property.id}`;
+    const deactivatedNote = propertyRowActions(property).view.note;
+    // The salesperson's own External account represents the main account: its logo (unless the
+    // property has an image of its own) and its name, as in the header (utils/propertyImage).
+    const ownExternal = isOwnExternalProperty(property, personalUser);
+    const ownExternalLook = ownExternal ? propertyAvatarImage(property, personalUser) : null;
+    // The Users page rule (property image, then the account's own image), then the main account's logo for the
+    // salesperson's own External row (utils/salespersonLanding externalRowAvatar).
+    const sharedAvatar = externalRowAvatar(property, personalUser);
+    const representing = ownExternalLook?.invitedBy
+      && String(personalUser?.external_user_id ?? '') !== String(ownExternalLook.invitedBy.external_user_id ?? '')
+      ? ownExternalLook.invitedBy : null;
+
+    return (
+      <button
+        key={property.id || index}
+        onClick={() => {
+          // Create a fake admin collaborator object for shared property
+          const fakeCollab = {
+            owner_id: `property_${property.id}`,
+            owner_name: propertyName,
+            location: propertyLocation,
+            properties: [property]
+          };
+          handleSharedPropertyClick(property, () => handleLoginAsAdmin(fakeCollab as any));
+        }}
+        disabled={isLoading || !!deactivatedNote}
+        className="w-full p-3 hover:bg-white transition-all duration-200 text-left disabled:opacity-50 disabled:cursor-not-allowed border-b border-gray-200 last:border-b-0"
+      >
+        <div className="flex items-center gap-3">
+          {sharedAvatar ? (
+            <Avatar className="w-10 h-10 flex-shrink-0">
+              <AvatarImage
+                src={sharedAvatar}
+                alt={propertyName}
+                className="object-cover"
+              />
+              <AvatarFallback className="bg-gradient-to-br from-blue-500 to-cyan-500">
+                <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                </svg>
+              </AvatarFallback>
+            </Avatar>
+          ) : (
+            <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-cyan-500 rounded-full flex items-center justify-center flex-shrink-0">
+              <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+              </svg>
+            </div>
+          )}
+          <div className="flex-1 min-w-0">
+            <h3 className="text-sm font-medium text-gray-900 truncate">
+              {propertyName}
+            </h3>
+            {propertyLocation && (
+              <p className="text-xs text-gray-400 truncate mt-0.5">
+                {propertyLocation}
+              </p>
+            )}
+            {representing?.name && (
+              <p className="text-xs text-gray-500 truncate mt-0.5">
+                {representing.name}
+              </p>
+            )}
+          </div>
+          {deactivatedNote && (
+            <span className="text-xs text-gray-500 flex-shrink-0">{deactivatedNote}</span>
+          )}
+          {isCurrentLoading && (
+            <Loader2 className="w-4 h-4 text-blue-600 animate-spin flex-shrink-0" />
+          )}
+        </div>
+      </button>
+    );
+  };
 
   const showSearchBar = adminCollaborators.length > 6;
 
@@ -986,31 +1140,33 @@ export function AccountChoiceModal({
               </div>
               )}
 
-              {/* Properties Section - Collapsible */}
-              {totalPropertiesCount > 0 ? (
-                <>
-                  {console.log('🔍 Rendering Properties Section with', totalPropertiesCount, 'properties')}
-                  <div className="border-2 border-gray-200 rounded-xl overflow-hidden">
-                  {/* Properties Header */}
+              {/* Properties and External: two collapsible cards, each only when it has rows (Chris, 1 Nov 2026: "INTERNAL"
+                  reads "PROPERTIES"; was one "Properties (N) · n internal, n external" card). */}
+              {propertyAccountGroups({ owned: ownedPropertyAccounts, shared: sharedPropertyAccounts }).map((group) => {
+                const isProperties = group.key === 'properties';
+                const expanded = isProperties ? isPropertiesSectionExpanded : isExternalSectionExpanded;
+                const setExpanded = isProperties ? setIsPropertiesSectionExpanded : setIsExternalSectionExpanded;
+                const rows = isProperties ? filteredOwnedProperties : filteredSharedProperties;
+                return (
+                  <div key={group.key} className="border-2 border-gray-200 rounded-xl overflow-hidden" data-testid={`chooser-${group.key}-section`}>
+                  {/* Header */}
                   <button
-                    onClick={() => setIsPropertiesSectionExpanded(!isPropertiesSectionExpanded)}
+                    onClick={() => setExpanded(!expanded)}
                     disabled={isLoading}
+                    aria-expanded={expanded}
                     className="w-full p-4 hover:bg-gray-50 transition-all duration-200 text-left disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     <div className="flex items-center gap-4">
                       <div className="w-12 h-12 bg-gradient-to-br from-purple-500 to-pink-500 rounded-full flex items-center justify-center flex-shrink-0">
-                        <span className="text-white font-bold text-sm">{totalPropertiesCount}</span>
+                        <span className="text-white font-bold text-sm">{group.rows.length}</span>
                       </div>
                       <div className="flex-1 min-w-0">
                         <h3 className="text-sm font-semibold text-gray-900">
-                          Properties ({totalPropertiesCount})
+                          {group.label} ({group.rows.length})
                         </h3>
-                        <p className="text-xs text-gray-500 mt-0.5">
-                          {ownedPropertyAccounts.length} internal, {sharedPropertyAccounts.length} external
-                        </p>
                       </div>
                       <svg
-                        className={`w-5 h-5 text-gray-400 transition-transform duration-200 flex-shrink-0 ${isPropertiesSectionExpanded ? 'rotate-180' : ''}`}
+                        className={`w-5 h-5 text-gray-400 transition-transform duration-200 flex-shrink-0 ${expanded ? 'rotate-180' : ''}`}
                         fill="none"
                         stroke="currentColor"
                         viewBox="0 0 24 24"
@@ -1020,194 +1176,22 @@ export function AccountChoiceModal({
                     </div>
                   </button>
 
-                  {/* Expanded Properties List */}
-                  {isPropertiesSectionExpanded && (
+                  {/* Expanded list */}
+                  {expanded && (
                     <div className="border-t border-gray-200 bg-gray-50">
-                      {/* Properties List - Scrollable */}
                       <div className="max-h-[300px] overflow-y-auto">
-                        {/* Owned Properties */}
-                        {filteredOwnedProperties.length > 0 && (
-                          <>
-                            <div className="px-4 py-2 bg-purple-50 border-b border-gray-200">
-                              <div className="text-xs font-semibold text-purple-700 uppercase tracking-wide">
-                                Internal ({filteredOwnedProperties.length})
-                              </div>
-                            </div>
-                            {filteredOwnedProperties.map((property, index) => {
-                              const propertyName = property.name || `Property ${index + 1}`;
-                              const propertyLocation = property.location || '';
-                              const isCurrentLoading = loadingType === `property_${property.id}`;
-                              // The property's own image first; without one, the inviter's logo when a different
-                              // user invited the logged-in user (external_user_id mismatch), then the icon
-                              // (utils/propertyImage).
-                              const invitedBy = property.invited_by;
-                              const showInvitedBy = !!invitedBy &&
-                                String(personalUser?.external_user_id ?? '') !== String(invitedBy.external_user_id ?? '');
-                              const avatarImage = propertyAvatarImage(property, personalUser).image;
-
-                              return (
-                                <button
-                                  key={property.id || index}
-                                  onClick={() => {
-                                    // Create a fake admin collaborator object for owned property
-                                    const fakeCollab = {
-                                      owner_id: `property_${property.id}`,
-                                      owner_name: propertyName,
-                                      location: propertyLocation,
-                                      properties: [property]
-                                    };
-                                    handleLoginAsAdmin(fakeCollab as any);
-                                  }}
-                                  disabled={isLoading}
-                                  className="w-full p-3 hover:bg-white transition-all duration-200 text-left disabled:opacity-50 disabled:cursor-not-allowed border-b border-gray-200 last:border-b-0"
-                                >
-                                  <div className="flex items-center gap-3">
-                                    {avatarImage ? (
-                                      <Avatar className="w-10 h-10 flex-shrink-0">
-                                        <AvatarImage
-                                          src={avatarImage}
-                                          alt={propertyName}
-                                          className="object-cover"
-                                        />
-                                        <AvatarFallback className="bg-gradient-to-br from-purple-500 to-pink-500">
-                                          <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
-                                          </svg>
-                                        </AvatarFallback>
-                                      </Avatar>
-                                    ) : (
-                                      <div className="w-10 h-10 bg-gradient-to-br from-purple-500 to-pink-500 rounded-full flex items-center justify-center flex-shrink-0">
-                                        <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
-                                        </svg>
-                                      </div>
-                                    )}
-                                    <div className="flex-1 min-w-0">
-                                      <h3 className="text-sm font-medium text-gray-900 truncate">
-                                        {propertyName}
-                                      </h3>
-                                      {propertyLocation && (
-                                        <p className="text-xs text-gray-400 truncate mt-0.5">
-                                          {propertyLocation}
-                                        </p>
-                                      )}
-                                      {showInvitedBy && invitedBy?.name && (
-                                        <p className="text-xs text-gray-500 truncate mt-0.5">
-                                          {invitedBy.name}
-                                        </p>
-                                      )}
-                                    </div>
-                                    {isCurrentLoading && (
-                                      <Loader2 className="w-4 h-4 text-purple-600 animate-spin flex-shrink-0" />
-                                    )}
-                                  </div>
-                                </button>
-                              );
-                            })}
-                          </>
-                        )}
-
-                        {/* Shared Properties */}
-                        {filteredSharedProperties.length > 0 && (
-                          <>
-                            <div className="px-4 py-2 bg-blue-50 border-b border-gray-200">
-                              <div className="text-xs font-semibold text-blue-700 uppercase tracking-wide">
-                                External ({filteredSharedProperties.length})
-                              </div>
-                            </div>
-                            {filteredSharedProperties.map((property, index) => {
-                              const propertyName = property.name || `Property ${index + 1}`;
-                              const propertyLocation = property.location || '';
-                              const isCurrentLoading = loadingType === `property_${property.id}`;
-                              const deactivatedNote = propertyRowActions(property).view.note;
-                              // The salesperson's own External account represents the main account: its logo (unless the
-                              // property has an image of its own) and its name, as in the header (utils/propertyImage).
-                              const ownExternal = isOwnExternalProperty(property, personalUser);
-                              const ownExternalLook = ownExternal ? propertyAvatarImage(property, personalUser) : null;
-                              const sharedAvatar = ownExternalLook ? ownExternalLook.image : property.image;
-                              const representing = ownExternalLook?.invitedBy
-                                && String(personalUser?.external_user_id ?? '') !== String(ownExternalLook.invitedBy.external_user_id ?? '')
-                                ? ownExternalLook.invitedBy : null;
-
-                              return (
-                                <button
-                                  key={property.id || index}
-                                  onClick={() => {
-                                    // Create a fake admin collaborator object for shared property
-                                    const fakeCollab = {
-                                      owner_id: `property_${property.id}`,
-                                      owner_name: propertyName,
-                                      location: propertyLocation,
-                                      properties: [property]
-                                    };
-                                    handleSharedPropertyClick(property, () => handleLoginAsAdmin(fakeCollab as any));
-                                  }}
-                                  disabled={isLoading || !!deactivatedNote}
-                                  className="w-full p-3 hover:bg-white transition-all duration-200 text-left disabled:opacity-50 disabled:cursor-not-allowed border-b border-gray-200 last:border-b-0"
-                                >
-                                  <div className="flex items-center gap-3">
-                                    {sharedAvatar ? (
-                                      <Avatar className="w-10 h-10 flex-shrink-0">
-                                        <AvatarImage
-                                          src={sharedAvatar}
-                                          alt={propertyName}
-                                          className="object-cover"
-                                        />
-                                        <AvatarFallback className="bg-gradient-to-br from-blue-500 to-cyan-500">
-                                          <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
-                                          </svg>
-                                        </AvatarFallback>
-                                      </Avatar>
-                                    ) : (
-                                      <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-cyan-500 rounded-full flex items-center justify-center flex-shrink-0">
-                                        <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
-                                        </svg>
-                                      </div>
-                                    )}
-                                    <div className="flex-1 min-w-0">
-                                      <h3 className="text-sm font-medium text-gray-900 truncate">
-                                        {propertyName}
-                                      </h3>
-                                      {propertyLocation && (
-                                        <p className="text-xs text-gray-400 truncate mt-0.5">
-                                          {propertyLocation}
-                                        </p>
-                                      )}
-                                      {representing?.name && (
-                                        <p className="text-xs text-gray-500 truncate mt-0.5">
-                                          {representing.name}
-                                        </p>
-                                      )}
-                                    </div>
-                                    {deactivatedNote && (
-                                      <span className="text-xs text-gray-500 flex-shrink-0">{deactivatedNote}</span>
-                                    )}
-                                    {isCurrentLoading && (
-                                      <Loader2 className="w-4 h-4 text-blue-600 animate-spin flex-shrink-0" />
-                                    )}
-                                  </div>
-                                </button>
-                              );
-                            })}
-                          </>
-                        )}
-
-                        {/* No properties found */}
-                        {filteredOwnedProperties.length === 0 && filteredSharedProperties.length === 0 && (
+                        {rows.map((property: any, index: number) => (isProperties ? renderOwnedPropertyRow(property, index) : renderSharedPropertyRow(property, index)))}
+                        {rows.length === 0 && (
                           <div className="p-6 text-center text-gray-500 text-sm">
-                            No properties found
+                            {isProperties ? 'No properties found' : 'No external accounts found'}
                           </div>
                         )}
                       </div>
                     </div>
                   )}
-                </div>
-                </>
-              ) : (
-                console.log('🔍 Properties Section NOT rendering - totalPropertiesCount:', totalPropertiesCount)
-              )}
+                  </div>
+                );
+              })}
             </div>
 
             {/* Info note */}

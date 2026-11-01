@@ -19,7 +19,8 @@ import { aiCreditsAPI } from '../services/aiCreditsAPI';
 import { mediaAPI } from '../services/mediaAPI';
 import { useAuth } from '../contexts/AuthContext';
 import { useProperty } from '../contexts/PropertyContext';
-import { allPropertyRows, carOwnerAuthor, resolvePendingPropertySwitch } from '../utils/salespersonLanding';
+import { allPropertyRows, carOwnerAuthor, inventoryOwnerAuthor, resolvePendingPropertySwitch } from '../utils/salespersonLanding';
+import { planCoveredBy } from '../utils/effectivePlan';
 import { useMemoryLimit, recheckMemoryLimit } from '../hooks/useMemoryLimit';
 import { Avatar, AvatarFallback, AvatarImage } from "../components/ui/avatar";
 import EmptyMemoriesState from "../components/EmptyMemoriesState";
@@ -350,6 +351,12 @@ function MemoriesPageContent({
         const trialEnded = owned.some(p => p.trial_ended === true);
         if (isStarterPlan && (isMainAccountWithProperties || trialEnded)) {
           setShowTrialEndedModal(true);
+        }
+        // Covered by its main account (a salesperson): no trial warnings or upgrade nudges, the main account's plan
+        // applies (utils/effectivePlan; Deepak, 1 Nov 2026).
+        if (planCoveredBy(storageOverview)) {
+          setTrialExpiringProperties([]);
+          return;
         }
 
         // Warn for trials expiring within 7 days (not yet ended)
@@ -852,7 +859,9 @@ function MemoriesPageContent({
   // `isCatalogItem` gets every read-only treatment `isCars` gets below (no dates, edit mode or
   // add-media; always shown regardless of the sidebar's expanded categories).
   const catalogueCards = useMemo(() => {
-    return catalogueList.map((item) => ({
+    return catalogueList.map((item) => {
+      const owner = inventoryOwnerAuthor(item);
+      return {
       id: `catalog:${item.id}`,
       catalogItemId: item.id,
       title: item.title,
@@ -866,7 +875,11 @@ function MemoriesPageContent({
       last_update_img: item.main_image,
       isCatalogItem: true,
       isShared: false,
-    }));
+      // The main account's product seen by its salesperson names its owner, like cars (Chris, 1 Nov 2026); own
+      // products keep the signed-in account as their author.
+      ...(owner ? { author: owner, authorIsSomeoneElse: true } : {}),
+      };
+    });
   }, [catalogueList]);
 
   // Shopify cards aren't real memory records, so the backend memory-counts total never
@@ -2740,7 +2753,10 @@ function MemoriesPageContent({
             {/* Sticky wrapper — contains header row + edit action bar so both stick together */}
             <div className={`sticky top-20 bg-white z-10${isEditMode ? ' pb-[6px]' : ''}`}>
             {/* Header */}
-               <div className="flex sm:flex-row items-center sm:items-center justify-between gap-3 sm:gap-0 py-4 px-0 lg:px-4">
+               {/* Wraps (review, batch 3): beside App's two sidebars at 1280 px the buttons ran past the right edge
+                   ("Create a Campaign" cut off); now they move under the title when they don't fit. One row as before
+                   wherever they fit. */}
+               <div className="flex flex-wrap sm:flex-row items-center sm:items-center justify-between gap-3 sm:gap-x-0 sm:gap-y-3 py-4 px-0 lg:px-4">
                 {/* Mobile: Icon + Title */}
                 <div className="md:hidden flex items-center gap-3 flex-1">
                   {/* Mobile Menu Icon - Only show on mobile and when sidebar is not visible */}
@@ -2764,12 +2780,12 @@ function MemoriesPageContent({
                 </div>
 
                 {/* Desktop: Title only */}
-                <div className="hidden md:block">
+                <div className="hidden md:block shrink-0 whitespace-nowrap">
                   <h2 className="text-xl font-bold text-gray-900">All Campaigns</h2>
                   <p className="text-gray-600 mt-1">{filteredMemoriesCount} campaigns found</p>
                 </div>
 
-                <div className="flex items-center gap-2 md:gap-3 md:w-auto">
+                <div className="flex flex-wrap items-center justify-end gap-2 md:gap-3 md:w-auto md:ml-auto">
                   {/* AI Campaign Wizard Button */}
                   {isPropertyOwner && <Button
                     variant="outline"
