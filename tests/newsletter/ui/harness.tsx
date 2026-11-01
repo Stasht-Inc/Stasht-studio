@@ -159,7 +159,16 @@ function CampaignsHarness() {
 }
 
 // The Leads page as App mounts it (under App's 80 px top bar), for the Lists tab checks.
+// ?appSidebars=1: in App's main column beside its expanded sidebar (main's md:ml-[21.5rem], no side padding), as
+// Studio shows the Leads page: about 940 px at a 1280 px window, so the group drawer (30%) is about 280 px (batch 3).
 function LeadsHarness() {
+  if (params.get('appSidebars') === '1') {
+    return (
+      <div className="min-h-screen bg-white pt-20">
+        <div className="mx-4 md:mx-0 md:ml-[21.5rem]"><LeadsPage /></div>
+      </div>
+    );
+  }
   return (
     <div className="min-h-screen bg-white px-2 pt-20 md:px-6">
       <LeadsPage />

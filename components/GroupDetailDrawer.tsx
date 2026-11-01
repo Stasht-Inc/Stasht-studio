@@ -510,7 +510,9 @@ export default function GroupDetailDrawer({ groupId, open, onClose }: Props) {
             onChange={handleFilesSelected}
           />
 
-          <div className="flex items-center gap-2 mt-2">
+          {/* Wraps (review, batch 3): in a narrow drawer (about 280 px at 1280 beside App's sidebar) "Send to N" was
+              squeezed onto two lines and pushed past the card's edge; now it drops to its own row, right-aligned. */}
+          <div className="flex flex-wrap items-center gap-2 mt-2">
             <button
               onClick={() => fileInputRef.current?.click()}
               disabled={!group}
@@ -631,7 +633,7 @@ export default function GroupDetailDrawer({ groupId, open, onClose }: Props) {
             <button
               onClick={handleSend}
               disabled={!group || !canSend || isSending}
-              className="ml-auto flex items-center gap-2 h-10 px-5 rounded-xl bg-[#6C60FF] hover:bg-[#5A4FE5] text-white text-sm font-medium disabled:opacity-50 transition-colors"
+              className="ml-auto flex shrink-0 items-center gap-2 h-10 px-5 rounded-xl bg-[#6C60FF] hover:bg-[#5A4FE5] text-white text-sm font-medium whitespace-nowrap disabled:opacity-50 transition-colors"
             >
               <Send className="w-4 h-4" />
               {isSending ? 'Sending...' : `Send to ${reachableCount}`}
