@@ -18,6 +18,7 @@ import {
   resolvePendingPropertySwitch,
   cachedPropertyViewIsOwnAccount,
   inventoryItemIsReadOnly,
+  carOwnerAuthor,
 } from '../../utils/salespersonLanding.ts';
 
 // Bon Sun: users.id 120, stash (external_user_id) 966. Property 96 was made for him by Serpa (stash 889).
@@ -203,4 +204,23 @@ test('a media item is read-only when it says so, or when it is a photo of a read
   assert.equal(mediaItemIsReadOnly({ id: '14', car_id: 9 }, linked, bon), false, 'only car entries count');
   assert.equal(mediaItemIsReadOnly({ id: '15', car_id: 501 }, undefined, bon), false, 'no linked list: unchanged');
   assert.equal(mediaItemIsReadOnly(null, linked, bon), false);
+});
+
+test("a read-only car's card names its owner (the API's owner block), never the signed-in salesperson", () => {
+  const serpaCar = { id: 501, user_id: 889, read_only: true, owner: { id: 889, name: 'Serpa Chrysler', profile_image: 'https://cdn.test/serpa.png', profile_color: '1d4ed8' } };
+  assert.deepEqual(carOwnerAuthor(serpaCar), { name: 'Serpa Chrysler', avatar: 'https://cdn.test/serpa.png', profile_color: '1d4ed8' });
+  // No photo or colour: the name alone (the card shows the initial, never Bon's photo).
+  assert.deepEqual(carOwnerAuthor({ ...serpaCar, owner: { id: 889, name: 'Serpa Chrysler', profile_image: null, profile_color: null } }),
+    { name: 'Serpa Chrysler', avatar: '', profile_color: '' });
+  assert.deepEqual(carOwnerAuthor({ ...serpaCar, owner: { id: 889, name: 'Serpa Chrysler', profile_image: 'null' } }).avatar, '');
+  // No name: an empty author (no author line) rather than the signed-in account.
+  assert.deepEqual(carOwnerAuthor({ ...serpaCar, owner: { id: 889, name: null } }), { name: '', avatar: '', profile_color: '' });
+});
+
+test('own cars, and read-only rows from an API without the owner block, keep today\'s author', () => {
+  assert.equal(carOwnerAuthor({ id: 7, user_id: 966, read_only: false }), null);
+  assert.equal(carOwnerAuthor({ id: 7, user_id: 966, read_only: false, owner: { name: 'Bon Sun' } }), null);
+  assert.equal(carOwnerAuthor({ id: 7, user_id: 966 }), null);
+  assert.equal(carOwnerAuthor({ id: 501, user_id: 889, read_only: true }), null);
+  assert.equal(carOwnerAuthor(null), null);
 });

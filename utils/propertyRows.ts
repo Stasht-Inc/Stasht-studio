@@ -167,3 +167,42 @@ export function findPropertyRow(response: any, id: unknown): any | null {
   }
   return null;
 }
+
+/** Users page tab for a property row: 'external' (account_type external — salespeople and other external accounts)
+ * or 'properties' (internal properties, and older rows without account_type, which were never treated as external). */
+export function propertyTab(row: PropertyRow): 'external' | 'properties' {
+  return isExternalProperty(row) ? 'external' : 'properties';
+}
+
+/** The rows of one Users page tab. `apiRowOf` picks the API row out of a page row (UsersPage keeps it in apiRow). */
+export function rowsForPropertyTab<T>(
+  rows: T[] | null | undefined,
+  tab: 'external' | 'properties',
+  apiRowOf: (row: T) => PropertyRow = (row) => row as unknown as PropertyRow,
+): T[] {
+  return (Array.isArray(rows) ? rows : []).filter((row) => propertyTab(apiRowOf(row)) === tab);
+}
+
+/** Edit Property: shown when the API would accept the change — the viewer's own property (its user_id is their stash
+ * id, which the API allows even though can_manage is false for an external property's own account), or can_manage
+ * (missing on an older API: shown, as before, the API decides) except on someone else's external property whose
+ * account was not made for it (a linked account: the main account may unlink it, not rename / re-image it). Hidden on
+ * rep / viewer rows. */
+export function canEditProperty(row: PropertyRow, viewer: unknown): boolean {
+  if (!row) return false;
+  const v = viewer as { external_user_id?: unknown; id?: unknown } | null | undefined;
+  const me = v?.external_user_id ?? v?.id;
+  const ownerId = row.user_id;
+  const own = me !== null && me !== undefined && ownerId !== null && ownerId !== undefined
+    && String(me).trim() !== '' && String(ownerId).trim() === String(me).trim();
+  if (own) return true;
+  if (isExternalProperty(row) && flag(row.account_created_for_property) !== true) return false;
+  if (flag(row.can_manage) !== false) return true;
+  return flag(row.is_creator) === true;
+}
+
+/** The Users page tab a Leads report opened from a property row goes back to: 'external' when it was opened from the
+ * External tab, else 'properties'. */
+export function usersTabForReport(from: unknown): 'external' | 'properties' {
+  return from === 'external' ? 'external' : 'properties';
+}

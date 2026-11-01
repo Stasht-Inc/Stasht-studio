@@ -21,6 +21,9 @@ interface PropertyContextType {
   currentProperty: Property | null;
   switchToProperty: (property: Property) => void;
   switchToPersonal: () => void;
+  // Merges fields into the property being viewed (e.g. its new image after the avatar camera upload); the header,
+  // dropdown and stored selected_property follow. No-op when no property is open or the id differs.
+  updateCurrentProperty: (propertyId: number | string, patch: Partial<Property>) => void;
   isPendingPropertySwitch: boolean;
   // Drops localStorage 'pending_property_switch' and stops waiting for it (stay in the account view).
   cancelPendingPropertySwitch: () => void;
@@ -89,6 +92,12 @@ export function PropertyProvider({ children }: { children: ReactNode }) {
     setCurrentProperty(null);
   };
 
+  const updateCurrentProperty = (propertyId: number | string, patch: Partial<Property>) => {
+    setCurrentProperty((current) =>
+      current && String(current.id) === String(propertyId) ? { ...current, ...patch } : current,
+    );
+  };
+
   const cancelPendingPropertySwitch = () => {
     localStorage.removeItem('pending_property_switch');
     setIsPendingPropertySwitch(false);
@@ -124,6 +133,7 @@ export function PropertyProvider({ children }: { children: ReactNode }) {
         currentProperty,
         switchToProperty,
         switchToPersonal,
+        updateCurrentProperty,
         isPendingPropertySwitch,
         cancelPendingPropertySwitch,
       }}

@@ -335,9 +335,10 @@ export function StripePaymentForm({
 
   return (
     <>
-      {/* Backdrop */}
+      {/* Backdrop. z-[70]: above the property cart modal (z-[60], still open under it during the $2 checkout) and the
+          phone bottom nav (z-50). */}
       <div
-        className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
+        className="fixed inset-0 bg-black/50 z-[70] flex items-center justify-center p-4"
         onClick={onClose}
       >
         {/* Modal */}

@@ -8,6 +8,7 @@ import { useProperty } from '../contexts/PropertyContext';
 import { switchDataForPropertyAccount, switchDataIsStale } from '../utils/propertyAccountSwitch';
 import { findPropertyRow, needsFullPropertyRow, opensAsFullAccount, propertyRowActions } from '../utils/propertyRows';
 import { visiblePropertyLists } from '../utils/salespersonLanding';
+import { propertyAvatarImage } from '../utils/propertyImage';
 
 // Collaborator type for admin access
 export interface AdminCollaborator {
@@ -1037,15 +1038,13 @@ export function AccountChoiceModal({
                               const propertyName = property.name || `Property ${index + 1}`;
                               const propertyLocation = property.location || '';
                               const isCurrentLoading = loadingType === `property_${property.id}`;
-                              // When a different user invited the logged-in user to this property
-                              // (external_user_id mismatch), use the inviter's logo as the property
-                              // avatar. Otherwise fall back to the property image, then the icon.
+                              // The property's own image first; without one, the inviter's logo when a different
+                              // user invited the logged-in user (external_user_id mismatch), then the icon
+                              // (utils/propertyImage).
                               const invitedBy = property.invited_by;
                               const showInvitedBy = !!invitedBy &&
                                 String(personalUser?.external_user_id ?? '') !== String(invitedBy.external_user_id ?? '');
-                              const avatarImage = (showInvitedBy && invitedBy?.profile_image)
-                                ? invitedBy.profile_image
-                                : property.image;
+                              const avatarImage = propertyAvatarImage(property, personalUser).image;
 
                               return (
                                 <button
