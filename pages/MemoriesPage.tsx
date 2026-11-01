@@ -19,7 +19,7 @@ import { aiCreditsAPI } from '../services/aiCreditsAPI';
 import { mediaAPI } from '../services/mediaAPI';
 import { useAuth } from '../contexts/AuthContext';
 import { useProperty } from '../contexts/PropertyContext';
-import { allPropertyRows, resolvePendingPropertySwitch, signedInUserOr } from '../utils/salespersonLanding';
+import { allPropertyRows, carOwnerAuthor, resolvePendingPropertySwitch, signedInUserOr } from '../utils/salespersonLanding';
 import { useMemoryLimit, recheckMemoryLimit } from '../hooks/useMemoryLimit';
 import { Avatar, AvatarFallback, AvatarImage } from "../components/ui/avatar";
 import EmptyMemoriesState from "../components/EmptyMemoriesState";
@@ -807,6 +807,7 @@ function MemoriesPageContent({
   // `isCars` marks it read-only, same role `isShopify` plays for Shopify cards.
   const carsCards = useMemo(() => {
     return carsList.map((car: any) => {
+      const owner = carOwnerAuthor(car);
       const categoryName = car?.category ? String(car.category).replace(/\b\w/g, (c: string) => c.toUpperCase()) : 'Other';
       const priceNum = typeof car?.price === 'string' ? parseFloat(car.price) : car?.price;
       // Shown as the card's label chip (same slot a memory's sub_category/label uses).
@@ -827,6 +828,9 @@ function MemoriesPageContent({
         isCars: true,
         isShared: false,
         listingUrl: car?.listing_url || null,
+        // Someone else's car (the main account's, seen by its salesperson) names its owner; own cars keep the
+        // signed-in account as their author, as before (utils/salespersonLanding carOwnerAuthor).
+        ...(owner ? { author: owner, authorIsSomeoneElse: true } : {}),
       };
     });
   }, [carsList]);
@@ -3241,6 +3245,7 @@ function MemoriesPageContent({
                             avatar={memory.author?.avatar}
                             fullName={memory.author?.name}
                             profileColor={memory.author?.profile_color}
+                            authorIsSomeoneElse={!!memory.authorIsSomeoneElse}
                             contributors={contributors}
                             tags={Array.isArray(memory.tags) ? memory.tags.map((t: any) => typeof t === 'string' ? t : t?.name).filter(Boolean) : []}
                             isEditMode={memory.isShopify || memory.isCars || memory.isCatalogItem ? false : isEditMode}

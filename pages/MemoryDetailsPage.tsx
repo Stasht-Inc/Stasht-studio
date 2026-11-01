@@ -17,7 +17,7 @@ import { mockPosts } from "../data/mockPosts";
 import { getMemoryDetails } from "../data/memoryData";
 import { getCategoryColorHex, getCategoryIcon, formatDate, sanitizeAiCreatorText, isCarCampaign } from "../utils/memoryUtils";
 import { displayWebsite } from "../utils/displayUrl";
-import { inventoryItemIsReadOnly, isCarPhotoId, mediaItemIsReadOnly } from "../utils/salespersonLanding";
+import { carOwnerAuthor, inventoryItemIsReadOnly, isCarPhotoId, mediaItemIsReadOnly } from "../utils/salespersonLanding";
 import { getCategoryColor } from "../constants/mediaConstants";
 import { triggerMemoryCountsRefresh } from '../hooks/useMemoryCounts';
 import { useMemoryLimit, recheckMemoryLimit } from '../hooks/useMemoryLimit';
@@ -3210,8 +3210,13 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
           // Each raw post needs its own `user` (not just the memory-level one below) —
           // transformApiPosts() builds each post's `author` from post.user (post.author
           // isn't read at this stage), and a car has no real backend author, so show the
-          // logged-in dealer, same as apiMemoryData.user.
-          const carAuthor = { name: user?.name, avatar: user?.avatar, profile_color: user?.profile_color };
+          // logged-in dealer, same as apiMemoryData.user — or, for someone else's car (read_only: the main
+          // account's, seen by its salesperson), its owner from the API's owner block.
+          // (The page header's avatar reads profile_image, so the owner's photo is passed under both names.)
+          const carOwner = carOwnerAuthor(car);
+          const carAuthor = carOwner
+            ? { ...carOwner, profile_image: carOwner.avatar || undefined }
+            : { name: user?.name, avatar: user?.avatar, profile_color: user?.profile_color };
           // The timeline's default sort ("latest") orders posts by capture_date descending.
           // Car images have no real capture_date, and leaving it undefined made every
           // comparison resolve to NaN — an ill-defined comparator that reshuffled the 26
