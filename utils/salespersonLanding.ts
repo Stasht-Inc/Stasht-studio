@@ -1,19 +1,19 @@
-// Salesperson accounts land in their own account, never in the property view of their own property.
+// Salesperson accounts: their External account and their personal account.
 //
 // A salesperson is an account made for a main account's external property: the main account (e.g. Serpa
 // Chrysler) invited them with an account-invite link, which created a full account of their own plus a property
 // row with account_type 'external', account_created_for_property true and user_id = the salesperson's own stash
-// id (external_user_id). Their sign-in used to list that row in owned_properties, so the account-choice modal
-// offered it and picking it put them in a "Property" view of their own account. They must get their full account
-// (Campaigns, Leads, Newsletters, Media, Users ...) instead.
+// id (external_user_id). The API marks that row is_own_external_account for them.
 //
-// The API may send that row with those flags, or leave it out of owned_properties altogether; everything here
-// works with both. Internal properties, joined (not created-for) accounts, someone else's external property and
-// the main account's view of its salespeople are untouched. Rows from an older API without account_type are
-// never treated as the user's own account.
+// They choose each time they sign in (Deepak, 1 Nov 2026, after Chris: "They should still have an External
+// account, and a personal account"): the account chooser lists that row as their External account, shown as
+// representing the main account (its name, the main account's name and logo from invited_by, the Property
+// badge), next to their personal account. The row is listed, opened and restored like any other property — the
+// morning's version that hid it (and its helpers) is gone. In that External view they also get Leads
+// (propertyViewHasLeads), and the main account's cars and website-catalogue items, read-only.
 //
-// Inventory: inside their own account a salesperson also sees the main account's cars and website-catalogue
-// items, read-only. inventoryItemIsReadOnly hides edit/delete on rows that are not theirs.
+// Inventory: a salesperson sees the main account's cars and website-catalogue items, read-only.
+// inventoryItemIsReadOnly hides edit/delete on rows that are not theirs.
 
 type Row = Record<string, any> | null | undefined;
 
@@ -69,81 +69,30 @@ export function isOwnExternalProperty(row: Row, user: unknown): boolean {
   return present(row.user_id) && String(row.user_id).trim() === me;
 }
 
-/** A property list without the user's own external property (Users → Properties: opening it would be pointless). */
-export function withoutOwnExternalProperties<T = any>(rows: T[] | null | undefined, user: unknown): T[] {
-  return (Array.isArray(rows) ? rows : []).filter((p) => !isOwnExternalProperty(p as Row, user));
-}
-
-export type VisiblePropertyLists<T> = { owned: T[]; shared: T[]; removedOwned: number; removedShared: number };
-
-/** owned / shared property lists without the user's own external property (see top). */
-export function visiblePropertyLists<T = any>(
-  lists: { owned?: T[] | null; shared?: T[] | null },
-  user: unknown,
-): VisiblePropertyLists<T> {
-  const owned = Array.isArray(lists.owned) ? lists.owned : [];
-  const shared = Array.isArray(lists.shared) ? lists.shared : [];
-  const keptOwned = owned.filter((p) => !isOwnExternalProperty(p as Row, user));
-  const keptShared = shared.filter((p) => !isOwnExternalProperty(p as Row, user));
-  return {
-    owned: keptOwned,
-    shared: keptShared,
-    removedOwned: owned.length - keptOwned.length,
-    removedShared: shared.length - keptShared.length,
-  };
-}
-
-/** The API's property counts less the rows visiblePropertyLists dropped (never below 0). */
-export function visiblePropertyCounts(
-  counts: { owned: number; shared: number; total: number },
-  removedOwned: number,
-  removedShared: number,
-): { owned: number; shared: number; total: number } {
-  const less = (n: number, by: number) => Math.max(0, (Number(n) || 0) - by);
-  return {
-    owned: less(counts.owned, removedOwned),
-    shared: less(counts.shared, removedShared),
-    total: less(counts.total, removedOwned + removedShared),
-  };
+/** The property view of this row offers Leads: only the signed-in salesperson's own External account (their own
+ * leads, under their own sign-in). Every other property view keeps Campaigns / Media / Connectors only. */
+export function propertyViewHasLeads(row: Row, user: unknown): boolean {
+  const me = ownStashId(user);
+  if (!row || !me) return false;
+  if (present(row.user_id) && String(row.user_id).trim() !== me) return false;
+  return isOwnExternalProperty(row, user);
 }
 
 export type PendingPropertySwitch = { action: 'switch'; property: any } | { action: 'clear' } | { action: 'none' };
 
 /**
  * What to do with localStorage 'pending_property_switch' (a property id, or 'first') once the properties list
- * has loaded: switch into that property's view, or clear the flag and stay in the account. The user's own
- * external property is never a target. When nothing matches (the API leaves the salesperson's row out, or the
- * property is gone) the flag is cleared — App blocks rendering while it is pending, so keeping it would leave
- * "Loading Stasht Studio..." on screen for good.
+ * has loaded: switch into that property's view (a salesperson's External account too, as before 1 Nov), or —
+ * when nothing matches (the property is gone) — clear the flag and stay in the account. App blocks rendering
+ * while it is pending, so keeping it would leave "Loading Stasht Studio..." on screen for good.
  */
-export function resolvePendingPropertySwitch(
-  pendingId: unknown,
-  properties: unknown,
-  user: unknown,
-): PendingPropertySwitch {
+export function resolvePendingPropertySwitch(pendingId: unknown, properties: unknown): PendingPropertySwitch {
   if (!present(pendingId)) return { action: 'none' };
   const rows = (Array.isArray(properties) ? properties : []).filter((p) => p !== null && p !== undefined);
-  const visible = rows.filter((p) => !isOwnExternalProperty(p, user));
   const target = String(pendingId).trim() === 'first'
-    ? visible[0]
-    : visible.find((p: any) => String(p?.id) === String(pendingId).trim());
+    ? rows[0]
+    : rows.find((p: any) => String(p?.id) === String(pendingId).trim());
   return target ? { action: 'switch', property: target } : { action: 'clear' };
-}
-
-/**
- * True when a stored property view (localStorage view_type 'property' + selected_property) is the user's own
- * account and must go back to the account view. Decided by the stored row's flags; a row stored before the
- * flags existed is decided by the fresh row from /properties (`freshRows`), and — when the API no longer
- * lists it at all — by it being theirs (user_id = their stash id; their own internal property would be listed).
- * Without fresh rows an unflagged row is kept as it is.
- */
-export function cachedPropertyViewIsOwnAccount(selected: Row, user: unknown, freshRows?: unknown[] | null): boolean {
-  if (!selected || !ownStashId(user)) return false;
-  if (isOwnExternalProperty(selected, user)) return true;
-  if (!Array.isArray(freshRows)) return false;
-  const fresh = freshRows.find((p: any) => p && String(p.id) === String(selected.id));
-  if (fresh) return isOwnExternalProperty(fresh as Row, user);
-  return present(selected.user_id) && String(selected.user_id).trim() === ownStashId(user);
 }
 
 /** Every property row of a getProperties response (owned, shared and the older list shapes). */

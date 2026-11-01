@@ -9,6 +9,7 @@ import { dashboardAPI, isPartialAdmin, apiRequest } from "../utils/authUtils";
 import { leadsAPI } from '../services/leadsAPI';
 import { runWhenIdle } from "../utils/deferIdle";
 import { canManagePropertyWidgets } from "../utils/propertyAccess";
+import { propertyViewHasLeads } from "../utils/salespersonLanding";
 import { widgetsAPI } from "../services/widgetsAPI";
 import { catalogueAPI } from "../services/catalogueAPI";
 import { CONNECTORS_COUNT_EVENT } from "./connectors/catalog";
@@ -442,15 +443,25 @@ export default function Sidebar({
     const items = [];
 
     // If viewing a property account: Campaigns and Media, plus Connectors (Contact Us widget
-    // only) for the property's owner and admins (Chris, 2026-09-28).
+    // only) for the property's owner and admins (Chris, 2026-09-28). A salesperson's own External
+    // account also has Leads, right under Campaigns as in the account view: their own leads (1 Nov 2026).
     if (viewType === 'property') {
+      items.push({
+        id: 'memories',
+        label: 'Campaigns',
+        icon: <BookOpen className="w-5 h-5" />,
+        count: memoryCounts?.total_memories || 0
+      });
+      if (propertyViewHasLeads(currentProperty, user)) {
+        items.push({
+          id: 'leads',
+          label: 'Leads',
+          icon: <Target className="w-5 h-5" />,
+          count: leadsCount,
+          unreadCount: leadsUnreadCount,
+        });
+      }
       items.push(
-        {
-          id: 'memories',
-          label: 'Campaigns',
-          icon: <BookOpen className="w-5 h-5" />,
-          count: memoryCounts?.total_memories || 0
-        },
         {
           id: 'media',
           label: 'Media',

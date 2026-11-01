@@ -11,7 +11,7 @@ import { useState, useEffect } from 'react';
 import { dashboardAPI } from '../utils/authUtils';
 import { useAuth } from '../contexts/AuthContext';
 import { useProperty } from '../contexts/PropertyContext';
-import { allPropertyRows, resolvePendingPropertySwitch, signedInUserOr } from '../utils/salespersonLanding';
+import { allPropertyRows, resolvePendingPropertySwitch } from '../utils/salespersonLanding';
 import { trialBannerFrom } from '../utils/trialBanner';
 import { useMemoryLimit } from '../hooks/useMemoryLimit';
 import { useMemoryCounts } from '../hooks/useMemoryCounts';
@@ -255,9 +255,8 @@ export default function Dashboard({
           console.log('🏠 Dashboard: Properties API response:', propertiesResponse);
 
           if (propertiesResponse.success && propertiesResponse.data) {
-            // Never the signed-in salesperson's own external property; nothing to open → stay in the
-            // account and drop the flag (utils/salespersonLanding).
-            const next = resolvePendingPropertySwitch(pendingPropertySwitch, allPropertyRows(propertiesResponse), signedInUserOr(user));
+            // Nothing to open → stay in the account and drop the flag (utils/salespersonLanding).
+            const next = resolvePendingPropertySwitch(pendingPropertySwitch, allPropertyRows(propertiesResponse));
             if (next.action === 'switch') {
               console.log('🏠 Dashboard: Switching to property:', next.property?.name);
               switchToProperty(next.property);

@@ -56,7 +56,7 @@ import { CameraInterface } from './components/CameraInterface';
 import { AddMomentModal } from './components/AddMomentModal';
 import exifr from 'exifr';
 import { takeSwitchNotice } from './utils/accountSwitch';
-import { allPropertyRows, resolvePendingPropertySwitch, signedInUserOr } from './utils/salespersonLanding';
+import { allPropertyRows, propertyViewHasLeads, resolvePendingPropertySwitch } from './utils/salespersonLanding';
 import { usersTabForReport } from './utils/propertyRows';
 
 // CAPTURE EMAIL PARAMETER IMMEDIATELY (before React even starts)
@@ -345,9 +345,9 @@ function MainApp() {
       try {
         const response = await dashboardAPI.getProperties();
         if (response.success && response.data) {
-          // Never the signed-in salesperson's own external property; nothing to open → stay in the account
-          // (utils/salespersonLanding — the flag would otherwise keep the loading screen up for good).
-          const next = resolvePendingPropertySwitch(pendingId, allPropertyRows(response), signedInUserOr(user));
+          // Nothing to open → stay in the account (utils/salespersonLanding — the flag would otherwise keep the
+          // loading screen up for good).
+          const next = resolvePendingPropertySwitch(pendingId, allPropertyRows(response));
           if (next.action === 'switch') {
             switchToPropertyCtx(next.property);
             localStorage.removeItem('pending_property_switch');
@@ -3678,7 +3678,9 @@ function MainApp() {
         viewType === 'property' &&
         currentPage !== 'memories' &&
         currentPage !== 'media' &&
-        !(currentPage === 'marketplace' && canManagePropertyWidgets(currentProperty, user))
+        !(currentPage === 'marketplace' && canManagePropertyWidgets(currentProperty, user)) &&
+        // A salesperson's own External account has Leads too (utils/salespersonLanding).
+        !(currentPage === 'leads' && propertyViewHasLeads(currentProperty, user))
       ) {
         handleNavigation('memories');
       }

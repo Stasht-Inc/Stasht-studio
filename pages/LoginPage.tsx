@@ -19,7 +19,6 @@ import { PopupBlockedGuideModal } from '../components/PopupBlockedGuideModal';
 import { getInviteParams, isEmail, isPhoneNumber, isCorrectCollaborator } from '../utils/inviteUtils';
 import { parsePhonePrefill } from '../utils/phoneUtils';
 import { AccountChoiceModal, getAdminCollaborator, AdminCollaborator } from '../components/AccountChoiceModal';
-import { visiblePropertyLists } from '../utils/salespersonLanding';
 
 interface LoginPageProps {
   onLogin: (email: string, password: string, phone_number?: string) => Promise<boolean>;
@@ -578,13 +577,10 @@ export default function LoginPage({ onLogin, onSwitchToSignup, onSocialLogin }: 
 
         const allAdminCollaborators = [...adminCollaboratorsFromAPI, ...partialAdminCollaborators];
 
-        // 2. Get owned and shared properties from new API structure. A salesperson's own external property
-        // (the account made for them) is their account, not a property to open: dropped here, so they sign
-        // straight in to their own account (utils/salespersonLanding).
-        const { owned: ownedProperties, shared: sharedProperties } = visiblePropertyLists({
-          owned: response.data?.owned_properties || response.owned_properties || [],
-          shared: response.data?.shared_properties || response.shared_properties || [],
-        }, response.user);
+        // 2. Get owned and shared properties from new API structure. A salesperson's own external property is
+        // listed too: their External account, offered next to their personal account (utils/salespersonLanding).
+        const ownedProperties = response.data?.owned_properties || response.owned_properties || [];
+        const sharedProperties = response.data?.shared_properties || response.shared_properties || [];
 
         // 3. Fallback: Get properties from old structure (if owned/shared not available)
         let allProperties = [...ownedProperties, ...sharedProperties];
@@ -885,11 +881,8 @@ export default function LoginPage({ onLogin, onSwitchToSignup, onSocialLogin }: 
     const allAdminCollaboratorsDV = [...adminCollaboratorsFromAPI, ...partialAdminCollaboratorsDV];
 
     // 2. Extract owned/shared properties — same logic as normal login
-    // (a salesperson's own external property is dropped, as in finalizeLoginSuccess)
-    const { owned: dvOwnedProperties, shared: dvSharedProperties } = visiblePropertyLists({
-      owned: responseData?.owned_properties || responseData?.data?.owned_properties || [],
-      shared: responseData?.shared_properties || responseData?.data?.shared_properties || [],
-    }, user);
+    const dvOwnedProperties = responseData?.owned_properties || responseData?.data?.owned_properties || [];
+    const dvSharedProperties = responseData?.shared_properties || responseData?.data?.shared_properties || [];
 
     // Fallback to old structure if owned/shared not present
     let dvAllProperties = [...dvOwnedProperties, ...dvSharedProperties];

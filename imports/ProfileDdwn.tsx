@@ -6,7 +6,6 @@ import { useAuth } from "../contexts/AuthContext";
 import { Avatar, AvatarFallback, AvatarImage } from "../components/ui/avatar";
 import { getAdminSwitchData, switchAccount, clearAdminSwitchData, switchIntoPropertyAccount } from "../components/AccountChoiceModal";
 import { opensAsFullAccount, propertyRowActions } from "../utils/propertyRows";
-import { signedInUserOr, visiblePropertyCounts, visiblePropertyLists } from "../utils/salespersonLanding";
 import { toast } from "sonner";
 import { dashboardAPI } from "../utils/authUtils";
 import { useProperty } from "../contexts/PropertyContext";
@@ -525,12 +524,10 @@ export function ProfileDropdownMenu({ isOpen, onClose, user, onShowProfileSettin
             console.log('🏠 ProfileDropdown: Shared properties:', sharedProps);
             console.log('🏠 ProfileDropdown: Counts:', counts);
 
-            // The signed-in salesperson's own external property is their own account, not a property view
-            // to open: dropped from the lists and the counts (utils/salespersonLanding).
-            const visible = visiblePropertyLists({ owned: ownedProps, shared: sharedProps }, signedInUserOr(authUser ?? user));
-            setOwnedProperties(visible.owned);
-            setSharedProperties(visible.shared);
-            setPropertyCounts(visiblePropertyCounts(counts, visible.removedOwned, visible.removedShared));
+            // A salesperson's own external property is listed as their External account (utils/salespersonLanding).
+            setOwnedProperties(ownedProps);
+            setSharedProperties(sharedProps);
+            setPropertyCounts(counts);
           } else {
             console.error('❌ ProfileDropdown: Invalid response structure');
           }
