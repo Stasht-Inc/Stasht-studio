@@ -217,3 +217,19 @@ test('Users page tabs: external accounts go to External, everything else stays i
   assert.deepEqual(rowsForPropertyTab(rows, 'external', (r) => r.apiRow).map((r) => r.id), [2, 3]);
   assert.deepEqual(rowsForPropertyTab(null, 'external'), []);
 });
+
+test('Edit Property shows for rows the API lets the viewer change (can_manage, or their own property)', async () => {
+  const { canEditProperty } = await import('../../utils/propertyRows.ts');
+  const main = { id: 70, external_user_id: 707 };
+  assert.equal(canEditProperty(internalRow, main), true);
+  assert.equal(canEditProperty(externalActive, main), true);
+  assert.equal(canEditProperty(externalNoManage, main), false, 'rep / viewer row: the API refuses, so no Edit');
+  assert.equal(canEditProperty({ ...externalNoManage, can_manage: '0' }, main), false);
+  // A linked account's own property: can_manage false (it can't deactivate itself) but the API lets it edit.
+  const becks = { id: 71, external_user_id: 930 };
+  assert.equal(canEditProperty({ id: 77, user_id: 930, account_type: 'external', can_manage: false, is_creator: true }, becks), true);
+  assert.equal(canEditProperty({ id: 77, user_id: 930, account_type: 'external', can_manage: false }, becks), true);
+  // Older API without can_manage: shown as before (the API decides).
+  assert.equal(canEditProperty({ id: 9, name: 'Old row' }, main), true);
+  assert.equal(canEditProperty(null, main), false);
+});

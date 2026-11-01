@@ -38,6 +38,8 @@ function rows() {
     // External accounts.
     { ...base, id: 2, name: 'Bob Bozic', unique_id: 'BB-2', username: 'bob', location: 'Toronto, ON', image: null, user_id: 901, parent_user_id: 707, is_creator: false, user_role: 'admin', property_type: 'external', status: 1, account_type: 'external', is_active: true, can_manage: true, account_created_for_property: true },
     { ...base, id: 5, name: 'Bon Sun', unique_id: 'BS-5', username: 'bon', location: 'Toronto, ON', image: null, user_id: 966, parent_user_id: 707, is_creator: false, user_role: 'admin', property_type: 'external', status: 0, account_type: 'external', is_active: false, can_manage: true, account_created_for_property: true, delete_closes_account: true },
+    // Someone else's external property this account only views (can_manage false): no Edit / Deactivate / Delete.
+    { ...base, id: 4, name: 'Rita Rep', unique_id: 'RR-4', username: 'rita', location: 'Toronto, ON', image: null, user_id: 903, parent_user_id: 555, is_creator: false, user_role: 'viewer', property_type: 'external', status: 1, account_type: 'external', is_active: true, can_manage: false, account_created_for_property: true },
   ];
 }
 
@@ -228,14 +230,24 @@ try {
     await tabButton(page, 'External').click();
     await rowOf(page, 'Bob Bozic', width).waitFor({ state: 'visible', timeout: 5000 });
     expect(await rowOf(page, 'Chris Wirth', width).count() === 0, `${tag}: External has no internal property`);
-    expect(await rowOf(page, 'Bon Sun', width).count() === 1, `${tag}: External lists Bon Sun (deactivated)`);
-    expect(await page.getByText('2 external accounts', { exact: true }).filter({ visible: true }).count() > 0, `${tag}: External count says 2 external accounts`);
+    await rowOf(page, 'Bon Sun', width).waitFor({ state: 'visible', timeout: 5000 }).catch(() => {});
+    const bonRows = await rowOf(page, 'Bon Sun', width).count();
+    expect(bonRows === 1, `${tag}: External lists Bon Sun (deactivated) (${bonRows})`);
+    expect(await page.getByText('3 external accounts', { exact: true }).filter({ visible: true }).count() > 0, `${tag}: External count says 3 external accounts`);
     expect(await page.getByRole('button', { name: /Create( Property)?$/ }).filter({ visible: true }).count() === 0, `${tag}: no Create Property on External`);
     const fetches = state.propertyFetches;
     const bobMenu = await menuItems(page, 'Bob Bozic', width);
     expect(['Edit Property', 'Manage Users', 'Leads Report', 'View Property', 'Deactivate', 'Delete Property'].every((t) => bobMenu.some((i) => i.startsWith(t))), `${tag}: Bob's row actions (${bobMenu})`);
     const bonMenu = await menuItems(page, 'Bon Sun', width);
     expect(bonMenu.some((i) => i.startsWith('Reactivate')) && bonMenu.some((i) => /View Property.*Deactivated/.test(i)), `${tag}: Bon's row: Reactivate, View says Deactivated (${bonMenu})`);
+    const ritaOpen = await openMenu(page, 'Rita Rep', width);
+    const ritaMenu = await ritaOpen.getByRole('menuitem').evaluateAll((els) => els.map((el) => el.textContent.trim()));
+    expect(!ritaMenu.some((i) => i.startsWith('Edit Property')) && !ritaMenu.some((i) => i.startsWith('Deactivate')) && !ritaMenu.some((i) => i.startsWith('Delete')) && ritaMenu.some((i) => i.startsWith('View Property')),
+      `${tag}: viewer row (can_manage false): no Edit Property, Deactivate or Delete (${ritaMenu})`);
+    await shot(page, `${tag}-C2b-viewer-row-menu-no-edit`);
+    await page.keyboard.press('Escape');
+    await ritaOpen.waitFor({ state: 'hidden', timeout: 3000 }).catch(() => {});
+    await page.waitForTimeout(300);
     await shot(page, `${tag}-C2-external-tab`);
     await (await openMenu(page, 'Bob Bozic', width)).getByRole('menuitem', { name: 'Deactivate' }).click();
     await page.waitForTimeout(800);
@@ -400,6 +412,50 @@ try {
     const cardImg = await page.locator('[data-testid=property-avatar] img').filter({ visible: true }).first().getAttribute('src').catch(() => null);
     expect(cardImg === STORE_URL, `own account: its own image now wins over the inviter's logo (${cardImg})`);
     await shot(page, '1280-B2-6-own-account-after');
+    await context.close();
+  }
+  // ---------- Car cards in a salesperson's own account ----------
+  // Bon Sun (salesperson of Serpa Chrysler) sees Serpa's car read-only: its card and its page name Serpa (the API's
+  // owner block), not Bon; Bon's own car still shows Bon.
+  for (const [width, height] of [[1280, 900], [390, 844]]) {
+    const tag = String(width);
+    const BON_ACCT = { id: 120, external_user_id: 966, name: 'Bon Sun', email: 'bon@dealer.test', role: '2', status: 1, profile_color: 'f97316' };
+    const carBase = { make: 'Jeep', model: 'Wrangler', year: 2024, price: '58900', mileage: 12, category: 'preowned', images_count: 2, location: { formatted: 'Toronto, ON' }, listing_url: null };
+    const serpaCar = { ...carBase, id: 501, title: 'Serpa Grand Cherokee', stock_number: 'J501', spec_summary: 'STK# J501 / 12 km', main_image: STORE_URL, user_id: 889, read_only: true, owner: { id: 889, name: 'Serpa Chrysler', profile_image: LOGO_URL, profile_color: '1d4ed8' } };
+    const bonCar = { ...carBase, id: 601, title: 'Bon Own Ram', stock_number: 'R601', spec_summary: 'STK# R601 / 40 km', main_image: OLD_URL, user_id: 966, read_only: false };
+    const { page, context } = await open({ width, height, who: BON_ACCT, path: '/memories', tab: null, scale: true, seed: { stasht_campaigns_view: 'storeels' } });
+    await page.route('**/api/react/**', async (route) => {
+      const url = new URL(route.request().url());
+      const p = url.pathname.replace(/^\/api\/react/, '');
+      if (p === '/cars') return route.fulfill({ json: { status: 1, data: { cars: [serpaCar, bonCar], pagination: { total: 2 }, filters: { makes: ['Jeep'], categories: ['preowned'] } } } });
+      if (p === '/cars/501') return route.fulfill({ json: { status: 1, data: { ...serpaCar, images: [{ id: 1, url: STORE_URL, is_main: true, sort_order: 1 }, { id: 2, url: OLD_URL, is_main: false, sort_order: 2 }], description: 'Clean.' } } });
+      if (p === '/memories' && route.request().method() === 'GET') return route.fulfill({ json: { success: true, data: { all_memories: { data: [] }, total_memories: 0 } } });
+      return route.fallback();
+    });
+    await page.reload();
+    // The card title is shortened on screen; its aria-label carries the full title.
+    const card = (title) => page.locator(`.memory-card-container[aria-label="View ${title} campaign details"]`).filter({ visible: true }).first();
+    await card('Serpa Grand Cherokee').waitFor({ state: 'visible', timeout: 30000 }).catch(async (e) => { await shot(page, `${tag}-debug-cars`); throw e; });
+    await page.waitForTimeout(1200);
+    const serpaText = (await card('Serpa Grand Cherokee').innerText()) || '';
+    const bonText = (await card('Bon Own Ram').innerText()) || '';
+    expect(serpaText.includes('Serpa Chrysler') && !serpaText.includes('Bon Sun'), `${tag}: Serpa's car card names Serpa Chrysler, not Bon Sun (${serpaText.replace(/\s+/g, ' ').slice(0, 160)})`);
+    const avatarSrcs = await card('Serpa Grand Cherokee').locator('img').evaluateAll((els) => els.map((el) => el.getAttribute('src')));
+    expect(avatarSrcs.includes(LOGO_URL), `${tag}: Serpa's avatar on the card (${avatarSrcs})`);
+    expect(bonText.includes('Bon Sun'), `${tag}: Bon's own car still shows Bon Sun (${bonText.replace(/\s+/g, ' ').slice(0, 160)})`);
+    await card('Serpa Grand Cherokee').scrollIntoViewIfNeeded();
+    await shot(page, `${tag}-D1-car-cards-owner`);
+    const box = await card('Serpa Grand Cherokee').boundingBox();
+    if (box) await page.screenshot({ path: `${OUT}/${tag}-D1b-serpa-card-closeup.png`, clip: { x: box.x, y: box.y, width: Math.min(box.width, width - box.x), height: Math.min(box.height, height - box.y) } });
+
+    // Its page: the posts' author is Serpa too.
+    await card('Serpa Grand Cherokee').click();
+    await page.waitForTimeout(4000);
+    const authors = await page.getByText('Serpa Chrysler', { exact: true }).filter({ visible: true }).count();
+    expect(authors > 0, `${tag}: Serpa's car page names Serpa Chrysler (${authors})`);
+    const pageLogos = await page.locator(`img[src="${LOGO_URL}"]`).filter({ visible: true }).count();
+    expect(pageLogos > 0, `${tag}: Serpa's photo on the car page (${pageLogos})`);
+    await shot(page, `${tag}-D2-car-page-owner`);
     await context.close();
   }
 } catch (e) {

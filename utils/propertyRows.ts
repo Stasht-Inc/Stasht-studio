@@ -182,3 +182,17 @@ export function rowsForPropertyTab<T>(
 ): T[] {
   return (Array.isArray(rows) ? rows : []).filter((row) => propertyTab(apiRowOf(row)) === tab);
 }
+
+/** Edit Property: shown when the API would accept the change — can_manage (missing on an older API: shown, as before,
+ * the API decides) or the viewer's own property (its user_id is their stash id), which the API allows even though
+ * can_manage is false for an external property's own account. Hidden on rep / viewer rows. */
+export function canEditProperty(row: PropertyRow, viewer: unknown): boolean {
+  if (!row) return false;
+  if (flag(row.can_manage) !== false) return true;
+  if (flag(row.is_creator) === true) return true;
+  const v = viewer as { external_user_id?: unknown; id?: unknown } | null | undefined;
+  const me = v?.external_user_id ?? v?.id;
+  const ownerId = row.user_id;
+  return me !== null && me !== undefined && ownerId !== null && ownerId !== undefined
+    && String(me).trim() !== '' && String(ownerId).trim() === String(me).trim();
+}

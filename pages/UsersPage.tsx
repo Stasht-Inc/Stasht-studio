@@ -33,7 +33,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '../components/ui/alert-dialog';
-import { deletePropertyMessage, deletePropertyToast, propertyRowActions, propertyStatusBadge, propertyTypeLabel, rowsForPropertyTab, type BadgeTone } from '../utils/propertyRows';
+import { canEditProperty, deletePropertyMessage, deletePropertyToast, propertyRowActions, propertyStatusBadge, propertyTypeLabel, rowsForPropertyTab, type BadgeTone } from '../utils/propertyRows';
 import { withoutOwnExternalProperties } from '../utils/salespersonLanding';
 import { propertyImageErrorMessage } from '../utils/propertyImage';
 import { toast } from 'sonner';
@@ -2469,16 +2469,18 @@ export default function UsersPage({ onNavigate, onViewStoreelReport }: UsersPage
                                   Complete Payment
                                 </DropdownMenuItem>
                               )}
-                              <DropdownMenuItem
-                                onClick={() => {
-                                  setPropertyToEdit(property);
-                                  setShowCreatePropertyModal(true);
-                                }}
-                                className="cursor-pointer hover:bg-gray-100 rounded px-3 py-2 flex items-center"
-                              >
-                                <Edit className="mr-2 h-4 w-4" />
-                                Edit Property
-                              </DropdownMenuItem>
+                              {canEditProperty(property.apiRow, currentUser) && (
+                                <DropdownMenuItem
+                                  onClick={() => {
+                                    setPropertyToEdit(property);
+                                    setShowCreatePropertyModal(true);
+                                  }}
+                                  className="cursor-pointer hover:bg-gray-100 rounded px-3 py-2 flex items-center"
+                                >
+                                  <Edit className="mr-2 h-4 w-4" />
+                                  Edit Property
+                                </DropdownMenuItem>
+                              )}
                               <DropdownMenuItem
                                 onClick={() => {
                                   console.log('Manage Users for property:', property.id);
@@ -2676,16 +2678,18 @@ export default function UsersPage({ onNavigate, onViewStoreelReport }: UsersPage
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end" className="bg-white border border-gray-200 shadow-lg rounded-md p-1 min-w-[180px]">
-                          <DropdownMenuItem
-                            onClick={() => {
-                              setPropertyToEdit(property);
-                              setShowCreatePropertyModal(true);
-                            }}
-                            className="cursor-pointer hover:bg-gray-100 rounded px-3 py-2 flex items-center"
-                          >
-                            <Edit className="mr-2 h-4 w-4" />
-                            Edit Property
-                          </DropdownMenuItem>
+                          {canEditProperty(property.apiRow, currentUser) && (
+                            <DropdownMenuItem
+                              onClick={() => {
+                                setPropertyToEdit(property);
+                                setShowCreatePropertyModal(true);
+                              }}
+                              className="cursor-pointer hover:bg-gray-100 rounded px-3 py-2 flex items-center"
+                            >
+                              <Edit className="mr-2 h-4 w-4" />
+                              Edit Property
+                            </DropdownMenuItem>
+                          )}
                           <DropdownMenuItem
                             onClick={() => {
                               console.log('Manage Users for property:', property.id);
