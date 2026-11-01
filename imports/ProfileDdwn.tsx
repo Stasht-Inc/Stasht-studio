@@ -6,13 +6,13 @@ import { useAuth } from "../contexts/AuthContext";
 import { Avatar, AvatarFallback, AvatarImage } from "../components/ui/avatar";
 import { getAdminSwitchData, switchAccount, clearAdminSwitchData, switchIntoPropertyAccount } from "../components/AccountChoiceModal";
 import { opensAsFullAccount, propertyRowActions } from "../utils/propertyRows";
-import { signedInUserOr, visiblePropertyCounts, visiblePropertyLists } from "../utils/salespersonLanding";
 import { toast } from "sonner";
 import { dashboardAPI } from "../utils/authUtils";
 import { useProperty } from "../contexts/PropertyContext";
 import useAlvinEnabled from "../components/alvin/useAlvinEnabled";
 import { Camera } from "lucide-react";
 import { PROPERTY_IMAGE_ACCEPT, canChangePropertyImage, propertyAvatarImage, propertyImageErrorMessage, propertyImageFileError } from "../utils/propertyImage";
+import { groupPropertyAccounts, groupedPropertyCounts, isOwnExternalProperty, signedInUserOr } from "../utils/salespersonLanding";
 
 // __APP_BUILD_TIME__ is injected at build time (see vite.config.ts's `define`)
 // as the ISO timestamp of when this exact bundle was built.
@@ -525,12 +525,12 @@ export function ProfileDropdownMenu({ isOpen, onClose, user, onShowProfileSettin
             console.log('🏠 ProfileDropdown: Shared properties:', sharedProps);
             console.log('🏠 ProfileDropdown: Counts:', counts);
 
-            // The signed-in salesperson's own external property is their own account, not a property view
-            // to open: dropped from the lists and the counts (utils/salespersonLanding).
-            const visible = visiblePropertyLists({ owned: ownedProps, shared: sharedProps }, signedInUserOr(authUser ?? user));
-            setOwnedProperties(visible.owned);
-            setSharedProperties(visible.shared);
-            setPropertyCounts(visiblePropertyCounts(counts, visible.removedOwned, visible.removedShared));
+            // A salesperson's own external property is their External account: listed and counted under External
+            // (utils/salespersonLanding groupPropertyAccounts).
+            const grouped = groupPropertyAccounts({ owned: ownedProps, shared: sharedProps }, signedInUserOr(authUser ?? user));
+            setOwnedProperties(grouped.owned);
+            setSharedProperties(grouped.shared);
+            setPropertyCounts(groupedPropertyCounts(counts, grouped.moved));
           } else {
             console.error('❌ ProfileDropdown: Invalid response structure');
           }
@@ -919,6 +919,9 @@ export function ProfileDropdownMenu({ isOpen, onClose, user, onShowProfileSettin
                         const userRole = property.user_role || 'viewer';
                         const deactivatedNote = propertyRowActions(property).view.note;
                         const switchKey = `property_${property.id}`;
+                        // The salesperson's own External account represents the main account (its logo and name).
+                        const ownExternalLook = isOwnExternalProperty(property, signedInUserOr(authUser ?? user)) ? resolvePropertyAvatar(property, user) : null;
+                        const sharedAvatar = ownExternalLook ? ownExternalLook.avatarImage : property.image;
 
                         return (
                           <button
@@ -952,8 +955,8 @@ export function ProfileDropdownMenu({ isOpen, onClose, user, onShowProfileSettin
                           >
                             <div className="flex items-center gap-3">
                               <div className="w-8 h-8 rounded-lg overflow-hidden bg-blue-100 flex items-center justify-center flex-shrink-0">
-                                {property.image ? (
-                                  <img src={property.image} alt={propertyName} className="w-full h-full object-cover" />
+                                {sharedAvatar ? (
+                                  <img src={sharedAvatar} alt={propertyName} className="w-full h-full object-cover" />
                                 ) : (
                                   <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
@@ -966,6 +969,9 @@ export function ProfileDropdownMenu({ isOpen, onClose, user, onShowProfileSettin
                                 </div>
                                 {propertyLocation && (
                                   <div className="text-xs text-gray-500 truncate mt-0.5" title={propertyLocation}>{propertyLocation}</div>
+                                )}
+                                {ownExternalLook?.invitedBy?.name && (
+                                  <div className="text-xs text-gray-600 truncate mt-0.5" title={ownExternalLook.invitedBy.name}>{ownExternalLook.invitedBy.name}</div>
                                 )}
                               </div>
                               {deactivatedNote && (

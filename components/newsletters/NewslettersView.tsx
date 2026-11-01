@@ -19,6 +19,7 @@ import { formatCount } from './lib/audience';
 import { NEWSLETTER_FILTERS, NEWSLETTERS_CHANGED_EVENT, announceNewslettersChanged, withHighlightFirst, type NewsletterFilter } from './lib/campaignsView';
 import { ACTION_LABEL, actionsFor, failureText, isLive, listRateBase, plural, primaryAction, rate, whenText, type NewsletterAction } from './lib/newsletterList';
 import { BUTTON_OUTLINE, BUTTON_PRIMARY } from './lib/ui';
+import { keyboardOnlyFocusReturn } from '../../utils/menuFocus';
 
 const POLL_MS = 30000;
 // The All Campaigns list: a grey header row and rows of the same grid.
@@ -39,6 +40,10 @@ export interface NewslettersViewProps {
   highlight?: { id: number; nonce: number } | null;
 }
 
+// Row actions (Edit, "⋯"): plain like row actions elsewhere in Studio (Lists, Campaigns) — no border or outline, grey,
+// light grey on hover, and the purple ring only for keyboard focus (Chris, 31 Oct / 1 Nov 2026).
+const ROW_ACTION = 'inline-flex h-8 flex-shrink-0 items-center justify-center rounded-lg text-gray-700 hover:bg-gray-100 hover:text-gray-900 disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#6C60FF]/40';
+
 function RowMenu({ item, busy, onAction }: { item: NewsletterSummary; busy: boolean; onAction(action: NewsletterAction, item: NewsletterSummary): void }) {
   const actions = actionsFor(item.status);
   const safe = actions.filter((a) => a !== 'cancel' && a !== 'delete');
@@ -53,11 +58,12 @@ function RowMenu({ item, busy, onAction }: { item: NewsletterSummary; busy: bool
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" aria-label={`Actions for ${item.name || 'this newsletter'}`} disabled={busy} className="h-8 w-8 p-0 hover:bg-gray-100">
+        <button type="button" aria-label={`Actions for ${item.name || 'this newsletter'}`} title="More actions" disabled={busy} className={`${ROW_ACTION} w-8`}>
           {busy ? <Loader2 className="h-4 w-4 animate-spin text-gray-500" aria-hidden="true" /> : <MoreHorizontal className="h-4 w-4 text-gray-500" aria-hidden="true" />}
-        </Button>
+        </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-48 rounded-md border border-gray-200 bg-white shadow-lg">
+      {/* Focus goes back to "⋯" only after a keyboard close: no focus ring left on it after a click (utils/menuFocus). */}
+      <DropdownMenuContent align="end" className="w-48 rounded-md border border-gray-200 bg-white shadow-lg" onCloseAutoFocus={keyboardOnlyFocusReturn}>
         {safe.map(item_)}
         {risky.length ? <DropdownMenuSeparator /> : null}
         {risky.map(item_)}
@@ -71,8 +77,7 @@ function RowMenu({ item, busy, onAction }: { item: NewsletterSummary; busy: bool
 function EditButton({ item, onEdit, compact = false }: { item: NewsletterSummary; onEdit(id: number): void; compact?: boolean }) {
   return (
     <button type="button" onClick={() => onEdit(item.id)} aria-label={`Edit ${item.name || 'this newsletter'}`} title="Edit"
-      // Plain, like row actions elsewhere in Studio (Lists, Campaigns): no border, grey, light-grey on hover.
-      className={`inline-flex h-8 flex-shrink-0 items-center gap-1.5 rounded-lg px-2.5 text-xs font-medium text-gray-700 hover:bg-gray-100 hover:text-gray-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#6C60FF]/40 ${compact ? 'px-2 xl:px-2.5' : ''}`}>
+      className={`${ROW_ACTION} gap-1.5 text-xs font-medium ${compact ? 'px-2 xl:px-2.5' : 'px-2.5'}`}>
       <Pencil className="h-3.5 w-3.5" aria-hidden="true" /><span className={compact ? 'hidden xl:inline' : undefined}>Edit</span>
     </button>
   );

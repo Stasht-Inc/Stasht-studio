@@ -7,8 +7,8 @@ import { toast } from 'sonner';
 import { useProperty } from '../contexts/PropertyContext';
 import { switchDataForPropertyAccount, switchDataIsStale } from '../utils/propertyAccountSwitch';
 import { findPropertyRow, needsFullPropertyRow, opensAsFullAccount, propertyRowActions } from '../utils/propertyRows';
-import { visiblePropertyLists } from '../utils/salespersonLanding';
 import { propertyAvatarImage } from '../utils/propertyImage';
+import { groupPropertyAccounts, isOwnExternalProperty } from '../utils/salespersonLanding';
 
 // Collaborator type for admin access
 export interface AdminCollaborator {
@@ -357,12 +357,11 @@ export function AccountChoiceModal({
     return !isProperty;
   });
 
-  // Use new owned/shared properties if provided, otherwise fallback to old method. Never the signed-in
-  // salesperson's own external property: that is their own account, which "Personal" already opens
-  // (utils/salespersonLanding).
-  const visibleProperties = visiblePropertyLists({ owned: ownedProperties, shared: sharedProperties }, personalUser);
-  const ownedPropertyAccounts = visibleProperties.owned;
-  const sharedPropertyAccounts = visibleProperties.shared;
+  // Use new owned/shared properties if provided, otherwise fallback to old method. A salesperson's own external
+  // property is their External account: listed under External, first (utils/salespersonLanding groupPropertyAccounts).
+  const groupedProperties = groupPropertyAccounts({ owned: ownedProperties, shared: sharedProperties }, personalUser);
+  const ownedPropertyAccounts = groupedProperties.owned;
+  const sharedPropertyAccounts = groupedProperties.shared;
 
   // Fallback: If no owned/shared properties provided, use old method (filter from adminCollaborators)
   const propertyAccounts = ownedPropertyAccounts.length === 0 && sharedPropertyAccounts.length === 0
@@ -1121,6 +1120,14 @@ export function AccountChoiceModal({
                               const propertyLocation = property.location || '';
                               const isCurrentLoading = loadingType === `property_${property.id}`;
                               const deactivatedNote = propertyRowActions(property).view.note;
+                              // The salesperson's own External account represents the main account: its logo (unless the
+                              // property has an image of its own) and its name, as in the header (utils/propertyImage).
+                              const ownExternal = isOwnExternalProperty(property, personalUser);
+                              const ownExternalLook = ownExternal ? propertyAvatarImage(property, personalUser) : null;
+                              const sharedAvatar = ownExternalLook ? ownExternalLook.image : property.image;
+                              const representing = ownExternalLook?.invitedBy
+                                && String(personalUser?.external_user_id ?? '') !== String(ownExternalLook.invitedBy.external_user_id ?? '')
+                                ? ownExternalLook.invitedBy : null;
 
                               return (
                                 <button
@@ -1139,10 +1146,10 @@ export function AccountChoiceModal({
                                   className="w-full p-3 hover:bg-white transition-all duration-200 text-left disabled:opacity-50 disabled:cursor-not-allowed border-b border-gray-200 last:border-b-0"
                                 >
                                   <div className="flex items-center gap-3">
-                                    {property.image ? (
+                                    {sharedAvatar ? (
                                       <Avatar className="w-10 h-10 flex-shrink-0">
                                         <AvatarImage
-                                          src={property.image}
+                                          src={sharedAvatar}
                                           alt={propertyName}
                                           className="object-cover"
                                         />
@@ -1166,6 +1173,11 @@ export function AccountChoiceModal({
                                       {propertyLocation && (
                                         <p className="text-xs text-gray-400 truncate mt-0.5">
                                           {propertyLocation}
+                                        </p>
+                                      )}
+                                      {representing?.name && (
+                                        <p className="text-xs text-gray-500 truncate mt-0.5">
+                                          {representing.name}
                                         </p>
                                       )}
                                     </div>

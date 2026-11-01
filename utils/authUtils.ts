@@ -1,4 +1,5 @@
 import { requestUpgrade } from './planEvents';
+import { propertyUpdateFailure } from './propertyImage';
 
 // Auth utility functions for API integration
 
@@ -4809,13 +4810,9 @@ export const dashboardAPI = {
       devLog('📥 Update property response:', data);
 
       if (!response.ok) {
-        return {
-          success: false,
-          error: response.status === 413
-            ? 'The image is too large to upload. Please choose one under 10MB.'
-            : data?.message || data?.error || `HTTP ${response.status}`,
-          errors: data?.errors || null,
-        };
+        // The API's own message and field errors, with the HTTP status (utils/propertyImage propertyUpdateFailure).
+        console.error('❌ Update property failed:', response.status, data);
+        return { success: false, ...propertyUpdateFailure({ status: response.status, data }) };
       }
 
       // A raw fetch skips apiRequest's write → cache clear: without this the next GET /properties (the Properties
@@ -4826,11 +4823,9 @@ export const dashboardAPI = {
         data,
       };
     } catch (error) {
+      // No answer at all (offline, or the request was blocked before the server answered).
       console.error('❌ Error updating property:', error);
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Network error',
-      };
+      return { success: false, ...propertyUpdateFailure({ networkError: error instanceof Error ? error.message : String(error) }) };
     }
   },
 

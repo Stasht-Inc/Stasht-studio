@@ -2,21 +2,22 @@
 // Imports the TypeScript source directly — needs Node >= 22.18 (built-in type stripping).
 //
 // A salesperson = an account made for a main account's external property (account_type 'external',
-// account_created_for_property true, the property's user_id = the salesperson's own stash id). They sign in
-// to their own account and are never put in the property view of that property. The API may also leave the
-// row out of owned_properties entirely; both shapes must land in the account.
+// account_created_for_property true, the property's user_id = the salesperson's own stash id). Since the evening of
+// 1 Nov 2026 (Deepak, after Chris) they choose each time they sign in: their External account (that property, shown
+// as representing the main account) or their personal account. So the row is listed, opened and restored like any
+// other property; in that External view they also get Leads.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import * as landing from '../../utils/salespersonLanding.ts';
 import {
   isCarPhotoId,
   mediaItemIsReadOnly,
-  withoutOwnExternalProperties,
   ownStashId,
   isOwnExternalProperty,
-  visiblePropertyLists,
-  visiblePropertyCounts,
   resolvePendingPropertySwitch,
-  cachedPropertyViewIsOwnAccount,
+  propertyViewHasLeads,
+  groupPropertyAccounts,
+  groupedPropertyCounts,
   inventoryItemIsReadOnly,
   carOwnerAuthor,
 } from '../../utils/salespersonLanding.ts';
@@ -59,78 +60,71 @@ test('everything else is not the own account: internal, joined, someone else\'s,
   assert.equal(isOwnExternalProperty({ ...bonsOwnRow, user_id: 120 }, bon), false);
 });
 
-test('property lists drop only the own external row, and say how many went', () => {
-  const otherShared = { id: 40, name: 'Partner lot', account_type: 'external', account_created_for_property: true, user_id: 501 };
-  const lists = visiblePropertyLists({ owned: [bonsOwnRow, internalRow], shared: [otherShared] }, bon);
-  assert.deepEqual(lists.owned.map((p) => p.id), [12]);
-  assert.deepEqual(lists.shared.map((p) => p.id), [40], 'someone else\'s external property stays');
-  assert.equal(lists.removedOwned, 1);
-  assert.equal(lists.removedShared, 0);
-
-  const serpaLists = visiblePropertyLists({ owned: [internalRow], shared: [bonAsSeenBySerpa] }, serpa);
-  assert.deepEqual(serpaLists.owned, [internalRow], 'main account unchanged');
-  assert.deepEqual(serpaLists.shared, [bonAsSeenBySerpa], 'main account still opens the salesperson\'s account');
-  assert.equal(serpaLists.removedOwned + serpaLists.removedShared, 0);
-
-  // API that already omits the row: nothing to drop.
-  const omitted = visiblePropertyLists({ owned: [], shared: [] }, bon);
-  assert.deepEqual(omitted, { owned: [], shared: [], removedOwned: 0, removedShared: 0 });
-
-  // Junk-tolerant: missing lists, null entries.
-  const junk = visiblePropertyLists({ owned: undefined, shared: [null, bonsOwnRow] }, bon);
-  assert.deepEqual(junk.owned, []);
-  assert.deepEqual(junk.shared, [null]);
-  assert.equal(junk.removedShared, 1);
-});
-
-test('counts from the API lose the dropped rows and never go negative', () => {
-  assert.deepEqual(visiblePropertyCounts({ owned: 2, shared: 1, total: 3 }, 1, 0), { owned: 1, shared: 1, total: 2 });
-  assert.deepEqual(visiblePropertyCounts({ owned: 1, shared: 0, total: 1 }, 1, 0), { owned: 0, shared: 0, total: 0 });
-  assert.deepEqual(visiblePropertyCounts({ owned: 0, shared: 0, total: 0 }, 1, 1), { owned: 0, shared: 0, total: 0 });
-  assert.deepEqual(visiblePropertyCounts({ owned: 4, shared: 2, total: 6 }, 0, 0), { owned: 4, shared: 2, total: 6 });
-});
-
 test('pending property switch: a main account still opens its property', () => {
-  assert.deepEqual(resolvePendingPropertySwitch('12', [internalRow, bonAsSeenBySerpa], serpa), { action: 'switch', property: internalRow });
-  assert.deepEqual(resolvePendingPropertySwitch('first', [internalRow], serpa), { action: 'switch', property: internalRow });
-  assert.deepEqual(resolvePendingPropertySwitch(12, [null, internalRow], serpa), { action: 'switch', property: internalRow });
+  assert.deepEqual(resolvePendingPropertySwitch('12', [internalRow, bonAsSeenBySerpa]), { action: 'switch', property: internalRow });
+  assert.deepEqual(resolvePendingPropertySwitch('first', [internalRow]), { action: 'switch', property: internalRow });
+  assert.deepEqual(resolvePendingPropertySwitch(12, [null, internalRow]), { action: 'switch', property: internalRow });
 });
 
-test('pending property switch: the salesperson\'s own property is never opened, the flag is cleared', () => {
-  assert.deepEqual(resolvePendingPropertySwitch('96', [bonsOwnRow], bon), { action: 'clear' });
-  assert.deepEqual(resolvePendingPropertySwitch('first', [bonsOwnRow], bon), { action: 'clear' });
-  // Another property is still the "first" one when they have one.
-  assert.deepEqual(resolvePendingPropertySwitch('first', [bonsOwnRow, { ...internalRow, user_id: 966 }], bon),
-    { action: 'switch', property: { ...internalRow, user_id: 966 } });
-  // API omitted the row: nothing to open, so the flag goes (no endless "Loading Stasht Studio...").
-  assert.deepEqual(resolvePendingPropertySwitch('96', [], bon), { action: 'clear' });
-  assert.deepEqual(resolvePendingPropertySwitch('first', [], bon), { action: 'clear' });
-  assert.deepEqual(resolvePendingPropertySwitch('first', undefined, bon), { action: 'clear' });
+test('pending property switch: the salesperson\'s External account opens like any property (as before 1 Nov)', () => {
+  assert.deepEqual(resolvePendingPropertySwitch('96', [bonsOwnRow]), { action: 'switch', property: bonsOwnRow });
+  assert.deepEqual(resolvePendingPropertySwitch('first', [bonsOwnRow]), { action: 'switch', property: bonsOwnRow });
+  const flagged = { id: 96, name: 'Bon Sun', user_id: 966, account_type: 'external', is_own_external_account: true };
+  assert.deepEqual(resolvePendingPropertySwitch('first', [flagged]), { action: 'switch', property: flagged });
+});
+
+test('pending property switch: nothing to open clears the flag (no endless "Loading Stasht Studio...")', () => {
+  assert.deepEqual(resolvePendingPropertySwitch('96', []), { action: 'clear' });
+  assert.deepEqual(resolvePendingPropertySwitch('first', []), { action: 'clear' });
+  assert.deepEqual(resolvePendingPropertySwitch('first', undefined), { action: 'clear' });
+  assert.deepEqual(resolvePendingPropertySwitch('77', [internalRow]), { action: 'clear' });
 });
 
 test('no pending flag: nothing to do', () => {
-  assert.deepEqual(resolvePendingPropertySwitch(null, [internalRow], serpa), { action: 'none' });
-  assert.deepEqual(resolvePendingPropertySwitch('', [internalRow], serpa), { action: 'none' });
+  assert.deepEqual(resolvePendingPropertySwitch(null, [internalRow]), { action: 'none' });
+  assert.deepEqual(resolvePendingPropertySwitch('', [internalRow]), { action: 'none' });
 });
 
-test('cached property view of the salesperson\'s own property goes back to the account', () => {
-  // Flags on the stored row.
-  assert.equal(cachedPropertyViewIsOwnAccount(bonsOwnRow, bon), true);
-  // Stored before the flags existed: decided by the fresh row ...
-  const stale = { id: 96, name: 'Bon Sun', user_id: 966 };
-  assert.equal(cachedPropertyViewIsOwnAccount(stale, bon), false, 'no fresh list: cannot tell, keep it');
-  assert.equal(cachedPropertyViewIsOwnAccount(stale, bon, [bonsOwnRow]), true);
-  // ... or, when the API no longer lists it, by it being theirs (their own internal one would be listed).
-  assert.equal(cachedPropertyViewIsOwnAccount(stale, bon, []), true);
-  assert.equal(cachedPropertyViewIsOwnAccount({ id: 77, user_id: 889 }, bon, []), false, 'someone else\'s, unlisted: unchanged');
+test('the morning\'s hiding helpers are gone: nothing drops the External account any more', () => {
+  for (const name of ['visiblePropertyLists', 'visiblePropertyCounts', 'withoutOwnExternalProperties', 'cachedPropertyViewIsOwnAccount']) {
+    assert.equal(landing[name], undefined, `${name} must not come back`);
+  }
 });
 
-test('cached property view: main account and internal properties are unchanged', () => {
-  assert.equal(cachedPropertyViewIsOwnAccount(internalRow, serpa), false);
-  assert.equal(cachedPropertyViewIsOwnAccount(internalRow, serpa, [internalRow]), false);
-  assert.equal(cachedPropertyViewIsOwnAccount({ ...internalRow, user_id: 966 }, bon, [{ ...internalRow, user_id: 966 }]), false);
-  assert.equal(cachedPropertyViewIsOwnAccount(null, bon, []), false);
-  assert.equal(cachedPropertyViewIsOwnAccount(bonsOwnRow, null, []), false);
+test('Leads in the property view: only in the signed-in salesperson\'s own External account', () => {
+  assert.equal(propertyViewHasLeads(bonsOwnRow, bon), true);
+  assert.equal(propertyViewHasLeads({ id: 96, is_own_external_account: true }, bon), true);
+  assert.equal(propertyViewHasLeads(bonAsSeenBySerpa, serpa), false, 'the main account in its salesperson\'s view: no');
+  assert.equal(propertyViewHasLeads(internalRow, serpa), false, 'an internal property view: no');
+  assert.equal(propertyViewHasLeads({ ...bonsOwnRow, account_created_for_property: false }, bon), false, 'a linked account: no');
+  assert.equal(propertyViewHasLeads(null, bon), false);
+  assert.equal(propertyViewHasLeads(bonsOwnRow, null), false);
+});
+
+test('chooser / Profile menu groups: the salesperson\'s own External account is listed under External, first', () => {
+  const otherShared = { id: 40, name: 'Partner lot', account_type: 'external', account_created_for_property: true, user_id: 501 };
+  const bonsLot = { ...internalRow, id: 97, user_id: 966 };
+  const g = groupPropertyAccounts({ owned: [bonsLot, bonsOwnRow], shared: [otherShared] }, bon);
+  assert.deepEqual(g.owned.map((p) => p.id), [97], 'Internal keeps his internal property');
+  assert.deepEqual(g.shared.map((p) => p.id), [96, 40], 'External: his own External account first');
+  assert.equal(g.moved, 1);
+  const flagged = { id: 96, name: 'Bon Sun', is_own_external_account: true };
+  assert.deepEqual(groupPropertyAccounts({ owned: [flagged], shared: [] }, bon).shared, [flagged]);
+});
+
+test('chooser / Profile menu groups: everyone else unchanged, junk tolerated', () => {
+  const serpas = groupPropertyAccounts({ owned: [internalRow], shared: [bonAsSeenBySerpa] }, serpa);
+  assert.deepEqual(serpas, { owned: [internalRow], shared: [bonAsSeenBySerpa], moved: 0 }, 'the main account');
+  const linked = { ...bonsOwnRow, account_created_for_property: false };
+  assert.deepEqual(groupPropertyAccounts({ owned: [linked], shared: [] }, bon).owned, [linked], 'a linked account stays where it was');
+  assert.deepEqual(groupPropertyAccounts({ owned: undefined, shared: null }, bon), { owned: [], shared: [], moved: 0 });
+});
+
+test('the counts follow: "0 internal, 1 external" for Bon, never below 0, total unchanged', () => {
+  assert.deepEqual(groupedPropertyCounts({ owned: 1, shared: 0, total: 1 }, 1), { owned: 0, shared: 1, total: 1 });
+  assert.deepEqual(groupedPropertyCounts({ owned: 2, shared: 1, total: 3 }, 1), { owned: 1, shared: 2, total: 3 });
+  assert.deepEqual(groupedPropertyCounts({ owned: 0, shared: 0, total: 1 }, 1), { owned: 0, shared: 1, total: 1 });
+  assert.deepEqual(groupedPropertyCounts({ owned: 3, shared: 2, total: 5 }, 0), { owned: 3, shared: 2, total: 5 });
 });
 
 test('inventory rows: own or unknown stay editable; parent\'s rows are read-only', () => {
@@ -150,27 +144,13 @@ test('inventory rows: own or unknown stay editable; parent\'s rows are read-only
   assert.equal(inventoryItemIsReadOnly(null, bon), false);
 });
 
-// API (1 Nov): every row carries is_own_external_account; sign-in omits the own row, GET /properties keeps it flagged.
+// API (1 Nov): every row carries is_own_external_account (sign-in lists and GET /properties).
 test('is_own_external_account true marks the own row, on its own', () => {
   assert.equal(isOwnExternalProperty({ id: 96, name: 'Bon Sun', is_own_external_account: true }, bon), true);
   assert.equal(isOwnExternalProperty({ id: 96, is_own_external_account: 1 }, bon), true);
   assert.equal(isOwnExternalProperty({ id: 96, is_own_external_account: true }, null), true, 'the API decided: no user needed');
   assert.equal(isOwnExternalProperty({ ...internalRow, is_own_external_account: false }, serpa), false);
   assert.equal(isOwnExternalProperty({ ...bonAsSeenBySerpa, is_own_external_account: false }, serpa), false, 'main account: its salesperson stays');
-});
-
-test('invite sign-up (pending "first") with GET /properties listing only the flagged own row: stays in the account', () => {
-  const listed = { id: 96, name: 'Bon Sun', user_id: 966, account_type: 'external', is_own_external_account: true };
-  assert.deepEqual(resolvePendingPropertySwitch('first', [listed], bon), { action: 'clear' });
-  assert.deepEqual(resolvePendingPropertySwitch('96', [listed], bon), { action: 'clear' });
-});
-
-test('Users → Properties: the own row is hidden, everything else kept', () => {
-  const listed = { id: 96, name: 'Bon Sun', is_own_external_account: true };
-  const other = { id: 40, name: 'Partner lot', account_type: 'external', is_own_external_account: false };
-  assert.deepEqual(withoutOwnExternalProperties([listed, other, bonsOwnRow], bon), [other]);
-  assert.deepEqual(withoutOwnExternalProperties([internalRow, bonAsSeenBySerpa], serpa), [internalRow, bonAsSeenBySerpa]);
-  assert.deepEqual(withoutOwnExternalProperties(undefined, bon), []);
 });
 
 test('an explicit read_only false is final: no user_id fallback', () => {

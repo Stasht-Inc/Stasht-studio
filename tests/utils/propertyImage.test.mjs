@@ -11,6 +11,7 @@ import {
   propertyAvatarImage,
   canChangePropertyImage,
   propertyImageErrorMessage,
+  propertyUpdateFailure,
 } from '../../utils/propertyImage.ts';
 
 // Serpa Chrysler (stash 889) and Bon Sun (stash 966), whose external property 96 Serpa made for him.
@@ -91,4 +92,32 @@ test("a linked external account's property: only that account may change its ima
   assert.equal(canChangePropertyImage(linked, serpa), false);
   assert.equal(canChangePropertyImage({ ...linked, account_created_for_property: true }, serpa), true);
   assert.equal(canChangePropertyImage(linked, { id: 9, external_user_id: 901 }), true);
+});
+
+// POST /properties/{id}/update failures, as dashboardAPI.updateProperty reports them (Chris, 1 Nov 2026: "still can't
+// add an image" with no clear reason). The server's own words when it sent any, the HTTP status always.
+test('update failure: the API message, with its field errors and the status', () => {
+  const denied = propertyUpdateFailure({ status: 403, data: { status: 'error', message: 'Only the main account or a property admin can change this property.' } });
+  assert.equal(denied.error, 'Only the main account or a property admin can change this property. (HTTP 403)');
+  assert.equal(denied.errors, null);
+  const invalid = propertyUpdateFailure({ status: 422, data: { status: 'error', message: 'Validation failed', errors: { image: ['The image must be a file of type: jpeg, png, jpg, gif, webp.'] } } });
+  assert.deepEqual(invalid.errors, { image: ['The image must be a file of type: jpeg, png, jpg, gif, webp.'] });
+  assert.equal(propertyImageErrorMessage(invalid), 'The image must be a file of type: jpeg, png, jpg, gif, webp.', 'the field message wins');
+  assert.equal(propertyUpdateFailure({ status: 500, data: { message: 'The image could not be uploaded. Please try again.' } }).error,
+    'The image could not be uploaded. Please try again. (HTTP 500)');
+});
+
+test('update failure: a proxy 413 (an HTML page) says the server refused the size, without promising 10MB', () => {
+  const big = propertyUpdateFailure({ status: 413, data: null });
+  assert.match(big.error, /too large/);
+  assert.match(big.error, /HTTP 413/);
+  assert.doesNotMatch(big.error, /10 ?MB/, 'the proxy limit can be lower than the API\'s 10MB');
+});
+
+test('update failure: no JSON, or no answer at all, still says what happened', () => {
+  assert.equal(propertyUpdateFailure({ status: 502, data: null }).error, 'The server could not save the property (HTTP 502). Please try again.');
+  const offline = propertyUpdateFailure({ networkError: 'Failed to fetch' });
+  assert.match(offline.error, /Could not reach the server/);
+  assert.match(offline.error, /Failed to fetch/);
+  assert.equal(propertyUpdateFailure({ status: 404, data: { error: 'Property not found.' } }).error, 'Property not found. (HTTP 404)');
 });

@@ -134,6 +134,7 @@ async function open({ width, height, who = MAIN, seed = {}, path = '/users', tab
       if (state.updateReply) {
         const reply = state.updateReply;
         state.updateReply = null;
+        if (reply === 'abort') return route.abort('failed'); // no answer at all (offline / blocked)
         return route.fulfill(reply);
       }
       const row = state.rows.find((r) => r.id === Number(m[1])) || { id: Number(m[1]) };
@@ -327,11 +328,37 @@ try {
     expect((await rowImage(page, 'Chris Wirth', width)) === STORE_URL, `${tag}: table avatar shows the new image straight away (the list was re-read, not cached)`);
     await shot(page, `${tag}-B4-3-row-avatar-after-upload`);
 
+    // A saved image: clicking it opens the file picker straight away (no need to remove it first); the new file is sent.
+    await (await openMenu(page, 'Downtown Lot', width)).getByRole('menuitem', { name: 'Edit Property' }).click();
+    await modal.waitFor({ state: 'visible', timeout: 5000 });
+    const saved = modal.locator('img[alt="Property preview"]');
+    await saved.waitFor({ state: 'visible', timeout: 5000 });
+    expect((await saved.getAttribute('src')) === OLD_URL, `${tag}: Edit Property shows the saved image`);
+    await shot(page, `${tag}-B4-2b-edit-modal-saved-image`);
+    const [chooser] = await Promise.all([
+      page.waitForEvent('filechooser', { timeout: 5000 }).catch(() => null),
+      saved.click(),
+    ]);
+    expect(!!chooser, `${tag}: clicking the saved image opens the file picker`);
+    if (chooser) {
+      expect(!chooser.isMultiple(), `${tag}: one file`);
+      await chooser.setFiles(images.store.path);
+      await page.waitForFunction(() => (document.querySelector('img[alt="Property preview"]')?.getAttribute('src') || '').startsWith('data:'), null, { timeout: 5000 }).catch(() => {});
+      expect(((await saved.getAttribute('src')) || '').startsWith('data:'), `${tag}: the new image replaces the preview`);
+      await modal.getByRole('button', { name: 'Update Property' }).click();
+      await page.waitForTimeout(1000);
+      const rep = state.updates.at(-1);
+      expect(rep?.id === 12 && rep.fields.image?.filename === 'fixture-store-front.png' && rep.fields.remove_image === undefined, `${tag}: the replacement is sent, no remove_image (${JSON.stringify(rep?.fields)})`);
+      expect((await rowImage(page, 'Downtown Lot', width)) === STORE_URL, `${tag}: Downtown Lot shows the replacement`);
+    } else {
+      await modal.getByRole('button', { name: 'Cancel' }).click();
+    }
+
     // Remove a saved image: remove_image=1, no file; the row goes back to the icon.
     await (await openMenu(page, 'Downtown Lot', width)).getByRole('menuitem', { name: 'Edit Property' }).click();
     await modal.waitFor({ state: 'visible', timeout: 5000 });
     await modal.locator('img[alt="Property preview"]').waitFor({ state: 'visible', timeout: 5000 });
-    await modal.locator('img[alt="Property preview"]').locator('xpath=..').locator('button').click();
+    await modal.getByRole('button', { name: 'Remove property image' }).click();
     await modal.getByRole('button', { name: 'Update Property' }).click();
     await page.waitForTimeout(1000);
     const rm = state.updates.at(-1);
@@ -361,7 +388,71 @@ try {
     await page.waitForTimeout(900);
     const badToasts = await toastText(page);
     expect(badToasts.some((t) => t.includes('The image must not be greater than 10240 kilobytes.')), `${tag}: API image message shown (${badToasts})`);
+    // A refused update keeps the form: name, username and the chosen image (it used to be emptied after the toast).
+    const kept = async (label) => {
+      const name = await modal.locator('input[placeholder^="e.g., Burnley"]').inputValue().catch(() => '');
+      const user = await modal.locator('input[placeholder="e.g., Brentwood"]').inputValue().catch(() => '');
+      const preview = await modal.locator('img[alt="Property preview"]').count();
+      expect(await modal.isVisible() && name === 'Bon Sun' && user === 'bon' && preview === 1, `${tag}: ${label}: Edit Property keeps the form and the chosen image (${name}/${user}/${preview})`);
+    };
+    await kept('422');
     await shot(page, `${tag}-B4-5-api-refusal-toast`);
+
+    // A proxy's 413 (an HTML page): says the server refused the size and the status, without promising 10MB.
+    await page.waitForTimeout(400);
+    state.updateReply = { status: 413, contentType: 'text/html', body: '<html><body><h1>413 Request Entity Too Large</h1></body></html>' };
+    await modal.getByRole('button', { name: 'Update Property' }).click();
+    await page.waitForTimeout(900);
+    const bigToasts = await toastText(page);
+    expect(bigToasts.some((t) => /too large \(HTTP 413\)/.test(t) && !/10 ?MB/.test(t)), `${tag}: 413 says too large with the status (${bigToasts})`);
+    await kept('413');
+    await shot(page, `${tag}-B4-6-413-toast`);
+
+    // A permission refusal: the API's words and the status.
+    state.updateReply = { status: 403, json: { status: 'error', message: 'Only the main account or a property admin can change this property.' } };
+    await modal.getByRole('button', { name: 'Update Property' }).click();
+    await page.waitForTimeout(900);
+    const deniedToasts = await toastText(page);
+    expect(deniedToasts.some((t) => t.includes('Only the main account or a property admin can change this property. (HTTP 403)')), `${tag}: 403 shows the API message with the status (${deniedToasts})`);
+    await kept('403');
+
+    // No answer at all.
+    state.updateReply = 'abort';
+    await modal.getByRole('button', { name: 'Update Property' }).click();
+    await page.waitForTimeout(900);
+    const offlineToasts = await toastText(page);
+    expect(offlineToasts.some((t) => t.includes('Could not reach the server')), `${tag}: no answer says the server could not be reached (${offlineToasts})`);
+    await kept('no answer');
+    await shot(page, `${tag}-B4-7-offline-toast`);
+
+    // Then it goes through: Bon Sun's (external, made for him) row as the main account, POST /properties/5/update.
+    await modal.getByRole('button', { name: 'Update Property' }).click();
+    await page.waitForTimeout(1000);
+    const bonUp = state.updates.at(-1);
+    expect(bonUp?.id === 5 && bonUp.fields.image?.filename === 'fixture-store-front.png', `${tag}: Bon Sun's update carries the image to /properties/5/update`);
+    expect(await modal.isVisible() === false && (await rowImage(page, 'Bon Sun', width)) === STORE_URL, `${tag}: Bon Sun's row shows the new image`);
+    await shot(page, `${tag}-B4-8-bon-row-avatar`);
+
+    // No "Suggested labels" (+ Bike, + Trail) in Edit Property or Create Property (Chris, 1 Nov).
+    await (await openMenu(page, 'Bon Sun', width)).getByRole('menuitem', { name: 'Edit Property' }).click();
+    await modal.waitFor({ state: 'visible', timeout: 5000 });
+    expect(await modal.getByText('Suggested labels', { exact: false }).count() === 0 && await modal.getByText('+ Bike').count() === 0, `${tag}: Edit Property has no suggested labels`);
+    await modal.locator('input[placeholder="Type a label and press Enter"]').scrollIntoViewIfNeeded();
+    await shot(page, `${tag}-B4-9-edit-modal-labels`);
+    await modal.getByRole('button', { name: 'Cancel' }).click();
+    await tabButton(page, 'Properties').click();
+    await page.waitForTimeout(400);
+    const create = page.getByRole('button', { name: /Create( Property)?$/ }).filter({ visible: true }).first();
+    if (await create.count()) {
+      await create.click();
+      const createModal = page.locator('div.fixed.inset-0').filter({ hasText: 'Property Image' }).last();
+      await createModal.waitFor({ state: 'visible', timeout: 5000 });
+      expect(await createModal.getByText('Suggested labels', { exact: false }).count() === 0 && await createModal.getByText('+ Trail').count() === 0, `${tag}: Create Property has no suggested labels`);
+      await createModal.locator('input[placeholder="Type a label and press Enter"]').scrollIntoViewIfNeeded();
+      await shot(page, `${tag}-B4-10-create-modal-labels`);
+    } else {
+      expect(false, `${tag}: Create Property button found`);
+    }
     await context.close();
   }
 

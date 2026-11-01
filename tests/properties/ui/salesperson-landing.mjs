@@ -1,7 +1,10 @@
-// Salespeople sign in to their own account (1 Nov 2026, decision 3): an account made for a main account's external
-// property must land in its full account view (sidebar with Leads, Users ...; no "Property" badge), never in the
-// property view of its own property — whether the API still lists that row (with its flags) or leaves it out. The
-// main account's sign-in (account choice with Internal / External properties, property view) is unchanged.
+// Salespeople choose each time they sign in (Deepak, 1 Nov 2026 evening, after Chris: "They still represent Serpa
+// Chrysler. They should still have an External account, and a personal account."): an account made for a main
+// account's external property gets the account chooser with its External account — its own external property,
+// shown as representing the main account ("Bon Sun" + "Serpa Chrysler", the main account's logo, the Property
+// badge) — and its personal account. In the External view: Campaigns (with the main account's cars and website
+// catalogue, read-only), Leads, Media; Newsletters on Campaigns; "Back to Bon Sun" in the Profile menu. The view
+// is restored on reload. The main account's sign-in is unchanged.
 // node tests/properties/ui/salesperson-landing.mjs   (needs the dev server: SL_BASE, default http://localhost:5291)
 // Every API call is answered here and every non-local request is aborted: nothing leaves this machine.
 // Screenshots: SL_SHOTS (default /private/tmp/claude-501/salesperson-ui/shots).
@@ -17,10 +20,10 @@ mkdirSync(OUT, { recursive: true });
 const SERPA = { id: 708, external_user_id: 889, name: 'Serpa Chrysler', email: 'serpa@dealer.test', role: '2', status: 1, is_activated: true };
 const BON = { id: 120, external_user_id: 966, name: 'Bon Sun', email: 'bon@dealer.test', role: '2', status: 1, is_activated: true };
 const base = { location: 'Toronto, ON', memories_count: 0, users_count: 1, invited_users: [], labels: [], created_at: '2026-10-01T10:00:00Z', is_active: true, status: 1 };
-// Bon's own row as his sign-in / properties list sends it today.
-const BONS_OWN = { ...base, id: 96, name: 'Bon Sun', unique_id: 'BS-96', user_id: 966, parent_user_id: 889, is_creator: true, user_role: 'owner', property_type: 'external', account_type: 'external', account_created_for_property: true, can_manage: false };
-// The API from 1 Nov: sign-in leaves Bon's row out; GET /properties keeps it, marked is_own_external_account.
-const BONS_OWN_NOV1 = { ...base, id: 96, name: 'Bon Sun', unique_id: 'BS-96', user_id: 966, parent_user_id: 889, is_creator: true, user_role: 'owner', property_type: 'external', account_type: 'external', is_own_external_account: true };
+// Bon's own row as his sign-in / properties list sends it (the API names Serpa as invited_by, with its logo).
+const SERPA_LOGO = `${BASE}/pwa-icon-192.png`;
+const INVITED_BY_SERPA = { id: 708, external_user_id: 889, name: 'Serpa Chrysler', email: 'serpa@dealer.test', profile_image: SERPA_LOGO };
+const BONS_OWN = { ...base, id: 96, name: 'Bon Sun', unique_id: 'BS-96', username: 'bonsun', user_id: 966, parent_user_id: 889, is_creator: true, user_role: 'admin', property_type: 'external', account_type: 'external', account_created_for_property: true, can_manage: false, is_own_external_account: true, image: null, invited_by: INVITED_BY_SERPA };
 const BONS_LOT = { ...base, id: 97, name: 'Bons Lot', unique_id: 'BL-97', user_id: 966, is_creator: true, user_role: 'owner', property_type: 'internal', account_type: 'internal', account_created_for_property: false, can_manage: true, is_own_external_account: false };
 // Serpa's rows: one internal property, and Bon's account as Serpa sees it.
 const SERPA_INTERNAL = { ...base, id: 12, name: 'Serpa Downtown', unique_id: 'SD-12', user_id: 889, is_creator: true, user_role: 'owner', property_type: 'internal', account_type: 'internal', account_created_for_property: false, can_manage: true };
@@ -30,7 +33,11 @@ const SERPA_CAR = { id: 501, user_id: 889, title: '2024 Jeep Grand Cherokee', pr
 
 // Bon's own car campaign made by sharing Serpa's car: its posts are Bon's own photos (memory_images); Serpa's car
 // is a linked entry, read_only. Post 9002 is a photo tied to that car (car_id) — no select / edit / delete.
-const IMG = 'http://localhost:5291/pwa-icon-512.png';
+const IMG = `${BASE}/pwa-icon-512.png`;
+// A website-catalogue product of the main account, shown to Bon read-only.
+const SERPA_PRODUCT = { id: 31, title: 'All-Weather Floor Mats', price: '199', currency: 'CAD', price_label: '$199 CAD', category: 'Accessories', url: null, main_image: null, images_count: 0, spec_summary: '' };
+// Bon's own campaign in his External account's feed (GET /properties/96/memories: no Serpa campaigns merged).
+const BON_OWN_CAMPAIGN = { id: 801, title: 'Bon Test Drive Day', user_id: 966, property_id: 96, published: 1, category: { id: 5, name: 'Campaigns' }, photos: { count: 0 }, location: 'Toronto, ON', collaborators: [], user: { id: 966, name: 'Bon Sun' } };
 const BON_CAR_CAMPAIGN = {
   id: 700, title: 'Vehicles Just for You', user_id: 966, is_car: 1, published: 1, category: { id: 'cars', name: 'Cars' },
   last_update_img: IMG, location: 'Toronto, ON', tags: [], collaborators: [], user: { id: 966, name: 'Bon Sun' },
@@ -51,11 +58,11 @@ const expect = (ok, label) => { if (!ok) failures.push(label); console.log(ok ? 
 
 const browser = await chromium.launch({ headless: true, channel: 'chrome' });
 
-// who: the account the mocked API signs in / answers for. omitOwnRow: the API leaves Bon's row out.
-// seed: localStorage on the first load (null = signed out, i.e. the sign-in page).
-// nov1: the 1 Nov API (sign-in omits the own row, /properties lists it flagged); extraRows: Bon's other properties.
-async function open({ width = 1280, height = 900, who, omitOwnRow = false, nov1 = false, extraRows = [], seed = null, path = '/', carCampaign = false }) {
-  const state = { loginCalls: 0, propertyFetches: 0, carCampaign, imageDeletes: [] };
+// who: the account the mocked API signs in / answers for. omitOwnRow: the API leaves Bon's row out (a deleted
+// property). seed: localStorage on the first load (null = signed out, i.e. the sign-in page). extraRows: Bon's other
+// properties.
+async function open({ width = 1280, height = 900, who, omitOwnRow = false, extraRows = [], seed = null, path = '/', carCampaign = false }) {
+  const state = { loginCalls: 0, propertyFetches: 0, carCampaign, imageDeletes: [], propertyFeeds: [] };
   const context = await browser.newContext({ viewport: { width, height }, serviceWorkers: 'block', locale: 'en-US', hasTouch: width < 1024, isMobile: width < 1024 });
   await context.addInitScript(([seedData]) => {
     if (sessionStorage.getItem('sl-seeded')) return; // only the first load: later loads keep what the app stored
@@ -64,9 +71,7 @@ async function open({ width = 1280, height = 900, who, omitOwnRow = false, nov1 
     if (!seedData) return;
     for (const [k, v] of Object.entries(seedData)) localStorage.setItem(k, typeof v === 'string' ? v : JSON.stringify(v));
   }, [seed]);
-  const ownedFor = (signIn = false) => (who === BON
-    ? [...(nov1 ? (signIn ? [] : [BONS_OWN_NOV1]) : omitOwnRow ? [] : [BONS_OWN]), ...extraRows]
-    : [SERPA_INTERNAL]);
+  const ownedFor = () => (who === BON ? [...(omitOwnRow ? [] : [BONS_OWN]), ...extraRows] : [SERPA_INTERNAL]);
   const sharedFor = () => (who === BON ? [] : [SERPA_SEES_BON]);
   await context.route('**/*', async (route) => {
     const req = route.request();
@@ -86,11 +91,12 @@ async function open({ width = 1280, height = 900, who, omitOwnRow = false, nov1 
     if (/^\/(sso-api|s3-proxy)(\/|$)/.test(url.pathname)) return route.abort('blockedbyclient');
     if (!url.pathname.startsWith('/api/')) return route.continue();
     const p = url.pathname.replace(/^\/api\/react/, '');
+    if (process.env.SL_DEBUG) console.log('api', req.method(), p, url.search);
     if (p === '/send-otp') return route.fulfill({ json: { success: true, message: 'OTP sent', channel: 'email' } });
     if (p === '/verify-otp') return route.fulfill({ json: { success: true, verification_token: 'vt-1' } });
     if (p === '/login' && req.method() === 'POST') {
       state.loginCalls++;
-      return route.fulfill({ json: { success: true, data: { user: who, token: who === BON ? 'bon-token' : 'serpa-token', collaborators: [], owned_properties: ownedFor(true), shared_properties: sharedFor(), partial_admin_access: [] } } });
+      return route.fulfill({ json: { success: true, data: { user: who, token: who === BON ? 'bon-token' : 'serpa-token', collaborators: [], owned_properties: ownedFor(), shared_properties: sharedFor(), partial_admin_access: [] } } });
     }
     if (p === '/properties' && req.method() === 'GET') {
       state.propertyFetches++;
@@ -101,6 +107,14 @@ async function open({ width = 1280, height = 900, who, omitOwnRow = false, nov1 
     if (p === '/memories' && req.method() === 'GET' && state.carCampaign) {
       return route.fulfill({ json: { success: true, data: { all_memories: { data: [BON_CAR_CAMPAIGN_CARD] }, total_memories: 1 } } });
     }
+    const feed = p.match(/^\/properties\/(\d+)\/memories$/);
+    if (feed && req.method() === 'GET') {
+      state.propertyFeeds.push(feed[1]);
+      const mine = feed[1] === '96' ? [BON_OWN_CAMPAIGN] : [];
+      return route.fulfill({ json: { status: 'success', data: { property: feed[1] === '96' ? BONS_OWN : SERPA_INTERNAL, user_role: 'admin', viewing_invited_content: false, inviter: null, memories: { data: mine, total: mine.length }, sidebar: { categories: { items: [] }, labels: { items: [] } } } } });
+    }
+    if (p === '/website-catalogue' && req.method() === 'GET') return route.fulfill({ json: { success: true, data: { available: true, connected: true, item_count: 1 } } });
+    if (p === '/website-catalogue/items' && req.method() === 'GET') return route.fulfill({ json: { success: true, data: { items: [SERPA_PRODUCT], pagination: { current_page: 1, per_page: 500, total: 1, last_page: 1 } } } });
     if (p === '/memories/700' && req.method() === 'GET') return route.fulfill({ json: { success: true, data: { memory: BON_CAR_CAMPAIGN, linked_memories: BON_CAR_CAMPAIGN.linked_memories } } });
     const del = p.match(/^\/memory-images\/(.+)$/);
     if (del && req.method() === 'DELETE') {
@@ -115,6 +129,7 @@ async function open({ width = 1280, height = 900, who, omitOwnRow = false, nov1 
   });
   const page = await context.newPage();
   page.on('pageerror', (e) => { pageErrors.push(e.message); if (process.env.SL_DEBUG) console.log('pageerror', e.stack); });
+  if (process.env.SL_DEBUG) page.on('console', (m) => { const t = m.text(); if (/🏠|👤|pending|switch/i.test(t)) console.log('console', t.slice(0, 220)); });
   await page.goto(`${BASE}${path}`);
   return { context, page, state };
 }
@@ -164,166 +179,212 @@ async function openProfileMenu(page) {
   await page.waitForTimeout(800);
 }
 
+// The chooser's External account row: "Bon Sun" with "Serpa Chrysler" under it.
+const externalChoice = (page) => page.locator('button').filter({ hasText: 'Bon Sun' }).filter({ hasText: 'Serpa Chrysler' }).filter({ visible: true }).first();
+
+// The External view: Property badge, Bon Sun + Serpa Chrysler and Serpa's logo in the header, and its sidebar.
+async function externalView(page, tag, { desktop = true } = {}) {
+  const v = await view(page);
+  const selected = JSON.parse(v.selected || '{}');
+  console.log(tag, JSON.stringify({ view: v.view, selected: selected.id, pending: v.pending }));
+  expect(v.view === 'property' && selected.id === 96 && !v.pending, `${tag}: External account view stored (property 96)`);
+  // The phone header shows only the account avatar (no property name / badge there, as before): desktop only.
+  if (desktop) {
+    expect(await visibleText(page, 'Property') > 0, `${tag}: Property badge`);
+    expect(await visibleText(page, 'Bon Sun') > 0, `${tag}: header names Bon Sun`);
+    expect(await visibleText(page, 'Serpa Chrysler') > 0, `${tag}: header names Serpa Chrysler`);
+    expect(await page.locator(`img[src="${SERPA_LOGO}"]`).filter({ visible: true }).count() > 0, `${tag}: Serpa's logo as the avatar`);
+    expect(await visibleText(page, 'Leads') > 0, `${tag}: Leads in the External account's sidebar`);
+    expect(await visibleText(page, 'Media') > 0, `${tag}: Media in the sidebar`);
+    expect(await visibleText(page, 'Users') === 0, `${tag}: no Users (property sidebar)`);
+  }
+}
+
 try {
-  // 1. Salesperson signs in; the API still lists his own row with its flags.
+  // 1. Salesperson signs in: the account chooser offers his personal account and his External account, which is
+  //    shown as representing Serpa. Picking it opens the External view.
   {
     const { page, context, state } = await open({ who: BON, path: '/login?prefill_email=bon@dealer.test' });
     await shot(page, '01-salesperson-sign-in');
     await signIn(page, 'bon@dealer.test');
-    // The account choice would open here, before the app; it must not.
-    await page.waitForTimeout(1500);
-    expect(await page.getByText('Choose Account', { exact: true }).filter({ visible: true }).count() === 0, '1: no account-choice modal');
+    const choose = page.getByText('Choose Account', { exact: true }).filter({ visible: true }).first();
+    await choose.waitFor({ state: 'visible', timeout: 15000 });
+    expect(await page.getByText('Your Personal Account - Access your own campaigns').filter({ visible: true }).count() > 0, '1: chooser offers the personal account');
+    const props = page.getByText(/Properties \(1\)/).filter({ visible: true }).first();
+    expect(await props.count() > 0, '1: chooser offers Properties (1)');
+    await props.click();
+    await page.waitForTimeout(400);
+    // Chris calls it his External account: grouped and counted under External, not Internal.
+    expect(await page.getByText('0 internal, 1 external').filter({ visible: true }).count() > 0, '1: chooser counts "0 internal, 1 external"');
+    expect(await page.getByText('External (1)').filter({ visible: true }).count() > 0 && await page.getByText(/^Internal \(/).filter({ visible: true }).count() === 0, '1: chooser lists it under External (1), no Internal group');
+    // The personal card is named "Bon Sun" too: the External account is the row naming Serpa Chrysler.
+    const externalRow = externalChoice(page);
+    expect(await externalRow.count() > 0, '1: chooser lists the External account "Bon Sun · Serpa Chrysler"');
+    expect(await externalRow.locator(`img[src="${SERPA_LOGO}"]`).count() > 0, '1: ... with Serpa\'s logo');
+    await shot(page, '02-salesperson-account-choice');
+    await externalRow.click();
     await waitForApp(page);
     expect(state.loginCalls === 1, '1: signed in once');
-    await accountView(page, '1 salesperson, row listed');
-    await shot(page, '02-salesperson-own-account');
-    await openProfileMenu(page);
-    expect(await page.getByText(/Property Accounts/).filter({ visible: true }).count() === 0, '1: Profile menu offers no property account');
-    await shot(page, '03-salesperson-profile-menu');
-    await page.keyboard.press('Escape');
-    // The main account's cars show up (read-only cards) on Campaigns.
-    await page.evaluate(() => localStorage.setItem('stasht_campaigns_view', 'storeels')); // the Storeels grid
-    await page.goto(`${BASE}/memories`);
-    await waitForApp(page);
+    // Campaigns opens on Newsletters (the External account has the Newsletters | Storeels switch); Storeels shows the cards.
+    expect(await page.getByRole('radio', { name: /^Newsletters/ }).filter({ visible: true }).count() > 0, '1: Newsletters on Campaigns');
+    await page.getByRole('radio', { name: /^Storeels/ }).filter({ visible: true }).first().click();
     await page.getByText(SERPA_CAR.title).filter({ visible: true }).first().waitFor({ state: 'visible', timeout: 15000 }).catch(() => {});
-    const car = await page.getByText(SERPA_CAR.title).filter({ visible: true }).count();
-    expect(car > 0, '1: main account\'s car card shows in the salesperson\'s Campaigns');
-    await shot(page, '04-salesperson-campaigns-with-parent-car');
+    await page.getByText(SERPA_PRODUCT.title).filter({ visible: true }).first().waitFor({ state: 'visible', timeout: 8000 }).catch(() => {});
+    await externalView(page, '1 External view');
+    expect(state.propertyFeeds.includes('96'), '1: External view reads its own feed (GET /properties/96/memories)');
+    expect(await page.getByText(SERPA_CAR.title).filter({ visible: true }).count() > 0, '1: Serpa\'s car shows in the External view');
+    expect(await page.getByText(SERPA_PRODUCT.title).filter({ visible: true }).count() > 0, '1: Serpa\'s catalogue product shows in the External view');
+    expect(await page.getByText(BON_OWN_CAMPAIGN.title).filter({ visible: true }).count() > 0, '1: Bon\'s own campaign shows');
+    await shot(page, '03-external-view-campaigns');
+    // A car card in the External view is read-only: no edit / delete on it.
+    const carCard = page.locator('.group', { hasText: SERPA_CAR.title }).filter({ visible: true }).first();
+    await carCard.hover().catch(() => {});
+    expect(await carCard.locator('button[aria-label*="Delete" i], button[title*="Delete" i]').count() === 0, '1: no delete on Serpa\'s car card');
+    // Leads opens from the External view and stays in it.
+    await page.getByText('Leads', { exact: true }).filter({ visible: true }).first().click();
+    await page.waitForTimeout(1500);
+    const lv = await view(page);
+    expect(/\/leads/.test(page.url()) && lv.view === 'property', `1: Leads opens in the External view (${page.url()})`);
+    await shot(page, '04-external-view-leads');
+    // Profile menu: the External account's card and "Back to Bon Sun".
+    await openProfileMenu(page);
+    expect(await page.getByText('Back to Bon Sun').filter({ visible: true }).count() > 0, '1: Profile menu offers Back to Bon Sun');
+    await shot(page, '05-external-view-profile-menu');
+    await page.getByText('Back to Bon Sun').filter({ visible: true }).first().click();
+    await page.waitForTimeout(1500);
+    await accountView(page, '1 back to personal');
+    await openProfileMenu(page);
+    expect(await page.getByText('Property Accounts (1)').filter({ visible: true }).count() > 0, '1: personal Profile menu lists Property Accounts (1)');
+    expect(await page.getByText('0 internal, 1 external').filter({ visible: true }).count() > 0, '1: Profile menu counts "0 internal, 1 external"');
+    await page.getByText('Property Accounts (1)').filter({ visible: true }).first().click();
+    await page.waitForTimeout(400);
+    const menuExternal = page.locator('button').filter({ hasText: 'Bon Sun' }).filter({ hasText: 'Serpa Chrysler' }).filter({ visible: true });
+    expect(await page.getByText('External (1)').filter({ visible: true }).count() > 0 && await menuExternal.count() > 0, '1: Profile menu lists "Bon Sun · Serpa Chrysler" under External (1)');
+    expect(await menuExternal.first().locator(`img[src="${SERPA_LOGO}"]`).count() > 0, '1: ... with Serpa\'s logo');
+    await shot(page, '06-personal-profile-menu-lists-external');
+    // Picking it there opens the External view again.
+    await menuExternal.first().click();
+    await waitForApp(page);
+    await externalView(page, '1 External view from the Profile menu');
+    await shot(page, '06b-external-view-from-profile-menu');
     await context.close();
   }
 
-  // 2. Salesperson signs in; the API leaves his row out.
+  // 2. Salesperson signs in and picks his personal account: the full account view.
   {
-    const { page, context } = await open({ who: BON, omitOwnRow: true, path: '/login?prefill_email=bon@dealer.test' });
+    const { page, context } = await open({ who: BON, path: '/login?prefill_email=bon@dealer.test' });
     await signIn(page, 'bon@dealer.test');
+    await page.getByText('Your Personal Account - Access your own campaigns').filter({ visible: true }).first().waitFor({ state: 'visible', timeout: 15000 });
+    await page.getByText('Your Personal Account - Access your own campaigns').filter({ visible: true }).first().click();
     await waitForApp(page);
-    await accountView(page, '2 salesperson, row omitted');
+    await accountView(page, '2 salesperson picks personal');
+    await shot(page, '07-salesperson-personal-account');
     await context.close();
   }
 
-  // 3. Cached session from before: property view of his own property (row with flags) → account view.
+  // 3. Reload with the External view stored: it is restored (no longer reset to the personal account).
   {
-    const { page, context } = await open({ who: BON, seed: { stasht_token: 'bon-token', stasht_user: BON, view_type: 'property', selected_property: BONS_OWN } });
-    await waitForApp(page);
-    await accountView(page, '3 cached own property view (flags)');
-    await shot(page, '05-salesperson-cached-property-view-reset');
-    await context.close();
-  }
-
-  // 4. Cached property view stored before the flags existed, API now omits the row → account view.
-  {
-    const { page, context } = await open({ who: BON, omitOwnRow: true, seed: { stasht_token: 'bon-token', stasht_user: BON, view_type: 'property', selected_property: { id: 96, name: 'Bon Sun', username: 'bon', unique_id: 'BS-96', user_id: 966 } } });
+    const { page, context } = await open({ who: BON, seed: { stasht_token: 'bon-token', stasht_user: BON, view_type: 'property', selected_property: BONS_OWN, stasht_campaigns_view: 'storeels' } });
     await waitForApp(page);
     await page.waitForTimeout(1500);
-    await accountView(page, '4 cached unflagged property view, row omitted');
+    await externalView(page, '3 stored External view restored');
+    await shot(page, '08-external-view-restored');
     await context.close();
   }
 
-  // 5. Left-over pending switch to his property (old modal pick / activation link), row omitted → no endless
-  //    "Loading Stasht Studio...", account view.
-  {
-    const { page, context } = await open({ who: BON, omitOwnRow: true, seed: { stasht_token: 'bon-token', stasht_user: BON, view_type: 'personal', pending_property_switch: '96' } });
-    await waitForApp(page);
-    await accountView(page, '5 pending switch to own property, row omitted');
-    await context.close();
-  }
+  // 4. Pending switch (invite sign-up ?property=1 → "first", or an id) opens the External view as before; a pending
+  //    switch to a property that is gone is cleared (no endless "Loading Stasht Studio...").
   {
     const { page, context } = await open({ who: BON, seed: { stasht_token: 'bon-token', stasht_user: BON, view_type: 'personal', pending_property_switch: 'first' } });
     await waitForApp(page);
-    await accountView(page, '5b pending "first" with only his own row');
+    await externalView(page, '4 pending "first"');
+    await context.close();
+  }
+  {
+    const { page, context } = await open({ who: BON, omitOwnRow: true, seed: { stasht_token: 'bon-token', stasht_user: BON, view_type: 'personal', pending_property_switch: '96' } });
+    await waitForApp(page);
+    await accountView(page, '4b pending switch to a property that is gone');
     await context.close();
   }
 
-  // 6. Main account: unchanged. Account choice lists Internal (1) + External (1); picking the internal property
-  //    opens its property view (Property badge).
+  // 5. Main account: unchanged. Account choice lists Internal (1) + External (1); picking the internal property
+  //    opens its property view (Property badge, no Leads in that property view).
   {
     const { page, context } = await open({ who: SERPA, path: '/login?prefill_email=serpa@dealer.test' });
     await signIn(page, 'serpa@dealer.test');
     const props = page.getByText(/Properties \(2\)/).filter({ visible: true }).first();
     await page.getByText('Choose Account', { exact: true }).filter({ visible: true }).first().waitFor({ state: 'visible', timeout: 15000 });
     await props.waitFor({ state: 'visible', timeout: 15000 });
-    await shot(page, '06-main-account-choice');
     await props.click();
     await page.waitForTimeout(400);
-    expect(await page.getByText('Internal (1)').filter({ visible: true }).count() > 0, '6: main account sees Internal (1)');
-    expect(await page.getByText('External (1)').filter({ visible: true }).count() > 0, '6: main account sees External (1) (its salesperson)');
-    await shot(page, '07-main-account-choice-properties');
+    expect(await page.getByText('Internal (1)').filter({ visible: true }).count() > 0, '5: main account sees Internal (1)');
+    expect(await page.getByText('External (1)').filter({ visible: true }).count() > 0, '5: main account sees External (1) (its salesperson)');
+    await shot(page, '09-main-account-choice-properties');
     await page.getByText('Serpa Downtown').filter({ visible: true }).first().click();
     await waitForApp(page);
     await page.waitForTimeout(1500);
     const v = await view(page);
     const badge = await visibleText(page, 'Property');
-    console.log('6 main → internal', JSON.stringify({ badge, ...v }));
-    expect(v.view === 'property' && JSON.parse(v.selected || '{}').id === 12, '6: main account opens its internal property view');
-    expect(badge > 0, '6: Property badge in the internal property view');
-    await shot(page, '08-main-account-internal-property-view');
+    console.log('5 main → internal', JSON.stringify({ badge, ...v }));
+    expect(v.view === 'property' && JSON.parse(v.selected || '{}').id === 12, '5: main account opens its internal property view');
+    expect(badge > 0, '5: Property badge in the internal property view');
+    expect(await visibleText(page, 'Leads') === 0, '5: no Leads in an internal property view');
+    await shot(page, '10-main-account-internal-property-view');
     await context.close();
   }
 
-  // 7. Main account's Profile menu still counts both properties.
+  // 6. Main account's Profile menu still counts both properties.
   {
     const { page, context } = await open({ who: SERPA, seed: { stasht_token: 'serpa-token', stasht_user: SERPA, view_type: 'personal' } });
     await waitForApp(page);
-    await accountView(page, '7 main account personal');
+    await accountView(page, '6 main account personal');
     await openProfileMenu(page);
-    expect(await page.getByText('Property Accounts (2)').filter({ visible: true }).count() > 0, '7: main Profile menu: Property Accounts (2)');
-    expect(await page.getByText('1 internal, 1 external').filter({ visible: true }).count() > 0, '7: main Profile menu: 1 internal, 1 external');
-    await shot(page, '09-main-account-profile-menu');
+    expect(await page.getByText('Property Accounts (2)').filter({ visible: true }).count() > 0, '6: main Profile menu: Property Accounts (2)');
+    expect(await page.getByText('1 internal, 1 external').filter({ visible: true }).count() > 0, '6: main Profile menu: 1 internal, 1 external');
     await context.close();
   }
 
-  // 8. Phone: salesperson lands in the account.
+  // 7. Phone: the chooser fits and opens the External view.
   {
     const { page, context } = await open({ width: 390, height: 844, who: BON, path: '/login?prefill_email=bon@dealer.test' });
     await signIn(page, 'bon@dealer.test');
+    await page.getByText('Choose Account', { exact: true }).filter({ visible: true }).first().waitFor({ state: 'visible', timeout: 15000 });
+    await page.getByText(/Properties \(1\)/).filter({ visible: true }).first().click();
+    await page.waitForTimeout(400);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), '7 phone: chooser has no sideways scroll');
+    await shot(page, '11-phone-account-choice');
+    await externalChoice(page).click();
     await page.waitForTimeout(4000);
-    const v = await view(page);
-    expect(v.view !== 'property' && !v.selected, '8 phone: account view stored');
-    expect(await visibleText(page, 'Property') === 0, '8 phone: no Property badge');
-    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), '8 phone: no sideways scroll');
-    await shot(page, '10-phone-salesperson-own-account');
+    await externalView(page, '7 phone External view', { desktop: false });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), '7 phone: External view has no sideways scroll');
+    await shot(page, '12-phone-external-view');
     await context.close();
   }
 
-  // 9. First sign-up from an invite link (?token=…&property=1 sets pending "first"), then sign-in on the 1 Nov API:
-  //    GET /properties lists only his own row (is_own_external_account) → his own account, not the property view.
+  // 8. Users → External lists his own External account again; Properties lists his internal one.
   {
-    const { page, context } = await open({ who: BON, nov1: true, path: '/?token=inv-96&property=1' });
-    const pending = await page.evaluate(() => localStorage.getItem('pending_property_switch'));
-    expect(pending === 'first', `9: invite link left pending "first" (${pending})`);
-    await page.goto(`${BASE}/login?prefill_email=bon@dealer.test`);
-    await signIn(page, 'bon@dealer.test');
-    await page.waitForTimeout(1500);
-    expect(await page.getByText('Choose Account', { exact: true }).filter({ visible: true }).count() === 0, '9: no account-choice modal');
-    await waitForApp(page);
-    await accountView(page, '9 invite sign-up, 1 Nov API');
-    await shot(page, '11-invite-signup-own-account');
-    await context.close();
-  }
-
-  // 10. Users → Properties: his own row is hidden; another property of his still shows.
-  {
-    const { page, context } = await open({ who: BON, nov1: true, extraRows: [BONS_LOT], path: '/users', seed: { stasht_token: 'bon-token', stasht_user: BON, view_type: 'personal' } });
-    await page.evaluate(() => sessionStorage.setItem('users_open_tab', 'properties'));
+    const { page, context } = await open({ who: BON, extraRows: [BONS_LOT], path: '/users', seed: { stasht_token: 'bon-token', stasht_user: BON, view_type: 'personal' } });
+    await page.evaluate(() => sessionStorage.setItem('users_open_tab', 'external'));
     await page.goto(`${BASE}/users`);
-    await page.getByText('Bons Lot').filter({ visible: true }).first().waitFor({ state: 'visible', timeout: 25000 });
+    await page.locator('tr', { hasText: 'Bon Sun' }).filter({ visible: true }).first().waitFor({ state: 'visible', timeout: 25000 }).catch(() => {});
     await page.waitForTimeout(500);
     const own = await page.locator('tr', { hasText: 'Bon Sun' }).filter({ visible: true }).count();
-    const lot = await page.locator('tr', { hasText: 'Bons Lot' }).filter({ visible: true }).count();
-    console.log('10 users/properties', JSON.stringify({ own, lot }));
-    expect(own === 0, '10: own row hidden from Users → Properties');
-    expect(lot > 0, '10: his other property still listed');
-    await shot(page, '12-users-properties-own-row-hidden');
+    console.log('8 users/external', JSON.stringify({ own }));
+    expect(own > 0, '8: Users → External lists his own External account');
+    await shot(page, '13-users-external-own-row');
+    await page.getByRole('button', { name: 'Properties', exact: true }).filter({ visible: true }).first().click();
+    await page.waitForTimeout(500);
+    expect(await page.locator('tr', { hasText: 'Bons Lot' }).filter({ visible: true }).count() > 0, '8: Users → Properties lists his internal property');
     await openProfileMenu(page);
-    expect(await page.getByText('Property Accounts (1)').filter({ visible: true }).count() > 0, '10: Profile menu counts only the other property');
-    await shot(page, '13-profile-menu-other-property-only');
+    expect(await page.getByText('Property Accounts (2)').filter({ visible: true }).count() > 0, '8: Profile menu counts both');
+    expect(await page.getByText('1 internal, 1 external').filter({ visible: true }).count() > 0, '8: Profile menu: "1 internal, 1 external" (Bons Lot internal, his External account external)');
     await context.close();
   }
 
   // 11. Bon's own car campaign (shared from Serpa's car): his own photo keeps edit / delete (deleted as a memory
   //     image, no is_car); the photo of Serpa's read-only car has no select / edit / delete.
   {
-    const { page, context, state } = await open({ who: BON, nov1: true, carCampaign: true, path: '/memories', seed: { stasht_token: 'bon-token', stasht_user: BON, view_type: 'personal', stasht_campaigns_view: 'storeels' } });
+    const { page, context, state } = await open({ who: BON, carCampaign: true, path: '/memories', seed: { stasht_token: 'bon-token', stasht_user: BON, view_type: 'personal', stasht_campaigns_view: 'storeels' } });
     await waitForApp(page);
     await page.getByText(BON_CAR_CAMPAIGN.title).filter({ visible: true }).first().click();
     const media = page.getByText('bon-walkaround.jpg', { exact: true }).filter({ visible: true }).first();
