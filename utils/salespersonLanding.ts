@@ -54,16 +54,24 @@ export function signedInUserOr(user: unknown): unknown {
   }
 }
 
-/** True when this property row is the signed-in user's own account: an external property made for them
- * (account_created_for_property true) whose user_id is their stash id, or an external row the API marks
- * is_own_account. */
+/** True when this property row is the signed-in user's own account: a row the API marks
+ * is_own_external_account, an external property made for them (account_created_for_property true) whose user_id
+ * is their stash id, or an external row marked is_own_account. */
 export function isOwnExternalProperty(row: Row, user: unknown): boolean {
-  if (!row || lower(row.account_type) !== 'external') return false;
+  if (!row) return false;
+  // The API's own answer (1 Nov): every row says whether it is the signed-in account's own external account.
+  if (flag(row.is_own_external_account) === true) return true;
+  if (lower(row.account_type) !== 'external') return false;
   const me = ownStashId(user);
   if (!me) return false;
   if (flag(row.is_own_account) === true) return true;
   if (flag(row.account_created_for_property) !== true) return false;
   return present(row.user_id) && String(row.user_id).trim() === me;
+}
+
+/** A property list without the user's own external property (Users → Properties: opening it would be pointless). */
+export function withoutOwnExternalProperties<T = any>(rows: T[] | null | undefined, user: unknown): T[] {
+  return (Array.isArray(rows) ? rows : []).filter((p) => !isOwnExternalProperty(p as Row, user));
 }
 
 export type VisiblePropertyLists<T> = { owned: T[]; shared: T[]; removedOwned: number; removedShared: number };

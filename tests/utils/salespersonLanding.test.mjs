@@ -8,6 +8,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  withoutOwnExternalProperties,
   ownStashId,
   isOwnExternalProperty,
   visiblePropertyLists,
@@ -144,4 +145,27 @@ test('inventory rows: own or unknown stay editable; parent\'s rows are read-only
   assert.equal(inventoryItemIsReadOnly({ id: 1, user_id: 889, can_edit: true }, serpa), false, 'main account\'s own car');
   assert.equal(inventoryItemIsReadOnly({ id: 1, user_id: 889 }, null), false, 'no signed-in user known: unchanged');
   assert.equal(inventoryItemIsReadOnly(null, bon), false);
+});
+
+// API (1 Nov): every row carries is_own_external_account; sign-in omits the own row, GET /properties keeps it flagged.
+test('is_own_external_account true marks the own row, on its own', () => {
+  assert.equal(isOwnExternalProperty({ id: 96, name: 'Bon Sun', is_own_external_account: true }, bon), true);
+  assert.equal(isOwnExternalProperty({ id: 96, is_own_external_account: 1 }, bon), true);
+  assert.equal(isOwnExternalProperty({ id: 96, is_own_external_account: true }, null), true, 'the API decided: no user needed');
+  assert.equal(isOwnExternalProperty({ ...internalRow, is_own_external_account: false }, serpa), false);
+  assert.equal(isOwnExternalProperty({ ...bonAsSeenBySerpa, is_own_external_account: false }, serpa), false, 'main account: its salesperson stays');
+});
+
+test('invite sign-up (pending "first") with GET /properties listing only the flagged own row: stays in the account', () => {
+  const listed = { id: 96, name: 'Bon Sun', user_id: 966, account_type: 'external', is_own_external_account: true };
+  assert.deepEqual(resolvePendingPropertySwitch('first', [listed], bon), { action: 'clear' });
+  assert.deepEqual(resolvePendingPropertySwitch('96', [listed], bon), { action: 'clear' });
+});
+
+test('Users → Properties: the own row is hidden, everything else kept', () => {
+  const listed = { id: 96, name: 'Bon Sun', is_own_external_account: true };
+  const other = { id: 40, name: 'Partner lot', account_type: 'external', is_own_external_account: false };
+  assert.deepEqual(withoutOwnExternalProperties([listed, other, bonsOwnRow], bon), [other]);
+  assert.deepEqual(withoutOwnExternalProperties([internalRow, bonAsSeenBySerpa], serpa), [internalRow, bonAsSeenBySerpa]);
+  assert.deepEqual(withoutOwnExternalProperties(undefined, bon), []);
 });

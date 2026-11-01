@@ -19,6 +19,9 @@ const BON = { id: 120, external_user_id: 966, name: 'Bon Sun', email: 'bon@deale
 const base = { location: 'Toronto, ON', memories_count: 0, users_count: 1, invited_users: [], labels: [], created_at: '2026-10-01T10:00:00Z', is_active: true, status: 1 };
 // Bon's own row as his sign-in / properties list sends it today.
 const BONS_OWN = { ...base, id: 96, name: 'Bon Sun', unique_id: 'BS-96', user_id: 966, parent_user_id: 889, is_creator: true, user_role: 'owner', property_type: 'external', account_type: 'external', account_created_for_property: true, can_manage: false };
+// The API from 1 Nov: sign-in leaves Bon's row out; GET /properties keeps it, marked is_own_external_account.
+const BONS_OWN_NOV1 = { ...base, id: 96, name: 'Bon Sun', unique_id: 'BS-96', user_id: 966, parent_user_id: 889, is_creator: true, user_role: 'owner', property_type: 'external', account_type: 'external', is_own_external_account: true };
+const BONS_LOT = { ...base, id: 97, name: 'Bons Lot', unique_id: 'BL-97', user_id: 966, is_creator: true, user_role: 'owner', property_type: 'internal', account_type: 'internal', account_created_for_property: false, can_manage: true, is_own_external_account: false };
 // Serpa's rows: one internal property, and Bon's account as Serpa sees it.
 const SERPA_INTERNAL = { ...base, id: 12, name: 'Serpa Downtown', unique_id: 'SD-12', user_id: 889, is_creator: true, user_role: 'owner', property_type: 'internal', account_type: 'internal', account_created_for_property: false, can_manage: true };
 const SERPA_SEES_BON = { ...base, id: 96, name: 'Bon Sun', unique_id: 'BS-96', user_id: 966, parent_user_id: 889, is_creator: false, user_role: 'admin', property_type: 'external', account_type: 'external', account_created_for_property: true, can_manage: true };
@@ -34,7 +37,8 @@ const browser = await chromium.launch({ headless: true, channel: 'chrome' });
 
 // who: the account the mocked API signs in / answers for. omitOwnRow: the API leaves Bon's row out.
 // seed: localStorage on the first load (null = signed out, i.e. the sign-in page).
-async function open({ width = 1280, height = 900, who, omitOwnRow = false, seed = null, path = '/' }) {
+// nov1: the 1 Nov API (sign-in omits the own row, /properties lists it flagged); extraRows: Bon's other properties.
+async function open({ width = 1280, height = 900, who, omitOwnRow = false, nov1 = false, extraRows = [], seed = null, path = '/' }) {
   const state = { loginCalls: 0, propertyFetches: 0 };
   const context = await browser.newContext({ viewport: { width, height }, serviceWorkers: 'block', locale: 'en-US', hasTouch: width < 1024, isMobile: width < 1024 });
   await context.addInitScript(([seedData]) => {
@@ -44,7 +48,9 @@ async function open({ width = 1280, height = 900, who, omitOwnRow = false, seed 
     if (!seedData) return;
     for (const [k, v] of Object.entries(seedData)) localStorage.setItem(k, typeof v === 'string' ? v : JSON.stringify(v));
   }, [seed]);
-  const ownedFor = () => (who === BON ? (omitOwnRow ? [] : [BONS_OWN]) : [SERPA_INTERNAL]);
+  const ownedFor = (signIn = false) => (who === BON
+    ? [...(nov1 ? (signIn ? [] : [BONS_OWN_NOV1]) : omitOwnRow ? [] : [BONS_OWN]), ...extraRows]
+    : [SERPA_INTERNAL]);
   const sharedFor = () => (who === BON ? [] : [SERPA_SEES_BON]);
   await context.route('**/*', async (route) => {
     const req = route.request();
@@ -68,7 +74,7 @@ async function open({ width = 1280, height = 900, who, omitOwnRow = false, seed 
     if (p === '/verify-otp') return route.fulfill({ json: { success: true, verification_token: 'vt-1' } });
     if (p === '/login' && req.method() === 'POST') {
       state.loginCalls++;
-      return route.fulfill({ json: { success: true, data: { user: who, token: who === BON ? 'bon-token' : 'serpa-token', collaborators: [], owned_properties: ownedFor(), shared_properties: sharedFor(), partial_admin_access: [] } } });
+      return route.fulfill({ json: { success: true, data: { user: who, token: who === BON ? 'bon-token' : 'serpa-token', collaborators: [], owned_properties: ownedFor(true), shared_properties: sharedFor(), partial_admin_access: [] } } });
     }
     if (p === '/properties' && req.method() === 'GET') {
       state.propertyFetches++;
@@ -251,6 +257,41 @@ try {
     expect(await visibleText(page, 'Property') === 0, '8 phone: no Property badge');
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), '8 phone: no sideways scroll');
     await shot(page, '10-phone-salesperson-own-account');
+    await context.close();
+  }
+
+  // 9. First sign-up from an invite link (?token=…&property=1 sets pending "first"), then sign-in on the 1 Nov API:
+  //    GET /properties lists only his own row (is_own_external_account) → his own account, not the property view.
+  {
+    const { page, context } = await open({ who: BON, nov1: true, path: '/?token=inv-96&property=1' });
+    const pending = await page.evaluate(() => localStorage.getItem('pending_property_switch'));
+    expect(pending === 'first', `9: invite link left pending "first" (${pending})`);
+    await page.goto(`${BASE}/login?prefill_email=bon@dealer.test`);
+    await signIn(page, 'bon@dealer.test');
+    await page.waitForTimeout(1500);
+    expect(await page.getByText('Choose Account', { exact: true }).filter({ visible: true }).count() === 0, '9: no account-choice modal');
+    await waitForApp(page);
+    await accountView(page, '9 invite sign-up, 1 Nov API');
+    await shot(page, '11-invite-signup-own-account');
+    await context.close();
+  }
+
+  // 10. Users → Properties: his own row is hidden; another property of his still shows.
+  {
+    const { page, context } = await open({ who: BON, nov1: true, extraRows: [BONS_LOT], path: '/users', seed: { stasht_token: 'bon-token', stasht_user: BON, view_type: 'personal' } });
+    await page.evaluate(() => sessionStorage.setItem('users_open_tab', 'properties'));
+    await page.goto(`${BASE}/users`);
+    await page.getByText('Bons Lot').filter({ visible: true }).first().waitFor({ state: 'visible', timeout: 25000 });
+    await page.waitForTimeout(500);
+    const own = await page.locator('tr', { hasText: 'Bon Sun' }).filter({ visible: true }).count();
+    const lot = await page.locator('tr', { hasText: 'Bons Lot' }).filter({ visible: true }).count();
+    console.log('10 users/properties', JSON.stringify({ own, lot }));
+    expect(own === 0, '10: own row hidden from Users → Properties');
+    expect(lot > 0, '10: his other property still listed');
+    await shot(page, '12-users-properties-own-row-hidden');
+    await openProfileMenu(page);
+    expect(await page.getByText('Property Accounts (1)').filter({ visible: true }).count() > 0, '10: Profile menu counts only the other property');
+    await shot(page, '13-profile-menu-other-property-only');
     await context.close();
   }
 } catch (e) {
