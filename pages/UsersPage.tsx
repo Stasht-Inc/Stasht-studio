@@ -35,6 +35,7 @@ import {
 } from '../components/ui/alert-dialog';
 import { deletePropertyMessage, deletePropertyToast, propertyRowActions, propertyStatusBadge, propertyTypeLabel, type BadgeTone } from '../utils/propertyRows';
 import { withoutOwnExternalProperties } from '../utils/salespersonLanding';
+import { propertyImageErrorMessage } from '../utils/propertyImage';
 import { toast } from 'sonner';
 
 interface User {
@@ -735,10 +736,9 @@ export default function UsersPage({ onNavigate, onViewStoreelReport }: UsersPage
       // Handle image update/removal
       if (propertyData.image) {
         formData.append('image', propertyData.image);
+      } else if (propertyData.removeImage) {
+        formData.append('remove_image', '1');
       }
-
-      // If image was removed (check if there's a way to detect this)
-      // formData.append('remove_image', 'true');
 
       // Call API
       const response = await dashboardAPI.updateProperty(propertyToEdit.id, formData);
@@ -751,7 +751,7 @@ export default function UsersPage({ onNavigate, onViewStoreelReport }: UsersPage
         // Refresh properties list
         await fetchProperties();
       } else {
-        toast.error(response.error || response.message || 'Failed to update property');
+        toast.error(propertyImageErrorMessage(response) || 'Failed to update property');
       }
     } catch (error: any) {
       console.error('Error updating property:', error);
