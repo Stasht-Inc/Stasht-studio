@@ -74,8 +74,6 @@ export default function CreatePropertyModal({
   // Validation errors
   const [errors, setErrors] = useState({ propertyName: '', id: '', username: '', location: '' });
 
-  const suggestedLabels = ['Bike', 'Trail'];
-
   // Load form data from cart when editingIndex changes
   useEffect(() => {
     if (!useCartFlow) return;
@@ -296,18 +294,26 @@ export default function CreatePropertyModal({
       loadEmptyForm();
       setErrors({ propertyName: '', id: '', username: '', location: '' });
     } catch (error: any) {
-      if (error?.fieldErrors) {
-        const fieldMap: Record<string, keyof typeof errors> = {
-          username: 'username', name: 'propertyName', unique_id: 'id', location: 'location',
-        };
-        const newErrors = { propertyName: '', id: '', username: '', location: '' };
+      // The form keeps what was typed and the chosen image. Field errors show under their fields; anything else (the
+      // image's type or size, a permission refusal, a server or network failure) in a toast with the server's words.
+      const fieldMap: Record<string, keyof typeof errors> = {
+        username: 'username', name: 'propertyName', unique_id: 'id', location: 'location',
+      };
+      const newErrors = { propertyName: '', id: '', username: '', location: '' };
+      let shownOnField = false;
+      let otherFieldMessage = '';
+      if (error?.fieldErrors && typeof error.fieldErrors === 'object') {
         Object.entries(error.fieldErrors).forEach(([field, messages]) => {
+          const message = String((Array.isArray(messages) ? messages[0] : messages) || '');
           const mapped = fieldMap[field];
-          if (mapped) newErrors[mapped] = (messages as string[])[0] || '';
+          if (mapped && message) { newErrors[mapped] = message; shownOnField = true; }
+          else if (message && !otherFieldMessage) otherFieldMessage = message;
         });
-        setErrors(newErrors);
-      } else {
-        toast.error(error?.message || 'Failed to create property. Please try again.');
+      }
+      setErrors(newErrors);
+      if (otherFieldMessage || !shownOnField) {
+        toast.error(otherFieldMessage || error?.message
+          || (propertyToEdit ? 'The property could not be updated. Please try again.' : 'Failed to create property. Please try again.'));
       }
     } finally {
       setIsSubmitting(false);
@@ -590,21 +596,6 @@ export default function CreatePropertyModal({
                 ))}
               </div>
             )}
-            <div className="mt-3">
-              <p className="text-xs text-gray-500 mb-2">Suggested labels:</p>
-              <div className="flex flex-wrap gap-2">
-                {suggestedLabels.map((label, index) => (
-                  <button
-                    key={index}
-                    onClick={() => handleAddLabel(label)}
-                    disabled={labels.includes(label)}
-                    className="inline-flex items-center gap-1 px-3 py-1 bg-white border border-gray-200 text-gray-700 text-sm rounded-md hover:bg-gray-50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                  >
-                    + {label}
-                  </button>
-                ))}
-              </div>
-            </div>
           </div>
         </div>
 

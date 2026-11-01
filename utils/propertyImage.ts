@@ -113,3 +113,26 @@ export function propertyImageErrorMessage(response: any): string {
   }
   return FALLBACK_ERROR;
 }
+
+/**
+ * What a failed POST /properties/{id}/update reports (dashboardAPI.updateProperty): `error` is the API's own message
+ * with the HTTP status, and `errors` its field errors (422). A proxy refusing a large upload (413) answers with an HTML
+ * page, so its text is written here — without promising 10MB, since the proxy's limit can be lower than the API's.
+ * No JSON at all: the status; no answer at all (offline, blocked): the browser's reason.
+ */
+export function propertyUpdateFailure(
+  { status, data, networkError }: { status?: number; data?: any; networkError?: string },
+): { error: string; errors: Record<string, unknown> | null } {
+  if (networkError !== undefined) {
+    return { error: `Could not reach the server to save the property (${networkError || 'no answer'}). Check your connection and try again.`, errors: null };
+  }
+  const errors = data && typeof data.errors === 'object' && data.errors !== null ? data.errors : null;
+  if (status === 413) {
+    return { error: 'The server refused the image because it is too large (HTTP 413). Please choose a smaller image.', errors };
+  }
+  for (const key of ['message', 'error']) {
+    const text = data?.[key];
+    if (typeof text === 'string' && text.trim()) return { error: `${text.trim()} (HTTP ${status ?? '?'})`, errors };
+  }
+  return { error: `The server could not save the property (HTTP ${status ?? '?'}). Please try again.`, errors };
+}

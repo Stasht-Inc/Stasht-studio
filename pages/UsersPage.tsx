@@ -708,61 +708,59 @@ export default function UsersPage({ onNavigate, onViewStoreelReport }: UsersPage
     }
   };
 
-  // Handle updating a property
+  // Handle updating a property. A failure throws (with the API's field errors) so Edit Property keeps what was typed
+  // and the chosen image, and says why (CreatePropertyModal); it used to be emptied after the error toast.
   const handleUpdateProperty = async (propertyData: PropertyFormData) => {
     if (!propertyToEdit) return;
 
     console.log('Updating property:', propertyToEdit.id, propertyData);
 
-    try {
-      // Validate required fields
-      if (!propertyData.propertyName || !propertyData.username) {
-        toast.error('Please fill in all required fields');
-        return;
-      }
+    // Validate required fields
+    if (!propertyData.propertyName || !propertyData.username) {
+      throw new Error('Please fill in all required fields');
+    }
 
-      // Create FormData for API
-      const formData = new FormData();
-      formData.append('name', propertyData.propertyName);
-      if (propertyData.id) {
-        formData.append('unique_id', propertyData.id);
-      }
-      formData.append('username', propertyData.username);
+    // Create FormData for API
+    const formData = new FormData();
+    formData.append('name', propertyData.propertyName);
+    if (propertyData.id) {
+      formData.append('unique_id', propertyData.id);
+    }
+    formData.append('username', propertyData.username);
 
-      // Add optional fields
-      if (propertyData.location) {
-        formData.append('location', propertyData.location);
-      }
+    // Add optional fields
+    if (propertyData.location) {
+      formData.append('location', propertyData.location);
+    }
 
-      // Add labels
-      if (propertyData.labels && propertyData.labels.length > 0) {
-        const labelsString = propertyData.labels.join(', ');
-        formData.append('label', labelsString);
-      }
+    // Add labels
+    if (propertyData.labels && propertyData.labels.length > 0) {
+      const labelsString = propertyData.labels.join(', ');
+      formData.append('label', labelsString);
+    }
 
-      // Handle image update/removal
-      if (propertyData.image) {
-        formData.append('image', propertyData.image);
-      } else if (propertyData.removeImage) {
-        formData.append('remove_image', '1');
-      }
+    // Handle image update/removal
+    if (propertyData.image) {
+      formData.append('image', propertyData.image);
+    } else if (propertyData.removeImage) {
+      formData.append('remove_image', '1');
+    }
 
-      // Call API
-      const response = await dashboardAPI.updateProperty(propertyToEdit.id, formData);
+    // Call API
+    const response = await dashboardAPI.updateProperty(propertyToEdit.id, formData);
 
-      if (response.success || response.status === 'success') {
-        toast.success('Property updated successfully');
-        setPropertyToEdit(null);
-        setShowCreatePropertyModal(false);
+    if (response.success || response.status === 'success') {
+      toast.success('Property updated successfully');
+      setPropertyToEdit(null);
+      setShowCreatePropertyModal(false);
 
-        // Refresh properties list
-        await fetchProperties();
-      } else {
-        toast.error(propertyImageErrorMessage(response) || 'Failed to update property');
-      }
-    } catch (error: any) {
-      console.error('Error updating property:', error);
-      toast.error(error.message || 'An error occurred while updating the property');
+      // Refresh properties list
+      await fetchProperties();
+    } else {
+      // The image's own message first (e.g. its type or size), else the API's message with the HTTP status.
+      const err: any = new Error(propertyImageErrorMessage(response) || 'Failed to update property');
+      err.fieldErrors = response.errors || null;
+      throw err;
     }
   };
 
