@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useLayoutEffect, useRef } from "react";
 import * as Popover from '@radix-ui/react-popover';
 import { Avatar, AvatarFallback, AvatarImage } from "./ui/avatar";
 import { Plus, MapPin, Check, X, Loader2, Camera, Calendar, Home, Globe, Eye, Lock } from "lucide-react";
@@ -164,6 +164,21 @@ function UserFallbackAvatar({
   );
 }
 
+// Cards with a yellow label (a car's price) carry three pills on the right — count, category, price — over a
+// title at the bottom; on small cards (~190px with the sidebar and categories column open) they don't all fit
+// (Chris, ClickUp wdy2xh2x96: "2025 Audi A5 45" sat under "$44,095"). Such a card lays its overlay out as one
+// column (pills at the top, title at the bottom) and, while the two don't fit with this much room between them,
+// steps through FIT_LEVELS in order. Cards without a label keep the original layout untouched.
+const FIT_MIN_GAP = 6;
+const FIT_LEVELS = {
+  pillsInRow: 1,   // category + price share a row when both fit (wraps back under each other when not)
+  compact: 2,      // tighter pill gaps and corner inset, less padding around the title
+  titleOneLine: 3, // the title clamps to one line (ellipsis) instead of two
+  hideLocation: 4, // last resorts, for very small cards (e.g. 132px at 1280px with both side columns open)
+  hideCount: 5,
+} as const;
+const FIT_MAX = FIT_LEVELS.hideCount;
+
 interface Contributor {
   name: string;
   avatar?: string;
@@ -256,6 +271,56 @@ export default function MemoryCard({
   const [isLocationTruncated, setIsLocationTruncated] = useState(false);
   const locationRef = useRef<HTMLParagraphElement>(null);
   const { user } = useAuth();
+
+  // Fit the overlay of a labelled card (see FIT_LEVELS). The level is tied to everything that changes the
+  // layout (photo size, texts), so a resize or new data starts again from the full layout.
+  const photoRef = useRef<HTMLDivElement>(null);
+  const badgesRef = useRef<HTMLDivElement>(null);
+  const titleBlockRef = useRef<HTMLDivElement>(null);
+  const textColRef = useRef<HTMLDivElement>(null);
+  const fitEnabled = !!label;
+  const [photoSize, setPhotoSize] = useState('');
+  const [fitTick, setFitTick] = useState(0);
+  const [fitState, setFitState] = useState({ key: '', level: 0 });
+  const propertyCount = properties?.length || (property ? 1 : 0);
+  const fitKey = `${photoSize}|${title}|${label}|${category}|${location}|${imagesCount}|${countLabel}|${dateRange}|${propertyCount}`;
+  const fitLevel = fitEnabled && fitState.key === fitKey ? fitState.level : 0;
+  const fitPillsInRow = fitLevel >= FIT_LEVELS.pillsInRow;
+  const fitCompact = fitLevel >= FIT_LEVELS.compact;
+  const fitTitleOneLine = fitLevel >= FIT_LEVELS.titleOneLine;
+  const fitHideLocation = fitLevel >= FIT_LEVELS.hideLocation;
+  const fitHideCount = fitLevel >= FIT_LEVELS.hideCount;
+
+  useLayoutEffect(() => {
+    if (!fitEnabled) return;
+    const photo = photoRef.current;
+    if (!photo) return;
+    // Layout size (offsetWidth/Height), so the hover scale doesn't count as a resize.
+    const sizeOf = () => `${photo.offsetWidth}x${photo.offsetHeight}`;
+    setPhotoSize(sizeOf());
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(() => {
+      const size = sizeOf();
+      setPhotoSize(prev => (prev === size ? prev : size));
+      setFitTick(t => t + 1); // the pills or title changed size (e.g. web fonts arrived): measure again
+    });
+    [photo, badgesRef.current, titleBlockRef.current].forEach(el => { if (el) observer.observe(el); });
+    return () => observer.disconnect();
+  }, [fitEnabled]);
+
+  useLayoutEffect(() => {
+    if (!fitEnabled || !photoSize) return;
+    const photo = photoRef.current;
+    const badges = badgesRef.current;
+    const block = titleBlockRef.current;
+    const text = textColRef.current;
+    if (!photo || !badges || !block || !text || !photo.offsetWidth || !photo.offsetHeight) return;
+    const gap = text.getBoundingClientRect().top - badges.getBoundingClientRect().bottom;
+    const overflows = block.getBoundingClientRect().bottom - photo.getBoundingClientRect().bottom > 0.5;
+    if ((gap < FIT_MIN_GAP || overflows) && fitLevel < FIT_MAX) {
+      setFitState({ key: fitKey, level: fitLevel + 1 });
+    }
+  }, [fitEnabled, fitKey, fitLevel, fitTick, photoSize]);
 
   // Use the getCategoryColor function to match sidebar exactly
   const getInvitesCategoryColor = () => {
@@ -367,6 +432,49 @@ export default function MemoryCard({
     : (user?.profile_color || profileColor || '');
   const hasFooterContent = !!displayName || contributors.length > 0 || tags.length > 0;
 
+  // Category Badge
+  const categoryPill = category ? (
+    <div
+      className="shadow-lg"
+      style={{
+        display: 'flex',
+        padding: '8px 14px',
+        alignItems: 'center',
+        gap: '10px',
+        borderRadius: '8px',
+        backgroundColor: (category === 'Suggested' || suggestedCategory) ? '#ffffff' : finalCategoryColor,
+        color: (category === 'Suggested' || suggestedCategory) ? '#6B7280' : '#ffffff',
+        // Category / price badges are key information (Chris, 2026-09-21: "why is
+        // category and badge so small… these are important") — 12px was too small.
+        fontSize: '15px',
+        fontWeight: 600,
+        lineHeight: '20px'
+      }}
+    >
+      {category}
+    </div>
+  ) : null;
+  // Label Badge (yellow - e.g. Keepsakes)
+  const labelPill = label ? (
+    <div
+      className="text-gray-900 shadow-md"
+      style={{
+        display: 'flex',
+        padding: '8px 14px',
+        alignItems: 'center',
+        gap: '10px',
+        borderRadius: '8px',
+        background: '#FCD34D',
+        // The yellow label carries a car's price, so it is the boldest pill.
+        fontSize: '18px',
+        fontWeight: 700,
+        lineHeight: '22px'
+      }}
+    >
+      {label}
+    </div>
+  ) : null;
+
   return (
     <div
       className={`memory-card-container box-border flex flex-col gap-0 items-stretch justify-start p-0 relative transition-all duration-200 ease-out w-full ${
@@ -386,7 +494,7 @@ export default function MemoryCard({
       aria-label={isInvite ? `${title} campaign invitation` : `View ${title} campaign details`}
     >
       {/* Image Section with overlay content */}
-      <div className="relative bg-gray-200 overflow-hidden rounded-2xl aspect-[3/4] md:aspect-square w-full shadow-[0px_2px_12px_0px_rgba(0,0,0,0.10)]">
+      <div ref={photoRef} className="relative bg-gray-200 overflow-hidden rounded-2xl aspect-[3/4] md:aspect-square w-full shadow-[0px_2px_12px_0px_rgba(0,0,0,0.10)]">
         {imageLoaded && image ? (
           isYoutubeUrl(image) ? (
             <img
@@ -496,10 +604,18 @@ export default function MemoryCard({
           </div>
         )}
 
+        {/* Overlay: a labelled card stacks the pills and the title in one column so they can't overlap (see
+            FIT_LEVELS); any other card keeps both absolutely placed as before (`contents` adds no box). */}
+        <div className={fitEnabled ? 'absolute inset-0 z-10 flex flex-col' : 'contents'}>
         {/* Right side badges column */}
-        <div className="absolute top-3 right-3 z-10 flex flex-col items-end gap-2">
+        <div
+          ref={badgesRef}
+          className={fitEnabled
+            ? `self-end flex flex-col items-end flex-shrink-0 ${fitCompact ? 'mt-2 mr-2 gap-1' : 'mt-3 mr-3 gap-2'}`
+            : 'absolute top-3 right-3 z-10 flex flex-col items-end gap-2'}
+        >
           {/* Moments Count Badge */}
-          {imagesCount > 0 && (
+          {imagesCount > 0 && !fitHideCount && (
             <>
               {/* Desktop: "X moments" text badge */}
               <div
@@ -536,55 +652,26 @@ export default function MemoryCard({
             </>
           )}
 
-          {/* Category Badge */}
-          {category && (
-            <div
-              className="shadow-lg"
-              style={{
-                display: 'flex',
-                padding: '8px 14px',
-                alignItems: 'center',
-                gap: '10px',
-                borderRadius: '8px',
-                backgroundColor: (category === 'Suggested' || suggestedCategory) ? '#ffffff' : finalCategoryColor,
-                color: (category === 'Suggested' || suggestedCategory) ? '#6B7280' : '#ffffff',
-                // Category / price badges are key information (Chris, 2026-09-21: "why is
-                // category and badge so small… these are important") — 12px was too small.
-                fontSize: '15px',
-                fontWeight: 600,
-                lineHeight: '20px'
-              }}
-            >
-              {category}
+          {fitEnabled ? (
+            // Category + price: under each other, or on one row once the card is short of room (wraps if they don't fit).
+            <div className={`${fitPillsInRow ? 'flex flex-row flex-wrap justify-end' : 'flex flex-col items-end'} ${fitCompact ? 'gap-1' : 'gap-2'}`}>
+              {categoryPill}
+              {labelPill}
             </div>
-          )}
-
-          {/* Label Badge (yellow - e.g. Keepsakes) */}
-          {label && (
-            <div
-              className="text-gray-900 shadow-md"
-              style={{
-                display: 'flex',
-                padding: '8px 14px',
-                alignItems: 'center',
-                gap: '10px',
-                borderRadius: '8px',
-                background: '#FCD34D',
-                // The yellow label carries a car's price, so it is the boldest pill.
-                fontSize: '18px',
-                fontWeight: 700,
-                lineHeight: '22px'
-              }}
-            >
-              {label}
-            </div>
+          ) : (
+            categoryPill
           )}
         </div>
 
         {/* Title, Location, Date - Overlaid on image bottom */}
-        <div className="absolute bottom-0 left-0 right-0 p-4 z-10 flex items-end gap-3">
+        <div
+          ref={titleBlockRef}
+          className={fitEnabled
+            ? `mt-auto flex items-end gap-3 ${fitCompact ? 'px-4 pt-0 pb-2.5' : 'p-4'}`
+            : 'absolute bottom-0 left-0 right-0 p-4 z-10 flex items-end gap-3'}
+        >
           {/* Left: Text content */}
-          <div className="flex-1 min-w-0">
+          <div ref={textColRef} className="flex-1 min-w-0">
             {/* Property Name */}
             {(property || (properties && properties.length > 0)) && (() => {
               const propList = properties && properties.length > 0 ? properties : (property ? [property] : []);
@@ -622,14 +709,14 @@ export default function MemoryCard({
 
             {/* Title */}
             <h3
-              className="font-bold text-white line-clamp-2 mb-1.5"
+              className={`font-bold text-white ${fitTitleOneLine ? 'line-clamp-1' : 'line-clamp-2'} ${fitCompact ? 'mb-0.5' : 'mb-1.5'}`}
               style={{ fontSize: '24px', lineHeight: '28px', letterSpacing: '-0.44px' }}
             >
               {title}
             </h3>
 
             {/* Location */}
-            {location && (
+            {location && !fitHideLocation && (
               <div className="flex items-center gap-1.5 mb-0.5">
                 <MapPin className="w-3.5 h-3.5 text-white/90 flex-shrink-0" />
                 <p
@@ -671,6 +758,7 @@ export default function MemoryCard({
               <Plus style={{ width: '20px', height: '20px', flexShrink: 0, color: '#F6339A' }} />
             </button>
           )}
+        </div>
         </div>
       </div>
 
