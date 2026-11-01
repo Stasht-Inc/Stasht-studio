@@ -12,6 +12,8 @@ import {
   canChangePropertyImage,
   propertyImageErrorMessage,
   propertyUpdateFailure,
+  propertyRowAvatar,
+  PROPERTY_IMAGE_TYPE_ERROR,
 } from '../../utils/propertyImage.ts';
 
 // Serpa Chrysler (stash 889) and Bon Sun (stash 966), whose external property 96 Serpa made for him.
@@ -120,4 +122,29 @@ test('update failure: no JSON, or no answer at all, still says what happened', (
   assert.match(offline.error, /Could not reach the server/);
   assert.match(offline.error, /Failed to fetch/);
   assert.equal(propertyUpdateFailure({ status: 404, data: { error: 'Property not found.' } }).error, 'Property not found. (HTTP 404)');
+});
+
+test("Users → External row avatar: the property's image, else the external account's logo, else none (the shield)", () => {
+  // Chris, 1 Nov 2026: Artem's logo (set in Artem's account) instead of the shield.
+  const artem = { id: 77, name: 'Artem', account_type: 'external', user_id: 970, image: null, account_profile_image: 'https://cdn.test/artem.png' };
+  assert.equal(propertyRowAvatar(artem), 'https://cdn.test/artem.png');
+  assert.equal(propertyRowAvatar({ ...artem, image: 'https://cdn.test/property.png' }), 'https://cdn.test/property.png', 'the property image wins');
+  assert.equal(propertyRowAvatar({ ...artem, account_profile_image: null, creator: { profile_image: 'https://cdn.test/creator.png' } }),
+    'https://cdn.test/creator.png', 'an API without account_profile_image: the account row (creator) it already sends');
+  assert.equal(propertyRowAvatar({ ...artem, account_profile_image: 'null' }), null);
+  assert.equal(propertyRowAvatar({ ...artem, account_profile_image: '  ' }), null);
+  assert.equal(propertyRowAvatar({ ...artem, account_profile_image: null }), null);
+  assert.equal(propertyRowAvatar(null), null);
+});
+
+test("Users → Properties (internal) rows keep the property's image or the shield, never the account's own photo", () => {
+  const internal = { id: 12, account_type: 'internal', user_id: 889, image: null, account_profile_image: 'https://cdn.test/serpa.png', creator: { profile_image: 'https://cdn.test/serpa.png' } };
+  assert.equal(propertyRowAvatar(internal), null);
+  assert.equal(propertyRowAvatar({ ...internal, image: 'https://cdn.test/downtown.png' }), 'https://cdn.test/downtown.png');
+  assert.equal(propertyRowAvatar({ id: 13, image: null, account_profile_image: 'https://cdn.test/x.png' }), null, 'an older row without account_type');
+});
+
+test('the wrong-type message is one shared sentence (also said when a chosen file cannot be shown as an image)', () => {
+  assert.equal(PROPERTY_IMAGE_TYPE_ERROR, 'Please choose a PNG, JPG, GIF or WebP image.');
+  assert.equal(propertyImageFileError({ type: 'text/csv', size: 10 }), PROPERTY_IMAGE_TYPE_ERROR);
 });

@@ -19,7 +19,8 @@ import { aiCreditsAPI } from '../services/aiCreditsAPI';
 import { mediaAPI } from '../services/mediaAPI';
 import { useAuth } from '../contexts/AuthContext';
 import { useProperty } from '../contexts/PropertyContext';
-import { allPropertyRows, carOwnerAuthor, resolvePendingPropertySwitch } from '../utils/salespersonLanding';
+import { allPropertyRows, carOwnerAuthor, inventoryOwnerAuthor, resolvePendingPropertySwitch } from '../utils/salespersonLanding';
+import { planCoveredBy } from '../utils/effectivePlan';
 import { useMemoryLimit, recheckMemoryLimit } from '../hooks/useMemoryLimit';
 import { Avatar, AvatarFallback, AvatarImage } from "../components/ui/avatar";
 import EmptyMemoriesState from "../components/EmptyMemoriesState";
@@ -350,6 +351,12 @@ function MemoriesPageContent({
         const trialEnded = owned.some(p => p.trial_ended === true);
         if (isStarterPlan && (isMainAccountWithProperties || trialEnded)) {
           setShowTrialEndedModal(true);
+        }
+        // Covered by its main account (a salesperson): no trial warnings or upgrade nudges, the main account's plan
+        // applies (utils/effectivePlan; Deepak, 1 Nov 2026).
+        if (planCoveredBy(storageOverview)) {
+          setTrialExpiringProperties([]);
+          return;
         }
 
         // Warn for trials expiring within 7 days (not yet ended)
@@ -852,7 +859,9 @@ function MemoriesPageContent({
   // `isCatalogItem` gets every read-only treatment `isCars` gets below (no dates, edit mode or
   // add-media; always shown regardless of the sidebar's expanded categories).
   const catalogueCards = useMemo(() => {
-    return catalogueList.map((item) => ({
+    return catalogueList.map((item) => {
+      const owner = inventoryOwnerAuthor(item);
+      return {
       id: `catalog:${item.id}`,
       catalogItemId: item.id,
       title: item.title,
@@ -866,7 +875,11 @@ function MemoriesPageContent({
       last_update_img: item.main_image,
       isCatalogItem: true,
       isShared: false,
-    }));
+      // The main account's product seen by its salesperson names its owner, like cars (Chris, 1 Nov 2026); own
+      // products keep the signed-in account as their author.
+      ...(owner ? { author: owner, authorIsSomeoneElse: true } : {}),
+      };
+    });
   }, [catalogueList]);
 
   // Shopify cards aren't real memory records, so the backend memory-counts total never

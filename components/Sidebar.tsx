@@ -9,7 +9,7 @@ import { dashboardAPI, isPartialAdmin, apiRequest } from "../utils/authUtils";
 import { leadsAPI } from '../services/leadsAPI';
 import { runWhenIdle } from "../utils/deferIdle";
 import { canManagePropertyWidgets } from "../utils/propertyAccess";
-import { propertyViewHasLeads } from "../utils/salespersonLanding";
+import { propertyViewHasLeads, showsProfileTask } from "../utils/salespersonLanding";
 import { widgetsAPI } from "../services/widgetsAPI";
 import { catalogueAPI } from "../services/catalogueAPI";
 import { CONNECTORS_COUNT_EVENT } from "./connectors/catalog";
@@ -624,8 +624,9 @@ export default function Sidebar({
   // Step 1 is "Complete your Profile" (Chris, ClickUp wdy2xh2b03; was Upload/Sync Media): done once the
   // profile has a photo and a bio. There's no tutorial video for it, so with Alvin off it has no second button.
   const profileDone = profileComplete(user);
-  const getStartedTasks = [
+  const allGetStartedTasks = [
     {
+      id: 'profile',
       icon: <UserCircle className="w-6 h-6" />,
       title: "Complete your Profile",
       subtitle: "Add your photo and a short bio",
@@ -696,6 +697,9 @@ export default function Sidebar({
     }
   ];
 
+  // A salesperson's External view leaves out "Complete your Profile" (the personal photo and bio): there only the
+  // business image changes, from the camera on the property avatar (utils/salespersonLanding showsProfileTask).
+  const getStartedTasks = allGetStartedTasks.filter((task: any) => task.id !== 'profile' || showsProfileTask(viewType, currentProperty, user));
   const completedTasks = getStartedTasks.filter(task => task.completed).length;
   const totalTasks = getStartedTasks.length;
   const remainingTasks = totalTasks - completedTasks;

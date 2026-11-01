@@ -17,7 +17,7 @@ import { mockPosts } from "../data/mockPosts";
 import { getMemoryDetails } from "../data/memoryData";
 import { getCategoryColorHex, getCategoryIcon, formatDate, sanitizeAiCreatorText, isCarCampaign } from "../utils/memoryUtils";
 import { displayWebsite } from "../utils/displayUrl";
-import { carOwnerAuthor, inventoryItemIsReadOnly, isCarPhotoId, mediaItemIsReadOnly } from "../utils/salespersonLanding";
+import { carOwnerAuthor, inventoryItemIsReadOnly, inventoryOwnerAuthor, isCarPhotoId, mediaItemIsReadOnly } from "../utils/salespersonLanding";
 import { getCategoryColor } from "../constants/mediaConstants";
 import { triggerMemoryCountsRefresh } from '../hooks/useMemoryCounts';
 import { useMemoryLimit, recheckMemoryLimit } from '../hooks/useMemoryLimit';
@@ -3295,8 +3295,12 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
           const photoUrls = sortedImages.length > 0
             ? sortedImages.map((img) => ({ id: img.id, url: img.url }))
             : (item.main_image ? [{ id: undefined, url: item.main_image }] : []);
-          // Logged-in user as each post's author, same as carAuthor (a product has no Stasht author).
-          const itemAuthor = { name: user?.name, avatar: user?.avatar, profile_color: user?.profile_color };
+          // Logged-in user as each post's author, same as carAuthor (a product has no Stasht author) — or, for someone
+          // else's product (read_only: the main account's, seen by its salesperson), its owner from the API's owner block.
+          const itemOwner = inventoryOwnerAuthor(item);
+          const itemAuthor = itemOwner
+            ? { ...itemOwner, profile_image: itemOwner.avatar || undefined }
+            : { name: user?.name, avatar: user?.avatar, profile_color: user?.profile_color };
           // Strictly-decreasing synthesized dates so the default "latest" sort keeps sort_order
           // (see the car branch above); hidden on the page via is_catalog_item / isCarCampaign().
           const now = Date.now();

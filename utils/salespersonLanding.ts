@@ -103,6 +103,30 @@ export function groupedPropertyCounts(
   return { owned: Math.max(0, owned - by), shared: (Number(counts.shared) || 0) + by, total: Number(counts.total) || 0 };
 }
 
+/**
+ * Get Started's "Complete your Profile" (a personal photo and bio, opening the personal Profile Settings) is left out
+ * of a salesperson's External view: there only the business image changes, from the camera on the property avatar
+ * (Chris, 1 Nov 2026: personal and business are separate). Every other view keeps it.
+ */
+export function showsProfileTask(viewType: unknown, currentProperty: Row, user: unknown): boolean {
+  return !(viewType === 'property' && isOwnExternalProperty(currentProperty, user));
+}
+
+export type PropertyAccountGroup<T = any> = { key: 'properties' | 'external'; label: 'Properties' | 'External'; rows: T[] };
+
+/**
+ * The account chooser's and the Profile menu's groups after groupPropertyAccounts: "Properties" (owned) then
+ * "External" (shared, a salesperson's own External account first), each only when it has rows (Chris, 1 Nov 2026:
+ * "INTERNAL" reads "PROPERTIES", and the Profile menu shows two dropdowns, "Properties (N)" and "External (N)").
+ */
+export function propertyAccountGroups<T = any>(lists: { owned?: T[] | null; shared?: T[] | null }): PropertyAccountGroup<T>[] {
+  const groups: PropertyAccountGroup<T>[] = [
+    { key: 'properties', label: 'Properties', rows: Array.isArray(lists.owned) ? lists.owned : [] },
+    { key: 'external', label: 'External', rows: Array.isArray(lists.shared) ? lists.shared : [] },
+  ];
+  return groups.filter((g) => g.rows.length > 0);
+}
+
 export type PendingPropertySwitch = { action: 'switch'; property: any } | { action: 'clear' } | { action: 'none' };
 
 /**
@@ -174,15 +198,19 @@ export function mediaItemIsReadOnly(item: Row, linkedMemories: unknown, user: un
 export type CarOwnerAuthor = { name: string; avatar: string; profile_color: string };
 
 /**
- * The author line for a read-only car's card: its owner (the API's `owner` block on GET /cars rows: the main account
- * whose car the salesperson sees), never the signed-in account the card would otherwise fall back to. Own cars, and
- * read-only rows from an API without the block, give null (today's author). A missing name gives an empty author, so
- * the card shows no name rather than the salesperson's.
+ * The author line for a read-only car's or website-catalogue product's card: its owner (the API's `owner` block on
+ * GET /cars and GET /website-catalogue/items rows: the main account whose inventory the salesperson sees), never the
+ * signed-in account the card would otherwise fall back to. Own rows, and read-only rows from an API without the block,
+ * give null (today's author). A missing name gives an empty author, so the card shows no name rather than the
+ * salesperson's.
  */
-export function carOwnerAuthor(car: Row): CarOwnerAuthor | null {
-  if (!car || flag(car.read_only) !== true) return null;
-  const owner = car.owner;
+export function inventoryOwnerAuthor(item: Row): CarOwnerAuthor | null {
+  if (!item || flag(item.read_only) !== true) return null;
+  const owner = item.owner;
   if (!owner || typeof owner !== 'object') return null;
   const text = (value: unknown) => (typeof value === 'string' && value.trim() && value.trim().toLowerCase() !== 'null' ? value.trim() : '');
   return { name: text(owner.name), avatar: text(owner.profile_image), profile_color: text(owner.profile_color) };
 }
+
+/** Cars' name for inventoryOwnerAuthor (the rule is the same for cars and catalogue products). */
+export const carOwnerAuthor = inventoryOwnerAuthor;

@@ -210,13 +210,14 @@ try {
     const choose = page.getByText('Choose Account', { exact: true }).filter({ visible: true }).first();
     await choose.waitFor({ state: 'visible', timeout: 15000 });
     expect(await page.getByText('Your Personal Account - Access your own campaigns').filter({ visible: true }).count() > 0, '1: chooser offers the personal account');
-    const props = page.getByText(/Properties \(1\)/).filter({ visible: true }).first();
-    expect(await props.count() > 0, '1: chooser offers Properties (1)');
+    // Chris calls it his External account: its own "External (1)" card; no Properties card (he has no property of his
+    // own) and no "n internal, n external" line (two cards since 1 Nov).
+    const props = page.getByText('External (1)', { exact: true }).filter({ visible: true }).first();
+    expect(await props.count() > 0, '1: chooser offers External (1)');
+    expect(await page.getByText(/^Properties \(/).filter({ visible: true }).count() === 0, '1: no Properties card');
+    expect(await page.getByText(/internal, \d+ external/).filter({ visible: true }).count() === 0, '1: no "internal, external" line');
     await props.click();
     await page.waitForTimeout(400);
-    // Chris calls it his External account: grouped and counted under External, not Internal.
-    expect(await page.getByText('0 internal, 1 external').filter({ visible: true }).count() > 0, '1: chooser counts "0 internal, 1 external"');
-    expect(await page.getByText('External (1)').filter({ visible: true }).count() > 0 && await page.getByText(/^Internal \(/).filter({ visible: true }).count() === 0, '1: chooser lists it under External (1), no Internal group');
     // The personal card is named "Bon Sun" too: the External account is the row naming Serpa Chrysler.
     const externalRow = externalChoice(page);
     expect(await externalRow.count() > 0, '1: chooser lists the External account "Bon Sun · Serpa Chrysler"');
@@ -254,12 +255,12 @@ try {
     await page.waitForTimeout(1500);
     await accountView(page, '1 back to personal');
     await openProfileMenu(page);
-    expect(await page.getByText('Property Accounts (1)').filter({ visible: true }).count() > 0, '1: personal Profile menu lists Property Accounts (1)');
-    expect(await page.getByText('0 internal, 1 external').filter({ visible: true }).count() > 0, '1: Profile menu counts "0 internal, 1 external"');
-    await page.getByText('Property Accounts (1)').filter({ visible: true }).first().click();
+    expect(await page.getByText('External (1)', { exact: true }).filter({ visible: true }).count() > 0, '1: personal Profile menu has the External (1) dropdown');
+    expect(await page.getByText(/^Property Accounts|^Properties \(/).filter({ visible: true }).count() === 0, '1: no Property Accounts / Properties dropdown');
+    await page.getByText('External (1)', { exact: true }).filter({ visible: true }).first().click();
     await page.waitForTimeout(400);
     const menuExternal = page.locator('button').filter({ hasText: 'Bon Sun' }).filter({ hasText: 'Serpa Chrysler' }).filter({ visible: true });
-    expect(await page.getByText('External (1)').filter({ visible: true }).count() > 0 && await menuExternal.count() > 0, '1: Profile menu lists "Bon Sun · Serpa Chrysler" under External (1)');
+    expect(await menuExternal.count() > 0, '1: Profile menu lists "Bon Sun · Serpa Chrysler" under External (1)');
     expect(await menuExternal.first().locator(`img[src="${SERPA_LOGO}"]`).count() > 0, '1: ... with Serpa\'s logo');
     await shot(page, '06-personal-profile-menu-lists-external');
     // Picking it there opens the External view again.
@@ -307,18 +308,18 @@ try {
     await context.close();
   }
 
-  // 5. Main account: unchanged. Account choice lists Internal (1) + External (1); picking the internal property
-  //    opens its property view (Property badge, no Leads in that property view).
+  // 5. Main account: account choice has two cards, Properties (1) + External (1) (1 Nov: "INTERNAL" reads
+  //    "PROPERTIES"); picking the internal property opens its property view (Property badge, no Leads there).
   {
     const { page, context } = await open({ who: SERPA, path: '/login?prefill_email=serpa@dealer.test' });
     await signIn(page, 'serpa@dealer.test');
-    const props = page.getByText(/Properties \(2\)/).filter({ visible: true }).first();
+    const props = page.getByText('Properties (1)', { exact: true }).filter({ visible: true }).first();
     await page.getByText('Choose Account', { exact: true }).filter({ visible: true }).first().waitFor({ state: 'visible', timeout: 15000 });
     await props.waitFor({ state: 'visible', timeout: 15000 });
+    expect(await page.getByText('External (1)', { exact: true }).filter({ visible: true }).count() > 0, '5: main account sees External (1) (its salesperson)');
+    expect(await page.getByText(/^Internal \(/).filter({ visible: true }).count() === 0, '5: no "Internal" label');
     await props.click();
     await page.waitForTimeout(400);
-    expect(await page.getByText('Internal (1)').filter({ visible: true }).count() > 0, '5: main account sees Internal (1)');
-    expect(await page.getByText('External (1)').filter({ visible: true }).count() > 0, '5: main account sees External (1) (its salesperson)');
     await shot(page, '09-main-account-choice-properties');
     await page.getByText('Serpa Downtown').filter({ visible: true }).first().click();
     await waitForApp(page);
@@ -339,8 +340,8 @@ try {
     await waitForApp(page);
     await accountView(page, '6 main account personal');
     await openProfileMenu(page);
-    expect(await page.getByText('Property Accounts (2)').filter({ visible: true }).count() > 0, '6: main Profile menu: Property Accounts (2)');
-    expect(await page.getByText('1 internal, 1 external').filter({ visible: true }).count() > 0, '6: main Profile menu: 1 internal, 1 external');
+    expect(await page.getByText('Properties (1)', { exact: true }).filter({ visible: true }).count() > 0, '6: main Profile menu: Properties (1)');
+    expect(await page.getByText('External (1)', { exact: true }).filter({ visible: true }).count() > 0, '6: main Profile menu: External (1)');
     await context.close();
   }
 
@@ -349,7 +350,7 @@ try {
     const { page, context } = await open({ width: 390, height: 844, who: BON, path: '/login?prefill_email=bon@dealer.test' });
     await signIn(page, 'bon@dealer.test');
     await page.getByText('Choose Account', { exact: true }).filter({ visible: true }).first().waitFor({ state: 'visible', timeout: 15000 });
-    await page.getByText(/Properties \(1\)/).filter({ visible: true }).first().click();
+    await page.getByText('External (1)', { exact: true }).filter({ visible: true }).first().click();
     await page.waitForTimeout(400);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), '7 phone: chooser has no sideways scroll');
     await shot(page, '11-phone-account-choice');
@@ -376,8 +377,8 @@ try {
     await page.waitForTimeout(500);
     expect(await page.locator('tr', { hasText: 'Bons Lot' }).filter({ visible: true }).count() > 0, '8: Users → Properties lists his internal property');
     await openProfileMenu(page);
-    expect(await page.getByText('Property Accounts (2)').filter({ visible: true }).count() > 0, '8: Profile menu counts both');
-    expect(await page.getByText('1 internal, 1 external').filter({ visible: true }).count() > 0, '8: Profile menu: "1 internal, 1 external" (Bons Lot internal, his External account external)');
+    expect(await page.getByText('Properties (1)', { exact: true }).filter({ visible: true }).count() > 0, '8: Profile menu: Properties (1) (Bons Lot)');
+    expect(await page.getByText('External (1)', { exact: true }).filter({ visible: true }).count() > 0, '8: Profile menu: External (1) (his External account)');
     await context.close();
   }
 
