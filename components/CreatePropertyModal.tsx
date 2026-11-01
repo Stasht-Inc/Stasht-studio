@@ -5,6 +5,7 @@ import { Input } from './ui/input';
 import GooglePlacesInput from './ui/google-places-input';
 import { toast } from 'sonner';
 import { dashboardAPI } from '../utils/authUtils';
+import { PROPERTY_IMAGE_ACCEPT, propertyImageFileError } from '../utils/propertyImage';
 
 interface CreatePropertyModalProps {
   isOpen: boolean;
@@ -22,6 +23,8 @@ export interface PropertyFormData {
   location: string;
   labels: string[];
   image?: File | null;
+  // Edit only: the property's saved image was removed (X) and no new one chosen → the API clears it.
+  removeImage?: boolean;
 }
 
 const EMPTY_FORM: PropertyFormData = {
@@ -53,6 +56,7 @@ export default function CreatePropertyModal({
   const [labelInput, setLabelInput] = useState('');
   const [image, setImage] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [removeImage, setRemoveImage] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isCheckingOut, setIsCheckingOut] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -108,6 +112,7 @@ export default function CreatePropertyModal({
     setLabelInput('');
     setImage(null);
     setImagePreview(null);
+    setRemoveImage(false);
     setSearchSuggestions([]);
     setShowSuggestions(false);
   };
@@ -118,9 +123,12 @@ export default function CreatePropertyModal({
       setPropertyName(propertyToEdit.name || '');
       setId(propertyToEdit.code || '');
       setUsername(propertyToEdit.username || '');
-      setLocation(propertyToEdit.location || '');
+      // Users → Properties rows show 'No location' for an empty one; the saved value is on the API row.
+      setLocation(propertyToEdit.apiRow ? (propertyToEdit.apiRow.location || '') : (propertyToEdit.location || ''));
       setLabels((propertyToEdit.labels || []).map((l: any) => typeof l === 'object' ? l.name : l));
-      if (propertyToEdit.image) setImagePreview(propertyToEdit.image);
+      setImage(null);
+      setRemoveImage(false);
+      setImagePreview(propertyToEdit.image || null);
     } else if (!useCartFlow) {
       loadEmptyForm();
     }
@@ -201,9 +209,12 @@ export default function CreatePropertyModal({
 
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    e.target.value = ''; // the same file can be picked again after removing it
     if (!file) return;
-    if (!file.type.startsWith('image/')) { alert('Please select an image file'); return; }
+    const problem = propertyImageFileError(file);
+    if (problem) { toast.error(problem); return; }
     setImage(file);
+    setRemoveImage(false);
     const reader = new FileReader();
     reader.onloadend = () => setImagePreview(reader.result as string);
     reader.readAsDataURL(file);
@@ -212,6 +223,7 @@ export default function CreatePropertyModal({
   const handleRemoveImage = () => {
     setImage(null);
     setImagePreview(null);
+    if (propertyToEdit?.image) setRemoveImage(true);
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
@@ -226,6 +238,7 @@ export default function CreatePropertyModal({
 
   const getCurrentFormData = (): PropertyFormData => ({
     propertyName, id, username, location, labels, image,
+    removeImage: !!propertyToEdit && removeImage && !image,
   });
 
   // Cart flow: save to cart
@@ -318,7 +331,8 @@ export default function CreatePropertyModal({
     : cart.length > 0 ? 'New Property' : 'New Property';
 
   return (
-    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+    // z-[60]: above the phone bottom nav (z-50), which otherwise covers the Cancel / Update buttons.
+    <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4">
       <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] flex flex-col">
 
         {/* Header */}
@@ -434,7 +448,7 @@ export default function CreatePropertyModal({
                 </div>
                 <p className="text-xs font-medium text-gray-700 mb-1 text-center">Click to upload property image</p>
                 <p className="text-[12px] text-gray-500 text-center">PNG, JPG up to 10MB</p>
-                <input ref={fileInputRef} type="file" accept="image/*" onChange={handleImageChange} className="hidden" />
+                <input ref={fileInputRef} type="file" accept={PROPERTY_IMAGE_ACCEPT} onChange={handleImageChange} className="hidden" data-testid="property-image-input" />
               </div>
             ) : (
               <div className="relative border-2 border-gray-300 rounded-lg overflow-hidden aspect-square max-w-[200px] w-full">

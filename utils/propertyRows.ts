@@ -167,3 +167,32 @@ export function findPropertyRow(response: any, id: unknown): any | null {
   }
   return null;
 }
+
+/** Users page tab for a property row: 'external' (account_type external — salespeople and other external accounts)
+ * or 'properties' (internal properties, and older rows without account_type, which were never treated as external). */
+export function propertyTab(row: PropertyRow): 'external' | 'properties' {
+  return isExternalProperty(row) ? 'external' : 'properties';
+}
+
+/** The rows of one Users page tab. `apiRowOf` picks the API row out of a page row (UsersPage keeps it in apiRow). */
+export function rowsForPropertyTab<T>(
+  rows: T[] | null | undefined,
+  tab: 'external' | 'properties',
+  apiRowOf: (row: T) => PropertyRow = (row) => row as unknown as PropertyRow,
+): T[] {
+  return (Array.isArray(rows) ? rows : []).filter((row) => propertyTab(apiRowOf(row)) === tab);
+}
+
+/** Edit Property: shown when the API would accept the change — can_manage (missing on an older API: shown, as before,
+ * the API decides) or the viewer's own property (its user_id is their stash id), which the API allows even though
+ * can_manage is false for an external property's own account. Hidden on rep / viewer rows. */
+export function canEditProperty(row: PropertyRow, viewer: unknown): boolean {
+  if (!row) return false;
+  if (flag(row.can_manage) !== false) return true;
+  if (flag(row.is_creator) === true) return true;
+  const v = viewer as { external_user_id?: unknown; id?: unknown } | null | undefined;
+  const me = v?.external_user_id ?? v?.id;
+  const ownerId = row.user_id;
+  return me !== null && me !== undefined && ownerId !== null && ownerId !== undefined
+    && String(me).trim() !== '' && String(ownerId).trim() === String(me).trim();
+}

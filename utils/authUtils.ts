@@ -4608,6 +4608,9 @@ export const dashboardAPI = {
         };
       }
 
+      // A raw fetch skips apiRequest's write → cache clear: without this the next GET /properties could be the
+      // cached list from before the change.
+      clearApiCache();
       return {
         success: true,
         data,
@@ -4795,21 +4798,29 @@ export const dashboardAPI = {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
+          'Accept': 'application/json',
           // Don't set Content-Type for FormData - browser will set it with boundary
         },
         body: formData,
       });
 
-      const data = await response.json();
+      // A proxy refusing a large upload (413) answers with an HTML page, not JSON.
+      const data = await response.json().catch(() => null);
       devLog('📥 Update property response:', data);
 
       if (!response.ok) {
         return {
           success: false,
-          error: data.message || data.error || `HTTP ${response.status}`,
+          error: response.status === 413
+            ? 'The image is too large to upload. Please choose one under 10MB.'
+            : data?.message || data?.error || `HTTP ${response.status}`,
+          errors: data?.errors || null,
         };
       }
 
+      // A raw fetch skips apiRequest's write → cache clear: without this the next GET /properties (the Properties
+      // table, the profile menu's property list) could be the cached list from before the change.
+      clearApiCache();
       return {
         success: true,
         data,

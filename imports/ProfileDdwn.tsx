@@ -11,6 +11,8 @@ import { toast } from "sonner";
 import { dashboardAPI } from "../utils/authUtils";
 import { useProperty } from "../contexts/PropertyContext";
 import useAlvinEnabled from "../components/alvin/useAlvinEnabled";
+import { Camera } from "lucide-react";
+import { PROPERTY_IMAGE_ACCEPT, canChangePropertyImage, propertyAvatarImage, propertyImageErrorMessage, propertyImageFileError } from "../utils/propertyImage";
 
 // __APP_BUILD_TIME__ is injected at build time (see vite.config.ts's `define`)
 // as the ISO timestamp of when this exact bundle was built.
@@ -96,18 +98,12 @@ function Frame193({ user }: { user?: { name?: string; email?: string; phone_numb
   );
 }
 
-// Resolve a property's avatar: when the property was invited by a different
-// user/org (e.g. BMW), prefer the inviter's logo from invited_by; otherwise
-// fall back to the property's own image. invited_by may be an object or array.
+// Resolve a property's avatar: its own image (properties.image) first; without one, the inviter's logo from
+// invited_by when a different user/org (e.g. BMW) invited the viewer; else null (the building icon). invited_by
+// may be an object or array. See utils/propertyImage.
 function resolvePropertyAvatar(property: any, user?: any) {
-  const invitedByRaw = property?.invited_by;
-  const invitedBy = Array.isArray(invitedByRaw) ? invitedByRaw[0] : invitedByRaw;
-  const showInvitedBy = !!invitedBy &&
-    String(user?.external_user_id ?? '') !== String(invitedBy.external_user_id ?? '');
-  const avatarImage = (showInvitedBy && invitedBy?.profile_image)
-    ? invitedBy.profile_image
-    : property?.image;
-  return { invitedBy, avatarImage };
+  const { image, invitedBy } = propertyAvatarImage(property, user);
+  return { invitedBy, avatarImage: image };
 }
 
 function PropertyHeaderInfo({ property, user }: { property: any; user?: any }) {
@@ -270,7 +266,10 @@ export function ProfileDropdownMenu({ isOpen, onClose, user, onShowProfileSettin
   const alvinEnabled = useAlvinEnabled();
   const dropdownRef = useRef<HTMLDivElement>(null);
   const { logout, updateUser, user: authUser } = useAuth();
-  const { switchToProperty } = useProperty();
+  const { switchToProperty, updateCurrentProperty } = useProperty();
+  // The property view's avatar camera: changes the PROPERTY's own image, not the person's (Chris, 1 Nov 2026).
+  const propertyImageInputRef = useRef<HTMLInputElement>(null);
+  const [isUploadingPropertyImage, setIsUploadingPropertyImage] = useState(false);
   const [isNewUser, setIsNewUser] = useState(() => localStorage.getItem('is_new_user') === 'true');
   useEffect(() => {
     const handler = () => setIsNewUser(false);
@@ -593,9 +592,40 @@ export function ProfileDropdownMenu({ isOpen, onClose, user, onShowProfileSettin
   const displayName = user?.name || 'User';
   const displayEmail = user?.email || user?.phone_number || 'No contact info';
 
-  // Resolve the current property's avatar (inviter's logo via invited_by, else its own image)
+  // Resolve the current property's avatar (its own image, else the inviter's logo via invited_by)
   const { invitedBy: currentPropertyInvitedBy, avatarImage: currentPropertyAvatar } =
     resolvePropertyAvatar(currentProperty, user);
+  const mayChangePropertyImage = viewType === 'property' && !!currentProperty?.id &&
+    canChangePropertyImage(currentProperty, authUser ?? user);
+
+  const handlePropertyImageChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = ''; // the same file can be picked again
+    if (!file || !currentProperty?.id) return;
+    const problem = propertyImageFileError(file);
+    if (problem) {
+      toast.error(problem);
+      return;
+    }
+    const propertyId = currentProperty.id;
+    setIsUploadingPropertyImage(true);
+    try {
+      const formData = new FormData();
+      formData.append('image', file);
+      const response = await dashboardAPI.updateProperty(Number(propertyId), formData);
+      if (!response.success) {
+        toast.error(propertyImageErrorMessage(response));
+        return;
+      }
+      const saved = response.data?.data?.property ?? response.data?.property;
+      if (saved?.image) updateCurrentProperty(propertyId, { image: saved.image });
+      toast.success('Property image updated');
+    } catch {
+      toast.error(propertyImageErrorMessage(null));
+    } finally {
+      setIsUploadingPropertyImage(false);
+    }
+  };
 
   return (
     <div
@@ -607,13 +637,42 @@ export function ProfileDropdownMenu({ isOpen, onClose, user, onShowProfileSettin
         /* Property Info Section */
         <div className="px-4 py-3 border-b border-gray-100">
           <div className="flex items-center gap-3">
-            <div className="w-11 h-11 rounded-lg overflow-hidden bg-purple-100 flex items-center justify-center flex-shrink-0">
-              {currentPropertyAvatar ? (
-                <img src={currentPropertyAvatar} alt={currentProperty.name} className="w-full h-full object-cover" />
-              ) : (
-                <svg className="w-5 h-5 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
-                </svg>
+            <div className="relative flex-shrink-0" data-testid="property-avatar">
+              <div className="relative w-11 h-11 rounded-lg overflow-hidden bg-purple-100 flex items-center justify-center">
+                {currentPropertyAvatar ? (
+                  <img src={currentPropertyAvatar} alt={currentProperty.name} className="w-full h-full object-cover" />
+                ) : (
+                  <svg className="w-5 h-5 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                  </svg>
+                )}
+                {isUploadingPropertyImage && (
+                  <div className="absolute inset-0 rounded-lg bg-black/40 flex items-center justify-center">
+                    <div className="w-4 h-4 border-2 border-white/60 border-t-white rounded-full animate-spin" />
+                  </div>
+                )}
+              </div>
+              {mayChangePropertyImage && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => propertyImageInputRef.current?.click()}
+                    disabled={isUploadingPropertyImage}
+                    className="absolute -bottom-1.5 -right-1.5 w-6 h-6 rounded-full bg-white border border-gray-200 shadow-sm flex items-center justify-center text-[#6C60FF] hover:bg-purple-50 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                    aria-label="Change property image"
+                    title="Change property image"
+                  >
+                    <Camera className="w-3.5 h-3.5" />
+                  </button>
+                  <input
+                    ref={propertyImageInputRef}
+                    type="file"
+                    accept={PROPERTY_IMAGE_ACCEPT}
+                    onChange={handlePropertyImageChange}
+                    className="hidden"
+                    data-testid="property-avatar-input"
+                  />
+                </>
               )}
             </div>
             <div className="flex-1 min-w-0">

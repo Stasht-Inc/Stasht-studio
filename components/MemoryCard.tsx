@@ -200,6 +200,9 @@ interface MemoryCardProps {
   avatar?: string;
   fullName?: string;
   profileColor?: string; // Author's profile color
+  // The author props are another account (e.g. the owner of a read-only car): show only them, never fall back to the
+  // signed-in user's name, photo or colour.
+  authorIsSomeoneElse?: boolean;
   contributors?: Contributor[];
   tags?: string[];
   onClick?: () => void;
@@ -242,6 +245,7 @@ export default function MemoryCard({
   avatar,
   fullName,
   profileColor,
+  authorIsSomeoneElse = false,
   contributors = [],
   tags = [],
   onClick,
@@ -423,13 +427,15 @@ export default function MemoryCard({
   }, [location, imagesCount]);
 
   // Always show author - use passed author data or fall back to logged-in user
-  const displayName = fullName || user?.name || '';
-  const displayAvatar = avatar || user?.avatar || '';
+  const displayName = authorIsSomeoneElse ? (fullName || '') : (fullName || user?.name || '');
+  const displayAvatar = authorIsSomeoneElse ? (avatar || '') : (avatar || user?.avatar || '');
   // Own campaigns → use the logged-in user's own profile_color (from their profile) for the initials.
-  // Shared campaigns → use the memory author/owner's profile_color.
-  const displayProfileColor = isSharedWith
-    ? (profileColor || user?.profile_color || '')
-    : (user?.profile_color || profileColor || '');
+  // Shared campaigns → use the memory author/owner's profile_color. Someone else's card → only theirs.
+  const displayProfileColor = authorIsSomeoneElse
+    ? (profileColor || '')
+    : isSharedWith
+      ? (profileColor || user?.profile_color || '')
+      : (user?.profile_color || profileColor || '');
   const hasFooterContent = !!displayName || contributors.length > 0 || tags.length > 0;
 
   // Category Badge

@@ -196,3 +196,19 @@ export function mediaItemIsReadOnly(item: Row, linkedMemories: unknown, user: un
   const car = linkedMemories.find((m: any) => m && flag(m.is_car) === true && String(m.id) === String(item.car_id));
   return !!car && inventoryItemIsReadOnly(car as Row, user);
 }
+
+export type CarOwnerAuthor = { name: string; avatar: string; profile_color: string };
+
+/**
+ * The author line for a read-only car's card: its owner (the API's `owner` block on GET /cars rows: the main account
+ * whose car the salesperson sees), never the signed-in account the card would otherwise fall back to. Own cars, and
+ * read-only rows from an API without the block, give null (today's author). A missing name gives an empty author, so
+ * the card shows no name rather than the salesperson's.
+ */
+export function carOwnerAuthor(car: Row): CarOwnerAuthor | null {
+  if (!car || flag(car.read_only) !== true) return null;
+  const owner = car.owner;
+  if (!owner || typeof owner !== 'object') return null;
+  const text = (value: unknown) => (typeof value === 'string' && value.trim() && value.trim().toLowerCase() !== 'null' ? value.trim() : '');
+  return { name: text(owner.name), avatar: text(owner.profile_image), profile_color: text(owner.profile_color) };
+}
