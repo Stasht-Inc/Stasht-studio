@@ -1,4 +1,5 @@
 ﻿import React, { useState, useEffect, useRef } from 'react';
+import { groupMemberName, initialsOf } from '../utils/leadNames';
 import { Search, X, MoreHorizontal, MessageSquare, Clock, RefreshCw, Trash2, Archive, Check, Send, Users, ChevronLeft, Sparkles, Heart, Gift, Calendar, MessageCircle, ThumbsUp, TrendingUp, Lightbulb, UserRound, MapPin, CheckCircle2, SlidersHorizontal } from 'lucide-react';
 import { useMemoryLimit, recheckMemoryLimit } from '../hooks/useMemoryLimit';
 import { useDialogBehavior } from '../hooks/useDialogBehavior';
@@ -44,9 +45,8 @@ function formatDate(dateString: string): string {
   return new Date(dateString).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
-function getInitials(name: string): string {
-  return name.split(' ').map((n) => n[0]).join('').toUpperCase().slice(0, 2);
-}
+// Null-safe (review, batch 3): a group member with no account comes with name null, which crashed Leads → Groups.
+const getInitials = initialsOf;
 
 // Guest leads (photo submitted from a published page, no account) carry a
 // `user` block with name/email/phone but a null `id`. Malformed rows can
@@ -1674,8 +1674,8 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
                             <div className="flex items-center">
                               {(g.members ?? []).slice(0, 4).map((m, i) => (
                                 <Avatar key={m.lead_id} className={`h-8 w-8 border-2 border-white ${i > 0 ? '-ml-2' : ''}`}>
-                                  <AvatarImage src={m.profile_image ?? undefined} alt={m.name} />
-                                  <AvatarFallback className="bg-[#6C60FF] text-white text-[12px] font-medium">{getInitials(m.name)}</AvatarFallback>
+                                  <AvatarImage src={m.profile_image ?? undefined} alt={groupMemberName(m)} />
+                                  <AvatarFallback className="bg-[#6C60FF] text-white text-[12px] font-medium">{getInitials(groupMemberName(m))}</AvatarFallback>
                                 </Avatar>
                               ))}
                               {g.member_count > 4 && (
@@ -1721,8 +1721,8 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
                         <div className="flex items-center shrink-0">
                           {(g.members ?? []).slice(0, 3).map((m, i) => (
                             <Avatar key={m.lead_id} className={`h-7 w-7 border-2 border-white ${i > 0 ? '-ml-2' : ''}`}>
-                              <AvatarImage src={m.profile_image ?? undefined} alt={m.name} />
-                              <AvatarFallback className="bg-[#6C60FF] text-white text-[12px] font-medium">{getInitials(m.name)}</AvatarFallback>
+                              <AvatarImage src={m.profile_image ?? undefined} alt={groupMemberName(m)} />
+                              <AvatarFallback className="bg-[#6C60FF] text-white text-[12px] font-medium">{getInitials(groupMemberName(m))}</AvatarFallback>
                             </Avatar>
                           ))}
                           {g.member_count > 3 && (

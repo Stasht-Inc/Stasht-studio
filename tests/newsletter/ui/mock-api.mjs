@@ -663,6 +663,13 @@ export function createMockApi(options = {}) {
     }
     // LeadGroupsController::index answers {groups: [...]} with no success envelope.
     if (path === '/lead-groups' && method === 'GET') return { status: 200, json: { groups: state.groups } };
+    // LeadGroupsController::show (formatGroup with members): options.groupDetails[id], else the summary with no members.
+    const groupMatch = /^\/lead-groups\/(\d+)$/.exec(path);
+    if (groupMatch && method === 'GET') {
+      const id = Number(groupMatch[1]);
+      const detail = options.groupDetails?.[id] ?? { ...(state.groups.find((g) => g.id === id) ?? {}), members: [] };
+      return { status: 200, json: detail };
+    }
     // The Leads page (Lists tab checks): an empty inbox.
     // LeadsController@index answers with the payload itself (no success/data wrapper; LeadsTab reads it off the body).
     // options.leadTabCounts: the Open / Closed counts (the Leads tab shows their sum).
