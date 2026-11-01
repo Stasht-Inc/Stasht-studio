@@ -211,6 +211,9 @@ export default function CampaignPickerDialog({ open, onOpenChange, initialSelect
 
   const chooseKind = (next: CampaignKind) => {
     autoKindRef.current = false;
+    // The tab already showing (now often Vehicles, the first tab): nothing to do. Clearing its categories here would
+    // leave the category menu empty, as the list isn't asked for again.
+    if (next === kind) return;
     setKind(next);
     setSearch('');
     setQuery('');

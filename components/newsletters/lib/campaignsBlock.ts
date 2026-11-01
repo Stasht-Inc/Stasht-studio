@@ -147,14 +147,18 @@ export function itemFromOption(o: CampaignOption, kind: CampaignKind = 'campaign
 export type KindCounts = Partial<Record<CampaignKind, number>>;
 const has = (counts: KindCounts | undefined, kind: CampaignKind) => (counts?.[kind] ?? 0) > 0;
 
-/** The picker's tabs: Campaigns always; Products and Vehicles only when the owner has some. */
+/** The picker's tab order (Chris, 1 Nov: "The vehicles are the most important"): Vehicles, Products, Campaigns. */
+const PICKER_ORDER: readonly CampaignKind[] = ['vehicle', 'product', 'campaign'];
+
+/** The picker's tabs, in PICKER_ORDER: Campaigns always; Products and Vehicles only when the owner has some. */
 export function pickerKinds(counts: KindCounts | undefined): CampaignKind[] {
-  return CAMPAIGN_KINDS.filter((k) => k === 'campaign' || has(counts, k));
+  return PICKER_ORDER.filter((k) => k === 'campaign' || has(counts, k));
 }
 
-/** The tab the picker opens on: the first one with something in it (Campaigns when none has). */
+/** The tab the picker opens on: the first one with something in it (Vehicles whenever there are vehicles;
+ *  Campaigns when none has). */
 export function pickerDefaultKind(counts: KindCounts | undefined): CampaignKind {
-  return CAMPAIGN_KINDS.find((k) => has(counts, k)) ?? 'campaign';
+  return PICKER_ORDER.find((k) => has(counts, k)) ?? 'campaign';
 }
 
 /** multi: the owner has products or vehicles too (otherwise today's words stay). */
