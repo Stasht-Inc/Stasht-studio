@@ -12,6 +12,7 @@ import { dashboardAPI } from '../utils/authUtils';
 import { useAuth } from '../contexts/AuthContext';
 import { useProperty } from '../contexts/PropertyContext';
 import { allPropertyRows, resolvePendingPropertySwitch, signedInUserOr } from '../utils/salespersonLanding';
+import { trialBannerFrom } from '../utils/trialBanner';
 import { useMemoryLimit } from '../hooks/useMemoryLimit';
 import { useMemoryCounts } from '../hooks/useMemoryCounts';
 import useAlvinEnabled, { openAlvin } from './alvin/useAlvinEnabled';
@@ -213,8 +214,9 @@ export default function Dashboard({
   const [recentActivity, setRecentActivity] = useState<any[]>([]);
   const [isLoadingActivity, setIsLoadingActivity] = useState(false);
 
-  // Trial of the account's first owned property with a trial date (from /properties, owned_properties).
-  const [trialProperty, setTrialProperty] = useState<any | null>(null);
+  // GET /properties data for the trial banner: the account's plan trial (account_trial), else the first owned
+  // property with a trial date (utils/trialBanner).
+  const [trialData, setTrialData] = useState<any | null>(null);
 
   useEffect(() => {
     if (!isAuthenticated || authLoading) return;
@@ -223,9 +225,7 @@ export default function Dashboard({
       try {
         const res = await dashboardAPI.getProperties();
         const d = res?.data?.data || res?.data || {};
-        const owned: any[] = d.owned_properties || [];
-        const withTrial = owned.find((p: any) => p?.trial_ends_at);
-        if (!cancelled) setTrialProperty(withTrial || null);
+        if (!cancelled) setTrialData(d);
       } catch (err) {
         console.error('Dashboard: could not load trial status', err);
       }
@@ -377,17 +377,7 @@ export default function Dashboard({
   }, [timePeriod, isAuthenticated, authLoading]);
 
   // Trial banner data: days left while the trial runs, or an ended notice once it has finished.
-  const trialBanner = (() => {
-    if (!trialProperty?.trial_ends_at) return null;
-    const endsOn = new Date(trialProperty.trial_ends_at);
-    const today = new Date();
-    const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-    const startOfEnd = new Date(endsOn.getFullYear(), endsOn.getMonth(), endsOn.getDate());
-    const daysLeft = Math.round((startOfEnd.getTime() - startOfToday.getTime()) / (1000 * 60 * 60 * 24));
-    const ended = Boolean(trialProperty.trial_ended) || daysLeft < 0;
-    const endDate = endsOn.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
-    return { ended, daysLeft, endDate, name: trialProperty.name as string | undefined };
-  })();
+  const trialBanner = trialBannerFrom(trialData);
 
   return (
     <div className="w-full space-y-4 md:space-y-8">
