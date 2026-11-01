@@ -184,3 +184,48 @@ export function countLabel(key: keyof NewsletterCounts, channel: ChannelFilter):
 export function plural(n: number, one: string, many: string): string {
   return `${formatCount(n)} ${n === 1 ? one : many}`;
 }
+
+/**
+ * Batch 3 (Chris, 1 Nov): the list's layout follows its own width, not the window's. At a 1280 px window App's two
+ * sidebars leave the Campaigns page about 650 px, where the window-sized columns overlapped ("NewsStatus") and pushed
+ * Edit and ⋯ past the right edge. 'wide': a When column and Edit with its word; 'table': When under the Status chip,
+ * Edit as an icon; 'cards': the phone card rows. Each table layout's minimum column widths fit the narrowest width
+ * it is used at (`from`), with the name column at least minColumns[0] (tests/newsletter/newsletters-table.test.mjs).
+ */
+export type NewslettersLayout = 'cards' | 'table' | 'wide';
+
+export const NEWSLETTERS_TABLE = {
+  // From 600: App's main column is 648 px at a 1280 px window with both sidebars open (a little less with a
+  // scrollbar that takes room).
+  table: {
+    from: 600, paddingX: 16, gap: 8,
+    minColumns: [140, 112, 76, 60, 60, 72],
+    grid: 'grid grid-cols-[minmax(140px,1fr)_minmax(112px,150px)_76px_60px_60px_72px] items-center gap-2',
+    padding: 'px-4',
+  },
+  wide: {
+    from: 992, paddingX: 24, gap: 12,
+    minColumns: [240, 96, 200, 88, 72, 72, 104],
+    grid: 'grid grid-cols-[minmax(240px,1fr)_96px_200px_88px_72px_72px_104px] items-center gap-3',
+    padding: 'px-6',
+  },
+} as const;
+
+/** Not measured yet (0): 'wide', today's desktop look, until the first measure (before the first paint). */
+export function newslettersLayout(width: number): NewslettersLayout {
+  if (width <= 0 || width >= NEWSLETTERS_TABLE.wide.from) return 'wide';
+  return width >= NEWSLETTERS_TABLE.table.from ? 'table' : 'cards';
+}
+
+/** The row's own controls (the name, Edit, ⋯) and the ⋯ menu's items act for themselves. */
+const ROW_CONTROLS = 'button, a, input, select, textarea, label, [role="menuitem"]';
+
+/**
+ * A click anywhere else on a row opens it (Chris, 1 Nov: "it isn't obvious"). Not a click on one of its controls,
+ * not one from the ⋯ menu (portalled outside the row, yet React bubbles its clicks to the row), not a text selection.
+ */
+export function opensRow(click: { target: { closest(selector: string): unknown } | null; contains(target: unknown): boolean; selection: string }): boolean {
+  if (!click.target || !click.contains(click.target)) return false;
+  if (click.selection.trim()) return false;
+  return !click.target.closest(ROW_CONTROLS);
+}

@@ -29,7 +29,8 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
     await page.getByRole('menuitem', { name: /^Campaign\b/ }).click();
     const picker = page.getByRole('dialog', { name: TITLE });
     const tabs = picker.getByRole('radiogroup', { name: 'Show' });
-    await expectVisible(picker.locator('#nl-campaign-campaign-601'), 'campaigns listed');
+    // Batch 3: Products comes before Campaigns, so the picker opens on Products.
+    await expectVisible(picker.locator('#nl-campaign-product-882'), 'products listed');
     expect(!(await picker.getByRole('heading', { name: /^Chosen \(/ }).count()), 'no Chosen strip while nothing is chosen');
     await tabs.getByRole('radio', { name: 'Products' }).click();
     await expectVisible(picker.locator('#nl-campaign-product-882'), 'products listed');

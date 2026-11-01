@@ -4,6 +4,7 @@ import { newslettersAPI, type Newsletter, type NewsletterHeader } from '../../..
 import { GENERIC_ERROR, retryableSaveFailure, type NlResult } from '../lib/apiResult';
 import { createAutosaver, type Autosaver } from '../lib/autosave';
 import { normaliseBlocks } from '../lib/blocks';
+import { withDefaultMessage } from '../lib/defaultMessage';
 import { adoptCampaignSnapshots, changedFields, draftFromNewsletter, emptyDraft, headerFrom, mergeUntouched, rejectedKeys, savableChanges, type NewsletterDraft } from '../lib/draft';
 import { backupKey, backupToOffer, browserStorage, clearBackup, readBackup, staleBackupToOffer, writeBackup, type OfferedBackup } from '../lib/draftBackup';
 
@@ -73,11 +74,12 @@ function currentUserId(): number | string | null {
 
 const isOffline = () => typeof navigator !== 'undefined' && navigator.onLine === false;
 
-export function useNewsletterDraft(newsletterId: number | null, enabled: boolean, brandHeader: NewsletterHeader | null): NewsletterDraftState {
+/** defaultMessage: the account's saved Message box text ("Set as my default message"), pre-filled into a new draft. */
+export function useNewsletterDraft(newsletterId: number | null, enabled: boolean, brandHeader: NewsletterHeader | null, defaultMessage: string | null = null): NewsletterDraftState {
   const [loading, setLoading] = useState<boolean>(Boolean(newsletterId));
   const [loadError, setLoadError] = useState<string | null>(null);
   const [newsletter, setNewsletter] = useState<Newsletter | null>(null);
-  const [draft, setDraft] = useState<NewsletterDraft>(() => emptyDraft(brandHeader));
+  const [draft, setDraft] = useState<NewsletterDraft>(() => (newsletterId ? emptyDraft(brandHeader) : withDefaultMessage(emptyDraft(brandHeader), defaultMessage)));
   const [saveState, setSaveState] = useState<SaveState>('idle');
   const [saveError, setSaveError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
@@ -104,6 +106,8 @@ export function useNewsletterDraft(newsletterId: number | null, enabled: boolean
   const userIdRef = useRef(currentUserId());
   const brandHeaderRef = useRef(brandHeader);
   brandHeaderRef.current = brandHeader;
+  const defaultMessageRef = useRef(defaultMessage);
+  defaultMessageRef.current = defaultMessage;
   // Not enabled (plan unknown or Starter): never call the API, whatever happens (contract note 1).
   const enabledRef = useRef(enabled);
   enabledRef.current = enabled;
@@ -248,7 +252,7 @@ export function useNewsletterDraft(newsletterId: number | null, enabled: boolean
     setStale(false);
     setRestoreOffer(null);
     userIdRef.current = currentUserId();
-    const fresh = emptyDraft(brandHeaderRef.current);
+    const fresh = newsletterId ? emptyDraft(brandHeaderRef.current) : withDefaultMessage(emptyDraft(brandHeaderRef.current), defaultMessageRef.current);
     draftRef.current = fresh;
     setDraft(fresh);
     setNewsletter(null);
@@ -283,6 +287,16 @@ export function useNewsletterDraft(newsletterId: number | null, enabled: boolean
     draftRef.current = next;
     setDraft(next);
   }, [brandHeader]);
+
+  // A new draft whose Message box is still empty and untouched takes the account's default message when it arrives.
+  // Not saved by itself (no draft is made just by opening): it goes with the first save, as the header does.
+  useEffect(() => {
+    if (!defaultMessage || idRef.current || touchedRef.current.has('sms_text')) return;
+    const next = withDefaultMessage(draftRef.current, defaultMessage);
+    if (next === draftRef.current) return;
+    draftRef.current = next;
+    setDraft(next);
+  }, [defaultMessage]);
 
   // Save what's pending when the composer goes away (the Storeel tab's X closes Create Campaign without our
   // Cancel). There is no screen left to ask on, so say so in a toast if it can't be saved.

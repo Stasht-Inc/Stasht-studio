@@ -180,7 +180,8 @@ export interface CampaignOptionsMeta extends PageMeta { counts?: Partial<Record<
 export interface CampaignOptionsPage { data: CampaignOption[]; meta: CampaignOptionsMeta }
 export interface CampaignOptionsQuery { kind?: CampaignKind; search?: string; category?: string; page?: number }
 
-export interface NewsletterBrand { header: NewsletterHeader; business_address: string | null }
+/** default_message: the Message box text saved with "Set as my default message" (null: none; an older API leaves it out). */
+export interface NewsletterBrand { header: NewsletterHeader; business_address: string | null; default_message?: string | null }
 export interface NewsletterAllowance {
   plan: string;
   email_limit: number;
@@ -380,8 +381,9 @@ export const newslettersAPI = {
       page: q.page,
     })}`),
   getBrand: () => get<NewsletterBrand>('/newsletter-brand'),
-  // Only used to set business_address: a newsletter's header reaches the brand through PUT /newsletters/{id}.
-  updateBrand: (input: { header?: NewsletterHeader; business_address?: string | null }) =>
+  // Only used to set business_address and default_message: a newsletter's header reaches the brand through
+  // PUT /newsletters/{id}.
+  updateBrand: (input: { header?: NewsletterHeader; business_address?: string | null; default_message?: string | null }) =>
     write<NewsletterBrand>('PUT', '/newsletter-brand', input),
   allowance: () => get<NewsletterAllowance>('/newsletter-allowance'),
   contactLists: () => get<ContactList[]>('/contact-lists'),

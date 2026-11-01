@@ -94,15 +94,19 @@ test('itemFromOption carries the kind, price and meta; the link is the option’
 });
 
 test('which tabs show, and which one the picker opens on', () => {
+  // Chris, 1 Nov (batch 3): "The vehicles are the most important": Vehicles first, then Products, then Campaigns.
   assert.deepEqual(pickerKinds(undefined), ['campaign'], 'an older API with no counts: campaigns only');
   assert.deepEqual(pickerKinds({ campaign: 4, product: 0, vehicle: 0 }), ['campaign']);
-  assert.deepEqual(pickerKinds({ campaign: 0, product: 454, vehicle: 0 }), ['campaign', 'product'], 'Campaigns always shows');
-  assert.deepEqual(pickerKinds({ campaign: 3, product: 0, vehicle: 12 }), ['campaign', 'vehicle']);
-  assert.deepEqual(pickerKinds({ campaign: 3, product: 2, vehicle: 12 }), ['campaign', 'product', 'vehicle']);
+  assert.deepEqual(pickerKinds({ campaign: 0, product: 454, vehicle: 0 }), ['product', 'campaign'], 'Campaigns always shows');
+  assert.deepEqual(pickerKinds({ campaign: 3, product: 0, vehicle: 12 }), ['vehicle', 'campaign'], 'Serpa: Vehicles | Campaigns');
+  assert.deepEqual(pickerKinds({ campaign: 3, product: 2, vehicle: 12 }), ['vehicle', 'product', 'campaign']);
   assert.equal(pickerDefaultKind(undefined), 'campaign');
   assert.equal(pickerDefaultKind({ campaign: 0, product: 454, vehicle: 0 }), 'product', 'Royalwood opens on Products');
   assert.equal(pickerDefaultKind({ campaign: 0, product: 0, vehicle: 7 }), 'vehicle');
-  assert.equal(pickerDefaultKind({ campaign: 2, product: 454, vehicle: 0 }), 'campaign');
+  assert.equal(pickerDefaultKind({ campaign: 3, product: 0, vehicle: 12 }), 'vehicle', 'Serpa opens on Vehicles even with campaigns');
+  assert.equal(pickerDefaultKind({ campaign: 3, product: 2, vehicle: 12 }), 'vehicle');
+  assert.equal(pickerDefaultKind({ campaign: 2, product: 454, vehicle: 0 }), 'product', 'the first tab with something in it');
+  assert.equal(pickerDefaultKind({ campaign: 2, product: 0, vehicle: 0 }), 'campaign');
   assert.equal(pickerDefaultKind({ campaign: 0, product: 0, vehicle: 0 }), 'campaign', 'nothing at all: today’s empty Campaigns list');
 });
 
