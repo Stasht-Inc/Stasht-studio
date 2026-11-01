@@ -19,6 +19,7 @@ import { aiCreditsAPI } from '../services/aiCreditsAPI';
 import { mediaAPI } from '../services/mediaAPI';
 import { useAuth } from '../contexts/AuthContext';
 import { useProperty } from '../contexts/PropertyContext';
+import { allPropertyRows, resolvePendingPropertySwitch, signedInUserOr } from '../utils/salespersonLanding';
 import { useMemoryLimit, recheckMemoryLimit } from '../hooks/useMemoryLimit';
 import { Avatar, AvatarFallback, AvatarImage } from "../components/ui/avatar";
 import EmptyMemoriesState from "../components/EmptyMemoriesState";
@@ -318,7 +319,7 @@ function MemoriesPageContent({
   openPublishedEntrySignal,
 }: MemoriesPageProps) {
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
-  const { viewType, currentProperty, switchToProperty } = useProperty();
+  const { viewType, currentProperty, switchToProperty, cancelPendingPropertySwitch } = useProperty();
   const { isLimitExceeded, isAdminLimitExceeded, isServiceSyncLimitExceeded, isAICreditsExceeded, limitData, adminLimitData, serviceSyncLimitData, pendingPropertiesCount, checkLimit } = useMemoryLimit();
   const triggerNotificationsRefresh = useNotificationsRefresh();
 
@@ -601,47 +602,16 @@ function MemoriesPageContent({
           console.log('🏠 MemoriesPage: Properties API response:', propertiesResponse);
 
           if (propertiesResponse.success && propertiesResponse.data) {
-            const d = propertiesResponse.data.data || propertiesResponse.data;
-            const allProperties = [
-              ...(d.owned_properties || []),
-              ...(d.shared_properties || []),
-              ...(d.all_properties || d.properties || [])
-            ];
-            console.log('🏠 MemoriesPage: All properties count:', allProperties.length);
-            console.log('🏠 MemoriesPage: All properties:', allProperties);
-
-            if (pendingPropertySwitch === 'first') {
-              // Switch to the FIRST property from the list
-              console.log('🏠 MemoriesPage: Property mode enabled, switching to first property...');
-
-              const validProperties = allProperties.filter((p: any) => p != null);
-              if (validProperties.length > 0) {
-                const firstProperty = validProperties[0];
-                console.log('🏠 MemoriesPage: First property:', firstProperty);
-                console.log('🏠 MemoriesPage: Switching to property:', firstProperty.name);
-
-                switchToProperty(firstProperty);
-
-                // Clear the pending flag
-                localStorage.removeItem('pending_property_switch');
-                console.log('🏠 MemoriesPage: Property switch completed and flag cleared');
-              } else {
-                console.error('🏠 MemoriesPage: No properties found for this user');
-                console.error('🏠 MemoriesPage: User might not have access to any properties yet');
-                // Don't clear the flag - maybe retry later
-              }
-            } else {
-              // Legacy support: if it's a specific property ID
-              const selectedProperty = allProperties.find((prop: any) => String(prop.id) === String(pendingPropertySwitch));
-
-              if (selectedProperty) {
-                console.log('🏠 MemoriesPage: Switching to property ID:', pendingPropertySwitch);
-                switchToProperty(selectedProperty);
-                localStorage.removeItem('pending_property_switch');
-                console.log('🏠 MemoriesPage: Property switch completed and flag cleared');
-              } else {
-                console.error('🏠 MemoriesPage: Property ID', pendingPropertySwitch, 'not found');
-              }
+            // Never the signed-in salesperson's own external property; nothing to open → stay in the
+            // account and drop the flag (utils/salespersonLanding).
+            const next = resolvePendingPropertySwitch(pendingPropertySwitch, allPropertyRows(propertiesResponse), signedInUserOr(user));
+            if (next.action === 'switch') {
+              console.log('🏠 MemoriesPage: Switching to property:', next.property?.name);
+              switchToProperty(next.property);
+              localStorage.removeItem('pending_property_switch');
+            } else if (next.action === 'clear') {
+              console.log('🏠 MemoriesPage: No property to open for', pendingPropertySwitch, '- staying in the account');
+              cancelPendingPropertySwitch();
             }
           } else {
             console.error('🏠 MemoriesPage: Failed to fetch properties:', propertiesResponse);

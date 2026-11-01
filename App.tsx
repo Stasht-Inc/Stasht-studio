@@ -56,6 +56,7 @@ import { CameraInterface } from './components/CameraInterface';
 import { AddMomentModal } from './components/AddMomentModal';
 import exifr from 'exifr';
 import { takeSwitchNotice } from './utils/accountSwitch';
+import { allPropertyRows, resolvePendingPropertySwitch, signedInUserOr } from './utils/salespersonLanding';
 
 // CAPTURE EMAIL PARAMETER IMMEDIATELY (before React even starts)
 // This runs as soon as the file is loaded, before any component mounts
@@ -256,7 +257,7 @@ function MainApp() {
   const { isAuthenticated, isLoading, login, register, user } = useAuth();
   usePresenceHeartbeat(isAuthenticated);
   const { limitData, checkLimit } = useMemoryLimit();
-  const { viewType, currentProperty, switchToProperty: switchToPropertyCtx, isPendingPropertySwitch } = useProperty();
+  const { viewType, currentProperty, switchToProperty: switchToPropertyCtx, isPendingPropertySwitch, cancelPendingPropertySwitch } = useProperty();
 
   // Check if user is property owner (admin) or visitor (read-only)
   const isPropertyOwner = useMemo(() => {
@@ -343,20 +344,14 @@ function MainApp() {
       try {
         const response = await dashboardAPI.getProperties();
         if (response.success && response.data) {
-          const d = response.data.data || response.data;
-          const allProperties = [
-            ...(d.owned_properties || []),
-            ...(d.shared_properties || []),
-            ...(d.all_properties || d.properties || [])
-          ];
-
-          const target = pendingId === 'first'
-            ? allProperties[0]
-            : allProperties.find((p: any) => String(p.id) === String(pendingId));
-
-          if (target) {
-            switchToPropertyCtx(target);
+          // Never the signed-in salesperson's own external property; nothing to open → stay in the account
+          // (utils/salespersonLanding — the flag would otherwise keep the loading screen up for good).
+          const next = resolvePendingPropertySwitch(pendingId, allPropertyRows(response), signedInUserOr(user));
+          if (next.action === 'switch') {
+            switchToPropertyCtx(next.property);
             localStorage.removeItem('pending_property_switch');
+          } else if (next.action === 'clear') {
+            cancelPendingPropertySwitch();
           }
         }
       } catch (e) {

@@ -6,6 +6,7 @@ import { useAuth } from "../contexts/AuthContext";
 import { Avatar, AvatarFallback, AvatarImage } from "../components/ui/avatar";
 import { getAdminSwitchData, switchAccount, clearAdminSwitchData, switchIntoPropertyAccount } from "../components/AccountChoiceModal";
 import { opensAsFullAccount, propertyRowActions } from "../utils/propertyRows";
+import { signedInUserOr, visiblePropertyCounts, visiblePropertyLists } from "../utils/salespersonLanding";
 import { toast } from "sonner";
 import { dashboardAPI } from "../utils/authUtils";
 import { useProperty } from "../contexts/PropertyContext";
@@ -268,7 +269,7 @@ function Dropdown({ isOpen, onClick }: { isOpen: boolean; onClick: () => void })
 export function ProfileDropdownMenu({ isOpen, onClose, user, onShowProfileSettings, onShowBillingPayment, viewType, currentProperty, switchToPersonal }: { isOpen: boolean; onClose: () => void; user?: { name?: string; email?: string; phone_number?: string; profile_image?: string; avatar?: string; profile_color?: string; plan_name?: string; credits?: number; location?: string }; onShowProfileSettings?: () => void; onShowBillingPayment?: () => void; viewType?: string; currentProperty?: any; switchToPersonal?: () => void }) {
   const alvinEnabled = useAlvinEnabled();
   const dropdownRef = useRef<HTMLDivElement>(null);
-  const { logout, updateUser } = useAuth();
+  const { logout, updateUser, user: authUser } = useAuth();
   const { switchToProperty } = useProperty();
   const [isNewUser, setIsNewUser] = useState(() => localStorage.getItem('is_new_user') === 'true');
   useEffect(() => {
@@ -525,9 +526,12 @@ export function ProfileDropdownMenu({ isOpen, onClose, user, onShowProfileSettin
             console.log('🏠 ProfileDropdown: Shared properties:', sharedProps);
             console.log('🏠 ProfileDropdown: Counts:', counts);
 
-            setOwnedProperties(ownedProps);
-            setSharedProperties(sharedProps);
-            setPropertyCounts(counts);
+            // The signed-in salesperson's own external property is their own account, not a property view
+            // to open: dropped from the lists and the counts (utils/salespersonLanding).
+            const visible = visiblePropertyLists({ owned: ownedProps, shared: sharedProps }, signedInUserOr(authUser ?? user));
+            setOwnedProperties(visible.owned);
+            setSharedProperties(visible.shared);
+            setPropertyCounts(visiblePropertyCounts(counts, visible.removedOwned, visible.removedShared));
           } else {
             console.error('❌ ProfileDropdown: Invalid response structure');
           }
