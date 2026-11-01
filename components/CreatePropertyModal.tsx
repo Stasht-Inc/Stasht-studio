@@ -5,7 +5,7 @@ import { Input } from './ui/input';
 import GooglePlacesInput from './ui/google-places-input';
 import { toast } from 'sonner';
 import { dashboardAPI } from '../utils/authUtils';
-import { PROPERTY_IMAGE_ACCEPT, propertyImageFileError } from '../utils/propertyImage';
+import { PROPERTY_IMAGE_ACCEPT, PROPERTY_IMAGE_TYPE_ERROR, propertyImageFileError } from '../utils/propertyImage';
 
 interface CreatePropertyModalProps {
   isOpen: boolean;
@@ -60,6 +60,10 @@ export default function CreatePropertyModal({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isCheckingOut, setIsCheckingOut] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // What the image box showed before the file just chosen: put back if that file can't be shown as an image (a text
+  // file named .png previews as a broken image, and the server refuses it), instead of a broken preview (Chris,
+  // 1 Nov 2026). Cleared once the new preview loads.
+  const previousImageRef = useRef<{ image: File | null; preview: string | null; removeImage: boolean } | null>(null);
 
   // Cart state (only used in cart flow)
   const [cart, setCart] = useState<PropertyFormData[]>([]);
@@ -86,6 +90,7 @@ export default function CreatePropertyModal({
       setLabels(item.labels);
       setImage(item.image || null);
       setImagePreview(item.image instanceof File ? URL.createObjectURL(item.image) : null);
+      previousImageRef.current = null;
     } else {
       loadEmptyForm();
     }
@@ -111,6 +116,7 @@ export default function CreatePropertyModal({
     setImage(null);
     setImagePreview(null);
     setRemoveImage(false);
+    previousImageRef.current = null;
     setSearchSuggestions([]);
     setShowSuggestions(false);
   };
@@ -127,6 +133,7 @@ export default function CreatePropertyModal({
       setImage(null);
       setRemoveImage(false);
       setImagePreview(propertyToEdit.image || null);
+      previousImageRef.current = null;
     } else if (!useCartFlow) {
       loadEmptyForm();
     }
@@ -211,6 +218,7 @@ export default function CreatePropertyModal({
     if (!file) return;
     const problem = propertyImageFileError(file);
     if (problem) { toast.error(problem); return; }
+    previousImageRef.current = { image, preview: imagePreview, removeImage };
     setImage(file);
     setRemoveImage(false);
     const reader = new FileReader();
@@ -218,7 +226,21 @@ export default function CreatePropertyModal({
     reader.readAsDataURL(file);
   };
 
+  // The chosen file's preview didn't load: it isn't an image the browser (or the server) can read. Show what was there
+  // before (the saved image, an earlier choice, or the empty box) and say why. A saved image that fails to load is left
+  // as it is.
+  const handlePreviewError = () => {
+    const previous = previousImageRef.current;
+    if (!previous) return;
+    previousImageRef.current = null;
+    setImage(previous.image);
+    setImagePreview(previous.preview);
+    setRemoveImage(previous.removeImage);
+    toast.error(PROPERTY_IMAGE_TYPE_ERROR);
+  };
+
   const handleRemoveImage = () => {
+    previousImageRef.current = null;
     setImage(null);
     setImagePreview(null);
     if (propertyToEdit?.image) setRemoveImage(true);
@@ -467,7 +489,13 @@ export default function CreatePropertyModal({
                   title="Click to replace the image"
                   className="block w-full h-full cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#6C60FF]/40"
                 >
-                  <img src={imagePreview} alt="Property preview" className="w-full h-full object-cover" />
+                  <img
+                    src={imagePreview}
+                    alt="Property preview"
+                    className="w-full h-full object-cover"
+                    onLoad={() => { previousImageRef.current = null; }}
+                    onError={handlePreviewError}
+                  />
                 </button>
                 <button
                   type="button"

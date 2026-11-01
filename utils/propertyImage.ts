@@ -19,6 +19,10 @@ export const PROPERTY_IMAGE_ACCEPT = PROPERTY_IMAGE_TYPES.join(',');
 
 const FALLBACK_ERROR = 'The image could not be uploaded. Please try again.';
 
+/** Said when a chosen file is not a PNG, JPG, GIF or WebP image — by its type, or because it can't be shown as one (a
+ * text file named .png: Edit Property then shows what it showed before instead of a broken preview). */
+export const PROPERTY_IMAGE_TYPE_ERROR = 'Please choose a PNG, JPG, GIF or WebP image.';
+
 function lower(value: unknown): string {
   return value === null || value === undefined ? '' : String(value).trim().toLowerCase();
 }
@@ -54,7 +58,7 @@ function imageUrl(value: unknown): string | null {
 /** Why this file can't be a property image, or null when it can. */
 export function propertyImageFileError(file: { type?: string; size?: number } | null | undefined): string | null {
   if (!file) return 'Please choose an image.';
-  if (!PROPERTY_IMAGE_TYPES.includes(lower(file.type))) return 'Please choose a PNG, JPG, GIF or WebP image.';
+  if (!PROPERTY_IMAGE_TYPES.includes(lower(file.type))) return PROPERTY_IMAGE_TYPE_ERROR;
   if (Number(file.size) > PROPERTY_IMAGE_MAX_BYTES) return 'The image is larger than 10MB. Please choose a smaller one.';
   return null;
 }
@@ -93,6 +97,20 @@ export function canChangePropertyImage(row: Row, viewer: unknown): boolean {
   if (flag(row.is_creator) === true) return true;
   if (canManage === null) return ['admin', 'owner'].includes(lower(row.user_role));
   return false;
+}
+
+/**
+ * Users → External rows (Chris, 1 Nov 2026): the property's own image, else the external account's profile image
+ * (GET /properties account_profile_image; an older API's creator row, which is that account), else null (the shield).
+ * Internal rows (and rows without account_type) keep the property's image or the shield: their account is the viewer's
+ * own, whose photo is not the property's.
+ */
+export function propertyRowAvatar(row: Row): string | null {
+  if (!row) return null;
+  const own = imageUrl(row.image);
+  if (own) return own;
+  if (lower(row.account_type) !== 'external') return null;
+  return imageUrl(row.account_profile_image) ?? imageUrl(row.creator?.profile_image);
 }
 
 /** The text to show when an upload failed: the image field's message, any field's, the API's, or a plain one. */
