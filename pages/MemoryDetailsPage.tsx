@@ -17,6 +17,7 @@ import { mockPosts } from "../data/mockPosts";
 import { getMemoryDetails } from "../data/memoryData";
 import { getCategoryColorHex, getCategoryIcon, formatDate, sanitizeAiCreatorText, isCarCampaign } from "../utils/memoryUtils";
 import { displayWebsite } from "../utils/displayUrl";
+import { inventoryItemIsReadOnly } from "../utils/salespersonLanding";
 import { getCategoryColor } from "../constants/mediaConstants";
 import { triggerMemoryCountsRefresh } from '../hooks/useMemoryCounts';
 import { useMemoryLimit, recheckMemoryLimit } from '../hooks/useMemoryLimit';
@@ -1184,6 +1185,9 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
   // Raw /cars/{id} response — read by handleTimelineImageView to build the description
   // and spec grid shown in the image viewer's sidebar for a car's photos.
   const [carDetailData, setCarDetailData] = useState<any>(null);
+  // The main account's car shown to its salesperson (utils/salespersonLanding): look and share only, so its
+  // photos get no select / edit / delete (those would act on the main account's inventory).
+  const carDetailReadOnly = isCarDetail && inventoryItemIsReadOnly(carDetailData, user);
 
   // Website Catalogue product: memoryId arrives as `catalog_item:<id>` (MemoriesPage product card,
   // or an item in the sidebar's Website Catalogue box). Rendered exactly like a car detail —
@@ -15508,11 +15512,11 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                               item={item}
                               isSelected={selectedItems.includes(item.id)}
                               // Catalogue-product photos aren't memory images: no select (batch actions), edit or delete.
-                              onToggleSelect={isSuggestedCategory || isCatalogItemDetail ? undefined : () => handleMediaItemToggle(item.id)}
+                              onToggleSelect={isSuggestedCategory || isCatalogItemDetail || carDetailReadOnly ? undefined : () => handleMediaItemToggle(item.id)}
                               onView={() => handleMediaItemView(item)}
                               onViewImage={(src, alt, title, subtitle, imageId) => handleImageView(src, alt, title, subtitle, imageId)}
-                              onUpdateItem={isSuggestedCategory || isCatalogItemDetail ? undefined : handleUpdateItem}
-                              onDeleteItem={isSuggestedCategory || isCatalogItemDetail ? undefined : () => handleDeleteItem(item.id, isCarCampaign(apiMemoryData))}
+                              onUpdateItem={isSuggestedCategory || isCatalogItemDetail || carDetailReadOnly ? undefined : handleUpdateItem}
+                              onDeleteItem={isSuggestedCategory || isCatalogItemDetail || carDetailReadOnly ? undefined : () => handleDeleteItem(item.id, isCarCampaign(apiMemoryData))}
                               memoryOwnerId={memoryOwnerId}
                               memoryTitle={apiMemoryData?.title}
                               memoryThumbnail={apiMemoryData?.last_update_img}
@@ -17844,11 +17848,11 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                       item={item}
                       isSelected={selectedItems.includes(item.id)}
                       // Catalogue-product photos aren't memory images: no select (batch actions), edit or delete.
-                      onToggleSelect={isSuggestedCategory || isCatalogItemDetail ? undefined : () => handleMediaItemToggle(item.id)}
+                      onToggleSelect={isSuggestedCategory || isCatalogItemDetail || carDetailReadOnly ? undefined : () => handleMediaItemToggle(item.id)}
                       onView={() => handleMediaItemView(item)}
                       onViewImage={(src, alt, title, subtitle, imageId) => handleImageView(src, alt, title, subtitle, imageId)}
-                      onUpdateItem={isSuggestedCategory || isCatalogItemDetail ? undefined : handleUpdateItem}
-                      onDeleteItem={isSuggestedCategory || isCatalogItemDetail ? undefined : () => handleDeleteItem(item.id, isCarCampaign(apiMemoryData))}
+                      onUpdateItem={isSuggestedCategory || isCatalogItemDetail || carDetailReadOnly ? undefined : handleUpdateItem}
+                      onDeleteItem={isSuggestedCategory || isCatalogItemDetail || carDetailReadOnly ? undefined : () => handleDeleteItem(item.id, isCarCampaign(apiMemoryData))}
                       memoryOwnerId={memoryOwnerId}
                       memoryTitle={apiMemoryData?.title}
                       memoryThumbnail={apiMemoryData?.last_update_img}
