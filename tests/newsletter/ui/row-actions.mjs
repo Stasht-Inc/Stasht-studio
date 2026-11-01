@@ -1,6 +1,8 @@
 // Newsletters list row actions (Chris, 1 Nov 2026): the "⋯" menu button is plain like the Edit action beside it —
 // no border or outline at rest, grey, light grey on hover — and a keyboard user still sees where focus is (the same
 // purple focus ring as Edit, keyboard focus only). Desktop table and phone cards.
+// Leads → Lists rows had the same pattern: after a click the menu put focus back on "⋯" and the ring stayed there.
+// Now focus goes back to "⋯" only after a keyboard close (utils/menuFocus).
 // node tests/newsletter/ui/row-actions.mjs   (needs the dev server: NL_BASE, default http://localhost:5291)
 // Every API call is answered here and every non-local request is aborted: nothing leaves this machine.
 // Screenshots: NL_SHOTS (default /private/tmp/claude-501/newsletter-row-actions/shots).
@@ -15,6 +17,11 @@ mkdirSync(OUT, { recursive: true });
 const SERPA = { id: 708, external_user_id: 889, name: 'Serpa Chrysler', email: 'serpa@dealer.test', role: '2', status: 1, is_activated: true };
 const counts = { recipients: 120, delivered: 118, opened: 40, clicked: 12, failed: 0, skipped: 2, unsubscribed: 0, queued: 0, sent: 118 };
 const newsletter = (id, status, name) => ({ id, name, subject: `${name} subject`, preview_text: null, from_name: 'Serpa', reply_to_email: null, channels: ['email'], sms_text: null, template: 'basic', header: {}, audience: [], status, scheduled_at: null, sent_at: status === 'sent' ? '2026-10-30T10:00:00Z' : null, public_url: null, counts, created_at: '2026-10-29T10:00:00Z', updated_at: '2026-10-30T10:00:00Z' });
+
+const CONTACT_LISTS = [
+  { id: 7, name: 'VIP buyers', source: 'manual', member_count: 12, email_count: 10, sms_count: 8, consent_type: 'express', created_at: '2026-10-20T10:00:00Z', updated_at: '2026-10-30T10:00:00Z', unsubscribed_count: 1 },
+  { id: 8, name: 'Service customers', source: 'import', member_count: 40, email_count: 38, sms_count: 20, consent_type: 'implied', created_at: '2026-10-21T10:00:00Z', updated_at: '2026-10-29T10:00:00Z', unsubscribed_count: 0 },
+];
 
 const failures = [];
 const blocked = new Set();
@@ -41,6 +48,8 @@ async function open(width, height) {
     const p = url.pathname.replace(/^\/api\/react/, '');
     if (p === '/user/storage-overview') return route.fulfill({ json: { success: true, data: { storage_overview: { plan_name: 'Professional' } } } });
     if (/^\/newsletters\/\d+\/duplicate$/.test(p)) return route.fulfill({ json: { success: true, data: newsletter(3, 'draft', 'Copy of October Recap') } });
+    if (p === '/contact-lists' && route.request().method() === 'GET') return route.fulfill({ json: { success: true, data: CONTACT_LISTS } });
+    if (/^\/contact-lists\/\d+\/duplicate$/.test(p)) return route.fulfill({ json: { success: true, data: { ...CONTACT_LISTS[0], id: 9, name: 'VIP buyers (copy)' } } });
     if (p === '/newsletters') return route.fulfill({ json: { success: true, data: [newsletter(1, 'draft', 'November Offers'), newsletter(2, 'sent', 'October Recap')] } });
     if (p.startsWith('/dashboard/')) return route.fulfill({ status: 404, json: { success: false, message: 'Not found' } });
     return route.fulfill({ json: { success: true, data: [] } });
@@ -119,6 +128,54 @@ try {
     await page.waitForTimeout(500);
     const afterPick = await look(sentMenu);
     expect(afterPick.shadow === 'none', `${tag}: no ring after picking a menu item with the mouse (${afterPick.shadow})`);
+    await context.close();
+  }
+
+  // ---------- Leads → Lists rows ----------
+  for (const [width, height] of [[1280, 900], [390, 844]]) {
+    const tag = `lists ${width}`;
+    const { page, context } = await open(width, height);
+    await page.goto(`${BASE}/leads`);
+    const listsTab = page.getByRole('button', { name: /^Lists/ }).filter({ visible: true }).first();
+    await listsTab.waitFor({ state: 'visible', timeout: 40000 });
+    await listsTab.click();
+    const menu = page.locator('button[aria-label="Actions for VIP buyers"]').filter({ visible: true }).first();
+    await menu.waitFor({ state: 'visible', timeout: 15000 });
+    await page.waitForTimeout(500);
+    const rest = await look(menu);
+    expect(rest.border === 0 && rest.shadow === 'none', `${tag}: ⋯ plain at rest`);
+    await menu.click();
+    await page.getByRole('menuitem', { name: 'Rename' }).waitFor({ state: 'visible', timeout: 5000 });
+    await page.screenshot({ path: `${OUT}/${width}-lists-1-menu-open.png` });
+    await page.mouse.click(Math.round(width / 2), 120);
+    await page.waitForTimeout(400);
+    const afterClick = await look(menu);
+    expect(afterClick.shadow === 'none', `${tag}: no ring after the menu closes on a click elsewhere (${afterClick.shadow})`);
+    await menu.click();
+    await page.getByRole('menuitem', { name: 'Duplicate' }).click();
+    await page.waitForTimeout(600);
+    const afterPick = await look(menu);
+    expect(afterPick.shadow === 'none', `${tag}: no ring after picking Duplicate with the mouse (${afterPick.shadow})`);
+    // Rename opens a dialog; closing it with the mouse leaves no ring on "⋯" either.
+    await menu.click();
+    await page.getByRole('menuitem', { name: 'Rename' }).click();
+    const cancel = page.getByRole('button', { name: 'Cancel' }).filter({ visible: true }).first();
+    await cancel.waitFor({ state: 'visible', timeout: 5000 });
+    await cancel.click();
+    await page.waitForTimeout(500);
+    const afterDialog = await look(menu);
+    expect(afterDialog.shadow === 'none', `${tag}: no ring after Rename → Cancel with the mouse (${afterDialog.shadow})`);
+    await page.locator('table, ul').filter({ hasText: 'VIP buyers' }).filter({ visible: true }).first().screenshot({ path: `${OUT}/${width}-lists-2-after-menu.png` }).catch(() => {});
+    if (width >= 1024) {
+      await menu.focus();
+      await page.keyboard.press('Enter');
+      await page.getByRole('menuitem', { name: 'Rename' }).waitFor({ state: 'visible', timeout: 5000 });
+      await page.keyboard.press('Escape');
+      await page.waitForTimeout(300);
+      const back = await look(menu);
+      expect(back.focusVisible && back.shadow !== 'none', `${tag}: Escape puts keyboard focus back on ⋯ with its ring (${back.shadow})`);
+      await page.locator('table').filter({ hasText: 'VIP buyers' }).first().screenshot({ path: `${OUT}/${width}-lists-3-keyboard-focus.png` }).catch(() => {});
+    }
     await context.close();
   }
 } catch (e) {

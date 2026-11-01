@@ -19,6 +19,7 @@ import { formatCount } from './lib/audience';
 import { NEWSLETTER_FILTERS, NEWSLETTERS_CHANGED_EVENT, announceNewslettersChanged, withHighlightFirst, type NewsletterFilter } from './lib/campaignsView';
 import { ACTION_LABEL, actionsFor, failureText, isLive, listRateBase, plural, primaryAction, rate, whenText, type NewsletterAction } from './lib/newsletterList';
 import { BUTTON_OUTLINE, BUTTON_PRIMARY } from './lib/ui';
+import { keyboardOnlyFocusReturn } from '../../utils/menuFocus';
 
 const POLL_MS = 30000;
 // The All Campaigns list: a grey header row and rows of the same grid.
@@ -47,27 +48,22 @@ function RowMenu({ item, busy, onAction }: { item: NewsletterSummary; busy: bool
   const actions = actionsFor(item.status);
   const safe = actions.filter((a) => a !== 'cancel' && a !== 'delete');
   const risky = actions.filter((a) => a === 'cancel' || a === 'delete');
-  // Closing the menu puts focus back on "⋯", and after a mouse or touch close the browser then draws the keyboard focus
-  // ring there (the purple outline Chris saw). Focus goes back only when the menu was closed from the keyboard.
-  const closedByPointer = useRef(false);
   const item_ = (action: NewsletterAction) => (
     // Open dialogs after the menu has closed, or Radix leaves the page unclickable.
-    <DropdownMenuItem key={action} onPointerDown={() => { closedByPointer.current = true; }}
-      onSelect={() => window.setTimeout(() => onAction(action, item), 0)}
+    <DropdownMenuItem key={action} onSelect={() => window.setTimeout(() => onAction(action, item), 0)}
       className={`cursor-pointer ${action === 'cancel' || action === 'delete' ? 'text-red-600 hover:bg-red-50 focus:text-red-600' : 'hover:bg-[#6C60FF]/5'}`}>
       {ACTION_LABEL[action]}
     </DropdownMenuItem>
   );
   return (
-    <DropdownMenu onOpenChange={(open) => { if (open) closedByPointer.current = false; }}>
+    <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <button type="button" aria-label={`Actions for ${item.name || 'this newsletter'}`} title="More actions" disabled={busy} className={`${ROW_ACTION} w-8`}>
           {busy ? <Loader2 className="h-4 w-4 animate-spin text-gray-500" aria-hidden="true" /> : <MoreHorizontal className="h-4 w-4 text-gray-500" aria-hidden="true" />}
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-48 rounded-md border border-gray-200 bg-white shadow-lg"
-        onPointerDownOutside={() => { closedByPointer.current = true; }}
-        onCloseAutoFocus={(e) => { if (closedByPointer.current) e.preventDefault(); closedByPointer.current = false; }}>
+      {/* Focus goes back to "⋯" only after a keyboard close: no focus ring left on it after a click (utils/menuFocus). */}
+      <DropdownMenuContent align="end" className="w-48 rounded-md border border-gray-200 bg-white shadow-lg" onCloseAutoFocus={keyboardOnlyFocusReturn}>
         {safe.map(item_)}
         {risky.length ? <DropdownMenuSeparator /> : null}
         {risky.map(item_)}

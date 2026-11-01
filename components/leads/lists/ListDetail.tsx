@@ -4,6 +4,7 @@ import { toast } from 'sonner';
 import {
   newslettersAPI, type ContactList, type ContactListMember, type ContactListMembers, type MemberStatusFilter, type MergeResult,
 } from '../../../services/newslettersAPI';
+import { keyboardOnlyFocusReturn } from '../../../utils/menuFocus';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '../../ui/dropdown-menu';
 import ImportListModal from '../../newsletters/ImportListModal';
 import SegmentedSwitch from '../../newsletters/SegmentedSwitch';
@@ -171,7 +172,7 @@ export default function ListDetail({ list, otherLists, onBack, onAction, onListC
           <MoreHorizontal className="h-4 w-4" aria-hidden="true" />
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-44 rounded-md border border-gray-200 bg-white shadow-lg">
+      <DropdownMenuContent align="end" className="w-44 rounded-md border border-gray-200 bg-white shadow-lg" onCloseAutoFocus={keyboardOnlyFocusReturn}>
         <DropdownMenuItem className={MENU_ITEM} onSelect={later(() => setMemberDialog({ member: m }))}><Pencil className="h-4 w-4" aria-hidden="true" />Edit</DropdownMenuItem>
         <DropdownMenuItem className={MENU_DANGER} onSelect={later(() => setRemoving({ ids: [m.id!], label }))}><Trash2 className="h-4 w-4" aria-hidden="true" />Remove</DropdownMenuItem>
       </DropdownMenuContent>
@@ -311,7 +312,7 @@ export default function ListDetail({ list, otherLists, onBack, onAction, onListC
                   <MoreHorizontal className="h-4 w-4" aria-hidden="true" />
                 </button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-44 rounded-md border border-gray-200 bg-white shadow-lg">
+              <DropdownMenuContent align="end" className="w-44 rounded-md border border-gray-200 bg-white shadow-lg" onCloseAutoFocus={keyboardOnlyFocusReturn}>
                 <DropdownMenuItem className={MENU_ITEM} onSelect={later(() => onAction('rename', list))}><Pencil className="h-4 w-4" aria-hidden="true" />Rename</DropdownMenuItem>
                 <DropdownMenuItem className={MENU_ITEM} onSelect={later(() => onAction('duplicate', list))}><Copy className="h-4 w-4" aria-hidden="true" />Duplicate</DropdownMenuItem>
                 <DropdownMenuSeparator />

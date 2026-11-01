@@ -4,6 +4,7 @@ import { toast } from 'sonner';
 import { newslettersAPI, type ContactList } from '../../../services/newslettersAPI';
 import type { StarterPlanState } from '../../../hooks/usePlan';
 import { requestUpgrade } from '../../../utils/planEvents';
+import { keyboardOnlyFocusReturn } from '../../../utils/menuFocus';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '../../ui/dropdown-menu';
 import ImportListModal from '../../newsletters/ImportListModal';
 import { GENERIC_ERROR } from '../../newsletters/lib/apiResult';
@@ -272,7 +273,8 @@ const ListsTab = forwardRef<ListsTabHandle, ListsTabProps>(function ListsTab({ s
           {busyId === l.id || exportingId === l.id ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <MoreHorizontal className="h-4 w-4" aria-hidden="true" />}
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-44 rounded-md border border-gray-200 bg-white shadow-lg" onClick={(e) => e.stopPropagation()}>
+      {/* Focus goes back to "⋯" only after a keyboard close: no focus ring left on it after a click (utils/menuFocus). */}
+      <DropdownMenuContent align="end" className="w-44 rounded-md border border-gray-200 bg-white shadow-lg" onClick={(e) => e.stopPropagation()} onCloseAutoFocus={keyboardOnlyFocusReturn}>
         <DropdownMenuItem className={MENU_ITEM} onSelect={later(() => onAction('open', l))}><Eye className="h-4 w-4" aria-hidden="true" />Open</DropdownMenuItem>
         <DropdownMenuItem className={MENU_ITEM} onSelect={later(() => onAction('rename', l))}><Pencil className="h-4 w-4" aria-hidden="true" />Rename</DropdownMenuItem>
         <DropdownMenuItem className={MENU_ITEM} onSelect={later(() => onAction('duplicate', l))}><Copy className="h-4 w-4" aria-hidden="true" />Duplicate</DropdownMenuItem>
