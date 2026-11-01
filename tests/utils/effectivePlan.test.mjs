@@ -51,3 +51,16 @@ test('no upgrade prompt when the main account already covers the top plan', () =
   assert.equal(offersUpgrade('Starter', null), true, 'own Starter: as before');
   assert.equal(offersUpgrade('Business', null), true, 'an account paying for Business itself: unchanged');
 });
+
+test('a covered account skips the new-account plan picker; everyone else still gets it', async () => {
+  const { skipsPlanPicker, storageOverviewOf } = await import('../../utils/effectivePlan.ts');
+  // E2E, 1 Nov 2026: a covered salesperson activating by email got the non-closable "Upgrade Your Plan" picker.
+  const covered = { success: true, data: { data: { storage_overview: { plan_name: 'Business', plan_covered_by: { id: 889, name: 'Serpa Chrysler' } } } } };
+  const own = { success: true, data: { data: { storage_overview: { plan_name: 'Starter', plan_covered_by: null } } } };
+  assert.deepEqual(storageOverviewOf(covered), covered.data.data.storage_overview);
+  assert.deepEqual(storageOverviewOf({ success: true, data: { storage_overview: { plan_name: 'Teams' } } }), { plan_name: 'Teams' });
+  assert.equal(storageOverviewOf(null), null);
+  assert.equal(skipsPlanPicker(storageOverviewOf(covered)), true);
+  assert.equal(skipsPlanPicker(storageOverviewOf(own)), false);
+  assert.equal(skipsPlanPicker(null), false, 'unknown (the check failed): the picker shows, as before');
+});

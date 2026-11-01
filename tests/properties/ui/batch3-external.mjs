@@ -132,6 +132,15 @@ async function open({ width = 1280, height = 900, who = MAIN, rows = [INTERNAL_D
     if (process.env.B3_DEBUG) console.log('api', req.method(), p);
     if (p === '/account/invite-info') return route.fulfill({ json: { status: 'success', data: { owner_name: 'Serpa Chrysler', profile_image: SERPA_LOGO } } });
     if (p === '/users/check-exists') return route.fulfill({ json: { success: true, exists: false } });
+    if (p === '/verify-otp') return route.fulfill({ json: { success: true, verification_token: 'vt-1' } });
+    if (p === '/login' && req.method() === 'POST') {
+      const owned = state.rows.filter((r) => r.is_creator);
+      const shared = state.rows.filter((r) => !r.is_creator);
+      return route.fulfill({ json: { success: true, data: { user: who, token: `${who.name}-token`, collaborators: [], owned_properties: owned, shared_properties: shared, partial_admin_access: [] } } });
+    }
+    if (p.startsWith('/activate-account/')) {
+      return route.fulfill({ json: { success: true, message: 'Account activated', data: { user: who, token: `${who.name}-token`, collaborators: [], partial_admin_access: [] } } });
+    }
     if (p === '/send-otp') {
       state.otpSent.push(JSON.parse(req.postData() || 'null'));
       return route.fulfill({ json: { success: true, message: 'OTP sent', channel: 'sms' } });
@@ -206,6 +215,17 @@ async function openProfileMenu(page, width) {
   if (width >= 1024) await page.locator('[data-name="Dropdown"]').filter({ visible: true }).first().locator('*').first().click();
   else await page.locator('div.rounded-full.cursor-pointer').filter({ visible: true }).first().click();
   await page.waitForTimeout(700);
+}
+// The real passwordless sign-in form (answers mocked above).
+async function signIn(page, email) {
+  const field = page.locator('input[type=email]').filter({ visible: true }).first();
+  await field.waitFor({ state: 'visible', timeout: 40000 });
+  await field.fill(email);
+  await page.getByRole('button', { name: /Send OTP/ }).filter({ visible: true }).first().click();
+  const otp = page.locator('#otp');
+  await otp.waitFor({ state: 'visible', timeout: 10000 });
+  await otp.fill('123456');
+  await page.getByRole('button', { name: /Verify & Sign In/ }).click();
 }
 // Profile menu → Settings (Profile Settings), once the app is up.
 async function openSettings(page, width) {
@@ -364,6 +384,62 @@ try {
     await page.getByTestId('profile-plan-badge').first().waitFor({ state: 'visible', timeout: 30000 });
     expect((await page.getByTestId('profile-plan-badge').first().textContent())?.trim() === 'Starter', '2 own Starter: Profile Settings badge Starter');
     expect(await page.getByTestId('profile-plan-covered').count() === 0, '2 own Starter: no covered note');
+    await context.close();
+  }
+
+  // ---------- 2b. Email activation (register-via-invite without OTP): no plan picker for a covered account ----------
+  for (const [label, plan, rows, expectPicker] of [
+    ['covered', COVERED, [BONS_OWN], false],
+    ['own Starter', { plan_name: 'Starter', plan_covered_by: null }, [], true],
+  ]) {
+    const { page, context } = await open({ who: BON, rows, path: '/?token=act-1', signedOut: true, plan });
+    await page.getByText('Campaigns', { exact: true }).filter({ visible: true }).first().waitFor({ state: 'visible', timeout: 45000 });
+    await page.waitForTimeout(4000);
+    const picker = await visibleCount(page, 'Upgrade Your Plan');
+    const flag = await page.evaluate(() => localStorage.getItem('is_new_user'));
+    expect((picker > 0) === expectPicker, `2b activation ${label}: plan picker ${expectPicker ? 'shown (as before)' : 'not shown'} (${picker})`);
+    if (!expectPicker) expect(flag === null, `2b activation ${label}: no longer a "new user" waiting for a plan (${flag})`);
+    await shot(page, `1280-2b-activation-${label.replace(' ', '-')}`);
+    await context.close();
+  }
+
+  // ---------- 5b. External rows' avatars in the account chooser and the Profile menu ----------
+  {
+    // Bon signs in: his External row shows Serpa's logo (no image of its own, no account image).
+    const { page, context } = await open({ who: BON, rows: [BONS_OWN], path: '/login?prefill_email=bon@dealer.test', signedOut: true, plan: COVERED });
+    await signIn(page, BON.email);
+    await page.getByText('Choose Account', { exact: true }).filter({ visible: true }).first().waitFor({ state: 'visible', timeout: 20000 });
+    await page.getByText('External (1)', { exact: true }).filter({ visible: true }).first().click();
+    await page.waitForTimeout(500);
+    const row = page.locator('button').filter({ hasText: 'Bon Sun' }).filter({ hasText: 'Serpa Chrysler' }).filter({ visible: true }).first();
+    expect(await row.locator(`img[src="${SERPA_LOGO}"]`).count() > 0, "5b chooser: Bon's External row shows Serpa's logo");
+    await shot(page, '1280-5b-chooser-external-row');
+    await context.close();
+  }
+  {
+    const withOwnImage = { ...BONS_OWN, account_profile_image: STORE_URL };
+    const { page, context } = await open({ who: BON, rows: [withOwnImage], path: '/login?prefill_email=bon@dealer.test', signedOut: true, plan: COVERED });
+    await signIn(page, BON.email);
+    await page.getByText('Choose Account', { exact: true }).filter({ visible: true }).first().waitFor({ state: 'visible', timeout: 20000 });
+    await page.getByText('External (1)', { exact: true }).filter({ visible: true }).first().click();
+    await page.waitForTimeout(500);
+    const row = page.locator('button').filter({ hasText: 'Bon Sun' }).filter({ hasText: 'Serpa Chrysler' }).filter({ visible: true }).first();
+    expect(await row.locator(`img[src="${STORE_URL}"]`).count() > 0, "5b chooser: the account's own image comes before the logo");
+    await context.close();
+  }
+  {
+    // The main account's Profile menu: Artem's row shows his account's logo, Rita's (no image anywhere) the icon.
+    const { page, context } = await open({ path: '/' });
+    await page.getByText('Campaigns', { exact: true }).filter({ visible: true }).first().waitFor({ state: 'visible', timeout: 30000 });
+    await page.waitForTimeout(1200);
+    await openProfileMenu(page, 1280);
+    await page.getByRole('button', { name: 'External (3)', exact: true }).filter({ visible: true }).first().click();
+    await page.waitForTimeout(400);
+    const artem = page.getByRole('button', { name: /Artem Auto/ }).filter({ visible: true }).first();
+    const rita = page.getByRole('button', { name: /Rita Rep/ }).filter({ visible: true }).first();
+    expect(await artem.locator(`img[src="${LOGO_URL}"]`).count() > 0, "5b Profile menu: Artem's External row shows his logo");
+    expect(await rita.locator('img').count() === 0, '5b Profile menu: no image anywhere → the icon');
+    await shot(page, '1280-5b-profile-menu-external-rows');
     await context.close();
   }
 

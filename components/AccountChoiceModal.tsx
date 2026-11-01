@@ -8,7 +8,7 @@ import { useProperty } from '../contexts/PropertyContext';
 import { switchDataForPropertyAccount, switchDataIsStale } from '../utils/propertyAccountSwitch';
 import { findPropertyRow, needsFullPropertyRow, opensAsFullAccount, propertyRowActions } from '../utils/propertyRows';
 import { propertyAvatarImage } from '../utils/propertyImage';
-import { groupPropertyAccounts, isOwnExternalProperty, propertyAccountGroups } from '../utils/salespersonLanding';
+import { externalRowAvatar, groupPropertyAccounts, isOwnExternalProperty, propertyAccountGroups } from '../utils/salespersonLanding';
 
 // Collaborator type for admin access
 export interface AdminCollaborator {
@@ -496,7 +496,9 @@ export function AccountChoiceModal({
     // property has an image of its own) and its name, as in the header (utils/propertyImage).
     const ownExternal = isOwnExternalProperty(property, personalUser);
     const ownExternalLook = ownExternal ? propertyAvatarImage(property, personalUser) : null;
-    const sharedAvatar = ownExternalLook ? ownExternalLook.image : property.image;
+    // The Users page rule (property image, then the account's own image), then the main account's logo for the
+    // salesperson's own External row (utils/salespersonLanding externalRowAvatar).
+    const sharedAvatar = externalRowAvatar(property, personalUser);
     const representing = ownExternalLook?.invitedBy
       && String(personalUser?.external_user_id ?? '') !== String(ownExternalLook.invitedBy.external_user_id ?? '')
       ? ownExternalLook.invitedBy : null;

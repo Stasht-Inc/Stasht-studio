@@ -12,7 +12,7 @@ import { useProperty } from "../contexts/PropertyContext";
 import useAlvinEnabled from "../components/alvin/useAlvinEnabled";
 import { Camera } from "lucide-react";
 import { PROPERTY_IMAGE_ACCEPT, canChangePropertyImage, propertyAvatarImage, propertyImageErrorMessage, propertyImageFileError } from "../utils/propertyImage";
-import { groupPropertyAccounts, groupedPropertyCounts, isOwnExternalProperty, propertyAccountGroups, signedInUserOr } from "../utils/salespersonLanding";
+import { externalRowAvatar, groupPropertyAccounts, groupedPropertyCounts, isOwnExternalProperty, propertyAccountGroups, signedInUserOr } from "../utils/salespersonLanding";
 import { planKey } from "../utils/effectivePlan";
 
 // __APP_BUILD_TIME__ is injected at build time (see vite.config.ts's `define`)
@@ -647,7 +647,9 @@ export function ProfileDropdownMenu({ isOpen, onClose, user, onShowProfileSettin
     const switchKey = `property_${property.id}`;
     // The salesperson's own External account represents the main account (its logo and name).
     const ownExternalLook = isOwnExternalProperty(property, signedInUserOr(authUser ?? user)) ? resolvePropertyAvatar(property, user) : null;
-    const sharedAvatar = ownExternalLook ? ownExternalLook.avatarImage : property.image;
+    // The Users page rule (property image, then the account's own image), then the main account's logo for the
+    // salesperson's own External row (utils/salespersonLanding externalRowAvatar).
+    const sharedAvatar = externalRowAvatar(property, signedInUserOr(authUser ?? user));
 
     return (
       <button

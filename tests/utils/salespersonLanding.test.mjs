@@ -242,3 +242,20 @@ test('Get Started "Complete your Profile" (a personal photo and bio) is left out
   assert.equal(showsProfileTask('property', bonAsSeenBySerpa, serpa), true, "someone else's external property: as before");
   assert.equal(showsProfileTask(undefined, undefined, undefined), true);
 });
+
+test('account chooser / Profile menu External rows: the Users page avatar rule, then the main account logo for his own row', async () => {
+  const { externalRowAvatar } = await import('../../utils/salespersonLanding.ts');
+  // E2E, 1 Nov 2026: Bon's External row showed a building. Property image → the account's image → (his own External
+  // account) the main account's logo → the icon (null).
+  const serpaLogo = 'https://cdn.test/serpa.png';
+  const own = { ...bonsOwnRow, image: null, account_profile_image: null, invited_by: { external_user_id: 889, name: 'Serpa Chrysler', profile_image: serpaLogo } };
+  assert.equal(externalRowAvatar(own, bon), serpaLogo, 'his own row: the main account logo, as before');
+  assert.equal(externalRowAvatar({ ...own, account_profile_image: 'https://cdn.test/bon.png' }, bon), 'https://cdn.test/bon.png');
+  assert.equal(externalRowAvatar({ ...own, image: 'https://cdn.test/lot.png' }, bon), 'https://cdn.test/lot.png');
+  assert.equal(externalRowAvatar({ ...own, invited_by: null }, bon), null, 'nothing at all: the icon');
+  // The main account's view of its salesperson: property image → his account image → icon (never Serpa's own logo).
+  const seen = { ...bonAsSeenBySerpa, image: null, account_profile_image: 'https://cdn.test/bon.png', invited_by: { external_user_id: 889, profile_image: serpaLogo } };
+  assert.equal(externalRowAvatar(seen, serpa), 'https://cdn.test/bon.png');
+  assert.equal(externalRowAvatar({ ...seen, account_profile_image: null }, serpa), null);
+  assert.equal(externalRowAvatar(null, serpa), null);
+});

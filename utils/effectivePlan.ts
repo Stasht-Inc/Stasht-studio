@@ -49,3 +49,17 @@ export function coveredByNote(coveredBy: PlanCoveredBy | null | undefined): stri
 export function offersUpgrade(planName: unknown, coveredBy: PlanCoveredBy | null | undefined): boolean {
   return !(coveredBy && planKey(planName) === 'professional');
 }
+
+/** storage_overview out of a dashboardAPI.getStorageOverview() answer (either nesting), or null. */
+export function storageOverviewOf(response: any): any | null {
+  return response?.data?.data?.storage_overview || response?.data?.storage_overview || null;
+}
+
+/**
+ * A new account's "Upgrade Your Plan" picker (App, after activation or sign-up: is_new_user) is skipped for an account
+ * covered by its main account — it already works on that plan (E2E, 1 Nov 2026: a salesperson activating by email got
+ * the non-closable picker). Unknown (no answer) keeps the picker, as before.
+ */
+export function skipsPlanPicker(storageOverview: any): boolean {
+  return !!planCoveredBy(storageOverview);
+}

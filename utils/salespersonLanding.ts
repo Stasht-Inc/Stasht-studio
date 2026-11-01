@@ -15,6 +15,8 @@
 // Inventory: a salesperson sees the main account's cars and website-catalogue items, read-only.
 // inventoryItemIsReadOnly hides edit/delete on rows that are not theirs.
 
+import { propertyAvatarImage, propertyRowAvatar } from './propertyImage.ts';
+
 type Row = Record<string, any> | null | undefined;
 
 function lower(value: unknown): string {
@@ -110,6 +112,19 @@ export function groupedPropertyCounts(
  */
 export function showsProfileTask(viewType: unknown, currentProperty: Row, user: unknown): boolean {
   return !(viewType === 'property' && isOwnExternalProperty(currentProperty, user));
+}
+
+/**
+ * The avatar of an External row in the account chooser and the Profile menu: the Users page rule (the property's image,
+ * else the external account's own image: account_profile_image), then — for the signed-in salesperson's own External
+ * account, which represents the main account — the main account's logo (invited_by), else null (the icon). E2E, 1 Nov
+ * 2026: such rows showed a building.
+ */
+export function externalRowAvatar(row: Row, viewer: unknown): string | null {
+  if (!row) return null;
+  const direct = propertyRowAvatar(row);
+  if (direct) return direct;
+  return isOwnExternalProperty(row, viewer) ? propertyAvatarImage(row, viewer).image : null;
 }
 
 export type PropertyAccountGroup<T = any> = { key: 'properties' | 'external'; label: 'Properties' | 'External'; rows: T[] };

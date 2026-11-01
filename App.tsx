@@ -57,6 +57,7 @@ import { AddMomentModal } from './components/AddMomentModal';
 import exifr from 'exifr';
 import { takeSwitchNotice } from './utils/accountSwitch';
 import { allPropertyRows, propertyViewHasLeads, resolvePendingPropertySwitch } from './utils/salespersonLanding';
+import { skipsPlanPicker, storageOverviewOf } from './utils/effectivePlan';
 import { usersTabForReport } from './utils/propertyRows';
 
 // CAPTURE EMAIL PARAMETER IMMEDIATELY (before React even starts)
@@ -315,22 +316,33 @@ function MainApp() {
 
   useEffect(() => {
     if (isAuthenticated && localStorage.getItem('is_new_user') === 'true') {
-      // Check if account has any properties before showing the modal
-      // If yes → hide Starter (show only Intermediate + Professional)
-      dashboardAPI.getProperties()
-        .then(res => {
-          if (res.success && res.data) {
-            const d = res.data.data || res.data;
-            const owned = d.owned_properties || d.properties || [];
-            setNewUserHasProperties(Array.isArray(owned) && owned.length > 0);
+      // An account covered by its main account (a salesperson, utils/effectivePlan) already works on that plan: no
+      // picker, and it is no longer a "new user" waiting for a plan.
+      dashboardAPI.getStorageOverview()
+        .catch(() => null)
+        .then((storage) => {
+          if (skipsPlanPicker(storageOverviewOf(storage))) {
+            localStorage.removeItem('is_new_user');
+            window.dispatchEvent(new Event('is_new_user_removed'));
+            return;
           }
-        })
-        .catch(() => {
-          // On error fall back to false (show all plans)
-          setNewUserHasProperties(false);
-        })
-        .finally(() => {
-          setShowNewUserUpgradeModal(true);
+          // Check if account has any properties before showing the modal
+          // If yes → hide Starter (show only Intermediate + Professional)
+          dashboardAPI.getProperties()
+            .then(res => {
+              if (res.success && res.data) {
+                const d = res.data.data || res.data;
+                const owned = d.owned_properties || d.properties || [];
+                setNewUserHasProperties(Array.isArray(owned) && owned.length > 0);
+              }
+            })
+            .catch(() => {
+              // On error fall back to false (show all plans)
+              setNewUserHasProperties(false);
+            })
+            .finally(() => {
+              setShowNewUserUpgradeModal(true);
+            });
         });
     }
   }, [isAuthenticated]);
