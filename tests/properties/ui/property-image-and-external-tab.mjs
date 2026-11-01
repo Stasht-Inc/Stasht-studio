@@ -91,11 +91,15 @@ async function open({ width, height, who = MAIN, seed = {}, path = '/users', tab
   const state = { rows: rows(), updates: [], statusCalls: [], propertyFetches: 0, updateReply: null };
   const context = await browser.newContext({ viewport: { width, height }, deviceScaleFactor: (scale && Number(process.env.PI_SCALE)) || 1, serviceWorkers: 'block', locale: 'en-US', hasTouch: width < 1024, isMobile: width < 1024 });
   await context.addInitScript(([seedData, openTab]) => {
-    if (location.pathname === '/users' && openTab) sessionStorage.setItem('users_open_tab', openTab);
-    if (sessionStorage.getItem('pi-seeded')) return;
-    sessionStorage.setItem('pi-seeded', '1');
-    localStorage.clear();
-    for (const [k, v] of Object.entries(seedData)) localStorage.setItem(k, typeof v === 'string' ? v : JSON.stringify(v));
+    try {
+      if (location.pathname === '/users' && openTab) sessionStorage.setItem('users_open_tab', openTab);
+      if (sessionStorage.getItem('pi-seeded')) return;
+      sessionStorage.setItem('pi-seeded', '1');
+      localStorage.clear();
+      for (const [k, v] of Object.entries(seedData)) localStorage.setItem(k, typeof v === 'string' ? v : JSON.stringify(v));
+    } catch {
+      // about:blank of a new tab (the Leads report opens with noopener) has no storage yet
+    }
   }, [{ stasht_token: `${who.name}-token`, stasht_user: who, view_type: 'personal', ...seed }, tab]);
   await context.route('**/*', async (route) => {
     const req = route.request();
@@ -168,7 +172,17 @@ function rowOf(page, name, width) {
     : page.locator('div.p-3', { hasText: name }).filter({ visible: true }).first();
 }
 async function openMenu(page, name, width) {
-  await rowOf(page, name, width).locator('button').last().click();
+  const trigger = rowOf(page, name, width).locator('button').last();
+  try {
+    await trigger.click({ timeout: 8000 });
+  } catch {
+    // A menu or toast still animating out: settle, then once more.
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(800);
+    await trigger.scrollIntoViewIfNeeded().catch(() => {});
+    await shot(page, `debug-openmenu-${width}-${name.replace(/\W+/g, '-')}`);
+    await trigger.click({ timeout: 8000, force: true });
+  }
   const menu = page.getByRole('menu');
   await menu.waitFor({ state: 'visible', timeout: 5000 });
   return menu;
@@ -230,8 +244,14 @@ try {
     await tabButton(page, 'External').click();
     await rowOf(page, 'Bob Bozic', width).waitFor({ state: 'visible', timeout: 5000 });
     expect(await rowOf(page, 'Chris Wirth', width).count() === 0, `${tag}: External has no internal property`);
-    await rowOf(page, 'Bon Sun', width).waitFor({ state: 'visible', timeout: 5000 }).catch(() => {});
+    // Switching tabs re-reads the list (a "Loading properties..." moment): let it finish.
+    await page.getByText('Loading properties...').first().waitFor({ state: 'hidden', timeout: 15000 }).catch(() => {});
+    await rowOf(page, 'Bon Sun', width).waitFor({ state: 'visible', timeout: 15000 }).catch(() => {});
     const bonRows = await rowOf(page, 'Bon Sun', width).count();
+    if (bonRows !== 1) {
+      await shot(page, `${tag}-debug-bon-row`);
+      console.log('debug bon rows', bonRows, await page.locator('div.p-3').filter({ visible: true }).evaluateAll((els) => els.map((e) => e.textContent.trim().slice(0, 40))));
+    }
     expect(bonRows === 1, `${tag}: External lists Bon Sun (deactivated) (${bonRows})`);
     expect(await page.getByText('3 external accounts', { exact: true }).filter({ visible: true }).count() > 0, `${tag}: External count says 3 external accounts`);
     expect(await page.getByRole('button', { name: /Create( Property)?$/ }).filter({ visible: true }).count() === 0, `${tag}: no Create Property on External`);
@@ -414,6 +434,88 @@ try {
     await shot(page, '1280-B2-6-own-account-after');
     await context.close();
   }
+  // ---------- $2 property checkout: the payment form is on top of the cart ----------
+  // The cart modal stays open under the Stripe form (z-[60] vs the form's z-[70]); the form must be the top layer.
+  const STRIPE_STUB = 'window.Stripe=function(){var el={mount:function(){},on:function(){},off:function(){},update:function(){},destroy:function(){},unmount:function(){},focus:function(){},blur:function(){},clear:function(){}};'
+    + 'return{elements:function(){return{create:function(){return el},getElement:function(){return el},update:function(){},on:function(){}}},'
+    + 'createToken:function(){return Promise.resolve({})},createPaymentMethod:function(){return Promise.resolve({})},confirmCardPayment:function(){return Promise.resolve({})},'
+    + 'confirmPayment:function(){return Promise.resolve({})},confirmCardSetup:function(){return Promise.resolve({})},retrievePaymentIntent:function(){return Promise.resolve({})},'
+    + 'registerAppInfo:function(){},_registerWrapper:function(){}}};';
+  for (const [width, height] of [[1280, 900], [390, 844]]) {
+    const tag = String(width);
+    const { page, context, state } = await open({ width, height });
+    state.purchases = [];
+    await page.route('https://js.stripe.com/**', (route) => route.fulfill({ contentType: 'text/javascript', body: STRIPE_STUB }));
+    await page.route('**/api/react/**', async (route) => {
+      const url = new URL(route.request().url());
+      const p = url.pathname.replace(/^\/api\/react/, '');
+      if (p === '/billing/purchase-property' && route.request().method() === 'POST') {
+        state.purchases.push(parseMultipart(route.request()));
+        return route.fulfill({ json: { status: 'success', data: { client_secret: 'pi_test_secret_abc', payment_intent_id: 'pi_test' } } });
+      }
+      if (p.startsWith('/payment-methods') || p.startsWith('/stripe/payment-methods') || p.includes('payment-methods')) {
+        return route.fulfill({ json: { success: true, data: { payment_methods: [] } } });
+      }
+      return route.fallback();
+    });
+    await page.reload();
+    await rowOf(page, 'Chris Wirth', width).waitFor({ state: 'visible', timeout: 25000 });
+    await page.getByRole('button', { name: /^(Create Property|Create)$/ }).filter({ visible: true }).first().click();
+    const cart = page.locator('div.fixed.inset-0').filter({ hasText: 'Add properties to your cart' }).last();
+    await cart.waitFor({ state: 'visible', timeout: 5000 });
+    await cart.getByPlaceholder('e.g., Burnley Bloomfield Park Alliance Church').fill('Cart Lot');
+    await cart.getByPlaceholder('e.g., Brentwood').fill('cartlot');
+    await cart.getByRole('button', { name: 'Add to Cart' }).click();
+    await cart.getByRole('button', { name: /Checkout/ }).click();
+    const pay = page.getByRole('heading', { name: 'Payment Details' }).filter({ visible: true }).first();
+    await pay.waitFor({ state: 'visible', timeout: 10000 }).catch(async (e) => { await shot(page, `${tag}-debug-checkout`); throw e; });
+    await page.waitForTimeout(600);
+    expect(state.purchases.length === 1 && state.purchases[0]['properties[0][name]'] === 'Cart Lot', `${tag}: checkout asked for the payment (${JSON.stringify(state.purchases)})`);
+    // The top element at the payment heading, and at the bottom of the form's box, belongs to the payment form.
+    const onTop = await page.evaluate(() => {
+      const heading = [...document.querySelectorAll('h2')].find((h) => h.textContent?.trim() === 'Payment Details');
+      if (!heading) return { heading: false };
+      const modal = heading.closest('.rounded-2xl');
+      const hb = heading.getBoundingClientRect();
+      const mb = modal.getBoundingClientRect();
+      const at = (x, y) => { const el = document.elementFromPoint(x, y); return !!el && modal.contains(el); };
+      return { heading: at(hb.left + 10, hb.top + hb.height / 2), bottom: at(mb.left + mb.width / 2, Math.min(mb.bottom, window.innerHeight) - 8) };
+    });
+    expect(onTop.heading === true && onTop.bottom === true, `${tag}: the payment form is the top layer, cart and bottom nav below it (${JSON.stringify(onTop)})`);
+    await shot(page, `${tag}-E1-checkout-payment-on-top`);
+    // Closing the payment form leaves the cart as it was.
+    await page.keyboard.press('Escape');
+    await page.locator('div.fixed.inset-0.z-\\[70\\]').first().click({ position: { x: 5, y: 5 } }).catch(() => {});
+    await page.waitForTimeout(500);
+    if (await pay.isVisible().catch(() => false)) failures.push(`${tag}: payment form did not close`);
+    expect(await cart.getByText('1 property in cart').count() === 1, `${tag}: the cart is still there after closing the payment form`);
+    await shot(page, `${tag}-E2-cart-after-closing-payment`);
+    await context.close();
+  }
+
+  // ---------- Leads report from an External row goes back to External ----------
+  {
+    const { page, context } = await open({ width: 1280, height: 900 });
+    await rowOf(page, 'Chris Wirth', 1280).waitFor({ state: 'visible', timeout: 25000 });
+    await tabButton(page, 'External').click();
+    await rowOf(page, 'Bob Bozic', 1280).waitFor({ state: 'visible', timeout: 5000 });
+    // The report opens in a new tab: catch it.
+    const popupPromise = context.waitForEvent('page', { timeout: 10000 });
+    await (await openMenu(page, 'Bob Bozic', 1280)).getByRole('menuitem', { name: 'Leads Report' }).click();
+    const report = await popupPromise;
+    report.on('pageerror', (e) => pageErrors.push(e.message));
+    await report.waitForURL(/\/leads-report/, { timeout: 15000 });
+    expect(new URL(report.url()).searchParams.get('from') === 'external', `report opened with from=external (${report.url()})`);
+    await report.getByRole('heading', { name: 'Leads Report' }).waitFor({ state: 'visible', timeout: 25000 });
+    await report.locator('h1', { hasText: 'Leads Report' }).locator('xpath=../..').locator('button').first().click();
+    await report.waitForTimeout(1500);
+    const externalActive = await report.getByRole('button', { name: 'External', exact: true }).filter({ visible: true }).first()
+      .evaluate((el) => el.className.includes('border-[#6C60FF]')).catch(() => false);
+    expect(new URL(report.url()).pathname === '/users' && externalActive, `Back from the report lands on Users → External (${report.url()}, ${externalActive})`);
+    await shot(report, '1280-E3-back-from-report-external');
+    await context.close();
+  }
+
   // ---------- Car cards in a salesperson's own account ----------
   // Bon Sun (salesperson of Serpa Chrysler) sees Serpa's car read-only: its card and its page name Serpa (the API's
   // owner block), not Bon; Bon's own car still shows Bon.
