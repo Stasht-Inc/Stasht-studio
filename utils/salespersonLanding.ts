@@ -103,6 +103,15 @@ export function groupedPropertyCounts(
   return { owned: Math.max(0, owned - by), shared: (Number(counts.shared) || 0) + by, total: Number(counts.total) || 0 };
 }
 
+/**
+ * Get Started's "Complete your Profile" (a personal photo and bio, opening the personal Profile Settings) is left out
+ * of a salesperson's External view: there only the business image changes, from the camera on the property avatar
+ * (Chris, 1 Nov 2026: personal and business are separate). Every other view keeps it.
+ */
+export function showsProfileTask(viewType: unknown, currentProperty: Row, user: unknown): boolean {
+  return !(viewType === 'property' && isOwnExternalProperty(currentProperty, user));
+}
+
 export type PropertyAccountGroup<T = any> = { key: 'properties' | 'external'; label: 'Properties' | 'External'; rows: T[] };
 
 /**

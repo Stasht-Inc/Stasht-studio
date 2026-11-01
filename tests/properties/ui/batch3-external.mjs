@@ -1,8 +1,12 @@
 // Chris batch 3 (1 Nov 2026), external accounts / properties:
-//  1. Account invite sign-up (/account-register?token=…): the OTP step's button says "Verify" (was "Verify & Create
-//     Account"), next to Back.
+//  1. Account invite sign-up (/account-register?token=…) and property invite sign-up (/property/register/:token): the
+//     OTP step's button says "Verify" (was "Verify & Create Account"), next to Back.
+//  2. A salesperson covered by the main account (Deepak, 1 Nov 2026: no forced purchase) sees the main account's plan:
+//     Profile Settings and Billing say "Business" with "Covered by Serpa Chrysler", never "Starter"; no "Upgrade Plan" /
+//     "Need More Storage?" for the plan that covers it; no trial banner. Accounts on their own plan are unchanged.
 //  3. External view: the avatar camera changes the PROPERTY's image (POST /properties/{id}/update), never the person's
-//     profile (no /user/update-profile); the Profile menu there has no Settings.
+//     profile (no /user/update-profile); the Profile menu there has no Settings, and Get Started has no "Complete your
+//     Profile" (the personal photo and bio); the personal view keeps it.
 //  4. Users → External rows: the property's image, else the external account's logo (account_profile_image), else the
 //     shield. Internal rows keep the property image or the shield.
 //  5. Account chooser and Profile menu: two groups, "Properties (N)" and "External (N)", each collapsible; no
@@ -86,7 +90,8 @@ function parseMultipart(req) {
 }
 
 // who: the signed-in account. rows: GET /properties rows. seed: extra localStorage. tab: the Users tab to open on.
-async function open({ width = 1280, height = 900, who = MAIN, rows = [INTERNAL_DOWNTOWN, EXT_ARTEM, EXT_BOB, EXT_RITA], seed = {}, path = '/users', tab = 'properties', signedOut = false }) {
+// plan: storage-overview / profile plan fields. accountTrial: GET /properties data.account_trial.
+async function open({ width = 1280, height = 900, who = MAIN, rows = [INTERNAL_DOWNTOWN, EXT_ARTEM, EXT_BOB, EXT_RITA], seed = {}, path = '/users', tab = 'properties', signedOut = false, plan = { plan_name: 'Professional', plan_covered_by: null }, accountTrial = null }) {
   const state = { rows: rows.map((r) => ({ ...r })), updates: [], profileWrites: [], otpSent: [], updateReply: null };
   const context = await browser.newContext({ viewport: { width, height }, serviceWorkers: 'block', locale: 'en-US', hasTouch: width < 1024, isMobile: width < 1024 });
   await context.addInitScript(([seedData, openTab, out]) => {
@@ -132,8 +137,10 @@ async function open({ width = 1280, height = 900, who = MAIN, rows = [INTERNAL_D
     if (p === '/properties' && req.method() === 'GET') {
       const owned = state.rows.filter((r) => r.is_creator);
       const shared = state.rows.filter((r) => !r.is_creator);
-      return route.fulfill({ json: { success: true, data: { properties: state.rows, owned_properties: owned, shared_properties: shared, owned_count: owned.length, shared_count: shared.length, total_count: state.rows.length } } });
+      return route.fulfill({ json: { success: true, data: { properties: state.rows, owned_properties: owned, shared_properties: shared, owned_count: owned.length, shared_count: shared.length, total_count: state.rows.length, account_trial: accountTrial } } });
     }
+    if (p === '/properties/view/tok-downtown') return route.fulfill({ json: { status: 'success', data: { property: { id: 12, name: 'Downtown Lot', image: null, location: 'Toronto, ON' }, properties_with_invite: [] } } });
+    if (p === '/user/profile' && req.method() === 'GET') return route.fulfill({ json: { success: true, data: { user: { ...who, phone: null, bio: '', ...plan } } } });
     const m = p.match(/^\/properties\/(\d+)\/update$/);
     if (m && req.method() === 'POST') {
       const fields = parseMultipart(req);
@@ -151,7 +158,13 @@ async function open({ width = 1280, height = 900, who = MAIN, rows = [INTERNAL_D
       state.profileWrites.push(p);
       return route.fulfill({ json: { success: true, data: { user: who } } });
     }
-    if (p === '/user/storage-overview') return route.fulfill({ json: { success: true, data: { storage_overview: { plan_name: 'Professional' } } } });
+    if (p === '/user/storage-overview') return route.fulfill({ json: { success: true, data: { storage_overview: { plan_id: 1, memories_count: 0, plan_storage_size_gb: 1024, total_storage_used_mb: 0, ...plan } } } });
+    // Billing & Payment's own data (their real shapes; nothing to pay or show here).
+    if (p === '/ai-credits/balance') return route.fulfill({ json: { status: 1, data: { total_credits: 5, monthly_credits: { available: 5, allocation: 5, used_this_month: 0, usage_percentage: 0, next_reset_date: null, days_until_reset: 0 }, addon_credits: { available: 0, total_purchased: 0, breakdown: [] }, plan: { name: 'Starter', monthly_allocation: 5 } } } });
+    if (p === '/ai-credits/usage-history') return route.fulfill({ json: { status: 1, data: { usage: [], summary: { total_credits_used: 0, by_service: { ai_captions: 0, ai_memory_wizard: 0 } }, pagination: { current_page: 1, per_page: 10, total_records: 0, total_pages: 1 } } } });
+    if (p === '/stripe/subscription') return route.fulfill({ json: { success: true, active_subscriptions: [], upcoming_subscriptions: [], scheduled_changes: [] } });
+    if (p === '/stripe/payment-methods') return route.fulfill({ json: { success: true, payment_methods: [] } });
+    if (p === '/stripe/billing-history') return route.fulfill({ json: { success: true, data: [] } });
     if (p === '/website-catalogue' && req.method() === 'GET') return route.fulfill({ json: { success: true, data: { available: true, connected: true, item_count: 2 } } });
     if (p === '/website-catalogue/items' && req.method() === 'GET') return route.fulfill({ json: { success: true, data: { items: [SERPA_PRODUCT, BON_PRODUCT], pagination: { current_page: 1, per_page: 500, total: 2, last_page: 1 } } } });
     const feed = p.match(/^\/properties\/(\d+)\/memories$/);
@@ -190,6 +203,13 @@ async function openProfileMenu(page, width) {
   else await page.locator('div.rounded-full.cursor-pointer').filter({ visible: true }).first().click();
   await page.waitForTimeout(700);
 }
+// Profile menu → Settings (Profile Settings), once the app is up.
+async function openSettings(page, width) {
+  await page.getByText('Campaigns', { exact: true }).filter({ visible: true }).first().waitFor({ state: 'visible', timeout: 30000 });
+  await page.waitForTimeout(1000);
+  await openProfileMenu(page, width);
+  await page.getByRole('button', { name: 'Settings', exact: true }).filter({ visible: true }).first().click();
+}
 async function openMenu(page, name, width) {
   const trigger = rowOf(page, name, width).locator('button').last();
   await trigger.click({ timeout: 8000 });
@@ -223,6 +243,108 @@ try {
     if (width < 1024) expect(await noOverflow(page), `${tag} 1: no sideways scroll`);
     await page.locator('input[autocomplete=one-time-code]').fill('123456');
     await shot(page, `${tag}-1-account-register-verify`);
+    await context.close();
+  }
+
+  // ---------- 1b. Property invite sign-up: "Verify" ----------
+  {
+    const { page, context, state } = await open({ path: '/property/register/tok-downtown', signedOut: true });
+    await page.getByPlaceholder('First Name').waitFor({ state: 'visible', timeout: 30000 });
+    await page.getByPlaceholder('First Name').fill('Artem');
+    await page.getByPlaceholder('Last Name').fill('Auto');
+    await page.getByPlaceholder('(555) 123-4567').fill('4165550199');
+    await page.waitForTimeout(900);
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
+    await page.getByPlaceholder('Enter 6-digit code').waitFor({ state: 'visible', timeout: 10000 });
+    expect(state.otpSent.length === 1, `1b: a code was sent (${state.otpSent.length})`);
+    expect(await page.getByRole('button', { name: 'Verify', exact: true }).filter({ visible: true }).count() === 1, '1b: the property sign-up button says "Verify"');
+    expect(await visibleCount(page, 'Verify & Create Account') === 0, '1b: no "Verify & Create Account"');
+    await shot(page, '1280-1b-property-register-verify');
+    await context.close();
+  }
+
+  // ---------- 2. Covered by the main account: the main account's plan, never "Starter" ----------
+  const COVERED = { plan_name: 'Business', plan_covered_by: { id: 889, name: 'Serpa Chrysler' } };
+  const ENDED_TRIAL = { trial_ends_at: '2026-10-20T23:59:59+00:00', trial_ends_on: '2026-10-20', trial_ended: true };
+  for (const [width, height] of [[1280, 900], [390, 844]]) {
+    const tag = `${width}`;
+    // Profile Settings.
+    {
+      const { page, context } = await open({ width, height, who: BON, rows: [BONS_OWN], path: '/', plan: COVERED });
+      await openSettings(page, width);
+      await page.getByTestId('profile-plan-badge').first().waitFor({ state: 'visible', timeout: 30000 }).catch(async (e) => {
+        await shot(page, `debug-${tag}-profile`);
+        console.log('url', page.url(), (await page.locator('body').innerText()).slice(0, 600));
+        throw e;
+      });
+      await page.waitForTimeout(600);
+      expect((await page.getByTestId('profile-plan-badge').first().textContent())?.trim() === 'Business', `${tag} 2: Profile Settings badge says Business`);
+      expect((await page.getByTestId('profile-plan-covered').first().textContent())?.trim() === 'Covered by Serpa Chrysler', `${tag} 2: ... Covered by Serpa Chrysler`);
+      expect(await visibleCount(page, 'Starter') === 0, `${tag} 2: no "Starter" on Profile Settings`);
+      if (width < 1024) expect(await noOverflow(page), `${tag} 2: no sideways scroll`);
+      await shot(page, `${tag}-2-profile-settings-covered`);
+      if (width >= 1024) {
+        await page.getByText('Storage Management', { exact: true }).filter({ visible: true }).first().click();
+        await page.getByText('Your Data', { exact: true }).filter({ visible: true }).first().waitFor({ state: 'visible', timeout: 10000 });
+        await page.waitForTimeout(800);
+        expect(await visibleCount(page, 'Need More Storage?') === 0, `${tag} 2: no "Need More Storage? Upgrade Plan" while covered by Business`);
+        await shot(page, `${tag}-2-profile-storage-covered`);
+      }
+      await context.close();
+    }
+    // Billing & Payment.
+    {
+      const { page, context } = await open({ width, height, who: BON, rows: [BONS_OWN], path: '/', plan: COVERED });
+      await page.getByText('Campaigns', { exact: true }).filter({ visible: true }).first().waitFor({ state: 'visible', timeout: 30000 });
+      await page.waitForTimeout(1000);
+      await openProfileMenu(page, width);
+      await page.getByRole('button', { name: /Billing & Payment/ }).filter({ visible: true }).first().click();
+      await page.getByTestId('billing-plan-badge').first().waitFor({ state: 'visible', timeout: 20000 });
+      await page.waitForTimeout(800);
+      expect((await page.getByTestId('billing-plan-badge').first().textContent())?.trim() === 'Business', `${tag} 2: Billing current plan says Business`);
+      expect((await page.getByTestId('billing-plan-covered').first().textContent())?.trim() === 'Covered by Serpa Chrysler', `${tag} 2: ... Covered by Serpa Chrysler`);
+      expect(await page.getByRole('button', { name: /Upgrade Plan/ }).filter({ visible: true }).count() === 0, `${tag} 2: no Upgrade Plan button`);
+      expect(await visibleCount(page, 'Upgrade to Unlock:') === 0, `${tag} 2: no "Upgrade to Unlock"`);
+      expect(await visibleCount(page, '5 Admin Roles') > 0, `${tag} 2: Plan Includes lists Business features (5 Admin Roles)`);
+      expect(await page.getByRole('button', { name: /Buy more Credits/ }).filter({ visible: true }).count() > 0, `${tag} 2: Buy more Credits stays`);
+      if (width < 1024) expect(await noOverflow(page), `${tag} 2: no sideways scroll`);
+      await shot(page, `${tag}-2-billing-covered`);
+      await context.close();
+    }
+  }
+  // Dashboard: no trial banner while covered; the same trial on an account's own plan still shows it.
+  // (Role 2 opens on the Dashboard; a role-3 salesperson has no Dashboard page at all.)
+  const BON_ROLE2 = { ...BON, role: '2' };
+  for (const [label, plan, expectBanner] of [['covered', COVERED, false], ['own plan', { plan_name: 'Starter', plan_covered_by: null }, true]]) {
+    const { page, context } = await open({ who: BON_ROLE2, rows: [BONS_OWN], path: '/', plan, accountTrial: ENDED_TRIAL });
+    await page.getByText('Overview & Analytics', { exact: true }).filter({ visible: true }).first().waitFor({ state: 'visible', timeout: 30000 });
+    await page.waitForTimeout(2500);
+    const banner = await visibleCount(page, 'Trial ended');
+    expect((banner > 0) === expectBanner, `2 dashboard ${label}: trial banner ${expectBanner ? 'shown' : 'hidden'} (${banner})`);
+    await shot(page, `1280-2-dashboard-${label.replace(' ', '-')}`);
+    await context.close();
+  }
+  // Accounts on their own plan: unchanged (own Business: Upgrade Plan still offered, no covered note; own Starter badge).
+  {
+    const { page, context } = await open({ path: '/', plan: { plan_name: 'Business', plan_covered_by: null } });
+    await page.getByText('Campaigns', { exact: true }).filter({ visible: true }).first().waitFor({ state: 'visible', timeout: 30000 });
+    await page.waitForTimeout(1000);
+    await openProfileMenu(page, 1280);
+    await page.getByRole('button', { name: /Billing & Payment/ }).filter({ visible: true }).first().click();
+    await page.getByTestId('billing-plan-badge').first().waitFor({ state: 'visible', timeout: 20000 });
+    await page.waitForTimeout(600);
+    expect((await page.getByTestId('billing-plan-badge').first().textContent())?.trim() === 'Business', '2 own Business: badge Business');
+    expect(await page.getByTestId('billing-plan-covered').count() === 0, '2 own Business: no covered note');
+    expect(await page.getByRole('button', { name: /Upgrade Plan/ }).filter({ visible: true }).count() > 0, '2 own Business: Upgrade Plan as before');
+    await context.close();
+  }
+  {
+    // (Role 2: a role-3 Starter account with a property gets the plan picker over everything first.)
+    const { page, context } = await open({ who: BON_ROLE2, rows: [BONS_OWN], path: '/', plan: { plan_name: 'Starter', plan_covered_by: null } });
+    await openSettings(page, 1280);
+    await page.getByTestId('profile-plan-badge').first().waitFor({ state: 'visible', timeout: 30000 });
+    expect((await page.getByTestId('profile-plan-badge').first().textContent())?.trim() === 'Starter', '2 own Starter: Profile Settings badge Starter');
+    expect(await page.getByTestId('profile-plan-covered').count() === 0, '2 own Starter: no covered note');
     await context.close();
   }
 
@@ -308,6 +430,7 @@ try {
     if (await storeels.count()) await storeels.click().catch(() => {});
     await page.getByText(SERPA_PRODUCT.title).filter({ visible: true }).first().waitFor({ state: 'visible', timeout: 20000 });
     await page.waitForTimeout(800);
+    expect(await visibleCount(page, 'Complete your Profile') > 0, '3: his personal view keeps "Complete your Profile"');
     const card = page.locator('.memory-card-container', { hasText: SERPA_PRODUCT.title }).filter({ visible: true }).first();
     const own = page.locator('.memory-card-container', { hasText: BON_PRODUCT.title }).filter({ visible: true }).first();
     const cardText = (await card.textContent()) || '';
@@ -324,6 +447,9 @@ try {
     const { page, context, state } = await open({ who: BON, rows: [BONS_OWN], path: '/', seed: { view_type: 'property', selected_property: BONS_OWN } });
     await page.getByText('Campaigns', { exact: true }).filter({ visible: true }).first().waitFor({ state: 'visible', timeout: 30000 });
     await page.waitForTimeout(1500);
+    expect(await visibleCount(page, 'Get Started') > 0, '3: Get Started is shown in the External view');
+    expect(await visibleCount(page, 'Complete your Profile') === 0, '3: ... without "Complete your Profile" (personal photo and bio)');
+    await shot(page, '1280-3-external-view-get-started');
     await openProfileMenu(page, 1280);
     expect(await page.getByText('Back to Bon Sun').filter({ visible: true }).count() > 0, '3: External view Profile menu offers Back to Bon Sun');
     expect(await page.getByRole('button', { name: 'Settings', exact: true }).filter({ visible: true }).count() === 0, '3: no Settings (personal profile) in the External view menu');

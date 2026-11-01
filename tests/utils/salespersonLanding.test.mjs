@@ -22,6 +22,7 @@ import {
   carOwnerAuthor,
   inventoryOwnerAuthor,
   propertyAccountGroups,
+  showsProfileTask,
 } from '../../utils/salespersonLanding.ts';
 
 // Bon Sun: users.id 120, stash (external_user_id) 966. Property 96 was made for him by Serpa (stash 889).
@@ -229,4 +230,15 @@ test('account chooser and Profile menu: two groups, Properties then External, ea
   assert.deepEqual(propertyAccountGroups({ owned: [], shared: [ext1] }), [{ key: 'external', label: 'External', rows: [ext1] }]);
   assert.deepEqual(propertyAccountGroups({ owned: [lot], shared: null }), [{ key: 'properties', label: 'Properties', rows: [lot] }]);
   assert.deepEqual(propertyAccountGroups({ owned: undefined, shared: undefined }), []);
+});
+
+test('Get Started "Complete your Profile" (a personal photo and bio) is left out of the External view only', () => {
+  // Chris, 1 Nov 2026: in the External view only the business image changes (the camera on the property avatar);
+  // "Complete Now" opened the personal Profile Settings from there.
+  assert.equal(showsProfileTask('property', bonsOwnRow, bon), false, "Bon's External view");
+  assert.equal(showsProfileTask('personal', bonsOwnRow, bon), true, 'his personal account');
+  assert.equal(showsProfileTask('personal', null, bon), true);
+  assert.equal(showsProfileTask('property', internalRow, serpa), true, "the main account's internal property view: as before");
+  assert.equal(showsProfileTask('property', bonAsSeenBySerpa, serpa), true, "someone else's external property: as before");
+  assert.equal(showsProfileTask(undefined, undefined, undefined), true);
 });
