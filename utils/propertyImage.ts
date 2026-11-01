@@ -75,18 +75,21 @@ export function propertyAvatarImage(property: Row, viewer: unknown): { image: st
 }
 
 /**
- * May the viewer change this property's image? The API's answer (can_manage) when it is yes; the property's own
- * account (its user_id is the viewer's stash id, or the row is one the viewer created) always. A row stored before
- * can_manage existed: admins and owners too. The API checks again either way.
+ * May the viewer change this property's image? The property's own account (its user_id is the viewer's stash id, or
+ * the row is one the viewer created) always; otherwise the API's answer (can_manage) when it is yes, except on
+ * someone else's external property not made for its account (a linked account: only that account may). A row stored
+ * before can_manage existed: admins and owners too. The API checks again either way.
  */
 export function canChangePropertyImage(row: Row, viewer: unknown): boolean {
   if (!row) return false;
   const me = ownStashId(viewer);
   if (!me) return false;
-  const canManage = flag(row.can_manage);
-  if (canManage === true) return true;
   const ownerId = row.user_id;
   if (ownerId !== null && ownerId !== undefined && String(ownerId).trim() === me) return true;
+  // Someone else's external property whose account was not made for it (a linked account): only that account.
+  if (lower(row.account_type) === 'external' && flag(row.account_created_for_property) !== true) return false;
+  const canManage = flag(row.can_manage);
+  if (canManage === true) return true;
   if (flag(row.is_creator) === true) return true;
   if (canManage === null) return ['admin', 'owner'].includes(lower(row.user_role));
   return false;

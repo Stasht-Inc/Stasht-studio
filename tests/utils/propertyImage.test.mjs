@@ -85,3 +85,10 @@ test('error text: the image field message, then any field message, then the API 
   assert.equal(propertyImageErrorMessage({ success: false, message: 'Nope' }), 'Nope');
   assert.equal(propertyImageErrorMessage(null), 'The image could not be uploaded. Please try again.');
 });
+
+test("a linked external account's property: only that account may change its image", () => {
+  const linked = { id: 2, user_id: 901, is_creator: false, account_type: 'external', can_manage: true, account_created_for_property: false };
+  assert.equal(canChangePropertyImage(linked, serpa), false);
+  assert.equal(canChangePropertyImage({ ...linked, account_created_for_property: true }, serpa), true);
+  assert.equal(canChangePropertyImage(linked, { id: 9, external_user_id: 901 }), true);
+});

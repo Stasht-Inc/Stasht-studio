@@ -143,7 +143,8 @@ const getTimeAgo = (dateString?: string): string => {
 
 interface UsersPageProps {
   onNavigate?: (page: string) => void;
-  onViewStoreelReport?: (propertyId?: number | string, propertyName?: string) => void;
+  // fromTab: the tab the report was opened from, so its Back returns there (External or Properties).
+  onViewStoreelReport?: (propertyId?: number | string, propertyName?: string, fromTab?: 'external' | 'properties') => void;
 }
 
 export default function UsersPage({ onNavigate, onViewStoreelReport }: UsersPageProps = {}) {
@@ -2497,7 +2498,7 @@ export default function UsersPage({ onNavigate, onViewStoreelReport }: UsersPage
                                 Manage Users
                               </DropdownMenuItem>
                               <DropdownMenuItem
-                                onClick={() => onViewStoreelReport?.(property.id, property.name)}
+                                onClick={() => onViewStoreelReport?.(property.id, property.name, activeTab === 'external' ? 'external' : 'properties')}
                                 className="cursor-pointer hover:bg-gray-100 rounded px-3 py-2 flex items-center"
                               >
                                 <TrendingUp className="mr-2 h-4 w-4" />
@@ -2706,7 +2707,7 @@ export default function UsersPage({ onNavigate, onViewStoreelReport }: UsersPage
                             Manage Users
                           </DropdownMenuItem>
                           <DropdownMenuItem
-                            onClick={() => onViewStoreelReport?.(property.id, property.name)}
+                            onClick={() => onViewStoreelReport?.(property.id, property.name, activeTab === 'external' ? 'external' : 'properties')}
                             className="cursor-pointer hover:bg-gray-100 rounded px-3 py-2 flex items-center"
                           >
                             <TrendingUp className="mr-2 h-4 w-4" />
