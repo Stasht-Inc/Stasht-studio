@@ -246,6 +246,9 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
   const [showClosed, setShowClosed] = useState(false);
   const [assignedFilter, setAssignedFilter] = useState<string>('all');
   const [tabCounts, setTabCounts] = useState<{ open: number; closed: number }>({ open: 0, closed: 0 });
+  // Which tab counts have loaded at least once: until then the tab shows no number (never a "0" that then jumps).
+  const [countsLoaded, setCountsLoaded] = useState({ leads: false, groups: false, conversations: false });
+  const markLoaded = (key: 'leads' | 'groups' | 'conversations') => setCountsLoaded((c) => (c[key] ? c : { ...c, [key]: true }));
   // Lead the parent wants opened (see the openLeadId effect below); read by fetchLeads.
   const openLeadIdRef = useRef<number | null>(null);
   openLeadIdRef.current = openLeadId ?? null;
@@ -588,7 +591,10 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
         setStatusCounts(res.data.status_counts ?? {});
         setMessagesTotal(res.data.messages_total ?? 0);
         setTotalPages(res.data.meta?.total_pages ?? 1);
-        if (res.data.tab_counts) setTabCounts(res.data.tab_counts);
+        if (res.data.tab_counts) {
+          setTabCounts(res.data.tab_counts);
+          markLoaded('leads');
+        }
         onLeadsRefreshed?.(freshLeads);
         const wanted = openLeadIdRef.current;
         if (wanted) {
@@ -631,7 +637,8 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
   const listsEnabled = plan.known && !plan.isStarter;
   const contactLists = useContactLists(listsEnabled);
   const listsRef = useRef<ListsTabHandle>(null);
-  const listCount = listsEnabled ? contactLists.lists?.length ?? 0 : 0;
+  // null until the lists have loaded (and always on Starter, where they can't be).
+  const listTabCount = listsEnabled && contactLists.lists ? contactLists.lists.length : null;
   // Refresh spins for the lists fetch only while Lists shows (the badge's background fetch stays quiet).
   const listsRefreshing = leadsView === 'lists' && contactLists.loading;
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -641,7 +648,10 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
     setIsLoadingConversations(true);
     try {
       const res = await leadsAPI.getMyConversations();
-      if (res.success && res.data) setConversations(res.data.conversations ?? []);
+      if (res.success && res.data) {
+        setConversations(res.data.conversations ?? []);
+        markLoaded('conversations');
+      }
     } catch {
       // silently ignore
     } finally {
@@ -670,6 +680,7 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
       if (res.success && res.data) {
         const data = res.data as LeadGroupSummary[] | { groups: LeadGroupSummary[] };
         setLeadGroups(Array.isArray(data) ? data : (data.groups ?? []));
+        markLoaded('groups');
       }
     } catch {
       // silently ignore — groups are supplementary
@@ -915,11 +926,12 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
   const conversationsUnread = conversations.reduce((sum, c) => sum + (c.unread_count ?? 0), 0);
   // Every tab in the Leads | Lists | Groups | My Conversations row shows its count as plain number text, no pill
   // (Chris, 1 Nov). Leads = Open + Closed for the current search / "Assigned to" (as the Open / Closed counts below);
-  // Lists only once lists can be loaded (paid plans), so a Starter account never shows a made-up 0.
-  const tabCount = (n: number) => (
+  // Lists only once lists can be loaded (paid plans), so a Starter account never shows a made-up 0. No number at all
+  // until that tab's count has loaded (null).
+  const tabCount = (n: number | null) => (n === null ? null : (
     // Under 400px a size smaller (12px) so the four tabs still fit 360px with three-digit counts and unread replies.
     <span data-tab-count="" className="text-xs min-[400px]:text-sm font-medium tabular-nums text-gray-500">{n}</span>
-  );
+  ));
 
   // Summary cards scoped to the ACTIVE sub-tab only (Task M4 / product
   // decision): switching sub-tabs swaps the whole card row, it never mixes
@@ -992,21 +1004,21 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
           className={`h-10 md:h-8 px-0.5 min-[400px]:px-1 md:px-4 flex-auto md:flex-none justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors flex items-center gap-0.5 min-[400px]:gap-1 md:gap-1.5 ${leadsView === 'leads' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-700'}`}
         >
           Leads
-          {tabCount(tabCounts.open + tabCounts.closed)}
+          {tabCount(countsLoaded.leads ? tabCounts.open + tabCounts.closed : null)}
         </button>
         <button
           onClick={() => { setLeadsView('lists'); onGroupSelect?.(null); onLeadSelect(null); onConversationSelect?.(null); if (listsEnabled) void contactLists.reload(); }}
           className={`h-10 md:h-8 px-0.5 min-[400px]:px-1 md:px-4 flex-auto md:flex-none justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors flex items-center gap-0.5 min-[400px]:gap-1 md:gap-1.5 ${leadsView === 'lists' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-700'}`}
         >
           Lists
-          {listsEnabled ? tabCount(listCount) : null}
+          {tabCount(listTabCount)}
         </button>
         <button
           onClick={() => { setLeadsView('groups'); onGroupSelect?.(null); onLeadSelect(null); onConversationSelect?.(null); }}
           className={`h-10 md:h-8 px-0.5 min-[400px]:px-1 md:px-4 flex-auto md:flex-none justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors flex items-center gap-0.5 min-[400px]:gap-1 md:gap-1.5 ${leadsView === 'groups' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-700'}`}
         >
           Groups
-          {tabCount(leadGroups.length)}
+          {tabCount(countsLoaded.groups ? leadGroups.length : null)}
         </button>
         <button
           onClick={() => { setLeadsView('conversations'); onLeadSelect(null); onGroupSelect?.(null); onConversationSelect?.(null); fetchMyConversations(); }}
@@ -1015,7 +1027,7 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
           {/* Phones under 400px read "Conversations" so the four tabs fit 360px with two-digit badges;
               "My " stays for screen readers. */}
           <span className="whitespace-nowrap"><span className="sr-only min-[400px]:not-sr-only">My{'\u00A0'}</span>Conversations</span>
-          {tabCount(conversations.length)}
+          {tabCount(countsLoaded.conversations ? conversations.length : null)}
           {/* Unread replies keep their red alert badge (not a count of the tab's rows). */}
           {conversationsUnread > 0 && (
             <span className="flex items-center justify-center min-w-[18px] md:min-w-[20px] h-5 px-0.5 md:px-1 rounded-full bg-red-500 text-white text-[12px] font-bold">

@@ -57,6 +57,17 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
   expect(JSON.stringify(sCounts) === JSON.stringify(['0', null, '0', '0']), `Starter: zeros shown, Lists without a count (got ${JSON.stringify(sCounts)})`);
   await starter.context.close();
 
+  // 2b. Review (batch 3): no number until its count has loaded (never a "0" that turns into the real count).
+  const slow = await open({ view: 'leads', width: 1280, height: 900, api: createMockApi({ lists: many(2, LIST), groups: many(5, GROUP), conversations: many(3, CONVO(0)), leadTabCounts: { open: 40, closed: 2 }, leadsDelayMs: 2500 }) });
+  await expectVisible(slow.page.getByRole('button', { name: /^Groups/ }), 'slow: row');
+  await slow.page.waitForTimeout(700);
+  const pending = (await tabs(slow.page)).map((t) => t.count);
+  expect(JSON.stringify(pending) === JSON.stringify([null, null, null, null]), `slow: no counts while loading (got ${JSON.stringify(pending)})`);
+  await slow.page.waitForTimeout(3000);
+  const loaded = (await tabs(slow.page)).map((t) => t.count);
+  expect(JSON.stringify(loaded) === JSON.stringify(['42', '2', '5', '3']), `slow: counts once loaded (got ${JSON.stringify(loaded)})`);
+  await slow.context.close();
+
   // 3. Phones: two- and three-digit counts and the unread badge still fit, nothing scrolls sideways.
   for (const width of [360, 390]) {
     const phone = await open({ view: 'leads', width, height: 844, api: createMockApi({ lists: many(12, LIST), groups: many(12, GROUP), conversations: many(12, CONVO(12)), leadTabCounts: { open: 230, closed: 12 } }) });

@@ -306,6 +306,8 @@ export function createMockApi(options = {}) {
     campaignBodies: [],
     // GET /newsletters/campaign-options answers after this many ms.
     optionsDelayMs: options.optionsDelayMs ?? 0,
+    // The Leads page's tab-count sources (/leads, /lead-groups, /my-conversations, /contact-lists) answer this late.
+    leadsDelayMs: options.leadsDelayMs ?? 0,
     // Results rows carry skip_reason / skip_note (Chris, 29 Oct round 2, item 6). Off by default.
     textSkips: options.textSkips ?? false,
     // Add / edit person answers a non-North-American mobile with the API's Canada/US message (item 8). Off by default.
@@ -941,6 +943,7 @@ export function createMockApi(options = {}) {
       if (state.uploadDelayMs) await new Promise((r) => setTimeout(r, state.uploadDelayMs));
     }
     if (path === '/newsletters/campaign-options' && state.optionsDelayMs) await new Promise((r) => setTimeout(r, state.optionsDelayMs));
+    if (state.leadsDelayMs && request.method() === 'GET' && ['/leads', '/lead-groups', '/my-conversations', '/contact-lists'].includes(path)) await new Promise((r) => setTimeout(r, state.leadsDelayMs));
     const answer = handle(request.method(), path, url.searchParams, body);
     call.status = answer.status;
     if (answer.raw !== undefined) return route.fulfill({ status: answer.status, headers: answer.headers, body: answer.raw });
