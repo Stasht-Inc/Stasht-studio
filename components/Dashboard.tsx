@@ -13,6 +13,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useProperty } from '../contexts/PropertyContext';
 import { allPropertyRows, resolvePendingPropertySwitch } from '../utils/salespersonLanding';
 import { trialBannerFrom } from '../utils/trialBanner';
+import { planCoveredBy } from '../utils/effectivePlan';
 import { useMemoryLimit } from '../hooks/useMemoryLimit';
 import { useMemoryCounts } from '../hooks/useMemoryCounts';
 import useAlvinEnabled, { openAlvin } from './alvin/useAlvinEnabled';
@@ -217,15 +218,25 @@ export default function Dashboard({
   // GET /properties data for the trial banner: the account's plan trial (account_trial), else the first owned
   // property with a trial date (utils/trialBanner).
   const [trialData, setTrialData] = useState<any | null>(null);
+  // Covered by its main account (a salesperson on the main account's plan): no trial banner — "moves to the Starter
+  // plan" isn't what happens to it (utils/effectivePlan; Deepak, 1 Nov 2026).
+  const [planCovered, setPlanCovered] = useState(false);
 
   useEffect(() => {
     if (!isAuthenticated || authLoading) return;
     let cancelled = false;
     const loadTrial = async () => {
       try {
-        const res = await dashboardAPI.getProperties();
+        const [res, storage] = await Promise.all([
+          dashboardAPI.getProperties(),
+          dashboardAPI.getStorageOverview().catch(() => null),
+        ]);
         const d = res?.data?.data || res?.data || {};
-        if (!cancelled) setTrialData(d);
+        const overview = (storage as any)?.data?.data?.storage_overview || (storage as any)?.data?.storage_overview;
+        if (!cancelled) {
+          setPlanCovered(!!planCoveredBy(overview));
+          setTrialData(d);
+        }
       } catch (err) {
         console.error('Dashboard: could not load trial status', err);
       }
@@ -376,7 +387,7 @@ export default function Dashboard({
   }, [timePeriod, isAuthenticated, authLoading]);
 
   // Trial banner data: days left while the trial runs, or an ended notice once it has finished.
-  const trialBanner = trialBannerFrom(trialData);
+  const trialBanner = planCovered ? null : trialBannerFrom(trialData);
 
   return (
     <div className="w-full space-y-4 md:space-y-8">

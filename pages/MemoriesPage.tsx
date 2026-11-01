@@ -20,6 +20,7 @@ import { mediaAPI } from '../services/mediaAPI';
 import { useAuth } from '../contexts/AuthContext';
 import { useProperty } from '../contexts/PropertyContext';
 import { allPropertyRows, carOwnerAuthor, inventoryOwnerAuthor, resolvePendingPropertySwitch } from '../utils/salespersonLanding';
+import { planCoveredBy } from '../utils/effectivePlan';
 import { useMemoryLimit, recheckMemoryLimit } from '../hooks/useMemoryLimit';
 import { Avatar, AvatarFallback, AvatarImage } from "../components/ui/avatar";
 import EmptyMemoriesState from "../components/EmptyMemoriesState";
@@ -350,6 +351,12 @@ function MemoriesPageContent({
         const trialEnded = owned.some(p => p.trial_ended === true);
         if (isStarterPlan && (isMainAccountWithProperties || trialEnded)) {
           setShowTrialEndedModal(true);
+        }
+        // Covered by its main account (a salesperson): no trial warnings or upgrade nudges, the main account's plan
+        // applies (utils/effectivePlan; Deepak, 1 Nov 2026).
+        if (planCoveredBy(storageOverview)) {
+          setTrialExpiringProperties([]);
+          return;
         }
 
         // Warn for trials expiring within 7 days (not yet ended)
