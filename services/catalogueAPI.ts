@@ -30,6 +30,12 @@ export interface CatalogueItemSummary {
   // Up to three attribute values, "Oak / 6 / Natural" ('' when none). Shown under a product's
   // campaign card and page title, like a car's spec line. Optional: older API builds don't send it.
   spec_summary?: string;
+  // Whose item it is (a users_stash id) and whether the viewer may only look at it: the main account's items seen by
+  // its salesperson (1 Nov 2026). A read-only item names its owner for the card (utils/salespersonLanding
+  // inventoryOwnerAuthor). Optional: older API builds don't send them.
+  user_id?: number;
+  read_only?: boolean;
+  owner?: { id: number; name: string | null; profile_image: string | null; profile_color: string | null };
 }
 
 export interface CatalogueItemDetail extends CatalogueItemSummary {

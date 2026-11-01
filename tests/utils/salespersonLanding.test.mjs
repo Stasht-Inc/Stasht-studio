@@ -20,6 +20,8 @@ import {
   groupedPropertyCounts,
   inventoryItemIsReadOnly,
   carOwnerAuthor,
+  inventoryOwnerAuthor,
+  propertyAccountGroups,
 } from '../../utils/salespersonLanding.ts';
 
 // Bon Sun: users.id 120, stash (external_user_id) 966. Property 96 was made for him by Serpa (stash 889).
@@ -203,4 +205,28 @@ test('own cars, and read-only rows from an API without the owner block, keep tod
   assert.equal(carOwnerAuthor({ id: 7, user_id: 966 }), null);
   assert.equal(carOwnerAuthor({ id: 501, user_id: 889, read_only: true }), null);
   assert.equal(carOwnerAuthor(null), null);
+});
+
+test("a read-only catalogue product's card names its owner too (the same owner block as cars)", () => {
+  // Chris, 1 Nov 2026: in Bon's External view Serpa's product cards said "Bon Sun".
+  const serpaSofa = { id: 31, title: 'Oak Sofa', user_id: 889, read_only: true, owner: { id: 889, name: 'Serpa Chrysler', profile_image: 'https://cdn.test/serpa.png', profile_color: '1d4ed8' } };
+  assert.deepEqual(inventoryOwnerAuthor(serpaSofa), { name: 'Serpa Chrysler', avatar: 'https://cdn.test/serpa.png', profile_color: '1d4ed8' });
+  assert.equal(inventoryOwnerAuthor({ id: 32, user_id: 966, read_only: false }), null, 'own products keep today\'s author');
+  assert.equal(inventoryOwnerAuthor({ id: 33, user_id: 889, read_only: true }), null, 'an API without the block: unchanged');
+  assert.equal(carOwnerAuthor, inventoryOwnerAuthor, 'cars use the same rule');
+});
+
+test('account chooser and Profile menu: two groups, Properties then External, each only when it has rows', () => {
+  // Chris, 1 Nov 2026: "INTERNAL" reads "PROPERTIES", and the Profile menu's one "Property Accounts (4) · 1 internal,
+  // 3 external" becomes two dropdowns, "Properties (N)" and "External (N)".
+  const lot = { id: 12, name: 'Downtown' };
+  const ext1 = { id: 96, name: 'Bon Sun' };
+  const ext2 = { id: 97, name: 'Rita Rep' };
+  assert.deepEqual(propertyAccountGroups({ owned: [lot], shared: [ext1, ext2] }), [
+    { key: 'properties', label: 'Properties', rows: [lot] },
+    { key: 'external', label: 'External', rows: [ext1, ext2] },
+  ]);
+  assert.deepEqual(propertyAccountGroups({ owned: [], shared: [ext1] }), [{ key: 'external', label: 'External', rows: [ext1] }]);
+  assert.deepEqual(propertyAccountGroups({ owned: [lot], shared: null }), [{ key: 'properties', label: 'Properties', rows: [lot] }]);
+  assert.deepEqual(propertyAccountGroups({ owned: undefined, shared: undefined }), []);
 });
