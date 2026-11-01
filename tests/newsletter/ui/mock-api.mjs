@@ -662,7 +662,9 @@ export function createMockApi(options = {}) {
     // LeadGroupsController::index answers {groups: [...]} with no success envelope.
     if (path === '/lead-groups' && method === 'GET') return { status: 200, json: { groups: state.groups } };
     // The Leads page (Lists tab checks): an empty inbox.
-    if (path === '/leads' && method === 'GET') return ok({ leads: [], total: 0, status_counts: {}, messages_total: 0, meta: { total_pages: 1 }, tab_counts: { open: 0, closed: 0 } });
+    // LeadsController@index answers with the payload itself (no success/data wrapper; LeadsTab reads it off the body).
+    // options.leadTabCounts: the Open / Closed counts (the Leads tab shows their sum).
+    if (path === '/leads' && method === 'GET') return { status: 200, json: { leads: [], total: 0, status_counts: {}, messages_total: 0, meta: { total_pages: 1 }, tab_counts: options.leadTabCounts ?? { open: 0, closed: 0 } } };
     if (path === '/leads/unread-count') return ok({ total_unread: 0, total_unread_messages: 0, total_unread_comments: 0 });
     // leadsAPI.getMyConversations reads {total, conversations} straight off the body (as LeadsTab uses it).
     if (path === '/my-conversations' && method === 'GET') return { status: 200, json: { total: state.conversations.length, conversations: state.conversations } };

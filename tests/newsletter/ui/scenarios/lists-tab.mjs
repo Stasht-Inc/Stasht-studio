@@ -27,10 +27,10 @@ async function toastsGone(page) {
   for (let i = 0; i < 40 && (await page.locator('[data-sonner-toast]').count()); i++) await page.waitForTimeout(250);
 }
 
-/** The Leads | Lists | Groups | My Conversations row, as the labels read (badges included). */
+/** The Leads | Lists | Groups | My Conversations row, as the labels read (counts included; batch 3: Leads has one). */
 async function tabRow(page) {
   return page.evaluate(() => {
-    const leads = [...document.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Leads');
+    const leads = [...document.querySelectorAll('button')].find((b) => /^Leads\d*$/.test(b.textContent?.trim() ?? ''));
     return leads ? [...leads.parentElement.children].map((b) => b.textContent.replace(/\u00A0/g, ' ').trim()) : [];
   });
 }
@@ -49,7 +49,7 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
     const { page, context } = await open({ view: 'leads', width: 1280, height: 900, api });
     await expectVisible(page.getByRole('button', { name: 'Groups' }), 'Starter: tab row');
     await page.waitForTimeout(800);
-    expect(JSON.stringify(await tabRow(page)) === JSON.stringify(['Leads', 'Lists', 'Groups1', 'My Conversations']), `Starter: no lists badge (got ${JSON.stringify(await tabRow(page))})`);
+    expect(JSON.stringify(await tabRow(page)) === JSON.stringify(['Leads0', 'Lists', 'Groups1', 'My Conversations0']), `Starter: no lists count (got ${JSON.stringify(await tabRow(page))})`);
     await page.getByRole('button', { name: 'Lists', exact: true }).click();
     await expectVisible(page.getByText('Lists are part of paid plans'), 'Starter: upgrade card');
     await page.waitForTimeout(800);
@@ -64,7 +64,7 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
   // ── Tab row: Leads | Lists | Groups | My Conversations, Lists with its count ──
   await expectVisible(page.getByRole('button', { name: /^Lists/ }), 'Lists tab');
   await expectVisible(page.getByRole('button', { name: /^Lists/ }).getByText('2'), 'lists badge');
-  expect(JSON.stringify(await tabRow(page)) === JSON.stringify(['Leads', 'Lists2', 'Groups1', 'My Conversations']), `tab order (got ${JSON.stringify(await tabRow(page))})`);
+  expect(JSON.stringify(await tabRow(page)) === JSON.stringify(['Leads0', 'Lists2', 'Groups1', 'My Conversations0']), `tab order (got ${JSON.stringify(await tabRow(page))})`);
   await shot(page, '1280-01-tab-row');
 
   // ── Lists table ──
@@ -303,7 +303,7 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
     const p = phone.page;
     await expectVisible(p.getByRole('button', { name: /^Lists/ }).getByText('2'), `badge at ${width}`);
     const fits = await p.evaluate(() => {
-      const leads = [...document.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Leads');
+      const leads = [...document.querySelectorAll('button')].find((b) => /^Leads\d*$/.test(b.textContent?.trim() ?? ''));
       const row = leads?.parentElement;
       if (!row) return false;
       const box = row.getBoundingClientRect();
@@ -357,7 +357,7 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
     await expectVisible(p.getByRole('button', { name: /^Groups/ }).getByText('12'), `groups badge 12 at ${width}`);
     await expectVisible(p.getByRole('button', { name: /Conversations/ }).getByText('12'), `conversations badge 12 at ${width}`);
     const fits = await p.evaluate(() => {
-      const leads = [...document.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Leads');
+      const leads = [...document.querySelectorAll('button')].find((b) => /^Leads\d*$/.test(b.textContent?.trim() ?? ''));
       const row = leads?.parentElement;
       if (!row) return 'no row';
       const box = row.getBoundingClientRect();
@@ -366,7 +366,7 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
     });
     expect(fits === 'ok', `four tabs with two-digit badges fit at ${width} (${fits})`);
     expect(!(await hasOverflow(p)), `no sideways scroll with two-digit badges at ${width}`);
-    expect(JSON.stringify(await tabRow(p)) === JSON.stringify(['Leads', 'Lists12', 'Groups12', 'My Conversations12']), `tab names keep "My Conversations" for screen readers (got ${JSON.stringify(await tabRow(p))})`);
+    expect(JSON.stringify(await tabRow(p)) === JSON.stringify(['Leads0', 'Lists12', 'Groups12', 'My Conversations1212']), `tab names keep "My Conversations" for screen readers (got ${JSON.stringify(await tabRow(p))})`);
     if (width === 360) await shot(p, '360-06-two-digit-badges');
     await phone.context.close();
   }

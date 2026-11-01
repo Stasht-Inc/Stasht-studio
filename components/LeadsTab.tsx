@@ -913,6 +913,13 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
   }
   const assigneeOptions = Array.from(assigneeOptionsRef.current.values()).sort((a, b) => (a.name ?? '').localeCompare(b.name ?? ''));
   const conversationsUnread = conversations.reduce((sum, c) => sum + (c.unread_count ?? 0), 0);
+  // Every tab in the Leads | Lists | Groups | My Conversations row shows its count as plain number text, no pill
+  // (Chris, 1 Nov). Leads = Open + Closed for the current search / "Assigned to" (as the Open / Closed counts below);
+  // Lists only once lists can be loaded (paid plans), so a Starter account never shows a made-up 0.
+  const tabCount = (n: number) => (
+    // Under 400px a size smaller (12px) so the four tabs still fit 360px with three-digit counts and unread replies.
+    <span data-tab-count="" className="text-xs min-[400px]:text-sm font-medium tabular-nums text-gray-500">{n}</span>
+  );
 
   // Summary cards scoped to the ACTIVE sub-tab only (Task M4 / product
   // decision): switching sub-tabs swaps the whole card row, it never mixes
@@ -976,45 +983,40 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
         threshold={pullToRefresh.threshold}
         className="md:hidden"
       />
-      {/* Sub-tab toggle (Leads / Lists / Groups / My Conversations) + Refresh on the far right.
+      {/* Sub-tab toggle (Leads / Lists / Groups / My Conversations, each with its count) + Refresh on the far right.
           Phones: tabs span the width; Leads Report / Refresh are gone (pull to refresh). */}
       <div className="flex flex-wrap items-center justify-between gap-3">
       <div className="flex w-full md:inline-flex md:w-auto items-center gap-0.5 md:gap-1 bg-gray-100 rounded-lg p-1">
         <button
           onClick={() => { setLeadsView('leads'); onGroupSelect?.(null); onConversationSelect?.(null); }}
-          className={`h-10 md:h-8 px-1 md:px-4 flex-auto md:flex-none rounded-md text-sm font-medium transition-colors ${leadsView === 'leads' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-700'}`}
+          className={`h-10 md:h-8 px-0.5 min-[400px]:px-1 md:px-4 flex-auto md:flex-none justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors flex items-center gap-0.5 min-[400px]:gap-1 md:gap-1.5 ${leadsView === 'leads' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-700'}`}
         >
           Leads
+          {tabCount(tabCounts.open + tabCounts.closed)}
         </button>
         <button
           onClick={() => { setLeadsView('lists'); onGroupSelect?.(null); onLeadSelect(null); onConversationSelect?.(null); if (listsEnabled) void contactLists.reload(); }}
-          className={`h-10 md:h-8 px-1 md:px-4 flex-auto md:flex-none justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors flex items-center gap-1 md:gap-1.5 ${leadsView === 'lists' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-700'}`}
+          className={`h-10 md:h-8 px-0.5 min-[400px]:px-1 md:px-4 flex-auto md:flex-none justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors flex items-center gap-0.5 min-[400px]:gap-1 md:gap-1.5 ${leadsView === 'lists' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-700'}`}
         >
           Lists
-          {listCount > 0 && (
-            <span className="flex items-center justify-center min-w-[18px] md:min-w-[20px] h-5 px-0.5 md:px-1 rounded-full bg-[#6C60FF] text-white text-[12px] font-bold">
-              {listCount}
-            </span>
-          )}
+          {listsEnabled ? tabCount(listCount) : null}
         </button>
         <button
           onClick={() => { setLeadsView('groups'); onGroupSelect?.(null); onLeadSelect(null); onConversationSelect?.(null); }}
-          className={`h-10 md:h-8 px-1 md:px-4 flex-auto md:flex-none justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors flex items-center gap-1 md:gap-1.5 ${leadsView === 'groups' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-700'}`}
+          className={`h-10 md:h-8 px-0.5 min-[400px]:px-1 md:px-4 flex-auto md:flex-none justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors flex items-center gap-0.5 min-[400px]:gap-1 md:gap-1.5 ${leadsView === 'groups' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-700'}`}
         >
           Groups
-          {leadGroups.length > 0 && (
-            <span className="flex items-center justify-center min-w-[18px] md:min-w-[20px] h-5 px-0.5 md:px-1 rounded-full bg-[#6C60FF] text-white text-[12px] font-bold">
-              {leadGroups.length}
-            </span>
-          )}
+          {tabCount(leadGroups.length)}
         </button>
         <button
           onClick={() => { setLeadsView('conversations'); onLeadSelect(null); onGroupSelect?.(null); onConversationSelect?.(null); fetchMyConversations(); }}
-          className={`h-10 md:h-8 px-1 md:px-4 flex-auto md:flex-none justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors flex items-center gap-1 md:gap-1.5 ${leadsView === 'conversations' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-700'}`}
+          className={`h-10 md:h-8 px-0.5 min-[400px]:px-1 md:px-4 flex-auto md:flex-none justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors flex items-center gap-0.5 min-[400px]:gap-1 md:gap-1.5 ${leadsView === 'conversations' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-700'}`}
         >
           {/* Phones under 400px read "Conversations" so the four tabs fit 360px with two-digit badges;
               "My " stays for screen readers. */}
           <span className="whitespace-nowrap"><span className="sr-only min-[400px]:not-sr-only">My{'\u00A0'}</span>Conversations</span>
+          {tabCount(conversations.length)}
+          {/* Unread replies keep their red alert badge (not a count of the tab's rows). */}
           {conversationsUnread > 0 && (
             <span className="flex items-center justify-center min-w-[18px] md:min-w-[20px] h-5 px-0.5 md:px-1 rounded-full bg-red-500 text-white text-[12px] font-bold">
               {conversationsUnread}
