@@ -18,7 +18,7 @@ const SAM = { id: 92, external_user_id: 902, name: 'Sam Seller', email: 'sam@dea
 // Bob Bozic: an existing account that joined (property view; delete only unlinks). Sam Seller and Dana Dealer:
 // accounts made for the property (Sam active: opens as his account; Dana deactivated: can't be opened; delete closes).
 const DELETE_EXTERNAL_UNLINK = 'Removes Bob Bozic from your properties. Their own account stays open — you just lose access to it. Campaigns you transferred to it come back to you.';
-const DELETE_EXTERNAL_CLOSE = "Removes Dana Dealer from your properties and closes their account: they can't sign in, its own campaigns, leads and newsletters are removed and any subscription is cancelled. Campaigns you transferred to it come back to you.";
+const DELETE_EXTERNAL_CLOSE = "Removes Dana Dealer from your properties and closes their account: they can't sign in, its own campaigns and newsletters are removed and any subscription is cancelled. Their leads and campaigns you transferred to it come back to you.";
 // Eve Emerson: made for the property, but the API says this delete won't close it (delete_closes_account false).
 const DELETE_EXTERNAL_UNLINK_EVE = 'Removes Eve Emerson from your properties. Their own account stays open — you just lose access to it. Campaigns you transferred to it come back to you.';
 const DELETE_INTERNAL = 'Removes the property. Campaigns in it come back to your account — nothing is deleted.';

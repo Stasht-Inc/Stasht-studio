@@ -7,6 +7,7 @@ import { toast } from 'sonner';
 import { useProperty } from '../contexts/PropertyContext';
 import { switchDataForPropertyAccount, switchDataIsStale } from '../utils/propertyAccountSwitch';
 import { findPropertyRow, needsFullPropertyRow, opensAsFullAccount, propertyRowActions } from '../utils/propertyRows';
+import { visiblePropertyLists } from '../utils/salespersonLanding';
 
 // Collaborator type for admin access
 export interface AdminCollaborator {
@@ -355,9 +356,12 @@ export function AccountChoiceModal({
     return !isProperty;
   });
 
-  // Use new owned/shared properties if provided, otherwise fallback to old method
-  const ownedPropertyAccounts = ownedProperties.length > 0 ? ownedProperties : [];
-  const sharedPropertyAccounts = sharedProperties.length > 0 ? sharedProperties : [];
+  // Use new owned/shared properties if provided, otherwise fallback to old method. Never the signed-in
+  // salesperson's own external property: that is their own account, which "Personal" already opens
+  // (utils/salespersonLanding).
+  const visibleProperties = visiblePropertyLists({ owned: ownedProperties, shared: sharedProperties }, personalUser);
+  const ownedPropertyAccounts = visibleProperties.owned;
+  const sharedPropertyAccounts = visibleProperties.shared;
 
   // Fallback: If no owned/shared properties provided, use old method (filter from adminCollaborators)
   const propertyAccounts = ownedPropertyAccounts.length === 0 && sharedPropertyAccounts.length === 0

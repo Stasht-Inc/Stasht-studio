@@ -11,6 +11,7 @@ import { useState, useEffect } from 'react';
 import { dashboardAPI } from '../utils/authUtils';
 import { useAuth } from '../contexts/AuthContext';
 import { useProperty } from '../contexts/PropertyContext';
+import { allPropertyRows, resolvePendingPropertySwitch, signedInUserOr } from '../utils/salespersonLanding';
 import { useMemoryLimit } from '../hooks/useMemoryLimit';
 import { useMemoryCounts } from '../hooks/useMemoryCounts';
 import useAlvinEnabled, { openAlvin } from './alvin/useAlvinEnabled';
@@ -203,7 +204,7 @@ export default function Dashboard({
   onMemorySelect
 }: DashboardProps) {
   const { isAuthenticated, isLoading: authLoading, user } = useAuth();
-  const { switchToProperty } = useProperty();
+  const { switchToProperty, cancelPendingPropertySwitch } = useProperty();
   const { limitData, isLimitExceeded, isAICreditsExceeded } = useMemoryLimit();
   const { memoryCounts } = useMemoryCounts();
   const alvinOn = useAlvinEnabled();
@@ -254,46 +255,16 @@ export default function Dashboard({
           console.log('🏠 Dashboard: Properties API response:', propertiesResponse);
 
           if (propertiesResponse.success && propertiesResponse.data) {
-            const d = propertiesResponse.data.data || propertiesResponse.data;
-            const allProperties = [
-              ...(d.owned_properties || []),
-              ...(d.shared_properties || []),
-              ...(d.all_properties || d.properties || [])
-            ];
-            console.log('🏠 Dashboard: All properties count:', allProperties.length);
-            console.log('🏠 Dashboard: All properties:', allProperties);
-
-            if (pendingPropertySwitch === 'first') {
-              // Switch to the FIRST property from the list
-              console.log('🏠 Dashboard: Property mode enabled, switching to first property...');
-
-              if (allProperties.length > 0) {
-                const firstProperty = allProperties[0];
-                console.log('🏠 Dashboard: First property:', firstProperty);
-                console.log('🏠 Dashboard: Switching to property:', firstProperty.name);
-
-                switchToProperty(firstProperty);
-
-                // Clear the pending flag
-                localStorage.removeItem('pending_property_switch');
-                console.log('🏠 Dashboard: Property switch completed and flag cleared');
-              } else {
-                console.error('🏠 Dashboard: No properties found for this user');
-                console.error('🏠 Dashboard: User might not have access to any properties yet');
-                // Don't clear the flag - maybe retry later
-              }
-            } else {
-              // Legacy support: if it's a specific property ID
-              const selectedProperty = allProperties.find((prop: any) => String(prop.id) === String(pendingPropertySwitch));
-
-              if (selectedProperty) {
-                console.log('🏠 Dashboard: Switching to property ID:', pendingPropertySwitch);
-                switchToProperty(selectedProperty);
-                localStorage.removeItem('pending_property_switch');
-                console.log('🏠 Dashboard: Property switch completed and flag cleared');
-              } else {
-                console.error('🏠 Dashboard: Property ID', pendingPropertySwitch, 'not found');
-              }
+            // Never the signed-in salesperson's own external property; nothing to open → stay in the
+            // account and drop the flag (utils/salespersonLanding).
+            const next = resolvePendingPropertySwitch(pendingPropertySwitch, allPropertyRows(propertiesResponse), signedInUserOr(user));
+            if (next.action === 'switch') {
+              console.log('🏠 Dashboard: Switching to property:', next.property?.name);
+              switchToProperty(next.property);
+              localStorage.removeItem('pending_property_switch');
+            } else if (next.action === 'clear') {
+              console.log('🏠 Dashboard: No property to open for', pendingPropertySwitch, '- staying in the account');
+              cancelPendingPropertySwitch();
             }
           } else {
             console.error('🏠 Dashboard: Failed to fetch properties:', propertiesResponse);

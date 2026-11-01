@@ -34,6 +34,7 @@ import {
   AlertDialogTitle,
 } from '../components/ui/alert-dialog';
 import { deletePropertyMessage, deletePropertyToast, propertyRowActions, propertyStatusBadge, propertyTypeLabel, type BadgeTone } from '../utils/propertyRows';
+import { withoutOwnExternalProperties } from '../utils/salespersonLanding';
 import { toast } from 'sonner';
 
 interface User {
@@ -410,7 +411,11 @@ export default function UsersPage({ onNavigate, onViewStoreelReport }: UsersPage
       if (response.success || response.status === 'success') {
         const responseData = response.data || response;
         // Updated to match new API structure: data.properties
-        const allProperties = responseData.properties || responseData.data?.properties || responseData.data?.all_properties || responseData.all_properties || [];
+        // Never the signed-in salesperson's own external property: that is this very account (utils/salespersonLanding).
+        const allProperties = withoutOwnExternalProperties(
+          responseData.properties || responseData.data?.properties || responseData.data?.all_properties || responseData.all_properties || [],
+          currentUser,
+        );
 
         console.log('🏠 Raw properties:', allProperties);
 
