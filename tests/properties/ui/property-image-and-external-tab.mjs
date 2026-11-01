@@ -328,11 +328,37 @@ try {
     expect((await rowImage(page, 'Chris Wirth', width)) === STORE_URL, `${tag}: table avatar shows the new image straight away (the list was re-read, not cached)`);
     await shot(page, `${tag}-B4-3-row-avatar-after-upload`);
 
+    // A saved image: clicking it opens the file picker straight away (no need to remove it first); the new file is sent.
+    await (await openMenu(page, 'Downtown Lot', width)).getByRole('menuitem', { name: 'Edit Property' }).click();
+    await modal.waitFor({ state: 'visible', timeout: 5000 });
+    const saved = modal.locator('img[alt="Property preview"]');
+    await saved.waitFor({ state: 'visible', timeout: 5000 });
+    expect((await saved.getAttribute('src')) === OLD_URL, `${tag}: Edit Property shows the saved image`);
+    await shot(page, `${tag}-B4-2b-edit-modal-saved-image`);
+    const [chooser] = await Promise.all([
+      page.waitForEvent('filechooser', { timeout: 5000 }).catch(() => null),
+      saved.click(),
+    ]);
+    expect(!!chooser, `${tag}: clicking the saved image opens the file picker`);
+    if (chooser) {
+      expect(!chooser.isMultiple(), `${tag}: one file`);
+      await chooser.setFiles(images.store.path);
+      await page.waitForFunction(() => (document.querySelector('img[alt="Property preview"]')?.getAttribute('src') || '').startsWith('data:'), null, { timeout: 5000 }).catch(() => {});
+      expect(((await saved.getAttribute('src')) || '').startsWith('data:'), `${tag}: the new image replaces the preview`);
+      await modal.getByRole('button', { name: 'Update Property' }).click();
+      await page.waitForTimeout(1000);
+      const rep = state.updates.at(-1);
+      expect(rep?.id === 12 && rep.fields.image?.filename === 'fixture-store-front.png' && rep.fields.remove_image === undefined, `${tag}: the replacement is sent, no remove_image (${JSON.stringify(rep?.fields)})`);
+      expect((await rowImage(page, 'Downtown Lot', width)) === STORE_URL, `${tag}: Downtown Lot shows the replacement`);
+    } else {
+      await modal.getByRole('button', { name: 'Cancel' }).click();
+    }
+
     // Remove a saved image: remove_image=1, no file; the row goes back to the icon.
     await (await openMenu(page, 'Downtown Lot', width)).getByRole('menuitem', { name: 'Edit Property' }).click();
     await modal.waitFor({ state: 'visible', timeout: 5000 });
     await modal.locator('img[alt="Property preview"]').waitFor({ state: 'visible', timeout: 5000 });
-    await modal.locator('img[alt="Property preview"]').locator('xpath=..').locator('button').click();
+    await modal.getByRole('button', { name: 'Remove property image' }).click();
     await modal.getByRole('button', { name: 'Update Property' }).click();
     await page.waitForTimeout(1000);
     const rm = state.updates.at(-1);

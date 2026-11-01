@@ -444,6 +444,9 @@ export default function CreatePropertyModal({
           {/* Property Image */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">Property Image</label>
+            {/* One file input for both states: the empty box uploads, and clicking a shown image replaces it straight away
+                (no need to remove it with the X first, Chris 1 Nov 2026). */}
+            <input ref={fileInputRef} type="file" accept={PROPERTY_IMAGE_ACCEPT} onChange={handleImageChange} className="hidden" data-testid="property-image-input" />
             {!imagePreview ? (
               <div
                 onClick={() => fileInputRef.current?.click()}
@@ -454,13 +457,22 @@ export default function CreatePropertyModal({
                 </div>
                 <p className="text-xs font-medium text-gray-700 mb-1 text-center">Click to upload property image</p>
                 <p className="text-[12px] text-gray-500 text-center">PNG, JPG up to 10MB</p>
-                <input ref={fileInputRef} type="file" accept={PROPERTY_IMAGE_ACCEPT} onChange={handleImageChange} className="hidden" data-testid="property-image-input" />
               </div>
             ) : (
               <div className="relative border-2 border-gray-300 rounded-lg overflow-hidden aspect-square max-w-[200px] w-full">
-                <img src={imagePreview} alt="Property preview" className="w-full h-full object-cover" />
                 <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  aria-label="Replace property image"
+                  title="Click to replace the image"
+                  className="block w-full h-full cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#6C60FF]/40"
+                >
+                  <img src={imagePreview} alt="Property preview" className="w-full h-full object-cover" />
+                </button>
+                <button
+                  type="button"
                   onClick={handleRemoveImage}
+                  aria-label="Remove property image"
                   className="absolute top-2 right-2 h-8 w-8 rounded-full bg-red-500 hover:bg-red-600 text-white flex items-center justify-center transition-colors shadow-lg"
                 >
                   <X className="h-4 w-4" />
