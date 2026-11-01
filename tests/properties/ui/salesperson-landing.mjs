@@ -28,6 +28,22 @@ const SERPA_SEES_BON = { ...base, id: 96, name: 'Bon Sun', unique_id: 'BS-96', u
 // Serpa's car, shown to Bon read-only (user_id = the main account).
 const SERPA_CAR = { id: 501, user_id: 889, title: '2024 Jeep Grand Cherokee', price: '58900', category: 'new', images_count: 3, main_image: null, location: { formatted: 'Toronto, ON' }, spec_summary: 'STK# J501 / 12 km' };
 
+// Bon's own car campaign made by sharing Serpa's car: its posts are Bon's own photos (memory_images); Serpa's car
+// is a linked entry, read_only. Post 9002 is a photo tied to that car (car_id) — no select / edit / delete.
+const IMG = 'http://localhost:5291/pwa-icon-512.png';
+const BON_CAR_CAMPAIGN = {
+  id: 700, title: 'Vehicles Just for You', user_id: 966, is_car: 1, published: 1, category: { id: 'cars', name: 'Cars' },
+  last_update_img: IMG, location: 'Toronto, ON', tags: [], collaborators: [], user: { id: 966, name: 'Bon Sun' },
+  posts: [
+    { id: 9001, image_link: IMG, image: IMG, type: 'image', parent_id: null, admin_approval: 1, name: 'bon-walkaround.jpg', title: 'Walkaround', user: { id: 966, name: 'Bon Sun' }, created_at: '2026-11-01T10:00:00Z', capture_date: '2026-11-01T10:00:00Z' },
+    { id: 9002, car_id: 501, image_link: IMG, image: IMG, type: 'image', parent_id: null, admin_approval: 1, name: 'jeep-front.jpg', title: 'Jeep front', user: { id: 889, name: 'Serpa Chrysler' }, created_at: '2026-11-01T09:00:00Z', capture_date: '2026-11-01T09:00:00Z' },
+  ],
+  linked_memories: [
+    { id: 501, user_id: 889, read_only: true, is_car: true, title: SERPA_CAR.title, cover_image: null, category: { id: 'cars', name: 'Cars' }, posts_count: 0, tags: [], location: 'Toronto', make: 'Jeep', model: 'Grand Cherokee', year: 2024, price: '58900', mileage: 12, stock_number: 'J501', collaborators: [] },
+  ],
+};
+const BON_CAR_CAMPAIGN_CARD = { id: 700, title: BON_CAR_CAMPAIGN.title, user_id: 966, is_car: 1, category: { id: 'cars', name: 'Cars', color: '#0ea5e9' }, photos: { count: 2 }, last_update_img: IMG, location: { formatted: 'Toronto, ON' }, dates: { formatted_range: '' }, author: { name: 'Bon Sun' }, collaborators: [] };
+
 const failures = [];
 const pageErrors = [];
 const blocked = new Set();
@@ -38,8 +54,8 @@ const browser = await chromium.launch({ headless: true, channel: 'chrome' });
 // who: the account the mocked API signs in / answers for. omitOwnRow: the API leaves Bon's row out.
 // seed: localStorage on the first load (null = signed out, i.e. the sign-in page).
 // nov1: the 1 Nov API (sign-in omits the own row, /properties lists it flagged); extraRows: Bon's other properties.
-async function open({ width = 1280, height = 900, who, omitOwnRow = false, nov1 = false, extraRows = [], seed = null, path = '/' }) {
-  const state = { loginCalls: 0, propertyFetches: 0 };
+async function open({ width = 1280, height = 900, who, omitOwnRow = false, nov1 = false, extraRows = [], seed = null, path = '/', carCampaign = false }) {
+  const state = { loginCalls: 0, propertyFetches: 0, carCampaign, imageDeletes: [] };
   const context = await browser.newContext({ viewport: { width, height }, serviceWorkers: 'block', locale: 'en-US', hasTouch: width < 1024, isMobile: width < 1024 });
   await context.addInitScript(([seedData]) => {
     if (sessionStorage.getItem('sl-seeded')) return; // only the first load: later loads keep what the app stored
@@ -81,6 +97,15 @@ async function open({ width = 1280, height = 900, who, omitOwnRow = false, nov1 
       const owned = ownedFor();
       const shared = sharedFor();
       return route.fulfill({ json: { success: true, data: { properties: [...owned, ...shared], owned_properties: owned, shared_properties: shared, owned_count: owned.length, shared_count: shared.length, total_count: owned.length + shared.length } } });
+    }
+    if (p === '/memories' && req.method() === 'GET' && state.carCampaign) {
+      return route.fulfill({ json: { success: true, data: { all_memories: { data: [BON_CAR_CAMPAIGN_CARD] }, total_memories: 1 } } });
+    }
+    if (p === '/memories/700' && req.method() === 'GET') return route.fulfill({ json: { success: true, data: { memory: BON_CAR_CAMPAIGN, linked_memories: BON_CAR_CAMPAIGN.linked_memories } } });
+    const del = p.match(/^\/memory-images\/(.+)$/);
+    if (del && req.method() === 'DELETE') {
+      state.imageDeletes.push(`${del[1]}${url.search}`);
+      return route.fulfill({ json: { success: true, message: 'Image deleted successfully.' } });
     }
     if (p === '/user/storage-overview') return route.fulfill({ json: { success: true, data: { storage_overview: { plan_name: 'Professional' } } } });
     if (p === '/cars' || p.startsWith('/cars?')) return route.fulfill({ json: { status: 200, data: { cars: [SERPA_CAR], pagination: { total: 1 }, filters: { categories: ['new'] } } } });
@@ -292,6 +317,44 @@ try {
     await openProfileMenu(page);
     expect(await page.getByText('Property Accounts (1)').filter({ visible: true }).count() > 0, '10: Profile menu counts only the other property');
     await shot(page, '13-profile-menu-other-property-only');
+    await context.close();
+  }
+
+  // 11. Bon's own car campaign (shared from Serpa's car): his own photo keeps edit / delete (deleted as a memory
+  //     image, no is_car); the photo of Serpa's read-only car has no select / edit / delete.
+  {
+    const { page, context, state } = await open({ who: BON, nov1: true, carCampaign: true, path: '/memories', seed: { stasht_token: 'bon-token', stasht_user: BON, view_type: 'personal', stasht_campaigns_view: 'storeels' } });
+    await waitForApp(page);
+    await page.getByText(BON_CAR_CAMPAIGN.title).filter({ visible: true }).first().click();
+    const media = page.getByText('bon-walkaround.jpg', { exact: true }).filter({ visible: true }).first();
+    await media.waitFor({ state: 'visible', timeout: 25000 }).catch(async (e) => { await shot(page, 'debug-11'); console.log((await page.locator('body').innerText()).slice(0, 600)); throw e; });
+    await media.scrollIntoViewIfNeeded();
+    await page.waitForTimeout(800);
+    await shot(page, '14-car-campaign-view');
+    const card = (name) => page.locator('.group', { hasText: name }).filter({ visible: true }).first();
+    const own = card('bon-walkaround.jpg');
+    const parents = card('jeep-front.jpg');
+    await own.hover();
+    await page.waitForTimeout(300);
+    const ownTrash = await own.locator('button.text-red-600').count();
+    await shot(page, '15-car-campaign-own-photo-hover');
+    await parents.hover();
+    await page.waitForTimeout(300);
+    const parentTrash = await parents.locator('button.text-red-600').count();
+    const parentButtons = await parents.locator('.absolute.top-2.right-2 button').count();
+    await shot(page, '16-car-campaign-parent-car-photo-hover');
+    console.log('11 car campaign', JSON.stringify({ ownTrash, parentTrash, parentButtons }));
+    expect(ownTrash > 0, '11: own photo in his car campaign keeps Delete');
+    expect(parentTrash === 0 && parentButtons === 0, '11: photo of the main account\'s car: no edit / delete');
+    await own.hover();
+    await own.locator('button.text-red-600').first().click();
+    const confirm = page.getByRole('alertdialog').getByRole('button', { name: /^Delete/ });
+    await confirm.waitFor({ state: 'visible', timeout: 5000 });
+    await confirm.click();
+    await page.waitForTimeout(1200);
+    console.log('11 deletes', JSON.stringify(state.imageDeletes));
+    expect(state.imageDeletes.length === 1 && state.imageDeletes[0] === '9001', `11: own photo deleted as a memory image, no is_car (${state.imageDeletes})`);
+    expect(!(await page.locator('[data-sonner-toast]').evaluateAll((els) => els.map((e) => e.textContent))).some((t) => /Failed|permission/i.test(t || '')), '11: no error toast');
     await context.close();
   }
 } catch (e) {

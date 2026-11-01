@@ -8,6 +8,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  isCarPhotoId,
+  mediaItemIsReadOnly,
   withoutOwnExternalProperties,
   ownStashId,
   isOwnExternalProperty,
@@ -168,4 +170,37 @@ test('Users → Properties: the own row is hidden, everything else kept', () => 
   assert.deepEqual(withoutOwnExternalProperties([listed, other, bonsOwnRow], bon), [other]);
   assert.deepEqual(withoutOwnExternalProperties([internalRow, bonAsSeenBySerpa], serpa), [internalRow, bonAsSeenBySerpa]);
   assert.deepEqual(withoutOwnExternalProperties(undefined, bon), []);
+});
+
+test('an explicit read_only false is final: no user_id fallback', () => {
+  assert.equal(inventoryItemIsReadOnly({ id: 1, read_only: false, user_id: 889 }, bon), false);
+  assert.equal(inventoryItemIsReadOnly({ id: 1, read_only: 0, user_id: 889 }, bon), false);
+  assert.equal(inventoryItemIsReadOnly({ id: 1, read_only: '0', user_id: 889 }, bon), false);
+  assert.equal(inventoryItemIsReadOnly({ id: 1, read_only: true, user_id: 966 }, bon), true, 'read_only true wins too');
+});
+
+// A car campaign's posts are its own memory_images; car photos (car_images) only exist on a car's own page, as
+// posts with id car_image_<id>. Only those are deleted with is_car=1.
+test('only car_image_<id> posts are car photos', () => {
+  assert.equal(isCarPhotoId('car_image_77'), true);
+  assert.equal(isCarPhotoId('car_image_x'), false);
+  assert.equal(isCarPhotoId('car_photo_0'), false, 'a car photo without an id cannot be deleted at all');
+  assert.equal(isCarPhotoId('1234'), false, 'a campaign\'s own photo, even in a car campaign');
+  assert.equal(isCarPhotoId(1234), false);
+  assert.equal(isCarPhotoId(null), false);
+});
+
+test('a media item is read-only when it says so, or when it is a photo of a read-only linked car', () => {
+  const linked = [
+    { id: 501, is_car: true, user_id: 889, read_only: true },
+    { id: 502, is_car: true, user_id: 966, read_only: false },
+    { id: 9, title: 'A linked campaign', user_id: 889 },
+  ];
+  assert.equal(mediaItemIsReadOnly({ id: '10', car_id: 501 }, linked, bon), true, 'parent\'s car photo');
+  assert.equal(mediaItemIsReadOnly({ id: '11', car_id: 502 }, linked, bon), false, 'own car photo');
+  assert.equal(mediaItemIsReadOnly({ id: '12' }, linked, bon), false, 'the campaign\'s own upload');
+  assert.equal(mediaItemIsReadOnly({ id: '13', read_only: true }, linked, bon), true);
+  assert.equal(mediaItemIsReadOnly({ id: '14', car_id: 9 }, linked, bon), false, 'only car entries count');
+  assert.equal(mediaItemIsReadOnly({ id: '15', car_id: 501 }, undefined, bon), false, 'no linked list: unchanged');
+  assert.equal(mediaItemIsReadOnly(null, linked, bon), false);
 });

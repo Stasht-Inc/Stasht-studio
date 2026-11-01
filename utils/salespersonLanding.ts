@@ -158,13 +158,16 @@ export function allPropertyRows(response: any): any[] {
 
 /**
  * A car or website-catalogue row the signed-in account may only look at (and share): the main account's
- * inventory shown to its salesperson. Read from an explicit API hint (read_only / is_read_only /
- * is_parent_inventory true, or can_edit / can_manage / is_owner / is_own false), else from user_id differing
- * from the signed-in stash id. Rows without any hint keep today's behaviour (editable where it was).
+ * inventory shown to its salesperson. read_only, when the API sends it, decides (true or false). Otherwise read from
+ * another hint (is_read_only / is_parent_inventory true, or can_edit / can_manage / is_owner / is_own false), else
+ * from user_id differing from the signed-in stash id. Rows without any hint keep today's behaviour.
  */
 export function inventoryItemIsReadOnly(item: Row, user: unknown): boolean {
   if (!item) return false;
-  for (const key of ['read_only', 'is_read_only', 'is_parent_inventory']) {
+  // The API's answer is final either way (cars, catalogue items and linked car entries carry it since 1 Nov).
+  const readOnly = flag(item.read_only);
+  if (readOnly !== null) return readOnly;
+  for (const key of ['is_read_only', 'is_parent_inventory']) {
     if (flag(item[key]) === true) return true;
   }
   for (const key of ['can_edit', 'can_manage', 'is_owner', 'is_own']) {
@@ -173,4 +176,23 @@ export function inventoryItemIsReadOnly(item: Row, user: unknown): boolean {
   const me = ownStashId(user);
   if (!me || !present(item.user_id)) return false;
   return String(item.user_id).trim() !== me;
+}
+
+/** A car photo (a car_images row) as a car's own page shows it: post id `car_image_<id>`. A car campaign's other
+ * posts are its own memory_images and are deleted as such (never with is_car=1). */
+export function isCarPhotoId(id: unknown): boolean {
+  return typeof id === 'string' && /^car_image_\d+$/.test(id);
+}
+
+/**
+ * A campaign's photo the signed-in account may not select / edit / delete: one the API marks read_only, or a photo
+ * of a linked car (car_id) whose linked entry (GET /memories/{id} linked_memories, is_car) is read-only — the main
+ * account's car in its salesperson's own campaign. The campaign's own uploads stay editable.
+ */
+export function mediaItemIsReadOnly(item: Row, linkedMemories: unknown, user: unknown): boolean {
+  if (!item) return false;
+  if (flag(item.read_only) === true) return true;
+  if (!present(item.car_id) || !Array.isArray(linkedMemories)) return false;
+  const car = linkedMemories.find((m: any) => m && flag(m.is_car) === true && String(m.id) === String(item.car_id));
+  return !!car && inventoryItemIsReadOnly(car as Row, user);
 }
