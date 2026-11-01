@@ -17,14 +17,17 @@ import NewsletterResults from './NewsletterResults';
 import { GENERIC_ERROR, PLAN_REQUIRED_ERROR } from './lib/apiResult';
 import { formatCount } from './lib/audience';
 import { NEWSLETTER_FILTERS, NEWSLETTERS_CHANGED_EVENT, announceNewslettersChanged, withHighlightFirst, type NewsletterFilter } from './lib/campaignsView';
-import { ACTION_LABEL, actionsFor, failureText, isLive, listRateBase, plural, primaryAction, rate, whenText, type NewsletterAction } from './lib/newsletterList';
+import {
+  ACTION_LABEL, NEWSLETTERS_TABLE, actionsFor, failureText, isLive, listRateBase, newslettersLayout, opensRow, plural, primaryAction, rate, whenText, type NewsletterAction,
+} from './lib/newsletterList';
+import { useElementWidth } from './hooks/useElementWidth';
 import { BUTTON_OUTLINE, BUTTON_PRIMARY } from './lib/ui';
 import { keyboardOnlyFocusReturn } from '../../utils/menuFocus';
 
 const POLL_MS = 30000;
-// The All Campaigns list: a grey header row and rows of the same grid.
-// The last column holds a draft's Edit (icon only until xl, where there is room for the word) and the menu.
-const GRID = 'grid grid-cols-[minmax(0,1fr)_88px_150px_72px_64px_64px_80px] lg:grid-cols-[minmax(0,1fr)_96px_192px_88px_72px_72px_80px] xl:grid-cols-[minmax(0,1fr)_96px_200px_88px_72px_72px_104px] items-center gap-3';
+// The All Campaigns list: a grey header row and rows of the same grid, sized by the list's own width
+// (NEWSLETTERS_TABLE, newslettersLayout). The last column holds a draft's Edit (icon only, except in the wide
+// layout where there is room for the word) and the menu.
 const HIGHLIGHT_MS = 4000;
 const CREATE_BUTTON = 'bg-[#6C60FF] text-white hover:bg-[#5B52FF] focus:ring-2 focus:ring-[#6C60FF] focus:ring-opacity-50 active:bg-[#6C60FF]';
 
@@ -77,8 +80,8 @@ function RowMenu({ item, busy, onAction }: { item: NewsletterSummary; busy: bool
 function EditButton({ item, onEdit, compact = false }: { item: NewsletterSummary; onEdit(id: number): void; compact?: boolean }) {
   return (
     <button type="button" onClick={() => onEdit(item.id)} aria-label={`Edit ${item.name || 'this newsletter'}`} title="Edit"
-      className={`${ROW_ACTION} gap-1.5 text-xs font-medium ${compact ? 'px-2 xl:px-2.5' : 'px-2.5'}`}>
-      <Pencil className="h-3.5 w-3.5" aria-hidden="true" /><span className={compact ? 'hidden xl:inline' : undefined}>Edit</span>
+      className={`${ROW_ACTION} gap-1.5 text-xs font-medium ${compact ? 'px-2' : 'px-2.5'}`}>
+      <Pencil className="h-3.5 w-3.5" aria-hidden="true" />{compact ? null : <span>Edit</span>}
     </button>
   );
 }
@@ -106,6 +109,9 @@ export default function NewslettersView({ onCreate, onEdit, onToggleMobileSideba
     const timer = window.setTimeout(() => setGlowId(null), HIGHLIGHT_MS);
     return () => window.clearTimeout(timer);
   }, [highlight]);
+  // The list's layout follows its own width (App's sidebars leave it about 650 px at a 1280 px window).
+  const rootRef = useRef<HTMLDivElement>(null);
+  const layout = newslettersLayout(useElementWidth(rootRef));
   const [confirm, setConfirm] = useState<{ action: 'cancel' | 'delete' | 'editScheduled'; item: Pick<NewsletterSummary, 'id' | 'name'> } | null>(null);
   const [busyId, setBusyId] = useState<number | null>(null);
 
@@ -246,12 +252,16 @@ export default function NewslettersView({ onCreate, onEdit, onToggleMobileSideba
   } else {
     body = (
       <>
-        <div role="table" aria-label="Your newsletters" className="hidden md:block">
-          <div role="rowgroup" className="border-b border-gray-100 bg-gray-50 px-6 py-4">
-            <div role="row" className={`${GRID} text-sm font-medium text-gray-600`}>
+        {layout !== 'cards' ? (() => {
+          const t = NEWSLETTERS_TABLE[layout];
+          const wide = layout === 'wide';
+          return (
+        <div role="table" aria-label="Your newsletters">
+          <div role="rowgroup" className={`border-b border-gray-100 bg-gray-50 ${t.padding} py-4`}>
+            <div role="row" className={`${t.grid} text-sm font-medium text-gray-600`}>
               <div role="columnheader">Newsletter</div>
               <div role="columnheader">Status</div>
-              <div role="columnheader">When</div>
+              {wide ? <div role="columnheader">When</div> : null}
               <div role="columnheader" className="text-right">Recipients</div>
               <div role="columnheader" className="text-right">Opened</div>
               <div role="columnheader" className="text-right">Clicked</div>
@@ -262,21 +272,32 @@ export default function NewslettersView({ onCreate, onEdit, onToggleMobileSideba
             {(rows ?? []).map((n) => {
               const base = listRateBase(n.counts);
               const notSent = n.status === 'draft' || n.status === 'scheduled';
+              const failedTitle = n.status === 'failed' ? failureText(n.failure_reason) : undefined;
+              // The whole row opens it (a draft in the composer, anything else its results), as the name does; the
+              // name stays the keyboard way in. Edit, "⋯" and the menu's items act for themselves (opensRow).
               return (
-                <div key={n.id} role="row" data-newsletter-row={n.id} className={`${GRID} px-6 py-4 text-sm transition-colors duration-700 hover:bg-gray-50 ${glow(n.id)}`}>
+                <div key={n.id} role="row" data-newsletter-row={n.id}
+                  onClick={(e) => {
+                    const row = e.currentTarget;
+                    if (opensRow({ target: e.target as Element, contains: (el) => row.contains(el as Node), selection: window.getSelection?.()?.toString() ?? '' })) open(n);
+                  }}
+                  className={`group ${t.grid} ${t.padding} cursor-pointer py-4 text-sm transition-colors duration-700 hover:bg-gray-50 hover:duration-150 ${glow(n.id)}`}>
                   <div role="cell" className="min-w-0">
                     <button type="button" onClick={() => open(n)} className="block max-w-full rounded text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-[#6C60FF]/40">
-                      <span className="block truncate font-medium text-gray-900 hover:text-[#6C60FF]">{n.name || 'Untitled newsletter'}</span>
+                      <span className="block truncate font-medium text-gray-900 group-hover:text-[#6C60FF]">{n.name || 'Untitled newsletter'}</span>
                       <span className="block truncate text-xs text-gray-500">{n.subject || 'No subject yet'}</span>
                     </button>
                   </div>
-                  <div role="cell"><StatusChip status={n.status} title={n.status === 'failed' ? failureText(n.failure_reason) : undefined} /></div>
-                  <div role="cell" className="text-gray-600" title={n.status === 'failed' ? failureText(n.failure_reason) : undefined}>{whenText(n)}</div>
+                  <div role="cell" className="min-w-0">
+                    <StatusChip status={n.status} title={failedTitle} />
+                    {wide ? null : <span className="mt-1 block text-xs text-gray-600" title={failedTitle}>{whenText(n)}</span>}
+                  </div>
+                  {wide ? <div role="cell" className="text-gray-600" title={failedTitle}>{whenText(n)}</div> : null}
                   <div role="cell" className="text-right tabular-nums text-gray-900">{n.counts.recipients > 0 ? formatCount(n.counts.recipients) : '—'}</div>
                   <div role="cell" className="text-right tabular-nums text-gray-900">{notSent ? '—' : rate(n.counts.opened, base)}</div>
                   <div role="cell" className="text-right tabular-nums text-gray-900">{notSent ? '—' : rate(n.counts.clicked, base)}</div>
                   <div role="cell" className="flex items-center justify-end gap-1">
-                    {n.status === 'draft' ? <EditButton item={n} onEdit={onEdit} compact /> : null}
+                    {n.status === 'draft' ? <EditButton item={n} onEdit={onEdit} compact={!wide} /> : null}
                     <RowMenu item={n} busy={busyId === n.id} onAction={act} />
                   </div>
                 </div>
@@ -284,8 +305,10 @@ export default function NewslettersView({ onCreate, onEdit, onToggleMobileSideba
             })}
           </div>
         </div>
-        {/* Phones: the All Campaigns card rows. */}
-        <ul aria-label="Your newsletters" className="divide-y divide-gray-100 md:hidden">
+          );
+        })() : (
+        // Phones, and any list narrower than the table (NEWSLETTERS_TABLE.table.from): the All Campaigns card rows.
+        <ul aria-label="Your newsletters" className="divide-y divide-gray-100">
           {(rows ?? []).map((n) => (
             <li key={n.id} data-newsletter-row={n.id} className={`flex items-start justify-between gap-3 px-4 py-4 transition-colors duration-700 ${glow(n.id)}`}>
               <button type="button" onClick={() => open(n)} className="min-w-0 flex-1 rounded text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-[#6C60FF]/40">
@@ -305,12 +328,13 @@ export default function NewslettersView({ onCreate, onEdit, onToggleMobileSideba
             </li>
           ))}
         </ul>
+        )}
       </>
     );
   }
 
   return (
-    <div className="bg-white md:rounded-xl md:border md:border-gray-100 md:shadow-sm">
+    <div ref={rootRef} className="bg-white md:rounded-xl md:border md:border-gray-100 md:shadow-sm">
       <div className="sticky top-20 z-10 bg-white">
         <div className="flex items-center justify-between gap-3 px-0 py-4 lg:px-4">
           {/* Phones: the sidebar toggle stays, as on All Campaigns. */}
