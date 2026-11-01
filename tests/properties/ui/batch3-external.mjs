@@ -91,7 +91,9 @@ function parseMultipart(req) {
 
 // who: the signed-in account. rows: GET /properties rows. seed: extra localStorage. tab: the Users tab to open on.
 // plan: storage-overview / profile plan fields. accountTrial: GET /properties data.account_trial.
-async function open({ width = 1280, height = 900, who = MAIN, rows = [INTERNAL_DOWNTOWN, EXT_ARTEM, EXT_BOB, EXT_RITA], seed = {}, path = '/users', tab = 'properties', signedOut = false, plan = { plan_name: 'Professional', plan_covered_by: null }, accountTrial = null }) {
+// wrongCounts: GET /properties sends owned/shared counts that disagree with its rows. storageDelayMs: storage-overview
+// answers that much later.
+async function open({ width = 1280, height = 900, who = MAIN, rows = [INTERNAL_DOWNTOWN, EXT_ARTEM, EXT_BOB, EXT_RITA], seed = {}, path = '/users', tab = 'properties', signedOut = false, plan = { plan_name: 'Professional', plan_covered_by: null }, accountTrial = null, wrongCounts = false, storageDelayMs = 0 }) {
   const state = { rows: rows.map((r) => ({ ...r })), updates: [], profileWrites: [], otpSent: [], updateReply: null };
   const context = await browser.newContext({ viewport: { width, height }, serviceWorkers: 'block', locale: 'en-US', hasTouch: width < 1024, isMobile: width < 1024 });
   await context.addInitScript(([seedData, openTab, out]) => {
@@ -137,7 +139,8 @@ async function open({ width = 1280, height = 900, who = MAIN, rows = [INTERNAL_D
     if (p === '/properties' && req.method() === 'GET') {
       const owned = state.rows.filter((r) => r.is_creator);
       const shared = state.rows.filter((r) => !r.is_creator);
-      return route.fulfill({ json: { success: true, data: { properties: state.rows, owned_properties: owned, shared_properties: shared, owned_count: owned.length, shared_count: shared.length, total_count: state.rows.length, account_trial: accountTrial } } });
+      const counts = wrongCounts ? { owned_count: 9, shared_count: 9, total_count: 18 } : { owned_count: owned.length, shared_count: shared.length, total_count: state.rows.length };
+      return route.fulfill({ json: { success: true, data: { properties: state.rows, owned_properties: owned, shared_properties: shared, ...counts, account_trial: accountTrial } } });
     }
     if (p === '/properties/view/tok-downtown') return route.fulfill({ json: { status: 'success', data: { property: { id: 12, name: 'Downtown Lot', image: null, location: 'Toronto, ON' }, properties_with_invite: [] } } });
     if (p === '/user/profile' && req.method() === 'GET') return route.fulfill({ json: { success: true, data: { user: { ...who, phone: null, bio: '', ...plan } } } });
@@ -158,6 +161,7 @@ async function open({ width = 1280, height = 900, who = MAIN, rows = [INTERNAL_D
       state.profileWrites.push(p);
       return route.fulfill({ json: { success: true, data: { user: who } } });
     }
+    if (p === '/user/storage-overview' && storageDelayMs) await new Promise((r) => setTimeout(r, storageDelayMs));
     if (p === '/user/storage-overview') return route.fulfill({ json: { success: true, data: { storage_overview: { plan_id: 1, memories_count: 0, plan_storage_size_gb: 1024, total_storage_used_mb: 0, ...plan } } } });
     // Billing & Payment's own data (their real shapes; nothing to pay or show here).
     if (p === '/ai-credits/balance') return route.fulfill({ json: { status: 1, data: { total_credits: 5, monthly_credits: { available: 5, allocation: 5, used_this_month: 0, usage_percentage: 0, next_reset_date: null, days_until_reset: 0 }, addon_credits: { available: 0, total_purchased: 0, breakdown: [] }, plan: { name: 'Starter', monthly_allocation: 5 } } } });
@@ -338,6 +342,21 @@ try {
     expect(await page.getByRole('button', { name: /Upgrade Plan/ }).filter({ visible: true }).count() > 0, '2 own Business: Upgrade Plan as before');
     await context.close();
   }
+  // Billing: no "Upgrade Plan" flash before the plan is known. Every storage-overview answer comes 10 s late here and the
+  // page is opened before the first one lands (a later visit is served from the API cache, with nothing to flash).
+  {
+    const { page, context } = await open({ path: '/', plan: { plan_name: 'Business', plan_covered_by: null }, storageDelayMs: 10000 });
+    await page.getByText('Campaigns', { exact: true }).filter({ visible: true }).first().waitFor({ state: 'visible', timeout: 30000 });
+    await openProfileMenu(page, 1280);
+    await page.getByRole('button', { name: /Billing & Payment/ }).filter({ visible: true }).first().click();
+    await page.getByText('Billing & Payments', { exact: true }).filter({ visible: true }).first().waitFor({ state: 'visible', timeout: 20000 });
+    await page.waitForTimeout(1000);
+    expect(await page.getByRole('button', { name: /Upgrade Plan/ }).filter({ visible: true }).count() === 0, '2 billing: no Upgrade Plan while the plan is loading');
+    await page.getByRole('button', { name: /Upgrade Plan/ }).filter({ visible: true }).first().waitFor({ state: 'visible', timeout: 20000 }).catch(() => {});
+    expect(await page.getByRole('button', { name: /Upgrade Plan/ }).filter({ visible: true }).count() > 0, '2 billing: Upgrade Plan once the plan is known (own Business)');
+    await context.close();
+  }
+
   {
     // (Role 2: a role-3 Starter account with a property gets the plan picker over everything first.)
     const { page, context } = await open({ who: BON_ROLE2, rows: [BONS_OWN], path: '/', plan: { plan_name: 'Starter', plan_covered_by: null } });
@@ -419,6 +438,17 @@ try {
     await page.waitForTimeout(300);
     if (width < 1024) expect(await noOverflow(page), `${tag} 5: no sideways scroll`);
     await shot(page, `${tag}-5-profile-menu-both-open`);
+    await context.close();
+  }
+
+  // Profile menu group counts come from the rows (as the account chooser's), not the API's counts.
+  {
+    const { page, context } = await open({ path: '/', wrongCounts: true });
+    await page.getByText('Campaigns', { exact: true }).filter({ visible: true }).first().waitFor({ state: 'visible', timeout: 30000 });
+    await page.waitForTimeout(1200);
+    await openProfileMenu(page, 1280);
+    expect(await page.getByRole('button', { name: 'Properties (1)', exact: true }).filter({ visible: true }).count() === 1
+      && await page.getByRole('button', { name: 'External (3)', exact: true }).filter({ visible: true }).count() === 1, '5: group counts follow the rows when the API counts disagree');
     await context.close();
   }
 

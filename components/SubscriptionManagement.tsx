@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { CreditCard, Calendar, AlertCircle, CheckCircle, Loader2, Crown, Zap, X, Clock } from 'lucide-react';
 import { stripeApi, SubscriptionItem, ScheduledChange } from '../utils/stripeApi';
+import { planLabel } from '../utils/effectivePlan';
 
 interface SubscriptionManagementProps {
   onUpgradeClick?: () => void;
@@ -210,7 +211,8 @@ export function SubscriptionManagement({ onUpgradeClick }: SubscriptionManagemen
           <div>
             <p className="text-xs text-gray-500 mb-1">Plan</p>
             <p className="text-sm font-semibold text-gray-900">
-              {isProfessional ? 'Professional' : 'Intermediate'}
+              {/* The names Studio sells (utils/effectivePlan): Business / Teams. */}
+              {planLabel(subscription.plan_name) || (isProfessional ? 'Business' : 'Teams')}
             </p>
           </div>
           <div>

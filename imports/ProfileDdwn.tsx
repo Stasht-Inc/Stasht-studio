@@ -13,6 +13,7 @@ import useAlvinEnabled from "../components/alvin/useAlvinEnabled";
 import { Camera } from "lucide-react";
 import { PROPERTY_IMAGE_ACCEPT, canChangePropertyImage, propertyAvatarImage, propertyImageErrorMessage, propertyImageFileError } from "../utils/propertyImage";
 import { groupPropertyAccounts, groupedPropertyCounts, isOwnExternalProperty, propertyAccountGroups, signedInUserOr } from "../utils/salespersonLanding";
+import { planKey } from "../utils/effectivePlan";
 
 // __APP_BUILD_TIME__ is injected at build time (see vite.config.ts's `define`)
 // as the ISO timestamp of when this exact bundle was built.
@@ -152,11 +153,12 @@ function ProfileInfo({ user }: { user?: { name?: string; email?: string; phone_n
 
   // Get plan badge styling
   const getPlanBadge = (plan: string) => {
-    const planLower = plan.toLowerCase();
-    if (planLower === 'professional') {
-      return { label: 'Professional', className: 'bg-purple-100 text-purple-700', show: true };
-    } else if (planLower === 'intermediate') {
-      return { label: 'Intermediate', className: 'bg-pink-100 text-pink-700', show: true };
+    // The names Studio sells (utils/effectivePlan): a plans row named "Business" is Business too.
+    const key = planKey(plan);
+    if (key === 'professional') {
+      return { label: 'Business', className: 'bg-purple-100 text-purple-700', show: true };
+    } else if (key === 'intermediate') {
+      return { label: 'Teams', className: 'bg-pink-100 text-pink-700', show: true };
     } else {
       return { label: '', className: '', show: false };
     }
@@ -936,7 +938,7 @@ export function ProfileDropdownMenu({ isOpen, onClose, user, onShowProfileSettin
               </svg>
               <div className="flex-1 min-w-0">
                 <div className="text-gray-900 font-medium text-sm">
-                  {group.label} ({isProperties ? propertyCounts.owned : propertyCounts.shared})
+                  {group.label} ({group.rows.length})
                 </div>
               </div>
               <svg

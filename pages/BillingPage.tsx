@@ -315,8 +315,8 @@ export default function BillingPage({ onNavigateToMemory }: BillingPageProps = {
 
   // Helper function to format plan display name for billing history
   const formatPlanDisplay = (planName: string, paymentDate: string) => {
-    // Capitalize first letter of plan name
-    const formattedPlan = planName.charAt(0).toUpperCase() + planName.slice(1);
+    // The name Studio sells it under (Starter / Teams / Business), else the name capitalised.
+    const formattedPlan = capitalizePlan(planName);
 
     // Get month and year from payment date
     const date = new Date(paymentDate);
@@ -326,10 +326,11 @@ export default function BillingPage({ onNavigateToMemory }: BillingPageProps = {
     return `${formattedPlan} Plan - ${month} ${year}`;
   };
 
-  // Helper function to capitalize plan name
-  const capitalizePlan = (planName: string) => {
-    return planName.charAt(0).toUpperCase() + planName.slice(1);
-  };
+  // A plan's display name: Starter / Teams / Business (utils/effectivePlan planLabel, so "professional" reads Business
+  // as on the badges), else the name capitalised.
+  function capitalizePlan(planName: string) {
+    return planLabel(planName) || (planName ? planName.charAt(0).toUpperCase() + planName.slice(1) : '');
+  }
 
   // Helper function to format member since date (Month Year)
   const formatMemberSince = (dateString: string) => {
@@ -509,7 +510,9 @@ export default function BillingPage({ onNavigateToMemory }: BillingPageProps = {
               Buy more Credits
             </button>
             {/* Not when the main account already covers Business (utils/effectivePlan). */}
-            {offersUpgrade(storageData?.plan_name, planCoveredBy(storageData)) && (
+            {/* Only once the plan is known (no flash before storage-overview answers), and not when the main account
+                already covers Business (utils/effectivePlan). */}
+            {!isLoadingStorage && offersUpgrade(storageData?.plan_name, planCoveredBy(storageData)) && (
             <button
               onClick={() => setShowUpgradeModal(true)}
               className="bg-[#f6339A] hover:bg-[#d42982] text-white px-4 sm:px-6 py-2.5 rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
@@ -806,9 +809,9 @@ export default function BillingPage({ onNavigateToMemory }: BillingPageProps = {
                                   </div>
                                   <div>
                                     <span className={`px-2 sm:px-3 py-1 rounded-full text-xs sm:text-sm font-medium ${
-                                      change.new_plan_name === 'professional'
+                                      planKey(change.new_plan_name) === 'professional'
                                         ? 'bg-purple-100 text-purple-700'
-                                        : change.new_plan_name === 'intermediate'
+                                        : planKey(change.new_plan_name) === 'intermediate'
                                         ? 'bg-pink-100 text-pink-700'
                                         : 'bg-blue-100 text-blue-700'
                                     }`}>
