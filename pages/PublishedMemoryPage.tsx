@@ -625,7 +625,8 @@ export default function PublishedMemoryPage() {
 
     setIsLoadingSubMemory(true);
     try {
-      const res = await dashboardAPI.getMemoryDetail(String(lm.id));
+      // A Private parent's linked campaigns need this page's token (the URL's, or the one typed into the prompt).
+      const res = await dashboardAPI.getMemoryDetail(String(lm.id), accessToken || enteredAccessToken || null);
       console.log('🔗 memory-detail response:', res);
       if (res.success && res.data) {
         const rawData = res.data?.data || res.data;
