@@ -3,7 +3,7 @@
 // private can't be used), the new code with Download PNG (2048 px) / SVG, the list (thumbnail, name, Opens:, scans),
 // Change campaign, Rename, Delete with confirm, and property_id sent only in a property view.
 // node tests/qr-codes/ui/qr-codes.mjs   (needs the dev server: QR_BASE, default http://localhost:5311)
-// The /qr-codes API is mocked here to the brief's contract; every non-local request is aborted.
+// The /qr-codes API is mocked here to the web API's contract (3 Nov 2026); every non-local request is aborted.
 // Screenshots: QR_SHOTS (default /private/tmp/claude-501/qr-shots).
 import { mkdirSync, readFileSync } from 'fs';
 import pw from '/Users/deepaksharma/.nvm/versions/node/v24.5.0/lib/node_modules/@executeautomation/playwright-mcp-server/node_modules/playwright-core/index.js';
@@ -16,12 +16,18 @@ mkdirSync(OUT, { recursive: true });
 const MAIN = { id: 70, external_user_id: 707, name: 'Main Dealer', email: 'main@dealer.test', role: '2', status: 1, is_activated: true };
 const PROPERTY = { id: 12, name: 'Main Downtown', unique_id: 'MD-12', user_id: 707, is_creator: true, user_role: 'owner', property_type: 'internal', account_type: 'internal', account_created_for_property: false, can_manage: true, is_own_external_account: false, location: 'Toronto, ON', memories_count: 0, users_count: 1, invited_users: [], labels: [], created_at: '2026-10-01T10:00:00Z', is_active: true, status: 1 };
 
+// state as the API names it; slug: whether it has a public link yet; canPublish: the owner may publish it.
 const CAMPAIGNS = [
-  { id: 801, title: 'Fall Promo', published: 1, cover_url: null },
-  { id: 802, title: 'Open House', published: 2, cover_url: null },
-  { id: 803, title: 'Spring Sale', published: 0, cover_url: null },
-  { id: 804, title: 'Private VIP Night', published: 3, cover_url: null },
+  { id: 801, title: 'Fall Promo', state: 'public', slug: 'fall-promo', canPublish: false },
+  { id: 802, title: 'Open House', state: 'view_only', slug: 'open-house', canPublish: false },
+  { id: 803, title: 'Spring Sale', state: 'unpublished', slug: null, canPublish: true },
+  { id: 804, title: 'Private VIP Night', state: 'private', slug: 'vip', canPublish: false },
+  { id: 805, title: 'Shared With Me Event', state: 'unpublished', slug: null, canPublish: false },
+  { id: 806, title: 'Brand New Campaign', state: 'public', slug: null, canPublish: false },
 ];
+const REASON = { view_only: "View only — visitors can't add moments", private: 'Private — change to Public to use', unpublished: 'Not published' };
+const usable = (c) => (c.state === 'public' || c.state === 'view_only') && Boolean(c.slug);
+const reasonFor = (c) => (c.state === 'public' && !c.slug ? 'No public link yet' : REASON[c.state] ?? null);
 
 const failures = [];
 const pageErrors = [];
@@ -29,7 +35,8 @@ const expect = (ok, label) => { if (!ok) failures.push(label); console.log(ok ? 
 
 const browser = await chromium.launch({ headless: true, channel: 'chrome' });
 
-async function open({ width, height, seed, codes = [] }) {
+// fail: { list?: true, create?: true } answers those calls with the API's refusals.
+async function open({ width, height, seed, codes = [], fail = {} }) {
   const state = { codes: codes.map((c) => ({ ...c })), nextId: 50, calls: [], campaigns: CAMPAIGNS.map((c) => ({ ...c })) };
   const context = await browser.newContext({ viewport: { width, height }, serviceWorkers: 'block', locale: 'en-US', hasTouch: width < 1024, isMobile: width < 1024, acceptDownloads: true });
   await context.addInitScript(([seedData]) => {
@@ -38,9 +45,14 @@ async function open({ width, height, seed, codes = [] }) {
     localStorage.clear();
     for (const [k, v] of Object.entries(seedData)) localStorage.setItem(k, typeof v === 'string' ? v : JSON.stringify(v));
   }, [seed]);
+  // The code object: campaign null when none is set or it was deleted (memory_id may remain).
   const row = (c) => {
-    const m = state.campaigns.find((x) => x.id === c.memory_id);
-    return { ...c, campaign_title: m ? m.title : null, campaign_published: m ? m.published : null, short_url: `https://studio.stasht.com/q/${c.public_code}` };
+    const m = state.campaigns.find((x) => x.id === c.memory_id && !x.deleted);
+    return {
+      id: c.id, public_code: c.public_code, short_url: `https://studio.stasht.com/q/${c.public_code}`, name: c.name, property_id: c.property_id ?? null,
+      memory_id: c.memory_id, campaign: m ? { id: m.id, title: m.title, state: m.state, usable: usable(m), public_url: m.slug ? `https://studio.stasht.com/published-memory/${m.slug}` : null } : null,
+      scan_count: c.scan_count, last_scanned_at: c.last_scanned_at, created_at: '2026-11-03T10:00:00Z', updated_at: '2026-11-03T10:00:00Z',
+    };
   };
   await context.route('**/*', async (route) => {
     const req = route.request();
@@ -62,16 +74,22 @@ async function open({ width, height, seed, codes = [] }) {
     if (p.startsWith('/qr-codes') || /^\/memories\/\d+\/publish$/.test(p)) {
       state.calls.push({ method, p, q: url.searchParams.get('property_id'), body, view: req.headers()['x-stasht-property'] || null });
     }
-    if (p === '/qr-codes' && method === 'GET') return route.fulfill({ json: { success: true, data: state.codes.map(row) } });
+    if (p === '/qr-codes' && method === 'GET') {
+      if (fail.list) return route.fulfill({ status: 503, json: { success: false, code: 'qr_codes_unavailable', message: 'QR codes are not available yet.' } });
+      return route.fulfill({ json: { success: true, data: state.codes.map(row) } });
+    }
     if (p === '/qr-codes' && method === 'POST') {
-      const c = { id: state.nextId++, public_code: `NEW${state.nextId}ABCD`.slice(0, 8), name: body.name || null, memory_id: body.memory_id, property_id: body.property_id ?? null, scan_count: 0, last_scanned_at: null };
+      if (fail.create) return route.fulfill({ status: 422, json: { success: false, code: 'campaign_unpublished', message: 'This campaign is no longer published.' } });
+      const m = state.campaigns.find((x) => x.id === body.memory_id);
+      const c = { id: state.nextId++, public_code: `NEW${state.nextId}ABCD`.slice(0, 8), name: body.name || m?.title || null, memory_id: body.memory_id, property_id: body.property_id ?? null, scan_count: 0, last_scanned_at: null };
       state.codes.unshift(c);
       return route.fulfill({ status: 201, json: { success: true, data: row(c) } });
     }
     if (p === '/qr-codes/campaign-options' && method === 'GET') {
       const s = (url.searchParams.get('search') || '').toLowerCase();
-      const list = state.campaigns.filter((c) => c.title.toLowerCase().includes(s)).map((c) => ({ ...c, usable: c.published === 1 || c.published === 2 }));
-      return route.fulfill({ json: { success: true, data: list, meta: { page: 1, total_pages: 1 } } });
+      const list = state.campaigns.filter((c) => !c.deleted && c.title.toLowerCase().includes(s))
+        .map((c) => ({ id: c.id, title: c.title, cover_url: null, state: c.state, usable: usable(c), can_publish: c.canPublish && !usable(c), reason: usable(c) && c.state === 'public' ? null : reasonFor(c) }));
+      return route.fulfill({ json: { success: true, data: list, meta: { page: 1, per_page: 20, total: list.length, total_pages: 1 } } });
     }
     const one = p.match(/^\/qr-codes\/(\d+)$/);
     if (one) {
@@ -83,13 +101,13 @@ async function open({ width, height, seed, codes = [] }) {
       }
       if (method === 'DELETE') {
         state.codes = state.codes.filter((x) => x !== c);
-        return route.fulfill({ json: { success: true } });
+        return route.fulfill({ json: { success: true, message: 'QR code deleted.' } });
       }
     }
     const pub = p.match(/^\/memories\/(\d+)\/publish$/);
     if (pub && method === 'POST') {
       const m = state.campaigns.find((x) => x.id === Number(pub[1]));
-      if (m) m.published = body?.role ?? 1;
+      if (m && body?.role === 1 && body?.publish_only === true) Object.assign(m, { state: 'public', slug: 'spring-sale' });
       return route.fulfill({ json: { success: true, data: { slug: 'spring-sale' } } });
     }
     if (p === '/properties' && method === 'GET') {
@@ -152,6 +170,8 @@ try {
       expect(await dialog(page).getByText('Private — change to Public to use').count() === 1, `${tag}: private hint`);
       expect(await dialog(page).getByRole('button', { name: /Private VIP Night/ }).count() === 0, `${tag}: private campaign is not pickable`);
       expect(await dialog(page).getByRole('button', { name: /Spring Sale/ }).count() === 0, `${tag}: unpublished campaign not pickable before Publish`);
+      expect(await dialog(page).getByRole('button', { name: 'Publish', exact: true }).count() === 1, `${tag}: Publish only where can_publish (one of two unpublished)`);
+      expect(await dialog(page).getByText('No public link yet').count() === 1 && await dialog(page).getByRole('button', { name: /Brand New Campaign/ }).count() === 0, `${tag}: public without a link: reason, not pickable`);
       expect(await noOverflow(page), `${tag}: picker no sideways scroll`);
       await shot(page, `${tag}-03-picker`);
 
@@ -159,7 +179,7 @@ try {
       await dialog(page).getByRole('button', { name: 'Publish', exact: true }).click();
       await dialog(page).getByRole('button', { name: /Spring Sale/ }).waitFor({ timeout: 8000 });
       const pub = state.calls.find((c) => c.p === '/memories/803/publish');
-      expect(pub && pub.body && pub.body.role === 1, `${tag}: Publish publishes publicly (${JSON.stringify(pub)})`);
+      expect(pub && pub.body && pub.body.role === 1 && pub.body.publish_only === true, `${tag}: Publish publishes publicly, publish_only (${JSON.stringify(pub)})`);
       await shot(page, `${tag}-04-picker-after-publish`);
 
       // Pick Fall Promo → the new code with downloads.
@@ -188,11 +208,12 @@ try {
       const codes = [
         { id: 7, public_code: 'K7PQ2MZX', name: 'Front window sign', memory_id: 801, scan_count: 12, last_scanned_at: '2026-11-02T10:00:00Z' },
         { id: 8, public_code: 'R4TW9BNC', name: 'Trade show banner', memory_id: null, scan_count: 1, last_scanned_at: null },
+        { id: 9, public_code: 'Z8DLM3QE', name: 'Old flyer', memory_id: 899, scan_count: 0, last_scanned_at: null },
       ];
       const { page, context, state } = await open({ width, height, seed, codes });
       await qrButton(page).click();
       await dialog(page).locator('[data-qr-row]').first().waitFor({ timeout: 8000 });
-      expect(await dialog(page).getByText('Opens: Fall Promo').count() === 1 && await dialog(page).getByText('No campaign').count() === 1, `${tag}: Opens / No campaign`);
+      expect(await dialog(page).getByText('Opens: Fall Promo').count() === 1 && await dialog(page).getByText('No campaign').count() === 2, `${tag}: Opens / No campaign (never set, and deleted campaign)`);
       expect(await dialog(page).getByText('12 scans').count() === 1 && await dialog(page).getByText('1 scan', { exact: true }).count() === 1, `${tag}: scan counts`);
       expect(await noOverflow(page), `${tag}: list no sideways scroll`);
       const overflow = await dialog(page).evaluate((el) => [...el.querySelectorAll('[data-qr-row]')].every((r) => r.scrollWidth <= r.clientWidth + 1));
@@ -242,7 +263,26 @@ try {
       await context.close();
     }
 
-    // 4. Property view: property_id on the list, the picker and create.
+    // 4. Refusals show the server's message: list 503 in the window, create 422 as a toast.
+    {
+      const { page, context } = await open({ width, height, seed, fail: { list: true } });
+      await qrButton(page).click();
+      await dialog(page).getByText('QR codes are not available yet.').waitFor({ timeout: 8000 }).catch(() => failures.push(`${tag}: list 503 shows the server message`));
+      await shot(page, `${tag}-14-list-unavailable`);
+      await context.close();
+    }
+    {
+      const { page, context } = await open({ width, height, seed, fail: { create: true } });
+      await qrButton(page).click();
+      await dialog(page).getByRole('button', { name: 'Create QR Code' }).click();
+      await dialog(page).getByRole('button', { name: /Fall Promo/ }).click();
+      await page.getByText('This campaign is no longer published.').first().waitFor({ timeout: 8000 }).catch(() => failures.push(`${tag}: create 422 shows the server message`));
+      expect(await dialog(page).getByRole('button', { name: /Fall Promo/ }).isEnabled(), `${tag}: after a refused create the picker can be used again`);
+      await shot(page, `${tag}-15-create-refused`);
+      await context.close();
+    }
+
+    // 5. Property view: property_id on the list, the picker and create.
     {
       const pseed = { stasht_token: 'main-token', stasht_user: MAIN, view_type: 'property', selected_property: PROPERTY, stasht_campaigns_view: 'storeels' };
       const { page, context, state } = await open({ width, height, seed: pseed });

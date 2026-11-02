@@ -2,16 +2,22 @@
 // A printed code opens its short URL (https://studio.stasht.com/q/<public_code>), which the API sends on to whichever
 // campaign the code points at now, so a code is printed once and re-pointed at any time.
 // Imports only countLabel, so `node --test` loads this file directly.
+//
+// The web API's contract (3 Nov 2026):
+//   code    {id, public_code, short_url, name, property_id, memory_id, campaign: {id, title, state, usable, public_url} | null,
+//            scan_count, last_scanned_at, created_at, updated_at}; campaign null = "No campaign" (never set, or deleted)
+//   option  {id, title, cover_url, state, usable, can_publish, reason}, meta {page, per_page, total, total_pages}
+//   state   public | view_only | private | unpublished
 
 import { countLabel } from './countLabel.ts';
 
 export interface QrCode {
   id: number;
   publicCode: string;
-  /** Defaults to the campaign's name when the code is made. */
+  /** Defaults to the campaign's title when the code is made. */
   name: string;
   memoryId: number | null;
-  /** The campaign it opens now; null when it opens none (deleted, unpublished, or never set). */
+  /** The campaign it opens now; null when it opens none (never set, or the campaign was deleted). */
   campaignTitle: string | null;
   /** What the printed code encodes. */
   shortUrl: string;
@@ -19,16 +25,19 @@ export interface QrCode {
   lastScannedAt: string | null;
 }
 
-/** published on a campaign: 1 public, 2 view only, 3 private (token link); anything else is not published. */
+export type CampaignState = 'public' | 'view_only' | 'private' | 'unpublished';
 export type CampaignUse = 'ready' | 'viewOnly' | 'unpublished' | 'private' | 'blocked';
 
 export interface QrCampaignOption {
   id: number;
   title: string;
   coverUrl: string | null;
-  published: number;
-  /** The API's own word on whether a code may open it, and why not. */
-  usable: boolean | null;
+  state: CampaignState;
+  /** The API's word on whether a code may open it now. */
+  usable: boolean;
+  /** The API allows publishing it publicly from the picker. */
+  canPublish: boolean;
+  /** Why it can't be used (or the view-only note), from the API. */
   reason: string | null;
 }
 
@@ -38,7 +47,7 @@ export interface QrOptionsPage {
   totalPages: number;
 }
 
-/** Used only when the API leaves short_url out (the API builds it from its studio URL config, this default). */
+/** Used only if an answer ever lacks short_url (the API builds it from its studio URL config, this default). */
 export const SHORT_URL_BASE = 'https://studio.stasht.com/q/';
 
 export const EMPTY_TEXT = 'Print a QR code once and point it at any campaign — change it anytime.';
@@ -46,6 +55,7 @@ export const DELETE_TEXT = "Printed copies will show a 'not linked' page.";
 export const VIEW_ONLY_HINT = "View only — visitors can't add moments";
 export const PRIVATE_HINT = 'Private — change to Public to use';
 export const UNPUBLISHED_HINT = 'Not published';
+export const BLOCKED_HINT = "Can't be used right now";
 
 type Raw = Record<string, unknown>;
 
@@ -63,55 +73,43 @@ function text(v: unknown): string | null {
   return t === '' ? null : t;
 }
 
-/** apiRequest's data is the server body ({success, data, meta?}); peel that one envelope. */
-function body(res: unknown): { data: unknown; meta: Raw | null } {
-  if (isObject(res) && 'data' in res && ('success' in res || 'meta' in res)) {
-    return { data: res.data, meta: isObject(res.meta) ? res.meta : null };
-  }
-  return { data: res, meta: null };
-}
+const STATES: readonly CampaignState[] = ['public', 'view_only', 'private', 'unpublished'];
+/** An unknown state counts as unpublished: never pickable. */
+const toState = (v: unknown): CampaignState => (STATES.includes(v as CampaignState) ? (v as CampaignState) : 'unpublished');
 
-/** The rows of a list answer: a bare array, or one under data / qr_codes / items / options. */
-function rows(data: unknown): unknown[] {
-  if (Array.isArray(data)) return data;
-  if (isObject(data)) {
-    for (const key of ['data', 'qr_codes', 'items', 'options', 'campaigns']) {
-      if (Array.isArray(data[key])) return data[key] as unknown[];
-    }
-  }
-  return [];
+/** apiRequest's data is the server body {success, data, meta?}; peel that one envelope. */
+function body(res: unknown): { data: unknown; meta: Raw | null } {
+  if (isObject(res) && 'data' in res) return { data: res.data, meta: isObject(res.meta) ? res.meta : null };
+  return { data: isObject(res) && 'success' in res ? undefined : res, meta: null };
 }
 
 export function normalizeQrCode(raw: unknown): QrCode | null {
   if (!isObject(raw)) return null;
   const id = num(raw.id);
-  const publicCode = text(raw.public_code) ?? text(raw.code);
+  const publicCode = text(raw.public_code);
   if (id === null || !publicCode) return null;
-  const campaign = isObject(raw.campaign) ? raw.campaign : isObject(raw.memory) ? raw.memory : null;
-  const memoryId = num(raw.memory_id) ?? (campaign ? num(campaign.id) : null);
-  const campaignTitle = text(raw.campaign_title) ?? (campaign ? text(campaign.title) : null);
-  const scans = num(raw.scan_count) ?? num(raw.scans) ?? 0;
+  const campaign = isObject(raw.campaign) ? raw.campaign : null;
+  const campaignTitle = campaign ? text(campaign.title) ?? 'Untitled campaign' : null;
+  const scans = num(raw.scan_count) ?? 0;
   return {
     id,
     publicCode,
     name: text(raw.name) ?? campaignTitle ?? 'QR code',
-    memoryId,
-    // A code with no campaign (or one that was deleted) opens nothing.
-    campaignTitle: memoryId === null ? null : campaignTitle,
+    memoryId: num(raw.memory_id) ?? (campaign ? num(campaign.id) : null),
+    campaignTitle,
     shortUrl: text(raw.short_url) ?? `${SHORT_URL_BASE}${publicCode}`,
     scanCount: Math.max(0, Math.floor(scans)),
     lastScannedAt: text(raw.last_scanned_at),
   };
 }
 
-/** One code from a create / update answer (the code itself, or under data / qr_code). */
-export function qrCodeFromResponse(res: unknown): QrCode | null {
-  const { data } = body(res);
-  return normalizeQrCode(isObject(data) && isObject(data.qr_code) ? data.qr_code : data);
-}
+/** POST / PATCH: {success, data: code}. */
+export const qrCodeFromResponse = (res: unknown): QrCode | null => normalizeQrCode(body(res).data);
 
+/** GET /qr-codes: {success, data: [code]}, newest first. */
 export function qrCodesFromResponse(res: unknown): QrCode[] {
-  return rows(body(res).data).flatMap((r) => {
+  const { data } = body(res);
+  return (Array.isArray(data) ? data : []).flatMap((r) => {
     const code = normalizeQrCode(r);
     return code ? [code] : [];
   });
@@ -119,62 +117,67 @@ export function qrCodesFromResponse(res: unknown): QrCode[] {
 
 export function normalizeCampaignOption(raw: unknown): QrCampaignOption | null {
   if (!isObject(raw)) return null;
-  const id = num(raw.id) ?? num(raw.memory_id);
+  const id = num(raw.id);
   if (id === null) return null;
   return {
     id,
     title: text(raw.title) ?? 'Untitled campaign',
-    coverUrl: text(raw.cover_url) ?? text(raw.cover_image) ?? null,
-    published: num(raw.published) ?? 0,
-    usable: typeof raw.usable === 'boolean' ? raw.usable : null,
+    coverUrl: text(raw.cover_url),
+    state: toState(raw.state),
+    usable: raw.usable === true,
+    canPublish: raw.can_publish === true,
     reason: text(raw.reason),
   };
 }
 
+/** GET /qr-codes/campaign-options: {success, data: [option], meta: {page, per_page, total, total_pages}}. */
 export function campaignOptionsFromResponse(res: unknown, asked = 1): QrOptionsPage {
   const { data, meta } = body(res);
-  const options = rows(data).flatMap((r) => {
+  const options = (Array.isArray(data) ? data : []).flatMap((r) => {
     const o = normalizeCampaignOption(r);
     return o ? [o] : [];
   });
-  const m = meta ?? (isObject(data) ? (isObject(data.meta) ? data.meta : data) : null);
-  const page = (m && (num(m.page) ?? num(m.current_page))) || asked;
-  const totalPages = (m && (num(m.total_pages) ?? num(m.last_page))) || page;
+  const page = (meta && num(meta.page)) || asked;
+  const totalPages = (meta && num(meta.total_pages)) || page;
   return { options, page, totalPages: Math.max(page, totalPages) };
 }
 
 /**
- * Whether a code may open this campaign, from its published state:
- * public → ready; view only → ready, with a hint (visitors can't add moments); private (token link) → no, visitors
- * would need to sign in; not published → one click publishes it publicly. Anything else the API refuses → blocked,
- * with the API's reason.
+ * Whether a code may open this campaign: public → ready; view only → ready, with a hint (visitors can't add moments);
+ * private (token link) → no, visitors would need to sign in; not published → Publish when the API allows it. A public
+ * or view-only campaign the API still calls unusable (e.g. "No public link yet") → blocked, with the API's reason.
  */
-export function campaignUse(o: Pick<QrCampaignOption, 'published' | 'usable'>): CampaignUse {
-  let use: CampaignUse;
-  if (o.published === 1) use = 'ready';
-  else if (o.published === 2) use = 'viewOnly';
-  else if (o.published === 3) use = 'private';
-  else use = 'unpublished';
-  if (o.usable === false && (use === 'ready' || use === 'viewOnly')) return 'blocked';
-  return use;
+export function campaignUse(o: Pick<QrCampaignOption, 'state' | 'usable'>): CampaignUse {
+  switch (o.state) {
+    case 'public': return o.usable ? 'ready' : 'blocked';
+    case 'view_only': return o.usable ? 'viewOnly' : 'blocked';
+    case 'private': return 'private';
+    default: return 'unpublished';
+  }
 }
 
 export const canPick = (use: CampaignUse): boolean => use === 'ready' || use === 'viewOnly';
 
-/** The hint under a campaign in the picker (none for a public one). */
-export function campaignHint(o: Pick<QrCampaignOption, 'published' | 'usable' | 'reason'>): string | null {
-  switch (campaignUse(o)) {
+/** The Publish link shows only for a campaign that isn't usable yet and that the API says may be published. */
+export const canPublish = (o: Pick<QrCampaignOption, 'state' | 'usable' | 'canPublish'>): boolean =>
+  o.canPublish && !canPick(campaignUse(o));
+
+/** The hint under a campaign in the picker: the API's reason, else the words for its state (none when public). */
+export function campaignHint(o: Pick<QrCampaignOption, 'state' | 'usable' | 'reason'>): string | null {
+  const use = campaignUse(o);
+  if (use === 'ready') return null;
+  if (o.reason) return o.reason;
+  switch (use) {
     case 'viewOnly': return VIEW_ONLY_HINT;
     case 'private': return PRIVATE_HINT;
     case 'unpublished': return UNPUBLISHED_HINT;
-    case 'blocked': return o.reason ?? "Can't be used right now";
-    default: return null;
+    default: return BLOCKED_HINT;
   }
 }
 
 /** "Opens: Fall Promo", or "No campaign". */
-export const opensLabel = (code: Pick<QrCode, 'campaignTitle' | 'memoryId'>): string =>
-  (code.memoryId !== null && code.campaignTitle ? `Opens: ${code.campaignTitle}` : 'No campaign');
+export const opensLabel = (code: Pick<QrCode, 'campaignTitle'>): string =>
+  (code.campaignTitle ? `Opens: ${code.campaignTitle}` : 'No campaign');
 
 /** "0 scans", "1 scan", "1,204 scans". */
 export const scansLabel = (n: unknown): string => countLabel(n, 'scan');

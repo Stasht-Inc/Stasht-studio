@@ -9,7 +9,7 @@ import {
 } from '../ui/alert-dialog';
 import { qrCodesAPI, QR_GENERIC_ERROR } from '../../services/qrCodesAPI';
 import {
-  DELETE_TEXT, EMPTY_TEXT, campaignHint, campaignUse, canPick, cleanName, opensLabel, qrFileName, scansLabel,
+  DELETE_TEXT, EMPTY_TEXT, campaignHint, campaignUse, canPick, canPublish, cleanName, opensLabel, qrFileName, scansLabel,
   type QrCampaignOption, type QrCode,
 } from '../../utils/qrCodes';
 import { keyboardOnlyFocusReturn } from '../../utils/menuFocus';
@@ -347,7 +347,8 @@ export default function QrCodesDialog({ open, onOpenChange, propertyId }: QrCode
   );
 }
 
-/** One pick from the view's campaigns. Not published → Publish (publicly) in place; private → can't be used. */
+/** One pick from the view's campaigns. Not published → Publish (publicly) in place when the API allows it (can_publish);
+ * private, or anything else the API calls unusable → its reason, not pickable. */
 function CampaignPicker({ propertyId, current, onPick }: {
   propertyId: number | string | null;
   current: number | null;
@@ -427,7 +428,7 @@ function CampaignPicker({ propertyId, current, onPick }: {
     const res = await qrCodesAPI.publish(o.id);
     setPublishingId(null);
     if (res.ok) {
-      setRows((list) => (list ?? []).map((r) => (r.id === o.id ? { ...r, published: 1, usable: null, reason: null } : r)));
+      setRows((list) => (list ?? []).map((r) => (r.id === o.id ? { ...r, state: 'public', usable: true, canPublish: false, reason: null } : r)));
     } else {
       toast.error(res.error ?? "Couldn't publish this campaign. Please try again.");
     }
@@ -469,7 +470,7 @@ function CampaignPicker({ propertyId, current, onPick }: {
                 </span>
                 <span className="min-w-0 flex-1">
                   <span className={`block truncate text-sm font-medium ${pickable ? 'text-gray-900' : 'text-gray-500'}`}>{o.title}</span>
-                  {use === 'unpublished' ? (
+                  {canPublish(o) ? (
                     <span className="block text-xs text-gray-600">
                       {hint} ·{' '}
                       <button type="button" onClick={() => void publish(o)} disabled={publishingId !== null} className={`${LINK_BUTTON} text-xs`}>
@@ -477,7 +478,7 @@ function CampaignPicker({ propertyId, current, onPick }: {
                       </button>
                     </span>
                   ) : hint ? (
-                    <span className={`block text-xs ${use === 'viewOnly' ? 'text-gray-500' : 'text-amber-700'}`}>{hint}</span>
+                    <span className={`block text-xs ${use === 'viewOnly' || use === 'unpublished' ? 'text-gray-500' : 'text-amber-700'}`}>{hint}</span>
                   ) : null}
                 </span>
                 {pickingId === o.id ? <Loader2 className="h-4 w-4 flex-shrink-0 animate-spin text-[#6C60FF]" aria-hidden="true" /> : null}

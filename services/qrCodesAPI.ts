@@ -1,4 +1,4 @@
-import { apiRequest, dashboardAPI } from '../utils/authUtils';
+import { apiRequest } from '../utils/authUtils';
 import type { ApiResponse } from '../utils/authUtils';
 import {
   campaignOptionsFromResponse, qrCodeFromResponse, qrCodesFromResponse, viewQuery,
@@ -7,7 +7,8 @@ import {
 
 // Dynamic QR Codes (3 Nov 2026), /api/react/qr-codes. Codes belong to the view they are made in: the account's own
 // (no property_id) or a property's (property_id; the External view also sends X-Stasht-Property, added by
-// apiRequest). Every call returns { ok, data?, error? } with one plain sentence for a toast.
+// apiRequest). Every call returns { ok, data?, error? }; a refusal ({success: false, code, message}: qr_codes_unavailable,
+// property_forbidden, account_not_ready, qr_code_not_found, campaign_*) carries the server's message as the error.
 
 export interface QrResult<T> {
   ok: boolean;
@@ -62,7 +63,10 @@ export const qrCodesAPI = {
       (body) => campaignOptionsFromResponse(body, page),
     ),
 
-  /** Publish a campaign publicly (published = 1) through the existing publish endpoint, so a code can open it. */
+  /**
+   * Publish a campaign publicly (role 1) through the existing publish endpoint, so a code can open it, with
+   * publish_only: true as the QR codes contract asks. Only for options whose can_publish is true.
+   */
   publish: async (memoryId: number): Promise<QrResult<true>> =>
-    result(await dashboardAPI.publishMemory(String(memoryId), 1), () => true),
+    result(await apiRequest(`/memories/${memoryId}/publish`, json('POST', { role: 1, publish_only: true })), () => true),
 };

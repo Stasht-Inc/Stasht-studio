@@ -1,18 +1,22 @@
 // tests/utils/qrCodes.test.mjs
 // Imports the TypeScript source directly — needs Node >= 22.18 (built-in type stripping).
 //
-// Dynamic QR Codes (3 Nov 2026): reading the API's answers, what the picker says about each campaign, and the small
-// labels and file names the QR Codes window shows.
+// Dynamic QR Codes (3 Nov 2026): reading the API's answers (the web API's contract, 3 Nov), what the picker says about
+// each campaign, and the small labels and file names the QR Codes window shows.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  campaignHint, campaignOptionsFromResponse, campaignUse, canPick, cleanName, normalizeQrCode, opensLabel, qrCodeFromResponse,
+  campaignHint, campaignOptionsFromResponse, campaignUse, canPick, canPublish, cleanName, normalizeQrCode, opensLabel, qrCodeFromResponse,
   qrCodesFromResponse, qrFileName, scansLabel, viewQuery, SHORT_URL_BASE,
 } from '../../utils/qrCodes.ts';
 
-const ROW = { id: 7, public_code: 'K7PQ2MZX', name: 'Front window', memory_id: 801, campaign_title: 'Fall Promo', scan_count: 12, last_scanned_at: '2026-11-02T10:00:00Z', short_url: 'https://studio.stasht.com/q/K7PQ2MZX' };
+const CAMPAIGN = { id: 801, title: 'Fall Promo', state: 'public', usable: true, public_url: 'https://studio.stasht.com/published-memory/fall-promo' };
+const ROW = {
+  id: 7, public_code: 'K7PQ2MZX', short_url: 'https://studio.stasht.com/q/K7PQ2MZX', name: 'Front window', property_id: null, memory_id: 801,
+  campaign: CAMPAIGN, scan_count: 12, last_scanned_at: '2026-11-02T10:00:00Z', created_at: '2026-11-01T10:00:00Z', updated_at: '2026-11-02T10:00:00Z',
+};
 
-test('a code row reads as the window needs it', () => {
+test('a code reads as the window needs it', () => {
   assert.deepEqual(normalizeQrCode(ROW), {
     id: 7, publicCode: 'K7PQ2MZX', name: 'Front window', memoryId: 801, campaignTitle: 'Fall Promo',
     shortUrl: 'https://studio.stasht.com/q/K7PQ2MZX', scanCount: 12, lastScannedAt: '2026-11-02T10:00:00Z',
@@ -20,7 +24,7 @@ test('a code row reads as the window needs it', () => {
 });
 
 test('missing pieces: name falls back to the campaign, the short URL to the default base, scans to 0', () => {
-  const c = normalizeQrCode({ id: '3', public_code: 'ABCDEFGH', memory_id: '9', campaign: { id: 9, title: 'Open House' } });
+  const c = normalizeQrCode({ id: '3', public_code: 'ABCDEFGH', memory_id: 9, campaign: { id: 9, title: 'Open House', state: 'view_only', usable: true } });
   assert.equal(c.id, 3);
   assert.equal(c.name, 'Open House');
   assert.equal(c.memoryId, 9);
@@ -28,11 +32,11 @@ test('missing pieces: name falls back to the campaign, the short URL to the defa
   assert.equal(c.scanCount, 0);
 });
 
-test('a code with no campaign opens nothing, even if a stale title came with it', () => {
-  const c = normalizeQrCode({ ...ROW, memory_id: null, campaign_title: 'Old' });
-  assert.equal(c.memoryId, null);
-  assert.equal(c.campaignTitle, null);
-  assert.equal(opensLabel(c), 'No campaign');
+test('campaign null is "No campaign" — never set, or the campaign was deleted (memory_id may still be there)', () => {
+  const deleted = normalizeQrCode({ ...ROW, memory_id: 801, campaign: null });
+  assert.equal(deleted.campaignTitle, null);
+  assert.equal(opensLabel(deleted), 'No campaign');
+  assert.equal(opensLabel(normalizeQrCode({ ...ROW, memory_id: null, campaign: null })), 'No campaign');
   assert.equal(opensLabel(normalizeQrCode(ROW)), 'Opens: Fall Promo');
 });
 
@@ -42,57 +46,63 @@ test('rows without an id or a public code are dropped', () => {
   assert.equal(normalizeQrCode(null), null);
 });
 
-test('list answers: the {success, data: []} envelope, or rows under a key', () => {
+test('list answer {success, data: [code]}', () => {
   assert.equal(qrCodesFromResponse({ success: true, data: [ROW, { bad: 1 }] }).length, 1);
-  assert.equal(qrCodesFromResponse({ success: true, data: { qr_codes: [ROW] } }).length, 1);
-  assert.equal(qrCodesFromResponse([ROW]).length, 1);
+  assert.deepEqual(qrCodesFromResponse({ success: true, data: [] }), []);
   assert.deepEqual(qrCodesFromResponse({ success: true }), []);
 });
 
-test('create / update answers: the code under data or data.qr_code', () => {
+test('create / update answer {success, data: code}', () => {
   assert.equal(qrCodeFromResponse({ success: true, data: ROW }).id, 7);
-  assert.equal(qrCodeFromResponse({ success: true, data: { qr_code: ROW } }).id, 7);
   assert.equal(qrCodeFromResponse({ success: true, data: null }), null);
 });
 
+const OPTIONS = {
+  success: true,
+  data: [
+    { id: 1, title: 'A', cover_url: null, state: 'public', usable: true, can_publish: false, reason: null },
+    { id: 2, title: '', cover_url: 'https://x/y.jpg', state: 'unpublished', usable: false, can_publish: true, reason: 'Not published' },
+    { nope: true },
+  ],
+  meta: { page: 1, per_page: 20, total: 45, total_pages: 3 },
+};
+
 test('campaign options with paging meta', () => {
-  const page = campaignOptionsFromResponse({
-    success: true,
-    data: [{ id: 1, title: 'A', published: 1 }, { id: 2, title: '', published: 0, cover_url: 'https://x/y.jpg' }, { nope: true }],
-    meta: { page: 1, total_pages: 3 },
-  });
+  const page = campaignOptionsFromResponse(OPTIONS);
   assert.equal(page.options.length, 2);
-  assert.equal(page.options[1].title, 'Untitled campaign');
-  assert.equal(page.options[1].coverUrl, 'https://x/y.jpg');
-  assert.equal(page.page, 1);
-  assert.equal(page.totalPages, 3);
+  assert.deepEqual(page.options[1], { id: 2, title: 'Untitled campaign', coverUrl: 'https://x/y.jpg', state: 'unpublished', usable: false, canPublish: true, reason: 'Not published' });
+  assert.deepEqual([page.page, page.totalPages], [1, 3]);
   const bare = campaignOptionsFromResponse({ success: true, data: [] }, 2);
   assert.deepEqual([bare.page, bare.totalPages], [2, 2]);
-  const laravel = campaignOptionsFromResponse({ success: true, data: { data: [{ id: 5, published: '2' }], current_page: 1, last_page: 4 } });
-  assert.equal(laravel.options[0].published, 2);
-  assert.deepEqual([laravel.page, laravel.totalPages], [1, 4]);
 });
 
-test('what each published state allows', () => {
-  assert.equal(campaignUse({ published: 1 }), 'ready');
-  assert.equal(campaignUse({ published: 2 }), 'viewOnly');
-  assert.equal(campaignUse({ published: 3 }), 'private');
-  assert.equal(campaignUse({ published: 0 }), 'unpublished');
-  assert.equal(campaignUse({ published: 1, usable: false }), 'blocked');
-  assert.equal(campaignUse({ published: 3, usable: false }), 'private', 'the published state explains it better');
-  assert.equal(canPick('ready'), true);
-  assert.equal(canPick('viewOnly'), true);
-  assert.equal(canPick('private'), false);
-  assert.equal(canPick('unpublished'), false);
-  assert.equal(canPick('blocked'), false);
+const opt = (state, usable, extra = {}) => ({ state, usable, canPublish: false, reason: null, ...extra });
+
+test('what each state allows', () => {
+  assert.equal(campaignUse(opt('public', true)), 'ready');
+  assert.equal(campaignUse(opt('view_only', true)), 'viewOnly');
+  assert.equal(campaignUse(opt('private', false)), 'private');
+  assert.equal(campaignUse(opt('unpublished', false)), 'unpublished');
+  assert.equal(campaignUse(opt('public', false, { reason: 'No public link yet' })), 'blocked', 'public but no slug yet');
+  assert.equal(campaignUse(opt('something-new', true)), 'unpublished', 'an unknown state is never pickable');
+  for (const [use, pickable] of [['ready', true], ['viewOnly', true], ['private', false], ['unpublished', false], ['blocked', false]]) {
+    assert.equal(canPick(use), pickable, use);
+  }
 });
 
-test('hints under each campaign in the picker', () => {
-  assert.equal(campaignHint({ published: 1 }), null);
-  assert.equal(campaignHint({ published: 2 }), "View only — visitors can't add moments");
-  assert.equal(campaignHint({ published: 3 }), 'Private — change to Public to use');
-  assert.equal(campaignHint({ published: 0 }), 'Not published');
-  assert.equal(campaignHint({ published: 1, usable: false, reason: 'This campaign was deleted.' }), 'This campaign was deleted.');
+test('Publish shows only when the API says the campaign can be published', () => {
+  assert.equal(canPublish(opt('unpublished', false, { canPublish: true })), true);
+  assert.equal(canPublish(opt('unpublished', false, { canPublish: false })), false);
+  assert.equal(canPublish(opt('public', true, { canPublish: true })), false, 'already usable: nothing to publish');
+});
+
+test('hints: the server reason first, then the words for the state', () => {
+  assert.equal(campaignHint(opt('public', true)), null);
+  assert.equal(campaignHint(opt('view_only', true, { reason: "View only — visitors can't add moments" })), "View only — visitors can't add moments");
+  assert.equal(campaignHint(opt('view_only', true)), "View only — visitors can't add moments");
+  assert.equal(campaignHint(opt('private', false)), 'Private — change to Public to use');
+  assert.equal(campaignHint(opt('unpublished', false)), 'Not published');
+  assert.equal(campaignHint(opt('public', false, { reason: 'No public link yet' })), 'No public link yet');
 });
 
 test('scan counts read as English', () => {
