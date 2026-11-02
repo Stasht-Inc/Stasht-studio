@@ -17,6 +17,11 @@ const MAIN = { id: 70, external_user_id: 707, name: 'Main Dealer', email: 'main@
 const PROPERTY = { id: 12, name: 'Main Downtown', unique_id: 'MD-12', user_id: 707, is_creator: true, user_role: 'owner', property_type: 'internal', account_type: 'internal', account_created_for_property: false, can_manage: true, is_own_external_account: false, location: 'Toronto, ON', memories_count: 0, users_count: 1, invited_users: [], labels: [], created_at: '2026-10-01T10:00:00Z', is_active: true, status: 1 };
 
 // state as the API names it; slug: whether it has a public link yet; canPublish: the owner may publish it.
+// A salesperson's property the main account manages (can_manage), and one it may only view.
+const P_MANAGED = { ...PROPERTY, id: 96, name: 'Bon Sun', unique_id: 'BS-96', user_id: 966, is_creator: false, user_role: 'admin', property_type: 'external', account_type: 'external', account_created_for_property: true, can_manage: true };
+const P_VIEWER = { ...PROPERTY, id: 97, name: 'Rita Rep', unique_id: 'RR-97', user_id: 967, is_creator: false, user_role: 'viewer', property_type: 'external', account_type: 'external', account_created_for_property: true, can_manage: false };
+const ALL_PROPERTIES = [PROPERTY, P_MANAGED, P_VIEWER];
+
 const CAMPAIGNS = [
   { id: 801, title: 'Fall Promo', state: 'public', slug: 'fall-promo', canPublish: false },
   { id: 802, title: 'Open House', state: 'view_only', slug: 'open-house', canPublish: false },
@@ -80,7 +85,9 @@ async function open({ width, height, seed, codes = [], fail = {} }) {
     }
     if (p === '/qr-codes' && method === 'GET') {
       if (fail.list) return route.fulfill({ status: 503, json: { success: false, code: 'qr_codes_unavailable', message: 'QR codes are not available yet.' } });
-      return route.fulfill({ json: { success: true, data: state.codes.map(row) } });
+      const pid = url.searchParams.get('property_id');
+      const codes = state.codes.filter((c) => String(c.property_id ?? '') === String(pid ?? '') || (pid === null && c.property_id === undefined));
+      return route.fulfill({ json: { success: true, data: codes.map(row) } });
     }
     if (p === '/qr-codes' && method === 'POST') {
       if (fail.create) return route.fulfill({ status: 422, json: { success: false, code: 'campaign_unpublished', message: 'This campaign is no longer published.' } });
@@ -116,10 +123,11 @@ async function open({ width, height, seed, codes = [], fail = {} }) {
       return route.fulfill({ json: { success: true, data: { slug: 'spring-sale' } } });
     }
     if (p === '/properties' && method === 'GET') {
-      return route.fulfill({ json: { success: true, data: { properties: [PROPERTY], owned_properties: [PROPERTY], shared_properties: [], owned_count: 1, shared_count: 0, total_count: 1 } } });
+      return route.fulfill({ json: { success: true, data: { properties: ALL_PROPERTIES, owned_properties: [PROPERTY], shared_properties: [P_MANAGED, P_VIEWER], owned_count: 1, shared_count: 2, total_count: 3 } } });
     }
     if (/^\/properties\/\d+\/memories$/.test(p)) {
-      return route.fulfill({ json: { status: 'success', data: { property: PROPERTY, user_role: 'owner', viewing_invited_content: false, inviter: null, memories: { data: [], total: 0 }, sidebar: { categories: { items: [] }, labels: { items: [] } } } } });
+      const prop = ALL_PROPERTIES.find((x) => String(x.id) === p.split('/')[2]) || PROPERTY;
+      return route.fulfill({ json: { status: 'success', data: { property: prop, user_role: 'owner', viewing_invited_content: false, inviter: null, memories: { data: [], total: 0 }, sidebar: { categories: { items: [] }, labels: { items: [] } } } } });
     }
     if (p === '/user/storage-overview') return route.fulfill({ json: { success: true, data: { storage_overview: { plan_name: 'Professional' } } } });
     if (p.startsWith('/dashboard/')) return route.fulfill({ status: 404, json: { success: false, message: 'Not found' } });
@@ -325,6 +333,27 @@ try {
       const create = state.calls.find((c) => c.method === 'POST' && c.p === '/qr-codes');
       expect(list?.q === '12' && opts?.q === '12' && create?.body.property_id === 12, `${tag}: property view sends property_id 12 (${JSON.stringify([list?.q, opts?.q, create?.body])})`);
       await shot(page, `${tag}-13-property-created`);
+      await context.close();
+    }
+
+    // 7. The main account in a salesperson's property it manages (can_manage): the button, and that property's codes.
+    {
+      const mseed = { stasht_token: 'main-token', stasht_user: MAIN, view_type: 'property', selected_property: P_MANAGED, stasht_campaigns_view: 'storeels' };
+      const codes = [{ id: 20, public_code: 'BSUN96QR', name: 'Bon Sun showroom', memory_id: 801, property_id: 96, scan_count: 4, last_scanned_at: null }];
+      const { page, context, state } = await open({ width, height, seed: mseed, codes });
+      expect(await qrButton(page).count() === 1, `${tag}: main account in a managed property sees QR Codes`);
+      await qrButton(page).click();
+      await dialog(page).getByText('Bon Sun showroom').waitFor({ timeout: 8000 }).catch(() => failures.push(`${tag}: managed property: its codes listed`));
+      const list = state.calls.find((c) => c.method === 'GET' && c.p === '/qr-codes');
+      expect(list?.q === '96', `${tag}: managed property: list asked with property_id 96 (${list?.q})`);
+      await shot(page, `${tag}-18-managed-property-list`);
+      await context.close();
+    }
+    // 8. A property the main account may only view: no button.
+    {
+      const vseed = { stasht_token: 'main-token', stasht_user: MAIN, view_type: 'property', selected_property: P_VIEWER, stasht_campaigns_view: 'storeels' };
+      const { page, context } = await open({ width, height, seed: vseed });
+      expect(await qrButton(page).count() === 0, `${tag}: view-only property: no QR Codes button`);
       await context.close();
     }
   }

@@ -6,7 +6,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  campaignHint, campaignOptionsFromResponse, campaignUse, canPick, canPublish, cleanName, normalizeQrCode, opensLabel, qrCodeFromResponse,
+  campaignHint, campaignOptionsFromResponse, canManageQrCodes, campaignUse, canPick, canPublish, cleanName, normalizeQrCode, opensLabel, qrCodeFromResponse,
   qrCodesFromResponse, qrFileName, qrRedirectUrl, scansLabel, viewQuery, QR_REDIRECT_FALLBACK_ORIGIN, SHORT_URL_BASE,
 } from '../../utils/qrCodes.ts';
 
@@ -158,4 +158,20 @@ test('/q/<code> reached in Studio (an old service worker): off to the API host, 
   assert.equal(qrRedirectUrl('../admin', undefined, studio), null);
   assert.equal(qrRedirectUrl('x'.repeat(17), undefined, studio), null);
   assert.equal(qrRedirectUrl('K7PQ2MZX', 'javascript:alert(1)', studio), `${QR_REDIRECT_FALLBACK_ORIGIN}/q/K7PQ2MZX`);
+});
+
+test('who sees the QR Codes button: account view = the account; property view = its own account or anyone who can manage it', () => {
+  const me = { external_user_id: 707 };
+  assert.equal(canManageQrCodes('personal', null, me, false), true);
+  assert.equal(canManageQrCodes('personal', null, me, true), false, 'partial admins never');
+  // The property's own account.
+  assert.equal(canManageQrCodes('property', { id: 12, user_id: 707 }, me, false), true);
+  assert.equal(canManageQrCodes('property', { id: 12, user_id: '707' }, me, false), true);
+  // The main account (inviter / admin) in a property whose account is someone else's: the row's can_manage.
+  assert.equal(canManageQrCodes('property', { id: 96, user_id: 966, can_manage: true }, me, false), true);
+  assert.equal(canManageQrCodes('property', { id: 96, user_id: 966, can_manage: false }, me, false), false);
+  assert.equal(canManageQrCodes('property', { id: 96, user_id: 966 }, me, false), false);
+  assert.equal(canManageQrCodes('property', { id: 96, user_id: 966, can_manage: true }, me, true), false, 'partial admins never');
+  assert.equal(canManageQrCodes('property', null, me, false), false);
+  assert.equal(canManageQrCodes('property', { id: 12, user_id: 707 }, null, false), false);
 });

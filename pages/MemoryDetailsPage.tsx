@@ -5047,6 +5047,88 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
 
   const filteredAndSortedMediaItems = sortMediaItems(mediaItems, mediaSortBy, mediaSortOrder);
 
+  // Per-campaign AI Campaign Wizard (3 Nov 2026): one button, in the desktop media sidebar (lg+) and the tablet media
+  // section (md..lg). It used to sit only in the tablet section while showing only from lg up, so it never showed;
+  // the Campaigns tab's own wizard button was replaced by QR Codes. Phones: no media section, no button (as before).
+  const openCampaignAIWizard = async () => {
+    // Check if another memory is being processed
+    if (aiProcessingData?.status === 'processing' && aiProcessingData?.memoryId !== memoryId) {
+      toast.info('Please wait for the current AI analysis to complete before starting a new one.');
+      return;
+    }
+
+    // Check if we have enough photos (minimum 3)
+    const photoCount = filteredAndSortedMediaItems.length;
+    if (photoCount < 3) {
+      const remaining = 3 - photoCount;
+      toast.error(`Please upload ${remaining} more photo${remaining > 1 ? 's' : ''} to use AI Campaign Wizard (minimum 3 photos required)`);
+      return;
+    }
+
+    // Check credits before showing modal
+    try {
+      const creditCheck = await aiCreditsAPI.checkSufficientCredits('ai_memory_wizard', 2);
+      console.log('AI Memory Wizard credit check response:', creditCheck);
+
+      if (creditCheck && creditCheck.has_sufficient_credits) {
+        // Show results modal with static options
+        setIsAIResultsModalOpen(true);
+      } else {
+        // Show insufficient credits modal
+        setInsufficientCreditsData(creditCheck);
+        setPurchaseOptions(creditCheck?.purchase_options);
+        setIsPurchaseModalOpen(true);
+      }
+    } catch (error) {
+      console.error('Error checking credits:', error);
+      toast.error('Failed to check credits. Please try again.');
+    }
+  };
+
+  const renderAIWizardButton = (className: string) => (
+    <Button
+      variant="outline"
+      size="sm"
+      disabled={aiProcessingData?.status === 'processing' && aiProcessingData?.memoryId !== memoryId}
+      onClick={() => { void openCampaignAIWizard(); }}
+      className={`${className} px-3 relative overflow-hidden items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed`}
+      style={
+        aiProcessingData?.status === 'processing' && aiProcessingData?.memoryId !== memoryId
+          ? {
+              background: '#f3f4f6',
+              border: '1px solid #e5e7eb'
+            }
+          : {
+              background: 'linear-gradient(white, white) padding-box, linear-gradient(to right, #6C60FF, #EC4899) border-box',
+              border: '1px solid transparent'
+            }
+      }
+    >
+      <Sparkles
+        className="w-4 h-4 mr-2 flex-shrink-0"
+        style={{
+          color: aiProcessingData?.status === 'processing' && aiProcessingData?.memoryId !== memoryId ? '#9ca3af' : '#6C60FF'
+        }}
+      />
+      <span style={
+        aiProcessingData?.status === 'processing' && aiProcessingData?.memoryId !== memoryId
+          ? {
+              color: '#9ca3af',
+              display: 'inline-block'
+            }
+          : {
+              background: 'linear-gradient(to right, #6C60FF, #EC4899)',
+              WebkitBackgroundClip: 'text',
+              WebkitTextFillColor: 'transparent',
+              backgroundClip: 'text',
+              display: 'inline-block'
+            }
+      }>
+        AI Campaign Wizard
+      </span>
+    </Button>
+  );
+
   // Reordered media items for grid display (drag-and-drop)
   const displayMediaItems = (() => {
     if (mediaCustomOrder.length === 0) return filteredAndSortedMediaItems;
@@ -15388,89 +15470,14 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                 )}
                 <Card className="border-0 shadow-sm">
                   <CardHeader className="pb-3 md:pb-4 px-3 md:px-6">
-                    <div className="md:flex items-center justify-between">
+                    <div className="md:flex md:flex-wrap items-center justify-between gap-x-3">
                       <CardTitle className="flex items-center gap-2 text-base md:text-lg my-2">
                         <ImageIcon className="w-4 h-4 md:w-5 md:h-5 text-[#6C60FF]" />
-                        <span className="text-sm md:text-base">Media ({filteredAndSortedMediaItems.length} photos)</span>
+                        <span className="text-sm md:text-base whitespace-nowrap">Media ({filteredAndSortedMediaItems.length} photos)</span>
                       </CardTitle>
-                      <div className="flex items-center gap-3">
-                        {/* AI Memory Wizard Button - Hide for Suggested category */}
-                        {!isSuggestedCategory && (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            disabled={aiProcessingData?.status === 'processing' && aiProcessingData?.memoryId !== memoryId}
-                            onClick={async () => {
-                            // Check if another memory is being processed
-                            if (aiProcessingData?.status === 'processing' && aiProcessingData?.memoryId !== memoryId) {
-                              toast.info('Please wait for the current AI analysis to complete before starting a new one.');
-                              return;
-                            }
-
-                            // Check if we have enough photos (minimum 3)
-                            const photoCount = filteredAndSortedMediaItems.length;
-                            if (photoCount < 3) {
-                              const remaining = 3 - photoCount;
-                              toast.error(`Please upload ${remaining} more photo${remaining > 1 ? 's' : ''} to use AI Campaign Wizard (minimum 3 photos required)`);
-                              return;
-                            }
-
-                            // Check credits before showing modal
-                            try {
-                              const creditCheck = await aiCreditsAPI.checkSufficientCredits('ai_memory_wizard', 2);
-                              console.log('AI Memory Wizard credit check response:', creditCheck);
-
-                              if (creditCheck && creditCheck.has_sufficient_credits) {
-                                // Show results modal with static options
-                                setIsAIResultsModalOpen(true);
-                              } else {
-                                // Show insufficient credits modal
-                                setInsufficientCreditsData(creditCheck);
-                                setPurchaseOptions(creditCheck?.purchase_options);
-                                setIsPurchaseModalOpen(true);
-                              }
-                            } catch (error) {
-                              console.error('Error checking credits:', error);
-                              toast.error('Failed to check credits. Please try again.');
-                            }
-                          }}
-                          className="hidden lg:flex h-9 px-3 relative overflow-hidden items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
-                          style={
-                            aiProcessingData?.status === 'processing' && aiProcessingData?.memoryId !== memoryId
-                              ? {
-                                  background: '#f3f4f6',
-                                  border: '1px solid #e5e7eb'
-                                }
-                              : {
-                                  background: 'linear-gradient(white, white) padding-box, linear-gradient(to right, #6C60FF, #EC4899) border-box',
-                                  border: '1px solid transparent'
-                                }
-                          }
-                        >
-                          <Sparkles
-                            className="w-4 h-4 mr-2 flex-shrink-0"
-                            style={{
-                              color: aiProcessingData?.status === 'processing' && aiProcessingData?.memoryId !== memoryId ? '#9ca3af' : '#6C60FF'
-                            }}
-                          />
-                          <span style={
-                            aiProcessingData?.status === 'processing' && aiProcessingData?.memoryId !== memoryId
-                              ? {
-                                  color: '#9ca3af',
-                                  display: 'inline-block'
-                                }
-                              : {
-                                  background: 'linear-gradient(to right, #6C60FF, #EC4899)',
-                                  WebkitBackgroundClip: 'text',
-                                  WebkitTextFillColor: 'transparent',
-                                  backgroundClip: 'text',
-                                  display: 'inline-block'
-                                }
-                          }>
-                            AI Campaign Wizard
-                          </span>
-                        </Button>
-                        )}
+                      <div className="ml-auto flex flex-wrap items-center justify-end gap-3">
+                        {/* AI Campaign Wizard (tablet media section; desktop shows it in the media sidebar) */}
+                        {!isSuggestedCategory && !isInventoryDetail && renderAIWizardButton('flex h-9')}
 
                         {/* Simple Filter Bar */}
                         <div className="flex items-center gap-2">
@@ -17515,9 +17522,9 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
           <>
           {/* Media Header */}
           <div className="flex-shrink-0 p-5 border-b border-gray-100">
-            {/* Row 1: Media title + Upload button */}
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
+            {/* Row 1: Media title + AI Campaign Wizard / Upload (the buttons take their own row when they don't fit) */}
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2 whitespace-nowrap">
                 <ImageIcon className="w-5 h-5 text-[#6C60FF]" />
                 <span className="text-base font-semibold text-gray-900">Media</span>
                 <span className="text-sm text-gray-500">· ({filteredAndSortedMediaItems.length} photos)</span>
@@ -17527,8 +17534,10 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                   </span>
                 )}
               </div>
-              {/* No uploads on read-only inventory (cars, catalogue products) */}
+              {/* No uploads (or AI wizard) on read-only inventory (cars, catalogue products) */}
               {!isSuggestedCategory && !isInventoryDetail && (
+                <div className="ml-auto flex items-center gap-2">
+                {renderAIWizardButton('flex h-8')}
                 <Button
                   variant="outline"
                   size="sm"
@@ -17539,6 +17548,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                   <Download className="w-4 h-4 mr-1.5" />
                   Upload
                 </Button>
+                </div>
               )}
             </div>
             <p className="text-xs text-gray-400 mb-3">Drag images to change the order</p>

@@ -247,3 +247,18 @@ export function qrRedirectUrl(code: string, apiBase: string | null | undefined, 
   const origin = origins.find((o) => o !== currentOrigin);
   return origin ? `${origin}/q/${encodeURIComponent(code)}` : null;
 }
+
+/**
+ * Who sees the Campaigns tab's QR Codes button (the API's rule for who may manage the codes): in the account view, the
+ * account itself; in a property view, the property's own account or anyone the properties list says can manage it
+ * (can_manage: its creator / admins, e.g. the main account viewing a salesperson's property). Never a partial admin.
+ */
+export function canManageQrCodes(viewType: unknown, property: Raw | null | undefined, user: Raw | null | undefined, partialAdmin: boolean): boolean {
+  if (partialAdmin) return false;
+  if (viewType !== 'property') return true;
+  if (!property || !user) return false;
+  const owner = property.user_id;
+  const me = user.external_user_id;
+  if (owner !== null && owner !== undefined && me !== null && me !== undefined && String(owner) === String(me)) return true;
+  return property.can_manage === true;
+}

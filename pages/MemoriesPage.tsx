@@ -28,6 +28,7 @@ import MemoryActionMenu from "../components/MemoryActionMenu";
 import { useNotificationsRefresh } from '../hooks/useNotificationsRefresh';
 import CategoryNav from "../components/CategoryNav";
 import QrCodesDialog from "../components/qr-codes/QrCodesDialog";
+import { canManageQrCodes } from "../utils/qrCodes";
 import { SHOPIFY_COLOR, CARS_COLOR, WEBSITE_CATALOG_COLOR } from "../utils/categoryColorManager";
 import { loadCatalogueForBrowsing, type CatalogueItemSummary } from "../services/catalogueAPI";
 import { memoryCountsManager, setShopifyCatalogCount } from '../hooks/useMemoryCounts';
@@ -469,8 +470,13 @@ function MemoriesPageContent({
   const [showMergeModal, setShowMergeModal] = useState(false);
   const [editActionLoading, setEditActionLoading] = useState(false);
 
-  // Dynamic QR Codes window (Campaigns tab header)
+  // Dynamic QR Codes window (Campaigns tab header). In a property view the button is for anyone who may manage that
+  // property's codes (its own account, or its creator / admins: the row's can_manage), as the API allows.
   const [showQrCodes, setShowQrCodes] = useState(false);
+  const canManageQr = useMemo(
+    () => canManageQrCodes(viewType, currentProperty as unknown as Record<string, unknown> | null, user as unknown as Record<string, unknown> | null, isPartialAdmin()),
+    [viewType, currentProperty, user],
+  );
 
   // Media Library states for CreateMemory
   const [isMediaLibraryOpen, setIsMediaLibraryOpen] = useState(false);
@@ -2607,7 +2613,7 @@ function MemoriesPageContent({
 
                 <div className="flex flex-wrap items-center justify-end gap-2 md:gap-3 md:w-auto md:ml-auto">
                   {/* Dynamic QR Codes (3 Nov 2026): replaces the AI Campaign Wizard button; phones too */}
-                  {isPropertyOwner && (
+                  {canManageQr && (
                     <Button
                       variant="outline"
                       onClick={() => setShowQrCodes(true)}
