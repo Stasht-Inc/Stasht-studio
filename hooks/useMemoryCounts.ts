@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { dashboardAPI, isPartialAdmin } from '../utils/authUtils';
 import { useAuth } from '../contexts/AuthContext';
 import { catalogueAPI } from '../services/catalogueAPI';
+import { useInventoryViewKey } from './useInventoryViewKey';
 
 interface MemoryCounts {
   total_memories: number;
@@ -44,6 +45,9 @@ let globalWebsiteCatalogueCount = 0;
 // reset on logout so the next user refetches.
 let carsCatalogLoaded = false;
 let websiteCatalogueLoaded = false;
+// The inventory view the two counts above were fetched for (useInventoryViewKey): a salesperson's personal view counts
+// only their own cars and items, the External view the main account's too, so a switch fetches them again.
+let countedInventoryView: string | null = null;
 
 // Subscribers that need to be notified when memory counts change
 const subscribers = new Set<() => void>();
@@ -193,6 +197,7 @@ const memoryCountsManager = {
 // Hook for components to use memory counts
 export const useMemoryCounts = (): UseMemoryCountsReturn => {
   const { isAuthenticated } = useAuth();
+  const inventoryViewKey = useInventoryViewKey();
   const [, forceUpdate] = useState({});
 
   // Force component re-render when global state changes
@@ -219,9 +224,16 @@ export const useMemoryCounts = (): UseMemoryCountsReturn => {
     if (!globalMemoryCounts && !globalIsLoading) {
       memoryCountsManager.fetchMemoryCounts();
     }
+    if (countedInventoryView !== null && countedInventoryView !== inventoryViewKey) {
+      carsCatalogLoaded = false;
+      websiteCatalogueLoaded = false;
+      globalWebsiteCatalogueCount = 0; // the other view may have no catalogue items at all
+      memoryCountsManager.notify();
+    }
+    countedInventoryView = inventoryViewKey;
     memoryCountsManager.fetchCarsCatalogCount();
     memoryCountsManager.fetchWebsiteCatalogueCount();
-  }, [isAuthenticated]);
+  }, [isAuthenticated, inventoryViewKey]);
 
   // Set up periodic refresh of memory counts (every 30 seconds when authenticated)
   useEffect(() => {

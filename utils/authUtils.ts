@@ -1,5 +1,6 @@
 import { requestUpgrade } from './planEvents';
 import { propertyUpdateFailure } from './propertyImage';
+import { currentPropertyViewHeaders, propertyViewCacheKey } from './inventoryView';
 
 // Auth utility functions for API integration
 
@@ -161,7 +162,9 @@ export const getApiBaseUrl = () => {
 
 export const API_BASE_URL = getApiBaseUrl();
 
-// Helper function to get auth headers
+// Helper function to get auth headers. In a salesperson's External view of their own property every request also
+// names that property (X-Stasht-Property, utils/inventoryView): only then does the API add the main account's cars and
+// catalogue items. The personal view sends nothing, so it gets the account's own only (Deepak, 2 Nov 2026).
 export const getAuthHeaders = (): Record<string, string> => {
   const token = localStorage.getItem('stasht_token');
   return {
@@ -170,6 +173,7 @@ export const getAuthHeaders = (): Record<string, string> => {
     'Pragma': 'no-cache',
     'Expires': '0',
     ...(token && { Authorization: `Bearer ${token}` }),
+    ...currentPropertyViewHeaders(),
   };
 };
 
@@ -261,7 +265,9 @@ export const fetchWithRateLimitRetry = async (
 // Only GETs are ever cached/de-duped; every successful write clears the cache so
 // mutations are reflected immediately on the next read. Cache keys are namespaced
 // by a fingerprint of the auth token so a login/logout or "log in as user" switch
-// can never serve one user data cached for another.
+// can never serve one user data cached for another — and by the property view the
+// request names (utils/inventoryView), so a salesperson's personal view is never served
+// what their External view read (the main account's cars) or the other way round.
 const GET_CACHE_TTL_MS = 15000;
 
 type CachedGet = { response: ApiResponse<any>; expiresAt: number };
@@ -272,7 +278,7 @@ const getCache = new Map<string, CachedGet>();
 const cacheKeyFor = (endpoint: string): string => {
   const token = tokenUtils.getToken();
   const ns = token ? token.slice(-16) : 'anon';
-  return `${ns}::${endpoint}`;
+  return `${ns}::${propertyViewCacheKey()}::${endpoint}`;
 };
 
 // Return a copy so a caller mutating the result can't corrupt the shared cached
@@ -2683,9 +2689,10 @@ export const dashboardAPI = {
     }
     devLog(`📤 API CALL: Sending ${fileCount} files to backend:`, fileNames);
 
-    // Get auth token for headers (don't include Content-Type, let browser set it for FormData)
+    // Get auth token for headers (don't include Content-Type, let browser set it for FormData). The property view
+    // too: a car or catalogue campaign of the main account's items is only accepted from the External view.
     const token = localStorage.getItem('stasht_token');
-    const headers: Record<string, string> = {};
+    const headers: Record<string, string> = { ...currentPropertyViewHeaders() };
     if (token) {
       headers.Authorization = `Bearer ${token}`;
     }
