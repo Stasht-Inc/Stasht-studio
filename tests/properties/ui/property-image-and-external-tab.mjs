@@ -166,7 +166,8 @@ async function shot(page, file) {
   await page.screenshot({ path, fullPage: false });
   console.log('shot', path);
 }
-const tabButton = (page, name) => page.getByRole('button', { name, exact: true }).filter({ visible: true }).first();
+// A Users page tab: its label, then its count once loaded (Users page tab counts, 2 Nov).
+const tabButton = (page, name) => page.getByRole('button', { name: new RegExp(`^${name}( \\d+)?$`) }).filter({ visible: true }).first();
 function rowOf(page, name, width) {
   return width >= 1024
     ? page.locator('tr', { hasText: name }).filter({ visible: true }).first()
@@ -229,8 +230,9 @@ try {
     await rowOf(page, 'Chris Wirth', width).waitFor({ state: 'visible', timeout: 25000 });
     await page.waitForTimeout(400);
 
-    const tabOrder = await page.locator('button').filter({ hasText: /^(All Users|Shared with|External|Properties)$/ }).filter({ visible: true })
-      .evaluateAll((els) => els.map((el) => el.textContent.trim()));
+    // Each tab reads its label, then its count once loaded (Users page tab counts, 2 Nov): the order compares labels.
+    const tabOrder = await page.locator('button').filter({ hasText: /^(All Users|Shared with|External|Properties)\d*$/ }).filter({ visible: true })
+      .evaluateAll((els) => els.map((el) => el.textContent.trim().replace(/\d+$/, '')));
     expect(JSON.stringify(tabOrder) === JSON.stringify(['All Users', 'Shared with', 'External', 'Properties']), `${tag}: tab order (${tabOrder})`);
     if (width < 1024) expect(await noOverflow(page), `${tag}: no sideways scroll`);
 
@@ -600,7 +602,7 @@ try {
     await report.getByRole('heading', { name: 'Leads Report' }).waitFor({ state: 'visible', timeout: 25000 });
     await report.locator('h1', { hasText: 'Leads Report' }).locator('xpath=../..').locator('button').first().click();
     await report.waitForTimeout(1500);
-    const externalActive = await report.getByRole('button', { name: 'External', exact: true }).filter({ visible: true }).first()
+    const externalActive = await report.getByRole('button', { name: /^External( \d+)?$/ }).filter({ visible: true }).first()
       .evaluate((el) => el.className.includes('border-[#6C60FF]')).catch(() => false);
     expect(new URL(report.url()).pathname === '/users' && externalActive, `Back from the report lands on Users → External (${report.url()}, ${externalActive})`);
     await shot(report, '1280-E3-back-from-report-external');

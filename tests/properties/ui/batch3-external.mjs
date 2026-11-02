@@ -198,7 +198,8 @@ async function shot(page, file) {
   await page.screenshot({ path, fullPage: false });
   console.log('shot', path);
 }
-const tabButton = (page, name) => page.getByRole('button', { name, exact: true }).filter({ visible: true }).first();
+// A Users page tab: its label, then its count once loaded (Users page tab counts, 2 Nov).
+const tabButton = (page, name) => page.getByRole('button', { name: new RegExp(`^${name}( \\d+)?$`) }).filter({ visible: true }).first();
 function rowOf(page, name, width) {
   return width >= 1024
     ? page.locator('tr', { hasText: name }).filter({ visible: true }).first()
