@@ -9,7 +9,7 @@ import {
 } from '../ui/alert-dialog';
 import { qrCodesAPI, QR_GENERIC_ERROR } from '../../services/qrCodesAPI';
 import {
-  DELETE_TEXT, EMPTY_TEXT, campaignHint, campaignUse, canPick, canPublish, cleanName, opensLabel, qrFileName, scansLabel,
+  DELETE_TEXT, EMPTY_TEXT, campaignHint, campaignUse, canPick, canPublish, cleanName, opensLabel, opensWarning, qrFileName, scansLabel,
   type QrCampaignOption, type QrCode,
 } from '../../utils/qrCodes';
 import { keyboardOnlyFocusReturn } from '../../utils/menuFocus';
@@ -170,7 +170,7 @@ export default function QrCodesDialog({ open, onOpenChange, propertyId }: QrCode
       setScreen({ name: 'list' });
       return true;
     }
-    const res = await qrCodesAPI.create(option.id, propertyId, option.title);
+    const res = await qrCodesAPI.create(option.id, propertyId);
     if (!res.ok || !res.data) {
       toast.error(res.error ?? QR_GENERIC_ERROR);
       return false;
@@ -248,7 +248,7 @@ export default function QrCodesDialog({ open, onOpenChange, propertyId }: QrCode
                   ) : (
                     <p className="truncate text-sm font-medium text-gray-900" title={code.name}>{code.name}</p>
                   )}
-                  <p className={`truncate text-xs ${code.campaignTitle ? 'text-gray-600' : 'text-amber-700'}`}>{opensLabel(code)}</p>
+                  <p className={`truncate text-xs ${opensWarning(code) ? 'text-amber-700' : 'text-gray-600'}`}>{opensLabel(code)}</p>
                   <p className="text-xs text-gray-500">{scansLabel(code.scanCount)}</p>
                 </div>
               </div>
@@ -423,15 +423,20 @@ function CampaignPicker({ propertyId, current, onPick }: {
     return () => observer.disconnect();
   }, [hasMore, loadingMore, loadMore]);
 
+  // Publish, then ask the server how the campaign stands now (it may still have no public link) rather than assume.
   const publish = async (o: QrCampaignOption) => {
     setPublishingId(o.id);
     const res = await qrCodesAPI.publish(o.id);
-    setPublishingId(null);
-    if (res.ok) {
-      setRows((list) => (list ?? []).map((r) => (r.id === o.id ? { ...r, state: 'public', usable: true, canPublish: false, reason: null } : r)));
-    } else {
+    if (!res.ok) {
+      setPublishingId(null);
       toast.error(res.error ?? "Couldn't publish this campaign. Please try again.");
+      return;
     }
+    const again = await qrCodesAPI.campaignOptions(propertyId, o.title, 1);
+    setPublishingId(null);
+    const fresh = again.ok ? again.data?.options.find((r) => r.id === o.id) : undefined;
+    if (fresh) setRows((list) => (list ?? []).map((r) => (r.id === o.id ? fresh : r)));
+    else setAttempt((a) => a + 1); // not found by its title: load the list again
   };
 
   const pick = async (o: QrCampaignOption) => {

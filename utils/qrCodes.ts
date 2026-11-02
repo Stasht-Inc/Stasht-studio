@@ -19,6 +19,8 @@ export interface QrCode {
   memoryId: number | null;
   /** The campaign it opens now; null when it opens none (never set, or the campaign was deleted). */
   campaignTitle: string | null;
+  /** Whether the API says the code can open that campaign now (false: made private, unpublished, no link); null: none. */
+  campaignUsable: boolean | null;
   /** What the printed code encodes. */
   shortUrl: string;
   scanCount: number;
@@ -56,6 +58,9 @@ export const VIEW_ONLY_HINT = "View only — visitors can't add moments";
 export const PRIVATE_HINT = 'Private — change to Public to use';
 export const UNPUBLISHED_HINT = 'Not published';
 export const BLOCKED_HINT = "Can't be used right now";
+export const UNAVAILABLE_LABEL = 'Campaign not available — change it';
+/** Where /q/<code> goes when it reaches Studio itself (see qrRedirectUrl). */
+export const QR_REDIRECT_FALLBACK_ORIGIN = 'https://restapi.stasht.com';
 
 type Raw = Record<string, unknown>;
 
@@ -97,6 +102,7 @@ export function normalizeQrCode(raw: unknown): QrCode | null {
     name: text(raw.name) ?? campaignTitle ?? 'QR code',
     memoryId: num(raw.memory_id) ?? (campaign ? num(campaign.id) : null),
     campaignTitle,
+    campaignUsable: campaign ? campaign.usable !== false : null,
     shortUrl: text(raw.short_url) ?? `${SHORT_URL_BASE}${publicCode}`,
     scanCount: Math.max(0, Math.floor(scans)),
     lastScannedAt: text(raw.last_scanned_at),
@@ -158,9 +164,11 @@ export function campaignUse(o: Pick<QrCampaignOption, 'state' | 'usable'>): Camp
 
 export const canPick = (use: CampaignUse): boolean => use === 'ready' || use === 'viewOnly';
 
-/** The Publish link shows only for a campaign that isn't usable yet and that the API says may be published. */
-export const canPublish = (o: Pick<QrCampaignOption, 'state' | 'usable' | 'canPublish'>): boolean =>
-  o.canPublish && !canPick(campaignUse(o));
+/**
+ * The Publish link shows only for an unpublished campaign the API says may be published. Never for a private one
+ * (changing it to Public is the owner's call, on the campaign) or one with no public link yet (publishing won't help).
+ */
+export const canPublish = (o: Pick<QrCampaignOption, 'state' | 'canPublish'>): boolean => o.state === 'unpublished' && o.canPublish;
 
 /** The hint under a campaign in the picker: the API's reason, else the words for its state (none when public). */
 export function campaignHint(o: Pick<QrCampaignOption, 'state' | 'usable' | 'reason'>): string | null {
@@ -175,9 +183,14 @@ export function campaignHint(o: Pick<QrCampaignOption, 'state' | 'usable' | 'rea
   }
 }
 
-/** "Opens: Fall Promo", or "No campaign". */
-export const opensLabel = (code: Pick<QrCode, 'campaignTitle'>): string =>
-  (code.campaignTitle ? `Opens: ${code.campaignTitle}` : 'No campaign');
+/** "Opens: Fall Promo"; "No campaign"; or, when the API says the campaign can't be opened now, a nudge to change it. */
+export function opensLabel(code: Pick<QrCode, 'campaignTitle' | 'campaignUsable'>): string {
+  if (!code.campaignTitle) return 'No campaign';
+  return code.campaignUsable === false ? UNAVAILABLE_LABEL : `Opens: ${code.campaignTitle}`;
+}
+
+/** The row's Opens line is a warning (no campaign, or one that can't be opened now). */
+export const opensWarning = (code: Pick<QrCode, 'campaignTitle' | 'campaignUsable'>): boolean => !code.campaignTitle || code.campaignUsable === false;
 
 /** "0 scans", "1 scan", "1,204 scans". */
 export const scansLabel = (n: unknown): string => countLabel(n, 'scan');
@@ -211,4 +224,26 @@ export function viewQuery(propertyId: number | string | null | undefined, extra:
 export function cleanName(input: string): string | null {
   const t = String(input ?? '').replace(/\s+/g, ' ').trim().slice(0, 120).trim();
   return t === '' ? null : t;
+}
+
+/**
+ * /q/<code> that reached Studio's SPA (a device still on an old service worker that answers every page with the app):
+ * where to send it so the web API's redirect handles it. The configured API host (VITE_API_BASE_URL) when it is
+ * another origin, else the restapi default. Never this origin (that would come straight back here), and only for
+ * well-formed codes; null: nowhere to go.
+ */
+export function qrRedirectUrl(code: string, apiBase: string | null | undefined, currentOrigin: string): string | null {
+  if (!/^[A-Za-z0-9]{1,16}$/.test(String(code ?? ''))) return null;
+  const origins: string[] = [];
+  if (apiBase) {
+    try {
+      const u = new URL(apiBase, currentOrigin);
+      if (u.protocol === 'https:' || u.protocol === 'http:') origins.push(u.origin);
+    } catch {
+      // not a URL: use the default
+    }
+  }
+  origins.push(QR_REDIRECT_FALLBACK_ORIGIN);
+  const origin = origins.find((o) => o !== currentOrigin);
+  return origin ? `${origin}/q/${encodeURIComponent(code)}` : null;
 }

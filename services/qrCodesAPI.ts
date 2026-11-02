@@ -43,11 +43,9 @@ export const qrCodesAPI = {
   list: async (propertyId: PropertyId): Promise<QrResult<QrCode[]>> =>
     result(await apiRequest(`/qr-codes${viewQuery(propertyId)}`, { skipCache: true } as RequestInit), qrCodesFromResponse),
 
-  create: async (memoryId: number, propertyId: PropertyId, name?: string | null): Promise<QrResult<QrCode>> =>
-    result(
-      await apiRequest('/qr-codes', json('POST', withProperty({ memory_id: memoryId, ...(name ? { name } : {}) }, propertyId))),
-      qrCodeFromResponse,
-    ),
+  /** No name: the API names the code after the campaign (and keeps it within its 120-character limit). */
+  create: async (memoryId: number, propertyId: PropertyId): Promise<QrResult<QrCode>> =>
+    result(await apiRequest('/qr-codes', json('POST', withProperty({ memory_id: memoryId }, propertyId))), qrCodeFromResponse),
 
   /** Point the code at another campaign, or rename it. */
   update: async (id: number, changes: { memory_id?: number; name?: string }): Promise<QrResult<QrCode>> =>

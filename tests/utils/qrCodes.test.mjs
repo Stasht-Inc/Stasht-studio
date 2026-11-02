@@ -7,7 +7,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   campaignHint, campaignOptionsFromResponse, campaignUse, canPick, canPublish, cleanName, normalizeQrCode, opensLabel, qrCodeFromResponse,
-  qrCodesFromResponse, qrFileName, scansLabel, viewQuery, SHORT_URL_BASE,
+  qrCodesFromResponse, qrFileName, qrRedirectUrl, scansLabel, viewQuery, QR_REDIRECT_FALLBACK_ORIGIN, SHORT_URL_BASE,
 } from '../../utils/qrCodes.ts';
 
 const CAMPAIGN = { id: 801, title: 'Fall Promo', state: 'public', usable: true, public_url: 'https://studio.stasht.com/published-memory/fall-promo' };
@@ -18,7 +18,7 @@ const ROW = {
 
 test('a code reads as the window needs it', () => {
   assert.deepEqual(normalizeQrCode(ROW), {
-    id: 7, publicCode: 'K7PQ2MZX', name: 'Front window', memoryId: 801, campaignTitle: 'Fall Promo',
+    id: 7, publicCode: 'K7PQ2MZX', name: 'Front window', memoryId: 801, campaignTitle: 'Fall Promo', campaignUsable: true,
     shortUrl: 'https://studio.stasht.com/q/K7PQ2MZX', scanCount: 12, lastScannedAt: '2026-11-02T10:00:00Z',
   });
 });
@@ -38,6 +38,13 @@ test('campaign null is "No campaign" — never set, or the campaign was deleted 
   assert.equal(opensLabel(deleted), 'No campaign');
   assert.equal(opensLabel(normalizeQrCode({ ...ROW, memory_id: null, campaign: null })), 'No campaign');
   assert.equal(opensLabel(normalizeQrCode(ROW)), 'Opens: Fall Promo');
+});
+
+test('a campaign the API calls unusable (made private, unpublished, no link): say so, not "Opens:"', () => {
+  const c = normalizeQrCode({ ...ROW, campaign: { ...CAMPAIGN, state: 'private', usable: false } });
+  assert.equal(c.campaignUsable, false);
+  assert.equal(opensLabel(c), 'Campaign not available — change it');
+  assert.equal(normalizeQrCode({ ...ROW, campaign: null }).campaignUsable, null);
 });
 
 test('rows without an id or a public code are dropped', () => {
@@ -90,10 +97,13 @@ test('what each state allows', () => {
   }
 });
 
-test('Publish shows only when the API says the campaign can be published', () => {
+test('Publish shows only for an unpublished campaign the API says can be published', () => {
   assert.equal(canPublish(opt('unpublished', false, { canPublish: true })), true);
   assert.equal(canPublish(opt('unpublished', false, { canPublish: false })), false);
   assert.equal(canPublish(opt('public', true, { canPublish: true })), false, 'already usable: nothing to publish');
+  assert.equal(canPublish(opt('private', false, { canPublish: true })), false, 'private: changing it to Public is not done here');
+  assert.equal(canPublish(opt('public', false, { canPublish: true, reason: 'No public link yet' })), false, 'no public link yet: publishing again would not help');
+  assert.equal(canPublish(opt('view_only', false, { canPublish: true })), false);
 });
 
 test('hints: the server reason first, then the words for the state', () => {
@@ -130,4 +140,22 @@ test('names: trimmed, at most 120 characters, empty keeps the old one', () => {
   assert.equal(cleanName('  Front   window '), 'Front window');
   assert.equal(cleanName('   '), null);
   assert.equal(cleanName('a'.repeat(200)).length, 120);
+});
+
+test('/q/<code> reached in Studio (an old service worker): off to the API host, never back to this origin', () => {
+  const studio = 'https://studio.stasht.com';
+  // Production: no VITE_API_BASE_URL (the API is same-origin /api/react) → the restapi default.
+  assert.equal(qrRedirectUrl('K7PQ2MZX', undefined, studio), `${QR_REDIRECT_FALLBACK_ORIGIN}/q/K7PQ2MZX`);
+  assert.equal(qrRedirectUrl('K7PQ2MZX', '/api/react', studio), `${QR_REDIRECT_FALLBACK_ORIGIN}/q/K7PQ2MZX`);
+  assert.equal(qrRedirectUrl('K7PQ2MZX', `${studio}/api/react`, studio), `${QR_REDIRECT_FALLBACK_ORIGIN}/q/K7PQ2MZX`, 'same origin would loop');
+  // A configured API host elsewhere (staging) is used.
+  assert.equal(qrRedirectUrl('K7PQ2MZX', 'https://restapi-stasht.wd-projects.online/api/react', 'https://stashtpro.wd-projects.online'),
+    'https://restapi-stasht.wd-projects.online/q/K7PQ2MZX');
+  // Running on the API host itself: nowhere to go.
+  assert.equal(qrRedirectUrl('K7PQ2MZX', undefined, QR_REDIRECT_FALLBACK_ORIGIN), null);
+  // Only real codes.
+  assert.equal(qrRedirectUrl('', undefined, studio), null);
+  assert.equal(qrRedirectUrl('../admin', undefined, studio), null);
+  assert.equal(qrRedirectUrl('x'.repeat(17), undefined, studio), null);
+  assert.equal(qrRedirectUrl('K7PQ2MZX', 'javascript:alert(1)', studio), `${QR_REDIRECT_FALLBACK_ORIGIN}/q/K7PQ2MZX`);
 });
