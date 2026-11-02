@@ -339,6 +339,8 @@ try {
     await page.waitForTimeout(5000);
     expect(await bannerVisible(page) && await banner(page).first().getByRole('button', { name: 'Refresh', exact: true }).isVisible(), '7: after "Stay" the banner is back with Refresh');
     expect((await page.getByText('Updating Stasht Studio…').count()) === 0, '7: no stuck "Updating…" toast');
+    expect((await banner(page).first().locator('[data-close-button]').count()) === 1, '7: the banner can be dismissed again (close X back)');
+    expect((await banner(page).first().getAttribute('data-type')) !== 'loading' && (await banner(page).first().locator('[data-icon]').count()) === 0, '7: no spinner / icon space on the banner');
     expect(page.loads === 1, `7: no reload happened (loads ${page.loads})`);
     expect((await page.evaluate(() => sessionStorage.getItem('stasht_update_refresh_attempt'))) === null, '7: the cancelled click is not counted as an attempt');
     await shot(page, '07-cancelled-reload-banner-back');

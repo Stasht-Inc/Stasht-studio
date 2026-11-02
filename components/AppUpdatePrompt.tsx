@@ -19,7 +19,7 @@
 // Everything below runs once per page (module-level), however often the component mounts.
 import { useEffect, useState } from 'react';
 import { registerSW } from 'virtual:pwa-register';
-import { Toaster, toast } from 'sonner';
+import { Toaster, toast, type ExternalToast } from 'sonner';
 import {
   FOCUS_CHECK_MIN_GAP_MS,
   REFRESH_ATTEMPT_KEY,
@@ -211,6 +211,9 @@ function offer(key: string, force = false) {
   offeredKey = key;
   lastOfferKey = key;
   toast(MESSAGE, {
+    // After a cancelled reload this same toast is still the "Updating…" loading toast: clear its type (a plain
+    // toast() has none), or it keeps the spinner / icon space and sonner hides the close button.
+    type: undefined,
     id: TOAST_ID,
     toasterId: TOASTER_ID,
     className: TOAST_CLASS,
@@ -233,7 +236,7 @@ function offer(key: string, force = false) {
       // Closed by code (another screen's toast.dismiss() with no id): not the user's choice, so it comes back.
       window.setTimeout(() => offer(key), 600);
     },
-  });
+  } as ExternalToast);
 }
 
 async function check() {
