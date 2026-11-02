@@ -72,7 +72,8 @@ export default defineConfig(({ mode }) => {
         globPatterns: ['**/*.{css,html,svg,png,woff2}'],
         maximumFileSizeToCacheInBytes: 1 * 1024 * 1024,
         navigateFallback: 'index.html',
-        navigateFallbackDenylist: [/^\/api/, /^\/s\//, /^\/widget-embed\.html/],
+        // /q/<code>: printed QR codes, answered by the server (nginx → the web API's redirect), never by the cached SPA.
+        navigateFallbackDenylist: [/^\/api/, /^\/s\//, /^\/q\//, /^\/widget-embed\.html/],
         globIgnores: ['**/widget-embed.html'],
         runtimeCaching: [
           {

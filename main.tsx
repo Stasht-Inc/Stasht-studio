@@ -11,6 +11,7 @@ import PropertyRegisterPage from './pages/PropertyRegisterPage'
 import PersonalAccountRegisterPage from './pages/PersonalAccountRegisterPage'
 import OAuthCallback from './pages/OAuthCallback'
 import Sso from './pages/Sso'
+import QrRedirect from './pages/QrRedirect'
 import GoogleAuthCallbackWrapper from './pages/GoogleAuthCallbackWrapper'
 import FacebookCallbackPage from './pages/FacebookCallbackPage'
 import AppleAuthCallbackWrapper from './pages/AppleAuthCallbackWrapper'
@@ -61,6 +62,8 @@ createRoot(document.getElementById('root')!).render(
                   {/* Facebook callback routes - MUST be before /* catch-all */}
                   <Route path="/facebook/callback" element={<FacebookCallbackPage />} />
                   <Route path="/auth/facebook/callback" element={<FacebookCallbackPage />} />
+                  {/* Printed QR codes (old service workers answer /q/ with the app): straight on to the API's redirect */}
+                  <Route path="/q/:code" element={<QrRedirect />} />
                   {/* Catch-all route MUST be last */}
                   <Route path="/*" element={<App />} />
                   </Routes>

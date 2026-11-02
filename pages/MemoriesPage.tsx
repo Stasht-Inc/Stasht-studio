@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { flushSync } from "react-dom";
-import { ChevronDown, ChevronUp, MoreHorizontal, MoreVertical, Search, Filter, ArrowUpDown, Plus, Grid3X3, List, X, Image as ImageIcon, Globe, Pencil, Tag, Copy, GitMerge, Trash2, Sparkles, Calendar, ChevronLeft, BookOpen, ArrowLeft, Share2, QrCode, Mail, Facebook, Linkedin, Instagram, Zap, Code } from "lucide-react";
+import { ChevronDown, ChevronUp, MoreHorizontal, MoreVertical, Search, Filter, ArrowUpDown, Plus, Grid3X3, List, X, Image as ImageIcon, Globe, Pencil, Tag, Copy, GitMerge, Trash2, Calendar, ChevronLeft, BookOpen, ArrowLeft, Share2, QrCode, Mail, Facebook, Linkedin, Instagram, Code } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import { toast as sonnerToast } from "sonner";
 import { Button } from "../components/ui/button";
@@ -15,7 +15,6 @@ import MemoryCard from "../components/MemoryCard";
 import CreateMemory, { CreateMemoryHandle } from "../components/CreateMemory";
 import { dashboardAPI, isPartialAdmin, apiRequest } from '../utils/authUtils';
 import { RemoveCollaborationModal } from '../components/RemoveCollaborationModal';
-import { aiCreditsAPI } from '../services/aiCreditsAPI';
 import { mediaAPI } from '../services/mediaAPI';
 import { useAuth } from '../contexts/AuthContext';
 import { useProperty } from '../contexts/PropertyContext';
@@ -28,6 +27,8 @@ import AllMemoriesEmptyState from "../components/AllMemoriesEmptyState";
 import MemoryActionMenu from "../components/MemoryActionMenu";
 import { useNotificationsRefresh } from '../hooks/useNotificationsRefresh';
 import CategoryNav from "../components/CategoryNav";
+import QrCodesDialog from "../components/qr-codes/QrCodesDialog";
+import { canManageQrCodes } from "../utils/qrCodes";
 import { SHOPIFY_COLOR, CARS_COLOR, WEBSITE_CATALOG_COLOR } from "../utils/categoryColorManager";
 import { loadCatalogueForBrowsing, type CatalogueItemSummary } from "../services/catalogueAPI";
 import { memoryCountsManager, setShopifyCatalogCount } from '../hooks/useMemoryCounts';
@@ -290,8 +291,6 @@ interface MemoriesPageProps {
   createMemoryTrigger?: { category?: string; timestamp: number; photos?: File[] } | null;
   onClearCreateMemoryTrigger?: () => void;
   onPublishedEntryViewChange?: (isViewing: boolean) => void;
-  onAIWizardProgress?: (progress: number) => void;
-  onAIWizardDone?: () => void;
   onRequestCreateCategory?: () => void; // Ask the sidebar to open its "New Category" popover
   createCategorySignal?: number; // Forwarded to the mobile-drawer CategoryNav to open its popover
   openPublishedEntrySignal?: { entry: any; nonce: number } | null; // Desktop sidebar asks to open a published-author entry
@@ -314,8 +313,6 @@ function MemoriesPageContent({
   createMemoryTrigger,
   onClearCreateMemoryTrigger,
   onPublishedEntryViewChange,
-  onAIWizardProgress,
-  onAIWizardDone,
   onRequestCreateCategory,
   createCategorySignal,
   openPublishedEntrySignal,
@@ -473,38 +470,13 @@ function MemoriesPageContent({
   const [showMergeModal, setShowMergeModal] = useState(false);
   const [editActionLoading, setEditActionLoading] = useState(false);
 
-  // AI credits modal state
-  const [showAddCreditsModal, setShowAddCreditsModal] = useState(false);
-  const [availableCredits, setAvailableCredits] = useState(0);
-
-  // AI Campaign Wizard state
-  const [isAIResultsModalOpen, setIsAIResultsModalOpen] = useState(false);
-  const [selectedAnalysisOption, setSelectedAnalysisOption] = useState<number | null>(null);
-  const [aiActiveTab, setAiActiveTab] = useState<'suggestions' | 'prompt'>('suggestions');
-  const [customPrompt, setCustomPrompt] = useState('');
-  const [isGeneratingFromPrompt, setIsGeneratingFromPrompt] = useState(false);
-  const [isApplyingTask, setIsApplyingTask] = useState(false);
-  const [aiWizardProgress, setAiWizardProgress] = useState(0);
-  const [isAIWizardModalOpen, setIsAIWizardModalOpen] = useState(false);
-  const [aiWizardAnimatingOut, setAiWizardAnimatingOut] = useState(false);
-  const [aiWizardMinimized, setAiWizardMinimized] = useState(false);
-
-  // Auto-minimize AI wizard modal after 20 seconds
-  useEffect(() => {
-    if (!isAIWizardModalOpen) {
-      setAiWizardMinimized(false);
-      return;
-    }
-    const timer = setTimeout(() => setAiWizardMinimized(true), 20000);
-    return () => clearTimeout(timer);
-  }, [isAIWizardModalOpen]);
-
-  // Sync progress to sidebar when minimized
-  useEffect(() => {
-    if (aiWizardMinimized && isAIWizardModalOpen) {
-      onAIWizardProgress?.(Math.round(aiWizardProgress));
-    }
-  }, [aiWizardProgress, aiWizardMinimized, isAIWizardModalOpen]);
+  // Dynamic QR Codes window (Campaigns tab header). In a property view the button is for anyone who may manage that
+  // property's codes (its own account, or its creator / admins: the row's can_manage), as the API allows.
+  const [showQrCodes, setShowQrCodes] = useState(false);
+  const canManageQr = useMemo(
+    () => canManageQrCodes(viewType, currentProperty as unknown as Record<string, unknown> | null, user as unknown as Record<string, unknown> | null, isPartialAdmin()),
+    [viewType, currentProperty, user],
+  );
 
   // Media Library states for CreateMemory
   const [isMediaLibraryOpen, setIsMediaLibraryOpen] = useState(false);
@@ -1831,158 +1803,6 @@ function MemoriesPageContent({
     return memoriesToCount.length + sharedWithMemories.length + carsCards.length + shopifyCards.length + catalogueCards.length;
   }, [isLoadingMemories, allMemories, latestMemories, propMemories, sharedWithMemories, carsCards, shopifyCards, catalogueCards]);
 
-  const handleOpenAIWizard = async () => {
-    try {
-      const creditCheck = await aiCreditsAPI.checkSufficientCredits('ai_memory_wizard', 2);
-      if (creditCheck && creditCheck.has_sufficient_credits) {
-        setSelectedAnalysisOption(null);
-        setAiActiveTab('prompt');
-        setCustomPrompt('');
-        setIsAIResultsModalOpen(true);
-      } else {
-        setAvailableCredits(creditCheck?.total_available ?? 0);
-        setShowAddCreditsModal(true);
-      }
-    } catch {
-      toast({ message: 'Failed to check credits. Please try again.', type: 'error' });
-    }
-  };
-
-  const handleAIWizardApply = async () => {
-    if (aiActiveTab === 'prompt') {
-      if (!customPrompt.trim()) return;
-      setIsGeneratingFromPrompt(true);
-      setIsAIResultsModalOpen(false);
-      setIsAIWizardModalOpen(true);
-      setAiWizardProgress(0);
-      const promptProgressInterval = setInterval(() => {
-        setAiWizardProgress(prev => prev >= 95 ? 95 : prev + 0.15);
-      }, 100);
-      try {
-        // Step 1: Fetch all memory images
-        const mediaResponse = await mediaAPI.getMemoryImages();
-        let photoUrls: string[] = [];
-
-        if (mediaResponse?.success && mediaResponse.data) {
-          const categoriesMedia = mediaResponse.data.categories_media;
-          if (categoriesMedia && typeof categoriesMedia === 'object') {
-            const excludedCategories = ['sharedwith', 'shared with', 'suggested'];
-            Object.entries(categoriesMedia).forEach(([categoryName, items]: [string, any]) => {
-              if (excludedCategories.includes(categoryName.toLowerCase())) return;
-              if (Array.isArray(items)) {
-                items.forEach((item: any) => {
-                  if (item.media_url) photoUrls.push(item.media_url);
-                });
-              }
-            });
-          }
-        }
-
-        // Step 2: Call detect-labels API (max 100 images)
-        let memoryData: { file: string; labels: string[] }[] = [];
-        const limitedPhotoUrls = photoUrls.slice(0, 100);
-        if (limitedPhotoUrls.length > 0) {
-          const labelsResponse = await dashboardAPI.detectLabels(limitedPhotoUrls);
-          if (labelsResponse.success && labelsResponse.data?.results) {
-            memoryData = labelsResponse.data.results.map((r: any) => ({
-              file: r.file,
-              labels: r.labels || [],
-            }));
-          } else {
-            // Fallback: send URLs with empty labels
-            memoryData = limitedPhotoUrls.map(url => ({ file: url, labels: [] }));
-          }
-        }
-
-        // Step 3: Create memory from sentence
-        const response = await dashboardAPI.createMemoryFromSentence(customPrompt.trim(), memoryData);
-        if (response.success) {
-          const createResponse = await dashboardAPI.createMemoryFromAIResponse(response.data);
-          clearInterval(promptProgressInterval);
-          setAiWizardProgress(100);
-          if (createResponse.success) {
-            setCustomPrompt('');
-            setSelectedAnalysisOption(null);
-            setTimeout(() => {
-              setIsAIWizardModalOpen(false); onAIWizardDone?.();
-              window.location.href = '/stories';
-            }, 800);
-          } else {
-            setIsAIWizardModalOpen(false); onAIWizardDone?.();
-            toast({ message: createResponse.error || 'Failed to create campaign from AI response', type: 'error' });
-          }
-        } else {
-          clearInterval(promptProgressInterval);
-          setIsAIWizardModalOpen(false); onAIWizardDone?.();
-          toast({ message: response.error || 'Failed to process custom prompt', type: 'error' });
-        }
-      } catch {
-        clearInterval(promptProgressInterval);
-        setIsAIWizardModalOpen(false); onAIWizardDone?.();
-        toast({ message: 'Failed to process custom prompt. Please try again.', type: 'error' });
-      } finally {
-        setIsGeneratingFromPrompt(false);
-      }
-      return;
-    }
-
-    if (selectedAnalysisOption === null) return;
-    const summaryItems = [
-      { type: 'faces' },
-      { type: 'moments' },
-      { type: 'objects' },
-    ];
-    const selectedTask = summaryItems[selectedAnalysisOption];
-    if (!selectedTask) return;
-    const type = selectedTask.type as 'faces' | 'moments' | 'objects';
-    setIsApplyingTask(true);
-    setIsAIResultsModalOpen(false);
-    setIsAIWizardModalOpen(true);
-    setAiWizardProgress(0);
-    const progressInterval = setInterval(() => {
-      setAiWizardProgress(prev => prev >= 95 ? 95 : prev + 0.15);
-    }, 100);
-    try {
-      const analysisResponse = await dashboardAPI.analyzeUploadedPhotos([], type, undefined);
-      if (!analysisResponse.success || !analysisResponse.data) {
-        toast({ message: analysisResponse.error || 'AI analysis failed', type: 'error' });
-        clearInterval(progressInterval);
-        setIsAIWizardModalOpen(false); onAIWizardDone?.();
-        setIsApplyingTask(false);
-        return;
-      }
-      let analysisData = analysisResponse.data;
-      if (analysisResponse.data.data?.summary) analysisData = analysisResponse.data.data;
-      const groupData = analysisData?.clusters?.[type];
-      if (!groupData || !Array.isArray(groupData) || groupData.length === 0) {
-        toast({ message: `No ${type} clusters found in the analysis`, type: 'error' });
-        clearInterval(progressInterval);
-        setIsAIWizardModalOpen(false); onAIWizardDone?.();
-        setIsApplyingTask(false);
-        return;
-      }
-      const createResponse = await dashboardAPI.createMemoriesFromGroups(groupData, type);
-      clearInterval(progressInterval);
-      if (createResponse.success) {
-        setAiWizardProgress(100);
-        setSelectedAnalysisOption(null);
-        setTimeout(() => {
-          setIsAIWizardModalOpen(false); onAIWizardDone?.();
-          window.location.reload();
-        }, 1500);
-      } else {
-        toast({ message: createResponse.error || `Failed to create campaigns from ${type}`, type: 'error' });
-        setIsAIWizardModalOpen(false); onAIWizardDone?.();
-      }
-    } catch {
-      clearInterval(progressInterval);
-      toast({ message: 'Something went wrong. Please try again.', type: 'error' });
-      setIsAIWizardModalOpen(false); onAIWizardDone?.();
-    } finally {
-      setIsApplyingTask(false);
-    }
-  };
-
   // Published Entry Detail View — early return, same level as MemoryDetailsPage (no nested wrappers)
   if (publishedEntryData) {
     return (
@@ -2792,28 +2612,17 @@ function MemoriesPageContent({
                 </div>
 
                 <div className="flex flex-wrap items-center justify-end gap-2 md:gap-3 md:w-auto md:ml-auto">
-                  {/* AI Campaign Wizard Button */}
-                  {isPropertyOwner && <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={handleOpenAIWizard}
-                    className="hidden lg:flex h-9 px-3 relative overflow-hidden items-center justify-center"
-                    style={{
-                      background: 'linear-gradient(white, white) padding-box, linear-gradient(to right, #6C60FF, #EC4899) border-box',
-                      border: '1px solid transparent'
-                    }}
-                  >
-                    <Sparkles className="w-4 h-4 mr-0 flex-shrink-0" style={{ color: '#6C60FF' }} />
-                    <span style={{
-                      background: 'linear-gradient(to right, #6C60FF, #EC4899)',
-                      WebkitBackgroundClip: 'text',
-                      WebkitTextFillColor: 'transparent',
-                      backgroundClip: 'text',
-                      display: 'inline-block'
-                    }}>
-                      AI Campaign Wizard
-                    </span>
-                  </Button>}
+                  {/* Dynamic QR Codes (3 Nov 2026): replaces the AI Campaign Wizard button; phones too */}
+                  {canManageQr && (
+                    <Button
+                      variant="outline"
+                      onClick={() => setShowQrCodes(true)}
+                      className="border-gray-200 text-gray-700 hover:bg-gray-50 md:flex-initial"
+                    >
+                      <QrCode className="w-4 h-4 -mr-1" />
+                      QR Codes
+                    </Button>
+                  )}
 
                   {/* Grid/List Toggle - Hidden on mobile */}
                   <div className="hidden lg:flex items-center bg-gray-100 rounded-lg p-0.5">
@@ -4030,208 +3839,12 @@ function MemoriesPageContent({
         selectedCount={selectedCardIds.size}
       />
 
-      {/* Add More AI Credits Modal */}
-      {showAddCreditsModal && (
-        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-[380px] p-5 relative">
-            {/* Close */}
-            <button
-              onClick={() => setShowAddCreditsModal(false)}
-              className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 transition-colors"
-            >
-              <X className="w-4 h-4" />
-            </button>
-
-            {/* Header row: icon + title + subtitle */}
-            <div className="flex items-center gap-3 mb-4">
-              <div className="w-11 h-11 rounded-xl bg-[#F3E8FF] flex items-center justify-center flex-shrink-0">
-                <Zap className="w-5 h-5 text-[#9333EA]" fill="#9333EA" />
-              </div>
-              <div>
-                <h2 className="text-base font-medium text-gray-900 leading-tight">Add more AI Credits</h2>
-                <p className="text-sm text-gray-500 mt-0.5">{availableCredits} Credits</p>
-              </div>
-            </div>
-
-            {/* Body */}
-            <p className="text-gray-700 text-sm leading-relaxed mb-5">
-              You have run out of Ai credits. Please purchase more to continue.
-            </p>
-
-            {/* Button */}
-            <button
-              onClick={() => {
-                setShowAddCreditsModal(false);
-                sessionStorage.setItem('openPurchaseCreditsModal', 'true');
-                onNavigate?.('billing');
-              }}
-              className="w-full h-12 rounded-xl bg-[#9333EA] hover:bg-[#7E22CE] text-white font-semibold flex items-center justify-center gap-2 transition-colors"
-            >
-              <Zap className="w-4 h-4" fill="white" />
-              Buy more Credits
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* AI Campaign Wizard Results Modal */}
-      {isAIResultsModalOpen && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center md:p-4">
-          <div className="bg-white md:rounded-2xl rounded-none shadow-xl md:max-w-2xl w-full h-full md:h-auto md:max-h-[90vh] flex flex-col relative">
-            {/* Mobile Header */}
-            <div className="flex md:hidden items-center justify-between px-4 py-3 border-b border-gray-100 flex-shrink-0">
-              <h4 className="font-semibold text-[18px] text-gray-900">AI Campaign Wizard</h4>
-              <button
-                onClick={() => { setIsAIResultsModalOpen(false); setSelectedAnalysisOption(null); setCustomPrompt(''); }}
-                className="h-10 w-10 flex items-center justify-center rounded-full hover:bg-gray-100"
-              >
-                <X className="!w-[28px] !h-[28px] text-black" />
-              </button>
-            </div>
-            {/* Desktop Close button */}
-            <button
-              onClick={() => { setIsAIResultsModalOpen(false); setSelectedAnalysisOption(null); setCustomPrompt(''); }}
-              className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 z-10 hidden md:flex"
-            >
-              <X className="w-5 h-5" />
-            </button>
-
-            {/* Desktop Header */}
-            <div className="hidden md:block p-6 border-b border-gray-100">
-              <div className="flex items-start justify-between gap-3">
-                <div className="flex items-start gap-3">
-                  <div className="p-2 rounded-lg bg-gradient-to-br from-purple-100 to-pink-100">
-                    <Sparkles className="w-5 h-5" style={{ color: '#6C60FF' }} />
-                  </div>
-                  <div>
-                    <h2 className="text-lg font-semibold text-gray-900">AI Campaign Wizard</h2>
-                    <p className="text-sm text-gray-600">AI-powered campaign organisation</p>
-                  </div>
-                </div>
-                <div className="bg-white rounded-full px-4 py-2 shadow-sm border border-gray-200 flex items-center gap-2 mr-8">
-                  <Sparkles className="w-4 h-4 text-[#6C60FF]" />
-                  <span className="text-gray-900 font-medium text-sm">2 credits</span>
-                </div>
-              </div>
-            </div>
-
-            {/* Content */}
-            <div className="p-6 flex-1 overflow-y-auto">
-              <div className="space-y-4">
-                <div>
-                  <h3 className="font-medium text-gray-900 mb-4">Custom Prompt</h3>
-                  <div className="relative">
-                    <textarea
-                      className="w-full h-40 p-4 bg-gray-100 border-0 rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-purple-500 text-gray-700"
-                      placeholder="Describe how you'd like the AI to help you create your next campaign..."
-                      maxLength={1000}
-                      value={customPrompt}
-                      onChange={(e) => setCustomPrompt(e.target.value)}
-                    />
-                    <div className="flex justify-between items-center mt-3">
-                      <span className="text-sm text-gray-500">{customPrompt.length}/1000 characters</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Footer */}
-            <div className="flex-shrink-0 p-4 md:p-6 pb-[50px] md:pb-6 border-t border-gray-100 bg-gray-50">
-              <div className="flex justify-end items-center">
-                <div className="flex gap-3">
-                  <Button
-                    variant="outline"
-                    onClick={() => setIsAIResultsModalOpen(false)}
-                    className="h-12 md:h-9 px-6 text-[14px] md:text-sm border-gray-300"
-                  >
-                    Cancel
-                  </Button>
-                  <Button
-                    onClick={handleAIWizardApply}
-                    disabled={isGeneratingFromPrompt || !customPrompt.trim()}
-                    className="h-12 md:h-9 px-6 text-[14px] md:text-sm bg-[#6C60FF] text-white hover:bg-[#5B52FF] disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {isGeneratingFromPrompt ? 'Processing...' : 'Apply'}
-                  </Button>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* AI Campaign Wizard Progress Modal */}
-      {isAIWizardModalOpen && (
-        <>
-          {/* Backdrop — only when not minimized */}
-          {!aiWizardMinimized && (
-            <div className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm" />
-          )}
-
-          {/* Modal card — only show when not minimized (sidebar handles minimized state) */}
-          {!aiWizardMinimized && <div
-            className="fixed z-50 bg-white transition-all duration-700 ease-in-out"
-            style={aiWizardMinimized ? {
-              bottom: '24px',
-              left: '24px',
-              top: 'auto',
-              right: 'auto',
-              transform: 'none',
-              borderRadius: '20px',
-              width: '300px',
-              padding: '14px 16px',
-              boxShadow: '0 8px 32px rgba(0,0,0,0.18), 0 2px 8px rgba(0,0,0,0.10)',
-              border: '1px solid rgba(0,0,0,0.06)',
-            } : {
-              top: '50%',
-              left: '50%',
-              transform: 'translate(-50%, -50%)',
-              borderRadius: '16px',
-              width: '480px',
-              padding: '32px',
-              boxShadow: '0 25px 50px rgba(0,0,0,0.25)',
-              border: '1px solid rgba(0,0,0,0.06)',
-            }}
-          >
-            {/* Full view */}
-            {!aiWizardMinimized && (
-              <>
-                <div className="flex items-center gap-4 mb-6">
-                  <div className="p-3 rounded-xl bg-gradient-to-br from-purple-100 to-pink-100">
-                    <Sparkles className="w-7 h-7" style={{ color: '#6C60FF' }} />
-                  </div>
-                  <div>
-                    <h3 className="font-semibold text-gray-900 text-base">AI Campaign Wizard</h3>
-                    <p className="text-sm text-gray-500">Analysing the moments with AI...</p>
-                  </div>
-                </div>
-                <div className="flex justify-center my-6">
-                  <div className="relative">
-                    <div className="w-20 h-20 rounded-full border-4 border-gray-200 animate-pulse"></div>
-                    <div
-                      className="absolute inset-0 w-20 h-20 rounded-full border-4 border-t-transparent animate-spin"
-                      style={{ borderColor: '#6C60FF', borderTopColor: 'transparent' }}
-                    ></div>
-                    <div className="absolute inset-0 flex items-center justify-center">
-                      <Sparkles className="w-8 h-8" style={{ color: '#EC4899' }} />
-                    </div>
-                  </div>
-                </div>
-                <p className="text-center text-sm text-gray-600 mb-6">Understanding your campaigns, emotions, and campaign themes to craft the best narrative.</p>
-                <div className="w-full bg-gray-100 rounded-full h-2.5">
-                  <div
-                    className="h-2.5 rounded-full transition-all duration-300"
-                    style={{ width: `${aiWizardProgress}%`, background: 'linear-gradient(to right, #6C60FF, #EC4899)' }}
-                  />
-                </div>
-                <p className="text-sm text-center text-gray-500 mt-3">Analysing moments... {Math.round(aiWizardProgress)}%</p>
-              </>
-            )}
-
-          </div>}
-        </>
-      )}
+      {/* Dynamic QR Codes: codes of the view they're made in (account, or this property) */}
+      <QrCodesDialog
+        open={showQrCodes}
+        onOpenChange={setShowQrCodes}
+        propertyId={viewType === 'property' && currentProperty?.id ? currentProperty.id : null}
+      />
       {/* Trial Ended — auto-open upgrade modal (property accounts only, no starter plan) */}
       <UpgradePlanModal
         isOpen={showTrialEndedModal}

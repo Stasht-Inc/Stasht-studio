@@ -1,6 +1,7 @@
 import { requestUpgrade } from './planEvents';
 import { propertyUpdateFailure } from './propertyImage';
 import { currentPropertyViewHeaders, propertyViewCacheKey } from './inventoryView';
+import { memoryDetailPath } from './memoryDetailPath';
 
 // Auth utility functions for API integration
 
@@ -5018,8 +5019,9 @@ export const dashboardAPI = {
     return await apiRequest(`/memories/${memoryId}/linked-memories/${linkedMemoryId}`, { method: 'DELETE' });
   },
 
-  getMemoryDetail: async (memoryId: string): Promise<ApiResponse<any>> => {
-    return await apiRequest(`/memory-detail/${memoryId}`, { method: 'GET' });
+  // accessToken: the public campaign page's token, needed for a Private parent's linked campaigns (utils/memoryDetailPath).
+  getMemoryDetail: async (memoryId: string, accessToken?: string | null): Promise<ApiResponse<any>> => {
+    return await apiRequest(memoryDetailPath(memoryId, accessToken), { method: 'GET' });
   },
 
   reorderPost: async (memoryId: string, postId: string, direction: 'up' | 'down'): Promise<ApiResponse<any>> => {
