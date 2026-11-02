@@ -11,7 +11,7 @@
 // it loads (as PropertyContext does). A switch in another tab rewrites localStorage but doesn't change this tab's
 // requests, so a personal tab never gets the main account's inventory because another tab opened the External view.
 
-import { isOwnExternalProperty, ownStashId, signedInUserOr } from './salespersonLanding.ts';
+import { isOwnExternalProperty, ownStashId } from './salespersonLanding.ts';
 
 export const PROPERTY_VIEW_HEADER = 'X-Stasht-Property';
 
@@ -42,6 +42,11 @@ type TabView = { viewType: unknown; property: Row };
 
 let tabView: TabView | null = null;
 const listeners = new Set<() => void>();
+// Bumped on each change of what the API is told (inventoryViewRun).
+let run = 0;
+// The headers worked out for one tab view and one stored sign-in (the localStorage text): read for every request and
+// every render of useInventoryViewKey, so not parsed again until either changes.
+let memo: { view: TabView; userRaw: string | null; headers: Record<string, string> } | null = null;
 
 function storedView(): TabView {
   try {
@@ -63,7 +68,19 @@ function storedView(): TabView {
 export function setTabPropertyView(viewType: unknown, property: Row): void {
   const before = propertyViewCacheKey();
   tabView = { viewType, property: property ?? null };
-  if (propertyViewCacheKey() !== before) listeners.forEach((listener) => listener());
+  if (propertyViewCacheKey() !== before) {
+    run++;
+    listeners.forEach((listener) => listener());
+  }
+}
+
+/**
+ * Which view-change "run" this is. Take it when asking the API for inventory and compare it when the answer comes: a
+ * different number means the view switched meanwhile, so the answer belongs to the other view and must be dropped
+ * (e.g. the External view's slow car count landing after "Back to Bon Sun").
+ */
+export function inventoryViewRun(): number {
+  return run;
 }
 
 /** Called after each change of what the API is told (see setTabPropertyView). Returns the unsubscribe. */
@@ -79,13 +96,35 @@ export function resetTabPropertyView(): void {
   tabView = null;
 }
 
-/** The headers every API request from this tab carries (see the file note). */
-export function currentPropertyViewHeaders(): Record<string, string> {
+function storedUserRaw(): string | null {
+  try {
+    return typeof localStorage === 'undefined' ? null : localStorage.getItem('stasht_user');
+  } catch {
+    return null;
+  }
+}
+
+function viewHeaders(): Record<string, string> {
   if (!tabView) tabView = storedView();
-  return propertyViewHeaders(tabView.viewType, tabView.property, signedInUserOr(null));
+  const userRaw = storedUserRaw();
+  if (!memo || memo.view !== tabView || memo.userRaw !== userRaw) {
+    let user: unknown = null;
+    try {
+      user = userRaw ? JSON.parse(userRaw) : null;
+    } catch {
+      user = null;
+    }
+    memo = { view: tabView, userRaw, headers: propertyViewHeaders(tabView.viewType, tabView.property, user) };
+  }
+  return memo.headers;
+}
+
+/** The headers every API request from this tab carries (see the file note); the caller's own copy. */
+export function currentPropertyViewHeaders(): Record<string, string> {
+  return { ...viewHeaders() };
 }
 
 /** A short key for this tab's view, so cached GET responses of one view are never served in the other. */
 export function propertyViewCacheKey(): string {
-  return currentPropertyViewHeaders()[PROPERTY_VIEW_HEADER] || '-';
+  return viewHeaders()[PROPERTY_VIEW_HEADER] || '-';
 }
