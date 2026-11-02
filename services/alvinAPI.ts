@@ -1,4 +1,5 @@
 import { apiRequest, API_BASE_URL } from '../utils/authUtils';
+import { currentPropertyViewHeaders } from '../utils/inventoryView';
 
 // Alvin AI help centre chat (ClickUp wdy2xh1r0r), /api/react/alvin/*.
 
@@ -136,7 +137,8 @@ export const alvinAPI = {
       const token = localStorage.getItem('stasht_token');
       const res = await fetch(`${API_BASE_URL}/alvin/messages`, {
         method: 'POST',
-        headers: { Accept: 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        // The property view too (utils/inventoryView): Alvin offers the main account's cars only from the External view.
+        headers: { Accept: 'application/json', ...currentPropertyViewHeaders(), ...(token ? { Authorization: `Bearer ${token}` } : {}) },
         body: form,
       });
       const data = await res.json().catch(() => null);

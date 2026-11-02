@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { setTabPropertyView } from '../utils/inventoryView';
 
 interface Property {
   id: number;
@@ -53,8 +54,10 @@ export function PropertyProvider({ children }: { children: ReactNode }) {
     return null;
   });
 
-  // Persist to localStorage whenever viewType or currentProperty changes
+  // Persist to localStorage whenever viewType or currentProperty changes. API requests from this tab follow the same
+  // view (utils/inventoryView: a salesperson's External view names its property, so the main account's inventory shows).
   useEffect(() => {
+    setTabPropertyView(viewType, currentProperty as any);
     localStorage.setItem('view_type', viewType);
     if (currentProperty) {
       localStorage.setItem('selected_property', JSON.stringify(currentProperty));
@@ -65,6 +68,8 @@ export function PropertyProvider({ children }: { children: ReactNode }) {
 
   const switchToProperty = (property: Property) => {
     console.log('🏠 Switching to property view:', property.name);
+    // Before any re-render: pages refetch in their own effects, which run before this provider's.
+    setTabPropertyView('property', property as any);
     setViewType('property');
     setCurrentProperty(property);
     setIsPendingPropertySwitch(false);
@@ -72,6 +77,7 @@ export function PropertyProvider({ children }: { children: ReactNode }) {
 
   const switchToPersonal = () => {
     console.log('👤 Switching to personal view');
+    setTabPropertyView('personal', null);
     setViewType('personal');
     setCurrentProperty(null);
   };
