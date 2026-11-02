@@ -1,6 +1,6 @@
 ﻿import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { clearNewsletterBackups } from './utils/newsletterBackups';
-import { useRegisterSW } from 'virtual:pwa-register/react';
+import AppUpdatePrompt from './components/AppUpdatePrompt';
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import { useProperty } from "./contexts/PropertyContext";
 import InteractiveNav from "./components/InteractiveNav";
@@ -4844,26 +4844,10 @@ function MainApp() {
 }
 
 // App wrapper (providers are now in main.tsx)
-function PWAUpdatePrompt() {
-  const { needRefresh: [needRefresh], updateServiceWorker } = useRegisterSW();
-
-  useEffect(() => {
-    if (!needRefresh) return;
-    const id = setTimeout(() => {
-      if (window.confirm('A new version of Stasht is available. Reload now to get the latest updates?')) {
-        updateServiceWorker(true);
-      }
-    }, 1000);
-    return () => clearTimeout(id);
-  }, [needRefresh, updateServiceWorker]);
-
-  return null;
-}
-
 export default function App() {
   return (
     <ErrorBoundary>
-      <PWAUpdatePrompt />
+      <AppUpdatePrompt />
       <MainApp />
     </ErrorBoundary>
   );

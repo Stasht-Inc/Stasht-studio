@@ -19,6 +19,9 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
   const PHP_BACKEND = env.PHP_BACKEND_URL || 'https://restapi-stasht.wd-projects.online';
   const API_BASE    = `${PHP_BACKEND}/api/react`;
+  // One build time per build: stamped into the bundle (__APP_BUILD_TIME__) and written to dist/version.json, so an
+  // open window can tell a newer build has been deployed (components/AppUpdatePrompt.tsx).
+  const BUILD_TIME  = new Date().toISOString();
 
   return {
   plugins: [
@@ -88,6 +91,14 @@ export default defineConfig(({ mode }) => {
       }
     }),
     {
+      // dist/version.json: { buildTime } — must be served uncached (see components/AppUpdatePrompt.tsx).
+      name: 'stasht-version-json',
+      apply: 'build',
+      generateBundle() {
+        this.emitFile({ type: 'asset', fileName: 'version.json', source: JSON.stringify({ buildTime: BUILD_TIME }) });
+      },
+    },
+    {
       name: 'share-link-og-handler',
       configureServer(server) {
         server.middlewares.use(async (req: any, res: any, next: any) => {
@@ -142,7 +153,7 @@ export default defineConfig(({ mode }) => {
   // Stamped into every build so the profile menu can show which build a user is
   // actually running — no manual bump needed, it's always the real build time.
   define: {
-    __APP_BUILD_TIME__: JSON.stringify(new Date().toISOString()),
+    __APP_BUILD_TIME__: JSON.stringify(BUILD_TIME),
   },
   esbuild: {
     logOverride: { 'this-is-undefined-in-esm': 'silent' },
