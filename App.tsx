@@ -3936,8 +3936,6 @@ function MainApp() {
           createMemoryTrigger={createMemoryTrigger}
           onClearCreateMemoryTrigger={handleClearCreateMemoryTrigger}
           onPublishedEntryViewChange={setIsViewingPublishedEntry}
-          onAIWizardProgress={(progress) => setAiProcessing(prev => prev ? { ...prev, progress } : { memoryId: 'wizard', status: 'processing', startTime: Date.now(), progress })}
-          onAIWizardDone={() => setAiProcessing(null)}
           createCategorySignal={createCategorySignal}
           onRequestCreateCategory={() => setCreateCategorySignal((c) => c + 1)}
           openPublishedEntrySignal={openPublishedEntrySignal}
