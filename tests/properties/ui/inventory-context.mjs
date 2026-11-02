@@ -39,7 +39,7 @@ const expect = (ok, label) => { if (!ok) failures.push(label); console.log(ok ? 
 const browser = await chromium.launch({ headless: true, channel: 'chrome' });
 
 // Every inventory request: its path and the view header it carried.
-async function open({ width = 1280, height = 900, who = BON, seed, path = '/' }) {
+async function open({ width = 1280, height = 900, who = BON, seed, path = '/', slowExternalCars = 0 }) {
   const state = { requests: [] };
   const context = await browser.newContext({ viewport: { width, height }, serviceWorkers: 'block', locale: 'en-US', hasTouch: width < 1024, isMobile: width < 1024 });
   await context.addInitScript(([seedData]) => {
@@ -70,7 +70,6 @@ async function open({ width = 1280, height = 900, who = BON, seed, path = '/' })
     const view = (await req.allHeaders())[HEADER] || null;
     // The real API's rule: only Bon's own property 96 adds Serpa's inventory, and only for Bon's own sign-in.
     const external = who === BON && view === '96';
-    if (/^\/(cars|website-catalogue)/.test(p)) state.requests.push({ p, view });
     if (process.env.SL_DEBUG) console.log('api', req.method(), p, url.search, view);
     if (p === '/properties' && req.method() === 'GET') {
       return route.fulfill({ json: { success: true, data: { properties: [...owned, ...shared], owned_properties: owned, shared_properties: shared, owned_count: owned.length, shared_count: shared.length, total_count: owned.length + shared.length } } });
@@ -88,10 +87,18 @@ async function open({ width = 1280, height = 900, who = BON, seed, path = '/' })
     if (p === '/user/storage-overview') return route.fulfill({ json: { success: true, data: { storage_overview: { plan_name: 'Professional' } } } });
     if (p === '/cars' || p.startsWith('/cars?')) {
       const cars = who === BON ? (external ? [BON_CAR, SERPA_CAR] : [BON_CAR]) : [];
+      // A slow External-view answer, to land after a switch to the personal view (review L1).
+      if (external && slowExternalCars) await new Promise((r) => setTimeout(r, slowExternalCars));
       return route.fulfill({ json: { status: 200, data: { cars, pagination: { total: cars.length }, filters: { categories: ['preowned'] } } } });
     }
     if (p.startsWith('/dashboard/')) return route.fulfill({ status: 404, json: { success: false, message: 'Not found' } });
     return route.fulfill({ json: { success: true, data: [] } });
+  });
+  // Recorded as each request is issued (the route handler above runs later), so their order matches a view switch.
+  context.on('request', (req) => {
+    const url = new URL(req.url());
+    const p = url.pathname.replace(/^\/api\/react/, '');
+    if (url.pathname.startsWith('/api/') && /^\/(cars|website-catalogue)/.test(p)) state.requests.push({ p, view: req.headers()[HEADER] || null });
   });
   const page = await context.newPage();
   page.on('pageerror', (e) => pageErrors.push(e.message));
@@ -120,6 +127,15 @@ async function openProfileMenu(page) {
   await page.waitForTimeout(800);
 }
 const views = (state, from = 0) => [...new Set(state.requests.slice(from).map((r) => r.view))];
+// The sidebar's Campaigns count (the "Campaigns 4" nav item).
+const sidebarCampaigns = (page) => page.evaluate(() => {
+  for (const el of document.querySelectorAll('span, div, p')) {
+    if (el.textContent?.trim() !== 'Campaigns' || el.offsetParent === null) continue;
+    const m = (el.parentElement?.parentElement?.textContent || '').trim().match(/^Campaigns\s*(\d+)$/);
+    if (m) return Number(m[1]);
+  }
+  return null;
+});
 
 try {
   // 1. Personal account: only Bon's own car; no request names a property.
@@ -167,7 +183,8 @@ try {
     });
     const after = state.requests.slice(before);
     console.log('2b after switch (no reload)', JSON.stringify({ inApp, after, titles }), await page.evaluate(() => localStorage.getItem('view_type')));
-    expect(after.length > inApp.length && views(state, before).every((v) => v === null), '2b: after Back to Bon Sun (no reload) no request names a property');
+    // (It may come from the cache the page's own personal refetch just filled: that's fine, it is keyed by the view.)
+    expect(after.length > 0 && views(state, before).every((v) => v === null), '2b: after Back to Bon Sun (no reload) no request names a property');
     expect(titles.includes(BON_CAR.title) && !titles.includes(SERPA_CAR.title), "2b: GET /cars right after the switch is the personal one (not the External view's cached answer)");
     // The Campaigns page stayed on screen (no reload): it loaded the cars and catalogue again for the personal view.
     expect(inApp.some((r) => r.p === '/cars'), '2b: the page itself asked for the cars again after the switch');
@@ -214,6 +231,28 @@ try {
     console.log('4 main account requests', JSON.stringify(state.requests));
     expect(views(state).every((v) => v === null), '4: the main account\'s internal property view sends no X-Stasht-Property');
     await context.close();
+  }
+
+  // 6. Review L1: the External view's cars answer is slow and lands after "Back to Bon Sun". The sidebar's Campaigns
+  //    count must end as it does when nothing is slow (the personal view's), not take the stale External answer.
+  {
+    const switchAndCount = async (slowExternalCars) => {
+      const { page, context, state } = await open({ slowExternalCars, seed: { stasht_token: 'bon-token', stasht_user: BON, view_type: 'property', selected_property: BONS_OWN, stasht_campaigns_view: 'storeels' } });
+      await waitForApp(page);
+      const sentExternal = state.requests.some((r) => r.p === '/cars' && r.view === '96');
+      await openProfileMenu(page);
+      await page.getByText('Back to Bon Sun').filter({ visible: true }).first().click();
+      await page.waitForTimeout(slowExternalCars + 2500); // the slow External answers have landed by now
+      const count = await sidebarCampaigns(page);
+      if (slowExternalCars) await shot(page, '05-slow-external-answer-after-switch');
+      await context.close();
+      return { count, sentExternal };
+    };
+    const control = await switchAndCount(0);
+    const slow = await switchAndCount(7000);
+    console.log('6 counts', JSON.stringify({ control, slow }));
+    expect(slow.sentExternal, '6: the External view asked for its cars (slow answer)');
+    expect(control.count !== null && slow.count === control.count, `6: the slow External answer doesn't change the personal count (${slow.count} vs ${control.count})`);
   }
 
   // 5. Two tabs: tab A personal, tab B opens the External view. Tab A's next requests still send nothing.

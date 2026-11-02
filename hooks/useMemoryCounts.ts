@@ -3,6 +3,7 @@ import { dashboardAPI, isPartialAdmin } from '../utils/authUtils';
 import { useAuth } from '../contexts/AuthContext';
 import { catalogueAPI } from '../services/catalogueAPI';
 import { useInventoryViewKey } from './useInventoryViewKey';
+import { inventoryViewRun } from '../utils/inventoryView';
 
 interface MemoryCounts {
   total_memories: number;
@@ -102,17 +103,21 @@ const memoryCountsManager = {
   // Fetch the read-only cars inventory count once on login so the sidebar Campaigns
   // total includes it before MemoriesPage has ever mounted. Mirrors the /cars fetch
   // MemoriesPage does for its card display; here we only need the count.
+  // An answer asked for in another inventory view (the view switched while it was on its way) is dropped: the new
+  // view's own fetch sets the count (inventoryViewRun; a salesperson's personal vs External view, 2 Nov 2026).
   fetchCarsCatalogCount: async (): Promise<void> => {
     if (carsCatalogLoaded) return;
     carsCatalogLoaded = true; // set synchronously so parallel hook instances skip
+    const asked = inventoryViewRun();
     try {
       const res: any = await dashboardAPI.carsGetCatalog();
+      if (asked !== inventoryViewRun()) return;
       const list = res?.data?.data?.cars || res?.data?.cars || [];
       if (res?.success && Array.isArray(list)) {
         memoryCountsManager.setCarsCatalogCount(list.length);
       }
     } catch {
-      carsCatalogLoaded = false; // allow a later attempt if this one failed
+      if (asked === inventoryViewRun()) carsCatalogLoaded = false; // allow a later attempt if this one failed
     }
   },
 
@@ -122,11 +127,14 @@ const memoryCountsManager = {
   fetchWebsiteCatalogueCount: async (): Promise<void> => {
     if (websiteCatalogueLoaded) return;
     websiteCatalogueLoaded = true; // set synchronously so parallel hook instances skip
+    const asked = inventoryViewRun(); // as fetchCarsCatalogCount: another view's answer is dropped
     try {
       const status = await catalogueAPI.getStatus();
+      if (asked !== inventoryViewRun()) return;
       if (!status.ok) { websiteCatalogueLoaded = false; return; } // allow a later attempt
       if (!status.data?.available || !status.data.item_count) return;
       const res = await catalogueAPI.getItems({ perPage: 1 });
+      if (asked !== inventoryViewRun()) return;
       const total = Number(res.data?.pagination?.total);
       if (!res.ok || !Number.isFinite(total)) { websiteCatalogueLoaded = false; return; }
       if (globalWebsiteCatalogueCount !== total) {
@@ -134,7 +142,7 @@ const memoryCountsManager = {
         memoryCountsManager.notify();
       }
     } catch {
-      websiteCatalogueLoaded = false; // allow a later attempt if this one failed
+      if (asked === inventoryViewRun()) websiteCatalogueLoaded = false; // allow a later attempt if this one failed
     }
   },
 

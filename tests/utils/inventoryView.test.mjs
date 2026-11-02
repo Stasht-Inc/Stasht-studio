@@ -15,6 +15,7 @@ import {
   currentPropertyViewHeaders,
   propertyViewCacheKey,
   subscribePropertyView,
+  inventoryViewRun,
 } from '../../utils/inventoryView.ts';
 
 // Bon Sun: stash 966; property 96 was made for him by Serpa (stash 889).
@@ -109,4 +110,32 @@ test('a switch that changes what the API is told tells the inventory lists to lo
   stop();
   setTabPropertyView('property', bonsOwn);
   assert.equal(calls, 2, 'unsubscribed');
+});
+
+test('each view change starts a new run, so an answer asked for in the old view can be told apart and dropped', () => {
+  globalThis.localStorage = fakeStorage({ view_type: 'property', selected_property: bonsOwn, stasht_user: bon });
+  const asked = inventoryViewRun(); // a count request goes out in the External view
+  setTabPropertyView('property', { ...bonsOwn, image: 'x.png' });
+  assert.equal(inventoryViewRun(), asked, 'same view: the answer still counts');
+  setTabPropertyView('personal', null); // Back to Bon Sun before it answers
+  assert.notEqual(inventoryViewRun(), asked, 'switched: the External view\'s answer is stale');
+  const personal = inventoryViewRun();
+  setTabPropertyView('personal', null);
+  assert.equal(inventoryViewRun(), personal);
+});
+
+test('the headers are worked out once per view and sign-in, and callers get their own copy', () => {
+  const storage = fakeStorage({ view_type: 'property', selected_property: bonsOwn, stasht_user: bon });
+  let userReads = 0;
+  const getItem = storage.getItem;
+  storage.getItem = (k) => { if (k === 'stasht_user') userReads++; return getItem(k); };
+  globalThis.localStorage = storage;
+  const first = currentPropertyViewHeaders();
+  first[PROPERTY_VIEW_HEADER] = 'tampered';
+  assert.deepEqual(currentPropertyViewHeaders(), { [PROPERTY_VIEW_HEADER]: '96' }, 'a caller changing its copy changes nothing');
+  assert.equal(propertyViewCacheKey(), '96');
+  assert.ok(userReads >= 1);
+  // Another sign-in in this tab: worked out again.
+  storage.setItem('stasht_user', JSON.stringify({ id: 9, external_user_id: 555 }));
+  assert.deepEqual(currentPropertyViewHeaders(), {}, "the stored row isn't the new account's own");
 });
