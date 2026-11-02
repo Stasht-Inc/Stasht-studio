@@ -14,7 +14,7 @@ import { useAlvinStatus } from "./alvin/useAlvinEnabled";
 import AlvinIntroPopover, { introSeen, markSeen, visibleAlvinButton } from "./alvin/AlvinIntroPopover";
 import { RefreshCw } from "lucide-react";
 import { useProperty } from "../contexts/PropertyContext";
-import { refreshToLatest } from "./AppUpdatePrompt";
+import { onRefreshCancelled, refreshToLatest } from "./AppUpdatePrompt";
 
 function Layer1() {
   return (
@@ -153,6 +153,9 @@ function Badge({ count, onClick }: { count: number; onClick: () => void }) {
 // whenever the service worker happens to check in the background.
 function RefreshAppButton() {
   const [isRefreshing, setIsRefreshing] = useState(false);
+
+  // A reload cancelled by a page's "unsaved changes" prompt (Stay) leaves this page running: stop the spinner.
+  useEffect(() => onRefreshCancelled(() => setIsRefreshing(false)), []);
 
   // Waits for a newer service worker (if any) to take over before the one reload, so one click is enough.
   const handleRefresh = async () => {

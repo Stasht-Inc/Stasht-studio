@@ -1,20 +1,17 @@
 Options -MultiViews
 
-# Prevent browser/server caching of PWA critical files so updates deploy immediately
-<FilesMatch "^(sw\.js|index\.html|manifest\.webmanifest|registerSW\.js|workbox-.+\.js)$">
-    Header set Cache-Control "no-store, no-cache, must-revalidate, max-age=0"
-    Header set Pragma "no-cache"
-    Header set Expires "0"
-</FilesMatch>
-
 # Allow long-term caching for versioned assets (they have content hashes in filenames)
 <FilesMatch "\.(js|css|png|svg|woff2|jpg|jpeg|gif|ico|webp)$">
     Header set Cache-Control "public, max-age=31536000, immutable"
 </FilesMatch>
 
-# Re-apply no-cache for index.html specifically (navigation fallback)
-<FilesMatch "^index\.html$">
+# Never cache the PWA critical files or version.json (the "new version available" check), so updates show up
+# immediately. This MUST stay after the generic rule above: Apache applies <FilesMatch> sections in order and
+# the later "Header set" wins, so here sw.js / registerSW.js / workbox-*.js lose the "immutable" .js rule.
+<FilesMatch "^(sw\.js|index\.html|manifest\.webmanifest|registerSW\.js|workbox-.+\.js|version\.json)$">
     Header set Cache-Control "no-store, no-cache, must-revalidate, max-age=0"
+    Header set Pragma "no-cache"
+    Header set Expires "0"
 </FilesMatch>
 
 # Contact Us widget files are embedded on customers' sites. The generic .js rule above marks every

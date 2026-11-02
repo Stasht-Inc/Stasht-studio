@@ -4845,10 +4845,13 @@ function MainApp() {
 
 // App wrapper (providers are now in main.tsx)
 export default function App() {
+  // The update prompt sits outside the ErrorBoundary so a crash screen can still offer Refresh.
   return (
-    <ErrorBoundary>
+    <>
       <AppUpdatePrompt />
-      <MainApp />
-    </ErrorBoundary>
+      <ErrorBoundary>
+        <MainApp />
+      </ErrorBoundary>
+    </>
   );
 }

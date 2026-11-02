@@ -311,6 +311,55 @@ try {
     await context.close();
   }
 
+  // 7. Refresh while a page holds unsaved work: its beforeunload prompt is answered "Stay". The page keeps running,
+  //    so the banner comes back (not stuck on "Updating…"), the cancelled click is not counted as an attempt, and
+  //    the header's refresh button stops spinning. Without the prompt, Refresh then lands on B with one reload.
+  {
+    root = DIST_A; versionRoot = null;
+    const context = await newContext({ serviceWorkers: 'block' });
+    const page = await context.newPage();
+    page.loads = 0;
+    page.on('load', () => { page.loads += 1; });
+    page.on('pageerror', (e) => pageErrors.push(e.message));
+    let prompts = 0;
+    page.on('dialog', (dialog) => { if (dialog.type() === 'beforeunload') prompts += 1; dialog.dismiss(); });
+    await page.clock.install();
+    await page.goto(`${BASE}/dashboard`);
+    await waitForApp(page);
+    root = DIST_B;
+    await page.clock.fastForward('05:01');
+    expect(await waitForBanner(page), '7: banner shows');
+    await page.evaluate(() => {
+      window.__unsaved = (e) => { e.preventDefault(); e.returnValue = ''; };
+      window.addEventListener('beforeunload', window.__unsaved);
+    });
+    await banner(page).first().getByRole('button', { name: 'Refresh', exact: true }).click();
+    await page.waitForTimeout(1500);
+    expect(prompts === 1, `7: the page asked about unsaved changes (${prompts})`);
+    await page.waitForTimeout(5000);
+    expect(await bannerVisible(page) && await banner(page).first().getByRole('button', { name: 'Refresh', exact: true }).isVisible(), '7: after "Stay" the banner is back with Refresh');
+    expect((await page.getByText('Updating Stasht Studio…').count()) === 0, '7: no stuck "Updating…" toast');
+    expect(page.loads === 1, `7: no reload happened (loads ${page.loads})`);
+    expect((await page.evaluate(() => sessionStorage.getItem('stasht_update_refresh_attempt'))) === null, '7: the cancelled click is not counted as an attempt');
+    await shot(page, '07-cancelled-reload-banner-back');
+    const headerRefresh = page.getByRole('button', { name: 'Refresh to get the latest version' }).filter({ visible: true }).first();
+    await headerRefresh.click();
+    await page.waitForTimeout(1500);
+    expect(prompts === 2, `7: header refresh also asked (${prompts})`);
+    await page.waitForTimeout(5000);
+    expect(await headerRefresh.isEnabled(), '7: header refresh button is usable again (spinner stopped)');
+    expect(page.loads === 1, `7: still no reload (loads ${page.loads})`);
+    await page.evaluate(() => window.removeEventListener('beforeunload', window.__unsaved));
+    await banner(page).first().getByRole('button', { name: 'Refresh', exact: true }).click();
+    await page.waitForEvent('load', { timeout: 30000 });
+    await waitForApp(page);
+    expect((await runningEntry(page)) === ENTRY_B, '7: Refresh without the prompt lands on B');
+    await page.waitForTimeout(6000);
+    expect(page.loads === 2, `7: exactly one reload (loads ${page.loads})`);
+    expect(!(await bannerVisible(page)), '7: no banner on B');
+    await context.close();
+  }
+
   // 6. Where the banner sits: bottom-right on desktop, clear of the header search; on phones / narrow windows
   //    bottom-center, above the bottom nav and its "+" button. (version.json newer → start-up check shows it.)
   const overlaps = (a, b) => a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;

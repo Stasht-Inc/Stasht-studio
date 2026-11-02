@@ -16,6 +16,10 @@ import {
   canOfferUpdate,
   shouldCheckNow,
   parseAttempt,
+  USER_DISMISS_WINDOW_MS,
+  RELOAD_CANCEL_GRACE_MS,
+  isUserDismiss,
+  attemptAfterCancelledReload,
 } from '../../utils/appVersion.ts';
 
 const A = '2026-11-02T10:00:00.000Z';
@@ -114,4 +118,21 @@ test('shouldCheckNow: first check always, then at most once per gap', () => {
   assert.equal(shouldCheckNow(NOW, NOW + FOCUS_CHECK_MIN_GAP_MS), true);
   assert.equal(shouldCheckNow(NOW, NOW - 1000), true); // clock went back
   assert.equal(shouldCheckNow(NOW, NOW + 10, 5), true);
+});
+
+test('isUserDismiss: only a close right after the user touched the banner counts as their dismissal', () => {
+  assert.equal(isUserDismiss(NOW - 100, NOW), true); // tapped the X / swiped it away
+  assert.equal(isUserDismiss(NOW - USER_DISMISS_WINDOW_MS, NOW), true);
+  assert.equal(isUserDismiss(NOW - USER_DISMISS_WINDOW_MS - 1, NOW), false); // touched long ago, closed by code now
+  assert.equal(isUserDismiss(null, NOW), false); // never touched: another screen's toast.dismiss() closed it
+  assert.equal(isUserDismiss(NOW + 5000, NOW), false); // clock went back
+});
+
+test('a reload the user cancelled (beforeunload "Stay") does not count as a Refresh attempt', () => {
+  const before = nextAttempt(null, A, NOW); // one earlier, real failed Refresh
+  // The cancelled click had stored count 2; the attempt goes back to what it was before that click.
+  assert.deepEqual(attemptAfterCancelledReload(before), before);
+  assert.equal(attemptAfterCancelledReload(null), null);
+  assert.equal(refreshAction(attemptAfterCancelledReload(null), A, NOW), 'reload');
+  assert.ok(RELOAD_CANCEL_GRACE_MS >= 2000 && RELOAD_CANCEL_GRACE_MS <= 10000);
 });

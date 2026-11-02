@@ -108,3 +108,21 @@ export function parseAttempt(raw: string | null): RefreshAttempt | null {
     return null;
   }
 }
+
+/** A close within this long of the user touching the banner (X, swipe) is their dismissal. */
+export const USER_DISMISS_WINDOW_MS = 2000;
+/** After reload() this long with the page still here, the reload was cancelled (a beforeunload "Stay"). */
+export const RELOAD_CANCEL_GRACE_MS = 4000;
+
+/**
+ * Was the banner closed by the user? sonner's toast.dismiss() with no id (used elsewhere in the app) closes every
+ * toast, this one included, and reports it the same way; only a close right after a touch on the banner counts.
+ */
+export function isUserDismiss(lastTouchAt: number | null, now: number, windowMs = USER_DISMISS_WINDOW_MS): boolean {
+  return lastTouchAt !== null && now >= lastTouchAt && now - lastTouchAt <= windowMs;
+}
+
+/** The reload never happened, so the click is not an attempt: the stored attempt goes back to what it was before it. */
+export function attemptAfterCancelledReload(previous: RefreshAttempt | null): RefreshAttempt | null {
+  return previous;
+}

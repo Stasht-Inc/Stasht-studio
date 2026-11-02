@@ -14,15 +14,21 @@
 // Refresh: activates a new worker if one is installing or waiting, then reloads once (same URL, so the same page).
 // A Refresh that leaves the page on the same old build escalates once (unregister the app's worker, reload); after
 // that the prompt stays away for a while — see utils/appVersion.ts. Nothing here ever reloads without a click.
-import { useEffect, useRef, useState } from 'react';
-import { useRegisterSW } from 'virtual:pwa-register/react';
+// If the reload is cancelled (a page's "unsaved changes" prompt, answered Stay), the banner comes back.
+//
+// Everything below runs once per page (module-level), however often the component mounts.
+import { useEffect, useState } from 'react';
+import { registerSW } from 'virtual:pwa-register';
 import { Toaster, toast } from 'sonner';
 import {
   FOCUS_CHECK_MIN_GAP_MS,
   REFRESH_ATTEMPT_KEY,
+  RELOAD_CANCEL_GRACE_MS,
   UPDATE_CHECK_INTERVAL_MS,
+  attemptAfterCancelledReload,
   canOfferUpdate,
   isNewerBuild,
+  isUserDismiss,
   nextAttempt,
   parseAttempt,
   readRemoteBuild,
@@ -35,6 +41,7 @@ import {
 const LOCAL_BUILD = __APP_BUILD_TIME__;
 const TOASTER_ID = 'app-update';
 const TOAST_ID = 'app-update';
+const TOAST_CLASS = 'stasht-app-update-toast';
 const MESSAGE = 'A new version of Stasht Studio is available.';
 // Below md (768px) App.tsx shows the fixed bottom nav: a 96px bar (h-24, plus the safe-area inset) with a 96px
 // "+" button sticking 80px above it, so its top edge is 176px up. The campaign page's own nav reaches 123px. The
@@ -42,20 +49,21 @@ const MESSAGE = 'A new version of Stasht Studio is available.';
 const WIDE = '(min-width: 768px)';
 const ABOVE_BOTTOM_NAV = 'calc(188px + env(safe-area-inset-bottom, 0px))';
 
-function useMatches(query: string): boolean {
-  const [matches, setMatches] = useState(() => typeof window !== 'undefined' && window.matchMedia(query).matches);
-  useEffect(() => {
-    const mql = window.matchMedia(query);
-    const onChange = () => setMatches(mql.matches);
-    onChange();
-    mql.addEventListener('change', onChange);
-    return () => mql.removeEventListener('change', onChange);
-  }, [query]);
-  return matches;
-}
-
 let registration: ServiceWorkerRegistration | undefined;
+let started = false;
 let refreshing = false;
+let offeredKey: string | null = null; // what the open banner is for ('sw' when only the worker said so)
+let lastOfferKey: string | null = null; // what to offer again after a cancelled reload
+const dismissed = new Set<string>();
+let lastTouchAt: number | null = null; // last pointer / key press on the banner
+let lastCheckAt: number | null = null;
+const refreshEndListeners = new Set<() => void>();
+
+/** Lets the header's refresh button stop its spinner when a reload was cancelled. */
+export function onRefreshCancelled(listener: () => void): () => void {
+  refreshEndListeners.add(listener);
+  return () => { refreshEndListeners.delete(listener); };
+}
 
 function readAttempt(): RefreshAttempt | null {
   try {
@@ -65,9 +73,10 @@ function readAttempt(): RefreshAttempt | null {
   }
 }
 
-function writeAttempt(attempt: RefreshAttempt) {
+function writeAttempt(attempt: RefreshAttempt | null) {
   try {
-    sessionStorage.setItem(REFRESH_ATTEMPT_KEY, JSON.stringify(attempt));
+    if (attempt) sessionStorage.setItem(REFRESH_ATTEMPT_KEY, JSON.stringify(attempt));
+    else sessionStorage.removeItem(REFRESH_ATTEMPT_KEY);
   } catch {
     // Private mode / storage blocked: Refresh still works, only the loop guard is lost.
   }
@@ -126,11 +135,25 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T | undefined>
 }
 
 /**
- * Get onto the latest deployed build: pick up a newer service worker if there is one, then reload once.
- * Also used by the header's refresh button (components/InteractiveNav.tsx).
+ * reload(), then watch for it not happening: a page's beforeunload prompt answered "Stay" leaves this page running
+ * with nothing to say so. Still here after the grace period → put things back (onCancelled).
  */
-export async function refreshToLatest(): Promise<void> {
-  refreshing = true;
+function reloadOrRecover(onCancelled: () => void) {
+  let leaving = false;
+  const onHide = () => { leaving = true; };
+  window.addEventListener('pagehide', onHide, { once: true });
+  window.location.reload();
+  window.setTimeout(() => {
+    window.removeEventListener('pagehide', onHide);
+    if (leaving) return;
+    refreshing = false;
+    onCancelled();
+    refreshEndListeners.forEach((listener) => listener());
+  }, RELOAD_CANCEL_GRACE_MS);
+}
+
+/** Pick up a newer service worker if there is one (bounded waits). */
+async function pickUpNewWorker(): Promise<void> {
   try {
     const reg = await appRegistration();
     if (reg) {
@@ -140,12 +163,20 @@ export async function refreshToLatest(): Promise<void> {
   } catch {
     // Reload anyway.
   }
-  window.location.reload();
 }
 
-/** Unregisters only the app's own worker (scope "/") — not OneSignal's push worker — then reloads. */
-async function resetWorkerAndReload(): Promise<void> {
+/**
+ * Get onto the latest deployed build: pick up a newer service worker if there is one, then reload once.
+ * Also used by the header's refresh button (components/InteractiveNav.tsx), which listens to onRefreshCancelled.
+ */
+export async function refreshToLatest(): Promise<void> {
   refreshing = true;
+  await pickUpNewWorker();
+  reloadOrRecover(() => {});
+}
+
+/** Unregisters only the app's own worker (scope "/") — not OneSignal's push worker. */
+async function unregisterAppWorker(): Promise<void> {
   try {
     const regs = await navigator.serviceWorker.getRegistrations();
     const root = `${window.location.origin}/`;
@@ -153,63 +184,75 @@ async function resetWorkerAndReload(): Promise<void> {
   } catch {
     // Reload anyway.
   }
-  window.location.reload();
 }
 
 async function applyUpdate() {
   if (refreshing) return;
+  refreshing = true;
   const now = Date.now();
   const previous = readAttempt();
   const action = 'serviceWorker' in navigator ? refreshAction(previous, LOCAL_BUILD, now) : 'reload';
   writeAttempt(nextAttempt(previous, LOCAL_BUILD, now));
   toast.loading('Updating Stasht Studio…', { id: TOAST_ID, toasterId: TOASTER_ID, duration: Infinity, closeButton: false, action: undefined });
-  if (action === 'reset-and-reload') await resetWorkerAndReload();
-  else await refreshToLatest();
+  if (action === 'reset-and-reload') await unregisterAppWorker();
+  else await pickUpNewWorker();
+  reloadOrRecover(() => {
+    // Cancelled: not an attempt, and the banner comes back as it was.
+    writeAttempt(attemptAfterCancelledReload(previous));
+    const key = lastOfferKey;
+    offeredKey = null;
+    if (key) offer(key, true);
+  });
 }
 
-export default function AppUpdatePrompt() {
-  const wide = useMatches(WIDE);
-  // What the open prompt is for ('sw' when only the worker said so), and what the user dismissed.
-  const shownFor = useRef<string | null>(null);
-  const dismissed = useRef<Set<string>>(new Set());
-  const lastCheckAt = useRef<number | null>(null);
-
-  const offer = useRef((key: string) => {
-    if (refreshing || shownFor.current !== null || dismissed.current.has(key)) return;
-    if (!canOfferUpdate(readAttempt(), LOCAL_BUILD, Date.now())) return;
-    shownFor.current = key;
-    toast(MESSAGE, {
-      id: TOAST_ID,
-      toasterId: TOASTER_ID,
-      duration: Infinity,
-      closeButton: true,
-      action: {
-        label: 'Refresh',
-        onClick: (event) => {
-          event.preventDefault(); // keep the toast up while it updates
-          void applyUpdate();
-        },
+function offer(key: string, force = false) {
+  if (refreshing || (!force && (offeredKey !== null || dismissed.has(key)))) return;
+  if (!canOfferUpdate(readAttempt(), LOCAL_BUILD, Date.now())) return;
+  offeredKey = key;
+  lastOfferKey = key;
+  toast(MESSAGE, {
+    id: TOAST_ID,
+    toasterId: TOASTER_ID,
+    className: TOAST_CLASS,
+    duration: Infinity,
+    closeButton: true,
+    action: {
+      label: 'Refresh',
+      onClick: (event) => {
+        event.preventDefault(); // keep the toast up while it updates
+        void applyUpdate();
       },
-      onDismiss: () => {
-        if (refreshing) return;
-        dismissed.current.add(key);
-        shownFor.current = null;
-      },
-    });
+    },
+    onDismiss: () => {
+      if (refreshing) return;
+      offeredKey = null;
+      if (isUserDismiss(lastTouchAt, Date.now())) {
+        dismissed.add(key);
+        return;
+      }
+      // Closed by code (another screen's toast.dismiss() with no id): not the user's choice, so it comes back.
+      window.setTimeout(() => offer(key), 600);
+    },
   });
+}
 
-  const check = useRef(async () => {
-    if (refreshing) return;
-    if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
-    lastCheckAt.current = Date.now();
-    const reg = await appRegistration();
-    if (reg && !reg.installing) reg.update().catch(() => undefined); // a new worker reports through onNeedReload
-    if (!import.meta.env.PROD) return; // version.json only exists in builds
-    const remote = await fetchRemoteBuild();
-    if (remote && isNewerBuild(remote, LOCAL_BUILD)) offer.current(remote);
-  });
+async function check() {
+  if (refreshing) return;
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
+  lastCheckAt = Date.now();
+  const reg = await appRegistration();
+  if (reg && !reg.installing) reg.update().catch(() => undefined); // a new worker reports through onNeedReload
+  if (!import.meta.env.PROD) return; // version.json only exists in builds
+  const remote = await fetchRemoteBuild();
+  if (remote && isNewerBuild(remote, LOCAL_BUILD)) offer(remote);
+}
 
-  useRegisterSW({
+/** Starts the service worker registration and the update checks, once per page. */
+function startWatching() {
+  if (started) return;
+  started = true;
+  registerSW({
+    immediate: true,
     onRegisteredSW(_url, reg) {
       registration = reg;
     },
@@ -218,29 +261,43 @@ export default function AppUpdatePrompt() {
       if (refreshing) return;
       void (async () => {
         const remote = import.meta.env.PROD ? await fetchRemoteBuild() : null;
-        if (shouldOfferForWorkerUpdate(remote, LOCAL_BUILD)) offer.current(remote ?? 'sw');
+        if (shouldOfferForWorkerUpdate(remote, LOCAL_BUILD)) offer(remote ?? 'sw');
       })();
     },
   });
+  // A touch on the banner (its X, a swipe) just before it closes is the user dismissing it.
+  const touch = (event: Event) => {
+    if (event.target instanceof Element && event.target.closest(`.${TOAST_CLASS}`)) lastTouchAt = Date.now();
+  };
+  document.addEventListener('pointerdown', touch, true);
+  document.addEventListener('keydown', touch, true);
+  window.setTimeout(() => void check(), 3000);
+  window.setInterval(() => {
+    if (document.visibilityState === 'visible') void check();
+  }, UPDATE_CHECK_INTERVAL_MS);
+  const onFocus = () => {
+    if (document.visibilityState !== 'visible') return;
+    if (shouldCheckNow(lastCheckAt, Date.now(), FOCUS_CHECK_MIN_GAP_MS)) void check();
+  };
+  window.addEventListener('focus', onFocus);
+  document.addEventListener('visibilitychange', onFocus);
+}
 
+function useMatches(query: string): boolean {
+  const [matches, setMatches] = useState(() => typeof window !== 'undefined' && window.matchMedia(query).matches);
   useEffect(() => {
-    const startup = window.setTimeout(() => void check.current(), 3000);
-    const interval = window.setInterval(() => {
-      if (document.visibilityState === 'visible') void check.current();
-    }, UPDATE_CHECK_INTERVAL_MS);
-    const onFocus = () => {
-      if (document.visibilityState !== 'visible') return;
-      if (shouldCheckNow(lastCheckAt.current, Date.now(), FOCUS_CHECK_MIN_GAP_MS)) void check.current();
-    };
-    window.addEventListener('focus', onFocus);
-    document.addEventListener('visibilitychange', onFocus);
-    return () => {
-      window.clearTimeout(startup);
-      window.clearInterval(interval);
-      window.removeEventListener('focus', onFocus);
-      document.removeEventListener('visibilitychange', onFocus);
-    };
-  }, []);
+    const mql = window.matchMedia(query);
+    const onChange = () => setMatches(mql.matches);
+    onChange();
+    mql.addEventListener('change', onChange);
+    return () => mql.removeEventListener('change', onChange);
+  }, [query]);
+  return matches;
+}
+
+export default function AppUpdatePrompt() {
+  const wide = useMatches(WIDE);
+  useEffect(() => { startWatching(); }, []);
 
   // Its own Toaster so it shows on every screen (App's Toaster only exists once signed in) and does not stack
   // with ordinary toasts top-right. Bottom-right on desktop (clear of the header search); on phones and narrow
