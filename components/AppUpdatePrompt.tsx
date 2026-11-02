@@ -14,7 +14,7 @@
 // Refresh: activates a new worker if one is installing or waiting, then reloads once (same URL, so the same page).
 // A Refresh that leaves the page on the same old build escalates once (unregister the app's worker, reload); after
 // that the prompt stays away for a while — see utils/appVersion.ts. Nothing here ever reloads without a click.
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useRegisterSW } from 'virtual:pwa-register/react';
 import { Toaster, toast } from 'sonner';
 import {
@@ -36,6 +36,23 @@ const LOCAL_BUILD = __APP_BUILD_TIME__;
 const TOASTER_ID = 'app-update';
 const TOAST_ID = 'app-update';
 const MESSAGE = 'A new version of Stasht Studio is available.';
+// Below md (768px) App.tsx shows the fixed bottom nav: a 96px bar (h-24, plus the safe-area inset) with a 96px
+// "+" button sticking 80px above it, so its top edge is 176px up. The campaign page's own nav reaches 123px. The
+// banner sits 12px above that, clear of both.
+const WIDE = '(min-width: 768px)';
+const ABOVE_BOTTOM_NAV = 'calc(188px + env(safe-area-inset-bottom, 0px))';
+
+function useMatches(query: string): boolean {
+  const [matches, setMatches] = useState(() => typeof window !== 'undefined' && window.matchMedia(query).matches);
+  useEffect(() => {
+    const mql = window.matchMedia(query);
+    const onChange = () => setMatches(mql.matches);
+    onChange();
+    mql.addEventListener('change', onChange);
+    return () => mql.removeEventListener('change', onChange);
+  }, [query]);
+  return matches;
+}
 
 let registration: ServiceWorkerRegistration | undefined;
 let refreshing = false;
@@ -151,6 +168,7 @@ async function applyUpdate() {
 }
 
 export default function AppUpdatePrompt() {
+  const wide = useMatches(WIDE);
   // What the open prompt is for ('sw' when only the worker said so), and what the user dismissed.
   const shownFor = useRef<string | null>(null);
   const dismissed = useRef<Set<string>>(new Set());
@@ -225,13 +243,14 @@ export default function AppUpdatePrompt() {
   }, []);
 
   // Its own Toaster so it shows on every screen (App's Toaster only exists once signed in) and does not stack
-  // with ordinary toasts top-right. Same look as App's Toaster; Refresh in Studio purple.
+  // with ordinary toasts top-right. Bottom-right on desktop (clear of the header search); on phones and narrow
+  // windows bottom-center, above the bottom nav. Same look as App's Toaster; Refresh in Studio purple.
   return (
     <Toaster
       id={TOASTER_ID}
-      position="top-center"
-      offset={16}
-      mobileOffset={{ top: 12, left: 12, right: 12 }}
+      position={wide ? 'bottom-right' : 'bottom-center'}
+      offset={wide ? 24 : { bottom: ABOVE_BOTTOM_NAV, left: 16, right: 16 }}
+      mobileOffset={{ bottom: ABOVE_BOTTOM_NAV, left: 12, right: 12 }}
       toastOptions={{
         unstyled: false,
         style: { background: 'white', color: '#374151', border: '1px solid #E5E7EB' },

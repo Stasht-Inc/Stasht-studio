@@ -310,6 +310,31 @@ try {
     await shot(page, '05-stuck-deploy-no-loop');
     await context.close();
   }
+
+  // 6. Where the banner sits: bottom-right on desktop, clear of the header search; on phones / narrow windows
+  //    bottom-center, above the bottom nav and its "+" button. (version.json newer → start-up check shows it.)
+  const overlaps = (a, b) => a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
+  for (const [width, height] of [[1280, 900], [1440, 900], [700, 900], [390, 844]]) {
+    root = DIST_A; versionRoot = DIST_B;
+    const context = await newContext({ serviceWorkers: 'block', width, height });
+    const page = await openPage(context, '/dashboard');
+    expect(await waitForBanner(page), `6 @${width}: banner shows`);
+    await page.waitForTimeout(800);
+    const box = await banner(page).first().boundingBox();
+    if (width >= 768) {
+      const search = await page.locator('input[placeholder^="Search"]').filter({ visible: true }).first().boundingBox();
+      expect(!!search && !overlaps(box, search), `6 @${width}: does not cover the header search`);
+      expect(width - (box.x + box.width) <= 40 && height - (box.y + box.height) <= 40, `6 @${width}: bottom-right (right gap ${Math.round(width - box.x - box.width)}, bottom gap ${Math.round(height - box.y - box.height)})`);
+    } else {
+      const nav = await page.locator('nav.fixed.bottom-0').filter({ visible: true }).first().boundingBox();
+      const plus = await page.locator('nav.fixed.bottom-0 button.rounded-full').filter({ visible: true }).first().boundingBox();
+      const clearTop = Math.min(nav.y, plus ? plus.y : nav.y);
+      expect(box.y + box.height <= clearTop, `6 @${width}: above the bottom nav and its + button (banner bottom ${Math.round(box.y + box.height)}, nav/+ top ${Math.round(clearTop)})`);
+      expect(Math.abs(box.x + box.width / 2 - width / 2) <= 4, `6 @${width}: centered`);
+    }
+    await shot(page, `06-position-${width}`);
+    await context.close();
+  }
 } catch (e) {
   failures.push(`crashed: ${e.message}`);
   console.log(e);
