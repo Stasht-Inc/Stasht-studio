@@ -2,6 +2,8 @@ import { useState, useEffect, useCallback } from 'react';
 import { dashboardAPI, isPartialAdmin } from '../utils/authUtils';
 import { useAuth } from '../contexts/AuthContext';
 import { catalogueAPI } from '../services/catalogueAPI';
+import { useInventoryViewKey } from './useInventoryViewKey';
+import { inventoryViewRun } from '../utils/inventoryView';
 
 interface MemoryCounts {
   total_memories: number;
@@ -44,6 +46,9 @@ let globalWebsiteCatalogueCount = 0;
 // reset on logout so the next user refetches.
 let carsCatalogLoaded = false;
 let websiteCatalogueLoaded = false;
+// The inventory view the two counts above were fetched for (useInventoryViewKey): a salesperson's personal view counts
+// only their own cars and items, the External view the main account's too, so a switch fetches them again.
+let countedInventoryView: string | null = null;
 
 // Subscribers that need to be notified when memory counts change
 const subscribers = new Set<() => void>();
@@ -98,17 +103,21 @@ const memoryCountsManager = {
   // Fetch the read-only cars inventory count once on login so the sidebar Campaigns
   // total includes it before MemoriesPage has ever mounted. Mirrors the /cars fetch
   // MemoriesPage does for its card display; here we only need the count.
+  // An answer asked for in another inventory view (the view switched while it was on its way) is dropped: the new
+  // view's own fetch sets the count (inventoryViewRun; a salesperson's personal vs External view, 2 Nov 2026).
   fetchCarsCatalogCount: async (): Promise<void> => {
     if (carsCatalogLoaded) return;
     carsCatalogLoaded = true; // set synchronously so parallel hook instances skip
+    const asked = inventoryViewRun();
     try {
       const res: any = await dashboardAPI.carsGetCatalog();
+      if (asked !== inventoryViewRun()) return;
       const list = res?.data?.data?.cars || res?.data?.cars || [];
       if (res?.success && Array.isArray(list)) {
         memoryCountsManager.setCarsCatalogCount(list.length);
       }
     } catch {
-      carsCatalogLoaded = false; // allow a later attempt if this one failed
+      if (asked === inventoryViewRun()) carsCatalogLoaded = false; // allow a later attempt if this one failed
     }
   },
 
@@ -118,11 +127,14 @@ const memoryCountsManager = {
   fetchWebsiteCatalogueCount: async (): Promise<void> => {
     if (websiteCatalogueLoaded) return;
     websiteCatalogueLoaded = true; // set synchronously so parallel hook instances skip
+    const asked = inventoryViewRun(); // as fetchCarsCatalogCount: another view's answer is dropped
     try {
       const status = await catalogueAPI.getStatus();
+      if (asked !== inventoryViewRun()) return;
       if (!status.ok) { websiteCatalogueLoaded = false; return; } // allow a later attempt
       if (!status.data?.available || !status.data.item_count) return;
       const res = await catalogueAPI.getItems({ perPage: 1 });
+      if (asked !== inventoryViewRun()) return;
       const total = Number(res.data?.pagination?.total);
       if (!res.ok || !Number.isFinite(total)) { websiteCatalogueLoaded = false; return; }
       if (globalWebsiteCatalogueCount !== total) {
@@ -130,7 +142,7 @@ const memoryCountsManager = {
         memoryCountsManager.notify();
       }
     } catch {
-      websiteCatalogueLoaded = false; // allow a later attempt if this one failed
+      if (asked === inventoryViewRun()) websiteCatalogueLoaded = false; // allow a later attempt if this one failed
     }
   },
 
@@ -193,6 +205,7 @@ const memoryCountsManager = {
 // Hook for components to use memory counts
 export const useMemoryCounts = (): UseMemoryCountsReturn => {
   const { isAuthenticated } = useAuth();
+  const inventoryViewKey = useInventoryViewKey();
   const [, forceUpdate] = useState({});
 
   // Force component re-render when global state changes
@@ -219,9 +232,16 @@ export const useMemoryCounts = (): UseMemoryCountsReturn => {
     if (!globalMemoryCounts && !globalIsLoading) {
       memoryCountsManager.fetchMemoryCounts();
     }
+    if (countedInventoryView !== null && countedInventoryView !== inventoryViewKey) {
+      carsCatalogLoaded = false;
+      websiteCatalogueLoaded = false;
+      globalWebsiteCatalogueCount = 0; // the other view may have no catalogue items at all
+      memoryCountsManager.notify();
+    }
+    countedInventoryView = inventoryViewKey;
     memoryCountsManager.fetchCarsCatalogCount();
     memoryCountsManager.fetchWebsiteCatalogueCount();
-  }, [isAuthenticated]);
+  }, [isAuthenticated, inventoryViewKey]);
 
   // Set up periodic refresh of memory counts (every 30 seconds when authenticated)
   useEffect(() => {

@@ -5,6 +5,7 @@ import ImageHoverPopover from "./ImageHoverPopover";
 import { loadCatalogueForBrowsing, type CatalogueItemSummary } from "../services/catalogueAPI";
 import { WEBSITE_CATALOG_COLOR } from "../utils/categoryColorManager";
 import { runWhenIdle } from "../utils/deferIdle";
+import { useInventoryViewKey } from "../hooks/useInventoryViewKey";
 
 // One of the website's own categories, built client-side from the flat item list.
 interface ItemGroup {
@@ -164,8 +165,11 @@ export default function WebsiteCatalogNav({ onMemorySelect }: { onMemorySelect?:
     });
   };
 
+  // Loaded again when the view switches without a reload (a salesperson's personal vs External view, 2 Nov 2026).
+  const inventoryViewKey = useInventoryViewKey();
   useEffect(() => {
     let cancelled = false;
+    setItems((prev) => (prev.length ? [] : prev));
     // Off the initial-load critical path, like the other sidebar extras (utils/deferIdle.ts).
     const cancelIdle = runWhenIdle(() => {
       loadCatalogueForBrowsing().then((list) => {
@@ -176,7 +180,7 @@ export default function WebsiteCatalogNav({ onMemorySelect }: { onMemorySelect?:
       });
     });
     return () => { cancelled = true; cancelIdle(); };
-  }, []);
+  }, [inventoryViewKey]);
 
   const searching = query.trim() !== "";
   const groups = useMemo(() => groupByCategory(items.filter((item) => matchesSearch(item, query))), [items, query]);

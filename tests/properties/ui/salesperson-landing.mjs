@@ -373,7 +373,7 @@ try {
     console.log('8 users/external', JSON.stringify({ own }));
     expect(own > 0, '8: Users → External lists his own External account');
     await shot(page, '13-users-external-own-row');
-    await page.getByRole('button', { name: 'Properties', exact: true }).filter({ visible: true }).first().click();
+    await page.getByRole('button', { name: /^Properties( \d+)?$/ }).filter({ visible: true }).first().click();
     await page.waitForTimeout(500);
     expect(await page.locator('tr', { hasText: 'Bons Lot' }).filter({ visible: true }).count() > 0, '8: Users → Properties lists his internal property');
     await openProfileMenu(page);

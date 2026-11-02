@@ -136,7 +136,8 @@ async function shot(page, file) {
 const INTERNAL_ROWS = new Set(['Pedalheads North']);
 async function showTabFor(page, name) {
   const tab = INTERNAL_ROWS.has(name) ? 'Properties' : 'External';
-  await page.getByRole('button', { name: tab, exact: true }).filter({ visible: true }).first().click();
+  // The tab's name is its label, then its count once loaded (Users page tab counts, 2 Nov).
+  await page.getByRole('button', { name: new RegExp(`^${tab}( \\d+)?$`) }).filter({ visible: true }).first().click();
   await page.waitForTimeout(150);
 }
 

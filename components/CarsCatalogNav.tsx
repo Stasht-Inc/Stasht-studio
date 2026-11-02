@@ -3,6 +3,7 @@ import { Folder, FolderOpen, ChevronRight, ChevronDown, Car as CarIcon } from "l
 import { ImageWithFallback } from "./figma/ImageWithFallback";
 import ImageHoverPopover from "./ImageHoverPopover";
 import { dashboardAPI } from "../utils/authUtils";
+import { useInventoryViewKey } from "../hooks/useInventoryViewKey";
 import { CARS_COLOR } from "../utils/categoryColorManager";
 
 // A single listing as returned by GET /cars. We only read the fields we render.
@@ -162,9 +163,13 @@ export default function CarsCatalogNav() {
   const [groups, setGroups] = useState<CarGroup[]>([]);
   const [boxExpanded, setBoxExpanded] = useState(false);
   const [failed, setFailed] = useState(false);
+  // Loaded again when the view switches without a reload (a salesperson's personal vs External view, 2 Nov 2026).
+  const inventoryViewKey = useInventoryViewKey();
 
   useEffect(() => {
     let cancelled = false;
+    setGroups((prev) => (prev.length ? [] : prev));
+    setFailed(false);
     (async () => {
       try {
         const res = await dashboardAPI.carsGetCatalog();
@@ -184,7 +189,7 @@ export default function CarsCatalogNav() {
       }
     })();
     return () => { cancelled = true; };
-  }, []);
+  }, [inventoryViewKey]);
 
   const totalCount = groups.reduce((sum, g) => sum + g.cars.length, 0);
 

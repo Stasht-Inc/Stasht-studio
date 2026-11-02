@@ -38,6 +38,7 @@ import MergeStoriesModal from "../components/MergeStoriesModal";
 import { UpgradePlanModal } from "../components/UpgradePlanModal";
 import { mapLimit } from "../utils/requestLimit";
 import { runWhenIdle } from "../utils/deferIdle";
+import { useInventoryViewKey } from "../hooks/useInventoryViewKey";
 import NewslettersView from "../components/newsletters/NewslettersView";
 import SegmentedSwitch from "../components/newsletters/SegmentedSwitch";
 import { useNewsletterCount } from "../components/newsletters/hooks/useNewsletterCount";
@@ -789,9 +790,13 @@ function MemoriesPageContent({
   // browser-idle time to keep /cars off the initial-load critical path where the core
   // memories/media data is competing (PERFORMANCE_OPTIMIZATION_PLAN.md #4). Identical
   // UX to before — just later in the frame budget.
+  // Loaded again when the view switches without a reload (useInventoryViewKey): a salesperson's personal view shows
+  // only their own cars, the External view the main account's too (Deepak, 2 Nov 2026).
+  const inventoryViewKey = useInventoryViewKey();
   const [carsList, setCarsList] = useState<any[]>([]);
   useEffect(() => {
     let cancelled = false;
+    setCarsList((prev) => (prev.length ? [] : prev)); // never the other view's cars while the new ones load
     const cancelIdle = runWhenIdle(() => {
       (async () => {
         try {
@@ -805,7 +810,7 @@ function MemoriesPageContent({
       })();
     });
     return () => { cancelled = true; cancelIdle(); };
-  }, []);
+  }, [inventoryViewKey]);
 
   // One card per car — each car IS a campaign (unlike Shopify, where the collection is the
   // campaign and products are nested moments inside it). Its `category` field (e.g.
@@ -848,13 +853,14 @@ function MemoriesPageContent({
   const [catalogueList, setCatalogueList] = useState<CatalogueItemSummary[]>([]);
   useEffect(() => {
     let cancelled = false;
+    setCatalogueList((prev) => (prev.length ? [] : prev)); // as the cars above: again on a view switch
     const cancelIdle = runWhenIdle(() => {
       loadCatalogueForBrowsing().then((list) => {
         if (!cancelled) setCatalogueList(list);
       });
     });
     return () => { cancelled = true; cancelIdle(); };
-  }, []);
+  }, [inventoryViewKey]);
 
   // `isCatalogItem` gets every read-only treatment `isCars` gets below (no dates, edit mode or
   // add-media; always shown regardless of the sidebar's expanded categories).

@@ -36,6 +36,7 @@ import {
 import { canEditProperty, deletePropertyMessage, deletePropertyToast, propertyRowActions, propertyStatusBadge, propertyTypeLabel, rowsForPropertyTab, type BadgeTone } from '../utils/propertyRows';
 import { propertyImageErrorMessage, propertyRowAvatar } from '../utils/propertyImage';
 import { countLabel } from '../utils/countLabel';
+import { usersTabCounts } from '../utils/usersTabCounts.ts';
 import { toast } from 'sonner';
 
 interface User {
@@ -233,6 +234,15 @@ export default function UsersPage({ onNavigate, onViewStoreelReport }: UsersPage
   const { memoryCounts } = useMemoryCounts();
 
   const [planName, setPlanName] = useState<string>('starter');
+  // Whether the External / Properties tab buttons below are shown.
+  const showExternalTab = planName !== 'starter' && (hasPropertyTableRole || planName === 'intermediate' || planName === 'professional' || !!currentUser?.is_internal);
+  const showPropertiesTab = planName !== 'starter' && (hasPropertyTableRole || planName === 'intermediate' || planName === 'professional' || !!currentUser?.is_internal);
+
+  // Tab counts (All Users | Shared with | External | Properties), as on the Leads page tabs: which lists have loaded
+  // at least once. Until then that tab shows no number (never a "0" that then jumps); a later reload keeps the last one.
+  const [countsLoaded, setCountsLoaded] = useState({ users: false, sharedWith: false, properties: false });
+  const markCountLoaded = (key: 'users' | 'sharedWith' | 'properties') =>
+    setCountsLoaded((c) => (c[key] ? c : { ...c, [key]: true }));
 
   // Fetch users data from API
   const fetchUsers = async (searchQuery?: string, propertyId?: number) => {
@@ -338,6 +348,7 @@ export default function UsersPage({ onNavigate, onViewStoreelReport }: UsersPage
 
         console.log('🎯 SETTING USERS STATE with', allUsers.length, 'users');
         setUsers(allUsers);
+        markCountLoaded('users');
         console.log('✅ Users state has been set');
         
         // Also fetch shared memories count
@@ -396,6 +407,7 @@ export default function UsersPage({ onNavigate, onViewStoreelReport }: UsersPage
         const associations = response.data.data?.associations || response.data.associations || [];
         console.log('🤝 Associations loaded:', associations.length);
         setSharedMemories(associations);
+        markCountLoaded('sharedWith');
       } else {
         setSharedError(response.error || 'Failed to load shared campaigns');
       }
@@ -529,6 +541,7 @@ export default function UsersPage({ onNavigate, onViewStoreelReport }: UsersPage
           totalUsers: transformedProperties.reduce((sum, p) => sum + p.users.length + p.additionalUsers, 0)
         });
         setProperties(transformedProperties);
+        markCountLoaded('properties');
       } else {
         setPropertiesError(response.error || 'Failed to load properties');
       }
@@ -1026,6 +1039,26 @@ export default function UsersPage({ onNavigate, onViewStoreelReport }: UsersPage
     }
   }, [activeTab, isAuthenticated]);
 
+  // Tab counts without opening each tab: on page load, fetch once the lists the open tab doesn't already fetch
+  // (the open tab's own effect above loads it). Properties only once the External / Properties tab is shown.
+  const countsPrefetched = useRef({ users: false, sharedWith: false, properties: false });
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    const done = countsPrefetched.current;
+    if (!done.users) {
+      done.users = true;
+      if (activeTab !== 'users') fetchUsers(undefined, selectedPropertyId);
+    }
+    if (!done.sharedWith) {
+      done.sharedWith = true;
+      if (activeTab !== 'shared-with') fetchSharedMemories();
+    }
+    if (!done.properties && (showExternalTab || showPropertiesTab)) {
+      done.properties = true;
+      if (!isPropertyListTab) fetchProperties();
+    }
+  }, [isAuthenticated, showExternalTab, showPropertiesTab]);
+
   // Fetch plan name on mount
   useEffect(() => {
     if (!isAuthenticated) return;
@@ -1108,6 +1141,20 @@ export default function UsersPage({ onNavigate, onViewStoreelReport }: UsersPage
 
   // Stats calculations
   const totalUsers = users.length;
+  // Each tab's count (utils/usersTabCounts): All Users = totalUsers, Shared with = its campaigns, External / Properties =
+  // the rows those tabs list. null = not loaded yet.
+  const tabCounts = usersTabCounts(
+    {
+      users: countsLoaded.users ? users : null,
+      sharedWith: countsLoaded.sharedWith ? sharedMemories : null,
+      properties: countsLoaded.properties ? properties : null,
+    },
+    (p: any) => p.apiRow,
+  );
+  // As the Leads page tabs: the count as plain grey number text next to the label, no pill; nothing until loaded.
+  const tabCount = (n: number | null) => (n === null ? null : (
+    <span data-tab-count="" className="text-xs sm:text-sm font-medium tabular-nums text-gray-500">{n}</span>
+  ));
   const activeUsers = users.filter(user => user.status === 1).length;
   // Same mapping as the row badge: anything not active (0, 'invited', 'pending') is PENDING.
   const pendingInvites = users.filter(user => getDisplayStatus(user.status) === 'pending').length;
@@ -1506,51 +1553,56 @@ export default function UsersPage({ onNavigate, onViewStoreelReport }: UsersPage
             </div>
           )}
 
-          {/* Tabs row + desktop buttons */}
+          {/* Tabs row + desktop buttons. Each tab shows its count (tabCount); under 400px the tabs are padded less so
+              all four fit 390px with their counts, and a narrower bar still scrolls sideways (overflow-x-auto). */}
           <div className="flex items-center justify-between border-b border-gray-200">
             <div className="flex overflow-x-auto scrollbar-hide flex-1">
               <button
                 onClick={() => setActiveTab('users')}
-                className={`flex-1 sm:flex-none px-3 sm:px-6 py-3 text-xs sm:text-sm font-medium transition-colors relative whitespace-nowrap text-center ${
+                className={`flex-1 sm:flex-none px-1.5 min-[400px]:px-3 sm:px-6 py-3 text-xs sm:text-sm font-medium transition-colors relative whitespace-nowrap text-center inline-flex items-center justify-center gap-1 sm:gap-1.5 ${
                   activeTab === 'users'
                     ? 'text-[#6C60FF] border-b-2 border-[#6C60FF] -mb-[1px]'
                     : 'text-gray-600 hover:text-gray-900'
                 }`}
               >
                 All Users
+                {tabCount(tabCounts.users)}
               </button>
               <button
                 onClick={() => setActiveTab('shared-with')}
-                className={`flex-1 sm:flex-none px-3 sm:px-6 py-3 text-xs sm:text-sm font-medium transition-colors relative whitespace-nowrap text-center ${
+                className={`flex-1 sm:flex-none px-1.5 min-[400px]:px-3 sm:px-6 py-3 text-xs sm:text-sm font-medium transition-colors relative whitespace-nowrap text-center inline-flex items-center justify-center gap-1 sm:gap-1.5 ${
                   activeTab === 'shared-with'
                     ? 'text-[#6C60FF] border-b-2 border-[#6C60FF] -mb-[1px]'
                     : 'text-gray-600 hover:text-gray-900'
                 }`}
               >
                 Shared with
+                {tabCount(tabCounts.sharedWith)}
               </button>
-              {planName !== 'starter' && (hasPropertyTableRole || planName === 'intermediate' || planName === 'professional' || currentUser?.is_internal) && (
+              {showExternalTab && (
                 <button
                   onClick={() => setActiveTab('external')}
-                  className={`flex-1 sm:flex-none px-3 sm:px-6 py-3 text-xs sm:text-sm font-medium transition-colors relative whitespace-nowrap text-center ${
+                  className={`flex-1 sm:flex-none px-1.5 min-[400px]:px-3 sm:px-6 py-3 text-xs sm:text-sm font-medium transition-colors relative whitespace-nowrap text-center inline-flex items-center justify-center gap-1 sm:gap-1.5 ${
                     activeTab === 'external'
                       ? 'text-[#6C60FF] border-b-2 border-[#6C60FF] -mb-[1px]'
                       : 'text-gray-600 hover:text-gray-900'
                   }`}
                 >
                   External
+                  {tabCount(tabCounts.external)}
                 </button>
               )}
-              {planName !== 'starter' && (currentUser?.role === 2 || currentUser?.role === '2' || currentUser?.role === 4 || currentUser?.role === '4' || planName === 'intermediate' || planName === 'professional' || currentUser?.is_internal) && (
+              {showPropertiesTab && (
                 <button
                   onClick={() => setActiveTab('properties')}
-                  className={`flex-1 sm:flex-none px-3 sm:px-6 py-3 text-xs sm:text-sm font-medium transition-colors relative whitespace-nowrap text-center ${
+                  className={`flex-1 sm:flex-none px-1.5 min-[400px]:px-3 sm:px-6 py-3 text-xs sm:text-sm font-medium transition-colors relative whitespace-nowrap text-center inline-flex items-center justify-center gap-1 sm:gap-1.5 ${
                     activeTab === 'properties'
                       ? 'text-[#6C60FF] border-b-2 border-[#6C60FF] -mb-[1px]'
                       : 'text-gray-600 hover:text-gray-900'
                   }`}
                 >
                   Properties
+                  {tabCount(tabCounts.properties)}
                 </button>
               )}
             </div>
