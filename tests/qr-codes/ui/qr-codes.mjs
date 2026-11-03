@@ -443,6 +443,9 @@ try {
       const codes = { '': { id: 7, public_code: 'K7PQ2MZX', name: 'Front window', memory_id: 940 } };
       const { page, context, state } = await open({ width, height, seed, codes, campaigns: MANY });
       await openPanel(page);
+      await page.waitForTimeout(600);
+      expect(await panel(page).getByRole('button', { name: 'Edit Campaign 41' }).count() === 1
+        && state.calls.some((c) => c.p === '/qr-codes/campaign-options' && c.search === 'Campaign 41'), `${tag}: live campaign beyond page 1: asked by title, it is the caller's → Edit stays`);
       await liveSelect(page).click();
       const list = liveList(page);
       await list.getByRole('option').first().waitFor({ timeout: 8000 });
@@ -506,6 +509,8 @@ try {
       const { page, context, state } = await open({ width, height, seed, codes, campaigns: [...CAMPAIGNS.slice(0, 3), { id: 999, title: 'Rita Rep Showroom', state: 'public', hidden: true }] });
       await openPanel(page);
       expect((await liveSelect(page).textContent()).includes('Rita Rep Showroom'), `${tag}: a live campaign outside the options is the selected value`);
+      await page.waitForTimeout(600);
+      expect(await panel(page).getByRole('button', { name: /^Edit/ }).count() === 0, `${tag}: not one of the caller's options: no Edit`);
       await liveSelect(page).click();
       await liveList(page).getByRole('option').first().waitFor({ timeout: 8000 });
       const first = liveList(page).getByRole('option').first();

@@ -120,6 +120,8 @@ function QrCodePanel({ propertyId, onEdit, onCreate, floatLayer, escapeRef }: {
   const [attempt, setAttempt] = useState(0);
   const [saving, setSaving] = useState(false);
   const [styleOpen, setStyleOpen] = useState(false);
+  /** Whether this person may pick the live campaign (false: e.g. another admin's own campaign — no Edit). */
+  const [liveAccess, setLiveAccess] = useState<{ id: number; ok: boolean } | null>(null);
   /** The colour drawn while the custom picker is open (undefined: the saved one). */
   const [preview, setPreview] = useState<string | null | undefined>(undefined);
   const request = useRef(0);
@@ -171,11 +173,12 @@ function QrCodePanel({ propertyId, onEdit, onCreate, floatLayer, escapeRef }: {
 
       <div className="mt-4 flex items-center justify-between gap-3">
         <span id="qr-live-label" className="text-sm font-medium text-gray-900">Live campaign</span>
-        {live ? (
+        {live && !(liveAccess?.id === live.id && !liveAccess.ok) ? (
           <button type="button" onClick={() => onEdit(live.id)} className={LINK_BUTTON} aria-label={`Edit ${live.title}`}>Edit</button>
         ) : null}
       </div>
-      <LiveCampaignSelect propertyId={propertyId} live={live} saving={saving} onPick={makeLive} onCreate={onCreate} escapeRef={escapeRef} />
+      <LiveCampaignSelect propertyId={propertyId} live={live} saving={saving} onPick={makeLive} onCreate={onCreate} escapeRef={escapeRef}
+        onLiveAccess={(id, ok) => setLiveAccess({ id, ok })} />
 
       <QrDownloadMenu code={code} contentClassName={floatLayer}>
         <button type="button" className={`${BUTTON_PRIMARY} mt-4 w-full`}>
@@ -206,13 +209,15 @@ function QrCodePanel({ propertyId, onEdit, onCreate, floatLayer, escapeRef }: {
  * covers the code; it scrolls within its own height). The view's campaigns (20 a page, more on scroll), a search box
  * when there are many, and None at the bottom. Keyboard: Enter / Space / ↓ opens, ↑↓ move, Enter picks, Escape closes.
  */
-function LiveCampaignSelect({ propertyId, live, saving, onPick, onCreate, escapeRef }: {
+function LiveCampaignSelect({ propertyId, live, saving, onPick, onCreate, escapeRef, onLiveAccess }: {
   propertyId: number | string | null;
   live: QrCampaignOption | null;
   saving: boolean;
   onPick(option: QrCampaignOption | null): void;
   onCreate(): void;
   escapeRef: EscapeRef;
+  /** Whether the live campaign is one of this person's options (false: pinned read-only, no Edit). */
+  onLiveAccess(id: number, ok: boolean): void;
 }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
@@ -277,6 +282,26 @@ function LiveCampaignSelect({ propertyId, live, saving, onPick, onCreate, escape
   }, [loadingMore, page, propertyId, query, rows]);
 
   const hasMore = rows !== null && rows.length > 0 && page < totalPages;
+
+  // Is the live campaign one of this person's options? On the loaded page: yes. Every page loaded without it: no.
+  // Otherwise ask the API by its title (a long list). A failed ask keeps Edit (nothing is assumed against it).
+  const [liveAccess, setLiveAccess] = useState<{ id: number; ok: boolean } | null>(null);
+  const liveId = live?.id ?? null;
+  const liveTitle = live?.title ?? '';
+  useEffect(() => {
+    if (liveId === null || rows === null || query || error || liveAccess?.id === liveId) return undefined;
+    if (rows.some((r) => r.id === liveId)) { setLiveAccess({ id: liveId, ok: true }); return undefined; }
+    if (page >= totalPages) { setLiveAccess({ id: liveId, ok: false }); return undefined; }
+    let gone = false;
+    void qrCodesAPI.campaignOptions(propertyId, liveTitle, 1).then((res) => {
+      if (!gone) setLiveAccess({ id: liveId, ok: res.ok ? Boolean(res.data?.options.some((o) => o.id === liveId)) : true });
+    });
+    return () => { gone = true; };
+  }, [liveId, liveTitle, rows, query, error, page, totalPages, propertyId, liveAccess]);
+  useEffect(() => {
+    if (liveAccess) onLiveAccess(liveAccess.id, liveAccess.ok);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [liveAccess]);
   // The next page once the list is scrolled near its end.
   const onListScroll = (el: HTMLElement) => {
     if (hasMore && !loadingMore && el.scrollHeight - el.scrollTop - el.clientHeight < LOAD_AHEAD_PX) void loadMore();
@@ -349,7 +374,7 @@ function LiveCampaignSelect({ propertyId, live, saving, onPick, onCreate, escape
           const selected = live?.id === o.id;
           // The live campaign may not be one this person can pick (e.g. another admin's own campaign): pinned on top,
           // shown as the selection, read-only.
-          const pinned = selected && !rows?.some((r) => r.id === o.id);
+          const pinned = selected && liveAccess?.id === o.id && !liveAccess.ok && !rows?.some((r) => r.id === o.id);
           return (
             // ! : styles/globals.css paints every [data-selected] / [aria-selected] solid purple (for date pickers).
             <Command.Item key={o.id} value={String(o.id)} onSelect={() => pick(o)} disabled={pinned} data-selected-campaign={selected || undefined}
