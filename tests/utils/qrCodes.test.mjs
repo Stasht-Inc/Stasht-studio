@@ -20,7 +20,30 @@ test('a code reads as the window needs it', () => {
   assert.deepEqual(normalizeQrCode(ROW), {
     id: 7, publicCode: 'K7PQ2MZX', name: 'Front window', memoryId: 801, campaignTitle: 'Fall Promo', campaignUsable: true,
     shortUrl: 'https://studio.stasht.com/q/K7PQ2MZX', scanCount: 12, lastScannedAt: '2026-11-02T10:00:00Z',
+    logoMode: 'default', logoUrl: null, color: null,
   });
+});
+
+test('branded codes: logo {mode, url} and color (null = auto); older answers draw the default avatar', () => {
+  const avatar = 'https://stasht-media.s3.amazonaws.com/profile/u707.jpg';
+  const c = normalizeQrCode({ ...ROW, logo: { mode: 'default', url: avatar }, color: '#00704a' });
+  assert.equal(c.logoMode, 'default');
+  assert.equal(c.logoUrl, avatar);
+  assert.equal(c.color, '#00704A');
+  const custom = normalizeQrCode({ ...ROW, logo: { mode: 'custom', url: 'https://stasht-media.s3.amazonaws.com/qr-codes/a1.png' }, color: null });
+  assert.equal(custom.logoMode, 'custom');
+  assert.equal(custom.color, null);
+  const none = normalizeQrCode({ ...ROW, logo: { mode: 'none', url: avatar } });
+  assert.equal(none.logoMode, 'none');
+  assert.equal(none.logoUrl, null, 'no logo: nothing to draw, whatever url says');
+  assert.equal(normalizeQrCode({ ...ROW, logo: { mode: 'weird', url: null } }).logoMode, 'default');
+  assert.equal(normalizeQrCode({ ...ROW, logo: { mode: 'default', url: null } }).logoUrl, null, 'no avatar: no centre image');
+  // Flat fields, in case the API sends them that way.
+  const flat = normalizeQrCode({ ...ROW, logo_mode: 'custom', logo_url: avatar });
+  assert.equal(flat.logoMode, 'custom');
+  assert.equal(flat.logoUrl, avatar);
+  // Only #RRGGBB counts as a saved colour.
+  for (const bad of ['red', '#abc', 'javascript:x', 12, '#12345g']) assert.equal(normalizeQrCode({ ...ROW, color: bad }).color, null, String(bad));
 });
 
 test('missing pieces: name falls back to the campaign, the short URL to the default base, scans to 0', () => {
@@ -125,6 +148,7 @@ test('download file names', () => {
   assert.equal(qrFileName('Fall Promo 2026!', 'png'), 'qr-fall-promo-2026.png');
   assert.equal(qrFileName('Café Ünïcode', 'svg'), 'qr-cafe-unicode.svg');
   assert.equal(qrFileName('   ', 'png'), 'qr-code.png');
+  assert.equal(qrFileName('Fall Promo', 'png', 'transparent'), 'qr-fall-promo-transparent.png');
   assert.ok(qrFileName('x'.repeat(200), 'png').length <= 3 + 60 + 4);
 });
 

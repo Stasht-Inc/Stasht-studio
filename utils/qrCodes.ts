@@ -1,15 +1,22 @@
 // Dynamic QR Codes (3 Nov 2026): pure helpers for services/qrCodesAPI.ts and components/qr-codes/QrCodesDialog.tsx.
 // A printed code opens its short URL (https://studio.stasht.com/q/<public_code>), which the API sends on to whichever
 // campaign the code points at now, so a code is printed once and re-pointed at any time.
-// Imports only countLabel, so `node --test` loads this file directly.
+// Imports only countLabel and qrStyle, so `node --test` loads this file directly.
 //
 // The web API's contract (3 Nov 2026):
 //   code    {id, public_code, short_url, name, property_id, memory_id, campaign: {id, title, state, usable, public_url} | null,
-//            scan_count, last_scanned_at, created_at, updated_at}; campaign null = "No campaign" (never set, or deleted)
+//            scan_count, last_scanned_at, created_at, updated_at,
+//            logo: {mode: default|custom|none, url} , color: #RRGGBB | null}   (branded codes, 3 Nov)
+//            campaign null = "No campaign" (never set, or deleted); logo.url for mode default = the account's avatar (a
+//            property's image in a property view) resolved by the API, null when there is none; color null = auto
 //   option  {id, title, cover_url, state, usable, can_publish, reason}, meta {page, per_page, total, total_pages}
 //   state   public | view_only | private | unpublished
 
 import { countLabel } from './countLabel.ts';
+import { normalizeHex } from './qrStyle.ts';
+
+/** default: the account's avatar (property view: the property's image); custom: an image chosen for this code; none: no logo. */
+export type QrLogoMode = 'default' | 'custom' | 'none';
 
 export interface QrCode {
   id: number;
@@ -25,6 +32,11 @@ export interface QrCode {
   shortUrl: string;
   scanCount: number;
   lastScannedAt: string | null;
+  logoMode: QrLogoMode;
+  /** The image in the middle (resolved by the API, also for the default avatar); null: none to draw. */
+  logoUrl: string | null;
+  /** The saved colour (#RRGGBB); null: auto (the logo's main colour). */
+  color: string | null;
 }
 
 export type CampaignState = 'public' | 'view_only' | 'private' | 'unpublished';
@@ -96,6 +108,13 @@ export function normalizeQrCode(raw: unknown): QrCode | null {
   const campaign = isObject(raw.campaign) ? raw.campaign : null;
   const campaignTitle = campaign ? text(campaign.title) ?? 'Untitled campaign' : null;
   const scans = num(raw.scan_count) ?? 0;
+  // logo {mode, url}; flat logo_mode / logo_url are read too. Older answers (no logo at all) draw the default avatar.
+  const logo = isObject(raw.logo) ? raw.logo : null;
+  const modeRaw = logo ? logo.mode : raw.logo_mode;
+  const logoMode: QrLogoMode = modeRaw === 'custom' || modeRaw === 'none' ? modeRaw : 'default';
+  const urlRaw = text(logo ? logo.url : raw.logo_url);
+  // Only a key here: the image itself always comes through the API (GET /qr-codes/{id}/logo), never from this URL.
+  const logoUrl = logoMode !== 'none' ? urlRaw : null;
   return {
     id,
     publicCode,
@@ -106,6 +125,9 @@ export function normalizeQrCode(raw: unknown): QrCode | null {
     shortUrl: text(raw.short_url) ?? `${SHORT_URL_BASE}${publicCode}`,
     scanCount: Math.max(0, Math.floor(scans)),
     lastScannedAt: text(raw.last_scanned_at),
+    logoMode,
+    logoUrl,
+    color: normalizeHex(raw.color),
   };
 }
 
@@ -195,8 +217,8 @@ export const opensWarning = (code: Pick<QrCode, 'campaignTitle' | 'campaignUsabl
 /** "0 scans", "1 scan", "1,204 scans". */
 export const scansLabel = (n: unknown): string => countLabel(n, 'scan');
 
-/** A file name for a download: "qr-fall-promo.png". */
-export function qrFileName(name: string, ext: 'png' | 'svg'): string {
+/** A file name for a download: "qr-fall-promo.png"; the transparent PNG "qr-fall-promo-transparent.png". */
+export function qrFileName(name: string, ext: 'png' | 'svg', variant?: 'transparent'): string {
   const slug = String(name ?? '')
     .normalize('NFKD')
     .replace(/[̀-ͯ]/g, '')
@@ -205,7 +227,7 @@ export function qrFileName(name: string, ext: 'png' | 'svg'): string {
     .replace(/^-+|-+$/g, '')
     .slice(0, 60)
     .replace(/-+$/g, '');
-  return `qr-${slug || 'code'}.${ext}`;
+  return `qr-${slug || 'code'}${variant ? `-${variant}` : ''}.${ext}`;
 }
 
 /** The query string for a request made in this view: ?property_id=12 in a property view, nothing otherwise. */
