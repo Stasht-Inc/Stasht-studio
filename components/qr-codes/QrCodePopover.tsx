@@ -17,7 +17,8 @@ import { BrandedQr, QrDownloadMenu, QrStyleControls } from './BrandedQr';
 // "Logo & colour" tucked away behind one small link.
 
 const SEARCH_DELAY_MS = 300;
-const LOAD_AHEAD = '0px 0px 120px 0px';
+/** Load the next page this close (px) to the list's end. */
+const LOAD_AHEAD_PX = 120;
 /** More campaigns than this: the dropdown gets a search box. */
 const SEARCH_FROM = 8;
 /** Above the bottom nav's floating + button (z-[10000]) on phones. */
@@ -78,7 +79,7 @@ export default function QrCodePopover({ propertyId, onEditCampaign, children }: 
           collisionPadding={12}
           aria-label="QR Code"
           data-qr-popover="popover"
-          className="z-50 max-h-[var(--radix-popover-content-available-height)] w-[340px] overflow-y-auto rounded-xl border border-gray-200 bg-white p-4 shadow-xl outline-none data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95"
+          className="z-50 max-h-[var(--radix-popover-content-available-height)] w-[360px] overflow-y-auto rounded-xl border border-gray-200 bg-white p-4 shadow-xl outline-none data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95"
         >
           {panel(false)}
         </PopoverPrimitive.Content>
@@ -199,8 +200,6 @@ function LiveCampaignSelect({ propertyId, live, saving, onPick, floatLayer }: {
   const [loadingMore, setLoadingMore] = useState(false);
   const [attempt, setAttempt] = useState(0);
   const requestRef = useRef(0);
-  const listRef = useRef<HTMLDivElement>(null);
-  const sentinelRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const timer = window.setTimeout(() => setQuery(search.trim()), SEARCH_DELAY_MS);
@@ -245,16 +244,11 @@ function LiveCampaignSelect({ propertyId, live, saving, onPick, floatLayer }: {
     }
   }, [loadingMore, page, propertyId, query, rows]);
 
-  const hasMore = open && rows !== null && rows.length > 0 && page < totalPages;
-  useEffect(() => {
-    const el = sentinelRef.current;
-    if (!hasMore || loadingMore || !el || typeof IntersectionObserver === 'undefined') return undefined;
-    const observer = new IntersectionObserver((entries) => {
-      if (entries.some((e) => e.isIntersecting)) void loadMore();
-    }, { root: listRef.current, rootMargin: LOAD_AHEAD });
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [hasMore, loadingMore, loadMore]);
+  const hasMore = rows !== null && rows.length > 0 && page < totalPages;
+  // The next page once the list is scrolled near its end.
+  const onListScroll = (el: HTMLElement) => {
+    if (hasMore && !loadingMore && el.scrollHeight - el.scrollTop - el.clientHeight < LOAD_AHEAD_PX) void loadMore();
+  };
 
   useEffect(() => { if (!open) setSearch(''); }, [open]);
 
@@ -282,7 +276,8 @@ function LiveCampaignSelect({ propertyId, live, saving, onPick, floatLayer }: {
               value={String(o.id)}
               onSelect={() => { setOpen(false); onPick(o); }}
               data-selected-campaign={selected || undefined}
-              className="flex cursor-pointer items-center gap-2 rounded-md px-2.5 py-2 text-sm text-gray-900 outline-none data-[selected=true]:bg-[#6C60FF]/10"
+              // ! : styles/globals.css paints every [data-selected] / [aria-selected] solid purple (for date pickers).
+              className="flex cursor-pointer items-center gap-2 rounded-md px-2.5 py-2 text-sm text-gray-900 outline-none data-[selected=true]:!rounded-md data-[selected=true]:!bg-[#6C60FF]/10 data-[selected=true]:!text-gray-900"
             >
               <span className="min-w-0 flex-1 truncate" title={o.title}>{o.title}</span>
               {selected ? <Check className="h-4 w-4 flex-shrink-0 text-[#6C60FF]" aria-label="Live now" /> : null}
@@ -290,7 +285,6 @@ function LiveCampaignSelect({ propertyId, live, saving, onPick, floatLayer }: {
           );
         })}
         {loadingMore ? <p role="status" className="flex items-center justify-center gap-2 py-2 text-xs text-gray-500"><Loader2 className="h-3.5 w-3.5 animate-spin text-[#6C60FF]" aria-hidden="true" />Loading more…</p> : null}
-        {hasMore ? <div ref={sentinelRef} aria-hidden="true" className="h-px" /> : null}
       </>
     );
   }
@@ -323,7 +317,7 @@ function LiveCampaignSelect({ propertyId, live, saving, onPick, floatLayer }: {
                   className="h-9 w-full rounded-md border border-gray-200 px-2.5 text-sm text-gray-900 placeholder:text-gray-400 outline-none focus:border-[#6C60FF] focus:ring-2 focus:ring-[#6C60FF]/20" />
               </div>
             ) : null}
-            <Command.List ref={listRef} className="max-h-[min(280px,var(--radix-popover-content-available-height))] overflow-y-auto p-1">
+            <Command.List onScroll={(e) => onListScroll(e.currentTarget)} className="max-h-[min(280px,var(--radix-popover-content-available-height))] overflow-y-auto p-1">
               {body}
             </Command.List>
           </Command>
