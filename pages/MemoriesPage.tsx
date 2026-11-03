@@ -27,7 +27,7 @@ import AllMemoriesEmptyState from "../components/AllMemoriesEmptyState";
 import MemoryActionMenu from "../components/MemoryActionMenu";
 import { useNotificationsRefresh } from '../hooks/useNotificationsRefresh';
 import CategoryNav from "../components/CategoryNav";
-import QrCodesDialog from "../components/qr-codes/QrCodesDialog";
+import QrCodePopover from "../components/qr-codes/QrCodePopover";
 import { canManageQrCodes } from "../utils/qrCodes";
 import { SHOPIFY_COLOR, CARS_COLOR, WEBSITE_CATALOG_COLOR } from "../utils/categoryColorManager";
 import { loadCatalogueForBrowsing, type CatalogueItemSummary } from "../services/catalogueAPI";
@@ -472,7 +472,6 @@ function MemoriesPageContent({
 
   // Dynamic QR Codes window (Campaigns tab header). In a property view the button is for anyone who may manage that
   // property's codes (its own account, or its creator / admins: the row's can_manage), as the API allows.
-  const [showQrCodes, setShowQrCodes] = useState(false);
   const canManageQr = useMemo(
     () => canManageQrCodes(viewType, currentProperty as unknown as Record<string, unknown> | null, user as unknown as Record<string, unknown> | null, isPartialAdmin()),
     [viewType, currentProperty, user],
@@ -2612,16 +2611,21 @@ function MemoriesPageContent({
                 </div>
 
                 <div className="flex flex-wrap items-center justify-end gap-2 md:gap-3 md:w-auto md:ml-auto">
-                  {/* Dynamic QR Codes (3 Nov 2026): replaces the AI Campaign Wizard button; phones too */}
+                  {/* QR codes v2 (3 Nov 2026): the view's one QR code in a popover (a bottom sheet on phones) — its live
+                      campaign, Edit, Download, Logo & colour. In place of the AI Campaign Wizard button; phones too. */}
                   {canManageQr && (
-                    <Button
-                      variant="outline"
-                      onClick={() => setShowQrCodes(true)}
-                      className="border-gray-200 text-gray-700 hover:bg-gray-50 md:flex-initial"
+                    <QrCodePopover
+                      propertyId={viewType === 'property' && currentProperty?.id ? currentProperty.id : null}
+                      onEditCampaign={(id) => onMemorySelect(String(id))}
                     >
-                      <QrCode className="w-4 h-4 -mr-1" />
-                      QR Codes
-                    </Button>
+                      <Button
+                        variant="outline"
+                        className="border-gray-200 text-gray-700 hover:bg-gray-50 md:flex-initial"
+                      >
+                        <QrCode className="w-4 h-4 -mr-1" />
+                        QR Code
+                      </Button>
+                    </QrCodePopover>
                   )}
 
                   {/* Grid/List Toggle - Hidden on mobile */}
@@ -3839,12 +3843,6 @@ function MemoriesPageContent({
         selectedCount={selectedCardIds.size}
       />
 
-      {/* Dynamic QR Codes: codes of the view they're made in (account, or this property) */}
-      <QrCodesDialog
-        open={showQrCodes}
-        onOpenChange={setShowQrCodes}
-        propertyId={viewType === 'property' && currentProperty?.id ? currentProperty.id : null}
-      />
       {/* Trial Ended — auto-open upgrade modal (property accounts only, no starter plan) */}
       <UpgradePlanModal
         isOpen={showTrialEndedModal}

@@ -1,14 +1,16 @@
 import { apiRequest, fetchWithRateLimitRetry, getApiBaseUrl, getAuthHeaders, tokenUtils } from '../utils/authUtils';
 import type { ApiResponse } from '../utils/authUtils';
 import {
-  campaignOptionsFromResponse, qrCodeFromResponse, qrListFromResponse, uploadedUrlFromResponse, viewQuery,
+  campaignOptionsFromResponse, qrCodeAnswer, qrCodeFromResponse, uploadedUrlFromResponse, viewQuery,
   type QrCode, type QrOptionsPage,
 } from '../utils/qrCodes';
 
-// Dynamic QR Codes (3 Nov 2026), /api/react/qr-codes. Codes belong to the view they are made in: the account's own
-// (no property_id) or a property's (property_id; the External view also sends X-Stasht-Property, added by
-// apiRequest). Every call returns { ok, data?, error? }; a refusal ({success: false, code, message}: qr_codes_unavailable,
-// property_forbidden, account_not_ready, qr_code_not_found, campaign_*) carries the server's message as the error.
+// QR codes (3 Nov 2026), /api/react/qr-code(s). A code belongs to the view it is made in: the account's own (no
+// property_id) or a property's (property_id; the External view also sends X-Stasht-Property, added by apiRequest).
+// QR codes v2 (3 Nov 2026 evening): one code per view, made by the API on first open (GET /qr-code); its live campaign
+// may be any campaign of the view, published or not. Every call returns { ok, data?, error? }; a refusal ({success:
+// false, code, message}: qr_codes_unavailable, property_forbidden, account_not_ready, qr_code_not_found, campaign_*)
+// carries the server's message as the error.
 //
 // Branded codes (3 Nov 2026): PATCH also takes logo_mode (default | custom | none), logo_url (only a URL our upload
 // answered) and color (#RRGGBB, or null = auto); 503 qr_style_unavailable before the style columns exist.
@@ -55,18 +57,13 @@ const withProperty = (payload: Record<string, unknown>, propertyId: PropertyId) 
 };
 
 export const qrCodesAPI = {
-  /** The codes of this view, newest first. Never from apiRequest's short GET cache: scan counts move. */
-  list: async (propertyId: PropertyId): Promise<QrResult<{ codes: QrCode[]; styleAvailable: boolean }>> =>
-    result(await apiRequest(`/qr-codes${viewQuery(propertyId)}`, { skipCache: true } as RequestInit), qrListFromResponse),
+  /** THE code of this view (made on first open), never from apiRequest's short GET cache: it may have changed elsewhere. */
+  get: async (propertyId: PropertyId): Promise<QrResult<{ code: QrCode; styleAvailable: boolean }>> =>
+    result(await apiRequest(`/qr-code${viewQuery(propertyId)}`, { skipCache: true } as RequestInit), qrCodeAnswer),
 
-  /** No name: the API names the code after the campaign (and keeps it within its 120-character limit). */
-  create: async (memoryId: number, propertyId: PropertyId): Promise<QrResult<QrCode>> =>
-    result(await apiRequest('/qr-codes', json('POST', withProperty({ memory_id: memoryId }, propertyId))), qrCodeFromResponse),
-
-  /** Point the code at another campaign, rename it, drop or restore its image, or set its colour (null = auto). */
-  update: async (id: number, changes: { memory_id?: number; name?: string; logo_mode?: 'default' | 'custom' | 'none'; logo_url?: string; color?: string | null }): Promise<QrResult<QrCode>> =>
+  /** Make another campaign live, drop or restore its image, or set its colour (null = auto). */
+  update: async (id: number, changes: { memory_id?: number; logo_mode?: 'default' | 'custom' | 'none'; logo_url?: string; color?: string | null }): Promise<QrResult<QrCode>> =>
     result(await apiRequest(`/qr-codes/${id}`, json('PATCH', changes)), qrCodeFromResponse),
-
   /** Upload an image for a code's centre; answers its URL (then PATCH logo_mode custom + logo_url). Multipart can't
    * go through apiRequest (it forces JSON). */
   uploadImage: async (file: File, propertyId: PropertyId): Promise<QrResult<string>> => {
@@ -105,20 +102,11 @@ export const qrCodesAPI = {
     }
   },
 
-  remove: async (id: number): Promise<QrResult<true>> =>
-    result(await apiRequest(`/qr-codes/${id}`, { method: 'DELETE' }), () => true),
-
-  /** Campaigns of this view for the picker, with each one's published state (20 a page). */
+  /** Campaigns of this view for the Live campaign dropdown, any published state (20 a page). */
   campaignOptions: async (propertyId: PropertyId, search: string, page: number): Promise<QrResult<QrOptionsPage>> =>
     result(
       await apiRequest(`/qr-codes/campaign-options${viewQuery(propertyId, { search: search || undefined, page })}`, { skipCache: true } as RequestInit),
       (body) => campaignOptionsFromResponse(body, page),
     ),
 
-  /**
-   * Publish a campaign publicly (role 1) through the existing publish endpoint, so a code can open it, with
-   * publish_only: true as the QR codes contract asks. Only for options whose can_publish is true.
-   */
-  publish: async (memoryId: number): Promise<QrResult<true>> =>
-    result(await apiRequest(`/memories/${memoryId}/publish`, json('POST', { role: 1, publish_only: true })), () => true),
 };
