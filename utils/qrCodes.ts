@@ -6,9 +6,11 @@
 // The web API's contract (3 Nov 2026):
 //   code    {id, public_code, short_url, name, property_id, memory_id, campaign: {id, title, state, usable, public_url} | null,
 //            scan_count, last_scanned_at, created_at, updated_at,
-//            logo: {mode: default|custom|none, url} , color: #RRGGBB | null}   (branded codes, 3 Nov)
-//            campaign null = "No campaign" (never set, or deleted); logo.url for mode default = the account's avatar (a
-//            property's image in a property view) resolved by the API, null when there is none; color null = auto
+//            logo: {mode: default|custom|none, url, default_url}, color: #RRGGBB | null}   (branded codes, 3 Nov)
+//            campaign null = "No campaign" (never set, or deleted); logo.url = what to draw (null = no centre image): for
+//            mode default the account's avatar (a property's image in a property view), resolved by the API; color null = auto
+//   list    {success, data: [code], meta: {default_logo_url, style_available}}; style_available false (the style columns
+//            aren't there yet): the default look only, no image / colour controls
 //   option  {id, title, cover_url, state, usable, can_publish, reason}, meta {page, per_page, total, total_pages}
 //   state   public | view_only | private | unpublished
 
@@ -133,6 +135,18 @@ export function normalizeQrCode(raw: unknown): QrCode | null {
 
 /** POST / PATCH: {success, data: code}. */
 export const qrCodeFromResponse = (res: unknown): QrCode | null => normalizeQrCode(body(res).data);
+
+/** GET /qr-codes: the codes, and whether image / colour can be changed (meta.style_available; absent = an API without it). */
+export function qrListFromResponse(res: unknown): { codes: QrCode[]; styleAvailable: boolean } {
+  const { meta } = body(res);
+  return { codes: qrCodesFromResponse(res), styleAvailable: Boolean(meta && meta.style_available === true) };
+}
+
+/** POST /qr-codes/images: {success, data: {url}}. */
+export function uploadedUrlFromResponse(res: unknown): string | null {
+  const { data } = body(res);
+  return isObject(data) ? text(data.url) : null;
+}
 
 /** GET /qr-codes: {success, data: [code]}, newest first. */
 export function qrCodesFromResponse(res: unknown): QrCode[] {

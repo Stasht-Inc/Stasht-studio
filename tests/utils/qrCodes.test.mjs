@@ -7,7 +7,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   campaignHint, campaignOptionsFromResponse, canManageQrCodes, campaignUse, canPick, canPublish, cleanName, normalizeQrCode, opensLabel, qrCodeFromResponse,
-  qrCodesFromResponse, qrFileName, qrRedirectUrl, scansLabel, viewQuery, QR_REDIRECT_FALLBACK_ORIGIN, SHORT_URL_BASE,
+  qrCodesFromResponse, qrListFromResponse, uploadedUrlFromResponse, qrFileName, qrRedirectUrl, scansLabel, viewQuery, QR_REDIRECT_FALLBACK_ORIGIN, SHORT_URL_BASE,
 } from '../../utils/qrCodes.ts';
 
 const CAMPAIGN = { id: 801, title: 'Fall Promo', state: 'public', usable: true, public_url: 'https://studio.stasht.com/published-memory/fall-promo' };
@@ -26,7 +26,7 @@ test('a code reads as the window needs it', () => {
 
 test('branded codes: logo {mode, url} and color (null = auto); older answers draw the default avatar', () => {
   const avatar = 'https://stasht-media.s3.amazonaws.com/profile/u707.jpg';
-  const c = normalizeQrCode({ ...ROW, logo: { mode: 'default', url: avatar }, color: '#00704a' });
+  const c = normalizeQrCode({ ...ROW, logo: { mode: 'default', url: avatar, default_url: avatar }, color: '#00704a' });
   assert.equal(c.logoMode, 'default');
   assert.equal(c.logoUrl, avatar);
   assert.equal(c.color, '#00704A');
@@ -74,6 +74,19 @@ test('rows without an id or a public code are dropped', () => {
   assert.equal(normalizeQrCode({ public_code: 'X' }), null);
   assert.equal(normalizeQrCode({ id: 1 }), null);
   assert.equal(normalizeQrCode(null), null);
+});
+
+test('list meta.style_available: image / colour controls only when the API says it can save them', () => {
+  assert.equal(qrListFromResponse({ success: true, data: [ROW], meta: { default_logo_url: null, style_available: true } }).styleAvailable, true);
+  assert.equal(qrListFromResponse({ success: true, data: [ROW], meta: { style_available: false } }).styleAvailable, false);
+  assert.equal(qrListFromResponse({ success: true, data: [ROW] }).styleAvailable, false, 'an API without it: the default look only');
+  assert.equal(qrListFromResponse({ success: true, data: [ROW], meta: { style_available: true } }).codes.length, 1);
+});
+
+test('image upload answer {success, data: {url}}', () => {
+  assert.equal(uploadedUrlFromResponse({ success: true, data: { url: 'https://stasht-media.s3.amazonaws.com/qr-codes/x.png' } }), 'https://stasht-media.s3.amazonaws.com/qr-codes/x.png');
+  assert.equal(uploadedUrlFromResponse({ success: true, data: {} }), null);
+  assert.equal(uploadedUrlFromResponse(null), null);
 });
 
 test('list answer {success, data: [code]}', () => {
