@@ -22,6 +22,7 @@ import { dashboardAPI } from "../utils/authUtils";
 import { useAuth } from "../contexts/AuthContext";
 import { useStoreelTracking } from "../hooks/useStoreelTracking";
 import { endOfTimelinePostId } from "../utils/addMomentPosition";
+import { qrFromSearch, withQr } from "../utils/qrAccess";
 
 // Custom Comment Icon Component (for mobile)
 const CommentIcon = ({ className = "" }: { className?: string }) => (
@@ -111,7 +112,7 @@ function PublishedWidget({ widget, memoryId, onRequestMoment, onCtaClick }: {
         onCtaClick?.(widget?.id);
         const mid = widget?.memory_id ?? memoryId;
         if (!mid || !widget?.id) return;
-        try { dashboardAPI.trackWidgetClick(String(mid), String(widget.id)).catch(() => {}); } catch { /* ignore */ }
+        try { dashboardAPI.trackWidgetClick(String(mid), String(widget.id), qrFromSearch(window.location.search)).catch(() => {}); } catch { /* ignore */ }
       };
       const ctaButtonStyle: React.CSSProperties = {
         backgroundColor: data.buttonColor || PUB_CTA_DEFAULT_BUTTON_COLOR,
@@ -165,7 +166,7 @@ function PublishedWidget({ widget, memoryId, onRequestMoment, onCtaClick }: {
         onCtaClick?.(widget?.id);
         const mid = widget?.memory_id ?? memoryId;
         if (!mid || !widget?.id) return;
-        try { dashboardAPI.trackWidgetClick(String(mid), String(widget.id)).catch(() => {}); } catch { /* ignore */ }
+        try { dashboardAPI.trackWidgetClick(String(mid), String(widget.id), qrFromSearch(window.location.search)).catch(() => {}); } catch { /* ignore */ }
       };
       return (
         <div className="rounded-2xl bg-white border border-gray-100 overflow-hidden">
@@ -470,6 +471,10 @@ export default function PublishedMemoryPage() {
   // from, forwarded by the /share/memory/{slug} redirect. Empty for organic/
   // untracked visits — useStoreelTracking no-ops entirely in that case.
   const storeelSendToken = searchParams.get('s');
+  // QR codes v2 (3 Nov 2026 evening): opened from a printed QR code (/q/<code> → ?qr=<code>). Every API call below
+  // passes it along: while the code points at this campaign, the API opens it like a Public one (published or not)
+  // and visitors can add moments.
+  const qr = qrFromSearch(searchParams);
 
   // Image viewer state
   const [imageViewer, setImageViewer] = useState<{
@@ -626,7 +631,7 @@ export default function PublishedMemoryPage() {
     setIsLoadingSubMemory(true);
     try {
       // A Private parent's linked campaigns need this page's token (the URL's, or the one typed into the prompt).
-      const res = await dashboardAPI.getMemoryDetail(String(lm.id), accessToken || enteredAccessToken || null);
+      const res = await dashboardAPI.getMemoryDetail(String(lm.id), accessToken || enteredAccessToken || null, qr);
       console.log('🔗 memory-detail response:', res);
       if (res.success && res.data) {
         const rawData = res.data?.data || res.data;
@@ -1047,7 +1052,7 @@ export default function PublishedMemoryPage() {
         // Use access token from URL or manually entered token
         const tokenToUse = accessToken || enteredAccessToken || undefined;
 
-        const response = await dashboardAPI.getPublishedMemory(slug, tokenToUse);
+        const response = await dashboardAPI.getPublishedMemory(slug, tokenToUse, qr);
         console.log('📥 Published Memory Response:', response);
         console.log('📥 Response.data:', response?.data);
         console.log('📥 Response.data.requires_token?', response?.data?.requires_token);
@@ -1092,7 +1097,7 @@ export default function PublishedMemoryPage() {
             setTokenError('');
             // Track view count — fire and forget, don't block rendering
             if (memory.id) {
-              dashboardAPI.trackMemoryView(memory.id).catch(() => {});
+              dashboardAPI.trackMemoryView(memory.id, qr).catch(() => {});
             }
           } else {
             console.error('Memory not found in response');
@@ -1114,7 +1119,7 @@ export default function PublishedMemoryPage() {
     };
 
     fetchPublishedMemory();
-  }, [slug, accessToken, isAuthenticated, enteredAccessToken]);
+  }, [slug, accessToken, isAuthenticated, enteredAccessToken, qr]);
 
   // Restore image modal state after login/signup redirect
   useEffect(() => {
@@ -1543,7 +1548,8 @@ export default function PublishedMemoryPage() {
   // in widget_order. Widgets with a null/empty after_post_id render at the top.
   // Whether the fixed "Add a moment" bar shows (details where it's drawn, below).
   const publishedValue = memoryData?.published;
-  const acceptsGuestMoments = publishedValue === undefined || publishedValue === null || [1, 2, 3].includes(Number(publishedValue));
+  // Opened from a printed QR code: the API let us in, so visitors may add moments whatever the published state.
+  const acceptsGuestMoments = qr !== null || publishedValue === undefined || publishedValue === null || [1, 2, 3].includes(Number(publishedValue));
   const addMomentBarOn = !viewOnly && !isEmbedded && acceptsGuestMoments && !!memoryData?.id;
   // While that bar shows, an owner's "Share a Moment" button (a CTA saved as request_moment) would be a second
   // copy of it (Chris, 31 Oct): leave those out. They still show where the bar doesn't (view-only, iframes).
@@ -1843,7 +1849,7 @@ export default function PublishedMemoryPage() {
 
     try {
       console.log('Submitting comment for post:', imageViewer.imageId);
-      const response = await dashboardAPI.addPostComment(imageViewer.imageId, newComment.trim());
+      const response = await dashboardAPI.addPostComment(imageViewer.imageId, newComment.trim(), undefined, qr);
 
       if (response.success) {
         toast.success("Comment added successfully!");
@@ -3547,14 +3553,14 @@ export default function PublishedMemoryPage() {
                       <Button
                         onClick={() => {
                           const redirectData = {
-                            url: window.location.pathname,
+                            url: withQr(window.location.pathname, qr),
                             imageIndex: imageViewer.currentIndex,
                             slug: slug,
                             timestamp: Date.now()
                           };
                           sessionStorage.setItem('redirectAfterLogin', JSON.stringify(redirectData));
                           localStorage.setItem('pendingRedirectAfterLogin', JSON.stringify(redirectData));
-                          navigate(`/login?redirect=${encodeURIComponent(window.location.pathname)}&imageIndex=${imageViewer.currentIndex}`);
+                          navigate(`/login?redirect=${encodeURIComponent(withQr(window.location.pathname, qr))}&imageIndex=${imageViewer.currentIndex}`);
                         }}
                         className="bg-[#6C60FF] hover:bg-[#5850E5] text-white px-6"
                       >
@@ -3563,14 +3569,14 @@ export default function PublishedMemoryPage() {
                       <Button
                         onClick={() => {
                           const redirectData = {
-                            url: window.location.pathname,
+                            url: withQr(window.location.pathname, qr),
                             imageIndex: imageViewer.currentIndex,
                             slug: slug,
                             timestamp: Date.now()
                           };
                           sessionStorage.setItem('redirectAfterLogin', JSON.stringify(redirectData));
                           localStorage.setItem('pendingRedirectAfterLogin', JSON.stringify(redirectData));
-                          navigate(`/signup?redirect=${encodeURIComponent(window.location.pathname)}&imageIndex=${imageViewer.currentIndex}`);
+                          navigate(`/signup?redirect=${encodeURIComponent(withQr(window.location.pathname, qr))}&imageIndex=${imageViewer.currentIndex}`);
                         }}
                         variant="outline"
                         className="border-[#6C60FF] text-[#6C60FF] hover:bg-[#6C60FF] hover:text-white px-6"
@@ -3818,7 +3824,7 @@ export default function PublishedMemoryPage() {
                     <Button
                       onClick={() => {
                         const redirectData = {
-                          url: window.location.pathname,
+                          url: withQr(window.location.pathname, qr),
                           imageIndex: imageViewer.currentIndex,
                           openComments: true,
                           slug: slug,
@@ -3826,7 +3832,7 @@ export default function PublishedMemoryPage() {
                         };
                         sessionStorage.setItem('redirectAfterLogin', JSON.stringify(redirectData));
                         localStorage.setItem('pendingRedirectAfterLogin', JSON.stringify(redirectData));
-                        navigate(`/login?redirect=${encodeURIComponent(window.location.pathname)}`);
+                        navigate(`/login?redirect=${encodeURIComponent(withQr(window.location.pathname, qr))}`);
                       }}
                       className="bg-[#6C60FF] hover:bg-[#5850E5] text-white px-6"
                       size="sm"
@@ -3836,7 +3842,7 @@ export default function PublishedMemoryPage() {
                     <Button
                       onClick={() => {
                         const redirectData = {
-                          url: window.location.pathname,
+                          url: withQr(window.location.pathname, qr),
                           imageIndex: imageViewer.currentIndex,
                           openComments: true,
                           slug: slug,
@@ -3844,7 +3850,7 @@ export default function PublishedMemoryPage() {
                         };
                         sessionStorage.setItem('redirectAfterLogin', JSON.stringify(redirectData));
                         localStorage.setItem('pendingRedirectAfterLogin', JSON.stringify(redirectData));
-                        navigate(`/signup?redirect=${encodeURIComponent(window.location.pathname)}`);
+                        navigate(`/signup?redirect=${encodeURIComponent(withQr(window.location.pathname, qr))}`);
                       }}
                       variant="outline"
                       className="border-[#6C60FF] text-[#6C60FF] hover:bg-[#6C60FF] hover:text-white px-6"
@@ -3888,6 +3894,7 @@ export default function PublishedMemoryPage() {
         memoryId={memoryData?.id}
         afterPostId={requestMomentAfterPostId}
         variant="public"
+        qr={qr}
         onCloseAutoFocus={(e) => {
           if (!formFromBarRef.current) return;
           formFromBarRef.current = false;

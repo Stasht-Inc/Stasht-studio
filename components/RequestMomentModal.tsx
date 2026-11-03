@@ -5,6 +5,7 @@ import { Button } from "./ui/button";
 import { toast } from "sonner";
 import exifr from "exifr";
 import { dashboardAPI } from "../utils/authUtils";
+import { withQr } from "../utils/qrAccess";
 import ToneSelectionModal from "./ToneSelectionModal";
 import CountrySelect from "./CountrySelect";
 import { isPlausibleSplitPhone, splitPrefillPhone, splitTypedPhone, toE164 } from "../utils/phoneUtils";
@@ -43,6 +44,8 @@ export interface RequestMomentModalProps {
   onSubmitted?: () => void;
   /** Where focus goes when the form closes (Radix's onCloseAutoFocus); default: back to what opened it. */
   onCloseAutoFocus?: (event: Event) => void;
+  /** The printed QR code the public page was opened from (QR codes v2): sent with the upload and the submission. */
+  qr?: string | null;
 }
 
 export default function RequestMomentModal({
@@ -56,6 +59,7 @@ export default function RequestMomentModal({
   prefillPhone,
   onSubmitted,
   onCloseAutoFocus,
+  qr = null,
 }: RequestMomentModalProps) {
   const isAuthed = variant === 'authenticated';
 
@@ -173,7 +177,7 @@ export default function RequestMomentModal({
       const orientation = exif?.Orientation ?? 1;
       const metaRes = isAuthed
         ? await dashboardAPI.uploadImageWithMetadata(picked, picked.name, orientation)
-        : await dashboardAPI.uploadImageWithMetadataPublic(picked, picked.name, orientation);
+        : await dashboardAPI.uploadImageWithMetadataPublic(picked, picked.name, orientation, qr);
       if (!metaRes?.success) {
         setFileError('We could not upload that photo. Please try again.');
         setUploadedMeta(null);
@@ -252,7 +256,7 @@ export default function RequestMomentModal({
       // redirects to /login for any endpoint outside its whitelist, which would
       // throw a signed-out visitor off the published page.
       const apiBase = import.meta.env.VITE_API_BASE_URL || '/api/react';
-      const res = await fetch(`${apiBase}/memories/submit-photo`, {
+      const res = await fetch(`${apiBase}${withQr('/memories/submit-photo', qr)}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
         body: JSON.stringify({

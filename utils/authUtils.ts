@@ -2,6 +2,7 @@ import { requestUpgrade } from './planEvents';
 import { propertyUpdateFailure } from './propertyImage';
 import { currentPropertyViewHeaders, propertyViewCacheKey } from './inventoryView';
 import { memoryDetailPath } from './memoryDetailPath';
+import { withQr } from './qrAccess';
 
 // Auth utility functions for API integration
 
@@ -2281,7 +2282,8 @@ export const dashboardAPI = {
   },
 
   // Get published memory by slug (public endpoint - no auth required)
-  getPublishedMemory: async (slug: string, accessToken?: string): Promise<ApiResponse<any>> => {
+  // qr: the printed QR code the page was opened from (QR codes v2: it opens the campaign even when it isn't published).
+  getPublishedMemory: async (slug: string, accessToken?: string, qr?: string | null): Promise<ApiResponse<any>> => {
     devLog(`dashboardAPI.getPublishedMemory: Fetching published memory with slug: ${slug}`);
 
     // Build URL with optional access_token parameter
@@ -2291,7 +2293,7 @@ export const dashboardAPI = {
 
     devLog(`API URL: ${url}`);
 
-    return await apiRequest(url, {
+    return await apiRequest(withQr(url, qr), {
       method: 'GET',
     });
   },
@@ -2653,7 +2655,7 @@ export const dashboardAPI = {
   },
 
   // Add comment to a post
-  addPostComment: async (postId: string, comment: string, parentId?: string): Promise<ApiResponse<any>> => {
+  addPostComment: async (postId: string, comment: string, parentId?: string, qr?: string | null): Promise<ApiResponse<any>> => {
     devLog('dashboardAPI.addPostComment: Sending POST request to add comment');
     devLog('Post ID (image_id):', postId);
     devLog('Comment:', comment);
@@ -2669,7 +2671,7 @@ export const dashboardAPI = {
       requestBody.parent_id = parentId;
     }
 
-    return await apiRequest('/memory-images/comments', {
+    return await apiRequest(withQr('/memory-images/comments', qr), {
       method: 'POST',
       body: JSON.stringify(requestBody),
     });
@@ -3502,15 +3504,15 @@ export const dashboardAPI = {
   },
 
   // Track a view when someone opens a published memory from a shared link
-  trackMemoryView: async (memoryId: string | number): Promise<ApiResponse<any>> => {
-    return await apiRequest(`/memories/${memoryId}/track-view`, {
+  trackMemoryView: async (memoryId: string | number, qr?: string | null): Promise<ApiResponse<any>> => {
+    return await apiRequest(withQr(`/memories/${memoryId}/track-view`, qr), {
       method: 'POST',
     });
   },
 
   // Track a click on a CTA widget (public endpoint — increments the widget's click_count)
-  trackWidgetClick: async (memoryId: string | number, widgetId: string | number): Promise<ApiResponse<any>> => {
-    return await apiRequest(`/memories/${memoryId}/widgets/${widgetId}/track-click`, {
+  trackWidgetClick: async (memoryId: string | number, widgetId: string | number, qr?: string | null): Promise<ApiResponse<any>> => {
+    return await apiRequest(withQr(`/memories/${memoryId}/widgets/${widgetId}/track-click`, qr), {
       method: 'POST',
     });
   },
@@ -3680,7 +3682,7 @@ export const dashboardAPI = {
   // only risk turning a valid anonymous upload into a 401.
   // Deliberately separate from uploadImageWithMetadata so the normal-memory
   // callers of that function are unaffected.
-  uploadImageWithMetadataPublic: async (file: File, name: string, orientation?: number): Promise<ApiResponse<any>> => {
+  uploadImageWithMetadataPublic: async (file: File, name: string, orientation?: number, qr?: string | null): Promise<ApiResponse<any>> => {
     const formData = new FormData();
     formData.append('name', name);
     formData.append('image', file);
@@ -3690,7 +3692,7 @@ export const dashboardAPI = {
       formData.append('orientation', String(orientation));
     }
 
-    const endpoint = `${getApiBaseUrl()}/public/upload-image-with-metadata`;
+    const endpoint = `${getApiBaseUrl()}${withQr('/public/upload-image-with-metadata', qr)}`;
     devLog('🌐 uploadImageWithMetadataPublic ->', endpoint, { fileName: file.name, size: file.size, type: file.type });
 
     try {
@@ -5020,8 +5022,8 @@ export const dashboardAPI = {
   },
 
   // accessToken: the public campaign page's token, needed for a Private parent's linked campaigns (utils/memoryDetailPath).
-  getMemoryDetail: async (memoryId: string, accessToken?: string | null): Promise<ApiResponse<any>> => {
-    return await apiRequest(memoryDetailPath(memoryId, accessToken), { method: 'GET' });
+  getMemoryDetail: async (memoryId: string, accessToken?: string | null, qr?: string | null): Promise<ApiResponse<any>> => {
+    return await apiRequest(memoryDetailPath(memoryId, accessToken, qr), { method: 'GET' });
   },
 
   reorderPost: async (memoryId: string, postId: string, direction: 'up' | 'down'): Promise<ApiResponse<any>> => {
