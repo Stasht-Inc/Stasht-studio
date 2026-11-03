@@ -1,7 +1,7 @@
 // [wdy2xh2p3m] Edit a scheduled newsletter (list menu and results drawer → unschedule → composer with the time kept),
 // the 409 once sending started, the picked time kept on a draft (planned_send_at), and over the allowance: "See
 // plans", and the API's next-month answer for a time after the reset.
-import { createMockApi, newsletter, seedNewsletters } from '../mock-api.mjs';
+import { createMockApi, newsletter, nextReset, seedNewsletters } from '../mock-api.mjs';
 
 const TZ = 'America/Toronto';
 const day = 86400000;
@@ -166,7 +166,7 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
   await context.close();
 
   for (const width of [360, 375, 390]) {
-    const phone = await open({ width, height: 844, api: createMockApi({ newsletters: [ready()], businessAddress: '4505 Steeles Ave W', allowance: { plan: 'Teams', email_limit: 1000, sms_limit: 0, email_used: 900, sms_used: 0, resets_at: '2026-11-01T04:00:00Z' } }), query: '&newsletterId=23', timezoneId: TZ });
+    const phone = await open({ width, height: 844, api: createMockApi({ newsletters: [ready()], businessAddress: '4505 Steeles Ave W', allowance: { plan: 'Teams', email_limit: 1000, sms_limit: 0, email_used: 900, sms_used: 0, resets_at: nextReset(4) } }), query: '&newsletterId=23', timezoneId: TZ });
     await phone.page.getByRole('button', { name: 'Send now' }).last().click();
     const d = phone.page.getByRole('dialog', { name: 'Send this newsletter now?' });
     await expectVisible(d.getByRole('button', { name: 'See plans' }), `See plans at ${width}`);

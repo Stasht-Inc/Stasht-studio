@@ -2,11 +2,11 @@
 // reason. The emails go, the texts are skipped, and a note right at the button says so (with See plans), on the
 // Send and the Schedule confirmations. Only texts and none can go: Send stays off, with the reason at the button.
 // An older API that still refuses: its words show at the button.
-import { createMockApi, newsletter, seedNewsletters } from '../mock-api.mjs';
+import { createMockApi, newsletter, nextReset, seedNewsletters } from '../mock-api.mjs';
 
 const TZ = 'America/Toronto';
 const NOTE = "310 text messages won't be sent: no text parts left this month. Emails will still go out.";
-const NO_PARTS = { plan: 'Professional', email_limit: 5000, sms_limit: 500, email_used: 1200, sms_used: 500, email_pending: 0, sms_pending: 0, resets_at: '2026-11-01T04:00:00Z' };
+const NO_PARTS = { plan: 'Professional', email_limit: 5000, sms_limit: 500, email_used: 1200, sms_used: 500, email_pending: 0, sms_pending: 0, resets_at: nextReset(4) };
 const ready = (over = {}) => newsletter(23, {
   name: 'October Newsletter 2026', subject: 'October deals are here', from_name: 'Serpa Chrysler', reply_to_email: 'sales@serpachrysler.ca',
   channels: ['email', 'sms'], sms_text: 'October deals are here.', blocks: [{ id: 'b1', type: 'title', data: { text: 'This month', size: 'large' } }], ...over,

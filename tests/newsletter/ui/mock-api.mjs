@@ -212,6 +212,20 @@ export function seedLeads() {
   ].map((l) => ({ unsubscribed: false, last_engaged_at: '2026-11-02T15:00:00Z', ...l }));
 }
 
+/**
+ * The plan's next monthly reset (NewsletterAllowance resets_at), relative to today so the allowance checks never go
+ * stale: the first of the month after the day after tomorrow, at `hourUtc` (4 = midnight in Toronto). A newsletter
+ * scheduled for tomorrow is then always this month's.
+ */
+export function nextReset(hourUtc = 0) {
+  const d = new Date(Date.now() + 2 * 24 * 3600 * 1000);
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1, hourUtc)).toISOString().replace('.000Z', 'Z');
+}
+/** How Studio writes that date ("It resets on Dec 1."): formatResetDate, en-US, in UTC. */
+export function resetLabel(iso = nextReset()) {
+  return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' }).format(new Date(iso));
+}
+
 function previewHtml(n) {
   const blocks = (n.blocks || []).map((b) => {
     if (b.type === 'title') return `<h2>${esc(b.data.text)}</h2>`;
@@ -279,7 +293,7 @@ export function createMockApi(options = {}) {
     // The owner's leads for "Single person" (GET /newsletters/lead-options).
     leads: options.leads ?? seedLeads(),
     // NewsletterAllowance::summary: *_pending = held back for newsletters sending or scheduled.
-    allowance: options.allowance ?? { plan: 'Professional', email_limit: 5000, sms_limit: 500, email_used: 1200, sms_used: 40, email_pending: 0, sms_pending: 0, resets_at: '2026-11-01T00:00:00Z' },
+    allowance: options.allowance ?? { plan: 'Professional', email_limit: 5000, sms_limit: 500, email_used: 1200, sms_used: 40, email_pending: 0, sms_pending: 0, resets_at: nextReset() },
     sendErrors: options.sendErrors ?? null,
     // The signed-in owner (NewsletterController::store pre-fills from name and email). null email: the
     // account has none, so send needs a reply-to (422 reply_to_email).

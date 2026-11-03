@@ -3,7 +3,7 @@
 // stays in the dialog; the API's errors.blocks messages show on the Content step; its reply_to_email 422 (no
 // email on the account) shows on step 3; schedule for later confirms with the time; Starter sees the upgrade
 // card and makes no newsletter calls.
-import { createMockApi } from '../mock-api.mjs';
+import { createMockApi, nextReset, resetLabel } from '../mock-api.mjs';
 import { sendToAllLeads } from '../steps.mjs';
 
 async function fillAll(page, { replyTo = 'sales@serpachrysler.ca' } = {}) {
@@ -48,7 +48,7 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
   const dialog = confirmDialog(page);
   await expectVisible(dialog, 'confirmation dialog');
   await expectVisible(dialog.getByText('1,180 people'), 'email count');
-  await expectVisible(dialog.getByText('Your plan has 3,800 emails left this month. It resets on Nov 1.'), 'allowance line');
+  await expectVisible(dialog.getByText(`Your plan has 3,800 emails left this month. It resets on ${resetLabel()}.`), 'allowance line');
   await expectVisible(dialog.getByLabel('Business address'), 'address asked for on the first send');
   await page.waitForTimeout(700); // counts are debounced
   await shot(page, '1280-02-confirm');
@@ -75,12 +75,12 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
   // Emails held back for scheduled / sending newsletters come off what is left (limit − used − pending).
   ({ page, api, context } = await open({ width: 1280, height: 1900, api: createMockApi({
     businessAddress: '4505 Steeles Ave W',
-    allowance: { plan: 'Professional', email_limit: 5000, sms_limit: 500, email_used: 1200, sms_used: 40, email_pending: 2900, sms_pending: 0, resets_at: '2026-11-01T00:00:00Z' },
+    allowance: { plan: 'Professional', email_limit: 5000, sms_limit: 500, email_used: 1200, sms_used: 40, email_pending: 2900, sms_pending: 0, resets_at: nextReset() },
   }) }));
   await fillAll(page);
   await sendButton(page).click();
   const dp = confirmDialog(page);
-  await expectVisible(dp.getByText('Your plan has 900 emails left this month. It resets on Nov 1.'), 'pending emails taken off what is left');
+  await expectVisible(dp.getByText(`Your plan has 900 emails left this month. It resets on ${resetLabel()}.`), 'pending emails taken off what is left');
   await expectVisible(dp.getByText('This needs 1,180 emails, but your plan has 900 left this month.'), 'over the allowance once pending counts');
   expect(await dp.getByRole('button', { name: 'Send now' }).isDisabled(), 'Send now disabled when pending leaves too few');
   await context.close();
