@@ -19,15 +19,18 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
   const { page, context } = await open({ width: 1280, height: 1900, api, query: '&newsletterId=23', timezoneId: TZ });
   const step = page.locator('#nl-step-recipients');
   const box = step.getByLabel('Message (optional)', { exact: true });
-  await expectVisible(step.getByText('Uses 1 text message part per person.'), 'one part');
+  await expectVisible(step.getByText('Sent as 1 text message.').first(), 'one part');
 
   await box.fill('Sale 😀 this weekend only');
-  await expectVisible(step.getByText('Uses 2 text message parts per person.'), 'emoji: two parts');
+  await expectVisible(step.getByText('Sent as 2 text messages.').first(), 'emoji: two parts');
   await expectVisible(step.getByText(/Emoji and some special characters make each part hold 70 characters/), 'emoji warning');
   await shot(page, '1280-01-parts');
 
+  // No limit on parts any more (Chris, 3 Nov): 110 "ą" go out as one long text; only over 1,600 characters is refused.
   await box.fill('ą'.repeat(110));
-  await expectVisible(step.getByText(/^This text is too long once sent \(\d parts\)\. Shorten it or remove emoji\.$/), 'too long: the API words');
+  await expectVisible(step.getByText('Sent as 4 text messages.').first(), 'a long text: more parts, not refused');
+  await box.fill('ą'.repeat(1600));
+  await expectVisible(step.getByText(/^This text is too long to send as a text message \(1,\d{3} of 1,600 characters/), 'too long: the API words');
   await box.fill('October deals are here.');
   expect(!(await step.getByText(/Emoji and some special/).count()), 'no warning for plain text');
 
