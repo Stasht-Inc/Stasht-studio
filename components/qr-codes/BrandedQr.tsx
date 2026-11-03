@@ -9,14 +9,12 @@ import { loadQrLogo, loadedQrLogo, primeQrLogo, type PreparedLogo } from '../../
 import { keyboardOnlyFocusReturn } from '../../utils/menuFocus';
 import { BUTTON_SMALL } from '../newsletters/lib/ui';
 
-// Branded QR codes (Chris, 3 Nov 2026): one look everywhere — the list thumbnail, the code's view and every download
-// are drawn by utils/qrStyle from the same code, image and colour.
+// Branded QR codes (Chris, 3 Nov 2026): one look everywhere — the QR Code popover and every download are drawn by
+// utils/qrStyle from the same code, image and colour.
 
 /** The PNG downloads are exactly this many pixels square. */
 export const PNG_SIZE = 4096;
 export const PRINT_TIP = 'Print at least 2.5 cm (1 in) wide · dark code on a light background';
-/** Pictures this small (the list thumbnails) carry the small logo, not the 1024 px one. */
-const THUMB_MAX_SIZE = 96;
 const IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 
@@ -57,7 +55,7 @@ export function BrandedQr({ code, size, color, label }: {
   const drawColor = qrDrawColor(color === undefined ? code.color : color, logo?.color);
   const src = useMemo(() => {
     if (!ready) return null;
-    const image = logo ? (size <= THUMB_MAX_SIZE ? logo.thumb : { href: logo.href, width: logo.width, height: logo.height }) : null;
+    const image = logo ? { href: logo.href, width: logo.width, height: logo.height } : null;
     return svgDataUrl(qrSvg(code.shortUrl, { color: drawColor, background: 'white', logo: image }, size * 2));
   }, [ready, code.shortUrl, drawColor, logo, size]);
   if (!src) {
@@ -117,13 +115,13 @@ export async function downloadQr(code: QrCode, kind: QrDownloadKind): Promise<vo
   }
 }
 
-/** The Download menu: the three files and the print tip. */
-export function QrDownloadMenu({ code, children, disabled }: { code: QrCode; children: ReactNode; disabled?: boolean }) {
+/** The Download menu: the three files and the print tip. contentClassName: e.g. a z-index above a bottom sheet. */
+export function QrDownloadMenu({ code, children, disabled, contentClassName = '' }: { code: QrCode; children: ReactNode; disabled?: boolean; contentClassName?: string }) {
   const item = 'cursor-pointer hover:bg-[#6C60FF]/5';
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild disabled={disabled}>{children}</DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-72 rounded-md border border-gray-200 bg-white shadow-lg" onCloseAutoFocus={keyboardOnlyFocusReturn}>
+      <DropdownMenuContent align="end" className={`w-72 rounded-md border border-gray-200 bg-white shadow-lg ${contentClassName}`} onCloseAutoFocus={keyboardOnlyFocusReturn}>
         <DropdownMenuItem className={item} onSelect={() => void downloadQr(code, 'png')}>PNG · white background (any fabric)</DropdownMenuItem>
         <DropdownMenuItem className={item} onSelect={() => void downloadQr(code, 'png-transparent')}>PNG · transparent (light fabrics only)</DropdownMenuItem>
         <DropdownMenuItem className={item} onSelect={() => void downloadQr(code, 'svg')}>SVG · vector (print shops)</DropdownMenuItem>

@@ -22,3 +22,10 @@ test("the page's token goes along as ?access_token=, encoded", () => {
 test('the id is encoded too', () => {
   assert.equal(memoryDetailPath('9/2'), '/memory-detail/9%2F2');
 });
+
+test('QR codes v2: a page opened from a printed QR code passes its ?qr= along too', () => {
+  assert.equal(memoryDetailPath(902, null, 'K7PQ2MZX'), '/memory-detail/902?qr=K7PQ2MZX');
+  assert.equal(memoryDetailPath(902, 'abc', 'K7PQ2MZX'), '/memory-detail/902?access_token=abc&qr=K7PQ2MZX');
+  assert.equal(memoryDetailPath(902, null, 'bad code!'), '/memory-detail/902', 'a malformed code is never sent');
+  assert.equal(memoryDetailPath(902, null, null), '/memory-detail/902');
+});

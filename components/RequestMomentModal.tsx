@@ -43,6 +43,8 @@ export interface RequestMomentModalProps {
   onSubmitted?: () => void;
   /** Where focus goes when the form closes (Radix's onCloseAutoFocus); default: back to what opened it. */
   onCloseAutoFocus?: (event: Event) => void;
+  /** The printed QR code the public page was opened from (QR codes v2): sent with the submission (body qr). */
+  qr?: string | null;
 }
 
 export default function RequestMomentModal({
@@ -56,6 +58,7 @@ export default function RequestMomentModal({
   prefillPhone,
   onSubmitted,
   onCloseAutoFocus,
+  qr = null,
 }: RequestMomentModalProps) {
   const isAuthed = variant === 'authenticated';
 
@@ -266,6 +269,7 @@ export default function RequestMomentModal({
           email: contactType === 'email' ? (contact || null) : null,
           mobile: contactType === 'phone' ? (toE164(contactCountry, contact) || null) : null,
           size: uploadedMeta?.size ?? null,
+          ...(qr ? { qr } : {}),
         }),
       });
 

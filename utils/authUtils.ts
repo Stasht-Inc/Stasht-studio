@@ -2,6 +2,7 @@ import { requestUpgrade } from './planEvents';
 import { propertyUpdateFailure } from './propertyImage';
 import { currentPropertyViewHeaders, propertyViewCacheKey } from './inventoryView';
 import { memoryDetailPath } from './memoryDetailPath';
+import { campaignAccessBody, withQr } from './qrAccess';
 
 // Auth utility functions for API integration
 
@@ -2281,7 +2282,8 @@ export const dashboardAPI = {
   },
 
   // Get published memory by slug (public endpoint - no auth required)
-  getPublishedMemory: async (slug: string, accessToken?: string): Promise<ApiResponse<any>> => {
+  // qr: the printed QR code the page was opened from (QR codes v2: it opens the campaign even when it isn't published).
+  getPublishedMemory: async (slug: string, accessToken?: string, qr?: string | null): Promise<ApiResponse<any>> => {
     devLog(`dashboardAPI.getPublishedMemory: Fetching published memory with slug: ${slug}`);
 
     // Build URL with optional access_token parameter
@@ -2291,7 +2293,7 @@ export const dashboardAPI = {
 
     devLog(`API URL: ${url}`);
 
-    return await apiRequest(url, {
+    return await apiRequest(withQr(url, qr), {
       method: 'GET',
     });
   },
@@ -2653,7 +2655,9 @@ export const dashboardAPI = {
   },
 
   // Add comment to a post
-  addPostComment: async (postId: string, comment: string, parentId?: string): Promise<ApiResponse<any>> => {
+  // The API takes comments only where the campaign is open to the caller: qr (the printed QR code the public page was
+  // opened from) and accessToken (a Private campaign's token) go in the body when present.
+  addPostComment: async (postId: string, comment: string, parentId?: string, qr?: string | null, accessToken?: string | null): Promise<ApiResponse<any>> => {
     devLog('dashboardAPI.addPostComment: Sending POST request to add comment');
     devLog('Post ID (image_id):', postId);
     devLog('Comment:', comment);
@@ -2668,6 +2672,7 @@ export const dashboardAPI = {
     if (parentId) {
       requestBody.parent_id = parentId;
     }
+    Object.assign(requestBody, campaignAccessBody(qr, accessToken));
 
     return await apiRequest('/memory-images/comments', {
       method: 'POST',
@@ -3502,9 +3507,13 @@ export const dashboardAPI = {
   },
 
   // Track a view when someone opens a published memory from a shared link
-  trackMemoryView: async (memoryId: string | number): Promise<ApiResponse<any>> => {
+  // The API records a view only when the campaign is open to the caller: qr (the printed QR code the public page was
+  // opened from) and accessToken (a Private campaign's token, URL or typed) go in the body when present.
+  trackMemoryView: async (memoryId: string | number, qr?: string | null, accessToken?: string | null): Promise<ApiResponse<any>> => {
+    const body = campaignAccessBody(qr, accessToken);
     return await apiRequest(`/memories/${memoryId}/track-view`, {
       method: 'POST',
+      ...(body ? { body: JSON.stringify(body) } : {}),
     });
   },
 
@@ -5020,8 +5029,8 @@ export const dashboardAPI = {
   },
 
   // accessToken: the public campaign page's token, needed for a Private parent's linked campaigns (utils/memoryDetailPath).
-  getMemoryDetail: async (memoryId: string, accessToken?: string | null): Promise<ApiResponse<any>> => {
-    return await apiRequest(memoryDetailPath(memoryId, accessToken), { method: 'GET' });
+  getMemoryDetail: async (memoryId: string, accessToken?: string | null, qr?: string | null): Promise<ApiResponse<any>> => {
+    return await apiRequest(memoryDetailPath(memoryId, accessToken, qr), { method: 'GET' });
   },
 
   reorderPost: async (memoryId: string, postId: string, direction: 'up' | 'down'): Promise<ApiResponse<any>> => {
