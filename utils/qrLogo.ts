@@ -17,12 +17,7 @@ export interface PreparedLogo {
   color: string | null;
   /** Loaded, for painting the PNG downloads. */
   image: HTMLImageElement;
-  /** The same logo at most THUMB_SIDE px, for small pictures (the list thumbnails). */
-  thumb: { href: string; width: number; height: number };
 }
-
-/** Largest side of the thumbnail logo. */
-export const THUMB_SIDE = 128;
 
 /** Largest side kept: the logo is 29% of a 4096 px PNG's code (~970 px), so this stays sharp in print. */
 const MAX_SIDE = 1024;
@@ -99,8 +94,9 @@ export function logoTrim(data: ArrayLike<number>, width: number, height: number)
   distances.sort((a, b) => a - b);
   const radius = distances[Math.min(distances.length - 1, Math.floor(distances.length * RADIUS_QUANTILE))];
   const size = radius * 2 * (1 + 2 * TRIM_PADDING);
-  // Already about as big as the image (a logo that fills it): nothing to gain.
-  if (size >= Math.min(width, height) * 0.98) return null;
+  // As big as the image's long side (a logo that already fills it): nothing to gain. A wide or tall image's square may
+  // well be bigger than its short side — it then reaches past those edges (the caller fills them clear / white).
+  if (size >= Math.max(width, height) * 0.98) return null;
   return { x: cx - size / 2, y: cy - size / 2, size };
 }
 
@@ -193,18 +189,10 @@ export async function prepareLogo(blob: Blob): Promise<PreparedLogo | null> {
     if (!ctx) return null;
     drawRegion(ctx, source, w0, h0, region, width, height, transparent);
     const href = transparent ? canvas.toDataURL('image/png') : canvas.toDataURL('image/jpeg', 0.92);
-    const image = await loadImage(href);
-
-    const ts = Math.min(1, THUMB_SIDE / Math.max(region.w, region.h));
-    const tw = Math.max(1, Math.round(region.w * ts));
-    const th = Math.max(1, Math.round(region.h * ts));
-    canvas.width = tw; // resizing clears it
-    canvas.height = th;
-    drawRegion(ctx, source, w0, h0, region, tw, th, transparent);
-    const thumb = { href: transparent ? canvas.toDataURL('image/png') : canvas.toDataURL('image/jpeg', 0.9), width: tw, height: th };
-    canvas.width = 0;
+    canvas.width = 0; // let go of the bitmap
     canvas.height = 0;
-    return { href, width, height, color: dominantColor(pixels), image, thumb };
+    const image = await loadImage(href);
+    return { href, width, height, color: dominantColor(pixels), image };
   } catch {
     return null;
   } finally {

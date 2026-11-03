@@ -172,3 +172,25 @@ test('scans: codes drawn with the trimmed BMW-like logo decode at 4096, 300 and 
     }
   }
 });
+
+test('a wide image (800 × 400) whose crop is taller than the image: still trimmed, the square reaching past its edges', async () => {
+  const wide = svg(roundel(400, 200, 190), 800, 400, WHITE_BG(800, 400));
+  const r = await raw(wide, 256);
+  const box = logoTrim(r.data, r.width, r.height);
+  assert.ok(box, 'trimmed, although the square is taller than the image');
+  assert.ok(box.size > r.height && box.y < 0, JSON.stringify(box));
+  const { png } = await trimmed(wide, { jpeg: true });
+  const meta = await sharp(png).metadata();
+  assert.equal(meta.width, meta.height, 'square');
+  const after = await markSpan(png);
+  assert.ok(after.w >= 0.8 && after.h >= 0.8, `${after.w} × ${after.h}`);
+  // A tall one too (300 × 900, a mark nearly as wide as it: the square is wider than the image).
+  const tall = svg(roundel(150, 450, 146), 300, 900, WHITE_BG(300, 900));
+  const t = await raw(tall, 256);
+  const tb = logoTrim(t.data, t.width, t.height);
+  assert.ok(tb && tb.size > t.width && tb.x < 0, JSON.stringify(tb));
+  // A wordmark filling a wide image edge to edge: nothing to gain (no bigger than the image's long side).
+  const fill = svg('<rect x="4" y="60" width="792" height="120" fill="#111"/>', 800, 240, WHITE_BG(800, 240));
+  const f = await raw(fill, 256);
+  assert.equal(logoTrim(f.data, f.width, f.height), null);
+});

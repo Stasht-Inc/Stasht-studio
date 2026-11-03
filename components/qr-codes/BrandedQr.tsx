@@ -15,8 +15,6 @@ import { BUTTON_SMALL } from '../newsletters/lib/ui';
 /** The PNG downloads are exactly this many pixels square. */
 export const PNG_SIZE = 4096;
 export const PRINT_TIP = 'Print at least 2.5 cm (1 in) wide · dark code on a light background';
-/** Pictures this small (thumbnails) carry the small logo, not the 1024 px one. */
-const THUMB_MAX_SIZE = 96;
 const IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 
@@ -57,7 +55,7 @@ export function BrandedQr({ code, size, color, label }: {
   const drawColor = qrDrawColor(color === undefined ? code.color : color, logo?.color);
   const src = useMemo(() => {
     if (!ready) return null;
-    const image = logo ? (size <= THUMB_MAX_SIZE ? logo.thumb : { href: logo.href, width: logo.width, height: logo.height }) : null;
+    const image = logo ? { href: logo.href, width: logo.width, height: logo.height } : null;
     return svgDataUrl(qrSvg(code.shortUrl, { color: drawColor, background: 'white', logo: image }, size * 2));
   }, [ready, code.shortUrl, drawColor, logo, size]);
   if (!src) {
