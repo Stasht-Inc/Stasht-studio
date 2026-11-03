@@ -22,7 +22,10 @@ import MemoriesPage from '../../../pages/MemoriesPage';
 import LeadsPage from '../../../pages/LeadsPage';
 
 function HeaderGallery() {
-  const [header, setHeader] = useState<NewsletterHeader>({ logo_url: null, banner_url: null, background_color: '#6C60FF', title: 'Serpa Chrysler' });
+  // ?headerBanner=1: a header saved with a banner image before banners left the editor (3 Nov).
+  const [header, setHeader] = useState<NewsletterHeader>({
+    logo_url: null, banner_url: params.get('headerBanner') === '1' ? 'https://127.0.0.1/nl-img/pwa-icon-512.png' : null, background_color: '#6C60FF', title: 'Serpa Chrysler',
+  });
   return (
     <>
       <HeaderEditor header={header} onChange={setHeader} selected onSelect={() => {}} readOnly={false} />

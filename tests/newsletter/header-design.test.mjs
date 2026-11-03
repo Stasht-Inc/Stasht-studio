@@ -3,8 +3,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  BACKGROUND_SHADE, LOGO_HEIGHTS, LOGO_SIZES, headerInk, logoHeight, logoRatioFrom, logoSizeOf, needsLogoRatio,
-  withBackgroundImage, withLogo, withLogoSize,
+  BACKGROUND_MODES, BACKGROUND_SHADE, LOGO_HEIGHTS, LOGO_SIZES, backgroundModeOf, headerInk, logoHeight, logoRatioFrom, logoSizeOf,
+  needsLogoRatio, withBackgroundImage, withBackgroundMode, withLogo, withLogoSize, withoutBanner,
 } from '../../components/newsletters/lib/headerDesign.ts';
 
 const BASE = { logo_url: 'https://cdn.example.com/bmw.png', banner_url: null, background_color: '#FFFFFF', title: 'Serpa BMW' };
@@ -61,4 +61,26 @@ test('the name is white on a picture (dark layer), else readable on the colour',
   assert.equal(headerInk('#FFFFFF', true), '#FFFFFF');
   assert.equal(headerInk('#FFFFFF', false), '#1F2937');
   assert.equal(headerInk('#1F2937', false), '#FFFFFF');
+});
+
+// Coordinator, 3 Nov: one switch "Header background: Colour | Image"; no new banners, an old one can be removed.
+test('header background is one switch: Colour or Image', () => {
+  assert.deepEqual(BACKGROUND_MODES.map((o) => [o.value, o.label]), [['color', 'Colour'], ['image', 'Image']]);
+  assert.equal(backgroundModeOf(BASE), 'color');
+  assert.equal(backgroundModeOf({ ...BASE, background_image_url: 'https://cdn.example.com/showroom.jpg' }), 'image');
+  assert.equal(backgroundModeOf({ ...BASE, background_image_url: 'javascript:alert(1)' }), 'color', 'only an https picture counts');
+  assert.equal(backgroundModeOf({ ...BASE, banner_url: 'https://cdn.example.com/b.jpg' }), 'color', 'a banner is not the background image');
+});
+
+test('Colour removes the picture; Image keeps the header as it is until one is uploaded', () => {
+  const withPicture = { ...BASE, background_image_url: 'https://cdn.example.com/showroom.jpg' };
+  assert.deepEqual(withBackgroundMode(withPicture, 'color'), BASE);
+  assert.ok(!('background_image_url' in withBackgroundMode(withPicture, 'color')));
+  assert.equal(withBackgroundMode(BASE, 'image'), BASE);
+  assert.equal(withBackgroundMode(withPicture, 'image'), withPicture);
+});
+
+test('an old banner can be removed, nothing else changes', () => {
+  const old = { ...BASE, banner_url: 'https://cdn.example.com/b.jpg', logo_size: 'large', logo_ratio: 4 };
+  assert.deepEqual(withoutBanner(old), { ...old, banner_url: null });
 });

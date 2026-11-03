@@ -1,5 +1,6 @@
 import type { LogoSize, NewsletterHeader } from '../../../services/newslettersAPI.ts';
 import { contrastInk } from './colors.ts';
+import { httpsUrl } from './urls.ts';
 
 // Chris (3 Nov): a picture behind the header's logo and name, and the logo's size. Same keys and numbers as the
 // API (NewsletterContent::LOGO_HEIGHTS, emails/newsletter/header.blade.php). Small is the 48 px every logo had
@@ -66,4 +67,27 @@ export function withBackgroundImage(header: NewsletterHeader, url: string | null
 /** The name's colour: white on a picture (under the dark layer), else whatever reads on the header colour. */
 export function headerInk(color: string, hasPicture: boolean): '#1F2937' | '#FFFFFF' {
   return hasPicture ? '#FFFFFF' : contrastInk(color);
+}
+
+// One switch for the header background (3 Nov): Colour, or Image (a picture behind the logo and name, the colour
+// kept as the fallback for email apps that hide images). Banners are no longer offered; an old one still draws
+// and can be removed.
+export type HeaderBackgroundMode = 'color' | 'image';
+
+export const BACKGROUND_MODES = [
+  { value: 'color', label: 'Colour' },
+  { value: 'image', label: 'Image' },
+] as const satisfies ReadonlyArray<{ value: HeaderBackgroundMode; label: string }>;
+
+export function backgroundModeOf(header: NewsletterHeader): HeaderBackgroundMode {
+  return httpsUrl(header.background_image_url) ? 'image' : 'color';
+}
+
+/** Colour takes the picture away; Image leaves the header as it is until a picture is uploaded. */
+export function withBackgroundMode(header: NewsletterHeader, mode: HeaderBackgroundMode): NewsletterHeader {
+  return mode === 'color' && 'background_image_url' in header ? withBackgroundImage(header, null) : header;
+}
+
+export function withoutBanner(header: NewsletterHeader): NewsletterHeader {
+  return { ...header, banner_url: null };
 }

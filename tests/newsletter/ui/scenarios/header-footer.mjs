@@ -1,4 +1,4 @@
-// Task 7: header logo / colour / banner / title, and the e-card footer with the business address.
+// Task 7: header logo / colour / title, and the e-card footer with the business address.
 import { IMG } from '../mock-api.mjs';
 
 const FILE = new URL('../../../../public/pwa-icon-192.png', import.meta.url).pathname;
@@ -14,19 +14,13 @@ export async function run({ open, shot, expectVisible, expect }) {
   await expectVisible(h.locator(`img[src="${IMG}"]`), 'logo shown');
   await h.getByRole('radio', { name: 'Green' }).click();
   expect((await data('Header')).background_color === '#059669', 'background colour saved');
-  await h.getByRole('radio', { name: 'Banner image' }).click();
-  await h.getByTestId('nl-banner-input').setInputFiles(FILE);
+  // 3 Nov: one switch "Header background: Colour | Image"; banners are no longer offered for new use.
+  expect(await h.getByRole('radio', { name: 'Banner image' }).count() === 0, 'no Banner image option');
+  expect(await h.getByTestId('nl-banner-input').count() === 0, 'no banner upload');
   await h.getByLabel('Header title').fill('Serpa Chrysler Jeep');
-  // The banner upload finishes on its own time; give it a moment before reading what was saved.
-  let header = await data('Header');
-  for (let i = 0; i < 40 && header.banner_url !== IMG; i += 1) {
-    await page.waitForTimeout(100);
-    header = await data('Header');
-  }
-  expect(header.banner_url === IMG && header.logo_url === IMG && header.title === 'Serpa Chrysler Jeep', `header saved (got ${JSON.stringify(header)})`);
-  await shot(page, '00-header-banner');
-  await h.getByRole('radio', { name: 'Colour', exact: true }).click();
-  expect((await data('Header')).banner_url === null, 'switching back to Colour removes the banner');
+  const header = await data('Header');
+  expect(header.logo_url === IMG && header.title === 'Serpa Chrysler Jeep' && header.banner_url === null, `header saved (got ${JSON.stringify(header)})`);
+  await shot(page, '00-header-logo');
 
   const f = gallery('Footer');
   await expectVisible(f.getByText('Samantha Smith'), 'e-card name from /user/profile');

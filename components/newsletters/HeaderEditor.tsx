@@ -6,24 +6,21 @@ import SegmentedSwitch from './SegmentedSwitch';
 import { useImageUpload } from './hooks/useImageUpload';
 import { safeHexColor } from './lib/colors';
 import {
-  BACKGROUND_SHADE, LOGO_SIZES, headerInk, logoHeight, logoRatioFrom, logoSizeOf, needsLogoRatio, withBackgroundImage, withLogo, withLogoSize,
+  BACKGROUND_MODES, BACKGROUND_SHADE, LOGO_SIZES, backgroundModeOf, headerInk, logoHeight, logoRatioFrom, logoSizeOf, needsLogoRatio,
+  withBackgroundImage, withBackgroundMode, withLogo, withLogoSize, withoutBanner, type HeaderBackgroundMode,
 } from './lib/headerDesign';
 import { LIMITS } from './lib/rules';
 import { httpsUrl } from './lib/urls';
 import { BUTTON_SMALL, BUTTON_SMALL_PRIMARY, LABEL, LINK_BUTTON, PURPLE, inputClass } from './lib/ui';
 
-const BACKGROUNDS = [
-  { value: 'color', label: 'Colour' },
-  { value: 'banner', label: 'Banner image' },
-] as const;
-
 /** The logo is never drawn wider than the 518 px inside the email header's 40 px sides (header.blade.php). */
 const LOGO_MAX_WIDTH = 518;
 
 /**
- * The email's header, drawn like emails/newsletter/header.blade.php: a banner image across the top when there
- * is one, then the logo and title on the background colour, or on a background picture under a dark layer
- * (Chris, 3 Nov). The logo is small (48 px, as before), medium or large. It is part of the draft; the newsletter PUT also
+ * The email's header, drawn like emails/newsletter/header.blade.php: the logo and title on the background colour,
+ * or on a background picture under a dark layer ("Header background: Colour | Image", Chris, 3 Nov). A banner across
+ * the top is only drawn for headers saved with one before (no new banners; it can be removed). The logo is small
+ * (48 px, as before), medium or large. It is part of the draft; the newsletter PUT also
  * saves it as the account's brand header, which pre-fills the next newsletter (contract note 8).
  */
 export default function HeaderEditor({ header, onChange, selected, onSelect, onDone, readOnly, padClass = 'px-10' }: {
@@ -47,10 +44,10 @@ export default function HeaderEditor({ header, onChange, selected, onSelect, onD
   // The loaded logo's width ÷ height: a bigger logo is sized with it here and in the email (logo_ratio).
   const [measured, setMeasured] = useState<{ url: string; ratio: number | null } | null>(null);
   const ratio = (measured && measured.url === logo ? measured.ratio : null) ?? header.logo_ratio ?? null;
-  const [mode, setMode] = useState<'color' | 'banner'>(banner ? 'banner' : 'color');
-  useEffect(() => { if (banner) setMode('banner'); }, [banner]);
+  // Header background (3 Nov): one switch, Colour or Image. Image without a picture yet shows the upload button.
+  const [mode, setMode] = useState<HeaderBackgroundMode>(backgroundModeOf(header));
+  useEffect(() => { if (picture) setMode('image'); }, [picture]);
   const logoUpload = useImageUpload((url) => onChange((h) => withLogo(h, url)), 'nl-logo-input');
-  const bannerUpload = useImageUpload((url) => onChange((h) => ({ ...h, banner_url: url })), 'nl-banner-input');
   const pictureUpload = useImageUpload((url) => onChange((h) => withBackgroundImage(h, url)), 'nl-header-bg-input');
   const title = header.title?.trim() ?? '';
   const placeholder = !title && !logo && !readOnly;
@@ -70,9 +67,10 @@ export default function HeaderEditor({ header, onChange, selected, onSelect, onD
     : ratio !== null ? { width: Math.min(Math.round(height * ratio), LOGO_MAX_WIDTH), maxWidth: '100%', height: 'auto' }
       : { height, width: 'auto', maxWidth: '100%' };
 
-  const chooseMode = (next: 'color' | 'banner') => {
+  const chooseMode = (next: HeaderBackgroundMode) => {
     setMode(next);
-    if (next === 'color' && header.banner_url) onChange({ ...header, banner_url: null });
+    const changed = withBackgroundMode(header, next);
+    if (changed !== header) onChange(changed);
   };
 
   return (
@@ -99,7 +97,6 @@ export default function HeaderEditor({ header, onChange, selected, onSelect, onD
         ) : null}
       </div>
       {logoUpload.input}
-      {bannerUpload.input}
       {pictureUpload.input}
       {selected && !readOnly ? (
         <div className="relative grid gap-4 border-b border-gray-100 bg-gray-50 p-4">
@@ -122,26 +119,29 @@ export default function HeaderEditor({ header, onChange, selected, onSelect, onD
             {logo ? <button type="button" onClick={() => onChange(withLogo(header, null))} className={LINK_BUTTON}>Remove logo</button> : null}
             {logo ? <SegmentedSwitch label="Logo size" options={LOGO_SIZES} value={logoSize} onChange={(size) => onChange(withLogoSize(header, size, ratio))} /> : null}
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-sm font-medium text-gray-900">Background image</span>
-            <button type="button" onClick={pictureUpload.choose} disabled={pictureUpload.uploading} className={BUTTON_SMALL}>
-              {pictureUpload.uploading ? 'Uploading…' : picture ? 'Replace image' : 'Upload image'}
-            </button>
-            {picture ? <button type="button" onClick={() => onChange(withBackgroundImage(header, null))} className={LINK_BUTTON}>Remove image</button> : null}
-          </div>
           <div className="space-y-3">
-            <SegmentedSwitch label="Header background" options={BACKGROUNDS} value={mode} onChange={chooseMode} />
-            {mode === 'banner' ? (
+            <SegmentedSwitch label="Header background" options={BACKGROUND_MODES} value={mode} onChange={chooseMode} />
+            {mode === 'image' ? (
               <div className="flex flex-wrap items-center gap-2">
-                <button type="button" onClick={bannerUpload.choose} disabled={bannerUpload.uploading} className={BUTTON_SMALL}>
-                  {bannerUpload.uploading ? 'Uploading…' : banner ? 'Replace banner' : 'Upload banner image'}
+                <button type="button" onClick={pictureUpload.choose} disabled={pictureUpload.uploading} className={BUTTON_SMALL}>
+                  {pictureUpload.uploading ? 'Uploading…' : picture ? 'Replace image' : 'Upload image'}
                 </button>
-                {banner ? <button type="button" onClick={() => onChange({ ...header, banner_url: null })} className={LINK_BUTTON}>Remove banner</button> : null}
-                <span className="text-xs text-gray-500">Wide images work best (1200 × 400).</span>
+                {picture ? <button type="button" onClick={() => onChange(withBackgroundImage(header, null))} className={LINK_BUTTON}>Remove image</button> : null}
               </div>
             ) : null}
-            <ColorSwatches label={mode === 'banner' ? 'Colour behind the logo and title' : 'Background colour'} idPrefix="nl-header-color" value={color}
-              onChange={(c) => onChange({ ...header, background_color: c })} />
+            {/* Banners are no longer offered (3 Nov); a header saved with one still draws it and can drop it. */}
+            {banner ? (
+              <div className="flex flex-wrap items-center gap-2 text-sm text-gray-600">
+                <span>Banner image in use</span>
+                <span aria-hidden="true">·</span>
+                <button type="button" onClick={() => onChange(withoutBanner(header))} className={LINK_BUTTON}>Remove banner</button>
+              </div>
+            ) : null}
+            <div>
+              <ColorSwatches label={mode === 'image' ? 'Fallback colour' : 'Background colour'} idPrefix="nl-header-color" value={color}
+                onChange={(c) => onChange({ ...header, background_color: c })} />
+              {mode === 'image' ? <p className="mt-1.5 text-xs text-gray-500">Shown where email apps hide images</p> : null}
+            </div>
           </div>
           <div className="flex flex-wrap items-center justify-between gap-3">
             <p className="text-xs text-gray-500">Your header is saved for your next newsletter too.</p>
