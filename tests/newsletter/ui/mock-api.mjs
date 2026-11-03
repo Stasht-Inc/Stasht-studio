@@ -275,6 +275,8 @@ export function createMockApi(options = {}) {
     planFailures: options.planFailures ?? 0,
     // Image uploads answer after this many ms (to act while one is on its way).
     uploadDelayMs: options.uploadDelayMs ?? 0,
+    // The link POST /newsletters/images answers with (default IMG); a scenario may change it between uploads.
+    uploadUrl: options.uploadUrl ?? null,
     // Tests left this hour (NewsletterTestSendController's RateLimiter); then 429 with its own message.
     testsLeft: options.testsLeft ?? Infinity,
     // PUT fields to refuse with a 422 ({field: message}), as the API does for a value it won't take.
@@ -694,7 +696,7 @@ export function createMockApi(options = {}) {
       return ok(n, 201);
     }
     if (path === '/newsletters/audience-count') return ok(audienceCount(body?.audience, body?.channels || []));
-    if (path === '/newsletters/images') return ok({ url: IMG }, 201);
+    if (path === '/newsletters/images') return ok({ url: state.uploadUrl ?? IMG }, 201);
     if (path === '/newsletters/campaign-options' && method === 'GET') {
       // 20 a page, newest first. kind defaults to campaign. search matches the title (+ sku/brand for products,
       // make/model/stock number for vehicles); category narrows products and vehicles.

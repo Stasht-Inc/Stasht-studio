@@ -4,7 +4,10 @@ import type { NewsletterHeader } from '../../services/newslettersAPI';
 import ColorSwatches from './ColorSwatches';
 import SegmentedSwitch from './SegmentedSwitch';
 import { useImageUpload } from './hooks/useImageUpload';
-import { contrastInk, safeHexColor } from './lib/colors';
+import { safeHexColor } from './lib/colors';
+import {
+  BACKGROUND_SHADE, LOGO_SIZES, headerInk, logoHeight, logoRatioFrom, logoSizeOf, needsLogoRatio, withBackgroundImage, withLogo, withLogoSize,
+} from './lib/headerDesign';
 import { LIMITS } from './lib/rules';
 import { httpsUrl } from './lib/urls';
 import { BUTTON_SMALL, BUTTON_SMALL_PRIMARY, LABEL, LINK_BUTTON, PURPLE, inputClass } from './lib/ui';
@@ -14,9 +17,13 @@ const BACKGROUNDS = [
   { value: 'banner', label: 'Banner image' },
 ] as const;
 
+/** The logo is never drawn wider than the 518 px inside the email header's 40 px sides (header.blade.php). */
+const LOGO_MAX_WIDTH = 518;
+
 /**
  * The email's header, drawn like emails/newsletter/header.blade.php: a banner image across the top when there
- * is one, then the logo and title on the background colour. It is part of the draft; the newsletter PUT also
+ * is one, then the logo and title on the background colour, or on a background picture under a dark layer
+ * (Chris, 3 Nov). The logo is small (48 px, as before), medium or large. It is part of the draft; the newsletter PUT also
  * saves it as the account's brand header, which pre-fills the next newsletter (contract note 8).
  */
 export default function HeaderEditor({ header, onChange, selected, onSelect, onDone, readOnly, padClass = 'px-10' }: {
@@ -34,13 +41,34 @@ export default function HeaderEditor({ header, onChange, selected, onSelect, onD
   const color = safeHexColor(header.background_color, PURPLE);
   const banner = httpsUrl(header.banner_url);
   const logo = httpsUrl(header.logo_url);
-  const ink = contrastInk(color);
+  const picture = httpsUrl(header.background_image_url);
+  const ink = headerInk(color, picture !== null);
+  const logoSize = logoSizeOf(header);
+  // The loaded logo's width ÷ height: a bigger logo is sized with it here and in the email (logo_ratio).
+  const [measured, setMeasured] = useState<{ url: string; ratio: number | null } | null>(null);
+  const ratio = (measured && measured.url === logo ? measured.ratio : null) ?? header.logo_ratio ?? null;
   const [mode, setMode] = useState<'color' | 'banner'>(banner ? 'banner' : 'color');
   useEffect(() => { if (banner) setMode('banner'); }, [banner]);
-  const logoUpload = useImageUpload((url) => onChange((h) => ({ ...h, logo_url: url })), 'nl-logo-input');
+  const logoUpload = useImageUpload((url) => onChange((h) => withLogo(h, url)), 'nl-logo-input');
   const bannerUpload = useImageUpload((url) => onChange((h) => ({ ...h, banner_url: url })), 'nl-banner-input');
+  const pictureUpload = useImageUpload((url) => onChange((h) => withBackgroundImage(h, url)), 'nl-header-bg-input');
   const title = header.title?.trim() ?? '';
   const placeholder = !title && !logo && !readOnly;
+
+  const onLogoLoad = (img: HTMLImageElement) => {
+    const shape = logoRatioFrom(img.naturalWidth, img.naturalHeight);
+    if (logo) setMeasured({ url: logo, ratio: shape });
+    // A bigger logo saved without its shape (or with another logo's): keep it with the header for the email.
+    if (!readOnly && shape !== null && needsLogoRatio(header, shape)) {
+      onChange((h) => (httpsUrl(h.logo_url) === logo && needsLogoRatio(h, shape) ? { ...h, logo_ratio: shape } : h));
+    }
+  };
+  const height = logoHeight(header);
+  // Like header-logo.blade.php: small is the old 48 px; bigger with a known shape is that width (shrinking on a
+  // narrow screen), else that height.
+  const logoStyle = logoSize === 'small' ? undefined
+    : ratio !== null ? { width: Math.min(Math.round(height * ratio), LOGO_MAX_WIDTH), maxWidth: '100%', height: 'auto' }
+      : { height, width: 'auto', maxWidth: '100%' };
 
   const chooseMode = (next: 'color' | 'banner') => {
     setMode(next);
@@ -54,17 +82,25 @@ export default function HeaderEditor({ header, onChange, selected, onSelect, onD
       className={`relative outline outline-2 -outline-offset-2 transition-[outline-color] focus-visible:outline-[#6C60FF]/60 ${selected ? 'outline-[#6C60FF]' : 'outline-transparent hover:outline-[#6C60FF]/30'}`}>
       <div style={{ backgroundColor: color }}>
         {banner ? <img src={banner} alt={title} className="block h-auto w-full" /> : null}
-        {title || logo || placeholder ? (
-          <div className={`flex flex-col items-center text-center ${banner ? `${padClass} py-6` : `${padClass} py-8`}`}>
-            {logo ? <img src={logo} alt={title || 'Logo'} className={`h-12 w-auto max-w-[240px] object-contain ${title ? 'mb-3' : ''}`} /> : null}
-            {title || placeholder ? (
-              <p className={`break-words text-[1.625rem] font-bold leading-[2.125rem] ${placeholder ? 'opacity-60' : ''}`} style={{ color: ink }}>{title || 'Your business name'}</p>
-            ) : null}
+        {title || logo || placeholder || picture ? (
+          <div data-nl-header-picture={picture ? '' : undefined}
+            style={picture ? { backgroundImage: `url(${JSON.stringify(picture)})`, backgroundSize: 'cover', backgroundPosition: 'center center', backgroundRepeat: 'no-repeat' } : undefined}>
+            <div className={`flex flex-col items-center text-center ${banner ? `${padClass} py-6` : `${padClass} py-8`}`}
+              style={picture ? { backgroundColor: BACKGROUND_SHADE } : undefined}>
+              {logo ? (
+                <img src={logo} alt={title || 'Logo'} data-nl-logo-size={logoSize} onLoad={(e) => onLogoLoad(e.currentTarget)} style={logoStyle}
+                  className={`${logoSize === 'small' ? 'h-12 w-auto max-w-[240px]' : ''} object-contain ${title ? 'mb-3' : ''}`} />
+              ) : null}
+              {title || placeholder ? (
+                <p className={`break-words text-[1.625rem] font-bold leading-[2.125rem] ${placeholder ? 'opacity-60' : ''}`} style={{ color: ink }}>{title || 'Your business name'}</p>
+              ) : null}
+            </div>
           </div>
         ) : null}
       </div>
       {logoUpload.input}
       {bannerUpload.input}
+      {pictureUpload.input}
       {selected && !readOnly ? (
         <div className="relative grid gap-4 border-b border-gray-100 bg-gray-50 p-4">
           {onDone ? (
@@ -83,7 +119,15 @@ export default function HeaderEditor({ header, onChange, selected, onSelect, onD
             <button type="button" onClick={logoUpload.choose} disabled={logoUpload.uploading} className={BUTTON_SMALL}>
               {logoUpload.uploading ? 'Uploading…' : logo ? 'Replace logo' : 'Upload logo'}
             </button>
-            {logo ? <button type="button" onClick={() => onChange({ ...header, logo_url: null })} className={LINK_BUTTON}>Remove logo</button> : null}
+            {logo ? <button type="button" onClick={() => onChange(withLogo(header, null))} className={LINK_BUTTON}>Remove logo</button> : null}
+            {logo ? <SegmentedSwitch label="Logo size" options={LOGO_SIZES} value={logoSize} onChange={(size) => onChange(withLogoSize(header, size, ratio))} /> : null}
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-sm font-medium text-gray-900">Background image</span>
+            <button type="button" onClick={pictureUpload.choose} disabled={pictureUpload.uploading} className={BUTTON_SMALL}>
+              {pictureUpload.uploading ? 'Uploading…' : picture ? 'Replace image' : 'Upload image'}
+            </button>
+            {picture ? <button type="button" onClick={() => onChange(withBackgroundImage(header, null))} className={LINK_BUTTON}>Remove image</button> : null}
           </div>
           <div className="space-y-3">
             <SegmentedSwitch label="Header background" options={BACKGROUNDS} value={mode} onChange={chooseMode} />
