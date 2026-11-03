@@ -196,7 +196,8 @@ export function QrStyleControls({ code, onChanged, onPreview }: {
 
   // Radios: Auto, then the presets; arrow keys move and choose.
   const options: Array<string | null> = [null, ...COLOR_PRESETS.map((p) => p.hex)];
-  const activeIndex = saved === null ? 0 : presetIndex + 1;
+  // -1: a custom colour (no radio chosen; Custom shows it).
+  const activeIndex = saved === null ? 0 : presetIndex >= 0 ? presetIndex + 1 : -1;
   const onKeyDown = (e: KeyboardEvent<HTMLButtonElement>, index: number) => {
     const step = e.key === 'ArrowRight' || e.key === 'ArrowDown' ? 1 : e.key === 'ArrowLeft' || e.key === 'ArrowUp' ? -1 : 0;
     if (!step) return;

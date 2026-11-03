@@ -444,6 +444,7 @@ try {
       const crgb = cHex ? hexPx(cHex) : { r: 255, g: 255, b: 255 };
       const cContrast = 1.05 / (0.2126 * lum(crgb.r) + 0.7152 * lum(crgb.g) + 0.0722 * lum(crgb.b) + 0.05);
       expect(cHex && cContrast >= 4.5 && crgb.b > crgb.r, `${tag}: custom light blue saved darkened (${cHex}, ${cContrast.toFixed(2)}:1)`);
+      expect(await dialog(page).locator('[role=radio][aria-checked=true]').count() === 0, `${tag}: custom colour: no preset / Auto marked chosen`);
       await shot(page, `${tag}-21-colour-custom`);
       const cPng = await download('PNG · white background', 'custom.png');
       await checkPng(tag, 'custom colour PNG', cPng, TEXT);
