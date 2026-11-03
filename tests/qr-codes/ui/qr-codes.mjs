@@ -185,7 +185,8 @@ async function open({ width, height, seed, codes = {}, fail = {}, styleAvailable
     if (p === '/qr-codes/campaign-options' && method === 'GET') {
       const s = (url.searchParams.get('search') || '').toLowerCase();
       const pageNo = Number(url.searchParams.get('page') || 1);
-      const all = state.campaigns.filter((c) => !c.deleted && c.title.toLowerCase().includes(s));
+      // hidden: live on the code but not one this caller may pick (e.g. another admin's own campaign).
+      const all = state.campaigns.filter((c) => !c.deleted && !c.hidden && c.title.toLowerCase().includes(s));
       const list = all.slice((pageNo - 1) * 20, pageNo * 20).map((c) => ({ id: c.id, title: c.title, cover_url: null, state: c.state, usable: true }));
       return route.fulfill({ json: { success: true, data: list, meta: { page: pageNo, per_page: 20, total: all.length, total_pages: Math.max(1, Math.ceil(all.length / 20)) } } });
     }
@@ -253,6 +254,9 @@ const noOverflow = (page) => page.evaluate(() => document.documentElement.scroll
 const panel = (page) => page.locator('[data-qr-popover]').filter({ visible: true }).first();
 const qrButton = (page) => page.getByRole('button', { name: 'QR Code', exact: true }).filter({ visible: true }).first();
 const liveSelect = (page) => panel(page).getByRole('button', { name: /^Live campaign/ });
+const liveList = (page) => panel(page).getByRole('listbox');
+const NONE = 'None (QR shows ‘not linked’)';
+const focusIn = (page, sel) => page.evaluate((s) => Boolean(document.activeElement?.closest(s)), sel);
 const hexPx = (hex) => { const n = parseInt(hex.slice(1), 16); return { r: n >> 16, g: (n >> 8) & 255, b: n & 255 }; };
 const lum = (v) => { const c = v / 255; return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; };
 const contrastOf = (hex) => { const x = hexPx(hex); return 1.05 / (0.2126 * lum(x.r) + 0.7152 * lum(x.g) + 0.0722 * lum(x.b) + 0.05); };
@@ -305,21 +309,27 @@ try {
       expect(await noOverflow(page), `${tag}: popover no sideways scroll`);
       await shot(page, `${tag}-01-popover`);
 
-      // The dropdown: every campaign (published or not), no publish badges / Publish links; the live one checked.
+      // The dropdown: the view's campaigns, no publish badges / Publish links; the live one checked; None last.
       await liveSelect(page).click();
-      const list = page.getByRole('listbox').filter({ visible: true }).first();
+      const list = liveList(page);
       await list.getByRole('option', { name: /Spring Sale/ }).waitFor({ timeout: 8000 });
-      expect(await list.getByRole('option').count() === CAMPAIGNS.length, `${tag}: dropdown lists all ${CAMPAIGNS.length} campaigns (${await list.getByRole('option').count()})`);
+      expect(await list.getByRole('option').count() === CAMPAIGNS.length + 1 && await list.getByRole('option').last().textContent() === NONE, `${tag}: dropdown lists all ${CAMPAIGNS.length} campaigns, then "${NONE}" (${await list.getByRole('option').count()})`);
+      const qrBox = await panel(page).locator('[data-qr-view]').boundingBox();
+      const trig = await liveSelect(page).boundingBox();
+      const lb = await panel(page).locator('[data-qr-live-list]').boundingBox();
+      expect(qrBox && trig && lb && lb.y >= trig.y + trig.height && qrBox.y + qrBox.height <= trig.y, `${tag}: the list opens below the control, inside the panel, never over the code (${JSON.stringify({ qrBox, trig, lb })})`);
+      expect(await focusIn(page, '[data-qr-live-list]'), `${tag}: the keyboard is in the list once it opens`);
       expect(await list.getByText(/Not published|Publish|Private — change|View only — visitors/).count() === 0 && await panel(page).getByText(/Publish/).count() === 0, `${tag}: no publish badges or Publish links`);
       expect(await list.locator('[data-selected-campaign]').textContent() === 'Fall Promo', `${tag}: Fall Promo marked live`);
       expect(await page.getByPlaceholder('Search campaigns', { exact: true }).count() === 1, `${tag}: more than 8 campaigns: a search box`);
       const lbox = await list.boundingBox();
       expect(lbox && lbox.x >= 0 && lbox.x + lbox.width <= width && lbox.y + lbox.height <= height, `${tag}: dropdown inside the screen (${JSON.stringify(lbox)})`);
+      expect(await noOverflow(page), `${tag}: dropdown open: no sideways scroll`);
       await shot(page, `${tag}-02-dropdown`);
 
       // Search (server side), then pick an UNPUBLISHED campaign: it goes live (PATCH memory_id).
       await page.getByPlaceholder('Search campaigns', { exact: true }).fill('spring');
-      await page.waitForFunction(() => document.querySelectorAll('[role=listbox] [role=option]').length === 1, null, { timeout: 8000 }).catch(() => {});
+      await page.waitForFunction(() => document.querySelectorAll('[data-qr-popover] [role=listbox] [role=option]').length === 1, null, { timeout: 8000 }).catch(() => {});
       const searched = state.calls.find((c) => c.p === '/qr-codes/campaign-options' && c.search === 'spring');
       expect(searched && await list.getByRole('option').count() === 1, `${tag}: search asks the API (search=spring) and shows the match`);
       await shot(page, `${tag}-02b-dropdown-search`);
@@ -332,7 +342,8 @@ try {
       await liveSelect(page).click();
       await list.getByRole('option', { name: /Fall Promo/ }).waitFor({ timeout: 8000 }).catch(() => failures.push(`${tag}: dropdown reopens with every campaign`));
       await page.keyboard.press('Escape');
-      expect(await panel(page).isVisible(), `${tag}: Escape closes only the dropdown`);
+      await page.waitForTimeout(200);
+      expect(await panel(page).isVisible() && await liveList(page).count() === 0 && await focusIn(page, '[aria-haspopup=listbox]'), `${tag}: Escape closes only the list; focus back on the control`);
 
       // Download: the menu (three files + the print tip), each file decodes.
       await panel(page).getByRole('button', { name: 'Download' }).click();
@@ -433,35 +444,95 @@ try {
       const { page, context, state } = await open({ width, height, seed, codes, campaigns: MANY });
       await openPanel(page);
       await liveSelect(page).click();
-      const list = page.getByRole('listbox').filter({ visible: true }).first();
+      const list = liveList(page);
       await list.getByRole('option').first().waitFor({ timeout: 8000 });
+      expect(await list.getByRole('option').count() === 21 && await list.getByText(NONE).count() === 0, `${tag}: None waits at the very bottom (after every page)`);
       expect(await list.getByRole('option').first().textContent() === 'Campaign 41' && await list.locator('[data-selected-campaign]').count() === 1, `${tag}: live Campaign 41 (page 3) listed first and checked`);
       for (let i = 0; i < 6; i++) {
         await list.evaluate((el) => { el.scrollTop = el.scrollHeight; });
         await page.waitForTimeout(500);
       }
       const pages = state.calls.filter((c) => c.p === '/qr-codes/campaign-options').map((c) => c.page);
-      expect(pages.includes('2') && pages.includes('3') && await list.getByRole('option').count() === 45, `${tag}: scrolling loads pages 2 and 3 (${pages.join(',')}; ${await list.getByRole('option').count()} rows, no duplicate)`);
+      expect(pages.includes('2') && pages.includes('3') && await list.getByRole('option').count() === 46 && await list.getByRole('option').last().textContent() === NONE, `${tag}: scrolling loads pages 2 and 3, then None (${pages.join(',')}; ${await list.getByRole('option').count()} rows, no duplicate)`);
       await context.close();
     }
 
-    // 4. Few campaigns: no search box. No campaigns at all: "No campaigns yet", no Edit; the code still downloads.
+    // 4. Few campaigns (no search box): the keyboard alone — Enter opens, ↓ moves, Enter picks; Escape closes the
+    // list, then the popover. None turns the code off (PATCH memory_id null): no Edit, the control says so.
     {
-      const { page, context } = await open({ width, height, seed, campaigns: CAMPAIGNS.slice(0, 3) });
+      const { page, context, state } = await open({ width, height, seed, campaigns: CAMPAIGNS.slice(0, 3) });
       await openPanel(page);
-      await liveSelect(page).click();
-      await page.getByRole('listbox').filter({ visible: true }).first().getByRole('option').first().waitFor({ timeout: 8000 });
+      await liveSelect(page).focus();
+      await page.keyboard.press('Enter');
+      await liveList(page).getByRole('option').first().waitFor({ timeout: 8000 });
+      await page.waitForFunction(() => Boolean(document.activeElement?.closest('[data-qr-live-list]')), null, { timeout: 3000 }).catch(() => {});
       expect(await page.getByPlaceholder('Search campaigns', { exact: true }).count() === 0, `${tag}: 3 campaigns: no search box`);
+      expect(await focusIn(page, '[data-qr-live-list]'), `${tag}: no search box: the keyboard is still in the list`);
+      expect(await liveList(page).locator('[aria-selected=true]').textContent() === 'Fall Promo', `${tag}: the live row is highlighted on open`);
+      await page.keyboard.press('ArrowDown');
+      expect(await liveList(page).locator('[aria-selected=true]').textContent() === 'Open House', `${tag}: ↓ highlights the next row`);
+      await shot(page, `${tag}-11-keyboard-list`);
+      await page.keyboard.press('Enter');
+      await page.waitForFunction(() => /Open House/.test(document.querySelector('[data-qr-popover] [aria-haspopup=listbox]')?.textContent || ''), null, { timeout: 8000 }).catch(() => {});
+      expect(state.calls.some((c) => c.method === 'PATCH' && c.body?.memory_id === 802) && await liveList(page).count() === 0, `${tag}: Enter picks Open House (PATCH memory_id 802) and closes the list`);
+      await page.waitForTimeout(300);
+      expect(await focusIn(page, '[aria-haspopup=listbox]'), `${tag}: focus back on the control after picking`);
+      // ↓ on the control opens the list too; End reaches None; Enter turns the code off.
+      await page.keyboard.press('ArrowDown');
+      await liveList(page).getByRole('option').first().waitFor({ timeout: 8000 });
+      await page.waitForFunction(() => Boolean(document.activeElement?.closest('[data-qr-live-list]')), null, { timeout: 3000 }).catch(() => {});
+      await page.keyboard.press('End');
+      expect(await liveList(page).locator('[aria-selected=true]').textContent() === NONE, `${tag}: End highlights None`);
+      await page.keyboard.press('Enter');
+      await page.waitForFunction((n) => (document.querySelector('[data-qr-popover] [aria-haspopup=listbox]')?.textContent || '').includes(n), NONE, { timeout: 8000 }).catch(() => {});
+      const off = state.calls.find((c) => c.method === 'PATCH' && c.body && 'memory_id' in c.body && c.body.memory_id === null);
+      expect(off && (await liveSelect(page).textContent()).includes(NONE) && await panel(page).getByRole('button', { name: /^Edit/ }).count() === 0, `${tag}: None: PATCH memory_id null; the control shows "${NONE}", no Edit`);
+      await shot(page, `${tag}-12-none-selected`);
+      // Escape: first the list, then the popover.
+      await page.keyboard.press('Enter');
+      await liveList(page).waitFor({ timeout: 5000 });
+      await page.waitForFunction(() => Boolean(document.activeElement?.closest('[data-qr-live-list]')), null, { timeout: 3000 }).catch(() => {});
+      await page.keyboard.press('Escape');
+      await page.waitForTimeout(200);
+      expect(await liveList(page).count() === 0 && await panel(page).isVisible(), `${tag}: Escape closes the list first`);
+      await page.keyboard.press('Escape');
+      await page.waitForTimeout(400);
+      expect(await page.locator('[data-qr-popover]').count() === 0, `${tag}: a second Escape closes the popover`);
       await context.close();
     }
+    // The live campaign is not in this caller's options (another admin's campaign): shown selected, pinned, read-only.
+    if (width === 1280) {
+      const codes = { '': { id: 7, public_code: 'K7PQ2MZX', name: 'Front window', memory_id: 999 } };
+      const { page, context, state } = await open({ width, height, seed, codes, campaigns: [...CAMPAIGNS.slice(0, 3), { id: 999, title: 'Rita Rep Showroom', state: 'public', hidden: true }] });
+      await openPanel(page);
+      expect((await liveSelect(page).textContent()).includes('Rita Rep Showroom'), `${tag}: a live campaign outside the options is the selected value`);
+      await liveSelect(page).click();
+      await liveList(page).getByRole('option').first().waitFor({ timeout: 8000 });
+      const first = liveList(page).getByRole('option').first();
+      expect(await first.textContent() === 'Rita Rep Showroom' && await first.getAttribute('aria-disabled') === 'true' && await first.getAttribute('data-qr-pinned') !== null, `${tag}: pinned on top, read-only`);
+      expect(await liveList(page).getByRole('option').count() === 5, `${tag}: pinned + 3 options + None`);
+      await first.click({ force: true });
+      await page.waitForTimeout(300);
+      expect(!state.calls.some((c) => c.method === 'PATCH'), `${tag}: the pinned row can't be picked (no PATCH)`);
+      await shot(page, `${tag}-13-pinned-live`);
+      await context.close();
+    }
+    // No campaigns you may publish: "No campaigns yet — create one" (starts a new campaign), None; the code downloads.
     {
       const { page, context } = await open({ width, height, seed, campaigns: [] });
       await openPanel(page);
       await page.waitForTimeout(500);
-      expect((await liveSelect(page).textContent()).includes('No campaigns yet') && await liveSelect(page).isDisabled(), `${tag}: no campaigns: "No campaigns yet", disabled`);
+      expect((await liveSelect(page).textContent()).includes(NONE) && await liveSelect(page).isEnabled(), `${tag}: no campaigns: the control shows None`);
       expect(await panel(page).getByRole('button', { name: /^Edit/ }).count() === 0, `${tag}: no campaigns: no Edit`);
       expect(await panel(page).getByRole('button', { name: 'Download' }).isEnabled(), `${tag}: no campaigns: Download still there`);
+      await liveSelect(page).click();
+      await panel(page).locator('[data-qr-no-campaigns]').waitFor({ timeout: 8000 }).catch(() => failures.push(`${tag}: no campaigns: the empty message`));
+      expect((await panel(page).locator('[data-qr-no-campaigns]').textContent()).replace(/\s+/g, ' ').trim() === 'No campaigns yet — create one' && await liveList(page).getByRole('option').count() === 1, `${tag}: "No campaigns yet — create one", and None`);
       await shot(page, `${tag}-07-no-campaigns`);
+      await panel(page).getByRole('button', { name: 'create one' }).click();
+      await page.waitForTimeout(1200);
+      expect(await page.locator('[data-qr-popover]').count() === 0, `${tag}: "create one" closes the popover and starts a campaign`);
+      await shot(page, `${tag}-07b-create-one`);
       await context.close();
     }
 
@@ -492,7 +563,7 @@ try {
       const view = panel(page).locator('[data-qr-view] img');
       expect(near(hexPx(await view.getAttribute('data-qr-color')), '#1D4ED8', 12), `${tag}: property view: the property's image (blue)`);
       await liveSelect(page).click();
-      await page.getByRole('listbox').filter({ visible: true }).first().getByRole('option', { name: /Open House/ }).click();
+      await liveList(page).getByRole('option', { name: /Open House/ }).click();
       await page.waitForTimeout(600);
       await panel(page).getByRole('button', { name: /Logo & colour/ }).click();
       await panel(page).locator('input[type=file]').setInputFiles(YELLOW_FILE);

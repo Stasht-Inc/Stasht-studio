@@ -2617,6 +2617,7 @@ function MemoriesPageContent({
                     <QrCodePopover
                       propertyId={viewType === 'property' && currentProperty?.id ? currentProperty.id : null}
                       onEditCampaign={(id) => onMemorySelect(String(id))}
+                      onCreateCampaign={() => handleCreateMemory()}
                     >
                       <Button
                         variant="outline"

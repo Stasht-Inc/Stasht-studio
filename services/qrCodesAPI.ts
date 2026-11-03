@@ -61,8 +61,8 @@ export const qrCodesAPI = {
   get: async (propertyId: PropertyId): Promise<QrResult<{ code: QrCode; styleAvailable: boolean }>> =>
     result(await apiRequest(`/qr-code${viewQuery(propertyId)}`, { skipCache: true } as RequestInit), qrCodeAnswer),
 
-  /** Make another campaign live, drop or restore its image, or set its colour (null = auto). */
-  update: async (id: number, changes: { memory_id?: number; logo_mode?: 'default' | 'custom' | 'none'; logo_url?: string; color?: string | null }): Promise<QrResult<QrCode>> =>
+  /** Make another campaign live (memory_id null: none — scans show 'not linked'), drop or restore its image, or set its colour (null = auto). */
+  update: async (id: number, changes: { memory_id?: number | null; logo_mode?: 'default' | 'custom' | 'none'; logo_url?: string; color?: string | null }): Promise<QrResult<QrCode>> =>
     result(await apiRequest(`/qr-codes/${id}`, json('PATCH', changes)), qrCodeFromResponse),
   /** Upload an image for a code's centre; answers its URL (then PATCH logo_mode custom + logo_url). Multipart can't
    * go through apiRequest (it forces JSON). */
