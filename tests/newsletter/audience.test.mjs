@@ -44,8 +44,9 @@ test('counts read plainly', () => {
 });
 
 test('SMS helpers', () => {
-  assert.deepEqual(smsInfo('October deals are here.'), { length: 23, remaining: 97, over: false });
-  assert.equal(smsInfo('x'.repeat(121)).over, true);
+  assert.deepEqual(smsInfo('October deals are here.'), { length: 23, remaining: 1977, over: false });
+  assert.equal(smsInfo('x'.repeat(121)).over, false, 'no 120 limit any more (Chris, 3 Nov)');
+  assert.equal(smsInfo('x'.repeat(2001)).over, true);
   assert.equal(smsPreview('  Hi  '), 'Hi (link to your newsletter) Reply STOP to opt out.');
   assert.equal(smsPreview(''), 'Your message (link to your newsletter) Reply STOP to opt out.');
 });
@@ -59,11 +60,13 @@ test('groupsFromApi reads every shape the lead-groups endpoint has used', () => 
   assert.deepEqual(groupsFromApi(null), []);
 });
 
-// Review 9–12 #1a: the 120 limit counts the text as it is sent (NewsletterRenderer::smsPlain folds … to ... etc.).
+// Review 9–12 #1a: the limit counts the text as it is sent (NewsletterRenderer::smsPlain folds … to ... etc.). It is
+// 2,000 since Chris's 3 Nov fix (was 120).
 test('smsPlain folds punctuation like the server, and smsInfo counts the folded text', () => {
   assert.equal(smsPlain('It’s “here” – now…'), 'It\'s "here" - now...');
   assert.equal(smsPlain('  a   b\t\tc  '), 'a b c');
   assert.equal(smsPlain('• deal — − ′ ″ ‚ „ ―   '), '- deal - - \' " \' " -');
-  const text = `${'x'.repeat(118)}…`; // 119 characters typed, 121 sent
-  assert.deepEqual(smsInfo(text), { length: 121, remaining: -1, over: true });
+  const text = `${'x'.repeat(1998)}…`; // 1,999 characters typed, 2,001 sent
+  assert.deepEqual(smsInfo(text), { length: 2001, remaining: -1, over: true });
+  assert.deepEqual(smsInfo('x'.repeat(500)), { length: 500, remaining: 1500, over: false }, 'no 120 limit any more');
 });

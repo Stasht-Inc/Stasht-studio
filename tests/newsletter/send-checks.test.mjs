@@ -93,11 +93,13 @@ test('allowance counts text message parts', () => {
   assert.equal(allowanceProblem(allowance, { ...counts, sms: 230 }, ['sms'], 2), null);
 });
 
-test('preSendProblems: a text over 3 parts and a text time in quiet hours', () => {
-  const base = { ...emptyDraft(), name: 'Oct', subject: 'Hi', channels: ['email', 'sms'], blocks: [{ id: 'b1', type: 'title', data: { text: 'Hi', size: 'large' } }] };
+test('preSendProblems: a text longer than Twilio takes and a text time in quiet hours', () => {
+  const base = { ...emptyDraft(), name: 'Oct', subject: 'Hi', channels: ['email', 'sms'], audience: [{ type: 'all_leads' }], blocks: [{ id: 'b1', type: 'title', data: { text: 'Hi', size: 'large' } }] };
   const now = new Date('2026-10-22T13:20:00Z');
-  const long = preSendProblems({ ...base, sms_text: 'ą'.repeat(120), from_name: 'Serpa Chrysler' }, null, { mode: 'now' }, now);
-  assert.match(long.recipients, /^This text is too long once sent \(\d parts\)\. Shorten it or remove emoji\.$/);
+  // 4 parts used to be refused: now it goes out as one long text (Chris, 3 Nov).
+  assert.equal(preSendProblems({ ...base, sms_text: 'ą'.repeat(120), from_name: 'Serpa Chrysler' }, null, { mode: 'now' }, now).recipients, undefined);
+  const long = preSendProblems({ ...base, sms_text: 'a'.repeat(1600), from_name: 'Serpa Chrysler' }, null, { mode: 'now' }, now);
+  assert.match(long.recipients, /^This text is too long to send as a text message \(1,703 of 1,600 characters/);
   const tz = process.env.TZ;
   process.env.TZ = 'America/Toronto';
   try {

@@ -22,8 +22,9 @@ test('a default can be set only from a message that fits', () => {
   assert.equal(canSetDefaultMessage('Hi'), true);
   assert.equal(canSetDefaultMessage('   '), false, 'blank');
   assert.equal(canSetDefaultMessage(''), false);
-  assert.equal(canSetDefaultMessage('a'.repeat(120)), true);
-  assert.equal(canSetDefaultMessage('a'.repeat(121)), false, 'longer than the box allows');
+  assert.equal(canSetDefaultMessage('a'.repeat(121)), true, 'no 120 limit any more (Chris, 3 Nov)');
+  assert.equal(canSetDefaultMessage('a'.repeat(2000)), true);
+  assert.equal(canSetDefaultMessage('a'.repeat(2001)), false, 'longer than the box allows');
 });
 
 test('a new, empty draft takes the default: the box and the Message section at the top of the email', () => {

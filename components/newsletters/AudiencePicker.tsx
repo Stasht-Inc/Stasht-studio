@@ -12,8 +12,8 @@ import type { AudienceCountState } from './hooks/useAudienceCount';
 import {
   audienceKey, audienceLabel, countSummary, formatCount, hasAudienceItem, skippedSummary, smsInfo, smsPreview, toggleAudienceItem, toggleChannel,
 } from './lib/audience';
-import { LIMITS } from './lib/rules';
-import { smsPartsInfo } from './lib/smsParts';
+import { smsPartsInfo, smsPartsLabel } from './lib/smsParts';
+import { MESSAGE_TOO_LONG } from './lib/draft';
 import { syncMessageBlock } from './lib/messageBlock';
 import { canSetDefaultMessage, isDefaultMessage } from './lib/defaultMessage';
 import { LABEL, LAYER, LINK_BUTTON, inputClass, textareaClass } from './lib/ui';
@@ -61,7 +61,7 @@ export default function AudiencePicker({ audience, channels, smsText, fromName, 
   useEffect(() => {
     if (lastParts.current === parts.parts) return;
     lastParts.current = parts.parts;
-    setPartsAnnouncement(parts.tooLong ? (parts.problem ?? '') : `Uses ${parts.parts} text message ${parts.parts === 1 ? 'part' : 'parts'} per person.`);
+    setPartsAnnouncement(parts.tooLong ? (parts.problem ?? '') : smsPartsLabel(parts.parts));
   }, [parts.parts, parts.tooLong, parts.problem]);
   // The Message box (Chris, 31 Oct): always shown. Its text goes at the top of the email as the Message section,
   // updated in the same draft update as sms_text so autosave sends both together; it is the text too when Text
@@ -71,7 +71,9 @@ export default function AudiencePicker({ audience, channels, smsText, fromName, 
     const blocks = syncMessageBlock(latest.blocks, value);
     return blocks === latest.blocks ? { sms_text: value } : { sms_text: value, blocks };
   });
-  const smsError = fieldErrors.sms_text ?? (sms.over ? `Use ${LIMITS.sms_text} characters or fewer.` : undefined) ?? (texts ? parts.problem : null) ?? undefined;
+  // No 120 limit any more (Chris, 3 Nov): up to LIMITS.sms_text; as a text it goes out as one long text, refused
+  // only over what Twilio takes (smsParts.ts).
+  const smsError = fieldErrors.sms_text ?? (sms.over ? MESSAGE_TOO_LONG : undefined) ?? (texts ? parts.problem : null) ?? undefined;
   // "Set as my default message" (Chris, 1 Nov; as the Storeel invite message has): ticked while the box shows the
   // account's saved default, which pre-fills every new newsletter. Ticking saves this text; unticking clears it.
   // While a save is on its way the box shows what was asked for (savingDefault: the text, or null to clear).
@@ -179,7 +181,7 @@ export default function AudiencePicker({ audience, channels, smsText, fromName, 
             onChange={(e) => changeMessage(e.target.value)} className={textareaClass(Boolean(smsError))} />
           <div id="nl-sms-help" className="mt-1.5 flex items-start justify-between gap-3 text-xs">
             <span className={smsError ? 'text-red-600' : 'text-gray-500'}>{smsError ?? (texts ? 'We add a link to the newsletter and "Reply STOP to opt out."' : null)}</span>
-            <span aria-live="polite" className={`whitespace-nowrap ${sms.over ? 'text-red-600' : sms.remaining < 10 ? 'text-amber-600' : 'text-gray-500'}`}>{sms.length} / {LIMITS.sms_text}</span>
+            <span aria-live="polite" className={`whitespace-nowrap ${sms.over ? 'text-red-600' : 'text-gray-500'}`}>{formatCount(sms.length)} {sms.length === 1 ? 'character' : 'characters'}</span>
           </div>
           {onDefaultMessageChange ? (
             <label className={`mt-2 inline-flex items-center gap-2 select-none ${canTickDefault ? 'cursor-pointer' : saving ? 'cursor-wait' : 'cursor-default opacity-60'}`}>
@@ -192,7 +194,7 @@ export default function AudiencePicker({ audience, channels, smsText, fromName, 
           {texts ? (
             <>
               {parts.tooLong ? null : (
-                <p className="mt-1.5 text-xs text-gray-600">Uses {parts.parts} text message {parts.parts === 1 ? 'part' : 'parts'} per person.</p>
+                <p className="mt-1.5 text-xs text-gray-600">{smsPartsLabel(parts.parts)}</p>
               )}
               <span className="sr-only" aria-live="polite">{partsAnnouncement}</span>
               {parts.unicode ? (

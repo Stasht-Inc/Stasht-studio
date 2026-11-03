@@ -14,7 +14,7 @@ const SPEC_NEWSLETTER = {
 };
 
 test('LIMITS copy spec §8', () => {
-  assert.deepEqual(LIMITS, { name: 120, subject: 150, preview_text: 200, from_name: 80, sms_text: 120, blocks: 40, title: 200, text_html: 20000, button_label: 40, url: 2000 });
+  assert.deepEqual(LIMITS, { name: 120, subject: 150, preview_text: 200, from_name: 80, sms_text: 2000, blocks: 40, title: 200, text_html: 20000, button_label: 40, url: 2000 });
 });
 
 test('isPlausibleEmail', () => {
@@ -133,8 +133,9 @@ test('savableChanges keeps an over-long text block out of the patch and the rest
 // Review 9–12 #1a/#1b: what the API would refuse is caught while typing.
 test('fieldProblems counts sms_text as sent and checks email like PHP FILTER_VALIDATE_EMAIL', () => {
   const d = emptyDraft();
-  assert.ok(fieldProblems({ ...d, sms_text: `${'x'.repeat(118)}…` }).sms_text, '… counts as three');
-  assert.equal(fieldProblems({ ...d, sms_text: 'x'.repeat(120) }).sms_text, undefined);
+  assert.equal(fieldProblems({ ...d, sms_text: `${'x'.repeat(1998)}…` }).sms_text, 'The message can be up to 2,000 characters.', '… counts as three');
+  assert.equal(fieldProblems({ ...d, sms_text: 'x'.repeat(2000) }).sms_text, undefined);
+  assert.equal(fieldProblems({ ...d, sms_text: 'x'.repeat(121) }).sms_text, undefined, 'no 120 limit any more (Chris, 3 Nov)');
   for (const bad of ['a..b@x.ca', '.a@x.ca', 'a.@x.ca', 'a@x..ca', 'a@-x.ca', 'a@x-.ca', 'a b@x.ca', 'a@x', 'a@x.c_a', 'a(b)@x.ca']) {
     assert.equal(isPlausibleEmail(bad), false, bad);
   }

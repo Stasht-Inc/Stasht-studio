@@ -2,7 +2,7 @@
 // tests/Unit/Newsletter/NewsletterSmsTest.php's, so Studio counts exactly what the API counts.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { smsSegments, finalSmsText, smsPartsInfo, MAX_SMS_PARTS, SMS_LINK_STAND_IN } from '../../components/newsletters/lib/smsParts.ts';
+import { smsSegments, finalSmsText, smsPartsInfo, smsPartsLabel, SMS_BODY_MAX, SMS_LINK_STAND_IN } from '../../components/newsletters/lib/smsParts.ts';
 
 const r = (s) => s.repeat.bind(s);
 
@@ -53,16 +53,34 @@ test('the final text is the business name, the text, the link and the STOP line 
   assert.equal(finalSmsText('  ', '  Hi “there”…  ').split('\n')[0], 'Hi "there"...');
 });
 
-test('parts per person, the emoji warning and the 3-part limit', () => {
-  assert.equal(MAX_SMS_PARTS, 3);
+test('parts per person and the emoji warning; no limit on parts (Chris, 3 Nov: one long text)', () => {
   const short = smsPartsInfo('Serpa Chrysler', 'October deals are here.');
   assert.deepEqual([short.parts, short.unicode, short.tooLong], [1, false, false]);
   const long = smsPartsInfo('Serpa Chrysler', r('a')(120));
   assert.equal(long.parts, 2);
   const emoji = smsPartsInfo('Serpa Chrysler', 'Sale 😀');
   assert.deepEqual([emoji.parts, emoji.unicode], [2, true]); // 16 + 7 + 64 + 23 = 110 units > 70
-  const tooLong = smsPartsInfo('Serpa Chrysler', r('ą')(120));
-  assert.equal(tooLong.tooLong, true);
-  assert.equal(tooLong.problem, `This text is too long once sent (${tooLong.parts} parts). Shorten it or remove emoji.`);
+  // 120 "ą" used to be refused (4 parts > 3): now it simply goes out as 4 texts.
+  const four = smsPartsInfo('Serpa Chrysler', r('ą')(120));
+  assert.deepEqual([four.parts, four.tooLong, four.problem], [4, false, null]);
+  // 700 GSM-7 characters: 16 + 700 + 1 + 63 + 1 + 22 = 803 → 6 parts of 153.
+  const six = smsPartsInfo('Serpa Chrysler', r('a')(700));
+  assert.deepEqual([six.parts, six.length, six.tooLong], [6, 803, false]);
   assert.equal(short.problem, null);
+});
+
+test('only a text longer than Twilio takes (1,600 characters as sent) is refused, in the API\'s words', () => {
+  assert.equal(SMS_BODY_MAX, 1600);
+  const fits = smsPartsInfo('Serpa Chrysler', r('a')(1497)); // 16 + 1,497 + 87 = 1,600
+  assert.deepEqual([fits.length, fits.tooLong, fits.problem], [1600, false, null]);
+  const over = smsPartsInfo('Serpa Chrysler', r('a')(1498));
+  assert.equal(over.tooLong, true);
+  assert.equal(over.problem, 'This text is too long to send as a text message (1,601 of 1,600 characters, with your name, the link and "Reply STOP to opt out."). Shorten it, or untick Text message.');
+  // An emoji counts two (UTF-16), as the API counts it.
+  assert.equal(smsPartsInfo('Serpa Chrysler', `${r('a')(1496)}😀`).tooLong, true);
+});
+
+test('the hint says how many texts it is sent as', () => {
+  assert.equal(smsPartsLabel(1), 'Sent as 1 text message.');
+  assert.equal(smsPartsLabel(3), 'Sent as 3 text messages.');
 });

@@ -81,7 +81,7 @@ export function skippedSummary(counts: AudienceCount | null, channels: Newslette
   return out.join(' ');
 }
 
-/** Counted as it is texted (smsPlain): "…" is three characters, curly quotes one. */
+/** The Message box's length, counted as it is texted (smsPlain): "…" is three characters, curly quotes one. */
 export function smsInfo(text: string): { length: number; remaining: number; over: boolean } {
   const length = smsPlain(text).length;
   return { length, remaining: LIMITS.sms_text - length, over: length > LIMITS.sms_text };
