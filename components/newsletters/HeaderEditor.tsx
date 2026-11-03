@@ -6,7 +6,7 @@ import SegmentedSwitch from './SegmentedSwitch';
 import { useImageUpload } from './hooks/useImageUpload';
 import { safeHexColor } from './lib/colors';
 import {
-  BACKGROUND_MODES, BACKGROUND_SHADE, LOGO_SIZES, backgroundModeOf, headerInk, logoHeight, logoRatioFrom, logoSizeOf, needsLogoRatio,
+  BACKGROUND_MODES, BACKGROUND_SHADE, FALLBACK_HINT, LOGO_SIZES, TITLE_SHADOW, fallbackInk, backgroundModeOf, headerInk, logoHeight, logoRatioFrom, logoSizeOf, needsLogoRatio,
   withBackgroundImage, withBackgroundMode, withLogo, withLogoSize, withoutBanner, type HeaderBackgroundMode,
 } from './lib/headerDesign';
 import { LIMITS } from './lib/rules';
@@ -90,7 +90,7 @@ export default function HeaderEditor({ header, onChange, selected, onSelect, onD
                   className={`${logoSize === 'small' ? 'h-12 w-auto max-w-[240px]' : ''} object-contain ${title ? 'mb-3' : ''}`} />
               ) : null}
               {title || placeholder ? (
-                <p className={`break-words text-[1.625rem] font-bold leading-[2.125rem] ${placeholder ? 'opacity-60' : ''}`} style={{ color: ink }}>{title || 'Your business name'}</p>
+                <p className={`break-words text-[1.625rem] font-bold leading-[2.125rem] ${placeholder ? 'opacity-60' : ''}`} style={{ color: ink, textShadow: picture ? TITLE_SHADOW : undefined }}>{title || 'Your business name'}</p>
               ) : null}
             </div>
           </div>
@@ -140,7 +140,14 @@ export default function HeaderEditor({ header, onChange, selected, onSelect, onD
             <div>
               <ColorSwatches label={mode === 'image' ? 'Fallback colour' : 'Background colour'} idPrefix="nl-header-color" value={color}
                 onChange={(c) => onChange({ ...header, background_color: c })} />
-              {mode === 'image' ? <p className="mt-1.5 text-xs text-gray-500">Shown where email apps hide images</p> : null}
+              {mode === 'image' ? (
+                <p className="mt-1.5 flex flex-wrap items-center gap-2 text-xs text-gray-500">
+                  {/* How the header reads there: the fallback colour with a name that contrasts (as the email). */}
+                  <span data-nl-fallback-sample="" className="inline-flex h-6 max-w-[12rem] items-center truncate rounded px-2 font-semibold"
+                    style={{ backgroundColor: color, color: fallbackInk(color) }}>{title || 'Your business name'}</span>
+                  {FALLBACK_HINT}
+                </p>
+              ) : null}
             </div>
           </div>
           <div className="flex flex-wrap items-center justify-between gap-3">

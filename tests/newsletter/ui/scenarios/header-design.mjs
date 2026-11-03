@@ -99,7 +99,18 @@ export async function run({ open, expectVisible, expect, hasOverflow }) {
   expect(header.background_image_url === PHOTO && header.background_color === '#F59E0B', `picture saved, colour kept (got ${JSON.stringify(header)})`);
   const pic = h.locator('[data-nl-header-picture]');
   expect((await pic.evaluate((el) => getComputedStyle(el).backgroundImage)).includes('showroom.svg'), 'the picture is the header background');
-  expect(await h.getByText('Serpa Chrysler').first().evaluate((el) => getComputedStyle(el).color) === 'rgb(255, 255, 255)', 'the name is white on the picture');
+  const name = h.getByText('Serpa Chrysler').first();
+  expect(await name.evaluate((el) => getComputedStyle(el).color) === 'rgb(255, 255, 255)', 'the name is white on the picture');
+  expect((await name.evaluate((el) => getComputedStyle(el).textShadow)).includes('rgba(0, 0, 0, 0.5)'), 'the name has a soft shadow on the picture');
+  expect((await h.locator('[data-nl-header-picture] > div').evaluate((el) => getComputedStyle(el).backgroundColor)) === 'rgba(17, 24, 39, 0.55)', 'a 55% dark layer');
+  // Where the picture is hidden: the fallback colour with a name that reads on it (Orange is light: dark name).
+  const sample = h.locator('[data-nl-fallback-sample]');
+  await expectVisible(sample, 'fallback sample next to the hint');
+  expect(await sample.evaluate((el) => getComputedStyle(el).backgroundColor) === 'rgb(245, 158, 11)', 'sample shows the fallback colour');
+  expect(await sample.evaluate((el) => getComputedStyle(el).color) === 'rgb(31, 41, 55)', 'dark name on a light fallback');
+  await h.getByRole('radio', { name: 'Black' }).click();
+  expect(await sample.evaluate((el) => getComputedStyle(el).color) === 'rgb(255, 255, 255)', 'white name on a dark fallback');
+  await h.getByRole('radio', { name: 'Orange' }).click();
   await expectVisible(h.getByRole('button', { name: 'Replace image' }), 'Replace image');
   await headerShot(h, '04-image-on-1280');
 
@@ -117,6 +128,7 @@ export async function run({ open, expectVisible, expect, hasOverflow }) {
   expect(!('background_image_url' in header), `Colour removes the picture (got ${JSON.stringify(header)})`);
   await expectVisible(h.getByText('Background colour', { exact: true }), 'Colour: Background colour label');
   expect(await h.getByText('Shown where email apps hide images').count() === 0, 'no fallback hint on Colour');
+  expect(await h.locator('[data-nl-fallback-sample]').count() === 0, 'no fallback sample on Colour');
   await headerShot(h, '05-image-off-colour');
 
   // Small again: the header is exactly an old one.

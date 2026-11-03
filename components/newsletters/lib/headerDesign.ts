@@ -15,7 +15,11 @@ export const LOGO_SIZES = [
 export const LOGO_HEIGHTS: Record<LogoSize, number> = { small: 48, medium: 80, large: 120 };
 
 /** The dark layer over a background picture, so the white name reads on any photo. */
-export const BACKGROUND_SHADE = 'rgba(17,24,39,0.45)';
+export const BACKGROUND_SHADE = 'rgba(17,24,39,0.55)';
+/** A soft shadow on the name over a picture (light or busy photos). */
+export const TITLE_SHADOW = '0 1px 3px rgba(0,0,0,0.5)';
+/** Under "Fallback colour": where the picture is hidden (Outlook on Windows) the colour shows instead. */
+export const FALLBACK_HINT = 'Shown where email apps hide images';
 
 const RATIO_MIN = 0.1;
 const RATIO_MAX = 20;
@@ -90,4 +94,9 @@ export function withBackgroundMode(header: NewsletterHeader, mode: HeaderBackgro
 
 export function withoutBanner(header: NewsletterHeader): NewsletterHeader {
   return { ...header, banner_url: null };
+}
+
+/** The name's colour on the fallback colour alone (the email's Outlook rule): dark on a light colour. */
+export function fallbackInk(color: string): '#1F2937' | '#FFFFFF' {
+  return contrastInk(color);
 }

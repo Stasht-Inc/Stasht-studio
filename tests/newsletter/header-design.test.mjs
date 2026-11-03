@@ -3,7 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  BACKGROUND_MODES, BACKGROUND_SHADE, LOGO_HEIGHTS, LOGO_SIZES, backgroundModeOf, headerInk, logoHeight, logoRatioFrom, logoSizeOf,
+  BACKGROUND_MODES, BACKGROUND_SHADE, FALLBACK_HINT, LOGO_HEIGHTS, TITLE_SHADOW, fallbackInk, LOGO_SIZES, backgroundModeOf, headerInk, logoHeight, logoRatioFrom, logoSizeOf,
   needsLogoRatio, withBackgroundImage, withBackgroundMode, withLogo, withLogoSize, withoutBanner,
 } from '../../components/newsletters/lib/headerDesign.ts';
 
@@ -57,7 +57,8 @@ test('background image: set, and removed without leaving a key', () => {
 });
 
 test('the name is white on a picture (dark layer), else readable on the colour', () => {
-  assert.equal(BACKGROUND_SHADE, 'rgba(17,24,39,0.45)', 'the same layer as header.blade.php');
+  assert.equal(BACKGROUND_SHADE, 'rgba(17,24,39,0.55)', 'the same layer as header.blade.php');
+  assert.equal(TITLE_SHADOW, '0 1px 3px rgba(0,0,0,0.5)', 'the same shadow as header.blade.php');
   assert.equal(headerInk('#FFFFFF', true), '#FFFFFF');
   assert.equal(headerInk('#FFFFFF', false), '#1F2937');
   assert.equal(headerInk('#1F2937', false), '#FFFFFF');
@@ -83,4 +84,13 @@ test('Colour removes the picture; Image keeps the header as it is until one is u
 test('an old banner can be removed, nothing else changes', () => {
   const old = { ...BASE, banner_url: 'https://cdn.example.com/b.jpg', logo_size: 'large', logo_ratio: 4 };
   assert.deepEqual(withoutBanner(old), { ...old, banner_url: null });
+});
+
+// Review fix (3 Nov): where the picture is hidden (Outlook on Windows) the fallback colour shows with a name that
+// reads on it; Studio shows that case next to the swatches.
+test('the fallback name is dark on a light colour and white on a dark one', () => {
+  assert.equal(fallbackInk('#F59E0B'), '#1F2937');
+  assert.equal(fallbackInk('#FFFFFF'), '#1F2937');
+  assert.equal(fallbackInk('#111827'), '#FFFFFF');
+  assert.equal(FALLBACK_HINT, 'Shown where email apps hide images');
 });
