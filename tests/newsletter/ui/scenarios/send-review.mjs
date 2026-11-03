@@ -4,11 +4,14 @@
 // spreadsheet, reads windows-1252, and asks for consent again for a new file.
 import { mkdirSync, writeFileSync } from 'fs';
 import { createMockApi } from '../mock-api.mjs';
+import { sendToAllLeads } from '../steps.mjs';
 
 const DIR = '/private/tmp/claude-501/newsletters-ui';
 const COMPOSER = '[role="dialog"][aria-labelledby="nl-composer-title"]';
 
 async function fillAll(page) {
+  // A new newsletter starts on Single person (Chris, 3 Nov): these checks send to All leads.
+  await sendToAllLeads(page);
   await page.locator('#nl-name').fill('Send review');
   await page.locator('#nl-subject').fill('October deals are here');
   await page.locator('aside').getByRole('button', { name: 'Add a section at the top' }).click();
@@ -42,10 +45,11 @@ export async function run({ open, shot, expectVisible, expect }) {
   await expectVisible(page.getByRole('status').getByText('Draft saved'), 'saved again');
   await shot(page, '1280-01-held-field');
 
-  // 1a. The text limit counts the text as it is sent.
+  // 1a. The text limit counts the text as it is sent (2,000 since Chris, 3 Nov).
   await page.locator('#nl-step-recipients').getByRole('checkbox', { name: /Text message/ }).check();
-  await page.locator('#nl-sms-text').fill(`${'x'.repeat(118)}…`);
-  await expectVisible(page.locator('#nl-step-recipients').getByText('121 / 120'), '"…" counts as three');
+  await page.locator('#nl-sms-text').fill(`${'x'.repeat(1998)}…`);
+  await expectVisible(page.locator('#nl-step-recipients').getByText('2,001 characters'), '"…" counts as three');
+  await expectVisible(page.locator('#nl-step-recipients').getByText('The message can be up to 2,000 characters.'), 'over the limit');
   await context.close();
 
   // 2. Send finds it already scheduled (409): the composer shows it read-only.

@@ -4,7 +4,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { MESSAGE_BLOCK_ID, isMessageBlock, syncMessageBlock, addMissingMessageBlock } from '../../components/newsletters/lib/messageBlock.ts';
-import { blockProblem, newBlockId } from '../../components/newsletters/lib/blocks.ts';
+import { blockProblem, newBlockId, overLimitTextIds } from '../../components/newsletters/lib/blocks.ts';
+import { LIMITS } from '../../components/newsletters/lib/rules.ts';
 
 const title = (id) => ({ id, type: 'title', data: { text: 'Hi', size: 'large' } });
 const message = (html) => ({ id: MESSAGE_BLOCK_ID, type: 'text', data: { html } });
@@ -97,4 +98,18 @@ test('addMissingMessageBlock (opening an older draft): adds it at the top only w
   assert.equal(addMissingMessageBlock(blocks, '   '), blocks);
   const full = Array.from({ length: 40 }, (_, i) => title(`x${i}`));
   assert.equal(addMissingMessageBlock(full, 'Hi'), full);
+});
+
+// Chris, 3 Nov: no 120 limit. The longest message (2,000 characters, the worst for escaping) still fits a Text
+// section (LIMITS.text_html), so autosave never holds the Message section back.
+test('a 2,000-character message becomes one escaped Text section within the section limit', () => {
+  const long = '<b>"Deals" & more</b>\n'.repeat(100).slice(0, LIMITS.sms_text);
+  assert.equal(long.length, 2000);
+  const [block] = syncMessageBlock([], long);
+  assert.equal(block.id, MESSAGE_BLOCK_ID);
+  assert.ok(!block.data.html.includes('<b>'), 'the text is never read as HTML');
+  assert.ok(block.data.html.includes('&lt;b&gt;&quot;Deals&quot; &amp; more&lt;/b&gt;') || block.data.html.includes('&lt;b&gt;"Deals" &amp; more&lt;/b&gt;'));
+  assert.ok(block.data.html.length <= LIMITS.text_html, `html ${block.data.html.length} <= ${LIMITS.text_html}`);
+  assert.equal(blockProblem(block), null);
+  assert.equal(overLimitTextIds([block]).size, 0);
 });

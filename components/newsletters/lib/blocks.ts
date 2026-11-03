@@ -1,6 +1,6 @@
 // The newsletter's sections (spec §8 blocks): create, insert, move, remove, update, and what still needs
 // doing before sending. Pure; the preview editor (NewsletterEditor) calls these.
-import type { BlockType, CampaignSelection, NewsletterBlock, TitleSize } from '../../../services/newslettersAPI.ts';
+import type { BlockType, CampaignItem, CampaignSelection, NewsletterBlock, TitleSize } from '../../../services/newslettersAPI.ts';
 import { LIMITS } from './rules.ts';
 import { DEFAULT_BUTTON_COLOR, safeHexColor } from './colors.ts';
 import { httpsUrl, youtubeVideoId } from './urls.ts';
@@ -137,6 +137,30 @@ export function blockProblem(block: NewsletterBlock): string | null {
     default:
       return null;
   }
+}
+
+/** A Campaigns section with nothing picked: the "Show campaigns, products or vehicles in this email. Choose" box. */
+export function isEmptyCampaignsBlock(block: NewsletterBlock): boolean {
+  return block.type === 'campaigns' && campaignSelections(block.data).length === 0;
+}
+
+/**
+ * A new Campaigns section holding what was picked (Chris, 3 Nov: stacked empty sections). The editor adds a Campaigns
+ * section only once its picker is Done with something picked, so a cancelled picker leaves nothing behind.
+ */
+export function campaignsBlockWith(id: string, selections: CampaignSelection[], items: CampaignItem[]): NewsletterBlock {
+  const block = createBlock('campaigns', id) as Extract<NewsletterBlock, { type: 'campaigns' }>;
+  return { ...block, data: { ...block.data, selections, campaign_ids: campaignIdsOf(selections), items } };
+}
+
+/**
+ * Drafts saved before that fix can hold runs of empty Campaigns sections, one per picker that was closed without
+ * picking. Only the first of each run of empty Campaigns sections next to each other stays; a section with anything
+ * picked, and every other section, is never dropped. The same array comes back when nothing changes.
+ */
+export function dedupeEmptyCampaigns(blocks: NewsletterBlock[]): NewsletterBlock[] {
+  const out = blocks.filter((b, i) => !(i > 0 && isEmptyCampaignsBlock(b) && isEmptyCampaignsBlock(blocks[i - 1])));
+  return out.length === blocks.length ? blocks : out;
 }
 
 /** A Campaigns section's picks, also for data that only has campaign_ids (a block from before products). */

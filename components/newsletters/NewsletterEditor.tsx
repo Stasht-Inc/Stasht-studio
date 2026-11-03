@@ -1,10 +1,10 @@
 import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { composerToast } from './ComposerToaster';
-import type { BlockType, CampaignItem, CardOverrides, NewsletterBlock, NewsletterHeader } from '../../services/newslettersAPI';
+import type { BlockType, CampaignItem, CampaignSelection, CardOverrides, NewsletterBlock, NewsletterHeader } from '../../services/newslettersAPI';
 import type { NewsletterDraft } from './lib/draft';
 import { initialsFrom, type SenderProfile } from './lib/profile';
 import { LIMITS } from './lib/rules';
-import { ACTION_TOAST_MS, blocksProblems, campaignSelections, createBlock, insertBlock, liveBlockProblems, moveBlock, newBlockId, removeBlock, undoDelete, updateBlockData } from './lib/blocks';
+import { ACTION_TOAST_MS, blocksProblems, campaignSelections, campaignsBlockWith, createBlock, insertBlock, liveBlockProblems, moveBlock, newBlockId, removeBlock, undoDelete, updateBlockData } from './lib/blocks';
 import { EDIT_ITEMS_LABEL, campaignIdsOf, pruneOverrides } from './lib/campaignsBlock';
 import InboxRow from './InboxRow';
 import HeaderEditor from './HeaderEditor';
@@ -123,6 +123,11 @@ export default function NewsletterEditor({
   }, [selectedId, active, deselect]);
   // The Campaigns section whose picker is open.
   const [pickerFor, setPickerFor] = useState<string | null>(null);
+  // "+ → Campaign": the picker opens for a section that isn't added yet (its id and place). It is added only when Done
+  // is tapped with something picked, so a picker closed any other way leaves nothing behind. Adding the empty section
+  // first (as before 3 Nov) left one more empty "Show campaigns, products or vehicles… Choose" section, saved with
+  // the draft, every time the picker was closed without picking: Chris's stack of empty sections.
+  const [newSection, setNewSection] = useState<{ id: string; index: number } | null>(null);
   // The section the picker was last opened for (focus goes back to it once the picker has closed).
   const pickedForRef = useRef<string | null>(null);
   if (pickerFor) pickedForRef.current = pickerFor;
@@ -209,10 +214,33 @@ export default function NewsletterEditor({
       composerToast.error(`You can add up to ${LIMITS.blocks} sections.`);
       return;
     }
+    // A Campaigns section starts by choosing its campaigns; it is added on Done (addPickedSection).
+    if (type === 'campaigns') {
+      pickedForRef.current = null;
+      setPickerFor(null);
+      setNewSection({ id: block.id, index });
+      return;
+    }
     onChange((d) => ({ blocks: insertBlock(d.blocks, index, block) }));
     setSelectedId(block.id);
-    // A Campaigns section starts by choosing its campaigns.
-    if (type === 'campaigns') setPickerFor(block.id);
+  };
+  // Done in the picker of a section not added yet: add it with what was picked, where its + was (nothing picked:
+  // nothing added).
+  const addPickedSection = (pending: { id: string; index: number }, selections: CampaignSelection[], items: CampaignItem[]) => {
+    if (!selections.length) return;
+    const block = campaignsBlockWith(pending.id, selections, items);
+    const result = { added: false };
+    onChange((d) => {
+      const next = insertBlock(d.blocks, pending.index, block);
+      result.added = next !== d.blocks;
+      return result.added ? { blocks: next } : null;
+    });
+    if (!result.added) {
+      composerToast.error(`You can add up to ${LIMITS.blocks} sections.`);
+      return;
+    }
+    pickedForRef.current = block.id;
+    setSelectedId(block.id);
   };
   const pickerBlock = pickerFor ? blocks.find((b) => b.id === pickerFor) : undefined;
   const picking = pickerBlock?.type === 'campaigns' ? pickerBlock : null;
@@ -258,11 +286,15 @@ export default function NewsletterEditor({
       </div>
       {readOnly ? null : (
         <CampaignPickerDialog
-          open={picking !== null}
-          onOpenChange={(o) => { if (!o) setPickerFor(null); }}
+          open={picking !== null || newSection !== null}
+          onOpenChange={(o) => { if (!o) { setPickerFor(null); setNewSection(null); } }}
           initialSelections={picking ? campaignSelections(picking.data) : []}
           knownItems={picking ? [...(picking.data.items ?? []), ...(savedItems.get(picking.id) ?? [])] : []}
           onDone={(selections, items) => {
+            if (newSection) {
+              addPickedSection(newSection, selections, items);
+              return;
+            }
             if (!picking) return;
             // A card taken out loses its edits (picked again later, it starts from the item's own words).
             handlersFor(picking.id).onUpdate((latest) => {
