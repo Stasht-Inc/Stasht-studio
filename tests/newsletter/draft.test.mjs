@@ -23,9 +23,9 @@ test('isPlausibleEmail', () => {
   assert.equal(isPlausibleEmail('sales serpachrysler.ca'), false);
 });
 
-test('emptyDraft starts with all leads by email and the purple header', () => {
+test('emptyDraft starts on Single person (nobody picked yet) by email and the purple header', () => {
   const d = emptyDraft();
-  assert.deepEqual(d.audience, [{ type: 'all_leads' }]);
+  assert.deepEqual(d.audience, [], 'Chris, 3 Nov: Single person is the default; [] until a lead is picked');
   assert.deepEqual(d.channels, ['email']);
   assert.deepEqual(d.header, DEFAULT_HEADER);
   assert.equal(d.header.background_color, '#6C60FF');
@@ -48,7 +48,7 @@ test('draftToInput trims text and sends null for empty text', () => {
   assert.equal(input.name, 'October');
   assert.equal(input.subject, null);
   assert.equal(input.reply_to_email, null);
-  assert.deepEqual(input.audience, [{ type: 'all_leads' }]);
+  assert.deepEqual(input.audience, []);
 });
 
 test('changedFields sends everything first, then only what changed', () => {
@@ -91,7 +91,7 @@ test('mergeUntouched takes the server copy for every field the person has not to
   assert.equal(merged.from_name, 'Serpa Chrysler');
   assert.equal(merged.reply_to_email, 'sales@serpachrysler.ca');
   assert.deepEqual(merged.header, server.header);
-  assert.deepEqual(merged.audience, [{ type: 'all_leads' }], 'an empty server value never replaces a local default');
+  assert.deepEqual(mergeUntouched({ ...local, audience: [{ type: 'lead', id: 7101 }] }, server, new Set(['subject'])).audience, [{ type: 'lead', id: 7101 }], 'an empty server value never replaces a local choice');
   assert.deepEqual(mergeUntouched(local, server, new Set(['name', 'from_name'])).from_name, '', 'touched and cleared stays cleared');
 });
 

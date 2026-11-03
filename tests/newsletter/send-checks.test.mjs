@@ -7,7 +7,7 @@ import { emptyDraft } from '../../components/newsletters/lib/draft.ts';
 
 const counts = { email: 1180, sms: 310, skipped: { no_email: 0, no_phone: 0, unsubscribed: 0, duplicate: 0 } };
 const ready = {
-  ...emptyDraft(), name: 'October', from_name: 'Serpa Chrysler', reply_to_email: 'sales@serpachrysler.ca', subject: 'October deals',
+  ...emptyDraft(), name: 'October', from_name: 'Serpa Chrysler', reply_to_email: 'sales@serpachrysler.ca', subject: 'October deals', audience: [{ type: 'lead', id: 7101 }],
   blocks: [{ id: 'b1', type: 'title', data: { text: 'This month', size: 'large' } }],
 };
 const allowance = { plan: 'Professional', email_limit: 5000, sms_limit: 500, email_used: 1200, sms_used: 40, resets_at: '2026-11-01T00:00:00Z' };
@@ -28,6 +28,8 @@ test('an empty draft points at each unfinished step', () => {
   const p = preSendProblems(emptyDraft(), counts, { mode: 'now' });
   assert.deepEqual(p, {
     name: 'Give your newsletter a name and a subject line.',
+    // Single person with nobody picked yet (the default since Chris, 3 Nov).
+    recipients: 'Choose who gets this newsletter.',
     content: 'Add at least one section to the email.',
   });
   assert.equal(firstProblemStep(p), 'name');

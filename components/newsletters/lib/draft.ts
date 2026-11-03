@@ -33,7 +33,8 @@ export function headerFrom(header?: Partial<NewsletterHeader> | null): Newslette
 export function emptyDraft(header?: Partial<NewsletterHeader> | null): NewsletterDraft {
   return {
     name: '', subject: '', preview_text: '', from_name: '', reply_to_email: '',
-    channels: ['email'], sms_text: '', template: 'basic', header: headerFrom(header), blocks: [], audience: [{ type: 'all_leads' }],
+    // Single person, nobody picked yet (Chris, 3 Nov 2026: most newsletters go to one prospective buyer).
+    channels: ['email'], sms_text: '', template: 'basic', header: headerFrom(header), blocks: [], audience: [],
     planned_send_at: null,
   };
 }
@@ -75,8 +76,7 @@ function isEmptyValue(value: unknown): boolean {
 
 /**
  * After POST /newsletters: the server fills in a default name, from name, reply-to and the brand header. Show
- * them for every field the person has not touched yet; an empty server value never replaces a local default
- * (the draft starts with All leads, the server with no audience).
+ * them for every field the person has not touched yet; an empty server value never replaces a local default.
  */
 export function mergeUntouched(local: NewsletterDraft, server: NewsletterDraft, touched: ReadonlySet<string>): NewsletterDraft {
   const out = { ...local } as Record<keyof NewsletterDraft, unknown>;

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   ZERO_COUNT, audienceKey, hasAudienceItem, toggleAudienceItem, toggleChannel, audienceLabel, formatCount, reachable,
   countSummary, skippedSummary, smsInfo, smsPreview, groupsFromApi, smsPlain,
+  isSinglePerson, personAudience, personDetail, personId, personName, toggleGroupItem,
 } from '../../components/newsletters/lib/audience.ts';
 
 const groups = [{ id: 4, name: 'VIP buyers', member_count: 38 }];
@@ -39,6 +40,8 @@ test('counts read plainly', () => {
   assert.equal(countSummary(counts, ['sms']), '480 texts');
   assert.equal(countSummary(counts, ['email', 'sms']), '1,414 emails · 480 texts');
   assert.equal(countSummary(null, ['email']), '—');
+  assert.equal(countSummary({ ...ZERO_COUNT, email: 1, sms: 1 }, ['email', 'sms']), '1 email · 1 text', 'one person');
+  assert.equal(countSummary({ ...ZERO_COUNT, sms: 1 }, ['sms']), '1 text');
   assert.equal(skippedSummary(counts, ['email']), 'Not included: 24 with no email address, 3 unsubscribed, 11 listed twice.');
   assert.equal(skippedSummary(ZERO_COUNT, ['email']), '');
 });
@@ -69,4 +72,34 @@ test('smsPlain folds punctuation like the server, and smsInfo counts the folded 
   const text = `${'x'.repeat(1998)}…`; // 1,999 characters typed, 2,001 sent
   assert.deepEqual(smsInfo(text), { length: 2001, remaining: -1, over: true });
   assert.deepEqual(smsInfo('x'.repeat(500)), { length: 500, remaining: 1500, over: false }, 'no 120 limit any more');
+});
+
+// Chris, 3 Nov 2026: "Single person" first in Send to and the default for a new newsletter.
+test('Single person: the default for a new draft, one lead or nothing yet, and one or the other with lists', async () => {
+  const { emptyDraft } = await import('../../components/newsletters/lib/draft.ts');
+  assert.deepEqual(emptyDraft().audience, [], 'a new newsletter starts on Single person with nobody picked yet');
+  assert.equal(isSinglePerson([]), true);
+  assert.equal(isSinglePerson([], true), false, 'choosing lists with nothing ticked yet stays on lists');
+  assert.equal(isSinglePerson(personAudience(7101)), true);
+  assert.equal(isSinglePerson([{ type: 'all_leads' }]), false, 'an older draft keeps its saved audience');
+  assert.equal(personId(personAudience(7101)), 7101);
+  assert.equal(personId([{ type: 'all_leads' }]), null);
+  assert.deepEqual(personAudience(7101), [{ type: 'lead', id: 7101 }]);
+  assert.equal(audienceKey({ type: 'lead', id: 7101 }), 'lead:7101');
+  // Ticking a list leaves Single person; the lead goes.
+  assert.deepEqual(toggleGroupItem(personAudience(7101), { type: 'all_leads' }), [{ type: 'all_leads' }]);
+  assert.deepEqual(toggleGroupItem([{ type: 'all_leads' }], { type: 'list', id: 9 }), [{ type: 'all_leads' }, { type: 'list', id: 9 }]);
+  assert.equal(audienceLabel(personAudience(7101), [], [], 'Jordan Price'), 'Jordan Price');
+  assert.equal(audienceLabel(personAudience(7101), [], []), 'Single person');
+});
+
+test('a lead reads as its name, else its email, else its mobile; the line under it has both', () => {
+  assert.equal(personName({ name: 'Jordan Price', email: 'j@example.com', phone: null }), 'Jordan Price');
+  assert.equal(personName({ name: '  ', email: 'walkin@example.com', phone: null }), 'walkin@example.com');
+  assert.equal(personName({ name: null, email: null, phone: '+14165550171' }), '+1 416 555 0171');
+  assert.equal(personName({ name: null, email: null, phone: null }), 'Unnamed lead');
+  assert.equal(personDetail({ name: 'J', email: 'j@example.com', phone: '+14165550171' }), 'j@example.com · +1 416 555 0171');
+  assert.equal(personDetail({ name: 'J', email: null, phone: null }), 'No email or mobile number');
+  assert.equal(personDetail({ name: null, email: 'walkin@example.com', phone: null }), '', 'the email read as the name is not repeated');
+  assert.equal(personDetail({ name: null, email: 'walkin@example.com', phone: '+14165550171' }), '+1 416 555 0171');
 });

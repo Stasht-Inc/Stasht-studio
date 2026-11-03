@@ -23,7 +23,7 @@ function memoryStorage(initial = {}) {
 const COUNTS = { recipients: 0, sent: 0, delivered: 0, opened: 0, clicked: 0, unsubscribed: 0, failed: 0, skipped: 0 };
 const server = (over = {}) => ({
   id: 7, name: 'October', subject: 'Deals', preview_text: null, from_name: 'Serpa', reply_to_email: 'a@b.ca', channels: ['email'], sms_text: null,
-  template: 'basic', header: { logo_url: null, banner_url: null, background_color: '#6C60FF', title: null }, blocks: [], audience: [{ type: 'all_leads' }],
+  template: 'basic', header: { logo_url: null, banner_url: null, background_color: '#6C60FF', title: null }, blocks: [], audience: [],
   status: 'draft', scheduled_at: null, sent_at: null, public_url: null, counts: COUNTS, created_at: '2026-10-20T10:00:00Z', updated_at: '2026-10-20T12:00:00Z', ...over,
 });
 

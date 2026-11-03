@@ -5,12 +5,14 @@ import type { AudienceItem, NewsletterBlock, NewsletterChannel } from '../../ser
 import StepCard from './StepCard';
 import ImportListModal from './ImportListModal';
 import ManageListsDialog from './ManageListsDialog';
+import LeadPicker from './LeadPicker';
 import { withoutList } from './lib/manageLists';
 import { moveFocusWithArrows } from './arrowKeys';
 import { useAudienceSources } from './hooks/useAudienceSources';
 import type { AudienceCountState } from './hooks/useAudienceCount';
 import {
-  audienceKey, audienceLabel, countSummary, formatCount, hasAudienceItem, skippedSummary, smsInfo, smsPreview, toggleAudienceItem, toggleChannel,
+  SINGLE_PERSON, audienceKey, audienceLabel, countSummary, formatCount, hasAudienceItem, isSinglePerson, personAudience, personId, skippedSummary, smsInfo,
+  smsPreview, toggleChannel, toggleGroupItem,
 } from './lib/audience';
 import { smsPartsInfo, smsPartsLabel } from './lib/smsParts';
 import { MESSAGE_TOO_LONG } from './lib/draft';
@@ -43,15 +45,36 @@ export interface AudiencePickerProps {
 const GROUP_HEADING = 'px-3 pb-1 pt-3 text-xs font-semibold uppercase tracking-wide text-gray-500';
 
 /**
- * Step 2 (prototype: "Send to" + the grey "Estimated recipients" row): who gets it (All leads, lead groups,
- * lists), by email and/or text, with live counts.
+ * Step 2 (prototype: "Send to" + the grey "Estimated recipients" row): who gets it (a single person — first and the
+ * default, Chris 3 Nov — or All leads, lead groups, lists), by email and/or text, with live counts.
  */
 export default function AudiencePicker({ audience, channels, smsText, fromName, count, readOnly, enabled, fieldErrors, stepError, onChange, defaultMessage, onDefaultMessageChange }: AudiencePickerProps) {
   const sources = useAudienceSources(enabled);
   const [open, setOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [manageOpen, setManageOpen] = useState(false);
-  const label = audienceLabel(audience, sources.groups, sources.lists);
+  // Single person or lists (Chris, 3 Nov): one or the other. choosingLists keeps the lists view while nothing is ticked.
+  const [choosingLists, setChoosingLists] = useState(false);
+  const single = isSinglePerson(audience, choosingLists);
+  const leadId = personId(audience);
+  const [personLabel, setPersonLabel] = useState<string | null>(null);
+  const label = single ? SINGLE_PERSON : audienceLabel(audience, sources.groups, sources.lists);
+  const summary = single ? (leadId && personLabel ? personLabel : SINGLE_PERSON) : label;
+  const personRef = useRef<HTMLButtonElement>(null);
+  // After choosing Single person, focus goes to the person field instead of back to Send to.
+  const focusPersonRef = useRef(false);
+  const chooseSingle = () => {
+    if (!single) {
+      setChoosingLists(false);
+      onChange({ audience: [] });
+      focusPersonRef.current = true;
+    }
+    setOpen(false);
+  };
+  const toggleGroup = (item: AudienceItem) => {
+    setChoosingLists(true);
+    onChange({ audience: toggleGroupItem(audience, item) });
+  };
   const sms = smsInfo(smsText);
   const skipped = skippedSummary(count.counts, channels);
   const parts = smsPartsInfo(fromName, smsText);
@@ -96,7 +119,7 @@ export default function AudiencePicker({ audience, channels, smsText, fromName, 
   const option = (item: AudienceItem, title: string, detail: string) => (
     <label key={audienceKey(item)} className="flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2 focus-within:bg-gray-50 hover:bg-gray-50">
       <input type="checkbox" checked={hasAudienceItem(audience, item)} disabled={readOnly}
-        onChange={() => onChange({ audience: toggleAudienceItem(audience, item) })}
+        onChange={() => toggleGroup(item)}
         className="h-4 w-4 flex-shrink-0 accent-[#6C60FF]" />
       <span className="min-w-0 flex-1">
         <span className="block truncate text-sm text-gray-900">{title}</span>
@@ -117,7 +140,7 @@ export default function AudiencePicker({ audience, channels, smsText, fromName, 
   };
 
   return (
-    <StepCard number={2} title="Recipients" id="nl-step-recipients" aside={label} error={stepError}>
+    <StepCard number={2} title="Recipients" id="nl-step-recipients" aside={summary} error={stepError}>
       <div className="space-y-4">
         <div>
           <div className="flex items-baseline justify-between gap-3">
@@ -136,8 +159,22 @@ export default function AudiencePicker({ audience, channels, smsText, fromName, 
               <Popover.Content align="start" sideOffset={6} collisionPadding={10}
                 style={{ zIndex: LAYER.popover, width: 'var(--radix-popover-trigger-width)' }}
                 onKeyDown={moveFocusWithArrows}
+                onCloseAutoFocus={(e) => {
+                  if (!focusPersonRef.current) return;
+                  focusPersonRef.current = false;
+                  e.preventDefault();
+                  personRef.current?.focus();
+                }}
                 aria-label="Send to"
                 className="max-h-[min(360px,var(--radix-popover-content-available-height))] min-w-[260px] max-w-[calc(100vw-20px)] overflow-y-auto rounded-xl border border-gray-200 bg-white p-2 shadow-lg outline-none">
+                <label className="flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2 focus-within:bg-gray-50 hover:bg-gray-50">
+                  <input type="checkbox" checked={single} disabled={readOnly} onChange={chooseSingle}
+                    className="h-4 w-4 flex-shrink-0 accent-[#6C60FF]" />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm text-gray-900">{SINGLE_PERSON}</span>
+                    <span className="block text-xs text-gray-500">One lead you choose</span>
+                  </span>
+                </label>
                 {option({ type: 'all_leads' }, 'All leads', 'Everyone in your Leads')}
                 {sources.groups.length ? <p className={GROUP_HEADING}>Lead groups</p> : null}
                 {sources.groups.map((g) => option({ type: 'lead_group', id: g.id }, g.name, `${formatCount(g.member_count)} people`))}
@@ -154,6 +191,14 @@ export default function AudiencePicker({ audience, channels, smsText, fromName, 
             </Popover.Portal>
           </Popover.Root>
           {fieldErrors.audience ? <p role="alert" className="mt-1.5 text-xs text-red-600">{fieldErrors.audience}</p> : null}
+
+          {single ? (
+            <div className="mt-3">
+              <p id="nl-person-label" className={LABEL}>Person</p>
+              <LeadPicker ref={personRef} leadId={leadId} readOnly={readOnly} enabled={enabled} labelId="nl-person-label"
+                onPick={(lead) => onChange({ audience: personAudience(lead.id) })} onNameChange={setPersonLabel} />
+            </div>
+          ) : null}
 
           <div className="mt-3 rounded-lg bg-gray-50 px-4 py-3" aria-live="polite">
             <div className="flex items-center justify-between gap-3 text-sm">
@@ -221,7 +266,8 @@ export default function AudiencePicker({ audience, channels, smsText, fromName, 
         onCreated={(list) => {
           void sources.reload();
           const item: AudienceItem = { type: 'list', id: list.id };
-          if (!hasAudienceItem(audience, item)) onChange({ audience: [...audience, item] });
+          // A new list is sent to: that leaves Single person.
+          if (!hasAudienceItem(audience, item)) toggleGroup(item);
         }}
       />
     </StepCard>

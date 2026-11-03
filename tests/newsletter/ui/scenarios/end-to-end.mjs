@@ -51,6 +51,8 @@ async function journey({ open, shot, expectVisible, expect, hasOverflow }, width
   const step2 = page.locator('#nl-step-recipients');
   await step2.scrollIntoViewIfNeeded();
   await step2.getByRole('button', { name: /Send to/ }).click();
+  // A new newsletter starts on Single person (Chris, 3 Nov): All leads is ticked here.
+  await page.getByRole('checkbox', { name: /All leads/ }).check();
   await page.getByRole('checkbox', { name: /VIP buyers/ }).check();
   await page.getByRole('button', { name: 'Add a list' }).click();
   const importDialog = page.getByRole('dialog', { name: 'Add a list' });

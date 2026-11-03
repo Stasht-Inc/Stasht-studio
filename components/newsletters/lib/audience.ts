@@ -1,6 +1,7 @@
-import type { AudienceCount, AudienceItem, ContactList, NewsletterChannel } from '../../../services/newslettersAPI.ts';
+import type { AudienceCount, AudienceItem, ContactList, LeadOption, NewsletterChannel } from '../../../services/newslettersAPI.ts';
 import { LIMITS, smsPlain } from './rules.ts';
 import { userLocale } from './locale.ts';
+import { formatSentTo } from './phoneDisplay.ts';
 
 export { smsPlain };
 
@@ -27,16 +28,56 @@ export function toggleChannel(channels: NewsletterChannel[], channel: Newsletter
   return (['email', 'sms'] as NewsletterChannel[]).filter((c) => next.includes(c));
 }
 
-function itemName(item: AudienceItem, groups: GroupOption[], lists: Pick<ContactList, 'id' | 'name'>[]): string {
+function itemName(item: AudienceItem, groups: GroupOption[], lists: Pick<ContactList, 'id' | 'name'>[], person?: string | null): string {
+  if (item.type === 'lead') return person || SINGLE_PERSON;
   if (item.type === 'all_leads') return 'All leads';
   if (item.type === 'lead_group') return groups.find((g) => g.id === item.id)?.name ?? 'A lead group that was deleted';
   return lists.find((l) => l.id === item.id)?.name ?? 'A list that was deleted';
 }
 
-export function audienceLabel(audience: AudienceItem[], groups: GroupOption[], lists: Pick<ContactList, 'id' | 'name'>[]): string {
+/** person: the picked lead's name for a Single person audience (else it reads "Single person"). */
+export function audienceLabel(audience: AudienceItem[], groups: GroupOption[], lists: Pick<ContactList, 'id' | 'name'>[], person?: string | null): string {
   if (!audience.length) return 'Choose recipients';
-  const first = itemName(audience[0], groups, lists);
+  const first = itemName(audience[0], groups, lists, person);
   return audience.length === 1 ? first : `${first} + ${audience.length - 1} more`;
+}
+
+// "Single person" (Chris, 3 Nov 2026): first in Send to and the default for a new newsletter, since most go to one
+// prospective buyer. The audience is then just that lead ([{type: 'lead', id}]), or [] until one is picked. It is
+// one or the other: picking All leads, a group or a list leaves Single person, and Single person drops them.
+export const SINGLE_PERSON = 'Single person';
+
+/** The picked lead's id, when the audience is a single person. */
+export function personId(audience: AudienceItem[]): number | null {
+  const item = audience.find((a) => a.type === 'lead');
+  return item && item.type === 'lead' ? item.id : null;
+}
+
+/** Single person shows for a picked lead, and for an empty audience unless the person was choosing lists. */
+export function isSinglePerson(audience: AudienceItem[], choosingLists = false): boolean {
+  return personId(audience) !== null || (audience.length === 0 && !choosingLists);
+}
+
+/** Send to: just this lead. */
+export function personAudience(leadId: number): AudienceItem[] {
+  return [{ type: 'lead', id: leadId }];
+}
+
+/** All leads, a group or a list ticked or unticked: the single person (if any) goes. */
+export function toggleGroupItem(audience: AudienceItem[], item: AudienceItem): AudienceItem[] {
+  return toggleAudienceItem(audience.filter((a) => a.type !== 'lead'), item);
+}
+
+/** How a lead reads in the picker: the name, else the email, else the mobile number. */
+export function personName(p: Pick<LeadOption, 'name' | 'email' | 'phone'>): string {
+  return p.name?.trim() || p.email || (p.phone ? formatSentTo(p.phone) : '') || 'Unnamed lead';
+}
+
+/** The line under the name: email and mobile number (not the one already read as the name), or that there is neither. */
+export function personDetail(p: Pick<LeadOption, 'name' | 'email' | 'phone'>): string {
+  if (!p.email && !p.phone) return 'No email or mobile number';
+  const name = personName(p);
+  return [p.email, p.phone ? formatSentTo(p.phone) : null].filter((v): v is string => Boolean(v) && v !== name).join(' · ');
 }
 
 export function formatCount(n: number, locale: string = userLocale()): string {
@@ -52,8 +93,10 @@ export function countSummary(counts: AudienceCount | null, channels: NewsletterC
   if (!counts) return '—';
   const email = channels.includes('email');
   const sms = channels.includes('sms');
-  if (email && sms) return `${formatCount(counts.email)} emails · ${formatCount(counts.sms)} texts`;
-  if (sms) return `${formatCount(counts.sms)} texts`;
+  // "1 email · 1 text" for a single person (Chris, 3 Nov), not "1 emails".
+  const texts = `${formatCount(counts.sms)} ${counts.sms === 1 ? 'text' : 'texts'}`;
+  if (email && sms) return `${formatCount(counts.email)} ${counts.email === 1 ? 'email' : 'emails'} · ${texts}`;
+  if (sms) return texts;
   return formatCount(counts.email);
 }
 

@@ -22,7 +22,8 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
   const saved = api.state.newsletters[0];
   expect(saved?.subject === 'October deals are here', 'subject saved');
   expect(saved?.from_name === 'Samantha Smith' && saved?.reply_to_email === 'samantha@serpachrysler.ca', `defaults not wiped (got ${saved?.from_name} / ${saved?.reply_to_email})`);
-  expect(JSON.stringify(saved?.audience) === JSON.stringify([{ type: 'all_leads' }]), `All leads saved (got ${JSON.stringify(saved?.audience)})`);
+  // Single person with nobody picked yet: the default since Chris, 3 Nov.
+  expect(JSON.stringify(saved?.audience) === '[]', `Single person (nobody yet) saved (got ${JSON.stringify(saved?.audience)})`);
 
   // 2. A half-typed reply-to stays out of the save; the rest still saves.
   await page.locator('#nl-reply-to').fill('sales@');
