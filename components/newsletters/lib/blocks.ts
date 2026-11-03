@@ -73,15 +73,34 @@ export function normaliseBlocks(raw: unknown): NewsletterBlock[] {
 }
 
 /** Insert at `index` (clamped). Returns the same array when the email already has LIMITS.blocks sections. */
+// The Message section (lib/messageBlock.ts, id 'nl-message'): always first under the header. Checked here by id so
+// this file needs no import from messageBlock.ts (which imports this one).
+const leadsWithMessage = (blocks: NewsletterBlock[]) => blocks[0]?.id === 'nl-message' && blocks[0]?.type === 'text';
+
+/** The first place a new section can go: after the Message section when the email starts with it, else the top. */
+export function firstInsertIndex(blocks: NewsletterBlock[]): number {
+  return leadsWithMessage(blocks) ? 1 : 0;
+}
+
+/** Whether the section at `index` can move by `delta` (never past the ends, never above or off the Message section). */
+export function canMoveBlock(blocks: NewsletterBlock[], index: number, delta: -1 | 1): boolean {
+  const to = index + delta;
+  if (index < 0 || index >= blocks.length || to < 0 || to >= blocks.length) return false;
+  const floor = firstInsertIndex(blocks);
+  return index >= floor && to >= floor;
+}
+
 export function insertBlock(blocks: NewsletterBlock[], index: number, block: NewsletterBlock): NewsletterBlock[] {
   if (blocks.length >= LIMITS.blocks) return blocks;
-  const at = Math.max(0, Math.min(index, blocks.length));
+  // Nothing goes above the Message section (the Message section itself may go back at the top).
+  const floor = block.id === 'nl-message' ? 0 : firstInsertIndex(blocks);
+  const at = Math.max(floor, Math.min(index, blocks.length));
   return [...blocks.slice(0, at), block, ...blocks.slice(at)];
 }
 
 export function moveBlock(blocks: NewsletterBlock[], index: number, delta: -1 | 1): NewsletterBlock[] {
+  if (!canMoveBlock(blocks, index, delta)) return blocks;
   const to = index + delta;
-  if (index < 0 || index >= blocks.length || to < 0 || to >= blocks.length) return blocks;
   const next = [...blocks];
   [next[index], next[to]] = [next[to], next[index]];
   return next;
