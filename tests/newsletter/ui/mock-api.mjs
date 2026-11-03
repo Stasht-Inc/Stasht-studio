@@ -1,6 +1,7 @@
 // In-memory stand-in for /api/react used by the newsletter screenshot checks. Shapes follow spec 2026-10-13 §8.
 // Nothing leaves the machine: route() aborts every non-local request except the image hosts it answers itself.
 import { smsPartsInfo } from '../../../components/newsletters/lib/smsParts.ts';
+import { smsPlain } from '../../../components/newsletters/lib/rules.ts';
 
 const PUBLIC_DIR = new URL('../../../public/', import.meta.url).pathname;
 // NewsletterSendController::schedule: texts only between 8:00 and 21:00 in NEWSLETTER_DEFAULT_TIMEZONE.
@@ -199,6 +200,32 @@ export function seedVehicles() {
   });
 }
 
+// "Single person" (Chris, 3 Nov 2026): the owner's leads GET /newsletters/lead-options lists, newest first, with the email
+// and mobile a newsletter would use (NewsletterContacts: lower-case email, E.164 phone).
+export function seedLeads() {
+  return [
+    { id: 7101, name: 'Jordan Price', email: 'jordan.price@example.com', phone: '+14165550171' },
+    { id: 7102, name: 'Becky Lawson', email: 'becky@example.com', phone: null },
+    { id: 7103, name: 'Marcus Chen', email: null, phone: '+19055550142' },
+    { id: 7104, name: null, email: 'walkin.buyer@example.com', phone: null },
+    { id: 7105, name: 'Priya Sharma', email: 'priya.sharma@example.com', phone: '+16475550188' },
+  ].map((l) => ({ unsubscribed: false, last_engaged_at: '2026-11-02T15:00:00Z', ...l }));
+}
+
+/**
+ * The plan's next monthly reset (NewsletterAllowance resets_at), relative to today so the allowance checks never go
+ * stale: the first of the month after the day after tomorrow, at `hourUtc` (4 = midnight in Toronto). A newsletter
+ * scheduled for tomorrow is then always this month's.
+ */
+export function nextReset(hourUtc = 0) {
+  const d = new Date(Date.now() + 2 * 24 * 3600 * 1000);
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1, hourUtc)).toISOString().replace('.000Z', 'Z');
+}
+/** How Studio writes that date ("It resets on Dec 1."): formatResetDate, en-US, in UTC. */
+export function resetLabel(iso = nextReset()) {
+  return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' }).format(new Date(iso));
+}
+
 function previewHtml(n) {
   const blocks = (n.blocks || []).map((b) => {
     if (b.type === 'title') return `<h2>${esc(b.data.text)}</h2>`;
@@ -263,8 +290,10 @@ export function createMockApi(options = {}) {
     // AudienceResolver's skipped counts on top of the defaults (consent_expired, unsupported_number, ...).
     skipped: options.skipped ?? {},
     groups: options.groups ?? [{ id: 4, name: 'VIP buyers', member_count: 38, members: [], created_at: now(), updated_at: now() }],
+    // The owner's leads for "Single person" (GET /newsletters/lead-options).
+    leads: options.leads ?? seedLeads(),
     // NewsletterAllowance::summary: *_pending = held back for newsletters sending or scheduled.
-    allowance: options.allowance ?? { plan: 'Professional', email_limit: 5000, sms_limit: 500, email_used: 1200, sms_used: 40, email_pending: 0, sms_pending: 0, resets_at: '2026-11-01T00:00:00Z' },
+    allowance: options.allowance ?? { plan: 'Professional', email_limit: 5000, sms_limit: 500, email_used: 1200, sms_used: 40, email_pending: 0, sms_pending: 0, resets_at: nextReset() },
     sendErrors: options.sendErrors ?? null,
     // The signed-in owner (NewsletterController::store pre-fills from name and email). null email: the
     // account has none, so send needs a reply-to (422 reply_to_email).
@@ -275,6 +304,8 @@ export function createMockApi(options = {}) {
     planFailures: options.planFailures ?? 0,
     // Image uploads answer after this many ms (to act while one is on its way).
     uploadDelayMs: options.uploadDelayMs ?? 0,
+    // The link POST /newsletters/images answers with (default IMG); a scenario may change it between uploads.
+    uploadUrl: options.uploadUrl ?? null,
     // Tests left this hour (NewsletterTestSendController's RateLimiter); then 429 with its own message.
     testsLeft: options.testsLeft ?? Infinity,
     // PUT fields to refuse with a 422 ({field: message}), as the API does for a value it won't take.
@@ -355,14 +386,24 @@ export function createMockApi(options = {}) {
   function audienceCount(audience, channels) {
     let email = 0;
     let sms = 0;
+    let noEmail = 0;
+    let noPhone = 0;
     for (const a of audience || []) {
+      if (a.type === 'lead') {
+        const l = state.leads.find((x) => x.id === a.id);
+        if (l?.email) email += 1; else if (l) noEmail += 1;
+        if (l?.phone) sms += 1; else if (l) noPhone += 1;
+      }
       if (a.type === 'all_leads') { email += 1180; sms += 310; }
       if (a.type === 'lead_group') { email += 36; sms += 30; }
       if (a.type === 'list') { const l = state.lists.find((x) => x.id === a.id); if (l) { email += l.email_count; sms += l.sms_count; } }
     }
+    const onePerson = (audience || []).length > 0 && audience.every((a) => a.type === 'lead');
     return {
       email: channels.includes('email') ? email : 0, sms: channels.includes('sms') ? sms : 0,
-      skipped: { no_email: 24, no_phone: 0, unsubscribed: 3, duplicate: 11, unsupported_number: 0, consent_expired: 0, ...state.skipped },
+      skipped: onePerson
+        ? { no_email: channels.includes('email') ? noEmail : 0, no_phone: channels.includes('sms') ? noPhone : 0, unsubscribed: 0, duplicate: 0, unsupported_number: 0, consent_expired: 0 }
+        : { no_email: 24, no_phone: 0, unsubscribed: 3, duplicate: 11, unsupported_number: 0, consent_expired: 0, ...state.skipped },
     };
   }
 
@@ -694,7 +735,19 @@ export function createMockApi(options = {}) {
       return ok(n, 201);
     }
     if (path === '/newsletters/audience-count') return ok(audienceCount(body?.audience, body?.channels || []));
-    if (path === '/newsletters/images') return ok({ url: IMG }, 201);
+    if (path === '/newsletters/images') return ok({ url: state.uploadUrl ?? IMG }, 201);
+    if (path === '/newsletters/lead-options' && method === 'GET') {
+      // NewsletterLeadOptionsController: 20 a page, newest first; search matches name, email or phone digits; lead_id
+      // reads one back.
+      const leadId = Number(params.get('lead_id') || 0);
+      const search = (params.get('search') || '').trim().toLowerCase();
+      const digits = search.replace(/\D+/g, '');
+      const rows = leadId ? state.leads.filter((l) => l.id === leadId) : state.leads.filter((l) => !l.unsubscribed && (!search
+        || [l.name, l.email].some((v) => String(v ?? '').toLowerCase().includes(search))
+        || (digits.length >= 3 && String(l.phone ?? '').replace(/\D+/g, '').includes(digits))));
+      const page = Math.max(1, Number(params.get('page') || 1));
+      return ok({ data: rows.slice((page - 1) * 20, page * 20), meta: { page, per_page: 20, total: rows.length, total_pages: Math.max(1, Math.ceil(rows.length / 20)) } });
+    }
     if (path === '/newsletters/campaign-options' && method === 'GET') {
       // 20 a page, newest first. kind defaults to campaign. search matches the title (+ sku/brand for products,
       // make/model/stock number for vehicles); category narrows products and vehicles.
@@ -815,6 +868,12 @@ export function createMockApi(options = {}) {
         }
         const errors = updateErrors(body);
         for (const [field, message] of Object.entries(state.rejectPut)) if (body && field in body) errors[field] = [message];
+        // NewsletterController sms_text: 2,000 characters as texted (NewsletterMessageLimit); messageLimit: 120 = an API
+        // whose column the 3 Nov SQL hasn't widened yet.
+        const messageLimit = options.messageLimit ?? 2000;
+        if (typeof body?.sms_text === 'string' && smsPlain(body.sms_text).length > messageLimit) {
+          errors.sms_text = [messageLimit >= 2000 ? `The message can be up to ${messageLimit.toLocaleString('en-US')} characters.` : `The text message can be up to ${messageLimit} characters (some symbols, like …, count as more than one).`];
+        }
         if (Object.keys(errors).length) return fail(422, { message: Object.values(errors)[0][0], errors });
         Object.assign(n, pickEditable(body), { updated_at: now() });
         // A Campaigns section: drop ids the owner can't share, then the server's own snapshot (never the client's),

@@ -1,0 +1,96 @@
+// Chris (3 Nov): a background image behind the header's logo and name, and a logo size control.
+// The same keys and numbers as the API (NewsletterContent::LOGO_HEIGHTS, header.blade.php).
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import {
+  BACKGROUND_MODES, BACKGROUND_SHADE, FALLBACK_HINT, LOGO_HEIGHTS, TITLE_SHADOW, fallbackInk, LOGO_SIZES, backgroundModeOf, headerInk, logoHeight, logoRatioFrom, logoSizeOf,
+  needsLogoRatio, withBackgroundImage, withBackgroundMode, withLogo, withLogoSize, withoutBanner,
+} from '../../components/newsletters/lib/headerDesign.ts';
+
+const BASE = { logo_url: 'https://cdn.example.com/bmw.png', banner_url: null, background_color: '#FFFFFF', title: 'Serpa BMW' };
+
+test('logo sizes: small is the old 48 px and the default', () => {
+  assert.deepEqual(LOGO_SIZES.map((o) => o.value), ['small', 'medium', 'large']);
+  assert.deepEqual(LOGO_SIZES.map((o) => o.label), ['Small', 'Medium', 'Large']);
+  assert.deepEqual(LOGO_HEIGHTS, { small: 48, medium: 80, large: 120 });
+  assert.equal(logoSizeOf(BASE), 'small');
+  assert.equal(logoSizeOf({ ...BASE, logo_size: 'large' }), 'large');
+  assert.equal(logoSizeOf({ ...BASE, logo_size: 'huge' }), 'small');
+  assert.equal(logoHeight({ ...BASE, logo_size: 'medium' }), 80);
+});
+
+test('choosing a size stores it with the logo shape; small removes both, like an old header', () => {
+  assert.deepEqual(withLogoSize(BASE, 'large', 3.2), { ...BASE, logo_size: 'large', logo_ratio: 3.2 });
+  assert.deepEqual(withLogoSize(BASE, 'medium', null), { ...BASE, logo_size: 'medium' });
+  const small = withLogoSize({ ...BASE, logo_size: 'large', logo_ratio: 3.2 }, 'small', 3.2);
+  assert.deepEqual(small, BASE);
+  assert.ok(!('logo_size' in small) && !('logo_ratio' in small), 'no keys left behind');
+});
+
+test('the logo shape is width ÷ height to 2 places, null for a broken image', () => {
+  assert.equal(logoRatioFrom(400, 100), 4);
+  assert.equal(logoRatioFrom(1000, 307), 3.26);
+  assert.equal(logoRatioFrom(0, 100), null);
+  assert.equal(logoRatioFrom(100, 0), null);
+  assert.equal(logoRatioFrom(5000, 10), null, 'beyond 20:1');
+});
+
+test('the shape is only recorded for a bigger logo, and only when it changed', () => {
+  assert.equal(needsLogoRatio(BASE, 4), false, 'small: the old markup needs no shape');
+  assert.equal(needsLogoRatio({ ...BASE, logo_size: 'large' }, 4), true);
+  assert.equal(needsLogoRatio({ ...BASE, logo_size: 'large', logo_ratio: 4 }, 4), false);
+  assert.equal(needsLogoRatio({ ...BASE, logo_size: 'large', logo_ratio: 4 }, 1), true);
+  assert.equal(needsLogoRatio({ ...BASE, logo_size: 'large' }, null), false);
+});
+
+test('a new logo forgets the old one\'s shape but keeps the size', () => {
+  assert.deepEqual(withLogo({ ...BASE, logo_size: 'large', logo_ratio: 4 }, 'https://cdn.example.com/new.png'),
+    { ...BASE, logo_url: 'https://cdn.example.com/new.png', logo_size: 'large' });
+  assert.deepEqual(withLogo({ ...BASE, logo_size: 'large', logo_ratio: 4 }, null), { ...BASE, logo_url: null });
+});
+
+test('background image: set, and removed without leaving a key', () => {
+  assert.deepEqual(withBackgroundImage(BASE, 'https://cdn.example.com/showroom.jpg'), { ...BASE, background_image_url: 'https://cdn.example.com/showroom.jpg' });
+  const removed = withBackgroundImage({ ...BASE, background_image_url: 'https://cdn.example.com/showroom.jpg' }, null);
+  assert.deepEqual(removed, BASE);
+  assert.ok(!('background_image_url' in removed));
+});
+
+test('the name is white on a picture (dark layer), else readable on the colour', () => {
+  assert.equal(BACKGROUND_SHADE, 'rgba(17,24,39,0.55)', 'the same layer as header.blade.php');
+  assert.equal(TITLE_SHADOW, '0 1px 3px rgba(0,0,0,0.5)', 'the same shadow as header.blade.php');
+  assert.equal(headerInk('#FFFFFF', true), '#FFFFFF');
+  assert.equal(headerInk('#FFFFFF', false), '#1F2937');
+  assert.equal(headerInk('#1F2937', false), '#FFFFFF');
+});
+
+// Coordinator, 3 Nov: one switch "Header background: Colour | Image"; no new banners, an old one can be removed.
+test('header background is one switch: Colour or Image', () => {
+  assert.deepEqual(BACKGROUND_MODES.map((o) => [o.value, o.label]), [['color', 'Colour'], ['image', 'Image']]);
+  assert.equal(backgroundModeOf(BASE), 'color');
+  assert.equal(backgroundModeOf({ ...BASE, background_image_url: 'https://cdn.example.com/showroom.jpg' }), 'image');
+  assert.equal(backgroundModeOf({ ...BASE, background_image_url: 'javascript:alert(1)' }), 'color', 'only an https picture counts');
+  assert.equal(backgroundModeOf({ ...BASE, banner_url: 'https://cdn.example.com/b.jpg' }), 'color', 'a banner is not the background image');
+});
+
+test('Colour removes the picture; Image keeps the header as it is until one is uploaded', () => {
+  const withPicture = { ...BASE, background_image_url: 'https://cdn.example.com/showroom.jpg' };
+  assert.deepEqual(withBackgroundMode(withPicture, 'color'), BASE);
+  assert.ok(!('background_image_url' in withBackgroundMode(withPicture, 'color')));
+  assert.equal(withBackgroundMode(BASE, 'image'), BASE);
+  assert.equal(withBackgroundMode(withPicture, 'image'), withPicture);
+});
+
+test('an old banner can be removed, nothing else changes', () => {
+  const old = { ...BASE, banner_url: 'https://cdn.example.com/b.jpg', logo_size: 'large', logo_ratio: 4 };
+  assert.deepEqual(withoutBanner(old), { ...old, banner_url: null });
+});
+
+// Review fix (3 Nov): where the picture is hidden (Outlook on Windows) the fallback colour shows with a name that
+// reads on it; Studio shows that case next to the swatches.
+test('the fallback name is dark on a light colour and white on a dark one', () => {
+  assert.equal(fallbackInk('#F59E0B'), '#1F2937');
+  assert.equal(fallbackInk('#FFFFFF'), '#1F2937');
+  assert.equal(fallbackInk('#111827'), '#FFFFFF');
+  assert.equal(FALLBACK_HINT, 'Shown where email apps hide images');
+});

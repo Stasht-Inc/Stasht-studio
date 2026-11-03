@@ -7,7 +7,7 @@ import { emptyDraft } from '../../components/newsletters/lib/draft.ts';
 
 const counts = { email: 1180, sms: 310, skipped: { no_email: 0, no_phone: 0, unsubscribed: 0, duplicate: 0 } };
 const ready = {
-  ...emptyDraft(), name: 'October', from_name: 'Serpa Chrysler', reply_to_email: 'sales@serpachrysler.ca', subject: 'October deals',
+  ...emptyDraft(), name: 'October', from_name: 'Serpa Chrysler', reply_to_email: 'sales@serpachrysler.ca', subject: 'October deals', audience: [{ type: 'lead', id: 7101 }],
   blocks: [{ id: 'b1', type: 'title', data: { text: 'This month', size: 'large' } }],
 };
 const allowance = { plan: 'Professional', email_limit: 5000, sms_limit: 500, email_used: 1200, sms_used: 40, resets_at: '2026-11-01T00:00:00Z' };
@@ -28,6 +28,8 @@ test('an empty draft points at each unfinished step', () => {
   const p = preSendProblems(emptyDraft(), counts, { mode: 'now' });
   assert.deepEqual(p, {
     name: 'Give your newsletter a name and a subject line.',
+    // Single person with nobody picked yet (the default since Chris, 3 Nov).
+    recipients: 'Choose who gets this newsletter.',
     content: 'Add at least one section to the email.',
   });
   assert.equal(firstProblemStep(p), 'name');
@@ -93,11 +95,13 @@ test('allowance counts text message parts', () => {
   assert.equal(allowanceProblem(allowance, { ...counts, sms: 230 }, ['sms'], 2), null);
 });
 
-test('preSendProblems: a text over 3 parts and a text time in quiet hours', () => {
-  const base = { ...emptyDraft(), name: 'Oct', subject: 'Hi', channels: ['email', 'sms'], blocks: [{ id: 'b1', type: 'title', data: { text: 'Hi', size: 'large' } }] };
+test('preSendProblems: a text longer than Twilio takes and a text time in quiet hours', () => {
+  const base = { ...emptyDraft(), name: 'Oct', subject: 'Hi', channels: ['email', 'sms'], audience: [{ type: 'all_leads' }], blocks: [{ id: 'b1', type: 'title', data: { text: 'Hi', size: 'large' } }] };
   const now = new Date('2026-10-22T13:20:00Z');
-  const long = preSendProblems({ ...base, sms_text: 'ą'.repeat(120), from_name: 'Serpa Chrysler' }, null, { mode: 'now' }, now);
-  assert.match(long.recipients, /^This text is too long once sent \(\d parts\)\. Shorten it or remove emoji\.$/);
+  // 4 parts used to be refused: now it goes out as one long text (Chris, 3 Nov).
+  assert.equal(preSendProblems({ ...base, sms_text: 'ą'.repeat(120), from_name: 'Serpa Chrysler' }, null, { mode: 'now' }, now).recipients, undefined);
+  const long = preSendProblems({ ...base, sms_text: 'a'.repeat(1600), from_name: 'Serpa Chrysler' }, null, { mode: 'now' }, now);
+  assert.equal(long.recipients, 'This text would go out as 12 text messages, more than the 10 allowed. Shorten it or remove emoji.');
   const tz = process.env.TZ;
   process.env.TZ = 'America/Toronto';
   try {

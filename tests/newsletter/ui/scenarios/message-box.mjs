@@ -26,10 +26,10 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
   await expectVisible(box, 'Message box shown with Email only');
   await expectVisible(step.getByText("A short note at the top of your email, above your sections. If Text message is ticked, it's also sent as the text."), 'hint');
   expect(((await box.getAttribute('aria-describedby')) ?? '').split(' ').includes('nl-message-hint'), 'the hint describes the box');
-  await expectVisible(step.getByText('0 / 120'), 'counter shown with Email only');
+  await expectVisible(step.getByText('0 characters'), 'counter shown with Email only');
   expect(await step.getByText('We add a link to the newsletter').count() === 0, 'no link line with Email only');
   expect(await step.getByText('People get:').count() === 0, 'no "People get:" with Email only');
-  expect(await step.getByText(/Uses \d text message part/).count() === 0, 'no parts line with Email only');
+  expect(await step.getByText(/Sent as \d text message/).count() === 0, 'no parts line with Email only');
   expect(await page.getByRole('button', { name: 'Add this to the email too' }).count() === 0, 'the old button is gone');
   expect((await blockOrder(page)).join(',') === 'b1', 'no Message section while the box is empty');
 
@@ -85,7 +85,7 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
   // Ticking Text message shows the SMS lines.
   await step.getByRole('checkbox', { name: /Text message/ }).check();
   await expectVisible(step.getByText('We add a link to the newsletter and "Reply STOP to opt out."'), 'link line with Text message');
-  await expectVisible(step.getByText(/Uses 1 text message part per person/), 'parts line with Text message');
+  await expectVisible(step.getByText('Sent as 1 text message (max 10).').first(), 'parts line with Text message');
   await expectVisible(step.getByText('People get:'), '"People get:" with Text message');
   await shot(page, '1280-02-with-texts');
   await context.close();

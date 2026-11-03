@@ -78,20 +78,33 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
   await page.waitForTimeout(1500);
   expect(await cards.count() === 3, 'a header-only save leaves the cards as they were');
 
-  // An empty Campaigns section is unfinished: send says so. (Adding it saves the sections.)
+  // Chris, 3 Nov: a picker closed without picking adds nothing (it used to leave one more empty section each time).
   await preview.getByRole('button', { name: 'Add a section after section 1' }).click();
   await page.getByRole('menuitem', { name: /^Campaign\b/ }).click();
   await expectVisible(picker, 'picker for the second section');
   await picker.getByRole('button', { name: 'Cancel' }).click();
-  await expectVisible(preview.getByText('Show campaigns, products or vehicles in this email.'), 'empty section placeholder');
+  await page.waitForTimeout(300);
+  expect(await preview.getByRole('group', { name: 'Campaigns section' }).count() === 1, 'Cancel adds no section');
+  expect(!(await preview.getByText('Show campaigns, products or vehicles in this email.').count()), 'no empty section left behind');
+  // A sections save (here adding a Divider) drops the campaign that can't be shared any more; the preview follows.
+  await preview.getByRole('button', { name: 'Add a section after section 1' }).click();
+  await page.getByRole('menuitem', { name: /^Divider\b/ }).click();
   await page.waitForTimeout(1500);
   expect(await cards.count() === 2, `the dropped campaign leaves the preview (got ${await cards.count()})`);
   expect(!(await section.first().textContent()).includes('Grand Cherokee'), 'Grand Cherokee card gone');
-  await page.locator('#nl-subject').fill('October at Serpa');
-  await page.getByRole('button', { name: 'Send Now' }).first().click();
-  await expectVisible(preview.getByText('Pick at least one campaign, product or vehicle, or remove this section.'), 'empty Campaigns section marked');
-  await shot(page, '1280-04-problem');
   await context.close();
+
+  // An empty Campaigns section (an older draft's) is unfinished: send says so.
+  const old = await open({ width: 1280, height: 1400, query: '&newsletterId=54', api: createMockApi({
+    businessAddress: '4505 Steeles Ave W, Toronto, ON',
+    newsletters: [newsletter(54, { name: 'Older draft', subject: 'October at Serpa', blocks: [{ id: 'c1', type: 'campaigns', data: { selections: [], campaign_ids: [], items: [] } }] })],
+  }) });
+  const oldPreview = old.page.locator('aside');
+  await expectVisible(oldPreview.getByText('Show campaigns, products or vehicles in this email.'), 'empty section placeholder');
+  await old.page.getByRole('button', { name: 'Send Now' }).first().click();
+  await expectVisible(oldPreview.getByText('Pick at least one campaign, product or vehicle, or remove this section.'), 'empty Campaigns section marked');
+  await shot(old.page, '1280-04-problem');
+  await old.context.close();
 
   // Send answers 409 stale (the draft kept changing in another tab): the message and Reload show, nothing closes.
   const stale = await open({ width: 1280, height: 1400, query: '&newsletterId=53', api: createMockApi({

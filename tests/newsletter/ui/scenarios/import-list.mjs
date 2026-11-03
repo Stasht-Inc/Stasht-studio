@@ -46,7 +46,8 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
   const list = api.state.lists.find((l) => l.name === 'open house');
   await page.waitForTimeout(1500);
   expect(api.state.newsletters[0]?.audience?.some((a) => a.type === 'list' && a.id === list?.id), 'the new list is ticked in Send to');
-  await expectVisible(page.locator('#nl-step-recipients').getByText('All leads + 1 more').first(), 'summary shows the new list');
+  // A new newsletter starts on Single person (Chris, 3 Nov): the new list replaces it.
+  await expectVisible(page.locator('#nl-step-recipients').getByRole('button', { name: /^Send to open house/ }), 'summary shows the new list');
 
   const d2 = await openImport(page);
   await d2.getByRole('radio', { name: 'From leads' }).click();

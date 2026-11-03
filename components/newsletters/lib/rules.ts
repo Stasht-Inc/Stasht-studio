@@ -4,7 +4,9 @@ export const LIMITS = {
   subject: 150,
   preview_text: 200,
   from_name: 80,
-  sms_text: 120,
+  // The Message box (Chris, 3 Nov 2026: no 120 limit): the text at the top of the email, and the text message when
+  // Text message is ticked (sent as one long text: smsParts.ts). NewsletterMessageLimit::MAX in the API.
+  sms_text: 2000,
   blocks: 40,
   title: 200,
   text_html: 20000,
@@ -35,7 +37,7 @@ const SMS_FOLD: Record<string, string> = {
 const SMS_FOLD_RE = new RegExp(`[${Object.keys(SMS_FOLD).join('')}]`, 'g');
 
 /** The text as it is texted (NewsletterRenderer::smsPlain): plain ASCII punctuation, single spaces. The API's
- *  120-character sms_text limit counts this, so "…" counts as three. */
+ *  sms_text limit (LIMITS.sms_text) counts this, so "…" counts as three. */
 export function smsPlain(value: string): string {
   return String(value ?? '').replace(SMS_FOLD_RE, (c) => SMS_FOLD[c]).replace(/[ \t]+/g, ' ').trim();
 }

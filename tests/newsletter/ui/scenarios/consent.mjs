@@ -1,10 +1,12 @@
 // [wdy2xh2p3e] The recipients step says who consent and phone-number rules leave out (audience-count skipped).
 import { createMockApi } from '../mock-api.mjs';
+import { sendToAllLeads } from '../steps.mjs';
 
 export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
   const api = createMockApi({ skipped: { consent_expired: 5, unsupported_number: 3 } });
   const { page, context } = await open({ width: 1280, height: 1400, api });
   const step = page.locator('#nl-step-recipients');
+  await sendToAllLeads(page);
   await expectVisible(step.getByText('5 emails left out: their consent is older than 6 months.', { exact: false }), 'expired consent count (emails)');
   expect(!(await step.getByText(/can't get texts/).count()), 'phone-number line only once texts are on');
   await step.getByRole('checkbox', { name: /Text message/ }).check();
@@ -17,6 +19,7 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
   for (const width of [360, 375, 390]) {
     const phone = await open({ width, height: 844, api: createMockApi({ skipped: { consent_expired: 5, unsupported_number: 3 } }) });
     const s = phone.page.locator('#nl-step-recipients');
+    await sendToAllLeads(phone.page);
     await s.getByRole('checkbox', { name: /Text message/ }).check();
     await expectVisible(s.getByText(/can't get texts/), `phone-number line at ${width}`);
     await s.scrollIntoViewIfNeeded();

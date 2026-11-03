@@ -15,11 +15,19 @@ export type NewsletterStatus = 'draft' | 'scheduled' | 'sending' | 'sent' | 'fai
 export type NewsletterChannel = 'email' | 'sms';
 export type NewsletterTemplate = 'basic';
 
+/** The header logo's height (Chris, 3 Nov): small 48 px (the default, never stored), medium 80, large 120. */
+export type LogoSize = 'small' | 'medium' | 'large';
+
 export interface NewsletterHeader {
   logo_url: string | null;
   banner_url: string | null;
   background_color: string | null;
   title: string | null;
+  /** Chris, 3 Nov. Each only present when used, so older headers are unchanged. A picture behind the logo and name. */
+  background_image_url?: string | null;
+  logo_size?: LogoSize;
+  /** The logo's width ÷ height, measured here when it loads; the email sizes a bigger logo with it. */
+  logo_ratio?: number;
 }
 
 export type BlockType = 'image' | 'title' | 'text' | 'youtube' | 'button' | 'divider' | 'campaigns';
@@ -96,7 +104,8 @@ export type NewsletterBlock =
   | { id: string; type: 'divider'; data: DividerBlockData }
   | { id: string; type: 'campaigns'; data: CampaignsBlockData };
 
-export type AudienceItem = { type: 'all_leads' } | { type: 'lead_group'; id: number } | { type: 'list'; id: number };
+/** lead: one person, one of the account's leads ("Single person", Chris, 3 Nov 2026; the default for a new newsletter). */
+export type AudienceItem = { type: 'lead'; id: number } | { type: 'all_leads' } | { type: 'lead_group'; id: number } | { type: 'list'; id: number };
 
 export interface NewsletterCounts {
   recipients: number;
@@ -179,6 +188,19 @@ export interface ResultsQuery { channel?: NewsletterChannel; status?: ResultsSta
 export interface CampaignOptionsMeta extends PageMeta { counts?: Partial<Record<CampaignKind, number>>; categories?: string[] }
 export interface CampaignOptionsPage { data: CampaignOption[]; meta: CampaignOptionsMeta }
 export interface CampaignOptionsQuery { kind?: CampaignKind; search?: string; category?: string; page?: number }
+
+/** GET /newsletters/lead-options: one of the account's leads for "Single person", with the email and mobile a
+ *  newsletter would use (null when it has none). unsubscribed: only for a saved pick read back by lead_id. */
+export interface LeadOption {
+  id: number;
+  name: string | null;
+  email: string | null;
+  phone: string | null;
+  unsubscribed: boolean;
+  last_engaged_at?: string | null;
+}
+export interface LeadOptionsPage { data: LeadOption[]; meta: { page: number; per_page: number; total: number; total_pages: number } }
+export interface LeadOptionsQuery { search?: string; page?: number; lead_id?: number }
 
 /** default_message: the Message box text saved with "Set as my default message" (null: none; an older API leaves it out). */
 export interface NewsletterBrand { header: NewsletterHeader; business_address: string | null; default_message?: string | null }
@@ -380,6 +402,8 @@ export const newslettersAPI = {
       category: q.category || undefined,
       page: q.page,
     })}`),
+  leadOptions: (q: LeadOptionsQuery = {}) =>
+    get<LeadOptionsPage>(`/newsletters/lead-options${query({ search: q.search?.trim() || undefined, page: q.page, lead_id: q.lead_id })}`),
   getBrand: () => get<NewsletterBrand>('/newsletter-brand'),
   // Only used to set business_address and default_message: a newsletter's header reaches the brand through
   // PUT /newsletters/{id}.

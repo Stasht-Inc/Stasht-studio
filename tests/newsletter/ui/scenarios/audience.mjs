@@ -1,12 +1,17 @@
-// Task 9: All leads by default, pick a lead group and a list, add Text, live counts, SMS counter, all saved.
-// Counts are debounced (one call for a burst of changes) and never asked for while the Storeel tab shows.
+// Task 9: pick All leads, a lead group and a list, add Text, live counts, SMS counter, all saved. (A new newsletter
+// starts on Single person since Chris, 3 Nov: single-person.mjs.) Counts are debounced (one call for a burst of
+// changes) and never asked for while the Storeel tab shows.
 export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
   const { page, api, context } = await open({ width: 1280, height: 1800 });
   const step = page.locator('#nl-step-recipients');
   const countCalls = () => api.state.calls.filter((c) => c.path === '/newsletters/audience-count');
-  await expectVisible(step.getByText('All leads').first(), 'All leads chosen by default');
+  await expectVisible(step.getByText('Single person').first(), 'Single person by default');
+  expect(countCalls().length === 0, `no count call while nobody is picked (got ${countCalls().length})`);
+  await step.getByRole('button', { name: /Send to/ }).click();
+  await page.getByRole('checkbox', { name: /All leads/ }).check();
+  await page.keyboard.press('Escape');
   await expectVisible(step.getByText('1,180', { exact: true }), 'estimated email recipients for all leads');
-  expect(countCalls().length === 1, `one count call on open (got ${countCalls().length})`);
+  expect(countCalls().length === 1, `one count call for All leads (got ${countCalls().length})`);
 
   await step.getByRole('button', { name: /Send to/ }).click();
   await expectVisible(page.getByRole('checkbox', { name: /VIP buyers/ }), 'lead group listed');
@@ -23,7 +28,7 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
 
   await step.getByRole('checkbox', { name: /Text message/ }).check();
   await step.getByLabel('Message (optional)', { exact: true }).fill('October deals are here.');
-  await expectVisible(step.getByText('23 / 120'), 'character counter');
+  await expectVisible(step.getByText('23 characters'), 'character counter');
   await expectVisible(step.getByText('1,414 emails · 480 texts'), 'both channel counts');
   await expectVisible(step.getByText('Not included: 24 with no email address, 3 unsubscribed, 11 listed twice.'), 'not-included line');
   await page.waitForTimeout(1500);
