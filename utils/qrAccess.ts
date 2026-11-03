@@ -27,3 +27,17 @@ export function withQr(path: string, qr: string | null | undefined): string {
   const sep = base.includes('?') ? (base.endsWith('?') || base.endsWith('&') ? '' : '&') : '?';
   return `${base}${sep}qr=${encodeURIComponent(code)}${tail}`;
 }
+
+/**
+ * POST /memories/{id}/track-view's body: the API records a view only when the campaign is open to the caller, so the
+ * page sends what opened it — qr (a printed QR code, any published state) and / or access_token (a Private campaign's
+ * token, from the URL or typed into the prompt). null: nothing to send (a Public / view-only page: no body, as before).
+ */
+export function trackViewBody(qr: string | null | undefined, accessToken: string | null | undefined): { qr?: string; access_token?: string } | null {
+  const code = typeof qr === 'string' ? qr.trim() : '';
+  const token = typeof accessToken === 'string' ? accessToken.trim() : '';
+  const body: { qr?: string; access_token?: string } = {};
+  if (QR_CODE_PATTERN.test(code)) body.qr = code;
+  if (token) body.access_token = token;
+  return Object.keys(body).length ? body : null;
+}

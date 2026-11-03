@@ -214,9 +214,10 @@ async function open({ width, height, seed, codes = {}, fail = {}, styleAvailable
     }
     // The public campaign page (?qr=): the campaign as the API answers when the code points at it (qr_access: true).
     if (p === '/published-memories' && published) {
-      const ok = url.searchParams.get('qr') === published.qr;
-      if (!ok) return route.fulfill({ status: 404, json: { success: false, message: 'Campaign not found' } });
-      return route.fulfill({ json: { success: true, data: { memory: published.memory, order_by: 'asc', qr_access: true } } });
+      const byQr = Boolean(published.qr) && url.searchParams.get('qr') === published.qr;
+      const byToken = Boolean(published.token) && url.searchParams.get('access_token') === published.token;
+      if (!byQr && !byToken) return route.fulfill({ status: 404, json: { success: false, message: 'Campaign not found' } });
+      return route.fulfill({ json: { success: true, data: { memory: published.memory, order_by: 'asc', qr_access: byQr } } });
     }
     if (p === '/public/upload-image-with-metadata') return route.fulfill({ json: { success: true, data: { fileUrl: 'https://stasht-media.s3.amazonaws.com/x/moment.jpg', location: null, capture_date: null, originalSizeMB: 0.01 } } });
     if (p === '/memories/submit-photo') return route.fulfill({ json: { success: true, message: 'Submitted' } });
@@ -542,7 +543,7 @@ try {
       expect(pub && /[?&]token=spring-sale/.test(pub.search) && /[?&]qr=K7PQ2MZX/.test(pub.search), `${tag}: QR page: published-memories asked with qr=K7PQ2MZX (${pub?.search})`);
       await page.waitForTimeout(800);
       const view = state.all.find((c) => c.p === '/memories/803/track-view');
-      expect(view && view.body?.qr === 'K7PQ2MZX', `${tag}: QR page: track-view body {qr} (${JSON.stringify(view?.body)})`);
+      expect(view && view.body?.qr === 'K7PQ2MZX' && !('access_token' in view.body), `${tag}: QR page: track-view body {qr} (${JSON.stringify(view?.body)})`);
       await shot(page, `${tag}-10-qr-public-page`);
       await page.getByRole('button', { name: 'Add a moment' }).filter({ visible: true }).first().click();
       await page.locator('input[type=file]').first().setInputFiles(MOMENT_FILE);
@@ -565,6 +566,19 @@ try {
     }
   }
 
+  // 10c. A Private campaign (published 3) opened with its access_token: track-view sends the token in the body, so the
+  // API (which records a view only when the campaign is open to the caller) keeps counting views / leads.
+  {
+    const seed = { stasht_token: 'main-token', stasht_user: MAIN, view_type: 'personal' };
+    const memory = { id: 804, title: 'Private VIP Night', published: 3, slug: 'vip', user: { id: 707, name: 'Main Dealer' }, posts: [], linked_memories: [], widgets: [], created_at: '2026-11-01T10:00:00Z' };
+    const { page, context, state } = await open({ width: 1280, height: 900, seed, path: '/published-memory/vip?access_token=tok123', waitFor: 'none', published: { token: 'tok123', memory } });
+    await page.getByRole('heading', { name: 'Private VIP Night' }).filter({ visible: true }).first().waitFor({ timeout: 30000 }).catch(() => failures.push('private page: opens with its access_token'));
+    await page.waitForTimeout(800);
+    await shot(page, '1280-11-private-page-token');
+    const view = state.all.find((c) => c.p === '/memories/804/track-view');
+    expect(view && view.body?.access_token === 'tok123' && !('qr' in view.body), `private page: track-view body {access_token} (${JSON.stringify(view?.body)})`);
+    await context.close();
+  }
   // 11. /q/<code> served by the app (an old service worker): straight on to the API host's /q/ redirect, not back here.
   {
     const context = await browser.newContext({ serviceWorkers: 'block' });

@@ -2,7 +2,7 @@ import { requestUpgrade } from './planEvents';
 import { propertyUpdateFailure } from './propertyImage';
 import { currentPropertyViewHeaders, propertyViewCacheKey } from './inventoryView';
 import { memoryDetailPath } from './memoryDetailPath';
-import { withQr } from './qrAccess';
+import { trackViewBody, withQr } from './qrAccess';
 
 // Auth utility functions for API integration
 
@@ -3506,11 +3506,13 @@ export const dashboardAPI = {
   },
 
   // Track a view when someone opens a published memory from a shared link
-  // qr: the printed QR code the public page was opened from (QR codes v2: an unpublished campaign's views count too).
-  trackMemoryView: async (memoryId: string | number, qr?: string | null): Promise<ApiResponse<any>> => {
+  // The API records a view only when the campaign is open to the caller: qr (the printed QR code the public page was
+  // opened from) and accessToken (a Private campaign's token, URL or typed) go in the body when present.
+  trackMemoryView: async (memoryId: string | number, qr?: string | null, accessToken?: string | null): Promise<ApiResponse<any>> => {
+    const body = trackViewBody(qr, accessToken);
     return await apiRequest(`/memories/${memoryId}/track-view`, {
       method: 'POST',
-      ...(qr ? { body: JSON.stringify({ qr }) } : {}),
+      ...(body ? { body: JSON.stringify(body) } : {}),
     });
   },
 
