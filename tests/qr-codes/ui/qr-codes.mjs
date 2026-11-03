@@ -281,17 +281,21 @@ try {
       const viewColor = await view.getAttribute('data-qr-color');
       expect(viewColor && near(hexPx(viewColor), '#00704A', 12), `${tag}: created view drawn in the avatar's green, auto (${viewColor})`);
       expect((await view.getAttribute('src')).includes('data%3Aimage%2Fjpeg%3Bbase64') || (await view.getAttribute('src')).includes('data:image/jpeg;base64'), `${tag}: created view has the avatar inside`);
+      const vm = decodeURIComponent(await view.getAttribute('src')).match(/href="data:image\/(?:png|jpeg);base64,([A-Za-z0-9+/=]+)"/);
+      const vmeta = vm ? await sharp(Buffer.from(vm[1], 'base64')).metadata() : null;
+      expect(vmeta && Math.max(vmeta.width, vmeta.height) > 128, `${tag}: code view embeds the full-size logo (${vmeta && `${vmeta.width}x${vmeta.height}`})`);
       expect(await dialog(page).getByText('Image', { exact: true }).count() === 1 && await dialog(page).getByRole('button', { name: 'Change image' }).count() === 1 && await dialog(page).getByRole('button', { name: 'Remove image' }).count() === 1, `${tag}: Image: Change image / Remove image`);
       expect(await dialog(page).getByRole('radio', { name: /Auto/ }).getAttribute('aria-checked') === 'true', `${tag}: colour: Auto chosen`);
       expect(await dialog(page).getByRole('button', { name: 'Use profile picture' }).count() === 0, `${tag}: default image: no "Use profile picture"`);
       expect(await noOverflow(page), `${tag}: created view no sideways scroll`);
       await shot(page, `${tag}-05-created`);
       await dialog(page).getByRole('button', { name: 'Download', exact: true }).click();
-      await page.getByRole('menuitem', { name: 'PNG · white background' }).waitFor({ timeout: 5000 });
+      await page.getByRole('menuitem', { name: 'PNG · white background (any fabric)' }).waitFor({ timeout: 5000 });
       expect(await page.getByText('Print at least 2.5 cm (1 in) wide · dark code on a light background').count() === 1, `${tag}: print tip in the download menu`);
       await page.waitForTimeout(400);
+      expect(await page.getByRole('menuitem', { name: 'PNG · transparent (light fabrics only)' }).count() === 1 && await page.getByRole('menuitem', { name: 'SVG · vector (print shops)' }).count() === 1, `${tag}: download menu says what each file is for`);
       await shot(page, `${tag}-05b-download-menu`);
-      const [png] = await Promise.all([page.waitForEvent('download'), page.getByRole('menuitem', { name: 'PNG · white background' }).click()]);
+      const [png] = await Promise.all([page.waitForEvent('download'), page.getByRole('menuitem', { name: 'PNG · white background (any fabric)' }).click()]);
       const pngPath = `${OUT}/${tag}-download.png`;
       await png.saveAs(pngPath);
       expect(png.suggestedFilename() === 'qr-fall-promo.png', `${tag}: PNG name (${png.suggestedFilename()})`);
@@ -301,7 +305,7 @@ try {
       const band = await pixelAt(pngPath, 0.5, 0.5 + (0.9 * 0.145 * 37) / 45);
       expect(near(band, '#00704A', 40), `${tag}: PNG has the avatar logo in the middle (${JSON.stringify(band)})`);
       await dialog(page).getByRole('button', { name: 'Download', exact: true }).click();
-      const [clear] = await Promise.all([page.waitForEvent('download'), page.getByRole('menuitem', { name: 'PNG · transparent' }).click()]);
+      const [clear] = await Promise.all([page.waitForEvent('download'), page.getByRole('menuitem', { name: 'PNG · transparent (light fabrics only)' }).click()]);
       const clearPath = `${OUT}/${tag}-download-transparent.png`;
       await clear.saveAs(clearPath);
       expect(clear.suggestedFilename() === 'qr-fall-promo-transparent.png', `${tag}: transparent PNG name (${clear.suggestedFilename()})`);
@@ -309,7 +313,7 @@ try {
       const ringEdge = await pixelAt(clearPath, 0.5, 0.5 - 0.35 * 37 / 45 / 2 + 0.004);
       expect(ringEdge.a === 255 && near(ringEdge, '#FFFFFF', 4), `${tag}: transparent PNG keeps the logo's white circle (${JSON.stringify(ringEdge)})`);
       await dialog(page).getByRole('button', { name: 'Download', exact: true }).click();
-      const [svg] = await Promise.all([page.waitForEvent('download'), page.getByRole('menuitem', { name: 'SVG · vector' }).click()]);
+      const [svg] = await Promise.all([page.waitForEvent('download'), page.getByRole('menuitem', { name: 'SVG · vector (print shops)' }).click()]);
       const svgPath = `${OUT}/${tag}-download.svg`;
       await svg.saveAs(svgPath);
       const svgText = readFileSync(svgPath, 'utf8');
@@ -347,11 +351,18 @@ try {
       const thumb = row7.locator('img');
       await thumb.waitFor({ timeout: 8000 });
       expect(near(hexPx(await thumb.getAttribute('data-qr-color')), '#00704A', 12), `${tag}: list thumbnail is branded too (avatar green)`);
+      // The thumbnail carries a small logo (≤ 128 px), not the 1024 px one the code view and downloads use.
+      const embedded = async (img) => {
+        const m = decodeURIComponent(await img.getAttribute('src')).match(/href="data:image\/(?:png|jpeg);base64,([A-Za-z0-9+/=]+)"/);
+        return m ? sharp(Buffer.from(m[1], 'base64')).metadata() : null;
+      };
+      const tmeta = await embedded(thumb);
+      expect(tmeta && Math.max(tmeta.width, tmeta.height) <= 128, `${tag}: list thumbnail embeds a ≤ 128 px logo (${tmeta && `${tmeta.width}x${tmeta.height}`})`);
       await row7.getByRole('button', { name: 'Download' }).click();
-      await page.getByRole('menuitem', { name: 'PNG · white background' }).waitFor({ timeout: 5000 });
+      await page.getByRole('menuitem', { name: 'PNG · white background (any fabric)' }).waitFor({ timeout: 5000 });
       await page.waitForTimeout(400);
       await shot(page, `${tag}-07-download-menu`);
-      const [dl] = await Promise.all([page.waitForEvent('download'), page.getByRole('menuitem', { name: 'SVG · vector' }).click()]);
+      const [dl] = await Promise.all([page.waitForEvent('download'), page.getByRole('menuitem', { name: 'SVG · vector (print shops)' }).click()]);
       expect(dl.suggestedFilename() === 'qr-front-window-sign.svg', `${tag}: row SVG download (${dl.suggestedFilename()})`);
 
       // Change campaign → Open House (view only).
@@ -427,7 +438,7 @@ try {
       expect(yrgb.r > yrgb.b + 60 && yrgb.g > yrgb.b + 40 && contrast >= 4.5, `${tag}: light yellow logo → a darker yellow with ≥ 4.5:1 contrast (${yellow}, ${contrast.toFixed(2)}:1)`);
       expect(await dialog(page).getByRole('button', { name: 'Use profile picture' }).count() === 1, `${tag}: own image: "Use profile picture" offered`);
       await shot(page, `${tag}-19-change-image-yellow`);
-      const yPng = await download('PNG · white background', 'yellow.png');
+      const yPng = await download('PNG · white background (any fabric)', 'yellow.png');
       await checkPng(tag, 'yellow logo PNG', yPng, TEXT);
       expect(near(await pixelAt(yPng, FINDER, FINDER), yellow, 16), `${tag}: yellow logo PNG finder in ${yellow}`);
 
@@ -438,7 +449,7 @@ try {
       expect(state.calls.some((c) => c.method === 'PATCH' && c.body?.color === '#1E3A8A'), `${tag}: preset sends PATCH color #1E3A8A`);
       expect(await dialog(page).getByRole('radio', { name: 'Navy' }).getAttribute('aria-checked') === 'true', `${tag}: Navy chosen`);
       await shot(page, `${tag}-20-colour-navy`);
-      const nPng = await download('PNG · transparent', 'navy-transparent.png');
+      const nPng = await download('PNG · transparent (light fabrics only)', 'navy-transparent.png');
       await checkPng(tag, 'navy transparent PNG', nPng, TEXT, { transparent: true });
       expect(near(await pixelAt(nPng, FINDER, FINDER), '#1E3A8A', 16), `${tag}: navy PNG finder is navy`);
 
@@ -452,7 +463,7 @@ try {
       expect(cHex && cContrast >= 4.5 && crgb.b > crgb.r, `${tag}: custom light blue saved darkened (${cHex}, ${cContrast.toFixed(2)}:1)`);
       expect(await dialog(page).locator('[role=radio][aria-checked=true]').count() === 0, `${tag}: custom colour: no preset / Auto marked chosen`);
       await shot(page, `${tag}-21-colour-custom`);
-      const cPng = await download('PNG · white background', 'custom.png');
+      const cPng = await download('PNG · white background (any fabric)', 'custom.png');
       await checkPng(tag, 'custom colour PNG', cPng, TEXT);
 
       // Back to Auto: PATCH color null.
@@ -469,7 +480,7 @@ try {
       expect(await view.getAttribute('data-qr-color') === '#111827', `${tag}: no image, Auto → near-black #111827`);
       expect(await dialog(page).getByRole('button', { name: 'Use profile picture' }).count() === 1, `${tag}: no image: "Use profile picture" offered`);
       await shot(page, `${tag}-22-remove-image`);
-      const pPng = await download('PNG · white background', 'plain.png');
+      const pPng = await download('PNG · white background (any fabric)', 'plain.png');
       await checkPng(tag, 'plain PNG', pPng, TEXT);
       expect(near(await pixelAt(pPng, 0.5, 0.5), '#FFFFFF', 30) || near(await pixelAt(pPng, 0.5, 0.5), '#111827', 30), `${tag}: plain PNG has modules in the middle, no logo`);
       expect(await noOverflow(page), `${tag}: code view no sideways scroll`);
@@ -485,7 +496,7 @@ try {
       expect(near(hexPx(await view.getAttribute('data-qr-color')), '#00704A', 12), `${tag}: back to the avatar and its green (${await view.getAttribute('data-qr-color')})`);
       expect(await dialog(page).getByRole('button', { name: 'Use profile picture' }).count() === 0 && await dialog(page).getByRole('button', { name: 'Change image' }).count() === 1, `${tag}: default image: no "Use profile picture"; Change / Remove image`);
       await shot(page, `${tag}-24-use-profile-picture`);
-      const aPng = await download('PNG · white background', 'avatar-again.png');
+      const aPng = await download('PNG · white background (any fabric)', 'avatar-again.png');
       await checkPng(tag, 'avatar again PNG', aPng, TEXT);
       await context.close();
     }

@@ -15,6 +15,8 @@ import { BUTTON_SMALL } from '../newsletters/lib/ui';
 /** The PNG downloads are exactly this many pixels square. */
 export const PNG_SIZE = 4096;
 export const PRINT_TIP = 'Print at least 2.5 cm (1 in) wide · dark code on a light background';
+/** Pictures this small (the list thumbnails) carry the small logo, not the 1024 px one. */
+const THUMB_MAX_SIZE = 96;
 const IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 
@@ -53,10 +55,11 @@ export function BrandedQr({ code, size, color, label }: {
 }) {
   const { logo, ready } = useQrLogo(code);
   const drawColor = qrDrawColor(color === undefined ? code.color : color, logo?.color);
-  const src = useMemo(
-    () => (ready ? svgDataUrl(qrSvg(code.shortUrl, { color: drawColor, background: 'white', logo: logo ? { href: logo.href, width: logo.width, height: logo.height } : null }, size * 2)) : null),
-    [ready, code.shortUrl, drawColor, logo, size],
-  );
+  const src = useMemo(() => {
+    if (!ready) return null;
+    const image = logo ? (size <= THUMB_MAX_SIZE ? logo.thumb : { href: logo.href, width: logo.width, height: logo.height }) : null;
+    return svgDataUrl(qrSvg(code.shortUrl, { color: drawColor, background: 'white', logo: image }, size * 2));
+  }, [ready, code.shortUrl, drawColor, logo, size]);
   if (!src) {
     return <span role={label ? 'img' : undefined} aria-label={label} aria-hidden={label ? undefined : true} className="block animate-pulse rounded bg-gray-100" style={{ width: size, height: size }} />;
   }
@@ -95,12 +98,19 @@ export async function downloadQr(code: QrCode, kind: QrDownloadKind): Promise<vo
     const canvas = document.createElement('canvas');
     canvas.width = PNG_SIZE;
     canvas.height = PNG_SIZE;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) throw new Error('no context');
-    const background = kind === 'png' ? 'white' : 'transparent';
-    paintQr(ctx, code.shortUrl, { color, background, image: logo?.image ?? null, imageWidth: logo?.width ?? 0, imageHeight: logo?.height ?? 0 }, PNG_SIZE);
-    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'));
+    let blob: Blob | null = null;
+    try {
+      const ctx = canvas.getContext('2d');
+      if (!ctx) throw new Error('no context');
+      paintQr(ctx, code.shortUrl, { color, background: kind === 'png' ? 'white' : 'transparent', image: logo?.image ?? null, imageWidth: logo?.width ?? 0, imageHeight: logo?.height ?? 0 }, PNG_SIZE);
+      blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'));
+    } finally {
+      // Let go of the 64 MB bitmap at once (iOS Safari caps total canvas memory).
+      canvas.width = 0;
+      canvas.height = 0;
+    }
     if (!blob) throw new Error('no blob');
+    const background = kind === 'png' ? 'white' : 'transparent';
     saveBlob(blob, qrFileName(code.name, 'png', background === 'transparent' ? 'transparent' : undefined));
   } catch {
     toast.error("Couldn't make the download. Please try again.");
@@ -113,10 +123,10 @@ export function QrDownloadMenu({ code, children, disabled }: { code: QrCode; chi
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild disabled={disabled}>{children}</DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-64 rounded-md border border-gray-200 bg-white shadow-lg" onCloseAutoFocus={keyboardOnlyFocusReturn}>
-        <DropdownMenuItem className={item} onSelect={() => void downloadQr(code, 'png')}>PNG · white background</DropdownMenuItem>
-        <DropdownMenuItem className={item} onSelect={() => void downloadQr(code, 'png-transparent')}>PNG · transparent</DropdownMenuItem>
-        <DropdownMenuItem className={item} onSelect={() => void downloadQr(code, 'svg')}>SVG · vector</DropdownMenuItem>
+      <DropdownMenuContent align="end" className="w-72 rounded-md border border-gray-200 bg-white shadow-lg" onCloseAutoFocus={keyboardOnlyFocusReturn}>
+        <DropdownMenuItem className={item} onSelect={() => void downloadQr(code, 'png')}>PNG · white background (any fabric)</DropdownMenuItem>
+        <DropdownMenuItem className={item} onSelect={() => void downloadQr(code, 'png-transparent')}>PNG · transparent (light fabrics only)</DropdownMenuItem>
+        <DropdownMenuItem className={item} onSelect={() => void downloadQr(code, 'svg')}>SVG · vector (print shops)</DropdownMenuItem>
         <DropdownMenuSeparator />
         <p className="px-2 py-1.5 text-xs leading-snug text-gray-500">{PRINT_TIP}</p>
       </DropdownMenuContent>

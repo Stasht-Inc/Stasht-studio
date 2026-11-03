@@ -117,7 +117,7 @@ export function normalizeQrCode(raw: unknown): QrCode | null {
   const modeRaw = logo ? logo.mode : raw.logo_mode;
   const logoMode: QrLogoMode = modeRaw === 'custom' || modeRaw === 'none' ? modeRaw : 'default';
   const urlRaw = text(logo ? logo.url : raw.logo_url);
-  // Only a key here: the image itself always comes through the API (GET /qr-codes/{id}/logo), never from this URL.
+  // Never fetched directly (S3 is another origin): the image always comes through GET /qr-codes/logo-image?url=<this>.
   const logoUrl = logoMode !== 'none' ? urlRaw : null;
   return {
     id,

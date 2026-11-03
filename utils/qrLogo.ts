@@ -13,7 +13,12 @@ export interface PreparedLogo {
   color: string | null;
   /** Loaded, for painting the PNG downloads. */
   image: HTMLImageElement;
+  /** The same logo at most THUMB_SIDE px, for small pictures (the list thumbnails). */
+  thumb: { href: string; width: number; height: number };
 }
+
+/** Largest side of the thumbnail logo. */
+export const THUMB_SIDE = 128;
 
 /** Largest side kept: the logo is 29% of a 4096 px PNG's code (~970 px), so this stays sharp in print. */
 const MAX_SIDE = 1024;
@@ -72,7 +77,23 @@ export async function prepareLogo(blob: Blob): Promise<PreparedLogo | null> {
     ctx.drawImage(source, 0, 0, width, height);
     const href = transparent ? canvas.toDataURL('image/png') : canvas.toDataURL('image/jpeg', 0.92);
     const image = await loadImage(href);
-    return { href, width, height, color: dominantColor(pixels), image };
+
+    const ts = Math.min(1, THUMB_SIDE / Math.max(w0, h0));
+    const tw = Math.max(1, Math.round(w0 * ts));
+    const th = Math.max(1, Math.round(h0 * ts));
+    canvas.width = tw; // resizing clears it
+    canvas.height = th;
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    if (!transparent) {
+      ctx.fillStyle = '#FFFFFF';
+      ctx.fillRect(0, 0, tw, th);
+    }
+    ctx.drawImage(source, 0, 0, tw, th);
+    const thumb = { href: transparent ? canvas.toDataURL('image/png') : canvas.toDataURL('image/jpeg', 0.9), width: tw, height: th };
+    canvas.width = 0;
+    canvas.height = 0;
+    return { href, width, height, color: dominantColor(pixels), image, thumb };
   } catch {
     return null;
   } finally {
