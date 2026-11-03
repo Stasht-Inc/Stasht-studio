@@ -15,12 +15,15 @@ function IconButton({ label, onClick, disabled, danger, children }: { label: str
 /** One section in the preview: purple outline when selected, with move up / move down / delete. A tab stop of its
  *  own (Enter or Space selects it), so sections with no field of their own (a picture, a button, a divider) can be
  *  reached without a mouse. */
-function BlockFrame({ blockId, label, index, count, selected, readOnly, problem, padClass, onSelect, onMoveUp, onMoveDown, onDelete, onEdit, editLabel, onDone, children }: {
+function BlockFrame({ blockId, label, index, count, canUp, canDown, selected, readOnly, problem, padClass, onSelect, onMoveUp, onMoveDown, onDelete, onEdit, editLabel, onDone, children }: {
   /** The section's id (data-block-id), so focus can come back to it. */
   blockId?: string;
   label: string;
   index: number;
   count: number;
+  /** Move up / down allowed (default: not past the ends). */
+  canUp?: boolean;
+  canDown?: boolean;
   selected: boolean;
   readOnly: boolean;
   problem: string | null;
@@ -44,8 +47,8 @@ function BlockFrame({ blockId, label, index, count, selected, readOnly, problem,
       {selected && !readOnly ? (
         <div role="toolbar" aria-label={`${label} section actions`} className="absolute -top-3.5 right-3 z-10 flex items-center gap-0.5 rounded-lg border border-gray-200 bg-white p-0.5 shadow-sm">
           {onEdit && editLabel ? <IconButton label={editLabel} onClick={onEdit}><LayoutGrid className="h-4 w-4" /></IconButton> : null}
-          <IconButton label="Move up" disabled={index === 0} onClick={onMoveUp}><ArrowUp className="h-4 w-4" /></IconButton>
-          <IconButton label="Move down" disabled={index === count - 1} onClick={onMoveDown}><ArrowDown className="h-4 w-4" /></IconButton>
+          <IconButton label="Move up" disabled={canUp === undefined ? index === 0 : !canUp} onClick={onMoveUp}><ArrowUp className="h-4 w-4" /></IconButton>
+          <IconButton label="Move down" disabled={canDown === undefined ? index === count - 1 : !canDown} onClick={onMoveDown}><ArrowDown className="h-4 w-4" /></IconButton>
           <IconButton label="Delete section" danger onClick={onDelete}><Trash2 className="h-4 w-4" /></IconButton>
           <span aria-hidden="true" className="mx-0.5 h-5 w-px bg-gray-200" />
           <IconButton label="Close editor" onClick={onDone}><X className="h-4 w-4" /></IconButton>

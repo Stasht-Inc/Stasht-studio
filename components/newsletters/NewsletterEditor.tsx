@@ -4,7 +4,7 @@ import type { BlockType, CampaignItem, CampaignSelection, CardOverrides, Newslet
 import type { NewsletterDraft } from './lib/draft';
 import { initialsFrom, type SenderProfile } from './lib/profile';
 import { LIMITS } from './lib/rules';
-import { ACTION_TOAST_MS, blocksProblems, campaignSelections, campaignsBlockWith, createBlock, insertBlock, liveBlockProblems, moveBlock, newBlockId, removeBlock, undoDelete, updateBlockData } from './lib/blocks';
+import { ACTION_TOAST_MS, blocksProblems, canMoveBlock, firstInsertIndex, campaignSelections, campaignsBlockWith, createBlock, insertBlock, liveBlockProblems, moveBlock, newBlockId, removeBlock, undoDelete, updateBlockData } from './lib/blocks';
 import { EDIT_ITEMS_LABEL, campaignIdsOf, pruneOverrides } from './lib/campaignsBlock';
 import InboxRow from './InboxRow';
 import HeaderEditor from './HeaderEditor';
@@ -58,10 +58,12 @@ interface BlockHandlers {
 }
 
 /** One section with its frame. Memoised: typing in one section doesn't re-render the others. */
-const BlockRow = memo(function BlockRow({ block, index, count, selected, readOnly, problem, padClass, handlers, serverItems, accent, phone }: {
+const BlockRow = memo(function BlockRow({ block, index, count, canUp, canDown, selected, readOnly, problem, padClass, handlers, serverItems, accent, phone }: {
   block: NewsletterBlock;
   index: number;
   count: number;
+  canUp: boolean;
+  canDown: boolean;
   selected: boolean;
   readOnly: boolean;
   problem: string | null;
@@ -73,7 +75,7 @@ const BlockRow = memo(function BlockRow({ block, index, count, selected, readOnl
 }) {
   const campaigns = block.type === 'campaigns';
   return (
-    <BlockFrame blockId={block.id} label={BLOCK_LABEL[block.type]} index={index} count={count} selected={selected} readOnly={readOnly} problem={problem} padClass={padClass}
+    <BlockFrame blockId={block.id} label={BLOCK_LABEL[block.type]} index={index} count={count} canUp={canUp} canDown={canDown} selected={selected} readOnly={readOnly} problem={problem} padClass={padClass}
       onSelect={handlers.onSelect} onDone={handlers.onDone} onMoveUp={handlers.onMoveUp} onMoveDown={handlers.onMoveDown} onDelete={handlers.onDelete}
       onEdit={campaigns ? handlers.onPick : undefined} editLabel={campaigns ? EDIT_ITEMS_LABEL : undefined}>
       <BlockEditor block={block} selected={selected} readOnly={readOnly} onChange={handlers.onChange} onUpdate={campaigns ? handlers.onUpdate : undefined}
@@ -268,11 +270,13 @@ export default function NewsletterEditor({
             <HeaderEditor header={draft.header} onChange={onHeaderChange} selected={selectedId === HEADER_ID}
               onSelect={() => { if (!readOnly) select(HEADER_ID); }} onDone={() => deselect(true)} readOnly={readOnly} padClass={padClass} />
             <div className="py-3">
-              {plus(0, 'Add a section at the top')}
+              {/* The Message section is always first under the header: no + above it. */}
+              {firstInsertIndex(blocks) === 0 ? plus(0, 'Add a section at the top') : null}
               {blocks.length === 0 && !readOnly ? <p className={`${padClass} pb-3 text-center text-sm text-gray-500`}>Tap + to add your first section.</p> : null}
               {blocks.map((block, index) => (
                 <Fragment key={block.id}>
-                  <BlockRow block={block} index={index} count={blocks.length} selected={selectedId === block.id} readOnly={readOnly}
+                  <BlockRow block={block} index={index} count={blocks.length}
+                    canUp={canMoveBlock(blocks, index, -1)} canDown={canMoveBlock(blocks, index, 1)} selected={selectedId === block.id} readOnly={readOnly}
                     problem={problems[block.id] ?? serverBlockError(fieldErrors, index)} padClass={padClass} handlers={handlersFor(block.id)}
                     serverItems={savedItems.get(block.id)} accent={draft.header.background_color} phone={phone} />
                   {plus(index + 1, `Add a section after section ${index + 1}`)}
