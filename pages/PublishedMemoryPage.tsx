@@ -112,7 +112,7 @@ function PublishedWidget({ widget, memoryId, onRequestMoment, onCtaClick }: {
         onCtaClick?.(widget?.id);
         const mid = widget?.memory_id ?? memoryId;
         if (!mid || !widget?.id) return;
-        try { dashboardAPI.trackWidgetClick(String(mid), String(widget.id), qrFromSearch(window.location.search)).catch(() => {}); } catch { /* ignore */ }
+        try { dashboardAPI.trackWidgetClick(String(mid), String(widget.id)).catch(() => {}); } catch { /* ignore */ }
       };
       const ctaButtonStyle: React.CSSProperties = {
         backgroundColor: data.buttonColor || PUB_CTA_DEFAULT_BUTTON_COLOR,
@@ -166,7 +166,7 @@ function PublishedWidget({ widget, memoryId, onRequestMoment, onCtaClick }: {
         onCtaClick?.(widget?.id);
         const mid = widget?.memory_id ?? memoryId;
         if (!mid || !widget?.id) return;
-        try { dashboardAPI.trackWidgetClick(String(mid), String(widget.id), qrFromSearch(window.location.search)).catch(() => {}); } catch { /* ignore */ }
+        try { dashboardAPI.trackWidgetClick(String(mid), String(widget.id)).catch(() => {}); } catch { /* ignore */ }
       };
       return (
         <div className="rounded-2xl bg-white border border-gray-100 overflow-hidden">
@@ -471,9 +471,9 @@ export default function PublishedMemoryPage() {
   // from, forwarded by the /share/memory/{slug} redirect. Empty for organic/
   // untracked visits — useStoreelTracking no-ops entirely in that case.
   const storeelSendToken = searchParams.get('s');
-  // QR codes v2 (3 Nov 2026 evening): opened from a printed QR code (/q/<code> → ?qr=<code>). Every API call below
-  // passes it along: while the code points at this campaign, the API opens it like a Public one (published or not)
-  // and visitors can add moments.
+  // QR codes v2 (3 Nov 2026 evening): opened from a printed QR code (/q/<code> → ?qr=<code>). The campaign, linked
+  // campaigns, comments, the view counter and "Add a moment" pass it along: while the code points at this campaign, the
+  // API opens it like a Public one (published or not) and answers qr_access: true, which turns "Add a moment" on.
   const qr = qrFromSearch(searchParams);
 
   // Image viewer state
@@ -640,6 +640,7 @@ export default function PublishedMemoryPage() {
         setMemoryHistory(prev => [...prev, memoryData]);
         setMemoryData({
           ...newMemory,
+          qr_access: (newMemory?.qr_access ?? rawData?.qr_access) === true,
           linked_memories: newMemory?.linked_memories ?? rawData?.linked_memories ?? [],
           unified_order: newMemory?.unified_order ?? rawData?.unified_order ?? null,
           widgets: newMemory?.widgets ?? rawData?.widgets ?? [],
@@ -1087,6 +1088,8 @@ export default function PublishedMemoryPage() {
           if (memory) {
             setMemoryData({
               ...memory,
+              // Opened through a printed QR code that points here: visitors may add moments, published or not.
+              qr_access: (memory?.qr_access ?? actualData?.qr_access ?? response.data?.qr_access) === true,
               docusign_documents: memory?.docusign_documents ?? actualData?.docusign_documents,
               linked_memories: memory?.linked_memories ?? actualData?.linked_memories ?? [],
               unified_order: memory?.unified_order ?? actualData?.unified_order ?? null,
@@ -1548,8 +1551,8 @@ export default function PublishedMemoryPage() {
   // in widget_order. Widgets with a null/empty after_post_id render at the top.
   // Whether the fixed "Add a moment" bar shows (details where it's drawn, below).
   const publishedValue = memoryData?.published;
-  // Opened from a printed QR code: the API let us in, so visitors may add moments whatever the published state.
-  const acceptsGuestMoments = qr !== null || publishedValue === undefined || publishedValue === null || [1, 2, 3].includes(Number(publishedValue));
+  // Opened from a printed QR code that points here (the API's qr_access): visitors may add moments, published or not.
+  const acceptsGuestMoments = memoryData?.qr_access === true || publishedValue === undefined || publishedValue === null || [1, 2, 3].includes(Number(publishedValue));
   const addMomentBarOn = !viewOnly && !isEmbedded && acceptsGuestMoments && !!memoryData?.id;
   // While that bar shows, an owner's "Share a Moment" button (a CTA saved as request_moment) would be a second
   // copy of it (Chris, 31 Oct): leave those out. They still show where the bar doesn't (view-only, iframes).

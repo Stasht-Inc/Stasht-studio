@@ -1,8 +1,9 @@
 // QR codes v2 (Chris, 3 Nov 2026 evening): a printed QR code opens /published-memory/<slug>?qr=<code> for whichever
 // campaign the code points at now — published or not. The public campaign page (PublishedMemoryPage) passes that
-// code to every API call it makes (the campaign, a linked campaign, comments, the view / click counters, "Add a
-// moment"), and the web API grants Public access while the code still points at that campaign (checked on every
-// request: re-pointing the code takes the old campaign's access away at once).
+// code along: ?qr= on GET /published-memories and GET /memory-detail/{id} (linked campaigns), body qr on POST
+// /memories/submit-photo ("Add a moment"), /memories/{id}/track-view and /memory-images/comments. The web API grants
+// Public access while the code still points at that campaign (checked on every request: re-pointing the code takes the
+// old campaign's access away at once) and answers qr_access: true. Likes, widget clicks and the photo upload need none.
 // Pure, so `node --test` loads it (tests/utils/qrAccess.test.mjs).
 
 /** A QR code's public code as the short URLs carry it: letters and digits, at most 16. */

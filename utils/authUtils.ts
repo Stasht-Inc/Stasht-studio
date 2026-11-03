@@ -2655,6 +2655,7 @@ export const dashboardAPI = {
   },
 
   // Add comment to a post
+  // qr: the printed QR code the public page was opened from (QR codes v2), sent in the body.
   addPostComment: async (postId: string, comment: string, parentId?: string, qr?: string | null): Promise<ApiResponse<any>> => {
     devLog('dashboardAPI.addPostComment: Sending POST request to add comment');
     devLog('Post ID (image_id):', postId);
@@ -2670,8 +2671,9 @@ export const dashboardAPI = {
     if (parentId) {
       requestBody.parent_id = parentId;
     }
+    if (qr) requestBody.qr = qr;
 
-    return await apiRequest(withQr('/memory-images/comments', qr), {
+    return await apiRequest('/memory-images/comments', {
       method: 'POST',
       body: JSON.stringify(requestBody),
     });
@@ -3504,15 +3506,17 @@ export const dashboardAPI = {
   },
 
   // Track a view when someone opens a published memory from a shared link
+  // qr: the printed QR code the public page was opened from (QR codes v2: an unpublished campaign's views count too).
   trackMemoryView: async (memoryId: string | number, qr?: string | null): Promise<ApiResponse<any>> => {
-    return await apiRequest(withQr(`/memories/${memoryId}/track-view`, qr), {
+    return await apiRequest(`/memories/${memoryId}/track-view`, {
       method: 'POST',
+      ...(qr ? { body: JSON.stringify({ qr }) } : {}),
     });
   },
 
   // Track a click on a CTA widget (public endpoint — increments the widget's click_count)
-  trackWidgetClick: async (memoryId: string | number, widgetId: string | number, qr?: string | null): Promise<ApiResponse<any>> => {
-    return await apiRequest(withQr(`/memories/${memoryId}/widgets/${widgetId}/track-click`, qr), {
+  trackWidgetClick: async (memoryId: string | number, widgetId: string | number): Promise<ApiResponse<any>> => {
+    return await apiRequest(`/memories/${memoryId}/widgets/${widgetId}/track-click`, {
       method: 'POST',
     });
   },
@@ -3682,7 +3686,7 @@ export const dashboardAPI = {
   // only risk turning a valid anonymous upload into a 401.
   // Deliberately separate from uploadImageWithMetadata so the normal-memory
   // callers of that function are unaffected.
-  uploadImageWithMetadataPublic: async (file: File, name: string, orientation?: number, qr?: string | null): Promise<ApiResponse<any>> => {
+  uploadImageWithMetadataPublic: async (file: File, name: string, orientation?: number): Promise<ApiResponse<any>> => {
     const formData = new FormData();
     formData.append('name', name);
     formData.append('image', file);
@@ -3692,7 +3696,7 @@ export const dashboardAPI = {
       formData.append('orientation', String(orientation));
     }
 
-    const endpoint = `${getApiBaseUrl()}${withQr('/public/upload-image-with-metadata', qr)}`;
+    const endpoint = `${getApiBaseUrl()}/public/upload-image-with-metadata`;
     devLog('🌐 uploadImageWithMetadataPublic ->', endpoint, { fileName: file.name, size: file.size, type: file.type });
 
     try {
