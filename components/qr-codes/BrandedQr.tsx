@@ -138,8 +138,10 @@ export function QrDownloadMenu({ code, children, disabled }: { code: QrCode; chi
  * Image (Change / Remove) and Colour (Auto, a few presets, Custom) for one code; each change saves at once.
  * onPreview: the colour to draw while the custom picker is open (undefined: the saved one).
  */
-export function QrStyleControls({ code, onChanged, onPreview }: {
+export function QrStyleControls({ code, propertyId, onChanged, onPreview }: {
   code: QrCode;
+  /** The property view's property (null in the account view): the upload is bound to that view's owner. */
+  propertyId: number | string | null;
   onChanged(code: QrCode): void;
   onPreview(color: string | null | undefined): void;
 }) {
@@ -182,7 +184,7 @@ export function QrStyleControls({ code, onChanged, onPreview }: {
       return;
     }
     setBusy('upload');
-    const up = await qrCodesAPI.uploadImage(file);
+    const up = await qrCodesAPI.uploadImage(file, propertyId);
     if (!up.ok || !up.data) {
       setBusy(null);
       toast.error(up.error ?? QR_GENERIC_ERROR);

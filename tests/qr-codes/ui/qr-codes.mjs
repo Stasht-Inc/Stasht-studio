@@ -169,8 +169,11 @@ async function open({ width, height, seed, codes = [], fail = {}, styleAvailable
       return bytes ? route.fulfill({ status: 200, contentType: bytes.contentType, body: bytes.body }) : route.fulfill({ status: 404, json: { success: false, code: 'logo_not_found', message: 'Image not found.' } });
     }
     if (p === '/qr-codes/images' && method === 'POST') {
-      const multipart = (req.headers()['content-type'] || '').startsWith('multipart/form-data') && /name="file"/.test(req.postDataBuffer()?.toString('latin1') || '');
-      state.uploads = [...(state.uploads || []), { multipart }];
+      const raw = req.postDataBuffer()?.toString('latin1') || '';
+      const multipart = (req.headers()['content-type'] || '').startsWith('multipart/form-data') && /name="file"/.test(raw);
+      // property_id (multipart field) binds the upload to that view's owner; absent in the account view.
+      const pidField = raw.match(/name="property_id"\r\n\r\n([^\r]*)\r\n/);
+      state.uploads = [...(state.uploads || []), { multipart, property_id: pidField ? pidField[1] : null }];
       return route.fulfill({ json: { success: true, data: { url: `https://stasht-media.s3.amazonaws.com/qr-codes/custom-${state.uploads.length}.png` } } });
     }
     const one = p.match(/^\/qr-codes\/(\d+)$/);
@@ -178,6 +181,8 @@ async function open({ width, height, seed, codes = [], fail = {}, styleAvailable
       const c = state.codes.find((x) => x.id === Number(one[1]));
       if (!c) return route.fulfill({ status: 404, json: { success: false, message: 'Not found' } });
       if (method === 'PATCH') {
+        // An image uploaded for another account: the API refuses it.
+        if (fail.logoUrl && body?.logo_url) return route.fulfill({ status: 422, json: { success: false, message: 'That image belongs to another account. Please upload it again.', errors: { logo_url: ['That image belongs to another account. Please upload it again.'] } } });
         Object.assign(c, body);
         if (body?.logo_mode === 'default' || body?.logo_mode === 'none') delete c.logo_url;
         return route.fulfill({ json: { success: true, data: row(c) } });
@@ -427,7 +432,7 @@ try {
         const c = document.querySelector('[data-qr-view] img')?.getAttribute('data-qr-color');
         return c && c !== was;
       }, before, { timeout: 8000 }).catch(() => {});
-      expect(state.uploads?.length === 1 && state.uploads[0].multipart, `${tag}: Change image uploads multipart "file" to /qr-codes/images (${JSON.stringify(state.uploads)})`);
+      expect(state.uploads?.length === 1 && state.uploads[0].multipart && state.uploads[0].property_id === null, `${tag}: Change image uploads multipart "file" to /qr-codes/images, no property_id in the account view (${JSON.stringify(state.uploads)})`);
       const setCustom = state.calls.find((c) => c.method === 'PATCH' && c.body?.logo_mode === 'custom');
       expect(setCustom && setCustom.body.logo_url === 'https://stasht-media.s3.amazonaws.com/qr-codes/custom-1.png', `${tag}: then PATCH logo_mode custom + the uploaded logo_url (${JSON.stringify(setCustom?.body)})`);
       expect((state.logoFetches || []).every((u) => u !== 'https://stasht-media.s3.amazonaws.com/qr-codes/custom-1.png'), `${tag}: the uploaded file is drawn from the file in hand, not downloaded again`);
@@ -584,6 +589,27 @@ try {
       const create = state.calls.find((c) => c.method === 'POST' && c.p === '/qr-codes');
       expect(list?.q === '12' && opts?.q === '12' && create?.body.property_id === 12, `${tag}: property view sends property_id 12 (${JSON.stringify([list?.q, opts?.q, create?.body])})`);
       await shot(page, `${tag}-13-property-created`);
+      // Change image in the property view: the upload names the property (as list / create do).
+      await dialog(page).locator('input[type=file]').setInputFiles(YELLOW_FILE);
+      await page.waitForFunction(() => document.querySelector('[data-qr-view] img')?.getAttribute('src')?.includes('base64') && document.querySelector('[data-qr-view] img')?.getAttribute('data-qr-color') !== '#1D4ED8', null, { timeout: 8000 }).catch(() => {});
+      expect(state.uploads?.length === 1 && state.uploads[0].property_id === '12', `${tag}: property view: upload sends property_id 12 (${JSON.stringify(state.uploads)})`);
+      await context.close();
+    }
+    // 6b. The API refuses the uploaded image (422 errors.logo_url): its message shows, the code keeps its image.
+    {
+      const pseed = { stasht_token: 'main-token', stasht_user: MAIN, view_type: 'property', selected_property: PROPERTY, stasht_campaigns_view: 'storeels' };
+      const codes = [{ id: 30, public_code: 'PROP12QR', name: 'Lobby', memory_id: 801, property_id: 12, scan_count: 0, last_scanned_at: null }];
+      const { page, context, state } = await open({ width, height, seed: pseed, codes, fail: { logoUrl: true } });
+      await qrButton(page).click();
+      await dialog(page).getByRole('button', { name: 'Open Lobby' }).click();
+      const view = dialog(page).locator('[data-qr-view] img');
+      await view.waitFor({ timeout: 8000 });
+      await dialog(page).locator('input[type=file]').setInputFiles(YELLOW_FILE);
+      await page.getByText('That image belongs to another account. Please upload it again.').first().waitFor({ timeout: 8000 })
+        .catch(() => failures.push(`${tag}: refused logo_url shows the server message`));
+      expect(state.uploads?.[0]?.property_id === '12', `${tag}: refused case: upload still sent property_id 12`);
+      expect(near(hexPx(await view.getAttribute('data-qr-color')), '#1D4ED8', 12) && await dialog(page).getByRole('button', { name: 'Change image' }).isEnabled(), `${tag}: refused: the code keeps the property image; Change image usable again`);
+      await shot(page, `${tag}-25-logo-url-refused`);
       await context.close();
     }
 

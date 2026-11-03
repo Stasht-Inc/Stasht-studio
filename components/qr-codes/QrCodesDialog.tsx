@@ -165,7 +165,7 @@ export default function QrCodesDialog({ open, onOpenChange, propertyId }: QrCode
         </div>
         {styleAvailable ? (
           <div className="mt-5 w-full border-t border-gray-100 pt-4">
-            <QrStyleControls code={code} onChanged={(c) => { replaceCode(c); setScreen({ name: 'code', code: c }); }} onPreview={setPreview} />
+            <QrStyleControls code={code} propertyId={propertyId} onChanged={(c) => { replaceCode(c); setScreen({ name: 'code', code: c }); }} onPreview={setPreview} />
           </div>
         ) : null}
       </div>

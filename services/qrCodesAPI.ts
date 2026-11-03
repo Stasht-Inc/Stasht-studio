@@ -12,7 +12,8 @@ import {
 //
 // Branded codes (3 Nov 2026): PATCH also takes logo_mode (default | custom | none), logo_url (only a URL our upload
 // answered) and color (#RRGGBB, or null = auto); 503 qr_style_unavailable before the style columns exist.
-// POST /qr-codes/images (multipart, field file: JPG/PNG/GIF/WebP ≤ 5 MB) answers {url}. GET /qr-codes/logo-image?url=
+// POST /qr-codes/images (multipart, field file: JPG/PNG/GIF/WebP ≤ 5 MB; property_id in a property view, which binds
+// the upload to that view's owner) answers {url}; a logo_url from another account is refused (422 errors.logo_url). GET /qr-codes/logo-image?url=
 // answers a logo's bytes from Studio's own origin, so the browser may read its pixels (the colour) and embed it in the
 // downloads (S3 is another origin); logos are never loaded from S3 directly.
 
@@ -68,11 +69,13 @@ export const qrCodesAPI = {
 
   /** Upload an image for a code's centre; answers its URL (then PATCH logo_mode custom + logo_url). Multipart can't
    * go through apiRequest (it forces JSON). */
-  uploadImage: async (file: File): Promise<QrResult<string>> => {
+  uploadImage: async (file: File, propertyId: PropertyId): Promise<QrResult<string>> => {
     const headers = rawHeaders();
     if (!headers) return { ok: false, error: 'Please sign in again.' };
     const form = new FormData();
     form.append('file', file);
+    const pid = withProperty({}, propertyId).property_id;
+    if (pid !== undefined) form.append('property_id', String(pid));
     let response: Response;
     try {
       response = await fetchWithRateLimitRetry(`${getApiBaseUrl()}/qr-codes/images`, { method: 'POST', headers: { ...headers, Accept: 'application/json' }, body: form });
