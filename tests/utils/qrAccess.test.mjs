@@ -4,7 +4,7 @@
 // QR codes v2 (3 Nov 2026 evening): the public campaign page reads ?qr= from its URL and adds it to every API call.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { qrFromSearch, trackViewBody, withQr } from '../../utils/qrAccess.ts';
+import { campaignAccessBody, qrFromSearch, withQr } from '../../utils/qrAccess.ts';
 
 test('the page\'s ?qr=: letters and digits, at most 16; anything else is ignored', () => {
   assert.equal(qrFromSearch('?qr=K7PQ2MZX'), 'K7PQ2MZX');
@@ -31,11 +31,11 @@ test('no code, or a malformed one: the path as it is', () => {
   assert.equal(withQr('/memory-detail/9', undefined), '/memory-detail/9');
 });
 
-test('track-view body: qr and / or the Private page\'s access_token, so the API records the view', () => {
-  assert.deepEqual(trackViewBody('K7PQ2MZX', null), { qr: 'K7PQ2MZX' });
-  assert.deepEqual(trackViewBody(null, 'tok123'), { access_token: 'tok123' });
-  assert.deepEqual(trackViewBody('K7PQ2MZX', ' tok123 '), { qr: 'K7PQ2MZX', access_token: 'tok123' });
-  assert.equal(trackViewBody(null, null), null, 'a Public page: no body, as before');
-  assert.equal(trackViewBody('', '   '), null);
-  assert.deepEqual(trackViewBody('bad code!', 'tok'), { access_token: 'tok' }, 'a malformed code is never sent');
+test('campaign access body (track-view, comments): qr and / or the Private page\'s access_token', () => {
+  assert.deepEqual(campaignAccessBody('K7PQ2MZX', null), { qr: 'K7PQ2MZX' });
+  assert.deepEqual(campaignAccessBody(null, 'tok123'), { access_token: 'tok123' });
+  assert.deepEqual(campaignAccessBody('K7PQ2MZX', ' tok123 '), { qr: 'K7PQ2MZX', access_token: 'tok123' });
+  assert.equal(campaignAccessBody(null, null), null, 'a Public page: no body, as before');
+  assert.equal(campaignAccessBody('', '   '), null);
+  assert.deepEqual(campaignAccessBody('bad code!', 'tok'), { access_token: 'tok' }, 'a malformed code is never sent');
 });

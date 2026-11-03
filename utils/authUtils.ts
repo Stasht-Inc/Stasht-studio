@@ -2,7 +2,7 @@ import { requestUpgrade } from './planEvents';
 import { propertyUpdateFailure } from './propertyImage';
 import { currentPropertyViewHeaders, propertyViewCacheKey } from './inventoryView';
 import { memoryDetailPath } from './memoryDetailPath';
-import { trackViewBody, withQr } from './qrAccess';
+import { campaignAccessBody, withQr } from './qrAccess';
 
 // Auth utility functions for API integration
 
@@ -2655,8 +2655,9 @@ export const dashboardAPI = {
   },
 
   // Add comment to a post
-  // qr: the printed QR code the public page was opened from (QR codes v2), sent in the body.
-  addPostComment: async (postId: string, comment: string, parentId?: string, qr?: string | null): Promise<ApiResponse<any>> => {
+  // The API takes comments only where the campaign is open to the caller: qr (the printed QR code the public page was
+  // opened from) and accessToken (a Private campaign's token) go in the body when present.
+  addPostComment: async (postId: string, comment: string, parentId?: string, qr?: string | null, accessToken?: string | null): Promise<ApiResponse<any>> => {
     devLog('dashboardAPI.addPostComment: Sending POST request to add comment');
     devLog('Post ID (image_id):', postId);
     devLog('Comment:', comment);
@@ -2671,7 +2672,7 @@ export const dashboardAPI = {
     if (parentId) {
       requestBody.parent_id = parentId;
     }
-    if (qr) requestBody.qr = qr;
+    Object.assign(requestBody, campaignAccessBody(qr, accessToken));
 
     return await apiRequest('/memory-images/comments', {
       method: 'POST',
@@ -3509,7 +3510,7 @@ export const dashboardAPI = {
   // The API records a view only when the campaign is open to the caller: qr (the printed QR code the public page was
   // opened from) and accessToken (a Private campaign's token, URL or typed) go in the body when present.
   trackMemoryView: async (memoryId: string | number, qr?: string | null, accessToken?: string | null): Promise<ApiResponse<any>> => {
-    const body = trackViewBody(qr, accessToken);
+    const body = campaignAccessBody(qr, accessToken);
     return await apiRequest(`/memories/${memoryId}/track-view`, {
       method: 'POST',
       ...(body ? { body: JSON.stringify(body) } : {}),

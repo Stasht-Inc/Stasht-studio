@@ -217,11 +217,12 @@ async function open({ width, height, seed, codes = {}, fail = {}, styleAvailable
     if (p === '/published-memories' && published) {
       const byQr = Boolean(published.qr) && url.searchParams.get('qr') === published.qr;
       const byToken = Boolean(published.token) && url.searchParams.get('access_token') === published.token;
-      if (!byQr && !byToken) return route.fulfill({ status: 404, json: { success: false, message: 'Campaign not found' } });
+      if (!byQr && !byToken && !published.open) return route.fulfill({ status: 404, json: { success: false, message: 'Campaign not found' } });
       return route.fulfill({ json: { success: true, data: { memory: published.memory, order_by: 'asc', qr_access: byQr } } });
     }
     if (p === '/public/upload-image-with-metadata') return route.fulfill({ json: { success: true, data: { fileUrl: 'https://stasht-media.s3.amazonaws.com/x/moment.jpg', location: null, capture_date: null, originalSizeMB: 0.01 } } });
     if (p === '/memories/submit-photo') return route.fulfill({ json: { success: true, message: 'Submitted' } });
+    if (p === '/memory-images/comments' && method === 'POST') return route.fulfill({ json: { success: true, data: { comment: { id: 77 } } } });
     if (p === '/properties' && method === 'GET') {
       return route.fulfill({ json: { success: true, data: { properties: ALL_PROPERTIES, owned_properties: [PROPERTY], shared_properties: [P_MANAGED, P_VIEWER], owned_count: 1, shared_count: 2, total_count: 3 } } });
     }
@@ -654,6 +655,27 @@ try {
     const view = state.all.find((c) => c.p === '/memories/804/track-view');
     expect(view && view.body?.access_token === 'tok123' && !('qr' in view.body), `private page: track-view body {access_token} (${JSON.stringify(view?.body)})`);
     await context.close();
+  }
+  // 10d. Comments are gated on campaign access too: a comment on a Private page carries its access_token, one on a QR
+  // visitor's page its qr (body), and a plain Public page sends neither.
+  {
+    const seed = { stasht_token: 'main-token', stasht_user: MAIN, view_type: 'personal' };
+    const post = { id: 5001, name: 'Welcome night', title: 'Welcome night', image_link: '/default-memory-image.jpg', master_image_link: '/default-memory-image.jpg', admin_approval: 1, comments: [], comments_count: 0, user_name: 'Main Dealer', uploaded_at: '2026-11-01T10:00:00Z' };
+    const comment = async (path, published, label, check) => {
+      const memory = { id: 804, title: 'Private VIP Night', published: 3, slug: 'vip', user: { id: 707, name: 'Main Dealer' }, posts: [post], linked_memories: [], widgets: [], created_at: '2026-11-01T10:00:00Z' };
+      const { page, context, state } = await open({ width: 1280, height: 900, seed, path, waitFor: 'none', published: { ...published, memory } });
+      const box = page.getByPlaceholder('Add a comment...').filter({ visible: true }).first();
+      await box.waitFor({ timeout: 30000 }).catch(() => failures.push(`${label}: the moment opens with its comment box`));
+      await box.fill('Great night!');
+      await page.getByRole('button', { name: 'Post' }).filter({ visible: true }).first().click();
+      await page.waitForTimeout(800);
+      const sent = state.all.find((c) => c.method === 'POST' && c.p === '/memory-images/comments');
+      expect(sent && sent.body?.comment === 'Great night!' && String(sent.body.image_id) === '5001' && check(sent.body) && !sent.search, `${label} (${JSON.stringify(sent?.body)})`);
+      await context.close();
+    };
+    await comment('/published-memory/vip?access_token=tok123&post_id=5001', { token: 'tok123' }, 'private page: comment body carries access_token', (b) => b.access_token === 'tok123' && !('qr' in b));
+    await comment('/published-memory/vip?qr=K7PQ2MZX&post_id=5001', { qr: 'K7PQ2MZX' }, 'QR page: comment body carries qr', (b) => b.qr === 'K7PQ2MZX' && !('access_token' in b));
+    await comment('/published-memory/vip?post_id=5001', { open: true }, 'public page: comment body carries neither', (b) => !('qr' in b) && !('access_token' in b));
   }
   // 11. /q/<code> served by the app (an old service worker): straight on to the API host's /q/ redirect, not back here.
   {

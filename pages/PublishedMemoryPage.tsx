@@ -1852,7 +1852,7 @@ export default function PublishedMemoryPage() {
 
     try {
       console.log('Submitting comment for post:', imageViewer.imageId);
-      const response = await dashboardAPI.addPostComment(imageViewer.imageId, newComment.trim(), undefined, qr);
+      const response = await dashboardAPI.addPostComment(imageViewer.imageId, newComment.trim(), undefined, qr, accessToken || enteredAccessToken || null);
 
       if (response.success) {
         toast.success("Comment added successfully!");
