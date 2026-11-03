@@ -104,8 +104,13 @@ export type NewsletterBlock =
   | { id: string; type: 'divider'; data: DividerBlockData }
   | { id: string; type: 'campaigns'; data: CampaignsBlockData };
 
-/** lead: one person, one of the account's leads ("Single person", Chris, 3 Nov 2026; the default for a new newsletter). */
-export type AudienceItem = { type: 'lead'; id: number } | { type: 'all_leads' } | { type: 'lead_group'; id: number } | { type: 'list'; id: number };
+/** lead: one person, one of the account's leads ("Single person", Chris, 3 Nov 2026; the default for a new newsletter).
+ *  person: one person by the email and/or phone (E.164) typed in the composer (Chris, 3 Nov, later); the API finds
+ *  their lead, or creates one, when it is sent. Drafts that saved a lead keep it. */
+export type AudienceItem =
+  | { type: 'lead'; id: number }
+  | { type: 'person'; email?: string; phone?: string }
+  | { type: 'all_leads' } | { type: 'lead_group'; id: number } | { type: 'list'; id: number };
 
 export interface NewsletterCounts {
   recipients: number;
@@ -158,6 +163,9 @@ export interface AudienceCount {
   /** consent_expired (implied consent over 6 months old) and unsupported_number (not a Canadian or US mobile,
    *  texts only): newer API versions only. */
   skipped: { no_email: number; no_phone: number; unsubscribed: number; duplicate: number; consent_expired?: number; unsupported_number?: number };
+  /** Only for an audience of one typed person: per chosen channel, null when their address is reached, else why
+   *  ('unsubscribed', 'no_email', 'no_phone', 'consent_expired', 'unsupported_number'). */
+  person?: Partial<Record<NewsletterChannel, string | null>>;
 }
 
 export type RecipientStatus = 'queued' | 'sent' | 'delivered' | 'failed' | 'skipped';

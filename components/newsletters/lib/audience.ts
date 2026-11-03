@@ -10,7 +10,9 @@ export interface GroupOption { id: number; name: string; member_count: number }
 export const ZERO_COUNT: AudienceCount = { email: 0, sms: 0, skipped: { no_email: 0, no_phone: 0, unsubscribed: 0, duplicate: 0, consent_expired: 0, unsupported_number: 0 } };
 
 export function audienceKey(item: AudienceItem): string {
-  return item.type === 'all_leads' ? 'all_leads' : `${item.type}:${item.id}`;
+  if (item.type === 'all_leads') return 'all_leads';
+  if (item.type === 'person') return `person:${item.email ?? ''}|${item.phone ?? ''}`;
+  return `${item.type}:${item.id}`;
 }
 
 export function hasAudienceItem(audience: AudienceItem[], item: AudienceItem): boolean {
@@ -30,6 +32,7 @@ export function toggleChannel(channels: NewsletterChannel[], channel: Newsletter
 
 function itemName(item: AudienceItem, groups: GroupOption[], lists: Pick<ContactList, 'id' | 'name'>[], person?: string | null): string {
   if (item.type === 'lead') return person || SINGLE_PERSON;
+  if (item.type === 'person') return item.email?.trim() || (item.phone ? formatSentTo(item.phone) : '') || SINGLE_PERSON;
   if (item.type === 'all_leads') return 'All leads';
   if (item.type === 'lead_group') return groups.find((g) => g.id === item.id)?.name ?? 'A lead group that was deleted';
   return lists.find((l) => l.id === item.id)?.name ?? 'A list that was deleted';
@@ -43,8 +46,9 @@ export function audienceLabel(audience: AudienceItem[], groups: GroupOption[], l
 }
 
 // "Single person" (Chris, 3 Nov 2026): first in Send to and the default for a new newsletter, since most go to one
-// prospective buyer. The audience is then just that lead ([{type: 'lead', id}]), or [] until one is picked. It is
-// one or the other: picking All leads, a group or a list leaves Single person, and Single person drops them.
+// prospective buyer. The audience is then just that person: typed in ([{type: 'person', email?, phone?}], person.ts),
+// or a lead an older draft picked ([{type: 'lead', id}]), or [] until someone is typed. It is one or the other:
+// picking All leads, a group or a list leaves Single person, and Single person drops them.
 export const SINGLE_PERSON = 'Single person';
 
 /** The picked lead's id, when the audience is a single person. */
@@ -53,9 +57,9 @@ export function personId(audience: AudienceItem[]): number | null {
   return item && item.type === 'lead' ? item.id : null;
 }
 
-/** Single person shows for a picked lead, and for an empty audience unless the person was choosing lists. */
+/** Single person shows for a picked lead or a typed person, and for an empty audience unless the person was choosing lists. */
 export function isSinglePerson(audience: AudienceItem[], choosingLists = false): boolean {
-  return personId(audience) !== null || (audience.length === 0 && !choosingLists);
+  return personId(audience) !== null || audience.some((a) => a.type === 'person') || (audience.length === 0 && !choosingLists);
 }
 
 /** Send to: just this lead. */
@@ -65,7 +69,7 @@ export function personAudience(leadId: number): AudienceItem[] {
 
 /** All leads, a group or a list ticked or unticked: the single person (if any) goes. */
 export function toggleGroupItem(audience: AudienceItem[], item: AudienceItem): AudienceItem[] {
-  return toggleAudienceItem(audience.filter((a) => a.type !== 'lead'), item);
+  return toggleAudienceItem(audience.filter((a) => a.type !== 'lead' && a.type !== 'person'), item);
 }
 
 /** How a lead reads in the picker: the name, else the email, else the mobile number. */

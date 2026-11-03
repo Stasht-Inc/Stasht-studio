@@ -292,6 +292,8 @@ export function createMockApi(options = {}) {
     groups: options.groups ?? [{ id: 4, name: 'VIP buyers', member_count: 38, members: [], created_at: now(), updated_at: now() }],
     // The owner's leads for "Single person" (GET /newsletters/lead-options).
     leads: options.leads ?? seedLeads(),
+    // Addresses that have unsubscribed (lower-case email, E.164 phone): a typed Single person is refused.
+    unsubscribed: options.unsubscribed ?? [],
     // NewsletterAllowance::summary: *_pending = held back for newsletters sending or scheduled.
     allowance: options.allowance ?? { plan: 'Professional', email_limit: 5000, sms_limit: 500, email_used: 1200, sms_used: 40, email_pending: 0, sms_pending: 0, resets_at: nextReset() },
     sendErrors: options.sendErrors ?? null,
@@ -388,22 +390,44 @@ export function createMockApi(options = {}) {
     let sms = 0;
     let noEmail = 0;
     let noPhone = 0;
+    let unsubscribed = 0;
+    let unsupported = 0;
+    let person = null;
     for (const a of audience || []) {
       if (a.type === 'lead') {
         const l = state.leads.find((x) => x.id === a.id);
         if (l?.email) email += 1; else if (l) noEmail += 1;
         if (l?.phone) sms += 1; else if (l) noPhone += 1;
       }
+      // One person typed in (NewsletterPerson): their addresses for the chosen channels; an unsubscribed one (a
+      // suppression, or an opted-out lead) is left out and said so in `person`; texts only to +1 numbers.
+      if (a.type === 'person') {
+        person = {};
+        if (channels.includes('email')) {
+          const to = String(a.email ?? '').trim().toLowerCase();
+          if (!to) { noEmail += 1; person.email = 'no_email'; }
+          else if (state.unsubscribed.includes(to)) { unsubscribed += 1; person.email = 'unsubscribed'; }
+          else { email += 1; person.email = null; }
+        }
+        if (channels.includes('sms')) {
+          const to = String(a.phone ?? '');
+          if (!to) { noPhone += 1; person.sms = 'no_phone'; }
+          else if (state.unsubscribed.includes(to)) { unsubscribed += 1; person.sms = 'unsubscribed'; }
+          else if (!/^\+1[2-9]\d{2}[2-9]\d{6}$/.test(to)) { unsupported += 1; person.sms = 'unsupported_number'; }
+          else { sms += 1; person.sms = null; }
+        }
+      }
       if (a.type === 'all_leads') { email += 1180; sms += 310; }
       if (a.type === 'lead_group') { email += 36; sms += 30; }
       if (a.type === 'list') { const l = state.lists.find((x) => x.id === a.id); if (l) { email += l.email_count; sms += l.sms_count; } }
     }
-    const onePerson = (audience || []).length > 0 && audience.every((a) => a.type === 'lead');
+    const onePerson = (audience || []).length > 0 && audience.every((a) => a.type === 'lead' || a.type === 'person');
     return {
       email: channels.includes('email') ? email : 0, sms: channels.includes('sms') ? sms : 0,
       skipped: onePerson
-        ? { no_email: channels.includes('email') ? noEmail : 0, no_phone: channels.includes('sms') ? noPhone : 0, unsubscribed: 0, duplicate: 0, unsupported_number: 0, consent_expired: 0 }
+        ? { no_email: channels.includes('email') ? noEmail : 0, no_phone: channels.includes('sms') ? noPhone : 0, unsubscribed, duplicate: 0, unsupported_number: unsupported, consent_expired: 0 }
         : { no_email: 24, no_phone: 0, unsubscribed: 3, duplicate: 11, unsupported_number: 0, consent_expired: 0, ...state.skipped },
+      ...(person && audience.length === 1 ? { person } : {}),
     };
   }
 
@@ -428,7 +452,11 @@ export function createMockApi(options = {}) {
     if (!String(state.brand.business_address ?? '').trim()) errors.business_address = ['Add your business address. It is shown at the bottom of every newsletter.'];
     if (channels.length) {
       const c = audienceCount(n.audience, channels);
-      if (channels.reduce((sum, ch) => sum + c[ch], 0) === 0) errors.audience = ['No one on your recipient lists can be reached by the channels you chose.'];
+      // NewsletterSendCheck::unsubscribedPeople: a typed person who unsubscribed is refused by name of the box.
+      const i = (n.audience || []).findIndex((a) => a.type === 'person');
+      if (c.person?.email === 'unsubscribed') errors[`audience.${i}.email`] = ["This email address has unsubscribed, so it can't get your newsletters."];
+      if (c.person?.sms === 'unsubscribed') errors[`audience.${i}.phone`] = ["This phone number has unsubscribed, so it can't get your texts."];
+      if (!Object.keys(errors).some((k) => k.startsWith('audience.')) && channels.reduce((sum, ch) => sum + c[ch], 0) === 0) errors.audience = ['No one on your recipient lists can be reached by the channels you chose.'];
     }
     if (channels.includes('email') && !n.reply_to_email && !state.owner.email) errors.reply_to_email = ['Add a reply-to email so people can answer you.'];
     return errors;

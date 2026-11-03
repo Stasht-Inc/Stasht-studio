@@ -9,7 +9,7 @@ import { sendToAllLeads } from '../steps.mjs';
 async function fillAll(page, { replyTo = 'sales@serpachrysler.ca' } = {}) {
   const preview = page.locator('aside');
   // A new newsletter starts on Single person (Chris, 3 Nov): these checks send to All leads.
-  if (await page.locator('#nl-step-recipients').getByRole('button', { name: /^Person/ }).count()) await sendToAllLeads(page);
+  if (await page.locator('#nl-person-email').count()) await sendToAllLeads(page);
   await page.locator('#nl-name').fill('Send check');
   await page.locator('#nl-from-name').fill('Serpa Chrysler');
   if (replyTo !== null) await page.locator('#nl-reply-to').fill(replyTo);

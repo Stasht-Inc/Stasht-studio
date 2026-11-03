@@ -4,6 +4,7 @@ import type { ScheduleChoice } from './schedule.ts';
 import { fieldProblems } from './draft.ts';
 import { blocksProblems } from './blocks.ts';
 import { formatCount, reachable } from './audience.ts';
+import { personSendProblem } from './person.ts';
 import { scheduleProblem, textQuietHoursProblem } from './schedule.ts';
 import { smsPartsInfo } from './smsParts.ts';
 import { userLocale } from './locale.ts';
@@ -52,6 +53,7 @@ export function preSendProblems(d: NewsletterDraft, counts: AudienceCount | null
 
   if (!d.audience.length) out.recipients = 'Choose who gets this newsletter.';
   else if (!d.channels.length) out.recipients = 'Choose email, text or both.';
+  else if (personSendProblem(d.audience, d.channels, counts)) out.recipients = personSendProblem(d.audience, d.channels, counts) as string;
   else if (d.channels.includes('sms') && !d.sms_text.trim()) out.recipients = 'Write the text message.';
   else if (live.sms_text) out.recipients = live.sms_text;
   else if (d.channels.includes('sms') && smsPartsInfo(d.from_name.trim() || fallbackFromName, d.sms_text).problem) {
