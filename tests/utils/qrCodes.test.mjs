@@ -20,7 +20,7 @@ test('a code reads as the window needs it', () => {
   assert.deepEqual(normalizeQrCode(ROW), {
     id: 7, publicCode: 'K7PQ2MZX', name: 'Front window', memoryId: 801, campaignTitle: 'Fall Promo', campaignUsable: true,
     shortUrl: 'https://studio.stasht.com/q/K7PQ2MZX', scanCount: 12, lastScannedAt: '2026-11-02T10:00:00Z',
-    logoMode: 'default', logoUrl: null, color: null,
+    logoMode: 'default', logoUrl: null, logoDefaultUrl: null, color: null,
   });
 });
 
@@ -36,6 +36,10 @@ test('branded codes: logo {mode, url} and color (null = auto); older answers dra
   const none = normalizeQrCode({ ...ROW, logo: { mode: 'none', url: avatar } });
   assert.equal(none.logoMode, 'none');
   assert.equal(none.logoUrl, null, 'no logo: nothing to draw, whatever url says');
+  // default_url: the avatar "Use profile picture" goes back to (offered only when there is one).
+  assert.equal(normalizeQrCode({ ...ROW, logo: { mode: 'none', url: null, default_url: avatar } }).logoDefaultUrl, avatar);
+  assert.equal(normalizeQrCode({ ...ROW, logo: { mode: 'custom', url: avatar, default_url: null } }).logoDefaultUrl, null);
+  assert.equal(c.logoDefaultUrl, avatar);
   assert.equal(normalizeQrCode({ ...ROW, logo: { mode: 'weird', url: null } }).logoMode, 'default');
   assert.equal(normalizeQrCode({ ...ROW, logo: { mode: 'default', url: null } }).logoUrl, null, 'no avatar: no centre image');
   // Flat fields, in case the API sends them that way.

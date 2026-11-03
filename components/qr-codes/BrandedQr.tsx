@@ -133,7 +133,7 @@ export function QrStyleControls({ code, onChanged, onPreview }: {
   onChanged(code: QrCode): void;
   onPreview(color: string | null | undefined): void;
 }) {
-  const [busy, setBusy] = useState<'upload' | 'remove' | 'color' | null>(null);
+  const [busy, setBusy] = useState<'upload' | 'remove' | 'default' | 'color' | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const customRef = useRef<HTMLInputElement>(null);
   const swatchRefs = useRef<Array<HTMLButtonElement | null>>([]);
@@ -142,6 +142,8 @@ export function QrStyleControls({ code, onChanged, onPreview }: {
   const presetIndex = saved ? COLOR_PRESETS.findIndex((p) => p.hex === saved) : -1;
   const custom = saved !== null && presetIndex === -1;
   const hasImage = code.logoUrl !== null;
+  // Offered when the code shows its own image or none, and there is a default to go back to.
+  const canUseDefault = code.logoMode !== 'default' && code.logoDefaultUrl !== null;
 
   const saveColor = async (color: string | null) => {
     if (color === saved) { onPreview(undefined); return; }
@@ -186,9 +188,10 @@ export function QrStyleControls({ code, onChanged, onPreview }: {
     }
   };
 
-  const removeImage = async () => {
-    setBusy('remove');
-    const res = await qrCodesAPI.update(code.id, { logo_mode: 'none' });
+  // Remove image (logo_mode none), or go back to the default image (logo_mode default).
+  const setLogoMode = async (mode: 'none' | 'default') => {
+    setBusy(mode === 'none' ? 'remove' : 'default');
+    const res = await qrCodesAPI.update(code.id, { logo_mode: mode });
     setBusy(null);
     if (res.ok && res.data) onChanged(res.data);
     else toast.error(res.error ?? QR_GENERIC_ERROR);
@@ -210,24 +213,29 @@ export function QrStyleControls({ code, onChanged, onPreview }: {
 
   return (
     <div className="w-full space-y-3 text-left">
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-        <span className="w-14 flex-shrink-0 text-sm font-medium text-gray-900">Image</span>
-        <div className="flex flex-wrap items-center gap-2">
+      <div className="flex items-start gap-3">
+        <span className="w-14 flex-shrink-0 pt-1.5 text-sm font-medium text-gray-900">Image</span>
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
           <button type="button" onClick={() => fileRef.current?.click()} disabled={busy !== null} className={BUTTON_SMALL}>
             {busy === 'upload' ? <><Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />Uploading…</> : hasImage ? 'Change image' : 'Add image'}
           </button>
           {hasImage ? (
-            <button type="button" onClick={() => void removeImage()} disabled={busy !== null} className={BUTTON_SMALL}>
+            <button type="button" onClick={() => void setLogoMode('none')} disabled={busy !== null} className={BUTTON_SMALL}>
               {busy === 'remove' ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> : null}Remove image
+            </button>
+          ) : null}
+          {canUseDefault ? (
+            <button type="button" onClick={() => void setLogoMode('default')} disabled={busy !== null} className={BUTTON_SMALL}>
+              {busy === 'default' ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> : null}Use profile picture
             </button>
           ) : null}
           <input ref={fileRef} type="file" accept={IMAGE_TYPES.join(',')} className="hidden" aria-label="Image for the QR code"
             onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; void pickFile(f); }} />
         </div>
       </div>
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-        <span id={`qr-colour-${code.id}`} className="w-14 flex-shrink-0 text-sm font-medium text-gray-900">Colour</span>
-        <div className="flex flex-wrap items-center gap-2">
+      <div className="flex items-start gap-3">
+        <span id={`qr-colour-${code.id}`} className="w-14 flex-shrink-0 pt-1 text-sm font-medium text-gray-900">Colour</span>
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
           <div role="radiogroup" aria-labelledby={`qr-colour-${code.id}`} className="flex flex-wrap items-center gap-2">
             <button
               ref={(el) => { swatchRefs.current[0] = el; }}

@@ -37,6 +37,8 @@ export interface QrCode {
   logoMode: QrLogoMode;
   /** The image in the middle (resolved by the API, also for the default avatar); null: none to draw. */
   logoUrl: string | null;
+  /** The default image (avatar / property image) "Use profile picture" goes back to; null: there is none. */
+  logoDefaultUrl: string | null;
   /** The saved colour (#RRGGBB); null: auto (the logo's main colour). */
   color: string | null;
 }
@@ -129,6 +131,7 @@ export function normalizeQrCode(raw: unknown): QrCode | null {
     lastScannedAt: text(raw.last_scanned_at),
     logoMode,
     logoUrl,
+    logoDefaultUrl: text(logo ? logo.default_url : raw.logo_default_url),
     color: normalizeHex(raw.color),
   };
 }
