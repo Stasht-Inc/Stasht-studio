@@ -10,7 +10,7 @@ import assert from 'node:assert/strict';
 import sharp from 'sharp';
 import jsQRModule from 'jsqr';
 import {
-  COLOR_PRESETS, DOT_RADIUS, alignmentCentres, FALLBACK_COLOR, LOGO_RATIO, MIN_CONTRAST, QUIET_ZONE, contrastWithWhite, dominantColor, hexToRgb, logoFit, logoPlacement,
+  COLOR_PRESETS, DOT_RADIUS, alignmentCentres, FALLBACK_COLOR, LOGO_CIRCLE_RATIO, LOGO_RATIO, MIN_CONTRAST, QUIET_ZONE, contrastWithWhite, dominantColor, hexToRgb, logoFit, logoPlacement,
   normalizeHex, printSafeColor, qrDrawColor, qrLayout, qrMatrix, qrSvg, rgbToHsl, svgDataUrl,
 } from '../../utils/qrStyle.ts';
 
@@ -39,10 +39,12 @@ const YELLOW_LOGO = svgLogo('<circle cx="200" cy="200" r="120" fill="#FDE047"/><
 // A black wordmark on white, wide (no brand colour: near-black fallback; fits inside the circle whole).
 const WORDMARK = svgLogo('<rect width="800" height="240" fill="#fff"/><rect x="40" y="60" width="720" height="120" rx="20" fill="#111"/>', 800, 240);
 
-async function decodeSvg(svg, size, { flatten = false } = {}) {
+async function decodeSvg(svg, size, { flatten = false, blur = 0 } = {}) {
   let img = sharp(Buffer.from(svg)).resize(size, size);
   if (flatten) img = img.flatten({ background: '#ffffff' });
-  const { data, info } = await img.ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+  let png = await img.png().toBuffer();
+  if (blur) png = await sharp(png).blur(blur).png().toBuffer();
+  const { data, info } = await sharp(png).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
   const found = jsQR(new Uint8ClampedArray(data.buffer, data.byteOffset, data.length), info.width, info.height);
   return found ? found.data : null;
 }
@@ -79,9 +81,13 @@ test('layout: a 4-module quiet zone, three rounded finder squares, dots elsewher
   const branded = qrLayout(URL8, true);
   assert.ok(branded.logo);
   assert.equal(branded.logo.cx, QUIET_ZONE + 37 / 2);
-  assert.ok((branded.logo.imageR * 2) / 37 <= LOGO_RATIO + 1e-9, 'logo at most 22% of the width');
-  assert.ok(branded.logo.circleR > branded.logo.imageR, 'white padding around the logo');
-  assert.ok(branded.hiddenDark > 0 && branded.hiddenDark / branded.darkTotal < 0.12, `logo hides ${branded.hiddenDark}/${branded.darkTotal} dark modules — well within H's 30%`);
+  // Close to the reference (~38%): the white circle is 35% of the code's width, the logo 29% (padding around it).
+  assert.equal(LOGO_CIRCLE_RATIO, 0.35);
+  assert.equal(LOGO_RATIO, 0.29);
+  assert.ok(Math.abs((branded.logo.circleR * 2) / 37 - 0.35) < 1e-9, 'white circle 35% of the width');
+  assert.ok(Math.abs((branded.logo.imageR * 2) / 37 - 0.29) < 1e-9, 'logo 29% of the width');
+  assert.ok(branded.logo.circleR - branded.logo.imageR >= 1, 'at least a module of white padding around the logo');
+  assert.ok(branded.hiddenDark > 0 && branded.hiddenDark / branded.darkTotal < 0.14, `logo hides ${branded.hiddenDark}/${branded.darkTotal} dark modules — well within H's 30%`);
 });
 
 test('dominant colour: the logo\'s brand colour, ignoring transparent / white / black / grey pixels', async () => {
@@ -152,7 +158,7 @@ test('SVG: self-contained (logo as a data URI, nothing fetched), vector, white o
   assert.ok(qrSvg(URL8, { color: '#FDE047', background: 'white', logo: null }).includes(`fill="${printSafeColor('#FDE047')}"`), 'drawn print safe');
 });
 
-test('scans: every look decodes with jsQR at 4096 px and downscaled to 300 px', async () => {
+test('scans: every look decodes with jsQR at 4096 px, downscaled to 300 and 200 px, and slightly blurred', async () => {
   const green = await pngDataUri(GREEN_LOGO);
   const yellow = await pngDataUri(YELLOW_LOGO);
   const wordmark = await pngDataUri(WORDMARK);
@@ -170,9 +176,27 @@ test('scans: every look decodes with jsQR at 4096 px and downscaled to 300 px', 
   for (const c of cases) {
     for (const background of ['white', 'transparent']) {
       const svg = qrSvg(c.text, { color: c.color, background, logo: c.logo }, 4096);
-      for (const size of [4096, 300]) {
-        const got = await decodeSvg(svg, size, { flatten: background === 'transparent' });
-        assert.equal(got, c.text, `${c.name}, ${background}, ${size}px`);
+      for (const [size, blur] of [[4096, 0], [300, 0], [200, 0], [300, 1.2]]) {
+        const got = await decodeSvg(svg, size, { flatten: background === 'transparent', blur });
+        assert.equal(got, c.text, `${c.name}, ${background}, ${size}px${blur ? `, blurred ${blur}` : ''}`);
+      }
+    }
+  }
+});
+
+// Why 35%: a sweep over 12 codes × 3 logos × white/transparent × (4096, 300, 200 px, blurred) decoded every one up to a
+// 46% circle and first failed at 50%. This keeps that margin checked: ten more codes (other mask patterns) still scan
+// at our size, and a circle a quarter wider (44%) still scans too.
+test('size margin: 35% scans on many codes; a 44% circle still scans', async () => {
+  const green = await pngDataUri(GREEN_LOGO);
+  const yellow = await pngDataUri(YELLOW_LOGO);
+  const codes = ['A7KGZTL2', 'Z6BJTSPG', 'Q2WE9RTY', 'M4NB8VCX', 'H3JK7LPA', 'T9YU2IOP', 'C5VB6NMZ', 'R8EW3QAS', 'P2LK9JHG', 'X7CV4BNM']
+    .map((c) => `https://studio.stasht.com/q/${c}`);
+  for (const text of codes) {
+    for (const [ratio, logo, color] of [[LOGO_CIRCLE_RATIO, yellow, printSafeColor('#FDE047')], [0.44, green, '#00704A']]) {
+      const svg = qrSvg(text, { color, background: 'white', logo, circleRatio: ratio }, 2048);
+      for (const [size, blur] of [[300, 0], [200, 0], [300, 1.2]]) {
+        assert.equal(await decodeSvg(svg, size, { blur }), text, `${text.slice(-8)} circle ${ratio}, ${size}px${blur ? ' blurred' : ''}`);
       }
     }
   }

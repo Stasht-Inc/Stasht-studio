@@ -3,8 +3,9 @@
 // white circle in the middle. Pure, so `node --test` loads it directly (tests/utils/qrStyle.test.mjs decodes the result
 // with a real QR reader).
 //
-// Print safety: error correction H (30% of the code may be lost), a quiet zone of 4 modules, the logo at most 22% of
-// the code's width, and a colour that keeps at least 4.5:1 contrast against white (a too light brand colour is darkened,
+// Print safety: error correction H (30% of the code may be lost), a quiet zone of 4 modules, the logo's white circle
+// 35% of the code's width (close to the reference's ~38%; jsQR still reads every look with a 46% circle — the tests
+// keep that margin checked), and a colour that keeps at least 4.5:1 contrast against white (a too light brand colour is darkened,
 // same hue).
 
 import qrcode from 'qrcode-generator';
@@ -13,9 +14,9 @@ export const QR_LEVEL = 'H' as const;
 /** Light modules around the code, in modules (the QR standard asks for 4). */
 export const QUIET_ZONE = 4;
 /** The logo's diameter as a share of the code's width (quiet zone not counted). */
-export const LOGO_RATIO = 0.22;
-/** The white circle behind the logo, as a share of the code's width: the logo plus a little padding. */
-export const LOGO_CIRCLE_RATIO = 0.27;
+export const LOGO_RATIO = 0.29;
+/** The white circle behind the logo, as a share of the code's width: the logo plus about a module of padding. */
+export const LOGO_CIRCLE_RATIO = 0.35;
 /** Dot modules: radius in modules (0.5 would touch the next dot). */
 export const DOT_RADIUS = 0.45;
 /** The colour used when the logo has no usable colour (or there is no logo). */
@@ -126,13 +127,13 @@ export function alignmentCentres(modules: number): Array<[number, number]> {
  * Where everything goes, in modules. withLogo: leave a white circle in the middle (every module whose dot would touch
  * it is left out, so the logo never sits on half dots).
  */
-export function qrLayout(text: string, withLogo: boolean): QrLayout {
+export function qrLayout(text: string, withLogo: boolean, circleRatio: number = LOGO_CIRCLE_RATIO): QrLayout {
   const matrix = qrMatrix(text);
   const n = matrix.length;
   const q = QUIET_ZONE;
   const centre = q + n / 2;
   const logo: QrLogoSpot | null = withLogo
-    ? { cx: centre, cy: centre, circleR: (n * LOGO_CIRCLE_RATIO) / 2, imageR: (n * LOGO_RATIO) / 2 }
+    ? { cx: centre, cy: centre, circleR: (n * circleRatio) / 2, imageR: (n * circleRatio * (LOGO_RATIO / LOGO_CIRCLE_RATIO)) / 2 }
     : null;
   const d = DOT_RADIUS;
   const hidden = (x: number, y: number) => Boolean(logo && Math.hypot(x - logo.cx, y - logo.cy) < logo.circleR + d);
@@ -356,6 +357,8 @@ export interface QrDrawOptions {
   /** White behind the code, or nothing (for coloured garments). The logo keeps its white circle either way. */
   background: 'white' | 'transparent';
   logo: QrLogoImage | null;
+  /** The white circle's share of the code's width (default LOGO_CIRCLE_RATIO; tests try others). */
+  circleRatio?: number;
 }
 
 /**
@@ -364,7 +367,7 @@ export interface QrDrawOptions {
  */
 export function qrSvg(text: string, options: QrDrawOptions, pixels = 1024): string {
   const logo = options.logo && /^data:image\/(png|jpeg|webp|gif|svg\+xml);base64,[A-Za-z0-9+/=]+$/.test(options.logo.href) ? options.logo : null;
-  const layout = qrLayout(text, Boolean(logo));
+  const layout = qrLayout(text, Boolean(logo), options.circleRatio);
   const color = printSafeColor(options.color);
   const s = layout.size;
   const parts: string[] = [
@@ -401,10 +404,10 @@ export const svgDataUrl = (svg: string): string => `data:image/svg+xml;charset=u
 export function paintQr(
   ctx: CanvasRenderingContext2D,
   text: string,
-  options: { color: string; background: 'white' | 'transparent'; image: CanvasImageSource | null; imageWidth: number; imageHeight: number },
+  options: { color: string; background: 'white' | 'transparent'; image: CanvasImageSource | null; imageWidth: number; imageHeight: number; circleRatio?: number },
   px: number,
 ): void {
-  const layout = qrLayout(text, Boolean(options.image));
+  const layout = qrLayout(text, Boolean(options.image), options.circleRatio);
   const scale = px / layout.size;
   const color = printSafeColor(options.color);
   ctx.save();

@@ -15,7 +15,7 @@ export interface PreparedLogo {
   image: HTMLImageElement;
 }
 
-/** Largest side kept: the logo is 22% of a 4096 px PNG (~900 px), so this stays sharp in print. */
+/** Largest side kept: the logo is 29% of a 4096 px PNG's code (~970 px), so this stays sharp in print. */
 const MAX_SIDE = 1024;
 const SAMPLE = 64;
 const MAX_BYTES = 15 * 1024 * 1024;
