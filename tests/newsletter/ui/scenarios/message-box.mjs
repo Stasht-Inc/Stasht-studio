@@ -85,7 +85,7 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
   // Ticking Text message shows the SMS lines.
   await step.getByRole('checkbox', { name: /Text message/ }).check();
   await expectVisible(step.getByText('We add a link to the newsletter and "Reply STOP to opt out."'), 'link line with Text message');
-  await expectVisible(step.getByText('Sent as 1 text message.').first(), 'parts line with Text message');
+  await expectVisible(step.getByText('Sent as 1 text message (max 10).').first(), 'parts line with Text message');
   await expectVisible(step.getByText('People get:'), '"People get:" with Text message');
   await shot(page, '1280-02-with-texts');
   await context.close();

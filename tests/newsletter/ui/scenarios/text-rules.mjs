@@ -19,18 +19,18 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
   const { page, context } = await open({ width: 1280, height: 1900, api, query: '&newsletterId=23', timezoneId: TZ });
   const step = page.locator('#nl-step-recipients');
   const box = step.getByLabel('Message (optional)', { exact: true });
-  await expectVisible(step.getByText('Sent as 1 text message.').first(), 'one part');
+  await expectVisible(step.getByText('Sent as 1 text message (max 10).').first(), 'one part');
 
   await box.fill('Sale 😀 this weekend only');
-  await expectVisible(step.getByText('Sent as 2 text messages.').first(), 'emoji: two parts');
+  await expectVisible(step.getByText('Sent as 2 text messages (max 10).').first(), 'emoji: two parts');
   await expectVisible(step.getByText(/Emoji and some special characters make each part hold 70 characters/), 'emoji warning');
   await shot(page, '1280-01-parts');
 
-  // No limit on parts any more (Chris, 3 Nov): 110 "ą" go out as one long text; only over 1,600 characters is refused.
+  // A long text goes out as one long text (Chris, 3 Nov) of at most 10 parts: 110 "ą" are 4; 700 are too many.
   await box.fill('ą'.repeat(110));
-  await expectVisible(step.getByText('Sent as 4 text messages.').first(), 'a long text: more parts, not refused');
-  await box.fill('ą'.repeat(1600));
-  await expectVisible(step.getByText(/^This text is too long to send as a text message \(1,\d{3} of 1,600 characters/), 'too long: the API words');
+  await expectVisible(step.getByText('Sent as 4 text messages (max 10).').first(), 'a long text: more parts, not refused');
+  await box.fill('ą'.repeat(700));
+  await expectVisible(step.getByText(/^This text would go out as \d+ text messages, more than the 10 allowed\. Shorten it or remove emoji\.$/), 'too long: the API words');
   await box.fill('October deals are here.');
   expect(!(await step.getByText(/Emoji and some special/).count()), 'no warning for plain text');
 
@@ -70,11 +70,11 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
   // The API's sms_text parts error shows under the text box.
   await second.context.close();
 
-  const api3 = createMockApi({ newsletters: [ready({ from_name: null })], businessAddress: '4505 Steeles Ave W', sendErrors: { sms_text: ['This text is too long once sent (4 parts). Shorten it or remove emoji.'] } });
+  const api3 = createMockApi({ newsletters: [ready({ from_name: null })], businessAddress: '4505 Steeles Ave W', sendErrors: { sms_text: ['This text would go out as 11 text messages, more than the 10 allowed. Shorten it or remove emoji.'] } });
   const third = await open({ width: 1280, height: 1900, api: api3, query: '&newsletterId=23', timezoneId: TZ });
   await third.page.getByRole('button', { name: 'Send now' }).last().click();
   await third.page.getByRole('dialog', { name: 'Send this newsletter now?' }).getByRole('button', { name: 'Send Now' }).click();
-  await expectVisible(third.page.locator('#nl-step-recipients').getByText('This text is too long once sent (4 parts). Shorten it or remove emoji.'), 'server parts error under the text');
+  await expectVisible(third.page.locator('#nl-step-recipients').getByText('This text would go out as 11 text messages, more than the 10 allowed. Shorten it or remove emoji.'), 'server parts error under the text');
   await third.context.close();
 
   for (const width of [360, 375, 390]) {

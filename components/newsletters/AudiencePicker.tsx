@@ -9,6 +9,7 @@ import LeadPicker from './LeadPicker';
 import { withoutList } from './lib/manageLists';
 import { moveFocusWithArrows } from './arrowKeys';
 import { useAudienceSources } from './hooks/useAudienceSources';
+import { useAutoGrow } from './hooks/useAutoGrow';
 import type { AudienceCountState } from './hooks/useAudienceCount';
 import {
   SINGLE_PERSON, audienceKey, audienceLabel, countSummary, formatCount, hasAudienceItem, isSinglePerson, personAudience, personId, skippedSummary, smsInfo,
@@ -90,6 +91,9 @@ export default function AudiencePicker({ audience, channels, smsText, fromName, 
   // updated in the same draft update as sms_text so autosave sends both together; it is the text too when Text
   // message is ticked.
   const texts = channels.includes('sms');
+  // Grows with the text: 2 lines up to 10, then it scrolls (review, 3 Nov).
+  const messageRef = useRef<HTMLTextAreaElement>(null);
+  useAutoGrow(messageRef, smsText, 2, 10);
   const changeMessage = (value: string) => onChange((latest) => {
     const blocks = syncMessageBlock(latest.blocks, value);
     return blocks === latest.blocks ? { sms_text: value } : { sms_text: value, blocks };
@@ -221,7 +225,7 @@ export default function AudiencePicker({ audience, channels, smsText, fromName, 
         <div>
           <label htmlFor="nl-sms-text" className={LABEL}>Message<span className="font-normal text-gray-500"> (optional)</span></label>
           <p id="nl-message-hint" className="-mt-0.5 mb-1.5 text-xs text-gray-500">A short note at the top of your email, above your sections. If Text message is ticked, it's also sent as the text.</p>
-          <textarea id="nl-sms-text" rows={2} value={smsText} disabled={readOnly} placeholder="October deals are here."
+          <textarea ref={messageRef} id="nl-sms-text" rows={2} value={smsText} disabled={readOnly} placeholder="October deals are here."
             aria-invalid={Boolean(smsError)} aria-describedby="nl-message-hint nl-sms-help"
             onChange={(e) => changeMessage(e.target.value)} className={textareaClass(Boolean(smsError))} />
           <div id="nl-sms-help" className="mt-1.5 flex items-start justify-between gap-3 text-xs">

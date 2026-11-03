@@ -101,7 +101,7 @@ test('preSendProblems: a text longer than Twilio takes and a text time in quiet 
   // 4 parts used to be refused: now it goes out as one long text (Chris, 3 Nov).
   assert.equal(preSendProblems({ ...base, sms_text: 'ą'.repeat(120), from_name: 'Serpa Chrysler' }, null, { mode: 'now' }, now).recipients, undefined);
   const long = preSendProblems({ ...base, sms_text: 'a'.repeat(1600), from_name: 'Serpa Chrysler' }, null, { mode: 'now' }, now);
-  assert.match(long.recipients, /^This text is too long to send as a text message \(1,703 of 1,600 characters/);
+  assert.equal(long.recipients, 'This text would go out as 12 text messages, more than the 10 allowed. Shorten it or remove emoji.');
   const tz = process.env.TZ;
   process.env.TZ = 'America/Toronto';
   try {

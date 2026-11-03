@@ -2,8 +2,9 @@
 // GSM-7 = 160 characters in one part, 153 per part after (^{}\[~]|€ take two places); any other character makes the
 // whole text UCS-2 = 70 UTF-16 units in one part, 67 per part (an emoji takes two). A two-place character or an
 // emoji never splits across parts: it starts the next one. The monthly text allowance counts parts.
-// Chris, 3 Nov 2026: a long message goes out as one long text, so there is no limit on parts any more, only what
-// Twilio takes in one message (SMS_BODY_MAX, NewsletterSms::MAX_BODY_UNITS; NewsletterSendCheck::smsTooLong).
+// Chris, 3 Nov 2026: a long message goes out as one long text, of at most MAX_SMS_PARTS parts (the API's
+// newsletters.sms.max_segments default) and never longer than Twilio takes in one message (SMS_BODY_MAX,
+// NewsletterSms::MAX_BODY_UNITS). NewsletterSendCheck::smsTooLong says the same words.
 import { smsPlain } from './rules.ts';
 
 const GSM_BASIC = new Set([..."@£$¥èéùìòÇ\nØø\rÅåΔ_ΦΓΛΩΠΨΣΘΞÆæßÉ !\"#¤%&'()*+,-./0123456789:;<=>?¡ABCDEFGHIJKLMNOPQRSTUVWXYZÄÖÑÜ§¿abcdefghijklmnopqrstuvwxyzäöñüà"]);
@@ -11,6 +12,9 @@ const GSM_EXTENDED = new Set([...'^{}\\[~]|€\f']);
 
 /** Twilio refuses a text longer than 1,600 characters; counted in UTF-16 units (String.length), as the API does. */
 export const SMS_BODY_MAX = 1600;
+/** The most parts a newsletter text may take: the API's newsletters.sms.max_segments default (NEWSLETTER_SMS_MAX_SEGMENTS
+ *  can change it there; keep the two in step). */
+export const MAX_SMS_PARTS = 10;
 /** NewsletterRenderer::SMS_FROM_MAX: the business name before the text is cut to this many characters. */
 export const SMS_FROM_MAX = 25;
 /**
@@ -76,19 +80,22 @@ export interface SmsPartsInfo {
 
 const count = (n: number) => n.toLocaleString('en-US');
 
-export function smsPartsInfo(fromName: string, smsText: string): SmsPartsInfo {
+/** maxParts: null = no limit on parts (only Twilio's SMS_BODY_MAX), as the API with NEWSLETTER_SMS_MAX_SEGMENTS=0. */
+export function smsPartsInfo(fromName: string, smsText: string, maxParts: number | null = MAX_SMS_PARTS): SmsPartsInfo {
   const text = finalSmsText(fromName, smsText);
   const s = smsSegments(text);
   const parts = Math.max(1, s.segments);
   const length = text.length;
-  const tooLong = length > SMS_BODY_MAX;
-  const problem = tooLong
-    ? `This text is too long to send as a text message (${count(length)} of ${count(SMS_BODY_MAX)} characters, with your name, the link and "Reply STOP to opt out."). Shorten it, or untick Text message.`
-    : null;
-  return { parts, unicode: s.encoding === 'UCS-2', length, tooLong, problem };
+  let problem: string | null = null;
+  if (maxParts !== null && parts > maxParts) {
+    problem = `This text would go out as ${parts} text messages, more than the ${maxParts} allowed. Shorten it or remove emoji.`;
+  } else if (length > SMS_BODY_MAX) {
+    problem = `This text is too long to send as a text message (${count(length)} of ${count(SMS_BODY_MAX)} characters, with your name, the link and "Reply STOP to opt out."). Shorten it, or untick Text message.`;
+  }
+  return { parts, unicode: s.encoding === 'UCS-2', length, tooLong: problem !== null, problem };
 }
 
 /** The hint under the Message box when Text message is ticked: how many texts each person's message is sent as. */
 export function smsPartsLabel(parts: number): string {
-  return `Sent as ${parts} text ${parts === 1 ? 'message' : 'messages'}.`;
+  return `Sent as ${parts} text ${parts === 1 ? 'message' : 'messages'} (max ${MAX_SMS_PARTS}).`;
 }

@@ -94,7 +94,7 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
   expect(await live.textContent() === '', 'nothing announced while it stays at 1 part');
   await step.getByLabel('Message (optional)', { exact: true }).fill('Sale 😀 this weekend');
   await page.waitForTimeout(200);
-  expect(await live.textContent() === 'Sent as 2 text messages.', 'announced when it becomes 2 parts');
+  expect(await live.textContent() === 'Sent as 2 text messages (max 10).', 'announced when it becomes 2 parts');
   expect(!(await step.locator('p[aria-live]').filter({ hasText: 'Sent as' }).count()), 'the visible line is not a live region');
   await context.close();
 
