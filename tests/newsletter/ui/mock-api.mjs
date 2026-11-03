@@ -290,6 +290,8 @@ export function createMockApi(options = {}) {
     planFailures: options.planFailures ?? 0,
     // Image uploads answer after this many ms (to act while one is on its way).
     uploadDelayMs: options.uploadDelayMs ?? 0,
+    // The link POST /newsletters/images answers with (default IMG); a scenario may change it between uploads.
+    uploadUrl: options.uploadUrl ?? null,
     // Tests left this hour (NewsletterTestSendController's RateLimiter); then 429 with its own message.
     testsLeft: options.testsLeft ?? Infinity,
     // PUT fields to refuse with a 422 ({field: message}), as the API does for a value it won't take.
@@ -719,7 +721,7 @@ export function createMockApi(options = {}) {
       return ok(n, 201);
     }
     if (path === '/newsletters/audience-count') return ok(audienceCount(body?.audience, body?.channels || []));
-    if (path === '/newsletters/images') return ok({ url: IMG }, 201);
+    if (path === '/newsletters/images') return ok({ url: state.uploadUrl ?? IMG }, 201);
     if (path === '/newsletters/lead-options' && method === 'GET') {
       // NewsletterLeadOptionsController: 20 a page, newest first; search matches name, email or phone digits; lead_id
       // reads one back.

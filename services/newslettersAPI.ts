@@ -15,11 +15,19 @@ export type NewsletterStatus = 'draft' | 'scheduled' | 'sending' | 'sent' | 'fai
 export type NewsletterChannel = 'email' | 'sms';
 export type NewsletterTemplate = 'basic';
 
+/** The header logo's height (Chris, 3 Nov): small 48 px (the default, never stored), medium 80, large 120. */
+export type LogoSize = 'small' | 'medium' | 'large';
+
 export interface NewsletterHeader {
   logo_url: string | null;
   banner_url: string | null;
   background_color: string | null;
   title: string | null;
+  /** Chris, 3 Nov. Each only present when used, so older headers are unchanged. A picture behind the logo and name. */
+  background_image_url?: string | null;
+  logo_size?: LogoSize;
+  /** The logo's width ÷ height, measured here when it loads; the email sizes a bigger logo with it. */
+  logo_ratio?: number;
 }
 
 export type BlockType = 'image' | 'title' | 'text' | 'youtube' | 'button' | 'divider' | 'campaigns';
