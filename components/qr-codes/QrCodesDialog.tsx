@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { ArrowLeft, Check, Download, Image as ImageIcon, Loader2, MoreHorizontal, Search, X } from 'lucide-react';
-import { QRCodeCanvas, QRCodeSVG } from 'qrcode.react';
 import { toast } from 'sonner';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '../ui/dropdown-menu';
 import {
@@ -9,34 +8,20 @@ import {
 } from '../ui/alert-dialog';
 import { qrCodesAPI, QR_GENERIC_ERROR } from '../../services/qrCodesAPI';
 import {
-  DELETE_TEXT, EMPTY_TEXT, campaignHint, campaignUse, canPick, canPublish, cleanName, opensLabel, opensWarning, qrFileName, scansLabel,
+  DELETE_TEXT, EMPTY_TEXT, campaignHint, campaignUse, canPick, canPublish, cleanName, opensLabel, opensWarning, scansLabel,
   type QrCampaignOption, type QrCode,
 } from '../../utils/qrCodes';
 import { keyboardOnlyFocusReturn } from '../../utils/menuFocus';
 import { BUTTON_OUTLINE, BUTTON_PRIMARY, BUTTON_SMALL, BUTTON_SMALL_PRIMARY, LINK_BUTTON, inputClass } from '../newsletters/lib/ui';
+import { BrandedQr, QrDownloadMenu, QrStyleControls } from './BrandedQr';
 
-/** Print quality: the PNG is exactly this many pixels square. */
-const PNG_SIZE = 2048;
-const LEVEL = 'Q' as const;
-const MARGIN = 4;
 const SEARCH_DELAY_MS = 300;
 const LOAD_AHEAD = '0px 0px 240px 0px';
 
 const ROW_ACTION = 'inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg text-gray-700 hover:bg-gray-100 hover:text-gray-900 disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#6C60FF]/40';
 
-type Screen = { name: 'list' } | { name: 'pick'; change: QrCode | null } | { name: 'created'; code: QrCode };
-type ExportJob = { value: string; file: string; format: 'png' | 'svg'; nonce: number };
-
-function saveBlob(blob: Blob, file: string) {
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = file;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
-}
+// code: one code's view (just made, or opened from the list): the code as it prints, Download, image and colour.
+type Screen = { name: 'list' } | { name: 'pick'; change: QrCode | null } | { name: 'code'; code: QrCode };
 
 function scrollParent(el: HTMLElement): HTMLElement | null {
   for (let p = el.parentElement; p; p = p.parentElement) {
@@ -61,15 +46,16 @@ export interface QrCodesDialogProps {
 export default function QrCodesDialog({ open, onOpenChange, propertyId }: QrCodesDialogProps) {
   const [screen, setScreen] = useState<Screen>({ name: 'list' });
   const [codes, setCodes] = useState<QrCode[] | null>(null);
+  /** Whether the API can save an image / colour per code yet (else: the default look, no controls). */
+  const [styleAvailable, setStyleAvailable] = useState(false);
   const [listError, setListError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
   const [busyId, setBusyId] = useState<number | null>(null);
   const [renaming, setRenaming] = useState<{ id: number; value: string } | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<QrCode | null>(null);
-  const [job, setJob] = useState<ExportJob | null>(null);
+  /** The colour drawn while the custom picker is open (undefined: the saved one). */
+  const [preview, setPreview] = useState<string | null | undefined>(undefined);
   const listRequest = useRef(0);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const svgRef = useRef<SVGSVGElement>(null);
 
   // A fresh list each time it opens, and when the view changes underneath it.
   useEffect(() => {
@@ -79,7 +65,10 @@ export default function QrCodesDialog({ open, onOpenChange, propertyId }: QrCode
     setListError(null);
     void qrCodesAPI.list(propertyId).then((res) => {
       if (request !== listRequest.current) return;
-      if (res.ok && res.data) setCodes(res.data);
+      if (res.ok && res.data) {
+        setCodes(res.data.codes);
+        setStyleAvailable(res.data.styleAvailable);
+      }
       else {
         setCodes([]);
         setListError(res.error ?? QR_GENERIC_ERROR);
@@ -95,41 +84,9 @@ export default function QrCodesDialog({ open, onOpenChange, propertyId }: QrCode
     }
   }, [open]);
 
+  useEffect(() => { setPreview(undefined); }, [screen]);
+
   const replaceCode = (code: QrCode) => setCodes((list) => (list ?? []).map((c) => (c.id === code.id ? code : c)));
-
-  // Downloads: the hidden canvas / svg below draw the code for `job`; their effects run before this one.
-  const download = (code: QrCode, format: 'png' | 'svg') =>
-    setJob({ value: code.shortUrl, file: qrFileName(code.name, format), format, nonce: Date.now() });
-
-  useEffect(() => {
-    if (!job) return;
-    try {
-      if (job.format === 'svg') {
-        const svg = svgRef.current;
-        if (!svg) throw new Error('no svg');
-        const markup = new XMLSerializer().serializeToString(svg);
-        saveBlob(new Blob([`<?xml version="1.0" encoding="UTF-8"?>\n${markup}`], { type: 'image/svg+xml' }), job.file);
-      } else {
-        const source = canvasRef.current;
-        if (!source) throw new Error('no canvas');
-        // The library draws at size × devicePixelRatio; copy onto an exact 2048 px square.
-        const out = document.createElement('canvas');
-        out.width = PNG_SIZE;
-        out.height = PNG_SIZE;
-        const ctx = out.getContext('2d');
-        if (!ctx) throw new Error('no context');
-        ctx.imageSmoothingEnabled = false;
-        ctx.drawImage(source, 0, 0, PNG_SIZE, PNG_SIZE);
-        out.toBlob((blob) => {
-          if (blob) saveBlob(blob, job.file);
-          else toast.error("Couldn't make the PNG. Please try again.");
-        }, 'image/png');
-      }
-    } catch {
-      toast.error("Couldn't make the download. Please try again.");
-    }
-    setJob(null);
-  }, [job]);
 
   const saveName = async () => {
     if (!renaming) return;
@@ -177,7 +134,7 @@ export default function QrCodesDialog({ open, onOpenChange, propertyId }: QrCode
     }
     const code = res.data;
     setCodes((list) => [code, ...(list ?? []).filter((c) => c.id !== code.id)]);
-    setScreen({ name: 'created', code });
+    setScreen({ name: 'code', code });
     return true;
   };
 
@@ -192,19 +149,25 @@ export default function QrCodesDialog({ open, onOpenChange, propertyId }: QrCode
     title = screen.change ? 'Change campaign' : 'Choose a campaign';
     back = () => setScreen({ name: 'list' });
     body = <CampaignPicker propertyId={propertyId} current={screen.change?.memoryId ?? null} onPick={(o) => onPicked(o, screen.change)} />;
-  } else if (screen.name === 'created') {
+  } else if (screen.name === 'code') {
     const code = codes?.find((c) => c.id === screen.code.id) ?? screen.code;
     body = (
       <div className="flex flex-col items-center py-2 text-center">
-        <div className="rounded-lg border border-gray-200 bg-white p-2">
-          <QRCodeSVG value={code.shortUrl} size={200} level={LEVEL} marginSize={MARGIN} title={`QR code for ${code.name}`} />
+        <div className="overflow-hidden rounded-xl border border-gray-200 bg-white" data-qr-view={code.publicCode}>
+          <BrandedQr code={code} size={220} color={preview} label={`QR code for ${code.name}`} />
         </div>
         <p className="mt-3 max-w-full truncate text-base font-semibold text-gray-900">{code.name}</p>
         <p className="max-w-full truncate text-sm text-gray-600">{opensLabel(code)}</p>
-        <div className="mt-4 flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
-          <button type="button" onClick={() => download(code, 'png')} className={BUTTON_PRIMARY}><Download className="h-4 w-4" aria-hidden="true" />Download PNG</button>
-          <button type="button" onClick={() => download(code, 'svg')} className={BUTTON_OUTLINE}><Download className="h-4 w-4" aria-hidden="true" />Download SVG</button>
+        <div className="mt-4 flex w-full justify-center">
+          <QrDownloadMenu code={code}>
+            <button type="button" className={`${BUTTON_PRIMARY} w-full sm:w-auto`}><Download className="h-4 w-4" aria-hidden="true" />Download</button>
+          </QrDownloadMenu>
         </div>
+        {styleAvailable ? (
+          <div className="mt-5 w-full border-t border-gray-100 pt-4">
+            <QrStyleControls code={code} propertyId={propertyId} onChanged={(c) => { replaceCode(c); setScreen({ name: 'code', code: c }); }} onPreview={setPreview} />
+          </div>
+        ) : null}
       </div>
     );
     footer = <button type="button" onClick={() => setScreen({ name: 'list' })} className={BUTTON_OUTLINE}>Done</button>;
@@ -233,9 +196,10 @@ export default function QrCodesDialog({ open, onOpenChange, propertyId }: QrCode
           return (
             <li key={code.id} data-qr-row={code.publicCode} className="flex flex-col gap-2 py-3 sm:flex-row sm:items-center sm:gap-3">
               <div className="flex min-w-0 flex-1 items-center gap-3">
-                <span className="flex-shrink-0 rounded border border-gray-200 bg-white p-0.5">
-                  <QRCodeSVG value={code.shortUrl} size={44} level={LEVEL} marginSize={1} aria-hidden="true" />
-                </span>
+                <button type="button" onClick={() => setScreen({ name: 'code', code })} aria-label={`Open ${code.name}`} title={styleAvailable ? 'Image & colour' : code.name}
+                  className="flex-shrink-0 overflow-hidden rounded-md border border-gray-200 bg-white focus:outline-none focus-visible:ring-2 focus-visible:ring-[#6C60FF]/40">
+                  <BrandedQr code={code} size={48} />
+                </button>
                 <div className="min-w-0 flex-1">
                   {isRenaming ? (
                     <form className="flex items-center gap-2" onSubmit={(e) => { e.preventDefault(); void saveName(); }}>
@@ -255,15 +219,9 @@ export default function QrCodesDialog({ open, onOpenChange, propertyId }: QrCode
               {isRenaming ? null : (
                 <div className="flex flex-shrink-0 items-center gap-2 pl-[3.5rem] sm:pl-0">
                   <button type="button" disabled={busy} onClick={() => setScreen({ name: 'pick', change: code })} className={BUTTON_SMALL}>Change campaign</button>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <button type="button" disabled={busy} className={BUTTON_SMALL}><Download className="h-3.5 w-3.5" aria-hidden="true" />Download</button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" className="w-44 rounded-md border border-gray-200 bg-white shadow-lg" onCloseAutoFocus={keyboardOnlyFocusReturn}>
-                      <DropdownMenuItem className="cursor-pointer hover:bg-[#6C60FF]/5" onSelect={() => download(code, 'png')}>PNG (print)</DropdownMenuItem>
-                      <DropdownMenuItem className="cursor-pointer hover:bg-[#6C60FF]/5" onSelect={() => download(code, 'svg')}>SVG</DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
+                  <QrDownloadMenu code={code} disabled={busy}>
+                    <button type="button" disabled={busy} className={BUTTON_SMALL}><Download className="h-3.5 w-3.5" aria-hidden="true" />Download</button>
+                  </QrDownloadMenu>
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
                       <button type="button" aria-label={`More actions for ${code.name}`} title="More actions" disabled={busy} className={ROW_ACTION}>
@@ -273,6 +231,9 @@ export default function QrCodesDialog({ open, onOpenChange, propertyId }: QrCode
                     <DropdownMenuContent align="end" className="w-40 rounded-md border border-gray-200 bg-white shadow-lg" onCloseAutoFocus={keyboardOnlyFocusReturn}>
                       {/* Open the next thing after the menu has closed, or Radix leaves the page unclickable. */}
                       <DropdownMenuItem className="cursor-pointer hover:bg-[#6C60FF]/5" onSelect={() => window.setTimeout(() => setRenaming({ id: code.id, value: code.name }), 0)}>Rename</DropdownMenuItem>
+                      {styleAvailable ? (
+                        <DropdownMenuItem className="cursor-pointer hover:bg-[#6C60FF]/5" onSelect={() => window.setTimeout(() => setScreen({ name: 'code', code }), 0)}>Image &amp; colour</DropdownMenuItem>
+                      ) : null}
                       <DropdownMenuSeparator />
                       <DropdownMenuItem className="cursor-pointer text-red-600 hover:bg-red-50 focus:text-red-600" onSelect={() => window.setTimeout(() => setConfirmDelete(code), 0)}>Delete</DropdownMenuItem>
                     </DropdownMenuContent>
@@ -332,17 +293,6 @@ export default function QrCodesDialog({ open, onOpenChange, propertyId }: QrCode
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* What a download draws from (nothing is drawn until one is asked for). */}
-      {job ? (
-        <div aria-hidden="true" style={{ position: 'fixed', left: -10000, top: 0, width: 1, height: 1, overflow: 'hidden' }}>
-          {job.format === 'png' ? (
-            <QRCodeCanvas key={job.nonce} ref={canvasRef} value={job.value} level={LEVEL} marginSize={MARGIN}
-              size={Math.ceil(PNG_SIZE / (window.devicePixelRatio || 1))} />
-          ) : (
-            <QRCodeSVG key={job.nonce} ref={svgRef} value={job.value} level={LEVEL} marginSize={MARGIN} size={PNG_SIZE} />
-          )}
-        </div>
-      ) : null}
     </>
   );
 }
