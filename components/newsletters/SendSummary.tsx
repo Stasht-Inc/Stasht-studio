@@ -1,5 +1,5 @@
 import type { AudienceCount, NewsletterChannel } from '../../services/newslettersAPI';
-import { formatCount } from './lib/audience';
+import { peopleCount } from './lib/audience';
 import { LINK_BUTTON } from './lib/ui';
 
 /** The confirm dialogs' "Email · N people" / "Text message · N people · P parts each" rows (newsletter Send and the
@@ -13,10 +13,10 @@ export function SendCountRows({ channels, counts, countsLoading = false, smsPart
   return (
     <dl className="space-y-2 text-sm">
       {channels.includes('email') ? (
-        <div className="flex justify-between gap-3"><dt className="text-gray-600">Email</dt><dd className="font-semibold text-gray-900">{counts && !countsLoading ? `${formatCount(counts.email)} people` : countsLoading ? 'Counting…' : '—'}</dd></div>
+        <div className="flex justify-between gap-3"><dt className="text-gray-600">Email</dt><dd className="font-semibold text-gray-900">{counts && !countsLoading ? peopleCount(counts.email) : countsLoading ? 'Counting…' : '—'}</dd></div>
       ) : null}
       {channels.includes('sms') ? (
-        <div className="flex justify-between gap-3"><dt className="text-gray-600">Text message</dt><dd className="text-right font-semibold text-gray-900">{counts && !countsLoading ? `${formatCount(counts.sms)} people${smsParts > 1 ? ` · ${smsParts} parts each` : ''}` : countsLoading ? 'Counting…' : '—'}</dd></div>
+        <div className="flex justify-between gap-3"><dt className="text-gray-600">Text message</dt><dd className="text-right font-semibold text-gray-900">{counts && !countsLoading ? `${peopleCount(counts.sms)}${smsParts > 1 ? ` · ${smsParts} parts each` : ''}` : countsLoading ? 'Counting…' : '—'}</dd></div>
       ) : null}
     </dl>
   );
