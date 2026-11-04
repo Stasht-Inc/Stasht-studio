@@ -12,6 +12,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "../components/ui/avatar";
 import { ImageWithFallback } from "../components/figma/ImageWithFallback";
+import CampaignCover from "../components/ui/CampaignCover";
+import { campaignCover } from "../utils/campaignCover";
 import { toast } from "sonner";
 import { mockPosts } from "../data/mockPosts";
 import { getMemoryDetails } from "../data/memoryData";
@@ -72,6 +74,10 @@ import CatalogRefreshBanner from "../components/CatalogRefreshBanner";
 import { catalogueAPI, type CatalogueItemDetail } from "../services/catalogueAPI";
 import Cropper from 'react-easy-crop';
 import { mapLimit } from "../utils/requestLimit";
+import CreateMemory from "../components/CreateMemory";
+import { clearFlowResume, flowOwnerKey, readFlowResume, seedFromMemory, sessionNotes, type FlowStep } from "../components/storeel/lib/storeelFlow";
+import { BUTTON_SMALL_PRIMARY } from "../components/newsletters/lib/ui";
+import { OPEN_CAMPAIGN_EVENT } from "../components/storeel/lib/openCampaign";
 const samanthaAvatar = 'https://images.unsplash.com/photo-1494790108755-2616b612b5bc?w=100&h=100&fit=crop';
 
 // Helper: convert S3 URL to proxied path so auth headers work and canvas doesn't get tainted
@@ -961,14 +967,23 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
     return Array.from(tags);
   }, [apiMemoryData]);
   const postIdFromUrl = urlParams.get('post_id');
-  const [isEditPopoverOpen, setIsEditPopoverOpen] = useState(false);
+  // Edit = the Storeel flow on this campaign (Chris, 4 Nov 2026, points 8-9); resume: the step to open on (Send when
+  // coming back from adding moments). null = closed.
+  const [storeelFlow, setStoreelFlow] = useState<{ resume: FlowStep | null } | null>(null);
+  // "Add moments, then continue to Send": set when the flow sent the person here to add moments (storeelFlow.ts).
+  const flowOwner = flowOwnerKey(user, viewType, currentProperty);
+  const [flowResume, setFlowResume] = useState(() => readFlowResume(sessionNotes(), flowOwner, { memoryId: Number(memoryId) }));
+  // The flow (opened here) sent the person to this page to add moments: the note was just written.
+  useEffect(() => {
+    const onOpenCampaign = () => setFlowResume(readFlowResume(sessionNotes(), flowOwner, { memoryId: Number(memoryId) }));
+    // Another account or view (switched here): its note, if any.
+    onOpenCampaign();
+    window.addEventListener(OPEN_CAMPAIGN_EVENT, onOpenCampaign);
+    return () => window.removeEventListener(OPEN_CAMPAIGN_EVENT, onOpenCampaign);
+  }, [memoryId, flowOwner]);
   const [updatedPosts, setUpdatedPosts] = useState<{[key: string]: string}>({});
   const [updatedCommentCounts, setUpdatedCommentCounts] = useState<{[key: string]: number}>({});
   const [deletedPosts, setDeletedPosts] = useState<Set<string>>(new Set());
-  const [apiLabels, setApiLabels] = useState<any[]>([]);
-  // Reveals a free-text input so the user can add a new label even when predefined labels exist
-  const [showCustomLabelInput, setShowCustomLabelInput] = useState(false);
-  const [apiCategories, setApiCategories] = useState<any[]>([]);
   const [localMemoryUpdates, setLocalMemoryUpdates] = useState<any>(null);
   const [isPublishing, setIsPublishing] = useState(false);
   const [publishProgress, setPublishProgress] = useState(0);
@@ -1121,17 +1136,6 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
     parentImageIsFeatured: false
   });
 
-  const [editData, setEditData] = useState({
-    title: "",
-    category: "",
-    label: "",
-    date: "",
-    endDate: "",
-    location: "",
-    tags: [] as string[]
-  });
-  const [editStoryTagInput, setEditStoryTagInput] = useState("");
-  const [showEndDate, setShowEndDate] = useState(false);
   const [isAddCollaboratorOpen, setIsAddCollaboratorOpen] = useState(false);
   const [isAddPersonToLibraryOpen, setIsAddPersonToLibraryOpen] = useState(false);
   const [isAiScanActive, setIsAiScanActive] = useState(false);
@@ -2021,7 +2025,6 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
   const [itemToDeleteIsCar, setItemToDeleteIsCar] = useState<boolean>(false);
   
   // Memory update loading state
-  const [isUpdatingMemory, setIsUpdatingMemory] = useState(false);
   
   // Add Moment modal state
   const [isAddMomentModalOpen, setIsAddMomentModalOpen] = useState(false);
@@ -2363,15 +2366,10 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
     }
   }, [shouldOpenAddMoments, setShouldOpenAddMoments]);
 
-  // Open Edit modal if shouldOpenEdit is true
+  // Edit asked for from elsewhere (a campaign card's Edit): the Storeel flow on this campaign.
   useEffect(() => {
     if (shouldOpenEdit) {
-      // Need to fetch categories and labels first, then open edit modal
-      const openEditModal = async () => {
-        await fetchCategoriesAndLabels();
-        setIsEditPopoverOpen(true);
-      };
-      openEditModal();
+      handleEdit();
 
       // Reset the flag after opening
       if (setShouldOpenEdit) {
@@ -2633,27 +2631,6 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
 
   // Use API collaborators only (no fallback dummy data)
   const collaborators = apiCollaborators;
-
-  // Fetch categories and labels for edit form
-  const fetchCategoriesAndLabels = async () => {
-    try {
-      const response = await dashboardAPI.getCategoriesLabels();
-      if (response.success && response.data?.data) {
-        // Set categories with IDs
-        if (response.data.data.categories?.items) {
-          setApiCategories(response.data.data.categories.items);
-          console.log('Fetched categories with IDs:', response.data.data.categories.items);
-        }
-        // Set labels with IDs  
-        if (response.data.data.labels?.items) {
-          setApiLabels(response.data.data.labels.items);
-          console.log('Fetched labels with IDs:', response.data.data.labels.items);
-        }
-      }
-    } catch (error) {
-      console.error('Error fetching categories and labels:', error);
-    }
-  };
 
   // Function to fetch existing memories from API for "Add to Memory" modal
   const fetchExistingMemories = async () => {
@@ -3529,23 +3506,6 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
           // Extract collaborators from the memory data (collaborator field is in memory object)
           extractCollaboratorsFromMemoryData(memoryData);
 
-          // Initialize edit data with API data
-          if (memoryData) {
-            const startDate = memoryData.min_uploaded_img_date || "";
-            const endDate = memoryData.max_uploaded_img_date || "";
-            const hasEndDate = endDate && endDate !== startDate;
-
-            setEditData({
-              title: memoryData.title || "",
-              category: memoryData.category?.name || "",
-              label: memoryData.sub_category?.name || "",
-              date: startDate,
-              endDate: hasEndDate ? endDate : "",
-              location: memoryData.location || "",
-              tags: Array.isArray(memoryData.tags) ? memoryData.tags : []
-            });
-            setShowEndDate(hasEndDate);
-          }
         } else {
           setApiError(response.error || 'Failed to fetch memory details');
         }
@@ -4426,7 +4386,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
   const CategoryIcon = getCategoryIcon(uiMemory.category);
   const categoryColorHex = isSharedMemory
     ? '#EF4444' // Red color for shared memories
-    : getCategoryColor(uiMemory.category, apiCategories.length > 0 ? apiCategories : categories);
+    : getCategoryColor(uiMemory.category, categories);
 
   // Transform API posts to match UI expected format with enhanced filtering support
   const transformApiPosts = (apiPosts: any[]) => {
@@ -5395,101 +5355,10 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
     }
   };
 
-  const handleEdit = async () => {
-    setShowCustomLabelInput(false);
-    await fetchCategoriesAndLabels();
-    setIsEditPopoverOpen(true);
-  };
-
-  const handleEditSave = async () => {
-    try {
-      setIsUpdatingMemory(true);
-      
-      // Find category ID from API categories
-      const foundCategory = apiCategories.find(cat => cat.name === editData.category);
-      const categoryId = foundCategory?.id || null;
-      console.log('Selected category:', editData.category, 'Found category:', foundCategory, 'Category ID:', categoryId);
-
-      // Format dates for API
-      const formatDateForAPI = (dateStr: string): string => {
-        if (!dateStr) return '';
-        const date = new Date(dateStr);
-        if (!isNaN(date.getTime())) {
-          return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-        }
-        return dateStr;
-      };
-
-      // Build date_range from date and endDate
-      let dateRange = '';
-      if (editData.date) {
-        dateRange = formatDateForAPI(editData.date);
-        if (showEndDate && editData.endDate) {
-          dateRange += ` - ${formatDateForAPI(editData.endDate)}`;
-        }
-      }
-
-      // Prepare data for API call
-      const updateData = {
-        title: editData.title,
-        category_id: categoryId,
-        sub_category_id: apiLabels.length > 0
-          ? (apiLabels.find(label => label.name === editData.label)?.id || editData.label.trim() || null)
-          : (editData.label.trim() || null),
-        date_range: dateRange,
-        location: editData.location,
-        tags: editData.tags
-      };
-
-      console.log('Updating memory with data:', updateData);
-      
-      const response = await dashboardAPI.updateMemory(memoryId, updateData);
-      
-      if (response.success) {
-        toast.success("Campaign updated successfully!");
-        setIsEditPopoverOpen(false);
-        
-        // Trigger memory counts refresh since updating memory may affect counts
-        await triggerMemoryCountsRefresh();
-        
-        // Refresh the full memory details page
-        await fetchMemoryDetails();
-        
-        // Also refresh related data
-        if (onRefresh) {
-          onRefresh();
-        }
-      } else {
-        toast.error(response.error || "Failed to update campaign");
-      }
-    } catch (error) {
-      console.error('Error updating memory:', error);
-      toast.error("Failed to update campaign");
-    } finally {
-      setIsUpdatingMemory(false);
-    }
-  };
-
-  const handleEditCancel = () => {
-    // Reset to original values from API data
-    if (apiMemoryData) {
-      const startDate = apiMemoryData.min_uploaded_img_date || "";
-      const endDate = apiMemoryData.max_uploaded_img_date || "";
-      const hasEndDate = endDate && endDate !== startDate;
-
-      setEditData({
-        title: apiMemoryData.title || "",
-        category: apiMemoryData.category?.name || "",
-        label: apiMemoryData.sub_category?.name || "",
-        date: startDate,
-        endDate: hasEndDate ? endDate : "",
-        location: apiMemoryData.location || "",
-        tags: Array.isArray(apiMemoryData.tags) ? apiMemoryData.tags : []
-      });
-      setEditStoryTagInput("");
-      setShowEndDate(hasEndDate);
-    }
-    setIsEditPopoverOpen(false);
+  /** Edit: the Storeel flow on this campaign, Set up prefilled (only a saved campaign: not inventory or collections). */
+  const handleEdit = (resume: FlowStep | null = null) => {
+    if (!/^\d+$/.test(String(memoryId))) return;
+    setStoreelFlow({ resume });
   };
 
   const handleDeleteConfirm = async () => {
@@ -9179,6 +9048,8 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
   // Also show collaborator view when forceSharedView=true (e.g. viewing from published author card)
   if (forceSharedView || currentUserRole === 'contributor' || currentUserRole === 'viewer' || currentUserRole === 'edit' || currentUserRole === 'view') {
     const sharedAllPosts = (rawApiPosts || []).filter((p: any) => !p.parent_id && p.parent_id !== 0);
+    // Cover: the campaign's own, else the brand — the owner's avatar — never the first moment photo ("Brand everywhere", 4 Nov 2026).
+    const sharedCover = campaignCover({ chosen: apiMemoryData?.last_update_img, brand: apiMemoryData?.user?.profile_image, ownerAvatar: apiMemoryData?.user?.profile_image });
     const sharedSubMap: Record<string, any[]> = {};
     (rawApiPosts || []).forEach((p: any) => {
       if (p.parent_id && p.parent_id !== 0) { const pid = String(p.parent_id); if (!sharedSubMap[pid]) sharedSubMap[pid] = []; sharedSubMap[pid].push(p); }
@@ -9306,7 +9177,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
           </div>
           <div ref={sharedMobileHeaderImgRef} className="relative w-full" style={{ height: 'calc(75vh - 64px)' }}>
             {(() => {
-              const coverSrc = apiMemoryData?.last_update_img || sharedAllPosts[0]?.master_image_link || apiMemoryData?.user?.profile_image;
+              const coverSrc = sharedCover.src;
               if (!coverSrc) return <div className="absolute inset-0 bg-[#6C60FF] flex items-center justify-center"><span className="text-white font-bold text-6xl uppercase">{apiMemoryData?.title?.charAt(0) || 'M'}</span></div>;
               if (isYoutubeUrl(coverSrc)) return <iframe src={getYoutubeEmbedUrl(coverSrc) || ''} className="absolute inset-0 w-full h-full" allow="accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowFullScreen style={{ border: 'none' }} />;
               if (isVideoUrl(coverSrc)) return (
@@ -9323,13 +9194,14 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                   onEnded={() => { setIsCoverVideoPlaying(false); setIsCoverVideoEnded(true); }}
                 />
               );
-              return <ImageWithFallback src={coverSrc} alt={apiMemoryData?.title || 'Memory'} className="absolute inset-0 w-full h-full object-cover" />;
+              // centerY: this phone header carries its title in the middle, so the brand sits higher.
+              return <CampaignCover src={coverSrc} alt={apiMemoryData?.title || 'Memory'} isFallback={sharedCover.isBrand} color={apiMemoryData?.user?.profile_color} className="absolute inset-0 w-full h-full" centerY={0.2} />;
             })()}
             <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent pointer-events-none" />
             {/* Cover video play/pause — shared-view cover previously relied on bare native
                 <video controls>, which Chrome doesn't reliably surface a visible play
                 affordance for; use the same custom button already proven on the owner view. */}
-            {isVideoUrl(apiMemoryData?.last_update_img || sharedAllPosts[0]?.master_image_link || apiMemoryData?.user?.profile_image) && (
+            {isVideoUrl(sharedCover.src) && (
               <button
                 type="button"
                 onClick={handleToggleCoverVideo}
@@ -9773,7 +9645,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                   <div className="relative">
                     <div ref={sharedHeaderImgRef} className="relative rounded-3xl overflow-hidden mx-2" style={{ height: 'min(800px, calc(100vh - 80px))' }}>
                       {(() => {
-                        const coverSrc = apiMemoryData?.last_update_img || sharedAllPosts[0]?.master_image_link || apiMemoryData?.user?.profile_image;
+                        const coverSrc = sharedCover.src;
                         if (!coverSrc) return <div className="w-full h-full bg-[#6C60FF] flex items-center justify-center"><span className="text-white font-bold text-8xl uppercase">{apiMemoryData?.title?.charAt(0) || 'M'}</span></div>;
                         if (isYoutubeUrl(coverSrc)) return <iframe src={getYoutubeEmbedUrl(coverSrc) || ''} className="w-full h-full" allow="accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowFullScreen style={{ border: 'none' }} />;
                         if (isVideoUrl(coverSrc)) return (
@@ -9790,13 +9662,13 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                             onEnded={() => { setIsCoverVideoPlaying(false); setIsCoverVideoEnded(true); }}
                           />
                         );
-                        return <ImageWithFallback src={coverSrc} alt={apiMemoryData?.title || 'Memory'} className="w-full h-full object-cover" />;
+                        return <CampaignCover src={coverSrc} alt={apiMemoryData?.title || 'Memory'} isFallback={sharedCover.isBrand} color={apiMemoryData?.user?.profile_color} className="w-full h-full" />;
                       })()}
                       <div className="absolute inset-0 pointer-events-none" style={{ background: 'linear-gradient(0deg,rgba(0,0,0,0.80) 11.54%,rgba(0,0,0,0.30) 55.77%,rgba(0,0,0,0.00) 100%)' }} />
                       {/* Cover video play/pause — shared-view cover previously relied on bare native
                           <video controls>, which Chrome doesn't reliably surface a visible play
                           affordance for; use the same custom button already proven on the owner view. */}
-                      {isVideoUrl(apiMemoryData?.last_update_img || sharedAllPosts[0]?.master_image_link || apiMemoryData?.user?.profile_image) && (
+                      {isVideoUrl(sharedCover.src) && (
                         <button
                           type="button"
                           onClick={handleToggleCoverVideo}
@@ -10637,7 +10509,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
         onAddCollaborator={handleAddCollaborator}
         existingCollaborators={collaborators}
         memoryId={memoryId}
-        categories={apiCategories}
+        categories={categories}
         hasProperty={!!(apiMemoryData?.property_id || (apiMemoryData?.property_users?.length > 0))}
         propertyId={apiMemoryData?.property_id}
         memoryProperties={(() => {
@@ -11042,15 +10914,6 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
         </div>
       )}
 
-      {/* Memory Update Loading Overlay */}
-      {isUpdatingMemory && (
-        <div className="absolute inset-0 bg-white bg-opacity-80 flex items-center justify-center z-40">
-          <div className="flex flex-col items-center gap-3">
-            <div className="w-8 h-8 rounded-full border-2 border-[#7B68EE] border-t-transparent animate-spin"></div>
-            <span className="text-[14px] md:text-sm font-medium text-gray-700">Updating campaign...</span>
-          </div>
-        </div>
-      )}
 
       {/* Publish Success Modal */}
       <Dialog open={isPublishModalOpen} onOpenChange={setIsPublishModalOpen}>
@@ -11374,486 +11237,12 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
             {/* Hide Edit button for Suggested category memories and read-only inventory */}
             {!isSuggestedCategory && !isInventoryDetail && (
               <>
-              <Popover open={isEditPopoverOpen && !isMobile} onOpenChange={(open) => { if (!isMobile) setIsEditPopoverOpen(open); }}>
-                <PopoverTrigger asChild>
-                  <Button variant="ghost" size="sm" onClick={handleEdit} disabled={!isOwner} className="bg-white hover:bg-gray-50 border border-gray-200 shadow-sm outline-none focus:outline-none focus:ring-0 focus-visible:ring-0 disabled:opacity-50 disabled:cursor-not-allowed">
-                    <Edit className="w-6 h-6 md:w-4 md:h-4 mr-2" />
-                    Edit
-                  </Button>
-                </PopoverTrigger>
-              <PopoverContent className="w-96 bg-white border-0 shadow-lg rounded-lg flex flex-col p-0 overflow-hidden" align="end" collisionPadding={16} style={{maxHeight: 'var(--radix-popover-content-available-height, 80vh)'}}>
-                {/* Sticky Header */}
-                <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 flex-shrink-0">
-                  <h4 className="font-semibold text-[18px] md:text-lg text-gray-900">Edit Campaign</h4>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={handleEditCancel}
-                    className="h-10 w-10 p-0 hover:bg-gray-100 rounded-full"
-                  >
-                    <X className="!w-[28px] !h-[28px] text-black" />
-                  </Button>
-                </div>
-
-                {/* Scrollable Form Body */}
-                <div className="flex-1 min-h-0 overflow-y-auto px-4 py-3">
-                  <div className="space-y-3">
-                  {/* Edit Form */}
-                  <div className="space-y-3">
-                    {/* Title */}
-                    <div>
-                      <label className="text-[14px] md:text-[14px] md:text-sm font-medium text-gray-700 block mb-2">
-                        Title
-                      </label>
-                      <Input
-                        value={editData.title}
-                        onChange={(e) => setEditData(prev => ({ ...prev, title: e.target.value }))}
-                        placeholder="Enter campaign title..."
-                        className="w-full bg-white border border-gray-200 hover:border-[#6C60FF] focus:border-[#6C60FF] focus:ring-0 transition-all duration-200"
-                      />
-                    </div>
-
-                    {/* Category */}
-                    <div>
-                      <label className="text-[14px] md:text-[14px] md:text-sm font-medium text-gray-700 block mb-2">
-                        Category
-                      </label>
-                      <Select value={editData.category} onValueChange={(value) => setEditData(prev => ({ ...prev, category: value }))}>
-                        <SelectTrigger className="w-full bg-white border border-gray-200 hover:border-[#6C60FF] focus:border-[#6C60FF] focus:ring-0 transition-all duration-200">
-                          <SelectValue placeholder="Select category..." />
-                        </SelectTrigger>
-                        <SelectContent className="bg-white border border-gray-200 shadow-lg">
-                          {(apiCategories.length > 0 ? apiCategories : categories)
-                            .filter((category) => category.name !== "Shared With" && category.name !== "Published")
-                            .map((category) => (
-                              <SelectItem
-                                key={category.name}
-                                value={category.name}
-                                className="hover:bg-[#6C60FF]/10 focus:bg-[#6C60FF]/10 data-[highlighted]:bg-[#6C60FF]/10 cursor-pointer"
-                              >
-                                {category.name}
-                              </SelectItem>
-                            ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-
-                    {/* Label */}
-                    <div>
-                      <label className="text-[14px] md:text-[14px] md:text-sm font-medium text-gray-700 block mb-2">
-                        Label
-                      </label>
-                      {apiLabels.length > 0 ? (
-                        <>
-                          <div className="flex flex-wrap gap-2">
-                            {apiLabels.map((label) => (
-                              <button
-                                key={label.name}
-                                type="button"
-                                onClick={() => setEditData(prev => ({ ...prev, label: prev.label === label.name ? "" : label.name }))}
-                                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all duration-200 ${
-                                  editData.label === label.name
-                                    ? 'bg-[#ffd460] text-[#393131] border border-[#ffd460]'
-                                    : 'bg-gray-100 text-gray-700 border border-gray-200 hover:bg-[#6C60FF]/10 hover:border-[#6C60FF]/30 hover:text-[#6C60FF]'
-                                }`}
-                              >
-                                {label.name}
-                              </button>
-                            ))}
-                            <button
-                              type="button"
-                              onClick={() => setShowCustomLabelInput(true)}
-                              className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-medium border border-dashed border-gray-300 text-gray-600 hover:border-[#6C60FF] hover:text-[#6C60FF] transition-all duration-200"
-                            >
-                              <Plus className="w-3.5 h-3.5" />
-                              Add
-                            </button>
-                          </div>
-                          {showCustomLabelInput && (
-                            <Input
-                              value={editData.label}
-                              onChange={(e) => setEditData(prev => ({ ...prev, label: e.target.value }))}
-                              placeholder="Add a label..."
-                              autoFocus
-                              className="w-full mt-2 bg-white border border-gray-200 hover:border-[#6C60FF] focus:border-[#6C60FF] focus:ring-0 transition-all duration-200"
-                            />
-                          )}
-                        </>
-                      ) : (
-                        <Input
-                          value={editData.label}
-                          onChange={(e) => setEditData(prev => ({ ...prev, label: e.target.value }))}
-                          placeholder="Add a label..."
-                          className="w-full bg-white border border-gray-200 hover:border-[#6C60FF] focus:border-[#6C60FF] focus:ring-0 transition-all duration-200"
-                        />
-                      )}
-                    </div>
-
-                    {/* Date */}
-                    <div>
-                      <label className="flex items-center gap-2 text-[14px] md:text-sm font-medium text-gray-700 mb-2">
-                        <Calendar className="w-4 h-4 text-black" />
-                        Start Date
-                      </label>
-                      <Input
-                        type="date"
-                        value={editData.date}
-                        onChange={(e) => setEditData(prev => ({ ...prev, date: e.target.value }))}
-                        className="w-full bg-white border border-gray-200 hover:border-[#6C60FF] focus:border-[#6C60FF] focus:ring-0 transition-all duration-200"
-                      />
-                      <div className="flex items-center gap-2 mt-2">
-                        <input
-                          type="checkbox"
-                          id="editEndDateCheckbox"
-                          checked={showEndDate}
-                          onChange={(e) => {
-                            setShowEndDate(e.target.checked);
-                            if (!e.target.checked) {
-                              setEditData(prev => ({ ...prev, endDate: '' }));
-                            }
-                          }}
-                          className="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500 focus:ring-2"
-                        />
-                        <label htmlFor="editEndDateCheckbox" className="text-xs text-gray-600 cursor-pointer">
-                          Add end date
-                        </label>
-                      </div>
-
-                      {/* End Date Field */}
-                      {showEndDate && (
-                        <div className="mt-3">
-                          <label className="block text-[14px] md:text-sm font-medium text-gray-700 mb-1">
-                            End Date
-                          </label>
-                          <Input
-                            type="date"
-                            value={editData.endDate}
-                            onChange={(e) => setEditData(prev => ({ ...prev, endDate: e.target.value }))}
-                            className="w-full bg-white border border-gray-200 hover:border-[#6C60FF] focus:border-[#6C60FF] focus:ring-0 transition-all duration-200"
-                            min={editData.date || undefined}
-                          />
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Location */}
-                    <div>
-                      <label className="text-[14px] md:text-[14px] md:text-sm font-medium text-gray-700 block mb-2">
-                        Location
-                      </label>
-                      <GooglePlacesInput
-                        value={editData.location}
-                        onChange={(value) => setEditData(prev => ({ ...prev, location: value }))}
-                        placeholder="Enter location..."
-                        className="w-full bg-white border border-gray-200 hover:border-[#6C60FF] focus:border-[#6C60FF] focus:ring-0 transition-all duration-200"
-                        onPlaceSelect={(place) => {
-                          console.log('Selected place:', place);
-                        }}
-                      />
-                    </div>
-
-                    {/* Tags */}
-                    <div>
-                      <label className="text-[14px] md:text-sm font-medium text-gray-700 block mb-2">
-                        Tags <span className="text-gray-400 font-normal">(optional)</span>
-                      </label>
-                      {editData.tags.length > 0 && (
-                        <div className="flex flex-wrap gap-1.5 mb-2">
-                          {editData.tags.map((tag, i) => (
-                            <span key={i} className="inline-flex items-center gap-1.5 pl-2.5 pr-1.5 py-1 bg-gray-200 text-gray-900 text-[14px] font-normal rounded-full border border-gray-300">
-                              <span className="leading-none">{tag}</span>
-                              <button
-                                type="button"
-                                onClick={() => setEditData(prev => ({ ...prev, tags: prev.tags.filter((_, idx) => idx !== i) }))}
-                                className="hover:text-red-500 flex-shrink-0 inline-flex items-center justify-center rounded-full w-4 h-4 leading-none"
-                              >
-                                <X className="w-3 h-3" strokeWidth={2.5} />
-                              </button>
-                            </span>
-                          ))}
-                        </div>
-                      )}
-                      <div className="flex gap-2">
-                        <div className="relative flex-1">
-                          <Input
-                            value={editStoryTagInput}
-                            onChange={e => setEditStoryTagInput(e.target.value)}
-                            onKeyDown={e => {
-                              if (e.key === 'Enter' && editStoryTagInput.trim()) {
-                                e.preventDefault();
-                                const newTags = editStoryTagInput.split(',').map(t => t.trim()).filter(t => t && !editData.tags.includes(t));
-                                if (newTags.length > 0) setEditData(prev => ({ ...prev, tags: [...prev.tags, ...newTags] }));
-                                setEditStoryTagInput('');
-                              }
-                            }}
-                            placeholder="Add tags separated by commas (e.g. beach, summer, 2024)"
-                            className="w-full bg-white border border-gray-200 hover:border-[#6C60FF] focus:border-[#6C60FF] focus:ring-0 transition-all duration-200"
-                          />
-                          {editStoryTagInput.trim() && (() => {
-                            const matches = allStoryTags.filter(t => t.toLowerCase().includes(editStoryTagInput.trim().toLowerCase()) && !editData.tags.includes(t));
-                            return matches.length > 0 ? (
-                              <div className="absolute top-full left-0 right-0 z-50 bg-white border border-gray-200 rounded-lg shadow-md mt-1 overflow-hidden">
-                                {matches.slice(0, 5).map(tag => (
-                                  <button key={tag} type="button" onMouseDown={(e) => { e.preventDefault(); const newTags = tag.split(',').map(t => t.trim()).filter(t => t && !editData.tags.includes(t)); if (newTags.length > 0) setEditData(prev => ({ ...prev, tags: [...prev.tags, ...newTags] })); setEditStoryTagInput(''); }} className="w-full text-left px-3 py-2 text-sm text-gray-900 hover:bg-gray-50 flex items-center gap-2">
-                                    <Tag className="w-3 h-3 text-gray-400 flex-shrink-0" />{tag}
-                                  </button>
-                                ))}
-                              </div>
-                            ) : null;
-                          })()}
-                        </div>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          disabled={!editStoryTagInput.trim()}
-                          onClick={() => {
-                            if (editStoryTagInput.trim()) {
-                              const newTags = editStoryTagInput.split(',').map(t => t.trim()).filter(t => t && !editData.tags.includes(t));
-                              if (newTags.length > 0) setEditData(prev => ({ ...prev, tags: [...prev.tags, ...newTags] }));
-                              setEditStoryTagInput('');
-                            }
-                          }}
-                          className={`disabled:opacity-40 disabled:cursor-not-allowed ${editStoryTagInput.trim() ? 'bg-[#6C60FF] text-white border-[#6C60FF] hover:bg-[#5A52E6] hover:text-white' : 'border-gray-200 text-gray-700 hover:border-[#6C60FF] hover:text-[#6C60FF]'}`}
-                        >
-                          Add
-                        </Button>
-                      </div>
-                      {/* Suggested tags */}
-                      {(() => {
-                        const suggestions = allStoryTags.filter(t => !editData.tags.includes(t)).slice(0, 4);
-                        return suggestions.length > 0 ? (
-                          <div className="mt-2">
-                            <p className="text-xs text-gray-400 mb-1.5">Suggested</p>
-                            <div className="flex flex-wrap gap-1.5">
-                              {suggestions.map(tag => (
-                                <button key={tag} type="button" onClick={() => { if (!editData.tags.includes(tag)) setEditData(prev => ({ ...prev, tags: [...prev.tags, tag] })); }} className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[14px] bg-gray-100 text-gray-700 rounded-full border border-gray-200 hover:bg-gray-200 transition-colors">
-                                  {tag}
-                                  <span className="text-gray-400 font-medium">+</span>
-                                </button>
-                              ))}
-                            </div>
-                          </div>
-                        ) : null;
-                      })()}
-                    </div>
-                  </div>
-
-                  </div>
-                </div>
-
-                {/* Sticky Footer Buttons */}
-                <div className="flex items-center justify-between px-4 py-3 border-t border-gray-100 flex-shrink-0 bg-white">
-                  <Button
-                    variant="ghost"
-                    onClick={() => setShowDeleteDialog(true)}
-                    disabled={!isOwner}
-                    className="text-red-600 hover:text-red-700 hover:bg-red-50 flex-shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
-                    size="sm"
-                  >
-                    <Trash2 className="h-4 w-4 mr-2" />
-                    Delete
-                  </Button>
-                  <div className="flex items-center gap-2 flex-shrink-0">
-                    <Button
-                      variant="ghost"
-                      onClick={handleEditCancel}
-                      className="text-gray-500 hover:text-gray-700"
-                      size="sm"
-                    >
-                      Cancel
-                    </Button>
-                    <Button
-                      onClick={handleEditSave}
-                      className="bg-[#6C60FF] hover:bg-[#6C60FF]/90 text-white"
-                      size="sm"
-                    >
-                      <Save className="h-4 w-4 mr-2" />
-                      Save
-                    </Button>
-                  </div>
-                </div>
-              </PopoverContent>
-            </Popover>
-
-            {/* Mobile fullscreen Edit Campaign modal - NOTE: dead code, moved outside hidden container below */}
-            {false && isEditPopoverOpen && (
-              <div className="fixed inset-0 z-[9999] bg-white flex flex-col" style={{ marginTop: 0 }}>
-                {/* Header */}
-                <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 flex-shrink-0">
-                  <h4 className="font-semibold text-[18px] md:text-lg text-gray-900">Edit Campaign</h4>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={handleEditCancel}
-                    className="h-10 w-10 p-0 hover:bg-gray-100 rounded-full"
-                  >
-                    <X className="!w-[28px] !h-[28px] text-black" />
-                  </Button>
-                </div>
-
-                {/* Scrollable form body */}
-                <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
-                  {/* Title */}
-                  <div>
-                    <label className="text-[14px] md:text-[14px] md:text-sm font-medium text-gray-700 block mb-2">Title</label>
-                    <Input
-                      value={editData.title}
-                      onChange={(e) => setEditData(prev => ({ ...prev, title: e.target.value }))}
-                      placeholder="Enter campaign title..."
-                      className="w-full bg-white border border-gray-200 hover:border-[#6C60FF] focus:border-[#6C60FF] focus:ring-0 transition-all duration-200"
-                    />
-                  </div>
-
-                  {/* Category */}
-                  <div>
-                    <label className="text-[14px] md:text-[14px] md:text-sm font-medium text-gray-700 block mb-2">Category</label>
-                    <Select value={editData.category} onValueChange={(value) => setEditData(prev => ({ ...prev, category: value }))}>
-                      <SelectTrigger className="w-full bg-white border border-gray-200 hover:border-[#6C60FF] focus:border-[#6C60FF] focus:ring-0 transition-all duration-200">
-                        <SelectValue placeholder="Select category..." />
-                      </SelectTrigger>
-                      <SelectContent className="bg-white border border-gray-200 shadow-lg">
-                        {(apiCategories.length > 0 ? apiCategories : categories)
-                          .filter((category) => category.name !== "Shared With" && category.name !== "Published")
-                          .map((category) => (
-                            <SelectItem
-                              key={category.name}
-                              value={category.name}
-                              className="hover:bg-[#6C60FF]/10 focus:bg-[#6C60FF]/10 data-[highlighted]:bg-[#6C60FF]/10 cursor-pointer"
-                            >
-                              {category.name}
-                            </SelectItem>
-                          ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  {/* Label */}
-                  {apiLabels.length > 0 && (
-                    <div>
-                      <label className="text-[14px] md:text-[14px] md:text-sm font-medium text-gray-700 block mb-2">Label</label>
-                      <div className="flex flex-wrap gap-2">
-                        {apiLabels.map((label) => (
-                          <button
-                            key={label.name}
-                            type="button"
-                            onClick={() => setEditData(prev => ({ ...prev, label: prev.label === label.name ? "" : label.name }))}
-                            className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all duration-200 ${
-                              editData.label === label.name
-                                ? 'bg-[#ffd460] text-[#393131] border border-[#ffd460]'
-                                : 'bg-gray-100 text-gray-700 border border-gray-200 hover:bg-[#6C60FF]/10 hover:border-[#6C60FF]/30 hover:text-[#6C60FF]'
-                            }`}
-                          >
-                            {label.name}
-                          </button>
-                        ))}
-                        <button
-                          type="button"
-                          onClick={() => setShowCustomLabelInput(true)}
-                          className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-medium border border-dashed border-gray-300 text-gray-600 hover:border-[#6C60FF] hover:text-[#6C60FF] transition-all duration-200"
-                        >
-                          <Plus className="w-3.5 h-3.5" />
-                          Add
-                        </button>
-                      </div>
-                      {showCustomLabelInput && (
-                        <Input
-                          value={editData.label}
-                          onChange={(e) => setEditData(prev => ({ ...prev, label: e.target.value }))}
-                          placeholder="Add a label..."
-                          autoFocus
-                          className="w-full mt-2 bg-white border border-gray-200 hover:border-[#6C60FF] focus:border-[#6C60FF] focus:ring-0 transition-all duration-200"
-                        />
-                      )}
-                    </div>
-                  )}
-
-                  {/* Start Date */}
-                  <div>
-                    <label className="flex items-center gap-2 text-[14px] md:text-sm font-medium text-gray-700 mb-2">
-                      <Calendar className="w-4 h-4 text-black" />
-                      Start Date
-                    </label>
-                    <Input
-                      type="date"
-                      value={editData.date}
-                      onChange={(e) => setEditData(prev => ({ ...prev, date: e.target.value }))}
-                      className="w-full bg-white border border-gray-200 hover:border-[#6C60FF] focus:border-[#6C60FF] focus:ring-0 transition-all duration-200"
-                    />
-                    <div className="flex items-center gap-2 mt-2">
-                      <input
-                        type="checkbox"
-                        id="editEndDateCheckboxMobile"
-                        checked={showEndDate}
-                        onChange={(e) => {
-                          setShowEndDate(e.target.checked);
-                          if (!e.target.checked) {
-                            setEditData(prev => ({ ...prev, endDate: '' }));
-                          }
-                        }}
-                        className="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500 focus:ring-2"
-                      />
-                      <label htmlFor="editEndDateCheckboxMobile" className="text-xs text-gray-600 cursor-pointer">
-                        Add end date
-                      </label>
-                    </div>
-                    {showEndDate && (
-                      <div className="mt-3">
-                        <label className="block text-[14px] md:text-sm font-medium text-gray-700 mb-1">End Date</label>
-                        <Input
-                          type="date"
-                          value={editData.endDate}
-                          onChange={(e) => setEditData(prev => ({ ...prev, endDate: e.target.value }))}
-                          className="w-full bg-white border border-gray-200 hover:border-[#6C60FF] focus:border-[#6C60FF] focus:ring-0 transition-all duration-200"
-                          min={editData.date || undefined}
-                        />
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Location */}
-                  <div>
-                    <label className="text-[14px] md:text-[14px] md:text-sm font-medium text-gray-700 block mb-2">Location</label>
-                    <GooglePlacesInput
-                      value={editData.location}
-                      onChange={(value) => setEditData(prev => ({ ...prev, location: value }))}
-                      placeholder="Enter location..."
-                      className="w-full bg-white border border-gray-200 hover:border-[#6C60FF] focus:border-[#6C60FF] focus:ring-0 transition-all duration-200"
-                      onPlaceSelect={(place) => { console.log('Selected place:', place); }}
-                    />
-                  </div>
-                </div>
-
-                {/* Footer action buttons */}
-                <div className="flex items-center justify-between px-4 py-3 pb-[50px] md:pb-3 border-t border-gray-100 flex-shrink-0">
-                  <Button
-                    variant="ghost"
-                    onClick={() => setShowDeleteDialog(true)}
-                    disabled={!isOwner}
-                    className="h-12 md:h-10 px-6 text-[14px] md:text-sm text-red-600 hover:text-red-700 hover:bg-red-50 flex-shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    <Trash2 className="h-4 w-4 mr-2" />
-                    Delete
-                  </Button>
-                  <div className="flex items-center gap-3 flex-shrink-0">
-                    <Button
-                      variant="ghost"
-                      onClick={handleEditCancel}
-                      className="h-12 md:h-10 px-6 text-[14px] md:text-sm text-gray-500 hover:text-gray-700"
-                    >
-                      Cancel
-                    </Button>
-                    <Button
-                      onClick={handleEditSave}
-                      className="h-12 md:h-10 px-6 text-[14px] md:text-sm bg-[#6C60FF] hover:bg-[#6C60FF]/90 text-white"
-                    >
-                      <Save className="h-4 w-4 mr-2" />
-                      Save
-                    </Button>
-                  </div>
-                </div>
-              </div>
-            )}
+              {/* Edit opens the Storeel flow on this campaign (Chris, 4 Nov 2026, points 8-9): Set up prefilled, saved
+                  with PUT /memories/{id}, then Moments and Send again. Delete is in its Set up step. */}
+              <Button variant="ghost" size="sm" onClick={() => handleEdit()} disabled={!isOwner} className="bg-white hover:bg-gray-50 border border-gray-200 shadow-sm outline-none focus:outline-none focus:ring-0 focus-visible:ring-0 disabled:opacity-50 disabled:cursor-not-allowed">
+                <Edit className="w-6 h-6 md:w-4 md:h-4 mr-2" />
+                Edit
+              </Button>
               </>
             )}
 
@@ -11876,193 +11265,6 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
           </div>
         </div>
 
-        {/* Mobile fullscreen Edit Campaign modal */}
-        {isMobile && isEditPopoverOpen && (
-          <div className="fixed inset-0 z-[9999] bg-white flex flex-col" style={{ marginTop: 0 }}>
-            {/* Header */}
-            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 flex-shrink-0">
-              <h4 className="font-semibold text-[18px] md:text-lg text-gray-900">Edit Campaign</h4>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={handleEditCancel}
-                className="h-10 w-10 p-0 hover:bg-gray-100 rounded-full"
-              >
-                <X className="!w-[28px] !h-[28px] text-black" />
-              </Button>
-            </div>
-
-            {/* Scrollable form body */}
-            <div className="flex-1 overflow-y-auto px-4 pt-4 pb-4 space-y-4">
-              {/* Title */}
-              <div>
-                <label className="text-[14px] md:text-sm font-medium text-gray-700 block mb-2">Title</label>
-                <Input
-                  value={editData.title}
-                  onChange={(e) => setEditData(prev => ({ ...prev, title: e.target.value }))}
-                  placeholder="Enter campaign title..."
-                  className="w-full bg-white border border-gray-200 hover:border-[#6C60FF] focus:border-[#6C60FF] focus:ring-0 transition-all duration-200 text-[14px] md:text-sm !h-[38px]"
-                />
-              </div>
-
-              {/* Category */}
-              <div>
-                <label className="text-[14px] md:text-sm font-medium text-gray-700 block mb-2">Category</label>
-                <Select value={editData.category} onValueChange={(value) => setEditData(prev => ({ ...prev, category: value }))}>
-                  <SelectTrigger className="w-full bg-white border border-gray-200 hover:border-[#6C60FF] focus:border-[#6C60FF] focus:ring-0 transition-all duration-200 text-[14px] md:text-sm !h-[38px]">
-                    <SelectValue placeholder="Select category..." />
-                  </SelectTrigger>
-                  <SelectContent className="bg-white border border-gray-200 shadow-lg">
-                    {(apiCategories.length > 0 ? apiCategories : categories)
-                      .filter((category) => category.name !== "Shared With" && category.name !== "Published")
-                      .map((category) => (
-                        <SelectItem
-                          key={category.name}
-                          value={category.name}
-                          className="hover:bg-[#6C60FF]/10 focus:bg-[#6C60FF]/10 data-[highlighted]:bg-[#6C60FF]/10 cursor-pointer text-[14px] md:text-sm"
-                        >
-                          {category.name}
-                        </SelectItem>
-                      ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              {/* Label */}
-              <div>
-                <label className="text-[14px] md:text-sm font-medium text-gray-700 block mb-2">Label</label>
-                {apiLabels.length > 0 ? (
-                  <>
-                    <div className="flex flex-wrap gap-2">
-                      {apiLabels.map((label) => (
-                        <button
-                          key={label.name}
-                          type="button"
-                          onClick={() => setEditData(prev => ({ ...prev, label: prev.label === label.name ? "" : label.name }))}
-                          className={`px-3 py-1.5 rounded-lg text-[14px] md:text-sm font-medium transition-all duration-200 ${
-                            editData.label === label.name
-                              ? 'bg-[#ffd460] text-[#393131] border border-[#ffd460]'
-                              : 'bg-gray-100 text-gray-700 border border-gray-200 hover:bg-[#6C60FF]/10 hover:border-[#6C60FF]/30 hover:text-[#6C60FF]'
-                          }`}
-                        >
-                          {label.name}
-                        </button>
-                      ))}
-                      <button
-                        type="button"
-                        onClick={() => setShowCustomLabelInput(true)}
-                        className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-[14px] md:text-sm font-medium border border-dashed border-gray-300 text-gray-600 hover:border-[#6C60FF] hover:text-[#6C60FF] transition-all duration-200"
-                      >
-                        <Plus className="w-3.5 h-3.5" />
-                        Add
-                      </button>
-                    </div>
-                    {showCustomLabelInput && (
-                      <Input
-                        value={editData.label}
-                        onChange={(e) => setEditData(prev => ({ ...prev, label: e.target.value }))}
-                        placeholder="Add a label..."
-                        autoFocus
-                        className="w-full mt-2 bg-white border border-gray-200 hover:border-[#6C60FF] focus:border-[#6C60FF] focus:ring-0 transition-all duration-200 text-[14px] md:text-sm !h-[38px]"
-                      />
-                    )}
-                  </>
-                ) : (
-                  <Input
-                    value={editData.label}
-                    onChange={(e) => setEditData(prev => ({ ...prev, label: e.target.value }))}
-                    placeholder="Add a label..."
-                    className="w-full bg-white border border-gray-200 hover:border-[#6C60FF] focus:border-[#6C60FF] focus:ring-0 transition-all duration-200 text-[14px] md:text-sm !h-[38px]"
-                  />
-                )}
-              </div>
-
-              {/* Start Date */}
-              <div>
-                <label className="flex items-center gap-2 text-[14px] md:text-sm font-medium text-gray-700 mb-2">
-                  <Calendar className="w-4 h-4 text-black" />
-                  Start Date
-                </label>
-                <Input
-                  type="date"
-                  value={editData.date}
-                  onChange={(e) => setEditData(prev => ({ ...prev, date: e.target.value }))}
-                  className="w-full bg-white border border-gray-200 hover:border-[#6C60FF] focus:border-[#6C60FF] focus:ring-0 transition-all duration-200 text-[14px] md:text-sm !h-[38px]"
-                />
-                <div className="flex items-center gap-2 mt-2">
-                  <input
-                    type="checkbox"
-                    id="editEndDateCheckboxMobile2"
-                    checked={showEndDate}
-                    onChange={(e) => {
-                      setShowEndDate(e.target.checked);
-                      if (!e.target.checked) {
-                        setEditData(prev => ({ ...prev, endDate: '' }));
-                      }
-                    }}
-                    className="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500 focus:ring-2"
-                  />
-                  <label htmlFor="editEndDateCheckboxMobile2" className="text-[14px] md:text-xs text-gray-600 cursor-pointer">
-                    Add end date
-                  </label>
-                </div>
-                {showEndDate && (
-                  <div className="mt-3">
-                    <label className="block text-[14px] md:text-sm font-medium text-gray-700 mb-1">End Date</label>
-                    <Input
-                      type="date"
-                      value={editData.endDate}
-                      onChange={(e) => setEditData(prev => ({ ...prev, endDate: e.target.value }))}
-                      className="w-full bg-white border border-gray-200 hover:border-[#6C60FF] focus:border-[#6C60FF] focus:ring-0 transition-all duration-200 text-[14px] md:text-sm !h-[38px]"
-                      min={editData.date || undefined}
-                    />
-                  </div>
-                )}
-              </div>
-
-              {/* Location */}
-              <div>
-                <label className="text-[14px] md:text-sm font-medium text-gray-700 block mb-2">Location</label>
-                <GooglePlacesInput
-                  value={editData.location}
-                  onChange={(value) => setEditData(prev => ({ ...prev, location: value }))}
-                  placeholder="Enter location..."
-                  className="w-full bg-white border border-gray-200 hover:border-[#6C60FF] focus:border-[#6C60FF] focus:ring-0 transition-all duration-200 text-[14px] md:text-sm !h-[38px]"
-                  onPlaceSelect={(place) => { console.log('Selected place:', place); }}
-                />
-              </div>
-            </div>
-
-            {/* Footer action buttons */}
-            <div className="flex items-center justify-between px-4 py-3 pb-[50px] md:pb-3 border-t border-gray-100 flex-shrink-0">
-              <Button
-                variant="ghost"
-                onClick={() => { setIsEditPopoverOpen(false); setShowDeleteDialog(true); }}
-                disabled={!isOwner}
-                className="h-12 md:h-10 px-6 text-[14px] md:text-sm text-red-600 hover:text-red-700 hover:bg-red-50 flex-shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <Trash2 className="h-4 w-4 mr-2" />
-                Delete
-              </Button>
-              <div className="flex items-center gap-3 flex-shrink-0">
-                <Button
-                  variant="ghost"
-                  onClick={handleEditCancel}
-                  className="h-12 md:h-10 px-6 text-[14px] md:text-sm text-gray-500 hover:text-gray-700"
-                >
-                  Cancel
-                </Button>
-                <Button
-                  onClick={handleEditSave}
-                  className="h-12 md:h-10 px-6 text-[14px] md:text-sm bg-[#6C60FF] hover:bg-[#6C60FF]/90 text-white"
-                >
-                  <Save className="h-4 w-4 mr-2" />
-                  Save
-                </Button>
-              </div>
-            </div>
-          </div>
-        )}
 
         {/* Published Link Display */}
         {(apiMemoryData?.published === 1 || apiMemoryData?.published === 2 || apiMemoryData?.published === 3) && apiMemoryData?.published_url && (
@@ -12540,7 +11742,9 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                           ? (rawColor.startsWith('#') ? rawColor : `#${rawColor}`)
                           : '#6C60FF';
                         const userInitial = apiMemoryData?.user?.name?.charAt(0) || apiMemoryData?.user?.username?.charAt(0) || (user as any)?.name?.charAt(0) || 'U';
-                        const coverImageSrc = apiMemoryData?.last_update_img || (viewType === 'property' ? currentProperty?.image : null) || apiMemoryData?.user?.profile_image;
+                        // No chosen cover → the brand (property image in the property view, else the owner's avatar). utils/campaignCover.ts
+                        const ownerCover = campaignCover({ chosen: apiMemoryData?.last_update_img, brand: (viewType === 'property' ? currentProperty?.image : null) || apiMemoryData?.user?.profile_image, ownerAvatar: apiMemoryData?.user?.profile_image });
+                        const coverImageSrc = ownerCover.src;
                         return isYoutubeUrl(coverImageSrc) ? (
                           <div className="relative w-full h-full">
                             <iframe
@@ -12585,10 +11789,12 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                               </button>
                             </div>
                           ) : (
-                            <ImageWithFallback
+                            <CampaignCover
                               src={coverImageSrc}
                               alt={uiMemory.title}
-                              className="w-full h-full object-cover"
+                              isFallback={ownerCover.isBrand}
+                              color={profileColor}
+                              className="w-full h-full"
                               fallback={
                                 <div
                                   className="w-full h-full flex items-center justify-center"
@@ -13075,10 +12281,8 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                   size="sm"
                                   disabled={!isOwner}
                                   className="bg-black/50 text-white border-black/50 hover:bg-black/70 hover:text-white rounded-[4px] w-[35px] h-[35px] px-0 py-0 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
-                                  onClick={() => {
-                                    handleEdit();
-                                    setIsEditPopoverOpen(true);
-                                  }}
+                                  aria-label="Edit Campaign"
+                                  onClick={() => handleEdit()}
                                 >
                                   <Edit className="w-4 h-4" />
                                 </Button>
@@ -13218,10 +12422,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                   disabled={!isOwner}
                                   className="flex items-center gap-3 px-4 py-3 text-sm text-[#0A0A0A] hover:bg-gray-50 cursor-pointer rounded-2xl"
                                   onSelect={() => {
-                                    setTimeout(() => {
-                                      handleEdit();
-                                      setIsEditPopoverOpen(true);
-                                    }, 100);
+                                    setTimeout(() => handleEdit(), 100);
                                   }}
                                 >
                                   <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg" className="size-[14px] flex-shrink-0">
@@ -14911,7 +14112,9 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                       {/* Header Image/Video */}
                       <div ref={headerImageRef} className="relative rounded-2xl overflow-hidden" style={{ height: 'min(600px, calc(100vh - 14rem))' }}>
                         {(() => {
-                          const coverImageSrc = apiMemoryData?.last_update_img || (viewType === 'property' ? currentProperty?.image : null) || apiMemoryData?.user?.profile_image;
+                          // No chosen cover → the brand (property image in the property view, else the owner's avatar). utils/campaignCover.ts
+                        const ownerCover = campaignCover({ chosen: apiMemoryData?.last_update_img, brand: (viewType === 'property' ? currentProperty?.image : null) || apiMemoryData?.user?.profile_image, ownerAvatar: apiMemoryData?.user?.profile_image });
+                        const coverImageSrc = ownerCover.src;
                           const profileColor = apiMemoryData?.user?.profile_color
                             ? (apiMemoryData.user.profile_color.startsWith('#') ? apiMemoryData.user.profile_color : `#${apiMemoryData.user.profile_color}`)
                             : categoryColorHex || '#6C60FF';
@@ -14962,10 +14165,12 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                 </button>
                               </div>
                             ) : (
-                              <ImageWithFallback
+                              <CampaignCover
                                 src={coverImageSrc}
                                 alt={uiMemory.title}
-                                className="w-full h-full object-cover"
+                                isFallback={ownerCover.isBrand}
+                                color={profileColor}
+                                className="w-full h-full"
                                 fallback={
                                   <div className="w-full h-full flex items-center justify-center" style={{ backgroundColor: profileColor }}>
                                     <span className="text-white font-bold text-6xl uppercase">
@@ -19046,6 +18251,39 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
       </button>
 
       {/* Delete Confirmation Dialog */}
+      {/* Back from the Storeel flow's Moments step (Chris, 4 Nov 2026, point 9): add moments here, then continue to
+          Send. Shown only for the campaign the flow sent the person to, for a while (storeelFlow.ts). */}
+      {flowResume && isOwner && !storeelFlow ? (
+        <div role="status" className="fixed inset-x-4 bottom-[calc(8.5rem+env(safe-area-inset-bottom))] z-40 flex items-center gap-3 rounded-xl border border-gray-200 bg-white px-4 py-3 shadow-lg md:inset-x-auto md:bottom-6 md:right-6 md:max-w-md">
+          <p className="min-w-0 flex-1 text-sm text-gray-700">Add your moments, then continue to send your Storeel.</p>
+          <button type="button" onClick={() => { setFlowResume(null); clearFlowResume(sessionNotes()); handleEdit('send'); }} className={`${BUTTON_SMALL_PRIMARY} flex-shrink-0`}>
+            Continue to Send
+          </button>
+          <button type="button" aria-label="Dismiss" onClick={() => { setFlowResume(null); clearFlowResume(sessionNotes()); }}
+            className="-mr-1 flex-shrink-0 rounded-lg p-1 text-gray-500 hover:bg-gray-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#6C60FF]/40">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      ) : null}
+
+      {/* Edit = the Storeel flow on this campaign: Set up prefilled (PUT /memories/{id}), Moments, Send again. */}
+      {storeelFlow ? (
+        <CreateMemory
+          open
+          onOpenChange={(o) => { if (!o) setStoreelFlow(null); }}
+          categories={categories}
+          campaignId={Number(memoryId)}
+          campaignSeed={(() => {
+            const seed = seedFromMemory(apiMemoryData, categories);
+            return seed ? { ...seed, moments: totalMomentsCount } : null;
+          })()}
+          resumeStep={storeelFlow.resume}
+          canSend={isOwner}
+          onDeleteCampaign={() => setShowDeleteDialog(true)}
+          onCampaignSaved={() => { void fetchMemoryDetails(true); onRefresh?.(); }}
+        />
+      ) : null}
+
       <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
         <AlertDialogContent className="w-[calc(100%-2rem)] max-w-sm md:max-w-lg bg-white border-0 rounded-2xl shadow-xl">
           <AlertDialogHeader>

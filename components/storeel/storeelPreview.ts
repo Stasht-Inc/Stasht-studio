@@ -9,11 +9,21 @@ export interface StoreelPreviewInput {
   /** The form's date, YYYY-MM-DD. */
   date: string;
   authorName: string | null | undefined;
+  /** The chosen cover photo (a local or uploaded link). */
+  coverPhoto?: string | null;
+  /** The chosen intro video (a local or uploaded link) — its first frame is the cover. */
+  introVideo?: string | null;
+  /** The brand: what the saved campaign page shows when there's no cover (storeelBrandImage). */
+  brandImage?: string | null;
 }
+
+export type StoreelCoverKind = 'photo' | 'video' | 'brand';
 
 export interface StoreelPreviewModel {
   title: string;
+  /** The cover: the chosen cover photo, else the intro video, else the brand. Never the first photo. */
   cover: string | null;
+  coverKind: StoreelCoverKind | null;
   firstImage: string | null;
   moments: string;
   author: string;
@@ -39,12 +49,30 @@ function formatDay(date: string, locale?: string): string {
   return new Intl.DateTimeFormat(locale, { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' }).format(d);
 }
 
+const present = (v: string | null | undefined): string | null => (v && v.trim() ? v : null);
+
+/**
+ * The brand the saved campaign page falls back to when a campaign has no cover (MemoryDetailsPage): the property's
+ * image in the property view, else the account's profile image (Chris, 4 Nov 2026).
+ */
+export function storeelBrandImage({ viewType, propertyImage, userAvatar }: {
+  viewType: string | null | undefined;
+  propertyImage?: string | null;
+  userAvatar?: string | null;
+}): string | null {
+  return (viewType === 'property' ? present(propertyImage) : null) || present(userAvatar);
+}
+
 export function storeelPreviewModel(input: StoreelPreviewInput, locale?: string): StoreelPreviewModel {
   const first = input.images[0] ?? null;
   const author = String(input.authorName ?? '').trim();
+  const photo = present(input.coverPhoto);
+  const video = photo ? null : present(input.introVideo);
+  const brand = photo || video ? null : present(input.brandImage);
   return {
     title: input.title.trim(),
-    cover: first,
+    cover: photo || video || brand,
+    coverKind: photo ? 'photo' : video ? 'video' : brand ? 'brand' : null,
     firstImage: first,
     moments: momentsLabel(Math.max(0, input.momentCount)),
     author: author || 'Username',

@@ -31,6 +31,8 @@ const PUBLIC_BASE = (() => {
     return 'https://restapi.stasht.com';
   }
 })();
+/** The web API's public address (the Storeel flow's texts link there too: StoreelLinkService::tokenisedUrl). */
+export const API_PUBLIC_BASE = PUBLIC_BASE;
 /** NewsletterSms::finalText's stand-in link: NEWSLETTER_PUBLIC_URL + /n/r/ + a 32-character token. */
 export const SMS_LINK_STAND_IN = `${PUBLIC_BASE}/n/r/${'x'.repeat(32)}`;
 

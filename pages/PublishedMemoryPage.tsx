@@ -10,6 +10,8 @@ import { HoverCard, HoverCardContent, HoverCardTrigger } from "../components/ui/
 import { Dialog, DialogContent, DialogTitle } from "../components/ui/dialog";
 import { Popover, PopoverTrigger, PopoverContent, PopoverClose } from "../components/ui/popover";
 import { ImageWithFallback } from "../components/figma/ImageWithFallback";
+import CampaignCover from "../components/ui/CampaignCover";
+import { campaignCover } from "../utils/campaignCover";
 import { PdfThumbnail } from "../components/PdfThumbnail";
 import MemoryCard from "../components/MemoryCard";
 import { isCarCampaign } from "../utils/memoryUtils";
@@ -1300,7 +1302,8 @@ export default function PublishedMemoryPage() {
 
   // YouTube IFrame API — autoplay with sound (must be before any early returns)
   useEffect(() => {
-    const coverSrc = memoryData?.last_update_img || memoryData?.posts?.[0]?.master_image_link || memoryData?.linked_memories?.[0]?.cover_image;
+    // Only the campaign's own cover can be a YouTube link (no cover → the brand avatar: "Brand everywhere", 4 Nov 2026).
+    const coverSrc = memoryData?.last_update_img;
     if (!coverSrc || !isYoutubeUrl(coverSrc)) return;
     const videoId = getYoutubeVideoId(coverSrc);
     if (!videoId) return;
@@ -1678,6 +1681,24 @@ export default function PublishedMemoryPage() {
     return `${window.location.origin}/${imageUrl}`;
   };
 
+  // The cover ("Brand everywhere", Deepak 4 Nov 2026): the campaign's own, else the brand — the author's avatar —
+  // never the first moment photo. utils/campaignCover.ts
+  const publishedCover = campaignCover({ chosen: memoryData.last_update_img, brand: memoryData.user?.profile_image, ownerAvatar: memoryData.user?.profile_image });
+  // When the cover can't load: the author's avatar, unless the avatar is what failed — then their initials.
+  const publishedCoverFallback = (rounded: string) => (
+    <div className={`absolute inset-0 ${rounded} bg-gray-100 flex items-center justify-center`}>
+      {!publishedCover.isBrand && memoryData.user?.profile_image ? (
+        <div className="w-28 h-28 rounded-full overflow-hidden border-4 border-white/60">
+          <img src={memoryData.user.profile_image} className="w-full h-full object-cover" alt={memoryData.user?.name || 'User'} />
+        </div>
+      ) : (
+        <div className="w-28 h-28 rounded-full bg-gradient-to-br from-[#6C60FF] to-purple-600 flex items-center justify-center text-white text-4xl font-semibold border-4 border-white/60">
+          {memoryData.user?.name?.split(' ').map((n: string) => n[0]).join('').toUpperCase() || 'U'}
+        </div>
+      )}
+    </div>
+  );
+
   // Get the best available image for Open Graph tags
   const memoryImage = memoryData.last_update_img ||
                      allPosts[0]?.master_image_link ||
@@ -2001,7 +2022,7 @@ export default function PublishedMemoryPage() {
         {/* Header Image with Overlay - shorter height to allow cards to overlap */}
         <div ref={mobileHeaderImageRef} className="relative" style={{ height: '78vh' }}>
           {(() => {
-            const coverSrc = memoryData.last_update_img || allPosts[0]?.master_image_link || memoryData?.linked_memories?.[0]?.cover_image;
+            const coverSrc = publishedCover.src;
             return isYoutubeUrl(coverSrc) ? (
               <div id="yt-cover-mobile" className="w-full h-full absolute inset-0 rounded-b-3xl overflow-hidden" />
             ) : isVideoUrl(coverSrc) ? (
@@ -2017,27 +2038,14 @@ export default function PublishedMemoryPage() {
                 />
               </div>
             ) : (
-              <ImageWithFallback
+              // No cover of its own → the brand (the author's avatar), shown like the campaign page (CampaignCover).
+              <CampaignCover
                 src={coverSrc}
                 alt={memoryData.title}
-                className="w-full h-full object-cover absolute inset-0 rounded-b-3xl"
-                fallback={
-                  <div className="absolute inset-0 rounded-b-3xl bg-gray-100 flex items-center justify-center">
-                    {memoryData.user?.profile_image ? (
-                      <div className="w-28 h-28 rounded-full overflow-hidden border-4 border-white/60">
-                        <img
-                          src={memoryData.user.profile_image}
-                          className="w-full h-full object-cover"
-                          alt={memoryData.user?.name || 'User'}
-                        />
-                      </div>
-                    ) : (
-                      <div className="w-28 h-28 rounded-full bg-gradient-to-br from-[#6C60FF] to-purple-600 flex items-center justify-center text-white text-4xl font-semibold border-4 border-white/60">
-                        {memoryData.user?.name?.split(' ').map((n: string) => n[0]).join('').toUpperCase() || 'U'}
-                      </div>
-                    )}
-                  </div>
-                }
+                isFallback={publishedCover.isBrand}
+                color={memoryData.user?.profile_color}
+                className="w-full h-full absolute inset-0 rounded-b-3xl"
+                fallback={publishedCoverFallback('rounded-b-3xl')}
               />
             );
           })()}
@@ -2046,7 +2054,7 @@ export default function PublishedMemoryPage() {
           <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent rounded-b-3xl pointer-events-none" />
 
           {/* Cover Video Play/Pause */}
-          {isVideoUrl(memoryData.last_update_img || allPosts[0]?.master_image_link || memoryData?.linked_memories?.[0]?.cover_image) && (
+          {isVideoUrl(publishedCover.src) && (
             <button
               type="button"
               className="absolute inset-0 w-full h-full flex items-center justify-center bg-transparent border-0 p-0 z-20"
@@ -2876,7 +2884,7 @@ export default function PublishedMemoryPage() {
                   {/* Header Image */}
                   <div ref={headerImageRef} className="relative rounded-3xl overflow-hidden mx-2" style={{ height: 'min(800px, calc(100vh - 80px))' }}>
                     {(() => {
-                      const coverSrc = memoryData.last_update_img || allPosts[0]?.master_image_link || memoryData?.linked_memories?.[0]?.cover_image;
+                      const coverSrc = publishedCover.src;
                       return isYoutubeUrl(coverSrc) ? (
                         <div id="yt-cover-desktop" className="w-full h-full absolute inset-0 overflow-hidden" />
                       ) : isVideoUrl(coverSrc) ? (
@@ -2909,10 +2917,13 @@ export default function PublishedMemoryPage() {
                           )}
                         </div>
                       ) : (
-                        <ImageWithFallback
+                        <CampaignCover
                           src={coverSrc}
                           alt={memoryData.title}
-                          className="w-full h-full object-cover"
+                          isFallback={publishedCover.isBrand}
+                          color={memoryData.user?.profile_color}
+                          className="w-full h-full"
+                          fallback={publishedCoverFallback('')}
                         />
                       );
                     })()}

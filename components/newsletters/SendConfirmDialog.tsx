@@ -5,10 +5,10 @@ import {
 } from '../../services/newslettersAPI';
 import ComposerDialog from './ComposerDialog';
 import type { NlResult } from './lib/apiResult';
-import { formatCount } from './lib/audience';
+import { SendCountRows, SendNote } from './SendSummary';
 import { formatSendTime, localDateTimeToIso, timeZoneName, type ScheduleChoice } from './lib/schedule';
 import { allowanceLine, nextMonthLine, sendAllowance, sendBlockedReason, usesNextMonthAllowance } from './lib/sendChecks';
-import { BUTTON_OUTLINE, BUTTON_PRIMARY, LABEL, LINK_BUTTON, textareaClass } from './lib/ui';
+import { BUTTON_OUTLINE, BUTTON_PRIMARY, LABEL, textareaClass } from './lib/ui';
 
 export interface SendConfirmDialogProps {
   open: boolean;
@@ -93,11 +93,7 @@ export default function SendConfirmDialog({
   const footer = (
     <>
       {atButton ? (
-        <div id="nl-send-note" role={blockedReason && aboutAllowance ? 'alert' : 'status'}
-          className={`flex basis-full flex-wrap items-center justify-between gap-x-3 gap-y-1 rounded-lg px-3 py-2 text-sm ${aboutAllowance ? 'bg-amber-50 text-amber-800' : 'bg-gray-50 text-gray-700'}`}>
-          <p className="min-w-0 flex-1 basis-56">{atButton}</p>
-          {aboutAllowance && onSeePlans ? <button type="button" onClick={onSeePlans} className={`${LINK_BUTTON} whitespace-nowrap`}>See plans</button> : null}
-        </div>
+        <SendNote id="nl-send-note" text={atButton} alert={Boolean(blockedReason && aboutAllowance)} amber={aboutAllowance} onSeePlans={onSeePlans} />
       ) : null}
       <button type="button" onClick={() => onOpenChange(false)} disabled={busy} className={BUTTON_OUTLINE}>Back</button>
       <button type="button" onClick={confirm} disabled={busy || Boolean(blockedReason)} aria-describedby={atButton ? 'nl-send-note' : undefined} className={BUTTON_PRIMARY}>
@@ -115,14 +111,7 @@ export default function SendConfirmDialog({
       description={later ? `It goes out ${formatSendTime(iso)} (${timeZoneName()}).` : 'It starts going out within a minute.'}
       footer={footer}
     >
-      <dl className="space-y-2 text-sm">
-        {channels.includes('email') ? (
-          <div className="flex justify-between gap-3"><dt className="text-gray-600">Email</dt><dd className="font-semibold text-gray-900">{counts && !countsLoading ? `${formatCount(counts.email)} people` : countsLoading ? 'Counting…' : '—'}</dd></div>
-        ) : null}
-        {channels.includes('sms') ? (
-          <div className="flex justify-between gap-3"><dt className="text-gray-600">Text message</dt><dd className="text-right font-semibold text-gray-900">{counts && !countsLoading ? `${formatCount(counts.sms)} people${smsParts > 1 ? ` · ${smsParts} parts each` : ''}` : countsLoading ? 'Counting…' : '—'}</dd></div>
-        ) : null}
-      </dl>
+      <SendCountRows channels={channels} counts={counts} countsLoading={countsLoading} smsParts={smsParts} />
       {allowance ? <p className="mt-3 text-sm text-gray-600">{nextMonth ? nextMonthLine(allowance) : allowanceLine(allowance, channels)}</p> : null}
       {needsAddress ? (
         <div className="mt-4">

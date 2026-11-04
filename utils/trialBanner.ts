@@ -65,3 +65,33 @@ export function trialBannerFrom(propertiesData: any, now: Date = new Date(), loc
   const endDate = endsOn.toLocaleDateString(locale, { day: 'numeric', month: 'short', year: 'numeric' });
   return { ended, daysLeft, endDate, name: trial.name };
 }
+
+// Add a card (Chris, 4 Nov 2026): while the trial runs and no card is on file, the banner adds this line with an
+// action that opens the Add Payment Method modal. Card on file: GET /stripe/payment-methods (an account with no Stripe
+// customer yet answers success with an empty list).
+export const ADD_CARD_NOTICE = "Add credit card info to avoid disruption to service. You won't be billed until the trial is over";
+
+/** A card is good through the last day of its expiry month; true when that is on or after `on` (or unknown). */
+function validOn(card: any, on: Date): boolean {
+  const month = Number(card?.exp_month);
+  const year = Number(card?.exp_year);
+  if (!Number.isFinite(month) || !Number.isFinite(year) || month < 1 || month > 12 || year < 1) return true;
+  const lastDay = new Date(year, month, 0); // day 0 of the next month = the expiry month's last day
+  return lastDay.getTime() >= new Date(on.getFullYear(), on.getMonth(), on.getDate()).getTime();
+}
+
+/**
+ * Whether a card is on file, from GET /stripe/payment-methods; null = unknown (the call failed or said nothing). A card
+ * counts only while it is still valid on the trial's last day (validThrough; review 4 Nov) — an expired card would
+ * still disrupt service. No date given: any card counts.
+ */
+export function cardOnFileFrom(response: any, validThrough: Date | null = null): boolean | null {
+  if (!response || response.success !== true || !Array.isArray(response.payment_methods)) return null;
+  const cards = response.payment_methods;
+  return validThrough ? cards.some((c: any) => validOn(c, validThrough)) : cards.length > 0;
+}
+
+/** The add-card line: only while the trial runs and the account is known to have no card (never on a failed check). */
+export function showAddCardNotice(banner: TrialBanner | null | undefined, cardOnFile: boolean | null): boolean {
+  return Boolean(banner && !banner.ended && cardOnFile === false);
+}

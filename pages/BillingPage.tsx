@@ -3,6 +3,7 @@ import { CreditCard, Download, Plus, Info, Check, Crown, TrendingUp, Calendar, D
 import UpgradePlanModal, { plans as allPlans } from '../components/UpgradePlanModal';
 import { coveredByNote, offersUpgrade, planCoveredBy, planKey, planLabel } from '../utils/effectivePlan';
 import AddPaymentMethodModal from '../components/AddPaymentMethodModal';
+import { clearPaymentMethodsCache } from '../utils/paymentMethodsCache';
 import { PurchaseCreditsModal } from '../components/PurchaseCreditsModal';
 import { stripeApi, BillingHistoryItem, PaymentMethod, SubscriptionItem, ScheduledChange } from '../utils/stripeApi';
 import { authAPI, dashboardAPI } from '../utils/authUtils';
@@ -403,6 +404,7 @@ export default function BillingPage({ onNavigateToMemory }: BillingPageProps = {
       const response = await stripeApi.deletePaymentMethod(paymentMethodToDelete);
 
       if (response.success) {
+        clearPaymentMethodsCache(); // the Dashboard trial banner's card check asks again
         toast.success(response.message || 'Payment method removed successfully', { id: toastId });
         // Refresh payment methods list
         fetchPaymentMethods();

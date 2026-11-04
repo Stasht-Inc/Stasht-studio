@@ -55,7 +55,7 @@ export function BrandedQr({ code, size, color, label }: {
   const drawColor = qrDrawColor(color === undefined ? code.color : color, logo?.color);
   const src = useMemo(() => {
     if (!ready) return null;
-    const image = logo ? { href: logo.href, width: logo.width, height: logo.height } : null;
+    const image = logo ? { href: logo.href, width: logo.width, height: logo.height, backdrop: logo.backdrop, contain: logo.contain } : null;
     return svgDataUrl(qrSvg(code.shortUrl, { color: drawColor, background: 'white', logo: image }, size * 2));
   }, [ready, code.shortUrl, drawColor, logo, size]);
   if (!src) {
@@ -89,7 +89,7 @@ export async function downloadQr(code: QrCode, kind: QrDownloadKind): Promise<vo
     const logo = await loadQrLogo(code.logoUrl, qrCodesAPI.logoImage);
     const color = qrDrawColor(code.color, logo?.color);
     if (kind === 'svg') {
-      const svg = qrSvg(code.shortUrl, { color, background: 'white', logo: logo ? { href: logo.href, width: logo.width, height: logo.height } : null });
+      const svg = qrSvg(code.shortUrl, { color, background: 'white', logo: logo ? { href: logo.href, width: logo.width, height: logo.height, backdrop: logo.backdrop, contain: logo.contain } : null });
       saveBlob(new Blob([`<?xml version="1.0" encoding="UTF-8"?>\n${svg}`], { type: 'image/svg+xml' }), qrFileName(code.name, 'svg'));
       return;
     }
@@ -100,7 +100,7 @@ export async function downloadQr(code: QrCode, kind: QrDownloadKind): Promise<vo
     try {
       const ctx = canvas.getContext('2d');
       if (!ctx) throw new Error('no context');
-      paintQr(ctx, code.shortUrl, { color, background: kind === 'png' ? 'white' : 'transparent', image: logo?.image ?? null, imageWidth: logo?.width ?? 0, imageHeight: logo?.height ?? 0 }, PNG_SIZE);
+      paintQr(ctx, code.shortUrl, { color, background: kind === 'png' ? 'white' : 'transparent', image: logo?.image ?? null, imageWidth: logo?.width ?? 0, imageHeight: logo?.height ?? 0, backdrop: logo?.backdrop ?? null, contain: logo?.contain ?? false }, PNG_SIZE);
       blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'));
     } finally {
       // Let go of the 64 MB bitmap at once (iOS Safari caps total canvas memory).

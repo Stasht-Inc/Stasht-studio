@@ -88,6 +88,11 @@ export function formatCount(n: number, locale: string = userLocale()): string {
   return new Intl.NumberFormat(locale).format(Math.max(0, Math.round(Number(n) || 0)));
 }
 
+/** "1 person" / "N people" (the confirm dialogs' count rows). */
+export function peopleCount(n: number, locale: string = userLocale()): string {
+  return `${formatCount(n, locale)} ${Math.round(Number(n) || 0) === 1 ? 'person' : 'people'}`;
+}
+
 export function reachable(counts: AudienceCount | null, channels: NewsletterChannel[]): number {
   if (!counts) return 0;
   return (channels.includes('email') ? counts.email : 0) + (channels.includes('sms') ? counts.sms : 0);

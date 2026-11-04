@@ -4,20 +4,21 @@ import { newslettersAPI, type ContactList } from '../../../services/newslettersA
 import { groupsFromApi, type GroupOption } from '../lib/audience';
 import { LISTS_CHANGED_EVENT } from '../lib/lists';
 
-/** Lead groups and the account's contact lists, for the "Send to" checklist. Nothing is fetched until enabled. */
-export function useAudienceSources(enabled: boolean) {
+/** Lead groups and the account's contact lists, for the "Send to" checklist. Nothing is fetched until enabled; lists
+ *  (a paid-plan endpoint) only when `lists` is on (the Storeel flow is on every plan). */
+export function useAudienceSources(enabled: boolean, lists: boolean = true) {
   const [groups, setGroups] = useState<GroupOption[]>([]);
-  const [lists, setLists] = useState<ContactList[]>([]);
+  const [listRows, setLists] = useState<ContactList[]>([]);
   const [loading, setLoading] = useState(false);
 
   const reload = useCallback(async () => {
     setLoading(true);
-    const [groupsRes, listsRes] = await Promise.all([leadsAPI.getLeadGroups().catch(() => null), newslettersAPI.contactLists()]);
+    const [groupsRes, listsRes] = await Promise.all([leadsAPI.getLeadGroups().catch(() => null), lists ? newslettersAPI.contactLists() : Promise.resolve(null)]);
     // GET /lead-groups answers {groups: [...]} with no envelope; apiRequest wraps it in {success, data}.
     if (groupsRes && groupsRes.success) setGroups(groupsFromApi(groupsRes.data));
-    if (listsRes.ok && Array.isArray(listsRes.data)) setLists(listsRes.data);
+    if (listsRes && listsRes.ok && Array.isArray(listsRes.data)) setLists(listsRes.data);
     setLoading(false);
-  }, []);
+  }, [lists]);
 
   useEffect(() => {
     if (!enabled) return undefined;
@@ -28,5 +29,5 @@ export function useAudienceSources(enabled: boolean) {
     return () => window.removeEventListener(LISTS_CHANGED_EVENT, onChanged);
   }, [enabled, reload]);
 
-  return { groups, lists, loading, reload };
+  return { groups, lists: lists ? listRows : [], loading, reload };
 }

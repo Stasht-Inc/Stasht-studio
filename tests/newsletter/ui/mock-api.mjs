@@ -327,8 +327,17 @@ export function createMockApi(options = {}) {
     unscheduleStarted: options.unscheduleStarted ?? false,
     // Files that reached POST /newsletters/images: {bytes, type, name}.
     uploads: [],
-    // Storeels made with POST /memories.
+    // Storeels made with POST /memories, and saved campaigns GET /memories/{id} answers (the Storeel flow).
     storeels: [],
+    memories: new Map(Object.entries(options.memories ?? {}).map(([id, m]) => [Number(id), structuredClone(m)])),
+    // PUT /memories/{id} bodies, and the Storeel flow's send bodies (POST /memories/{id}/storeel-send).
+    memoryPuts: [],
+    storeelSends: [],
+    // The Storeel flow (Chris 4 Nov, point 9): 'not_available' = 503 before the server's SQL ran; putErrors /
+    // storeelSendErrors = a 422 {field: message} for PUT /memories/{id} / storeel-send.
+    storeelUnavailable: options.storeelUnavailable ?? false,
+    putErrors: options.putErrors ?? null,
+    storeelSendErrors: options.storeelSendErrors ?? null,
     // The owner's campaigns a Campaigns section can show.
     campaigns: options.campaigns ?? seedCampaigns(),
     // The owner's Website Catalogue products and dealer vehicles (shared brief 2026-10-29). None by default: an
@@ -721,7 +730,13 @@ export function createMockApi(options = {}) {
       return ok({ storage_overview: { plan_name: state.plan } });
     }
     if (path === '/user/profile') return ok({ user: PROFILE });
-    if (path === '/website-catalogue') return ok({ available: false });
+    // options.catalogue: the account has Website Catalogue items (Create Campaign then offers its "Website Catalogue").
+    if (path === '/website-catalogue') return ok(options.catalogue ? { available: true, item_count: 2 } : { available: false });
+    if (path === '/website-catalogue/items' && options.catalogue) {
+      return ok({ items: [{ id: 61, title: 'Oak bench', price_label: '$450', category: 'Benches', main_image: null, images_count: 2 }, { id: 62, title: 'Pine shelf', price_label: '$120', category: 'Shelves', main_image: null, images_count: 1 }], pagination: { last_page: 1 } });
+    }
+    // options.cars: the dealer has listings (Create Campaign then offers "Cars").
+    if (path === '/cars' && method === 'GET') return ok({ cars: options.cars ? [{ id: 5, title: '2024 Jeep Wrangler' }] : [], pagination: { last_page: 1 }, filters: {} });
     if (path === '/user/check-memory-limit') {
       return ok({ limit_status: { status: options.storeelLimit ? 'limit_exceeded' : 'within_limit', current_memories: options.storeelLimit ? 5 : 2, memory_limit: 5, ai_connects: 120 } });
     }
@@ -737,9 +752,67 @@ export function createMockApi(options = {}) {
     // Add a Moment's photo upload (dashboardAPI.uploadImageWithMetadata): the uploaded file's link.
     if (path === '/user/upload-image-with-metadata' && method === 'POST') return ok({ fileUrl: IMG, imageName: 'scan.png' });
     if (path === '/memories' && method === 'POST') {
-      const memory = { id: state.nextId++, ...body };
+      // MemoriesController::store answers {id, title, slug, category_id, …}.
+      const id = state.nextId++;
+      const slug = `${String(body?.title ?? 'campaign').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')}-${id}`;
+      const memory = { id, slug, published: 0, ...body };
       state.storeels.push(memory);
-      return ok({ memory }, 201);
+      state.memories.set(id, {
+        id, slug, title: body?.title, published: Number(body?.published) || 0, is_car: 0, user_id: 990002,
+        category: { id: body?.category_id, name: body?.category_id === 8 ? 'Service' : 'Personal' }, sub_category: body?.sub_category?.[0] ? { name: body.sub_category[0] } : null,
+        min_uploaded_img_date: null, max_uploaded_img_date: null, location: body?.location ?? '', tags: body?.tags ?? [], last_update_img: body?.last_update_img ?? null,
+        posts: (body?.photos ?? []).map((_, i) => ({ id: id * 100 + i, parent_id: null })),
+      });
+      return ok({ id, title: body?.title, slug, category_id: body?.category_id, sub_category_id: null, collaborators_count: 0, created_at: now() }, 201);
+    }
+    // The Storeel flow on a saved campaign: GET (Edit, back from the campaign page) and PUT (Set up saved).
+    const memoryMatch = /^\/memories\/(\d+)$/.exec(path);
+    if (memoryMatch && method === 'GET') {
+      const m = state.memories.get(Number(memoryMatch[1]));
+      return m ? { status: 200, json: { status: 'success', data: { memory: m } } } : fail(404, { success: false, message: 'Memory not found' });
+    }
+    if (memoryMatch && method === 'PUT') {
+      const id = Number(memoryMatch[1]);
+      state.memoryPuts.push({ id, body });
+      if (body && 'category_id' in body && body.category_id !== 'shopify' && !/^\d+$/.test(String(body.category_id))) {
+        return fail(422, { message: 'The category id must be an integer or "shopify".', errors: { category_id: ['The category id must be an integer or "shopify".'] } });
+      }
+      if (state.putErrors) return fail(422, { message: Object.values(state.putErrors)[0], errors: Object.fromEntries(Object.entries(state.putErrors).map(([k, v]) => [k, [v]])) });
+      const m = state.memories.get(id);
+      if (m) Object.assign(m, { title: body?.title ?? m.title, location: body?.location ?? m.location, tags: body?.tags ?? m.tags, ...('last_update_img' in (body ?? {}) ? { last_update_img: body.last_update_img } : {}) });
+      return ok(m ?? { id });
+    }
+    // StoreelBroadcastController (the Storeel flow's step 3 Send).
+    const storeelMatch = /^\/memories\/(\d+)\/(storeel-audience-count|storeel-send)$/.exec(path);
+    if (storeelMatch && method === 'POST') {
+      if (state.storeelUnavailable) return fail(503, { success: false, code: 'not_available', message: 'Sending Storeels to lists is not available yet.' });
+      // CampaignPublishAccess: a collaborator / a campaign only shared with the property may not count or send.
+      if (options.storeelForbidden) return fail(403, { success: false, message: 'You can’t send this campaign.' });
+      const channels = (body?.channels || []).filter((c) => c === 'email' || c === 'sms');
+      const c = audienceCount(body?.audience, channels);
+      const needed = (channels.includes('email') ? c.email : 0) + (channels.includes('sms') ? c.sms : 0);
+      if (storeelMatch[2] === 'storeel-audience-count') {
+        return { status: 200, json: { success: true, data: c, storeel: { max_messages: 1000, needed, over_limit: needed > 1000, sms: null, allowance: state.allowance } } };
+      }
+      state.storeelSends.push({ id: Number(storeelMatch[1]), body });
+      if (state.storeelSendErrors) {
+        return fail(422, { message: Object.values(state.storeelSendErrors)[0], errors: Object.fromEntries(Object.entries(state.storeelSendErrors).map(([k, v]) => [k, [v]])) });
+      }
+      const m = state.memories.get(Number(storeelMatch[1]));
+      const publishedNow = Boolean(m && !m.published);
+      if (m && !m.published) m.published = 1;
+      const email = channels.includes('email') ? c.email : 0;
+      const sms = channels.includes('sms') ? c.sms : 0;
+      const small = email + sms <= 20;
+      return ok({
+        broadcast_id: `b-${state.storeelSends.length}`, memory_id: Number(storeelMatch[1]), status: small ? 'sent' : 'sending', channels, subject: m?.title ?? '',
+        replayed: false, published_now: publishedNow, texts_wait_until: null, created_at: now(), finished_at: small ? now() : null,
+        counts: {
+          recipients: email + sms, sent: small ? email + sms : 0, queued: small ? 0 : email + sms, failed: 0,
+          email: { sent: small ? email : 0, queued: small ? 0 : email, failed: 0 }, sms: { sent: small ? sms : 0, queued: small ? 0 : sms, failed: 0 },
+          skipped: { ...c.skipped, total: Object.values(c.skipped).reduce((a, b) => a + (Number(b) || 0), 0) },
+        },
+      });
     }
     // LeadGroupsController::index answers {groups: [...]} with no success envelope.
     if (path === '/lead-groups' && method === 'GET') return { status: 200, json: { groups: state.groups } };

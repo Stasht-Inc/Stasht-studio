@@ -1,10 +1,16 @@
-import { Calendar, MapPin, MessageSquare } from 'lucide-react';
+import { Calendar, MapPin, MessageSquare, Play } from 'lucide-react';
 import { storeelPreviewModel, type StoreelPreviewInput } from './storeelPreview';
+import CampaignCover from '../ui/CampaignCover';
+import { brandCoverColor } from '../../utils/campaignCover';
 
 /**
  * [wdy2xh2t3z] The Storeel tab's PREVIEW (Chris's prototype): a dark phone-style Storeel that follows the form —
- * the cover (first picked image, or a gradient), "Timeline · N moments" with Continue, a moment card (author,
- * comments, place, date, the first image or "Add content here") and "Powered by Stasht". Display only.
+ * the cover, "Timeline · N moments" with Continue, a moment card (author, comments, place, date, the first image or
+ * "Add content here") and "Powered by Stasht". Display only.
+ *
+ * The cover is what the saved campaign page will show (Chris, 4 Nov 2026): the chosen cover photo, the intro video's
+ * first frame, else the brand (account / property avatar) shown nicely by CampaignCover — else the initial on the
+ * profile colour, as the campaign page does. Never the first photo, never a grey box.
  */
 export default function StoreelLivePreview({ input, avatarUrl, avatarColor }: {
   input: StoreelPreviewInput;
@@ -12,7 +18,12 @@ export default function StoreelLivePreview({ input, avatarUrl, avatarColor }: {
   avatarColor?: string | null;
 }) {
   const m = storeelPreviewModel(input);
-  const color = avatarColor && /^#[0-9a-f]{6}$/i.test(avatarColor) ? avatarColor : '#6C60FF';
+  const color = brandCoverColor(avatarColor);
+  const initialCover = (
+    <div className="flex h-full w-full items-center justify-center" style={{ backgroundColor: color }}>
+      <span className="text-6xl font-bold uppercase text-white">{m.initial}</span>
+    </div>
+  );
 
   return (
     <div>
@@ -23,10 +34,19 @@ export default function StoreelLivePreview({ input, avatarUrl, avatarColor }: {
       <div data-testid="storeel-preview" aria-label="Live preview of your Storeel" role="img"
         className="mx-auto w-full max-w-[320px] overflow-hidden rounded-[1.25rem] bg-[#111827] text-white shadow-sm">
         {/* Cover */}
-        <div className="relative h-52 overflow-hidden rounded-b-[1.25rem]">
-          {m.cover
-            ? <img src={m.cover} alt="" className="h-full w-full object-cover" />
-            : <div className="h-full w-full bg-gradient-to-b from-gray-300 via-gray-500 to-gray-900" />}
+        <div className="relative h-52 overflow-hidden rounded-b-[1.25rem]" data-testid="storeel-preview-cover" data-cover-kind={m.coverKind ?? 'none'}>
+          {m.coverKind === 'video' && m.cover ? (
+            <>
+              <video src={`${m.cover}#t=0.1`} muted playsInline preload="metadata" className="h-full w-full object-cover" />
+              <span className="pointer-events-none absolute inset-0 flex items-center justify-center pb-8">
+                <span className="flex h-12 w-12 items-center justify-center rounded-full bg-black/40 backdrop-blur-sm">
+                  <Play className="ml-0.5 h-5 w-5 text-white" aria-hidden="true" />
+                </span>
+              </span>
+            </>
+          ) : m.cover ? (
+            <CampaignCover src={m.cover} isFallback={m.coverKind === 'brand'} color={color} className="h-full w-full" fallback={initialCover} />
+          ) : initialCover}
           {m.title ? (
             <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent px-4 pb-3 pt-8">
               <p className="line-clamp-2 break-words text-lg font-bold leading-6">{m.title}</p>
