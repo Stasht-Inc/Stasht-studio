@@ -59,12 +59,13 @@ const roundel = (cx, cy, r) => `<circle cx="${cx}" cy="${cy}" r="${r}" fill="#11
   `<path d="M${cx} ${cy}L${cx} ${cy - r * 0.6}A${r * 0.6} ${r * 0.6} 0 0 1 ${cx + r * 0.6} ${cy}Z" fill="#1C69D4"/>` +
   `<path d="M${cx} ${cy}L${cx} ${cy + r * 0.6}A${r * 0.6} ${r * 0.6} 0 0 1 ${cx - r * 0.6} ${cy}Z" fill="#1C69D4"/>`;
 const BMW_LOGO = await sharp(svgLogo(`<rect width="800" height="800" fill="#fff"/>${roundel(400, 400, 120)}`, 800)).flatten({ background: '#fff' }).jpeg({ quality: 85 }).toBuffer();
-// Round avatar (Chris, 4 Nov 2026): TheRoyalWoodShop's logo — a solid blue box with white lettering, wider than tall —
-// drew as a rectangle in the middle. Now clipped to a round avatar (cover). Full bleed, and on a white JPEG margin.
+// Round avatar (Chris, 4 Nov 2026): TheRoyalWoodShop's logo — a solid blue box with white lettering out to 10% and 90%
+// of its width, wider than tall — drew as a rectangle in the middle. Now a round avatar: the whole box inside the logo
+// circle, the circle filled with the box's blue, lettering never cut (review). Full bleed, and on a white JPEG margin.
 const ROYAL_URL = 'https://stasht-media.s3.amazonaws.com/profile/royalwood.jpg';
 const ROYAL_MARGIN_URL = 'https://stasht-media.s3.amazonaws.com/profile/royalwood-margin.jpg';
 const royalTile = (x, y, w, h) => `<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="#1F5FA8"/>` +
-  `<g fill="#fff"><rect x="${x + w * 0.3}" y="${y + h * 0.36}" width="${w * 0.4}" height="${h * 0.07}"/><rect x="${x + w * 0.2}" y="${y + h * 0.47}" width="${w * 0.6}" height="${h * 0.1}"/><rect x="${x + w * 0.35}" y="${y + h * 0.61}" width="${w * 0.3}" height="${h * 0.05}"/></g>`;
+  `<g fill="#fff"><rect x="${x + w * 0.3}" y="${y + h * 0.34}" width="${w * 0.4}" height="${h * 0.08}"/><rect x="${x + w * 0.1}" y="${y + h * 0.46}" width="${w * 0.8}" height="${h * 0.12}"/><rect x="${x + w * 0.35}" y="${y + h * 0.62}" width="${w * 0.3}" height="${h * 0.06}"/></g>`;
 const ROYAL_LOGO = await sharp(Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="580" height="400" viewBox="0 0 580 400">${royalTile(0, 0, 580, 400)}</svg>`)).jpeg({ quality: 88 }).toBuffer();
 const ROYAL_MARGIN_LOGO = await sharp(svgLogo(`<rect width="800" height="800" fill="#fff"/>${royalTile(110, 200, 580, 400)}`, 800)).flatten({ background: '#fff' }).jpeg({ quality: 85 }).toBuffer();
 const YELLOW_FILE = `${OUT}/fixture-yellow-logo.png`;
@@ -458,15 +459,18 @@ try {
       await openPanel(page);
       const view = panel(page).locator('[data-qr-view] img');
       const src = decodeURIComponent(await view.getAttribute('src'));
-      expect(/<clipPath id="qr-logo">/.test(src) && /clip-path="url\(#qr-logo\)"/.test(src) && /preserveAspectRatio="xMidYMid slice"/.test(src), `${tag}: ${kind}: popover code clips the logo to a circle (cover)`);
+      expect(/<clipPath id="qr-logo">/.test(src) && /clip-path="url\(#qr-logo\)"/.test(src) && /preserveAspectRatio="xMidYMid meet"/.test(src), `${tag}: ${kind}: popover code: the whole logo inside the circle (clipPath, meet)`);
+      const fillM = src.match(/<circle cx="[\d.]+" cy="[\d.]+" r="[\d.]+" fill="(#[0-9A-F]{6})"\/><image/);
+      const fillPx = fillM ? hexPx(fillM[1]) : null;
+      expect(fillPx && fillPx.b > 120 && fillPx.b - fillPx.r > 60, `${tag}: ${kind}: popover code: the logo circle is filled with the box's blue (${fillM && fillM[1]})`);
       await shot(page, `${tag}-06c-royal-${kind}`);
       await shot(page, `${tag}-06d-royal-${kind}-code`, panel(page).locator('[data-qr-view]'));
       const TEXT = 'https://studio.stasht.com/q/K7PQ2MZX';
       const R = (0.145 * 37) / 45; // the logo circle's radius, as a share of the image
       const roundCheck = async (file, label) => {
-        // Round the circle's edge, away from the lettering's row (it reaches the sides of the crop, as in an avatar).
+        // All round the circle's edge: the box's blue (the box drawn whole, on the circle filled with its blue).
         let blueRim = 0;
-        const angles = [30, 60, 90, 120, 150, 210, 240, 270, 300, 330];
+        const angles = [0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330];
         for (const deg of angles) {
           const a = (deg * Math.PI) / 180;
           const px = await pixelAt(file, 0.5 + Math.cos(a) * R * 0.88, 0.5 + Math.sin(a) * R * 0.88);
@@ -479,6 +483,16 @@ try {
           if (px.a === 255 && near(px, '#FFFFFF', 12)) whiteCorners += 1;
         }
         expect(whiteCorners === 4, `${tag}: ${kind}: ${label}: the logo box's corners are not drawn — round, on the white ring (${whiteCorners}/4)`);
+        // The lettering's long middle line shows out to both ends (never cut): the box is inscribed in the circle.
+        const a = 1.45;
+        const dw = (2 * R * a) / Math.sqrt(1 + a * a);
+        const dh = (2 * R) / Math.sqrt(1 + a * a);
+        let letters = 0;
+        for (const f of [0.12, 0.5, 0.88]) {
+          const px = await pixelAt(file, 0.5 - dw / 2 + f * dw, 0.5 + 0.02 * dh);
+          if (px.a === 255 && near(px, '#FFFFFF', 30)) letters += 1;
+        }
+        expect(letters === 3, `${tag}: ${kind}: ${label}: lettering kept at 12%, 50% and 88% of the box's width (${letters}/3)`);
       };
       const white = await download(page, tag, 'PNG · white background (any fabric)', `royal-${kind}.png`);
       await checkPng(tag, `${kind} PNG white`, white.path, TEXT);

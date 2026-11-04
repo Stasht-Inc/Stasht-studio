@@ -319,23 +319,47 @@ export interface QrLogoImage {
   href: string;
   width: number;
   height: number;
+  /** The colour the logo circle is filled with behind a logo drawn whole (its edge colour; utils/qrLogo). */
+  backdrop?: string | null;
+  /** Draw it whole even when square-ish (a tile: utils/qrLogo logoTrim). */
+  contain?: boolean;
 }
+
+export type LogoFit = 'cover' | 'contain';
+
+/** A square-ish image (an avatar, a round logo): within 0.8–1.25. */
+const squareish = (width: number, height: number) => {
+  const ratio = width / height;
+  return ratio >= 0.8 && ratio <= 1.25;
+};
 
 /**
  * Where the logo's pixels go (in modules), and which part of the image. Round avatar (Chris, 4 Nov 2026): every logo is
- * clipped to the logo circle, cover fit — the image's centre square fills it, the way the account avatar shows across
- * Studio (object-cover in a round frame). A wide or tall image loses its sides (TheRoyalWoodShop's blue box used to
- * draw whole, as a rectangle). A logo on a margin was already squared around its mark (utils/qrLogo logoTrim).
+ * clipped to the logo circle. A square-ish image (an avatar) covers it — its centre square, the way the account avatar
+ * shows across Studio. A wide or tall image, or a tile (contain), is drawn WHOLE inside the circle (inscribed: its
+ * corners touch the circle), on the circle filled with its backdrop colour, so its lettering is never cut (review,
+ * 4 Nov: a centre-square crop cut TheRoyalWoodShop's "THE ROYAL" to "E ROYA").
  */
-export function logoPlacement(spot: QrLogoSpot, width: number, height: number) {
+export function logoPlacement(spot: QrLogoSpot, width: number, height: number, contain = false) {
   const w = width > 0 ? width : 1;
   const h = height > 0 ? height : 1;
-  const side = Math.min(w, h);
-  return {
-    src: { x: (w - side) / 2, y: (h - side) / 2, w: side, h: side },
-    dest: { x: spot.cx - spot.imageR, y: spot.cy - spot.imageR, w: spot.imageR * 2, h: spot.imageR * 2 },
-  };
+  if (!contain && squareish(w, h)) {
+    const side = Math.min(w, h);
+    return {
+      fit: 'cover' as LogoFit,
+      src: { x: (w - side) / 2, y: (h - side) / 2, w: side, h: side },
+      dest: { x: spot.cx - spot.imageR, y: spot.cy - spot.imageR, w: spot.imageR * 2, h: spot.imageR * 2 },
+    };
+  }
+  const a = w / h;
+  const k = Math.sqrt(1 + a * a);
+  const dw = (2 * spot.imageR * a) / k;
+  const dh = (2 * spot.imageR) / k;
+  return { fit: 'contain' as LogoFit, src: { x: 0, y: 0, w, h }, dest: { x: spot.cx - dw / 2, y: spot.cy - dh / 2, w: dw, h: dh } };
 }
+
+/** The logo circle's fill: the backdrop behind a logo drawn whole; white otherwise (or when it isn't a plain colour). */
+const logoFill = (fit: LogoFit, backdrop: string | null | undefined) => (fit === 'contain' ? normalizeHex(backdrop) : null) ?? '#FFFFFF';
 
 const escapeAttr = (s: string) => s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
 
@@ -368,12 +392,16 @@ export function qrSvg(text: string, options: QrDrawOptions, pixels = 1024): stri
   if (layout.alignPath) parts.push(`<path fill="${color}" fill-rule="evenodd" d="${layout.alignPath}"/>`);
   if (logo && layout.logo) {
     const spot = layout.logo;
-    const place = logoPlacement(spot, logo.width, logo.height);
+    const place = logoPlacement(spot, logo.width, logo.height, Boolean(logo.contain));
     parts.push(`<circle cx="${r3(spot.cx)}" cy="${r3(spot.cy)}" r="${r3(spot.circleR)}" fill="#FFFFFF"/>`);
     const href = escapeAttr(logo.href);
-    // Round avatar: the image's centre square, clipped to the logo circle (slice = cover).
+    // Round avatar: clipped to the logo circle. Cover: the centre square (slice). Contain: the circle filled with the
+    // backdrop, the whole image inscribed in it (meet).
     parts.push(`<clipPath id="qr-logo"><circle cx="${r3(spot.cx)}" cy="${r3(spot.cy)}" r="${r3(spot.imageR)}"/></clipPath>`);
-    parts.push(`<image clip-path="url(#qr-logo)" x="${r3(place.dest.x)}" y="${r3(place.dest.y)}" width="${r3(place.dest.w)}" height="${r3(place.dest.h)}" preserveAspectRatio="xMidYMid slice" href="${href}" xlink:href="${href}"/>`);
+    const fill = logoFill(place.fit, logo.backdrop);
+    if (fill !== '#FFFFFF') parts.push(`<circle cx="${r3(spot.cx)}" cy="${r3(spot.cy)}" r="${r3(spot.imageR)}" fill="${fill}"/>`);
+    const aspect = place.fit === 'cover' ? 'xMidYMid slice' : 'xMidYMid meet';
+    parts.push(`<image clip-path="url(#qr-logo)" x="${r3(place.dest.x)}" y="${r3(place.dest.y)}" width="${r3(place.dest.w)}" height="${r3(place.dest.h)}" preserveAspectRatio="${aspect}" href="${href}" xlink:href="${href}"/>`);
   }
   parts.push('</svg>');
   return parts.join('');
@@ -389,7 +417,7 @@ export const svgDataUrl = (svg: string): string => `data:image/svg+xml;charset=u
 export function paintQr(
   ctx: CanvasRenderingContext2D,
   text: string,
-  options: { color: string; background: 'white' | 'transparent'; image: CanvasImageSource | null; imageWidth: number; imageHeight: number; circleRatio?: number },
+  options: { color: string; background: 'white' | 'transparent'; image: CanvasImageSource | null; imageWidth: number; imageHeight: number; circleRatio?: number; backdrop?: string | null; contain?: boolean },
   px: number,
 ): void {
   const layout = qrLayout(text, Boolean(options.image), options.circleRatio);
@@ -413,12 +441,18 @@ export function paintQr(
     ctx.beginPath();
     ctx.arc(spot.cx, spot.cy, spot.circleR, 0, Math.PI * 2);
     ctx.fill();
-    const place = logoPlacement(spot, options.imageWidth, options.imageHeight);
+    const place = logoPlacement(spot, options.imageWidth, options.imageHeight, Boolean(options.contain));
     ctx.save();
-    // Round avatar: clipped to the logo circle (the same circle as the SVG's clipPath).
+    // Round avatar: clipped to the logo circle (the same circle as the SVG's clipPath); a logo drawn whole sits on the
+    // circle filled with its backdrop.
     ctx.beginPath();
     ctx.arc(spot.cx, spot.cy, spot.imageR, 0, Math.PI * 2);
     ctx.clip();
+    const fill = logoFill(place.fit, options.backdrop);
+    if (fill !== '#FFFFFF') {
+      ctx.fillStyle = fill;
+      ctx.fill();
+    }
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = 'high';
     ctx.drawImage(options.image, place.src.x, place.src.y, place.src.w, place.src.h, place.dest.x, place.dest.y, place.dest.w, place.dest.h);

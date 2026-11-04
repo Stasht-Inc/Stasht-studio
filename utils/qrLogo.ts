@@ -6,7 +6,7 @@
 // JPEG) drew as a tiny mark. logoTrim crops it to a square around the mark first, so the mark fills its circle.
 // logoTrim is pure (no DOM), so `node --test` loads this file (tests/utils/qrLogo.test.mjs).
 
-import { dominantColor } from './qrStyle.ts';
+import { dominantColor, rgbToHex } from './qrStyle.ts';
 
 export interface PreparedLogo {
   /** data:image/png (when the image has transparency) or data:image/jpeg. */
@@ -17,6 +17,10 @@ export interface PreparedLogo {
   color: string | null;
   /** Loaded, for painting the PNG downloads. */
   image: HTMLImageElement;
+  /** The logo circle's fill behind a logo drawn whole (a wide image or a tile): its edge colour; null: white. */
+  backdrop: string | null;
+  /** A tile (logoTrim): drawn whole inside the circle even when square. */
+  contain: boolean;
 }
 
 /** Largest side kept: the logo is 29% of a 4096 px PNG's code (~970 px), so this stays sharp in print. */
@@ -37,11 +41,17 @@ const MIN_LINE_PIXELS = 2;
 /** The mark's radius: the distance this share of its pixels lie within (a few stray pixels don't inflate it). */
 const RADIUS_QUANTILE = 0.998;
 
-/** Where to crop a logo, in the measured pixels: a square (it may reach past the image's edges: fill those). */
+/**
+ * Where to crop a logo, in the measured pixels: a square (it may reach past the image's edges: fill those), or for a
+ * tile the tile itself (w × h, tile: true; size = its long side).
+ */
 export interface LogoCrop {
   x: number;
   y: number;
   size: number;
+  w?: number;
+  h?: number;
+  tile?: boolean;
 }
 
 const isBackground = (data: ArrayLike<number>, i: number) =>
@@ -53,33 +63,77 @@ const TILE_EDGE_FILL = 0.9;
 const TILE_CORNER = 0.2;
 /** How far inside its bounding box a tile's edge lines are read (antialiasing), in pixels. */
 const TILE_EDGE_INSET = 2;
+/** A tile is filled inside: a ring this far in (share of each side) is at least TILE_INNER_FILL mark (an outlined frame
+ *  is empty there; the lettering on a box takes only part of it). */
+const TILE_INNER_RING = 0.12;
+const TILE_INNER_FILL = 0.6;
 /** A tile is cropped this far inside its own edges (each side, share of its short side): no antialiased rim shows. */
-export const TILE_INSET = 0.03;
+export const TILE_INSET = 0.015;
 /** Smallest tile side (measured pixels) worth treating as one. */
 const TILE_MIN = 8;
 
-/** Whether the mark's bounding box [x0, x1) × [y0, y1) is a solid tile: all four edges (nearly) all mark. */
+/** The pixels along a rectangle's four edge lines (corner ends left out), as RGBA offsets. */
+function edgeCells(width: number, x0: number, y0: number, x1: number, y1: number, inset: number, cornerShare: number): number[] {
+  const at = (x: number, y: number) => (y * width + x) * 4;
+  const w = x1 - x0;
+  const h = y1 - y0;
+  const cells: number[] = [];
+  const top = y0 + inset;
+  const bottom = y1 - 1 - inset;
+  const left = x0 + inset;
+  const right = x1 - 1 - inset;
+  const skipW = Math.floor(w * cornerShare);
+  const skipH = Math.floor(h * cornerShare);
+  for (let k = skipW; k < w - skipW; k++) cells.push(at(x0 + k, top), at(x0 + k, bottom));
+  for (let k = skipH; k < h - skipH; k++) cells.push(at(left, y0 + k), at(right, y0 + k));
+  return cells;
+}
+
+/** Whether the mark's bounding box [x0, x1) × [y0, y1) is a solid tile: all four edges (nearly) all mark, and filled. */
 function isTile(data: ArrayLike<number>, width: number, x0: number, y0: number, x1: number, y1: number): boolean {
   const w = x1 - x0;
   const h = y1 - y0;
   if (w < TILE_MIN || h < TILE_MIN) return false;
+  const share = (cells: number[]) => (cells.length ? cells.filter((i) => !isBackground(data, i)).length / cells.length : 0);
   const at = (x: number, y: number) => (y * width + x) * 4;
-  const filled = (count: number, cell: (k: number) => number) => {
+  const line = (count: number, cell: (k: number) => number) => {
     const skip = Math.floor(count * TILE_CORNER);
-    let hits = 0;
-    let total = 0;
-    for (let k = skip; k < count - skip; k++) {
-      total += 1;
-      if (!isBackground(data, cell(k))) hits += 1;
-    }
-    return total > 0 && hits / total >= TILE_EDGE_FILL;
+    const cells: number[] = [];
+    for (let k = skip; k < count - skip; k++) cells.push(cell(k));
+    return share(cells) >= TILE_EDGE_FILL;
   };
   const top = y0 + TILE_EDGE_INSET;
   const bottom = y1 - 1 - TILE_EDGE_INSET;
   const left = x0 + TILE_EDGE_INSET;
   const right = x1 - 1 - TILE_EDGE_INSET;
-  return filled(w, (k) => at(x0 + k, top)) && filled(w, (k) => at(x0 + k, bottom))
-    && filled(h, (k) => at(left, y0 + k)) && filled(h, (k) => at(right, y0 + k));
+  const edged = line(w, (k) => at(x0 + k, top)) && line(w, (k) => at(x0 + k, bottom))
+    && line(h, (k) => at(left, y0 + k)) && line(h, (k) => at(right, y0 + k));
+  if (!edged) return false;
+  const ix = Math.round(w * TILE_INNER_RING);
+  const iy = Math.round(h * TILE_INNER_RING);
+  return share(edgeCells(width, x0 + ix, y0 + iy, x1 - ix, y1 - iy, 0, 0)) >= TILE_INNER_FILL;
+}
+
+/**
+ * The colour along a box's edges (2 px in, rounded corners left out): the mean of its mark pixels, as #RRGGBB; null
+ * when they are mostly background (transparent / white). The logo circle's fill behind a tile or a wide image drawn
+ * whole, so it still reads as one round avatar. data: RGBA, width wide; the box in its pixels.
+ */
+export function edgeColor(data: ArrayLike<number>, width: number, x0: number, y0: number, x1: number, y1: number): string | null {
+  const height = Math.floor(data.length / 4 / width);
+  const bx0 = Math.max(0, Math.round(x0));
+  const by0 = Math.max(0, Math.round(y0));
+  const bx1 = Math.min(width, Math.round(x1));
+  const by1 = Math.min(height, Math.round(y1));
+  if (bx1 - bx0 < 6 || by1 - by0 < 6) return null;
+  const cells = edgeCells(width, bx0, by0, bx1, by1, 2, TILE_CORNER);
+  let r = 0; let g = 0; let b = 0; let n = 0;
+  for (const i of cells) {
+    if (isBackground(data, i)) continue;
+    r += data[i]; g += data[i + 1]; b += data[i + 2]; n += 1;
+  }
+  if (!cells.length || n / cells.length < 0.5) return null;
+  return rgbToHex({ r: r / n, g: g / n, b: b / n });
 }
 
 /**
@@ -117,13 +171,16 @@ export function logoTrim(data: ArrayLike<number>, width: number, height: number)
   const cx = (x0 + x1) / 2;
   const cy = (y0 + y1) / 2;
 
-  // A tile (round avatar, Chris 4 Nov 2026): a solid box edged all round by the mark — TheRoyalWoodShop's blue box with
-  // white lettering, a coloured square, an app-icon tile — on a margin. Crop a square INSIDE it, so the circle the logo
-  // is clipped to shows the tile edge to edge (the account avatar's look), instead of the whole tile as a rectangle.
+  // A tile (round avatar, Chris 4 Nov 2026): a solid box edged all round by the mark and filled — TheRoyalWoodShop's
+  // blue box with white lettering, a coloured square, an app-icon tile — on a margin. Crop to the tile itself (just
+  // inside its antialiased rim): it is drawn whole inside the logo circle, on the circle filled with its edge colour,
+  // so it reads as one round avatar and its lettering is never cut.
   if (isTile(data, width, x0, y0, x1, y1)) {
-    const side = Math.min(x1 - x0, y1 - y0) * (1 - 2 * TILE_INSET);
-    if (side >= Math.max(width, height) * 0.98) return null;
-    return { x: cx - side / 2, y: cy - side / 2, size: side };
+    const inset = Math.min(x1 - x0, y1 - y0) * TILE_INSET;
+    const w = x1 - x0 - 2 * inset;
+    const h = y1 - y0 - 2 * inset;
+    if (w >= width * 0.98 && h >= height * 0.98) return null;
+    return { x: x0 + inset, y: y0 + inset, w, h, size: Math.max(w, h), tile: true };
   }
 
   // How far the mark reaches from that centre (pixel corners, so a one-pixel mark still has a size).
@@ -154,9 +211,13 @@ function loadImage(src: string): Promise<HTMLImageElement> {
   });
 }
 
-/** The part of the image to keep: the trimmed square (logoTrim, scaled up to the image), or the whole image. */
-function keepRegion(source: HTMLImageElement, w0: number, h0: number): { x: number; y: number; w: number; h: number } {
-  const whole = { x: 0, y: 0, w: w0, h: h0 };
+/**
+ * The part of the image to keep — the trimmed square (logoTrim, scaled up to the image), a tile, or the whole image —
+ * whether it is a tile (drawn whole), and the colour behind a logo drawn whole (edgeColor: the tile's, or the whole
+ * image's edges, used when it is wide or tall).
+ */
+function keepRegion(source: HTMLImageElement, w0: number, h0: number): { region: { x: number; y: number; w: number; h: number }; contain: boolean; backdrop: string | null } {
+  const whole = { region: { x: 0, y: 0, w: w0, h: h0 }, contain: false, backdrop: null };
   const k = Math.min(1, TRIM_SAMPLE / Math.max(w0, h0));
   const sw = Math.max(1, Math.round(w0 * k));
   const sh = Math.max(1, Math.round(h0 * k));
@@ -167,10 +228,18 @@ function keepRegion(source: HTMLImageElement, w0: number, h0: number): { x: numb
     const ctx = canvas.getContext('2d', { willReadFrequently: true });
     if (!ctx) return whole;
     ctx.drawImage(source, 0, 0, sw, sh);
-    const crop = logoTrim(ctx.getImageData(0, 0, sw, sh).data, sw, sh);
-    if (!crop) return whole;
+    const data = ctx.getImageData(0, 0, sw, sh).data;
+    const crop = logoTrim(data, sw, sh);
     const up = w0 / sw;
-    return { x: crop.x * up, y: crop.y * up, w: crop.size * up, h: crop.size * up };
+    if (!crop) return { ...whole, backdrop: edgeColor(data, sw, 0, 0, sw, sh) };
+    if (crop.tile && crop.w && crop.h) {
+      return {
+        region: { x: crop.x * up, y: crop.y * up, w: crop.w * up, h: crop.h * up },
+        contain: true,
+        backdrop: edgeColor(data, sw, crop.x, crop.y, crop.x + crop.w, crop.y + crop.h),
+      };
+    }
+    return { region: { x: crop.x * up, y: crop.y * up, w: crop.size * up, h: crop.size * up }, contain: false, backdrop: null };
   } catch {
     return whole;
   } finally {
@@ -222,7 +291,7 @@ export async function prepareLogo(blob: Blob): Promise<PreparedLogo | null> {
       }
     }
 
-    const region = keepRegion(source, w0, h0);
+    const { region, contain, backdrop } = keepRegion(source, w0, h0);
     const scale = Math.min(1, MAX_SIDE / Math.max(region.w, region.h));
     const width = Math.max(1, Math.round(region.w * scale));
     const height = Math.max(1, Math.round(region.h * scale));
@@ -236,7 +305,7 @@ export async function prepareLogo(blob: Blob): Promise<PreparedLogo | null> {
     canvas.width = 0; // let go of the bitmap
     canvas.height = 0;
     const image = await loadImage(href);
-    return { href, width, height, color: dominantColor(pixels), image };
+    return { href, width, height, color: dominantColor(pixels), image, backdrop, contain };
   } catch {
     return null;
   } finally {
