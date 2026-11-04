@@ -16,55 +16,49 @@ test('initialsOf takes the first letter', () => {
 });
 
 test('an empty form shows placeholders', () => {
-  const m = storeelPreviewModel({ title: '  ', images: [], momentCount: 0, location: '', date: '', authorName: '' }, 'en-US');
+  const m = storeelPreviewModel({ title: '  ', moments: [], location: '', date: '', authorName: '' }, 'en-US');
   assert.equal(m.title, '');
   assert.equal(m.cover, null);
   assert.equal(m.coverKind, null);
   assert.equal(m.moments, '0 moments');
-  assert.equal(m.firstImage, null);
+  assert.deepEqual(m.momentCards, []);
   assert.equal(m.author, 'Username');
   assert.equal(m.location, '');
   assert.equal(m.date, '');
 });
 
-test('a filled form shows its own title, first image (on the moment card), place and date', () => {
+const PHOTO = (i, extra = {}) => ({ kind: 'photo', key: `photo-${i}`, image: `blob:${i}`, video: false, text: '', location: '', date: '', ...extra });
+
+test('a filled form shows its own title, every moment (in order), place and date', () => {
   const m = storeelPreviewModel({
-    title: 'Fall service event', images: ['blob:a', 'blob:b'], momentCount: 2, location: 'Vancouver, BC, Canada', date: '2026-07-04', authorName: 'Samantha Smith',
+    title: 'Fall service event', moments: [PHOTO('a'), PHOTO('b', { date: '2026-10-01' })], location: 'Vancouver, BC, Canada', date: '2026-07-04', authorName: 'Samantha Smith',
   }, 'en-US');
   assert.equal(m.title, 'Fall service event');
   // Chris, 4 Nov 2026: the first photo is NOT the cover (the saved campaign page doesn't use it either).
   assert.equal(m.cover, null);
-  assert.equal(m.firstImage, 'blob:a');
+  assert.deepEqual(m.momentCards.map((c) => c.key), ['photo-a', 'photo-b']);
   assert.equal(m.moments, '2 moments');
+  // A moment's own date (else the campaign's), in the person's language.
+  assert.equal(m.momentCards[0].date, 'Jul 4, 2026');
+  assert.equal(m.momentCards[1].date, 'Oct 1, 2026');
+  // A moment's own place, else the campaign's.
+  assert.equal(m.momentCards[0].location, 'Vancouver, BC, Canada');
   assert.equal(m.author, 'Samantha Smith');
   assert.equal(m.initial, 'S');
   assert.equal(m.location, 'Vancouver, BC, Canada');
   assert.equal(m.date, 'Jul 4, 2026');
 });
 
-// Review fix: the live preview's cover and count come from the form's own photo lists.
-test('storeelPreviewMedia: first photo (uploaded link, else the file), real count, no HEIC', async () => {
-  const { storeelPreviewMedia } = await import('../../components/storeel/storeelPreview.ts');
-  const file = (name, type) => ({ name, type });
-  const jpg = file('a.jpg', 'image/jpeg');
-  assert.deepEqual(storeelPreviewMedia({ withMetadata: [{ file: jpg, fileUrl: '' }], mainPhotos: [], mediaFiles: [] }), { first: jpg, count: 1 });
-  assert.deepEqual(storeelPreviewMedia({ withMetadata: [{ file: jpg, fileUrl: 'https://x/a.jpg' }], mainPhotos: [], mediaFiles: [jpg, jpg] }), { first: 'https://x/a.jpg', count: 2 });
-  assert.deepEqual(storeelPreviewMedia({ withMetadata: [], mainPhotos: [{ fileUrl: 'https://x/b.jpg' }, { fileUrl: '' }], mediaFiles: [] }), { first: 'https://x/b.jpg', count: 2 });
-  assert.deepEqual(storeelPreviewMedia({ withMetadata: [], mainPhotos: [], mediaFiles: [file('p.HEIC', '')] }), { first: null, count: 1 });
-  assert.deepEqual(storeelPreviewMedia({ withMetadata: [], mainPhotos: [], mediaFiles: [file('p.heic', 'image/heic')] }), { first: null, count: 1 });
-  assert.deepEqual(storeelPreviewMedia({ withMetadata: [], mainPhotos: [], mediaFiles: [] }), { first: null, count: 0 });
-});
-
 // Chris, 4 Nov 2026 (point 6): the preview's cover is what the saved campaign page shows — the chosen cover photo, or
 // the intro video (its first frame), else the BRAND: the account avatar (the property's image in the property view).
 // Never the first photo, never a grey box.
-const base = { title: 'Next Summit / 25', images: ['blob:first'], momentCount: 1, location: '', date: '2026-11-04', authorName: 'Next Summit' };
+const base = { title: 'Next Summit / 25', moments: [PHOTO('first')], location: '', date: '2026-11-04', authorName: 'Next Summit' };
 
 test('no cover chosen: the brand is the cover', () => {
   const m = storeelPreviewModel({ ...base, brandImage: 'https://cdn.test/logo.png' }, 'en-US');
   assert.equal(m.cover, 'https://cdn.test/logo.png');
   assert.equal(m.coverKind, 'brand');
-  assert.equal(m.firstImage, 'blob:first');
+  assert.equal(m.momentCards[0].image, 'blob:first', 'the first photo is a moment, never the cover');
 });
 
 test('a cover photo is the cover', () => {

@@ -1,90 +1,76 @@
-// Chris, 4 Nov 2026, point 9: the Storeel flow (Create / Edit a Storeel) in three numbered steps like the newsletter
-// composer: 1 Set up (Continue saves: POST /memories, or PUT /memories/{id} when editing), 2 Moments (a link to the
-// campaign page; coming back resumes on step 3), 3 Send (newsletter-style audience, tracked Storeels).
+// Storeel flow v2 (Deepak, 4 Nov 2026 — approved design): Create / Edit a Storeel in TWO numbered steps.
+//   1 Campaign — every Set up field incl. media and the catalogue / vehicle pickers; the live preview shows every moment.
+//              Nothing is saved until "Create Campaign" (edit: "Save Changes" = PUT /memories/{id}). Once saved it
+//              folds to "Campaign created" (edit: "Changes saved") with View campaign and Edit.
+//   2 Send (optional) — enabled only once step 1 is saved; Done keeps the campaign, Send Now opens the confirm.
+// No separate Moments step, no resume note.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  FLOW_STEPS, FLOW_RESUME_KEY, FLOW_RESUME_MAX_AGE_MS, clearFlowResume, dateRangeFor, momentsOf, readFlowResume, seedFromMemory,
-  sendPayload, startStep, stepNumber, stepStatus, updatePayload, writeFlowResume, formFromSeed, coverFromSeed, firstImageOf, flowOwnerKey, CURRENT_CATEGORY,
+  FLOW_STEPS, dateRangeFor, momentsOf, seedFromMemory, sendPayload, stepNumber, updatePayload, formFromSeed, coverFromSeed, flowView, CURRENT_CATEGORY,
 } from '../../components/storeel/lib/storeelFlow.ts';
+import * as flow from '../../components/storeel/lib/storeelFlow.ts';
 
-function memoryStorage() {
-  const m = new Map();
-  return { getItem: (k) => (m.has(k) ? m.get(k) : null), setItem: (k, v) => m.set(k, String(v)), removeItem: (k) => m.delete(k), m };
-}
-
-test('three steps, numbered like the newsletter composer', () => {
-  assert.deepEqual(FLOW_STEPS, ['setup', 'moments', 'send']);
-  assert.deepEqual(FLOW_STEPS.map(stepNumber), [1, 2, 3]);
+test('two steps: 1 Campaign, 2 Send (no Moments step)', () => {
+  assert.deepEqual(FLOW_STEPS, ['campaign', 'send']);
+  assert.deepEqual(FLOW_STEPS.map(stepNumber), [1, 2]);
 });
 
-test('a new Storeel starts on Set up; an edit starts on Set up too; coming back from the campaign page starts on Send', () => {
-  assert.equal(startStep({ campaignId: null }), 'setup');
-  assert.equal(startStep({ campaignId: null, resume: 'send' }), 'setup', 'nothing to resume without a campaign');
-  assert.equal(startStep({ campaignId: 42 }), 'setup');
-  assert.equal(startStep({ campaignId: 42, resume: 'send' }), 'send');
-  assert.equal(startStep({ campaignId: 42, resume: 'moments' }), 'moments');
+test('the resume note and its helpers are gone (moments come from step 1)', () => {
+  for (const name of ['startStep', 'stepStatus', 'writeFlowResume', 'readFlowResume', 'clearFlowResume', 'flowOwnerKey', 'sessionNotes', 'FLOW_RESUME_KEY']) {
+    assert.equal(name in flow, false, `${name} removed`);
+  }
 });
 
-test('each card is current, done or not reached yet; nothing past Set up until the campaign is saved', () => {
-  assert.equal(stepStatus('setup', 'setup', false), 'current');
-  assert.equal(stepStatus('moments', 'setup', false), 'locked');
-  assert.equal(stepStatus('send', 'setup', false), 'locked');
-  assert.equal(stepStatus('setup', 'moments', true), 'done');
-  assert.equal(stepStatus('moments', 'moments', true), 'current');
-  assert.equal(stepStatus('send', 'moments', true), 'locked');
-  assert.equal(stepStatus('setup', 'send', true), 'done');
-  assert.equal(stepStatus('moments', 'send', true), 'done');
-  assert.equal(stepStatus('send', 'send', true), 'current');
-  // Back on Set up of a saved campaign (Edit pressed on its summary): the later steps stay reachable.
-  assert.equal(stepStatus('moments', 'setup', true), 'locked');
+test('create, before saving: Cancel + Create Campaign; Send waits with a muted line; nothing else creates it', () => {
+  const v = flowView({ editing: false, saved: false, campaignOpen: true });
+  assert.equal(v.title, 'Create Campaign');
+  assert.equal(v.campaign, 'open');
+  assert.deepEqual(v.secondary, { label: 'Cancel', action: 'close' });
+  assert.deepEqual(v.primary, { label: 'Create Campaign', action: 'create' });
+  assert.equal(v.sendEnabled, false);
+  assert.equal(v.sendLockedLine, 'Save your campaign first — then you can send it now or later.');
+  assert.equal(v.back, 'close');
+});
+
+test('create, saved: step 1 folds to "Campaign created"; Done + Send Now; Send says it is saved and optional', () => {
+  const v = flowView({ editing: false, saved: true, campaignOpen: false });
+  assert.equal(v.campaign, 'saved');
+  assert.equal(v.savedLabel, 'Campaign created');
+  assert.deepEqual(v.secondary, { label: 'Done', action: 'done' });
+  assert.deepEqual(v.primary, { label: 'Send Now', action: 'send' });
+  assert.equal(v.sendEnabled, true);
+  assert.equal(v.sendIntro, 'Your campaign is saved. Send it now, or do it later.');
+  assert.equal(v.doneToast, 'Campaign created');
+  assert.equal(v.back, 'done', 'Back after saving keeps it, like Done');
+});
+
+test('saved, step 1 opened again with Edit: Save Changes (PUT) and Cancel (put the saved values back); Send waits again', () => {
+  const v = flowView({ editing: false, saved: true, campaignOpen: true });
+  assert.equal(v.campaign, 'open');
+  assert.deepEqual(v.primary, { label: 'Save Changes', action: 'save' });
+  assert.deepEqual(v.secondary, { label: 'Cancel', action: 'revert' });
+  assert.equal(v.sendEnabled, false);
+  assert.equal(v.sendLockedLine, 'Save your changes first — then you can send it now or later.');
+  assert.equal(v.back, 'done');
+});
+
+test('edit from the campaign page: prefilled, Cancel + Save Changes; after saving "Changes saved", Done + Send Now', () => {
+  const before = flowView({ editing: true, saved: false, campaignOpen: true });
+  assert.equal(before.title, 'Edit Campaign');
+  assert.deepEqual(before.primary, { label: 'Save Changes', action: 'save' });
+  assert.deepEqual(before.secondary, { label: 'Cancel', action: 'close' });
+  assert.equal(before.sendEnabled, false);
+  assert.equal(before.sendLockedLine, 'Save your changes first — then you can send it now or later.');
+  const after = flowView({ editing: true, saved: true, campaignOpen: false });
+  assert.equal(after.savedLabel, 'Changes saved');
+  assert.deepEqual(after.primary, { label: 'Send Now', action: 'send' });
+  assert.deepEqual(after.secondary, { label: 'Done', action: 'done' });
+  assert.equal(after.doneToast, 'Changes saved');
+  assert.equal(after.sendIntro, 'Your campaign is saved. Send it now, or do it later.');
 });
 
 const CATEGORIES = [{ id: 7, name: 'Personal' }, { id: 8, name: 'Service' }];
-const ME = flowOwnerKey({ id: 1 }, 'personal', null);
-
-test('Add moments on the campaign page remembers the campaign; coming back resumes on Send, once', () => {
-  const s = memoryStorage();
-  const now = 1_700_000_000_000;
-  writeFlowResume(s, 77, ME, now);
-  assert.ok(s.m.has(FLOW_RESUME_KEY));
-  assert.deepEqual(readFlowResume(s, ME, { now: now + 1000 }), { memoryId: 77, step: 'send', at: now });
-  assert.deepEqual(readFlowResume(s, ME, { now: now + 1000, memoryId: 77 }), { memoryId: 77, step: 'send', at: now }, 'for this campaign');
-  assert.equal(readFlowResume(s, ME, { now: now + 1000, memoryId: 78 }), null, 'another campaign page does not offer it');
-  assert.equal(readFlowResume(s, ME, { now: now + FLOW_RESUME_MAX_AGE_MS + 1 }), null, 'too old: forgotten');
-  clearFlowResume(s);
-  assert.equal(readFlowResume(s, ME, { now: now + 1000 }), null);
-});
-
-test('the note belongs to the account and view that wrote it (review: another sign-in or business never resumes it)', () => {
-  assert.equal(flowOwnerKey({ id: 1 }, 'personal', null), '1|personal');
-  assert.equal(flowOwnerKey({ id: 1 }, 'property', { id: 44 }), '1|property:44');
-  assert.equal(flowOwnerKey({ id: '' }, 'personal', null), null, 'no account: nothing to tie it to');
-  assert.equal(flowOwnerKey(null, 'personal', null), null);
-  const s = memoryStorage();
-  const now = Date.now();
-  writeFlowResume(s, 77, ME, now);
-  assert.equal(readFlowResume(s, flowOwnerKey({ id: 2 }, 'personal', null), { now }), null, 'another account');
-  assert.equal(readFlowResume(s, flowOwnerKey({ id: 1 }, 'property', { id: 44 }), { now }), null, 'same account, a business view');
-  assert.equal(readFlowResume(s, null, { now }), null, 'signed out');
-  clearFlowResume(s);
-  writeFlowResume(s, 77, null, now);
-  assert.equal(s.m.has(FLOW_RESUME_KEY), false, 'no account: no note');
-  s.setItem(FLOW_RESUME_KEY, JSON.stringify({ memoryId: 77, step: 'send', at: now }));
-  assert.equal(readFlowResume(s, ME, { now }), null, 'an older note without an owner is ignored');
-});
-
-test('a broken or missing resume note is ignored, and storage that throws never breaks the flow', () => {
-  const s = memoryStorage();
-  s.setItem(FLOW_RESUME_KEY, '{not json');
-  assert.equal(readFlowResume(s, ME, { now: Date.now() }), null);
-  s.setItem(FLOW_RESUME_KEY, JSON.stringify({ memoryId: 'abc', at: Date.now(), owner: ME }));
-  assert.equal(readFlowResume(s, ME, { now: Date.now() }), null);
-  const throwing = { getItem() { throw new Error('denied'); }, setItem() { throw new Error('denied'); }, removeItem() { throw new Error('denied'); } };
-  assert.equal(readFlowResume(throwing, ME, { now: Date.now() }), null);
-  assert.doesNotThrow(() => writeFlowResume(throwing, 1, ME, Date.now()));
-  assert.doesNotThrow(() => clearFlowResume(throwing));
-});
 
 // GET /memories/{id} (MemoriesController::show): data.memory with the columns and the moments (posts).
 const DETAIL = {
@@ -100,7 +86,12 @@ test('Edit opens the flow prefilled from the campaign', () => {
   assert.deepEqual(seed, {
     id: 3021, title: 'Spring Open House', category: 'Service', categoryId: 8, categoryKind: 'regular', label: 'Events', date: '2026-10-01', endDate: '2026-10-09',
     location: 'Toronto, ON', tags: ['spring', 'open house'], cover: { kind: 'photo', url: 'https://cdn.example.com/cover.jpg' },
-    slug: 'spring-open-house', published: 0, isCar: false, moments: 2, ownerId: 707, firstImage: null,
+    slug: 'spring-open-house', published: 0, isCar: false, moments: 2, ownerId: 707,
+    // The preview in Edit shows the campaign's own moments (storeel-moments.test.mjs).
+    previewMoments: [
+      { kind: 'photo', key: 'post-1', image: null, video: false, text: '', location: '', date: '' },
+      { kind: 'photo', key: 'post-2', image: null, video: false, text: '', location: '', date: '' },
+    ],
   });
   assert.deepEqual(formFromSeed(seed), {
     title: 'Spring Open House', category: 'Service', label: 'Events', date: '2026-10-01', endDate: '2026-10-09', location: 'Toronto, ON', tags: ['spring', 'open house'],
@@ -148,15 +139,10 @@ test('the seed reads every shape the campaign comes in, and a single day has no 
   assert.equal(seedFromMemory({ ...DETAIL, min_uploaded_img_date: null, max_uploaded_img_date: null }).date, '');
 });
 
-test('the preview\'s moment card: the first moment\'s picture (never a video)', () => {
-  assert.equal(firstImageOf({ posts: [{ id: 1, parent_id: null, image_link: 'https://cdn.example.com/clip.mp4' }, { id: 2, parent_id: null, image_link: 'https://cdn.example.com/a.jpg' }] }), 'https://cdn.example.com/a.jpg');
-  assert.equal(firstImageOf({ posts: [{ id: 1, parent_id: 9, image_link: 'https://cdn.example.com/sub.jpg' }] }), null, 'a sub-image is not a moment');
-  assert.equal(firstImageOf({ photos: { preview_images: [{ url: 'https://cdn.example.com/p.jpg' }] } }), 'https://cdn.example.com/p.jpg');
-  assert.equal(firstImageOf({}), null);
-});
-
-test('the moments count: top-level moments, else the photo count the API gives', () => {
+test('the moments count: top-level moments and linked campaigns / vehicles, else the photo count the API gives', () => {
   assert.equal(momentsOf({ posts: [{ id: 1 }, { id: 2, parent_id: 1 }, { id: 3, parent_id: null }] }), 2);
+  assert.equal(momentsOf({ posts: [{ id: 1 }], linked_memories: [{ id: 5 }, { id: 6 }] }), 3);
+  assert.equal(momentsOf({ posts: [], linked_memories: [{ id: 5 }] }), 1);
   assert.equal(momentsOf({ photos: { count: 4 } }), 4);
   assert.equal(momentsOf({ photos_count: '3' }), 3);
   assert.equal(momentsOf({}), 0);

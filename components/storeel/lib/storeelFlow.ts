@@ -1,111 +1,81 @@
-// Chris, 4 Nov 2026, point 9 (Deepak's decisions): Create / Edit a Storeel is one full-screen page with three numbered
-// steps, like the newsletter composer:
-//   1 Set up   — the Create Campaign fields. Continue saves: POST /memories (new) or PUT /memories/{id} (edit).
-//   2 Moments  — a link to the campaign page, where moments are added (no moments editor in the flow). Coming back
-//                resumes on step 3 for that campaign (a note in sessionStorage, read by the Campaigns page and the
-//                campaign page).
-//   3 Send     — the newsletter audience (Single person, All leads, lead groups, lists), email and/or text, a personal
-//                message; POST /memories/{id}/storeel-send sends it as tracked Storeels.
+// Storeel flow v2 (Deepak, 4 Nov 2026 — approved design): Create / Edit a Storeel is one full-screen page with TWO
+// numbered steps, like the newsletter composer:
+//   1 Campaign — the Create Campaign fields (title, category, catalogue / vehicle / Shopify / campaign pickers, cover
+//                photo or intro video, media, date, location, tags, label). The live preview shows every moment it
+//                will make. NOTHING is saved before "Create Campaign" (POST /memories) — edit: "Save Changes"
+//                (PUT /memories/{id}). Once saved it folds to "Campaign created" / "Changes saved" with View campaign
+//                and Edit (opens it again; Save Changes = PUT).
+//   2 Send     — optional, enabled only once step 1 is saved: the newsletter audience (Single person, All leads, lead
+//                groups, lists), email and/or text, a personal message; POST /memories/{id}/storeel-send.
+// After saving the top bar has Done (keeps the campaign) and Send Now. There is no Moments step: moments come from
+// step 1, and more can be added on the campaign page afterwards.
 // Pure, so `node --test` loads it.
 import type { AudienceItem, NewsletterChannel } from '../../../services/newslettersAPI.ts';
+import { savedPreviewMoments, type PreviewMoment } from './previewMoments.ts';
 
-export type FlowStep = 'setup' | 'moments' | 'send';
-export const FLOW_STEPS: readonly FlowStep[] = ['setup', 'moments', 'send'];
+export type FlowStep = 'campaign' | 'send';
+export const FLOW_STEPS: readonly FlowStep[] = ['campaign', 'send'];
 
 export function stepNumber(step: FlowStep): number {
   return FLOW_STEPS.indexOf(step) + 1;
 }
 
-/** Where the flow opens: Set up, unless it is coming back to a saved campaign (then the step it left for). */
-export function startStep({ campaignId, resume = null }: { campaignId: number | null; resume?: FlowStep | null }): FlowStep {
-  return campaignId && resume ? resume : 'setup';
+export type FlowAction = 'create' | 'save' | 'send' | 'close' | 'revert' | 'done';
+
+export interface FlowView {
+  title: 'Create Campaign' | 'Edit Campaign';
+  /** Step 1 open (its fields), or folded to "Campaign created" / "Changes saved". */
+  campaign: 'open' | 'saved';
+  /** Step 2 Send can be used (only once step 1 is saved and folded). */
+  sendEnabled: boolean;
+  /** The top bar's main button (the phone footer's too). */
+  primary: { label: 'Create Campaign' | 'Save Changes' | 'Send Now'; action: 'create' | 'save' | 'send' };
+  /** The top bar's other button: Cancel closes (or, on a saved campaign opened again, puts the saved values back). */
+  secondary: { label: 'Cancel' | 'Done'; action: 'close' | 'revert' | 'done' };
+  /** The top bar's Back arrow: once saved it keeps the campaign, like Done. */
+  back: 'close' | 'done';
+  savedLabel: 'Campaign created' | 'Changes saved';
+  /** Step 2 before step 1 is saved (a muted line). */
+  sendLockedLine: string;
+  /** Step 2's first line once enabled. */
+  sendIntro: string;
+  /** Done's toast. */
+  doneToast: 'Campaign created' | 'Changes saved';
 }
-
-export type StepStatus = 'current' | 'done' | 'locked';
-
-/** A card is the step being worked on, one already done, or one not reached yet (nothing past Set up until saved). */
-export function stepStatus(step: FlowStep, current: FlowStep, saved: boolean): StepStatus {
-  if (step === current) return 'current';
-  if (!saved && step !== 'setup') return 'locked';
-  return FLOW_STEPS.indexOf(step) < FLOW_STEPS.indexOf(current) ? 'done' : 'locked';
-}
-
-// ── Coming back from the campaign page ────────────────────────────────────────────────────────────────────────────
-export const FLOW_RESUME_KEY = 'stasht_storeel_flow_resume';
-/** A note older than this is forgotten (the person went on to something else). */
-export const FLOW_RESUME_MAX_AGE_MS = 30 * 60 * 1000;
-
-type NoteStorage = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>;
-export interface FlowResume { memoryId: number; step: FlowStep; at: number }
 
 /**
- * Whose note it is: the signed-in account and the view it was written in (personal, or a business's property view).
- * Another sign-in, another business or the other view never resumes it (review, 4 Nov). null: nobody signed in.
+ * What the flow shows. editing: opened on a saved campaign (the campaign page's Edit). saved: step 1 was saved in this
+ * flow (Create Campaign, or Save Changes). campaignOpen: step 1's fields are showing.
  */
-export function flowOwnerKey(user: { id?: unknown } | null | undefined, viewType: unknown, property: { id?: unknown } | null | undefined): string | null {
-  const id = user?.id === null || user?.id === undefined ? '' : String(user.id).trim();
-  if (!id) return null;
-  const pid = property?.id === null || property?.id === undefined ? '' : String(property.id).trim();
-  return viewType === 'property' && pid ? `${id}|property:${pid}` : `${id}|personal`;
+export function flowView({ editing, saved, campaignOpen }: { editing: boolean; saved: boolean; campaignOpen: boolean }): FlowView {
+  const open = campaignOpen || !saved;
+  const savedLabel = editing ? 'Changes saved' : 'Campaign created';
+  return {
+    title: editing ? 'Edit Campaign' : 'Create Campaign',
+    campaign: open ? 'open' : 'saved',
+    sendEnabled: !open,
+    primary: open
+      ? (editing || saved ? { label: 'Save Changes', action: 'save' } : { label: 'Create Campaign', action: 'create' })
+      : { label: 'Send Now', action: 'send' },
+    secondary: open ? { label: 'Cancel', action: saved ? 'revert' : 'close' } : { label: 'Done', action: 'done' },
+    back: saved ? 'done' : 'close',
+    savedLabel,
+    sendLockedLine: editing || saved ? 'Save your changes first — then you can send it now or later.' : 'Save your campaign first — then you can send it now or later.',
+    sendIntro: 'Your campaign is saved. Send it now, or do it later.',
+    doneToast: savedLabel,
+  };
 }
 
-/** "Add moments on the campaign page": remember to come back to Send for this campaign (for this account and view). */
-export function writeFlowResume(storage: NoteStorage | null | undefined, memoryId: number, owner: string | null, now: number = Date.now()): void {
-  if (!owner) return;
-  try {
-    storage?.setItem(FLOW_RESUME_KEY, JSON.stringify({ memoryId, step: 'send', at: now, owner }));
-  } catch {
-    // Storage blocked (private window): the campaign page's own Edit still opens the flow.
-  }
-}
-
-/** The note, if it is fresh, this account's and view's (and for this campaign, when one is given); null otherwise. */
-export function readFlowResume(storage: NoteStorage | null | undefined, owner: string | null, { now = Date.now(), memoryId }: { now?: number; memoryId?: number } = {}): FlowResume | null {
-  if (!owner) return null;
-  try {
-    const raw = storage?.getItem(FLOW_RESUME_KEY);
-    if (!raw) return null;
-    const note = JSON.parse(raw) as Partial<FlowResume> & { owner?: unknown };
-    if (note?.owner !== owner) return null;
-    const id = Number(note?.memoryId);
-    const at = Number(note?.at);
-    if (!Number.isInteger(id) || id <= 0 || !Number.isFinite(at)) return null;
-    if (now - at > FLOW_RESUME_MAX_AGE_MS || at - now > 60_000) return null;
-    if (memoryId !== undefined && Number(memoryId) !== id) return null;
-    const step: FlowStep = note.step === 'moments' || note.step === 'setup' ? note.step : 'send';
-    return { memoryId: id, step, at };
-  } catch {
-    return null;
-  }
-}
-
-export function clearFlowResume(storage: NoteStorage | null | undefined): void {
-  try {
-    storage?.removeItem(FLOW_RESUME_KEY);
-  } catch {
-    // ignore
-  }
-}
-
-/** The tab's sessionStorage, or null where there is none (tests, blocked storage). */
-export function sessionNotes(): NoteStorage | null {
-  try {
-    return typeof sessionStorage === 'undefined' ? null : sessionStorage;
-  } catch {
-    return null;
-  }
-}
-
-// ── Edit: the campaign as Set up shows it ─────────────────────────────────────────────────────────────────────────
+// ── Edit: the campaign as step 1 shows it ─────────────────────────────────────────────────────────────────────────
 /** What a campaign is filed under. GET /memories/{id} sends category null for the last three (review, 4 Nov). */
 export type CategoryKind = 'regular' | 'shopify' | 'car' | 'property' | 'none';
-/** Set up's label for a category Studio can't name here (a property's category seen from the personal view). */
+/** Step 1's label for a category Studio can't name here (a property's category seen from the personal view). */
 export const CURRENT_CATEGORY = 'Current category';
 
 export interface CampaignSeed {
   id: number;
   title: string;
-  /** The name Set up shows (Shopify, Cars, the category, else CURRENT_CATEGORY). */
+  /** The name step 1 shows (Shopify, Cars, the category, else CURRENT_CATEGORY). */
   category: string;
   categoryId: number | string | null;
   categoryKind: CategoryKind;
@@ -124,8 +94,8 @@ export interface CampaignSeed {
   isCar: boolean;
   moments: number;
   ownerId: number | null;
-  /** The first moment's picture (the preview's moment card). */
-  firstImage: string | null;
+  /** The campaign's own moments, as the live preview shows them in Edit. */
+  previewMoments: PreviewMoment[];
 }
 
 export interface SetupForm {
@@ -156,24 +126,14 @@ function memoryOf(raw: unknown): Record<string, any> | null {
   return null;
 }
 
-/** The moments on the campaign: its top-level posts, else the photo count the API gives. */
+/** The moments on the campaign: its top-level posts and linked campaigns / vehicles, else the photo count the API gives. */
 export function momentsOf(memory: Record<string, any> | null | undefined): number {
   const posts = memory?.posts;
-  if (Array.isArray(posts)) return posts.filter((p) => p && (p.parent_id === null || p.parent_id === undefined)).length;
+  const linked = Array.isArray(memory?.linked_memories) ? memory.linked_memories.length : 0;
+  if (Array.isArray(posts)) return posts.filter((p) => p && (p.parent_id === null || p.parent_id === undefined)).length + linked;
+  if (linked) return linked;
   const n = Number(memory?.photos?.count ?? memory?.photos_count ?? memory?.memory_images_count ?? 0);
   return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
-}
-
-/** The first top-level moment's picture (not a video), else the API's preview image, else null. */
-export function firstImageOf(memory: Record<string, any> | null | undefined): string | null {
-  const pick = (v: unknown) => (typeof v === 'string' && /^https?:\/\//i.test(v.trim()) && !VIDEO_EXTENSIONS.test(v) ? v.trim() : null);
-  const posts = Array.isArray(memory?.posts) ? memory.posts.filter((p: any) => p && (p.parent_id === null || p.parent_id === undefined)) : [];
-  for (const p of posts) {
-    const url = pick(p.image_link) ?? pick(p.master_image_link) ?? pick(p.media_url);
-    if (url) return url;
-  }
-  const preview = Array.isArray(memory?.photos?.preview_images) ? memory.photos.preview_images[0] : null;
-  return pick(preview?.url);
 }
 
 /** categories: the caller's list (the property view's names its own categories). */
@@ -216,7 +176,7 @@ export function seedFromMemory(raw: unknown, categories: ReadonlyArray<{ id?: un
     isCar: flag(m.is_car),
     moments: momentsOf(m),
     ownerId: Number.isFinite(ownerId) && ownerId > 0 ? ownerId : null,
-    firstImage: firstImageOf(m),
+    previewMoments: savedPreviewMoments(m),
   };
 }
 
@@ -248,8 +208,8 @@ export function dateRangeFor(date: string, endDate: string): string {
 }
 
 /**
- * PUT /memories/{id} for Set up of a saved campaign. The cover is sent only when it changed (null removes it).
- * category_id only when the person picked another category (seededCategory = what Set up opened with) and it is a real
+ * PUT /memories/{id} for step 1 of a saved campaign. The cover is sent only when it changed (null removes it).
+ * category_id only when the person picked another category (seededCategory = what step 1 opened with) and it is a real
  * one: a numeric id, or "shopify" for Shopify. Never the cars / website_catalogue placeholders (the API refuses them),
  * and never for an untouched Shopify / Cars / catalogue / property campaign (the API would re-file it and drop its
  * Shopify links) — review, 4 Nov.

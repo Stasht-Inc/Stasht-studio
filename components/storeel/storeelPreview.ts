@@ -1,10 +1,11 @@
 // [wdy2xh2t3z] What the Storeel tab's live preview shows for the form as it is now. Pure, so `node --test` loads it.
+// Storeel flow v2 (4 Nov 2026): every moment the campaign will have (lib/previewMoments.ts), not just the first photo.
+import type { PreviewMoment } from './lib/previewMoments.ts';
 
 export interface StoreelPreviewInput {
   title: string;
-  /** Picked images, in order (object URLs or https links). */
-  images: string[];
-  momentCount: number;
+  /** Every moment, in order (createPreviewMoments / savedPreviewMoments). */
+  moments: PreviewMoment[];
   location: string;
   /** The form's date, YYYY-MM-DD. */
   date: string;
@@ -24,7 +25,8 @@ export interface StoreelPreviewModel {
   /** The cover: the chosen cover photo, else the intro video, else the brand. Never the first photo. */
   cover: string | null;
   coverKind: StoreelCoverKind | null;
-  firstImage: string | null;
+  /** The moment cards, with their place and date ready to show. */
+  momentCards: PreviewMoment[];
   moments: string;
   author: string;
   initial: string;
@@ -64,7 +66,12 @@ export function storeelBrandImage({ viewType, propertyImage, userAvatar }: {
 }
 
 export function storeelPreviewModel(input: StoreelPreviewInput, locale?: string): StoreelPreviewModel {
-  const first = input.images[0] ?? null;
+  const campaignDate = formatDay(input.date ?? '', locale);
+  const campaignLocation = input.location.trim();
+  // A photo or product moment shows its own place and date, else the campaign's (as the API stores them).
+  const momentCards = (input.moments ?? []).map((m) => (m.kind === 'photo' || m.kind === 'product'
+    ? { ...m, location: m.location || campaignLocation, date: m.date ? formatDay(m.date, locale) : campaignDate }
+    : m));
   const author = String(input.authorName ?? '').trim();
   const photo = present(input.coverPhoto);
   const video = photo ? null : present(input.introVideo);
@@ -73,34 +80,11 @@ export function storeelPreviewModel(input: StoreelPreviewInput, locale?: string)
     title: input.title.trim(),
     cover: photo || video || brand,
     coverKind: photo ? 'photo' : video ? 'video' : brand ? 'brand' : null,
-    firstImage: first,
-    moments: momentsLabel(Math.max(0, input.momentCount)),
+    momentCards,
+    moments: momentsLabel(momentCards.length),
     author: author || 'Username',
     initial: initialsOf(author),
-    location: input.location.trim(),
-    date: formatDay(input.date ?? '', locale),
+    location: campaignLocation,
+    date: campaignDate,
   };
-}
-
-type PreviewFile = { name?: string; type?: string };
-
-const isHeic = (f: PreviewFile) => /heic|heif/i.test(f.type ?? '') || /\.(heic|heif)$/i.test(f.name ?? '');
-
-/**
- * The form's photos as the preview needs them, from the same lists the form counts ("N files selected"): how many,
- * and the first one — its uploaded link once there is one, the file before that. A HEIC file can't be shown by the
- * browser, so the preview keeps its gradient for it.
- */
-export function storeelPreviewMedia<F extends PreviewFile>(lists: {
-  withMetadata: Array<{ file: F; fileUrl?: string }>;
-  mainPhotos: Array<{ fileUrl?: string }>;
-  mediaFiles: F[];
-}): { first: F | string | null; count: number } {
-  const count = Math.max(lists.withMetadata.length, lists.mainPhotos.length, lists.mediaFiles.length);
-  let first: F | string | null = null;
-  if (lists.withMetadata.length) first = lists.withMetadata[0].fileUrl || lists.withMetadata[0].file;
-  else if (lists.mainPhotos.length) first = lists.mainPhotos[0].fileUrl || null;
-  else if (lists.mediaFiles.length) first = lists.mediaFiles[0];
-  if (first && typeof first !== 'string' && isHeic(first)) first = null;
-  return { first, count };
 }
