@@ -1,6 +1,6 @@
 ﻿import React, { useState, useRef, useEffect, useCallback, useImperativeHandle, forwardRef, useReducer } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Upload, Calendar, MapPin, Tag, Plus, Camera, Image as ImageIcon, CheckCircle, Loader2, File as FileIcon, Search, Video, Pencil, ChevronRight, ArrowLeft, Send, Trash2 } from 'lucide-react';
+import { X, Upload, Calendar, MapPin, Tag, Plus, Camera, Image as ImageIcon, CheckCircle, CircleCheck, Loader2, File as FileIcon, Search, Video, Pencil, ChevronRight, ArrowLeft, Send, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useVisualViewportSheet } from '../hooks/useVisualViewportSheet';
 import { Button } from './ui/button';
@@ -26,26 +26,25 @@ import { useGoogleDrivePicker } from '../hooks/useGoogleDrivePicker';
 import NewsletterComposer, { type NewsletterComposerHandle } from './newsletters/NewsletterComposer';
 import CampaignTypeSwitch from './newsletters/CampaignTypeSwitch';
 import { initialCampaignType, type CampaignType } from './newsletters/lib/campaignType';
-import { announceNewslettersChanged } from './newsletters/lib/campaignsView';
+import { announceNewslettersChanged, writeCampaignsView } from './newsletters/lib/campaignsView';
 import { requestUpgrade } from '../utils/planEvents';
 import StoreelLivePreview from './storeel/StoreelLivePreview';
-import { storeelPreviewMedia, storeelBrandImage } from './storeel/storeelPreview';
+import { storeelBrandImage } from './storeel/storeelPreview';
+import { createPreviewMoments, type PickKind, type PickerItem } from './storeel/lib/previewMoments';
 import { coverChoiceReducer, coverChoicePayload, coverPhotoFileError, EMPTY_COVER_CHOICE, COVER_PHOTO_ACCEPT, type CoverChoice, type CoverChoiceAction } from '../utils/coverChoice';
 import { BUTTON_OUTLINE, BUTTON_PRIMARY, LINK_BUTTON } from './newsletters/lib/ui';
 import StepCard from './newsletters/StepCard';
-import StoreelMomentsStep, { MOMENTS_STEP_ID } from './storeel/StoreelMomentsStep';
 import StoreelSendStep, { SEND_STEP_ID, type StoreelSendStepHandle } from './storeel/StoreelSendStep';
 import {
-  clearFlowResume, coverFromSeed, flowOwnerKey, formFromSeed, seedFromMemory, sessionNotes, startStep, stepNumber, stepStatus, updatePayload, writeFlowResume,
-  type CampaignSeed, type FlowStep,
+  coverFromSeed, flowView, formFromSeed, seedFromMemory, stepNumber, updatePayload,
+  type CampaignSeed, type FlowAction,
 } from './storeel/lib/storeelFlow';
 import { senderLabelFor } from './storeel/lib/storeelSms';
 import { sentMessage, type StoreelSendSummary } from './storeel/lib/storeelSend';
 import { requestOpenCampaign } from './storeel/lib/openCampaign';
 import { ACTION_TOAST_MS } from './newsletters/lib/blocks';
 
-const SETUP_STEP_ID = 'st-step-setup';
-const STEP_DOM_ID: Record<FlowStep, string> = { setup: SETUP_STEP_ID, moments: MOMENTS_STEP_ID, send: SEND_STEP_ID };
+const CAMPAIGN_STEP_ID = 'st-step-campaign';
 
 interface CreateMemoryProps {
   open: boolean;
@@ -60,13 +59,12 @@ interface CreateMemoryProps {
   initialPhotos?: File[] | null; // Photos passed in (Scan Photo): opens on Storeel with them ready to add
   beforeStoreel?: () => boolean; // Asked before switching to the Storeel tab; false keeps the Newsletter tab
   opensOn?: CampaignType; // The tab to open on: the Campaigns page's Storeels | Newsletters view (Chris, 4 Nov 2026)
-  // The Storeel flow (Chris, 4 Nov 2026, point 9) on a saved campaign: Edit (campaign page) or coming back from it.
-  campaignId?: number | null; // Open the flow on this campaign: Set up prefilled, saved with PUT /memories/{id}
+  // The Storeel flow (Chris, 4 Nov 2026, point 9; v2 4 Nov) on a saved campaign: the campaign page's Edit.
+  campaignId?: number | null; // Open the flow on this campaign: step 1 prefilled, saved with PUT /memories/{id}
   campaignSeed?: CampaignSeed | null; // Its data when the caller has it (else GET /memories/{id})
-  resumeStep?: FlowStep | null; // The step to open on (Send when coming back from the campaign page)
   canSend?: boolean; // False when this account may not send it (only the owner / the property's admins may)
   onDeleteCampaign?: () => void; // Edit: Delete in Set up (the campaign page asks to confirm)
-  onCampaignSaved?: (memoryId: number) => void; // Set up saved (PUT) or the Storeel sent: the page refreshes
+  onCampaignSaved?: (memoryId: number) => void; // Step 1 saved (PUT) or the Storeel sent: the page refreshes
 }
 
 export interface CreateMemoryHandle {
@@ -108,7 +106,7 @@ function CampaignVideoThumbnail({ src, className }: { src: string; className?: s
   );
 }
 
-const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function CreateMemory({ open, onOpenChange, onMemoryCreated, onOpenMediaLibrary, selectedMediaLibraryImages, defaultCategory, categories: categoriesProp, newsletterId = null, onNewsletterChanged, initialPhotos = null, beforeStoreel, opensOn, campaignId = null, campaignSeed = null, resumeStep = null, canSend = true, onDeleteCampaign, onCampaignSaved }, ref) {
+const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function CreateMemory({ open, onOpenChange, onMemoryCreated, onOpenMediaLibrary, selectedMediaLibraryImages, defaultCategory, categories: categoriesProp, newsletterId = null, onNewsletterChanged, initialPhotos = null, beforeStoreel, opensOn, campaignId = null, campaignSeed = null, canSend = true, onDeleteCampaign, onCampaignSaved }, ref) {
   const { isAuthenticated, user } = useAuth();
   const { viewType, currentProperty } = useProperty();
   const { isLimitExceeded, limitData, checkLimit } = useMemoryLimit();
@@ -308,22 +306,6 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
     tags: [] as string[],
     collaborators: [] as string[]
   });
-
-  // [wdy2xh2t3z] The live preview: the first picked image (an object URL for a file, freed when it changes) for its
-  // moment card and how many photos there are, from the same lists the form shows. (Not the cover: 4 Nov 2026.)
-  const { first: storeelFirstMedia, count: storeelMomentCount } = storeelPreviewMedia<File>({
-    withMetadata: photosWithMetadata, mainPhotos: mainPhotosArray, mediaFiles: formData.mediaFiles,
-  });
-  const [storeelPreviewFirstImage, setStoreelPreviewFirstImage] = useState<string | null>(null);
-  useEffect(() => {
-    const src = storeelFirstMedia;
-    if (!src) { setStoreelPreviewFirstImage(null); return undefined; }
-    if (typeof src === 'string') { setStoreelPreviewFirstImage(isCampaignVideoUrl(src) ? null : src); return undefined; }
-    if (src.type && !src.type.startsWith('image/')) { setStoreelPreviewFirstImage(null); return undefined; }
-    const url = URL.createObjectURL(src);
-    setStoreelPreviewFirstImage(url);
-    return () => URL.revokeObjectURL(url);
-  }, [storeelFirstMedia]);
 
   const advancedFiltersCount = (formData.label ? 1 : 0) + formData.tags.length;
   const advancedFiltersOpen = advancedFiltersOverride ?? advancedFiltersCount > 0;
@@ -719,6 +701,9 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
         category: { name: CATALOG_CATEGORY_NAME },
         last_update_img: item.main_image || '',
         posts_count: item.images_count || 0,
+        // The live preview's product moment: its price and whether it gets a "View on website" button.
+        price_label: item.price_label || '',
+        url: item.url || null,
       })));
       setCatalogAvailable(list.length > 0);
     });
@@ -809,6 +794,10 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
           category: { name: CARS_CATEGORY_NAME },
           last_update_img: c.main_image || '',
           posts_count: c.images_count || 0,
+          // The live preview's vehicle moment, as car moments show on the campaign page.
+          price: c.price ?? null,
+          mileage: c.mileage ?? null,
+          stock_number: c.stock_number ?? null,
         }));
       setCarsForPicker(list);
       if (autoSelectAll) setSelectedMemoryIds(list.map((c: any) => String(c.id)));
@@ -1008,18 +997,22 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
     }
   };
 
-  // ── The Storeel flow (Chris, 4 Nov 2026, point 9): 1 Set up · 2 Moments · 3 Send ─────────────────────────────────
-  // Editing a saved campaign (campaignId): Set up shows it and saves with PUT /memories/{id}; its moments are added on
-  // the campaign page (no media, linked campaigns or property here: PUT doesn't change them).
+  // ── The Storeel flow v2 (Deepak, 4 Nov 2026 — approved design): 1 Campaign · 2 Send (optional) ──────────────────────
+  // Nothing is created or saved before "Create Campaign" (edit: "Save Changes" = PUT /memories/{id}). Then step 1 folds
+  // to "Campaign created" / "Changes saved" (View campaign, Edit) and Send opens, with Done and Send Now in the top bar.
+  // Editing a saved campaign (campaignId): no media, pickers or property here — PUT doesn't change them.
   const flowEditing = Boolean(campaignId);
-  const [flowStep, setFlowStep] = useState<FlowStep>('setup');
-  // The saved campaign: the one being edited, or the one Set up just created (then steps 2 and 3 open).
+  // The saved campaign: the one being edited, or the one "Create Campaign" just created.
   const [flowCampaign, setFlowCampaignState] = useState<CampaignSeed | null>(null);
   const flowCampaignRef = useRef<CampaignSeed | null>(null);
   const setFlowCampaign = (seed: CampaignSeed | null) => { flowCampaignRef.current = seed; setFlowCampaignState(seed); };
+  // Step 1 was saved in this flow (Create Campaign / Save Changes), and whether its fields are showing.
+  const [flowSaved, setFlowSaved] = useState(false);
+  const [campaignOpen, setCampaignOpen] = useState(true);
+  const view = flowView({ editing: flowEditing, saved: flowSaved, campaignOpen });
   const [flowLoading, setFlowLoading] = useState(false);
   const [flowLoadError, setFlowLoadError] = useState<string | null>(null);
-  // Set up's own refusal (PUT /memories/{id}), shown on its card; a title problem shows under the title.
+  // Step 1's own refusal (PUT /memories/{id}), shown on its card; a title problem shows under the title.
   const [setupError, setSetupError] = useState<string | null>(null);
   // The cover the campaign had when it was opened or last saved: last_update_img is sent only when it changes.
   const initialCoverUrlRef = useRef<string | null>(null);
@@ -1029,16 +1022,16 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
   // Who the Storeel's texts say they came from (StoreelSendService::senderLabel).
   const flowSender = senderLabelFor(user?.name, viewType === 'property' ? currentProperty?.name : null);
 
-  const goToStep = (step: FlowStep) => {
-    setFlowStep(step);
+  /** Bring a step card into view and give it focus (after saving, the folded step 1 says what happened). */
+  const focusStep = (id: string) => {
     window.requestAnimationFrame(() => {
-      const el = document.getElementById(STEP_DOM_ID[step]);
+      const el = document.getElementById(id);
       el?.scrollIntoView({ behavior: 'smooth', block: 'start' });
       el?.focus({ preventScroll: true });
     });
   };
 
-  /** Set up shows the saved campaign: its fields and its cover (photo or intro video). */
+  /** Step 1 shows the saved campaign: its fields and its cover (photo or intro video). */
   const applySeed = (seed: CampaignSeed) => {
     const f = formFromSeed(seed);
     // A campaign with no dates keeps none (no date_range is sent); its category is kept as it is (review, 4 Nov).
@@ -1151,11 +1144,12 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
     }
   }, [open, isAuthenticated, defaultCategory, categoriesProp, user]);
 
-  // Open on a saved campaign (Edit, or back from its page): its data (passed in, or GET /memories/{id}), then the step
-  // to open on (Set up; Send when coming back). Closing forgets the flow.
+  // Open on a saved campaign (the campaign page's Edit): its data (passed in, or GET /memories/{id}), step 1 open.
+  // Closing forgets the flow.
   useEffect(() => {
     if (!open) {
-      setFlowStep('setup');
+      setFlowSaved(false);
+      setCampaignOpen(true);
       setFlowCampaign(null);
       setFlowLoading(false);
       setFlowLoadError(null);
@@ -1173,7 +1167,8 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
       applySeed(seed);
       setFlowLoading(false);
       setFlowLoadError(null);
-      goToStep(startStep({ campaignId, resume: resumeStep }));
+      setFlowSaved(false);
+      setCampaignOpen(true);
     };
     if (campaignSeed && campaignSeed.id === campaignId) {
       begin(campaignSeed);
@@ -1322,8 +1317,6 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
     setCatalogNotice('');
     wasCatalogCategoryRef.current = false;
     setVisibleCampaignsCount(CAMPAIGNS_LOAD_BATCH);
-    // A note to come back to Send is for one trip to the campaign page (openCampaignPage writes it after this).
-    clearFlowResume(sessionNotes());
     onOpenChange(false);
   };
 
@@ -1958,6 +1951,22 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
   };
 
 
+  // ── The live preview's moments (Storeel flow v2): what "Create Campaign" will make, in the order the API makes them
+  // (lib/previewMoments.ts) — the picked items the form sends (selectedMemoryIds), then the uploaded photos it sends
+  // (mainPhotosArray). Once saved — Edit, or just created — the campaign's own moments (PUT can't add any, and a later
+  // category change in step 1 must not take the made moments off the preview).
+  const todayDate = new Date().toISOString().split('T')[0];
+  const previewPick: PickKind = isCatalogCategory ? 'catalog' : isShopifyCategory ? 'shopify' : isCarsCategory ? 'cars' : selectedMemoryIds.length ? 'campaigns' : null;
+  const previewPicked: PickerItem[] = previewPick === 'catalog' ? catalogForPicker
+    : previewPick === 'shopify' ? shopifyCollections
+    : previewPick === 'cars' ? carsForPicker
+    : previewPick === 'campaigns' ? [...existingMemories, ...carsForPicker.map((c: any) => ({ ...c, kind: 'cars' as const })), ...shopifyCollections.map((c: any) => ({ ...c, kind: 'shopify' as const }))]
+    : [];
+  const createMoments = createPreviewMoments({
+    pick: previewPick, picked: previewPicked, selectedIds: selectedMemoryIds, photos: mainPhotosArray, location: formData.location, today: todayDate,
+  });
+  const previewMoments = flowEditing || flowCampaign ? (flowCampaign?.previewMoments ?? []) : createMoments;
+
   const handleSubmit = async (publish = false, publishType: 1 | 2 | 3 = 1) => {
     // Validate required fields
     if (!formData.title.trim()) {
@@ -2108,7 +2117,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
       response = await dashboardAPI.createMemory(memoryData);
       
       if (response.success) {
-        // Set up is saved: the flow goes on to Moments and Send for this campaign (Chris, 4 Nov 2026, point 9).
+        // Created: step 1 folds to "Campaign created" and Send opens (Storeel flow v2).
         const created = seedFromMemory(response.data);
         await recheckMemoryLimit();
         void triggerMemoryCountsRefresh();
@@ -2120,15 +2129,20 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
             title: memoryData.title, category: formData.category, categoryId: selectedCategoryData.id ?? null,
             categoryKind: isShopifyCategory ? 'shopify' : isCarsCategory ? 'car' : 'regular', label: formData.label,
             date: formData.date, endDate: showEndDate ? formData.endDate : '', location: formData.location || '', tags: [...formData.tags], cover,
-            published: Number(memoryData.published) || 0, isCar: isCarsCategory, moments: created.moments || photosArray.length,
+            published: Number(memoryData.published) || 0, isCar: isCarsCategory,
+            // The moments the preview showed are the ones just made (the API answers only the campaign's id).
+            moments: createMoments.length, previewMoments: createMoments,
           });
-          // Set up re-edited later saves with PUT, which keeps this category unless another is picked.
+          // Step 1 opened again later saves with PUT, which keeps this category unless another is picked.
           setSeededCategory(formData.category);
-          goToStep('moments');
+          setFlowSaved(true);
+          setCampaignOpen(false);
+          focusStep(CAMPAIGN_STEP_ID);
         } else {
           onOpenChange(false);
         }
-        // The Campaigns page (or wherever Create Campaign was opened) shows the new campaign.
+        // The Campaigns page shows Storeels with the new campaign (the Sidebar's Create goes there too).
+        writeCampaignsView('storeels');
         if (onMemoryCreated) await onMemoryCreated();
       } else {
         console.error('Failed to create memory:', response);
@@ -2161,7 +2175,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
 
   const storeelSubmitDisabled = !formData.title.trim() || !formData.category || isSubmitting || isUploadingCover;
 
-  /** Set up of a saved campaign: PUT /memories/{id} (its fields; the cover only when it changed), then Moments. */
+  /** Step 1 of a saved campaign: PUT /memories/{id} (its fields; the cover only when it changed), then it folds. */
   const saveSetup = async () => {
     const c = flowCampaignRef.current;
     if (!c) return;
@@ -2180,9 +2194,11 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
           location: formData.location, tags: [...formData.tags], cover: coverChoice.kind && coverUrl ? { kind: coverChoice.kind, url: coverUrl } : null,
         });
         setSeededCategory(formData.category);
+        setFlowSaved(true);
+        setCampaignOpen(false);
+        focusStep(CAMPAIGN_STEP_ID);
         onCampaignSaved?.(c.id);
         void triggerMemoryCountsRefresh();
-        goToStep('moments');
         return;
       }
       const errors = (res as { errors?: Record<string, string[] | string> }).errors;
@@ -2196,32 +2212,45 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
     }
   };
 
-  /** The top bar's / phone footer's main button: Continue (Set up, Moments) or Send Now (Send). */
-  const flowPrimary = () => {
-    if (flowStep === 'setup') {
-      if (flowCampaignRef.current) void saveSetup();
-      else void handleSubmit(false);
-    } else if (flowStep === 'moments') {
-      goToStep('send');
-    } else {
-      sendStepRef.current?.startSend();
+  /** The top bar's / phone footer's buttons (flowView): Create Campaign / Save Changes / Send Now, Cancel / Done. */
+  const runFlowAction = (action: FlowAction) => {
+    switch (action) {
+      case 'create': void handleSubmit(false); return;
+      case 'save': void saveSetup(); return;
+      case 'send': sendStepRef.current?.startSend(); return;
+      case 'revert': {
+        // Cancel on a saved campaign opened again: its saved values come back and step 1 folds.
+        const c = flowCampaignRef.current;
+        if (c) applySeed(c);
+        setSetupError(null);
+        setCampaignOpen(false);
+        focusStep(CAMPAIGN_STEP_ID);
+        return;
+      }
+      case 'done':
+        // The campaign is kept (saved already); nothing is sent.
+        toast.success(view.doneToast);
+        handleModalClose();
+        return;
+      default: handleModalClose();
     }
   };
-  const flowPrimaryLabel = flowStep === 'send' ? 'Send Now' : 'Continue';
-  const flowPrimaryDisabled = flowStep === 'setup'
-    ? storeelSubmitDisabled || flowLoading || Boolean(flowLoadError)
-    : flowStep === 'send' ? !canSend || sendForbidden : false;
+  const flowPrimaryDisabled = view.primary.action === 'send'
+    ? !canSend || sendForbidden
+    : storeelSubmitDisabled || flowLoading || Boolean(flowLoadError);
 
-  /** Step 2: the campaign page, where moments are added. Coming back opens the flow again on Send (storeelFlow). */
+  /**
+   * View campaign / "Add more moments on the campaign page" (step 1 folded): the campaign page. Leaving the flow there
+   * is fine, the campaign is visibly saved. In Edit the flow was opened from that page: it just closes.
+   */
   const openCampaignPage = () => {
     const c = flowCampaignRef.current;
     if (!c) return;
     handleModalClose();
-    writeFlowResume(sessionNotes(), c.id, flowOwnerKey(user, viewType, currentProperty));
-    requestOpenCampaign(c.id);
+    if (!flowEditing) requestOpenCampaign(c.id);
   };
 
-  /** Step 3 sent: say what went (and where the Storeel's stats are), and close. */
+  /** Sent: say what went (and where the Storeel's stats are), and close. */
   const onStoreelSent = (summary: StoreelSendSummary) => {
     toast.success(sentMessage(summary), {
       duration: ACTION_TOAST_MS,
@@ -2234,7 +2263,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
   };
 
   // [wdy2xh2t3z] The Storeel tab in the same full-window frame as the Newsletter tab (NewsletterComposer): the top
-  // bar (Back, Create Campaign, Newsletter | Storeel, Cancel / Create Campaign / Publish), no app sidebar, the form
+  // bar (Back, Create / Edit Campaign, Newsletter | Storeel, Cancel / Create Campaign — Done / Send Now), no app sidebar, the form
   // in one white card on the left and the live preview on the right (below the form on smaller screens).
   const modalContent = (
     <div
@@ -2249,10 +2278,10 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
     >
       <header className="flex flex-shrink-0 flex-wrap items-center gap-x-3 gap-y-2 border-b border-gray-200 bg-white px-4 py-3 md:px-6">
         <div className="flex min-w-0 items-center gap-3">
-          <button type="button" onClick={handleModalClose} aria-label="Back" className="-ml-1.5 rounded-lg p-1.5 text-gray-600 hover:bg-gray-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#6C60FF]/40">
+          <button type="button" onClick={() => runFlowAction(view.back)} aria-label="Back" className="-ml-1.5 rounded-lg p-1.5 text-gray-600 hover:bg-gray-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#6C60FF]/40">
             <ArrowLeft className="h-5 w-5" />
           </button>
-          <h2 id="storeel-create-title" className="truncate text-lg font-semibold text-gray-900">{flowEditing ? 'Edit Campaign' : 'Create Campaign'}</h2>
+          <h2 id="storeel-create-title" className="truncate text-lg font-semibold text-gray-900">{view.title}</h2>
         </div>
         {/* Newsletter | Storeel only while nothing is saved: a saved campaign is a Storeel. */}
         {flowEditing || flowCampaign ? <div className="hidden md:block md:flex-1" /> : (
@@ -2261,10 +2290,10 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
           </div>
         )}
         <div className="ml-auto hidden items-center gap-2 md:flex">
-          <button type="button" onClick={handleModalClose} className={BUTTON_OUTLINE}>Cancel</button>
-          <button type="button" onClick={flowPrimary} disabled={flowPrimaryDisabled} aria-label={isSubmitting ? 'Saving' : flowPrimaryLabel} className={BUTTON_PRIMARY}>
-            {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : flowStep === 'send' ? <Send className="h-4 w-4" aria-hidden="true" /> : null}
-            {isSubmitting ? 'Saving...' : flowPrimaryLabel}
+          <button type="button" onClick={() => runFlowAction(view.secondary.action)} className={BUTTON_OUTLINE}>{view.secondary.label}</button>
+          <button type="button" onClick={() => runFlowAction(view.primary.action)} disabled={flowPrimaryDisabled} aria-label={isSubmitting ? 'Saving' : view.primary.label} className={BUTTON_PRIMARY}>
+            {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : view.primary.action === 'send' ? <Send className="h-4 w-4" aria-hidden="true" /> : null}
+            {isSubmitting ? 'Saving...' : view.primary.label}
           </button>
         </div>
       </header>
@@ -2307,23 +2336,33 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
               </div>
             )}
 
-            {flowStep !== 'setup' && flowCampaign ? (
-              <StepCard number={stepNumber('setup')} title="Set up" id={SETUP_STEP_ID} aside={formData.category || undefined}>
-                <div className="flex items-center justify-between gap-3">
-                  <p className="min-w-0 truncate text-sm text-gray-900">{formData.title || flowCampaign.title}</p>
-                  <button type="button" onClick={() => goToStep('setup')} className={LINK_BUTTON}>Edit</button>
+            {view.campaign === 'saved' && flowCampaign ? (
+              // Saved: "✓ Campaign created" / "✓ Changes saved", the campaign's title, View campaign and Edit.
+              <StepCard number={stepNumber('campaign')} title="Campaign" id={CAMPAIGN_STEP_ID} aside={formData.category || undefined}>
+                <div className="space-y-3">
+                  <p role="status" className="flex items-center gap-2 text-sm font-semibold text-gray-900">
+                    <CircleCheck className="h-5 w-5 flex-shrink-0 fill-[#6C60FF] text-white" aria-hidden="true" />{view.savedLabel}
+                  </p>
+                  <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+                    <p className="min-w-0 truncate text-sm text-gray-900">{formData.title || flowCampaign.title}</p>
+                    <div className="flex flex-shrink-0 items-center gap-4">
+                      <button type="button" onClick={openCampaignPage} className={LINK_BUTTON}>View campaign</button>
+                      <button type="button" onClick={() => setCampaignOpen(true)} className={LINK_BUTTON}>Edit</button>
+                    </div>
+                  </div>
+                  <button type="button" onClick={openCampaignPage} className={`${LINK_BUTTON} !text-gray-600 underline decoration-gray-300 underline-offset-2`}>Add more moments on the campaign page</button>
                 </div>
               </StepCard>
             ) : flowLoading ? (
-              <StepCard number={stepNumber('setup')} title="Set up" id={SETUP_STEP_ID}>
+              <StepCard number={stepNumber('campaign')} title="Campaign" id={CAMPAIGN_STEP_ID}>
                 <p className="flex items-center gap-2 text-sm text-gray-600"><Loader2 className="h-4 w-4 animate-spin text-[#6C60FF]" aria-hidden="true" />Opening your campaign…</p>
               </StepCard>
             ) : flowLoadError ? (
-              <StepCard number={stepNumber('setup')} title="Set up" id={SETUP_STEP_ID} error={flowLoadError}>
+              <StepCard number={stepNumber('campaign')} title="Campaign" id={CAMPAIGN_STEP_ID} error={flowLoadError}>
                 <button type="button" onClick={handleModalClose} className={BUTTON_OUTLINE}>Close</button>
               </StepCard>
             ) : (
-            <StepCard number={stepNumber('setup')} title="Set up" id={SETUP_STEP_ID} error={setupError ?? undefined}>
+            <StepCard number={stepNumber('campaign')} title="Campaign" id={CAMPAIGN_STEP_ID} error={setupError ?? undefined}>
           <div className="space-y-3">
 
             {/* Memory Title */}
@@ -3462,15 +3501,12 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
             </StepCard>
             )}
 
-            <StoreelMomentsStep
-              status={stepStatus('moments', flowStep, Boolean(flowCampaign))}
-              moments={flowCampaign ? flowCampaign.moments : null}
-              onOpenCampaign={openCampaignPage}
-            />
             <StoreelSendStep
               ref={sendStepRef}
               campaign={flowCampaign}
-              status={stepStatus('send', flowStep, Boolean(flowCampaign))}
+              enabled={view.sendEnabled}
+              lockedLine={view.sendLockedLine}
+              intro={view.sendIntro}
               sender={flowSender}
               paid={starterPlan.known && !starterPlan.isStarter}
               canSend={canSend}
@@ -3484,7 +3520,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
           <aside aria-label="Storeel preview" className="min-w-0 self-start pb-[max(1rem,env(safe-area-inset-bottom))] lg:sticky lg:top-0">
             <StoreelLivePreview
               input={{
-                title: formData.title, images: storeelPreviewFirstImage ? [storeelPreviewFirstImage] : flowCampaign?.firstImage ? [flowCampaign.firstImage] : [], momentCount: flowCampaign ? flowCampaign.moments : storeelMomentCount,
+                title: formData.title, moments: previewMoments,
                 location: formData.location, date: formData.date, authorName: user?.name,
                 // The cover the saved campaign page will show: cover photo, intro video, else the brand.
                 coverPhoto: coverChoice.kind === 'photo' ? coverDisplayUrl : null,
@@ -3498,26 +3534,26 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
         </div>
       </div>
 
-        {/* Sticky Footer — phones only: Cancel and the step's main button (Continue / Send Now) above the home
-            indicator, so it is always on screen. Wider screens have these in the top bar. */}
+        {/* Sticky Footer — phones only: the top bar's two buttons (Cancel / Create Campaign — Done / Send Now) above the
+            home indicator, so they are always on screen. Wider screens have these in the top bar. */}
         <div className="md:hidden flex items-stretch gap-2 px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] border-t border-gray-100 bg-white flex-shrink-0">
           <Button
             type="button"
             variant="outline"
-            onClick={handleModalClose}
+            onClick={() => runFlowAction(view.secondary.action)}
             className="flex-1 min-w-0 px-2 text-sm text-gray-900 border-2 border-gray-400 hover:bg-gray-50 focus:ring-0 focus:outline-none !h-11"
           >
-            Cancel
+            {view.secondary.label}
           </Button>
           <button
             type="button"
-            onClick={flowPrimary}
+            onClick={() => runFlowAction(view.primary.action)}
             disabled={flowPrimaryDisabled}
-            aria-label={isSubmitting ? 'Saving' : flowPrimaryLabel}
+            aria-label={isSubmitting ? 'Saving' : view.primary.label}
             className="flex-[2] min-w-0 bg-[#6C60FF] hover:bg-[#5A4FE5] disabled:opacity-50 disabled:pointer-events-none text-white text-sm font-semibold rounded-md flex items-center justify-center gap-2 h-11"
           >
-            {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : flowStep === 'send' ? <Send className="h-4 w-4" aria-hidden="true" /> : null}
-            {isSubmitting ? 'Saving...' : flowPrimaryLabel}
+            {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : view.primary.action === 'send' ? <Send className="h-4 w-4" aria-hidden="true" /> : null}
+            {isSubmitting ? 'Saving...' : view.primary.label}
           </button>
         </div>
     </div>

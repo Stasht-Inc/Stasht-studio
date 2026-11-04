@@ -1,6 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { setTabPropertyView } from '../utils/inventoryView';
-import { clearFlowResume, sessionNotes } from '../components/storeel/lib/storeelFlow';
 
 interface Property {
   id: number;
@@ -71,8 +70,6 @@ export function PropertyProvider({ children }: { children: ReactNode }) {
     console.log('🏠 Switching to property view:', property.name);
     // Before any re-render: pages refetch in their own effects, which run before this provider's.
     setTabPropertyView('property', property as any);
-    // The Storeel flow's note to come back to Send belongs to the view it was written in.
-    clearFlowResume(sessionNotes());
     setViewType('property');
     setCurrentProperty(property);
     setIsPendingPropertySwitch(false);
@@ -81,7 +78,6 @@ export function PropertyProvider({ children }: { children: ReactNode }) {
   const switchToPersonal = () => {
     console.log('👤 Switching to personal view');
     setTabPropertyView('personal', null);
-    clearFlowResume(sessionNotes());
     setViewType('personal');
     setCurrentProperty(null);
   };

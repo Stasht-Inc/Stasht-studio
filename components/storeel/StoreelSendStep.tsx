@@ -7,7 +7,7 @@ import StepCard from '../newsletters/StepCard';
 import { useAudienceCount } from '../newsletters/hooks/useAudienceCount';
 import { countableAudience } from '../newsletters/lib/person';
 import StoreelSendConfirmDialog from './StoreelSendConfirmDialog';
-import { stepNumber, type CampaignSeed, type StepStatus } from './lib/storeelFlow';
+import { stepNumber, type CampaignSeed } from './lib/storeelFlow';
 import { storeelSmsParts, storeelSmsPreview } from './lib/storeelSms';
 import { sendProblem, type SendFailure, type StoreelCount, type StoreelSendSummary } from './lib/storeelSend';
 
@@ -23,9 +23,14 @@ export interface StoreelSendStepHandle {
 }
 
 export interface StoreelSendStepProps {
-  /** The saved campaign (null until Set up is saved: the card is not reached yet). */
+  /** The saved campaign (null until step 1 is saved). */
   campaign: CampaignSeed | null;
-  status: StepStatus;
+  /** Step 1 is saved (and folded): Send can be used. Its state (audience, message) is kept while it waits again. */
+  enabled: boolean;
+  /** What the card says while it waits for step 1 ("Save your campaign first — …"). */
+  lockedLine: string;
+  /** The card's first line once it can be used ("Your campaign is saved. Send it now, or do it later."). */
+  intro: string;
   /** Who the text says it came from (senderLabelFor). */
   sender: string;
   /** Lists and lead suggestions (paid plans only). */
@@ -41,13 +46,13 @@ export interface StoreelSendStepProps {
 }
 
 /**
- * Step 3 Send (Chris, 4 Nov 2026, point 9): the newsletter composer's audience (Single person — email box and/or
+ * Step 2 Send — optional (Chris, 4 Nov 2026, point 9; v2 the same day): the newsletter composer's audience (Single person — email box and/or
  * country-code phone — All leads, lead groups, lists, one or the other), Email and/or Text, a personal message with the
  * text-parts counter, and Estimated recipients from POST /memories/{id}/storeel-audience-count. Send Now (top bar)
  * checks, then asks to confirm (StoreelSendConfirmDialog). Each person gets the message and their own tracked link.
  */
 const StoreelSendStep = forwardRef<StoreelSendStepHandle, StoreelSendStepProps>(function StoreelSendStep(
-  { campaign, status, sender, paid, canSend, active, onSent, onSeePlans, onForbidden }, ref,
+  { campaign, enabled, lockedLine, intro, sender, paid, canSend, active, onSent, onSeePlans, onForbidden }, ref,
 ) {
   // Single person first (as newsletters), sent by email and text (Deepak, 4 Nov).
   const [audience, setAudience] = useState<AudienceItem[]>([]);
@@ -64,7 +69,7 @@ const StoreelSendStep = forwardRef<StoreelSendStepHandle, StoreelSendStepProps>(
   const audienceRef = useRef(audience);
   audienceRef.current = audience;
 
-  const current = status === 'current' && campaign !== null;
+  const current = enabled && campaign !== null;
   const campaignId = campaign?.id ?? 0;
   const count = useAudienceCount<Extra>(countableAudience(audience), channels, active && current && canSend && !forbidden, async (aud, ch) => {
     const r = await storeelBroadcastAPI.audienceCount(campaignId, aud, ch);
@@ -130,16 +135,17 @@ const StoreelSendStep = forwardRef<StoreelSendStepHandle, StoreelSendStepProps>(
   };
 
   const title = 'Send';
-  if (status === 'locked' || !campaign) {
+  if (!current || !campaign) {
     return (
-      <StepCard number={stepNumber('send')} title={title} id={SEND_STEP_ID}>
-        <p className="text-sm text-gray-500">Send your campaign to a person, your leads or your lists. Finish the steps above first.</p>
+      <StepCard number={stepNumber('send')} title={title} id={SEND_STEP_ID} aside={<span className="font-normal text-gray-500">Optional</span>}>
+        <p className="text-sm text-gray-500">{lockedLine}</p>
       </StepCard>
     );
   }
   if (!canSend || forbidden) {
     return (
       <StepCard number={stepNumber('send')} title={title} id={SEND_STEP_ID}>
+        <p className="mb-3 text-sm text-gray-700">{intro}</p>
         <p role="status" className="rounded-lg bg-gray-50 px-3 py-2 text-sm text-gray-700">{CANT_SEND}</p>
       </StepCard>
     );
@@ -164,6 +170,7 @@ const StoreelSendStep = forwardRef<StoreelSendStepHandle, StoreelSendStepProps>(
         fieldErrors={fieldErrors}
         stepError={problem ?? serverStepError ?? unavailable ?? undefined}
         onChange={change}
+        intro={<p className="text-sm text-gray-700">{intro}</p>}
         message={{
           required: true,
           hint: 'Your note to each person. We add their own link to your campaign after it.',

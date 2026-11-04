@@ -1912,8 +1912,6 @@ export const userUtils = {
       'temp_current_password',
       'require_password_change',
       'stasht_theme',
-      // The Storeel flow's "come back to Send" note (components/storeel/lib/storeelFlow.ts FLOW_RESUME_KEY).
-      'stasht_storeel_flow_resume',
       // Add other app-specific sessionStorage keys here
     ];
 

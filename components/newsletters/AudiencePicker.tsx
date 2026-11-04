@@ -62,6 +62,8 @@ export interface AudiencePickerProps {
   };
   /** At the end of the card (the Storeel flow's Send now row). */
   children?: ReactNode;
+  /** The card's first line (the Storeel flow: "Your campaign is saved. Send it now, or do it later."). */
+  intro?: ReactNode;
 }
 
 const GROUP_HEADING = 'px-3 pb-1 pt-3 text-xs font-semibold uppercase tracking-wide text-gray-500';
@@ -72,7 +74,7 @@ const GROUP_HEADING = 'px-3 pb-1 pt-3 text-xs font-semibold uppercase tracking-w
  */
 export default function AudiencePicker({
   audience, channels, smsText, fromName, count, readOnly, enabled, fieldErrors, stepError, onChange, defaultMessage, onDefaultMessageChange,
-  step = { number: 2, title: 'Recipients', id: 'nl-step-recipients' }, idPrefix = 'nl', paid = true, message, children,
+  step = { number: 2, title: 'Recipients', id: 'nl-step-recipients' }, idPrefix = 'nl', paid = true, message, children, intro,
 }: AudiencePickerProps) {
   const id = (name: string) => `${idPrefix}-${name}`;
   const sources = useAudienceSources(enabled, paid);
@@ -178,6 +180,7 @@ export default function AudiencePicker({
   return (
     <StepCard number={step.number} title={step.title} id={step.id} aside={summary} error={stepError}>
       <div className="space-y-4">
+        {intro}
         <div>
           <div className="flex items-baseline justify-between gap-3">
             <p id={id('send-to-label')} className={LABEL}>Send to</p>

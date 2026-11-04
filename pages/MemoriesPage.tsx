@@ -13,7 +13,6 @@ import { Checkbox } from "../components/ui/checkbox";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "../components/ui/dropdown-menu";
 import MemoryCard from "../components/MemoryCard";
 import CreateMemory, { CreateMemoryHandle } from "../components/CreateMemory";
-import { clearFlowResume, flowOwnerKey, readFlowResume, sessionNotes, type FlowStep } from "../components/storeel/lib/storeelFlow";
 import { dashboardAPI, isPartialAdmin, apiRequest } from '../utils/authUtils';
 import { RemoveCollaborationModal } from '../components/RemoveCollaborationModal';
 import { mediaAPI } from '../services/mediaAPI';
@@ -450,19 +449,6 @@ function MemoriesPageContent({
   const newslettersTotal = useNewsletterCount(isPropertyOwner && starterPlan.known && !starterPlan.isStarter);
   // Photos passed in by Scan Photo, handed to the Storeel form.
   const [photosForCreate, setPhotosForCreate] = useState<File[] | null>(null);
-  // Back from the campaign page after the Storeel flow's "Add moments on the campaign page" (Chris, 4 Nov 2026,
-  // point 9): the flow opens again on Send for that campaign (once; the note is for one trip).
-  const [flowResume, setFlowResume] = useState<{ memoryId: number; step: FlowStep } | null>(null);
-  useEffect(() => {
-    // Only this account's note, from this view (another sign-in or business never resumes it).
-    const note = readFlowResume(sessionNotes(), flowOwnerKey(user, viewType, currentProperty));
-    if (!note) return;
-    clearFlowResume(sessionNotes());
-    setFlowResume({ memoryId: note.memoryId, step: note.step });
-    setCreateOpensOn('storeel');
-    setShowCreateMemory(true);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
   const proxyInputRef = useRef<HTMLInputElement>(null);
   const [selectedCategoryForCreate, setSelectedCategoryForCreate] = useState<string | undefined>(undefined);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
@@ -1133,7 +1119,6 @@ function MemoriesPageContent({
     setEditNewsletterId(null);
     setPhotosForCreate(null);
     setCreateOpensOn(undefined);
-    setFlowResume(null);
   };
 
   const handleCreateMemory = async (categoryName?: string, photos?: File[]) => {
@@ -1187,6 +1172,8 @@ function MemoriesPageContent({
 
   const handleMemoryCreated = async () => {
     console.log('🎯 Memory created from memories page - triggering refresh');
+    // A Storeel was created (Storeel flow v2): its Done lands on the Storeels list with the new campaign in it.
+    setCampaignsView('storeels');
 
     // Refresh memory limit state immediately after creation
     console.log('🔄 Refreshing memory limit state after creation');
@@ -3503,8 +3490,6 @@ function MemoriesPageContent({
         newsletterId={editNewsletterId}
         initialPhotos={photosForCreate}
         opensOn={createOpensOn}
-        campaignId={flowResume?.memoryId ?? null}
-        resumeStep={flowResume?.step ?? null}
         onCampaignSaved={() => { void onRefreshMemories?.(); }}
         beforeStoreel={() => {
           if (!categoryGateBlocks()) return true;
