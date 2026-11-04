@@ -44,7 +44,7 @@ import NewslettersView from "../components/newsletters/NewslettersView";
 import SegmentedSwitch from "../components/newsletters/SegmentedSwitch";
 import { useNewsletterCount } from "../components/newsletters/hooks/useNewsletterCount";
 import { CAMPAIGNS_VIEW_OPTIONS, OPEN_NEWSLETTER_DRAFT_EVENT, OPEN_NEWSLETTER_RESULTS_EVENT, campaignsViewForPlan, readCampaignsView, takePendingNewsletterHighlight, takePendingNewsletterResults, writeCampaignsView, type CampaignsView } from "../components/newsletters/lib/campaignsView";
-import { initialCampaignType, needsCategoryFirst } from "../components/newsletters/lib/campaignType";
+import { campaignTypeForView, initialCampaignType, needsCategoryFirst, type CampaignType } from "../components/newsletters/lib/campaignType";
 import { useIsStarterPlan } from "../hooks/usePlan";
 const imgSunnyBeach = 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=400&h=300&fit=crop';
 
@@ -441,6 +441,9 @@ function MemoriesPageContent({
   }, [setCampaignsView]);
   const starterPlan = useIsStarterPlan();
   const campaignsView: CampaignsView = campaignsPicked ? campaignsChoice : campaignsViewForPlan(campaignsChoice, starterPlan);
+  // The tab Create Campaign opens on (Chris, 4 Nov 2026): the view showing when it was opened — "+ Create a Campaign"
+  // on Storeels opened the newsletter composer, because Create Campaign always opened on Newsletter.
+  const [createOpensOn, setCreateOpensOn] = useState<CampaignType | undefined>(undefined);
   // Paid plans only (a Starter account would get 403 plan_required, contract note 1).
   const newslettersTotal = useNewsletterCount(isPropertyOwner && starterPlan.known && !starterPlan.isStarter);
   // Photos passed in by Scan Photo, handed to the Storeel form.
@@ -1114,6 +1117,7 @@ function MemoriesPageContent({
     setSelectedCategoryForCreate(undefined);
     setEditNewsletterId(null);
     setPhotosForCreate(null);
+    setCreateOpensOn(undefined);
   };
 
   const handleCreateMemory = async (categoryName?: string, photos?: File[]) => {
@@ -1124,6 +1128,8 @@ function MemoriesPageContent({
     // silently pre-picked here. CreateMemory itself still applies a pinned "always
     // visible" preference, if one is set, once its own modal-open effect runs.
     let resolvedCategory = categoryName;
+    // The Storeels | Newsletters view showing (the Storeels grid is all a non-owner sees): Create Campaign opens on it.
+    const viewOpensOn = campaignTypeForView(isPropertyOwner ? campaignsView : 'storeels');
     // The ownership gate is a PROPERTY-account concept (is_owner / can_add_story come from the
     // properties API). Personal accounts don't have these flags and must NOT be gated — they
     // open the modal directly, exactly as before.
@@ -1135,8 +1141,9 @@ function MemoriesPageContent({
       console.log('🟣 CreateCampaign gate — addable own categories:', ownedCats.map((c: any) => c?.name), 'from', gateCats.map((c: any) => `${c?.name}:is_owner=${c?.is_owner},can_add_story=${c?.can_add_story}`));
       // Ownership gate is a PROPERTY-account concept only: if a property owner has no addable
       // category yet, route them to create one. Personal accounts are never gated.
-      // Create Campaign opens on Newsletter (no category needed), so the gate waits for the Storeel tab.
-      const opensOn = initialCampaignType({ photoCount: photos?.length ?? 0, isStarter: starterPlan.known && starterPlan.isStarter });
+      // The gate only applies when Create Campaign opens on Storeel (newsletters need no category): it follows the
+      // view showing, so from Storeels it applies now; from Newsletters it waits for the Storeel tab (beforeStoreel).
+      const opensOn = initialCampaignType({ photoCount: photos?.length ?? 0, isStarter: starterPlan.known && starterPlan.isStarter, preferred: viewOpensOn });
       if (needsCategoryFirst({ viewType, ownedCategories: ownedCats.length, opensOn })) {
         sendToCreateCategory();
         return;
@@ -1146,6 +1153,7 @@ function MemoriesPageContent({
     // Open modal + focus synchronously (before any await) — only way to open keyboard on iOS
     // A new campaign: never the newsletter that was last edited.
     setEditNewsletterId(null);
+    setCreateOpensOn(viewOpensOn);
     setSelectedCategoryForCreate(resolvedCategory);
     setPhotosForCreate(photos && photos.length ? photos : null);
     proxyInputRef.current?.focus();
@@ -2449,8 +2457,8 @@ function MemoriesPageContent({
       {isPropertyOwner && campaignsView === 'newsletters' ? (
         // "Create a Newsletter" opens Create Campaign directly: the Storeel campaign limit doesn't apply (decision 6).
         <NewslettersView
-          onCreate={() => { setEditNewsletterId(null); setSelectedCategoryForCreate(undefined); setShowCreateMemory(true); }}
-          onEdit={(id) => { setEditNewsletterId(id); setSelectedCategoryForCreate(undefined); setShowCreateMemory(true); }}
+          onCreate={() => { setEditNewsletterId(null); setSelectedCategoryForCreate(undefined); setCreateOpensOn('newsletter'); setShowCreateMemory(true); }}
+          onEdit={(id) => { setEditNewsletterId(id); setSelectedCategoryForCreate(undefined); setCreateOpensOn('newsletter'); setShowCreateMemory(true); }}
           onToggleMobileSidebar={onToggleMobileSidebar}
           showMobileSidebar={showMobileSidebar}
           openResults={newsletterResultsRequest}
@@ -3472,6 +3480,7 @@ function MemoriesPageContent({
         }}
         newsletterId={editNewsletterId}
         initialPhotos={photosForCreate}
+        opensOn={createOpensOn}
         beforeStoreel={() => {
           if (!categoryGateBlocks()) return true;
           // Same reset as closing, so the next Create Campaign doesn't reopen this newsletter or these photos.
