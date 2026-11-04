@@ -5,6 +5,11 @@
 // node tests/dashboard/ui/trial-banner.mjs   (needs the dev server: TB_BASE, default http://127.0.0.1:5293)
 // Every API call is answered here and every non-local request is aborted: nothing leaves this machine.
 // Screenshots: TB_SHOTS (default /private/tmp/claude-501/trial-banner-ui/shots).
+//
+// Chris, 4 Nov 2026: (1) the banner uses Studio's amber notice (the Dashboard's own "Campaign Storage Limit Reached" /
+// "AI Credits Limit Reached" Alert: border-amber-200 bg-amber-50, AlertTriangle) instead of the purple box; (2) while the
+// trial runs and no card is on file (GET /stripe/payment-methods), it adds "Add credit card info to avoid disruption to
+// service. You won't be billed until the trial is over" with "Add Payment Method", which opens the add-card modal.
 import { mkdirSync } from 'fs';
 import pw from '/Users/deepaksharma/.nvm/versions/node/v24.5.0/lib/node_modules/@executeautomation/playwright-mcp-server/node_modules/playwright-core/index.js';
 
@@ -43,7 +48,10 @@ const expect = (ok, label) => { if (!ok) failures.push(label); console.log(ok ? 
 const browser = await chromium.launch({ headless: true, channel: 'chrome' });
 
 // properties: what GET /properties answers (owned_properties / account_trial).
-async function open({ properties, width = 1280, height = 900 }) {
+// cards: what GET /stripe/payment-methods answers — 'none' (no card), 'card' (one card), 'error' (the call fails).
+const ADD_CARD = "Add credit card info to avoid disruption to service. You won't be billed until the trial is over";
+const paymentCalls = [];
+async function open({ properties, width = 1280, height = 900, cards = 'none', coveredBy = null }) {
   const context = await browser.newContext({ viewport: { width, height }, serviceWorkers: 'block', locale: 'en-US', timezoneId: 'America/Toronto', hasTouch: width < 1024, isMobile: width < 1024 });
   await context.addInitScript(([user]) => {
     if (sessionStorage.getItem('tb-seeded')) return;
@@ -75,11 +83,16 @@ async function open({ properties, width = 1280, height = 900 }) {
       const owned = properties.owned_properties || [];
       return route.fulfill({ json: { success: true, data: { properties: owned, owned_properties: owned, shared_properties: [], owned_count: owned.length, shared_count: 0, total_count: owned.length, ...('account_trial' in properties ? { account_trial: properties.account_trial } : {}) } } });
     }
+    if (p === '/stripe/payment-methods' && req.method() === 'GET') {
+      paymentCalls.push(cards);
+      if (cards === 'error') return route.fulfill({ status: 500, json: { success: false, error: 'Stripe unavailable' } });
+      return route.fulfill({ json: { success: true, payment_methods: cards === 'card' ? [{ id: 'pm_1', brand: 'visa', last4: '4242', exp_month: 4, exp_year: 2030, is_default: true }] : [] } });
+    }
     if (p === '/dashboard') return route.fulfill({ json: { success: true, data: DASHBOARD } });
     if (p === '/user/memory-counts') return route.fulfill({ json: { success: true, data: { memory_counts: { total_memories: 0, total_memory_images: 0, published_memories: 0, active_collaborators: 0 } } } });
     if (p === '/website-catalogue') return route.fulfill({ json: { success: true, data: { available: true, reason: null, item_count: 454, source: null, scan: null, limits: { item_limit: 500, sync_now_minutes: 15 } } } });
     if (p.startsWith('/website-catalogue/items')) return route.fulfill({ json: { success: true, data: { items: [], pagination: { current_page: 1, per_page: 1, total: 454, last_page: 454 } } } });
-    if (p === '/user/storage-overview') return route.fulfill({ json: { success: true, data: { storage_overview: { plan_name: 'Business' } } } });
+    if (p === '/user/storage-overview') return route.fulfill({ json: { success: true, data: { storage_overview: { plan_name: 'Business', ...(coveredBy ? { plan_covered_by: coveredBy } : {}) } } } });
     if (p.startsWith('/dashboard/')) return route.fulfill({ status: 404, json: { success: false, message: 'Not found' } });
     return route.fulfill({ json: { success: true, data: [] } });
   });
@@ -98,6 +111,15 @@ async function shot(page, file) {
 }
 
 const banner = (page) => page.locator('[role="status"]').filter({ hasText: /trial/i }).first();
+// Studio's amber notice: the Dashboard's limit Alerts (border-amber-200 bg-amber-50 text-amber-800, AlertTriangle).
+async function looksAmber(page) {
+  return banner(page).evaluate((el) => {
+    const cs = getComputedStyle(el);
+    return { bg: cs.backgroundColor, border: cs.borderTopColor, icon: !!el.querySelector('svg.lucide-triangle-alert, svg.lucide-alert-triangle'), slot: el.getAttribute('data-slot') };
+  }).catch(() => null);
+}
+const AMBER_50 = 'rgb(255, 251, 235)';
+const AMBER_200 = 'rgb(253, 230, 138)';
 
 try {
   // 1. TheRoyalWoodShop: plan trial, no property of its own → the banner shows the account trial (no property name).
@@ -109,13 +131,45 @@ try {
     expect(text.includes('Free trial'), '1: "Free trial" banner shows');
     expect(text.includes(`Your trial ends on ${fmt(2027, 1, 28)} (${left} ${left === 1 ? 'day' : 'days'} left)`), `1: ends on ${fmt(2027, 1, 28)}, ${left} days left, no property name`);
     expect(await page.getByText('Total Campaigns').filter({ visible: true }).count() > 0, '1: dashboard cards render');
+    const look = await looksAmber(page);
+    console.log('1 look:', JSON.stringify(look));
+    expect(look?.bg === AMBER_50 && look?.border === AMBER_200, '1: amber notice colours (bg-amber-50, border-amber-200), not purple');
+    expect(look?.icon === true && look?.slot === 'alert', '1: the Dashboard\'s Alert component with its AlertTriangle icon');
+    expect(text.includes(ADD_CARD), '2: no card on file → the add-card line shows (exact wording)');
+    const addCard = banner(page).getByRole('button', { name: 'Add Payment Method' });
+    expect(await addCard.count() === 1, '2: "Add Payment Method" action in the banner');
     await shot(page, '01-royalwood-account-trial-desktop');
+    await addCard.click();
+    const modal = page.getByRole('heading', { name: 'Add Payment Method' });
+    await modal.waitFor({ state: 'visible', timeout: 15000 }).catch(() => {});
+    expect(await modal.isVisible(), '2: the action opens the existing Add Payment Method modal');
+    await shot(page, '06-add-card-modal-desktop');
+    await context.close();
+  }
+  // 1c. A card is on file → the trial banner without the add-card line.
+  {
+    const { page, context } = await open({ cards: 'card', properties: { owned_properties: [], account_trial: { trial_ends_at: '2027-01-28T23:59:59+00:00', trial_ends_on: '2027-01-28', trial_ended: false } } });
+    const text = (await banner(page).innerText().catch(() => '')).replace(/\s+/g, ' ');
+    expect(text.includes('Free trial') && !text.includes(ADD_CARD), '2c: card on file → no add-card line');
+    expect(await banner(page).getByRole('button', { name: 'Add Payment Method' }).count() === 0, '2c: no action either');
+    await shot(page, '07-card-on-file-desktop');
+    await context.close();
+  }
+  // 1d. The payment-methods check fails → no nag (unknown is never "no card").
+  {
+    const { page, context } = await open({ cards: 'error', properties: { owned_properties: [], account_trial: { trial_ends_at: '2027-01-28T23:59:59+00:00', trial_ends_on: '2027-01-28', trial_ended: false } } });
+    const text = (await banner(page).innerText().catch(() => '')).replace(/\s+/g, ' ');
+    expect(text.includes('Free trial') && !text.includes(ADD_CARD), '2d: failed card check → no add-card line');
     await context.close();
   }
   // 1b. The same on a phone.
   {
     const { page, context } = await open({ width: 390, height: 844, properties: { owned_properties: [], account_trial: { trial_ends_at: '2027-01-28T23:59:59+00:00', trial_ends_on: '2027-01-28', trial_ended: false } } });
-    expect((await banner(page).innerText().catch(() => '')).includes('Free trial'), '1b: banner shows on a phone');
+    const phoneText = (await banner(page).innerText().catch(() => '')).replace(/\s+/g, ' ');
+    expect(phoneText.includes('Free trial'), '1b: banner shows on a phone');
+    expect(phoneText.includes(ADD_CARD), '2b: add-card line on a phone');
+    const box = await banner(page).boundingBox();
+    expect(box && box.x >= 0 && box.x + box.width <= 390, '1b: banner fits the phone width');
     await shot(page, '02-royalwood-account-trial-phone');
     await context.close();
   }
@@ -134,13 +188,26 @@ try {
     const text = (await banner(page).innerText().catch(() => '')).replace(/\s+/g, ' ');
     console.log('3 banner:', text);
     expect(text.includes('Trial ended') && text.includes(`ended on ${fmt(2026, 10, 31)}`), '3: "Trial ended" banner');
+    const look = await looksAmber(page);
+    expect(look?.bg === AMBER_50 && look?.border === AMBER_200, '3: ended banner is the same amber notice');
+    expect(!text.includes(ADD_CARD), '3: trial over → no "won\'t be billed until the trial is over" line');
     await shot(page, '04-account-trial-ended');
+    await context.close();
+  }
+  // 4b. A salesperson covered by the main account: no trial banner, so no add-card nag (and no card check at all).
+  {
+    paymentCalls.length = 0;
+    const { page, context } = await open({ coveredBy: { id: 959, name: 'TheRoyalWoodShop' }, properties: { owned_properties: [], account_trial: { trial_ends_at: '2027-01-28T23:59:59+00:00', trial_ends_on: '2027-01-28', trial_ended: false } } });
+    expect(await page.locator('[role="status"]').filter({ hasText: /trial/i }).count() === 0, '4b: covered account → no trial banner');
+    expect(!(await page.getByText(ADD_CARD).count()), '4b: covered account → no add-card line');
+    expect(paymentCalls.length === 0, '4b: covered account → payment methods not even asked for');
     await context.close();
   }
   // 4. No trial anywhere → no banner.
   {
     const { page, context } = await open({ properties: { owned_properties: [], account_trial: null } });
     expect(await page.locator('[role="status"]').filter({ hasText: /trial/i }).count() === 0, '4: no trial → no banner');
+    expect(!(await page.getByText(ADD_CARD).count()), '4: no add-card line without a trial');
     await shot(page, '05-no-trial');
     await context.close();
   }

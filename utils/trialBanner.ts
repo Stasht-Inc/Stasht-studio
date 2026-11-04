@@ -65,3 +65,19 @@ export function trialBannerFrom(propertiesData: any, now: Date = new Date(), loc
   const endDate = endsOn.toLocaleDateString(locale, { day: 'numeric', month: 'short', year: 'numeric' });
   return { ended, daysLeft, endDate, name: trial.name };
 }
+
+// Add a card (Chris, 4 Nov 2026): while the trial runs and no card is on file, the banner adds this line with an
+// action that opens the Add Payment Method modal. Card on file: GET /stripe/payment-methods (an account with no Stripe
+// customer yet answers success with an empty list).
+export const ADD_CARD_NOTICE = "Add credit card info to avoid disruption to service. You won't be billed until the trial is over";
+
+/** Whether a card is on file, from GET /stripe/payment-methods; null = unknown (the call failed or said nothing). */
+export function cardOnFileFrom(response: any): boolean | null {
+  if (!response || response.success !== true || !Array.isArray(response.payment_methods)) return null;
+  return response.payment_methods.length > 0;
+}
+
+/** The add-card line: only while the trial runs and the account is known to have no card (never on a failed check). */
+export function showAddCardNotice(banner: TrialBanner | null | undefined, cardOnFile: boolean | null): boolean {
+  return Boolean(banner && !banner.ended && cardOnFile === false);
+}

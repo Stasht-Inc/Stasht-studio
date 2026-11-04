@@ -68,3 +68,32 @@ test('the end date is the chosen calendar date in any time zone (never a day ear
 function dateParts(d) {
   return d ? [d.getFullYear(), d.getMonth() + 1, d.getDate()] : null;
 }
+
+// ── Add a card (Chris, 4 Nov 2026) ───────────────────────────────────────
+// While the trial runs and no card is on file, the banner adds "Add credit card info to avoid disruption to service.
+// You won't be billed until the trial is over" with an action that opens the add-card modal. Card on file: the existing
+// GET /stripe/payment-methods (an account with no Stripe customer answers success + an empty list).
+test('card on file: read from GET /stripe/payment-methods; unknown (null) when the call failed', async () => {
+  const { cardOnFileFrom } = await import('../../utils/trialBanner.ts');
+  assert.equal(cardOnFileFrom({ success: true, payment_methods: [] }), false);
+  assert.equal(cardOnFileFrom({ success: true, payment_methods: [{ id: 'pm_1', brand: 'visa', last4: '4242' }] }), true);
+  assert.equal(cardOnFileFrom({ success: false, error: 'Stripe down' }), null);
+  assert.equal(cardOnFileFrom({ success: true }), null, 'no list: unknown');
+  assert.equal(cardOnFileFrom(null), null);
+  assert.equal(cardOnFileFrom(undefined), null);
+});
+
+test('the add-card line shows only while the trial runs and the account is known to have no card', async () => {
+  const { showAddCardNotice } = await import('../../utils/trialBanner.ts');
+  const running = { ended: false, daysLeft: 85, endDate: 'Jan 28, 2027' };
+  assert.equal(showAddCardNotice(running, false), true);
+  assert.equal(showAddCardNotice(running, true), false, 'a card is on file');
+  assert.equal(showAddCardNotice(running, null), false, 'unknown: never nag on a failed check');
+  assert.equal(showAddCardNotice({ ...running, ended: true }, false), false, 'the trial is over: not "won\'t be billed until"');
+  assert.equal(showAddCardNotice(null, false), false, 'no banner (no trial, or covered by the main account)');
+});
+
+test('the add-card wording is exactly Chris\'s', async () => {
+  const { ADD_CARD_NOTICE } = await import('../../utils/trialBanner.ts');
+  assert.equal(ADD_CARD_NOTICE, "Add credit card info to avoid disruption to service. You won't be billed until the trial is over");
+});
