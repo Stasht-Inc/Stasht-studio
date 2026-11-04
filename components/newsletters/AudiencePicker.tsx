@@ -5,16 +5,17 @@ import type { AudienceItem, NewsletterBlock, NewsletterChannel } from '../../ser
 import StepCard from './StepCard';
 import ImportListModal from './ImportListModal';
 import ManageListsDialog from './ManageListsDialog';
-import LeadPicker from './LeadPicker';
+import PersonFields, { type PersonFieldsHandle } from './PersonFields';
 import { withoutList } from './lib/manageLists';
 import { moveFocusWithArrows } from './arrowKeys';
 import { useAudienceSources } from './hooks/useAudienceSources';
 import { useAutoGrow } from './hooks/useAutoGrow';
 import type { AudienceCountState } from './hooks/useAudienceCount';
 import {
-  SINGLE_PERSON, audienceKey, audienceLabel, countSummary, formatCount, hasAudienceItem, isSinglePerson, personAudience, personId, skippedSummary, smsInfo,
+  SINGLE_PERSON, audienceKey, audienceLabel, countSummary, formatCount, hasAudienceItem, isSinglePerson, personId, skippedSummary, smsInfo,
   smsPreview, toggleChannel, toggleGroupItem,
 } from './lib/audience';
+import { personCountSummary, personEntryProblem, personStatusProblems, personSummary } from './lib/person';
 import { smsPartsInfo, smsPartsLabel } from './lib/smsParts';
 import { MESSAGE_TOO_LONG } from './lib/draft';
 import { syncMessageBlock } from './lib/messageBlock';
@@ -60,9 +61,9 @@ export default function AudiencePicker({ audience, channels, smsText, fromName, 
   const leadId = personId(audience);
   const [personLabel, setPersonLabel] = useState<string | null>(null);
   const label = single ? SINGLE_PERSON : audienceLabel(audience, sources.groups, sources.lists);
-  const summary = single ? (leadId && personLabel ? personLabel : SINGLE_PERSON) : label;
-  const personRef = useRef<HTMLButtonElement>(null);
-  // After choosing Single person, focus goes to the person field instead of back to Send to.
+  const summary = single ? (personSummary(audience) ?? (leadId && personLabel ? personLabel : SINGLE_PERSON)) : label;
+  const personRef = useRef<PersonFieldsHandle>(null);
+  // After choosing Single person, focus goes to the person's first box instead of back to Send to.
   const focusPersonRef = useRef(false);
   const chooseSingle = () => {
     if (!single) {
@@ -77,7 +78,14 @@ export default function AudiencePicker({ audience, channels, smsText, fromName, 
     onChange({ audience: toggleGroupItem(audience, item) });
   };
   const sms = smsInfo(smsText);
-  const skipped = skippedSummary(count.counts, channels);
+  // A typed person who unsubscribed is said under their box (PersonFields), not again in the line under the estimate.
+  const personSaysUnsubscribed = single && Object.keys(personStatusProblems(count.counts, channels)).length > 0;
+  const skipped = skippedSummary(personSaysUnsubscribed && count.counts ? { ...count.counts, skipped: { ...count.counts.skipped, unsubscribed: 0 } } : count.counts, channels);
+  // A Single person box's problem shows under that box (PersonFields), not again under Send to: the live check of a box
+  // still being typed, and the API's audience.N.email / audience.N.phone (whose message apiResult also files as `audience`).
+  const boxErrors = Object.entries(fieldErrors).filter(([key]) => /^audience\.\d+\.(email|phone)$/.test(key)).map(([, message]) => message);
+  const audienceError = fieldErrors.audience && !(single && (fieldErrors.audience === personEntryProblem(audience) || boxErrors.some((m) => fieldErrors.audience.includes(m))))
+    ? fieldErrors.audience : undefined;
   const parts = smsPartsInfo(fromName, smsText);
   // Screen readers hear the parts line only when the number of parts changes, not on every key.
   const [partsAnnouncement, setPartsAnnouncement] = useState('');
@@ -154,7 +162,7 @@ export default function AudiencePicker({ audience, channels, smsText, fromName, 
           <Popover.Root open={open} onOpenChange={setOpen}>
             <Popover.Trigger asChild>
               <button type="button" disabled={readOnly} aria-labelledby="nl-send-to-label nl-send-to-value"
-                className={`${inputClass(Boolean(fieldErrors.audience))} flex items-center justify-between gap-2 text-left`}>
+                className={`${inputClass(Boolean(audienceError))} flex items-center justify-between gap-2 text-left`}>
                 <span id="nl-send-to-value" className="truncate">{label}</span>
                 <ChevronDown className="h-4 w-4 flex-shrink-0 text-gray-500" aria-hidden="true" />
               </button>
@@ -176,7 +184,7 @@ export default function AudiencePicker({ audience, channels, smsText, fromName, 
                     className="h-4 w-4 flex-shrink-0 accent-[#6C60FF]" />
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-sm text-gray-900">{SINGLE_PERSON}</span>
-                    <span className="block text-xs text-gray-500">One lead you choose</span>
+                    <span className="block text-xs text-gray-500">Type their email or phone number</span>
                   </span>
                 </label>
                 {option({ type: 'all_leads' }, 'All leads', 'Everyone in your Leads')}
@@ -194,20 +202,17 @@ export default function AudiencePicker({ audience, channels, smsText, fromName, 
               </Popover.Content>
             </Popover.Portal>
           </Popover.Root>
-          {fieldErrors.audience ? <p role="alert" className="mt-1.5 text-xs text-red-600">{fieldErrors.audience}</p> : null}
+          {audienceError ? <p role="alert" className="mt-1.5 text-xs text-red-600">{audienceError}</p> : null}
 
           {single ? (
-            <div className="mt-3">
-              <p id="nl-person-label" className={LABEL}>Person</p>
-              <LeadPicker ref={personRef} leadId={leadId} readOnly={readOnly} enabled={enabled} labelId="nl-person-label"
-                onPick={(lead) => onChange({ audience: personAudience(lead.id) })} onNameChange={setPersonLabel} />
-            </div>
+            <PersonFields ref={personRef} audience={audience} channels={channels} counts={count.counts} readOnly={readOnly} enabled={enabled}
+              fieldErrors={fieldErrors} showProblems={Boolean(stepError)} onChange={(next) => onChange({ audience: next })} onLeadName={setPersonLabel} />
           ) : null}
 
           <div className="mt-3 rounded-lg bg-gray-50 px-4 py-3" aria-live="polite">
             <div className="flex items-center justify-between gap-3 text-sm">
               <span className="flex min-w-0 items-center gap-2 text-gray-700"><User className="h-4 w-4 flex-shrink-0 text-gray-500" aria-hidden="true" />Estimated recipients</span>
-              <span className="whitespace-nowrap text-right font-semibold text-gray-900">{count.loading ? 'Counting…' : count.error ? '—' : countSummary(count.counts, channels)}</span>
+              <span className="whitespace-nowrap text-right font-semibold text-gray-900">{count.loading ? 'Counting…' : count.error ? '—' : single ? personCountSummary(count.counts, channels) : countSummary(count.counts, channels)}</span>
             </div>
             {count.error ? <p className="mt-1 text-xs text-gray-500">{count.error}</p> : skipped ? <p className="mt-1 text-xs text-gray-500">{skipped}</p> : null}
           </div>

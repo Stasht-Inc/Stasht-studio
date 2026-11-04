@@ -19,6 +19,7 @@ import DeviceToggle, { type PreviewDevice } from './DeviceToggle';
 import TemplatePicker from './TemplatePicker';
 import AudiencePicker from './AudiencePicker';
 import { useAudienceCount } from './hooks/useAudienceCount';
+import { countableAudience } from './lib/person';
 import { newslettersAPI, type Newsletter, type NewsletterChannel } from '../../services/newslettersAPI';
 import ScheduleStep from './ScheduleStep';
 import PreviewDialog from './PreviewDialog';
@@ -128,7 +129,8 @@ const NewsletterComposer = forwardRef<NewsletterComposerHandle, NewsletterCompos
   const smsFromName = draft.from_name.trim() || fallbackFromName;
   const smsParts = smsPartsInfo(smsFromName, draft.sms_text).parts;
   // Live recipient counts only while the Newsletter tab shows on a paid plan (debounced in the hook).
-  const audienceCount = useAudienceCount(draft.audience, draft.channels, enabled && !hidden && !state.loading);
+  // A Single person box still being typed counts as nobody yet (lib/person.ts).
+  const audienceCount = useAudienceCount(countableAudience(draft.audience), draft.channels, enabled && !hidden && !state.loading);
   const [closing, setClosing] = useState(false);
   const [device, setDevice] = useState<PreviewDevice>('desktop');
   // True after the first Send / Schedule attempt: from then on, unfinished steps and sections show their problems.

@@ -4,6 +4,7 @@ import type {
 import { LIMITS, isPlausibleEmail, smsPlain } from './rules.ts';
 import { blocksToInput, campaignSelections, normaliseBlocks, overLimitTextIds } from './blocks.ts';
 import { campaignIdsOf, overridesForInput, pruneOverrides } from './campaignsBlock.ts';
+import { personEntryProblem } from './person.ts';
 
 /** What the composer edits. Text fields are never null here ('' instead). */
 export interface NewsletterDraft {
@@ -150,6 +151,9 @@ export function fieldProblems(d: NewsletterDraft): Partial<Record<keyof Newslett
   if (smsPlain(d.sms_text).length > LIMITS.sms_text) out.sms_text = MESSAGE_TOO_LONG;
   const reply = d.reply_to_email.trim();
   if (reply && !isPlausibleEmail(reply)) out.reply_to_email = 'Enter an email address like sales@yourbusiness.com.';
+  // A Single person email or phone still being typed: kept in the draft, not saved until it would pass (person.ts).
+  const person = personEntryProblem(d.audience);
+  if (person) out.audience = person;
   return out;
 }
 
