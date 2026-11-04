@@ -47,6 +47,41 @@ export interface LogoCrop {
 const isBackground = (data: ArrayLike<number>, i: number) =>
   data[i + 3] < CLEAR_ALPHA || (data[i] >= NEAR_WHITE && data[i + 1] >= NEAR_WHITE && data[i + 2] >= NEAR_WHITE);
 
+/** A tile's edges: at least this share of each edge line (its rounded ends left out) is mark. */
+const TILE_EDGE_FILL = 0.9;
+/** Left out at each end of an edge line, as a share of its length: rounded corners. */
+const TILE_CORNER = 0.2;
+/** How far inside its bounding box a tile's edge lines are read (antialiasing), in pixels. */
+const TILE_EDGE_INSET = 2;
+/** A tile is cropped this far inside its own edges (each side, share of its short side): no antialiased rim shows. */
+export const TILE_INSET = 0.03;
+/** Smallest tile side (measured pixels) worth treating as one. */
+const TILE_MIN = 8;
+
+/** Whether the mark's bounding box [x0, x1) × [y0, y1) is a solid tile: all four edges (nearly) all mark. */
+function isTile(data: ArrayLike<number>, width: number, x0: number, y0: number, x1: number, y1: number): boolean {
+  const w = x1 - x0;
+  const h = y1 - y0;
+  if (w < TILE_MIN || h < TILE_MIN) return false;
+  const at = (x: number, y: number) => (y * width + x) * 4;
+  const filled = (count: number, cell: (k: number) => number) => {
+    const skip = Math.floor(count * TILE_CORNER);
+    let hits = 0;
+    let total = 0;
+    for (let k = skip; k < count - skip; k++) {
+      total += 1;
+      if (!isBackground(data, cell(k))) hits += 1;
+    }
+    return total > 0 && hits / total >= TILE_EDGE_FILL;
+  };
+  const top = y0 + TILE_EDGE_INSET;
+  const bottom = y1 - 1 - TILE_EDGE_INSET;
+  const left = x0 + TILE_EDGE_INSET;
+  const right = x1 - 1 - TILE_EDGE_INSET;
+  return filled(w, (k) => at(x0 + k, top)) && filled(w, (k) => at(x0 + k, bottom))
+    && filled(h, (k) => at(left, y0 + k)) && filled(h, (k) => at(right, y0 + k));
+}
+
 /**
  * The square to crop a logo to so its mark fills the circle it is drawn in: centred on the mark's bounding box, wide
  * enough that every part of the mark sits inside the square's inscribed circle (a round mark fills it edge to edge; a
@@ -81,6 +116,15 @@ export function logoTrim(data: ArrayLike<number>, width: number, height: number)
   const y1 = last(rows) + 1;
   const cx = (x0 + x1) / 2;
   const cy = (y0 + y1) / 2;
+
+  // A tile (round avatar, Chris 4 Nov 2026): a solid box edged all round by the mark — TheRoyalWoodShop's blue box with
+  // white lettering, a coloured square, an app-icon tile — on a margin. Crop a square INSIDE it, so the circle the logo
+  // is clipped to shows the tile edge to edge (the account avatar's look), instead of the whole tile as a rectangle.
+  if (isTile(data, width, x0, y0, x1, y1)) {
+    const side = Math.min(x1 - x0, y1 - y0) * (1 - 2 * TILE_INSET);
+    if (side >= Math.max(width, height) * 0.98) return null;
+    return { x: cx - side / 2, y: cy - side / 2, size: side };
+  }
 
   // How far the mark reaches from that centre (pixel corners, so a one-pixel mark still has a size).
   const distances: number[] = [];

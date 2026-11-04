@@ -107,19 +107,47 @@ test('a transparent logo off-centre: trimmed around the mark, wherever it sits',
   assert.ok(Math.abs(box.x + box.size / 2 - 430) < 12 && Math.abs(box.y + box.size / 2 - 380) < 12, JSON.stringify(box));
 });
 
-test('a square mark: its corners stay inside the circle the logo is clipped to (never cut off)', async () => {
-  const square = svg('<rect x="300" y="300" width="200" height="200" fill="#B91C1C"/>', 800, 800, WHITE_BG());
-  const { data, width, height } = await raw(square, 256);
-  const box = logoTrim(data, width, height);
-  assert.ok(box);
-  // The mark's farthest pixel (a corner, half the diagonal away) is within the box's inscribed circle.
-  const half = (200 / 800) * 256 / 2;
-  assert.ok(box.size / 2 >= half * Math.SQRT2 * 0.99, `radius ${box.size / 2} vs corner ${half * Math.SQRT2}`);
-  assert.ok(box.size / 2 <= half * Math.SQRT2 * (1 + 2 * TRIM_PADDING) + 1.5);
+// Round avatar (Chris, 4 Nov 2026): a solid tile on a margin (TheRoyalWoodShop's blue box with white lettering, a red
+// square) used to be squared around its corners so the whole tile showed — a rectangle in the middle of the code. Chris
+// wants the round-avatar look, so a tile (its bounding box edged all round by the mark) is cropped INSIDE the tile:
+// the crop is all tile colour and the circle shows it edge to edge, like the account avatar.
+const ROYAL_TILE = (x, y, w, h) => `<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="#1F5FA8"/>` +
+  `<g fill="#fff"><rect x="${x + w * 0.3}" y="${y + h * 0.36}" width="${w * 0.4}" height="${h * 0.07}"/><rect x="${x + w * 0.2}" y="${y + h * 0.47}" width="${w * 0.6}" height="${h * 0.1}"/><rect x="${x + w * 0.35}" y="${y + h * 0.61}" width="${w * 0.3}" height="${h * 0.05}"/></g>`;
+
+/** Tile colour round the crop: the share of its edge pixels that are mark, and whether all four corners are. */
+async function edgeFill(png) {
+  const { data, width, height } = await raw(png);
+  const mark = (x, y) => { const i = (y * width + x) * 4; return data[i + 3] >= 24 && Math.min(data[i], data[i + 1], data[i + 2]) < 235; };
+  let hits = 0; let total = 0;
+  for (let x = 0; x < width; x++) { total += 2; hits += mark(x, 1) + mark(x, height - 2); }
+  for (let y = 0; y < height; y++) { total += 2; hits += mark(1, y) + mark(width - 2, y); }
+  const corners = [[1, 1], [width - 2, 1], [1, height - 2], [width - 2, height - 2]].every(([x, y]) => mark(x, y));
+  return { share: hits / total, corners };
+}
+
+test('a solid tile on a margin (a red square, a TheRoyalWoodShop-like box): cropped inside the tile — a round avatar', async () => {
+  for (const [name, body, w, h, jpeg] of [
+    ['red square on white', '<rect x="300" y="300" width="200" height="200" fill="#B91C1C"/>', 800, 800, false],
+    ['wide blue box with white lettering, white JPEG margin', ROYAL_TILE(110, 220, 580, 400), 800, 800, true],
+    ['wide blue box, rounded corners, transparent margin', `<g>${ROYAL_TILE(60, 40, 680, 320).replace('fill="#1F5FA8"', 'rx="24" fill="#1F5FA8"')}</g>`, 800, 400, false],
+  ]) {
+    const input = svg(body, w, h, jpeg ? WHITE_BG(w, h) : '');
+    const { box, png } = await trimmed(input, { jpeg, transparent: !jpeg });
+    assert.ok(box, `${name}: trimmed`);
+    const meta = await sharp(png).metadata();
+    assert.equal(meta.width, meta.height, `${name}: square`);
+    const fill = await edgeFill(png);
+    // Corners all tile colour (never the margin: a round crop shows tile edge to edge); the lettering may cross a
+    // very wide box's sides, as it does in the account avatar.
+    assert.ok(fill.corners, `${name}: the crop's corners are tile colour (inside the tile, not around it)`);
+    assert.ok(fill.share >= 0.9, `${name}: the crop's edges are tile colour (${(fill.share * 100).toFixed(1)}%)`);
+  }
 });
 
 test('a wide wordmark: squared around its full width, so it shows whole inside the circle', async () => {
-  const word = svg('<rect x="100" y="350" width="600" height="100" rx="16" fill="#111"/>', 800, 800, WHITE_BG());
+  // Letters (separate glyphs, not a solid tile — a tile is cropped round, above).
+  const glyphs = Array.from({ length: 6 }, (_, i) => `<rect x="${100 + i * 104}" y="350" width="80" height="100" rx="8" fill="#111"/>`).join('');
+  const word = svg(glyphs, 800, 800, WHITE_BG());
   const { data, width, height } = await raw(word, 256);
   const box = logoTrim(data, width, height);
   assert.ok(box);
@@ -190,7 +218,25 @@ test('a wide image (800 × 400) whose crop is taller than the image: still trimm
   const tb = logoTrim(t.data, t.width, t.height);
   assert.ok(tb && tb.size > t.width && tb.x < 0, JSON.stringify(tb));
   // A wordmark filling a wide image edge to edge: nothing to gain (no bigger than the image's long side).
-  const fill = svg('<rect x="4" y="60" width="792" height="120" fill="#111"/>', 800, 240, WHITE_BG(800, 240));
+  const lettersEdge = Array.from({ length: 8 }, (_, i) => `<rect x="${4 + i * 104}" y="60" width="64" height="120" fill="#111"/>`).join('');
+  const fill = svg(lettersEdge, 800, 240, WHITE_BG(800, 240));
   const f = await raw(fill, 256);
   assert.equal(logoTrim(f.data, f.width, f.height), null);
+  // A solid bar edge to edge is a tile: cropped to a square inside it (the round avatar), about the bar's height.
+  const bar = svg('<rect x="4" y="60" width="792" height="120" fill="#111"/>', 800, 240, WHITE_BG(800, 240));
+  const bb = await raw(bar, 256);
+  const barBox = logoTrim(bb.data, bb.width, bb.height);
+  const barH = (120 / 240) * bb.height;
+  assert.ok(barBox && barBox.size <= barH && barBox.size >= barH * 0.85, JSON.stringify(barBox));
+});
+
+test('scans: codes drawn with a trimmed tile logo (TheRoyalWoodShop-like box on a white margin) decode at 4096, 300, 200 px and blurred', async () => {
+  const tile = await trimmed(svg(ROYAL_TILE(110, 220, 580, 400), 800, 800, WHITE_BG()), { jpeg: true });
+  const logo = await dataUri(tile.png);
+  for (const background of ['white', 'transparent']) {
+    const svgText = qrSvg(URL8, { color: printSafeColor('#1F5FA8'), background, logo }, 4096);
+    for (const [size, blur] of [[4096, 0], [300, 0], [200, 0], [300, 1.2]]) {
+      assert.equal(await decode(svgText, size, blur), URL8, `tile, ${background}, ${size}px${blur ? ' blurred' : ''}`);
+    }
+  }
 });

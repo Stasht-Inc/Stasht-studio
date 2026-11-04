@@ -321,32 +321,20 @@ export interface QrLogoImage {
   height: number;
 }
 
-export type LogoFit = 'cover' | 'contain';
-
-/** A square-ish image (an avatar, a round logo) fills the circle; a wide or tall one (a wordmark) fits inside it whole. */
-export function logoFit(width: number, height: number): LogoFit {
-  if (!(width > 0) || !(height > 0)) return 'cover';
-  const ratio = width / height;
-  return ratio >= 0.8 && ratio <= 1.25 ? 'cover' : 'contain';
-}
-
-/** Where the logo's pixels go (in modules), and which part of the image: cover crops to the circle, contain shows all. */
+/**
+ * Where the logo's pixels go (in modules), and which part of the image. Round avatar (Chris, 4 Nov 2026): every logo is
+ * clipped to the logo circle, cover fit — the image's centre square fills it, the way the account avatar shows across
+ * Studio (object-cover in a round frame). A wide or tall image loses its sides (TheRoyalWoodShop's blue box used to
+ * draw whole, as a rectangle). A logo on a margin was already squared around its mark (utils/qrLogo logoTrim).
+ */
 export function logoPlacement(spot: QrLogoSpot, width: number, height: number) {
-  const fit = logoFit(width, height);
-  if (fit === 'cover') {
-    const side = Math.min(width, height);
-    return {
-      fit,
-      src: { x: (width - side) / 2, y: (height - side) / 2, w: side, h: side },
-      dest: { x: spot.cx - spot.imageR, y: spot.cy - spot.imageR, w: spot.imageR * 2, h: spot.imageR * 2 },
-    };
-  }
-  // Inside the circle's inscribed square.
-  const box = spot.imageR * Math.SQRT2;
-  const scale = Math.min(box / width, box / height);
-  const w = width * scale;
-  const h = height * scale;
-  return { fit, src: { x: 0, y: 0, w: width, h: height }, dest: { x: spot.cx - w / 2, y: spot.cy - h / 2, w, h } };
+  const w = width > 0 ? width : 1;
+  const h = height > 0 ? height : 1;
+  const side = Math.min(w, h);
+  return {
+    src: { x: (w - side) / 2, y: (h - side) / 2, w: side, h: side },
+    dest: { x: spot.cx - spot.imageR, y: spot.cy - spot.imageR, w: spot.imageR * 2, h: spot.imageR * 2 },
+  };
 }
 
 const escapeAttr = (s: string) => s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
@@ -383,12 +371,9 @@ export function qrSvg(text: string, options: QrDrawOptions, pixels = 1024): stri
     const place = logoPlacement(spot, logo.width, logo.height);
     parts.push(`<circle cx="${r3(spot.cx)}" cy="${r3(spot.cy)}" r="${r3(spot.circleR)}" fill="#FFFFFF"/>`);
     const href = escapeAttr(logo.href);
-    if (place.fit === 'cover') {
-      parts.push(`<clipPath id="qr-logo"><circle cx="${r3(spot.cx)}" cy="${r3(spot.cy)}" r="${r3(spot.imageR)}"/></clipPath>`);
-      parts.push(`<image clip-path="url(#qr-logo)" x="${r3(place.dest.x)}" y="${r3(place.dest.y)}" width="${r3(place.dest.w)}" height="${r3(place.dest.h)}" preserveAspectRatio="xMidYMid slice" href="${href}" xlink:href="${href}"/>`);
-    } else {
-      parts.push(`<image x="${r3(place.dest.x)}" y="${r3(place.dest.y)}" width="${r3(place.dest.w)}" height="${r3(place.dest.h)}" preserveAspectRatio="xMidYMid meet" href="${href}" xlink:href="${href}"/>`);
-    }
+    // Round avatar: the image's centre square, clipped to the logo circle (slice = cover).
+    parts.push(`<clipPath id="qr-logo"><circle cx="${r3(spot.cx)}" cy="${r3(spot.cy)}" r="${r3(spot.imageR)}"/></clipPath>`);
+    parts.push(`<image clip-path="url(#qr-logo)" x="${r3(place.dest.x)}" y="${r3(place.dest.y)}" width="${r3(place.dest.w)}" height="${r3(place.dest.h)}" preserveAspectRatio="xMidYMid slice" href="${href}" xlink:href="${href}"/>`);
   }
   parts.push('</svg>');
   return parts.join('');
@@ -430,11 +415,10 @@ export function paintQr(
     ctx.fill();
     const place = logoPlacement(spot, options.imageWidth, options.imageHeight);
     ctx.save();
-    if (place.fit === 'cover') {
-      ctx.beginPath();
-      ctx.arc(spot.cx, spot.cy, spot.imageR, 0, Math.PI * 2);
-      ctx.clip();
-    }
+    // Round avatar: clipped to the logo circle (the same circle as the SVG's clipPath).
+    ctx.beginPath();
+    ctx.arc(spot.cx, spot.cy, spot.imageR, 0, Math.PI * 2);
+    ctx.clip();
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = 'high';
     ctx.drawImage(options.image, place.src.x, place.src.y, place.src.w, place.src.h, place.dest.x, place.dest.y, place.dest.w, place.dest.h);

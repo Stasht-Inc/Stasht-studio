@@ -10,7 +10,7 @@ import assert from 'node:assert/strict';
 import sharp from 'sharp';
 import jsQRModule from 'jsqr';
 import {
-  COLOR_PRESETS, DOT_RADIUS, alignmentCentres, FALLBACK_COLOR, LOGO_CIRCLE_RATIO, LOGO_RATIO, MIN_CONTRAST, QUIET_ZONE, contrastWithWhite, dominantColor, hexToRgb, logoFit, logoPlacement,
+  COLOR_PRESETS, DOT_RADIUS, alignmentCentres, FALLBACK_COLOR, LOGO_CIRCLE_RATIO, LOGO_RATIO, MIN_CONTRAST, QUIET_ZONE, contrastWithWhite, dominantColor, hexToRgb, logoPlacement,
   normalizeHex, printSafeColor, qrDrawColor, qrLayout, qrMatrix, qrSvg, rgbToHsl, svgDataUrl,
 } from '../../utils/qrStyle.ts';
 
@@ -127,15 +127,23 @@ test('print safe colour: dark enough against white (4.5:1), same hue; none → n
   assert.equal(normalizeHex('#abc'), null);
 });
 
-test('logo fit: square images fill the circle, wide wordmarks fit inside it whole', () => {
-  assert.equal(logoFit(400, 400), 'cover');
-  assert.equal(logoFit(800, 240), 'contain');
+// Round avatar (Chris, 4 Nov 2026): TheRoyalWoodShop's logo — a solid blue box with white lettering, wider than tall —
+// drew as a rectangle in the middle ("contain" for wide images). Every logo is now clipped to a circle, cover fit, the
+// way the account avatar shows across Studio (object-cover in a round frame): a wide image loses its sides.
+test('logo fit: every logo is a round avatar — cover fit, centre crop, clipped to the logo circle', () => {
   const spot = { cx: 22.5, cy: 22.5, circleR: 5, imageR: 4 };
+  const circleBox = { x: 18.5, y: 18.5, w: 8, h: 8 };
   const wide = logoPlacement(spot, 800, 240);
-  assert.ok(wide.dest.w <= 4 * Math.SQRT2 + 1e-9 && Math.abs(wide.dest.w / wide.dest.h - 800 / 240) < 1e-6);
-  assert.equal(logoFit(600, 400), 'contain');
+  assert.deepEqual(wide.src, { x: 280, y: 0, w: 240, h: 240 }, 'a wide image: its centre square');
+  assert.deepEqual(wide.dest, circleBox);
+  const box = logoPlacement(spot, 580, 400);
+  assert.deepEqual(box.src, { x: 90, y: 0, w: 400, h: 400 }, 'TheRoyalWoodShop-like box: centre square');
+  const tall = logoPlacement(spot, 300, 900);
+  assert.deepEqual(tall.src, { x: 0, y: 300, w: 300, h: 300 });
+  const square = logoPlacement(spot, 400, 400);
+  assert.deepEqual(square.src, { x: 0, y: 0, w: 400, h: 400 });
+  assert.deepEqual(square.dest, circleBox);
   const photo = logoPlacement(spot, 450, 400);
-  assert.equal(photo.fit, 'cover');
   assert.deepEqual(photo.src, { x: 25, y: 0, w: 400, h: 400 }, 'centre crop');
 });
 
@@ -197,6 +205,87 @@ test('size margin: 35% scans on many codes; a 44% circle still scans', async () 
       const svg = qrSvg(text, { color, background: 'white', logo, circleRatio: ratio }, 2048);
       for (const [size, blur] of [[300, 0], [200, 0], [300, 1.2]]) {
         assert.equal(await decodeSvg(svg, size, { blur }), text, `${text.slice(-8)} circle ${ratio}, ${size}px${blur ? ' blurred' : ''}`);
+      }
+    }
+  }
+});
+
+// ── Round avatar (Chris, 4 Nov 2026) ─────────────────────────────────────
+// A TheRoyalWoodShop-like logo: a solid blue box, white lettering in the middle (full bleed: no margin), wide and square.
+const ROYAL_BLUE = '#1F5FA8';
+const royalBox = (w, h) => svgLogo(`<rect width="${w}" height="${h}" fill="${ROYAL_BLUE}"/>` +
+  `<g fill="#fff"><rect x="${w / 2 - 70}" y="${h / 2 - 34}" width="140" height="16"/><rect x="${w / 2 - 90}" y="${h / 2 - 8}" width="180" height="22"/><rect x="${w / 2 - 50}" y="${h / 2 + 22}" width="100" height="10"/></g>`, w, h);
+const ROYAL_WIDE = royalBox(580, 400);
+const ROYAL_SQUARE = royalBox(400, 400);
+
+/** RGB at a point given in modules, from a render of the SVG at px (transparent flattened on white). */
+async function sampler(svgText, px, layoutSize) {
+  const { data, info } = await sharp(Buffer.from(svgText)).resize(px, px).flatten({ background: '#ffffff' }).raw().toBuffer({ resolveWithObject: true });
+  const k = px / layoutSize;
+  return (mx, my) => {
+    const x = Math.round(mx * k);
+    const y = Math.round(my * k);
+    const i = (y * info.width + x) * info.channels;
+    return [data[i], data[i + 1], data[i + 2]];
+  };
+}
+const isBlue = ([r, g, b]) => b > 120 && b - r > 60;
+const isWhite = ([r, g, b]) => r > 240 && g > 240 && b > 240;
+
+test('round avatar: a solid box logo fills the logo circle; the corners of the logo box are not drawn (white ring)', async () => {
+  const layout = qrLayout(URL8, true);
+  const spot = layout.logo;
+  for (const [name, logoSvg] of [['wide box 580 × 400', ROYAL_WIDE], ['square box 400 × 400', ROYAL_SQUARE]]) {
+    const logo = await pngDataUri(logoSvg);
+    for (const background of ['white', 'transparent']) {
+      const svg = qrSvg(URL8, { color: printSafeColor(ROYAL_BLUE), background, logo }, 1800);
+      assert.ok(svg.includes('clip-path="url(#qr-logo)"') && svg.includes('preserveAspectRatio="xMidYMid slice"'), `${name}: clipped to the circle, cover`);
+      const at = await sampler(svg, 1800, layout.size);
+      // All round the circle's edge (just inside it): the box's blue — a circle, not a rectangle.
+      for (let deg = 0; deg < 360; deg += 30) {
+        const a = (deg * Math.PI) / 180;
+        const px = at(spot.cx + Math.cos(a) * spot.imageR * 0.9, spot.cy + Math.sin(a) * spot.imageR * 0.9);
+        assert.ok(isBlue(px), `${name}, ${background}: blue at ${deg}° on the circle's edge (${px})`);
+      }
+      // The logo box's corners (outside the circle, inside the white ring): white, never the box's blue.
+      for (const [sx, sy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
+        const px = at(spot.cx + sx * spot.imageR * 0.8, spot.cy + sy * spot.imageR * 0.8);
+        assert.ok(isWhite(px), `${name}, ${background}: corner (${sx}, ${sy}) of the logo box is white (${px})`);
+      }
+      // The white ring itself stays white just outside the circle.
+      assert.ok(isWhite(at(spot.cx, spot.cy - (spot.imageR + spot.circleR) / 2)), `${name}, ${background}: white ring`);
+    }
+  }
+});
+
+test('round avatar: a transparent logo still sits on the white ring; nothing drawn past the circle', async () => {
+  const layout = qrLayout(URL8, true);
+  const spot = layout.logo;
+  const logo = await pngDataUri(YELLOW_LOGO);
+  const svg = qrSvg(URL8, { color: printSafeColor('#FDE047'), background: 'transparent', logo }, 1800);
+  const at = await sampler(svg, 1800, layout.size);
+  for (const [sx, sy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
+    assert.ok(isWhite(at(spot.cx + sx * spot.imageR * 0.8, spot.cy + sy * spot.imageR * 0.8)), `corner (${sx}, ${sy}) white`);
+  }
+  const centre = at(spot.cx, spot.cy);
+  assert.ok(centre[0] > 200 && centre[2] < 150, `the sun shows in the middle (${centre})`);
+});
+
+test('round avatar scans: box logos (wide, square) and a transparent logo decode at 4096, 300, 200 px and blurred', async () => {
+  const cases = [
+    { name: 'TheRoyalWoodShop-like wide box, auto blue', logo: await pngDataUri(ROYAL_WIDE), color: printSafeColor(ROYAL_BLUE) },
+    { name: 'square box, near-black', logo: await pngDataUri(ROYAL_SQUARE), color: FALLBACK_COLOR },
+    { name: 'transparent sun, auto', logo: await pngDataUri(YELLOW_LOGO), color: printSafeColor('#FDE047') },
+    { name: 'wordmark (wide, now cropped round)', logo: await pngDataUri(WORDMARK), color: FALLBACK_COLOR },
+  ];
+  for (const c of cases) {
+    for (const text of [URL8, URL_LONG]) {
+      for (const background of ['white', 'transparent']) {
+        const svg = qrSvg(text, { color: c.color, background, logo: c.logo }, 4096);
+        for (const [size, blur] of [[4096, 0], [300, 0], [200, 0], [300, 1.2]]) {
+          const got = await decodeSvg(svg, size, { flatten: background === 'transparent', blur });
+          assert.equal(got, text, `${c.name}, ${text.length > 40 ? 'v8' : 'v5'}, ${background}, ${size}px${blur ? ', blurred' : ''}`);
+        }
       }
     }
   }

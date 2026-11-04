@@ -59,6 +59,14 @@ const roundel = (cx, cy, r) => `<circle cx="${cx}" cy="${cy}" r="${r}" fill="#11
   `<path d="M${cx} ${cy}L${cx} ${cy - r * 0.6}A${r * 0.6} ${r * 0.6} 0 0 1 ${cx + r * 0.6} ${cy}Z" fill="#1C69D4"/>` +
   `<path d="M${cx} ${cy}L${cx} ${cy + r * 0.6}A${r * 0.6} ${r * 0.6} 0 0 1 ${cx - r * 0.6} ${cy}Z" fill="#1C69D4"/>`;
 const BMW_LOGO = await sharp(svgLogo(`<rect width="800" height="800" fill="#fff"/>${roundel(400, 400, 120)}`, 800)).flatten({ background: '#fff' }).jpeg({ quality: 85 }).toBuffer();
+// Round avatar (Chris, 4 Nov 2026): TheRoyalWoodShop's logo — a solid blue box with white lettering, wider than tall —
+// drew as a rectangle in the middle. Now clipped to a round avatar (cover). Full bleed, and on a white JPEG margin.
+const ROYAL_URL = 'https://stasht-media.s3.amazonaws.com/profile/royalwood.jpg';
+const ROYAL_MARGIN_URL = 'https://stasht-media.s3.amazonaws.com/profile/royalwood-margin.jpg';
+const royalTile = (x, y, w, h) => `<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="#1F5FA8"/>` +
+  `<g fill="#fff"><rect x="${x + w * 0.3}" y="${y + h * 0.36}" width="${w * 0.4}" height="${h * 0.07}"/><rect x="${x + w * 0.2}" y="${y + h * 0.47}" width="${w * 0.6}" height="${h * 0.1}"/><rect x="${x + w * 0.35}" y="${y + h * 0.61}" width="${w * 0.3}" height="${h * 0.05}"/></g>`;
+const ROYAL_LOGO = await sharp(Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="580" height="400" viewBox="0 0 580 400">${royalTile(0, 0, 580, 400)}</svg>`)).jpeg({ quality: 88 }).toBuffer();
+const ROYAL_MARGIN_LOGO = await sharp(svgLogo(`<rect width="800" height="800" fill="#fff"/>${royalTile(110, 200, 580, 400)}`, 800)).flatten({ background: '#fff' }).jpeg({ quality: 85 }).toBuffer();
 const YELLOW_FILE = `${OUT}/fixture-yellow-logo.png`;
 writeFileSync(YELLOW_FILE, YELLOW_LOGO);
 const MOMENT_FILE = `${OUT}/fixture-moment.jpg`;
@@ -66,6 +74,8 @@ writeFileSync(MOMENT_FILE, await sharp({ create: { width: 64, height: 48, channe
 const logoBytes = (url) => (url === AVATAR_URL ? { contentType: 'image/jpeg', body: GREEN_LOGO }
   : url === PROPERTY_IMG ? { contentType: 'image/png', body: BLUE_LOGO }
     : url === BMW_URL ? { contentType: 'image/jpeg', body: BMW_LOGO }
+    : url === ROYAL_URL ? { contentType: 'image/jpeg', body: ROYAL_LOGO }
+    : url === ROYAL_MARGIN_URL ? { contentType: 'image/jpeg', body: ROYAL_MARGIN_LOGO }
       : /\/qr-codes\/custom-\d+\.png$/.test(url || '') ? { contentType: 'image/png', body: YELLOW_LOGO } : null);
 
 /** Read a PNG back with jsQR: at its own size, and downscaled (transparent ones flattened on white first). */
@@ -436,6 +446,53 @@ try {
         console.log('shot', `${OUT}/bmw-before-untrimmed.png`);
         writeFileSync(`${OUT}/bmw-avatar-source.jpg`, BMW_LOGO);
       }
+      await context.close();
+    }
+
+    // 2b. Round avatar (Chris, 4 Nov 2026): TheRoyalWoodShop-like logos — a wide blue box full bleed, and the same box on
+    // a white JPEG margin — show as a round avatar in the popover and in all three downloads (PNG white, PNG transparent,
+    // SVG with a clipPath); every one still scans.
+    for (const [kind, logoUrl] of [['full-bleed', ROYAL_URL], ['margin', ROYAL_MARGIN_URL]]) {
+      const codes = { '': { id: 7, public_code: 'K7PQ2MZX', name: 'The Royal Wood Shop', memory_id: 801, logo_mode: 'custom', logo_url: logoUrl } };
+      const { page, context } = await open({ width, height, seed, codes });
+      await openPanel(page);
+      const view = panel(page).locator('[data-qr-view] img');
+      const src = decodeURIComponent(await view.getAttribute('src'));
+      expect(/<clipPath id="qr-logo">/.test(src) && /clip-path="url\(#qr-logo\)"/.test(src) && /preserveAspectRatio="xMidYMid slice"/.test(src), `${tag}: ${kind}: popover code clips the logo to a circle (cover)`);
+      await shot(page, `${tag}-06c-royal-${kind}`);
+      await shot(page, `${tag}-06d-royal-${kind}-code`, panel(page).locator('[data-qr-view]'));
+      const TEXT = 'https://studio.stasht.com/q/K7PQ2MZX';
+      const R = (0.145 * 37) / 45; // the logo circle's radius, as a share of the image
+      const roundCheck = async (file, label) => {
+        // Round the circle's edge, away from the lettering's row (it reaches the sides of the crop, as in an avatar).
+        let blueRim = 0;
+        const angles = [30, 60, 90, 120, 150, 210, 240, 270, 300, 330];
+        for (const deg of angles) {
+          const a = (deg * Math.PI) / 180;
+          const px = await pixelAt(file, 0.5 + Math.cos(a) * R * 0.88, 0.5 + Math.sin(a) * R * 0.88);
+          if (px.a === 255 && px.b > 120 && px.b - px.r > 60) blueRim += 1;
+        }
+        expect(blueRim === angles.length, `${tag}: ${kind}: ${label}: the blue fills the circle to its edge all round (${blueRim}/${angles.length})`);
+        let whiteCorners = 0;
+        for (const [sx, sy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
+          const px = await pixelAt(file, 0.5 + sx * R * 0.8, 0.5 + sy * R * 0.8);
+          if (px.a === 255 && near(px, '#FFFFFF', 12)) whiteCorners += 1;
+        }
+        expect(whiteCorners === 4, `${tag}: ${kind}: ${label}: the logo box's corners are not drawn — round, on the white ring (${whiteCorners}/4)`);
+      };
+      const white = await download(page, tag, 'PNG · white background (any fabric)', `royal-${kind}.png`);
+      await checkPng(tag, `${kind} PNG white`, white.path, TEXT);
+      await roundCheck(white.path, 'PNG white');
+      const clear = await download(page, tag, 'PNG · transparent (light fabrics only)', `royal-${kind}-transparent.png`);
+      await checkPng(tag, `${kind} PNG transparent`, clear.path, TEXT, { transparent: true });
+      await roundCheck(clear.path, 'PNG transparent');
+      const svg = await download(page, tag, 'SVG · vector (print shops)', `royal-${kind}.svg`);
+      const svgText = readFileSync(svg.path, 'utf8');
+      expect(/<clipPath id="qr-logo"><circle /.test(svgText) && /clip-path="url\(#qr-logo\)"/.test(svgText), `${tag}: ${kind}: SVG clips the logo with a circular clipPath`);
+      const svgPng = `${OUT}/${tag}-royal-${kind}-svg-rendered.png`;
+      await sharp(Buffer.from(svgText)).resize(4096, 4096).png().toFile(svgPng);
+      for (const size of [4096, 300, 200]) expect(await decodePng(svgPng, size) === TEXT, `${tag}: ${kind}: SVG rendered at ${size} px decodes`);
+      await roundCheck(svgPng, 'SVG');
       await context.close();
     }
 
