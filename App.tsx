@@ -42,6 +42,7 @@ import { isCorrectCollaborator } from './utils/inviteUtils';
 import { useMemoryLimit } from './hooks/useMemoryLimit';
 import { usePresenceHeartbeat } from './hooks/usePresenceHeartbeat';
 import { UPGRADE_REQUIRED_EVENT } from './utils/planEvents';
+import { OPEN_CAMPAIGN_EVENT } from './components/storeel/lib/openCampaign';
 import { canManagePropertyWidgets } from './utils/propertyAccess';
 import { memoryCountsManager } from './hooks/useMemoryCounts';
 import ErrorBoundary from './components/ErrorBoundary';
@@ -1150,6 +1151,16 @@ function MainApp() {
     window.addEventListener(UPGRADE_REQUIRED_EVENT, onUpgradeRequired);
     return () => window.removeEventListener(UPGRADE_REQUIRED_EVENT, onUpgradeRequired);
   }, []);
+
+  // The Storeel flow's Moments step: "Add moments on the campaign page" (Chris, 4 Nov 2026, point 9).
+  useEffect(() => {
+    const onOpenCampaign = (e: Event) => {
+      const id = Number((e as CustomEvent<{ memoryId?: number }>).detail?.memoryId);
+      if (Number.isInteger(id) && id > 0) handleMemorySelect(String(id));
+    };
+    window.addEventListener(OPEN_CAMPAIGN_EVENT, onOpenCampaign);
+    return () => window.removeEventListener(OPEN_CAMPAIGN_EVENT, onOpenCampaign);
+  }, [handleMemorySelect]);
 
   // Deep-link target for opening a "My Conversations" thread from a
   // lead_message notification. Consumed (and cleared) by LeadsPage.
