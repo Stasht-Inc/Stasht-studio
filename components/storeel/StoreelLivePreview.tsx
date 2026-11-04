@@ -6,7 +6,7 @@ import type { PreviewMoment } from './lib/previewMoments';
 
 /**
  * [wdy2xh2t3z] The Storeel tab's PREVIEW (Chris's prototype): a dark phone-style Storeel that follows the form —
- * the cover, "Timeline · N moments" with Continue, a moment card (author, comments, place, date, the first image or
+ * the cover, "Timeline · N moments", a moment card (author, comments, place, date, the first image or
  * "Add content here") and "Powered by Stasht". Display only.
  *
  * Storeel flow v2 (4 Nov 2026): the timeline shows EVERY moment the campaign will have, in order, as the campaign
@@ -59,9 +59,9 @@ export default function StoreelLivePreview({ input, avatarUrl, avatarColor }: {
           ) : null}
         </div>
         {/* Timeline */}
-        <div className="flex items-center justify-between gap-2 px-4 py-4">
+        {/* No "Continue" pill here (4 Nov review): it isn't a button in Studio, and Chris asked for no Continue. */}
+        <div className="px-4 py-4">
           <p className="min-w-0 truncate text-base"><span className="font-semibold">Timeline</span><span className="text-gray-300"> · {m.moments}</span></p>
-          <span className="flex-shrink-0 rounded-lg bg-white px-3.5 py-2 text-sm font-medium text-gray-900">Continue</span>
         </div>
         {/* Moment cards: every moment, in order (scrolls inside the phone when there are many) */}
         <ul data-testid="storeel-preview-moments" aria-label="Moments" className="space-y-3 px-4 lg:max-h-[32rem] lg:overflow-y-auto">

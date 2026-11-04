@@ -30,8 +30,11 @@ export interface StoreelSendStepProps {
    * campaign is there (a just-created campaign arrives a render later).
    */
   sendRequest: number;
-  /** What still stops a send (null: nothing Studio can see), for the bottom Create & Send button. */
-  onProblem?(problem: string | null): void;
+  /**
+   * For the bottom actions: what still stops a send (null: nothing Studio can see) and whether the card is filled in
+   * at all (someone to send to, or a message) — Create Campaign then says it was not sent.
+   */
+  onStatus?(status: { problem: string | null; filled: boolean }): void;
   /** Who the text says it came from (senderLabelFor). */
   sender: string;
   /** Lists and lead suggestions (paid plans only). */
@@ -55,7 +58,7 @@ export interface StoreelSendStepProps {
  * the message and their own tracked link.
  */
 export default function StoreelSendStep(
-  { campaign, optionalLine, sendRequest, onProblem, sender, paid, canSend, active, onSent, onSeePlans, onForbidden }: StoreelSendStepProps,
+  { campaign, optionalLine, sendRequest, onStatus, sender, paid, canSend, active, onSent, onSeePlans, onForbidden }: StoreelSendStepProps,
 ) {
   // Single person first (as newsletters), sent by email and text (Deepak, 4 Nov).
   const [audience, setAudience] = useState<AudienceItem[]>([]);
@@ -105,9 +108,10 @@ export default function StoreelSendStep(
 
   // What still stops a send: the bottom Create & Send button shows it (and stays off); the card marks it once tried.
   const blocker = !canSend || forbidden ? CANT_SEND : sendProblem({ audience, channels, message, counts: count.counts, smsProblem: parts.problem, limit });
-  const onProblemRef = useRef(onProblem);
-  onProblemRef.current = onProblem;
-  useEffect(() => { onProblemRef.current?.(blocker); }, [blocker]);
+  const filled = countableAudience(audience).length > 0 || message.trim().length > 0;
+  const onStatusRef = useRef(onStatus);
+  onStatusRef.current = onStatus;
+  useEffect(() => { onStatusRef.current?.({ problem: blocker, filled }); }, [blocker, filled]);
   const problem = attempted && blocker !== CANT_SEND ? blocker : null;
   const unavailable = 'extra' in count && count.extra?.unavailable ? count.error : null;
 

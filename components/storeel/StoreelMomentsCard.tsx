@@ -28,8 +28,10 @@ export interface MomentRow {
  * moment editor on the pencil, and "Add a Moment", which opens the original Add a Moment UI (AddMomentModal).
  * Photos can be dropped on the card, as on the old Media box.
  */
-export default function StoreelMomentsCard({ rows, onAddMoment, onDropFiles, busy = false }: {
+export default function StoreelMomentsCard({ rows, onAddMoment, onDropFiles, busy = false, note = null }: {
   rows: MomentRow[];
+  /** On a saved campaign: "Moments and captions save straight to your campaign." */
+  note?: string | null;
   onAddMoment(): void;
   onDropFiles?(files: FileList): void;
   busy?: boolean;
@@ -41,6 +43,7 @@ export default function StoreelMomentsCard({ rows, onAddMoment, onDropFiles, bus
         onDrop={(e) => { if (!onDropFiles) return; e.preventDefault(); e.stopPropagation(); if (e.dataTransfer.files?.length) onDropFiles(e.dataTransfer.files); }}
         className="space-y-3"
       >
+        {note ? <p className="text-sm text-gray-500">{note}</p> : null}
         {rows.length ? (
           <ul aria-label="Moments" className="divide-y divide-gray-100 rounded-lg border border-gray-200">
             {rows.map((row) => <MomentRowItem key={row.moment.key} row={row} />)}
