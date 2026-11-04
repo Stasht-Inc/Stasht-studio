@@ -107,6 +107,7 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
   await page.waitForTimeout(1500);
   await expectVisible(step.getByText("This email address has unsubscribed, so it can't get your newsletters."), 'unsubscribed said under the box');
   expect(!/unsubscribed\./.test(await estimateText()), 'not said twice under the estimate');
+  expect(!/email/.test(await estimateText()), `the refused email isn't counted (got "${await estimateText()}")`);
   await page.locator('#nl-subject').fill('Hi');
   await page.getByRole('button', { name: 'Send Now' }).first().click();
   await expectVisible(step.locator('[role="alert"]').filter({ hasText: "This email address has unsubscribed" }), 'Recipients step says why');
@@ -119,6 +120,7 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
   await phone.fill('905 555 0142');
   await page.waitForTimeout(1500);
   await expectVisible(step.locator('#nl-person-phone-error').filter({ hasText: 'That email and phone belong to two different leads — use one.' }), 'two different leads');
+  expect(/1 email/.test(await estimateText()) && !/text/.test(await estimateText()), `the refused phone isn't counted (got "${await estimateText()}")`);
   await page.getByRole('button', { name: 'Send Now' }).first().click();
   await expectVisible(step.locator('[role="alert"]').filter({ hasText: 'two different leads' }), 'Send stops at Recipients');
   expect(!api.state.calls.some((c) => /\/(send|schedule)$/.test(c.path)), 'still nothing sent');

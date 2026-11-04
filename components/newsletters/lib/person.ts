@@ -82,13 +82,21 @@ export function countableAudience(audience: AudienceItem[]): AudienceItem[] {
   return personEntryProblem(audience) ? audience.filter((a) => a.type !== 'person') : audience;
 }
 
-/** "1 email", "1 text", "1 email · 1 text" (and "0 emails" while nobody is typed yet). */
+/**
+ * "1 email", "1 text", "1 email · 1 text" (and "0 emails" while nobody is typed yet). A box the API refuses
+ * (person.errors: two different leads, unsubscribed, ...) can't be sent, so only the other is counted ("1 email"),
+ * or "0" when nothing can be.
+ */
 export function personCountSummary(counts: AudienceCount | null, channels: readonly NewsletterChannel[]): string {
   if (!counts) return '—';
+  const refused = personStatusProblems(counts, channels);
+  const email = channels.includes('email') && !refused.email;
+  const sms = channels.includes('sms') && !refused.phone;
+  if (!email && !sms) return channels.length ? '0' : `${formatCount(0)} emails`;
   const emails = `${formatCount(counts.email)} ${counts.email === 1 ? 'email' : 'emails'}`;
   const texts = `${formatCount(counts.sms)} ${counts.sms === 1 ? 'text' : 'texts'}`;
-  if (channels.includes('email') && channels.includes('sms')) return `${emails} · ${texts}`;
-  return channels.includes('sms') ? texts : emails;
+  if (email && sms) return `${emails} · ${texts}`;
+  return sms ? texts : emails;
 }
 
 /** The API's word on the typed person (audience-count `person.errors`: two different leads, a lead someone else is

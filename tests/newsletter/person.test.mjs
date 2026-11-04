@@ -79,6 +79,17 @@ test('Estimated recipients: 1 email, 1 text, or 1 email · 1 text', () => {
   assert.equal(personCountSummary(null, ['email']), '—');
 });
 
+test('Estimated recipients counts only what can be sent: a refused box is left out', () => {
+  const different = 'That email and phone belong to two different leads — use one.';
+  const one = { ...zero, email: 1, sms: 1 };
+  assert.equal(personCountSummary({ ...one, person: { email: null, sms: null, errors: { phone: different } } }, ['email', 'sms']), '1 email', 'the phone is refused');
+  assert.equal(personCountSummary({ ...one, person: { email: null, sms: null, errors: { email: EMAIL_UNSUBSCRIBED } } }, ['email', 'sms']), '1 text', 'the email is refused');
+  assert.equal(personCountSummary({ ...one, person: { email: null, sms: null, errors: { email: EMAIL_UNSUBSCRIBED, phone: PHONE_UNSUBSCRIBED } } }, ['email', 'sms']), '0', 'both refused');
+  assert.equal(personCountSummary({ ...zero, person: { email: 'unsubscribed', errors: { email: EMAIL_UNSUBSCRIBED } } }, ['email']), '0', 'the only channel refused');
+  assert.equal(personCountSummary({ ...one, person: { email: null, sms: null, errors: {} } }, ['email', 'sms']), '1 email · 1 text', 'nothing refused');
+  assert.equal(personCountSummary({ ...one, person: { email: null, errors: { phone: different } } }, ['email']), '1 email', 'a hidden box changes nothing');
+});
+
 test('what would stop Send shows under its box, in the API words (audience-count person.errors)', () => {
   const different = 'That email and phone belong to two different leads — use one.';
   const handled = 'This contact is already being handled by Bob Bozic.';
