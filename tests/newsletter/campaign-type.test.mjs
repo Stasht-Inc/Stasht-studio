@@ -39,3 +39,37 @@ test('the "create a category first" gate only applies when Create Campaign opens
   assert.equal(needsCategoryFirst({ viewType: 'property', ownedCategories: 2, opensOn: 'storeel' }), false);
   assert.equal(needsCategoryFirst({ viewType: 'personal', ownedCategories: 0, opensOn: 'storeel' }), false);
 });
+
+// Chris, 4 Nov 2026: with the Campaigns page on Storeels, "+ Create a Campaign" opened the newsletter composer —
+// Create Campaign always opened on its Newsletter tab. It now follows the Storeels | Newsletters view showing.
+test('Create a Campaign follows the Campaigns page view: Storeels → Storeel, Newsletters → Newsletter', async () => {
+  const { campaignTypeForView, initialCampaignType } = await import('../../components/newsletters/lib/campaignType.ts');
+  assert.equal(campaignTypeForView('storeels'), 'storeel');
+  assert.equal(campaignTypeForView('newsletters'), 'newsletter');
+  assert.equal(campaignTypeForView(undefined), undefined, 'not from the Campaigns page: the old default applies');
+  assert.equal(campaignTypeForView(null), undefined);
+  assert.equal(initialCampaignType({ preferred: 'storeel' }), 'storeel', 'Storeels view → the Storeel tab');
+  assert.equal(initialCampaignType({ preferred: 'newsletter' }), 'newsletter');
+  assert.equal(initialCampaignType({ preferred: undefined }), 'newsletter', 'no view: Newsletter as before');
+});
+
+test('the view never overrides an explicit start: a newsletter being edited, a category, photos', async () => {
+  const { initialCampaignType } = await import('../../components/newsletters/lib/campaignType.ts');
+  assert.equal(initialCampaignType({ preferred: 'storeel', newsletterId: 9 }), 'newsletter', 'editing a newsletter');
+  assert.equal(initialCampaignType({ preferred: 'newsletter', defaultCategory: 'Cars' }), 'storeel', 'a category picked');
+  assert.equal(initialCampaignType({ preferred: 'newsletter', photoCount: 2 }), 'storeel', 'photos passed in');
+  assert.equal(initialCampaignType({ preferred: 'newsletter', mediaCount: 1 }), 'storeel', 'media chosen');
+});
+
+test('Starter on the Storeels view opens Storeel (the view wins over STARTER_DEFAULT_CAMPAIGN_TYPE)', async () => {
+  const { initialCampaignType } = await import('../../components/newsletters/lib/campaignType.ts');
+  assert.equal(initialCampaignType({ preferred: 'storeel', isStarter: true }), 'storeel');
+});
+
+test('the "create a category first" gate follows: a property account with no category is sent to make one from Storeels', async () => {
+  const { campaignTypeForView, initialCampaignType, needsCategoryFirst } = await import('../../components/newsletters/lib/campaignType.ts');
+  const opensOn = initialCampaignType({ preferred: campaignTypeForView('storeels') });
+  assert.equal(needsCategoryFirst({ viewType: 'property', ownedCategories: 0, opensOn }), true);
+  const fromNewsletters = initialCampaignType({ preferred: campaignTypeForView('newsletters') });
+  assert.equal(needsCategoryFirst({ viewType: 'property', ownedCategories: 0, opensOn: fromNewsletters }), false);
+});

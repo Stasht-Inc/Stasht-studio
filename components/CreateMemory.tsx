@@ -48,6 +48,7 @@ interface CreateMemoryProps {
   onNewsletterChanged?: () => void; // A newsletter was saved, sent or scheduled
   initialPhotos?: File[] | null; // Photos passed in (Scan Photo): opens on Storeel with them ready to add
   beforeStoreel?: () => boolean; // Asked before switching to the Storeel tab; false keeps the Newsletter tab
+  opensOn?: CampaignType; // The tab to open on: the Campaigns page's Storeels | Newsletters view (Chris, 4 Nov 2026)
 }
 
 export interface CreateMemoryHandle {
@@ -89,7 +90,7 @@ function CampaignVideoThumbnail({ src, className }: { src: string; className?: s
   );
 }
 
-const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function CreateMemory({ open, onOpenChange, onMemoryCreated, onOpenMediaLibrary, selectedMediaLibraryImages, defaultCategory, categories: categoriesProp, newsletterId = null, onNewsletterChanged, initialPhotos = null, beforeStoreel }, ref) {
+const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function CreateMemory({ open, onOpenChange, onMemoryCreated, onOpenMediaLibrary, selectedMediaLibraryImages, defaultCategory, categories: categoriesProp, newsletterId = null, onNewsletterChanged, initialPhotos = null, beforeStoreel, opensOn }, ref) {
   const { isAuthenticated, user } = useAuth();
   const { viewType, currentProperty } = useProperty();
   const { isLimitExceeded, limitData, checkLimit } = useMemoryLimit();
@@ -98,7 +99,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
   const starterPlan = useIsStarterPlan();
   const campaignType: CampaignType = campaignTypeChoice ?? initialCampaignType({
     newsletterId, defaultCategory, mediaCount: selectedMediaLibraryImages?.length ?? 0, photoCount: initialPhotos?.length ?? 0,
-    isStarter: starterPlan.known && starterPlan.isStarter,
+    isStarter: starterPlan.known && starterPlan.isStarter, preferred: opensOn,
   });
   const campaignTypeRef = useRef<CampaignType>(campaignType);
   campaignTypeRef.current = campaignType;

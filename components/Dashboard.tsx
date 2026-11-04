@@ -7,16 +7,21 @@ import { Alert, AlertTitle, AlertDescription } from "./ui/alert";
 import { AlertTriangle, CheckCircle, Circle, ChevronRight, FileText, UserPlus, UserCircle } from "lucide-react";
 import { profileComplete } from "./Sidebar";
 import { Avatar, AvatarFallback, AvatarImage } from "./ui/avatar";
-import { useState, useEffect } from 'react';
+import { useState, useEffect, lazy, Suspense } from 'react';
 import { dashboardAPI } from '../utils/authUtils';
 import { useAuth } from '../contexts/AuthContext';
 import { useProperty } from '../contexts/PropertyContext';
 import { allPropertyRows, resolvePendingPropertySwitch } from '../utils/salespersonLanding';
-import { trialBannerFrom } from '../utils/trialBanner';
+import { ADD_CARD_NOTICE, cardOnFileFrom, pickTrial, showAddCardNotice, trialBannerFrom, trialEndDate } from '../utils/trialBanner';
+import { cachedPaymentMethods } from '../utils/paymentMethodsCache';
+import { stripeApi } from '../utils/stripeApi';
 import { planCoveredBy } from '../utils/effectivePlan';
 import { useMemoryLimit } from '../hooks/useMemoryLimit';
 import { useMemoryCounts } from '../hooks/useMemoryCounts';
 import useAlvinEnabled, { openAlvin } from './alvin/useAlvinEnabled';
+
+// Billing's Add Payment Method modal, loaded only when opened from the trial banner (it loads Stripe.js).
+const AddPaymentMethodModal = lazy(() => import('./AddPaymentMethodModal'));
 
 interface DashboardProps {
   timePeriod: string;
@@ -221,6 +226,9 @@ export default function Dashboard({
   // Covered by its main account (a salesperson on the main account's plan): no trial banner — "moves to the Starter
   // plan" isn't what happens to it (utils/effectivePlan; Deepak, 1 Nov 2026).
   const [planCovered, setPlanCovered] = useState(false);
+  // Card on file (GET /stripe/payment-methods), asked only when the running-trial banner shows; null = unknown.
+  const [cardOnFile, setCardOnFile] = useState<boolean | null>(null);
+  const [showAddCard, setShowAddCard] = useState(false);
 
   useEffect(() => {
     if (!isAuthenticated || authLoading) return;
@@ -233,9 +241,17 @@ export default function Dashboard({
         ]);
         const d = res?.data?.data || res?.data || {};
         const overview = (storage as any)?.data?.data?.storage_overview || (storage as any)?.data?.storage_overview;
+        const covered = !!planCoveredBy(overview);
         if (!cancelled) {
-          setPlanCovered(!!planCoveredBy(overview));
+          setPlanCovered(covered);
           setTrialData(d);
+        }
+        // Add-card line (Chris, 4 Nov 2026): only the people who see a running trial are asked about a card.
+        const banner = covered ? null : trialBannerFrom(d);
+        if (banner && !banner.ended) {
+          // Asked once per login (utils/paymentMethodsCache); a card counts only if still valid when the trial ends.
+          const methods = await cachedPaymentMethods(localStorage.getItem('stasht_token'), () => stripeApi.getPaymentMethods());
+          if (!cancelled) setCardOnFile(cardOnFileFrom(methods, trialEndDate(pickTrial(d))));
         }
       } catch (err) {
         console.error('Dashboard: could not load trial status', err);
@@ -388,27 +404,46 @@ export default function Dashboard({
 
   // Trial banner data: days left while the trial runs, or an ended notice once it has finished.
   const trialBanner = planCovered ? null : trialBannerFrom(trialData);
+  const addCardNotice = showAddCardNotice(trialBanner, cardOnFile);
 
   return (
     <div className="w-full space-y-4 md:space-y-8">
+      {/* Trial banner: Studio's amber notice, the same Alert as the limit notices below (Chris, 4 Nov 2026). */}
       {trialBanner && (
-        <div
-          role="status"
-          className={`mx-0 md:mx-4 rounded-lg border p-4 ${
-            trialBanner.ended
-              ? 'bg-amber-50 border-amber-300 text-amber-900'
-              : 'bg-indigo-50 border-indigo-300 text-indigo-900'
-          }`}
-        >
-          <h3 className="text-sm font-semibold mb-1">
-            {trialBanner.ended ? 'Trial ended' : 'Free trial'}
-          </h3>
-          <p className="text-sm">
-            {trialBanner.ended
-              ? `Your trial${trialBanner.name ? ` for ${trialBanner.name}` : ''} ended on ${trialBanner.endDate}. Your account has moved to the Starter plan.`
-              : `Your trial${trialBanner.name ? ` for ${trialBanner.name}` : ''} ends on ${trialBanner.endDate} (${trialBanner.daysLeft} ${trialBanner.daysLeft === 1 ? 'day' : 'days'} left). After that your account moves to the Starter plan.`}
-          </p>
+        <div className="w-full px-0 md:px-4">
+          <Alert role="status" className="border-amber-200 bg-amber-50 text-amber-800 !justify-start !text-left w-full">
+            <AlertTriangle className="h-4 w-4 text-amber-600" />
+            <AlertTitle className="text-amber-900 font-semibold !text-left">
+              {trialBanner.ended ? 'Trial ended' : 'Free trial'}
+            </AlertTitle>
+            <AlertDescription className="text-amber-700 !text-left">
+              {trialBanner.ended
+                ? `Your trial${trialBanner.name ? ` for ${trialBanner.name}` : ''} ended on ${trialBanner.endDate}. Your account has moved to the Starter plan.`
+                : `Your trial${trialBanner.name ? ` for ${trialBanner.name}` : ''} ends on ${trialBanner.endDate} (${trialBanner.daysLeft} ${trialBanner.daysLeft === 1 ? 'day' : 'days'} left). After that your account moves to the Starter plan.`}
+              {addCardNotice && (
+                <span>
+                  {ADD_CARD_NOTICE}
+                  <button
+                    type="button"
+                    onClick={() => setShowAddCard(true)}
+                    className="font-medium text-amber-800 hover:text-amber-900 underline ml-1 cursor-pointer bg-transparent border-none p-0"
+                  >
+                    Add Payment Method
+                  </button>
+                </span>
+              )}
+            </AlertDescription>
+          </Alert>
         </div>
+      )}
+      {showAddCard && (
+        <Suspense fallback={null}>
+          <AddPaymentMethodModal
+            isOpen={showAddCard}
+            onClose={() => setShowAddCard(false)}
+            onSuccess={() => setCardOnFile(true)}
+          />
+        </Suspense>
       )}
       {/* Page Header */}
       <div className="flex items-center justify-between gap-3 px-0 md:px-4">
