@@ -5,6 +5,7 @@ import { Plus, MapPin, Check, X, Loader2, Camera, Calendar, Home, Globe, Eye, Lo
 import { getCategoryColor } from "../constants/mediaConstants";
 import { useAuth } from "../contexts/AuthContext";
 import { userDisplayUtils } from "../utils/authUtils";
+import CampaignCover from "./ui/CampaignCover";
 
 const isVideoUrl = (url?: string): boolean => {
   if (!url) return false;
@@ -116,31 +117,18 @@ function UserFallbackAvatar({
     : `w-full h-full bg-gradient-to-br from-[#6C60FF] to-purple-600 text-white font-bold text-4xl flex items-center justify-center ${className}`;
 
   if (user?.avatar) {
-    // Show user profile image if available
+    // The profile image is the brand default here: shown as the round avatar over a blurred copy of itself, not
+    // stretched across the card (CampaignCover). Initials if it fails to load.
     return (
-      <div className={`w-full h-full overflow-hidden ${className}`}>
-        <img
-          src={user.avatar}
-          alt={user.name || 'User'}
-          className="w-full h-full object-cover"
-          onError={(e) => {
-            // Fallback to initials if profile image fails to load
-            const target = e.target as HTMLImageElement;
-            target.style.display = 'none';
-            const fallback = target.nextElementSibling as HTMLElement;
-            if (fallback) fallback.style.display = 'flex';
-          }}
-        />
-        <div
-          className={fallbackClassName}
-          style={{
-            ...backgroundStyle,
-            display: 'none'
-          }}
-        >
-          {initials}
-        </div>
-      </div>
+      <CampaignCover
+        src={user.avatar}
+        alt={user.name || 'User'}
+        isFallback
+        color={profileColor}
+        loading="lazy"
+        className={`w-full h-full ${className}`}
+        fallback={<div className={fallbackClassName} style={backgroundStyle}>{initials}</div>}
+      />
     );
   }
 
@@ -513,13 +501,14 @@ export default function MemoryCard({
           ) : isVideoUrl(image) ? (
             <VideoThumbnail src={image} className="w-full h-full object-cover" />
           ) : (
-            <img
+            <CampaignCover
               src={image}
               alt={title}
               loading="lazy"
-              decoding="async"
               onError={handleCoverError}
-              className="w-full h-full object-cover"
+              isFallback={!!displayAvatar && image === displayAvatar}
+              color={displayProfileColor}
+              className="w-full h-full"
             />
           )
         ) : (

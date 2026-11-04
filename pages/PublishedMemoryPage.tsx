@@ -10,6 +10,7 @@ import { HoverCard, HoverCardContent, HoverCardTrigger } from "../components/ui/
 import { Dialog, DialogContent, DialogTitle } from "../components/ui/dialog";
 import { Popover, PopoverTrigger, PopoverContent, PopoverClose } from "../components/ui/popover";
 import { ImageWithFallback } from "../components/figma/ImageWithFallback";
+import CampaignCover from "../components/ui/CampaignCover";
 import { PdfThumbnail } from "../components/PdfThumbnail";
 import MemoryCard from "../components/MemoryCard";
 import { isCarCampaign } from "../utils/memoryUtils";
@@ -2017,10 +2018,14 @@ export default function PublishedMemoryPage() {
                 />
               </div>
             ) : (
-              <ImageWithFallback
-                src={coverSrc}
+              // No cover of its own → the brand (the author's avatar), shown as the round avatar over a blurred copy
+              // of itself, like the campaign page (CampaignCover). A cover too small for the header isn't stretched.
+              <CampaignCover
+                src={coverSrc || memoryData.user?.profile_image}
                 alt={memoryData.title}
-                className="w-full h-full object-cover absolute inset-0 rounded-b-3xl"
+                isFallback={!coverSrc}
+                color={memoryData.user?.profile_color}
+                className="w-full h-full absolute inset-0 rounded-b-3xl"
                 fallback={
                   <div className="absolute inset-0 rounded-b-3xl bg-gray-100 flex items-center justify-center">
                     {memoryData.user?.profile_image ? (
@@ -2909,10 +2914,19 @@ export default function PublishedMemoryPage() {
                           )}
                         </div>
                       ) : (
-                        <ImageWithFallback
-                          src={coverSrc}
+                        <CampaignCover
+                          src={coverSrc || memoryData.user?.profile_image}
                           alt={memoryData.title}
-                          className="w-full h-full object-cover"
+                          isFallback={!coverSrc}
+                          color={memoryData.user?.profile_color}
+                          className="w-full h-full"
+                          fallback={
+                            <div className="absolute inset-0 bg-gray-100 flex items-center justify-center">
+                              <div className="w-28 h-28 rounded-full bg-gradient-to-br from-[#6C60FF] to-purple-600 flex items-center justify-center text-white text-4xl font-semibold border-4 border-white/60">
+                                {memoryData.user?.name?.split(' ').map((n: string) => n[0]).join('').toUpperCase() || 'U'}
+                              </div>
+                            </div>
+                          }
                         />
                       );
                     })()}

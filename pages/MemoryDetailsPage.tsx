@@ -12,6 +12,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "../components/ui/avatar";
 import { ImageWithFallback } from "../components/figma/ImageWithFallback";
+import CampaignCover from "../components/ui/CampaignCover";
 import { toast } from "sonner";
 import { mockPosts } from "../data/mockPosts";
 import { getMemoryDetails } from "../data/memoryData";
@@ -9323,7 +9324,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                   onEnded={() => { setIsCoverVideoPlaying(false); setIsCoverVideoEnded(true); }}
                 />
               );
-              return <ImageWithFallback src={coverSrc} alt={apiMemoryData?.title || 'Memory'} className="absolute inset-0 w-full h-full object-cover" />;
+              return <CampaignCover src={coverSrc} alt={apiMemoryData?.title || 'Memory'} isFallback={!apiMemoryData?.last_update_img && !sharedAllPosts[0]?.master_image_link} color={apiMemoryData?.user?.profile_color} className="absolute inset-0 w-full h-full" />;
             })()}
             <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent pointer-events-none" />
             {/* Cover video play/pause — shared-view cover previously relied on bare native
@@ -9790,7 +9791,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                             onEnded={() => { setIsCoverVideoPlaying(false); setIsCoverVideoEnded(true); }}
                           />
                         );
-                        return <ImageWithFallback src={coverSrc} alt={apiMemoryData?.title || 'Memory'} className="w-full h-full object-cover" />;
+                        return <CampaignCover src={coverSrc} alt={apiMemoryData?.title || 'Memory'} isFallback={!apiMemoryData?.last_update_img && !sharedAllPosts[0]?.master_image_link} color={apiMemoryData?.user?.profile_color} className="w-full h-full" />;
                       })()}
                       <div className="absolute inset-0 pointer-events-none" style={{ background: 'linear-gradient(0deg,rgba(0,0,0,0.80) 11.54%,rgba(0,0,0,0.30) 55.77%,rgba(0,0,0,0.00) 100%)' }} />
                       {/* Cover video play/pause — shared-view cover previously relied on bare native
@@ -12585,10 +12586,12 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                               </button>
                             </div>
                           ) : (
-                            <ImageWithFallback
+                            <CampaignCover
                               src={coverImageSrc}
                               alt={uiMemory.title}
-                              className="w-full h-full object-cover"
+                              isFallback={!apiMemoryData?.last_update_img}
+                              color={profileColor}
+                              className="w-full h-full"
                               fallback={
                                 <div
                                   className="w-full h-full flex items-center justify-center"
@@ -14962,10 +14965,12 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                 </button>
                               </div>
                             ) : (
-                              <ImageWithFallback
+                              <CampaignCover
                                 src={coverImageSrc}
                                 alt={uiMemory.title}
-                                className="w-full h-full object-cover"
+                                isFallback={!apiMemoryData?.last_update_img}
+                                color={profileColor}
+                                className="w-full h-full"
                                 fallback={
                                   <div className="w-full h-full flex items-center justify-center" style={{ backgroundColor: profileColor }}>
                                     <span className="text-white font-bold text-6xl uppercase">
