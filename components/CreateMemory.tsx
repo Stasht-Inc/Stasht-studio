@@ -2387,7 +2387,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
               </div>
             </div>
 
-            {!flowEditing && (<>
+            {!flowEditing && !flowCampaign && (<>
             {/* Select from Existing Campaigns */}
             <div className="!mt-6 !mb-6">
               <label className="flex items-center gap-2 cursor-pointer select-none">
@@ -2713,7 +2713,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
               })}
             </div>
 
-            {!flowEditing && (<>
+            {!flowEditing && !flowCampaign && (<>
             {/* Media Upload */}
             <div>
               <label className="flex items-center gap-2 text-base md:text-sm font-medium text-gray-700 mb-1">
