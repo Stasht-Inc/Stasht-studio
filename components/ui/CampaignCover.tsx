@@ -1,5 +1,5 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { brandCoverColor, campaignCoverLayout, coverCenterTop, COVER_CENTER_Y, type CoverSize } from '../../utils/campaignCover';
+import { brandCoverColor, campaignCoverLayout, coverCenterTop, COVER_CENTER_Y, isVectorImage, type CoverSize } from '../../utils/campaignCover';
 
 /**
  * A campaign's cover picture (Chris, 4 Nov 2026) — campaign page header, campaign cards, published page and the
@@ -90,7 +90,10 @@ export default function CampaignCover({
       : <div className={className} style={{ backgroundColor: brandCoverColor(color) }} />;
   }
 
-  const layout = campaignCoverLayout({ isFallback, natural, box });
+  // An SVG never goes blurry when enlarged: it is never "too small", and as the brand it is sized by the box alone.
+  const vector = isVectorImage(src);
+  const layoutNatural = !vector ? natural : isFallback && natural ? { width: 1e5, height: 1e5 } : null;
+  const layout = campaignCoverLayout({ isFallback, natural: layoutNatural, box });
   const contain = layout.mode === 'contain';
   const sized = contain && layout.width !== null && layout.height !== null;
   const mainClass = !contain

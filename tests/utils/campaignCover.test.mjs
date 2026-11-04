@@ -16,6 +16,7 @@ import {
   brandCoverColor,
   coverCenterTop,
   COVER_CENTER_Y,
+  isVectorImage,
 } from '../../utils/campaignCover.ts';
 
 const desktopHeader = { width: 394, height: 600 };
@@ -104,4 +105,13 @@ test('a contained picture sits a little above the middle (the title is at the bo
   assert.equal(coverCenterTop(300, 230), 127);
   // a picture as tall as the box: just centred
   assert.equal(coverCenterTop(200, 200), 100);
+});
+
+test('a vector picture (SVG) never counts as too small — it can be enlarged without going blurry', () => {
+  assert.equal(isVectorImage('data:image/svg+xml;utf8,%3Csvg...'), true);
+  assert.equal(isVectorImage('https://cdn.test/logo.svg'), true);
+  assert.equal(isVectorImage('https://cdn.test/logo.SVG?v=2'), true);
+  assert.equal(isVectorImage('https://cdn.test/photo.jpg'), false);
+  assert.equal(isVectorImage('https://cdn.test/svg-photos/a.png'), false);
+  assert.equal(isVectorImage(null), false);
 });

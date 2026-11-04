@@ -34,6 +34,12 @@ export function coverCenterTop(boxHeight: number, pictureHeight: number): number
   return Math.round(max < min ? boxHeight / 2 : Math.min(Math.max(wanted, min), max));
 }
 
+/** An SVG picture: it can be enlarged without going blurry (and may report no real size), so it is never "too small". */
+export function isVectorImage(src?: string | null): boolean {
+  const s = String(src ?? '').trim();
+  return /^data:image\/svg\+xml/i.test(s) || /\.svg(?:[?#]|$)/i.test(s);
+}
+
 const known = (s?: CoverSize | null): s is CoverSize => !!s && s.width > 0 && s.height > 0;
 
 export function campaignCoverLayout({ isFallback = false, natural = null, box = null }: {
