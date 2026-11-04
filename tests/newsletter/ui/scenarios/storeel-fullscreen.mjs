@@ -1,7 +1,7 @@
 // [wdy2xh2t3z] The Storeel tab uses the Newsletter tab's full-window frame: the same top bar (Back, Create Campaign,
-// Newsletter | Storeel, Cancel / Continue), no centred modal, the form in step 1 Set up (Chris, 4 Nov 2026, point 9: the
-// Storeel flow) with Advanced filters kept, and a live phone-style preview that follows the form. Phones keep the
-// compact footer (Cancel / Continue).
+// Newsletter | Storeel, Cancel / Create Campaign), no centred modal, the form in step 1 Campaign (Storeel flow v2, 4 Nov
+// 2026) with Advanced filters kept, and a live phone-style preview that follows the form. Phones keep the compact footer
+// (Cancel / Create Campaign).
 import { IMG, createMockApi } from '../mock-api.mjs';
 
 const STOREEL_TITLE = 'Give your campaign a meaningful title';
@@ -23,10 +23,10 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
   await expectVisible(header.getByRole('button', { name: 'Back' }), 'Back in the top bar');
   await expectVisible(header.getByRole('radio', { name: 'Storeel', checked: true }), 'switch in the top bar');
   await expectVisible(header.getByRole('button', { name: 'Cancel' }), 'Cancel in the top bar');
-  await expectVisible(header.getByRole('button', { name: 'Continue', exact: true }), 'Continue in the top bar');
+  await expectVisible(header.getByRole('button', { name: 'Create Campaign', exact: true }), 'Create Campaign in the top bar');
   expect(!(await header.getByRole('button', { name: 'Publish' }).count()), 'no Publish menu (sending publishes: Storeel flow)');
   expect(!(await page.getByRole('button', { name: 'Save', exact: true }).isVisible().catch(() => false)), 'no phone footer on wide screens');
-  await expectVisible(page.getByRole('heading', { name: 'Set up' }), 'form card (step 1 Set up)');
+  await expectVisible(page.getByRole('heading', { name: 'Campaign', exact: true }), 'form card (step 1 Campaign)');
   await expectVisible(frame.getByText('Preview', { exact: true }), 'preview heading');
   await expectVisible(frame.getByText('Live', { exact: true }), 'Live badge');
   const preview = page.getByTestId('storeel-preview');
@@ -59,8 +59,8 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
   await page.getByRole('radio', { name: 'Storeel', exact: true }).click();
   expect(await page.getByPlaceholder(STOREEL_TITLE).inputValue() === 'Fall service event', 'the Storeel form kept its title');
 
-  // Continue still creates the Storeel (then the flow goes on to Moments).
-  await header.getByRole('button', { name: 'Continue', exact: true }).click();
+  // Create Campaign creates the Storeel (then step 1 folds and Send opens: Storeel flow v2).
+  await header.getByRole('button', { name: 'Create Campaign', exact: true }).click();
   await page.waitForTimeout(1500);
   expect(api.state.storeels.some((s) => s.title === 'Fall service event'), `Storeel created with POST /memories (got ${JSON.stringify(api.state.storeels.map((s) => s.title))})`);
   await context.close();
@@ -91,9 +91,9 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
     const phone = await open({ width, height: 844 });
     await phone.page.locator('#nl-name').waitFor();
     await phone.page.getByRole('radio', { name: 'Storeel', exact: true }).click();
-    await expectVisible(phone.page.getByRole('button', { name: 'Continue' }).filter({ visible: true }), `Continue in the phone footer at ${width}`);
+    await expectVisible(phone.page.getByRole('button', { name: 'Create Campaign', exact: true }).filter({ visible: true }), `Create Campaign in the phone footer at ${width}`);
     await expectVisible(phone.page.getByRole('button', { name: 'Cancel' }).filter({ visible: true }), `Cancel in the phone footer at ${width}`);
-    const footer = await phone.page.getByRole('button', { name: 'Continue' }).filter({ visible: true }).boundingBox();
+    const footer = await phone.page.getByRole('button', { name: 'Create Campaign', exact: true }).filter({ visible: true }).boundingBox();
     expect(footer && footer.y + footer.height <= 844 && footer.y > 700, `footer pinned to the bottom at ${width} (y ${footer?.y})`);
     expect(!(await hasOverflow(phone.page)), `no sideways scroll at ${width}`);
     const pv = phone.page.getByTestId('storeel-preview');

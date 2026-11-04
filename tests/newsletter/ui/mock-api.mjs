@@ -733,10 +733,16 @@ export function createMockApi(options = {}) {
     // options.catalogue: the account has Website Catalogue items (Create Campaign then offers its "Website Catalogue").
     if (path === '/website-catalogue') return ok(options.catalogue ? { available: true, item_count: 2 } : { available: false });
     if (path === '/website-catalogue/items' && options.catalogue) {
-      return ok({ items: [{ id: 61, title: 'Oak bench', price_label: '$450', category: 'Benches', main_image: null, images_count: 2 }, { id: 62, title: 'Pine shelf', price_label: '$120', category: 'Shelves', main_image: null, images_count: 1 }], pagination: { last_page: 1 } });
+      // The Storeel flow's live preview shows a picked item as a product moment (its photo, price, "View on website").
+      return ok({ items: [
+        { id: 61, title: 'Oak bench', price_label: '$450', category: 'Benches', main_image: IMG, images_count: 2, url: 'https://royalwood.example.ca/products/oak-bench' },
+        { id: 62, title: 'Pine shelf', price_label: '$120', category: 'Shelves', main_image: null, images_count: 1, url: null },
+      ], pagination: { last_page: 1 } });
     }
     // options.cars: the dealer has listings (Create Campaign then offers "Cars").
-    if (path === '/cars' && method === 'GET') return ok({ cars: options.cars ? [{ id: 5, title: '2024 Jeep Wrangler' }] : [], pagination: { last_page: 1 }, filters: {} });
+    if (path === '/cars' && method === 'GET') {
+      return ok({ cars: options.cars ? [{ id: 5, title: '2024 Jeep Wrangler', main_image: IMG, images_count: 6, price: '34995', mileage: 45000, stock_number: 'S2300' }] : [], pagination: { last_page: 1 }, filters: {} });
+    }
     if (path === '/user/check-memory-limit') {
       return ok({ limit_status: { status: options.storeelLimit ? 'limit_exceeded' : 'within_limit', current_memories: options.storeelLimit ? 5 : 2, memory_limit: 5, ai_connects: 120 } });
     }
@@ -761,7 +767,9 @@ export function createMockApi(options = {}) {
         id, slug, title: body?.title, published: Number(body?.published) || 0, is_car: 0, user_id: 990002,
         category: { id: body?.category_id, name: body?.category_id === 8 ? 'Service' : 'Personal' }, sub_category: body?.sub_category?.[0] ? { name: body.sub_category[0] } : null,
         min_uploaded_img_date: null, max_uploaded_img_date: null, location: body?.location ?? '', tags: body?.tags ?? [], last_update_img: body?.last_update_img ?? null,
-        posts: (body?.photos ?? []).map((_, i) => ({ id: id * 100 + i, parent_id: null })),
+        // A catalogue item becomes a moment (CatalogSnapshotWriter), a picked vehicle a linked campaign (memory_cars).
+        posts: [...(body?.catalog_item_ids ?? []), ...(body?.photos ?? [])].map((_, i) => ({ id: id * 100 + i, parent_id: null })),
+        linked_memories: (body?.car_ids ?? []).map((carId) => ({ id: Number(carId), is_car: 1, title: '2024 Jeep Wrangler' })),
       });
       return ok({ id, title: body?.title, slug, category_id: body?.category_id, sub_category_id: null, collaborators_count: 0, created_at: now() }, 201);
     }

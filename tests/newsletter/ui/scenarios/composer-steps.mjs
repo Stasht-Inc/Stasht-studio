@@ -33,7 +33,7 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
   await shot(page, '1280-newsletter-filled');
 
   await page.getByRole('radio', { name: 'Storeel' }).click();
-  await expectVisible(page.getByRole('heading', { name: 'Set up' }), 'Storeel form shown unchanged');
+  await expectVisible(page.getByRole('heading', { name: 'Campaign', exact: true }), 'Storeel form shown unchanged');
   expect(await page.getByText('Campaign Limit Reached').count() === 0, 'no limit notice when within the limit');
   await shot(page, '1280-storeel');
   await page.getByRole('radio', { name: 'Newsletter' }).first().click();
@@ -56,7 +56,7 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
       await phone.page.setViewportSize({ width, height: 844 });
     }
     await phone.page.getByRole('radio', { name: 'Storeel' }).click();
-    await expectVisible(phone.page.getByRole('heading', { name: 'Set up' }), `Storeel form at ${width}`);
+    await expectVisible(phone.page.getByRole('heading', { name: 'Campaign', exact: true }), `Storeel form at ${width}`);
     expect(!(await hasOverflow(phone.page)), `no sideways scroll on the Storeel tab at ${width} px`);
     if (width === 390) await shot(phone.page, '390-storeel');
     await phone.context.close();
@@ -65,7 +65,7 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
   // Plan gate (contract note 1): Create Campaign opened on the Storeel tab (a category was picked) makes no
   // newsletter calls at all.
   const storeel = await open({ query: '&category=Cars' });
-  await expectVisible(storeel.page.getByRole('heading', { name: 'Set up' }), 'opens on the Storeel tab when a category is picked');
+  await expectVisible(storeel.page.getByRole('heading', { name: 'Campaign', exact: true }), 'opens on the Storeel tab when a category is picked');
   await storeel.page.waitForTimeout(1500);
   const newsletterCalls = storeel.api.state.calls.filter((c) => /^\/(newsletter|contact-lists)/.test(c.path));
   expect(newsletterCalls.length === 0, `no newsletter calls with the Storeel tab showing (got ${newsletterCalls.map((c) => c.path).join(', ')})`);
@@ -95,11 +95,11 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
     const alerts = [];
     raced.page.on('dialog', (d) => { alerts.push(d.message()); void d.dismiss(); });
     await raced.page.getByRole('radio', { name: 'Storeel', exact: true }).click();
-    await expectVisible(raced.page.getByRole('heading', { name: 'Set up' }), `Storeel form at ${width}`);
+    await expectVisible(raced.page.getByRole('heading', { name: 'Campaign', exact: true }), `Storeel form at ${width}`);
     expect(await raced.page.getByText('Campaign Limit Reached').count() === 0, `no limit notice before creating at ${width}`);
     await raced.page.waitForTimeout(800); // categories load
     await raced.page.getByPlaceholder('Give your campaign a meaningful title').fill('Raced past the limit');
-    await raced.page.getByRole('button', { name: 'Continue', exact: true }).filter({ visible: true }).first().click();
+    await raced.page.getByRole('button', { name: 'Create Campaign', exact: true }).filter({ visible: true }).first().click();
     const notice = raced.page.getByRole('alert').filter({ hasText: 'Campaign Limit Reached' });
     await expectVisible(notice, `server limit shown inline at ${width}`);
     await expectVisible(notice.getByText(/You've reached your plan's campaign limit/), `server limit message at ${width}`);

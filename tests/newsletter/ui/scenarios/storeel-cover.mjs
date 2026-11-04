@@ -175,8 +175,8 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
     await expectVisible(photoChip, `${tag}: cover photo chosen again`);
     await page.waitForTimeout(600);
 
-    // Create (Set up's Continue, Storeel flow 4 Nov): the cover photo goes as last_update_img.
-    await page.getByRole('button', { name: 'Continue', exact: true }).filter({ visible: true }).last().click();
+    // Create Campaign (Storeel flow v2, 4 Nov): the cover photo goes as last_update_img.
+    await page.getByRole('button', { name: 'Create Campaign', exact: true }).filter({ visible: true }).last().click();
     await page.waitForTimeout(1500);
     const made = api.state.storeels.find((s) => s.title === 'Next Summit / 25');
     expect(made && made.last_update_img === IMG, `${tag}: created with the cover photo as last_update_img (got ${JSON.stringify(made?.last_update_img)})`);
