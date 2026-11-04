@@ -57,7 +57,7 @@ export function flowView({ editing, created, savedNow = false, changesSaved = fa
 }): FlowView {
   const saved = editing || created;
   return {
-    title: editing ? 'Edit Campaign' : 'Create Campaign',
+    title: saved ? 'Edit Campaign' : 'Create Campaign',
     save: saved ? { label: 'Save Changes', action: 'save' } : { label: 'Create Campaign', action: 'create' },
     saveAndSend: saved ? { label: 'Save & Send', action: 'save' } : { label: 'Create & Send', action: 'create' },
     savedToast: saved ? 'Changes saved' : 'Campaign created',
@@ -65,7 +65,7 @@ export function flowView({ editing, created, savedNow = false, changesSaved = fa
     createdNote: created && !editing ? 'Campaign created. Send it now, or later from the campaign page.'
       : editing && changesSaved ? 'Changes saved. Send it now, or later.' : null,
     closeToast: created && !editing ? 'Campaign created' : null,
-    closeLabel: savedNow || changesSaved ? 'Close' : 'Cancel',
+    closeLabel: created || savedNow || changesSaved ? 'Close' : 'Cancel',
     momentsNote: saved ? 'Moments and captions save straight to your campaign.' : null,
   };
 }

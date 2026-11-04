@@ -35,6 +35,8 @@ test('create: the bottom actions are Create Campaign (creates only) and Create &
 
 test('create, after Create & Send made it but the send was not confirmed: it is saved (PUT from now on), and says so', () => {
   const v = flowView({ editing: false, created: true });
+  assert.equal(v.title, 'Edit Campaign', 'the campaign exists now');
+  assert.equal(v.closeLabel, 'Close', 'nothing to cancel any more');
   assert.deepEqual(v.save, { label: 'Save Changes', action: 'save' });
   assert.deepEqual(v.saveAndSend, { label: 'Save & Send', action: 'save' });
   assert.equal(v.createdNote, 'Campaign created. Send it now, or later from the campaign page.');

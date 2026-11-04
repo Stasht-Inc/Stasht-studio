@@ -234,14 +234,16 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
     await scrollToEnd(b.page);
     await expectVisible(b.page.getByText('Campaign created. Send it now, or later from the campaign page.'), `${tag}: says it was created`);
     await expectVisible(button(b.page, 'Save Changes'), `${tag}: now Save Changes`);
+    await expectVisible(b.page.getByRole('heading', { name: 'Edit Campaign' }), `${tag}: the campaign exists: the header says Edit Campaign`);
+    expect(await inView(b.page, button(b.page, 'Close')) && !(await flow(b.page).getByRole('button', { name: 'Cancel', exact: true }).count()), `${tag}: …and Cancel says Close`);
     await expectVisible(button(b.page, 'Save & Send'), `${tag}: now Save & Send`);
     await shot(b.page, `${tag}-08-created-confirm-left`);
     await button(b.page, 'Save & Send').click();
     await expectVisible(b.page.getByRole('dialog', { name: 'Send this Storeel now?' }), `${tag}: Save & Send → confirm`);
     expect(createPosts(bapi).length === 1 && bapi.state.memoryPuts.length === 1, `${tag}: one campaign, then a PUT (posts ${createPosts(bapi).length}, puts ${bapi.state.memoryPuts.length})`);
     await b.page.getByRole('dialog', { name: 'Send this Storeel now?' }).getByRole('button', { name: 'Back' }).click();
-    await button(b.page, 'Cancel').click();
-    await expectVisible(b.page.getByText('Campaign created').last(), `${tag}: Cancel keeps it and says so`);
+    await button(b.page, 'Close').click();
+    await expectVisible(b.page.getByText('Campaign created').last(), `${tag}: Close keeps it and says so`);
     await b.context.close();
 
     // ── Edit: prefilled, its moments in step 2, a caption saved on the campaign; Save Changes → PUT → closed ──────
