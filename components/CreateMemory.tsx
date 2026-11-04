@@ -32,7 +32,7 @@ import { initialCampaignType, type CampaignType } from './newsletters/lib/campai
 import { announceNewslettersChanged } from './newsletters/lib/campaignsView';
 import { requestUpgrade } from '../utils/planEvents';
 import StoreelLivePreview from './storeel/StoreelLivePreview';
-import { storeelPreviewMedia } from './storeel/storeelPreview';
+import { storeelPreviewMedia, storeelBrandImage } from './storeel/storeelPreview';
 import { coverChoiceReducer, coverChoicePayload, coverPhotoFileError, EMPTY_COVER_CHOICE, COVER_PHOTO_ACCEPT, type CoverChoice, type CoverChoiceAction } from '../utils/coverChoice';
 import { BUTTON_OUTLINE, BUTTON_PRIMARY, BUTTON_SECONDARY } from './newsletters/lib/ui';
 
@@ -304,19 +304,19 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
     collaborators: [] as string[]
   });
 
-  // [wdy2xh2t3z] The live preview: the first picked image (an object URL for a file, freed when it changes) and how
-  // many photos there are, from the same lists the form shows.
+  // [wdy2xh2t3z] The live preview: the first picked image (an object URL for a file, freed when it changes) for its
+  // moment card and how many photos there are, from the same lists the form shows. (Not the cover: 4 Nov 2026.)
   const { first: storeelFirstMedia, count: storeelMomentCount } = storeelPreviewMedia<File>({
     withMetadata: photosWithMetadata, mainPhotos: mainPhotosArray, mediaFiles: formData.mediaFiles,
   });
-  const [storeelPreviewCover, setStoreelPreviewCover] = useState<string | null>(null);
+  const [storeelPreviewFirstImage, setStoreelPreviewFirstImage] = useState<string | null>(null);
   useEffect(() => {
     const src = storeelFirstMedia;
-    if (!src) { setStoreelPreviewCover(null); return undefined; }
-    if (typeof src === 'string') { setStoreelPreviewCover(isCampaignVideoUrl(src) ? null : src); return undefined; }
-    if (src.type && !src.type.startsWith('image/')) { setStoreelPreviewCover(null); return undefined; }
+    if (!src) { setStoreelPreviewFirstImage(null); return undefined; }
+    if (typeof src === 'string') { setStoreelPreviewFirstImage(isCampaignVideoUrl(src) ? null : src); return undefined; }
+    if (src.type && !src.type.startsWith('image/')) { setStoreelPreviewFirstImage(null); return undefined; }
     const url = URL.createObjectURL(src);
-    setStoreelPreviewCover(url);
+    setStoreelPreviewFirstImage(url);
     return () => URL.revokeObjectURL(url);
   }, [storeelFirstMedia]);
 
@@ -3854,7 +3854,14 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
 
           <aside aria-label="Storeel preview" className="min-w-0 self-start pb-[max(1rem,env(safe-area-inset-bottom))] lg:sticky lg:top-0">
             <StoreelLivePreview
-              input={{ title: formData.title, images: storeelPreviewCover ? [storeelPreviewCover] : [], momentCount: storeelMomentCount, location: formData.location, date: formData.date, authorName: user?.name }}
+              input={{
+                title: formData.title, images: storeelPreviewFirstImage ? [storeelPreviewFirstImage] : [], momentCount: storeelMomentCount,
+                location: formData.location, date: formData.date, authorName: user?.name,
+                // The cover the saved campaign page will show: cover photo, intro video, else the brand.
+                coverPhoto: coverChoice.kind === 'photo' ? coverDisplayUrl : null,
+                introVideo: coverChoice.kind === 'video' ? coverDisplayUrl : null,
+                brandImage: storeelBrandImage({ viewType, propertyImage: currentProperty?.image, userAvatar: user?.avatar }),
+              }}
               avatarUrl={user?.avatar ?? null}
               avatarColor={user?.profile_color ?? null}
             />

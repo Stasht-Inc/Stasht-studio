@@ -1,6 +1,8 @@
 // Create New Campaign: "Cover photo | Add Intro Video" (Chris, 4 Nov 2026, point 5) — one row, Cover photo on the
 // left. Both are saved as the campaign's cover (last_update_img), so it is one or the other: choosing a cover photo
 // replaces the intro video and the other way round. The cover photo is sent as last_update_img on create.
+// Point 6: the live preview's cover follows it — cover photo, intro video (first frame), else the BRAND (the account
+// avatar, shown as the round avatar over a blurred copy, not stretched; never the first photo, never grey).
 // node tests/newsletter/ui/check.mjs storeel-cover   (NL_BASE = the dev server)
 import { spawnSync } from 'child_process';
 import { mkdtempSync, readFileSync } from 'fs';
@@ -31,6 +33,9 @@ async function fixtures() {
   if (r.status === 0) video = readFileSync(out);
   return { photo, video };
 }
+
+const previewCover = (page) => page.getByTestId('storeel-preview-cover');
+const coverKind = (page) => previewCover(page).getAttribute('data-cover-kind');
 
 export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
   const { photo, video } = await fixtures();
@@ -72,8 +77,26 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
     await expectVisible(page.getByText('or', { exact: true }), `${tag}: "or" between them`);
     expect(!(await hasOverflow(page)), `${tag}: no sideways scroll`);
     await page.getByPlaceholder(STOREEL_TITLE).fill('Next Summit / 25');
+
+    // Point 6: nothing chosen → the preview's cover is the brand, as the round avatar (≤ 60% of the cover's height).
+    await page.waitForTimeout(500);
+    expect(await coverKind(page) === 'brand', `${tag}: preview cover is the brand (got ${await coverKind(page)})`);
+    const brand = previewCover(page).locator('[data-cover-mode="brand"]');
+    expect(await brand.count() === 1, `${tag}: brand shown with the avatar treatment, not stretched`);
+    if (await brand.count()) {
+      const info = await brand.evaluate((el) => {
+        const img = el.querySelector('img:not([aria-hidden="true"])');
+        const r = el.getBoundingClientRect(); const i = img.getBoundingClientRect();
+        return { boxH: r.height, w: i.width, h: i.height, src: img.getAttribute('src') };
+      });
+      expect(info.src === LOGO && info.w === info.h && info.w <= Math.ceil(info.boxH * 0.6) + 1, `${tag}: brand avatar ${info.w}x${info.h} in a ${info.boxH}px cover (${info.src})`);
+    }
     await addCover.scrollIntoViewIfNeeded();
     await shot(page, `${tag}-01-row-empty`);
+    if (width < 1024) {
+      await page.getByTestId('storeel-preview').scrollIntoViewIfNeeded();
+      await shot(page, `${tag}-01b-preview-brand`);
+    }
 
     // Cover photo chosen → its chip on the left; the Intro Video button stays.
     await page.getByTestId('cover-photo-input').setInputFiles({ name: 'storefront.jpg', mimeType: 'image/jpeg', buffer: photo });
@@ -82,7 +105,14 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
     await page.waitForTimeout(600);
     expect((await photoChip.textContent()).includes('storefront.jpg') && !(await photoChip.textContent()).includes('Uploading'), `${tag}: chip shows the file, uploaded`);
     expect(await addVideo.isVisible(), `${tag}: Add Intro Video still offered`);
+    expect(await coverKind(page) === 'photo', `${tag}: preview cover is the cover photo (got ${await coverKind(page)})`);
+    const coverSrc = await previewCover(page).locator('img:not([aria-hidden="true"])').first().getAttribute('src');
+    expect(/^blob:/.test(coverSrc || '') && await previewCover(page).locator('[data-cover-mode="cover"]').count() === 1, `${tag}: the cover photo fills the preview cover (${coverSrc})`);
     await shot(page, `${tag}-02-cover-photo-chosen`);
+    if (width < 1024) {
+      await page.getByTestId('storeel-preview').scrollIntoViewIfNeeded();
+      await shot(page, `${tag}-02b-preview-cover-photo`);
+    }
 
     // Intro video chosen → replaces the cover photo.
     await page.getByTestId('intro-video-input').setInputFiles({ name: 'welcome.mp4', mimeType: 'video/mp4', buffer: video });
@@ -92,7 +122,13 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
     await expectVisible(addCover, `${tag}: Add Cover Photo offered again`);
     await page.waitForTimeout(800);
     expect(!(await videoChip.textContent()).includes('Uploading'), `${tag}: intro video uploaded`);
+    expect(await coverKind(page) === 'video' && await previewCover(page).locator('video').count() === 1, `${tag}: preview cover is the intro video (got ${await coverKind(page)})`);
+    await page.waitForTimeout(800); // first frame
     await shot(page, `${tag}-03-intro-video-chosen`);
+    if (width < 1024) {
+      await page.getByTestId('storeel-preview').scrollIntoViewIfNeeded();
+      await shot(page, `${tag}-03b-preview-intro-video`);
+    }
 
     // Cover photo again → replaces the intro video.
     await page.getByTestId('cover-photo-input').setInputFiles({ name: 'storefront.jpg', mimeType: 'image/jpeg', buffer: photo });
@@ -104,6 +140,14 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
     await page.getByTestId('cover-photo-input').setInputFiles({ name: 'anim.gif', mimeType: 'image/gif', buffer: Buffer.from('GIF89a') });
     await expectVisible(page.getByText('Please choose a JPG, JPEG or PNG photo.'), `${tag}: GIF refused`);
     expect((await photoChip.textContent()).includes('storefront.jpg'), `${tag}: the chosen cover photo stays`);
+
+    // Removing it brings the brand back to the preview; then choose it again for the create check.
+    await page.getByRole('button', { name: 'Remove cover photo' }).click();
+    expect(!(await photoChip.isVisible().catch(() => false)), `${tag}: cover photo removed`);
+    expect(await coverKind(page) === 'brand', `${tag}: preview back to the brand after removing (got ${await coverKind(page)})`);
+    await page.getByTestId('cover-photo-input').setInputFiles({ name: 'storefront.jpg', mimeType: 'image/jpeg', buffer: photo });
+    await expectVisible(photoChip, `${tag}: cover photo chosen again`);
+    await page.waitForTimeout(600);
 
     // Create: the cover photo goes as last_update_img.
     if (width >= 1024) {

@@ -64,14 +64,17 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
   expect(api.state.storeels.some((s) => s.title === 'Fall service event'), `Storeel created with POST /memories (got ${JSON.stringify(api.state.storeels.map((s) => s.title))})`);
   await context.close();
 
-  // A photo passed in (Scan Photo) becomes the preview cover.
+  // A photo passed in (Scan Photo) shows on the preview's moment card. The cover stays the brand — here this user has
+  // no profile image, so their initial on their colour, as the saved campaign page shows (Chris, 4 Nov 2026).
   const scan = await open({ width: 1280, height: 1000, query: '&photos=1' });
   await expectVisible(scan.page.getByRole('radio', { name: 'Storeel', checked: true }), 'Scan Photo opens the Storeel tab');
   await scan.page.getByRole('button', { name: /^Add all/ }).click();
   await scan.page.waitForTimeout(2500);
-  const cover = scan.page.getByTestId('storeel-preview').locator('img').first();
-  const src = (await cover.count()) ? await cover.getAttribute('src') : null;
-  expect(src === IMG, `the photo is the preview cover (got ${src})`);
+  const card = scan.page.getByTestId('storeel-preview').locator('img').first();
+  const src = (await card.count()) ? await card.getAttribute('src') : null;
+  expect(src === IMG, `the photo shows on the preview's moment card (got ${src})`);
+  const kind = await scan.page.getByTestId('storeel-preview-cover').getAttribute('data-cover-kind');
+  expect(kind === 'none', `the first photo is not the cover (cover: ${kind})`);
   expect((await scan.page.getByTestId('storeel-preview').textContent()).includes('1 moment'), 'Timeline · 1 moment');
   await shot(scan.page, '1280-02-scan-photo');
   await scan.context.close();
