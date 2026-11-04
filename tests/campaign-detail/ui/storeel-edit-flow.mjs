@@ -135,7 +135,7 @@ try {
     await primary(page, 'Continue').click();
     await flow(page).locator('#st-step-moments').getByRole('button', { name: 'Add moments on the campaign page' }).waitFor({ timeout: 8000 }).catch(() => {});
     const put = state.puts.at(-1);
-    expect(put && put.title === 'Fall Promo 2026' && Number(put.category_id) === 5 && put.date_range === 'Oct 1, 2026' && put.location === 'Toronto, ON' && JSON.stringify(put.tags) === '["fall"]',
+    expect(put && put.title === 'Fall Promo 2026' && !('category_id' in put) && put.date_range === 'Oct 1, 2026' && put.location === 'Toronto, ON' && JSON.stringify(put.tags) === '["fall"]',
       `${tag}: Continue saved with PUT /memories/901 (got ${JSON.stringify(put)})`);
     await primary(page, 'Continue').click();
     const send = flow(page).locator('#st-step-send');

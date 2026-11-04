@@ -38,21 +38,35 @@ export const FLOW_RESUME_MAX_AGE_MS = 30 * 60 * 1000;
 type NoteStorage = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>;
 export interface FlowResume { memoryId: number; step: FlowStep; at: number }
 
-/** "Add moments on the campaign page": remember to come back to Send for this campaign. */
-export function writeFlowResume(storage: NoteStorage | null | undefined, memoryId: number, now: number = Date.now()): void {
+/**
+ * Whose note it is: the signed-in account and the view it was written in (personal, or a business's property view).
+ * Another sign-in, another business or the other view never resumes it (review, 4 Nov). null: nobody signed in.
+ */
+export function flowOwnerKey(user: { id?: unknown } | null | undefined, viewType: unknown, property: { id?: unknown } | null | undefined): string | null {
+  const id = user?.id === null || user?.id === undefined ? '' : String(user.id).trim();
+  if (!id) return null;
+  const pid = property?.id === null || property?.id === undefined ? '' : String(property.id).trim();
+  return viewType === 'property' && pid ? `${id}|property:${pid}` : `${id}|personal`;
+}
+
+/** "Add moments on the campaign page": remember to come back to Send for this campaign (for this account and view). */
+export function writeFlowResume(storage: NoteStorage | null | undefined, memoryId: number, owner: string | null, now: number = Date.now()): void {
+  if (!owner) return;
   try {
-    storage?.setItem(FLOW_RESUME_KEY, JSON.stringify({ memoryId, step: 'send', at: now }));
+    storage?.setItem(FLOW_RESUME_KEY, JSON.stringify({ memoryId, step: 'send', at: now, owner }));
   } catch {
     // Storage blocked (private window): the campaign page's own Edit still opens the flow.
   }
 }
 
-/** The note, if it is fresh (and for this campaign, when one is given); null otherwise. */
-export function readFlowResume(storage: NoteStorage | null | undefined, now: number = Date.now(), memoryId?: number): FlowResume | null {
+/** The note, if it is fresh, this account's and view's (and for this campaign, when one is given); null otherwise. */
+export function readFlowResume(storage: NoteStorage | null | undefined, owner: string | null, { now = Date.now(), memoryId }: { now?: number; memoryId?: number } = {}): FlowResume | null {
+  if (!owner) return null;
   try {
     const raw = storage?.getItem(FLOW_RESUME_KEY);
     if (!raw) return null;
-    const note = JSON.parse(raw) as Partial<FlowResume>;
+    const note = JSON.parse(raw) as Partial<FlowResume> & { owner?: unknown };
+    if (note?.owner !== owner) return null;
     const id = Number(note?.memoryId);
     const at = Number(note?.at);
     if (!Number.isInteger(id) || id <= 0 || !Number.isFinite(at)) return null;
@@ -83,11 +97,18 @@ export function sessionNotes(): NoteStorage | null {
 }
 
 // ── Edit: the campaign as Set up shows it ─────────────────────────────────────────────────────────────────────────
+/** What a campaign is filed under. GET /memories/{id} sends category null for the last three (review, 4 Nov). */
+export type CategoryKind = 'regular' | 'shopify' | 'car' | 'property' | 'none';
+/** Set up's label for a category Studio can't name here (a property's category seen from the personal view). */
+export const CURRENT_CATEGORY = 'Current category';
+
 export interface CampaignSeed {
   id: number;
   title: string;
+  /** The name Set up shows (Shopify, Cars, the category, else CURRENT_CATEGORY). */
   category: string;
-  categoryId: number | null;
+  categoryId: number | string | null;
+  categoryKind: CategoryKind;
   label: string;
   /** YYYY-MM-DD, or ''. */
   date: string;
@@ -155,20 +176,35 @@ export function firstImageOf(memory: Record<string, any> | null | undefined): st
   return pick(preview?.url);
 }
 
-export function seedFromMemory(raw: unknown): CampaignSeed | null {
+/** categories: the caller's list (the property view's names its own categories). */
+export function seedFromMemory(raw: unknown, categories: ReadonlyArray<{ id?: unknown; name?: unknown }> = []): CampaignSeed | null {
   const m = memoryOf(raw);
   const id = Number(m?.id);
   if (!m || !Number.isInteger(id) || id <= 0) return null;
   const start = day(m.min_uploaded_img_date);
   const end = day(m.max_uploaded_img_date);
   const coverUrl = typeof m.last_update_img === 'string' ? m.last_update_img.trim() : '';
-  const categoryId = Number(m.category?.id ?? m.category_id);
   const ownerId = Number(m.user_id ?? m.user?.id);
+  const flag = (v: unknown) => v === true || Number(v) === 1;
+  const realId = Number(m.category?.id ?? m.category_id);
+  const propertyId = Number(m.property_category_id);
+  let category: string;
+  let categoryId: number | string | null = null;
+  let categoryKind: CategoryKind;
+  if (flag(m.is_shopify)) { category = 'Shopify'; categoryId = 'shopify'; categoryKind = 'shopify'; }
+  else if (flag(m.is_car)) { category = 'Cars'; categoryKind = 'car'; }
+  else if (m.category && typeof m.category === 'object' && String(m.category.name ?? '').trim()) {
+    category = String(m.category.name); categoryId = Number.isFinite(realId) && realId > 0 ? realId : null; categoryKind = 'regular';
+  } else if (Number.isFinite(propertyId) && propertyId > 0) {
+    const named = categories.find((c) => String(c?.id ?? '') === String(propertyId));
+    category = named && String(named.name ?? '').trim() ? String(named.name) : CURRENT_CATEGORY; categoryId = propertyId; categoryKind = 'property';
+  } else { category = CURRENT_CATEGORY; categoryKind = 'none'; }
   return {
     id,
     title: String(m.title ?? ''),
-    category: String(m.category?.name ?? (typeof m.category === 'string' ? m.category : '') ?? ''),
-    categoryId: Number.isFinite(categoryId) && categoryId > 0 ? categoryId : null,
+    category,
+    categoryId,
+    categoryKind,
     label: String(m.sub_category?.name ?? ''),
     date: start,
     endDate: end && end !== start ? end : '',
@@ -177,7 +213,7 @@ export function seedFromMemory(raw: unknown): CampaignSeed | null {
     cover: coverUrl ? { kind: VIDEO_EXTENSIONS.test(coverUrl) ? 'video' : 'photo', url: coverUrl } : null,
     slug: typeof m.slug === 'string' && m.slug.trim() ? m.slug.trim() : null,
     published: Number(m.published) || 0,
-    isCar: Number(m.is_car) === 1 || m.is_car === true,
+    isCar: flag(m.is_car),
     moments: momentsOf(m),
     ownerId: Number.isFinite(ownerId) && ownerId > 0 ? ownerId : null,
     firstImage: firstImageOf(m),
@@ -211,11 +247,20 @@ export function dateRangeFor(date: string, endDate: string): string {
   return end && endDate !== date ? `${start} - ${end}` : start;
 }
 
-/** PUT /memories/{id} for Set up of a saved campaign. The cover is sent only when it changed (null removes it). */
-export function updatePayload(form: SetupForm, categories: ReadonlyArray<{ id: number | string; name: string }>, cover: { changed: boolean; url: string | null }): Record<string, unknown> {
+/**
+ * PUT /memories/{id} for Set up of a saved campaign. The cover is sent only when it changed (null removes it).
+ * category_id only when the person picked another category (seededCategory = what Set up opened with) and it is a real
+ * one: a numeric id, or "shopify" for Shopify. Never the cars / website_catalogue placeholders (the API refuses them),
+ * and never for an untouched Shopify / Cars / catalogue / property campaign (the API would re-file it and drop its
+ * Shopify links) — review, 4 Nov.
+ */
+export function updatePayload(form: SetupForm, categories: ReadonlyArray<{ id: number | string; name: string }>, cover: { changed: boolean; url: string | null }, seededCategory: string): Record<string, unknown> {
   const body: Record<string, unknown> = { title: form.title.trim() };
-  const category = categories.find((c) => c.name === form.category);
-  if (category) body.category_id = category.id;
+  if (form.category !== seededCategory) {
+    const category = categories.find((c) => c.name === form.category);
+    const id = category?.id;
+    if (id === 'shopify' || (id !== undefined && /^\d+$/.test(String(id)))) body.category_id = id;
+  }
   body.sub_category_id = form.label.trim() || null;
   const range = dateRangeFor(form.date, form.endDate);
   if (range) body.date_range = range;

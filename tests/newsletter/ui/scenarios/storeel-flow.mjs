@@ -144,7 +144,7 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
     await primary(e.page, width, 'Continue');
     await expectVisible(step(e.page, 'st-step-moments').getByRole('button', { name: 'Add moments on the campaign page' }), `${tag}: saved → Moments`);
     const put = edit.state.memoryPuts.at(-1);
-    expect(put && put.id === 3021 && put.body.title === 'Spring Open House 2026' && put.body.category_id === 8 && put.body.sub_category_id === 'Events'
+    expect(put && put.id === 3021 && put.body.title === 'Spring Open House 2026' && !('category_id' in put.body) && put.body.sub_category_id === 'Events'
       && put.body.date_range === 'Oct 1, 2026 - Oct 9, 2026' && put.body.location === 'Toronto, ON' && !('last_update_img' in put.body),
     `${tag}: PUT /memories/3021 body (got ${JSON.stringify(put?.body)})`);
     await primary(e.page, width, 'Continue');
@@ -227,6 +227,70 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
     expect(await flow(sh.page).getByRole('button', { name: 'Send Now', exact: true }).filter({ visible: true }).last().isDisabled(), `${tag}: 403: Send Now off`);
     await shot(sh.page, `${tag}-12-not-allowed`);
     await sh.context.close();
+
+    // ── Review fixes 1-2, 4: Edit never re-files a Shopify / Cars / catalogue / property campaign, nor dates one ────
+    const kinds = {
+      3101: { ...SAVED, id: 3101, title: 'Shopify picks', category: null, category_id: null, is_shopify: 1 },
+      3102: { ...SAVED, id: 3102, title: 'Jeep deals', category: null, category_id: null, is_car: 1 },
+      3103: { ...SAVED, id: 3103, title: 'Showroom', category: null, category_id: null, property_category_id: 44 },
+      3104: { ...SAVED, id: 3104, title: 'Bench sale', category: { id: 12, name: 'Website Catalogue' } },
+      3105: { ...SAVED, id: 3105, title: 'No dates', min_uploaded_img_date: null, max_uploaded_img_date: null },
+    };
+    const kindApi = createMockApi({ memories: kinds, catalogue: true, cars: true });
+    for (const [id, want] of [[3101, 'Shopify'], [3102, 'Cars'], [3103, 'Current category'], [3104, 'Website Catalogue'], [3105, 'Service']]) {
+      const k = await open({ width, height, api: kindApi, query: `&campaignId=${id}` });
+      const ktitle = k.page.getByPlaceholder(STOREEL_TITLE);
+      await ktitle.waitFor();
+      await k.page.waitForTimeout(1200); // categories, cars and catalogue load
+      const shown = (await k.page.locator('#st-step-setup').getByRole('combobox').first().textContent()) ?? '';
+      expect(shown.includes(want), `${tag}: ${id}: Set up keeps its category "${want}" (shows "${shown}")`);
+      if (id === 3105) expect((await k.page.locator('#st-step-setup input[type="date"]').first().inputValue()) === '', `${tag}: no dates stays empty`);
+      if (id === 3101 && width === 1280) await shot(k.page, `${tag}-13-edit-shopify-keeps-category`);
+      await ktitle.fill(`${kinds[id].title} 2`);
+      await primary(k.page, width, 'Continue');
+      await expectVisible(step(k.page, 'st-step-moments').getByRole('button', { name: 'Add moments on the campaign page' }), `${tag}: ${id}: saved (no 422)`);
+      const kput = kindApi.state.memoryPuts.at(-1);
+      expect(kput && kput.id === id && !('category_id' in kput.body), `${tag}: ${id}: PUT without category_id (got ${JSON.stringify(kput?.body)})`);
+      if (id === 3105) expect(kput && !('date_range' in kput.body), `${tag}: no dates: no date_range (got ${JSON.stringify(kput?.body)})`);
+      await k.context.close();
+    }
+
+    // Create a Cars campaign, then Set up → Edit → Continue: PUT without the cars placeholder (no 422).
+    const carApi = createMockApi({ cars: true });
+    const cc = await open({ width, height, api: carApi });
+    await cc.page.locator('#nl-name').waitFor();
+    await cc.page.getByRole('radio', { name: 'Storeel', exact: true }).click();
+    await cc.page.getByPlaceholder(STOREEL_TITLE).waitFor();
+    await cc.page.waitForTimeout(1200);
+    await cc.page.locator('#st-step-setup').getByRole('combobox').first().click();
+    await cc.page.getByRole('option', { name: 'Cars' }).click();
+    await cc.page.getByPlaceholder(STOREEL_TITLE).fill(`Jeep week ${tag}`);
+    // A Cars campaign is made from picked listings (the picker opens on its own; one is enough here).
+    await cc.page.waitForTimeout(800);
+    await primary(cc.page, width, 'Continue');
+    await expectVisible(step(cc.page, 'st-step-setup').getByRole('button', { name: 'Edit' }), `${tag}: Cars campaign created`);
+    await step(cc.page, 'st-step-setup').getByRole('button', { name: 'Edit' }).click();
+    await primary(cc.page, width, 'Continue');
+    await expectVisible(step(cc.page, 'st-step-moments').getByRole('button', { name: 'Add moments on the campaign page' }), `${tag}: Cars Set up re-saved (no 422)`);
+    const cput = carApi.state.memoryPuts.at(-1);
+    expect(cput && !('category_id' in cput.body), `${tag}: Cars re-save without category_id (got ${JSON.stringify(cput?.body)})`);
+    await cc.context.close();
+
+    // ── Review fix 6: the 1,000-per-send refusal is said once (under Send to), not twice ─────────────────────────
+    const LIMIT = 'This Storeel would go out as 1,200 messages, more than the 1,000 one send can make.';
+    const lim = createMockApi({ memories: { 3021: SAVED }, storeelSendErrors: { audience: LIMIT } });
+    const lm = await open({ width, height, api: lim, query: '&campaignId=3021&resume=send' });
+    const lsend = step(lm.page, 'st-step-send');
+    await lsend.getByLabel('Email address').fill('jordan@example.com');
+    await lsend.getByLabel(/^Message/).fill('Hello');
+    await lm.page.waitForTimeout(1200);
+    await primary(lm.page, width, 'Send Now');
+    await lm.page.getByRole('dialog', { name: 'Send this Storeel now?' }).getByRole('button', { name: 'Send Now' }).click();
+    await lm.page.waitForTimeout(800);
+    const times = await lsend.getByText(LIMIT).count();
+    expect(times === 1, `${tag}: storeel_limit said once in the step (got ${times})`);
+    await shot(lm.page, `${tag}-14-limit-once`);
+    await lm.context.close();
     void opened;
   }
 }

@@ -25,6 +25,8 @@ function tomorrow() {
 const createButton = (page, phone) => (phone
   ? page.getByRole('button', { name: 'Create', exact: true })
   : page.getByRole('button', { name: 'Create a Campaign' })).first();
+/** On the Newsletters view: "Create a Newsletter" (or "Create" on phones). */
+const createNewsletterButton = (page) => page.getByRole('button', { name: /^(Create|Create a Newsletter|Create a Campaign)$/ }).filter({ visible: true }).first();
 
 async function journey({ open, shot, expectVisible, expect, hasOverflow }, width) {
   const phone = width < 768;
@@ -38,8 +40,9 @@ async function journey({ open, shot, expectVisible, expect, hasOverflow }, width
   await page.waitForTimeout(800);
   expect(newsletterCalls(api).length === 0, `opening Campaigns makes no newsletter calls at ${tag}`);
 
-  // Create a Campaign opens on the Newsletter tab.
-  await createButton(page, phone).click();
+  // Create opens on the view's tab (batch A, 4 Nov): from the Newsletters view, on the Newsletter tab.
+  await page.getByRole('radio', { name: 'Newsletters' }).click();
+  await createNewsletterButton(page).click();
   await expectVisible(page.getByRole('radio', { name: 'Newsletter', exact: true, checked: true }), `Create Campaign opens on Newsletter at ${tag}`);
   const preview = page.locator('aside');
   await expectVisible(preview.getByText('Serpa Chrysler').first(), `brand header at ${tag}`);
@@ -239,7 +242,8 @@ export async function run(ctx) {
     const api = createMockApi({ storeelLimit: true, newsletters: seedNewsletters() });
     const { page, context } = await open({ view: 'campaigns', campaignsView: 'storeels', width, height: phone ? 844 : 1000, api });
     await expectVisible(page.getByRole('heading', { name: 'All Campaigns' }), `Campaigns page with the limit at ${width}`);
-    await createButton(page, phone).click();
+    await page.getByRole('radio', { name: 'Newsletters' }).click();
+    await createNewsletterButton(page).click();
     await expectVisible(page.getByRole('heading', { name: 'Name and subject' }), `Newsletter opens with the Storeel limit reached at ${width}`);
     // (The Campaigns page has its own limit banner behind the modal; these look inside Create Campaign only.)
     expect(await page.getByRole('dialog').getByText('Campaign Limit Reached').count() === 0, `no limit notice on the Newsletter tab at ${width}`);

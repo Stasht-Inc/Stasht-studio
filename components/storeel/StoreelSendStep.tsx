@@ -122,7 +122,8 @@ const StoreelSendStep = forwardRef<StoreelSendStepHandle, StoreelSendStepProps>(
     const fields = { ...f.fieldErrors };
     setServerErrors(fields);
     // The step's own banner for what no field shows (not available yet, nobody can be reached, …).
-    const inline = Object.keys(fields).some((k) => /^(message|channels|audience\.\d+\.(email|phone))$/.test(k));
+    // `audience` (nobody reachable, the 1,000-per-send storeel_limit) shows under Send to: not again as a banner.
+    const inline = Object.keys(fields).some((k) => /^(message|channels|audience|audience\.\d+\.(email|phone))$/.test(k));
     setServerStepError(inline ? null : f.message);
     showStep();
     toast.error(f.message);

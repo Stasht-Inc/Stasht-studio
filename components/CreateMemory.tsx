@@ -36,7 +36,7 @@ import StepCard from './newsletters/StepCard';
 import StoreelMomentsStep, { MOMENTS_STEP_ID } from './storeel/StoreelMomentsStep';
 import StoreelSendStep, { SEND_STEP_ID, type StoreelSendStepHandle } from './storeel/StoreelSendStep';
 import {
-  clearFlowResume, coverFromSeed, formFromSeed, seedFromMemory, sessionNotes, startStep, stepNumber, stepStatus, updatePayload, writeFlowResume,
+  clearFlowResume, coverFromSeed, flowOwnerKey, formFromSeed, seedFromMemory, sessionNotes, startStep, stepNumber, stepStatus, updatePayload, writeFlowResume,
   type CampaignSeed, type FlowStep,
 } from './storeel/lib/storeelFlow';
 import { senderLabelFor } from './storeel/lib/storeelSms';
@@ -119,6 +119,8 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
     newsletterId, defaultCategory, mediaCount: selectedMediaLibraryImages?.length ?? 0, photoCount: initialPhotos?.length ?? 0,
     isStarter: starterPlan.known && starterPlan.isStarter, preferred: opensOn,
   });
+  // The category Set up opened with (or last saved): PUT gets category_id only when the person picks another one.
+  const [seededCategory, setSeededCategory] = useState<string | null>(null);
   const campaignTypeRef = useRef<CampaignType>(campaignType);
   campaignTypeRef.current = campaignType;
   const newsletterComposerRef = useRef<NewsletterComposerHandle>(null);
@@ -621,6 +623,11 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
     ...(carsAvailable ? [{ id: CARS_CATEGORY_ID, name: CARS_CATEGORY_NAME }] : []),
     ...(catalogAvailable ? [{ id: CATALOG_CATEGORY_ID, name: CATALOG_CATEGORY_NAME }] : []),
   ];
+  // A saved campaign's own category is always offered as it is (Shopify / Cars / a property's category / "Current
+  // category"), so Set up never falls back to another one; keeping it sends no category_id (review, 4 Nov).
+  if (seededCategory && !categoriesForDropdown.some((c: any) => c.name === seededCategory)) {
+    categoriesForDropdown.push({ id: '__seeded', name: seededCategory });
+  }
 
   // Shared by the "Select from Existing Campaigns" list and its search-suggestions dropdown.
   // "All Categories" merges every source (real campaigns + Cars + Shopify) since those two
@@ -1034,8 +1041,10 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
   /** Set up shows the saved campaign: its fields and its cover (photo or intro video). */
   const applySeed = (seed: CampaignSeed) => {
     const f = formFromSeed(seed);
+    // A campaign with no dates keeps none (no date_range is sent); its category is kept as it is (review, 4 Nov).
+    setSeededCategory(f.category);
     setFormData(prev => ({
-      ...prev, title: f.title, category: f.category || prev.category, label: f.label, date: f.date || prev.date, endDate: f.endDate,
+      ...prev, title: f.title, category: f.category, label: f.label, date: f.date, endDate: f.endDate,
       location: f.location, tags: f.tags, property: [], mediaFiles: [], collaborators: [],
     }));
     setShowEndDate(Boolean(f.endDate));
@@ -1152,6 +1161,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
       setFlowLoadError(null);
       setSetupError(null);
       setSendForbidden(false);
+      setSeededCategory(null);
       initialCoverUrlRef.current = null;
       return undefined;
     }
@@ -1176,7 +1186,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
         setFlowLoadError(message || "This campaign couldn't be opened. Check your connection and try again.");
       };
       dashboardAPI.getMemoryDetails(String(campaignId)).then((res) => {
-        const seed = res?.success ? seedFromMemory(res.data) : null;
+        const seed = res?.success ? seedFromMemory(res.data, categoriesProp?.length ? categoriesProp : apiCategories) : null;
         if (seed) begin(seed);
         else failed(res?.error);
       }).catch(() => failed());
@@ -1191,7 +1201,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
   // which resolves after this effect runs), formData.category is still '' at that
   // point and needs to be filled in here once the fetch actually completes.
   useEffect(() => {
-    if (open && apiCategories.length > 0 && !formData.category) {
+    if (open && !campaignId && !flowCampaignRef.current && apiCategories.length > 0 && !formData.category) {
       const matchName = defaultCategory || 'Personal';
       const matched = apiCategories.find((c: any) => c.name === matchName);
       if (matched) {
@@ -2107,10 +2117,13 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
           initialCoverUrlRef.current = cover?.url ?? null;
           setFlowCampaign({
             ...created,
-            title: memoryData.title, category: formData.category, categoryId: Number(selectedCategoryData.id) || null, label: formData.label,
+            title: memoryData.title, category: formData.category, categoryId: selectedCategoryData.id ?? null,
+            categoryKind: isShopifyCategory ? 'shopify' : isCarsCategory ? 'car' : 'regular', label: formData.label,
             date: formData.date, endDate: showEndDate ? formData.endDate : '', location: formData.location || '', tags: [...formData.tags], cover,
             published: Number(memoryData.published) || 0, isCar: isCarsCategory, moments: created.moments || photosArray.length,
           });
+          // Set up re-edited later saves with PUT, which keeps this category unless another is picked.
+          setSeededCategory(formData.category);
           goToStep('moments');
         } else {
           onOpenChange(false);
@@ -2157,7 +2170,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
     setSetupError(null);
     const coverUrl = coverChoice.kind && coverChoice.url ? coverChoice.url : null;
     const form = { ...formData, endDate: showEndDate ? formData.endDate : '' };
-    const body = updatePayload(form, categoriesForDropdown, { changed: coverUrl !== initialCoverUrlRef.current, url: coverUrl });
+    const body = updatePayload(form, categoriesForDropdown, { changed: coverUrl !== initialCoverUrlRef.current, url: coverUrl }, seededCategory ?? formData.category);
     try {
       const res = await dashboardAPI.updateMemory(String(c.id), body);
       if (res.success) {
@@ -2166,6 +2179,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
           ...c, title: String(body.title), category: formData.category, label: formData.label.trim(), date: form.date, endDate: form.endDate,
           location: formData.location, tags: [...formData.tags], cover: coverChoice.kind && coverUrl ? { kind: coverChoice.kind, url: coverUrl } : null,
         });
+        setSeededCategory(formData.category);
         onCampaignSaved?.(c.id);
         void triggerMemoryCountsRefresh();
         goToStep('moments');
@@ -2203,7 +2217,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
     const c = flowCampaignRef.current;
     if (!c) return;
     handleModalClose();
-    writeFlowResume(sessionNotes(), c.id);
+    writeFlowResume(sessionNotes(), c.id, flowOwnerKey(user, viewType, currentProperty));
     requestOpenCampaign(c.id);
   };
 

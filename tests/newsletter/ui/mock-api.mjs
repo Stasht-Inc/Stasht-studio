@@ -730,7 +730,13 @@ export function createMockApi(options = {}) {
       return ok({ storage_overview: { plan_name: state.plan } });
     }
     if (path === '/user/profile') return ok({ user: PROFILE });
-    if (path === '/website-catalogue') return ok({ available: false });
+    // options.catalogue: the account has Website Catalogue items (Create Campaign then offers its "Website Catalogue").
+    if (path === '/website-catalogue') return ok(options.catalogue ? { available: true, item_count: 2 } : { available: false });
+    if (path === '/website-catalogue/items' && options.catalogue) {
+      return ok({ items: [{ id: 61, title: 'Oak bench', price_label: '$450', category: 'Benches', main_image: null, images_count: 2 }, { id: 62, title: 'Pine shelf', price_label: '$120', category: 'Shelves', main_image: null, images_count: 1 }], pagination: { last_page: 1 } });
+    }
+    // options.cars: the dealer has listings (Create Campaign then offers "Cars").
+    if (path === '/cars' && method === 'GET') return ok({ cars: options.cars ? [{ id: 5, title: '2024 Jeep Wrangler' }] : [], pagination: { last_page: 1 }, filters: {} });
     if (path === '/user/check-memory-limit') {
       return ok({ limit_status: { status: options.storeelLimit ? 'limit_exceeded' : 'within_limit', current_memories: options.storeelLimit ? 5 : 2, memory_limit: 5, ai_connects: 120 } });
     }
@@ -768,6 +774,9 @@ export function createMockApi(options = {}) {
     if (memoryMatch && method === 'PUT') {
       const id = Number(memoryMatch[1]);
       state.memoryPuts.push({ id, body });
+      if (body && 'category_id' in body && body.category_id !== 'shopify' && !/^\d+$/.test(String(body.category_id))) {
+        return fail(422, { message: 'The category id must be an integer or "shopify".', errors: { category_id: ['The category id must be an integer or "shopify".'] } });
+      }
       if (state.putErrors) return fail(422, { message: Object.values(state.putErrors)[0], errors: Object.fromEntries(Object.entries(state.putErrors).map(([k, v]) => [k, [v]])) });
       const m = state.memories.get(id);
       if (m) Object.assign(m, { title: body?.title ?? m.title, location: body?.location ?? m.location, tags: body?.tags ?? m.tags, ...('last_update_img' in (body ?? {}) ? { last_update_img: body.last_update_img } : {}) });

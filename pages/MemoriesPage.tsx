@@ -13,7 +13,7 @@ import { Checkbox } from "../components/ui/checkbox";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "../components/ui/dropdown-menu";
 import MemoryCard from "../components/MemoryCard";
 import CreateMemory, { CreateMemoryHandle } from "../components/CreateMemory";
-import { clearFlowResume, readFlowResume, sessionNotes, type FlowStep } from "../components/storeel/lib/storeelFlow";
+import { clearFlowResume, flowOwnerKey, readFlowResume, sessionNotes, type FlowStep } from "../components/storeel/lib/storeelFlow";
 import { dashboardAPI, isPartialAdmin, apiRequest } from '../utils/authUtils';
 import { RemoveCollaborationModal } from '../components/RemoveCollaborationModal';
 import { mediaAPI } from '../services/mediaAPI';
@@ -454,7 +454,8 @@ function MemoriesPageContent({
   // point 9): the flow opens again on Send for that campaign (once; the note is for one trip).
   const [flowResume, setFlowResume] = useState<{ memoryId: number; step: FlowStep } | null>(null);
   useEffect(() => {
-    const note = readFlowResume(sessionNotes());
+    // Only this account's note, from this view (another sign-in or business never resumes it).
+    const note = readFlowResume(sessionNotes(), flowOwnerKey(user, viewType, currentProperty));
     if (!note) return;
     clearFlowResume(sessionNotes());
     setFlowResume({ memoryId: note.memoryId, step: note.step });

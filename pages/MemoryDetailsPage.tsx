@@ -75,7 +75,7 @@ import { catalogueAPI, type CatalogueItemDetail } from "../services/catalogueAPI
 import Cropper from 'react-easy-crop';
 import { mapLimit } from "../utils/requestLimit";
 import CreateMemory from "../components/CreateMemory";
-import { clearFlowResume, readFlowResume, seedFromMemory, sessionNotes, type FlowStep } from "../components/storeel/lib/storeelFlow";
+import { clearFlowResume, flowOwnerKey, readFlowResume, seedFromMemory, sessionNotes, type FlowStep } from "../components/storeel/lib/storeelFlow";
 import { BUTTON_SMALL_PRIMARY } from "../components/newsletters/lib/ui";
 import { OPEN_CAMPAIGN_EVENT } from "../components/storeel/lib/openCampaign";
 const samanthaAvatar = 'https://images.unsplash.com/photo-1494790108755-2616b612b5bc?w=100&h=100&fit=crop';
@@ -971,20 +971,19 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
   // coming back from adding moments). null = closed.
   const [storeelFlow, setStoreelFlow] = useState<{ resume: FlowStep | null } | null>(null);
   // "Add moments, then continue to Send": set when the flow sent the person here to add moments (storeelFlow.ts).
-  const [flowResume, setFlowResume] = useState(() => readFlowResume(sessionNotes(), Date.now(), Number(memoryId)));
+  const flowOwner = flowOwnerKey(user, viewType, currentProperty);
+  const [flowResume, setFlowResume] = useState(() => readFlowResume(sessionNotes(), flowOwner, { memoryId: Number(memoryId) }));
   // The flow (opened here) sent the person to this page to add moments: the note was just written.
   useEffect(() => {
-    const onOpenCampaign = () => setFlowResume(readFlowResume(sessionNotes(), Date.now(), Number(memoryId)));
+    const onOpenCampaign = () => setFlowResume(readFlowResume(sessionNotes(), flowOwner, { memoryId: Number(memoryId) }));
+    // Another account or view (switched here): its note, if any.
+    onOpenCampaign();
     window.addEventListener(OPEN_CAMPAIGN_EVENT, onOpenCampaign);
     return () => window.removeEventListener(OPEN_CAMPAIGN_EVENT, onOpenCampaign);
-  }, [memoryId]);
+  }, [memoryId, flowOwner]);
   const [updatedPosts, setUpdatedPosts] = useState<{[key: string]: string}>({});
   const [updatedCommentCounts, setUpdatedCommentCounts] = useState<{[key: string]: number}>({});
   const [deletedPosts, setDeletedPosts] = useState<Set<string>>(new Set());
-  const [apiLabels, setApiLabels] = useState<any[]>([]);
-  // Reveals a free-text input so the user can add a new label even when predefined labels exist
-  const [showCustomLabelInput, setShowCustomLabelInput] = useState(false);
-  const [apiCategories, setApiCategories] = useState<any[]>([]);
   const [localMemoryUpdates, setLocalMemoryUpdates] = useState<any>(null);
   const [isPublishing, setIsPublishing] = useState(false);
   const [publishProgress, setPublishProgress] = useState(0);
@@ -1137,17 +1136,6 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
     parentImageIsFeatured: false
   });
 
-  const [editData, setEditData] = useState({
-    title: "",
-    category: "",
-    label: "",
-    date: "",
-    endDate: "",
-    location: "",
-    tags: [] as string[]
-  });
-  const [editStoryTagInput, setEditStoryTagInput] = useState("");
-  const [showEndDate, setShowEndDate] = useState(false);
   const [isAddCollaboratorOpen, setIsAddCollaboratorOpen] = useState(false);
   const [isAddPersonToLibraryOpen, setIsAddPersonToLibraryOpen] = useState(false);
   const [isAiScanActive, setIsAiScanActive] = useState(false);
@@ -2037,7 +2025,6 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
   const [itemToDeleteIsCar, setItemToDeleteIsCar] = useState<boolean>(false);
   
   // Memory update loading state
-  const [isUpdatingMemory, setIsUpdatingMemory] = useState(false);
   
   // Add Moment modal state
   const [isAddMomentModalOpen, setIsAddMomentModalOpen] = useState(false);
@@ -2644,27 +2631,6 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
 
   // Use API collaborators only (no fallback dummy data)
   const collaborators = apiCollaborators;
-
-  // Fetch categories and labels for edit form
-  const fetchCategoriesAndLabels = async () => {
-    try {
-      const response = await dashboardAPI.getCategoriesLabels();
-      if (response.success && response.data?.data) {
-        // Set categories with IDs
-        if (response.data.data.categories?.items) {
-          setApiCategories(response.data.data.categories.items);
-          console.log('Fetched categories with IDs:', response.data.data.categories.items);
-        }
-        // Set labels with IDs  
-        if (response.data.data.labels?.items) {
-          setApiLabels(response.data.data.labels.items);
-          console.log('Fetched labels with IDs:', response.data.data.labels.items);
-        }
-      }
-    } catch (error) {
-      console.error('Error fetching categories and labels:', error);
-    }
-  };
 
   // Function to fetch existing memories from API for "Add to Memory" modal
   const fetchExistingMemories = async () => {
@@ -3540,23 +3506,6 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
           // Extract collaborators from the memory data (collaborator field is in memory object)
           extractCollaboratorsFromMemoryData(memoryData);
 
-          // Initialize edit data with API data
-          if (memoryData) {
-            const startDate = memoryData.min_uploaded_img_date || "";
-            const endDate = memoryData.max_uploaded_img_date || "";
-            const hasEndDate = endDate && endDate !== startDate;
-
-            setEditData({
-              title: memoryData.title || "",
-              category: memoryData.category?.name || "",
-              label: memoryData.sub_category?.name || "",
-              date: startDate,
-              endDate: hasEndDate ? endDate : "",
-              location: memoryData.location || "",
-              tags: Array.isArray(memoryData.tags) ? memoryData.tags : []
-            });
-            setShowEndDate(hasEndDate);
-          }
         } else {
           setApiError(response.error || 'Failed to fetch memory details');
         }
@@ -4437,7 +4386,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
   const CategoryIcon = getCategoryIcon(uiMemory.category);
   const categoryColorHex = isSharedMemory
     ? '#EF4444' // Red color for shared memories
-    : getCategoryColor(uiMemory.category, apiCategories.length > 0 ? apiCategories : categories);
+    : getCategoryColor(uiMemory.category, categories);
 
   // Transform API posts to match UI expected format with enhanced filtering support
   const transformApiPosts = (apiPosts: any[]) => {
@@ -10560,7 +10509,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
         onAddCollaborator={handleAddCollaborator}
         existingCollaborators={collaborators}
         memoryId={memoryId}
-        categories={apiCategories}
+        categories={categories}
         hasProperty={!!(apiMemoryData?.property_id || (apiMemoryData?.property_users?.length > 0))}
         propertyId={apiMemoryData?.property_id}
         memoryProperties={(() => {
@@ -10965,15 +10914,6 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
         </div>
       )}
 
-      {/* Memory Update Loading Overlay */}
-      {isUpdatingMemory && (
-        <div className="absolute inset-0 bg-white bg-opacity-80 flex items-center justify-center z-40">
-          <div className="flex flex-col items-center gap-3">
-            <div className="w-8 h-8 rounded-full border-2 border-[#7B68EE] border-t-transparent animate-spin"></div>
-            <span className="text-[14px] md:text-sm font-medium text-gray-700">Updating campaign...</span>
-          </div>
-        </div>
-      )}
 
       {/* Publish Success Modal */}
       <Dialog open={isPublishModalOpen} onOpenChange={setIsPublishModalOpen}>
@@ -18334,7 +18274,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
           categories={categories}
           campaignId={Number(memoryId)}
           campaignSeed={(() => {
-            const seed = seedFromMemory(apiMemoryData);
+            const seed = seedFromMemory(apiMemoryData, categories);
             return seed ? { ...seed, moments: totalMomentsCount } : null;
           })()}
           resumeStep={storeelFlow.resume}
