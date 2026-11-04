@@ -1,8 +1,9 @@
-// Storeel flow v2 (Deepak, 4 Nov 2026 — approved design), in the real app (App → Campaigns → campaign page), at 1280
-// and 390: the campaign page's Edit (phones: the Timeline pencil) opens the two-step flow on that campaign — step 1
-// prefilled with its moments in the preview, Send waiting; Save Changes = PUT /memories/{id}; then "Changes saved",
-// Done back to the campaign page (toast) or Send Now. No "Continue to Send" card, no resume note. Delete is in step 1.
-// Create from the Campaigns page: Create Campaign → Done → the Campaigns list (Storeels) shows the new campaign.
+// Storeel flow v2 (Deepak, 4 Nov 2026; Chris's single-page change the same day), in the real app (App → Campaigns →
+// campaign page), at 1280 and 390: the campaign page's Edit (phones: the Timeline pencil) opens the one-page flow on
+// that campaign — 1 Campaign prefilled, 2 Moments with its moments, 3 Send (optional) — with the actions at the end:
+// Save Changes (PUT /memories/{id}, toast, back on the page) and Save & Send (PUT, then the confirm). No "Continue to
+// Send" card, no resume note. Delete is in step 1. From the Campaigns page: Create Campaign → toast → the new campaign
+// is in the Storeels list.
 // node tests/campaign-detail/ui/storeel-edit-flow.mjs   (needs the dev server: CD_BASE, default http://localhost:5311)
 // Every API call is answered here and every non-local request is aborted: nothing leaves this machine.
 // Screenshots: CD_SHOTS (default /private/tmp/claude-501/campaign-detail-ui/storeel-edit-flow).
@@ -129,50 +130,46 @@ try {
     await openCampaign(page);
     await page.screenshot({ path: `${OUT}/${tag}-01-campaign-page.png` });
 
-    // ── Edit: prefilled, its moments in the preview, Send waits; Save Changes → PUT → "Changes saved" → Done ────────
+    // ── Edit: one page, prefilled, its moments in step 2 and the preview; Save Changes → PUT → toast, back on the page ─
     await openEdit(page, width);
     expect(await flow(page).isVisible(), `${tag}: Edit opens the Storeel flow (Edit Campaign)`);
     expect(!(await page.getByText('Start Date').filter({ visible: true }).count()), `${tag}: not the old Edit Campaign popover`);
     const title = flow(page).getByPlaceholder('Give your campaign a meaningful title');
     expect((await title.inputValue().catch(() => '')) === 'Fall Promo', `${tag}: step 1 prefilled with the campaign title`);
-    expect(!(await flow(page).locator('#st-step-moments').count()), `${tag}: no Moments step`);
+    const mtext = (await flow(page).locator('#st-step-moments').textContent()) ?? '';
+    expect(mtext.includes('3 moments') && mtext.includes('Moment 1') && mtext.includes('Moment 3'), `${tag}: step 2 lists the campaign's 3 moments`);
     const ptext = (await flow(page).getByTestId('storeel-preview').textContent()) ?? '';
-    expect(ptext.includes('3 moments') && ptext.includes('Moment 1') && ptext.includes('Moment 3'), `${tag}: the preview shows the campaign's 3 moments`);
-    expect(((await flow(page).locator('#st-step-send').textContent()) ?? '').includes('Save your changes first — then you can send it now or later.'), `${tag}: Send waits for Save Changes`);
-    expect(await primary(page, 'Save Changes').isVisible(), `${tag}: Save Changes`);
+    expect(ptext.includes('3 moments'), `${tag}: the preview shows the campaign's 3 moments`);
+    expect(((await flow(page).locator('#st-step-send').textContent()) ?? '').includes('Optional — send it now or later from the campaign page.'), `${tag}: Send is open and optional`);
+    expect(!(await flow(page).getByRole('button', { name: /^(Continue|Done)$/ }).count()), `${tag}: no Continue / Done`);
     await page.screenshot({ path: `${OUT}/${tag}-02-edit-flow.png` });
 
     await title.fill('Fall Promo 2026');
     await primary(page, 'Save Changes').click();
-    await flow(page).locator('#st-step-campaign').getByText('Changes saved').waitFor({ timeout: 8000 }).catch(() => {});
-    expect(await flow(page).locator('#st-step-campaign').getByText('Changes saved').isVisible().catch(() => false), `${tag}: "Changes saved"`);
+    await page.getByText('Changes saved').first().waitFor({ timeout: 8000 }).catch(() => {});
+    await page.waitForTimeout(800);
     const put = state.puts.at(-1);
     expect(put && put.title === 'Fall Promo 2026' && !('category_id' in put) && put.date_range === 'Oct 1, 2026' && put.location === 'Toronto, ON' && JSON.stringify(put.tags) === '["fall"]',
       `${tag}: Save Changes = PUT /memories/901 (got ${JSON.stringify(put)})`);
-    expect(await flow(page).locator('#st-step-send').getByText('Your campaign is saved. Send it now, or do it later.').isVisible().catch(() => false), `${tag}: Send enabled once saved`);
-    await page.screenshot({ path: `${OUT}/${tag}-03-changes-saved.png` });
-    await primary(page, 'Done').click();
-    await page.getByText('Changes saved').first().waitFor({ timeout: 8000 }).catch(() => {});
-    await page.waitForTimeout(800);
-    expect(!(await flow(page).count()), `${tag}: Done closes the flow`);
+    expect(await page.getByText('Changes saved').first().isVisible().catch(() => false), `${tag}: toast "Changes saved"`);
+    expect(!(await flow(page).count()), `${tag}: Save Changes closes the flow`);
     expect(await page.getByText('Fall Promo 2026').filter({ visible: true }).count() > 0, `${tag}: back on the campaign page, refreshed`);
-    expect(!state.sends.length, `${tag}: Done sent nothing`);
+    expect(!state.sends.length, `${tag}: nothing sent`);
     expect(!(await page.getByRole('button', { name: 'Continue to Send' }).count()), `${tag}: no "Continue to Send" card`);
-    await page.screenshot({ path: `${OUT}/${tag}-04-done-back-on-page.png` });
+    await page.screenshot({ path: `${OUT}/${tag}-03-saved-back-on-page.png` });
 
-    // ── Edit again → Save Changes → Send Now → sent ────────────────────────────────────────────────────────────────
+    // ── Edit again → Save & Send → confirm → sent ──────────────────────────────────────────────────────────────────
     await openEdit(page, width);
-    await primary(page, 'Save Changes').click();
     const send = flow(page).locator('#st-step-send');
-    await send.getByLabel('Email address').waitFor({ timeout: 8000 }).catch(() => {});
     await send.getByLabel('Email address').fill('jordan@example.com');
     await send.getByLabel('Phone number').fill('4165550171');
     await send.getByLabel(/^Message/).fill('Our fall promo is on now.');
     await page.waitForTimeout(1200);
     await page.screenshot({ path: `${OUT}/${tag}-05-send.png` });
-    await primary(page, 'Send Now').click();
+    await primary(page, 'Save & Send').click();
     const confirm = page.getByRole('dialog', { name: 'Send this Storeel now?' });
     await confirm.waitFor({ timeout: 8000 }).catch(() => {});
+    expect(state.puts.length === 2, `${tag}: Save & Send saved first (PUT)`);
     await confirm.getByRole('button', { name: 'Send Now' }).click();
     await page.getByText('Sent: 1 email and 1 text.').first().waitFor({ timeout: 8000 }).catch(() => {});
     expect(await page.getByText('Sent: 1 email and 1 text.').first().isVisible().catch(() => false), `${tag}: toast after sending`);
@@ -200,20 +197,18 @@ try {
     const create = page.getByRole('dialog', { name: 'Create Campaign' });
     await create.getByPlaceholder('Give your campaign a meaningful title').waitFor({ timeout: 10000 }).catch(() => {});
     await page.waitForTimeout(800);
-    await page.screenshot({ path: `${OUT}/${tag}-08a-create-opened.png` });
     await create.getByPlaceholder('Give your campaign a meaningful title').fill(`Winter tires ${tag}`);
     // This account has no "Personal" category to default to: pick its own.
     await create.locator('#st-step-campaign').getByRole('combobox').first().click();
     await page.getByRole('option', { name: 'Campaigns' }).click();
     await page.waitForTimeout(400);
     expect(!state.created.length, `${tag}: nothing created before Create Campaign`);
+    await create.locator('#st-step-moments').scrollIntoViewIfNeeded();
+    await page.screenshot({ path: `${OUT}/${tag}-08-create-one-page.png` });
     await create.getByRole('button', { name: 'Create Campaign', exact: true }).filter({ visible: true }).last().click();
-    await create.locator('#st-step-campaign').getByText('Campaign created').waitFor({ timeout: 8000 }).catch(() => {});
+    await page.waitForTimeout(1500);
     expect(state.created.length === 1, `${tag}: Create Campaign made one campaign (got ${state.created.length})`);
-    await page.screenshot({ path: `${OUT}/${tag}-08-created.png` });
-    await create.getByRole('button', { name: 'Done', exact: true }).filter({ visible: true }).last().click();
-    await page.waitForTimeout(1200);
-    expect(!(await create.count()), `${tag}: Done closes Create Campaign`);
+    expect(!(await create.count()), `${tag}: Create Campaign closes`);
     expect(await page.getByText('Campaign created').first().isVisible().catch(() => false), `${tag}: toast "Campaign created"`);
     expect(await page.getByText(`Winter tires ${tag}`).filter({ visible: true }).count() > 0, `${tag}: the Campaigns list shows the new campaign`);
     await page.screenshot({ path: `${OUT}/${tag}-09-campaigns-list-after-done.png` });

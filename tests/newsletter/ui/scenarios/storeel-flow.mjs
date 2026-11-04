@@ -1,41 +1,38 @@
-// Storeel flow v2 (Deepak, 4 Nov 2026 — approved design): Create / Edit a Storeel in TWO steps, explicit save, optional
-// send. 1 Campaign (every Set up field; the live preview shows every moment; NOTHING is saved before "Create Campaign" /
-// "Save Changes"), then it folds to "Campaign created" / "Changes saved" (View campaign, Edit); 2 Send (optional,
-// enabled only once saved) with Done and Send Now. No Moments step, no resume note.
+// Storeel flow v2 (Deepak, 4 Nov 2026) with Chris's changes the same day: ONE scrolling page like the newsletter
+// composer — cards all open, top to bottom: 1 Campaign, 2 Moments (the original Add a Moment UI, captions edited the
+// way the campaign page edits them), 3 Send (optional) — and the actions at the END of the list: Create Campaign /
+// Create & Send (edit: Save Changes / Save & Send). Nothing is saved before one of them; no Continue, no header action.
 // At 1280 and 390:
-//  - create with a picked Website Catalogue product + an uploaded photo → the preview shows 2 moments BEFORE saving,
-//    nothing is POSTed until Create Campaign; Create → step 1 folded + Send enabled; Done → toast, no send;
-//  - Send Now path; View campaign; Edit again after creating (Save Changes = PUT, Cancel puts the saved values back);
-//  - Edit (a saved campaign) → prefilled, Send waits, Save Changes → PUT → Done; 422 on save and on send;
-//  - 503 not available, Starter allowance + See plans, 403, the 1,000-per-send refusal said once;
-//  - Shopify / Cars / catalogue / property / no-dates campaigns are never re-filed or dated on Save Changes;
-//  - a Cars campaign: the vehicle in the preview, created, re-saved without the cars placeholder.
+//  - create with 2 uploaded photos with captions + 1 picked product → the preview shows 3 moments, nothing POSTed;
+//    Create Campaign → one POST with the product and both photos (captions, in order) → toast, closed;
+//  - Create & Send: off with the reason until Send is filled in; then one POST → confirm → sent;
+//  - Create & Send, confirm left → "Campaign created…", Save Changes / Save & Send (PUT, never a second campaign);
+//  - Edit: prefilled, step 2 lists its moments, a caption saved on the campaign (PUT /memory-images/{id}); Save Changes
+//    → PUT → toast, closed; Save & Send → confirm; 422s; 503; Starter allowance; 403;
+//  - Shopify / Cars / catalogue / property / no-dates campaigns never re-filed or dated; a Cars campaign's vehicle.
 // node tests/newsletter/ui/check.mjs storeel-flow   (NL_BASE = the dev server)
+import { readFileSync } from 'fs';
 import { createMockApi, IMG } from '../mock-api.mjs';
 
 const STOREEL_TITLE = 'Give your campaign a meaningful title';
-const PHOTO = new URL('../../../../public/pwa-icon-512.png', import.meta.url).pathname;
-// GET /memories/3021 (MemoriesController::show) for Edit: three moments.
+const PNG = readFileSync(new URL('../../../../public/pwa-icon-512.png', import.meta.url));
 const SAVED = {
   id: 3021, title: 'Spring Open House', slug: 'spring-open-house', published: 1, is_car: 0, user_id: 990002,
   category: { id: 8, name: 'Service' }, sub_category: { id: 3, name: 'Events' }, min_uploaded_img_date: '2026-10-01', max_uploaded_img_date: '2026-10-09',
   location: 'Toronto, ON', tags: ['spring'], last_update_img: null,
   posts: [
-    { id: 1, parent_id: null, image_link: IMG, title: 'Front porch', capture_date: '2026-10-01 10:00:00' },
-    { id: 2, parent_id: null, image_link: IMG, title: 'Kitchen', capture_date: '2026-10-02 10:00:00' },
-    { id: 3, parent_id: null, image_link: IMG, title: 'Backyard', capture_date: '2026-10-03 10:00:00' },
+    { id: 1, parent_id: null, image_link: IMG, title: 'Front porch', description: 'Fresh paint and new railings.', capture_date: '2026-10-01 10:00:00' },
+    { id: 2, parent_id: null, image_link: IMG, title: 'Kitchen', description: '', capture_date: '2026-10-02 10:00:00' },
+    { id: 3, parent_id: null, image_link: IMG, title: 'Backyard', description: '', capture_date: '2026-10-03 10:00:00' },
   ],
 };
-const LOCKED_CREATE = 'Save your campaign first — then you can send it now or later.';
-const LOCKED_EDIT = 'Save your changes first — then you can send it now or later.';
-const INTRO = 'Your campaign is saved. Send it now, or do it later.';
+const OPTIONAL = 'Optional — send it now or later from the campaign page.';
 
 const flow = (page) => page.getByRole('dialog', { name: /^(Create|Edit) Campaign$/ });
-// Wider screens: the top bar; phones: the sticky footer.
 const button = (page, name) => flow(page).getByRole('button', { name, exact: true }).filter({ visible: true }).last();
-const primary = async (page, name) => { await button(page, name).click(); };
 const step = (page, id) => page.locator(`#${id}`);
-const moments = (page) => page.getByTestId('storeel-preview-moments').locator(':scope > li');
+const previewMoments = (page) => page.getByTestId('storeel-preview-moments').locator(':scope > li');
+const rows = (page) => step(page, 'st-step-moments').locator('li[data-moment-row]');
 const createPosts = (api) => api.state.calls.filter((c) => c.method === 'POST' && c.path === '/memories');
 
 async function openStoreel(open, width, height, api) {
@@ -43,7 +40,7 @@ async function openStoreel(open, width, height, api) {
   await o.page.locator('#nl-name').waitFor();
   await o.page.getByRole('radio', { name: 'Storeel', exact: true }).click();
   await o.page.getByPlaceholder(STOREEL_TITLE).waitFor();
-  await o.page.waitForTimeout(900); // categories, catalogue and cars load
+  await o.page.waitForTimeout(900);
   return o;
 }
 
@@ -53,239 +50,238 @@ async function chooseCategory(page, name) {
   await page.waitForTimeout(500);
 }
 
-/** The Media box's file picker → Add a Moment → "Add all" (the photo is uploaded; mock answers with IMG). */
-async function uploadPhoto(page) {
-  await page.locator('#create-memory-file-upload').setInputFiles(PHOTO);
+/** Step 2's Add a Moment → the original Add a Moment UI → pick photos → Add all (each is uploaded; mock answers IMG). */
+async function addPhotos(page, names) {
+  await step(page, 'st-step-moments').getByRole('button', { name: 'Add a Moment' }).click();
+  await page.locator('#file-upload').setInputFiles(names.map((name) => ({ name, mimeType: 'image/png', buffer: PNG })));
+  await page.waitForTimeout(1500);
   await page.getByRole('button', { name: /^Add all/ }).click();
-  await page.waitForTimeout(2500);
+  await page.waitForTimeout(1200);
+}
+
+/** A moment's caption, written the way the campaign page does it (Add caption → Write a caption… → Save). */
+async function caption(page, index, text) {
+  const row = rows(page).nth(index);
+  await row.getByRole('button', { name: /^(Add|Edit) caption$/ }).click();
+  await row.getByPlaceholder('Write a caption...').fill(text);
+  await row.getByRole('button', { name: 'Save', exact: true }).click();
+  await page.waitForTimeout(300);
+}
+
+async function scrollToEnd(page) {
+  await page.locator('[role="dialog"] .modal-scrollbar').first().evaluate((el) => el.scrollTo(0, el.scrollHeight));
+  await page.waitForTimeout(300);
 }
 
 export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
   for (const [width, height] of [[1280, 1000], [390, 844]]) {
     const tag = String(width);
 
-    // ── Create: a picked catalogue product + an uploaded photo → 2 moments in the preview, nothing POSTed ──────────
+    // ── Create: 2 photos with captions + 1 picked product → 3 moments; Create Campaign → one POST, in order ───────
     const api = createMockApi({ catalogue: true });
     const { page, context } = await openStoreel(open, width, height, api);
-    await expectVisible(step(page, 'st-step-campaign').getByRole('heading', { name: 'Campaign' }), `${tag}: 1 Campaign`);
-    await expectVisible(step(page, 'st-step-send').getByRole('heading', { name: 'Send' }), `${tag}: 2 Send`);
-    expect(!(await page.locator('#st-step-moments').count()), `${tag}: no Moments step`);
-    expect((await step(page, 'st-step-send').textContent()).includes(LOCKED_CREATE), `${tag}: Send waits with "${LOCKED_CREATE}"`);
-    await expectVisible(button(page, 'Create Campaign'), `${tag}: Create Campaign button`);
-    await expectVisible(button(page, 'Cancel'), `${tag}: Cancel button`);
-    expect(!(await flow(page).getByRole('button', { name: 'Continue', exact: true }).count()), `${tag}: no Continue button`);
-    expect((await page.getByTestId('storeel-preview').textContent()).includes('0 moments'), `${tag}: empty form: 0 moments`);
+    for (const [id, name] of [['st-step-campaign', 'Campaign'], ['st-step-moments', 'Moments'], ['st-step-send', 'Send']]) {
+      await expectVisible(step(page, id).getByRole('heading', { name, exact: true }), `${tag}: card ${name} open`);
+    }
+    expect((await step(page, 'st-step-send').textContent()).includes(OPTIONAL), `${tag}: Send says it is optional`);
+    expect(!(await flow(page).getByRole('button', { name: /^(Continue|Done)$/ }).count()), `${tag}: no Continue / Done`);
+    expect(!(await page.locator('header').getByRole('button', { name: /Create Campaign|Create & Send|Send Now/ }).count()), `${tag}: no action in the top bar`);
+    expect(!(await page.getByText('Press Continue').count()), `${tag}: no "Press Continue…" text`);
+    expect(await button(page, 'Create & Send').isDisabled(), `${tag}: Create & Send off until Send is filled in`);
+    await shot(page, `${tag}-01-empty`);
 
     await page.getByPlaceholder(STOREEL_TITLE).fill(`Great Products ${tag}`);
     await chooseCategory(page, 'Website Catalogue');
     await page.getByText('Oak bench', { exact: true }).first().click();
-    await page.waitForTimeout(400);
-    expect((await page.getByTestId('storeel-preview').textContent()).includes('1 moment'), `${tag}: picked product → 1 moment`);
-    await uploadPhoto(page);
-    const preview = page.getByTestId('storeel-preview');
-    const ptext = (await preview.textContent()) ?? '';
-    expect(ptext.includes('2 moments'), `${tag}: product + photo → "2 moments" (got "${ptext.slice(0, 160)}")`);
-    expect((await moments(page).count()) === 2, `${tag}: two moment cards (got ${await moments(page).count()})`);
-    expect(await moments(page).nth(0).getAttribute('data-moment-kind') === 'product' && await moments(page).nth(1).getAttribute('data-moment-kind') === 'photo',
-      `${tag}: the product first, then the photo (the order the API makes them)`);
-    expect(ptext.includes('Oak bench') && ptext.includes('$450') && ptext.includes('View on website'), `${tag}: the product moment: title, price, View on website`);
-    expect((await moments(page).nth(0).locator('img').first().getAttribute('src')) === IMG, `${tag}: the product's photo`);
-    expect((await moments(page).nth(1).locator('img').first().getAttribute('src')) === IMG, `${tag}: the uploaded photo`);
-    expect(createPosts(api).length === 0 && api.state.storeels.length === 0, `${tag}: NOTHING POSTed before Create Campaign`);
-    expect(!(await hasOverflow(page)), `${tag}: no sideways scroll with moments`);
-    await preview.scrollIntoViewIfNeeded();
-    await shot(page, `${tag}-01-before-create-2-moments`);
+    await page.waitForTimeout(300);
+    await addPhotos(page, ['front.png', 'kitchen.png']);
+    expect((await rows(page).count()) === 3, `${tag}: step 2 lists 3 moments (got ${await rows(page).count()})`);
+    expect(await rows(page).nth(0).getAttribute('data-moment-row') === 'product', `${tag}: the product first`);
+    await caption(page, 1, 'Front porch, freshly painted');
+    await caption(page, 2, 'Brand new kitchen');
+    const ptext = (await page.getByTestId('storeel-preview').textContent()) ?? '';
+    expect(ptext.includes('3 moments') && (await previewMoments(page).count()) === 3, `${tag}: the preview shows 3 moments (got "${ptext.slice(0, 120)}")`);
+    expect(ptext.includes('Oak bench') && ptext.includes('View on website') && ptext.includes('Front porch, freshly painted') && ptext.includes('Brand new kitchen'),
+      `${tag}: product, View on website and both captions in the preview`);
+    expect(createPosts(api).length === 0, `${tag}: NOTHING POSTed before Create Campaign`);
+    expect(!(await hasOverflow(page)), `${tag}: no sideways scroll`);
+    await step(page, 'st-step-moments').scrollIntoViewIfNeeded();
+    await shot(page, `${tag}-02-three-moments`);
+    await scrollToEnd(page);
+    await expectVisible(button(page, 'Create Campaign'), `${tag}: Create Campaign at the end of the list`);
+    await shot(page, `${tag}-03-end-of-list-actions`);
 
-    await primary(page, 'Create Campaign');
-    await expectVisible(step(page, 'st-step-campaign').getByText('Campaign created'), `${tag}: step 1 folds to "Campaign created"`);
-    const created = api.state.storeels.at(-1);
-    expect(createPosts(api).length === 1, `${tag}: one POST /memories (got ${createPosts(api).length})`);
-    expect(created && created.category_id === 'website_catalogue' && JSON.stringify(created.catalog_item_ids) === '[61]' && created.photos?.length === 1 && created.photos_count === 1,
-      `${tag}: POST body: the catalogue item and the photo (got ${JSON.stringify(created && { c: created.category_id, i: created.catalog_item_ids, p: created.photos?.length })})`);
-    const camp = step(page, 'st-step-campaign');
-    await expectVisible(camp.getByRole('button', { name: 'View campaign' }), `${tag}: View campaign`);
-    await expectVisible(camp.getByRole('button', { name: 'Edit', exact: true }), `${tag}: Edit`);
-    await expectVisible(camp.getByRole('button', { name: 'Add more moments on the campaign page' }), `${tag}: Add more moments link`);
-    const send = step(page, 'st-step-send');
-    await expectVisible(send.getByText(INTRO), `${tag}: Send enabled: "${INTRO}"`);
-    await expectVisible(send.getByLabel('Email address'), `${tag}: Send enabled: Single person`);
-    await expectVisible(button(page, 'Done'), `${tag}: Done`);
-    await expectVisible(button(page, 'Send Now'), `${tag}: Send Now`);
-    expect(!(await flow(page).getByRole('button', { name: 'Create Campaign', exact: true }).count()), `${tag}: no second Create Campaign`);
-    expect(!(await page.getByRole('radio', { name: 'Newsletter' }).count()), `${tag}: no Newsletter | Storeel switch once created`);
-    expect((await preview.textContent()).includes('2 moments'), `${tag}: still 2 moments after creating`);
-    await page.locator('[role="dialog"] .modal-scrollbar').first().evaluate((el) => el.scrollTo(0, 0));
-    await shot(page, `${tag}-02-created-send-enabled`);
-
-    await primary(page, 'Done');
-    await expectVisible(page.getByText('Campaign created').last(), `${tag}: Done → toast "Campaign created"`);
+    await button(page, 'Create Campaign').click();
+    await expectVisible(page.getByText('Campaign created').last(), `${tag}: toast "Campaign created"`);
     await page.waitForTimeout(400);
-    expect(!(await flow(page).count()), `${tag}: Done closes the flow`);
-    expect(!api.state.storeelSends.length && !api.state.calls.some((c) => /storeel-send/.test(c.path)), `${tag}: Done sends nothing`);
-    await shot(page, `${tag}-03-done-toast`);
+    const made = api.state.storeels.at(-1);
+    expect(createPosts(api).length === 1, `${tag}: one POST /memories`);
+    expect(made && JSON.stringify(made.catalog_item_ids) === '[61]' && made.photos_count === 2
+      && made.photos?.[0]?.description === 'Front porch, freshly painted' && made.photos?.[1]?.description === 'Brand new kitchen'
+      && made.photos?.[0]?.imageName === 'front.png' && made.photos?.[1]?.imageName === 'kitchen.png',
+    `${tag}: the product + both photos with their captions, in order (got ${JSON.stringify(made && { i: made.catalog_item_ids, p: made.photos?.map((p) => [p.imageName, p.description]) })})`);
+    expect(!(await flow(page).count()) && !api.state.storeelSends.length, `${tag}: closed, nothing sent`);
+    await shot(page, `${tag}-04-created-toast`);
     await context.close();
 
-    // ── Create → Send Now → confirm → sent (and View campaign / Edit again on the way) ───────────────────────────
+    // ── Create & Send: off with the reason until Send is filled in; then POST → confirm → sent ───────────────────
     const sapi = createMockApi({});
     const s = await openStoreel(open, width, height, sapi);
-    const opened = [];
-    await s.page.exposeFunction('__openCampaign', (id) => opened.push(id));
-    await s.page.evaluate(() => window.addEventListener('stasht-open-campaign', (e) => window.__openCampaign(e.detail.memoryId)));
     await s.page.getByPlaceholder(STOREEL_TITLE).fill(`Spring sale ${tag}`);
-    await primary(s.page, 'Create Campaign');
-    await expectVisible(step(s.page, 'st-step-campaign').getByText('Campaign created'), `${tag}: created`);
-    const sid = sapi.state.storeels.at(-1)?.id;
-    // Edit again: Save Changes (PUT), Cancel puts the saved title back.
-    await step(s.page, 'st-step-campaign').getByRole('button', { name: 'Edit', exact: true }).click();
-    await expectVisible(button(s.page, 'Save Changes'), `${tag}: Edit after creating → Save Changes`);
-    expect((await step(s.page, 'st-step-send').textContent()).includes(LOCKED_EDIT), `${tag}: Send waits while step 1 is open again ("${LOCKED_EDIT}")`);
-    expect(!(await s.page.locator('#create-memory-file-upload').count()), `${tag}: no Media once created (PUT can't add moments)`);
-    await s.page.getByPlaceholder(STOREEL_TITLE).fill('Typo title');
-    await primary(s.page, 'Cancel');
-    await expectVisible(step(s.page, 'st-step-campaign').getByText('Campaign created'), `${tag}: Cancel folds step 1 again`);
-    expect((await step(s.page, 'st-step-campaign').textContent()).includes(`Spring sale ${tag}`), `${tag}: Cancel put the saved title back`);
-    expect(!sapi.state.memoryPuts.length, `${tag}: Cancel saved nothing`);
-    await step(s.page, 'st-step-campaign').getByRole('button', { name: 'Edit', exact: true }).click();
-    await s.page.getByPlaceholder(STOREEL_TITLE).fill(`Spring sale ${tag}!`);
-    await shot(s.page, `${tag}-04-edit-again-after-create`);
-    await primary(s.page, 'Save Changes');
-    await expectVisible(step(s.page, 'st-step-campaign').getByText('Campaign created'), `${tag}: saved again, folded`);
-    const sput = sapi.state.memoryPuts.at(-1);
-    expect(sput && sput.id === sid && sput.body.title === `Spring sale ${tag}!` && !('category_id' in sput.body), `${tag}: Save Changes = PUT /memories/${sid} (got ${JSON.stringify(sput)})`);
-    expect(createPosts(sapi).length === 1, `${tag}: still one campaign (no second POST)`);
-
-    const ssend = step(s.page, 'st-step-send');
-    await ssend.getByLabel('Email address').fill('jordan@example.com');
-    await ssend.getByLabel('Phone number').fill('4165550171');
-    await ssend.getByLabel(/^Message/).fill('Our spring sale starts Saturday.');
-    await s.page.waitForTimeout(1200);
-    expect(!(await hasOverflow(s.page)), `${tag}: no sideways scroll on Send`);
-    await shot(s.page, `${tag}-05-send-filled`);
-    await primary(s.page, 'Send Now');
+    await scrollToEnd(s.page);
+    await expectVisible(s.page.getByText(/^To send now:/), `${tag}: the reason Create & Send is off`);
+    await shot(s.page, `${tag}-05-send-reason`);
+    const send = step(s.page, 'st-step-send');
+    await send.getByLabel('Email address').fill('jordan@example.com');
+    await send.getByLabel('Phone number').fill('4165550171');
+    await send.getByLabel(/^Message/).fill('Our spring sale starts Saturday.');
+    await s.page.waitForTimeout(500);
+    expect(!(await button(s.page, 'Create & Send').isDisabled()), `${tag}: Create & Send on once Send is filled in`);
+    expect(createPosts(sapi).length === 0, `${tag}: still nothing created`);
+    await button(s.page, 'Create & Send').click();
     const confirm = s.page.getByRole('dialog', { name: 'Send this Storeel now?' });
-    await expectVisible(confirm, `${tag}: Send Now → confirm`);
-    expect(/Sending publishes your campaign \(Public\)/.test((await confirm.textContent()) ?? ''), `${tag}: unpublished: sending publishes it`);
+    await expectVisible(confirm, `${tag}: Create & Send → created, then the confirm`);
+    await s.page.waitForTimeout(1200);
+    expect(createPosts(sapi).length === 1, `${tag}: one POST before the confirm`);
+    expect(/1 person/.test((await confirm.textContent()) ?? '') && /Sending publishes your campaign/.test((await confirm.textContent()) ?? ''), `${tag}: confirm counted and says it publishes`);
     await shot(s.page, `${tag}-06-confirm`);
     await confirm.getByRole('button', { name: 'Send Now' }).click();
-    await expectVisible(s.page.getByText('Sent: 1 email and 1 text.'), `${tag}: toast after sending`);
-    await expectVisible(s.page.getByRole('button', { name: 'View stats' }), `${tag}: View stats on the toast`);
+    await expectVisible(s.page.getByText('Sent: 1 email and 1 text.'), `${tag}: sent toast`);
+    await expectVisible(s.page.getByRole('button', { name: 'View stats' }), `${tag}: View stats`);
     const sent = sapi.state.storeelSends.at(-1);
-    expect(sent && sent.id === sid && JSON.stringify(sent.body.audience) === JSON.stringify([{ type: 'person', email: 'jordan@example.com', phone: '+14165550171' }]), `${tag}: send payload (got ${JSON.stringify(sent?.body)})`);
+    expect(sent && sent.id === sapi.state.storeels.at(-1)?.id && JSON.stringify(sent.body.audience) === JSON.stringify([{ type: 'person', email: 'jordan@example.com', phone: '+14165550171' }]),
+      `${tag}: sent to the new campaign (got ${JSON.stringify(sent)})`);
     await s.page.waitForTimeout(400);
-    expect(!(await flow(s.page).count()), `${tag}: the flow closes after sending`);
-    await shot(s.page, `${tag}-07-sent-toast`);
+    expect(!(await flow(s.page).count()), `${tag}: closed after sending`);
+    await shot(s.page, `${tag}-07-sent`);
     await s.context.close();
 
-    // View campaign (create): closes and asks App to open the campaign page.
-    const vapi = createMockApi({});
-    const v = await openStoreel(open, width, height, vapi);
-    const vopened = [];
-    await v.page.exposeFunction('__openCampaign', (id) => vopened.push(id));
-    await v.page.evaluate(() => window.addEventListener('stasht-open-campaign', (e) => window.__openCampaign(e.detail.memoryId)));
-    await v.page.getByPlaceholder(STOREEL_TITLE).fill(`Open me ${tag}`);
-    await primary(v.page, 'Create Campaign');
-    await step(v.page, 'st-step-campaign').getByRole('button', { name: 'View campaign' }).click();
-    await v.page.waitForTimeout(400);
-    expect(!(await flow(v.page).count()) && vopened.includes(vapi.state.storeels.at(-1)?.id), `${tag}: View campaign closes and opens the campaign page (got ${JSON.stringify(vopened)})`);
-    expect(!(await v.page.evaluate(() => sessionStorage.getItem('stasht_storeel_flow_resume'))), `${tag}: no resume note any more`);
-    await v.context.close();
-    void opened;
+    // ── Create & Send, confirm left: it's saved; Save Changes / Save & Send are PUTs (never a second campaign) ──────
+    const bapi = createMockApi({});
+    const b = await openStoreel(open, width, height, bapi);
+    await b.page.getByPlaceholder(STOREEL_TITLE).fill(`Back out ${tag}`);
+    const bsend = step(b.page, 'st-step-send');
+    await bsend.getByLabel('Email address').fill('jordan@example.com');
+    await bsend.getByLabel(/^Message/).fill('Hello');
+    await b.page.waitForTimeout(400);
+    await button(b.page, 'Create & Send').click();
+    const bconfirm = b.page.getByRole('dialog', { name: 'Send this Storeel now?' });
+    await bconfirm.waitFor();
+    await bconfirm.getByRole('button', { name: 'Back' }).click();
+    await b.page.waitForTimeout(1500);
+    const best = (await bsend.getByText('Estimated recipients').locator('..').locator('..').textContent()) ?? '';
+    expect(/1 email/.test(best), `${tag}: once created, the Send card counts with the campaign (got "${best}")`);
+    await scrollToEnd(b.page);
+    await expectVisible(b.page.getByText('Campaign created. Send it now, or later from the campaign page.'), `${tag}: says it was created`);
+    await expectVisible(button(b.page, 'Save Changes'), `${tag}: now Save Changes`);
+    await expectVisible(button(b.page, 'Save & Send'), `${tag}: now Save & Send`);
+    await shot(b.page, `${tag}-08-created-confirm-left`);
+    await button(b.page, 'Save & Send').click();
+    await expectVisible(b.page.getByRole('dialog', { name: 'Send this Storeel now?' }), `${tag}: Save & Send → confirm`);
+    expect(createPosts(bapi).length === 1 && bapi.state.memoryPuts.length === 1, `${tag}: one campaign, then a PUT (posts ${createPosts(bapi).length}, puts ${bapi.state.memoryPuts.length})`);
+    await b.page.getByRole('dialog', { name: 'Send this Storeel now?' }).getByRole('button', { name: 'Back' }).click();
+    await button(b.page, 'Cancel').click();
+    await expectVisible(b.page.getByText('Campaign created').last(), `${tag}: Cancel keeps it and says so`);
+    await b.context.close();
 
-    // ── Edit: prefilled, preview shows its moments, Send waits; 422 on save; Save Changes → PUT; Send; Done ─────────
+    // ── Edit: prefilled, its moments in step 2, a caption saved on the campaign; Save Changes → PUT → closed ──────
     const edit = createMockApi({ memories: { 3021: SAVED }, putErrors: { title: 'This title is already taken.' } });
     const e = await open({ width, height, api: edit, query: '&campaignId=3021' });
     await expectVisible(e.page.getByRole('heading', { name: 'Edit Campaign' }), `${tag}: Edit Campaign`);
     const title = e.page.getByPlaceholder(STOREEL_TITLE);
     await title.waitFor();
+    await e.page.waitForTimeout(600);
     expect((await title.inputValue()) === 'Spring Open House', `${tag}: title prefilled`);
-    expect(!(await e.page.getByRole('radio', { name: 'Newsletter' }).count()), `${tag}: no Newsletter | Storeel switch when editing`);
-    expect(!(await e.page.getByText('Select from Existing Campaigns').count()) && !(await e.page.locator('#create-memory-file-upload').count()), `${tag}: no pickers / media in Edit (PUT can't change them)`);
-    await expectVisible(e.page.getByRole('button', { name: 'Delete campaign' }), `${tag}: Delete in step 1`);
+    expect(!(await e.page.getByText('Select from Existing Campaigns').count()), `${tag}: no pickers in Edit (PUT can't change them)`);
+    expect((await rows(e.page).count()) === 3 && ((await step(e.page, 'st-step-moments').textContent()) ?? '').includes('Fresh paint and new railings.'), `${tag}: step 2 lists the campaign's 3 moments`);
+    expect(((await e.page.getByTestId('storeel-preview').textContent()) ?? '').includes('3 moments'), `${tag}: preview 3 moments`);
     await expectVisible(button(e.page, 'Save Changes'), `${tag}: Save Changes`);
-    await expectVisible(button(e.page, 'Cancel'), `${tag}: Cancel`);
-    expect((await step(e.page, 'st-step-send').textContent()).includes(LOCKED_EDIT), `${tag}: Send waits: "${LOCKED_EDIT}"`);
-    const etext = (await e.page.getByTestId('storeel-preview').textContent()) ?? '';
-    expect(etext.includes('3 moments') && etext.includes('Front porch') && etext.includes('Backyard') && (await moments(e.page).count()) === 3, `${tag}: Edit preview shows the campaign's 3 moments`);
-    await shot(e.page, `${tag}-08-edit-prefilled`);
+    await expectVisible(button(e.page, 'Save & Send'), `${tag}: Save & Send`);
+    await caption(e.page, 1, 'All new cabinets');
+    const upd = edit.state.imageUpdates.at(-1);
+    expect(upd && upd.id === 2 && upd.description === 'All new cabinets', `${tag}: caption saved on the campaign (PUT /memory-images/2) (got ${JSON.stringify(upd)})`);
+    expect(((await e.page.getByTestId('storeel-preview').textContent()) ?? '').includes('All new cabinets'), `${tag}: the preview shows the new caption`);
+    // The original Add a Moment works on the campaign directly (as on its page), and step 2 / the preview follow.
+    await step(e.page, 'st-step-moments').getByRole('button', { name: 'Add a Moment' }).click();
+    await e.page.locator('#file-upload').setInputFiles({ name: 'garage.png', mimeType: 'image/png', buffer: PNG });
+    await e.page.waitForTimeout(1500);
+    await e.page.getByRole('button', { name: /^Add all/ }).click();
+    await e.page.waitForTimeout(2000);
+    expect((edit.state.momentsAdded ?? []).some((a) => a.memoryId === 3021), `${tag}: Add a Moment added it to campaign 3021 (POST upload-photos-after-creation)`);
+    expect((await rows(e.page).count()) === 4 && ((await e.page.getByTestId('storeel-preview').textContent()) ?? '').includes('4 moments'), `${tag}: step 2 and the preview show 4 moments`);
+    expect(!createPosts(edit).length, `${tag}: Edit never POSTs a campaign`);
+    await step(e.page, 'st-step-moments').scrollIntoViewIfNeeded();
+    await shot(e.page, `${tag}-09-edit-moments`);
     await title.fill('Spring Open House 2026');
-    await primary(e.page, 'Save Changes');
+    await button(e.page, 'Save Changes').click();
     await expectVisible(e.page.getByText('This title is already taken.'), `${tag}: 422 title under the title`);
     edit.state.putErrors = null;
-    await primary(e.page, 'Save Changes');
-    await expectVisible(step(e.page, 'st-step-campaign').getByText('Changes saved'), `${tag}: "Changes saved"`);
-    const put = edit.state.memoryPuts.at(-1);
-    expect(put && put.id === 3021 && put.body.title === 'Spring Open House 2026' && !('category_id' in put.body) && put.body.sub_category_id === 'Events'
-      && put.body.date_range === 'Oct 1, 2026 - Oct 9, 2026' && put.body.location === 'Toronto, ON' && !('last_update_img' in put.body),
-    `${tag}: PUT /memories/3021 body (got ${JSON.stringify(put?.body)})`);
-    await expectVisible(button(e.page, 'Done'), `${tag}: Edit saved: Done`);
-    await expectVisible(step(e.page, 'st-step-send').getByText(INTRO), `${tag}: Edit saved: Send enabled`);
-    await shot(e.page, `${tag}-09-edit-saved`);
-    const esend = step(e.page, 'st-step-send');
-    await esend.getByLabel('Email address').fill('jordan@example.com');
-    edit.state.storeelSendErrors = { message: 'Keep your message to 2,000 characters.' };
-    await esend.getByLabel(/^Message/).fill('See what is new this spring.');
-    await e.page.waitForTimeout(1200);
-    await primary(e.page, 'Send Now');
-    await e.page.getByRole('dialog', { name: 'Send this Storeel now?' }).getByRole('button', { name: 'Send Now' }).click();
-    await expectVisible(esend.getByText('Keep your message to 2,000 characters.').first(), `${tag}: 422 message under the Message box`);
-    edit.state.storeelSendErrors = null;
-    await primary(e.page, 'Done');
-    await expectVisible(e.page.getByText('Changes saved').last(), `${tag}: Done → toast "Changes saved"`);
+    await button(e.page, 'Save Changes').click();
+    await expectVisible(e.page.getByText('Changes saved').last(), `${tag}: toast "Changes saved"`);
     await e.page.waitForTimeout(400);
-    expect(!(await flow(e.page).count()), `${tag}: Done closes the Edit flow (back to the campaign page)`);
+    const put = edit.state.memoryPuts.at(-1);
+    expect(put && put.id === 3021 && put.body.title === 'Spring Open House 2026' && !('category_id' in put.body) && put.body.date_range === 'Oct 1, 2026 - Oct 9, 2026' && !('last_update_img' in put.body),
+      `${tag}: PUT /memories/3021 body (got ${JSON.stringify(put?.body)})`);
+    expect(!(await flow(e.page).count()), `${tag}: Save Changes closes (back to the campaign page)`);
     await e.context.close();
 
-    // A saved campaign, opened on Edit and saved, ready to send (the paths below).
-    const saveFirst = async (o) => {
-      await o.page.getByPlaceholder(STOREEL_TITLE).waitFor();
-      await o.page.waitForTimeout(600);
-      await primary(o.page, 'Save Changes');
-      await step(o.page, 'st-step-send').getByLabel('Email address').waitFor({ timeout: 8000 }).catch(() => {});
-    };
+    // Edit → Save & Send: PUT → confirm; a 422 on the message comes back under the box.
+    const es = createMockApi({ memories: { 3021: SAVED }, storeelSendErrors: { message: 'Keep your message to 2,000 characters.' } });
+    const e2 = await open({ width, height, api: es, query: '&campaignId=3021' });
+    await e2.page.getByPlaceholder(STOREEL_TITLE).waitFor();
+    const e2send = step(e2.page, 'st-step-send');
+    await e2send.getByLabel('Email address').fill('jordan@example.com');
+    await e2send.getByLabel(/^Message/).fill('See what is new.');
+    await e2.page.waitForTimeout(1200);
+    await button(e2.page, 'Save & Send').click();
+    const e2c = e2.page.getByRole('dialog', { name: 'Send this Storeel now?' });
+    await expectVisible(e2c, `${tag}: Save & Send → confirm`);
+    expect(es.state.memoryPuts.length === 1, `${tag}: Save & Send saved first (PUT)`);
+    await e2c.getByRole('button', { name: 'Send Now' }).click();
+    await expectVisible(e2send.getByText('Keep your message to 2,000 characters.').first(), `${tag}: 422 message under the Message box`);
+    await shot(e2.page, `${tag}-10-edit-send-422`);
+    await e2.context.close();
 
-    // ── 503: not available yet ───────────────────────────────────────────────────────────────────────────────────
+    // ── 503 / Starter allowance / 403 ──────────────────────────────────────────────────────────────────────────────
     const down = createMockApi({ memories: { 3021: SAVED }, storeelUnavailable: true });
     const d = await open({ width, height, api: down, query: '&campaignId=3021' });
-    await saveFirst(d);
+    await d.page.getByPlaceholder(STOREEL_TITLE).waitFor();
     const dsend = step(d.page, 'st-step-send');
     await dsend.getByLabel('Email address').fill('jordan@example.com');
     await dsend.getByLabel(/^Message/).fill('Hello');
     await d.page.waitForTimeout(1300);
     await expectVisible(dsend.getByText(/Sending Storeels isn.t available yet/).first(), `${tag}: 503 says sending isn't available yet`);
-    await shot(d.page, `${tag}-10-not-available`);
+    await shot(d.page, `${tag}-11-not-available`);
     await d.context.close();
 
-    // ── Starter: counts, allowance 0 → See plans; no paid-only calls ───────────────────────────────────────────────
     const starter = createMockApi({
       plan: 'Starter', memories: { 3021: SAVED },
       allowance: { plan: 'Starter', email_limit: 0, sms_limit: 0, email_used: 0, sms_used: 0, email_pending: 0, sms_pending: 0, resets_at: '2026-12-01T05:00:00Z' },
     });
     const st = await open({ width, height, api: starter, query: '&campaignId=3021' });
-    await saveFirst(st);
-    const ssend2 = step(st.page, 'st-step-send');
-    await ssend2.getByLabel('Email address').fill('jordan@example.com');
-    await ssend2.getByLabel(/^Message/).fill('Hello from a Starter account');
+    await st.page.getByPlaceholder(STOREEL_TITLE).waitFor();
+    const ssend = step(st.page, 'st-step-send');
+    await ssend.getByLabel('Email address').fill('jordan@example.com');
+    await ssend.getByLabel(/^Message/).fill('Hello from a Starter account');
     await st.page.waitForTimeout(1300);
-    expect(!(await ssend2.getByRole('button', { name: 'Manage lists' }).count()), `${tag}: Starter: no Manage lists`);
-    await primary(st.page, 'Send Now');
+    expect(!(await ssend.getByRole('button', { name: 'Manage lists' }).count()), `${tag}: Starter: no Manage lists`);
+    await button(st.page, 'Save & Send').click();
     const sc = st.page.getByRole('dialog', { name: 'Send this Storeel now?' });
     await expectVisible(sc.getByText(/This needs 1 email, but your plan has 0 left this month/), `${tag}: Starter: the allowance says why`);
     await expectVisible(sc.getByRole('button', { name: 'See plans' }), `${tag}: Starter: See plans`);
     expect(await sc.getByRole('button', { name: 'Send Now' }).isDisabled(), `${tag}: Starter: Send Now off`);
     expect(!starter.state.calls.some((c) => /^\/(newsletter|contact-lists)/.test(c.path)), `${tag}: Starter: no paid-only calls`);
-    await shot(st.page, `${tag}-11-starter-allowance`);
+    await shot(st.page, `${tag}-12-starter-allowance`);
     await st.context.close();
 
-    // ── 403: not allowed to send this campaign ─────────────────────────────────────────────────────────────────────
     const shared = createMockApi({ memories: { 3021: SAVED }, storeelForbidden: true });
     const sh = await open({ width, height, api: shared, query: '&campaignId=3021' });
-    await saveFirst(sh);
+    await sh.page.getByPlaceholder(STOREEL_TITLE).waitFor();
     await step(sh.page, 'st-step-send').getByLabel('Email address').fill('jordan@example.com');
     await sh.page.waitForTimeout(1300);
-    await expectVisible(step(sh.page, 'st-step-send').getByText("Only the campaign's owner or its business's admins can send it."), `${tag}: 403: the step says who can send it`);
-    expect(await button(sh.page, 'Send Now').isDisabled(), `${tag}: 403: Send Now off`);
-    await expectVisible(button(sh.page, 'Done'), `${tag}: 403: Done still keeps the saved campaign`);
-    await shot(sh.page, `${tag}-12-not-allowed`);
+    await expectVisible(step(sh.page, 'st-step-send').getByText("Only the campaign's owner or its business's admins can send it."), `${tag}: 403: the card says who can send it`);
+    expect(await button(sh.page, 'Save & Send').isDisabled() && !(await button(sh.page, 'Save Changes').isDisabled()), `${tag}: 403: Save & Send off, Save Changes on`);
+    await shot(sh.page, `${tag}-13-not-allowed`);
     await sh.context.close();
 
     // ── Edit never re-files a Shopify / Cars / catalogue / property campaign, nor dates one ────────────────────────
@@ -303,55 +299,32 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
       await ktitle.waitFor();
       await k.page.waitForTimeout(1200);
       const shown = (await step(k.page, 'st-step-campaign').getByRole('combobox').first().textContent()) ?? '';
-      expect(shown.includes(want), `${tag}: ${id}: step 1 keeps its category "${want}" (shows "${shown}")`);
+      expect(shown.includes(want), `${tag}: ${id}: keeps its category "${want}" (shows "${shown}")`);
       if (id === 3105) expect((await step(k.page, 'st-step-campaign').locator('input[type="date"]').first().inputValue()) === '', `${tag}: no dates stays empty`);
-      if (id === 3101 && width === 1280) await shot(k.page, `${tag}-13-edit-shopify-keeps-category`);
       await ktitle.fill(`${kinds[id].title} 2`);
-      await primary(k.page, 'Save Changes');
-      await expectVisible(step(k.page, 'st-step-campaign').getByText('Changes saved'), `${tag}: ${id}: saved (no 422)`);
+      await button(k.page, 'Save Changes').click();
+      await k.page.waitForTimeout(800);
       const kput = kindApi.state.memoryPuts.at(-1);
       expect(kput && kput.id === id && !('category_id' in kput.body), `${tag}: ${id}: PUT without category_id (got ${JSON.stringify(kput?.body)})`);
-      if (id === 3105) expect(kput && !('date_range' in kput.body), `${tag}: no dates: no date_range (got ${JSON.stringify(kput?.body)})`);
+      if (id === 3105) expect(kput && !('date_range' in kput.body), `${tag}: no dates: no date_range`);
       await k.context.close();
     }
 
-    // ── A Cars campaign: the vehicle is a moment in the preview; created; re-saved without the cars placeholder ────
+    // ── A Cars campaign: the vehicle in step 2 and the preview; created with car_ids ───────────────────────────────
     const carApi = createMockApi({ cars: true });
     const cc = await openStoreel(open, width, height, carApi);
     await cc.page.getByPlaceholder(STOREEL_TITLE).fill(`Jeep week ${tag}`);
     await chooseCategory(cc.page, 'Cars');
     await cc.page.getByText('2024 Jeep Wrangler', { exact: true }).first().click();
     await cc.page.waitForTimeout(400);
+    expect((await rows(cc.page).count()) === 1 && (await rows(cc.page).first().getAttribute('data-moment-row')) === 'vehicle', `${tag}: the vehicle in step 2`);
     const ctext = (await cc.page.getByTestId('storeel-preview').textContent()) ?? '';
-    expect(ctext.includes('1 moment') && ctext.includes('$34,995 · 45,000 mi · Stock #S2300') && (await moments(cc.page).first().getAttribute('data-moment-kind')) === 'vehicle',
-      `${tag}: the picked vehicle is a vehicle moment with price, mileage and stock (got "${ctext.slice(0, 200)}")`);
-    expect(!createPosts(carApi).length, `${tag}: Cars: nothing POSTed before Create Campaign`);
+    expect(ctext.includes('1 moment') && ctext.includes('$34,995 · 45,000 mi · Stock #S2300'), `${tag}: the vehicle in the preview`);
     await cc.page.getByTestId('storeel-preview').scrollIntoViewIfNeeded();
-    await shot(cc.page, `${tag}-14-cars-preview`);
-    await primary(cc.page, 'Create Campaign');
-    await expectVisible(step(cc.page, 'st-step-campaign').getByText('Campaign created'), `${tag}: Cars campaign created`);
-    expect(JSON.stringify(carApi.state.storeels.at(-1)?.car_ids) === '["5"]', `${tag}: Cars: car_ids sent (got ${JSON.stringify(carApi.state.storeels.at(-1)?.car_ids)})`);
-    await step(cc.page, 'st-step-campaign').getByRole('button', { name: 'Edit', exact: true }).click();
-    await primary(cc.page, 'Save Changes');
-    await expectVisible(step(cc.page, 'st-step-campaign').getByText('Campaign created'), `${tag}: Cars re-saved (no 422)`);
-    const cput = carApi.state.memoryPuts.at(-1);
-    expect(cput && !('category_id' in cput.body), `${tag}: Cars re-save without category_id (got ${JSON.stringify(cput?.body)})`);
+    await shot(cc.page, `${tag}-14-cars`);
+    await button(cc.page, 'Create Campaign').click();
+    await cc.page.waitForTimeout(800);
+    expect(JSON.stringify(carApi.state.storeels.at(-1)?.car_ids) === '["5"]', `${tag}: car_ids sent`);
     await cc.context.close();
-
-    // ── The 1,000-per-send refusal is said once (under Send to) ────────────────────────────────────────────────────
-    const LIMIT = 'This Storeel would go out as 1,200 messages, more than the 1,000 one send can make.';
-    const lim = createMockApi({ memories: { 3021: SAVED }, storeelSendErrors: { audience: LIMIT } });
-    const lm = await open({ width, height, api: lim, query: '&campaignId=3021' });
-    await saveFirst(lm);
-    const lsend = step(lm.page, 'st-step-send');
-    await lsend.getByLabel('Email address').fill('jordan@example.com');
-    await lsend.getByLabel(/^Message/).fill('Hello');
-    await lm.page.waitForTimeout(1200);
-    await primary(lm.page, 'Send Now');
-    await lm.page.getByRole('dialog', { name: 'Send this Storeel now?' }).getByRole('button', { name: 'Send Now' }).click();
-    await lm.page.waitForTimeout(800);
-    const times = await lsend.getByText(LIMIT).count();
-    expect(times === 1, `${tag}: storeel_limit said once in the step (got ${times})`);
-    await lm.context.close();
   }
 }

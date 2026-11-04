@@ -63,11 +63,12 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
   }
 
   // Plan gate (contract note 1): Create Campaign opened on the Storeel tab (a category was picked) makes no
-  // newsletter calls at all.
+  // newsletter calls. Since the Storeel flow is one page (4 Nov), its Send card is open at once and, on a paid plan
+  // only, lists the account's contact lists and lead suggestions (the Starter case is checked in storeel-flow).
   const storeel = await open({ query: '&category=Cars' });
   await expectVisible(storeel.page.getByRole('heading', { name: 'Campaign', exact: true }), 'opens on the Storeel tab when a category is picked');
   await storeel.page.waitForTimeout(1500);
-  const newsletterCalls = storeel.api.state.calls.filter((c) => /^\/(newsletter|contact-lists)/.test(c.path));
+  const newsletterCalls = storeel.api.state.calls.filter((c) => /^\/(newsletter|contact-lists)/.test(c.path) && !/^\/(contact-lists|newsletters\/lead-options)/.test(c.path));
   expect(newsletterCalls.length === 0, `no newsletter calls with the Storeel tab showing (got ${newsletterCalls.map((c) => c.path).join(', ')})`);
   await storeel.context.close();
 

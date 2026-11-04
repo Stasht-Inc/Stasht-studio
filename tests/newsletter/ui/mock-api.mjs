@@ -333,6 +333,8 @@ export function createMockApi(options = {}) {
     // PUT /memories/{id} bodies, and the Storeel flow's send bodies (POST /memories/{id}/storeel-send).
     memoryPuts: [],
     storeelSends: [],
+    // A moment's caption saved on a saved campaign (PUT /memory-images/{id}, multipart): {id, description}.
+    imageUpdates: [],
     // The Storeel flow (Chris 4 Nov, point 9): 'not_available' = 503 before the server's SQL ran; putErrors /
     // storeelSendErrors = a 422 {field: message} for PUT /memories/{id} / storeel-send.
     storeelUnavailable: options.storeelUnavailable ?? false,
@@ -768,7 +770,10 @@ export function createMockApi(options = {}) {
         category: { id: body?.category_id, name: body?.category_id === 8 ? 'Service' : 'Personal' }, sub_category: body?.sub_category?.[0] ? { name: body.sub_category[0] } : null,
         min_uploaded_img_date: null, max_uploaded_img_date: null, location: body?.location ?? '', tags: body?.tags ?? [], last_update_img: body?.last_update_img ?? null,
         // A catalogue item becomes a moment (CatalogSnapshotWriter), a picked vehicle a linked campaign (memory_cars).
-        posts: [...(body?.catalog_item_ids ?? []), ...(body?.photos ?? [])].map((_, i) => ({ id: id * 100 + i, parent_id: null })),
+        posts: [
+          ...(body?.catalog_item_ids ?? []).map((itemId) => ({ title: itemId === 61 ? 'Oak bench' : 'Pine shelf', description: 'Price: $450', image_link: IMG })),
+          ...(body?.photos ?? []).map((p) => ({ title: p.title ?? '', description: p.description ?? '', image_link: p.fileUrl ?? IMG })),
+        ].map((p, i) => ({ id: id * 100 + i, parent_id: null, ...p })),
         linked_memories: (body?.car_ids ?? []).map((carId) => ({ id: Number(carId), is_car: 1, title: '2024 Jeep Wrangler' })),
       });
       return ok({ id, title: body?.title, slug, category_id: body?.category_id, sub_category_id: null, collaborators_count: 0, created_at: now() }, 201);
@@ -1121,6 +1126,25 @@ export function createMockApi(options = {}) {
     }
     const call = { method: request.method(), path, query: url.search, body };
     state.calls.push(call);
+    // The campaign page's caption save (dashboardAPI.updateMemoryImages): a multipart form with _method=PUT.
+    const imageMatch = /^\/memory-images\/(\d+)$/.exec(path);
+    if (imageMatch && request.method() === 'POST') {
+      const form = raw ?? '';
+      const field = (name) => new RegExp(`name="${name}"\\r\\n\\r\\n([\\s\\S]*?)\\r\\n--`).exec(form)?.[1];
+      state.imageUpdates.push({ id: Number(imageMatch[1]), description: field('description') ?? null });
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, data: { id: Number(imageMatch[1]), description: field('description') ?? null } }) });
+    }
+    // The original Add a Moment on a saved campaign (mediaAPI.addMoment, multipart): the new moment joins the campaign.
+    if (path === '/memories/upload-photos-after-creation' && request.method() === 'POST') {
+      const form = request.postDataBuffer()?.toString('latin1') ?? '';
+      const field = (name) => new RegExp(`name="${name}"\\r\\n\\r\\n([\\s\\S]*?)\\r\\n--`).exec(form)?.[1];
+      const memoryId = Number(field('memory_id'));
+      const m = state.memories.get(memoryId);
+      const post = { id: memoryId * 1000 + (m?.posts?.length ?? 0), parent_id: null, image_link: IMG, title: field('title_0') ?? field('titles[0]') ?? '', description: field('description_0') ?? field('descriptions[0]') ?? '' };
+      if (m) m.posts = [...(m.posts ?? []), post];
+      state.momentsAdded = [...(state.momentsAdded ?? []), { memoryId, post }];
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, data: [{ image: { ...post, admin_approval: 1 } }] }) });
+    }
     if (path === '/newsletters/images') {
       // What reached the upload: the multipart file part's type, name and size (after any shrinking in the browser).
       const buf = request.postDataBuffer();

@@ -181,8 +181,7 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
     const made = api.state.storeels.find((s) => s.title === 'Next Summit / 25');
     expect(made && made.last_update_img === IMG, `${tag}: created with the cover photo as last_update_img (got ${JSON.stringify(made?.last_update_img)})`);
 
-    // The form is reset for next time: nothing chosen. (Once created, the top bar's Done closes the flow.)
-    await page.getByRole('button', { name: 'Done', exact: true }).filter({ visible: true }).first().click();
+    // The form is reset for next time: nothing chosen. (Create Campaign closed the flow.)
     await page.waitForTimeout(400);
     await page.getByRole('button', { name: 'Open Create Campaign' }).click().catch(() => {});
     await page.waitForTimeout(800);
