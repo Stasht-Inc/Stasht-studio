@@ -64,7 +64,7 @@ export default function StoreelLivePreview({ input, avatarUrl, avatarColor }: {
           <span className="flex-shrink-0 rounded-lg bg-white px-3.5 py-2 text-sm font-medium text-gray-900">Continue</span>
         </div>
         {/* Moment cards: every moment, in order (scrolls inside the phone when there are many) */}
-        <ul data-testid="storeel-preview-moments" aria-label="Moments" className="space-y-3 px-4 lg:max-h-[32rem] lg:overflow-y-auto modal-scrollbar">
+        <ul data-testid="storeel-preview-moments" aria-label="Moments" className="space-y-3 px-4 lg:max-h-[32rem] lg:overflow-y-auto">
           {m.momentCards.length ? m.momentCards.map((moment) => (
             <li key={moment.key} data-moment-kind={moment.kind} className="space-y-3">
               <MomentCard moment={moment} author={m.author} initial={m.initial} avatarUrl={avatarUrl} color={color} />
