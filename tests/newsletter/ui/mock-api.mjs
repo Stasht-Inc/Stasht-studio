@@ -778,6 +778,10 @@ export function createMockApi(options = {}) {
       });
       return ok({ id, title: body?.title, slug, category_id: body?.category_id, sub_category_id: null, collaborators_count: 0, created_at: now() }, 201);
     }
+    // The Media Library (Add a Moment's "Add from Media Library": MediaLibrarySelectionModal reads unassigned_media).
+    if (path === '/memory-images' && method === 'GET') {
+      return { status: 200, json: { unassigned_media: [{ media_id: 501, media_url: IMG, name: 'library-porch.png', media_size: '0.2', capture_date: '2026-10-20' }] } };
+    }
     // The Storeel flow on a saved campaign: GET (Edit, back from the campaign page) and PUT (Set up saved).
     const memoryMatch = /^\/memories\/(\d+)$/.exec(path);
     if (memoryMatch && method === 'GET') {

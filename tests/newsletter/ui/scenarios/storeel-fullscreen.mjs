@@ -1,7 +1,7 @@
 // [wdy2xh2t3z] The Storeel tab uses the Newsletter tab's full-window frame: the same top bar (Back, Create Campaign,
 // Newsletter | Storeel, Cancel), no centred modal, one page of open cards (Storeel flow v2, 4 Nov 2026: 1 Campaign with
 // Advanced filters kept, 2 Moments, 3 Send) with the actions at the END of the list (Create Campaign / Create & Send),
-// and a live phone-style preview that follows the form. Phones: the actions after the preview, at the end of the page.
+// and a live phone-style preview that follows the form. Phones: the actions right after the Send card, then the preview.
 import { IMG, createMockApi } from '../mock-api.mjs';
 
 const STOREEL_TITLE = 'Give your campaign a meaningful title';
@@ -86,16 +86,17 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
   await expectVisible(limited.page.getByText('Campaign Limit Reached'), 'limit notice inline in the frame');
   await limited.context.close();
 
-  // Phones: preview below the form, the actions after it at the end of the page, nothing scrolls sideways.
+  // Phones: the actions right after the Send card (reached right after the form), the preview below them.
   for (const width of [360, 375, 390]) {
     const phone = await open({ width, height: 844 });
     await phone.page.locator('#nl-name').waitFor();
     await phone.page.getByRole('radio', { name: 'Storeel', exact: true }).click();
     const create = phone.page.getByRole('button', { name: 'Create Campaign', exact: true });
-    await expectVisible(create, `Create Campaign at the end of the page at ${width}`);
+    await expectVisible(create, `Create Campaign after the Send card at ${width}`);
     const before = await create.boundingBox();
     const pvBox = await phone.page.getByTestId('storeel-preview').boundingBox();
-    expect(before && pvBox && before.y > pvBox.y, `the actions come after the preview at ${width} (button y ${before?.y}, preview y ${pvBox?.y})`);
+    const sendBox = await phone.page.locator('#st-step-send').boundingBox();
+    expect(before && pvBox && sendBox && before.y > sendBox.y && before.y < pvBox.y, `the actions come after the Send card and before the preview at ${width} (button y ${before?.y}, send y ${sendBox?.y}, preview y ${pvBox?.y})`);
     await create.scrollIntoViewIfNeeded();
     const end = await create.boundingBox();
     expect(end && end.y >= 0 && end.y + end.height <= 844, `scrolled to, the actions show on screen at ${width} (y ${end?.y})`);

@@ -68,6 +68,13 @@ async function caption(page, index, text) {
   await page.waitForTimeout(300);
 }
 
+/** In the viewport (not just "visible" somewhere in the scroller): what a person actually sees. */
+async function inView(page, locator) {
+  const box = await locator.first().boundingBox();
+  const vp = page.viewportSize();
+  return Boolean(box && vp && box.y >= 0 && box.y + Math.min(box.height, 40) <= vp.height && box.x >= 0 && box.x < vp.width);
+}
+
 async function scrollToEnd(page) {
   await page.locator('[role="dialog"] .modal-scrollbar').first().evaluate((el) => el.scrollTo(0, el.scrollHeight));
   await page.waitForTimeout(300);
@@ -89,14 +96,50 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
     expect(!(await page.getByText('Press Continue').count()), `${tag}: no "Press Continue…" text`);
     expect(await button(page, 'Create & Send').isDisabled(), `${tag}: Create & Send off until Send is filled in`);
     await shot(page, `${tag}-01-empty`);
+    // No title: the button is off and says why, above the actions.
+    await page.locator('#st-actions').scrollIntoViewIfNeeded();
+    expect(await button(page, 'Create Campaign').isDisabled() && await inView(page, page.getByText('Add a campaign title.')), `${tag}: Create Campaign off, "Add a campaign title." above the actions`);
 
     await page.getByPlaceholder(STOREEL_TITLE).fill(`Great Products ${tag}`);
     await chooseCategory(page, 'Website Catalogue');
+    // Pressed with no catalogue item: the picker is scrolled into view, and the error shows above the actions too.
+    await page.locator('#st-actions').scrollIntoViewIfNeeded();
+    await button(page, 'Create Campaign').click();
+    await page.waitForTimeout(900);
+    expect(await inView(page, page.locator('#st-pick-items')), `${tag}: no item picked → the picker is brought into view`);
+    expect((await page.locator('#st-actions').getByRole('alert').textContent())?.includes('Pick at least one item from your Website Catalogue.'), `${tag}: …and said above the actions`);
+    expect(createPosts(api).length === 0, `${tag}: refused before any POST`);
+    await shot(page, `${tag}-01b-no-item-picked`);
     await page.getByText('Oak bench', { exact: true }).first().click();
+    await page.waitForTimeout(200);
+    expect(!(await page.locator('#st-actions').getByRole('alert').count()), `${tag}: the error goes once an item is picked`);
     await page.waitForTimeout(300);
     await addPhotos(page, ['front.png', 'kitchen.png']);
     expect((await rows(page).count()) === 3, `${tag}: step 2 lists 3 moments (got ${await rows(page).count()})`);
-    expect(await rows(page).nth(0).getAttribute('data-moment-row') === 'product', `${tag}: the product first`);
+    // Add from Media Library inside Add a Moment (desktop: its "Add" menu; phones only pick files there): the library
+    // opens over it, the file already chosen in it stays, and the library pick is added to step 2.
+    if (width >= 768) {
+      await step(page, 'st-step-moments').getByRole('button', { name: 'Add a Moment' }).click();
+      await page.locator('#file-upload').setInputFiles({ name: 'garden.png', mimeType: 'image/png', buffer: PNG });
+      await page.waitForTimeout(1200);
+      // Add a Moment's own "+ Add" menu (not step 1's tag / label Add buttons, which have no icon).
+      await page.locator('button', { hasText: /^Add$/ }).filter({ has: page.locator('svg') }).filter({ visible: true }).first().click();
+      await page.getByText('Add from Media Library').filter({ visible: true }).first().click();
+      await expectVisible(page.getByRole('heading', { name: 'Add Moments from Library' }), `${tag}: the Media Library opens over Add a Moment`);
+      await page.getByAltText('library-porch.png').click();
+      await page.getByRole('button', { name: 'Add 1 Moment' }).click();
+      await page.waitForTimeout(600);
+      expect(await page.getByRole('button', { name: /^Add all \(1\)/ }).isVisible().catch(() => false), `${tag}: Add a Moment is still open with the file chosen in it`);
+      expect((await rows(page).count()) === 4, `${tag}: the library photo is added to step 2 (got ${await rows(page).count()})`);
+      await shot(page, `${tag}-02a-library-kept-files`);
+      await page.getByRole('button', { name: /^Add all/ }).click();
+      await page.waitForTimeout(1200);
+      expect((await rows(page).count()) === 5, `${tag}: and the chosen file too (got ${await rows(page).count()})`);
+      // Back to 3 moments for the checks below (removing rows never moves another row's caption).
+      await rows(page).nth(4).getByRole('button', { name: /^Remove/ }).click();
+      await rows(page).nth(3).getByRole('button', { name: /^Remove/ }).click();
+      expect((await rows(page).count()) === 3, `${tag}: back to 3 moments`);
+    }
     await caption(page, 1, 'Front porch, freshly painted');
     await caption(page, 2, 'Brand new kitchen');
     const ptext = (await page.getByTestId('storeel-preview').textContent()) ?? '';
@@ -107,8 +150,15 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
     expect(!(await hasOverflow(page)), `${tag}: no sideways scroll`);
     await step(page, 'st-step-moments').scrollIntoViewIfNeeded();
     await shot(page, `${tag}-02-three-moments`);
-    await scrollToEnd(page);
-    await expectVisible(button(page, 'Create Campaign'), `${tag}: Create Campaign at the end of the list`);
+    expect(!(await page.getByTestId('storeel-preview').getByText('Continue', { exact: true }).count()), `${tag}: no "Continue" pill in the preview`);
+    // The actions come right after the Send card (phones: before the preview, so they're reached after the form).
+    const actionsBox = await page.locator('#st-actions').boundingBox();
+    const sendBox = await step(page, 'st-step-send').boundingBox();
+    const pvBox = await page.getByTestId('storeel-preview').boundingBox();
+    expect(actionsBox && sendBox && pvBox && actionsBox.y > sendBox.y + sendBox.height - 2 && (width < 1024 ? actionsBox.y < pvBox.y : actionsBox.x < pvBox.x),
+      `${tag}: the actions right after the Send card${width < 1024 ? ', before the preview' : ''} (actions ${JSON.stringify(actionsBox)}, preview ${JSON.stringify(pvBox)})`);
+    await page.locator('#st-actions').scrollIntoViewIfNeeded();
+    expect(await inView(page, button(page, 'Create Campaign')), `${tag}: Create Campaign in the viewport once scrolled to`);
     await shot(page, `${tag}-03-end-of-list-actions`);
 
     await button(page, 'Create Campaign').click();
@@ -123,6 +173,16 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
     expect(!(await flow(page).count()) && !api.state.storeelSends.length, `${tag}: closed, nothing sent`);
     await shot(page, `${tag}-04-created-toast`);
     await context.close();
+
+    // ── Create Campaign with a filled-in Send card: created, and the toast says it was not sent ───────────────────
+    const napi = createMockApi({});
+    const n = await openStoreel(open, width, height, napi);
+    await n.page.getByPlaceholder(STOREEL_TITLE).fill(`Not sent ${tag}`);
+    await step(n.page, 'st-step-send').getByLabel(/^Message/).fill('Hello there');
+    await button(n.page, 'Create Campaign').click();
+    await expectVisible(n.page.getByText('Campaign created — not sent.'), `${tag}: "Campaign created — not sent."`);
+    expect(createPosts(napi).length === 1 && !napi.state.storeelSends.length, `${tag}: created, nothing sent`);
+    await n.context.close();
 
     // ── Create & Send: off with the reason until Send is filled in; then POST → confirm → sent ───────────────────
     const sapi = createMockApi({});
@@ -197,7 +257,10 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
     expect(((await e.page.getByTestId('storeel-preview').textContent()) ?? '').includes('3 moments'), `${tag}: preview 3 moments`);
     await expectVisible(button(e.page, 'Save Changes'), `${tag}: Save Changes`);
     await expectVisible(button(e.page, 'Save & Send'), `${tag}: Save & Send`);
+    await expectVisible(step(e.page, 'st-step-moments').getByText('Moments and captions save straight to your campaign.'), `${tag}: Edit says moments save at once`);
+    expect(await button(e.page, 'Cancel').isVisible(), `${tag}: Cancel before anything is saved`);
     await caption(e.page, 1, 'All new cabinets');
+    expect(await button(e.page, 'Close').isVisible() && !(await flow(e.page).getByRole('button', { name: 'Cancel', exact: true }).count()), `${tag}: after a caption is saved, Cancel says Close`);
     const upd = edit.state.imageUpdates.at(-1);
     expect(upd && upd.id === 2 && upd.description === 'All new cabinets', `${tag}: caption saved on the campaign (PUT /memory-images/2) (got ${JSON.stringify(upd)})`);
     expect(((await e.page.getByTestId('storeel-preview').textContent()) ?? '').includes('All new cabinets'), `${tag}: the preview shows the new caption`);
@@ -210,11 +273,29 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
     expect((edit.state.momentsAdded ?? []).some((a) => a.memoryId === 3021), `${tag}: Add a Moment added it to campaign 3021 (POST upload-photos-after-creation)`);
     expect((await rows(e.page).count()) === 4 && ((await e.page.getByTestId('storeel-preview').textContent()) ?? '').includes('4 moments'), `${tag}: step 2 and the preview show 4 moments`);
     expect(!createPosts(edit).length, `${tag}: Edit never POSTs a campaign`);
+    // Add from Media Library on a saved campaign works as on the campaign page: the pick goes into Add a Moment, which
+    // adds it to the campaign.
+    if (width >= 768) {
+      await step(e.page, 'st-step-moments').getByRole('button', { name: 'Add a Moment' }).click();
+      await e.page.getByRole('button', { name: 'Choose Files' }).filter({ visible: true }).first().click();
+      await e.page.getByText('Add from Media Library').filter({ visible: true }).first().click();
+      await expectVisible(e.page.getByRole('heading', { name: 'Add Moments from Library' }), `${tag}: Edit: the Media Library opens over Add a Moment`);
+      await e.page.getByAltText('library-porch.png').click();
+      await e.page.getByRole('button', { name: 'Add 1 Moment' }).click();
+      await e.page.waitForTimeout(800);
+      await e.page.getByRole('button', { name: /^Add all/ }).click();
+      await rows(e.page).nth(4).waitFor({ timeout: 8000 }).catch(() => {});
+      expect((edit.state.momentsAdded ?? []).length === 2 && (await rows(e.page).count()) === 5, `${tag}: Edit: the library photo added to the campaign (adds ${(edit.state.momentsAdded ?? []).length}, rows ${await rows(e.page).count()})`);
+    }
     await step(e.page, 'st-step-moments').scrollIntoViewIfNeeded();
     await shot(e.page, `${tag}-09-edit-moments`);
     await title.fill('Spring Open House 2026');
     await button(e.page, 'Save Changes').click();
     await expectVisible(e.page.getByText('This title is already taken.'), `${tag}: 422 title under the title`);
+    await e.page.waitForTimeout(800);
+    expect(await inView(e.page, title), `${tag}: the title is brought into view on the 422`);
+    expect((await e.page.locator('#st-actions').getByRole('alert').textContent())?.includes('This title is already taken.'), `${tag}: …and the error shows above the actions`);
+    await shot(e.page, `${tag}-09b-edit-422-title-in-view`);
     edit.state.putErrors = null;
     await button(e.page, 'Save Changes').click();
     await expectVisible(e.page.getByText('Changes saved').last(), `${tag}: toast "Changes saved"`);
@@ -240,6 +321,9 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
     await e2c.getByRole('button', { name: 'Send Now' }).click();
     await expectVisible(e2send.getByText('Keep your message to 2,000 characters.').first(), `${tag}: 422 message under the Message box`);
     await shot(e2.page, `${tag}-10-edit-send-422`);
+    await e2.page.locator('#st-actions').scrollIntoViewIfNeeded();
+    expect(await inView(e2.page, e2.page.getByText('Changes saved. Send it now, or later.')), `${tag}: after Save & Send's confirm: "Changes saved. Send it now, or later."`);
+    expect(await button(e2.page, 'Close').isVisible(), `${tag}: …and Cancel says Close`);
     await e2.context.close();
 
     // ── 503 / Starter allowance / 403 ──────────────────────────────────────────────────────────────────────────────
