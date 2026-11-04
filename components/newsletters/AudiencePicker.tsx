@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import * as Popover from '@radix-ui/react-popover';
 import { ChevronDown, Loader2, Mail, MessageSquare, Plus, User } from 'lucide-react';
 import type { AudienceItem, NewsletterBlock, NewsletterChannel } from '../../services/newslettersAPI';
@@ -16,7 +16,7 @@ import {
   smsPreview, toggleChannel, toggleGroupItem,
 } from './lib/audience';
 import { personCountSummary, personEntryProblem, personStatusProblems, personSummary } from './lib/person';
-import { smsPartsInfo, smsPartsLabel } from './lib/smsParts';
+import { smsPartsInfo, smsPartsLabel, type SmsPartsInfo } from './lib/smsParts';
 import { MESSAGE_TOO_LONG } from './lib/draft';
 import { syncMessageBlock } from './lib/messageBlock';
 import { canSetDefaultMessage, isDefaultMessage } from './lib/defaultMessage';
@@ -30,7 +30,7 @@ export interface AudiencePickerProps {
   smsText: string;
   /** The name put before the text (the From name, else the owner's name, as the API does). */
   fromName: string;
-  count: AudienceCountState;
+  count: AudienceCountState<unknown>;
   readOnly: boolean;
   /** Load lead groups and lists (paid plan, Newsletter tab showing). */
   enabled: boolean;
@@ -42,6 +42,26 @@ export interface AudiencePickerProps {
   defaultMessage?: string | null;
   /** Save (text) or clear (null) the default message; resolves false when it wasn't saved (the composer says why). */
   onDefaultMessageChange?(message: string | null): Promise<boolean>;
+  /** The card's number, title and DOM id (newsletters: 2 Recipients, nl-step-recipients). */
+  step?: { number: number; title: string; id: string };
+  /** Every DOM id inside starts with this (newsletters: nl). The Storeel flow's Send step uses its own. */
+  idPrefix?: string;
+  /** Paid-plan sources: the account's lists (Add a list, Manage lists) and lead suggestions for Single person. Off on
+   *  the free plan in the Storeel flow, which is on every plan (those endpoints are paid-only). */
+  paid?: boolean;
+  /** The Storeel flow's Message box: its words, its own text-parts count and what text recipients get. Without it,
+   *  the newsletter's (the message also becomes the email's Message section). */
+  message?: {
+    required: boolean;
+    hint: string;
+    placeholder: string;
+    /** Under the box when Text message is ticked. */
+    smsHelp: string;
+    parts: SmsPartsInfo;
+    preview: string;
+  };
+  /** At the end of the card (the Storeel flow's Send now row). */
+  children?: ReactNode;
 }
 
 const GROUP_HEADING = 'px-3 pb-1 pt-3 text-xs font-semibold uppercase tracking-wide text-gray-500';
@@ -50,8 +70,12 @@ const GROUP_HEADING = 'px-3 pb-1 pt-3 text-xs font-semibold uppercase tracking-w
  * Step 2 (prototype: "Send to" + the grey "Estimated recipients" row): who gets it (a single person — first and the
  * default, Chris 3 Nov — or All leads, lead groups, lists), by email and/or text, with live counts.
  */
-export default function AudiencePicker({ audience, channels, smsText, fromName, count, readOnly, enabled, fieldErrors, stepError, onChange, defaultMessage, onDefaultMessageChange }: AudiencePickerProps) {
-  const sources = useAudienceSources(enabled);
+export default function AudiencePicker({
+  audience, channels, smsText, fromName, count, readOnly, enabled, fieldErrors, stepError, onChange, defaultMessage, onDefaultMessageChange,
+  step = { number: 2, title: 'Recipients', id: 'nl-step-recipients' }, idPrefix = 'nl', paid = true, message, children,
+}: AudiencePickerProps) {
+  const id = (name: string) => `${idPrefix}-${name}`;
+  const sources = useAudienceSources(enabled, paid);
   const [open, setOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [manageOpen, setManageOpen] = useState(false);
@@ -86,7 +110,7 @@ export default function AudiencePicker({ audience, channels, smsText, fromName, 
   const boxErrors = Object.entries(fieldErrors).filter(([key]) => /^audience\.\d+\.(email|phone)$/.test(key)).map(([, message]) => message);
   const audienceError = fieldErrors.audience && !(single && (fieldErrors.audience === personEntryProblem(audience) || boxErrors.some((m) => fieldErrors.audience.includes(m))))
     ? fieldErrors.audience : undefined;
-  const parts = smsPartsInfo(fromName, smsText);
+  const parts = message?.parts ?? smsPartsInfo(fromName, smsText);
   // Screen readers hear the parts line only when the number of parts changes, not on every key.
   const [partsAnnouncement, setPartsAnnouncement] = useState('');
   const lastParts = useRef(parts.parts);
@@ -102,10 +126,10 @@ export default function AudiencePicker({ audience, channels, smsText, fromName, 
   // Grows with the text: 2 lines up to 10, then it scrolls (review, 3 Nov).
   const messageRef = useRef<HTMLTextAreaElement>(null);
   useAutoGrow(messageRef, smsText, 2, 10);
-  const changeMessage = (value: string) => onChange((latest) => {
+  const changeMessage = (value: string) => (message ? onChange({ sms_text: value }) : onChange((latest) => {
     const blocks = syncMessageBlock(latest.blocks, value);
     return blocks === latest.blocks ? { sms_text: value } : { sms_text: value, blocks };
-  });
+  }));
   // No 120 limit any more (Chris, 3 Nov): up to LIMITS.sms_text; as a text it goes out as one long text, refused
   // only over what Twilio takes (smsParts.ts).
   const smsError = fieldErrors.sms_text ?? (sms.over ? MESSAGE_TOO_LONG : undefined) ?? (texts ? parts.problem : null) ?? undefined;
@@ -152,18 +176,18 @@ export default function AudiencePicker({ audience, channels, smsText, fromName, 
   };
 
   return (
-    <StepCard number={2} title="Recipients" id="nl-step-recipients" aside={summary} error={stepError}>
+    <StepCard number={step.number} title={step.title} id={step.id} aside={summary} error={stepError}>
       <div className="space-y-4">
         <div>
           <div className="flex items-baseline justify-between gap-3">
-            <p id="nl-send-to-label" className={LABEL}>Send to</p>
-            {readOnly ? null : <button type="button" onClick={() => setManageOpen(true)} className={`${LINK_BUTTON} mb-1.5`}>Manage lists</button>}
+            <p id={id('send-to-label')} className={LABEL}>Send to</p>
+            {readOnly || !paid ? null : <button type="button" onClick={() => setManageOpen(true)} className={`${LINK_BUTTON} mb-1.5`}>Manage lists</button>}
           </div>
           <Popover.Root open={open} onOpenChange={setOpen}>
             <Popover.Trigger asChild>
-              <button type="button" disabled={readOnly} aria-labelledby="nl-send-to-label nl-send-to-value"
+              <button type="button" disabled={readOnly} aria-labelledby={`${id('send-to-label')} ${id('send-to-value')}`}
                 className={`${inputClass(Boolean(audienceError))} flex items-center justify-between gap-2 text-left`}>
-                <span id="nl-send-to-value" className="truncate">{label}</span>
+                <span id={id('send-to-value')} className="truncate">{label}</span>
                 <ChevronDown className="h-4 w-4 flex-shrink-0 text-gray-500" aria-hidden="true" />
               </button>
             </Popover.Trigger>
@@ -190,22 +214,26 @@ export default function AudiencePicker({ audience, channels, smsText, fromName, 
                 {option({ type: 'all_leads' }, 'All leads', 'Everyone in your Leads')}
                 {sources.groups.length ? <p className={GROUP_HEADING}>Lead groups</p> : null}
                 {sources.groups.map((g) => option({ type: 'lead_group', id: g.id }, g.name, `${formatCount(g.member_count)} people`))}
-                <p className={GROUP_HEADING}>Your lists</p>
-                {sources.lists.length === 0 ? <p className="px-3 py-2 text-sm text-gray-500">{sources.loading ? 'Loading…' : 'No lists yet.'}</p> : null}
-                {sources.lists.map((l) => option({ type: 'list', id: l.id }, l.name, `${formatCount(l.member_count)} contacts`))}
-                <div className="mt-1 border-t border-gray-100 pt-1">
-                  <button type="button" disabled={readOnly} onClick={() => { setOpen(false); setImportOpen(true); }}
-                    className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm font-medium text-[#6C60FF] hover:bg-[#6C60FF]/5 focus:bg-[#6C60FF]/5 focus:outline-none">
-                    <Plus className="h-4 w-4" aria-hidden="true" />Add a list
-                  </button>
-                </div>
+                {paid ? (
+                  <>
+                    <p className={GROUP_HEADING}>Your lists</p>
+                    {sources.lists.length === 0 ? <p className="px-3 py-2 text-sm text-gray-500">{sources.loading ? 'Loading…' : 'No lists yet.'}</p> : null}
+                    {sources.lists.map((l) => option({ type: 'list', id: l.id }, l.name, `${formatCount(l.member_count)} contacts`))}
+                    <div className="mt-1 border-t border-gray-100 pt-1">
+                      <button type="button" disabled={readOnly} onClick={() => { setOpen(false); setImportOpen(true); }}
+                        className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm font-medium text-[#6C60FF] hover:bg-[#6C60FF]/5 focus:bg-[#6C60FF]/5 focus:outline-none">
+                        <Plus className="h-4 w-4" aria-hidden="true" />Add a list
+                      </button>
+                    </div>
+                  </>
+                ) : null}
               </Popover.Content>
             </Popover.Portal>
           </Popover.Root>
           {audienceError ? <p role="alert" className="mt-1.5 text-xs text-red-600">{audienceError}</p> : null}
 
           {single ? (
-            <PersonFields ref={personRef} audience={audience} channels={channels} counts={count.counts} readOnly={readOnly} enabled={enabled}
+            <PersonFields ref={personRef} idPrefix={idPrefix} audience={audience} channels={channels} counts={count.counts} readOnly={readOnly} enabled={enabled && paid}
               fieldErrors={fieldErrors} showProblems={Boolean(stepError)} onChange={(next) => onChange({ audience: next })} onLeadName={setPersonLabel} />
           ) : null}
 
@@ -228,13 +256,13 @@ export default function AudiencePicker({ audience, channels, smsText, fromName, 
         </fieldset>
 
         <div>
-          <label htmlFor="nl-sms-text" className={LABEL}>Message<span className="font-normal text-gray-500"> (optional)</span></label>
-          <p id="nl-message-hint" className="-mt-0.5 mb-1.5 text-xs text-gray-500">A short note at the top of your email, above your sections. If Text message is ticked, it's also sent as the text.</p>
-          <textarea ref={messageRef} id="nl-sms-text" rows={2} value={smsText} disabled={readOnly} placeholder="October deals are here."
-            aria-invalid={Boolean(smsError)} aria-describedby="nl-message-hint nl-sms-help"
+          <label htmlFor={id('sms-text')} className={LABEL}>Message{message?.required ? null : <span className="font-normal text-gray-500"> (optional)</span>}</label>
+          <p id={id('message-hint')} className="-mt-0.5 mb-1.5 text-xs text-gray-500">{message ? message.hint : "A short note at the top of your email, above your sections. If Text message is ticked, it's also sent as the text."}</p>
+          <textarea ref={messageRef} id={id('sms-text')} rows={2} value={smsText} disabled={readOnly} placeholder={message ? message.placeholder : 'October deals are here.'}
+            aria-invalid={Boolean(smsError)} aria-describedby={`${id('message-hint')} ${id('sms-help')}`}
             onChange={(e) => changeMessage(e.target.value)} className={textareaClass(Boolean(smsError))} />
-          <div id="nl-sms-help" className="mt-1.5 flex items-start justify-between gap-3 text-xs">
-            <span className={smsError ? 'text-red-600' : 'text-gray-500'}>{smsError ?? (texts ? 'We add a link to the newsletter and "Reply STOP to opt out."' : null)}</span>
+          <div id={id('sms-help')} className="mt-1.5 flex items-start justify-between gap-3 text-xs">
+            <span className={smsError ? 'text-red-600' : 'text-gray-500'}>{smsError ?? (texts ? (message ? message.smsHelp : 'We add a link to the newsletter and "Reply STOP to opt out."') : null)}</span>
             <span aria-live="polite" className={`whitespace-nowrap ${sms.over ? 'text-red-600' : 'text-gray-500'}`}>{formatCount(sms.length)} {sms.length === 1 ? 'character' : 'characters'}</span>
           </div>
           {onDefaultMessageChange ? (
@@ -254,10 +282,11 @@ export default function AudiencePicker({ audience, channels, smsText, fromName, 
               {parts.unicode ? (
                 <p className="mt-1.5 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">Emoji and some special characters make each part hold 70 characters instead of 160, so the text may use more parts.</p>
               ) : null}
-              <p className="mt-2 break-words rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-600"><span className="font-medium text-gray-700">People get: </span>{smsPreview(smsText)}</p>
+              <p className="mt-2 break-words rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-600"><span className="font-medium text-gray-700">People get: </span>{message ? message.preview : smsPreview(smsText)}</p>
             </>
           ) : null}
         </div>
+        {children}
       </div>
       <ManageListsDialog
         open={manageOpen}

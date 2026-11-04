@@ -27,6 +27,8 @@ export interface PersonFieldsProps {
   onChange(audience: AudienceItem[]): void;
   /** An older draft's picked lead, once read back (for the step's summary). */
   onLeadName?(name: string | null): void;
+  /** The boxes' DOM ids start with this (the Storeel flow's Send step sits beside the hidden newsletter composer). */
+  idPrefix?: string;
 }
 
 const apiError = (errors: Record<string, string>, field: 'email' | 'phone'): string | undefined =>
@@ -47,7 +49,7 @@ const searchText = (fields: Fields, box: Box): string => {
  * [{type: 'person', email?, phone?}] (lib/person.ts); the API finds or creates their lead when it is sent.
  */
 const PersonFields = forwardRef<PersonFieldsHandle, PersonFieldsProps>(function PersonFields(
-  { audience, channels, counts, readOnly, enabled, fieldErrors, showProblems, onChange, onLeadName }, ref,
+  { audience, channels, counts, readOnly, enabled, fieldErrors, showProblems, onChange, onLeadName, idPrefix = 'nl' }, ref,
 ) {
   const showEmail = channels.includes('email');
   const showPhone = channels.includes('sms');
@@ -157,8 +159,8 @@ const PersonFields = forwardRef<PersonFieldsHandle, PersonFieldsProps>(function 
   const emailError = errorFor('email');
   const phoneError = errorFor('phone');
 
-  const listId = (b: Box) => `nl-person-${b}-suggestions`;
-  const optionId = (b: Box, i: number) => `nl-person-${b}-suggestion-${i}`;
+  const listId = (b: Box) => `${idPrefix}-person-${b}-suggestions`;
+  const optionId = (b: Box, i: number) => `${idPrefix}-person-${b}-suggestion-${i}`;
   const comboProps = (b: Box) => ({
     role: 'combobox' as const,
     'aria-autocomplete': 'list' as const,
@@ -194,29 +196,29 @@ const PersonFields = forwardRef<PersonFieldsHandle, PersonFieldsProps>(function 
     <div className="mt-3 space-y-3">
       {showEmail ? (
         <div>
-          <label htmlFor="nl-person-email" className={LABEL}>Email address</label>
+          <label htmlFor={`${idPrefix}-person-email`} className={LABEL}>Email address</label>
           <div className="relative">
-            <input ref={emailRef} id="nl-person-email" type="email" inputMode="email" autoComplete="off" placeholder="name@example.com"
+            <input ref={emailRef} id={`${idPrefix}-person-email`} type="email" inputMode="email" autoComplete="off" placeholder="name@example.com"
               value={fields.email} disabled={readOnly} {...comboProps('email')}
-              aria-invalid={Boolean(emailError)} aria-describedby={emailError ? 'nl-person-email-error' : undefined}
+              aria-invalid={Boolean(emailError)} aria-describedby={emailError ? `${idPrefix}-person-email-error` : undefined}
               onChange={(e) => { setTyped(true); change({ ...fields, email: e.target.value }); }}
               className={inputClass(Boolean(emailError))} />
             {suggestions('email')}
           </div>
-          {emailError ? <p id="nl-person-email-error" className="mt-1.5 text-xs text-red-600">{emailError}</p> : null}
+          {emailError ? <p id={`${idPrefix}-person-email-error`} className="mt-1.5 text-xs text-red-600">{emailError}</p> : null}
         </div>
       ) : null}
       {showPhone ? (
         <div>
-          <label htmlFor="nl-person-phone" className={LABEL}>Phone number</label>
+          <label htmlFor={`${idPrefix}-person-phone`} className={LABEL}>Phone number</label>
           <div className="relative">
             <div className="flex gap-2">
               <CountrySelect value={fields.phoneCode} ariaLabel="Country code" disabled={readOnly}
                 onChange={(code) => change({ ...fields, phoneCode: code })}
                 className={`h-9 w-28 flex-shrink-0 rounded-lg border bg-white text-sm text-gray-900 outline-none transition-colors focus:border-[#6C60FF] focus:ring-2 focus:ring-[#6C60FF]/20 disabled:bg-gray-50 ${phoneError ? 'border-red-400' : 'border-gray-200'}`} />
-              <input ref={phoneRef} id="nl-person-phone" type="tel" inputMode="tel" autoComplete="off" placeholder="416 555 0100"
+              <input ref={phoneRef} id={`${idPrefix}-person-phone`} type="tel" inputMode="tel" autoComplete="off" placeholder="416 555 0100"
                 value={fields.phone} disabled={readOnly} {...comboProps('phone')}
-                aria-invalid={Boolean(phoneError)} aria-describedby={phoneError ? 'nl-person-phone-error' : undefined}
+                aria-invalid={Boolean(phoneError)} aria-describedby={phoneError ? `${idPrefix}-person-phone-error` : undefined}
                 onChange={(e) => {
                   // A full number pasted with its code ("+44 7911…") moves the code to the picker.
                   const next = splitTypedPhone(fields.phoneCode, e.target.value);
@@ -227,7 +229,7 @@ const PersonFields = forwardRef<PersonFieldsHandle, PersonFieldsProps>(function 
             </div>
             {suggestions('phone')}
           </div>
-          {phoneError ? <p id="nl-person-phone-error" className="mt-1.5 text-xs text-red-600">{phoneError}</p> : null}
+          {phoneError ? <p id={`${idPrefix}-person-phone-error`} className="mt-1.5 text-xs text-red-600">{phoneError}</p> : null}
         </div>
       ) : null}
       {!showEmail && !showPhone ? <p className="text-sm text-gray-500">Tick Email or Text message below to add their details.</p> : null}
