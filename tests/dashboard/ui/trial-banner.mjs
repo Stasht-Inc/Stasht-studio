@@ -86,7 +86,9 @@ async function open({ properties, width = 1280, height = 900, cards = 'none', co
     if (p === '/stripe/payment-methods' && req.method() === 'GET') {
       paymentCalls.push(cards);
       if (cards === 'error') return route.fulfill({ status: 500, json: { success: false, error: 'Stripe unavailable' } });
-      return route.fulfill({ json: { success: true, payment_methods: cards === 'card' ? [{ id: 'pm_1', brand: 'visa', last4: '4242', exp_month: 4, exp_year: 2030, is_default: true }] : [] } });
+      const list = cards === 'card' ? [{ id: 'pm_1', brand: 'visa', last4: '4242', exp_month: 4, exp_year: 2030, is_default: true }]
+        : cards === 'expired' ? [{ id: 'pm_2', brand: 'visa', last4: '1111', exp_month: 12, exp_year: 2026, is_default: true }] : [];
+      return route.fulfill({ json: { success: true, payment_methods: list } });
     }
     if (p === '/dashboard') return route.fulfill({ json: { success: true, data: DASHBOARD } });
     if (p === '/user/memory-counts') return route.fulfill({ json: { success: true, data: { memory_counts: { total_memories: 0, total_memory_images: 0, published_memories: 0, active_collaborators: 0 } } } });
@@ -153,6 +155,29 @@ try {
     expect(text.includes('Free trial') && !text.includes(ADD_CARD), '2c: card on file → no add-card line');
     expect(await banner(page).getByRole('button', { name: 'Add Payment Method' }).count() === 0, '2c: no action either');
     await shot(page, '07-card-on-file-desktop');
+    await context.close();
+  }
+  // 1e. Review: a card that expires before the trial ends (12/2026 vs Jan 28, 2027) isn't "on file" → the line shows.
+  {
+    const { page, context } = await open({ cards: 'expired', properties: { owned_properties: [], account_trial: { trial_ends_at: '2027-01-28T23:59:59+00:00', trial_ends_on: '2027-01-28', trial_ended: false } } });
+    const text = (await banner(page).innerText().catch(() => '')).replace(/\s+/g, ' ');
+    expect(text.includes(ADD_CARD), '2e: only an expired card on file → the add-card line shows');
+    await shot(page, '08-expired-card-desktop');
+    await context.close();
+  }
+  // 1f. Review: payment methods are asked once per login — leaving the Dashboard and coming back doesn't ask Stripe again.
+  {
+    paymentCalls.length = 0;
+    const { page, context } = await open({ properties: { owned_properties: [], account_trial: { trial_ends_at: '2027-01-28T23:59:59+00:00', trial_ends_on: '2027-01-28', trial_ended: false } } });
+    expect(paymentCalls.length === 1, `2f: first Dashboard visit asks once (${paymentCalls.length})`);
+    await page.getByRole('button', { name: /^Campaigns/ }).filter({ visible: true }).first().click();
+    await page.waitForTimeout(1500);
+    await page.getByRole('button', { name: /^Dashboard/ }).filter({ visible: true }).first().click();
+    await page.getByRole('heading', { name: 'Dashboard', exact: true }).first().waitFor({ state: 'visible', timeout: 20000 });
+    await page.waitForTimeout(2000);
+    const text = (await banner(page).innerText().catch(() => '')).replace(/\s+/g, ' ');
+    expect(text.includes(ADD_CARD), '2f: the line still shows on the second visit');
+    expect(paymentCalls.length === 1, `2f: the second Dashboard visit doesn't ask again (${paymentCalls.length} calls)`);
     await context.close();
   }
   // 1d. The payment-methods check fails → no nag (unknown is never "no card").

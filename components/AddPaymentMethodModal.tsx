@@ -3,6 +3,7 @@ import { X, CreditCard, Shield } from 'lucide-react';
 import { loadStripe } from '@stripe/stripe-js';
 import { Elements, CardNumberElement, CardExpiryElement, CardCvcElement, useStripe, useElements } from '@stripe/react-stripe-js';
 import { stripeApi } from '../utils/stripeApi';
+import { clearPaymentMethodsCache } from '../utils/paymentMethodsCache';
 import { toast } from 'sonner';
 
 const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY);
@@ -78,6 +79,7 @@ function PaymentForm({ onClose, onSuccess }: { onClose: () => void; onSuccess: (
       const response = await stripeApi.addPaymentMethod(paymentMethod!.id, setAsDefault);
 
       if (response.success) {
+        clearPaymentMethodsCache(); // the Dashboard trial banner's card check asks again
         toast.success(response.message || 'Payment method added successfully!', { id: toastId });
         onSuccess();
         onClose();

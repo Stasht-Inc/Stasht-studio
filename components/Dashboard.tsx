@@ -12,7 +12,8 @@ import { dashboardAPI } from '../utils/authUtils';
 import { useAuth } from '../contexts/AuthContext';
 import { useProperty } from '../contexts/PropertyContext';
 import { allPropertyRows, resolvePendingPropertySwitch } from '../utils/salespersonLanding';
-import { ADD_CARD_NOTICE, cardOnFileFrom, showAddCardNotice, trialBannerFrom } from '../utils/trialBanner';
+import { ADD_CARD_NOTICE, cardOnFileFrom, pickTrial, showAddCardNotice, trialBannerFrom, trialEndDate } from '../utils/trialBanner';
+import { cachedPaymentMethods } from '../utils/paymentMethodsCache';
 import { stripeApi } from '../utils/stripeApi';
 import { planCoveredBy } from '../utils/effectivePlan';
 import { useMemoryLimit } from '../hooks/useMemoryLimit';
@@ -248,8 +249,9 @@ export default function Dashboard({
         // Add-card line (Chris, 4 Nov 2026): only the people who see a running trial are asked about a card.
         const banner = covered ? null : trialBannerFrom(d);
         if (banner && !banner.ended) {
-          const methods = await stripeApi.getPaymentMethods().catch(() => null);
-          if (!cancelled) setCardOnFile(cardOnFileFrom(methods));
+          // Asked once per login (utils/paymentMethodsCache); a card counts only if still valid when the trial ends.
+          const methods = await cachedPaymentMethods(localStorage.getItem('stasht_token'), () => stripeApi.getPaymentMethods());
+          if (!cancelled) setCardOnFile(cardOnFileFrom(methods, trialEndDate(pickTrial(d))));
         }
       } catch (err) {
         console.error('Dashboard: could not load trial status', err);
