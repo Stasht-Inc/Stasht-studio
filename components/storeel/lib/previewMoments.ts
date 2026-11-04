@@ -41,6 +41,8 @@ export interface PickerItem {
 
 /** An uploaded photo or video as the form sends it (mainPhotosArray). */
 export interface PhotoInput {
+  /** A key of its own (given when it is added), so a row never changes photo when another is removed. */
+  id?: string;
   fileUrl?: string | null;
   title?: string | null;
   description?: string | null;
@@ -110,7 +112,7 @@ export function createPreviewMoments({ pick, picked, selectedIds, photos, locati
     const image = link(p.fileUrl);
     if (!image) return;
     moments.push({
-      kind: 'photo', key: `photo-${i}`, index: i, image, video: VIDEO.test(image), title: text(p.title), caption: text(p.description), location: text(p.location), date: day(p.capture_date) || today,
+      kind: 'photo', key: `photo-${p.id ?? i}`, index: i, image, video: VIDEO.test(image), title: text(p.title), caption: text(p.description), location: text(p.location), date: day(p.capture_date) || today,
     });
   });
   return moments;

@@ -37,13 +37,24 @@ export interface FlowView {
   createdNote: string | null;
   /** The toast when the flow is closed (Back / Cancel) after the campaign was made in it. */
   closeToast: 'Campaign created' | null;
+  /** The bottom / top bar Cancel: "Close" once something is already saved on the campaign (nothing to cancel). */
+  closeLabel: 'Cancel' | 'Close';
+  /** Step 2's line on a saved campaign: moments and captions are saved at once there, as on the campaign page. */
+  momentsNote: string | null;
 }
 
 /**
  * What the page shows. editing: opened on a saved campaign (the campaign page's Edit). created: Create & Send made the
  * campaign in this flow (its send was not confirmed yet), so saving again is a PUT, never a second campaign.
  */
-export function flowView({ editing, created }: { editing: boolean; created: boolean }): FlowView {
+export function flowView({ editing, created, savedNow = false, changesSaved = false }: {
+  editing: boolean;
+  created: boolean;
+  /** A caption or a moment was saved straight to the saved campaign (step 2). */
+  savedNow?: boolean;
+  /** Edit: Save & Send saved the changes (PUT) but the send wasn't confirmed. */
+  changesSaved?: boolean;
+}): FlowView {
   const saved = editing || created;
   return {
     title: editing ? 'Edit Campaign' : 'Create Campaign',
@@ -51,9 +62,25 @@ export function flowView({ editing, created }: { editing: boolean; created: bool
     saveAndSend: saved ? { label: 'Save & Send', action: 'save' } : { label: 'Create & Send', action: 'create' },
     savedToast: saved ? 'Changes saved' : 'Campaign created',
     sendOptional: 'Optional — send it now or later from the campaign page.',
-    createdNote: created && !editing ? 'Campaign created. Send it now, or later from the campaign page.' : null,
+    createdNote: created && !editing ? 'Campaign created. Send it now, or later from the campaign page.'
+      : editing && changesSaved ? 'Changes saved. Send it now, or later.' : null,
     closeToast: created && !editing ? 'Campaign created' : null,
+    closeLabel: savedNow || changesSaved ? 'Close' : 'Cancel',
+    momentsNote: saved ? 'Moments and captions save straight to your campaign.' : null,
   };
+}
+
+/** Why Create Campaign / Save Changes is off (said above the actions). null: it can be pressed. */
+export function saveBlockedReason({ title, category, coverUploading }: { title: string; category: string; coverUploading: boolean }): string | null {
+  if (!title.trim()) return 'Add a campaign title.';
+  if (!category) return 'Pick a category.';
+  if (coverUploading) return 'Wait for the cover to finish uploading.';
+  return null;
+}
+
+/** Create Campaign's toast: a filled-in Send card is not sent by it (only Create & Send sends). */
+export function createdToast(sendFilled: boolean): string {
+  return sendFilled ? 'Campaign created — not sent.' : 'Campaign created';
 }
 
 // ── Edit: the campaign as step 1 shows it ─────────────────────────────────────────────────────────────────────────

@@ -79,6 +79,15 @@ test('uploaded photos and videos are photo moments with their own title, place a
   ], 'a photo with no uploaded link is not sent, so it is not a moment');
 });
 
+test('a photo keeps its own key when an earlier one is removed (an open caption editor stays on it)', () => {
+  const photos = [{ id: 'u1', fileUrl: 'https://s3.test/a.jpg' }, { id: 'u2', fileUrl: 'https://s3.test/b.jpg' }];
+  const before = createPreviewMoments({ pick: null, picked: [], selectedIds: [], photos, location: '', today: TODAY });
+  const after = createPreviewMoments({ pick: null, picked: [], selectedIds: [], photos: photos.slice(1), location: '', today: TODAY });
+  assert.equal(before[1].key, 'photo-u2');
+  assert.equal(after[0].key, 'photo-u2');
+  assert.equal(after[0].index, 0, 'its place in the list moved, its key did not');
+});
+
 test('a catalogue product and an uploaded photo: two moments, picked items first (the order the API creates them)', () => {
   const moments = createPreviewMoments({
     pick: 'catalog', picked: [product(61)], selectedIds: ['61'], location: '', today: TODAY,

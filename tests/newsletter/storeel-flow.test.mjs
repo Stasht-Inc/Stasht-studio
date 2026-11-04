@@ -7,6 +7,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   FLOW_STEPS, dateRangeFor, momentsOf, seedFromMemory, sendPayload, stepNumber, updatePayload, formFromSeed, coverFromSeed, flowView, CURRENT_CATEGORY,
+  saveBlockedReason, createdToast,
 } from '../../components/storeel/lib/storeelFlow.ts';
 import * as flow from '../../components/storeel/lib/storeelFlow.ts';
 
@@ -49,6 +50,32 @@ test('edit: Save Changes (PUT) and Save & Send on the same single page', () => {
   assert.equal(v.savedToast, 'Changes saved');
   assert.equal(v.createdNote, null);
   assert.equal(v.closeToast, null);
+});
+
+// Review (4 Nov): what a user sees around the bottom actions.
+test('Cancel says Close once something was saved straight to the campaign; Save & Send left: "Changes saved…"', () => {
+  const base = flowView({ editing: true, created: false });
+  assert.equal(base.closeLabel, 'Cancel');
+  assert.equal(base.momentsNote, 'Moments and captions save straight to your campaign.');
+  assert.equal(flowView({ editing: true, created: false, savedNow: true }).closeLabel, 'Close', 'a caption or moment was saved');
+  const sent = flowView({ editing: true, created: false, changesSaved: true });
+  assert.equal(sent.closeLabel, 'Close');
+  assert.equal(sent.createdNote, 'Changes saved. Send it now, or later.');
+  assert.equal(flowView({ editing: false, created: false }).momentsNote, null, 'before creating, moments are held here');
+  assert.equal(flowView({ editing: false, created: true }).momentsNote, 'Moments and captions save straight to your campaign.');
+  assert.equal(flowView({ editing: false, created: false }).closeLabel, 'Cancel');
+});
+
+test('why the save button is off, said above the actions', () => {
+  assert.equal(saveBlockedReason({ title: '  ', category: 'Personal', coverUploading: false }), 'Add a campaign title.');
+  assert.equal(saveBlockedReason({ title: 'Spring', category: '', coverUploading: false }), 'Pick a category.');
+  assert.equal(saveBlockedReason({ title: 'Spring', category: 'Personal', coverUploading: true }), 'Wait for the cover to finish uploading.');
+  assert.equal(saveBlockedReason({ title: 'Spring', category: 'Personal', coverUploading: false }), null);
+});
+
+test('Create Campaign with a filled-in Send card says it was not sent', () => {
+  assert.equal(createdToast(false), 'Campaign created');
+  assert.equal(createdToast(true), 'Campaign created — not sent.');
 });
 
 const CATEGORIES = [{ id: 7, name: 'Personal' }, { id: 8, name: 'Service' }];
