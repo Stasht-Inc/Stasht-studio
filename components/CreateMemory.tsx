@@ -10,6 +10,7 @@ import GooglePlacesInput from './ui/google-places-input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import * as Popover from '@radix-ui/react-popover';
 import { clearApiCache, dashboardAPI, getApiBaseUrl } from '../utils/authUtils';
+import { isoToApiDay, localDateISO } from '../utils/localDate';
 import { loadCatalogueForBrowsing } from '../services/catalogueAPI';
 import exifr from 'exifr';
 import { getCategoryColor } from '../constants/mediaConstants';
@@ -309,7 +310,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
     label: '', // Label (sub_category) ID
     property: [] as string[], // Property IDs (multi-select)
     mediaFiles: [] as File[],
-    date: new Date().toISOString().split('T')[0],
+    date: localDateISO(),
     endDate: '',
     location: '',
     tags: [] as string[],
@@ -1117,7 +1118,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
         label: '',
         property: [] as string[],
         mediaFiles: [],
-        date: new Date().toISOString().split('T')[0],
+        date: localDateISO(),
         endDate: '',
         location: '',
         tags: [],
@@ -1988,7 +1989,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
   // (lib/previewMoments.ts) — the picked items the form sends (selectedMemoryIds), then the uploaded photos it sends
   // (mainPhotosArray). Once saved — Edit, or just created — the campaign's own moments (PUT can't add any, and a later
   // category change in step 1 must not take the made moments off the preview).
-  const todayDate = new Date().toISOString().split('T')[0];
+  const todayDate = localDateISO();
   const previewPick: PickKind = isCatalogCategory ? 'catalog' : isShopifyCategory ? 'shopify' : isCarsCategory ? 'cars' : selectedMemoryIds.length ? 'campaigns' : null;
   const previewPicked: PickerItem[] = previewPick === 'catalog' ? catalogForPicker
     : previewPick === 'shopify' ? shopifyCollections
@@ -2063,20 +2064,14 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
       }
       
       // Helper function to format date to "MMM dd, yyyy" format
-      const formatDateForAPI = (dateString: string) => {
-        if (!dateString) return '';
-        const date = new Date(dateString);
-        return date.toLocaleDateString('en-US', { 
-          month: 'short', 
-          day: '2-digit', 
-          year: 'numeric' 
-        });
-      };
+      // "Nov 04, 2026" from the picked day's own parts: new Date('2026-11-04') is UTC midnight, which became Nov 3 in
+      // Toronto (review, 5 Nov — it hid the UTC "today" bug: tomorrow's date, sent as one day earlier).
+      const formatDateForAPI = (dateString: string) => isoToApiDay(dateString);
 
       // Prepare photos array with proper date handling
       // Only uploaded photos are sent (one with no link would be a moment with no picture).
       const photosArray = mainPhotosArray.filter((photo) => Boolean(photo.fileUrl && String(photo.fileUrl).trim())).map((photo) => {
-        const todayDate = new Date().toISOString().split('T')[0];
+        const todayDate = localDateISO();
 
         // Use capture_date if available, otherwise use today's date
         let photoDate = todayDate;
