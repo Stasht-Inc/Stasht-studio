@@ -391,23 +391,20 @@ export default function Dashboard({
 
   return (
     <div className="w-full space-y-4 md:space-y-8">
+      {/* Trial banner: Studio's amber notice, the same Alert as the limit notices below (Chris, 4 Nov 2026). */}
       {trialBanner && (
-        <div
-          role="status"
-          className={`mx-0 md:mx-4 rounded-lg border p-4 ${
-            trialBanner.ended
-              ? 'bg-amber-50 border-amber-300 text-amber-900'
-              : 'bg-indigo-50 border-indigo-300 text-indigo-900'
-          }`}
-        >
-          <h3 className="text-sm font-semibold mb-1">
-            {trialBanner.ended ? 'Trial ended' : 'Free trial'}
-          </h3>
-          <p className="text-sm">
-            {trialBanner.ended
-              ? `Your trial${trialBanner.name ? ` for ${trialBanner.name}` : ''} ended on ${trialBanner.endDate}. Your account has moved to the Starter plan.`
-              : `Your trial${trialBanner.name ? ` for ${trialBanner.name}` : ''} ends on ${trialBanner.endDate} (${trialBanner.daysLeft} ${trialBanner.daysLeft === 1 ? 'day' : 'days'} left). After that your account moves to the Starter plan.`}
-          </p>
+        <div className="w-full px-0 md:px-4">
+          <Alert role="status" className="border-amber-200 bg-amber-50 text-amber-800 !justify-start !text-left w-full">
+            <AlertTriangle className="h-4 w-4 text-amber-600" />
+            <AlertTitle className="text-amber-900 font-semibold !text-left">
+              {trialBanner.ended ? 'Trial ended' : 'Free trial'}
+            </AlertTitle>
+            <AlertDescription className="text-amber-700 !text-left">
+              {trialBanner.ended
+                ? `Your trial${trialBanner.name ? ` for ${trialBanner.name}` : ''} ended on ${trialBanner.endDate}. Your account has moved to the Starter plan.`
+                : `Your trial${trialBanner.name ? ` for ${trialBanner.name}` : ''} ends on ${trialBanner.endDate} (${trialBanner.daysLeft} ${trialBanner.daysLeft === 1 ? 'day' : 'days'} left). After that your account moves to the Starter plan.`}
+            </AlertDescription>
+          </Alert>
         </div>
       )}
       {/* Page Header */}
