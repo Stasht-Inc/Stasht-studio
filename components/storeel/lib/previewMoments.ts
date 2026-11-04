@@ -7,11 +7,14 @@
 // form sends). A product with no photo at all makes no moment (the API skips it); a photo not uploaded yet isn't sent.
 // Edit: the campaign's own moments from the campaign page's data (GET /memories/{id}).
 
+// photo: `index` is its place in the form's photos (Create, not saved yet); `postId` its memory_images row (saved).
+// title / caption: the moment's title and its caption (memory_images.description), as the campaign page shows them.
+// Picked items carry `sourceId`: the picked catalogue item / vehicle / collection / campaign id.
 export type PreviewMoment =
-  | { kind: 'photo'; key: string; image: string | null; video: boolean; text: string; location: string; date: string }
-  | { kind: 'product'; key: string; image: string | null; title: string; price: string; cta: boolean; location: string; date: string }
-  | { kind: 'vehicle'; key: string; image: string | null; title: string; price: string; tags: string[] }
-  | { kind: 'campaign'; key: string; image: string | null; title: string; meta: string };
+  | { kind: 'photo'; key: string; index?: number; postId?: number; image: string | null; video: boolean; title: string; caption: string; location: string; date: string }
+  | { kind: 'product'; key: string; sourceId: string; image: string | null; title: string; price: string; cta: boolean; location: string; date: string }
+  | { kind: 'vehicle'; key: string; sourceId: string; image: string | null; title: string; price: string; tags: string[] }
+  | { kind: 'campaign'; key: string; sourceId: string; image: string | null; title: string; meta: string };
 
 /** What the Create form's "Select from Existing Campaigns" box is picking from. */
 export type PickKind = 'catalog' | 'cars' | 'shopify' | 'campaigns' | null;
@@ -50,7 +53,6 @@ const text = (v: unknown): string => (typeof v === 'string' ? v.trim() : '');
 const link = (v: unknown): string | null => (typeof v === 'string' && v.trim() ? v.trim() : null);
 const day = (v: unknown): string => /^(\d{4}-\d{2}-\d{2})/.exec(text(v))?.[1] ?? '';
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
-const firstLine = (v: unknown): string => text(v).split('\n')[0].trim();
 
 /** A vehicle's price as its card shows it on the campaign page ("$34,995"); '' without one. */
 export function vehiclePrice(car: { price?: unknown }): string {
@@ -70,16 +72,17 @@ function pickedMoment(pick: Exclude<PickKind, null>, item: PickerItem, location:
   const image = link(item.image_link) ?? link(item.last_update_img) ?? link(item.thumbnail);
   const title = text(item.title);
   const count = Math.max(0, Math.floor(Number(item.posts_count) || 0));
+  const sourceId = String(item.id);
   switch (pick) {
     case 'catalog':
       if (!image && count === 0) return null;
-      return { kind: 'product', key: `catalog-${item.id}`, image, title, price: text(item.price_label), cta: Boolean(link(item.url)), location, date: today };
+      return { kind: 'product', key: `catalog-${sourceId}`, sourceId, image, title, price: text(item.price_label), cta: Boolean(link(item.url)), location, date: today };
     case 'cars':
-      return { kind: 'vehicle', key: `car-${item.id}`, image, title, price: vehiclePrice(item), tags: vehicleTags(item) };
+      return { kind: 'vehicle', key: `car-${sourceId}`, sourceId, image, title, price: vehiclePrice(item), tags: vehicleTags(item) };
     case 'shopify':
-      return { kind: 'campaign', key: `shopify-${item.id}`, image, title, meta: plural(count, 'product', 'products') };
+      return { kind: 'campaign', key: `shopify-${sourceId}`, sourceId, image, title, meta: plural(count, 'product', 'products') };
     default:
-      return { kind: 'campaign', key: `campaign-${item.id}`, image, title, meta: plural(count, 'photo', 'photos') };
+      return { kind: 'campaign', key: `campaign-${sourceId}`, sourceId, image, title, meta: plural(count, 'photo', 'photos') };
   }
 }
 
@@ -107,7 +110,7 @@ export function createPreviewMoments({ pick, picked, selectedIds, photos, locati
     const image = link(p.fileUrl);
     if (!image) return;
     moments.push({
-      kind: 'photo', key: `photo-${i}`, image, video: VIDEO.test(image), text: text(p.title) || firstLine(p.description), location: text(p.location), date: day(p.capture_date) || today,
+      kind: 'photo', key: `photo-${i}`, index: i, image, video: VIDEO.test(image), title: text(p.title), caption: text(p.description), location: text(p.location), date: day(p.capture_date) || today,
     });
   });
   return moments;
@@ -116,15 +119,18 @@ export function createPreviewMoments({ pick, picked, selectedIds, photos, locati
 function linkedMoment(lm: Record<string, any>): PreviewMoment {
   const image = link(lm.cover_image) ?? link(lm.last_update_img) ?? link(lm.image_link);
   const title = text(lm.title);
-  if (lm.is_car === true || Number(lm.is_car) === 1) return { kind: 'vehicle', key: `car-${lm.id}`, image, title, price: vehiclePrice(lm), tags: vehicleTags(lm) };
+  const sourceId = String(lm.id);
+  if (lm.is_car === true || Number(lm.is_car) === 1) return { kind: 'vehicle', key: `car-${sourceId}`, sourceId, image, title, price: vehiclePrice(lm), tags: vehicleTags(lm) };
   const count = Math.max(0, Math.floor(Number(lm.posts_count) || 0));
-  return { kind: 'campaign', key: `campaign-${lm.id}`, image, title, meta: plural(count, 'photo', 'photos') };
+  return { kind: 'campaign', key: `campaign-${sourceId}`, sourceId, image, title, meta: plural(count, 'photo', 'photos') };
 }
 
 function postMoment(p: Record<string, any>): PreviewMoment {
   const image = link(p.image_link) ?? link(p.master_image_link) ?? link(p.media_url);
+  const postId = Number(p.id);
   return {
-    kind: 'photo', key: `post-${p.id}`, image, video: Boolean(image && VIDEO.test(image)), text: text(p.title) || firstLine(p.description), location: text(p.location), date: day(p.capture_date),
+    kind: 'photo', key: `post-${p.id}`, ...(Number.isFinite(postId) ? { postId } : {}), image, video: Boolean(image && VIDEO.test(image)),
+    title: text(p.title), caption: typeof p.description === 'string' ? p.description.trim() : '', location: text(p.location), date: day(p.capture_date),
   };
 }
 

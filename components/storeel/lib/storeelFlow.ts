@@ -1,68 +1,58 @@
-// Storeel flow v2 (Deepak, 4 Nov 2026 — approved design): Create / Edit a Storeel is one full-screen page with TWO
-// numbered steps, like the newsletter composer:
-//   1 Campaign — the Create Campaign fields (title, category, catalogue / vehicle / Shopify / campaign pickers, cover
-//                photo or intro video, media, date, location, tags, label). The live preview shows every moment it
-//                will make. NOTHING is saved before "Create Campaign" (POST /memories) — edit: "Save Changes"
-//                (PUT /memories/{id}). Once saved it folds to "Campaign created" / "Changes saved" with View campaign
-//                and Edit (opens it again; Save Changes = PUT).
-//   2 Send     — optional, enabled only once step 1 is saved: the newsletter audience (Single person, All leads, lead
-//                groups, lists), email and/or text, a personal message; POST /memories/{id}/storeel-send.
-// After saving the top bar has Done (keeps the campaign) and Send Now. There is no Moments step: moments come from
-// step 1, and more can be added on the campaign page afterwards.
+// Storeel flow v2 (Deepak, 4 Nov 2026; Chris's change the same day: "It should flow just like newsletter"): Create /
+// Edit a Storeel is ONE scrolling page like the newsletter composer. Numbered cards, all open, top to bottom:
+//   1 Campaign — title, category (+ the catalogue / vehicle / Shopify / campaign picker), cover photo or intro video,
+//                date, location, tags, label.
+//   2 Moments  — every moment it will have (picked items, photos and videos with their titles and captions), made with
+//                the original "Add a Moment" UI (AddMomentModal); captions edited the way the campaign page edits them.
+//                Before the campaign exists they're held here and sent with POST /memories; on a saved campaign the
+//                original UI works on the campaign directly. The live preview shows every moment.
+//   3 Send     — optional: the newsletter audience (Single person, All leads, lead groups, lists), email and/or text,
+//                a personal message; POST /memories/{id}/storeel-send.
+// The actions sit at the BOTTOM of the list: "Create Campaign" (POST /memories, then closes: the Campaigns list) and
+// "Create & Send" (creates, then the send confirm). Edit: "Save Changes" (PUT /memories/{id}) and "Save & Send".
+// Nothing is saved before one of them is pressed; a failed save sends nothing. No step gating, no Continue, no primary
+// action in the header, no Moments step (more moments are added on the campaign page afterwards).
 // Pure, so `node --test` loads it.
 import type { AudienceItem, NewsletterChannel } from '../../../services/newslettersAPI.ts';
 import { savedPreviewMoments, type PreviewMoment } from './previewMoments.ts';
 
-export type FlowStep = 'campaign' | 'send';
-export const FLOW_STEPS: readonly FlowStep[] = ['campaign', 'send'];
+export type FlowStep = 'campaign' | 'moments' | 'send';
+export const FLOW_STEPS: readonly FlowStep[] = ['campaign', 'moments', 'send'];
 
 export function stepNumber(step: FlowStep): number {
   return FLOW_STEPS.indexOf(step) + 1;
 }
 
-export type FlowAction = 'create' | 'save' | 'send' | 'close' | 'revert' | 'done';
-
 export interface FlowView {
   title: 'Create Campaign' | 'Edit Campaign';
-  /** Step 1 open (its fields), or folded to "Campaign created" / "Changes saved". */
-  campaign: 'open' | 'saved';
-  /** Step 2 Send can be used (only once step 1 is saved and folded). */
-  sendEnabled: boolean;
-  /** The top bar's main button (the phone footer's too). */
-  primary: { label: 'Create Campaign' | 'Save Changes' | 'Send Now'; action: 'create' | 'save' | 'send' };
-  /** The top bar's other button: Cancel closes (or, on a saved campaign opened again, puts the saved values back). */
-  secondary: { label: 'Cancel' | 'Done'; action: 'close' | 'revert' | 'done' };
-  /** The top bar's Back arrow: once saved it keeps the campaign, like Done. */
-  back: 'close' | 'done';
-  savedLabel: 'Campaign created' | 'Changes saved';
-  /** Step 2 before step 1 is saved (a muted line). */
-  sendLockedLine: string;
-  /** Step 2's first line once enabled. */
-  sendIntro: string;
-  /** Done's toast. */
-  doneToast: 'Campaign created' | 'Changes saved';
+  /** The bottom "save only" action: POST (create) or PUT (save). */
+  save: { label: 'Create Campaign' | 'Save Changes'; action: 'create' | 'save' };
+  /** The bottom primary action: the same save, then the send confirm. */
+  saveAndSend: { label: 'Create & Send' | 'Save & Send'; action: 'create' | 'save' };
+  /** The toast after the save-only action (the flow closes). */
+  savedToast: 'Campaign created' | 'Changes saved';
+  /** Send card's first line. */
+  sendOptional: string;
+  /** Above the bottom actions once Create & Send made the campaign but the send wasn't confirmed. */
+  createdNote: string | null;
+  /** The toast when the flow is closed (Back / Cancel) after the campaign was made in it. */
+  closeToast: 'Campaign created' | null;
 }
 
 /**
- * What the flow shows. editing: opened on a saved campaign (the campaign page's Edit). saved: step 1 was saved in this
- * flow (Create Campaign, or Save Changes). campaignOpen: step 1's fields are showing.
+ * What the page shows. editing: opened on a saved campaign (the campaign page's Edit). created: Create & Send made the
+ * campaign in this flow (its send was not confirmed yet), so saving again is a PUT, never a second campaign.
  */
-export function flowView({ editing, saved, campaignOpen }: { editing: boolean; saved: boolean; campaignOpen: boolean }): FlowView {
-  const open = campaignOpen || !saved;
-  const savedLabel = editing ? 'Changes saved' : 'Campaign created';
+export function flowView({ editing, created }: { editing: boolean; created: boolean }): FlowView {
+  const saved = editing || created;
   return {
     title: editing ? 'Edit Campaign' : 'Create Campaign',
-    campaign: open ? 'open' : 'saved',
-    sendEnabled: !open,
-    primary: open
-      ? (editing || saved ? { label: 'Save Changes', action: 'save' } : { label: 'Create Campaign', action: 'create' })
-      : { label: 'Send Now', action: 'send' },
-    secondary: open ? { label: 'Cancel', action: saved ? 'revert' : 'close' } : { label: 'Done', action: 'done' },
-    back: saved ? 'done' : 'close',
-    savedLabel,
-    sendLockedLine: editing || saved ? 'Save your changes first — then you can send it now or later.' : 'Save your campaign first — then you can send it now or later.',
-    sendIntro: 'Your campaign is saved. Send it now, or do it later.',
-    doneToast: savedLabel,
+    save: saved ? { label: 'Save Changes', action: 'save' } : { label: 'Create Campaign', action: 'create' },
+    saveAndSend: saved ? { label: 'Save & Send', action: 'save' } : { label: 'Create & Send', action: 'create' },
+    savedToast: saved ? 'Changes saved' : 'Campaign created',
+    sendOptional: 'Optional — send it now or later from the campaign page.',
+    createdNote: created && !editing ? 'Campaign created. Send it now, or later from the campaign page.' : null,
+    closeToast: created && !editing ? 'Campaign created' : null,
   };
 }
 

@@ -15,7 +15,7 @@ test('nothing picked and nothing uploaded: no moments', () => {
 test('a picked catalogue product is a product moment: its photo, title, price and the "View on website" button', () => {
   const moments = createPreviewMoments({ pick: 'catalog', picked: [product(61), product(62)], selectedIds: ['62'], photos: [], location: 'Kharar Tahsil, India', today: TODAY });
   assert.deepEqual(moments, [{
-    kind: 'product', key: 'catalog-62', image: 'https://cdn.test/p62.jpg', title: 'Product 62', price: '599 INR', cta: true, location: 'Kharar Tahsil, India', date: TODAY,
+    kind: 'product', key: 'catalog-62', sourceId: '62', image: 'https://cdn.test/p62.jpg', title: 'Product 62', price: '599 INR', cta: true, location: 'Kharar Tahsil, India', date: TODAY,
   }]);
 });
 
@@ -45,16 +45,16 @@ test('a picked vehicle is a vehicle moment, as car moments show on the campaign 
     pick: 'cars', picked: [{ id: 5, title: '2024 Jeep Wrangler', last_update_img: 'https://cdn.test/car.jpg', price: '34995', mileage: 45000, stock_number: 'S2300' }],
     selectedIds: ['5'], photos: [], location: '', today: TODAY,
   });
-  assert.deepEqual(car, { kind: 'vehicle', key: 'car-5', image: 'https://cdn.test/car.jpg', title: '2024 Jeep Wrangler', price: '$34,995', tags: ['45,000 mi', 'Stock #S2300'] });
+  assert.deepEqual(car, { kind: 'vehicle', key: 'car-5', sourceId: '5', image: 'https://cdn.test/car.jpg', title: '2024 Jeep Wrangler', price: '$34,995', tags: ['45,000 mi', 'Stock #S2300'] });
   assert.equal(vehiclePrice({ price: null }), '');
   assert.deepEqual(vehicleTags({}), []);
 });
 
 test('a Shopify collection or an existing campaign picked to link is a campaign card', () => {
   const [col] = createPreviewMoments({ pick: 'shopify', picked: [{ id: 'gid-1', title: 'Summer', last_update_img: 'https://cdn.test/c.jpg', posts_count: 12 }], selectedIds: ['gid-1'], photos: [], location: '', today: TODAY });
-  assert.deepEqual(col, { kind: 'campaign', key: 'shopify-gid-1', image: 'https://cdn.test/c.jpg', title: 'Summer', meta: '12 products' });
+  assert.deepEqual(col, { kind: 'campaign', key: 'shopify-gid-1', sourceId: 'gid-1', image: 'https://cdn.test/c.jpg', title: 'Summer', meta: '12 products' });
   const [linked] = createPreviewMoments({ pick: 'campaigns', picked: [{ id: 9, title: 'Fall event', image_link: 'https://cdn.test/f.jpg', posts_count: 1 }], selectedIds: ['9'], photos: [], location: '', today: TODAY });
-  assert.deepEqual(linked, { kind: 'campaign', key: 'campaign-9', image: 'https://cdn.test/f.jpg', title: 'Fall event', meta: '1 photo' });
+  assert.deepEqual(linked, { kind: 'campaign', key: 'campaign-9', sourceId: '9', image: 'https://cdn.test/f.jpg', title: 'Fall event', meta: '1 photo' });
 });
 
 test('a vehicle linked from "All Categories" in a regular campaign shows as a vehicle', () => {
@@ -74,8 +74,8 @@ test('uploaded photos and videos are photo moments with their own title, place a
     ],
   });
   assert.deepEqual(moments, [
-    { kind: 'photo', key: 'photo-0', image: 'https://s3.test/a.jpg', video: false, text: 'Front door', location: 'Brampton, ON', date: '2026-10-01' },
-    { kind: 'photo', key: 'photo-1', image: 'https://s3.test/clip.MP4', video: true, text: 'Walkthrough', location: '', date: TODAY },
+    { kind: 'photo', key: 'photo-0', index: 0, image: 'https://s3.test/a.jpg', video: false, title: 'Front door', caption: 'Solid oak', location: 'Brampton, ON', date: '2026-10-01' },
+    { kind: 'photo', key: 'photo-1', index: 1, image: 'https://s3.test/clip.MP4', video: true, title: '', caption: 'Walkthrough', location: '', date: TODAY },
   ], 'a photo with no uploaded link is not sent, so it is not a moment');
 });
 
@@ -102,10 +102,10 @@ test('Edit: the campaign\'s own moments — linked vehicles and campaigns, then 
     ],
   });
   assert.deepEqual(moments, [
-    { kind: 'vehicle', key: 'car-5', image: 'https://cdn.test/car.jpg', title: '2024 Jeep Wrangler', price: '$34,995', tags: ['45,000 mi', 'Stock #S1'] },
-    { kind: 'campaign', key: 'campaign-9', image: 'https://cdn.test/f.jpg', title: 'Fall event', meta: '3 photos' },
-    { kind: 'photo', key: 'post-1', image: 'https://cdn.test/1.jpg', video: false, text: 'Handmade dress', location: 'Kharar', date: '2026-11-04' },
-    { kind: 'photo', key: 'post-3', image: 'https://cdn.test/3.mov', video: true, text: 'Tour', location: '', date: '' },
+    { kind: 'vehicle', key: 'car-5', sourceId: '5', image: 'https://cdn.test/car.jpg', title: '2024 Jeep Wrangler', price: '$34,995', tags: ['45,000 mi', 'Stock #S1'] },
+    { kind: 'campaign', key: 'campaign-9', sourceId: '9', image: 'https://cdn.test/f.jpg', title: 'Fall event', meta: '3 photos' },
+    { kind: 'photo', key: 'post-1', postId: 1, image: 'https://cdn.test/1.jpg', video: false, title: 'Handmade dress', caption: 'Purple\nPrice: 599 INR', location: 'Kharar', date: '2026-11-04' },
+    { kind: 'photo', key: 'post-3', postId: 3, image: 'https://cdn.test/3.mov', video: true, title: '', caption: 'Tour', location: '', date: '' },
   ]);
 });
 

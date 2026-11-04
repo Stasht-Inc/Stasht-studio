@@ -27,7 +27,7 @@ test('an empty form shows placeholders', () => {
   assert.equal(m.date, '');
 });
 
-const PHOTO = (i, extra = {}) => ({ kind: 'photo', key: `photo-${i}`, image: `blob:${i}`, video: false, text: '', location: '', date: '', ...extra });
+const PHOTO = (i, extra = {}) => ({ kind: 'photo', key: `photo-${i}`, image: `blob:${i}`, video: false, title: '', caption: '', location: '', date: '', ...extra });
 
 test('a filled form shows its own title, every moment (in order), place and date', () => {
   const m = storeelPreviewModel({

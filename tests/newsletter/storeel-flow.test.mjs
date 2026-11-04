@@ -1,9 +1,8 @@
-// Storeel flow v2 (Deepak, 4 Nov 2026 — approved design): Create / Edit a Storeel in TWO numbered steps.
-//   1 Campaign — every Set up field incl. media and the catalogue / vehicle pickers; the live preview shows every moment.
-//              Nothing is saved until "Create Campaign" (edit: "Save Changes" = PUT /memories/{id}). Once saved it
-//              folds to "Campaign created" (edit: "Changes saved") with View campaign and Edit.
-//   2 Send (optional) — enabled only once step 1 is saved; Done keeps the campaign, Send Now opens the confirm.
-// No separate Moments step, no resume note.
+// Storeel flow v2 (Deepak, 4 Nov 2026) with Chris's change the same day: ONE scrolling page like the newsletter
+// composer. Numbered cards, all open, top to bottom — 1 Campaign (every field; the preview shows every moment), 2 Send
+// (optional) — and the actions at the BOTTOM of the list: Create Campaign (creates only) and Create & Send (creates,
+// then the send confirm). Edit: Save Changes / Save & Send. Nothing is saved before one of them is pressed; no step
+// gating, no Continue, no primary action in the header. No Moments step, no resume note.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
@@ -11,9 +10,9 @@ import {
 } from '../../components/storeel/lib/storeelFlow.ts';
 import * as flow from '../../components/storeel/lib/storeelFlow.ts';
 
-test('two steps: 1 Campaign, 2 Send (no Moments step)', () => {
-  assert.deepEqual(FLOW_STEPS, ['campaign', 'send']);
-  assert.deepEqual(FLOW_STEPS.map(stepNumber), [1, 2]);
+test('three numbered cards, all open: 1 Campaign, 2 Moments (the original Add a Moment UI), 3 Send', () => {
+  assert.deepEqual(FLOW_STEPS, ['campaign', 'moments', 'send']);
+  assert.deepEqual(FLOW_STEPS.map(stepNumber), [1, 2, 3]);
 });
 
 test('the resume note and its helpers are gone (moments come from step 1)', () => {
@@ -22,52 +21,34 @@ test('the resume note and its helpers are gone (moments come from step 1)', () =
   }
 });
 
-test('create, before saving: Cancel + Create Campaign; Send waits with a muted line; nothing else creates it', () => {
-  const v = flowView({ editing: false, saved: false, campaignOpen: true });
+test('create: the bottom actions are Create Campaign (creates only) and Create & Send; Send is optional', () => {
+  const v = flowView({ editing: false, created: false });
   assert.equal(v.title, 'Create Campaign');
-  assert.equal(v.campaign, 'open');
-  assert.deepEqual(v.secondary, { label: 'Cancel', action: 'close' });
-  assert.deepEqual(v.primary, { label: 'Create Campaign', action: 'create' });
-  assert.equal(v.sendEnabled, false);
-  assert.equal(v.sendLockedLine, 'Save your campaign first — then you can send it now or later.');
-  assert.equal(v.back, 'close');
+  assert.deepEqual(v.save, { label: 'Create Campaign', action: 'create' });
+  assert.deepEqual(v.saveAndSend, { label: 'Create & Send', action: 'create' });
+  assert.equal(v.savedToast, 'Campaign created');
+  assert.equal(v.sendOptional, 'Optional — send it now or later from the campaign page.');
+  assert.equal(v.createdNote, null);
+  assert.equal(v.closeToast, null, 'Cancel before anything is saved: nothing to say');
 });
 
-test('create, saved: step 1 folds to "Campaign created"; Done + Send Now; Send says it is saved and optional', () => {
-  const v = flowView({ editing: false, saved: true, campaignOpen: false });
-  assert.equal(v.campaign, 'saved');
-  assert.equal(v.savedLabel, 'Campaign created');
-  assert.deepEqual(v.secondary, { label: 'Done', action: 'done' });
-  assert.deepEqual(v.primary, { label: 'Send Now', action: 'send' });
-  assert.equal(v.sendEnabled, true);
-  assert.equal(v.sendIntro, 'Your campaign is saved. Send it now, or do it later.');
-  assert.equal(v.doneToast, 'Campaign created');
-  assert.equal(v.back, 'done', 'Back after saving keeps it, like Done');
+test('create, after Create & Send made it but the send was not confirmed: it is saved (PUT from now on), and says so', () => {
+  const v = flowView({ editing: false, created: true });
+  assert.deepEqual(v.save, { label: 'Save Changes', action: 'save' });
+  assert.deepEqual(v.saveAndSend, { label: 'Save & Send', action: 'save' });
+  assert.equal(v.createdNote, 'Campaign created. Send it now, or later from the campaign page.');
+  assert.equal(v.savedToast, 'Changes saved');
+  assert.equal(v.closeToast, 'Campaign created', 'closing keeps it, and says so');
 });
 
-test('saved, step 1 opened again with Edit: Save Changes (PUT) and Cancel (put the saved values back); Send waits again', () => {
-  const v = flowView({ editing: false, saved: true, campaignOpen: true });
-  assert.equal(v.campaign, 'open');
-  assert.deepEqual(v.primary, { label: 'Save Changes', action: 'save' });
-  assert.deepEqual(v.secondary, { label: 'Cancel', action: 'revert' });
-  assert.equal(v.sendEnabled, false);
-  assert.equal(v.sendLockedLine, 'Save your changes first — then you can send it now or later.');
-  assert.equal(v.back, 'done');
-});
-
-test('edit from the campaign page: prefilled, Cancel + Save Changes; after saving "Changes saved", Done + Send Now', () => {
-  const before = flowView({ editing: true, saved: false, campaignOpen: true });
-  assert.equal(before.title, 'Edit Campaign');
-  assert.deepEqual(before.primary, { label: 'Save Changes', action: 'save' });
-  assert.deepEqual(before.secondary, { label: 'Cancel', action: 'close' });
-  assert.equal(before.sendEnabled, false);
-  assert.equal(before.sendLockedLine, 'Save your changes first — then you can send it now or later.');
-  const after = flowView({ editing: true, saved: true, campaignOpen: false });
-  assert.equal(after.savedLabel, 'Changes saved');
-  assert.deepEqual(after.primary, { label: 'Send Now', action: 'send' });
-  assert.deepEqual(after.secondary, { label: 'Done', action: 'done' });
-  assert.equal(after.doneToast, 'Changes saved');
-  assert.equal(after.sendIntro, 'Your campaign is saved. Send it now, or do it later.');
+test('edit: Save Changes (PUT) and Save & Send on the same single page', () => {
+  const v = flowView({ editing: true, created: false });
+  assert.equal(v.title, 'Edit Campaign');
+  assert.deepEqual(v.save, { label: 'Save Changes', action: 'save' });
+  assert.deepEqual(v.saveAndSend, { label: 'Save & Send', action: 'save' });
+  assert.equal(v.savedToast, 'Changes saved');
+  assert.equal(v.createdNote, null);
+  assert.equal(v.closeToast, null);
 });
 
 const CATEGORIES = [{ id: 7, name: 'Personal' }, { id: 8, name: 'Service' }];
@@ -89,8 +70,8 @@ test('Edit opens the flow prefilled from the campaign', () => {
     slug: 'spring-open-house', published: 0, isCar: false, moments: 2, ownerId: 707,
     // The preview in Edit shows the campaign's own moments (storeel-moments.test.mjs).
     previewMoments: [
-      { kind: 'photo', key: 'post-1', image: null, video: false, text: '', location: '', date: '' },
-      { kind: 'photo', key: 'post-2', image: null, video: false, text: '', location: '', date: '' },
+      { kind: 'photo', key: 'post-1', postId: 1, image: null, video: false, title: '', caption: '', location: '', date: '' },
+      { kind: 'photo', key: 'post-2', postId: 2, image: null, video: false, title: '', caption: '', location: '', date: '' },
     ],
   });
   assert.deepEqual(formFromSeed(seed), {
