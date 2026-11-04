@@ -1,6 +1,6 @@
 ﻿import React, { useState, useRef, useEffect, useCallback, useImperativeHandle, forwardRef, useReducer } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Upload, Calendar, MapPin, Tag, Plus, Camera, Image as ImageIcon, CheckCircle, CircleCheck, Loader2, File as FileIcon, Search, Video, Pencil, ChevronRight, ArrowLeft, Send, Trash2 } from 'lucide-react';
+import { X, Upload, Calendar, MapPin, Tag, Plus, Camera, Image as ImageIcon, CheckCircle, Loader2, File as FileIcon, Search, Video, Pencil, ChevronRight, ArrowLeft, Send, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useVisualViewportSheet } from '../hooks/useVisualViewportSheet';
 import { Button } from './ui/button';
@@ -32,12 +32,13 @@ import StoreelLivePreview from './storeel/StoreelLivePreview';
 import { storeelBrandImage } from './storeel/storeelPreview';
 import { createPreviewMoments, type PickKind, type PickerItem } from './storeel/lib/previewMoments';
 import { coverChoiceReducer, coverChoicePayload, coverPhotoFileError, EMPTY_COVER_CHOICE, COVER_PHOTO_ACCEPT, type CoverChoice, type CoverChoiceAction } from '../utils/coverChoice';
-import { BUTTON_OUTLINE, BUTTON_PRIMARY, LINK_BUTTON } from './newsletters/lib/ui';
+import { BUTTON_OUTLINE, BUTTON_PRIMARY, BUTTON_SECONDARY, LINK_BUTTON } from './newsletters/lib/ui';
 import StepCard from './newsletters/StepCard';
-import StoreelSendStep, { SEND_STEP_ID, type StoreelSendStepHandle } from './storeel/StoreelSendStep';
+import StoreelSendStep, { SEND_STEP_ID } from './storeel/StoreelSendStep';
+import StoreelMomentsCard, { MOMENTS_STEP_ID, type MomentRow } from './storeel/StoreelMomentsCard';
 import {
   coverFromSeed, flowView, formFromSeed, seedFromMemory, stepNumber, updatePayload,
-  type CampaignSeed, type FlowAction,
+  type CampaignSeed,
 } from './storeel/lib/storeelFlow';
 import { senderLabelFor } from './storeel/lib/storeelSms';
 import { sentMessage, type StoreelSendSummary } from './storeel/lib/storeelSend';
@@ -997,39 +998,35 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
     }
   };
 
-  // ── The Storeel flow v2 (Deepak, 4 Nov 2026 — approved design): 1 Campaign · 2 Send (optional) ──────────────────────
-  // Nothing is created or saved before "Create Campaign" (edit: "Save Changes" = PUT /memories/{id}). Then step 1 folds
-  // to "Campaign created" / "Changes saved" (View campaign, Edit) and Send opens, with Done and Send Now in the top bar.
-  // Editing a saved campaign (campaignId): no media, pickers or property here — PUT doesn't change them.
+  // ── The Storeel flow v2 (Deepak, 4 Nov 2026; Chris the same day: "flow just like newsletter"): ONE page, cards all
+  // open — 1 Campaign · 2 Moments · 3 Send (optional) — and the actions at the bottom of the list: Create Campaign /
+  // Create & Send (edit: Save Changes / Save & Send). Nothing is created or saved before one of them is pressed.
+  // Editing a saved campaign (campaignId): no pickers or property here (PUT doesn't change them); its moments are
+  // shown in step 2, where the original Add a Moment UI works on the campaign directly.
   const flowEditing = Boolean(campaignId);
-  // The saved campaign: the one being edited, or the one "Create Campaign" just created.
+  // The saved campaign: the one being edited, or the one Create & Send just made.
   const [flowCampaign, setFlowCampaignState] = useState<CampaignSeed | null>(null);
   const flowCampaignRef = useRef<CampaignSeed | null>(null);
   const setFlowCampaign = (seed: CampaignSeed | null) => { flowCampaignRef.current = seed; setFlowCampaignState(seed); };
-  // Step 1 was saved in this flow (Create Campaign / Save Changes), and whether its fields are showing.
-  const [flowSaved, setFlowSaved] = useState(false);
-  const [campaignOpen, setCampaignOpen] = useState(true);
-  const view = flowView({ editing: flowEditing, saved: flowSaved, campaignOpen });
+  // Create & Send made the campaign in this flow (its send not confirmed yet): saving again is a PUT.
+  const [flowCreated, setFlowCreated] = useState(false);
+  const view = flowView({ editing: flowEditing, created: flowCreated });
   const [flowLoading, setFlowLoading] = useState(false);
   const [flowLoadError, setFlowLoadError] = useState<string | null>(null);
   // Step 1's own refusal (PUT /memories/{id}), shown on its card; a title problem shows under the title.
   const [setupError, setSetupError] = useState<string | null>(null);
   // The cover the campaign had when it was opened or last saved: last_update_img is sent only when it changes.
   const initialCoverUrlRef = useRef<string | null>(null);
-  const sendStepRef = useRef<StoreelSendStepHandle>(null);
-  // The API said this account may not send the campaign (403 on the count): Send Now goes off.
+  // Create & Send / Save & Send: each new number asks the Send card to confirm, once the campaign is saved.
+  const [sendRequest, setSendRequest] = useState(0);
+  // What still stops a send (the Send card says), shown at the bottom Create & Send button.
+  const [sendBlocker, setSendBlocker] = useState<string | null>(null);
+  // Which bottom button is working (its spinner).
+  const [savingAction, setSavingAction] = useState<'save' | 'send' | null>(null);
+  // The API said this account may not send the campaign (403 on the count).
   const [sendForbidden, setSendForbidden] = useState(false);
   // Who the Storeel's texts say they came from (StoreelSendService::senderLabel).
   const flowSender = senderLabelFor(user?.name, viewType === 'property' ? currentProperty?.name : null);
-
-  /** Bring a step card into view and give it focus (after saving, the folded step 1 says what happened). */
-  const focusStep = (id: string) => {
-    window.requestAnimationFrame(() => {
-      const el = document.getElementById(id);
-      el?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      el?.focus({ preventScroll: true });
-    });
-  };
 
   /** Step 1 shows the saved campaign: its fields and its cover (photo or intro video). */
   const applySeed = (seed: CampaignSeed) => {
@@ -1148,8 +1145,10 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
   // Closing forgets the flow.
   useEffect(() => {
     if (!open) {
-      setFlowSaved(false);
-      setCampaignOpen(true);
+      setFlowCreated(false);
+      setSendRequest(0);
+      setSendBlocker(null);
+      setSavingAction(null);
       setFlowCampaign(null);
       setFlowLoading(false);
       setFlowLoadError(null);
@@ -1167,8 +1166,6 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
       applySeed(seed);
       setFlowLoading(false);
       setFlowLoadError(null);
-      setFlowSaved(false);
-      setCampaignOpen(true);
     };
     if (campaignSeed && campaignSeed.id === campaignId) {
       begin(campaignSeed);
@@ -1967,7 +1964,13 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
   });
   const previewMoments = flowEditing || flowCampaign ? (flowCampaign?.previewMoments ?? []) : createMoments;
 
-  const handleSubmit = async (publish = false, publishType: 1 | 2 | 3 = 1) => {
+  /**
+   * Create Campaign (andSend false) or Create & Send: POST /memories with every moment of step 2 — its photos and
+   * videos in order with their titles and captions, and the picked items — in one request, as Create Campaign always
+   * sent them (so a moment can't half-fail). Create Campaign then closes on the Campaigns list; Create & Send asks the
+   * Send card to confirm. A failed create sends nothing.
+   */
+  const handleSubmit = async (andSend = false, publish = false, publishType: 1 | 2 | 3 = 1) => {
     // Validate required fields
     if (!formData.title.trim()) {
       setTitleError('Title is required');
@@ -2008,6 +2011,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
     }
 
     setIsSubmitting(true);
+    setSavingAction(andSend ? 'send' : 'save');
     
     try {
       // Find the selected category data
@@ -2117,7 +2121,6 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
       response = await dashboardAPI.createMemory(memoryData);
       
       if (response.success) {
-        // Created: step 1 folds to "Campaign created" and Send opens (Storeel flow v2).
         const created = seedFromMemory(response.data);
         await recheckMemoryLimit();
         void triggerMemoryCountsRefresh();
@@ -2133,17 +2136,23 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
             // The moments the preview showed are the ones just made (the API answers only the campaign's id).
             moments: createMoments.length, previewMoments: createMoments,
           });
-          // Step 1 opened again later saves with PUT, which keeps this category unless another is picked.
+          // Saving again (after Create & Send's confirm was left) is a PUT, which keeps this category.
           setSeededCategory(formData.category);
-          setFlowSaved(true);
-          setCampaignOpen(false);
-          focusStep(CAMPAIGN_STEP_ID);
-        } else {
-          onOpenChange(false);
         }
         // The Campaigns page shows Storeels with the new campaign (the Sidebar's Create goes there too).
         writeCampaignsView('storeels');
         if (onMemoryCreated) await onMemoryCreated();
+        if (!andSend || !created) {
+          // Create Campaign: done — the Campaigns list shows it.
+          toast.success('Campaign created');
+          handleModalClose();
+        } else {
+          // Create & Send: the campaign is made; step 2 now shows its real moments (ids, for their captions), and the
+          // Send card asks to confirm.
+          setFlowCreated(true);
+          setSendRequest((n) => n + 1);
+          void refreshSavedMoments(created.id);
+        }
       } else {
         console.error('Failed to create memory:', response);
 
@@ -2169,18 +2178,23 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
       alert('An error occurred while creating the campaign. Please try again.');
     } finally {
       setIsSubmitting(false);
+      setSavingAction(null);
     }
   };
 
 
   const storeelSubmitDisabled = !formData.title.trim() || !formData.category || isSubmitting || isUploadingCover;
 
-  /** Step 1 of a saved campaign: PUT /memories/{id} (its fields; the cover only when it changed), then it folds. */
-  const saveSetup = async () => {
+  /**
+   * Save Changes (andSend false) or Save & Send on a saved campaign: PUT /memories/{id} (its fields; the cover only
+   * when it changed). Save Changes then closes (the campaign page refreshes); Save & Send asks the Send card to confirm.
+   */
+  const saveSetup = async (andSend = false) => {
     const c = flowCampaignRef.current;
     if (!c) return;
     if (!formData.title.trim()) { setTitleError('Title is required'); return; }
     setIsSubmitting(true);
+    setSavingAction(andSend ? 'send' : 'save');
     setSetupError(null);
     const coverUrl = coverChoice.kind && coverChoice.url ? coverChoice.url : null;
     const form = { ...formData, endDate: showEndDate ? formData.endDate : '' };
@@ -2194,11 +2208,10 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
           location: formData.location, tags: [...formData.tags], cover: coverChoice.kind && coverUrl ? { kind: coverChoice.kind, url: coverUrl } : null,
         });
         setSeededCategory(formData.category);
-        setFlowSaved(true);
-        setCampaignOpen(false);
-        focusStep(CAMPAIGN_STEP_ID);
         onCampaignSaved?.(c.id);
         void triggerMemoryCountsRefresh();
+        if (andSend) setSendRequest((n) => n + 1);
+        else { toast.success(view.savedToast); handleModalClose(); }
         return;
       }
       const errors = (res as { errors?: Record<string, string[] | string> }).errors;
@@ -2209,46 +2222,70 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
       setSetupError("Your changes couldn't be saved. Check your connection and try again.");
     } finally {
       setIsSubmitting(false);
+      setSavingAction(null);
     }
   };
 
-  /** The top bar's / phone footer's buttons (flowView): Create Campaign / Save Changes / Send Now, Cancel / Done. */
-  const runFlowAction = (action: FlowAction) => {
-    switch (action) {
-      case 'create': void handleSubmit(false); return;
-      case 'save': void saveSetup(); return;
-      case 'send': sendStepRef.current?.startSend(); return;
-      case 'revert': {
-        // Cancel on a saved campaign opened again: its saved values come back and step 1 folds.
-        const c = flowCampaignRef.current;
-        if (c) applySeed(c);
-        setSetupError(null);
-        setCampaignOpen(false);
-        focusStep(CAMPAIGN_STEP_ID);
-        return;
-      }
-      case 'done':
-        // The campaign is kept (saved already); nothing is sent.
-        toast.success(view.doneToast);
-        handleModalClose();
-        return;
-      default: handleModalClose();
-    }
+  /** The bottom actions: Create Campaign / Save Changes (save only), Create & Send / Save & Send (save, then confirm). */
+  const saveFlow = (andSend: boolean) => {
+    if ((andSend ? view.saveAndSend : view.save).action === 'create') void handleSubmit(andSend);
+    else void saveSetup(andSend);
   };
-  const flowPrimaryDisabled = view.primary.action === 'send'
-    ? !canSend || sendForbidden
-    : storeelSubmitDisabled || flowLoading || Boolean(flowLoadError);
-
-  /**
-   * View campaign / "Add more moments on the campaign page" (step 1 folded): the campaign page. Leaving the flow there
-   * is fine, the campaign is visibly saved. In Edit the flow was opened from that page: it just closes.
-   */
-  const openCampaignPage = () => {
-    const c = flowCampaignRef.current;
-    if (!c) return;
+  /** Back / Cancel: closes; a campaign Create & Send already made is kept (and the toast says so). */
+  const closeFlow = () => {
+    if (view.closeToast) toast.success(view.closeToast);
     handleModalClose();
-    if (!flowEditing) requestOpenCampaign(c.id);
   };
+  const saveDisabled = storeelSubmitDisabled || flowLoading || Boolean(flowLoadError);
+  const sendDisabledReason = !canSend || sendForbidden ? "Only the campaign's owner or its business's admins can send it." : sendBlocker;
+
+  /** A saved campaign's real moments (GET /memories/{id}): step 2 and the preview show them, with their ids. */
+  const refreshSavedMoments = async (id: number) => {
+    try {
+      const res = await dashboardAPI.getMemoryDetails(String(id));
+      const fresh = res?.success ? seedFromMemory(res.data, categoriesProp?.length ? categoriesProp : apiCategories) : null;
+      const c = flowCampaignRef.current;
+      if (fresh && c && c.id === id) setFlowCampaign({ ...c, previewMoments: fresh.previewMoments, moments: fresh.moments, slug: fresh.slug ?? c.slug });
+    } catch {
+      // Keep the moments shown so far.
+    }
+  };
+
+  /** Step 2's rows: what can be done to each moment here (see StoreelMomentsCard). */
+  const savedMoments = Boolean(flowCampaign);
+  const momentRows: MomentRow[] = previewMoments.map((m): MomentRow => {
+    if (m.kind === 'photo') {
+      if (!savedMoments && m.index !== undefined) {
+        const index = m.index;
+        return {
+          moment: m,
+          // Before the campaign exists: the caption is kept here and sent with the photo.
+          onSaveCaption: (caption) => { setMainPhotosArray((prev) => prev.map((p, i) => (i === index ? { ...p, description: caption } : p))); return true; },
+          onEdit: () => { setEditingPhotoIndex(index); setIsAddMomentOpen(true); },
+          onRemove: () => handleRemoveMediaFile(index),
+        };
+      }
+      const postId = m.postId;
+      return {
+        moment: m,
+        // A saved moment: the caption is saved on the campaign, as the campaign page does (PUT /memory-images/{id}).
+        onSaveCaption: postId ? async (caption) => {
+          const res = await dashboardAPI.updateMemoryImages(String(postId), { description: caption });
+          if (!res.success) { toast.error(res.error || "The caption couldn't be saved. Try again."); return false; }
+          const c = flowCampaignRef.current;
+          if (c) setFlowCampaign({ ...c, previewMoments: c.previewMoments.map((x) => (x.key === m.key && x.kind === 'photo' ? { ...x, caption } : x)) });
+          return true;
+        } : undefined,
+      };
+    }
+    if (savedMoments) return { moment: m };
+    // A picked item: its caption is made from the website / listing by the API; taking it out unticks it in step 1.
+    return {
+      moment: m,
+      note: m.kind === 'product' ? 'Its caption comes from your website.' : undefined,
+      onRemove: () => toggleSelectedId(m.sourceId),
+    };
+  });
 
   /** Sent: say what went (and where the Storeel's stats are), and close. */
   const onStoreelSent = (summary: StoreelSendSummary) => {
@@ -2278,7 +2315,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
     >
       <header className="flex flex-shrink-0 flex-wrap items-center gap-x-3 gap-y-2 border-b border-gray-200 bg-white px-4 py-3 md:px-6">
         <div className="flex min-w-0 items-center gap-3">
-          <button type="button" onClick={() => runFlowAction(view.back)} aria-label="Back" className="-ml-1.5 rounded-lg p-1.5 text-gray-600 hover:bg-gray-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#6C60FF]/40">
+          <button type="button" onClick={closeFlow} aria-label="Back" className="-ml-1.5 rounded-lg p-1.5 text-gray-600 hover:bg-gray-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#6C60FF]/40">
             <ArrowLeft className="h-5 w-5" />
           </button>
           <h2 id="storeel-create-title" className="truncate text-lg font-semibold text-gray-900">{view.title}</h2>
@@ -2289,12 +2326,9 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
             <CampaignTypeSwitch value="storeel" onChange={chooseCampaignType} />
           </div>
         )}
+        {/* Like the newsletter composer's top bar, minus its actions: those are at the end of the list (Chris, 4 Nov). */}
         <div className="ml-auto hidden items-center gap-2 md:flex">
-          <button type="button" onClick={() => runFlowAction(view.secondary.action)} className={BUTTON_OUTLINE}>{view.secondary.label}</button>
-          <button type="button" onClick={() => runFlowAction(view.primary.action)} disabled={flowPrimaryDisabled} aria-label={isSubmitting ? 'Saving' : view.primary.label} className={BUTTON_PRIMARY}>
-            {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : view.primary.action === 'send' ? <Send className="h-4 w-4" aria-hidden="true" /> : null}
-            {isSubmitting ? 'Saving...' : view.primary.label}
-          </button>
+          <button type="button" onClick={closeFlow} className={BUTTON_OUTLINE}>Cancel</button>
         </div>
       </header>
 
@@ -2336,24 +2370,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
               </div>
             )}
 
-            {view.campaign === 'saved' && flowCampaign ? (
-              // Saved: "✓ Campaign created" / "✓ Changes saved", the campaign's title, View campaign and Edit.
-              <StepCard number={stepNumber('campaign')} title="Campaign" id={CAMPAIGN_STEP_ID} aside={formData.category || undefined}>
-                <div className="space-y-3">
-                  <p role="status" className="flex items-center gap-2 text-sm font-semibold text-gray-900">
-                    <CircleCheck className="h-5 w-5 flex-shrink-0 fill-[#6C60FF] text-white" aria-hidden="true" />{view.savedLabel}
-                  </p>
-                  <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
-                    <p className="min-w-0 truncate text-sm text-gray-900">{formData.title || flowCampaign.title}</p>
-                    <div className="flex flex-shrink-0 items-center gap-4">
-                      <button type="button" onClick={openCampaignPage} className={LINK_BUTTON}>View campaign</button>
-                      <button type="button" onClick={() => setCampaignOpen(true)} className={LINK_BUTTON}>Edit</button>
-                    </div>
-                  </div>
-                  <button type="button" onClick={openCampaignPage} className={`${LINK_BUTTON} !text-gray-600 underline decoration-gray-300 underline-offset-2`}>Add more moments on the campaign page</button>
-                </div>
-              </StepCard>
-            ) : flowLoading ? (
+            {flowLoading ? (
               <StepCard number={stepNumber('campaign')} title="Campaign" id={CAMPAIGN_STEP_ID}>
                 <p className="flex items-center gap-2 text-sm text-gray-600"><Loader2 className="h-4 w-4 animate-spin text-[#6C60FF]" aria-hidden="true" />Opening your campaign…</p>
               </StepCard>
@@ -2766,377 +2783,8 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
               })}
             </div>
 
+            {/* Photos and videos are added in step 2 Moments (the original Add a Moment UI). */}
             {!flowEditing && !flowCampaign && (<>
-            {/* Media Upload */}
-            <div>
-              <label className="flex items-center gap-2 text-base md:text-sm font-medium text-gray-700 mb-1">
-                <Camera className="w-4 h-4 text-black" />
-                Media
-              </label>
-              <div
-                className="border-2 border-dashed border-gray-200 rounded-lg p-6 text-center hover:border-gray-300 transition-colors"
-                onDragOver={handleDragOver}
-                onDragEnter={handleDragEnter}
-                onDragLeave={handleDragLeave}
-                onDrop={handleDrop}
-              >
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  multiple
-                  accept="image/*,.heic,.heif"
-                  onChange={handleFileUpload}
-                  className="hidden"
-                  id="create-memory-file-upload"
-                />
-
-                {!isUploading && !(formData.mediaFiles.length > 0 || photosWithMetadata.length > 0 || mainPhotosArray.length > 0) && (
-                  <>
-                    <div className="w-12 h-12 mx-auto mb-3 text-gray-400">
-                      <Upload className="w-full h-full" />
-                    </div>
-
-                    {/* Mobile: Direct file picker button */}
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="mb-2 h-9 px-4 text-sm bg-white border-[#7B68EE] text-[#7B68EE] hover:bg-[#7B68EE]/5 md:hidden"
-                      disabled={isExtractingMetadata}
-                      onClick={() => document.getElementById('create-memory-file-upload')?.click()}
-                    >
-                      <Upload className="w-4 h-4 mr-2" />
-                      Choose Files
-                    </Button>
-
-                    {/* Desktop: Popover menu */}
-                    <Popover.Root open={isFileMenuOpen} onOpenChange={setIsFileMenuOpen}>
-                      <Popover.Trigger asChild>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          className="mb-2 h-9 px-4 text-sm bg-white border-[#7B68EE] text-[#7B68EE] hover:bg-[#7B68EE]/5 hidden md:inline-flex"
-                          disabled={isExtractingMetadata}
-                        >
-                          <Upload className="w-4 h-4 mr-2" />
-                          Choose Files
-                        </Button>
-                      </Popover.Trigger>
-                      <Popover.Portal>
-                        <Popover.Content
-                          className="w-64 p-2 bg-white border border-gray-200 shadow-lg rounded-lg z-[100001]"
-                          align="center"
-                          sideOffset={5}
-                        >
-                          <div className="flex flex-col gap-1">
-                            <button
-                              onClick={() => {
-                                setIsFileMenuOpen(false);
-                                document.getElementById('create-memory-file-upload')?.click();
-                              }}
-                              className="flex items-start gap-3 px-3 py-3 hover:bg-gray-100 rounded-lg text-left transition-colors"
-                            >
-                              <div className="flex-shrink-0 mt-0.5">
-                                <Upload className="w-5 h-5 text-[#7B68EE]" />
-                              </div>
-                              <div className="flex-1">
-                                <div className="text-sm font-medium text-gray-900">Upload from Desktop</div>
-                                <div className="text-xs text-gray-500 mt-0.5">Choose files from your computer</div>
-                              </div>
-                            </button>
-                            <button
-                              onClick={() => {
-                                setIsFileMenuOpen(false);
-                                setIsMediaLibraryModalOpen(true);
-                              }}
-                              className="flex items-start gap-3 px-3 py-3 hover:bg-gray-100 rounded-lg text-left transition-colors"
-                            >
-                              <div className="flex-shrink-0 mt-0.5">
-                                <ImageIcon className="w-5 h-5 text-[#7B68EE]" />
-                              </div>
-                              <div className="flex-1">
-                                <div className="text-sm font-medium text-gray-900">Add from Media Library</div>
-                                <div className="text-xs text-gray-500 mt-0.5">Choose from uploaded media</div>
-                              </div>
-                            </button>
-                          </div>
-                        </Popover.Content>
-                      </Popover.Portal>
-                    </Popover.Root>
-                  </>
-                )}
-
-                {isUploading && uploadProgress.length > 0 ? (
-                  <div className="text-left mt-1">
-                    {/* Header */}
-                    <div className="flex items-center gap-3 mb-3">
-                      <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
-                        uploadProgress.every(i => i.status === 'complete') ? 'bg-green-100' :
-                        uploadProgress.some(i => i.status === 'error') ? 'bg-red-100' : 'bg-blue-100'
-                      }`}>
-                        {uploadProgress.every(i => i.status === 'complete') ? (
-                          <CheckCircle className="w-5 h-5 text-green-600" />
-                        ) : uploadProgress.some(i => i.status === 'error') ? (
-                          <X className="w-5 h-5 text-red-600" />
-                        ) : (
-                          <Loader2 className="w-5 h-5 text-blue-600 animate-spin" />
-                        )}
-                      </div>
-                      <div>
-                        <h3 className="text-sm font-semibold text-gray-900">
-                          {uploadProgress.every(i => i.status === 'complete') ? 'Upload Complete' : 'Uploading Files...'}
-                        </h3>
-                        <p className="text-xs text-gray-500">{uploadedFilesCount} files processed</p>
-                      </div>
-                    </div>
-                    {/* Progress Bar */}
-                    <div className="mb-3">
-                      <div className="flex justify-between items-center mb-1">
-                        <span className="text-xs text-gray-500">
-                          {uploadProgress.filter(i => i.status === 'complete').length} of {uploadProgress.length} files uploaded
-                        </span>
-                        <span className="text-xs text-gray-500">
-                          {Math.round((uploadProgress.filter(i => i.status === 'complete').length / uploadProgress.length) * 100)}%
-                        </span>
-                      </div>
-                      <div className="w-full bg-gray-200 rounded-full h-2">
-                        <div
-                          className="bg-green-500 h-2 rounded-full transition-all duration-300 ease-out"
-                          style={{ width: `${(uploadProgress.filter(i => i.status === 'complete').length / uploadProgress.length) * 100}%` }}
-                        />
-                      </div>
-                    </div>
-                    {/* Files List */}
-                    <div>
-                      <p className="text-xs font-medium text-gray-700 mb-2">Files:</p>
-                      <div className="space-y-1 max-h-40 overflow-y-auto">
-                        {uploadProgress.map((item) => (
-                          <div key={item.id} className="flex items-center justify-between py-1.5 px-2 rounded-lg hover:bg-gray-50">
-                            <div className="flex items-center gap-2 min-w-0">
-                              <FileIcon className="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
-                              <span className="text-xs text-gray-700 truncate">{item.fileName}</span>
-                            </div>
-                            <div className="flex-shrink-0 ml-2">
-                              {item.status === 'uploading' && <Loader2 className="w-3.5 h-3.5 text-blue-500 animate-spin" />}
-                              {item.status === 'complete' && <CheckCircle className="w-3.5 h-3.5 text-green-500" />}
-                              {item.status === 'error' && <X className="w-3.5 h-3.5 text-red-500" />}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                ) : (
-                  <>
-                    {!(formData.mediaFiles.length > 0 || photosWithMetadata.length > 0 || mainPhotosArray.length > 0) && (
-                      <>
-                        <p className="text-xs text-gray-500">Upload photos or drag and drop</p>
-                        <p className="text-xs text-gray-500">JPG, JPEG, PNG up to 10MB</p>
-                      </>
-                    )}
-                  </>
-                )}
-                {/* Selected files list — shown inside the upload box */}
-                {(formData.mediaFiles.length > 0 || photosWithMetadata.length > 0 || mainPhotosArray.length > 0) && (
-                  <div className="mt-3 hidden md:block text-left">
-                    <p className="text-xs text-gray-600 mb-1">
-                      {Math.max(formData.mediaFiles.length, photosWithMetadata.length, mainPhotosArray.length)} files selected
-                      {photosWithMetadata.filter(p => p.metadata_extracted).length > 0 && (
-                        <span className="text-green-600 ml-1">
-                          • {photosWithMetadata.filter(p => p.metadata_extracted).length} with EXIF data
-                        </span>
-                      )}
-                    </p>
-                    <div className="flex flex-wrap gap-1">
-                      {(() => {
-                        let photosToDisplay: any[] = [];
-                        if (photosWithMetadata.length > 0) {
-                          photosToDisplay = photosWithMetadata;
-                        } else if (mainPhotosArray.length > 0) {
-                          photosToDisplay = mainPhotosArray.map(photo => ({
-                            ...photo,
-                            metadata_extracted: true,
-                            file: null
-                          }));
-                        }
-                        return photosToDisplay.map((photo, index) => {
-                          const hasMetadata = photo?.metadata_extracted;
-                          const hasLocation = photo?.location && photo.location.trim() !== '';
-                          const hasDate = photo?.capture_date && photo.capture_date.trim() !== '';
-                          return (
-                            <div key={index} className="flex items-center gap-1 text-xs bg-gray-100 px-2 py-1 rounded relative">
-                              <span>{photo.name}</span>
-                              {hasMetadata && (
-                                <div className="flex gap-1 ml-1">
-                                  {hasLocation && <span className="text-blue-600" title="Location available">📍</span>}
-                                  {hasDate && <span className="text-green-600" title="Date available">📅</span>}
-                                </div>
-                              )}
-                              {mainPhotosArray.length > 0 && mainPhotosArray[index] && (
-                                <button
-                                  type="button"
-                                  onClick={() => { setEditingPhotoIndex(index); setIsAddMomentOpen(true); }}
-                                  className="text-[#6C60FF] hover:text-[#5B52FF] ml-1"
-                                >
-                                  <Pencil className="w-3 h-3" />
-                                </button>
-                              )}
-                              <button
-                                type="button"
-                                onClick={() => handleRemoveMediaFile(index)}
-                                className="text-gray-600 hover:text-gray-800 ml-1"
-                              >
-                                <X className="w-3 h-3" />
-                              </button>
-                            </div>
-                          );
-                        });
-                      })()}
-                    </div>
-                    {/* Add Media button — desktop */}
-                    <div className="mt-3">
-                      <Popover.Root open={isFileMenuOpen} onOpenChange={setIsFileMenuOpen}>
-                        <Popover.Trigger asChild>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            className="h-9 px-4 text-sm bg-white border-[#7B68EE] text-[#7B68EE] hover:bg-[#7B68EE]/5"
-                            disabled={isExtractingMetadata}
-                          >
-                            Add Media
-                          </Button>
-                        </Popover.Trigger>
-                        <Popover.Portal>
-                          <Popover.Content
-                            className="w-64 p-2 bg-white border border-gray-200 shadow-lg rounded-lg z-[100001]"
-                            align="start"
-                            sideOffset={5}
-                          >
-                            <div className="flex flex-col gap-1">
-                              <button
-                                onClick={() => { setIsFileMenuOpen(false); document.getElementById('create-memory-file-upload')?.click(); }}
-                                className="flex items-start gap-3 px-3 py-3 hover:bg-gray-100 rounded-lg text-left transition-colors"
-                              >
-                                <Upload className="w-5 h-5 text-[#7B68EE] flex-shrink-0 mt-0.5" />
-                                <div className="flex-1">
-                                  <div className="text-sm font-medium text-gray-900">Upload from Desktop</div>
-                                  <div className="text-xs text-gray-500 mt-0.5">Choose files from your computer</div>
-                                </div>
-                              </button>
-                              <button
-                                onClick={() => { setIsFileMenuOpen(false); setIsMediaLibraryModalOpen(true); }}
-                                className="flex items-start gap-3 px-3 py-3 hover:bg-gray-100 rounded-lg text-left transition-colors"
-                              >
-                                <ImageIcon className="w-5 h-5 text-[#7B68EE] flex-shrink-0 mt-0.5" />
-                                <div className="flex-1">
-                                  <div className="text-sm font-medium text-gray-900">Add from Media Library</div>
-                                  <div className="text-xs text-gray-500 mt-0.5">Choose from uploaded media</div>
-                                </div>
-                              </button>
-                            </div>
-                          </Popover.Content>
-                        </Popover.Portal>
-                      </Popover.Root>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* Mobile-only Image Preview Grid */}
-              {(formData.mediaFiles.length > 0 || photosWithMetadata.length > 0 || mainPhotosArray.length > 0) && (
-                <div className="mt-3 md:hidden">
-                  <div className="grid grid-cols-3 gap-2">
-                    {(() => {
-                      // Get images to display
-                      let imagesToDisplay: Array<{ file?: File; fileUrl?: string; name: string }> = [];
-
-                      if (photosWithMetadata.length > 0) {
-                        imagesToDisplay = photosWithMetadata.map(p => ({
-                          file: p.file,
-                          fileUrl: p.fileUrl,
-                          name: p.name
-                        }));
-                      } else if (mainPhotosArray.length > 0) {
-                        imagesToDisplay = mainPhotosArray.map(p => ({
-                          fileUrl: p.fileUrl,
-                          name: p.name
-                        }));
-                      } else if (formData.mediaFiles.length > 0) {
-                        imagesToDisplay = formData.mediaFiles.map(f => ({
-                          file: f,
-                          name: f.name
-                        }));
-                      }
-
-                      return imagesToDisplay.map((img, index) => {
-                        // Create preview URL from file or use existing fileUrl
-                        const previewUrl = img.file ? URL.createObjectURL(img.file) : img.fileUrl;
-
-                        return (
-                          <div key={index} className="relative aspect-square rounded-lg overflow-hidden bg-gray-100">
-                            {previewUrl ? (
-                              <img
-                                src={previewUrl}
-                                alt={img.name}
-                                className="w-full h-full object-cover"
-                                onLoad={() => {
-                                  // Revoke object URL after image loads to free memory (only for blob URLs)
-                                  if (img.file && previewUrl.startsWith('blob:')) {
-                                    // Don't revoke immediately, let it render first
-                                  }
-                                }}
-                              />
-                            ) : (
-                              <div className="w-full h-full flex items-center justify-center">
-                                <ImageIcon className="w-8 h-8 text-gray-400" />
-                              </div>
-                            )}
-                            {/* Edit button — only for Add Moment uploaded images */}
-                            {mainPhotosArray.length > 0 && mainPhotosArray[index] && (
-                              <button
-                                type="button"
-                                onClick={() => { setEditingPhotoIndex(index); setIsAddMomentOpen(true); }}
-                                className="absolute top-1 left-1 w-5 h-5 bg-black/60 rounded-full flex items-center justify-center text-white hover:bg-[#6C60FF]/90"
-                              >
-                                <Pencil className="w-2.5 h-2.5" />
-                              </button>
-                            )}
-                            {/* Remove button */}
-                            <button
-                              type="button"
-                              onClick={() => handleRemoveMediaFile(index)}
-                              className="absolute top-1 right-1 w-5 h-5 bg-black/60 rounded-full flex items-center justify-center text-white hover:bg-black/80"
-                            >
-                              <X className="w-3 h-3" />
-                            </button>
-                          </div>
-                        );
-                      });
-                    })()}
-                  </div>
-                  <p className="text-xs text-gray-500 mt-2 text-center">
-                    {Math.max(formData.mediaFiles.length, photosWithMetadata.length, mainPhotosArray.length)} photo(s) selected
-                  </p>
-                  {/* Add Media button — mobile */}
-                  <div className="mt-3 flex justify-center">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="h-9 px-4 text-sm bg-white border-[#7B68EE] text-[#7B68EE] hover:bg-[#7B68EE]/5"
-                      disabled={isExtractingMetadata}
-                      onClick={() => document.getElementById('create-memory-file-upload')?.click()}
-                    >
-                      Add Media
-                    </Button>
-                  </div>
-                </div>
-              )}
-
-            </div>
-
             {/* Property (optional, only on personal account) */}
             {viewType !== 'property' && apiProperties.length > 0 && (
               <div>
@@ -3501,12 +3149,26 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
             </StepCard>
             )}
 
+            <StoreelMomentsCard
+              rows={momentRows}
+              busy={isSubmitting}
+              onAddMoment={() => { setEditingPhotoIndex(null); setMomentFiles(null); setIsAddMomentOpen(true); }}
+              onDropFiles={savedMoments ? undefined : (files) => {
+                const valid = Array.from(files).filter((f) => ['image/jpeg', 'image/jpg', 'image/png'].includes(f.type.toLowerCase()));
+                if (valid.length !== files.length) toast.error('Please choose only JPG, JPEG or PNG photos.');
+                if (!valid.length) return;
+                const dt = new DataTransfer();
+                valid.forEach((f) => dt.items.add(f));
+                setMomentFiles(dt.files);
+                setIsAddMomentOpen(true);
+              }}
+            />
+
             <StoreelSendStep
-              ref={sendStepRef}
               campaign={flowCampaign}
-              enabled={view.sendEnabled}
-              lockedLine={view.sendLockedLine}
-              intro={view.sendIntro}
+              optionalLine={view.sendOptional}
+              sendRequest={sendRequest}
+              onProblem={setSendBlocker}
               sender={flowSender}
               paid={starterPlan.known && !starterPlan.isStarter}
               canSend={canSend}
@@ -3515,9 +3177,10 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
               onForbidden={() => setSendForbidden(true)}
               onSeePlans={() => { handleModalClose(); requestUpgrade('Upgrade your plan to send more messages this month.'); }}
             />
+
           </div>
 
-          <aside aria-label="Storeel preview" className="min-w-0 self-start pb-[max(1rem,env(safe-area-inset-bottom))] lg:sticky lg:top-0">
+          <aside aria-label="Storeel preview" className="min-w-0 self-start lg:sticky lg:top-0 lg:col-start-2 lg:row-span-2 lg:row-start-1">
             <StoreelLivePreview
               input={{
                 title: formData.title, moments: previewMoments,
@@ -3531,31 +3194,28 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
               avatarColor={user?.profile_color ?? null}
             />
           </aside>
+          {/* The actions, at the end of the list like the newsletter composer's (Chris, 4 Nov: "Just keep going down
+              the list"): save only, or save and then confirm the send. Nothing is saved before one is pressed.
+              Phones: after the preview, so they are the very end of the page; wider screens: under the cards. */}
+          <div className="min-w-0 space-y-2 pb-[max(2rem,env(safe-area-inset-bottom))] lg:col-start-1">
+            {view.createdNote ? <p role="status" className="text-sm text-gray-700">{view.createdNote}</p> : null}
+            {sendDisabledReason && !saveDisabled ? (
+              <p id="st-send-reason" className="text-sm text-gray-500 sm:text-right">{`To send now: ${sendDisabledReason}`}</p>
+            ) : null}
+            <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-end sm:gap-3">
+              <button type="button" onClick={closeFlow} className={`${BUTTON_OUTLINE} w-full sm:w-auto`}>Cancel</button>
+              <button type="button" onClick={() => saveFlow(false)} disabled={saveDisabled} className={`${BUTTON_SECONDARY} w-full sm:w-auto`}>
+                {savingAction === 'save' ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : null}{view.save.label}
+              </button>
+              <button type="button" onClick={() => saveFlow(true)} disabled={saveDisabled || Boolean(sendDisabledReason)}
+                aria-describedby={sendDisabledReason ? 'st-send-reason' : undefined} className={`${BUTTON_PRIMARY} w-full sm:w-auto`}>
+                {savingAction === 'send' ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Send className="h-4 w-4" aria-hidden="true" />}{view.saveAndSend.label}
+              </button>
+            </div>
+          </div>
         </div>
       </div>
 
-        {/* Sticky Footer — phones only: the top bar's two buttons (Cancel / Create Campaign — Done / Send Now) above the
-            home indicator, so they are always on screen. Wider screens have these in the top bar. */}
-        <div className="md:hidden flex items-stretch gap-2 px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] border-t border-gray-100 bg-white flex-shrink-0">
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => runFlowAction(view.secondary.action)}
-            className="flex-1 min-w-0 px-2 text-sm text-gray-900 border-2 border-gray-400 hover:bg-gray-50 focus:ring-0 focus:outline-none !h-11"
-          >
-            {view.secondary.label}
-          </Button>
-          <button
-            type="button"
-            onClick={() => runFlowAction(view.primary.action)}
-            disabled={flowPrimaryDisabled}
-            aria-label={isSubmitting ? 'Saving' : view.primary.label}
-            className="flex-[2] min-w-0 bg-[#6C60FF] hover:bg-[#5A4FE5] disabled:opacity-50 disabled:pointer-events-none text-white text-sm font-semibold rounded-md flex items-center justify-center gap-2 h-11"
-          >
-            {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : view.primary.action === 'send' ? <Send className="h-4 w-4" aria-hidden="true" /> : null}
-            {isSubmitting ? 'Saving...' : view.primary.label}
-          </button>
-        </div>
     </div>
   );
 
@@ -3590,8 +3250,12 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
           isOpen={isAddMomentOpen}
           onClose={() => { setIsAddMomentOpen(false); setMomentFiles(null); setEditingPhotoIndex(null); }}
           capturedFiles={editingPhotoIndex !== null ? null : momentFiles}
+          // Step 2 Moments' Add a Moment (Storeel flow v2): before the campaign exists the moments are held here and
+          // sent with Create Campaign; on a saved campaign the original UI adds them to it directly, as on its page.
+          memoryId={flowCampaign ? String(flowCampaign.id) : undefined}
           memoryTitle={formData.title || 'New Campaign'}
           memoryLocation={formData.location}
+          onOpenMediaLibrary={flowCampaign ? undefined : () => { setIsAddMomentOpen(false); setIsMediaLibraryModalOpen(true); }}
           editPhotoData={editingPhotoIndex !== null && mainPhotosArray[editingPhotoIndex] ? {
             index: editingPhotoIndex,
             name: mainPhotosArray[editingPhotoIndex].imageName || mainPhotosArray[editingPhotoIndex].name,
@@ -3604,6 +3268,14 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
             originalSizeMB: mainPhotosArray[editingPhotoIndex].originalSizeMB || 0
           } : undefined}
           onAddMoment={(momentData) => {
+            if (flowCampaignRef.current) {
+              // Added to the saved campaign by the original UI: show its moments as they now are.
+              setIsAddMomentOpen(false);
+              setMomentFiles(null);
+              void refreshSavedMoments(flowCampaignRef.current.id);
+              onCampaignSaved?.(flowCampaignRef.current.id);
+              return;
+            }
             if (momentData?.editIndex !== undefined) {
               // Edit mode — update existing photo in mainPhotosArray
               if (momentData?.photos?.[0]) {

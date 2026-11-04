@@ -119,7 +119,8 @@ function PlaceAndDate({ location, date }: { location: string; date: string }) {
 /** One moment as the published campaign shows it (PublishedMemoryPage / the campaign page's timeline). */
 function MomentCard({ moment, author, initial, avatarUrl, color }: { moment: PreviewMoment; author: string; initial: string; avatarUrl?: string | null; color: string }) {
   if (moment.kind === 'photo' || moment.kind === 'product') {
-    const caption = moment.kind === 'photo' ? moment.text : moment.title;
+    // The campaign page: the moment's title, then its caption (a product's caption is made from the website by the API).
+    const caption = moment.kind === 'photo' ? moment.caption : '';
     return (
       <>
         <div className="overflow-hidden rounded-xl bg-white text-gray-900">
@@ -127,7 +128,8 @@ function MomentCard({ moment, author, initial, avatarUrl, color }: { moment: Pre
           <div className="space-y-2 px-4 py-3">
             <AuthorRow author={author} initial={initial} avatarUrl={avatarUrl} color={color} />
             <PlaceAndDate location={moment.location} date={moment.date} />
-            {caption ? <p className={`line-clamp-2 break-words text-sm ${moment.kind === 'product' ? 'font-medium text-gray-900' : 'text-gray-700'}`}>{caption}</p> : null}
+            {moment.title ? <p className="line-clamp-2 break-words text-sm font-medium text-gray-900">{moment.title}</p> : null}
+            {caption ? <p className="line-clamp-3 whitespace-pre-line break-words text-sm text-gray-700">{caption}</p> : null}
           </div>
         </div>
         {/* A product's "View on website" button card (CatalogSnapshotWriter's CTA: its price, else its title). */}
