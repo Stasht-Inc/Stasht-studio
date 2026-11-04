@@ -416,6 +416,18 @@ export function createMockApi(options = {}) {
           else if (!/^\+1[2-9]\d{2}[2-9]\d{6}$/.test(to)) { unsupported += 1; person.sms = 'unsupported_number'; }
           else { sms += 1; person.sms = null; }
         }
+        // NewsletterPerson::problems: what would stop Send, by box, in the API's words.
+        const typedEmail = channels.includes('email') ? String(a.email ?? '').trim().toLowerCase() : '';
+        const typedPhone = channels.includes('sms') ? String(a.phone ?? '') : '';
+        const byEmail = typedEmail ? state.leads.find((l) => l.email === typedEmail) : null;
+        const byPhone = typedPhone ? state.leads.find((l) => l.phone === typedPhone) : null;
+        const errors = {};
+        if (byEmail && byPhone && byEmail.id !== byPhone.id) errors.phone = 'That email and phone belong to two different leads — use one.';
+        else {
+          if (person.email === 'unsubscribed') errors.email = "This email address has unsubscribed, so it can't get your newsletters.";
+          if (person.sms === 'unsubscribed') errors.phone = "This phone number has unsubscribed, so it can't get your texts.";
+        }
+        person.errors = errors;
       }
       if (a.type === 'all_leads') { email += 1180; sms += 310; }
       if (a.type === 'lead_group') { email += 36; sms += 30; }
@@ -452,10 +464,9 @@ export function createMockApi(options = {}) {
     if (!String(state.brand.business_address ?? '').trim()) errors.business_address = ['Add your business address. It is shown at the bottom of every newsletter.'];
     if (channels.length) {
       const c = audienceCount(n.audience, channels);
-      // NewsletterSendCheck::unsubscribedPeople: a typed person who unsubscribed is refused by name of the box.
+      // NewsletterSendCheck::personProblems: a typed person who can't be sent to is refused by name of the box.
       const i = (n.audience || []).findIndex((a) => a.type === 'person');
-      if (c.person?.email === 'unsubscribed') errors[`audience.${i}.email`] = ["This email address has unsubscribed, so it can't get your newsletters."];
-      if (c.person?.sms === 'unsubscribed') errors[`audience.${i}.phone`] = ["This phone number has unsubscribed, so it can't get your texts."];
+      for (const [box, message] of Object.entries(c.person?.errors ?? {})) errors[`audience.${i}.${box}`] = [message];
       if (!Object.keys(errors).some((k) => k.startsWith('audience.')) && channels.reduce((sum, ch) => sum + c[ch], 0) === 0) errors.audience = ['No one on your recipient lists can be reached by the channels you chose.'];
     }
     if (channels.includes('email') && !n.reply_to_email && !state.owner.email) errors.reply_to_email = ['Add a reply-to email so people can answer you.'];

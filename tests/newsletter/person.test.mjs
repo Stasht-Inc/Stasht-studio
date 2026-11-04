@@ -79,6 +79,21 @@ test('Estimated recipients: 1 email, 1 text, or 1 email · 1 text', () => {
   assert.equal(personCountSummary(null, ['email']), '—');
 });
 
+test('what would stop Send shows under its box, in the API words (audience-count person.errors)', () => {
+  const different = 'That email and phone belong to two different leads — use one.';
+  const handled = 'This contact is already being handled by Bob Bozic.';
+  assert.deepEqual(personStatusProblems({ ...zero, person: { email: null, sms: null, errors: { phone: different } } }, ['email', 'sms']), { phone: different });
+  assert.deepEqual(personStatusProblems({ ...zero, person: { email: null, errors: { email: handled } } }, ['email']), { email: handled });
+  assert.deepEqual(personStatusProblems({ ...zero, person: { email: 'unsubscribed', errors: { email: EMAIL_UNSUBSCRIBED } } }, ['email']), { email: EMAIL_UNSUBSCRIBED });
+  assert.deepEqual(personStatusProblems({ ...zero, person: { email: null, sms: null, errors: [] } }, ['email', 'sms']), {}, 'PHP sends an empty object, or an empty list');
+  assert.deepEqual(personStatusProblems({ ...zero, person: { email: null, errors: { phone: different } } }, ['email']), {}, 'only the boxes showing');
+  const ready = {
+    ...emptyDraft(), name: 'For Jordan', from_name: 'Serpa Chrysler', reply_to_email: 'sales@serpachrysler.ca', subject: 'Hi', channels: ['email', 'sms'], sms_text: 'Hi',
+    blocks: [{ id: 'b1', type: 'title', data: { text: 'This month', size: 'large' } }], audience: [{ type: 'person', email: 'jordan@example.com', phone: '+19055550142' }],
+  };
+  assert.equal(preSendProblems(ready, { ...zero, email: 1, sms: 1, person: { email: null, sms: null, errors: { phone: different } } }, { mode: 'now' }).recipients, different);
+});
+
 test('an unsubscribed address says so (the API words, audience-count person)', () => {
   assert.equal(EMAIL_UNSUBSCRIBED, "This email address has unsubscribed, so it can't get your newsletters.");
   assert.equal(PHONE_UNSUBSCRIBED, "This phone number has unsubscribed, so it can't get your texts.");

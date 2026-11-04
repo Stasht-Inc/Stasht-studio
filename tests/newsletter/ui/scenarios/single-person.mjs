@@ -112,6 +112,26 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
   await expectVisible(step.locator('[role="alert"]').filter({ hasText: "This email address has unsubscribed" }), 'Recipients step says why');
   expect(!api.state.calls.some((c) => /\/(send|schedule)$/.test(c.path)), 'nothing sent');
   await shot(page, '1280-06-unsubscribed');
+
+  // An email and a number of two different leads (Jordan's email, Marcus's number): said under the phone box.
+  await email.fill('jordan.price@example.com');
+  await code.selectOption('+1');
+  await phone.fill('905 555 0142');
+  await page.waitForTimeout(1500);
+  await expectVisible(step.locator('#nl-person-phone-error').filter({ hasText: 'That email and phone belong to two different leads — use one.' }), 'two different leads');
+  await page.getByRole('button', { name: 'Send Now' }).first().click();
+  await expectVisible(step.locator('[role="alert"]').filter({ hasText: 'two different leads' }), 'Send stops at Recipients');
+  expect(!api.state.calls.some((c) => /\/(send|schedule)$/.test(c.path)), 'still nothing sent');
+  await shot(page, '1280-07-two-leads');
+
+  // Someone new (email and number not in Leads): counted for both, nothing to fix; their lead is made when it is sent.
+  await email.fill('new.buyer@example.com');
+  await phone.fill('416 555 0199');
+  await page.waitForTimeout(1500);
+  expect((await estimateText()).includes('1 email · 1 text'), `a new person: 1 email · 1 text (got "${await estimateText()}")`);
+  expect(!(await step.locator('#nl-person-email-error, #nl-person-phone-error').count()), 'no problem under the boxes');
+  expect(sameJson(lastAudience(api), [{ type: 'person', email: 'new.buyer@example.com', phone: '+14165550199' }]), `saved (got ${JSON.stringify(lastAudience(api))})`);
+  await shot(page, '1280-08-new-person');
   await context.close();
 
   // The API's 422 for a box (send / schedule) shows under that box.
@@ -134,7 +154,7 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
   await expectVisible(rStep.locator('#nl-person-email-error').filter({ hasText: 'has unsubscribed' }), "the API's 422 under the Email address box");
   expect((await rStep.getByText('This email address has unsubscribed', { exact: false }).count()) === 1, 'said once, under the box');
   await r.page.waitForTimeout(500);
-  await shot(r.page, '1280-07-api-refused');
+  await shot(r.page, '1280-09-api-refused');
   await r.context.close();
 
   // A saved person comes back in the boxes; an older draft's lead fills them; an All leads draft keeps All leads.

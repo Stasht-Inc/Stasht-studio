@@ -20,7 +20,8 @@ export type PersonEntry = Extract<AudienceItem, { type: 'person' }>;
 
 // The same words as the Lists person form (lists.ts BAD_EMAIL) and the API (NewsletterAudience::BAD_EMAIL).
 export const PERSON_BAD_EMAIL = 'Enter an email address like name@example.com.';
-// The API's send / schedule refusals (NewsletterPerson), shown under the box before Send too.
+// The API's send / schedule refusals (NewsletterPerson), shown under the box before Send too (its audience-count
+// person.errors carry them; these are for an API without errors).
 export const EMAIL_UNSUBSCRIBED = "This email address has unsubscribed, so it can't get your newsletters.";
 export const PHONE_UNSUBSCRIBED = "This phone number has unsubscribed, so it can't get your texts.";
 
@@ -90,13 +91,17 @@ export function personCountSummary(counts: AudienceCount | null, channels: reado
   return channels.includes('sms') ? texts : emails;
 }
 
-/** The API's word on the typed addresses (audience-count `person`): an unsubscribed one, per box. */
+/** The API's word on the typed person (audience-count `person.errors`: two different leads, a lead someone else is
+ *  handling, an unsubscribed address), per box showing. An API without errors: its unsubscribed statuses. */
 export function personStatusProblems(counts: AudienceCount | null, channels: readonly NewsletterChannel[]): { email?: string; phone?: string } {
-  const status = counts?.person;
+  const person = counts?.person;
   const out: { email?: string; phone?: string } = {};
-  if (!status) return out;
-  if (channels.includes('email') && status.email === 'unsubscribed') out.email = EMAIL_UNSUBSCRIBED;
-  if (channels.includes('sms') && status.sms === 'unsubscribed') out.phone = PHONE_UNSUBSCRIBED;
+  if (!person) return out;
+  const errors = person.errors && typeof person.errors === 'object' && !Array.isArray(person.errors) ? person.errors : null;
+  const email = errors ? errors.email : person.email === 'unsubscribed' ? EMAIL_UNSUBSCRIBED : undefined;
+  const phone = errors ? errors.phone : person.sms === 'unsubscribed' ? PHONE_UNSUBSCRIBED : undefined;
+  if (channels.includes('email') && email) out.email = email;
+  if (channels.includes('sms') && phone) out.phone = phone;
   return out;
 }
 

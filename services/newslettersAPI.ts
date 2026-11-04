@@ -164,8 +164,9 @@ export interface AudienceCount {
    *  texts only): newer API versions only. */
   skipped: { no_email: number; no_phone: number; unsubscribed: number; duplicate: number; consent_expired?: number; unsupported_number?: number };
   /** Only for an audience of one typed person: per chosen channel, null when their address is reached, else why
-   *  ('unsubscribed', 'no_email', 'no_phone', 'consent_expired', 'unsupported_number'). */
-  person?: Partial<Record<NewsletterChannel, string | null>>;
+   *  ('unsubscribed', 'no_email', 'no_phone', 'consent_expired', 'unsupported_number'); errors: what would stop Send,
+   *  by box (two different leads, a lead someone else is handling, unsubscribed), in the API's words. */
+  person?: Partial<Record<NewsletterChannel, string | null>> & { errors?: Partial<Record<'email' | 'phone', string>> };
 }
 
 export type RecipientStatus = 'queued' | 'sent' | 'delivered' | 'failed' | 'skipped';
