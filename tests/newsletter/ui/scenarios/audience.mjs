@@ -42,7 +42,7 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
 
   // While the Storeel tab shows, nothing is counted.
   await page.getByRole('radio', { name: 'Storeel' }).click();
-  await expectVisible(page.getByText('Create New Campaign'), 'Storeel form');
+  await expectVisible(page.getByRole('heading', { name: 'Set up' }), 'Storeel form');
   const onStoreel = countCalls().length;
   await page.waitForTimeout(1200);
   expect(countCalls().length === onStoreel, 'no count calls on the Storeel tab');

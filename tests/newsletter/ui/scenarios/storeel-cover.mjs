@@ -175,17 +175,15 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
     await expectVisible(photoChip, `${tag}: cover photo chosen again`);
     await page.waitForTimeout(600);
 
-    // Create: the cover photo goes as last_update_img.
-    if (width >= 1024) {
-      await page.locator('header').getByRole('button', { name: 'Create Campaign', exact: true }).click();
-    } else {
-      await page.getByRole('button', { name: 'Create Campaign' }).filter({ visible: true }).last().click();
-    }
+    // Create (Set up's Continue, Storeel flow 4 Nov): the cover photo goes as last_update_img.
+    await page.getByRole('button', { name: 'Continue', exact: true }).filter({ visible: true }).last().click();
     await page.waitForTimeout(1500);
     const made = api.state.storeels.find((s) => s.title === 'Next Summit / 25');
     expect(made && made.last_update_img === IMG, `${tag}: created with the cover photo as last_update_img (got ${JSON.stringify(made?.last_update_img)})`);
 
     // The form is reset for next time: nothing chosen.
+    await page.getByRole('button', { name: 'Cancel' }).filter({ visible: true }).first().click();
+    await page.waitForTimeout(400);
     await page.getByRole('button', { name: 'Open Create Campaign' }).click().catch(() => {});
     await page.waitForTimeout(800);
     const radio = page.getByRole('radio', { name: 'Storeel', exact: true });

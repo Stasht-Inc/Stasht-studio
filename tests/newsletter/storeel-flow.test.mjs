@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   FLOW_STEPS, FLOW_RESUME_KEY, FLOW_RESUME_MAX_AGE_MS, clearFlowResume, dateRangeFor, momentsOf, readFlowResume, seedFromMemory,
-  sendPayload, startStep, stepNumber, stepStatus, updatePayload, writeFlowResume, formFromSeed, coverFromSeed,
+  sendPayload, startStep, stepNumber, stepStatus, updatePayload, writeFlowResume, formFromSeed, coverFromSeed, firstImageOf,
 } from '../../components/storeel/lib/storeelFlow.ts';
 
 function memoryStorage() {
@@ -79,7 +79,7 @@ test('Edit opens the flow prefilled from the campaign', () => {
   assert.deepEqual(seed, {
     id: 3021, title: 'Spring Open House', category: 'Service', categoryId: 8, label: 'Events', date: '2026-10-01', endDate: '2026-10-09',
     location: 'Toronto, ON', tags: ['spring', 'open house'], cover: { kind: 'photo', url: 'https://cdn.example.com/cover.jpg' },
-    slug: 'spring-open-house', published: 0, isCar: false, moments: 2, ownerId: 707,
+    slug: 'spring-open-house', published: 0, isCar: false, moments: 2, ownerId: 707, firstImage: null,
   });
   assert.deepEqual(formFromSeed(seed), {
     title: 'Spring Open House', category: 'Service', label: 'Events', date: '2026-10-01', endDate: '2026-10-09', location: 'Toronto, ON', tags: ['spring', 'open house'],
@@ -100,6 +100,13 @@ test('the seed reads every shape the campaign comes in, and a single day has no 
   assert.equal(seedFromMemory({ title: 'no id' }), null);
   assert.equal(seedFromMemory({ ...DETAIL, last_update_img: '' }).cover, null);
   assert.equal(seedFromMemory({ ...DETAIL, min_uploaded_img_date: null, max_uploaded_img_date: null }).date, '');
+});
+
+test('the preview\'s moment card: the first moment\'s picture (never a video)', () => {
+  assert.equal(firstImageOf({ posts: [{ id: 1, parent_id: null, image_link: 'https://cdn.example.com/clip.mp4' }, { id: 2, parent_id: null, image_link: 'https://cdn.example.com/a.jpg' }] }), 'https://cdn.example.com/a.jpg');
+  assert.equal(firstImageOf({ posts: [{ id: 1, parent_id: 9, image_link: 'https://cdn.example.com/sub.jpg' }] }), null, 'a sub-image is not a moment');
+  assert.equal(firstImageOf({ photos: { preview_images: [{ url: 'https://cdn.example.com/p.jpg' }] } }), 'https://cdn.example.com/p.jpg');
+  assert.equal(firstImageOf({}), null);
 });
 
 test('the moments count: top-level moments, else the photo count the API gives', () => {

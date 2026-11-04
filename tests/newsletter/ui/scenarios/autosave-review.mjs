@@ -81,7 +81,7 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
   // coming back, focus is on the checked Newsletter radio.
   ({ page, api, context } = await open({ width: 1280, height: 1000 }));
   await page.getByRole('radio', { name: 'Storeel' }).click();
-  await expectVisible(page.getByText('Create New Campaign'), 'Storeel form');
+  await expectVisible(page.getByRole('heading', { name: 'Set up' }), 'Storeel form');
   await page.waitForTimeout(800);
   expect(await page.evaluate(() => document.activeElement !== document.body && document.activeElement?.closest('[role="dialog"], .fixed') !== null), 'focus inside the Storeel form');
   await page.getByRole('radio', { name: 'Newsletter' }).click();

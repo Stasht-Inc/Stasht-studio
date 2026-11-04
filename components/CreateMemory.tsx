@@ -1,12 +1,10 @@
 ﻿import React, { useState, useRef, useEffect, useCallback, useImperativeHandle, forwardRef, useReducer } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Upload, Calendar, MapPin, Tag, Users, Plus, Camera, Image as ImageIcon, CheckCircle, Loader2, File as FileIcon, Search, Video, Pencil, Globe, Eye, Lock, ChevronRight, ArrowLeft } from 'lucide-react';
+import { X, Upload, Calendar, MapPin, Tag, Plus, Camera, Image as ImageIcon, CheckCircle, Loader2, File as FileIcon, Search, Video, Pencil, ChevronRight, ArrowLeft, Send, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { isValidCollaboratorPhone, collaboratorPhoneValue } from '../utils/phoneUtils';
 import { useVisualViewportSheet } from '../hooks/useVisualViewportSheet';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
-import CountrySelect from './CountrySelect';
 import { useIsStarterPlan } from '../hooks/usePlan';
 import GooglePlacesInput from './ui/google-places-input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
@@ -20,7 +18,6 @@ import { useAuth } from '../contexts/AuthContext';
 import { useProperty } from '../contexts/PropertyContext';
 import { useMemoryLimit, recheckMemoryLimit } from '../hooks/useMemoryLimit';
 import { triggerMemoryCountsRefresh } from '../hooks/useMemoryCounts';
-import { MemoryCreatedDialog } from "./MemoryCreatedDialog";
 import { ExifProgressModal } from "./ExifProgressModal";
 import MediaLibrarySelectionModal from "./MediaLibrarySelectionModal";
 import { AddMomentModal } from "./AddMomentModal";
@@ -34,7 +31,21 @@ import { requestUpgrade } from '../utils/planEvents';
 import StoreelLivePreview from './storeel/StoreelLivePreview';
 import { storeelPreviewMedia, storeelBrandImage } from './storeel/storeelPreview';
 import { coverChoiceReducer, coverChoicePayload, coverPhotoFileError, EMPTY_COVER_CHOICE, COVER_PHOTO_ACCEPT, type CoverChoice, type CoverChoiceAction } from '../utils/coverChoice';
-import { BUTTON_OUTLINE, BUTTON_PRIMARY, BUTTON_SECONDARY } from './newsletters/lib/ui';
+import { BUTTON_OUTLINE, BUTTON_PRIMARY, LINK_BUTTON } from './newsletters/lib/ui';
+import StepCard from './newsletters/StepCard';
+import StoreelMomentsStep, { MOMENTS_STEP_ID } from './storeel/StoreelMomentsStep';
+import StoreelSendStep, { SEND_STEP_ID, type StoreelSendStepHandle } from './storeel/StoreelSendStep';
+import {
+  clearFlowResume, coverFromSeed, formFromSeed, seedFromMemory, sessionNotes, startStep, stepNumber, stepStatus, updatePayload, writeFlowResume,
+  type CampaignSeed, type FlowStep,
+} from './storeel/lib/storeelFlow';
+import { senderLabelFor } from './storeel/lib/storeelSms';
+import { sentMessage, type StoreelSendSummary } from './storeel/lib/storeelSend';
+import { requestOpenCampaign } from './storeel/lib/openCampaign';
+import { ACTION_TOAST_MS } from './newsletters/lib/blocks';
+
+const SETUP_STEP_ID = 'st-step-setup';
+const STEP_DOM_ID: Record<FlowStep, string> = { setup: SETUP_STEP_ID, moments: MOMENTS_STEP_ID, send: SEND_STEP_ID };
 
 interface CreateMemoryProps {
   open: boolean;
@@ -49,6 +60,13 @@ interface CreateMemoryProps {
   initialPhotos?: File[] | null; // Photos passed in (Scan Photo): opens on Storeel with them ready to add
   beforeStoreel?: () => boolean; // Asked before switching to the Storeel tab; false keeps the Newsletter tab
   opensOn?: CampaignType; // The tab to open on: the Campaigns page's Storeels | Newsletters view (Chris, 4 Nov 2026)
+  // The Storeel flow (Chris, 4 Nov 2026, point 9) on a saved campaign: Edit (campaign page) or coming back from it.
+  campaignId?: number | null; // Open the flow on this campaign: Set up prefilled, saved with PUT /memories/{id}
+  campaignSeed?: CampaignSeed | null; // Its data when the caller has it (else GET /memories/{id})
+  resumeStep?: FlowStep | null; // The step to open on (Send when coming back from the campaign page)
+  canSend?: boolean; // False when this account may not send it (only the owner / the property's admins may)
+  onDeleteCampaign?: () => void; // Edit: Delete in Set up (the campaign page asks to confirm)
+  onCampaignSaved?: (memoryId: number) => void; // Set up saved (PUT) or the Storeel sent: the page refreshes
 }
 
 export interface CreateMemoryHandle {
@@ -90,14 +108,14 @@ function CampaignVideoThumbnail({ src, className }: { src: string; className?: s
   );
 }
 
-const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function CreateMemory({ open, onOpenChange, onMemoryCreated, onOpenMediaLibrary, selectedMediaLibraryImages, defaultCategory, categories: categoriesProp, newsletterId = null, onNewsletterChanged, initialPhotos = null, beforeStoreel, opensOn }, ref) {
+const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function CreateMemory({ open, onOpenChange, onMemoryCreated, onOpenMediaLibrary, selectedMediaLibraryImages, defaultCategory, categories: categoriesProp, newsletterId = null, onNewsletterChanged, initialPhotos = null, beforeStoreel, opensOn, campaignId = null, campaignSeed = null, resumeStep = null, canSend = true, onDeleteCampaign, onCampaignSaved }, ref) {
   const { isAuthenticated, user } = useAuth();
   const { viewType, currentProperty } = useProperty();
   const { isLimitExceeded, limitData, checkLimit } = useMemoryLimit();
   // Newsletter | Storeel switch (spec 2026-10-13). Newsletter is the default; null = follow initialCampaignType.
   const [campaignTypeChoice, setCampaignTypeChoice] = useState<CampaignType | null>(null);
   const starterPlan = useIsStarterPlan();
-  const campaignType: CampaignType = campaignTypeChoice ?? initialCampaignType({
+  const campaignType: CampaignType = campaignId ? 'storeel' : campaignTypeChoice ?? initialCampaignType({
     newsletterId, defaultCategory, mediaCount: selectedMediaLibraryImages?.length ?? 0, photoCount: initialPhotos?.length ?? 0,
     isStarter: starterPlan.known && starterPlan.isStarter, preferred: opensOn,
   });
@@ -187,37 +205,12 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
   }));
 
   const [currentTag, setCurrentTag] = useState('');
-  const [currentCollaborator, setCurrentCollaborator] = useState('');
-  const [collaboratorError, setCollaboratorError] = useState('');
-  const [collaboratorMethod, setCollaboratorMethod] = useState<'phone' | 'email'>('phone');
-  const [collaboratorCountryCode, setCollaboratorCountryCode] = useState('+1');
-  // Live user-search dropdown for the collaborator input (matches AddCollaboratorDialog's search UX)
-  const [collaboratorSearchResults, setCollaboratorSearchResults] = useState<any[]>([]);
-  const [isSearchingCollaborators, setIsSearchingCollaborators] = useState(false);
-  const collaboratorSearchRef = useRef<HTMLDivElement>(null);
-  const collaboratorInputRef = useRef<HTMLInputElement>(null);
-  // "Selected collaborators" chips (rendered right under the input): the one just
-  // added gets a brief purple highlight and is scrolled into view.
-  const selectedCollaboratorsRef = useRef<HTMLDivElement>(null);
-  const [justAddedCollaborator, setJustAddedCollaborator] = useState<string | null>(null);
-  const justAddedTimerRef = useRef<number | null>(null);
   // Labels + Tags sit behind an "Advanced filters" toggle. null = automatic: closed,
   // but it opens (and stays open) as soon as a label or tag is set, so nothing set is
   // ever hidden. A click on the toggle sets it explicitly.
   const [advancedFiltersOverride, setAdvancedFiltersOverride] = useState<boolean | null>(null);
   // The full-screen sheet follows window.visualViewport on phones (iOS keyboard).
   const modalOverlayRef = useRef<HTMLDivElement>(null);
-  // Editable part of the personalized invite message (the author name prefix is fixed/non-editable)
-  const [personalizedMessage, setPersonalizedMessage] = useState('wants to share this with you!');
-  // "Set as my default message" — when checked, personalizedMessage is saved as the user's master
-  // message (via is_master on the create-campaign call) and pre-fills this box on future opens.
-  const [isMasterMessage, setIsMasterMessage] = useState(false);
-  // The master message as last fetched from the profile API — restored into the box whenever the
-  // checkbox is re-checked, so toggling it off and back on doesn't lose the saved text.
-  const [savedMasterMessage, setSavedMasterMessage] = useState('');
-  // Width of the author-name prefix, used to indent only the first line of the message textarea
-  const personalizedNameRef = useRef<HTMLSpanElement>(null);
-  const [personalizedNameWidth, setPersonalizedNameWidth] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
@@ -345,38 +338,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
   // Only the Storeel sheet follows the visual viewport; the Newsletter tab is its own full-window layer.
   useVisualViewportSheet(modalOverlayRef, open && campaignType === 'storeel');
 
-  // Scroll the just-added collaborator chip into view (after the touch keyboard has
-  // started closing) and fade its highlight out.
-  useEffect(() => {
-    if (!justAddedCollaborator) return;
-    const isTouch = typeof window !== 'undefined' && window.matchMedia?.('(hover: none) and (pointer: coarse)').matches;
-    const scrollTimer = window.setTimeout(() => {
-      const chip = selectedCollaboratorsRef.current?.querySelector<HTMLElement>(
-        `[data-collaborator-chip="${CSS.escape(justAddedCollaborator)}"]`
-      );
-      chip?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-    }, isTouch ? 350 : 0);
-    if (justAddedTimerRef.current) window.clearTimeout(justAddedTimerRef.current);
-    justAddedTimerRef.current = window.setTimeout(() => setJustAddedCollaborator(null), 1800);
-    return () => window.clearTimeout(scrollTimer);
-  }, [justAddedCollaborator]);
-  useEffect(() => () => {
-    if (justAddedTimerRef.current) window.clearTimeout(justAddedTimerRef.current);
-  }, []);
-
-  // Measure the author-name prefix width whenever it (or the box's visibility) changes,
-  // so the first line of the message can be indented past the name.
-  useEffect(() => {
-    if (personalizedNameRef.current) {
-      setPersonalizedNameWidth(personalizedNameRef.current.offsetWidth + 6); // + small gap
-    }
-  }, [user?.name, formData.collaborators.length]);
-
   const [deviceLocation, setDeviceLocation] = useState<string>(''); // Store device location
-
-  const [publishPopoverOpen, setPublishPopoverOpen] = useState(false);
-  // The top bar's Publish (wider screens); the phone footer keeps its own.
-  const [headerPublishOpen, setHeaderPublishOpen] = useState(false);
 
   // Select from Existing Campaigns
   const [selectFromExisting, setSelectFromExisting] = useState(false);
@@ -1039,22 +1001,49 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
     }
   };
 
-  // Fetch the user's saved "master" personalized message from the profile API,
-  // and pre-fill the Personalized Message box with it if one was set.
-  const fetchMasterMessage = async () => {
-    try {
-      const response = await dashboardAPI.getUserProfile();
-      if (response.success && response.data) {
-        const profile = (response.data as any)?.data?.user || (response.data as any)?.user || response.data;
-        if (profile?.is_master && profile?.message) {
-          setSavedMasterMessage(profile.message);
-          setPersonalizedMessage(profile.message);
-          setIsMasterMessage(true);
-        }
-      }
-    } catch (error) {
-      console.error('Error fetching master message:', error);
-    }
+  // ── The Storeel flow (Chris, 4 Nov 2026, point 9): 1 Set up · 2 Moments · 3 Send ─────────────────────────────────
+  // Editing a saved campaign (campaignId): Set up shows it and saves with PUT /memories/{id}; its moments are added on
+  // the campaign page (no media, linked campaigns or property here: PUT doesn't change them).
+  const flowEditing = Boolean(campaignId);
+  const [flowStep, setFlowStep] = useState<FlowStep>('setup');
+  // The saved campaign: the one being edited, or the one Set up just created (then steps 2 and 3 open).
+  const [flowCampaign, setFlowCampaignState] = useState<CampaignSeed | null>(null);
+  const flowCampaignRef = useRef<CampaignSeed | null>(null);
+  const setFlowCampaign = (seed: CampaignSeed | null) => { flowCampaignRef.current = seed; setFlowCampaignState(seed); };
+  const [flowLoading, setFlowLoading] = useState(false);
+  const [flowLoadError, setFlowLoadError] = useState<string | null>(null);
+  // Set up's own refusal (PUT /memories/{id}), shown on its card; a title problem shows under the title.
+  const [setupError, setSetupError] = useState<string | null>(null);
+  // The cover the campaign had when it was opened or last saved: last_update_img is sent only when it changes.
+  const initialCoverUrlRef = useRef<string | null>(null);
+  const sendStepRef = useRef<StoreelSendStepHandle>(null);
+  // The API said this account may not send the campaign (403 on the count): Send Now goes off.
+  const [sendForbidden, setSendForbidden] = useState(false);
+  // Who the Storeel's texts say they came from (StoreelSendService::senderLabel).
+  const flowSender = senderLabelFor(user?.name, viewType === 'property' ? currentProperty?.name : null);
+
+  const goToStep = (step: FlowStep) => {
+    setFlowStep(step);
+    window.requestAnimationFrame(() => {
+      const el = document.getElementById(STEP_DOM_ID[step]);
+      el?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      el?.focus({ preventScroll: true });
+    });
+  };
+
+  /** Set up shows the saved campaign: its fields and its cover (photo or intro video). */
+  const applySeed = (seed: CampaignSeed) => {
+    const f = formFromSeed(seed);
+    setFormData(prev => ({
+      ...prev, title: f.title, category: f.category || prev.category, label: f.label, date: f.date || prev.date, endDate: f.endDate,
+      location: f.location, tags: f.tags, property: [], mediaFiles: [], collaborators: [],
+    }));
+    setShowEndDate(Boolean(f.endDate));
+    setTitleError('');
+    const cover = coverFromSeed(seed);
+    initialCoverUrlRef.current = cover?.url ?? null;
+    if (cover) dispatchCover({ type: 'ready', seq: nextCoverSeq(), kind: cover.kind, file: null, name: cover.kind === 'video' ? 'Intro video' : 'Cover photo', url: cover.url });
+    else clearCover();
   };
 
   // Fetch data when modal opens
@@ -1080,6 +1069,8 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
         fetchCategoriesLabels();
       }
       fetchProperties();
+      // The flow on a saved campaign (Edit, back from its page, or just created): the form shows that campaign.
+      if (campaignId || flowCampaignRef.current) return undefined;
 
       // Pick default category: prefer a specific defaultCategory when supplied (the
       // sidebar's per-category "+" button). The generic "Create a Campaign" button
@@ -1112,13 +1103,6 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
       setShowExifModal(false);
       setShowEndDate(false);
       setCurrentTag('');
-      setCurrentCollaborator('');
-      setCollaboratorMethod('phone');
-      setCollaboratorSearchResults([]);
-      setPersonalizedMessage('wants to share this with you!');
-      setIsMasterMessage(false);
-      setSavedMasterMessage('');
-      fetchMasterMessage();
       clearCover();
 
       // Default the new-campaign category (and the existing-campaigns filter) to whatever
@@ -1157,6 +1141,49 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
       return () => { cancelled = true; };
     }
   }, [open, isAuthenticated, defaultCategory, categoriesProp, user]);
+
+  // Open on a saved campaign (Edit, or back from its page): its data (passed in, or GET /memories/{id}), then the step
+  // to open on (Set up; Send when coming back). Closing forgets the flow.
+  useEffect(() => {
+    if (!open) {
+      setFlowStep('setup');
+      setFlowCampaign(null);
+      setFlowLoading(false);
+      setFlowLoadError(null);
+      setSetupError(null);
+      setSendForbidden(false);
+      initialCoverUrlRef.current = null;
+      return undefined;
+    }
+    if (!campaignId) return undefined;
+    let cancelled = false;
+    const begin = (seed: CampaignSeed) => {
+      if (cancelled) return;
+      setFlowCampaign(seed);
+      applySeed(seed);
+      setFlowLoading(false);
+      setFlowLoadError(null);
+      goToStep(startStep({ campaignId, resume: resumeStep }));
+    };
+    if (campaignSeed && campaignSeed.id === campaignId) {
+      begin(campaignSeed);
+    } else {
+      setFlowLoading(true);
+      setFlowLoadError(null);
+      const failed = (message?: string) => {
+        if (cancelled) return;
+        setFlowLoading(false);
+        setFlowLoadError(message || "This campaign couldn't be opened. Check your connection and try again.");
+      };
+      dashboardAPI.getMemoryDetails(String(campaignId)).then((res) => {
+        const seed = res?.success ? seedFromMemory(res.data) : null;
+        if (seed) begin(seed);
+        else failed(res?.error);
+      }).catch(() => failed());
+    }
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, campaignId]);
 
   // Completes the category resolution once apiCategories loads asynchronously — the
   // synchronous pass above only sees categories already available via categoriesProp,
@@ -1219,48 +1246,6 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
       console.log('✅ Added media library images to mainPhotosArray:', libraryPhotos);
     }
   }, [selectedMediaLibraryImages, open]);
-
-  // Debounced live search for the collaborator input — looks up existing users by
-  // phone/email as you type, same API AddCollaboratorDialog uses (dashboardAPI.searchUsers).
-  useEffect(() => {
-    const query = currentCollaborator.trim();
-    if (query.length < 2) {
-      setCollaboratorSearchResults([]);
-      setIsSearchingCollaborators(false);
-      return;
-    }
-
-    setIsSearchingCollaborators(true);
-    const timeoutId = setTimeout(async () => {
-      try {
-        const response = await dashboardAPI.searchUsers(query, collaboratorMethod);
-        const users = response.success ? (response.data?.data?.users || []) : [];
-        const filtered = users.filter((user: any) => {
-          const value = collaboratorMethod === 'email' ? user.email : user.phone_number;
-          return value && !formData.collaborators.includes(value);
-        });
-        setCollaboratorSearchResults(filtered);
-      } catch (error) {
-        console.error('Error searching collaborators:', error);
-        setCollaboratorSearchResults([]);
-      } finally {
-        setIsSearchingCollaborators(false);
-      }
-    }, 300);
-
-    return () => clearTimeout(timeoutId);
-  }, [currentCollaborator, collaboratorMethod, formData.collaborators]);
-
-  // Click outside the search input/dropdown closes the results
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (collaboratorSearchRef.current && !collaboratorSearchRef.current.contains(event.target as Node)) {
-        setCollaboratorSearchResults([]);
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
 
   // Click outside the "Search campaigns" box closes its suggestions dropdown
   useEffect(() => {
@@ -1327,6 +1312,8 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
     setCatalogNotice('');
     wasCatalogCategoryRef.current = false;
     setVisibleCampaignsCount(CAMPAIGNS_LOAD_BATCH);
+    // A note to come back to Send is for one trip to the campaign page (openCampaignPage writes it after this).
+    clearFlowResume(sessionNotes());
     onOpenChange(false);
   };
 
@@ -1908,68 +1895,6 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
     }));
   };
 
-  // Whether the phone/email typed into "Add Users" can be added right now — drives the
-  // Add button's enabled (purple) state and is the same check handleAddCollaborator uses.
-  const isCollaboratorInputValid = collaboratorMethod === 'phone'
-    ? isValidCollaboratorPhone(collaboratorCountryCode, currentCollaborator)
-    : /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(currentCollaborator.trim());
-
-  // Add a collaborator and make it obvious it worked: highlight + scroll to its chip
-  // (just under the input) and a short toast.
-  const addCollaboratorValue = (collaboratorValue: string) => {
-    if (!formData.collaborators.includes(collaboratorValue)) {
-      setFormData(prev => ({
-        ...prev,
-        collaborators: prev.collaborators.includes(collaboratorValue)
-          ? prev.collaborators
-          : [...prev.collaborators, collaboratorValue]
-      }));
-      toast.success('Collaborator added');
-    }
-    setJustAddedCollaborator(collaboratorValue);
-  };
-
-  const handleAddCollaborator = () => {
-    const value = currentCollaborator.trim();
-    if (!value) return;
-
-    let collaboratorValue = value;
-
-    if (collaboratorMethod === 'phone') {
-      if (!isValidCollaboratorPhone(collaboratorCountryCode, value)) {
-        setCollaboratorError(collaboratorCountryCode === '+1'
-          ? 'Please enter a valid 10-digit phone number.'
-          : 'Please enter a valid phone number.');
-        return;
-      }
-      // The selected country/area code + the entered national digits, as E.164.
-      collaboratorValue = collaboratorPhoneValue(collaboratorCountryCode, value);
-    } else {
-      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      if (!emailRegex.test(value)) {
-        setCollaboratorError('Please enter a valid email address.');
-        return;
-      }
-    }
-
-    addCollaboratorValue(collaboratorValue);
-    setCurrentCollaborator('');
-    setCollaboratorError('');
-    setCollaboratorSearchResults([]);
-    // On phones/tablets, close the on-screen keyboard so the new chip (and Publish)
-    // aren't hidden behind it.
-    if (window.matchMedia?.('(hover: none) and (pointer: coarse)').matches) {
-      collaboratorInputRef.current?.blur();
-    }
-  };
-
-  const handleRemoveCollaborator = (collaboratorToRemove: string) => {
-    setFormData(prev => ({
-      ...prev,
-      collaborators: prev.collaborators.filter(c => c !== collaboratorToRemove)
-    }));
-  };
-
   const handleRemoveMediaFile = (indexToRemove: number) => {
     // Remove from all three arrays to keep them in sync
     setFormData(prev => ({
@@ -2008,33 +1933,6 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
     setCurrentTag(e.target.value);
     setIsTypingTag(true);
     setTimeout(() => setIsTypingTag(false), 500);
-  };
-
-  const handleCollaboratorChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const value = e.target.value;
-    if (collaboratorMethod === 'phone') {
-      if (/^[0-9+\-() ]*$/.test(value)) {
-        setCurrentCollaborator(value);
-      }
-    } else {
-      if (/^[a-zA-Z0-9@._\-]*$/.test(value)) {
-        setCurrentCollaborator(value);
-      }
-    }
-    if (collaboratorError) setCollaboratorError('');
-    setIsTypingCollaborator(true);
-    setTimeout(() => setIsTypingCollaborator(false), 500);
-  };
-
-  const handleSelectCollaboratorFromSearch = (user: any) => {
-    const value = collaboratorMethod === 'email' ? user.email : user.phone_number;
-    if (!value) return;
-    addCollaboratorValue(value);
-    setCurrentCollaborator('');
-    setCollaboratorSearchResults([]);
-    if (window.matchMedia?.('(hover: none) and (pointer: coarse)').matches) {
-      collaboratorInputRef.current?.blur();
-    }
   };
 
   const handleDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -2150,12 +2048,6 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
         max_uploaded_img_date: formatDateForAPI(formData.endDate || formData.date),
         location: formData.location || '',
         tags: formData.tags,
-        collaborators: formData.collaborators,
-        // Personalized invite message — only relevant when collaborators are added
-        ...(formData.collaborators.length > 0 && {
-          personalize_message: personalizedMessage.trim(),
-          is_master: isMasterMessage
-        }),
         photos_count: photosArray.length,
         photos: photosArray,
         ...coverChoicePayload(coverChoice)
@@ -2206,67 +2098,25 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
       response = await dashboardAPI.createMemory(memoryData);
       
       if (response.success) {
-        console.log('Memory created successfully:', response.data);
-
-        // Recheck memory limit and refresh page
+        // Set up is saved: the flow goes on to Moments and Send for this campaign (Chris, 4 Nov 2026, point 9).
+        const created = seedFromMemory(response.data);
         await recheckMemoryLimit();
-
-        // Store memory details before resetting form
-        const memoryDetails = {
-          title: formData.title,
-          category: formData.category,
-          location: formData.location || undefined
-        };
-
-        // Show success dialog with memory details
-        setCreatedMemoryDetails(memoryDetails);
-        
-        // Reset form and all photo-related states
-        setFormData({
-          title: '',
-          category: apiCategories.length > 0 ? apiCategories[0].name : 'Personal',
-          label: '',
-          property: '',
-          mediaFiles: [],
-          date: new Date().toISOString().split('T')[0],
-          endDate: '',
-          location: '',
-          tags: [],
-          collaborators: []
-        });
-        setLabelInput('');
-        setPersonalizedMessage('wants to share this with you!'); // Reset personalized message
-        setIsMasterMessage(false); // Re-derived from user data next time the modal opens
-        setMainPhotosArray([]); // Clear the photos metadata array
-        setPhotosWithMetadata([]); // Clear photos with metadata
-        setCurrentTag('');
-        setCurrentCollaborator('');
-        setCollaboratorMethod('phone');
-        setCollaboratorSearchResults([]);
-        setShowEndDate(false); // Reset end date visibility
-        setDeviceLocation(''); // Reset device location for fresh detection on next open
-        clearCover();
-
-        
-        // Trigger memory counts refresh
-        await triggerMemoryCountsRefresh();
-        
-        // Call the callback to refresh parent component and wait for it
-        console.log('🔄 Calling onMemoryCreated callback to refresh memories');
-        if (onMemoryCreated) {
-          await onMemoryCreated();
+        void triggerMemoryCountsRefresh();
+        if (created) {
+          const cover = coverChoice.kind && coverChoice.url ? { kind: coverChoice.kind, url: coverChoice.url } : null;
+          initialCoverUrlRef.current = cover?.url ?? null;
+          setFlowCampaign({
+            ...created,
+            title: memoryData.title, category: formData.category, categoryId: Number(selectedCategoryData.id) || null, label: formData.label,
+            date: formData.date, endDate: showEndDate ? formData.endDate : '', location: formData.location || '', tags: [...formData.tags], cover,
+            published: Number(memoryData.published) || 0, isCar: isCarsCategory, moments: created.moments || photosArray.length,
+          });
+          goToStep('moments');
+        } else {
+          onOpenChange(false);
         }
-        console.log('✅ Memory refresh callback completed');
-        
-        // Close the create modal first
-        onOpenChange(false);
-        
-        // Show success dialog after a short delay to ensure smooth transition
-        setTimeout(() => {
-          console.log('Setting showSuccessDialog to true with details:', memoryDetails);
-          console.log('Current createdMemoryDetails state:', createdMemoryDetails);
-          setShowSuccessDialog(true);
-        }, 100);
+        // The Campaigns page (or wherever Create Campaign was opened) shows the new campaign.
+        if (onMemoryCreated) await onMemoryCreated();
       } else {
         console.error('Failed to create memory:', response);
 
@@ -2296,43 +2146,78 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
   };
 
 
-  // Publish: who can see the published Storeel (the same three choices in the top bar and the phone footer).
-  const publishOptions = [
-    { type: 2 as const, icon: <Eye className="w-5 h-5 text-gray-700" />, label: 'View Only', desc: 'Users can only view the campaign, no comments allowed' },
-    { type: 1 as const, icon: <Globe className="w-5 h-5 text-[#7B68EE]" />, label: 'Public', desc: 'Anyone can view and leave comments' },
-    { type: 3 as const, icon: <Lock className="w-5 h-5 text-orange-500" />, label: 'Private', desc: 'Only visible with a valid access token' },
-  ];
   const storeelSubmitDisabled = !formData.title.trim() || !formData.category || isSubmitting || isUploadingCover;
-  const renderPublishMenu = (isOpen: boolean, setIsOpen: (o: boolean) => void, side: 'top' | 'bottom', trigger: React.ReactNode) => (
-    <Popover.Root open={isOpen} onOpenChange={setIsOpen}>
-      <Popover.Trigger asChild>{trigger}</Popover.Trigger>
-      <Popover.Portal>
-        <Popover.Content
-          side={side}
-          align={side === 'top' ? 'center' : 'end'}
-          sideOffset={8}
-          collisionPadding={12}
-          style={{ zIndex: 100002 }}
-          className="w-72 max-w-[calc(100vw-24px)] bg-white rounded-2xl shadow-xl border border-gray-100 p-2 outline-none"
-        >
-          {publishOptions.map(({ type, icon, label, desc }) => (
-            <button
-              key={type}
-              type="button"
-              onClick={() => { setIsOpen(false); handleSubmit(true, type); }}
-              className="w-full flex items-start gap-3 px-3 py-3 rounded-xl hover:bg-gray-50 transition-colors text-left"
-            >
-              <div className="mt-0.5 flex-shrink-0">{icon}</div>
-              <div>
-                <p className="text-sm font-semibold text-gray-900">{label}</p>
-                <p className="text-xs text-gray-500 mt-0.5">{desc}</p>
-              </div>
-            </button>
-          ))}
-        </Popover.Content>
-      </Popover.Portal>
-    </Popover.Root>
-  );
+
+  /** Set up of a saved campaign: PUT /memories/{id} (its fields; the cover only when it changed), then Moments. */
+  const saveSetup = async () => {
+    const c = flowCampaignRef.current;
+    if (!c) return;
+    if (!formData.title.trim()) { setTitleError('Title is required'); return; }
+    setIsSubmitting(true);
+    setSetupError(null);
+    const coverUrl = coverChoice.kind && coverChoice.url ? coverChoice.url : null;
+    const form = { ...formData, endDate: showEndDate ? formData.endDate : '' };
+    const body = updatePayload(form, categoriesForDropdown, { changed: coverUrl !== initialCoverUrlRef.current, url: coverUrl });
+    try {
+      const res = await dashboardAPI.updateMemory(String(c.id), body);
+      if (res.success) {
+        initialCoverUrlRef.current = coverUrl;
+        setFlowCampaign({
+          ...c, title: String(body.title), category: formData.category, label: formData.label.trim(), date: form.date, endDate: form.endDate,
+          location: formData.location, tags: [...formData.tags], cover: coverChoice.kind && coverUrl ? { kind: coverChoice.kind, url: coverUrl } : null,
+        });
+        onCampaignSaved?.(c.id);
+        void triggerMemoryCountsRefresh();
+        goToStep('moments');
+        return;
+      }
+      const errors = (res as { errors?: Record<string, string[] | string> }).errors;
+      const titleProblem = errors?.title;
+      if (titleProblem) setTitleError(Array.isArray(titleProblem) ? titleProblem[0] : String(titleProblem));
+      else setSetupError(res.message || res.error || "Your changes couldn't be saved. Try again.");
+    } catch {
+      setSetupError("Your changes couldn't be saved. Check your connection and try again.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  /** The top bar's / phone footer's main button: Continue (Set up, Moments) or Send Now (Send). */
+  const flowPrimary = () => {
+    if (flowStep === 'setup') {
+      if (flowCampaignRef.current) void saveSetup();
+      else void handleSubmit(false);
+    } else if (flowStep === 'moments') {
+      goToStep('send');
+    } else {
+      sendStepRef.current?.startSend();
+    }
+  };
+  const flowPrimaryLabel = flowStep === 'send' ? 'Send Now' : 'Continue';
+  const flowPrimaryDisabled = flowStep === 'setup'
+    ? storeelSubmitDisabled || flowLoading || Boolean(flowLoadError)
+    : flowStep === 'send' ? !canSend || sendForbidden : false;
+
+  /** Step 2: the campaign page, where moments are added. Coming back opens the flow again on Send (storeelFlow). */
+  const openCampaignPage = () => {
+    const c = flowCampaignRef.current;
+    if (!c) return;
+    handleModalClose();
+    writeFlowResume(sessionNotes(), c.id);
+    requestOpenCampaign(c.id);
+  };
+
+  /** Step 3 sent: say what went (and where the Storeel's stats are), and close. */
+  const onStoreelSent = (summary: StoreelSendSummary) => {
+    toast.success(sentMessage(summary), {
+      duration: ACTION_TOAST_MS,
+      // The Storeel report opens in a new tab (App's handleViewStoreelReport).
+      action: { label: 'View stats', onClick: () => { window.open('/leads-report', '_blank', 'noopener'); } },
+    });
+    const id = flowCampaignRef.current?.id;
+    if (id) onCampaignSaved?.(id);
+    handleModalClose();
+  };
 
   // [wdy2xh2t3z] The Storeel tab in the same full-window frame as the Newsletter tab (NewsletterComposer): the top
   // bar (Back, Create Campaign, Newsletter | Storeel, Cancel / Create Campaign / Publish), no app sidebar, the form
@@ -2353,27 +2238,20 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
           <button type="button" onClick={handleModalClose} aria-label="Back" className="-ml-1.5 rounded-lg p-1.5 text-gray-600 hover:bg-gray-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#6C60FF]/40">
             <ArrowLeft className="h-5 w-5" />
           </button>
-          <h2 id="storeel-create-title" className="truncate text-lg font-semibold text-gray-900">Create Campaign</h2>
+          <h2 id="storeel-create-title" className="truncate text-lg font-semibold text-gray-900">{flowEditing ? 'Edit Campaign' : 'Create Campaign'}</h2>
         </div>
-        <div className="order-3 flex w-full justify-center md:order-none md:w-auto md:flex-1">
-          <CampaignTypeSwitch value="storeel" onChange={chooseCampaignType} />
-        </div>
+        {/* Newsletter | Storeel only while nothing is saved: a saved campaign is a Storeel. */}
+        {flowEditing || flowCampaign ? <div className="hidden md:block md:flex-1" /> : (
+          <div className="order-3 flex w-full justify-center md:order-none md:w-auto md:flex-1">
+            <CampaignTypeSwitch value="storeel" onChange={chooseCampaignType} />
+          </div>
+        )}
         <div className="ml-auto hidden items-center gap-2 md:flex">
           <button type="button" onClick={handleModalClose} className={BUTTON_OUTLINE}>Cancel</button>
-          <button
-            type="button"
-            onClick={() => handleSubmit(false)}
-            disabled={storeelSubmitDisabled}
-            aria-label={isSubmitting ? 'Saving' : 'Create Campaign'}
-            className={BUTTON_SECONDARY}
-          >
-            {isSubmitting ? <><Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />Saving...</> : 'Create Campaign'}
+          <button type="button" onClick={flowPrimary} disabled={flowPrimaryDisabled} aria-label={isSubmitting ? 'Saving' : flowPrimaryLabel} className={BUTTON_PRIMARY}>
+            {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : flowStep === 'send' ? <Send className="h-4 w-4" aria-hidden="true" /> : null}
+            {isSubmitting ? 'Saving...' : flowPrimaryLabel}
           </button>
-          {renderPublishMenu(headerPublishOpen, setHeaderPublishOpen, 'bottom', (
-            <button type="button" disabled={storeelSubmitDisabled} className={BUTTON_PRIMARY}>
-              <Globe className="h-4 w-4" aria-hidden="true" />Publish
-            </button>
-          ))}
         </div>
       </header>
 
@@ -2381,7 +2259,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
       <div className="flex-1 overflow-y-auto overflow-x-hidden modal-scrollbar">
         <div className="mx-auto grid max-w-[1040px] gap-6 px-4 py-6 md:px-6 lg:grid-cols-[minmax(0,1fr)_320px] lg:gap-8">
           <div className="min-w-0 space-y-4">
-            {(isLimitExceeded || serverLimitMessage) && (
+            {!flowCampaign && !flowEditing && (isLimitExceeded || serverLimitMessage) && (
               <div
                 ref={storeelLimitRef}
                 tabIndex={-1}
@@ -2415,14 +2293,24 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
               </div>
             )}
 
-            <section aria-labelledby="storeel-form-title" className="rounded-xl border border-gray-200 bg-white">
-              <div className="flex items-center gap-3 border-b border-gray-100 px-4 py-3.5 md:px-5">
-                <div className="w-8 h-8 bg-[#7B68EE] rounded-full flex items-center justify-center flex-shrink-0">
-                  <Plus className="w-4 h-4 text-white" />
+            {flowStep !== 'setup' && flowCampaign ? (
+              <StepCard number={stepNumber('setup')} title="Set up" id={SETUP_STEP_ID} aside={formData.category || undefined}>
+                <div className="flex items-center justify-between gap-3">
+                  <p className="min-w-0 truncate text-sm text-gray-900">{formData.title || flowCampaign.title}</p>
+                  <button type="button" onClick={() => goToStep('setup')} className={LINK_BUTTON}>Edit</button>
                 </div>
-                <h3 id="storeel-form-title" className="text-lg font-semibold text-gray-900">Create New Campaign</h3>
-              </div>
-          <div className="p-4 md:p-5 space-y-3">
+              </StepCard>
+            ) : flowLoading ? (
+              <StepCard number={stepNumber('setup')} title="Set up" id={SETUP_STEP_ID}>
+                <p className="flex items-center gap-2 text-sm text-gray-600"><Loader2 className="h-4 w-4 animate-spin text-[#6C60FF]" aria-hidden="true" />Opening your campaign…</p>
+              </StepCard>
+            ) : flowLoadError ? (
+              <StepCard number={stepNumber('setup')} title="Set up" id={SETUP_STEP_ID} error={flowLoadError}>
+                <button type="button" onClick={handleModalClose} className={BUTTON_OUTLINE}>Close</button>
+              </StepCard>
+            ) : (
+            <StepCard number={stepNumber('setup')} title="Set up" id={SETUP_STEP_ID} error={setupError ?? undefined}>
+          <div className="space-y-3">
 
             {/* Memory Title */}
             <div>
@@ -2499,6 +2387,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
               </div>
             </div>
 
+            {!flowEditing && (<>
             {/* Select from Existing Campaigns */}
             <div className="!mt-6 !mb-6">
               <label className="flex items-center gap-2 cursor-pointer select-none">
@@ -2732,6 +2621,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
                 </div>
               )}
             </div>
+            </>)}
 
             {/* Cover photo | Intro Video — one or the other (both are the campaign's cover, last_update_img):
                 choosing one replaces the other. */}
@@ -2823,6 +2713,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
               })}
             </div>
 
+            {!flowEditing && (<>
             {/* Media Upload */}
             <div>
               <label className="flex items-center gap-2 text-base md:text-sm font-medium text-gray-700 mb-1">
@@ -3327,6 +3218,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
                 </div>
               </div>
             )}
+            </>)}
 
             {/* Date */}
             <div>
@@ -3544,332 +3436,41 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
               </div>
             )}
 
-            {/* Collaborators */}
-            <div>
-              <label className="flex items-center gap-2 text-base md:text-sm font-medium text-gray-700 mb-1">
-                <Users className="w-4 h-4 text-black" />
-                Add Users <span className="text-gray-400 text-xs">(optional)</span>
-              </label>
-              <p className="text-sm text-gray-600 mb-3">
-                Share this campaign with specific people by adding their phone numbers or email addresses.
-              </p>
-              {/* Phone / Email tab switcher */}
-              <div className="flex items-center gap-4 mb-4">
-                <div className="flex bg-gray-100 rounded-lg p-0.5 gap-0.5">
-                  <button
-                    type="button"
-                    className={`px-4 py-1.5 text-sm font-semibold rounded-md transition-all ${
-                      collaboratorMethod === 'phone'
-                        ? 'bg-white text-gray-900 shadow-sm'
-                        : 'text-gray-500 hover:text-gray-700'
-                    }`}
-                    onClick={() => {
-                      setCollaboratorMethod('phone');
-                      setCurrentCollaborator('');
-                      setCollaboratorError('');
-                    }}
-                  >
-                    Phone
-                  </button>
-                  <button
-                    type="button"
-                    className={`px-4 py-1.5 text-sm font-semibold rounded-md transition-all ${
-                      collaboratorMethod === 'email'
-                        ? 'bg-white text-gray-900 shadow-sm'
-                        : 'text-gray-500 hover:text-gray-700'
-                    }`}
-                    onClick={() => {
-                      setCollaboratorMethod('email');
-                      setCurrentCollaborator('');
-                      setCollaboratorError('');
-                    }}
-                  >
-                    Email
-                  </button>
-                </div>
-                <span className="text-sm text-gray-500">
-                  · {collaboratorMethod === 'phone' ? 'Add by phone number' : 'Add by email address'}
-                </span>
-              </div>
-              <div className="flex items-stretch gap-2 mb-3">
-                {collaboratorMethod === 'phone' && (
-                  <CountrySelect
-                    value={collaboratorCountryCode}
-                    onChange={setCollaboratorCountryCode}
-                    className="w-28 h-10 flex-shrink-0 bg-gray-100 border-0 rounded-lg text-sm outline-none focus:outline-none focus:ring-2 focus:ring-gray-300"
-                  />
-                )}
-                <div className="relative flex-1" ref={collaboratorSearchRef}>
-                  <Input
-                    ref={collaboratorInputRef}
-                    type={collaboratorMethod === 'phone' ? 'tel' : 'email'}
-                    value={currentCollaborator}
-                    onChange={handleCollaboratorChange}
-                    placeholder={collaboratorMethod === 'phone' ? 'e.g. 4939440939' : 'Enter email address...'}
-                    enterKeyHint="done"
-                    className={`w-full text-base md:text-sm bg-gray-100 border-0 rounded-lg h-10 px-4 outline-none focus:outline-none focus-visible:outline-none ring-0 focus:ring-2 focus-visible:ring-2 transition-all ${
-                      collaboratorError
-                        ? 'focus:ring-red-400 focus-visible:ring-red-400'
-                        : 'focus:ring-gray-300 focus-visible:ring-gray-300'
-                    }`}
-                    onKeyPress={(e) => e.key === 'Enter' && handleAddCollaborator()}
-                  />
-
-                  {/* Live search dropdown of matching users */}
-                  {currentCollaborator.trim().length >= 2 && (isSearchingCollaborators || collaboratorSearchResults.length > 0) && (
-                    <div className="absolute top-full left-0 right-0 mt-1 border border-gray-200 rounded-lg max-h-60 overflow-y-auto bg-white shadow-lg z-50">
-                      {isSearchingCollaborators ? (
-                        <div className="p-4 text-center text-gray-500 text-sm">
-                          <div className="w-5 h-5 border-2 border-gray-400 border-t-transparent rounded-full animate-spin mx-auto mb-2"></div>
-                          Searching...
-                        </div>
-                      ) : (
-                        <div className="divide-y divide-gray-100">
-                          {collaboratorSearchResults.map((user: any) => (
-                            <div
-                              key={user.id}
-                              className="p-3 flex items-center gap-3 hover:bg-gray-50 cursor-pointer transition-colors"
-                              onClick={() => handleSelectCollaboratorFromSearch(user)}
-                            >
-                              <div className="w-8 h-8 bg-gray-400 rounded-full flex items-center justify-center text-white text-sm font-medium shrink-0">
-                                {user.name ? user.name.charAt(0).toUpperCase() : (collaboratorMethod === 'email' ? user.email?.charAt(0).toUpperCase() : user.phone_number?.charAt(0))}
-                              </div>
-                              <div className="flex-1 min-w-0">
-                                <p className="font-medium text-gray-900 text-sm truncate">{user.name || 'User'}</p>
-                                <p className="text-xs text-gray-600 truncate">
-                                  {collaboratorMethod === 'email' ? user.email : user.phone_number}
-                                </p>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-                {/* Grey until the phone/email is valid, then a filled purple pill so it's
-                    obvious what to tap next (same as the mobile app). */}
-                <button
-                  type="button"
-                  onClick={handleAddCollaborator}
-                  disabled={!isCollaboratorInputValid}
-                  aria-label="Add collaborator"
-                  className={`flex-shrink-0 h-10 px-5 rounded-full text-sm font-semibold transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#6C60FF]/40 focus-visible:ring-offset-1 ${
-                    isCollaboratorInputValid
-                      ? 'bg-[#6C60FF] hover:bg-[#5A4FE5] text-white shadow-sm'
-                      : 'bg-gray-200 text-gray-400 cursor-not-allowed'
-                  }`}
-                >
-                  Add
+            {flowEditing && onDeleteCampaign ? (
+              <div className="border-t border-gray-100 pt-3">
+                <button type="button" onClick={() => { handleModalClose(); onDeleteCampaign(); }}
+                  className="inline-flex items-center gap-2 rounded-lg px-2 py-1.5 -ml-2 text-sm font-medium text-red-600 hover:bg-red-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-300">
+                  <Trash2 className="h-4 w-4" aria-hidden="true" />Delete campaign
                 </button>
               </div>
-              {collaboratorError && (
-                <p className="text-xs text-red-500 mb-2 -mt-1">{collaboratorError}</p>
-              )}
-
-              {/* Selected collaborators — directly under the input so a new one is seen
-                  straight away (it used to land below the suggestion lists, under the
-                  phone keyboard). The one just added flashes purple. */}
-              {formData.collaborators.length > 0 && (
-                <div ref={selectedCollaboratorsRef} className="mb-3">
-                  <p className="text-sm font-medium text-gray-700 mb-2">Selected collaborators</p>
-                  <div className="flex flex-wrap gap-2">
-                    {formData.collaborators.map((collaborator) => {
-                      const highlighted = collaborator === justAddedCollaborator;
-                      return (
-                        <div
-                          key={collaborator}
-                          data-collaborator-chip={collaborator}
-                          className={`flex items-center gap-2 px-3 py-1 rounded-full text-sm scroll-my-4 transition-[background-color,color,box-shadow] duration-700 ${
-                            highlighted
-                              ? 'bg-[#EEEBFF] text-[#4B40D9] ring-2 ring-[#6C60FF]'
-                              : 'bg-green-100 text-green-800 ring-0 ring-transparent'
-                          }`}
-                        >
-                          <Users className="w-3 h-3" />
-                          {collaborator}
-                          <button
-                            type="button"
-                            onClick={() => handleRemoveCollaborator(collaborator)}
-                            aria-label={`Remove ${collaborator}`}
-                            className={`ml-1 transition-colors duration-700 ${highlighted ? 'text-[#6C60FF]' : 'text-green-600 hover:text-green-800'}`}
-                          >
-                            <X className="w-3 h-3" />
-                          </button>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-
-              {/* Recent collaborators - Show first */}
-              {apiRecentCollaborators.length > 0 && (
-                <div className="mb-3">
-                  <p className="text-sm font-medium text-gray-700 mb-2">Recent collaborators</p>
-                  <div className="grid grid-cols-2 gap-2">
-                    {apiRecentCollaborators.slice(0, 2).map((contact) => (
-                      <div key={contact.id || contact.user_id} className="flex items-center gap-3 p-3 rounded-lg border border-gray-200">
-                        <div className="w-8 h-8 bg-gray-400 rounded-full flex items-center justify-center text-white text-sm font-medium">
-                          {contact.name ? contact.name.charAt(0).toUpperCase() : contact.email.charAt(0).toUpperCase()}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium text-gray-900 truncate">{contact.name || 'User'}</p>
-                          <p className="text-xs text-gray-500 truncate">{contact.email}</p>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => addCollaboratorValue(contact.email)}
-                          disabled={formData.collaborators.includes(contact.email)}
-                          className="w-6 h-6 bg-white border border-gray-300 rounded-full flex items-center justify-center hover:bg-gray-50 text-gray-600 disabled:opacity-50"
-                        >
-                          <Plus className="w-4 h-4" />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                  {apiRecentCollaborators.length > 2 && (
-                    <div className="mt-2">
-                      <div className="flex items-center gap-3 p-3 rounded-lg border border-gray-200">
-                        <div className="w-8 h-8 bg-gray-400 rounded-full flex items-center justify-center text-white text-sm font-medium">
-                          {apiRecentCollaborators[2].name ? apiRecentCollaborators[2].name.charAt(0).toUpperCase() : apiRecentCollaborators[2].email.charAt(0).toUpperCase()}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium text-gray-900 truncate">{apiRecentCollaborators[2].name || 'User'}</p>
-                          <p className="text-xs text-gray-500 truncate">{apiRecentCollaborators[2].email}</p>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => addCollaboratorValue(apiRecentCollaborators[2].email)}
-                          disabled={formData.collaborators.includes(apiRecentCollaborators[2].email)}
-                          className="w-6 h-6 bg-white border border-gray-300 rounded-full flex items-center justify-center hover:bg-gray-50 text-gray-600 disabled:opacity-50"
-                        >
-                          <Plus className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-              
-              {/* Frequent collaborators - Show after recent */}
-              {apiFrequentCollaborators.length > 0 && (
-                <div>
-                  <p className="text-sm font-medium text-gray-700 mb-2">Frequent collaborators</p>
-                  <div className="grid grid-cols-2 gap-2">
-                    {apiFrequentCollaborators.slice(0, 2).map((contact) => (
-                      <div key={contact.id || contact.user_id} className="flex items-center gap-3 p-3 rounded-lg border border-gray-200">
-                        <div className="w-8 h-8 bg-gray-400 rounded-full flex items-center justify-center text-white text-sm font-medium">
-                          {contact.name ? contact.name.charAt(0).toUpperCase() : contact.email.charAt(0).toUpperCase()}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium text-gray-900 truncate">{contact.name || 'User'}</p>
-                          <p className="text-xs text-gray-500 truncate">{contact.email}</p>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => addCollaboratorValue(contact.email)}
-                          disabled={formData.collaborators.includes(contact.email)}
-                          className="w-6 h-6 bg-white border border-gray-300 rounded-full flex items-center justify-center hover:bg-gray-50 text-gray-600 disabled:opacity-50"
-                        >
-                          <Plus className="w-4 h-4" />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                  {apiFrequentCollaborators.length > 2 && (
-                    <div className="mt-2">
-                      <div className="flex items-center gap-3 p-3 rounded-lg border border-gray-200">
-                        <div className="w-8 h-8 bg-gray-400 rounded-full flex items-center justify-center text-white text-sm font-medium">
-                          {apiFrequentCollaborators[2].name ? apiFrequentCollaborators[2].name.charAt(0).toUpperCase() : apiFrequentCollaborators[2].email.charAt(0).toUpperCase()}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium text-gray-900 truncate">{apiFrequentCollaborators[2].name || 'User'}</p>
-                          <p className="text-xs text-gray-500 truncate">{apiFrequentCollaborators[2].email}</p>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => addCollaboratorValue(apiFrequentCollaborators[2].email)}
-                          disabled={formData.collaborators.includes(apiFrequentCollaborators[2].email)}
-                          className="w-6 h-6 bg-white border border-gray-300 rounded-full flex items-center justify-center hover:bg-gray-50 text-gray-600 disabled:opacity-50"
-                        >
-                          <Plus className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {formData.collaborators.length > 0 && (
-                <div>
-                  {/* Personalized message — appears once a collaborator is added.
-                      The author name is a fixed (non-editable) prefix; the rest is editable. */}
-                  <div className="mt-4">
-                    <p className="text-sm font-medium text-gray-700 mb-2">
-                      Personalized Message<span className="text-red-500">*</span>
-                    </p>
-                    <div className={`relative border border-gray-300 rounded-lg px-3 py-3 focus-within:border-gray-400 ${isMasterMessage ? 'bg-gray-100' : 'bg-white'}`}>
-                      {/* Author name: non-editable overlay sitting on the first line */}
-                      <span
-                        ref={personalizedNameRef}
-                        className="absolute left-3 top-3 text-sm font-semibold text-gray-900 whitespace-nowrap pointer-events-none"
-                      >
-                        {user?.name || 'You'}
-                      </span>
-                      <textarea
-                        value={personalizedMessage}
-                        onChange={(e) => setPersonalizedMessage(e.target.value.slice(0, 200))}
-                        onBlur={() => {
-                          // Don't let the message be left empty — restore the default text
-                          if (!personalizedMessage.trim()) {
-                            setPersonalizedMessage('wants to share this with you!');
-                          }
-                        }}
-                        placeholder="Pre-written message goes here."
-                        rows={4}
-                        maxLength={200}
-                        disabled={isMasterMessage}
-                        style={{ textIndent: personalizedNameWidth ? `${personalizedNameWidth}px` : undefined }}
-                        className={`w-full h-28 p-0 resize-none text-sm bg-transparent outline-none border-0 focus:ring-0 placeholder:text-gray-400 ${isMasterMessage ? 'text-gray-500 cursor-not-allowed' : 'text-gray-800'}`}
-                      />
-                    </div>
-                    <p className="text-xs text-gray-400 mt-1 text-right">{personalizedMessage.length}/200 characters</p>
-                    <label className="flex items-center gap-2 mt-2 cursor-pointer select-none">
-                      <input
-                        type="checkbox"
-                        checked={isMasterMessage}
-                        onChange={(e) => {
-                          const checked = e.target.checked;
-                          setIsMasterMessage(checked);
-                          if (checked) {
-                            // Only restore the previously saved master message if the box still shows
-                            // the plain default (i.e. the user hasn't typed a new message since unchecking).
-                            // If they typed something new, keep it — that becomes the new master on save.
-                            if (savedMasterMessage && personalizedMessage === 'wants to share this with you!') {
-                              setPersonalizedMessage(savedMasterMessage);
-                            }
-                          } else {
-                            // Turning off the master message reverts the box to the plain default
-                            setPersonalizedMessage('wants to share this with you!');
-                          }
-                        }}
-                        className="w-4 h-4 rounded border-gray-300 text-[#6C60FF] focus:ring-[#6C60FF]"
-                      />
-                      <span className="text-sm text-gray-700">Set as my default message</span>
-                    </label>
-                  </div>
-                </div>
-              )}
-            </div>
+            ) : null}
           </div>
-            </section>
+            </StepCard>
+            )}
+
+            <StoreelMomentsStep
+              status={stepStatus('moments', flowStep, Boolean(flowCampaign))}
+              moments={flowCampaign ? flowCampaign.moments : null}
+              onOpenCampaign={openCampaignPage}
+            />
+            <StoreelSendStep
+              ref={sendStepRef}
+              campaign={flowCampaign}
+              status={stepStatus('send', flowStep, Boolean(flowCampaign))}
+              sender={flowSender}
+              paid={starterPlan.known && !starterPlan.isStarter}
+              canSend={canSend}
+              active={open && campaignType === 'storeel'}
+              onSent={onStoreelSent}
+              onForbidden={() => setSendForbidden(true)}
+              onSeePlans={() => { handleModalClose(); requestUpgrade('Upgrade your plan to send more messages this month.'); }}
+            />
           </div>
 
           <aside aria-label="Storeel preview" className="min-w-0 self-start pb-[max(1rem,env(safe-area-inset-bottom))] lg:sticky lg:top-0">
             <StoreelLivePreview
               input={{
-                title: formData.title, images: storeelPreviewFirstImage ? [storeelPreviewFirstImage] : [], momentCount: storeelMomentCount,
+                title: formData.title, images: storeelPreviewFirstImage ? [storeelPreviewFirstImage] : flowCampaign?.firstImage ? [flowCampaign.firstImage] : [], momentCount: flowCampaign ? flowCampaign.moments : storeelMomentCount,
                 location: formData.location, date: formData.date, authorName: user?.name,
                 // The cover the saved campaign page will show: cover photo, intro video, else the brand.
                 coverPhoto: coverChoice.kind === 'photo' ? coverDisplayUrl : null,
@@ -3883,45 +3484,27 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
         </div>
       </div>
 
-        {/* Sticky Footer — phones only: one compact row (Cancel / Save / wider Publish) above
-            the home indicator, so Publish is always on screen. Wider screens have these in the top bar. */}
+        {/* Sticky Footer — phones only: Cancel and the step's main button (Continue / Send Now) above the home
+            indicator, so it is always on screen. Wider screens have these in the top bar. */}
         <div className="md:hidden flex items-stretch gap-2 px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] border-t border-gray-100 bg-white flex-shrink-0">
-          {/* Cancel + Save */}
-          <div className="flex flex-[2] md:flex-none gap-2 md:gap-3 min-w-0">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={handleModalClose}
-              className="flex-1 min-w-0 px-2 md:px-4 text-sm text-gray-900 border-2 border-gray-400 hover:bg-gray-50 focus:ring-0 focus:outline-none !h-11 md:!h-auto md:!py-2"
-            >
-              Cancel
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => handleSubmit(false)}
-              disabled={!formData.title.trim() || !formData.category || isSubmitting || isUploadingCover}
-              aria-label={isSubmitting ? 'Saving' : 'Create Campaign'}
-              className="flex-1 min-w-0 px-2 md:px-4 text-sm text-gray-900 border-2 border-gray-900 hover:bg-gray-50 focus:ring-0 focus:outline-none disabled:border-gray-300 !h-11 md:!h-auto md:!py-2"
-            >
-              {isSubmitting ? (
-                <><div className="w-4 h-4 border-2 border-gray-400 border-t-transparent rounded-full animate-spin md:mr-2"></div><span className="hidden md:inline">Saving...</span></>
-              ) : (
-                <><span className="md:hidden">Save</span><span className="hidden md:inline">Create Campaign</span></>
-              )}
-            </Button>
-          </div>
-          {/* Publish — wider on phones */}
-          {renderPublishMenu(publishPopoverOpen, setPublishPopoverOpen, 'top', (
-            <button
-              type="button"
-              disabled={storeelSubmitDisabled}
-              className="flex-[2] min-w-0 bg-[#6C60FF] hover:bg-[#5A4FE5] disabled:opacity-50 disabled:pointer-events-none text-white text-sm font-semibold rounded-md flex items-center justify-center gap-2 h-11"
-            >
-              <Globe className="w-4 h-4" />
-              Publish
-            </button>
-          ))}
+          <Button
+            type="button"
+            variant="outline"
+            onClick={handleModalClose}
+            className="flex-1 min-w-0 px-2 text-sm text-gray-900 border-2 border-gray-400 hover:bg-gray-50 focus:ring-0 focus:outline-none !h-11"
+          >
+            Cancel
+          </Button>
+          <button
+            type="button"
+            onClick={flowPrimary}
+            disabled={flowPrimaryDisabled}
+            aria-label={isSubmitting ? 'Saving' : flowPrimaryLabel}
+            className="flex-[2] min-w-0 bg-[#6C60FF] hover:bg-[#5A4FE5] disabled:opacity-50 disabled:pointer-events-none text-white text-sm font-semibold rounded-md flex items-center justify-center gap-2 h-11"
+          >
+            {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : flowStep === 'send' ? <Send className="h-4 w-4" aria-hidden="true" /> : null}
+            {isSubmitting ? 'Saving...' : flowPrimaryLabel}
+          </button>
         </div>
     </div>
   );
@@ -3943,22 +3526,6 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
         />,
         document.body,
       )}
-
-      {/* Success Dialog */}
-      {createPortal(
-        <MemoryCreatedDialog
-          isOpen={showSuccessDialog && !!createdMemoryDetails}
-          onClose={() => {
-            setShowSuccessDialog(false);
-            setCreatedMemoryDetails(null);
-          }}
-          memoryTitle={createdMemoryDetails?.title || ''}
-          categoryName={createdMemoryDetails?.category || ''}
-          location={createdMemoryDetails?.location}
-        />,
-        document.body
-      )}
-      
 
       {/* EXIF Progress Modal - Separate Modal on Right Side */}
       <ExifProgressModal

@@ -103,6 +103,8 @@ export interface CampaignSeed {
   isCar: boolean;
   moments: number;
   ownerId: number | null;
+  /** The first moment's picture (the preview's moment card). */
+  firstImage: string | null;
 }
 
 export interface SetupForm {
@@ -141,6 +143,18 @@ export function momentsOf(memory: Record<string, any> | null | undefined): numbe
   return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
 }
 
+/** The first top-level moment's picture (not a video), else the API's preview image, else null. */
+export function firstImageOf(memory: Record<string, any> | null | undefined): string | null {
+  const pick = (v: unknown) => (typeof v === 'string' && /^https?:\/\//i.test(v.trim()) && !VIDEO_EXTENSIONS.test(v) ? v.trim() : null);
+  const posts = Array.isArray(memory?.posts) ? memory.posts.filter((p: any) => p && (p.parent_id === null || p.parent_id === undefined)) : [];
+  for (const p of posts) {
+    const url = pick(p.image_link) ?? pick(p.master_image_link) ?? pick(p.media_url);
+    if (url) return url;
+  }
+  const preview = Array.isArray(memory?.photos?.preview_images) ? memory.photos.preview_images[0] : null;
+  return pick(preview?.url);
+}
+
 export function seedFromMemory(raw: unknown): CampaignSeed | null {
   const m = memoryOf(raw);
   const id = Number(m?.id);
@@ -166,6 +180,7 @@ export function seedFromMemory(raw: unknown): CampaignSeed | null {
     isCar: Number(m.is_car) === 1 || m.is_car === true,
     moments: momentsOf(m),
     ownerId: Number.isFinite(ownerId) && ownerId > 0 ? ownerId : null,
+    firstImage: firstImageOf(m),
   };
 }
 

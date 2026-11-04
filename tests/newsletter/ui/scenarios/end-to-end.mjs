@@ -213,12 +213,12 @@ async function journey({ open, shot, expectVisible, expect, hasOverflow }, width
   await page.getByRole('radio', { name: 'Storeels' }).click();
   await createButton(page, phone).click();
   await page.getByRole('radio', { name: 'Storeel', exact: true }).click();
-  await expectVisible(page.getByText('Create New Campaign'), `Storeel form at ${tag}`);
+  await expectVisible(page.getByRole('heading', { name: 'Set up' }), `Storeel form at ${tag}`);
   await page.waitForTimeout(800); // categories load
   await page.getByPlaceholder('Give your campaign a meaningful title').fill(`Winter tire event ${width}`);
   expect(!(await hasOverflow(page)), `no sideways scroll on the Storeel tab at ${tag}`);
   await shot(page, `${tag}-07-storeel`);
-  await page.getByRole('button', { name: 'Create Campaign', exact: true }).click();
+  await page.getByRole('button', { name: 'Continue', exact: true }).filter({ visible: true }).first().click();
   await page.waitForTimeout(1500);
   const storeel = api.state.storeels.find((s) => s.title === `Winter tire event ${width}`);
   expect(Boolean(storeel) && storeel.category_id === 7, `Storeel created with POST /memories at ${tag} (got ${JSON.stringify(api.state.storeels)})`);
@@ -246,7 +246,7 @@ export async function run(ctx) {
     await page.getByRole('radio', { name: 'Storeel', exact: true }).click();
     await expectVisible(page.locator('p').filter({ hasText: /^Campaign Limit Reached$/ }), `limit notice on the Storeel tab at ${width}`);
     await page.getByPlaceholder('Give your campaign a meaningful title').fill('One too many');
-    await page.getByRole('button', { name: 'Create Campaign', exact: true }).click();
+    await page.getByRole('button', { name: 'Continue', exact: true }).filter({ visible: true }).first().click();
     await page.waitForTimeout(800);
     expect(!api.state.calls.some((c) => c.method === 'POST' && c.path === '/memories'), `no Storeel created over the limit at ${width}`);
     expect(!(await hasOverflow(page)), `no sideways scroll with the limit notice at ${width}`);
@@ -269,10 +269,10 @@ export async function run(ctx) {
     expect(!(await hasOverflow(page)), `no sideways scroll on the Starter card at ${width}`);
     await shot(page, `${width}-09-starter-composer`);
     await page.getByRole('button', { name: 'Make a Storeel instead' }).click();
-    await expectVisible(page.getByText('Create New Campaign'), `Starter can still make a Storeel at ${width}`);
+    await expectVisible(page.getByRole('heading', { name: 'Set up' }), `Starter can still make a Storeel at ${width}`);
     await page.keyboard.press('Escape');
     await page.waitForTimeout(400);
-    if (await page.getByText('Create New Campaign').isVisible()) await page.getByRole('button', { name: 'Cancel' }).first().click();
+    if (await page.getByRole('heading', { name: 'Set up' }).isVisible()) await page.getByRole('button', { name: 'Cancel' }).first().click();
     await page.getByRole('radio', { name: 'Newsletters' }).click();
     await expectVisible(page.getByText('Newsletters are part of paid plans'), `Starter card on the Newsletters view at ${width}`);
     await page.waitForTimeout(1000);
