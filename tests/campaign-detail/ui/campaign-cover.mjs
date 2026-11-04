@@ -1,8 +1,14 @@
-// Campaign covers (Chris, 4 Nov 2026, point 7): a campaign with no cover of its own shows the brand (the account
-// avatar). It was stretched full-bleed — "hugely zoomed, pixelated" (screenshot 8abfd1b2). Now it is the round avatar,
-// centred, at most 60% of the box, over a blurred copy of itself; real photos stay full-bleed as before.
-// Checks at 1280, 390 (and 1600): the campaign grid (brand card + photo card), the campaign page with the brand cover and with
-// a real photo, and the published page with the brand cover and with a real photo.
+// Campaign covers (Chris, 4 Nov 2026, point 7 + review + "Brand everywhere"): a campaign with no chosen cover shows
+// the brand (the owner's avatar; the property image in the property view) EVERYWHERE — owner page, shared view,
+// published page, cards — never the first moment photo. The brand is never stretched: a square logo is the round
+// avatar, a wordmark is shown whole (sides never cut), at most 60% of the box, over a backdrop (blurred copy on headers,
+// plain profile colour on cards). Real photos stay full-bleed, including a typical 640x480 dealer photo.
+// Checks at 1280, 390 (and 1600):
+//  - the campaign grid: brand card (the API sends last_update_img = owner's avatar), photo card, shared campaign card
+//    with a wordmark owner; cards use the plain colour backdrop;
+//  - the owner campaign page with the brand (the 8abfd1b2 case, moments present), with a real photo, with a 640x480;
+//  - the shared view (a viewer of someone else's campaign, moments present) → the owner's wordmark, whole;
+//  - the published page: square-logo brand, wordmark brand with moments present, and a real photo.
 // node tests/campaign-detail/ui/campaign-cover.mjs   (needs the dev server: CD_BASE, default http://localhost:5311)
 // Every API call is answered here and every non-local request is aborted: nothing leaves this machine.
 // Screenshots: CD_SHOTS (default /private/tmp/claude-501/campaign-detail-ui/cover).
@@ -17,23 +23,37 @@ mkdirSync(OUT, { recursive: true });
 
 const img = (n) => `${BASE}/cd-img/${n}`;
 const LOGO = img('logo.png');
+const WIDE = img('wide.png');
 const OWNER = { id: 707, name: 'Next Summit', profile_image: LOGO, profile_color: '#1D4ED8' };
+const PARTNER = { id: 808, name: 'Northwind Motors', profile_image: WIDE, profile_color: '#0F172A' };
 const MAIN = { id: 70, external_user_id: 707, name: 'Next Summit', email: 'main@summit.test', role: '2', status: 1, is_activated: true, avatar: LOGO, profile_image: LOGO, profile_color: '#1D4ED8' };
 const post = (id, n) => ({
   id, name: `Moment ${n}`, title: `Moment ${n}`, description: '', master_image_link: img(`post-${n}.jpg`), image_link: img(`post-${n}.jpg`), media_url: img(`post-${n}.jpg`),
   capture_date: `2026-10-1${n} 10:00:00`, uploaded_at: `2026-10-1${n} 10:00:00`, parent_id: null, after_post_id: null, admin_approval: 1,
   comments: [], comments_count: 0, sub_images: [],
 });
-const campaign = (id, title, cover) => ({
-  id, title, user_id: 707, published: 1, slug: `c-${id}`, category: { id: 5, name: 'Events' }, photos: { count: 1 },
-  collaborators: [], user: OWNER, author: { name: 'Next Summit', avatar: LOGO, profile_color: '#1D4ED8' }, created_at: '2026-10-01 10:00:00',
-  location: 'Toronto, ON', tags: [], last_update_img: cover,
+const FIRST_MOMENT = img('post-1.jpg');
+const campaign = (id, title, cover, owner = OWNER, over = {}) => ({
+  id, title, user_id: owner.id, published: 1, slug: `c-${id}`, category: { id: 5, name: 'Events' },
+  photos: { count: 1, preview_images: [{ id: id * 10 + 1, url: FIRST_MOMENT }] },
+  collaborators: [], user: owner, author: { name: owner.name, avatar: owner.profile_image, profile_color: owner.profile_color }, created_at: '2026-10-01 10:00:00',
+  location: 'Toronto, ON', tags: [], last_update_img: cover, ...over,
 });
+// The list API sends last_update_img = cover ?? owner's profile image (MemoriesController::formatLatestMemory).
 const BRAND = campaign(901, 'Next Summit / 25', null);
 const PHOTO = campaign(902, 'Lakeside Launch', img('photo.jpg'));
+const DEALER = campaign(903, 'Dealer Photo', img('photo640.jpg'));
+const SHARED = campaign(904, 'Northwind Showcase', null, PARTNER, { collaborator: [{ user_id: 707, status: 1, role: 'viewer' }] });
+const listItem = (c) => ({ ...c, last_update_img: c.last_update_img ?? c.user.profile_image });
 const detail = (c) => ({ ...c, posts: [post(c.id * 10 + 1, 1)], linked_memories: [], widgets: [], unified_order: null });
-// Published pages: the brand case has no cover and no moments (so nothing else can stand in for the cover).
-const published = { brand: { ...detail(BRAND), posts: [] }, photo: detail(PHOTO) };
+const DETAILS = { 901: detail(BRAND), 902: detail(PHOTO), 903: detail(DEALER), 904: detail(SHARED) };
+// Published pages: the square-logo brand with no moments; the wordmark brand WITH a moment (the first moment must
+// not stand in for the cover); a real photo cover.
+const published = {
+  'brand-cover': { ...detail(BRAND), posts: [] },
+  'wide-brand': detail(campaign(905, 'Northwind Open House', null, PARTNER)),
+  'photo-cover': detail(PHOTO),
+};
 
 const failures = [];
 const pageErrors = [];
@@ -69,38 +89,56 @@ async function newPage({ width, height, signedIn }) {
     if (!url.pathname.startsWith('/api/')) return route.continue();
     const p = url.pathname.replace(/^\/api\/react/, '');
     if (p === '/memories' && req.method() === 'GET') {
-      return route.fulfill({ json: { status: 'success', data: { all_memories: { data: [BRAND, PHOTO], total: 2 }, latest_memories: [BRAND, PHOTO], sidebar: { categories: { items: [{ id: 5, name: 'Events', memory_count: 2 }] }, labels: { items: [] } } } } });
+      const all = [BRAND, PHOTO, DEALER, SHARED].map(listItem);
+      return route.fulfill({ json: { status: 'success', data: { all_memories: { data: all, total: all.length }, latest_memories: all, sidebar: { categories: { items: [{ id: 5, name: 'Events', memory_count: all.length }] }, labels: { items: [] } } } } });
     }
     const m = p.match(/^\/memories\/(\d+)$/);
-    if (m && req.method() === 'GET') return route.fulfill({ json: { status: 'success', data: { memory: detail(Number(m[1]) === 901 ? BRAND : PHOTO) } } });
+    if (m && req.method() === 'GET') return route.fulfill({ json: { status: 'success', data: { memory: DETAILS[Number(m[1])] } } });
     if (p === '/published-memories') {
-      const which = url.searchParams.get('token') === 'brand-cover' ? 'brand' : 'photo';
-      return route.fulfill({ json: { success: true, data: { memory: published[which], order_by: 'asc' } } });
+      return route.fulfill({ json: { success: true, data: { memory: published[url.searchParams.get('token')] ?? published['photo-cover'], order_by: 'asc' } } });
     }
     if (p === '/user/storage-overview') return route.fulfill({ json: { success: true, data: { storage_overview: { plan_name: 'Professional' } } } });
     if (p.startsWith('/dashboard/')) return route.fulfill({ status: 404, json: { success: false, message: 'Not found' } });
     return route.fulfill({ json: { success: true, data: [] } });
   });
   const page = await context.newPage();
-  page.on('pageerror', (e) => pageErrors.push(e.message));
+  page.on('pageerror', (e) => pageErrors.push(e.message + ' @ ' + (e.stack || '').split('\n').slice(1, 4).join(' | ')));
   return { context, page };
 }
 
 const visibleCovers = (page) => page.locator('[data-cover-mode]').filter({ visible: true });
 async function settle(page) { await page.waitForTimeout(1500); }
+const cardButton = (page, title) => page.getByRole('button', { name: `View ${title} campaign details` }).filter({ visible: true }).first();
 
-function checkBrand(tag, info) {
-  expect(info?.mode === 'brand', `${tag}: shows the brand avatar treatment (mode=${info?.mode})`);
+function checkBrand(tag, info, { src, shape, blurred }) {
+  expect(info?.mode === 'brand', `${tag}: shows the brand (mode=${info?.mode})`);
   if (!info?.img) return;
-  const short = Math.min(info.box.width, info.box.height);
-  expect(info.img.width <= Math.ceil(short * 0.6) + 1 && info.img.width === info.img.height,
-    `${tag}: the avatar is a centred circle at most 60% of the box (${info.img.width}x${info.img.height} in ${info.box.width}x${info.box.height})`);
-  expect(info.img.width <= info.img.natural * 1.5 + 1, `${tag}: never enlarged past 1.5x (${info.img.width} vs natural ${info.img.natural})`);
-  expect(info.img.radius === '50%' || parseFloat(info.img.radius) >= info.img.width / 2 - 1, `${tag}: round (${info.img.radius})`);
+  expect(info.src === src, `${tag}: the brand image, not the first moment (${info.src})`);
+  expect(info.shape === shape, `${tag}: ${shape === 'circle' ? 'square logo → round avatar' : 'wordmark → whole, uncut'} (shape=${info.shape})`);
+  if (shape === 'circle') {
+    const short = Math.min(info.box.width, info.box.height);
+    expect(info.img.width <= Math.ceil(short * 0.6) + 1 && info.img.width === info.img.height, `${tag}: circle ≤ 60% of the box (${info.img.width}x${info.img.height} in ${info.box.width}x${info.box.height})`);
+    expect(info.img.width <= info.img.natural * 1.5 + 1, `${tag}: never enlarged past 1.5x (${info.img.width} vs natural ${info.img.natural})`);
+  } else {
+    expect(Math.abs(info.img.width / info.img.height - 3) < 0.1 && info.img.fit === 'contain', `${tag}: shown whole at its own 3:1 shape (${info.img.width}x${info.img.height}, ${info.img.fit})`);
+    expect(info.img.width <= Math.ceil(info.box.width * 0.6) + 1, `${tag}: ≤ 60% of the box width (${info.img.width} of ${info.box.width})`);
+  }
+  expect(info.blurred === blurred, `${tag}: backdrop ${blurred ? 'blurred copy' : 'plain profile colour'} (blurred=${info.blurred})`);
 }
-function checkPhoto(tag, info) {
+function checkPhoto(tag, info, src) {
   expect(info?.mode === 'cover', `${tag}: a real photo stays full-bleed (mode=${info?.mode})`);
   if (info?.img) expect(info.img.fit === 'cover' && info.img.width === info.box.width, `${tag}: photo fills the box (${info.img.width} of ${info.box.width}, ${info.img.fit})`);
+  if (src) expect(info?.src === src, `${tag}: the chosen cover (${info?.src})`);
+}
+
+async function openCampaign(page, title) {
+  await page.goto(`${BASE}/memories`);
+  const card = cardButton(page, title);
+  await card.waitFor({ state: 'visible', timeout: 30000 });
+  await settle(page);
+  await card.click();
+  await page.getByText('Moment 1').first().waitFor({ state: 'attached', timeout: 20000 }).catch(() => {});
+  await settle(page);
 }
 
 try {
@@ -108,53 +146,61 @@ try {
   for (const [width, height] of [[1280, 900], [390, 844], [1600, 1000]]) {
     const tag = String(width);
 
-    // 1. The campaign grid: the brand card and the photo card.
+    // 1. The campaign grid + the brand campaign's page (the 8abfd1b2 case).
     {
       const { page, context } = await newPage({ width, height, signedIn: true });
       await page.goto(`${BASE}/memories`);
-      const brandCard = page.getByRole('button', { name: 'View Next Summit / 25 campaign details' }).filter({ visible: true }).first();
-      await brandCard.waitFor({ state: 'visible', timeout: 30000 });
+      const brandCard = cardButton(page, 'Next Summit / 25');
+      await brandCard.waitFor({ state: 'visible', timeout: 30000 }).catch(async (e) => {
+        await page.screenshot({ path: `${OUT}/${tag}-00-grid-not-shown.png` });
+        console.log('page errors:', pageErrors.slice(0, 5));
+        throw e;
+      });
       await settle(page);
-      checkBrand(`${tag} card`, await coverInfo(brandCard.locator('[data-cover-mode]').first()));
-      const photoCard = page.getByRole('button', { name: 'View Lakeside Launch campaign details' }).filter({ visible: true }).first();
-      checkPhoto(`${tag} photo card`, await coverInfo(photoCard.locator('[data-cover-mode]').first()));
-      await page.screenshot({ path: `${OUT}/${tag}-01-card-grid.png` });
+      checkBrand(`${tag} card`, await coverInfo(brandCard.locator('[data-cover-mode]').first()), { src: LOGO, shape: 'circle', blurred: false });
+      checkPhoto(`${tag} photo card`, await coverInfo(cardButton(page, 'Lakeside Launch').locator('[data-cover-mode]').first()), img('photo.jpg'));
+      checkPhoto(`${tag} 640x480 card`, await coverInfo(cardButton(page, 'Dealer Photo').locator('[data-cover-mode]').first()), img('photo640.jpg'));
+      checkBrand(`${tag} shared card (wordmark owner)`, await coverInfo(cardButton(page, 'Northwind Showcase').locator('[data-cover-mode]').first()), { src: WIDE, shape: 'rect', blurred: false });
+      await page.screenshot({ path: `${OUT}/${tag}-01-card-grid.png`, fullPage: width < 1024 });
 
-      // 2. The brand campaign's page (the 8abfd1b2 case).
       await brandCard.click();
       await page.getByText('Moment 1').first().waitFor({ state: 'attached', timeout: 20000 }).catch(() => {});
       await settle(page);
-      const header = visibleCovers(page).first();
-      checkBrand(`${tag} campaign page`, await coverInfo(header));
+      checkBrand(`${tag} campaign page`, await coverInfo(visibleCovers(page).first()), { src: LOGO, shape: 'circle', blurred: true });
       expect(await page.getByText('Edit Cover').filter({ visible: true }).count() > 0, `${tag} campaign page: Edit Cover still there`);
       await page.screenshot({ path: `${OUT}/${tag}-02-campaign-page-brand.png` });
       await context.close();
     }
 
-    // 3. A campaign page with a real photo cover.
-    {
+    // 2. Campaign pages with a real photo cover and a 640x480 dealer photo: full-bleed.
+    for (const [title, src, n] of [['Lakeside Launch', img('photo.jpg'), '03'], ['Dealer Photo', img('photo640.jpg'), '03b']]) {
       const { page, context } = await newPage({ width, height, signedIn: true });
-      await page.goto(`${BASE}/memories`);
-      const photoCard = page.getByRole('button', { name: 'View Lakeside Launch campaign details' }).filter({ visible: true }).first();
-      await photoCard.waitFor({ state: 'visible', timeout: 30000 });
-      await settle(page);
-      await photoCard.click();
-      await page.getByText('Moment 1').first().waitFor({ state: 'attached', timeout: 20000 }).catch(() => {});
-      await settle(page);
-      checkPhoto(`${tag} campaign page photo`, await coverInfo(visibleCovers(page).first()));
-      await page.screenshot({ path: `${OUT}/${tag}-03-campaign-page-photo.png` });
+      await openCampaign(page, title);
+      checkPhoto(`${tag} campaign page ${title}`, await coverInfo(visibleCovers(page).first()), src);
+      await page.screenshot({ path: `${OUT}/${tag}-${n}-campaign-page-${n === '03' ? 'photo' : 'photo640'}.png` });
       await context.close();
     }
 
-    // 4. The published page: no cover → brand; with a photo → full-bleed.
-    for (const [slug, kind] of [['brand-cover', 'brand'], ['photo-cover', 'photo']]) {
+    // 3. The shared view (a viewer of Northwind's campaign, which has a moment): the owner's wordmark, whole.
+    {
+      const { page, context } = await newPage({ width, height, signedIn: true });
+      await openCampaign(page, 'Northwind Showcase');
+      checkBrand(`${tag} shared view`, await coverInfo(visibleCovers(page).first()), { src: WIDE, shape: 'rect', blurred: true });
+      await page.screenshot({ path: `${OUT}/${tag}-04-shared-view-wordmark.png` });
+      await context.close();
+    }
+
+    // 4. The published page.
+    for (const [slug, n] of [['brand-cover', '05'], ['wide-brand', '06'], ['photo-cover', '07']]) {
       const { page, context } = await newPage({ width, height, signedIn: false });
       await page.goto(`${BASE}/published-memory/${slug}`);
       await visibleCovers(page).first().waitFor({ state: 'visible', timeout: 30000 });
       await settle(page);
       const info = await coverInfo(visibleCovers(page).first());
-      if (kind === 'brand') checkBrand(`${tag} published page`, info); else checkPhoto(`${tag} published page photo`, info);
-      await page.screenshot({ path: `${OUT}/${tag}-0${kind === 'brand' ? 4 : 5}-published-${kind}.png` });
+      if (slug === 'brand-cover') checkBrand(`${tag} published page`, info, { src: LOGO, shape: 'circle', blurred: true });
+      else if (slug === 'wide-brand') checkBrand(`${tag} published page wordmark (moments present)`, info, { src: WIDE, shape: 'rect', blurred: true });
+      else checkPhoto(`${tag} published page photo`, info, img('photo.jpg'));
+      await page.screenshot({ path: `${OUT}/${tag}-${n}-published-${slug}.png` });
       await context.close();
     }
   }

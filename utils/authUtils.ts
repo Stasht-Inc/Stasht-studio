@@ -3564,7 +3564,7 @@ export const dashboardAPI = {
   },
 
   // Upload image with metadata to get location and capture date
-  uploadImageWithMetadata: async (file: File, name: string, orientation?: number): Promise<ApiResponse<any>> => {
+  uploadImageWithMetadata: async (file: File, name: string, orientation?: number, signal?: AbortSignal): Promise<ApiResponse<any>> => {
     devLog(`🔧 dashboardAPI.uploadImageWithMetadata: Starting upload for "${name}"`);
     devLog('🔧 File details:', {
       fileName: file.name,
@@ -3641,7 +3641,9 @@ export const dashboardAPI = {
     const response = await fetchWithRateLimitRetry(endpoint, {
       method: 'POST',
       headers: headers,
-      body: formData
+      body: formData,
+      // Optional: lets a caller stop an upload it no longer needs (Create Campaign's cover photo, replaced or removed).
+      ...(signal ? { signal } : {}),
     });
 
     devLog('🔧 Response status:', response.status, response.statusText);

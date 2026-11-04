@@ -124,6 +124,7 @@ function UserFallbackAvatar({
         src={user.avatar}
         alt={user.name || 'User'}
         isFallback
+        backdrop="color"
         color={profileColor}
         loading="lazy"
         className={`w-full h-full ${className}`}
@@ -216,6 +217,8 @@ interface MemoryCardProps {
   onLeaveShared?: () => void;
   actionButton?: React.ReactNode;
   whiteFooter?: boolean;
+  /** The image is the brand default (no chosen cover): shown by CampaignCover's brand mode. */
+  coverIsBrand?: boolean;
 }
 
 export default function MemoryCard({
@@ -257,6 +260,7 @@ export default function MemoryCard({
   onLeaveShared,
   actionButton,
   whiteFooter = false,
+  coverIsBrand = false,
 }: MemoryCardProps) {
   const [isHovered, setIsHovered] = useState(false);
   const [imageLoaded, setImageLoaded] = useState(true);
@@ -506,7 +510,8 @@ export default function MemoryCard({
               alt={title}
               loading="lazy"
               onError={handleCoverError}
-              isFallback={!!displayAvatar && image === displayAvatar}
+              isFallback={coverIsBrand || (!!displayAvatar && image === displayAvatar)}
+              backdrop="color"
               color={displayProfileColor}
               className="w-full h-full"
             />

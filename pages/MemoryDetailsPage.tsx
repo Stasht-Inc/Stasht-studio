@@ -13,6 +13,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../co
 import { Avatar, AvatarFallback, AvatarImage } from "../components/ui/avatar";
 import { ImageWithFallback } from "../components/figma/ImageWithFallback";
 import CampaignCover from "../components/ui/CampaignCover";
+import { campaignCover } from "../utils/campaignCover";
 import { toast } from "sonner";
 import { mockPosts } from "../data/mockPosts";
 import { getMemoryDetails } from "../data/memoryData";
@@ -9180,6 +9181,8 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
   // Also show collaborator view when forceSharedView=true (e.g. viewing from published author card)
   if (forceSharedView || currentUserRole === 'contributor' || currentUserRole === 'viewer' || currentUserRole === 'edit' || currentUserRole === 'view') {
     const sharedAllPosts = (rawApiPosts || []).filter((p: any) => !p.parent_id && p.parent_id !== 0);
+    // Cover: the campaign's own, else the brand — the owner's avatar — never the first moment photo ("Brand everywhere", 4 Nov 2026).
+    const sharedCover = campaignCover({ chosen: apiMemoryData?.last_update_img, brand: apiMemoryData?.user?.profile_image, ownerAvatar: apiMemoryData?.user?.profile_image });
     const sharedSubMap: Record<string, any[]> = {};
     (rawApiPosts || []).forEach((p: any) => {
       if (p.parent_id && p.parent_id !== 0) { const pid = String(p.parent_id); if (!sharedSubMap[pid]) sharedSubMap[pid] = []; sharedSubMap[pid].push(p); }
@@ -9307,7 +9310,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
           </div>
           <div ref={sharedMobileHeaderImgRef} className="relative w-full" style={{ height: 'calc(75vh - 64px)' }}>
             {(() => {
-              const coverSrc = apiMemoryData?.last_update_img || sharedAllPosts[0]?.master_image_link || apiMemoryData?.user?.profile_image;
+              const coverSrc = sharedCover.src;
               if (!coverSrc) return <div className="absolute inset-0 bg-[#6C60FF] flex items-center justify-center"><span className="text-white font-bold text-6xl uppercase">{apiMemoryData?.title?.charAt(0) || 'M'}</span></div>;
               if (isYoutubeUrl(coverSrc)) return <iframe src={getYoutubeEmbedUrl(coverSrc) || ''} className="absolute inset-0 w-full h-full" allow="accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowFullScreen style={{ border: 'none' }} />;
               if (isVideoUrl(coverSrc)) return (
@@ -9324,13 +9327,14 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                   onEnded={() => { setIsCoverVideoPlaying(false); setIsCoverVideoEnded(true); }}
                 />
               );
-              return <CampaignCover src={coverSrc} alt={apiMemoryData?.title || 'Memory'} isFallback={!apiMemoryData?.last_update_img && !sharedAllPosts[0]?.master_image_link} color={apiMemoryData?.user?.profile_color} className="absolute inset-0 w-full h-full" />;
+              // centerY: this phone header carries its title in the middle, so the brand sits higher.
+              return <CampaignCover src={coverSrc} alt={apiMemoryData?.title || 'Memory'} isFallback={sharedCover.isBrand} color={apiMemoryData?.user?.profile_color} className="absolute inset-0 w-full h-full" centerY={0.2} />;
             })()}
             <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent pointer-events-none" />
             {/* Cover video play/pause — shared-view cover previously relied on bare native
                 <video controls>, which Chrome doesn't reliably surface a visible play
                 affordance for; use the same custom button already proven on the owner view. */}
-            {isVideoUrl(apiMemoryData?.last_update_img || sharedAllPosts[0]?.master_image_link || apiMemoryData?.user?.profile_image) && (
+            {isVideoUrl(sharedCover.src) && (
               <button
                 type="button"
                 onClick={handleToggleCoverVideo}
@@ -9774,7 +9778,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                   <div className="relative">
                     <div ref={sharedHeaderImgRef} className="relative rounded-3xl overflow-hidden mx-2" style={{ height: 'min(800px, calc(100vh - 80px))' }}>
                       {(() => {
-                        const coverSrc = apiMemoryData?.last_update_img || sharedAllPosts[0]?.master_image_link || apiMemoryData?.user?.profile_image;
+                        const coverSrc = sharedCover.src;
                         if (!coverSrc) return <div className="w-full h-full bg-[#6C60FF] flex items-center justify-center"><span className="text-white font-bold text-8xl uppercase">{apiMemoryData?.title?.charAt(0) || 'M'}</span></div>;
                         if (isYoutubeUrl(coverSrc)) return <iframe src={getYoutubeEmbedUrl(coverSrc) || ''} className="w-full h-full" allow="accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowFullScreen style={{ border: 'none' }} />;
                         if (isVideoUrl(coverSrc)) return (
@@ -9791,13 +9795,13 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                             onEnded={() => { setIsCoverVideoPlaying(false); setIsCoverVideoEnded(true); }}
                           />
                         );
-                        return <CampaignCover src={coverSrc} alt={apiMemoryData?.title || 'Memory'} isFallback={!apiMemoryData?.last_update_img && !sharedAllPosts[0]?.master_image_link} color={apiMemoryData?.user?.profile_color} className="w-full h-full" />;
+                        return <CampaignCover src={coverSrc} alt={apiMemoryData?.title || 'Memory'} isFallback={sharedCover.isBrand} color={apiMemoryData?.user?.profile_color} className="w-full h-full" />;
                       })()}
                       <div className="absolute inset-0 pointer-events-none" style={{ background: 'linear-gradient(0deg,rgba(0,0,0,0.80) 11.54%,rgba(0,0,0,0.30) 55.77%,rgba(0,0,0,0.00) 100%)' }} />
                       {/* Cover video play/pause — shared-view cover previously relied on bare native
                           <video controls>, which Chrome doesn't reliably surface a visible play
                           affordance for; use the same custom button already proven on the owner view. */}
-                      {isVideoUrl(apiMemoryData?.last_update_img || sharedAllPosts[0]?.master_image_link || apiMemoryData?.user?.profile_image) && (
+                      {isVideoUrl(sharedCover.src) && (
                         <button
                           type="button"
                           onClick={handleToggleCoverVideo}
@@ -12541,7 +12545,9 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                           ? (rawColor.startsWith('#') ? rawColor : `#${rawColor}`)
                           : '#6C60FF';
                         const userInitial = apiMemoryData?.user?.name?.charAt(0) || apiMemoryData?.user?.username?.charAt(0) || (user as any)?.name?.charAt(0) || 'U';
-                        const coverImageSrc = apiMemoryData?.last_update_img || (viewType === 'property' ? currentProperty?.image : null) || apiMemoryData?.user?.profile_image;
+                        // No chosen cover → the brand (property image in the property view, else the owner's avatar). utils/campaignCover.ts
+                        const ownerCover = campaignCover({ chosen: apiMemoryData?.last_update_img, brand: (viewType === 'property' ? currentProperty?.image : null) || apiMemoryData?.user?.profile_image, ownerAvatar: apiMemoryData?.user?.profile_image });
+                        const coverImageSrc = ownerCover.src;
                         return isYoutubeUrl(coverImageSrc) ? (
                           <div className="relative w-full h-full">
                             <iframe
@@ -12589,7 +12595,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                             <CampaignCover
                               src={coverImageSrc}
                               alt={uiMemory.title}
-                              isFallback={!apiMemoryData?.last_update_img}
+                              isFallback={ownerCover.isBrand}
                               color={profileColor}
                               className="w-full h-full"
                               fallback={
@@ -14914,7 +14920,9 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                       {/* Header Image/Video */}
                       <div ref={headerImageRef} className="relative rounded-2xl overflow-hidden" style={{ height: 'min(600px, calc(100vh - 14rem))' }}>
                         {(() => {
-                          const coverImageSrc = apiMemoryData?.last_update_img || (viewType === 'property' ? currentProperty?.image : null) || apiMemoryData?.user?.profile_image;
+                          // No chosen cover → the brand (property image in the property view, else the owner's avatar). utils/campaignCover.ts
+                        const ownerCover = campaignCover({ chosen: apiMemoryData?.last_update_img, brand: (viewType === 'property' ? currentProperty?.image : null) || apiMemoryData?.user?.profile_image, ownerAvatar: apiMemoryData?.user?.profile_image });
+                        const coverImageSrc = ownerCover.src;
                           const profileColor = apiMemoryData?.user?.profile_color
                             ? (apiMemoryData.user.profile_color.startsWith('#') ? apiMemoryData.user.profile_color : `#${apiMemoryData.user.profile_color}`)
                             : categoryColorHex || '#6C60FF';
@@ -14968,7 +14976,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                               <CampaignCover
                                 src={coverImageSrc}
                                 alt={uiMemory.title}
-                                isFallback={!apiMemoryData?.last_update_img}
+                                isFallback={ownerCover.isBrand}
                                 color={profileColor}
                                 className="w-full h-full"
                                 fallback={

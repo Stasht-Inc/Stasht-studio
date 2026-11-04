@@ -29,6 +29,7 @@ import { useNotificationsRefresh } from '../hooks/useNotificationsRefresh';
 import CategoryNav from "../components/CategoryNav";
 import QrCodePopover from "../components/qr-codes/QrCodePopover";
 import { canManageQrCodes } from "../utils/qrCodes";
+import { campaignCardCover } from "../utils/campaignCover";
 import { SHOPIFY_COLOR, CARS_COLOR, WEBSITE_CATALOG_COLOR } from "../utils/categoryColorManager";
 import { loadCatalogueForBrowsing, type CatalogueItemSummary } from "../services/catalogueAPI";
 import { memoryCountsManager, setShopifyCatalogCount } from '../hooks/useMemoryCounts';
@@ -2467,7 +2468,9 @@ function MemoriesPageContent({
                   console.log('Memory data:', memory);
                   console.log('last_update_img:', memory.last_update_img);
                   console.log('preview_images:', memory.photos?.preview_images);
-                  const imageUrl = memory.last_update_img || memory.photos?.preview_images?.[0]?.url || memory.thumbnail || (viewType === 'property' ? currentProperty?.image : undefined);
+                  // No chosen cover → the brand, not the first photo ("Brand everywhere", 4 Nov 2026). utils/campaignCover.ts
+                  const cardCover = campaignCardCover(memory, { propertyImage: viewType === 'property' ? currentProperty?.image : null });
+                  const imageUrl = cardCover.src || undefined;
                   console.log('Final image URL:', imageUrl);
 
                   const categoryName = memory.category?.name || memory.property_category?.name || 'Unknown Category';
@@ -2478,6 +2481,7 @@ function MemoriesPageContent({
                   <div key={memory.id}>
                     <MemoryCard
                       image={imageUrl}
+                      coverIsBrand={cardCover.isBrand}
                       title={memory.title}
                       dateRange={(() => {
                         // Cars have no meaningful date — hide it (icon + text) on their cards.
@@ -3027,7 +3031,9 @@ function MemoriesPageContent({
 
 
                         return filtered.map((memory) => {
-                      const thumbnailUrl = memory.last_update_img || memory.photos?.preview_images?.[0]?.url || memory.thumbnail || (viewType === 'property' ? currentProperty?.image : undefined);
+                      // No chosen cover → the brand, not the first photo ("Brand everywhere", 4 Nov 2026). utils/campaignCover.ts
+                      const cardCover = campaignCardCover(memory, { propertyImage: viewType === 'property' ? currentProperty?.image : null });
+                      const thumbnailUrl = cardCover.src || undefined;
                       const contributors = (memory.collaborators || []).map((collab: any) => {
                         // Check if this collaborator is the logged-in user
                         const isCurrentUser = user && (
@@ -3068,6 +3074,7 @@ function MemoriesPageContent({
                         <div key={memory.isShared ? `shared-${memory.id}` : memory.id} className="relative z-0">
                           <MemoryCard
                             image={thumbnailUrl}
+                            coverIsBrand={cardCover.isBrand}
                             title={memory.title}
                             dateRange={(memory.isCars || memory.isCatalogItem || memory.category?.name === 'Cars') ? '' : (memory.dates?.formatted_range || 'Date not specified')}
                             location={memory.isCatalogItem ? '' : (memory.location?.formatted || 'Location not specified')}

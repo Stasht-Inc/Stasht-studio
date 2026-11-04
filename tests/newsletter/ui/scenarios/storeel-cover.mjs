@@ -44,12 +44,18 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
     const api = createMockApi();
     const baseRoute = api.route;
     // The intro video upload (/memories/upload-video answers {fileUrl}), and the logo / video files.
+    let slowFailingPhoto = false;
     api.route = async (route) => {
       const url = new URL(route.request().url());
       if (url.hostname === '127.0.0.1' && url.pathname === '/cd-img/intro.mp4') return route.fulfill({ body: video, contentType: 'video/mp4' });
       if (url.hostname === '127.0.0.1' && url.pathname.startsWith('/cd-img/')) {
         const { body, contentType } = await imageFor(url.pathname.slice('/cd-img/'.length));
         return route.fulfill({ body, contentType });
+      }
+      // A slow cover-photo upload that then fails (review check: removed while uploading → no toast, upload stopped).
+      if (url.pathname === '/api/react/user/upload-image-with-metadata' && slowFailingPhoto) {
+        await new Promise((r) => setTimeout(r, 1200));
+        return route.fulfill({ status: 500, json: { success: false, message: 'Server error' } }).catch(() => {});
       }
       if (url.pathname === '/api/react/memories/upload-video') {
         api.state.calls.push({ method: 'POST', path: '/memories/upload-video' });
@@ -140,6 +146,26 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
     await page.getByTestId('cover-photo-input').setInputFiles({ name: 'anim.gif', mimeType: 'image/gif', buffer: Buffer.from('GIF89a') });
     await expectVisible(page.getByText('Please choose a JPG, JPEG or PNG photo.'), `${tag}: GIF refused`);
     expect((await photoChip.textContent()).includes('storefront.jpg'), `${tag}: the chosen cover photo stays`);
+
+    // Review: a cover photo removed while it is still uploading — the upload is stopped, and its failure never toasts.
+    {
+      await page.getByRole('button', { name: 'Remove cover photo' }).click();
+      const aborted = [];
+      page.on('requestfailed', (r) => { if (r.url().includes('/user/upload-image-with-metadata')) aborted.push(r.failure()?.errorText); });
+      slowFailingPhoto = true;
+      await page.getByTestId('cover-photo-input').setInputFiles({ name: 'slow.jpg', mimeType: 'image/jpeg', buffer: photo });
+      await expectVisible(photoChip, `${tag}: slow cover photo uploading`);
+      await page.waitForTimeout(300);
+      await page.getByRole('button', { name: 'Remove cover photo' }).click();
+      await page.waitForTimeout(1800);
+      slowFailingPhoto = false;
+      expect(!(await page.getByText('could not be uploaded').first().isVisible().catch(() => false)), `${tag}: no "could not be uploaded" toast for a removed photo`);
+      expect(aborted.length > 0, `${tag}: the removed photo's upload was stopped (${JSON.stringify(aborted)})`);
+      expect(await coverKind(page) === 'brand', `${tag}: preview back to the brand`);
+      await page.getByTestId('cover-photo-input').setInputFiles({ name: 'storefront.jpg', mimeType: 'image/jpeg', buffer: photo });
+      await expectVisible(photoChip, `${tag}: cover photo chosen again`);
+      await page.waitForTimeout(600);
+    }
 
     // Removing it brings the brand back to the preview; then choose it again for the create check.
     await page.getByRole('button', { name: 'Remove cover photo' }).click();

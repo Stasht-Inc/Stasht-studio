@@ -1,14 +1,15 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { brandCoverColor, campaignCoverLayout, coverCenterTop, COVER_CENTER_Y, isVectorImage, type CoverSize } from '../../utils/campaignCover';
+import { brandCoverColor, campaignCoverLayout, coverCenterTop, isVectorImage, type CoverSize } from '../../utils/campaignCover';
 
 /**
  * A campaign's cover picture (Chris, 4 Nov 2026) — campaign page header, campaign cards, published page and the
  * Create Campaign preview all use this, so they look the same.
  *
  * Real photos fill the box (object-cover), exactly as before. The brand default (the account / property avatar shown
- * when a campaign has no cover) is shown as the round avatar, centred, at a limited size over a blurred copy of itself
- * on the profile colour — never stretched full-bleed. Any other picture too small for its box is shown whole the same
- * way. Layout rules: utils/campaignCover.ts.
+ * when a campaign has no cover) is centred at a limited size over a backdrop (a blurred copy of itself on the profile
+ * colour, or just the colour) — the round avatar when the logo is square, the whole logo when it isn't — never
+ * stretched full-bleed. A chosen picture far too small for its box is shown whole the same way. A raster picture stays
+ * hidden until its size is known, so it never shows stretched for a frame. Layout rules: utils/campaignCover.ts.
  *
  * The wrapper takes `className` (size / position, e.g. "w-full h-full" or "absolute inset-0"); overlays (gradient,
  * title, buttons) stay with the caller, on top of it.
@@ -25,6 +26,12 @@ export interface CampaignCoverProps {
   fallback?: React.ReactNode;
   onError?: () => void;
   loading?: 'lazy' | 'eager';
+  /** Behind a contained picture: a blurred copy of it (headers, preview) or just the profile colour (cards — cheaper
+   *  in big grids). */
+  backdrop?: 'blur' | 'color';
+  /** Where the middle of a contained picture sits, as a share of the box height (default COVER_CENTER_Y). For a
+   *  layout whose title sits higher than usual. */
+  centerY?: number;
 }
 
 // One ResizeObserver for every cover on the page (a campaign grid can have hundreds of cards).
@@ -53,7 +60,7 @@ function observeSize(el: Element, listener: (size: CoverSize) => void): () => vo
 }
 
 export default function CampaignCover({
-  src, alt = '', isFallback = false, color, className = '', fallback, onError, loading,
+  src, alt = '', isFallback = false, color, className = '', fallback, onError, loading, backdrop = 'blur', centerY,
 }: CampaignCoverProps) {
   const boxRef = useRef<HTMLDivElement>(null);
   const imgRef = useRef<HTMLImageElement>(null);
@@ -90,26 +97,27 @@ export default function CampaignCover({
       : <div className={className} style={{ backgroundColor: brandCoverColor(color) }} />;
   }
 
-  // An SVG never goes blurry when enlarged: it is never "too small", and as the brand it is sized by the box alone.
-  const vector = isVectorImage(src);
-  const layoutNatural = !vector ? natural : isFallback && natural ? { width: 1e5, height: 1e5 } : null;
-  const layout = campaignCoverLayout({ isFallback, natural: layoutNatural, box });
+  // An SVG never goes blurry when enlarged (and may report no size): never "too small", the brand sized by the box.
+  const layout = campaignCoverLayout({ isFallback, natural, box, vector: isVectorImage(src) });
   const contain = layout.mode === 'contain';
-  const sized = contain && layout.width !== null && layout.height !== null;
-  const mainClass = !contain
-    ? 'w-full h-full object-cover'
-    : `absolute left-1/2 -translate-x-1/2 -translate-y-1/2 shadow-lg ${
-      layout.shape === 'circle' ? 'rounded-full object-cover border-4 border-white/60' : 'rounded-xl object-contain'
-    } ${sized ? '' : 'w-24 h-24 opacity-0'}`;
+  const pending = layout.mode === 'pending';
+  const mainClass = layout.mode !== 'contain'
+    ? `w-full h-full object-cover${pending ? ' opacity-0' : ''}`
+    : `absolute left-1/2 -translate-x-1/2 -translate-y-1/2 ${
+      layout.shape === 'circle'
+        ? 'rounded-full object-cover border-4 border-white/60 shadow-lg'
+        : isFallback ? 'object-contain drop-shadow-lg' : 'rounded-xl object-contain shadow-lg'
+    }`;
 
   return (
     <div
       ref={boxRef}
       className={`${/\b(absolute|fixed|relative|sticky)\b/.test(className) ? '' : 'relative '}overflow-hidden ${className}`}
-      style={contain ? { backgroundColor: brandCoverColor(color) } : undefined}
-      data-cover-mode={contain ? (layout.shape === 'circle' ? 'brand' : 'small') : 'cover'}
+      style={contain || (pending && isFallback) ? { backgroundColor: brandCoverColor(color) } : undefined}
+      data-cover-mode={pending ? 'pending' : contain ? (isFallback ? 'brand' : 'small') : 'cover'}
+      data-cover-shape={contain ? layout.shape : undefined}
     >
-      {contain && (
+      {contain && backdrop === 'blur' && (
         <img
           src={src as string}
           alt=""
@@ -128,9 +136,9 @@ export default function CampaignCover({
         onLoad={(e) => setNatural(e.currentTarget)}
         onError={() => { setFailedSrc(src ?? null); onError?.(); }}
         className={mainClass}
-        style={!contain ? undefined : sized && box
-          ? { width: layout.width as number, height: layout.height as number, top: coverCenterTop(box.height, layout.height as number) }
-          : { top: `${COVER_CENTER_Y * 100}%` }}
+        style={layout.mode === 'contain' && box
+          ? { width: layout.width, height: layout.height, top: coverCenterTop(box.height, layout.height, centerY) }
+          : undefined}
       />
     </div>
   );

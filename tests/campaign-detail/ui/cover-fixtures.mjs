@@ -10,6 +10,15 @@ const LOGO_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="256" height="25
   <rect x="128" y="120" width="56" height="26" fill="#1D4ED8"/>
 </svg>`;
 
+// A 3:1 wordmark (600x200), like a dealer's text logo: must never lose its sides.
+const WIDE_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="600" height="200" viewBox="0 0 600 200">
+  <rect width="600" height="200" fill="#FFFFFF"/>
+  <rect x="10" y="10" width="580" height="180" rx="16" fill="#0F172A"/>
+  <circle cx="60" cy="100" r="34" fill="#F59E0B"/>
+  <text x="110" y="122" font-family="Helvetica, Arial, sans-serif" font-size="64" font-weight="700" fill="#FFFFFF">NORTHWIND</text>
+  <rect x="560" y="30" width="16" height="140" fill="#F59E0B"/>
+</svg>`;
+
 const PHOTO_SVG = (w, h, hue) => `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 2000 1500">
   <defs><linearGradient id="sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="hsl(${hue},70%,62%)"/><stop offset="1" stop-color="hsl(${hue + 30},80%,88%)"/></linearGradient></defs>
   <rect width="2000" height="1500" fill="url(#sky)"/>
@@ -24,6 +33,8 @@ export async function imageFor(name) {
   let body;
   if (name === 'logo.png') body = await sharp(Buffer.from(LOGO_SVG)).png().toBuffer();
   else if (name === 'photo.jpg') body = await sharp(Buffer.from(PHOTO_SVG(2000, 1500, 205))).jpeg({ quality: 80 }).toBuffer();
+  else if (name === 'wide.png') body = await sharp(Buffer.from(WIDE_SVG)).png().toBuffer();
+  else if (name === 'photo640.jpg') body = await sharp(Buffer.from(PHOTO_SVG(640, 480, 120))).jpeg({ quality: 80 }).toBuffer();
   else if (name === 'small.jpg') body = await sharp(Buffer.from(PHOTO_SVG(240, 180, 20))).jpeg({ quality: 80 }).toBuffer();
   else {
     const n = Number(name.match(/(\d+)/)?.[1] ?? 1);
@@ -46,6 +57,9 @@ export async function coverInfo(locator) {
     const ir = img ? img.getBoundingClientRect() : null;
     return {
       mode: el.getAttribute('data-cover-mode'),
+      shape: el.getAttribute('data-cover-shape'),
+      blurred: !!el.querySelector('img[aria-hidden="true"]'),
+      src: img ? img.getAttribute('src') : null,
       box: { width: Math.round(r.width), height: Math.round(r.height) },
       img: ir ? { width: Math.round(ir.width), height: Math.round(ir.height), natural: img.naturalWidth, radius: getComputedStyle(img).borderRadius, fit: getComputedStyle(img).objectFit } : null,
     };

@@ -117,3 +117,17 @@ test('cover photos: the Media picker types (JPG, JPEG, PNG) up to 10MB', () => {
   assert.match(coverPhotoFileError({ type: 'video/mp4', size: 1000 }), /JPG, JPEG or PNG/);
   assert.match(coverPhotoFileError({ type: 'image/png', size: COVER_PHOTO_MAX_BYTES + 1 }), /10MB/);
 });
+
+// Review (4 Nov): the picked file's local link lives in the same state as the pick, so a photo → video switch never
+// shows the old link for a render (the page revokes a link when it leaves the state).
+test('the local preview link belongs to its pick and leaves with it', () => {
+  const a = run([{ type: 'pick', seq: 1, kind: 'photo', file: photo, name: photo.name, localUrl: 'blob:photo' }]);
+  assert.equal(a.localUrl, 'blob:photo');
+  const b = coverChoiceReducer(a, { type: 'pick', seq: 2, kind: 'video', file: video, name: video.name, localUrl: 'blob:video' });
+  assert.equal(b.localUrl, 'blob:video');
+  assert.equal(coverChoiceReducer(b, { type: 'uploaded', seq: 2, url: 'https://s3.test/intro.mp4' }).localUrl, 'blob:video');
+  assert.equal(coverChoiceReducer(b, { type: 'failed', seq: 2 }).localUrl, null);
+  assert.equal(coverChoiceReducer(b, { type: 'clear' }).localUrl, null);
+  assert.equal(coverChoiceReducer(b, { type: 'ready', seq: 3, kind: 'video', file: null, name: 'rec.mp4', url: 'https://s3.test/rec.mp4' }).localUrl, null);
+  assert.equal(EMPTY_COVER_CHOICE.localUrl, null);
+});

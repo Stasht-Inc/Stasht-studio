@@ -156,17 +156,26 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
     EMPTY_COVER_CHOICE as CoverChoice<Blob>,
   );
   const coverSeqRef = useRef(0);
+  // Stops the upload still running for a pick that was replaced or removed.
+  const coverUploadAbortRef = useRef<(() => void) | null>(null);
   const isUploadingCover = coverChoice.uploading;
-  // A local link to the picked file (shown at once, before and after it uploads).
-  const [coverLocalUrl, setCoverLocalUrl] = useState<string | null>(null);
+  // The picked file's local link is made with the pick (kept in the same state, so it never lags a render) and
+  // freed when it leaves the state.
   useEffect(() => {
-    const f = coverChoice.file;
-    if (!f || !f.size) { setCoverLocalUrl(null); return undefined; }
-    const url = URL.createObjectURL(f);
-    setCoverLocalUrl(url);
-    return () => URL.revokeObjectURL(url);
-  }, [coverChoice.file]);
-  const coverDisplayUrl = coverLocalUrl || coverChoice.url;
+    const url = coverChoice.localUrl;
+    return () => { if (url) URL.revokeObjectURL(url); };
+  }, [coverChoice.localUrl]);
+  const coverDisplayUrl = coverChoice.localUrl || coverChoice.url;
+  /** A new pick or a removal: stop the old upload and number past it, so it can't save or toast. */
+  const nextCoverSeq = () => {
+    coverUploadAbortRef.current?.();
+    coverUploadAbortRef.current = null;
+    return ++coverSeqRef.current;
+  };
+  const clearCover = () => {
+    nextCoverSeq();
+    dispatchCover({ type: 'clear' });
+  };
   const [editingPhotoIndex, setEditingPhotoIndex] = useState<number | null>(null);
   const [isAddMomentOpen, setIsAddMomentOpen] = useState(false);
   const [momentFiles, setMomentFiles] = useState<FileList | null>(null);
@@ -1109,7 +1118,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
       setIsMasterMessage(false);
       setSavedMasterMessage('');
       fetchMasterMessage();
-      dispatchCover({ type: 'clear' });
+      clearCover();
 
       // Default the new-campaign category (and the existing-campaigns filter) to whatever
       // category the user pinned in Profile Settings > Categories, overriding the reset
@@ -1324,15 +1333,17 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
   const handleCoverPhotoPicked = async (file: File) => {
     const problem = coverPhotoFileError(file);
     if (problem) { toast.error(problem); return; }
-    const seq = ++coverSeqRef.current;
-    dispatchCover({ type: 'pick', seq, kind: 'photo', file, name: file.name });
+    const seq = nextCoverSeq();
+    const controller = new AbortController();
+    coverUploadAbortRef.current = () => controller.abort();
+    dispatchCover({ type: 'pick', seq, kind: 'photo', file, name: file.name, localUrl: URL.createObjectURL(file) });
     try {
       const fileNameForAPI = file.name
         .replace(/\.[^/.]+$/, '')
         .replace(/\s+/g, '_')
         .replace(/[^a-zA-Z0-9\-_]/g, '');
       const exif = await exifr.parse(file, ['Orientation']).catch(() => null);
-      const response = await dashboardAPI.uploadImageWithMetadata(file, fileNameForAPI || 'cover', exif?.Orientation ?? 1);
+      const response = await dashboardAPI.uploadImageWithMetadata(file, fileNameForAPI || 'cover', exif?.Orientation ?? 1, controller.signal);
       const fileUrl = (response.data?.data || response.data)?.fileUrl;
       if (!response.success || !fileUrl) throw new Error(response.error || 'Upload failed');
       dispatchCover({ type: 'uploaded', seq, url: fileUrl });
@@ -1345,8 +1356,8 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
 
   // Intro video: uploaded to /memories/upload-video, sent as last_update_img. Replaces a cover photo.
   const handleIntroVideoPicked = async (file: File) => {
-    const seq = ++coverSeqRef.current;
-    dispatchCover({ type: 'pick', seq, kind: 'video', file, name: file.name });
+    const seq = nextCoverSeq();
+    dispatchCover({ type: 'pick', seq, kind: 'video', file, name: file.name, localUrl: URL.createObjectURL(file) });
     // Tick 1% per second up to 90%, wait for server to reach 100%
     let currentProgress = 0;
     const timer = setInterval(() => {
@@ -1359,6 +1370,8 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
       uploadFormData.append('video', file);
       const fileUrl = await new Promise<string>((resolve, reject) => {
         const xhr = new XMLHttpRequest();
+        coverUploadAbortRef.current = () => xhr.abort();
+        xhr.onabort = () => reject(new Error('Upload replaced'));
         xhr.onload = () => {
           try {
             const data = JSON.parse(xhr.responseText);
@@ -2231,7 +2244,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
         setCollaboratorSearchResults([]);
         setShowEndDate(false); // Reset end date visibility
         setDeviceLocation(''); // Reset device location for fresh detection on next open
-        dispatchCover({ type: 'clear' });
+        clearCover();
 
         
         // Trigger memory counts refresh
@@ -2780,7 +2793,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
                           <button
                             type="button"
                             aria-label={`Remove ${label.toLowerCase()}`}
-                            onClick={() => dispatchCover({ type: 'clear' })}
+                            onClick={clearCover}
                             className="flex-shrink-0 text-gray-400 hover:text-red-500 transition-colors"
                           >
                             <X className="w-4 h-4" />
@@ -3999,7 +4012,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
           onClose={() => setIsVideoRecorderOpen(false)}
           onVideoReady={(fileUrl, fileName) => {
             // VideoRecorderModal already uploaded to S3 — just store display name + URL
-            dispatchCover({ type: 'ready', seq: ++coverSeqRef.current, kind: 'video', file: null, name: fileName, url: fileUrl });
+            dispatchCover({ type: 'ready', seq: nextCoverSeq(), kind: 'video', file: null, name: fileName, url: fileUrl });
             setIsVideoRecorderOpen(false);
           }}
         />,

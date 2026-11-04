@@ -11,6 +11,8 @@ export interface CoverChoice<F = unknown> {
   /** The picked file — for a local preview while it uploads. */
   file: F | null;
   name: string;
+  /** A local (blob:) link to the picked file, shown at once. The page revokes it when it leaves the state. */
+  localUrl: string | null;
   /** The uploaded link, sent as last_update_img. */
   url: string | null;
   uploading: boolean;
@@ -20,7 +22,7 @@ export interface CoverChoice<F = unknown> {
 }
 
 export type CoverChoiceAction<F = unknown> =
-  | { type: 'pick'; seq: number; kind: CoverKind; file: F | null; name: string }
+  | { type: 'pick'; seq: number; kind: CoverKind; file: F | null; name: string; localUrl?: string | null }
   | { type: 'ready'; seq: number; kind: CoverKind; file: F | null; name: string; url: string }
   | { type: 'progress'; seq: number; progress: number }
   | { type: 'uploaded'; seq: number; url: string }
@@ -28,15 +30,15 @@ export type CoverChoiceAction<F = unknown> =
   | { type: 'clear' };
 
 export const EMPTY_COVER_CHOICE: CoverChoice<never> = Object.freeze({
-  kind: null, file: null, name: '', url: null, uploading: false, progress: 0, seq: 0,
+  kind: null, file: null, name: '', localUrl: null, url: null, uploading: false, progress: 0, seq: 0,
 }) as CoverChoice<never>;
 
 export function coverChoiceReducer<F>(state: CoverChoice<F>, action: CoverChoiceAction<F>): CoverChoice<F> {
   switch (action.type) {
     case 'pick':
-      return { kind: action.kind, file: action.file, name: action.name, url: null, uploading: true, progress: 0, seq: action.seq };
+      return { kind: action.kind, file: action.file, name: action.name, localUrl: action.localUrl ?? null, url: null, uploading: true, progress: 0, seq: action.seq };
     case 'ready':
-      return { kind: action.kind, file: action.file, name: action.name, url: action.url, uploading: false, progress: 0, seq: action.seq };
+      return { kind: action.kind, file: action.file, name: action.name, localUrl: null, url: action.url, uploading: false, progress: 0, seq: action.seq };
     case 'progress':
       return action.seq === state.seq && state.uploading ? { ...state, progress: action.progress } : state;
     case 'uploaded':
