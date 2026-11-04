@@ -1,4 +1,4 @@
-﻿import React, { useState, useRef, useEffect, useCallback, useImperativeHandle, forwardRef } from 'react';
+﻿import React, { useState, useRef, useEffect, useCallback, useImperativeHandle, forwardRef, useReducer } from 'react';
 import { createPortal } from 'react-dom';
 import { X, Upload, Calendar, MapPin, Tag, Users, Plus, Camera, Image as ImageIcon, CheckCircle, Loader2, File as FileIcon, Search, Video, Pencil, Globe, Eye, Lock, ChevronRight, ArrowLeft } from 'lucide-react';
 import { toast } from 'sonner';
@@ -33,6 +33,7 @@ import { announceNewslettersChanged } from './newsletters/lib/campaignsView';
 import { requestUpgrade } from '../utils/planEvents';
 import StoreelLivePreview from './storeel/StoreelLivePreview';
 import { storeelPreviewMedia } from './storeel/storeelPreview';
+import { coverChoiceReducer, coverChoicePayload, coverPhotoFileError, EMPTY_COVER_CHOICE, COVER_PHOTO_ACCEPT, type CoverChoice, type CoverChoiceAction } from '../utils/coverChoice';
 import { BUTTON_OUTLINE, BUTTON_PRIMARY, BUTTON_SECONDARY } from './newsletters/lib/ui';
 
 interface CreateMemoryProps {
@@ -147,10 +148,25 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const titleInputRef = useRef<HTMLInputElement>(null);
   const introVideoInputRef = useRef<HTMLInputElement>(null);
-  const [introVideo, setIntroVideo] = useState<File | null>(null);
-  const [introVideoUrl, setIntroVideoUrl] = useState<string | null>(null);
-  const [isUploadingVideo, setIsUploadingVideo] = useState(false);
-  const [videoUploadProgress, setVideoUploadProgress] = useState(0);
+  const coverPhotoInputRef = useRef<HTMLInputElement>(null);
+  // Cover photo OR intro video (Chris, 4 Nov 2026): both are saved as the campaign's last_update_img, so choosing
+  // one replaces the other. utils/coverChoice.ts; coverSeqRef numbers each pick so a late upload can't win.
+  const [coverChoice, dispatchCover] = useReducer(
+    coverChoiceReducer as (s: CoverChoice<Blob>, a: CoverChoiceAction<Blob>) => CoverChoice<Blob>,
+    EMPTY_COVER_CHOICE as CoverChoice<Blob>,
+  );
+  const coverSeqRef = useRef(0);
+  const isUploadingCover = coverChoice.uploading;
+  // A local link to the picked file (shown at once, before and after it uploads).
+  const [coverLocalUrl, setCoverLocalUrl] = useState<string | null>(null);
+  useEffect(() => {
+    const f = coverChoice.file;
+    if (!f || !f.size) { setCoverLocalUrl(null); return undefined; }
+    const url = URL.createObjectURL(f);
+    setCoverLocalUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [coverChoice.file]);
+  const coverDisplayUrl = coverLocalUrl || coverChoice.url;
   const [editingPhotoIndex, setEditingPhotoIndex] = useState<number | null>(null);
   const [isAddMomentOpen, setIsAddMomentOpen] = useState(false);
   const [momentFiles, setMomentFiles] = useState<FileList | null>(null);
@@ -1093,10 +1109,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
       setIsMasterMessage(false);
       setSavedMasterMessage('');
       fetchMasterMessage();
-      setIntroVideo(null);
-      setIntroVideoUrl(null);
-      setIsUploadingVideo(false);
-      setVideoUploadProgress(0);
+      dispatchCover({ type: 'clear' });
 
       // Default the new-campaign category (and the existing-campaigns filter) to whatever
       // category the user pinned in Profile Settings > Categories, overriding the reset
@@ -1305,6 +1318,66 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
     wasCatalogCategoryRef.current = false;
     setVisibleCampaignsCount(CAMPAIGNS_LOAD_BATCH);
     onOpenChange(false);
+  };
+
+  // Cover photo: uploaded like the Media photos (same endpoint), sent as last_update_img. Replaces an intro video.
+  const handleCoverPhotoPicked = async (file: File) => {
+    const problem = coverPhotoFileError(file);
+    if (problem) { toast.error(problem); return; }
+    const seq = ++coverSeqRef.current;
+    dispatchCover({ type: 'pick', seq, kind: 'photo', file, name: file.name });
+    try {
+      const fileNameForAPI = file.name
+        .replace(/\.[^/.]+$/, '')
+        .replace(/\s+/g, '_')
+        .replace(/[^a-zA-Z0-9\-_]/g, '');
+      const exif = await exifr.parse(file, ['Orientation']).catch(() => null);
+      const response = await dashboardAPI.uploadImageWithMetadata(file, fileNameForAPI || 'cover', exif?.Orientation ?? 1);
+      const fileUrl = (response.data?.data || response.data)?.fileUrl;
+      if (!response.success || !fileUrl) throw new Error(response.error || 'Upload failed');
+      dispatchCover({ type: 'uploaded', seq, url: fileUrl });
+    } catch (err) {
+      console.error('Cover photo upload failed:', err);
+      dispatchCover({ type: 'failed', seq });
+      if (seq === coverSeqRef.current) toast.error('The cover photo could not be uploaded. Please try again.');
+    }
+  };
+
+  // Intro video: uploaded to /memories/upload-video, sent as last_update_img. Replaces a cover photo.
+  const handleIntroVideoPicked = async (file: File) => {
+    const seq = ++coverSeqRef.current;
+    dispatchCover({ type: 'pick', seq, kind: 'video', file, name: file.name });
+    // Tick 1% per second up to 90%, wait for server to reach 100%
+    let currentProgress = 0;
+    const timer = setInterval(() => {
+      currentProgress = Math.min(90, currentProgress + 1);
+      dispatchCover({ type: 'progress', seq, progress: currentProgress });
+    }, 1000);
+    try {
+      const token = localStorage.getItem('stasht_token');
+      const uploadFormData = new FormData();
+      uploadFormData.append('video', file);
+      const fileUrl = await new Promise<string>((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.onload = () => {
+          try {
+            const data = JSON.parse(xhr.responseText);
+            if (data?.fileUrl) resolve(data.fileUrl); else reject(new Error('No fileUrl'));
+          } catch { reject(new Error('Invalid response')); }
+        };
+        xhr.onerror = () => reject(new Error('Upload failed'));
+        xhr.open('POST', `${getApiBaseUrl()}/memories/upload-video`);
+        if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+        xhr.send(uploadFormData);
+      });
+      dispatchCover({ type: 'uploaded', seq, url: fileUrl });
+    } catch (err) {
+      console.error('Intro video upload failed:', err);
+      dispatchCover({ type: 'failed', seq });
+      if (seq === coverSeqRef.current) toast.error('The intro video could not be uploaded. Please try again.');
+    } finally {
+      clearInterval(timer);
+    }
   };
 
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -2071,7 +2144,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
         }),
         photos_count: photosArray.length,
         photos: photosArray,
-        ...(introVideoUrl && { last_update_img: introVideoUrl })
+        ...coverChoicePayload(coverChoice)
       };
 
       // Publish immediately if requested
@@ -2158,8 +2231,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
         setCollaboratorSearchResults([]);
         setShowEndDate(false); // Reset end date visibility
         setDeviceLocation(''); // Reset device location for fresh detection on next open
-        setIntroVideo(null);
-        setIntroVideoUrl(null);
+        dispatchCover({ type: 'clear' });
 
         
         // Trigger memory counts refresh
@@ -2216,7 +2288,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
     { type: 1 as const, icon: <Globe className="w-5 h-5 text-[#7B68EE]" />, label: 'Public', desc: 'Anyone can view and leave comments' },
     { type: 3 as const, icon: <Lock className="w-5 h-5 text-orange-500" />, label: 'Private', desc: 'Only visible with a valid access token' },
   ];
-  const storeelSubmitDisabled = !formData.title.trim() || !formData.category || isSubmitting || isUploadingVideo;
+  const storeelSubmitDisabled = !formData.title.trim() || !formData.category || isSubmitting || isUploadingCover;
   const renderPublishMenu = (isOpen: boolean, setIsOpen: (o: boolean) => void, side: 'top' | 'bottom', trigger: React.ReactNode) => (
     <Popover.Root open={isOpen} onOpenChange={setIsOpen}>
       <Popover.Trigger asChild>{trigger}</Popover.Trigger>
@@ -2647,100 +2719,94 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
               )}
             </div>
 
-            {/* Intro Video */}
-            <div>
-              <label className="flex items-center gap-2 text-base md:text-sm font-medium text-gray-700 mb-1">
-                <Video className="w-4 h-4 text-black" />
-                Intro Video
-                <span className="text-gray-400 font-normal">(optional)</span>
-              </label>
+            {/* Cover photo | Intro Video — one or the other (both are the campaign's cover, last_update_img):
+                choosing one replaces the other. */}
+            <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-end gap-x-2">
+              <input
+                ref={coverPhotoInputRef}
+                type="file"
+                accept={COVER_PHOTO_ACCEPT}
+                className="hidden"
+                data-testid="cover-photo-input"
+                onChange={(e) => {
+                  const file = e.target.files?.[0] || null;
+                  e.target.value = '';
+                  if (file) void handleCoverPhotoPicked(file);
+                }}
+              />
               <input
                 ref={introVideoInputRef}
                 type="file"
                 accept="video/*"
                 className="hidden"
-                onChange={async (e) => {
+                data-testid="intro-video-input"
+                onChange={(e) => {
                   const file = e.target.files?.[0] || null;
                   e.target.value = '';
-                  if (!file) return;
-                  setIntroVideo(file);
-                  setIntroVideoUrl(null);
-                  setIsUploadingVideo(true);
-                  setVideoUploadProgress(0);
-                  try {
-                    const token = localStorage.getItem('stasht_token');
-                    const uploadFormData = new FormData();
-                    uploadFormData.append('video', file);
-                    // Tick 1% per second up to 90%, wait for server to reach 100%
-                    let currentProgress = 0;
-                    const timer = setInterval(() => {
-                      currentProgress = Math.min(90, currentProgress + 1);
-                      setVideoUploadProgress(currentProgress);
-                    }, 1000);
-
-                    await new Promise<void>((resolve, reject) => {
-                      const xhr = new XMLHttpRequest();
-                      xhr.onload = () => {
-                        clearInterval(timer);
-                        try {
-                          setVideoUploadProgress(100);
-                          const data = JSON.parse(xhr.responseText);
-                          if (data?.fileUrl) setIntroVideoUrl(data.fileUrl);
-                          resolve();
-                        } catch { reject(new Error('Invalid response')); }
-                      };
-                      xhr.onerror = () => { clearInterval(timer); reject(new Error('Upload failed')); };
-                      xhr.open('POST', `${getApiBaseUrl()}/memories/upload-video`);
-                      if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
-                      xhr.send(uploadFormData);
-                    });
-                  } catch (err) {
-                    console.error('Intro video upload failed:', err);
-                  } finally {
-                    setIsUploadingVideo(false);
-                    setVideoUploadProgress(0);
-                  }
+                  if (file) void handleIntroVideoPicked(file);
                 }}
               />
-              {introVideo ? (
-                <div className="flex items-center justify-between gap-2 px-4 py-3 border border-gray-200 rounded-lg bg-gray-50">
-                  <div className="flex items-center gap-2 min-w-0">
-                    {isUploadingVideo ? (
-                      <Loader2 className="w-4 h-4 text-[#6C60FF] flex-shrink-0" style={{ animation: 'spin 2s linear infinite' }} />
-                    ) : (
-                      <Video className="w-4 h-4 text-[#6C60FF] flex-shrink-0" />
-                    )}
-                    <div className="flex flex-col min-w-0">
-                      <span className="text-sm text-gray-700 truncate">{introVideo.name}</span>
-                      {isUploadingVideo && (
-                        <span className="text-xs text-[#6C60FF]">Uploading... {videoUploadProgress}%</span>
+              {(['photo', 'video'] as const).map((kind, i) => {
+                const chosen = coverChoice.kind === kind;
+                const label = kind === 'photo' ? 'Cover photo' : 'Intro Video';
+                return (
+                  <React.Fragment key={kind}>
+                    {i === 1 && <span className="flex h-12 md:h-10 items-center text-sm text-gray-400" aria-hidden="true">or</span>}
+                    <div className="min-w-0">
+                      <label className="flex items-center gap-2 text-base md:text-sm font-medium text-gray-700 mb-1">
+                        {kind === 'photo' ? <ImageIcon className="w-4 h-4 text-black flex-shrink-0" /> : <Video className="w-4 h-4 text-black flex-shrink-0" />}
+                        <span className="truncate">{label}</span>
+                        <span className="hidden md:inline text-gray-400 font-normal">(optional)</span>
+                      </label>
+                      {chosen ? (
+                        <div className="flex h-12 md:h-10 items-center justify-between gap-2 px-3 border border-gray-200 rounded-lg bg-gray-50" data-testid={`cover-choice-${kind}`}>
+                          <div className="flex items-center gap-2 min-w-0">
+                            {coverChoice.uploading ? (
+                              <Loader2 className="w-4 h-4 text-[#6C60FF] flex-shrink-0" style={{ animation: 'spin 2s linear infinite' }} />
+                            ) : kind === 'photo' && coverDisplayUrl ? (
+                              <img src={coverDisplayUrl} alt="" className="w-6 h-6 rounded object-cover flex-shrink-0" />
+                            ) : kind === 'photo' ? (
+                              <ImageIcon className="w-4 h-4 text-[#6C60FF] flex-shrink-0" />
+                            ) : (
+                              <Video className="w-4 h-4 text-[#6C60FF] flex-shrink-0" />
+                            )}
+                            <div className="flex flex-col min-w-0">
+                              <span className="text-sm text-gray-700 truncate">{coverChoice.name}</span>
+                              {coverChoice.uploading && (
+                                <span className="text-xs text-[#6C60FF]">Uploading...{kind === 'video' ? ` ${coverChoice.progress}%` : ''}</span>
+                              )}
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            aria-label={`Remove ${label.toLowerCase()}`}
+                            onClick={() => dispatchCover({ type: 'clear' })}
+                            className="flex-shrink-0 text-gray-400 hover:text-red-500 transition-colors"
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (kind === 'photo') { coverPhotoInputRef.current?.click(); return; }
+                            const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) || window.innerWidth < 768;
+                            if (isMobile) {
+                              setIsVideoRecorderOpen(true);
+                            } else {
+                              introVideoInputRef.current?.click();
+                            }
+                          }}
+                          className="w-full h-12 md:h-10 px-2 border border-gray-300 rounded-lg text-base md:text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 transition-colors truncate"
+                        >
+                          {kind === 'photo' ? 'Add Cover Photo' : 'Add Intro Video'}
+                        </button>
                       )}
                     </div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => { setIntroVideo(null); setIntroVideoUrl(null); }}
-                    className="flex-shrink-0 text-gray-400 hover:text-red-500 transition-colors"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
-                </div>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => {
-                    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) || window.innerWidth < 768;
-                    if (isMobile) {
-                      setIsVideoRecorderOpen(true);
-                    } else {
-                      introVideoInputRef.current?.click();
-                    }
-                  }}
-                  className="w-full h-12 md:h-10 border border-gray-300 rounded-lg text-base md:text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 transition-colors"
-                >
-                  Add Intro Video
-                </button>
-              )}
+                  </React.Fragment>
+                );
+              })}
             </div>
 
             {/* Media Upload */}
@@ -3813,7 +3879,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
               type="button"
               variant="outline"
               onClick={() => handleSubmit(false)}
-              disabled={!formData.title.trim() || !formData.category || isSubmitting || isUploadingVideo}
+              disabled={!formData.title.trim() || !formData.category || isSubmitting || isUploadingCover}
               aria-label={isSubmitting ? 'Saving' : 'Create Campaign'}
               className="flex-1 min-w-0 px-2 md:px-4 text-sm text-gray-900 border-2 border-gray-900 hover:bg-gray-50 focus:ring-0 focus:outline-none disabled:border-gray-300 !h-11 md:!h-auto md:!py-2"
             >
@@ -3926,9 +3992,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
           onClose={() => setIsVideoRecorderOpen(false)}
           onVideoReady={(fileUrl, fileName) => {
             // VideoRecorderModal already uploaded to S3 — just store display name + URL
-            const fakeFile = Object.assign(new Blob([''], { type: 'video/mp4' }), { name: fileName, lastModified: Date.now() }) as any;
-            setIntroVideo(fakeFile);
-            setIntroVideoUrl(fileUrl);
+            dispatchCover({ type: 'ready', seq: ++coverSeqRef.current, kind: 'video', file: null, name: fileName, url: fileUrl });
             setIsVideoRecorderOpen(false);
           }}
         />,
