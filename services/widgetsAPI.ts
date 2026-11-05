@@ -371,8 +371,9 @@ export const widgetsAPI = {
   list: (opts?: { propertyId?: number | null }) =>
     run<ContactWidget[]>(apiRequest(listPath(opts?.propertyId), { method: 'GET', skipCache: true } as RequestInit)),
 
-  // The list plus the dealerships a widget can route leads to (the builder's Team picker).
-  listWithTeams: async (opts?: { propertyId?: number | null }): Promise<WidgetResult<{ widgets: ContactWidget[]; teamOptions: WidgetTeamOption[] }>> => {
+  // The list plus the dealerships a widget can route leads to (the builder's Team picker), and whether creating or
+  // changing a widget needs the Business plan (5 Nov 2026; null from an older API: unknown).
+  listWithTeams: async (opts?: { propertyId?: number | null }): Promise<WidgetResult<{ widgets: ContactWidget[]; teamOptions: WidgetTeamOption[]; businessPlanRequired: boolean | null }>> => {
     try {
       const res = await apiRequest<any>(listPath(opts?.propertyId), { method: 'GET', skipCache: true } as RequestInit);
       if (!res.success) {
@@ -381,7 +382,8 @@ export const widgetsAPI = {
       const body: any = res.data;
       const widgets = Array.isArray(body) ? body : Array.isArray(body?.data) ? body.data : [];
       const teamOptions = Array.isArray(body?.team_options) ? body.team_options : [];
-      return { ok: true, data: { widgets, teamOptions }, fieldErrors: {} };
+      const businessPlanRequired = typeof body?.business_plan_required === 'boolean' ? body.business_plan_required : null;
+      return { ok: true, data: { widgets, teamOptions, businessPlanRequired }, fieldErrors: {} };
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.message : 'Request failed. Please try again.', fieldErrors: {} };
     }
