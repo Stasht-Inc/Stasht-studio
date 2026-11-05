@@ -38,9 +38,9 @@ const browser = await chromium.launch({ headless: true, channel: 'chrome' });
  * plans: token → plan_name for GET /user/storage-overview (mutable during a test).
  * seed: localStorage to start from (null = signed out).
  */
-async function open({ seed, plans = {}, width = 1280, height = 900, path = '/', waitFor = null, newbieMember = false, newbieOwns = false, overview = 'ok' }) {
+async function open({ seed, plans = {}, width = 1280, height = 900, path = '/', waitFor = null, newbieMember = false, newbieOwns = false, overview = 'ok', stripeSub = null, widgets = null }) {
   const calls = [];
-  const state = { plans: { 'pedal-token': 'Business', 'newbie-token': 'Starter', 'body-token': 'Intermediate', ...plans }, downgraded: false, newbieMember, newbieOwns, overview, overviewCalls: 0 };
+  const state = { plans: { 'pedal-token': 'Business', 'newbie-token': 'Starter', 'body-token': 'Intermediate', ...plans }, downgraded: false, newbieMember, newbieOwns, overview, overviewCalls: 0, stripeSub, widgets };
   const context = await browser.newContext({ viewport: { width, height }, serviceWorkers: 'block', locale: 'en-US', timezoneId: 'America/Vancouver', hasTouch: width < 1024, isMobile: width < 1024 });
   await context.addInitScript(([entries]) => {
     if (localStorage.getItem('pg-seeded')) return; // once per browser: a second tab shares the first one's storage
@@ -88,7 +88,8 @@ async function open({ seed, plans = {}, width = 1280, height = 900, path = '/', 
       if (state.overview === '429') return route.fulfill({ status: 429, headers: { 'Retry-After': '0' }, json: { message: 'Too Many Attempts.' } });
       const plan = state.downgraded ? 'Starter' : (state.plans[token] ?? 'Starter');
       const coveredBy = state.overview === 'covered' ? { id: 801, name: 'Pedalheads' } : null;
-      return route.fulfill({ json: { success: true, data: { storage_overview: { plan_id: 1, plan_name: coveredBy ? 'Business' : plan, plan_covered_by: coveredBy, ai_connects: 50, used_token: 0 } } } });
+      const allowance = /business|professional/i.test(plan) ? 250 : /team|intermediate/i.test(plan) ? 100 : 5;
+      return route.fulfill({ json: { success: true, data: { storage_overview: { plan_id: 1, plan_name: coveredBy ? 'Business' : plan, plan_covered_by: coveredBy, ai_connects: allowance, used_token: allowance === 100 ? 10 : 0, plan_storage_size_gb: 500, total_storage_used_mb: 12, is_unlimited: false } } } });
     }
     if (p === '/properties' && req.method() === 'GET') {
       const owned = me && me.id === PEDALHEADS.id ? [POINT_GREY] : me && me.id === NEWBIE.id && state.newbieOwns ? [KITS_OWN] : [];
@@ -99,8 +100,16 @@ async function open({ seed, plans = {}, width = 1280, height = 900, path = '/', 
       if (me && me.id === PEDALHEADS.id) return route.fulfill({ json: { success: true, data: { memories: [], categories: [], pagination: { total: 0, current_page: 1, last_page: 1 } } } });
       return route.fulfill({ status: 403, json: { status: 'error', message: 'You do not have access to this property' } });
     }
+    if (p === '/ai-credits/balance') {
+      const plan = state.plans[token] ?? 'Starter';
+      const n = /business|professional/i.test(plan) ? 250 : /team|intermediate/i.test(plan) ? 100 : 5;
+      return route.fulfill({ json: { status: 1, data: { total_credits: n, monthly_credits: { available: n, allocation: n, used_this_month: 0, usage_percentage: 0, next_reset_date: null, days_until_reset: 0 }, addon_credits: { available: 0, total_purchased: 0, breakdown: [] }, plan: { name: plan, monthly_allocation: n } } } });
+    }
+    if (p === '/ai-credits/usage-history') return route.fulfill({ json: { status: 1, data: { usage: [], summary: { total_credits_used: 0, by_service: { ai_captions: 0, ai_memory_wizard: 0 } }, pagination: { current_page: 1, total_pages: 1, total_records: 0, per_page: 10 } } } });
     if (p === '/alvin/status') return route.fulfill({ json: { success: true, data: { enabled: true, has_used: false, setup: [] } } });
-    if (p === '/stripe/subscription') return route.fulfill({ json: { success: true, active_subscriptions: [] } });
+    if (p === '/stripe/subscription') return route.fulfill({ json: { success: true, active_subscriptions: state.stripeSub ? [state.stripeSub] : [] } });
+    if (p === '/widgets' && req.method() === 'GET' && state.widgets) return route.fulfill({ json: { success: true, data: state.widgets, team_options: [], business_plan_required: true } });
+    if (p === '/stripe/create-setup-intent') { state.setupIntent = true; return route.fulfill({ json: { success: true, clientSecret: 'seti_x' } }); }
     if (p === '/stripe/downgrade-to-starter') { state.downgraded = true; return route.fulfill({ json: { success: true, message: 'User downgraded to starter plan successfully' } }); }
     if (p === '/stripe/payment-methods') return route.fulfill({ json: { success: true, payment_methods: [] } });
     if (p === '/user/memory-counts') return route.fulfill({ json: { success: true, data: { memory_counts: { total_memories: 0, total_memory_images: 0, published_memories: 0, active_collaborators: 0 } } } });
@@ -329,10 +338,28 @@ try {
     expect(await out.count() === 1 && await inViewport(out.first(), w, h), `T1 ${tag}: it offers "Sign out", in view`);
     await page.waitForTimeout(2500);
     expect(await alvinIntro(page).count() === 0, `T1 ${tag}: no "Meet Alvin" over it`);
+    // Release fixes: it says why, and offers Starter (the account's own choice); the title is one line on a phone.
+    const notice = page.getByText('Your trial has ended — choose a plan to keep using Stasht.');
+    expect(await notice.count() === 1 && await inViewport(notice, w, h), `T1 ${tag}: says why ("Your trial has ended…"), in view`);
+    expect(await gateDialog(page).getByRole('heading', { name: 'Starter', exact: true }).count() === 1, `T1 ${tag}: Starter offered`);
+    const title = await gateDialog(page).getByRole('heading', { name: 'Upgrade Your Plan' }).boundingBox();
+    expect(!!title && title.height < 40, `T1 ${tag}: "Upgrade Your Plan" on one line (${title && Math.round(title.height)}px)`);
     await shot(page, `T1-01-trial-ended-picker-${tag}`);
-    await out.first().click();
-    await page.waitForURL(/\/login/, { timeout: 20000 }).catch(() => {});
-    expect(/\/login/.test(page.url()), `T1 ${tag}: "Sign out" leaves it`);
+    if (tag === 'phone') {
+      await out.first().click();
+      await page.waitForURL(/\/login/, { timeout: 20000 }).catch(() => {});
+      expect(/\/login/.test(page.url()), `T1 ${tag}: "Sign out" leaves it`);
+    } else {
+      await gateDialog(page).getByRole('heading', { name: 'Starter', exact: true }).click();
+      await gateDialog(page).getByRole('button', { name: /Get Started/ }).click();
+      await gateBanner(page).first().waitFor({ state: 'hidden', timeout: 15000 }).catch(() => {});
+      expect(await gateBanner(page).count() === 0, `T1 ${tag}: choosing Starter closes it`);
+      await page.reload();
+      await appReady(page);
+      await page.waitForTimeout(5000);
+      expect(await gateBanner(page).count() === 0, `T1 ${tag}: and it isn't asked again`);
+      await shot(page, `T1-02-after-starter-${tag}`);
+    }
     await context.close();
   }
   if (run('T2')) {
@@ -382,6 +409,89 @@ try {
       expect(ls.stasht_conveniences_account === String(NEWBIE.id), 'C: they now belong to the new account');
       await context.close();
     }
+  }
+
+  // ── R1. Release E2E B1: a Teams self sign-up (role 3) opening the app on Campaigns, then clicking Dashboard, stays there ──
+  for (const [w, h, tag] of [[1280, 900, 'desktop'], [390, 844, 'phone']]) {
+    if (!run('R1')) break;
+    console.log(`R1 (${tag}): Teams role 3 opens on Campaigns → Dashboard`);
+    const { page, context } = await open({ width: w, height: h, path: '/stories', seed: session(BODY, { view_type: 'personal' }), waitFor: appReady });
+    await page.waitForTimeout(3500);
+    const dash = page.getByRole('button', { name: /^Dashboard/ }).filter({ visible: true }).first();
+    await dash.click();
+    await page.getByRole('heading', { name: 'Dashboard', exact: true }).first().waitFor({ state: 'visible', timeout: 15000 }).catch(() => {});
+    await page.waitForTimeout(3000);
+    expect(await page.getByRole('heading', { name: 'Dashboard', exact: true }).filter({ visible: true }).count() > 0, `R1 ${tag}: first Dashboard click stays on Dashboard`);
+    expect(!/\/(stories|memories)/.test(new URL(page.url()).pathname), `R1 ${tag}: not bounced to Campaigns (${new URL(page.url()).pathname})`);
+    await shot(page, `R1-01-teams-dashboard-first-click-${tag}`);
+    await context.close();
+  }
+
+  // ── R2. Release E2E B2: a Teams account's plan picker marks Teams "Current plan" and never offers "Upgrade to Teams" ──
+  const teamsCases = [
+    ['admin-set', { plans: { 'body-token': 'Teams' } }],
+    ['stripe', { plans: { 'body-token': 'Intermediate' }, stripeSub: { plan_name: 'intermediate', billing_period: 'monthly', current_period_end: '2026-12-05T00:00:00Z' } }],
+  ];
+  for (const [kind, opts] of teamsCases) {
+    for (const [w, h, tag] of [[1280, 900, 'desktop'], [390, 844, 'phone']]) {
+      if (!run('R2')) break;
+      console.log(`R2 (${kind}, ${tag}): Teams account opens the plans from Billing`);
+      const { page, context, state } = await open({ width: w, height: h, ...opts, seed: session(BODY, { view_type: 'personal', stasht_alvin_intro_seen_950: '1' }), waitFor: appReady });
+      await page.waitForTimeout(2000);
+      // Billing & Payment from the Profile menu (desktop: the header dropdown; phone: the avatar).
+      if (tag === 'desktop') {
+        await page.locator('[data-name="Dropdown"]').filter({ visible: true }).first().click();
+        await page.getByText('Billing & Payment').filter({ visible: true }).first().click();
+      } else {
+        await page.evaluate(() => window.dispatchEvent(new CustomEvent('app-navigate', { detail: 'billing' })));
+      }
+      const credits = page.getByText('90 of 100 credits left');
+      await credits.first().waitFor({ state: 'visible', timeout: 15000 }).catch(() => {});
+      expect(await credits.count() > 0, `R2 ${kind} ${tag}: Billing says "90 of 100 credits left"`);
+      if (kind === 'admin-set') await shot(page, `R2-00-billing-credits-left-${tag}`);
+      await page.getByRole('button', { name: /Upgrade Plan/ }).filter({ visible: true }).first().click();
+      const dialog = gateDialog(page);
+      await dialog.waitFor({ state: 'visible', timeout: 10000 });
+      const teamsCard = dialog.locator('div.border-2', { has: page.getByRole('heading', { name: 'Teams', level: 3 }) }).first();
+      expect(await teamsCard.getByText('Current plan', { exact: true }).count() === 1, `R2 ${kind} ${tag}: Teams card marked "Current plan"`);
+      const main = dialog.getByRole('button', { name: /Upgrade to Business/ });
+      await main.waitFor({ state: 'visible', timeout: 5000 }).catch(() => {}); // the picker selects after it opens
+      expect(await main.count() === 1, `R2 ${kind} ${tag}: opens on Business: "Upgrade to Business"`);
+      expect(await dialog.getByText('Individuals', { exact: true }).count() === 1, `R2 ${kind} ${tag}: Starter's tagline is "Individuals"`);
+      if (tag === 'phone') {
+        const title = await dialog.getByRole('heading', { name: 'Upgrade Your Plan' }).boundingBox();
+        expect(!!title && title.height < 40, `R2 ${kind} ${tag}: title on one line (${title && Math.round(title.height)}px)`);
+      }
+      await shot(page, `R2-01-${kind}-teams-current-${tag}`);
+      await teamsCard.click();
+      const current = dialog.getByRole('button', { name: 'Current plan' });
+      expect(await current.count() === 1 && await current.isDisabled(), `R2 ${kind} ${tag}: Teams selected → "Current plan", disabled`);
+      expect(await dialog.getByRole('button', { name: /Upgrade to Teams/ }).count() === 0, `R2 ${kind} ${tag}: never "Upgrade to Teams"`);
+      await current.click({ force: true }).catch(() => {});
+      await page.waitForTimeout(800);
+      expect(await page.getByRole('dialog', { name: 'Payment method' }).count() === 0 && !state.setupIntent, `R2 ${kind} ${tag}: nothing to pay for (no payment step)`);
+      await current.scrollIntoViewIfNeeded();
+      await shot(page, `R2-02-${kind}-teams-selected-disabled-${tag}`);
+      await context.close();
+    }
+  }
+
+  // ── R3. Teams widget manager: "New widget" only opens the plans, so it looks like a Business option ──
+  for (const [w, h, tag] of [[1280, 900, 'desktop'], [390, 844, 'phone']]) {
+    if (!run('R3')) break;
+    console.log(`R3 (${tag}): Teams widget manager New widget`);
+    const widget = { id: 'w_abcdefghij', name: 'Homepage', status: 'live', agent_name: 'Neo', callout_text: 'Hi', welcome_subtext: null, theme: { primary_color: '#6C60FF', logo_url: null, bubble_position: 'bottom-right' }, allowed_domains: ['body.example'], created_at: '2026-10-01T10:00:00Z', updated_at: '2026-10-01T10:00:00Z', leads_count: 0, installs: [] };
+    const { page, context } = await open({ width: w, height: h, path: '/marketplace', widgets: [widget], seed: session(BODY, { view_type: 'personal', stasht_alvin_intro_seen_950: '1' }), waitFor: appReady });
+    await page.getByRole('button', { name: 'Manage Contact Us Widget' }).first().click({ timeout: 20000 });
+    const btn = page.getByRole('dialog').getByRole('button', { name: /New widget/ });
+    await page.getByRole('dialog').getByText('Homepage', { exact: true }).waitFor({ timeout: 15000 }); // the list (and the plan answer) loaded
+    await btn.filter({ hasText: 'Business' }).waitFor({ state: 'visible', timeout: 5000 }).catch(() => {});
+    const look = await btn.evaluate((el) => ({ bg: getComputedStyle(el).backgroundColor, border: getComputedStyle(el).borderTopColor, text: el.textContent }));
+    expect(look.bg === 'rgb(255, 255, 255)' && look.text.includes('Business'), `R3 ${tag}: outlined with a "Business" hint (${JSON.stringify(look)})`);
+    expect(await btn.locator('svg.lucide-lock').count() === 1, `R3 ${tag}: lock icon`);
+    expect(await inViewport(btn, w, h), `R3 ${tag}: in view`);
+    await shot(page, `R3-01-teams-new-widget-business-${tag}`);
+    await context.close();
   }
 
   // ── 4. TheBodyPolitik (self sign-up, role 3) on Teams: Dashboard and Apps ──

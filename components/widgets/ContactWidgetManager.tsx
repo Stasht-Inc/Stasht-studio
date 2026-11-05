@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
-import { ArrowLeft, Camera, Check, Code2, Copy, Loader2, MessageSquare, Pencil, Plus, Trash2, UserRound, X } from 'lucide-react';
+import { ArrowLeft, Camera, Check, Code2, Copy, Loader2, Lock, MessageSquare, Pencil, Plus, Trash2, UserRound, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { widgetsAPI } from '../../services/widgetsAPI';
 import type {
@@ -1353,14 +1353,28 @@ export function ContactWidgetManager({
               <h3 className="text-base font-bold text-gray-900">
                 {propertyId != null ? `${propertyName || 'Property'} widgets` : 'Your widgets'}
               </h3>
-              <button
-                type="button"
-                onClick={() => openBuilder(null)}
-                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold text-white hover:opacity-90"
-                style={{ background: BRAND }}
-              >
-                <Plus className="w-4 h-4" /> New widget
-              </button>
+              {businessPlanRequired ? (
+                // On Teams, New widget only opens the plans: shown as a Business-plan option (outline + lock), not as an
+                // action (release fixes, 5 Nov 2026).
+                <button
+                  type="button"
+                  onClick={() => openBuilder(null)}
+                  title="Available on the Business plan"
+                  className="inline-flex shrink-0 items-center gap-2 whitespace-nowrap px-4 py-2 rounded-lg text-sm font-semibold border border-[#6C60FF] text-[#6C60FF] bg-white hover:bg-[#F3F2FF]"
+                >
+                  <Lock className="w-4 h-4" /> New widget
+                  <span className="text-[12px] font-medium px-1.5 py-0.5 rounded-full bg-[#F3F2FF]">Business</span>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => openBuilder(null)}
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold text-white hover:opacity-90"
+                  style={{ background: BRAND }}
+                >
+                  <Plus className="w-4 h-4" /> New widget
+                </button>
+              )}
             </div>
             {businessPlanRequired && (
               <p className="text-sm text-gray-500 mb-4">

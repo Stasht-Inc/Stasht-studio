@@ -34,6 +34,7 @@ import { PopupBlockedGuideModal } from './components/PopupBlockedGuideModal';
 import UpgradePlanModal from './components/UpgradePlanModal';
 import PlanGateExits from './components/PlanGateExits';
 import { useIsStarterPlan } from './hooks/usePlan';
+import { landingAfterSignIn } from './utils/landing';
 import { newAccountPlanPicker, phoneBarShowsAccountTools, showsAccountTools } from './utils/planGate';
 import { clearNewAccountFlag, newAccountFlagged, propertyViewIsStale } from './utils/accountState';
 import { mediaAPI, mediaTransformers, resetMediaCache } from './services/mediaAPI';
@@ -1875,39 +1876,23 @@ function MainApp() {
       currentPage
     });
 
-    // Only run this check once when the user first authenticates
-    // Don't run if hasInitialRedirectHappened is already true
-    if (isAuthenticated && user && !isLoading && !hasInitialRedirectHappened && currentPage === 'dashboard') {
-      // Check if user just completed an invite login - redirect to /stories instead of dashboard
-      const urlParams = new URLSearchParams(window.location.search);
-      const fromInviteLogin = urlParams.get('from_invite_login') === '1';
-      const inviteLoginCompleted = sessionStorage.getItem('invite_login_completed') || localStorage.getItem('invite_login_completed');
-      const inviteRedirectFlag = sessionStorage.getItem('invite_redirect_to_stories');
-
-      if (fromInviteLogin || inviteLoginCompleted || inviteRedirectFlag) {
-        console.log('🎯 Invite login detected - redirecting to /stories instead of dashboard');
-        sessionStorage.removeItem('invite_redirect_to_stories');
-        setHasInitialRedirectHappened(true);
-        handleNavigation('memories');
-        return;
-      }
-
-      const userRole = user.role;
-      console.log('🔍 Checking user role for initial redirect:', userRole, typeof userRole);
-
-      // Check if user has role 3 or 4 (handle both string and number types)
-      const roleValue = typeof userRole === 'string' ? userRole : String(userRole);
-      if (roleValue === '3' || roleValue === '4') {
-        console.log('🚀 User has role', roleValue, '- redirecting to memories page (one-time)');
-        handleNavigation('memories');
-        // Mark that initial redirect has happened immediately
-        setHasInitialRedirectHappened(true);
-      } else {
-        console.log('👤 User has role', roleValue, '- staying on dashboard');
-        // Also mark as happened so we don't check again
-        setHasInitialRedirectHappened(true);
-      }
-    }
+    // Decided ONCE, when the sign-in is ready, on the page the app opened on (utils/landing). Opened on another page it
+    // is simply done — it used to stay pending and fire on the person's first Dashboard click (release E2E, 5 Nov).
+    const urlParams = new URLSearchParams(window.location.search);
+    const inviteLanding = urlParams.get('from_invite_login') === '1'
+      || !!(sessionStorage.getItem('invite_login_completed') || localStorage.getItem('invite_login_completed'))
+      || !!sessionStorage.getItem('invite_redirect_to_stories');
+    const landing = landingAfterSignIn({
+      authReady: !!(isAuthenticated && user && !isLoading),
+      done: hasInitialRedirectHappened,
+      currentPage,
+      role: user?.role,
+      inviteLanding,
+    });
+    if (landing === 'wait') return;
+    if (inviteLanding) sessionStorage.removeItem('invite_redirect_to_stories');
+    setHasInitialRedirectHappened(true);
+    if (landing === 'campaigns') handleNavigation('memories');
   }, [isAuthenticated, user?.id, isLoading, hasInitialRedirectHappened, currentPage, handleNavigation]);
 
   // Debug: Log auth state and URL on every render

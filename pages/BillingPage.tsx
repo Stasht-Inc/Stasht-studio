@@ -2,6 +2,7 @@
 import { CreditCard, Download, Plus, Info, Check, Crown, TrendingUp, Calendar, DollarSign, Loader2, AlertTriangle, Clock, X, Zap, ChevronLeft, ChevronRight } from 'lucide-react';
 import UpgradePlanModal, { plans as allPlans } from '../components/UpgradePlanModal';
 import { coveredByNote, offersUpgrade, planCoveredBy, planKey, planLabel } from '../utils/effectivePlan';
+import { creditsLeftLabel } from '../utils/planPicker';
 import AddPaymentMethodModal from '../components/AddPaymentMethodModal';
 import { clearPaymentMethodsCache } from '../utils/paymentMethodsCache';
 import { PurchaseCreditsModal } from '../components/PurchaseCreditsModal';
@@ -619,14 +620,15 @@ export default function BillingPage({ onNavigateToMemory }: BillingPageProps = {
                     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 mb-2">
                       <span className="text-sm sm:text-base font-medium text-gray-700">AI Credits</span>
                       <span className="text-xs sm:text-base text-gray-600">
-                        {storageData?.used_token || 0} / {storageData?.ai_connects || 0} Credits
+                        {creditsLeftLabel(storageData?.used_token, storageData?.ai_connects)}
                       </span>
                     </div>
                     <div className="w-full bg-gray-200 rounded-full h-2">
                       <div
                         className="bg-green-500 h-2 rounded-full transition-all"
                         style={{
-                          width: `${storageData?.ai_connects ? ((storageData?.used_token || 0) / storageData.ai_connects) * 100 : 0}%`
+                          // The green bar is what is left, matching "N of M credits left".
+                          width: `${storageData?.ai_connects ? Math.max(0, Math.min(100, ((storageData.ai_connects - (storageData?.used_token || 0)) / storageData.ai_connects) * 100)) : 0}%`
                         }}
                       />
                     </div>
