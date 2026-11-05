@@ -7,7 +7,10 @@
 // sign-out. Everything that belongs to the signed-in account goes when it signs out or another account signs in.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { ACCOUNT_LOCAL_KEYS, ACCOUNT_SESSION_KEYS, clearAccountState, propertyViewIsStale } from '../../utils/accountState.ts';
+import {
+  ACCOUNT_LOCAL_KEYS, ACCOUNT_SESSION_KEYS, ACCOUNT_CONVENIENCE_KEYS, clearAccountState, propertyViewIsStale,
+  claimAccountConveniences, markNewAccount, newAccountFlagged, clearNewAccountFlag,
+} from '../../utils/accountState.ts';
 
 function memoryStorage(entries = {}) {
   const map = new Map(Object.entries(entries));
@@ -21,24 +24,73 @@ function memoryStorage(entries = {}) {
   };
 }
 
-test('the previous account\'s property view, new-account flag and per-account caches are cleared', () => {
+test('the previous sign-in\'s property view and new-account flag are cleared', () => {
   const local = memoryStorage({
     view_type: 'property',
     selected_property: JSON.stringify({ id: 41, name: 'Point Grey' }),
+    selected_property_owner: '501',
     is_new_user: 'true',
-    stasht_campaigns_view: 'newsletters',
-    stash_invited_memories: '[]',
-    stasht_recent_searches: '["pedalheads"]',
-    hiddenServices: '[]',
-    imageCropSettings: '{}',
-    stasht_watched_videos: '[1]',
-    stasht_category_colors: '{}',
-    moderation_preference_updated: '1',
+    is_new_user_account: '777',
   });
   const session = memoryStorage({ users_open_tab: 'properties', billing_open_upgrade: 'true', openPurchaseCreditsModal: 'true', restorePublishedEntry: '{}' });
   clearAccountState(local, session);
   assert.deepEqual(local.keys(), []);
   assert.deepEqual(session.keys(), []);
+});
+
+// Review (5 Nov): the same person signing in again (or a token expiry) keeps their own conveniences; they go only when
+// a DIFFERENT account signs in in this browser.
+const CONVENIENCES = {
+  stasht_campaigns_view: 'newsletters',
+  stash_invited_memories: '[]',
+  stasht_recent_searches: '["pedalheads"]',
+  hiddenServices: '[]',
+  imageCropSettings: '{}',
+  stasht_watched_videos: '[1]',
+  stasht_category_colors: '{}',
+  moderation_preference_updated: '1',
+};
+
+test('a sign-out / sign-in never clears the account\'s own conveniences', () => {
+  const local = memoryStorage({ ...CONVENIENCES, view_type: 'property' });
+  clearAccountState(local, memoryStorage());
+  assert.deepEqual(local.keys(), Object.keys(CONVENIENCES).sort());
+  for (const key of Object.keys(CONVENIENCES)) assert.ok(ACCOUNT_CONVENIENCE_KEYS.includes(key), key);
+});
+
+test('conveniences go when a different account signs in, and stay for the same account', () => {
+  const local = memoryStorage({ ...CONVENIENCES });
+  claimAccountConveniences(local, { id: 501 });
+  assert.equal(local.getItem('stasht_conveniences_account'), '501', 'first sign-in adopts what is there');
+  assert.equal(local.getItem('hiddenServices'), '[]');
+  claimAccountConveniences(local, { id: '501' });
+  assert.equal(local.getItem('stasht_watched_videos'), '[1]', 'same account: kept');
+  claimAccountConveniences(local, { id: 777 });
+  for (const key of Object.keys(CONVENIENCES)) assert.equal(local.getItem(key), null, key);
+  assert.equal(local.getItem('stasht_conveniences_account'), '777');
+  assert.doesNotThrow(() => claimAccountConveniences(local, null));
+  assert.doesNotThrow(() => claimAccountConveniences(null, { id: 1 }));
+});
+
+// Review (5 Nov): the new-account flag names its account, so a switch to another account can't carry it.
+test('the new-account flag belongs to the account it was set for', () => {
+  const local = memoryStorage({ stasht_user: JSON.stringify({ id: 777 }) });
+  markNewAccount(local, { id: 777 });
+  assert.equal(local.getItem('is_new_user'), 'true');
+  assert.equal(newAccountFlagged(local), true);
+  local.setItem('stasht_user', JSON.stringify({ id: 501 })); // switched into another account
+  assert.equal(newAccountFlagged(local), false);
+  local.setItem('stasht_user', JSON.stringify({ id: 777 }));
+  clearNewAccountFlag(local);
+  assert.equal(newAccountFlagged(local), false);
+  assert.equal(local.getItem('is_new_user'), null);
+  assert.equal(local.getItem('is_new_user_account'), null);
+});
+
+test('a flag left by an older build (no account named) is ignored', () => {
+  const local = memoryStorage({ stasht_user: JSON.stringify({ id: 501 }), is_new_user: 'true' });
+  assert.equal(newAccountFlagged(local), false);
+  assert.equal(newAccountFlagged(null), false);
 });
 
 test('device preferences and sign-in flows in progress are kept', () => {
@@ -58,7 +110,8 @@ test('device preferences and sign-in flows in progress are kept', () => {
 });
 
 test('the key lists name the property view and the new-account flag', () => {
-  for (const key of ['view_type', 'selected_property', 'is_new_user']) assert.ok(ACCOUNT_LOCAL_KEYS.includes(key), key);
+  for (const key of ['view_type', 'selected_property', 'selected_property_owner', 'is_new_user', 'is_new_user_account']) assert.ok(ACCOUNT_LOCAL_KEYS.includes(key), key);
+  assert.ok(!ACCOUNT_LOCAL_KEYS.includes('hiddenServices'), 'conveniences are not cleared on every sign-in');
   assert.ok(!ACCOUNT_LOCAL_KEYS.includes('pending_property_switch'));
   assert.ok(!ACCOUNT_LOCAL_KEYS.includes('stasht_token'), 'auth keys stay with userUtils.clearAuthData');
   assert.ok(ACCOUNT_SESSION_KEYS.includes('users_open_tab'));

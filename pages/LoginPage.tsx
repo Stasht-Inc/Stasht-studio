@@ -19,6 +19,7 @@ import { PopupBlockedGuideModal } from '../components/PopupBlockedGuideModal';
 import { getInviteParams, isEmail, isPhoneNumber, isCorrectCollaborator } from '../utils/inviteUtils';
 import { parsePhonePrefill } from '../utils/phoneUtils';
 import { AccountChoiceModal, getAdminCollaborator, AdminCollaborator } from '../components/AccountChoiceModal';
+import { clearAccountState } from '../utils/accountState';
 
 interface LoginPageProps {
   onLogin: (email: string, password: string, phone_number?: string) => Promise<boolean>;
@@ -617,6 +618,7 @@ export default function LoginPage({ onLogin, onSwitchToSignup, onSocialLogin }: 
         // No admin collaborator - normal flow
         // Store auth data directly (same as AuthContext does). A direct sign-in has no account to switch back to.
         localStorage.removeItem('admin_switch_data');
+        clearAccountState(); // nothing of a previous sign-in (property view, plan picker flag) carries over
         localStorage.setItem('stasht_user', JSON.stringify(response.user));
         localStorage.setItem('stasht_token', response.token);
 
@@ -911,6 +913,7 @@ export default function LoginPage({ onLogin, onSwitchToSignup, onSocialLogin }: 
     }
 
     // No admin accounts - safe to store auth data now (won't trigger redirect before modal)
+    clearAccountState(); // nothing of a previous sign-in (property view, plan picker flag) carries over
     localStorage.setItem('stasht_user', JSON.stringify(user));
     localStorage.setItem('stasht_token', token);
 
@@ -1239,6 +1242,7 @@ export default function LoginPage({ onLogin, onSwitchToSignup, onSocialLogin }: 
         // 2. Save authentication token (AuthContext checks this first)
         console.log('🔐 Step 2: Saving stasht_token...');
         localStorage.removeItem('admin_switch_data'); // a direct sign-in has no account to switch back to
+        clearAccountState(); // nothing of a previous sign-in (property view, plan picker flag) carries over
         localStorage.setItem('stasht_token', tokenData);
         console.log('✅ stasht_token saved');
 
@@ -1422,6 +1426,7 @@ export default function LoginPage({ onLogin, onSwitchToSignup, onSocialLogin }: 
 
           // Store auth data (a direct sign-in has no account to switch back to)
           localStorage.removeItem('admin_switch_data');
+          clearAccountState(); // nothing of a previous sign-in (property view, plan picker flag) carries over
           localStorage.setItem('stasht_user', JSON.stringify(response.user));
           localStorage.setItem('stasht_token', response.token);
 

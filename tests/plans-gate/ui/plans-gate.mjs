@@ -21,6 +21,8 @@ const POINT_GREY = { id: 41, name: 'Point Grey', username: 'pointgrey', unique_i
 
 // A property of Pedalheads that the new account was invited to (it is a member: shared_properties).
 const KITS_SHARED = { id: 55, name: 'Kitsilano Camp', username: 'kitscamp', unique_id: 'KC55', code: 'KC55', user_id: 801, location: 'Vancouver', user_role: 'viewer', is_creator: false, property_type: 'internal', account_type: 'internal', status: 'active' };
+// A property the new account owns whose trial has ended (MemoriesPage's "Trial Ended" picker).
+const KITS_OWN = { id: 60, name: 'Kits Beach Shop', username: 'kitsshop', unique_id: 'KS60', code: 'KS60', user_id: 977, location: 'Vancouver', user_role: 'admin', is_creator: true, property_type: 'internal', account_type: 'internal', status: 'active', trial_ended: true, trial_ends_at: '2026-10-01T00:00:00Z' };
 const TOKENS = { 'pedal-token': PEDALHEADS, 'newbie-token': NEWBIE, 'body-token': BODY };
 const tokenOf = (user) => Object.keys(TOKENS).find((t) => TOKENS[t].id === user.id);
 
@@ -36,9 +38,9 @@ const browser = await chromium.launch({ headless: true, channel: 'chrome' });
  * plans: token → plan_name for GET /user/storage-overview (mutable during a test).
  * seed: localStorage to start from (null = signed out).
  */
-async function open({ seed, plans = {}, width = 1280, height = 900, path = '/', waitFor = null, newbieMember = false }) {
+async function open({ seed, plans = {}, width = 1280, height = 900, path = '/', waitFor = null, newbieMember = false, newbieOwns = false, overview = 'ok' }) {
   const calls = [];
-  const state = { plans: { 'pedal-token': 'Business', 'newbie-token': 'Starter', 'body-token': 'Intermediate', ...plans }, downgraded: false, newbieMember };
+  const state = { plans: { 'pedal-token': 'Business', 'newbie-token': 'Starter', 'body-token': 'Intermediate', ...plans }, downgraded: false, newbieMember, newbieOwns, overview, overviewCalls: 0 };
   const context = await browser.newContext({ viewport: { width, height }, serviceWorkers: 'block', locale: 'en-US', timezoneId: 'America/Vancouver', hasTouch: width < 1024, isMobile: width < 1024 });
   await context.addInitScript(([entries]) => {
     if (localStorage.getItem('pg-seeded')) return; // once per browser: a second tab shares the first one's storage
@@ -81,11 +83,15 @@ async function open({ seed, plans = {}, width = 1280, height = 900, path = '/', 
     if (p === '/check-user-exists' || p === '/check-email' || p === '/check-phone') return route.fulfill({ json: { success: true, exists: false } });
 
     if (p === '/user/storage-overview') {
+      state.overviewCalls++;
+      // overview: 'ok' | 'covered' (a main account pays) | '429' (rate limited every time)
+      if (state.overview === '429') return route.fulfill({ status: 429, headers: { 'Retry-After': '0' }, json: { message: 'Too Many Attempts.' } });
       const plan = state.downgraded ? 'Starter' : (state.plans[token] ?? 'Starter');
-      return route.fulfill({ json: { success: true, data: { storage_overview: { plan_id: 1, plan_name: plan, plan_covered_by: null, ai_connects: 50, used_token: 0 } } } });
+      const coveredBy = state.overview === 'covered' ? { id: 801, name: 'Pedalheads' } : null;
+      return route.fulfill({ json: { success: true, data: { storage_overview: { plan_id: 1, plan_name: coveredBy ? 'Business' : plan, plan_covered_by: coveredBy, ai_connects: 50, used_token: 0 } } } });
     }
     if (p === '/properties' && req.method() === 'GET') {
-      const owned = me && me.id === PEDALHEADS.id ? [POINT_GREY] : [];
+      const owned = me && me.id === PEDALHEADS.id ? [POINT_GREY] : me && me.id === NEWBIE.id && state.newbieOwns ? [KITS_OWN] : [];
       const shared = me && me.id === NEWBIE.id && state.newbieMember ? [KITS_SHARED] : [];
       return route.fulfill({ json: { success: true, data: { properties: owned, owned_properties: owned, shared_properties: shared, owned_count: owned.length, shared_count: shared.length, total_count: owned.length + shared.length } } });
     }
@@ -110,6 +116,7 @@ async function open({ seed, plans = {}, width = 1280, height = 900, path = '/', 
 }
 
 const session = (user, extra = {}) => ({ stasht_token: tokenOf(user), stasht_user: JSON.stringify(user), ...extra });
+const NEW_FLAG = (user) => ({ is_new_user: 'true', is_new_user_account: String(user.id) });
 const STALE_POINT_GREY = { view_type: 'property', selected_property: JSON.stringify(POINT_GREY) };
 
 async function shot(page, file) {
@@ -195,7 +202,7 @@ try {
   for (const [w, h, tag] of [[1280, 900, 'desktop'], [390, 844, 'phone']]) {
     if (!run('1b')) break;
     console.log(`1b/1c (${tag}): new account with a leftover Point Grey view`);
-    const { page, context, calls } = await open({ width: w, height: h, seed: session(NEWBIE, { ...STALE_POINT_GREY, is_new_user: 'true' }), waitFor: appReady });
+    const { page, context, calls } = await open({ width: w, height: h, seed: session(NEWBIE, { ...STALE_POINT_GREY, ...NEW_FLAG(NEWBIE) }), waitFor: appReady });
     await gateBanner(page).first().waitFor({ state: 'visible', timeout: 20000 }).catch(() => {});
     await page.waitForTimeout(4000); // Alvin intro would show 1.2 s after it can
     const ls = await storageOf(page);
@@ -247,13 +254,20 @@ try {
   // ── 6. Pedalheads (Business) opens Point Grey with an old new-account flag in the browser: never the picker ──
   for (const [w, h, tag] of [[1280, 900, 'desktop'], [390, 844, 'phone']]) {
     if (!run('6')) break;
-    console.log(`6 (${tag}): Pedalheads in Point Grey's view, old is_new_user left in the browser`);
-    const { page, context } = await open({ width: w, height: h, seed: session(PEDALHEADS, { ...STALE_POINT_GREY, is_new_user: 'true' }), waitFor: appReady });
+    console.log(`6 (${tag}): Pedalheads in Point Grey's view with a new-account flag in the browser`);
+    // The flag names Pedalheads itself (the strongest case: it is "its own"); the account is paid, so it goes.
+    const { page, context } = await open({ width: w, height: h, seed: session(PEDALHEADS, { ...STALE_POINT_GREY, ...NEW_FLAG(PEDALHEADS) }), waitFor: appReady });
     await page.waitForTimeout(5000);
     expect(await gateBanner(page).count() === 0, `6 ${tag}: no plan picker in a paid account's property view`);
     expect(!(await storageOf(page)).is_new_user, `6 ${tag}: the stale flag is cleared (the account has a plan)`);
     expect((await storageOf(page)).view_type === 'property', `6 ${tag}: still in Point Grey's view (it is Pedalheads' own property)`);
     if (tag === 'desktop') expect(await page.getByText('Point Grey').filter({ visible: true }).count() > 0, '6 desktop: header shows Point Grey');
+    if (tag === 'phone') {
+      // Review: the phone bottom bar follows the sidebar — no Dashboard / Apps in a property view.
+      const bar = page.locator('div.flex.items-center.justify-around.h-24');
+      expect(await bar.getByText('Dashboard', { exact: true }).count() === 0 && await bar.getByText('Apps', { exact: true }).count() === 0, '6 phone: no Dashboard / Apps on the bottom bar in a property view');
+      expect(await bar.getByText('Campaigns', { exact: true }).count() === 1, '6 phone: the bottom bar is there (Campaigns)');
+    }
     await shot(page, `6-01-pedalheads-point-grey-no-gate-${tag}`);
     await context.close();
   }
@@ -262,7 +276,7 @@ try {
   //    picker waits for the account's own view.
   if (run('6c')) {
     console.log('6c: new account in a property it was invited to');
-    const { page, context } = await open({ newbieMember: true, seed: session(NEWBIE, { is_new_user: 'true', view_type: 'property', selected_property: JSON.stringify(KITS_SHARED), selected_property_owner: String(NEWBIE.id) }), waitFor: appReady });
+    const { page, context } = await open({ newbieMember: true, seed: session(NEWBIE, { ...NEW_FLAG(NEWBIE), view_type: 'property', selected_property: JSON.stringify(KITS_SHARED), selected_property_owner: String(NEWBIE.id) }), waitFor: appReady });
     await page.waitForTimeout(4500);
     expect(await gateBanner(page).count() === 0, '6c: no plan picker in the property view');
     expect((await storageOf(page)).is_new_user === 'true', '6c: the plan is still to be chosen (flag kept)');
@@ -281,7 +295,7 @@ try {
   if (run('6b')) {
     console.log('6b: new account reached from the Profile menu switch → picker offers the way back');
     const switchData = JSON.stringify({ has_admin_access: true, current_mode: 'admin', current_admin_owner_id: '977', switched_token: 'newbie-token', personal_account: { user: PEDALHEADS, token: 'pedal-token' }, admin_accounts: [] });
-    const { page, context } = await open({ seed: session(NEWBIE, { is_new_user: 'true', admin_switch_data: switchData }), waitFor: appReady });
+    const { page, context } = await open({ seed: session(NEWBIE, { ...NEW_FLAG(NEWBIE), admin_switch_data: switchData }), waitFor: appReady });
     await gateBanner(page).first().waitFor({ state: 'visible', timeout: 20000 }).catch(() => {});
     const back = page.getByRole('button', { name: 'Switch to Pedalheads' });
     expect(await back.count() === 1 && await inViewport(back, 1280, 900), '6b: "Switch to Pedalheads" in view');
@@ -292,6 +306,82 @@ try {
     const ls = await storageOf(page);
     expect(!ls.is_new_user && !ls.admin_switch_data && !ls.stasht_token, '6b: and nothing of the account is left');
     await context.close();
+  }
+
+  // ── 6d. Another account's new-account flag (a switch carried it) is ignored ──
+  if (run('6d')) {
+    console.log('6d: Pedalheads with the new account\'s flag in the browser');
+    const { page, context } = await open({ seed: session(PEDALHEADS, { view_type: 'personal', ...NEW_FLAG(NEWBIE) }), waitFor: appReady });
+    await page.waitForTimeout(4000);
+    expect(await gateBanner(page).count() === 0, '6d: no picker for an account the flag does not name');
+    await context.close();
+  }
+
+  // ── T. MemoriesPage's "Trial Ended" picker (review): only a Starter account owning a property whose trial ended, in its
+  //    own view; never in a property view, for a covered account, or when storage-overview fails (429).
+  for (const [w, h, tag] of [[1280, 900, 'desktop'], [390, 844, 'phone']]) {
+    if (!run('T1')) break;
+    console.log(`T1 (${tag}): Starter account, owned property trial ended → Trial Ended picker with a way out`);
+    const { page, context } = await open({ width: w, height: h, newbieOwns: true, seed: session(NEWBIE, { view_type: 'personal' }), waitFor: appReady });
+    await gateBanner(page).first().waitFor({ state: 'visible', timeout: 20000 }).catch(() => {});
+    expect(await gateBanner(page).count() > 0, `T1 ${tag}: the Trial Ended picker shows`);
+    const out = page.getByRole('button', { name: 'Sign out' }).filter({ visible: true });
+    expect(await out.count() === 1 && await inViewport(out.first(), w, h), `T1 ${tag}: it offers "Sign out", in view`);
+    await page.waitForTimeout(2500);
+    expect(await alvinIntro(page).count() === 0, `T1 ${tag}: no "Meet Alvin" over it`);
+    await shot(page, `T1-01-trial-ended-picker-${tag}`);
+    await out.first().click();
+    await page.waitForURL(/\/login/, { timeout: 20000 }).catch(() => {});
+    expect(/\/login/.test(page.url()), `T1 ${tag}: "Sign out" leaves it`);
+    await context.close();
+  }
+  if (run('T2')) {
+    console.log('T2: the same account in a property view → no Trial Ended picker');
+    const { page, context } = await open({ newbieOwns: true, newbieMember: true, seed: session(NEWBIE, { view_type: 'property', selected_property: JSON.stringify(KITS_SHARED), selected_property_owner: String(NEWBIE.id) }), waitFor: appReady });
+    await page.waitForTimeout(5000);
+    expect(await gateBanner(page).count() === 0, 'T2: no picker in the property view');
+    expect(await page.getByText('Kitsilano Camp').filter({ visible: true }).count() > 0, 'T2: still in the property view');
+    await shot(page, 'T2-01-property-view-no-trial-picker');
+    await context.close();
+  }
+  if (run('T3')) {
+    console.log('T3: covered by a paying main account → no Trial Ended picker');
+    const { page, context } = await open({ newbieOwns: true, overview: 'covered', seed: session(NEWBIE, { view_type: 'personal' }), waitFor: appReady });
+    await page.waitForTimeout(5000);
+    expect(await gateBanner(page).count() === 0, 'T3: no picker for a covered account');
+    await shot(page, 'T3-01-covered-no-trial-picker');
+    await context.close();
+  }
+  if (run('T4')) {
+    console.log('T4: storage-overview answers 429 → never gated');
+    const { page, context, state } = await open({ newbieOwns: true, overview: '429', seed: session(NEWBIE, { view_type: 'personal' }), waitFor: appReady });
+    await page.waitForTimeout(15000); // apiRequest retries 429 with backoff before giving up
+    console.log(`     (${state.overviewCalls} storage-overview calls, all 429)`);
+    expect(state.overviewCalls > 0, 'T4: storage-overview was asked (and refused)');
+    expect(await gateBanner(page).count() === 0, 'T4: an unknown plan never opens the picker');
+    await shot(page, 'T4-01-429-no-trial-picker');
+    await context.close();
+  }
+
+  // ── C. Conveniences (review): kept for the same account, gone when a different account signs in ──
+  if (run('C')) {
+    console.log('C: per-account conveniences');
+    const conv = { hiddenServices: '["dropbox"]', stasht_watched_videos: '[1,2]', stasht_campaigns_view: 'newsletters', stash_invited_memories: '[]' };
+    {
+      const { page, context } = await open({ seed: session(NEWBIE, { ...conv, stasht_conveniences_account: String(NEWBIE.id) }), waitFor: appReady });
+      await page.waitForTimeout(2000);
+      const ls = await storageOf(page);
+      expect(ls.hiddenServices === conv.hiddenServices && ls.stasht_watched_videos === conv.stasht_watched_videos, 'C: same account signing in keeps its conveniences');
+      await context.close();
+    }
+    {
+      const { page, context } = await open({ seed: session(NEWBIE, { ...conv, stasht_conveniences_account: String(PEDALHEADS.id) }), waitFor: appReady });
+      await page.waitForTimeout(2000);
+      const ls = await storageOf(page);
+      expect(!ls.hiddenServices && !ls.stasht_watched_videos && !ls.stasht_campaigns_view && !ls.stash_invited_memories, 'C: another account\'s conveniences are gone');
+      expect(ls.stasht_conveniences_account === String(NEWBIE.id), 'C: they now belong to the new account');
+      await context.close();
+    }
   }
 
   // ── 4. TheBodyPolitik (self sign-up, role 3) on Teams: Dashboard and Apps ──

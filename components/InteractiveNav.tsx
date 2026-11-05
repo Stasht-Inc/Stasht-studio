@@ -12,7 +12,7 @@ import AlvinButton from "./alvin/AlvinButton";
 import AlvinPanel from "./alvin/AlvinPanel";
 import { useAlvinStatus } from "./alvin/useAlvinEnabled";
 import AlvinIntroPopover, { introSeen, markSeen, visibleAlvinButton } from "./alvin/AlvinIntroPopover";
-import { ACCOUNT_STATE_CLEARED_EVENT } from "../utils/accountState";
+import { ACCOUNT_STATE_CLEARED_EVENT, newAccountFlagged } from "../utils/accountState";
 import { RefreshCw } from "lucide-react";
 import { useProperty } from "../contexts/PropertyContext";
 import { onRefreshCancelled, refreshToLatest } from "./AppUpdatePrompt";
@@ -422,7 +422,7 @@ export default function InteractiveNav({
   // Not before a new account has chosen its plan (Chris, 5 Nov 2026: "Meet Alvin" showed on top of the plan picker):
   // is_new_user is set until the plan picker is done (App).
   const [awaitingPlan, setAwaitingPlan] = useState(() => {
-    try { return localStorage.getItem('is_new_user') === 'true'; } catch { return false; }
+    return newAccountFlagged();
   });
   useEffect(() => {
     const done = () => setAwaitingPlan(false);

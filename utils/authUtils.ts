@@ -2131,11 +2131,13 @@ export const dashboardAPI = {
   },
 
   // Get user storage overview
-  getStorageOverview: async (): Promise<ApiResponse<any>> => {
+  // fresh: skip the short GET cache (usePlan's refresh on returning to the tab must see an Admin Portal change at once).
+  getStorageOverview: async (opts: { fresh?: boolean } = {}): Promise<ApiResponse<any>> => {
     devLog('🏠 DEBUG: Calling /user/storage-overview API');
     const response = await apiRequest('/user/storage-overview', {
       method: 'GET',
-    });
+      ...(opts.fresh ? { skipCache: true } : {}),
+    } as RequestInit);
     devLog('🏠 DEBUG: /user/storage-overview API raw response:', response);
     return response;
   },

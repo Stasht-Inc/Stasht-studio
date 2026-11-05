@@ -4,7 +4,7 @@ import { authAPI } from '../utils/authUtils';
 import StashtLogo from '../components/StashtLogo';
 import { useAuth } from '../contexts/AuthContext';
 import SessionValidator from '../utils/sessionValidator';
-import { clearAccountState } from '../utils/accountState';
+import { clearAccountState, markNewAccount } from '../utils/accountState';
 import { AccountChoiceModal, getAdminCollaborator, AdminCollaborator } from '../components/AccountChoiceModal';
 
 
@@ -174,7 +174,7 @@ export default function AccountActivationPage({ token, onActivationComplete }: A
             localStorage.setItem('stasht_token', tokenData);
             console.log('✅ stasht_token saved:', tokenData);
 
-            localStorage.setItem('is_new_user', 'true');
+            markNewAccount(localStorage, userData);
 
             // 3. Initialize session validation (required for AuthContext)
             const userIdentifier = userData.email || userData.phone_number;

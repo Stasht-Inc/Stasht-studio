@@ -18,9 +18,9 @@ const announce = (outcome: Outcome) => listeners.forEach((listener) => listener(
 let lastCheckAt = 0;
 const REFRESH_AFTER_MS = 30_000;
 
-function check(userId: string): void {
+function check(userId: string, fresh = false): void {
   lastCheckAt = Date.now();
-  dashboardAPI.getStorageOverview()
+  dashboardAPI.getStorageOverview({ fresh })
     .then((res: any) => {
       const overview = res?.data?.data?.storage_overview || res?.data?.storage_overview;
       if (!res?.success || !overview) {
@@ -71,12 +71,12 @@ export function useIsStarterPlan(): StarterPlanState {
     if (cache && cache.userId === userId) setState({ isStarter: cache.isStarter, known: true, failed: false });
     else check(userId);
 
-    const onChange = () => { cache = null; check(userId); };
+    const onChange = () => { cache = null; check(userId, true); };
     window.addEventListener(PLAN_CHANGED_EVENT, onChange);
     // Back on this tab: ask again (once for every caller: the first one to hear it moves lastCheckAt).
     const onReturn = () => {
       if (document.visibilityState === 'hidden' || Date.now() - lastCheckAt < REFRESH_AFTER_MS) return;
-      check(userId);
+      check(userId, true);
     };
     window.addEventListener('focus', onReturn);
     document.addEventListener('visibilitychange', onReturn);

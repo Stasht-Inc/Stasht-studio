@@ -35,3 +35,27 @@ export function showsAccountTools(role: unknown, plan: { isStarter: boolean; kno
   if (String(role ?? '') !== '3') return true;
   return plan.known && !plan.isStarter;
 }
+
+/**
+ * MemoriesPage's "Trial Ended" picker (non-closable, paid plans only): a Starter self sign-up (role 3) that owns
+ * properties, or an owned property whose trial ended, on the Starter plan. Never in a property view, never for an
+ * account covered by its main account, and never on an unknown plan (storage-overview failed, e.g. 429): unknown is
+ * "don't gate" (review, 5 Nov 2026).
+ */
+export function trialEndedPicker({ storageOverview, viewType, role, ownedProperties }: {
+  storageOverview: any;
+  viewType: unknown;
+  role: unknown;
+  ownedProperties: any[] | null | undefined;
+}): boolean {
+  if (viewType === 'property' || !storageOverview) return false;
+  if (planCoveredBy(storageOverview)) return false;
+  if (planKey(storageOverview.plan_name) !== 'starter') return false;
+  const owned = Array.isArray(ownedProperties) ? ownedProperties : [];
+  return (String(role ?? '') === '3' && owned.length > 0) || owned.some((p) => p?.trial_ended === true);
+}
+
+/** The phone bottom bar's Dashboard / Apps: as the sidebar, so never in a property view. */
+export function phoneBarShowsAccountTools(viewType: unknown, accountTools: boolean): boolean {
+  return viewType !== 'property' && accountTools;
+}

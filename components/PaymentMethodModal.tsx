@@ -50,6 +50,9 @@ export function PaymentMethodModal({
       >
         {/* Modal */}
         <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Payment method"
           className="bg-white rounded-2xl shadow-2xl max-w-md w-full relative"
           onClick={(e) => e.stopPropagation()}
         >

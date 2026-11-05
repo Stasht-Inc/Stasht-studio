@@ -10,7 +10,7 @@
 //   hid them for role 3 whatever the plan.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { newAccountPlanPicker, showsAccountTools } from '../../utils/planGate.ts';
+import { newAccountPlanPicker, showsAccountTools, trialEndedPicker, phoneBarShowsAccountTools } from '../../utils/planGate.ts';
 
 const overview = (plan_name, plan_covered_by = null) => ({ plan_name, plan_covered_by });
 
@@ -51,4 +51,26 @@ test('Dashboard and Apps: every role but 3 as before; role 3 once the plan is Te
   assert.equal(showsAccountTools('3', { isStarter: true, known: true }), false, 'a Starter self sign-up, as before');
   assert.equal(showsAccountTools('3', { isStarter: false, known: false }), false, 'not before the server answered');
   assert.equal(showsAccountTools(undefined, { isStarter: true, known: true }), true);
+});
+
+// Review (5 Nov): MemoriesPage's "Trial Ended" picker (non-closable, paid plans only) was a second trap: it ignored the
+// property view and coverage, and a failed storage-overview (e.g. 429) read as "starter".
+const owned = (extra = {}) => [{ id: 41, trial_ended: false, ...extra }];
+test('Trial Ended picker: a Starter self sign-up owning properties, or an ended property trial, in its own view', () => {
+  assert.equal(trialEndedPicker({ storageOverview: overview('Starter'), viewType: 'personal', role: '3', ownedProperties: owned() }), true);
+  assert.equal(trialEndedPicker({ storageOverview: overview('starter'), viewType: 'personal', role: '2', ownedProperties: owned({ trial_ended: true }) }), true);
+  assert.equal(trialEndedPicker({ storageOverview: overview('Starter'), viewType: 'personal', role: '2', ownedProperties: owned() }), false);
+  assert.equal(trialEndedPicker({ storageOverview: overview('Starter'), viewType: 'personal', role: '3', ownedProperties: [] }), false);
+});
+test('Trial Ended picker: never on a paid plan, a covered account, a property view or an unknown plan', () => {
+  assert.equal(trialEndedPicker({ storageOverview: overview('Business'), viewType: 'personal', role: '3', ownedProperties: owned({ trial_ended: true }) }), false);
+  assert.equal(trialEndedPicker({ storageOverview: overview('Starter', { id: 959, name: 'Serpa' }), viewType: 'personal', role: '3', ownedProperties: owned() }), false);
+  assert.equal(trialEndedPicker({ storageOverview: overview('Starter'), viewType: 'property', role: '3', ownedProperties: owned() }), false);
+  assert.equal(trialEndedPicker({ storageOverview: null, viewType: 'personal', role: '3', ownedProperties: owned({ trial_ended: true }) }), false, 'storage-overview failed (429)');
+  assert.equal(trialEndedPicker({ storageOverview: {}, viewType: 'personal', role: '3', ownedProperties: owned() }), false, 'no plan_name');
+});
+test('phone bottom bar: Dashboard / Apps follow the sidebar (never in a property view)', () => {
+  assert.equal(phoneBarShowsAccountTools('personal', true), true);
+  assert.equal(phoneBarShowsAccountTools('personal', false), false);
+  assert.equal(phoneBarShowsAccountTools('property', true), false);
 });

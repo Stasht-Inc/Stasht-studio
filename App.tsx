@@ -61,8 +61,8 @@ import exifr from 'exifr';
 import { takeSwitchNotice } from './utils/accountSwitch';
 import { allPropertyRows, propertyViewHasLeads, resolvePendingPropertySwitch } from './utils/salespersonLanding';
 import { storageOverviewOf } from './utils/effectivePlan';
-import { newAccountPlanPicker, showsAccountTools } from './utils/planGate';
-import { propertyViewIsStale } from './utils/accountState';
+import { newAccountPlanPicker, phoneBarShowsAccountTools, showsAccountTools } from './utils/planGate';
+import { clearNewAccountFlag, newAccountFlagged, propertyViewIsStale } from './utils/accountState';
 import { usersTabForReport } from './utils/propertyRows';
 
 // CAPTURE EMAIL PARAMETER IMMEDIATELY (before React even starts)
@@ -326,7 +326,7 @@ function MainApp() {
   // has no plan yet, in its own view. An account already on a paid plan — its own or covered by its main account — or
   // a property view (it works on its owner's plan) never gets it.
   useEffect(() => {
-    if (!isAuthenticated || localStorage.getItem('is_new_user') !== 'true') return undefined;
+    if (!isAuthenticated || !newAccountFlagged()) return undefined;
     let cancelled = false;
     dashboardAPI.getStorageOverview()
       .catch(() => null)
@@ -334,7 +334,7 @@ function MainApp() {
         if (cancelled) return;
         const decision = newAccountPlanPicker({ flagged: true, viewType, storageOverview: storageOverviewOf(storage) });
         if (decision === 'clear') {
-          localStorage.removeItem('is_new_user');
+          clearNewAccountFlag();
           window.dispatchEvent(new Event('is_new_user_removed'));
           setShowNewUserUpgradeModal(false);
           return;
@@ -4671,8 +4671,8 @@ function MainApp() {
             </div>
 
             <div className="flex items-center justify-around h-24">
-              {/* Dashboard: every role but 3, and role 3 on a paid plan (utils/planGate) */}
-              {showsDashboardAndApps && (
+              {/* Dashboard: every role but 3, and role 3 on a paid plan; never in a property view, as the sidebar (utils/planGate) */}
+              {phoneBarShowsAccountTools(viewType, showsDashboardAndApps) && (
                 <button
                   onClick={() => {
                     handleNavigation("dashboard");
@@ -4741,8 +4741,8 @@ function MainApp() {
                 <span className="text-xs font-medium">Users</span>
               </button>
 
-              {/* Apps: every role but 3, and role 3 on a paid plan (utils/planGate) */}
-              {showsDashboardAndApps && (
+              {/* Apps: same rule as Dashboard (utils/planGate) */}
+              {phoneBarShowsAccountTools(viewType, showsDashboardAndApps) && (
                 <button
                   onClick={() => {
                     handleNavigation("apps");
@@ -4826,7 +4826,7 @@ function MainApp() {
         hideStarter={newUserHasProperties}
         exitActions={<PlanGateExits />}
         onSuccess={() => {
-          localStorage.removeItem('is_new_user');
+          clearNewAccountFlag();
           window.dispatchEvent(new Event('is_new_user_removed'));
           setShowNewUserUpgradeModal(false);
           checkLimit();
