@@ -42,3 +42,19 @@ export function contactWidgetCard({
     },
   };
 }
+
+/**
+ * Extra buttons on a widget's row in the manager's list when the account is not on Business (review of 5 Nov 2026): it
+ * can't open the editor, but may still switch an existing widget off and on (PATCH {status} alone) and delete it. A draft
+ * is set Live from the install guide. Business owners do both in the editor, so they get none here.
+ */
+export function teamsRowActions(
+  status: 'draft' | 'live' | 'paused',
+  businessPlanRequired: boolean,
+): { toggle: { label: 'Pause' | 'Resume'; status: 'paused' | 'live' } | null; canDelete: boolean } {
+  if (!businessPlanRequired) return { toggle: null, canDelete: false };
+  const toggle = status === 'live'
+    ? { label: 'Pause' as const, status: 'paused' as const }
+    : status === 'paused' ? { label: 'Resume' as const, status: 'live' as const } : null;
+  return { toggle, canDelete: true };
+}

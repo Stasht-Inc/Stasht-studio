@@ -42,3 +42,17 @@ test('Starter keeps the Connectors gate (clicking opens the upgrade plans)', () 
 test('no answer yet (or an older API without the field): the usual card; the API still refuses changes', () => {
   assert.deepEqual(contactWidgetCard({ isStarter: false, businessPlanRequired: null, status: undefined }), { disabled: false, action: 'open' });
 });
+
+// Review of 5 Nov 2026: a Teams owner can still switch an existing widget off and on, and delete it (the API allows
+// DELETE and PATCH {status: paused | live} on any plan). Business owners do both in the editor, as before.
+import { teamsRowActions } from '../../components/connectors/contactWidget.ts';
+
+test('Teams list rows: Pause a live widget, Resume a paused one, Delete any', () => {
+  assert.deepEqual(teamsRowActions('live', true), { toggle: { label: 'Pause', status: 'paused' }, canDelete: true });
+  assert.deepEqual(teamsRowActions('paused', true), { toggle: { label: 'Resume', status: 'live' }, canDelete: true });
+  assert.deepEqual(teamsRowActions('draft', true), { toggle: null, canDelete: true }, 'a draft is set Live from the install guide');
+});
+
+test('Business list rows keep only Edit and Install (pause and delete are in the editor)', () => {
+  assert.deepEqual(teamsRowActions('live', false), { toggle: null, canDelete: false });
+});

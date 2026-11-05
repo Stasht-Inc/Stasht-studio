@@ -87,7 +87,9 @@ export const plans: Plan[] = [
       'Unlimited Collaborators',
       'All Publishing Features',
       'Moments Moderation',
-      'Property Accounts'
+      'Property Accounts',
+      'Contact Us Widget',
+      'Website Catalogue'
     ]
   }
 ];

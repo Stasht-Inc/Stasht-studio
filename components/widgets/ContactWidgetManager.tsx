@@ -10,6 +10,7 @@ import type {
 import { useAuth } from '../../contexts/AuthContext';
 import { WIDGET_ICON_BLUE } from '../connectors/catalog';
 import { openBillingUpgrade } from '../connectors/websiteCatalogue';
+import { teamsRowActions } from '../connectors/contactWidget';
 import { WidgetPreview } from './WidgetPreview';
 import { InstallGuide } from './InstallGuide';
 import { InstallStatusLine } from './InstallStatus';
@@ -1112,6 +1113,9 @@ export function ContactWidgetManager({
   // Creating or changing a widget needs the Business plan (5 Nov 2026). On Teams the widgets it has keep working: the
   // list, the install code and Delete stay; New widget / Edit open the plans instead.
   const [businessPlanRequired, setBusinessPlanRequired] = useState(false);
+  // Teams rows (review of 5 Nov 2026): the widget being paused / resumed / deleted, and the one asking "Delete?".
+  const [rowBusy, setRowBusy] = useState<string | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [loadError, setLoadError] = useState('');
   const [view, setView] = useState<'list' | 'builder' | 'install'>('list');
   const [editing, setEditing] = useState<ContactWidget | null>(null);
@@ -1247,6 +1251,35 @@ export function ContactWidgetManager({
     if (created) toast.success('Widget created. Click "Install" for step-by-step instructions to add it to your site.');
   };
 
+  // Pausing / resuming and deleting from the list, for accounts that can't open the editor (not on Business).
+  const setRowStatus = async (w: ContactWidget, status: 'paused' | 'live') => {
+    if (rowBusy) return;
+    setRowBusy(w.id);
+    const res = await widgetsAPI.update(w.id, { status });
+    setRowBusy(null);
+    if (!res.ok || !res.data) {
+      toast.error(res.error || 'Could not change the widget.');
+      return;
+    }
+    const updated = res.data;
+    setWidgets((list) => (list || []).map((x) => (x.id === w.id ? { ...x, ...updated } : x)));
+    toast.success(status === 'paused' ? 'Widget paused' : 'Widget is Live again');
+  };
+
+  const removeRow = async (w: ContactWidget) => {
+    if (rowBusy) return;
+    setRowBusy(w.id);
+    const res = await widgetsAPI.remove(w.id);
+    setRowBusy(null);
+    setConfirmDeleteId(null);
+    if (!res.ok) {
+      toast.error(res.error || 'Could not delete the widget.');
+      return;
+    }
+    setWidgets((list) => (list || []).filter((x) => x.id !== w.id));
+    toast.success('Widget deleted');
+  };
+
   const handleDeleted = (id: string) => {
     dirtyRef.current = false;
     setWidgets((list) => (list || []).filter((x) => x.id !== id));
@@ -1331,7 +1364,7 @@ export function ContactWidgetManager({
             </div>
             {businessPlanRequired && (
               <p className="text-sm text-gray-500 mb-4">
-                Your widgets keep working on your website. Creating or changing a widget is available on the Business plan.{' '}
+                Your widgets keep working on your website, and you can pause or delete them. Creating or editing a widget is available on the Business plan.{' '}
                 <button type="button" onClick={openBillingUpgrade} className="font-semibold text-[#6C60FF] hover:underline">See plans</button>
               </p>
             )}
@@ -1395,7 +1428,54 @@ export function ContactWidgetManager({
                     <div className="text-sm text-gray-600 w-24 flex-shrink-0">
                       {w.leads_count ?? 0} {w.leads_count === 1 ? 'lead' : 'leads'}
                     </div>
-                    <div className="flex items-center gap-2 flex-shrink-0">
+                    <div className="flex items-center gap-2 flex-wrap max-w-full min-w-0">
+                      {(() => {
+                        const extra = teamsRowActions(w.status, businessPlanRequired);
+                        if (confirmDeleteId === w.id) {
+                          return (
+                            <div className="flex items-center gap-2 rounded-lg bg-red-50 border border-red-200 px-3 py-1.5 flex-wrap max-w-full" role="alert">
+                              <span className="text-sm text-red-700 min-w-0">Delete this widget? Its install code will stop working.</span>
+                              <button
+                                type="button"
+                                onClick={() => void removeRow(w)}
+                                disabled={rowBusy === w.id}
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-semibold text-white bg-red-600 hover:bg-red-700 disabled:opacity-60"
+                              >
+                                {rowBusy === w.id && <Loader2 className="w-3.5 h-3.5 animate-spin" />} Yes, delete
+                              </button>
+                              <button type="button" onClick={() => setConfirmDeleteId(null)} disabled={rowBusy === w.id} className="px-3 py-1.5 rounded-md text-sm font-medium text-gray-700 hover:bg-white">
+                                Cancel
+                              </button>
+                            </div>
+                          );
+                        }
+                        return (
+                          <>
+                            {extra.toggle && (
+                              <button
+                                type="button"
+                                onClick={() => void setRowStatus(w, extra.toggle!.status)}
+                                disabled={rowBusy === w.id}
+                                aria-label={`${extra.toggle.label} ${w.name}`}
+                                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-gray-200 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                              >
+                                {rowBusy === w.id && <Loader2 className="w-4 h-4 animate-spin" />} {extra.toggle.label}
+                              </button>
+                            )}
+                            {extra.canDelete && (
+                              <button
+                                type="button"
+                                onClick={() => setConfirmDeleteId(w.id)}
+                                disabled={rowBusy === w.id}
+                                aria-label={`Delete ${w.name}`}
+                                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
+                              >
+                                <Trash2 className="w-4 h-4" /> Delete
+                              </button>
+                            )}
+                          </>
+                        );
+                      })()}
                       <button
                         type="button"
                         onClick={() => openBuilder(w)}

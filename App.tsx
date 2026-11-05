@@ -58,7 +58,7 @@ import { AddMomentModal } from './components/AddMomentModal';
 import exifr from 'exifr';
 import { takeSwitchNotice } from './utils/accountSwitch';
 import { allPropertyRows, propertyViewHasLeads, resolvePendingPropertySwitch } from './utils/salespersonLanding';
-import { skipsPlanPicker, storageOverviewOf } from './utils/effectivePlan';
+import { planKey, skipsPlanPicker, storageOverviewOf } from './utils/effectivePlan';
 import { usersTabForReport } from './utils/propertyRows';
 
 // CAPTURE EMAIL PARAMETER IMMEDIATELY (before React even starts)
@@ -1142,11 +1142,16 @@ function MainApp() {
   // upgrade plans right where the user is (Chris, 2026-09-28). Asked for by the Connectors page
   // and by apiRequest whenever the API answers 403 plan_required.
   const [planUpgradeOpen, setPlanUpgradeOpen] = useState(false);
+  // The account's real plan, so a Teams account is offered Business, never "Upgrade to Teams" (review of 5 Nov 2026).
+  const [planUpgradeFrom, setPlanUpgradeFrom] = useState('starter');
   useEffect(() => {
     const onUpgradeRequired = (e: Event) => {
       const message = (e as CustomEvent<{ message?: string }>).detail?.message;
       toast(message || 'Connectors are available on the Teams and Business plans.', { id: 'plan-required' });
       setPlanUpgradeOpen(true);
+      dashboardAPI.getStorageOverview()
+        .then((res: any) => setPlanUpgradeFrom(planKey(storageOverviewOf(res)?.plan_name) ?? 'starter'))
+        .catch(() => {});
     };
     window.addEventListener(UPGRADE_REQUIRED_EVENT, onUpgradeRequired);
     return () => window.removeEventListener(UPGRADE_REQUIRED_EVENT, onUpgradeRequired);
@@ -4799,7 +4804,7 @@ function MainApp() {
       <UpgradePlanModal
         isOpen={planUpgradeOpen}
         onClose={() => setPlanUpgradeOpen(false)}
-        currentPlan="starter"
+        currentPlan={planUpgradeFrom}
         onSuccess={() => {
           setPlanUpgradeOpen(false);
           checkLimit();
