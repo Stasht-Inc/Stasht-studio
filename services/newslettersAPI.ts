@@ -35,8 +35,19 @@ export type TitleSize = 'large' | 'medium' | 'small';
 export type DividerStyle = 'line' | 'space';
 
 export interface ImageBlockData { url: string; alt: string; link: string | null }
-export interface TitleBlockData { text: string; size: TitleSize }
-export interface TextBlockData { html: string }
+/** Section alignment (Chris, 5 Nov). Left is the default and is never stored. */
+export type SectionAlign = 'left' | 'center' | 'right';
+/**
+ * A Title or Text section's optional style (Chris, 5 Nov; API NewsletterContent::sectionStyle): each key is only
+ * present when used, so a section without them is exactly what it was. color: the words; background_color: the whole
+ * section; background_image_url: Title only, a picture behind it (background_color is then its fallback colour).
+ * Known app follow-up: the mobile app's newsletter editor (stasht-app-2026 feat/app-newsletters, not shipped) rebuilds
+ * Title / Text data as {text, size} / {html} when it saves, so it would drop these keys (and the font-size spans).
+ */
+export interface SectionStyle { align?: SectionAlign; color?: string; background_color?: string; background_image_url?: string }
+export interface TitleBlockData extends SectionStyle { text: string; size: TitleSize }
+/** html may hold <span style="font-size:14|16|20|24px"> from the toolbar's font size (the API keeps only those). */
+export interface TextBlockData extends Omit<SectionStyle, 'background_image_url'> { html: string }
 export interface YoutubeBlockData { url: string }
 export interface ButtonBlockData { label: string; url: string; color: string }
 export interface DividerBlockData { style: DividerStyle }

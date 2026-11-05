@@ -2,22 +2,24 @@ import { useRef, type KeyboardEvent } from 'react';
 import { COLOR_SWATCHES } from './lib/colors';
 import { LABEL } from './lib/ui';
 
-/** Six preset colours (radios, arrow keys move) plus "Custom" (the browser's colour picker). */
-export default function ColorSwatches({ label, idPrefix, value, onChange }: {
+/** Six preset colours (radios, arrow keys move) plus "Custom" (the browser's colour picker). swatches: another set
+ *  (a section's background, Chris 5 Nov). value '': none picked yet (no swatch and not Custom is marked). */
+export default function ColorSwatches({ label, idPrefix, value, onChange, swatches: list = COLOR_SWATCHES }: {
   label: string;
   idPrefix: string;
   value: string;
   onChange(color: string): void;
+  swatches?: ReadonlyArray<{ value: string; name: string }>;
 }) {
   const refs = useRef<Array<HTMLButtonElement | null>>([]);
-  const activeIndex = COLOR_SWATCHES.findIndex((s) => s.value.toLowerCase() === value.toLowerCase());
-  const custom = activeIndex === -1;
+  const activeIndex = list.findIndex((s) => s.value.toLowerCase() === value.toLowerCase());
+  const custom = activeIndex === -1 && value !== '';
   const onKeyDown = (e: KeyboardEvent<HTMLButtonElement>, index: number) => {
     const step = e.key === 'ArrowRight' || e.key === 'ArrowDown' ? 1 : e.key === 'ArrowLeft' || e.key === 'ArrowUp' ? -1 : 0;
     if (!step) return;
     e.preventDefault();
-    const next = (index + step + COLOR_SWATCHES.length) % COLOR_SWATCHES.length;
-    onChange(COLOR_SWATCHES[next].value);
+    const next = (index + step + list.length) % list.length;
+    onChange(list[next].value);
     refs.current[next]?.focus();
   };
   return (
@@ -25,7 +27,7 @@ export default function ColorSwatches({ label, idPrefix, value, onChange }: {
       <p id={`${idPrefix}-label`} className={LABEL}>{label}</p>
       <div className="flex flex-wrap items-center gap-2">
         <div role="radiogroup" aria-labelledby={`${idPrefix}-label`} className="flex flex-wrap items-center gap-2">
-          {COLOR_SWATCHES.map((swatch, index) => {
+          {list.map((swatch, index) => {
             const active = index === activeIndex;
             return (
               <button
@@ -36,10 +38,10 @@ export default function ColorSwatches({ label, idPrefix, value, onChange }: {
                 aria-checked={active}
                 aria-label={swatch.name}
                 title={swatch.name}
-                tabIndex={active || (custom && index === 0) ? 0 : -1}
+                tabIndex={active || (activeIndex === -1 && index === 0) ? 0 : -1}
                 onClick={() => onChange(swatch.value)}
                 onKeyDown={(e) => onKeyDown(e, index)}
-                className={`h-7 w-7 rounded-full border-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#6C60FF]/40 focus-visible:ring-offset-1 ${active ? 'border-gray-900' : 'border-white shadow-[0_0_0_1px_#e5e7eb]'}`}
+                className={`h-7 w-7 rounded-full border-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#6C60FF]/40 focus-visible:ring-offset-1 ${active ? 'border-white ring-2 ring-gray-900 ring-offset-1' : 'border-white shadow-[0_0_0_1px_#e5e7eb]'}`}
                 style={{ backgroundColor: swatch.value }}
               />
             );

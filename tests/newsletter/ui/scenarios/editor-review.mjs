@@ -110,9 +110,8 @@ export async function run({ open, shot, expectVisible, expect }) {
   await page.waitForTimeout(200);
   expect(await page.evaluate(() => document.activeElement?.getAttribute('aria-label') === 'Text'), 'focus back in the text after the link popover');
 
-  // Tabbing onto Bold keeps the selection: the words get bold.
-  await page.keyboard.press('Shift+Tab');
-  await page.keyboard.press('Shift+Tab');
+  // Tabbing onto Bold keeps the selection: the words get bold. Since the style toolbar (Chris, 5 Nov) the toolbar is
+  // one Tab stop (arrow keys move inside it), so one Shift+Tab lands on Bold.
   await page.keyboard.press('Shift+Tab');
   expect(await page.evaluate(() => document.activeElement?.getAttribute('aria-label')) === 'Bold', 'Shift+Tab reaches Bold');
   await page.keyboard.press('Enter');

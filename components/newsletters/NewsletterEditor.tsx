@@ -6,6 +6,8 @@ import { initialsFrom, type SenderProfile } from './lib/profile';
 import { LIMITS } from './lib/rules';
 import { ACTION_TOAST_MS, blocksProblems, canMoveBlock, firstInsertIndex, campaignSelections, campaignsBlockWith, createBlock, insertBlock, liveBlockProblems, moveBlock, newBlockId, removeBlock, undoDelete, updateBlockData } from './lib/blocks';
 import { EDIT_ITEMS_LABEL, campaignIdsOf, pruneOverrides } from './lib/campaignsBlock';
+import { TEXT_INK, TITLE_INK, sectionLook } from './lib/sectionStyle';
+import { isMessageBlock } from './lib/messageBlock';
 import InboxRow from './InboxRow';
 import HeaderEditor from './HeaderEditor';
 import EcardFooter from './EcardFooter';
@@ -74,8 +76,11 @@ const BlockRow = memo(function BlockRow({ block, index, count, canUp, canDown, s
   phone: boolean;
 }) {
   const campaigns = block.type === 'campaigns';
+  // Title and Text sections can have a background over the whole section (Chris, 5 Nov); the Message section can't.
+  const look = block.type === 'title' ? sectionLook(block.data as unknown as Record<string, unknown>, true, TITLE_INK)
+    : block.type === 'text' && !isMessageBlock(block) ? sectionLook(block.data as unknown as Record<string, unknown>, false, TEXT_INK) : null;
   return (
-    <BlockFrame blockId={block.id} label={BLOCK_LABEL[block.type]} index={index} count={count} canUp={canUp} canDown={canDown} selected={selected} readOnly={readOnly} problem={problem} padClass={padClass}
+    <BlockFrame blockId={block.id} label={BLOCK_LABEL[block.type]} index={index} count={count} canUp={canUp} canDown={canDown} selected={selected} readOnly={readOnly} problem={problem} padClass={padClass} look={look}
       onSelect={handlers.onSelect} onDone={handlers.onDone} onMoveUp={handlers.onMoveUp} onMoveDown={handlers.onMoveDown} onDelete={handlers.onDelete}
       onEdit={campaigns ? handlers.onPick : undefined} editLabel={campaigns ? EDIT_ITEMS_LABEL : undefined}>
       <BlockEditor block={block} selected={selected} readOnly={readOnly} onChange={handlers.onChange} onUpdate={campaigns ? handlers.onUpdate : undefined}

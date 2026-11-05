@@ -7,7 +7,9 @@ export async function run({ open, shot, expectVisible, expect }) {
   const data = async (name) => JSON.parse(await gallery(name).getByTestId('gallery-data').textContent());
 
   await gallery('Title').getByLabel('Title', { exact: true }).fill('October offers');
-  await gallery('Title').getByRole('radio', { name: 'Medium' }).click();
+  // One Size dropdown since Chris, 5 Nov (it was Small | Medium | Large pills).
+  await gallery('Title').getByRole('button', { name: 'Title size: Large' }).click();
+  await page.getByRole('menu', { name: 'Title size' }).getByRole('menuitemradio', { name: 'Medium', exact: true }).click();
   const t = await data('Title');
   expect(t.text === 'October offers' && t.size === 'medium', `title text and size saved (got ${JSON.stringify(t)})`);
 

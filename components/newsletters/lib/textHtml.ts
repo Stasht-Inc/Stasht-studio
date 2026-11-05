@@ -1,7 +1,8 @@
 // The text block's allowed HTML (spec §4.2), the same list as the API's NewsletterHtmlSanitizer:
-// p, br, strong, em, a[href https/mailto], ul/ol/li; b→strong, i→em, div/h1–h6→p. Scripts, styles, forms and
+// p, br, strong, em, a[href https/mailto], ul/ol/li; b→strong, i→em, div/h1–h6→p; and (Chris, 5 Nov) a span with
+// one of the toolbar's font sizes, <span style="font-size:14|16|20|24px">. Scripts, styles, forms and
 // media are dropped with their content; other tags are unwrapped (their words stay); every attribute but a
-// safe href goes. Used both ways: clean what the browser's contentEditable produces before saving, and turn
+// safe href (or that font size) goes. Used both ways: clean what the browser's contentEditable produces before saving, and turn
 // stored HTML into nodes that React renders, so no HTML string is ever injected into the page. The API
 // sanitises again on its side.
 import { LIMITS } from './rules.ts';
@@ -12,11 +13,27 @@ export type TextNode =
   | { kind: 'text'; text: string }
   | { kind: 'br' }
   | { kind: 'el'; tag: TextTag; children: TextNode[] }
-  | { kind: 'a'; href: string; children: TextNode[] };
+  | { kind: 'a'; href: string; children: TextNode[] }
+  | { kind: 'size'; px: number; children: TextNode[] };
 
-const TAGS: Record<string, TextTag | 'a' | 'br'> = {
+/** The toolbar's font sizes in px (lib/sectionStyle.ts TEXT_SIZES; the API's NewsletterHtmlSanitizer::FONT_SIZES). */
+export const FONT_SIZE_PX: readonly number[] = [14, 16, 20, 24];
+
+/** The px of a style's font-size when it is one of FONT_SIZE_PX (written "font-size: Npx"), else null. */
+export function styleFontSize(style: string | null): number | null {
+  for (const declaration of String(style ?? '').toLowerCase().split(';')) {
+    const m = /^\s*font-size\s*:\s*(\d{2})px\s*$/.exec(declaration);
+    if (m) {
+      const px = Number(m[1]);
+      return FONT_SIZE_PX.includes(px) ? px : null;
+    }
+  }
+  return null;
+}
+
+const TAGS: Record<string, TextTag | 'a' | 'br' | 'span'> = {
   p: 'p', div: 'p', h1: 'p', h2: 'p', h3: 'p', h4: 'p', h5: 'p', h6: 'p',
-  strong: 'strong', b: 'strong', em: 'em', i: 'em', ul: 'ul', ol: 'ol', li: 'li', a: 'a', br: 'br',
+  strong: 'strong', b: 'strong', em: 'em', i: 'em', ul: 'ul', ol: 'ol', li: 'li', a: 'a', br: 'br', span: 'span',
 };
 // Dropped with everything inside. Void tags (img, input) need no entry: unknown tags are dropped anyway.
 const DROP_WITH_CONTENT = new Set([
@@ -114,6 +131,22 @@ export function parseTextHtml(html: string | null | undefined): TextNode[] {
       }
       continue;
     }
+    if (tag === 'span') {
+      const px = styleFontSize(attrValue(attrs, 'style'));
+      if (px !== null) {
+        const node = { kind: 'size' as const, px, children: [] as TextNode[] };
+        top().push(node);
+        stack.push({ tag: 'span', children: node.children });
+      } else {
+        stack.push({ tag: 'span', children: top() }); // any other span: keep the words (its </span> closes only it)
+      }
+      continue;
+    }
+    // A paragraph or list never sits inside a font size (inline): it ends any size that is open.
+    if (BLOCK_TAGS.has(tag as TextTag)) {
+      const inSpan = stack.findIndex((e) => e.tag === 'span');
+      if (inSpan > 0) stack.length = inSpan;
+    }
     if (tag === 'p') closeTo('p');
     const node = { kind: 'el' as const, tag, children: [] as TextNode[] };
     top().push(node);
@@ -128,6 +161,10 @@ function serializeNode(n: TextNode): string {
   if (n.kind === 'text') return esc(n.text);
   if (n.kind === 'br') return '<br>';
   if (n.kind === 'a') return `<a href="${esc(n.href)}">${n.children.map(serializeNode).join('')}</a>`;
+  if (n.kind === 'size') {
+    const inner = n.children.map(serializeNode).join('');
+    return inner === '' ? '' : `<span style="font-size:${n.px}px">${inner}</span>`;
+  }
   return `<${n.tag}>${n.children.map(serializeNode).join('')}</${n.tag}>`;
 }
 
@@ -213,4 +250,107 @@ export function textHtmlIsEmpty(html: string | null | undefined): boolean {
 export function editorHtml(raw: string): string {
   const html = sanitizeTextHtml(raw);
   return textHtmlIsEmpty(html) ? '' : html;
+}
+
+/**
+ * A font size on the text model (review, 5 Nov: no execCommand / <font>, so nothing escapes the editor's own undo).
+ * range: plain-text character offsets [start, end) counted over text nodes only, or null for everything. Inside the
+ * range the words get `px` (16 = Normal: no size); outside, each word keeps the size it had. Sizes are then put back
+ * as few spans as possible, only ever around words and inline formatting, never around a paragraph, list or item.
+ */
+export function resizeTextNodes(nodes: TextNode[], px: number, range: { start: number; end: number } | null): TextNode[] {
+  const target = px === 16 ? null : px;
+  const pos = { n: 0 };
+  const flatten = (list: TextNode[], inherited: number | null): TextNode[] => list.flatMap((node): TextNode[] => {
+    if (node.kind === 'br') return [node];
+    if (node.kind === 'size') return flatten(node.children, node.px === 16 ? null : node.px);
+    if (node.kind !== 'text') return [{ ...node, children: flatten(node.children, inherited) }];
+    const start = pos.n;
+    pos.n += node.text.length;
+    const cuts = range ? [range.start, range.end].filter((c) => c > start && c < pos.n).map((c) => c - start) : [];
+    const bounds = [0, ...cuts, node.text.length];
+    const out: TextNode[] = [];
+    for (let i = 0; i < bounds.length - 1; i++) {
+      const text = node.text.slice(bounds[i], bounds[i + 1]);
+      if (!text) continue;
+      const from = start + bounds[i];
+      const inside = !range || (from >= range.start && from < range.end);
+      const size = inside ? target : inherited;
+      out.push(size === null ? { kind: 'text', text } : { kind: 'size', px: size, children: [{ kind: 'text', text }] });
+    }
+    return out;
+  });
+  return groupSizes(flatten(nodes, null));
+}
+
+type Uniform = number | null | 'any' | 'mixed';
+const isBlock = (n: TextNode) => n.kind === 'el' && (n.tag === 'p' || n.tag === 'ul' || n.tag === 'ol' || n.tag === 'li');
+
+function uniformSize(n: TextNode): Uniform {
+  if (n.kind === 'text') return null;
+  if (n.kind === 'br') return 'any';
+  if (n.kind === 'size') return n.px;
+  const seen = new Set<number | null>();
+  for (const c of n.children) {
+    const u = uniformSize(c);
+    if (u === 'mixed') return 'mixed';
+    if (u !== 'any') seen.add(u);
+  }
+  return seen.size === 0 ? 'any' : seen.size === 1 ? [...seen][0] : 'mixed';
+}
+
+function stripSizes(n: TextNode): TextNode[] {
+  if (n.kind === 'size') return n.children.flatMap(stripSizes);
+  if (n.kind === 'el' || n.kind === 'a') return [{ ...n, children: mergeTexts(n.children.flatMap(stripSizes)) }];
+  return [n];
+}
+
+function mergeTexts(list: TextNode[]): TextNode[] {
+  const out: TextNode[] = [];
+  for (const n of list) {
+    const last = out[out.length - 1];
+    if (n.kind === 'text' && last?.kind === 'text') out[out.length - 1] = { kind: 'text', text: last.text + n.text };
+    else out.push(n);
+  }
+  return out;
+}
+
+/** Runs of neighbours with one size become one span around them; mixed inline elements are opened up. */
+function groupSizes(list: TextNode[]): TextNode[] {
+  const out: TextNode[] = [];
+  let run: TextNode[] = [];
+  let runPx: number | null | undefined;
+  const flush = () => {
+    if (!run.length) return;
+    const flat = mergeTexts(run.flatMap(stripSizes));
+    if (typeof runPx === 'number') out.push({ kind: 'size', px: runPx, children: flat });
+    else out.push(...flat);
+    run = [];
+    runPx = undefined;
+  };
+  for (const n of list) {
+    if (isBlock(n)) {
+      flush();
+      out.push({ ...(n as Extract<TextNode, { kind: 'el' }>), children: groupSizes((n as Extract<TextNode, { kind: 'el' }>).children) });
+      continue;
+    }
+    const u = uniformSize(n);
+    if (u === 'mixed') {
+      flush();
+      out.push({ ...(n as Extract<TextNode, { kind: 'el' | 'a' }>), children: groupSizes((n as Extract<TextNode, { kind: 'el' | 'a' }>).children) });
+    } else if (u === 'any' || runPx === undefined || runPx === u) {
+      if (u !== 'any') runPx = u;
+      run.push(n);
+    } else {
+      flush();
+      run = [n];
+      runPx = u;
+    }
+  }
+  flush();
+  return mergeTexts(out);
+}
+
+export function resizeTextHtml(html: string, px: number, range: { start: number; end: number } | null): string {
+  return serializeTextNodes(resizeTextNodes(parseTextHtml(html), px, range));
 }

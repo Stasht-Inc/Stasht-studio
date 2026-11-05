@@ -46,6 +46,13 @@ function updateErrors(body) {
     } else if (b.type === 'campaigns' && (!Array.isArray(b.data?.campaign_ids) || b.data.campaign_ids.some((id) => !Number.isInteger(id)))) errors[`${key}.campaign_ids`] = ['The campaigns could not be read.'];
     else if (b.type === 'campaigns' && b.data.campaign_ids.length > 6) errors[`${key}.campaign_ids`] = ['A Campaigns section can show up to 6 campaigns.'];
     if (b.type === 'youtube' && bad(b.data?.url)) errors[`${key}.url`] = ['Use a YouTube link, like https://www.youtube.com/watch?v=…'];
+    // Chris, 5 Nov: a Title or Text section's style (NewsletterContent::sectionStyle).
+    if (b.type === 'title' || b.type === 'text') {
+      const blank = (v) => v == null || v === '';
+      if (!blank(b.data?.align) && !['left', 'center', 'right'].includes(b.data.align)) errors[`${key}.align`] = ['Choose left, centre or right.'];
+      for (const f of ['color', 'background_color']) if (!blank(b.data?.[f]) && !/^#[0-9a-f]{6}$/i.test(b.data[f])) errors[`${key}.${f}`] = ['Pick a colour like #6C60FF.'];
+      if (b.type === 'title' && bad(b.data?.background_image_url)) errors[`${key}.background_image_url`] = ['Use an image link that starts with https://'];
+    }
     // Shared brief 2026-10-29 round 2: columns 1 | 2 (absent = 1).
     if (b.type === 'campaigns' && b.data?.columns != null && ![1, 2].includes(b.data.columns)) errors[`${key}.columns`] = ['Choose 1 or 2 columns.'];
     // Per-card edits: the contract's limits and messages.
