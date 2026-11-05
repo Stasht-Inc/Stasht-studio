@@ -12,6 +12,7 @@ import AlvinButton from "./alvin/AlvinButton";
 import AlvinPanel from "./alvin/AlvinPanel";
 import { useAlvinStatus } from "./alvin/useAlvinEnabled";
 import AlvinIntroPopover, { introSeen, markSeen, visibleAlvinButton } from "./alvin/AlvinIntroPopover";
+import { ACCOUNT_STATE_CLEARED_EVENT } from "../utils/accountState";
 import { RefreshCw } from "lucide-react";
 import { useProperty } from "../contexts/PropertyContext";
 import { onRefreshCancelled, refreshToLatest } from "./AppUpdatePrompt";
@@ -418,7 +419,21 @@ export default function InteractiveNav({
   const [alvinAsk, setAlvinAsk] = useState<string | null>(null);
   const alvinUserId = user?.external_user_id ?? user?.id;
   const [introDone, setIntroDone] = useState(false);
-  const showIntro = alvinEnabled && !alvinStatus.hasUsed && !introDone && !alvinOpen && !introSeen(alvinUserId);
+  // Not before a new account has chosen its plan (Chris, 5 Nov 2026: "Meet Alvin" showed on top of the plan picker):
+  // is_new_user is set until the plan picker is done (App).
+  const [awaitingPlan, setAwaitingPlan] = useState(() => {
+    try { return localStorage.getItem('is_new_user') === 'true'; } catch { return false; }
+  });
+  useEffect(() => {
+    const done = () => setAwaitingPlan(false);
+    window.addEventListener('is_new_user_removed', done);
+    window.addEventListener(ACCOUNT_STATE_CLEARED_EVENT, done);
+    return () => {
+      window.removeEventListener('is_new_user_removed', done);
+      window.removeEventListener(ACCOUNT_STATE_CLEARED_EVENT, done);
+    };
+  }, []);
+  const showIntro = alvinEnabled && !alvinStatus.hasUsed && !introDone && !alvinOpen && !awaitingPlan && !introSeen(alvinUserId);
   // Opening Alvin any way counts as having seen the explainer.
   useEffect(() => {
     if (alvinOpen && !introDone) {

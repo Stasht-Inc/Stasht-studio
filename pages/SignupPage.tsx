@@ -16,6 +16,7 @@ import { toast } from 'sonner';
 import { GooglePhotosConnectModal } from '../components/GooglePhotosConnectModal';
 import { PopupBlockedGuideModal } from '../components/PopupBlockedGuideModal';
 import { AccountChoiceModal, getAdminCollaborator, AdminCollaborator } from '../components/AccountChoiceModal';
+import { clearAccountState } from '../utils/accountState';
 
 // Google Picker API type declarations
 declare global {
@@ -837,7 +838,9 @@ export default function SignupPage({ onSignup, onSwitchToLogin }: SignupPageProp
         const newToken = (result as any).token;
 
         if (result.success && newUser && newToken) {
-          // Account created and logged in
+          // Account created and logged in. Nothing of a previous sign-in in this browser (its property view, plan
+          // picker flag) may carry over to the new account (utils/accountState).
+          clearAccountState();
           localStorage.setItem('stasht_user', JSON.stringify(newUser));
           localStorage.setItem('stasht_token', newToken);
           localStorage.setItem('is_new_user', 'true');
@@ -906,7 +909,8 @@ export default function SignupPage({ onSignup, onSwitchToLogin }: SignupPageProp
         console.log('✅✅✅ OTP VERIFICATION SUCCESSFUL');
         console.log('📦 Storing authentication data...');
 
-        // Store auth data in localStorage
+        // Store auth data in localStorage (nothing of a previous sign-in carries over: utils/accountState)
+        clearAccountState();
         localStorage.setItem('stasht_user', JSON.stringify(response.user));
         console.log('✅ localStorage: stasht_user saved');
 

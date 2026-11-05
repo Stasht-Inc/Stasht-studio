@@ -32,6 +32,8 @@ import { googleAuthAPI } from './utils/googleAuthAPI';
 import { openGooglePhotosPicker, retryPickerWithSession } from './utils/googlePhotosPickerUtils';
 import { PopupBlockedGuideModal } from './components/PopupBlockedGuideModal';
 import UpgradePlanModal from './components/UpgradePlanModal';
+import PlanGateExits from './components/PlanGateExits';
+import { useIsStarterPlan } from './hooks/usePlan';
 import { mediaAPI, mediaTransformers, resetMediaCache } from './services/mediaAPI';
 import { initializeCategoryColors } from './utils/categoryColorManager';
 import { useMemoriesRefreshProvider } from './hooks/useMemoriesRefresh';
@@ -58,7 +60,9 @@ import { AddMomentModal } from './components/AddMomentModal';
 import exifr from 'exifr';
 import { takeSwitchNotice } from './utils/accountSwitch';
 import { allPropertyRows, propertyViewHasLeads, resolvePendingPropertySwitch } from './utils/salespersonLanding';
-import { skipsPlanPicker, storageOverviewOf } from './utils/effectivePlan';
+import { storageOverviewOf } from './utils/effectivePlan';
+import { newAccountPlanPicker, showsAccountTools } from './utils/planGate';
+import { propertyViewIsStale } from './utils/accountState';
 import { usersTabForReport } from './utils/propertyRows';
 
 // CAPTURE EMAIL PARAMETER IMMEDIATELY (before React even starts)
@@ -258,9 +262,12 @@ function MainApp() {
   }
 
   const { isAuthenticated, isLoading, login, register, user } = useAuth();
+  // Dashboard / Apps for a self sign-up (role 3) once its plan is paid (utils/planGate; Chris 5 Nov, TheBodyPolitik).
+  const accountPlan = useIsStarterPlan();
+  const showsDashboardAndApps = showsAccountTools(user?.role, accountPlan);
   usePresenceHeartbeat(isAuthenticated);
   const { limitData, checkLimit } = useMemoryLimit();
-  const { viewType, currentProperty, switchToProperty: switchToPropertyCtx, isPendingPropertySwitch, cancelPendingPropertySwitch } = useProperty();
+  const { viewType, currentProperty, switchToProperty: switchToPropertyCtx, switchToPersonal: switchToPersonalCtx, isPendingPropertySwitch, cancelPendingPropertySwitch } = useProperty();
 
   // Check if user is property owner (admin) or visitor (read-only)
   const isPropertyOwner = useMemo(() => {
@@ -315,38 +322,65 @@ function MainApp() {
   const [showNewUserUpgradeModal, setShowNewUserUpgradeModal] = useState(false);
   const [newUserHasProperties, setNewUserHasProperties] = useState(false);
 
+  // The new-account plan picker (utils/planGate, Chris 5 Nov 2026): only for a just-created account (is_new_user) that
+  // has no plan yet, in its own view. An account already on a paid plan — its own or covered by its main account — or
+  // a property view (it works on its owner's plan) never gets it.
   useEffect(() => {
-    if (isAuthenticated && localStorage.getItem('is_new_user') === 'true') {
-      // An account covered by its main account (a salesperson, utils/effectivePlan) already works on that plan: no
-      // picker, and it is no longer a "new user" waiting for a plan.
-      dashboardAPI.getStorageOverview()
-        .catch(() => null)
-        .then((storage) => {
-          if (skipsPlanPicker(storageOverviewOf(storage))) {
-            localStorage.removeItem('is_new_user');
-            window.dispatchEvent(new Event('is_new_user_removed'));
-            return;
-          }
-          // Check if account has any properties before showing the modal
-          // If yes → hide Starter (show only Intermediate + Professional)
-          dashboardAPI.getProperties()
-            .then(res => {
-              if (res.success && res.data) {
-                const d = res.data.data || res.data;
-                const owned = d.owned_properties || d.properties || [];
-                setNewUserHasProperties(Array.isArray(owned) && owned.length > 0);
-              }
-            })
-            .catch(() => {
-              // On error fall back to false (show all plans)
-              setNewUserHasProperties(false);
-            })
-            .finally(() => {
-              setShowNewUserUpgradeModal(true);
-            });
-        });
-    }
-  }, [isAuthenticated]);
+    if (!isAuthenticated || localStorage.getItem('is_new_user') !== 'true') return undefined;
+    let cancelled = false;
+    dashboardAPI.getStorageOverview()
+      .catch(() => null)
+      .then((storage) => {
+        if (cancelled) return;
+        const decision = newAccountPlanPicker({ flagged: true, viewType, storageOverview: storageOverviewOf(storage) });
+        if (decision === 'clear') {
+          localStorage.removeItem('is_new_user');
+          window.dispatchEvent(new Event('is_new_user_removed'));
+          setShowNewUserUpgradeModal(false);
+          return;
+        }
+        if (decision === 'later') {
+          setShowNewUserUpgradeModal(false);
+          return;
+        }
+        // An account that owns properties is offered the paid plans only (as before); a new account gets Starter too.
+        dashboardAPI.getProperties()
+          .then(res => {
+            if (res.success && res.data) {
+              const d = res.data.data || res.data;
+              const owned = d.owned_properties || d.properties || [];
+              if (!cancelled) setNewUserHasProperties(Array.isArray(owned) && owned.length > 0);
+            }
+          })
+          .catch(() => {
+            // On error fall back to false (show all plans)
+            if (!cancelled) setNewUserHasProperties(false);
+          })
+          .finally(() => {
+            if (!cancelled) setShowNewUserUpgradeModal(true);
+          });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isAuthenticated, viewType]);
+
+  // A property view restored from storage must be one of this account's properties (utils/accountState): a view left
+  // behind by another sign-in (Chris, 5 Nov: a new account opened in Pedalheads' "Point Grey") goes back to the
+  // account view. Waits while a pending property switch is being resolved.
+  useEffect(() => {
+    if (!isAuthenticated || viewType !== 'property' || !currentProperty || isPendingPropertySwitch) return undefined;
+    let cancelled = false;
+    dashboardAPI.getProperties()
+      .then((response) => {
+        if (cancelled || !response?.success) return;
+        if (propertyViewIsStale('property', currentProperty, allPropertyRows(response))) switchToPersonalCtx();
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [isAuthenticated, user?.id, viewType, currentProperty?.id, isPendingPropertySwitch]);
 
   // Handle pending property switch immediately when authenticated — prevents personal account flash
   useEffect(() => {
@@ -4637,8 +4671,8 @@ function MainApp() {
             </div>
 
             <div className="flex items-center justify-around h-24">
-              {/* Only show Dashboard if user role is NOT 3 */}
-              {user?.role !== '3' && user?.role !== 3 && (
+              {/* Dashboard: every role but 3, and role 3 on a paid plan (utils/planGate) */}
+              {showsDashboardAndApps && (
                 <button
                   onClick={() => {
                     handleNavigation("dashboard");
@@ -4707,8 +4741,8 @@ function MainApp() {
                 <span className="text-xs font-medium">Users</span>
               </button>
 
-              {/* Only show Apps if user role is NOT 3 */}
-              {user?.role !== '3' && user?.role !== 3 && (
+              {/* Apps: every role but 3, and role 3 on a paid plan (utils/planGate) */}
+              {showsDashboardAndApps && (
                 <button
                   onClick={() => {
                     handleNavigation("apps");
@@ -4786,7 +4820,11 @@ function MainApp() {
         isOpen={showNewUserUpgradeModal}
         onClose={() => {}}
         canClose={false}
-        hideStarter={newUserHasProperties || !!currentProperty}
+        // Starter is offered to a new account; only an account that owns properties gets the paid plans alone. (A
+        // property view never opens this picker: utils/planGate. The stale property view of a previous sign-in hid
+        // Starter here for brand-new accounts — Chris, 5 Nov.)
+        hideStarter={newUserHasProperties}
+        exitActions={<PlanGateExits />}
         onSuccess={() => {
           localStorage.removeItem('is_new_user');
           window.dispatchEvent(new Event('is_new_user_removed'));

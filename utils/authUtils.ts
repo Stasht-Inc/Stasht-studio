@@ -3,6 +3,7 @@ import { propertyUpdateFailure } from './propertyImage';
 import { currentPropertyViewHeaders, propertyViewCacheKey } from './inventoryView';
 import { memoryDetailPath } from './memoryDetailPath';
 import { campaignAccessBody, withQr } from './qrAccess';
+import { clearAccountState } from './accountState';
 
 // Auth utility functions for API integration
 
@@ -1906,6 +1907,10 @@ export const userUtils = {
     localStorageKeysToRemove.forEach(key => {
       localStorage.removeItem(key);
     });
+
+    // Everything else that belongs to the account (utils/accountState): the property view, the new-account plan
+    // picker's flag, per-account caches. A next sign-in must never open in the previous account's property view.
+    clearAccountState();
 
     // Clear specific sessionStorage keys (not all to preserve SessionValidator data)
     const sessionStorageKeysToRemove = [

@@ -32,6 +32,11 @@ export function markSeen(userId: string | number | undefined) {
 
 type Spot = { top: number; right: number; arrowRight: number };
 
+/** Another window is open (a modal dialog: the plan picker, Radix dialogs). The popover itself is not modal. */
+export function modalWindowOpen(): boolean {
+  return !!document.querySelector('[role="dialog"][aria-modal="true"], [data-state="open"][role="dialog"]');
+}
+
 /** The Alvin AI button on screen (the top bar has a desktop one and a phone one; only one shows). */
 export function visibleAlvinButton(): HTMLButtonElement | null {
   return [...document.querySelectorAll<HTMLButtonElement>('[data-name="AlvinAIButton"]')].find((b) => b.offsetParent !== null) ?? null;
@@ -57,15 +62,15 @@ export default function AlvinIntroPopover({ userId, onTry, onDone }: { userId?: 
   const [spot, setSpot] = useState<Spot | null>(null);
 
   useEffect(() => {
-    // A moment after Studio opens, so it doesn't land on top of the page still loading; and not
-    // over another open window (it waits until that closes).
+    // A moment after Studio opens, so it doesn't land on top of the page still loading; and never over another open
+    // window: it waits until that closes, and steps aside while one opens after it showed (Chris, 5 Nov 2026: it sat on
+    // top of the plan picker), coming back once it closes.
     const t = window.setInterval(() => {
-      if (document.querySelector('[role="dialog"][aria-modal="true"], [data-state="open"][role="dialog"]')) return;
-      const s = anchor();
-      if (s) {
-        setSpot(s);
-        window.clearInterval(t);
+      if (modalWindowOpen()) {
+        setSpot((s) => (s ? null : s));
+        return;
       }
+      setSpot((s) => s ?? anchor());
     }, 1200);
     const onResize = () => setSpot((s) => (s ? anchor() : s));
     window.addEventListener('resize', onResize);
