@@ -34,6 +34,8 @@ import { PopupBlockedGuideModal } from './components/PopupBlockedGuideModal';
 import UpgradePlanModal from './components/UpgradePlanModal';
 import PlanGateExits from './components/PlanGateExits';
 import { useIsStarterPlan } from './hooks/usePlan';
+import { newAccountPlanPicker, phoneBarShowsAccountTools, showsAccountTools } from './utils/planGate';
+import { clearNewAccountFlag, newAccountFlagged, propertyViewIsStale } from './utils/accountState';
 import { mediaAPI, mediaTransformers, resetMediaCache } from './services/mediaAPI';
 import { initializeCategoryColors } from './utils/categoryColorManager';
 import { useMemoriesRefreshProvider } from './hooks/useMemoriesRefresh';
@@ -60,9 +62,7 @@ import { AddMomentModal } from './components/AddMomentModal';
 import exifr from 'exifr';
 import { takeSwitchNotice } from './utils/accountSwitch';
 import { allPropertyRows, propertyViewHasLeads, resolvePendingPropertySwitch } from './utils/salespersonLanding';
-import { storageOverviewOf } from './utils/effectivePlan';
-import { newAccountPlanPicker, phoneBarShowsAccountTools, showsAccountTools } from './utils/planGate';
-import { clearNewAccountFlag, newAccountFlagged, propertyViewIsStale } from './utils/accountState';
+import { skipsPlanPicker, storageOverviewOf } from './utils/effectivePlan';
 import { usersTabForReport } from './utils/propertyRows';
 
 // CAPTURE EMAIL PARAMETER IMMEDIATELY (before React even starts)
