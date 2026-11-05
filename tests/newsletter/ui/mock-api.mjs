@@ -46,6 +46,13 @@ function updateErrors(body) {
     } else if (b.type === 'campaigns' && (!Array.isArray(b.data?.campaign_ids) || b.data.campaign_ids.some((id) => !Number.isInteger(id)))) errors[`${key}.campaign_ids`] = ['The campaigns could not be read.'];
     else if (b.type === 'campaigns' && b.data.campaign_ids.length > 6) errors[`${key}.campaign_ids`] = ['A Campaigns section can show up to 6 campaigns.'];
     if (b.type === 'youtube' && bad(b.data?.url)) errors[`${key}.url`] = ['Use a YouTube link, like https://www.youtube.com/watch?v=…'];
+    // Chris, 5 Nov: a Title or Text section's style (NewsletterContent::sectionStyle).
+    if (b.type === 'title' || b.type === 'text') {
+      const blank = (v) => v == null || v === '';
+      if (!blank(b.data?.align) && !['left', 'center', 'right'].includes(b.data.align)) errors[`${key}.align`] = ['Choose left, centre or right.'];
+      for (const f of ['color', 'background_color']) if (!blank(b.data?.[f]) && !/^#[0-9a-f]{6}$/i.test(b.data[f])) errors[`${key}.${f}`] = ['Pick a colour like #6C60FF.'];
+      if (b.type === 'title' && bad(b.data?.background_image_url)) errors[`${key}.background_image_url`] = ['Use an image link that starts with https://'];
+    }
     // Shared brief 2026-10-29 round 2: columns 1 | 2 (absent = 1).
     if (b.type === 'campaigns' && b.data?.columns != null && ![1, 2].includes(b.data.columns)) errors[`${key}.columns`] = ['Choose 1 or 2 columns.'];
     // Per-card edits: the contract's limits and messages.
@@ -333,6 +340,8 @@ export function createMockApi(options = {}) {
     // PUT /memories/{id} bodies, and the Storeel flow's send bodies (POST /memories/{id}/storeel-send).
     memoryPuts: [],
     storeelSends: [],
+    // A moment's caption saved on a saved campaign (PUT /memory-images/{id}, multipart): {id, description}.
+    imageUpdates: [],
     // The Storeel flow (Chris 4 Nov, point 9): 'not_available' = 503 before the server's SQL ran; putErrors /
     // storeelSendErrors = a 422 {field: message} for PUT /memories/{id} / storeel-send.
     storeelUnavailable: options.storeelUnavailable ?? false,
@@ -733,10 +742,16 @@ export function createMockApi(options = {}) {
     // options.catalogue: the account has Website Catalogue items (Create Campaign then offers its "Website Catalogue").
     if (path === '/website-catalogue') return ok(options.catalogue ? { available: true, item_count: 2 } : { available: false });
     if (path === '/website-catalogue/items' && options.catalogue) {
-      return ok({ items: [{ id: 61, title: 'Oak bench', price_label: '$450', category: 'Benches', main_image: null, images_count: 2 }, { id: 62, title: 'Pine shelf', price_label: '$120', category: 'Shelves', main_image: null, images_count: 1 }], pagination: { last_page: 1 } });
+      // The Storeel flow's live preview shows a picked item as a product moment (its photo, price, "View on website").
+      return ok({ items: [
+        { id: 61, title: 'Oak bench', price_label: '$450', category: 'Benches', main_image: IMG, images_count: 2, url: 'https://royalwood.example.ca/products/oak-bench' },
+        { id: 62, title: 'Pine shelf', price_label: '$120', category: 'Shelves', main_image: null, images_count: 1, url: null },
+      ], pagination: { last_page: 1 } });
     }
     // options.cars: the dealer has listings (Create Campaign then offers "Cars").
-    if (path === '/cars' && method === 'GET') return ok({ cars: options.cars ? [{ id: 5, title: '2024 Jeep Wrangler' }] : [], pagination: { last_page: 1 }, filters: {} });
+    if (path === '/cars' && method === 'GET') {
+      return ok({ cars: options.cars ? [{ id: 5, title: '2024 Jeep Wrangler', main_image: IMG, images_count: 6, price: '34995', mileage: 45000, stock_number: 'S2300' }] : [], pagination: { last_page: 1 }, filters: {} });
+    }
     if (path === '/user/check-memory-limit') {
       return ok({ limit_status: { status: options.storeelLimit ? 'limit_exceeded' : 'within_limit', current_memories: options.storeelLimit ? 5 : 2, memory_limit: 5, ai_connects: 120 } });
     }
@@ -761,9 +776,18 @@ export function createMockApi(options = {}) {
         id, slug, title: body?.title, published: Number(body?.published) || 0, is_car: 0, user_id: 990002,
         category: { id: body?.category_id, name: body?.category_id === 8 ? 'Service' : 'Personal' }, sub_category: body?.sub_category?.[0] ? { name: body.sub_category[0] } : null,
         min_uploaded_img_date: null, max_uploaded_img_date: null, location: body?.location ?? '', tags: body?.tags ?? [], last_update_img: body?.last_update_img ?? null,
-        posts: (body?.photos ?? []).map((_, i) => ({ id: id * 100 + i, parent_id: null })),
+        // A catalogue item becomes a moment (CatalogSnapshotWriter), a picked vehicle a linked campaign (memory_cars).
+        posts: [
+          ...(body?.catalog_item_ids ?? []).map((itemId) => ({ title: itemId === 61 ? 'Oak bench' : 'Pine shelf', description: 'Price: $450', image_link: IMG })),
+          ...(body?.photos ?? []).map((p) => ({ title: p.title ?? '', description: p.description ?? '', image_link: p.fileUrl ?? IMG })),
+        ].map((p, i) => ({ id: id * 100 + i, parent_id: null, ...p })),
+        linked_memories: (body?.car_ids ?? []).map((carId) => ({ id: Number(carId), is_car: 1, title: '2024 Jeep Wrangler' })),
       });
       return ok({ id, title: body?.title, slug, category_id: body?.category_id, sub_category_id: null, collaborators_count: 0, created_at: now() }, 201);
+    }
+    // The Media Library (Add a Moment's "Add from Media Library": MediaLibrarySelectionModal reads unassigned_media).
+    if (path === '/memory-images' && method === 'GET') {
+      return { status: 200, json: { unassigned_media: [{ media_id: 501, media_url: IMG, name: 'library-porch.png', media_size: '0.2', capture_date: '2026-10-20' }] } };
     }
     // The Storeel flow on a saved campaign: GET (Edit, back from the campaign page) and PUT (Set up saved).
     const memoryMatch = /^\/memories\/(\d+)$/.exec(path);
@@ -1113,6 +1137,25 @@ export function createMockApi(options = {}) {
     }
     const call = { method: request.method(), path, query: url.search, body };
     state.calls.push(call);
+    // The campaign page's caption save (dashboardAPI.updateMemoryImages): a multipart form with _method=PUT.
+    const imageMatch = /^\/memory-images\/(\d+)$/.exec(path);
+    if (imageMatch && request.method() === 'POST') {
+      const form = raw ?? '';
+      const field = (name) => new RegExp(`name="${name}"\\r\\n\\r\\n([\\s\\S]*?)\\r\\n--`).exec(form)?.[1];
+      state.imageUpdates.push({ id: Number(imageMatch[1]), description: field('description') ?? null });
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, data: { id: Number(imageMatch[1]), description: field('description') ?? null } }) });
+    }
+    // The original Add a Moment on a saved campaign (mediaAPI.addMoment, multipart): the new moment joins the campaign.
+    if (path === '/memories/upload-photos-after-creation' && request.method() === 'POST') {
+      const form = request.postDataBuffer()?.toString('latin1') ?? '';
+      const field = (name) => new RegExp(`name="${name}"\\r\\n\\r\\n([\\s\\S]*?)\\r\\n--`).exec(form)?.[1];
+      const memoryId = Number(field('memory_id'));
+      const m = state.memories.get(memoryId);
+      const post = { id: memoryId * 1000 + (m?.posts?.length ?? 0), parent_id: null, image_link: IMG, title: field('title_0') ?? field('titles[0]') ?? '', description: field('description_0') ?? field('descriptions[0]') ?? '' };
+      if (m) m.posts = [...(m.posts ?? []), post];
+      state.momentsAdded = [...(state.momentsAdded ?? []), { memoryId, post }];
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, data: [{ image: { ...post, admin_approval: 1 } }] }) });
+    }
     if (path === '/newsletters/images') {
       // What reached the upload: the multipart file part's type, name and size (after any shrinking in the browser).
       const buf = request.postDataBuffer();

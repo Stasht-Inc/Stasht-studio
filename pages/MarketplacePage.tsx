@@ -13,6 +13,7 @@ import { requestUpgrade } from '../utils/planEvents';
 import { useProperty } from '../contexts/PropertyContext';
 import { catalogueAPI, type CatalogueOverview } from '../services/catalogueAPI';
 import { openBillingUpgrade, websiteCatalogueCard } from '../components/connectors/websiteCatalogue';
+import { contactWidgetCard } from '../components/connectors/contactWidget';
 import { WebsiteCatalogueConnectModal } from '../components/connectors/WebsiteCatalogueConnectModal';
 import { WebsiteCatalogueManageModal } from '../components/connectors/WebsiteCatalogueManageModal';
 
@@ -607,6 +608,8 @@ export default function MarketplacePage() {
   const [shopifyShopDomain, setShopifyShopDomain] = useState<string | null>(null);
   const [shopifyConnectedAt, setShopifyConnectedAt] = useState<string | null>(null);
   const [contactWidgets, setContactWidgets] = useState<ContactWidget[]>([]);
+  // The Contact Us widget is Business only (5 Nov 2026): GET /widgets says whether this account may create / change one.
+  const [widgetBusinessRequired, setWidgetBusinessRequired] = useState<boolean | null>(null);
   // Website Catalogue (spec 2026-09-30 §8.1): GET /website-catalogue answers every account.
   const [catalogue, setCatalogue] = useState<CatalogueOverview | null>(null);
   // Which dialog the card opened, fixed at click time so a Disconnect inside Manage can't flip it into the connect flow.
@@ -660,6 +663,7 @@ export default function MarketplacePage() {
     setLoaded(false);
     setPropertyError('');
     setContactWidgets([]);
+    setWidgetBusinessRequired(null);
 
     if (propertyId) {
       // DocuSign and Shopify are personal-account connectors; never show them in property view.
@@ -670,11 +674,13 @@ export default function MarketplacePage() {
       setShopifyConnectedAt(null);
       setCatalogue(null); // a personal-account connector, like DocuSign and Shopify
 
-      widgetsAPI.list({ propertyId })
+      widgetsAPI.listWithTeams({ propertyId })
         .then(res => {
           if (cancelled) return;
-          if (res.ok && Array.isArray(res.data)) setContactWidgets(res.data);
-          else setPropertyError(res.error || "Only the property's owner and admins can manage its widgets.");
+          if (res.ok && res.data) {
+            setContactWidgets(res.data.widgets);
+            setWidgetBusinessRequired(res.data.businessPlanRequired);
+          } else setPropertyError(res.error || "Only the property's owner and admins can manage its widgets.");
         })
         .catch(() => {})
         .finally(() => { if (!cancelled) setLoaded(true); });
@@ -702,10 +708,13 @@ export default function MarketplacePage() {
       })
       .catch(() => {});
 
-    const widgets = widgetsAPI.list()
+    const widgets = widgetsAPI.listWithTeams()
       .then(res => {
         if (cancelled) return;
-        if (res.ok && Array.isArray(res.data)) setContactWidgets(res.data);
+        if (res.ok && res.data) {
+          setContactWidgets(res.data.widgets);
+          setWidgetBusinessRequired(res.data.businessPlanRequired);
+        }
       })
       .catch(() => {});
 
@@ -769,6 +778,17 @@ export default function MarketplacePage() {
     if (isStarter) requestUpgrade();
     else setActiveModal(id);
   }, [isStarter]);
+
+  // Contact Us Widget card: Starter gate, Teams "Available on the Business plan." (or its existing widgets), else usual.
+  const widgetCard = useMemo(
+    () => contactWidgetCard({ isStarter, businessPlanRequired: widgetBusinessRequired, status: statusById.get('contact-widget') }),
+    [isStarter, widgetBusinessRequired, statusById],
+  );
+  const openWidgetCard = useCallback(() => {
+    if (widgetCard.action === 'upgrade') requestUpgrade();
+    else if (widgetCard.action === 'billing') openBillingUpgrade();
+    else setActiveModal('contact-widget');
+  }, [widgetCard.action]);
 
   // Website Catalogue card: hidden outside the pilot, Starter gate, Teams upsell, connect flow or Manage.
   // Personal view only. No answer (loading or failed) means no card; a background refresh that fails keeps the last good state.
@@ -837,6 +857,15 @@ export default function MarketplacePage() {
                 onSelect={openCatalogue}
               />
             )
+          ) : connector.id === 'contact-widget' ? (
+            <ConnectorCard
+              key={connector.id}
+              connector={connector}
+              status={statusById.get(connector.id)}
+              disabled={widgetCard.disabled}
+              override={widgetCard.override}
+              onSelect={openWidgetCard}
+            />
           ) : (
             <ConnectorCard
               key={connector.id}

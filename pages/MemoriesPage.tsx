@@ -13,7 +13,6 @@ import { Checkbox } from "../components/ui/checkbox";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "../components/ui/dropdown-menu";
 import MemoryCard from "../components/MemoryCard";
 import CreateMemory, { CreateMemoryHandle } from "../components/CreateMemory";
-import { clearFlowResume, flowOwnerKey, readFlowResume, sessionNotes, type FlowStep } from "../components/storeel/lib/storeelFlow";
 import { dashboardAPI, isPartialAdmin, apiRequest } from '../utils/authUtils';
 import { RemoveCollaborationModal } from '../components/RemoveCollaborationModal';
 import { mediaAPI } from '../services/mediaAPI';
@@ -21,6 +20,8 @@ import { useAuth } from '../contexts/AuthContext';
 import { useProperty } from '../contexts/PropertyContext';
 import { allPropertyRows, carOwnerAuthor, inventoryOwnerAuthor, resolvePendingPropertySwitch } from '../utils/salespersonLanding';
 import { planCoveredBy } from '../utils/effectivePlan';
+import { trialEndedPicker } from '../utils/planGate';
+import PlanGateExits from '../components/PlanGateExits';
 import { useMemoryLimit, recheckMemoryLimit } from '../hooks/useMemoryLimit';
 import { Avatar, AvatarFallback, AvatarImage } from "../components/ui/avatar";
 import EmptyMemoriesState from "../components/EmptyMemoriesState";
@@ -328,30 +329,26 @@ function MemoriesPageContent({
   const [showTrialEndedModal, setShowTrialEndedModal] = useState(false);
 
   useEffect(() => {
+    let cancelled = false;
     const checkTrialAndPlan = async () => {
       try {
         const [propertiesRes, storageRes] = await Promise.all([
           dashboardAPI.getProperties(),
           dashboardAPI.getStorageOverview(),
         ]);
+        if (cancelled) return; // the view changed meanwhile: the newer check decides
 
         const d = propertiesRes?.data?.data || propertiesRes?.data || {};
         const owned: any[] = d.owned_properties || [];
         const now = new Date();
         const userRole = String(user?.role ?? '');
 
-        const storageOverview = storageRes?.data?.data?.storage_overview || storageRes?.data?.storage_overview;
-        const planName = (storageOverview?.plan_name || 'starter').toLowerCase();
-        const isStarterPlan = planName === 'starter';
+        const storageOverview = storageRes?.success ? (storageRes?.data?.data?.storage_overview || storageRes?.data?.storage_overview) : null;
 
-        // Show upgrade modal if:
-        // 1. role === "3" (main account) + has owned properties + still on starter plan
-        // 2. OR any owned property trial has ended + still on starter plan
-        const isMainAccountWithProperties = userRole === '3' && owned.length > 0;
-        const trialEnded = owned.some(p => p.trial_ended === true);
-        if (isStarterPlan && (isMainAccountWithProperties || trialEnded)) {
-          setShowTrialEndedModal(true);
-        }
+        // Show the upgrade modal on the Starter plan when the account (role 3) owns properties or an owned property's
+        // trial ended — never in a property view, never for a covered account, and never when the plan is unknown
+        // (storage-overview failed, e.g. 429): utils/planGate (Chris 5 Nov, review).
+        setShowTrialEndedModal(trialEndedPicker({ storageOverview, viewType, role: userRole, ownedProperties: owned }));
         // Covered by its main account (a salesperson): no trial warnings or upgrade nudges, the main account's plan
         // applies (utils/effectivePlan; Deepak, 1 Nov 2026).
         if (planCoveredBy(storageOverview)) {
@@ -377,7 +374,10 @@ function MemoriesPageContent({
     };
 
     checkTrialAndPlan();
-  }, [user]);
+    return () => {
+      cancelled = true;
+    };
+  }, [user, viewType]);
 
   // Check if user is property owner (admin) or visitor (read-only)
   const isPropertyOwner = useMemo(() => {
@@ -450,19 +450,6 @@ function MemoriesPageContent({
   const newslettersTotal = useNewsletterCount(isPropertyOwner && starterPlan.known && !starterPlan.isStarter);
   // Photos passed in by Scan Photo, handed to the Storeel form.
   const [photosForCreate, setPhotosForCreate] = useState<File[] | null>(null);
-  // Back from the campaign page after the Storeel flow's "Add moments on the campaign page" (Chris, 4 Nov 2026,
-  // point 9): the flow opens again on Send for that campaign (once; the note is for one trip).
-  const [flowResume, setFlowResume] = useState<{ memoryId: number; step: FlowStep } | null>(null);
-  useEffect(() => {
-    // Only this account's note, from this view (another sign-in or business never resumes it).
-    const note = readFlowResume(sessionNotes(), flowOwnerKey(user, viewType, currentProperty));
-    if (!note) return;
-    clearFlowResume(sessionNotes());
-    setFlowResume({ memoryId: note.memoryId, step: note.step });
-    setCreateOpensOn('storeel');
-    setShowCreateMemory(true);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
   const proxyInputRef = useRef<HTMLInputElement>(null);
   const [selectedCategoryForCreate, setSelectedCategoryForCreate] = useState<string | undefined>(undefined);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
@@ -1133,7 +1120,6 @@ function MemoriesPageContent({
     setEditNewsletterId(null);
     setPhotosForCreate(null);
     setCreateOpensOn(undefined);
-    setFlowResume(null);
   };
 
   const handleCreateMemory = async (categoryName?: string, photos?: File[]) => {
@@ -1187,6 +1173,8 @@ function MemoriesPageContent({
 
   const handleMemoryCreated = async () => {
     console.log('🎯 Memory created from memories page - triggering refresh');
+    // A Storeel was created (Storeel flow v2): its Done lands on the Storeels list with the new campaign in it.
+    setCampaignsView('storeels');
 
     // Refresh memory limit state immediately after creation
     console.log('🔄 Refreshing memory limit state after creation');
@@ -3503,8 +3491,6 @@ function MemoriesPageContent({
         newsletterId={editNewsletterId}
         initialPhotos={photosForCreate}
         opensOn={createOpensOn}
-        campaignId={flowResume?.memoryId ?? null}
-        resumeStep={flowResume?.step ?? null}
         onCampaignSaved={() => { void onRefreshMemories?.(); }}
         beforeStoreel={() => {
           if (!categoryGateBlocks()) return true;
@@ -3878,13 +3864,16 @@ function MemoriesPageContent({
         selectedCount={selectedCardIds.size}
       />
 
-      {/* Trial Ended — auto-open upgrade modal (property accounts only, no starter plan) */}
+      {/* Trial Ended — auto-open upgrade modal for the account's own view (never a property view / covered account:
+          utils/planGate). Paid plans only: it opens because the account owns properties, and properties need a paid plan. */}
       <UpgradePlanModal
         isOpen={showTrialEndedModal}
         onClose={() => {}}
         currentPlan="starter"
         hideStarter={true}
         canClose={false}
+        notice="Your trial has ended — choose a plan to keep using Stasht."
+        exitActions={<PlanGateExits />}
         onSuccess={() => setShowTrialEndedModal(false)}
       />
 

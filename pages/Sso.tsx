@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Loader2 } from 'lucide-react';
 import { authAPI } from '../utils/authUtils';
 import SessionValidator from '../utils/sessionValidator';
+import { clearAccountState } from '../utils/accountState';
 import StashtLogo from '../components/StashtLogo';
 
 // Module-level guard: survives React StrictMode's double-invoke (and any remount)
@@ -60,7 +61,9 @@ export default function Sso() {
 
         const { user, token } = res;
 
-        // Store EXACTLY like normal login — these are the keys this app authenticates on
+        // Store EXACTLY like normal login — these are the keys this app authenticates on. Nothing of a previous
+        // sign-in in this browser (its property view, plan picker flag) carries over (utils/accountState).
+        clearAccountState();
         localStorage.setItem('stasht_token', token);
         localStorage.setItem('stasht_user', JSON.stringify(user));
 

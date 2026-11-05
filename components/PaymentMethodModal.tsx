@@ -43,13 +43,16 @@ export function PaymentMethodModal({
 
   return (
     <>
-      {/* Backdrop */}
+      {/* Backdrop. z-[60]: above the phone bottom bar and its + button (z-50), as StripePaymentForm (z-[70]). */}
       <div
-        className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
+        className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4"
         onClick={onClose}
       >
         {/* Modal */}
         <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Payment method"
           className="bg-white rounded-2xl shadow-2xl max-w-md w-full relative"
           onClick={(e) => e.stopPropagation()}
         >

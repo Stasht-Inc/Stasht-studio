@@ -3,6 +3,7 @@ import { propertyUpdateFailure } from './propertyImage';
 import { currentPropertyViewHeaders, propertyViewCacheKey } from './inventoryView';
 import { memoryDetailPath } from './memoryDetailPath';
 import { campaignAccessBody, withQr } from './qrAccess';
+import { clearAccountState } from './accountState';
 
 // Auth utility functions for API integration
 
@@ -1907,13 +1908,15 @@ export const userUtils = {
       localStorage.removeItem(key);
     });
 
+    // Everything else that belongs to the account (utils/accountState): the property view, the new-account plan
+    // picker's flag, per-account caches. A next sign-in must never open in the previous account's property view.
+    clearAccountState();
+
     // Clear specific sessionStorage keys (not all to preserve SessionValidator data)
     const sessionStorageKeysToRemove = [
       'temp_current_password',
       'require_password_change',
       'stasht_theme',
-      // The Storeel flow's "come back to Send" note (components/storeel/lib/storeelFlow.ts FLOW_RESUME_KEY).
-      'stasht_storeel_flow_resume',
       // Add other app-specific sessionStorage keys here
     ];
 
@@ -2128,11 +2131,13 @@ export const dashboardAPI = {
   },
 
   // Get user storage overview
-  getStorageOverview: async (): Promise<ApiResponse<any>> => {
+  // fresh: skip the short GET cache (usePlan's refresh on returning to the tab must see an Admin Portal change at once).
+  getStorageOverview: async (opts: { fresh?: boolean } = {}): Promise<ApiResponse<any>> => {
     devLog('🏠 DEBUG: Calling /user/storage-overview API');
     const response = await apiRequest('/user/storage-overview', {
       method: 'GET',
-    });
+      ...(opts.fresh ? { skipCache: true } : {}),
+    } as RequestInit);
     devLog('🏠 DEBUG: /user/storage-overview API raw response:', response);
     return response;
   },

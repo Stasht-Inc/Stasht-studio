@@ -343,6 +343,9 @@ export function StripePaymentForm({
       >
         {/* Modal */}
         <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Card payment"
           className="bg-white rounded-2xl shadow-2xl max-w-xl w-full relative max-h-[90vh] overflow-y-auto"
           onClick={(e) => e.stopPropagation()}
         >

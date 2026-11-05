@@ -7,6 +7,10 @@ import StripePaymentForm from './StripePaymentForm';
 import { stripeApi } from '../utils/stripeApi';
 import { announcePlanChange } from '../utils/planEvents';
 import { toast } from 'sonner';
+import { planKey } from '../utils/effectivePlan';
+import { accountTrialOf, defaultPickerPlan, hasActiveSubscription, isCurrentPlan, pickerButton, pickerCurrentPlan } from '../utils/planPicker';
+import { dashboardAPI } from '../utils/authUtils';
+import { PLAN_PRICING, creditsFeature, priceLabel, yearlyMonthlyPrice, yearlyTotal } from '../utils/planPricing';
 
 // Initialize Stripe
 const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY);
@@ -31,19 +35,23 @@ interface UpgradePlanModalProps {
   onSuccess?: () => void;
   canClose?: boolean;
   hideStarter?: boolean;
+  /** Shown under the lock line when the picker can't be closed: the way out (sign out / back to the main account). */
+  exitActions?: React.ReactNode;
+  /** One line under the title saying why the picker opened (e.g. the Trial Ended picker). */
+  notice?: string;
 }
 
 export const plans: Plan[] = [
   {
     id: 'starter',
     name: 'Starter',
-    subtitle: 'Power users',
+    subtitle: 'Individuals',
     price: 0,
     yearlyPrice: 0,
     storage: '1 GB storage',
     icon: <Award className="w-5 h-5 text-white" />,
     features: [
-      'AI Credits\n(5 credits/mo)',
+      creditsFeature('starter'),
       'All Accounts Sync',
       '1 Admin Role',
       'Unlimited Collaborators',
@@ -54,13 +62,14 @@ export const plans: Plan[] = [
     id: 'intermediate',
     name: 'Teams',
     subtitle: 'Power users',
-    price: 9,
-    yearlyPrice: 7.47, // ~17% savings
+    // Prices and credits: utils/planPricing (Chris + Deepak, 5 Nov 2026: Teams $19 / 100 credits, Business $29 / 250).
+    price: PLAN_PRICING.intermediate.monthly,
+    yearlyPrice: yearlyMonthlyPrice(PLAN_PRICING.intermediate.monthly), // ~17% savings
     storage: '500 GB storage',
     icon: <Zap className="w-5 h-5 text-white" />,
     features: [
       'Everything in Starter',
-      'AI Credits\n(50 credits/mo)',
+      creditsFeature('intermediate'),
       'All Accounts Sync',
       '3 Admin Roles',
       'Unlimited Collaborators',
@@ -72,32 +81,32 @@ export const plans: Plan[] = [
     id: 'professional',
     name: 'Business',
     subtitle: 'Teams & orgs',
-    price: 19,
-    yearlyPrice: 15.77, // ~17% savings
+    price: PLAN_PRICING.professional.monthly,
+    yearlyPrice: yearlyMonthlyPrice(PLAN_PRICING.professional.monthly), // ~17% savings
     storage: '1 TB storage',
     isPopular: true,
     icon: <Crown className="w-5 h-5 text-white" />,
     features: [
       'Everything in Teams',
-      'AI Credits\n(150 credits/mo)',
+      creditsFeature('professional'),
       'All Account Sync',
       '5 Admin Roles',
       'Unlimited Collaborators',
       'All Publishing Features',
       'Moments Moderation',
-      'Property Accounts'
+      'Property Accounts',
+      'Contact Us Widget',
+      'Website Catalogue'
     ]
   }
 ];
 
+// Either name family ("Teams" / "intermediate", "Business" / "professional"): utils/planPicker.
 function getDefaultPlan(currentPlan?: string): string {
-  const plan = currentPlan?.toLowerCase();
-  if (plan === 'intermediate') return 'professional';
-  if (plan === 'professional') return 'professional';
-  return 'intermediate'; // starter or unknown → intermediate
+  return defaultPickerPlan(currentPlan);
 }
 
-export function UpgradePlanModal({ isOpen, onClose, currentPlan, onUpgrade, onSuccess, canClose = true, hideStarter = false }: UpgradePlanModalProps) {
+export function UpgradePlanModal({ isOpen, onClose, currentPlan, onUpgrade, onSuccess, canClose = true, hideStarter = false, exitActions, notice }: UpgradePlanModalProps) {
   const [isYearly, setIsYearly] = useState(false);
   const [selectedPlan, setSelectedPlan] = useState<string>(() => getDefaultPlan(currentPlan));
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
@@ -112,6 +121,26 @@ export function UpgradePlanModal({ isOpen, onClose, currentPlan, onUpgrade, onSu
     toast.info('Please select a plan to access the Stasht portal.');
   };
 
+  // Whether the account's paid plan is really its own (utils/planPicker pickerCurrentPlan): on an Admin Portal trial
+  // without a Stripe subscription it can still buy it. Asked each time the picker opens on a paid plan.
+  const [ownership, setOwnership] = useState<{ known: boolean; accountTrial: unknown; activeSubscription: boolean }>({ known: false, accountTrial: null, activeSubscription: false });
+  useEffect(() => {
+    const paid = planKey(currentPlan);
+    setOwnership({ known: false, accountTrial: null, activeSubscription: false });
+    if (!isOpen || (paid !== 'intermediate' && paid !== 'professional')) return undefined;
+    let cancelled = false;
+    Promise.all([dashboardAPI.getProperties().catch(() => null), stripeApi.getCurrentSubscription().catch(() => null)])
+      .then(([properties, subscription]) => {
+        const active = hasActiveSubscription(subscription);
+        if (cancelled || !properties?.success || active === null) return; // unknown: the plan stays current
+        setOwnership({ known: true, accountTrial: accountTrialOf(properties), activeSubscription: active });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, currentPlan]);
+  const ownPlan = pickerCurrentPlan(currentPlan, ownership);
+
   // Reset selected plan based on currentPlan whenever modal opens
   useEffect(() => {
     if (isOpen) {
@@ -122,6 +151,7 @@ export function UpgradePlanModal({ isOpen, onClose, currentPlan, onUpgrade, onSu
   if (!isOpen && !isPaymentModalOpen && !isStripeFormOpen) return null;
 
   const selectedPlanData = plans.find(p => p.id === selectedPlan);
+  const selectedButton = pickerButton(ownPlan, selectedPlan, selectedPlanData?.name ?? '');
   const currentPrice = isYearly
     ? selectedPlanData?.yearlyPrice.toFixed(2)
     : selectedPlanData?.price.toFixed(2);
@@ -174,6 +204,7 @@ export function UpgradePlanModal({ isOpen, onClose, currentPlan, onUpgrade, onSu
   };
 
   const handleUpgradeClick = async () => {
+    if (selectedButton.disabled) return; // the account's own plan (utils/planPicker)
     // Starter (FREE) plan selected
     if (selectedPlan === 'starter') {
       try {
@@ -203,7 +234,8 @@ export function UpgradePlanModal({ isOpen, onClose, currentPlan, onUpgrade, onSu
 
       if (currentSubscriptionResponse.success && currentSubscriptionResponse.active_subscriptions && currentSubscriptionResponse.active_subscriptions.length > 0) {
         const currentSubscription = currentSubscriptionResponse.active_subscriptions[0];
-        const currentPlan = currentSubscription.plan_name;
+        // Either name family (the Stripe code or the plans row name): utils/effectivePlan planKey.
+        const currentPlan = planKey(currentSubscription.plan_name) ?? currentSubscription.plan_name;
         const currentBillingPeriod = currentSubscription.billing_period;
         const selectedBillingPeriod = isYearly ? 'yearly' : 'monthly';
 
@@ -437,21 +469,29 @@ export function UpgradePlanModal({ isOpen, onClose, currentPlan, onUpgrade, onSu
               <span className="text-sm font-medium tracking-wide">Select a plan to unlock the Stasht portal</span>
             </div>
           )}
+          {!canClose && exitActions && (
+            <div onClick={(e) => e.stopPropagation()}>{exitActions}</div>
+          )}
 
           {/* Modal */}
           <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="upgrade-plan-title"
             className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full relative max-h-[90vh] overflow-y-auto"
             onClick={(e) => e.stopPropagation()}
           >
           {/* Header */}
           <div className="p-6 pb-0">
-            <div className="flex items-start justify-between">
+            {/* Phones: title on its own line, the Monthly / Yearly toggle under it (it squeezed the title one word per line). */}
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div>
-                <h2 className="text-2xl font-bold text-gray-900">Upgrade Your Plan</h2>
+                <h2 id="upgrade-plan-title" className="text-2xl font-bold text-gray-900">Upgrade Your Plan</h2>
                 <p className="text-gray-600 mt-1">Choose the perfect plan for your needs</p>
+                {notice && <p className="text-sm font-medium text-amber-700 mt-2">{notice}</p>}
               </div>
 
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-3 self-start">
                 {/* Billing Toggle */}
                 <div className="flex items-center bg-gray-100 rounded-full p-1">
                   <button
@@ -512,18 +552,20 @@ export function UpgradePlanModal({ isOpen, onClose, currentPlan, onUpgrade, onSu
                         : 'border-gray-200 hover:border-gray-300 hover:shadow-md'
                     }`}
                   >
-                    {/* Selected Badge */}
-                    {selectedPlan === plan.id && (
-                      <div className={`absolute -top-3 left-4 text-white text-xs px-3 py-1 rounded-full font-medium ${
-                        plan.id === 'starter' ? 'bg-[#4A9CF5]' : plan.id === 'intermediate' ? 'bg-[#f6339A]' : 'bg-[#6C60FF]'
+                    {/* Selected / Current plan badge (the account's own plan can't be bought again: utils/planPicker) */}
+                    {(selectedPlan === plan.id || isCurrentPlan(ownPlan, plan.id)) && (
+                      <div className={`absolute -top-3 left-4 text-xs px-3 py-1 rounded-full font-medium ${
+                        isCurrentPlan(ownPlan, plan.id)
+                          ? 'bg-gray-900 text-white'
+                          : `text-white ${plan.id === 'starter' ? 'bg-[#4A9CF5]' : plan.id === 'intermediate' ? 'bg-[#f6339A]' : 'bg-[#6C60FF]'}`
                       }`}>
-                        Selected
+                        {isCurrentPlan(ownPlan, plan.id) ? 'Current plan' : 'Selected'}
                       </div>
                     )}
 
                     {/* Popular Badge */}
                     {plan.isPopular && (
-                      <div className={`absolute -top-3 ${selectedPlan === plan.id ? 'right-4' : 'left-4'} bg-[#6C60FF] text-white text-xs px-3 py-1 rounded-full font-medium`}>
+                      <div className={`absolute -top-3 ${selectedPlan === plan.id || isCurrentPlan(ownPlan, plan.id) ? 'right-4' : 'left-4'} bg-[#6C60FF] text-white text-xs px-3 py-1 rounded-full font-medium`}>
                         Popular
                       </div>
                     )}
@@ -553,7 +595,7 @@ export function UpgradePlanModal({ isOpen, onClose, currentPlan, onUpgrade, onSu
                         ) : (
                           <div className="flex items-baseline gap-0.5 justify-end">
                             <span className="text-xl font-bold text-gray-900">
-                              ${isYearly ? plan.yearlyPrice.toFixed(2) : plan.price}
+                              ${priceLabel(plan.price, isYearly)}
                             </span>
                             <span className="text-gray-500 text-xs">/mo</span>
                           </div>
@@ -570,7 +612,7 @@ export function UpgradePlanModal({ isOpen, onClose, currentPlan, onUpgrade, onSu
                         ) : (
                           <>
                             <span className="text-3xl font-bold text-gray-900">
-                              ${isYearly ? plan.yearlyPrice.toFixed(2) : plan.price}
+                              ${priceLabel(plan.price, isYearly)}
                             </span>
                             <span className="text-gray-500">/mo</span>
                           </>
@@ -611,13 +653,17 @@ export function UpgradePlanModal({ isOpen, onClose, currentPlan, onUpgrade, onSu
                       <span className="font-medium text-gray-900">Total</span>
                       <span className="font-bold text-gray-900">{selectedPlan === 'starter' ? 'FREE' : `$${currentPrice}/month`}</span>
                     </div>
+                    {isYearly && selectedPlan !== 'starter' && selectedPlanData && (
+                      <p className="text-xs text-gray-500 text-right mt-1">${yearlyTotal(selectedPlanData.price).toFixed(2)} billed yearly</p>
+                    )}
                   </div>
                 </div>
 
                 {/* Upgrade Button */}
                 <button
                   onClick={handleUpgradeClick}
-                  className={`w-full text-white py-3 px-4 rounded-xl font-medium transition-colors flex items-center justify-center gap-2 ${
+                  disabled={selectedButton.disabled}
+                  className={`w-full text-white py-3 px-4 rounded-xl font-medium transition-colors flex items-center justify-center gap-2 disabled:cursor-not-allowed disabled:!bg-gray-300 ${
                     selectedPlan === 'starter'
                       ? 'bg-[#4A9CF5] hover:bg-[#2878D6]'
                       : selectedPlan === 'intermediate'
@@ -625,16 +671,10 @@ export function UpgradePlanModal({ isOpen, onClose, currentPlan, onUpgrade, onSu
                       : 'bg-[#6C60FF] hover:bg-[#5A4FFF]'
                   }`}
                 >
-                  {selectedPlan === 'starter' ? 'Get Started' : (() => {
-                    const hierarchy: Record<string, number> = { starter: 1, intermediate: 2, professional: 3 };
-                    const currentLevel = hierarchy[currentPlan?.toLowerCase() ?? ''] ?? 0;
-                    const selectedLevel = hierarchy[selectedPlan] ?? 0;
-                    const action = selectedLevel < currentLevel ? 'Downgrade' : 'Upgrade';
-                    return `${action} to ${selectedPlanData?.name}`;
-                  })()}
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  {selectedButton.label}
+                  {!selectedButton.disabled && <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" />
-                  </svg>
+                  </svg>}
                 </button>
 
                 {/* Cancel Button */}

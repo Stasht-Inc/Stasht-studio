@@ -1,8 +1,9 @@
-// Chris, 4 Nov 2026, points 8-9: on the campaign page, Edit (and the phone ⋮ menu's Edit Campaign) opens the Storeel
-// flow on that campaign — Set up prefilled, Continue saves with PUT /memories/{id}, then Moments and Send again — not
-// the old Edit Campaign popover. Delete is in Set up. "Add moments on the campaign page" closes the flow and the page
-// offers "Continue to Send"; Back to Campaigns also reopens the flow on Send.
-// Checks at 1280 and 390 in the real app (App → Campaigns → campaign page).
+// Storeel flow v2 (Deepak, 4 Nov 2026; Chris's single-page change the same day), in the real app (App → Campaigns →
+// campaign page), at 1280 and 390: the campaign page's Edit (phones: the Timeline pencil) opens the one-page flow on
+// that campaign — 1 Campaign prefilled, 2 Moments with its moments, 3 Send (optional) — with the actions at the end:
+// Save Changes (PUT /memories/{id}, toast, back on the page) and Save & Send (PUT, then the confirm). No "Continue to
+// Send" card, no resume note. Delete is in step 1. From the Campaigns page: Create Campaign → toast → the new campaign
+// is in the Storeels list.
 // node tests/campaign-detail/ui/storeel-edit-flow.mjs   (needs the dev server: CD_BASE, default http://localhost:5311)
 // Every API call is answered here and every non-local request is aborted: nothing leaves this machine.
 // Screenshots: CD_SHOTS (default /private/tmp/claude-501/campaign-detail-ui/storeel-edit-flow).
@@ -36,7 +37,7 @@ const expect = (ok, label) => { if (!ok) failures.push(label); console.log(ok ? 
 const browser = await chromium.launch({ headless: true, channel: 'chrome' });
 
 async function open({ width, height }) {
-  const state = { puts: [], sends: [], counts: 0, title: CAMPAIGN.title, deleted: false };
+  const state = { puts: [], sends: [], counts: 0, title: CAMPAIGN.title, deleted: false, created: [] };
   const context = await browser.newContext({ viewport: { width, height }, serviceWorkers: 'block', locale: 'en-US', hasTouch: width < 1024, isMobile: width < 1024 });
   await context.addInitScript(([user]) => {
     if (sessionStorage.getItem('cd-seeded')) return;
@@ -64,7 +65,14 @@ async function open({ width, height }) {
     try { body = req.postData() ? JSON.parse(req.postData()) : null; } catch { body = null; }
     const campaign = () => ({ ...CAMPAIGN, title: state.title });
     if (p === '/memories' && m === 'GET') {
-      return route.fulfill({ json: { status: 'success', data: { all_memories: { data: [campaign()], total: 1 }, latest_memories: [campaign()], sidebar: { categories: { items: [{ id: 5, name: 'Campaigns', memory_count: 1 }] }, labels: { items: [] } } } } });
+      const all = [...state.created, campaign()];
+      return route.fulfill({ json: { status: 'success', data: { all_memories: { data: all, total: all.length }, latest_memories: all, sidebar: { categories: { items: [{ id: 5, name: 'Campaigns', memory_count: all.length }] }, labels: { items: [] } } } } });
+    }
+    // Create Campaign (MemoriesController::store): the new campaign joins the list.
+    if (p === '/memories' && m === 'POST') {
+      const id = 950 + state.created.length;
+      state.created.unshift({ ...CAMPAIGN, id, title: body?.title, slug: `new-${id}`, published: 0, created_at: '2026-11-04 10:00:00' });
+      return route.fulfill({ json: { success: true, data: { id, title: body?.title, slug: `new-${id}`, category_id: body?.category_id } } });
     }
     if (p === '/memories/901' && m === 'GET') return route.fulfill({ json: { status: 'success', data: { memory: { ...campaign(), posts: [post(11, 1), post(12, 2), post(13, 3)], linked_memories: [], widgets: [], unified_order: null } } } });
     if (p === '/memories/901' && m === 'PUT') {
@@ -107,6 +115,14 @@ async function openCampaign(page) {
 const flow = (page) => page.getByRole('dialog', { name: 'Edit Campaign' });
 const primary = (page, name) => flow(page).getByRole('button', { name, exact: true }).filter({ visible: true }).last();
 
+const openEdit = async (page, width) => {
+  if (width >= 1024) await page.getByRole('button', { name: 'Edit', exact: true }).filter({ visible: true }).first().click();
+  else await page.getByRole('button', { name: 'Edit Campaign' }).filter({ visible: true }).first().click(); // phones: the Timeline pencil
+  await flow(page).waitFor({ state: 'visible', timeout: 10000 }).catch(() => {});
+  await flow(page).getByPlaceholder('Give your campaign a meaningful title').waitFor({ timeout: 10000 }).catch(() => {});
+  await page.waitForTimeout(600);
+};
+
 try {
   for (const [width, height] of [[1280, 900], [390, 844]]) {
     const tag = String(width);
@@ -114,98 +130,88 @@ try {
     await openCampaign(page);
     await page.screenshot({ path: `${OUT}/${tag}-01-campaign-page.png` });
 
-    // Edit: the desktop header's Edit; phones: the Timeline row's pencil.
-    if (width >= 1024) {
-      await page.getByRole('button', { name: 'Edit', exact: true }).filter({ visible: true }).first().click();
-    } else {
-      // Phones: the pencil in the Timeline row.
-      await page.getByRole('button', { name: 'Edit Campaign' }).filter({ visible: true }).first().click();
-    }
-    await flow(page).waitFor({ state: 'visible', timeout: 10000 }).catch(() => {});
+    // ── Edit: one page, prefilled, its moments in step 2 and the preview; Save Changes → PUT → toast, back on the page ─
+    await openEdit(page, width);
     expect(await flow(page).isVisible(), `${tag}: Edit opens the Storeel flow (Edit Campaign)`);
     expect(!(await page.getByText('Start Date').filter({ visible: true }).count()), `${tag}: not the old Edit Campaign popover`);
     const title = flow(page).getByPlaceholder('Give your campaign a meaningful title');
-    await title.waitFor({ timeout: 10000 }).catch(() => {});
-    expect((await title.inputValue().catch(() => '')) === 'Fall Promo', `${tag}: Set up prefilled with the campaign title`);
-    expect((await flow(page).locator('#st-step-moments').textContent())?.includes('3 moments'), `${tag}: Moments says 3 moments`);
-    await page.waitForTimeout(600);
+    expect((await title.inputValue().catch(() => '')) === 'Fall Promo', `${tag}: step 1 prefilled with the campaign title`);
+    const mtext = (await flow(page).locator('#st-step-moments').textContent()) ?? '';
+    expect(mtext.includes('3 moments') && mtext.includes('Moment 1') && mtext.includes('Moment 3'), `${tag}: step 2 lists the campaign's 3 moments`);
+    const ptext = (await flow(page).getByTestId('storeel-preview').textContent()) ?? '';
+    expect(ptext.includes('3 moments'), `${tag}: the preview shows the campaign's 3 moments`);
+    expect(((await flow(page).locator('#st-step-send').textContent()) ?? '').includes('Optional — send it now or later from the campaign page.'), `${tag}: Send is open and optional`);
+    expect(!(await flow(page).getByRole('button', { name: /^(Continue|Done)$/ }).count()), `${tag}: no Continue / Done`);
     await page.screenshot({ path: `${OUT}/${tag}-02-edit-flow.png` });
 
     await title.fill('Fall Promo 2026');
-    await primary(page, 'Continue').click();
-    await flow(page).locator('#st-step-moments').getByRole('button', { name: 'Add moments on the campaign page' }).waitFor({ timeout: 8000 }).catch(() => {});
+    await primary(page, 'Save Changes').click();
+    await page.getByText('Changes saved').first().waitFor({ timeout: 8000 }).catch(() => {});
+    await page.waitForTimeout(800);
     const put = state.puts.at(-1);
     expect(put && put.title === 'Fall Promo 2026' && !('category_id' in put) && put.date_range === 'Oct 1, 2026' && put.location === 'Toronto, ON' && JSON.stringify(put.tags) === '["fall"]',
-      `${tag}: Continue saved with PUT /memories/901 (got ${JSON.stringify(put)})`);
-    await primary(page, 'Continue').click();
+      `${tag}: Save Changes = PUT /memories/901 (got ${JSON.stringify(put)})`);
+    expect(await page.getByText('Changes saved').first().isVisible().catch(() => false), `${tag}: toast "Changes saved"`);
+    expect(!(await flow(page).count()), `${tag}: Save Changes closes the flow`);
+    expect(await page.getByText('Fall Promo 2026').filter({ visible: true }).count() > 0, `${tag}: back on the campaign page, refreshed`);
+    expect(!state.sends.length, `${tag}: nothing sent`);
+    expect(!(await page.getByRole('button', { name: 'Continue to Send' }).count()), `${tag}: no "Continue to Send" card`);
+    await page.screenshot({ path: `${OUT}/${tag}-03-saved-back-on-page.png` });
+
+    // ── Edit again → Save & Send → confirm → sent ──────────────────────────────────────────────────────────────────
+    await openEdit(page, width);
     const send = flow(page).locator('#st-step-send');
     await send.getByLabel('Email address').fill('jordan@example.com');
     await send.getByLabel('Phone number').fill('4165550171');
     await send.getByLabel(/^Message/).fill('Our fall promo is on now.');
     await page.waitForTimeout(1200);
-    await page.screenshot({ path: `${OUT}/${tag}-03-send.png` });
-    await primary(page, 'Send Now').click();
+    await page.screenshot({ path: `${OUT}/${tag}-05-send.png` });
+    await primary(page, 'Save & Send').click();
     const confirm = page.getByRole('dialog', { name: 'Send this Storeel now?' });
     await confirm.waitFor({ timeout: 8000 }).catch(() => {});
+    expect(state.puts.length === 2, `${tag}: Save & Send saved first (PUT)`);
     await confirm.getByRole('button', { name: 'Send Now' }).click();
     await page.getByText('Sent: 1 email and 1 text.').first().waitFor({ timeout: 8000 }).catch(() => {});
-    expect(await page.getByText('Sent: 1 email and 1 text.').first().isVisible().catch(() => false), `${tag}: toast after sending again`);
+    expect(await page.getByText('Sent: 1 email and 1 text.').first().isVisible().catch(() => false), `${tag}: toast after sending`);
     expect(state.sends.length === 1 && JSON.stringify(state.sends[0].audience) === JSON.stringify([{ type: 'person', email: 'jordan@example.com', phone: '+14165550171' }]), `${tag}: send payload (${JSON.stringify(state.sends[0])})`);
     await page.waitForTimeout(500);
     expect(!(await flow(page).count()), `${tag}: the flow closed, back on the campaign page`);
-    await page.screenshot({ path: `${OUT}/${tag}-04-sent.png` });
+    await page.screenshot({ path: `${OUT}/${tag}-06-sent.png` });
 
-    // Add moments on the campaign page → the page offers Continue to Send.
-    if (width >= 1024) await page.getByRole('button', { name: 'Edit', exact: true }).filter({ visible: true }).first().click();
-    else {
-      await page.getByRole('button', { name: 'Edit Campaign' }).filter({ visible: true }).first().click();
-    }
-    await flow(page).waitFor({ timeout: 8000 }).catch(() => {});
-    await page.waitForTimeout(500);
-    await primary(page, 'Continue').click();
-    await flow(page).locator('#st-step-moments').getByRole('button', { name: 'Add moments on the campaign page' }).click();
-    await page.waitForTimeout(800);
-    expect(!(await flow(page).count()), `${tag}: the flow closes for the campaign page`);
-    const resume = page.getByRole('button', { name: 'Continue to Send' });
-    expect(await resume.isVisible().catch(() => false), `${tag}: the campaign page offers Continue to Send`);
-    await page.screenshot({ path: `${OUT}/${tag}-05-continue-to-send.png` });
-    await resume.click();
-    await flow(page).locator('#st-step-send').getByLabel('Email address').waitFor({ timeout: 8000 }).catch(() => {});
-    expect(await flow(page).locator('#st-step-send').getByLabel('Email address').isVisible().catch(() => false), `${tag}: Continue to Send opens the flow on Send`);
-    await page.screenshot({ path: `${OUT}/${tag}-06-back-on-send.png` });
-
-    // Delete is in Set up: it asks to confirm (the page's own dialog).
-    await flow(page).locator('#st-step-setup').getByRole('button', { name: 'Edit' }).click();
+    // ── Delete is in step 1: it asks to confirm (the page's own dialog) ────────────────────────────────────────────
+    await openEdit(page, width);
     await flow(page).getByRole('button', { name: 'Delete campaign' }).click();
     await page.waitForTimeout(500);
     expect(!(await flow(page).count()), `${tag}: Delete closes the flow`);
-    const ask = page.getByRole('alertdialog');
-    expect(await ask.isVisible().catch(() => false), `${tag}: the page asks before deleting`);
+    expect(await page.getByRole('alertdialog').isVisible().catch(() => false), `${tag}: the page asks before deleting`);
     await page.screenshot({ path: `${OUT}/${tag}-07-delete-asks.png` });
     await page.keyboard.press('Escape');
     expect(!state.deleted, `${tag}: nothing deleted without confirming`);
+    expect(!(await page.evaluate(() => sessionStorage.getItem('stasht_storeel_flow_resume'))), `${tag}: no resume note`);
 
-    // Coming back to Campaigns after "Add moments": the flow opens on Send there too.
-    if (width >= 1024) await page.getByRole('button', { name: 'Edit', exact: true }).filter({ visible: true }).first().click();
-    else {
-      await page.getByRole('button', { name: 'Edit Campaign' }).filter({ visible: true }).first().click();
-    }
-    await flow(page).waitFor({ timeout: 8000 }).catch(() => {});
-    await page.waitForTimeout(500);
-    await primary(page, 'Continue').click();
-    await flow(page).locator('#st-step-moments').getByRole('button', { name: 'Add moments on the campaign page' }).click();
-    await page.waitForTimeout(800);
-    // The campaign page's own Back.
+    // ── Create from the Campaigns page → Create Campaign → Done → the new campaign is in the Storeels list ─────────
     await page.getByRole('button', { name: 'Back', exact: true }).filter({ visible: true }).first().click();
-    await page.getByRole('dialog', { name: 'Edit Campaign' }).waitFor({ timeout: 10000 }).catch(() => {});
-    const onSend = await page.getByRole('dialog', { name: 'Edit Campaign' }).locator('#st-step-send').getByLabel('Email address').isVisible().catch(() => false);
-    expect(onSend, `${tag}: back on Campaigns, the flow opens again on Send`);
-    await page.screenshot({ path: `${OUT}/${tag}-08-back-to-campaigns-resumes.png` });
-    await flow(page).getByRole('button', { name: 'Cancel' }).filter({ visible: true }).first().click();
-    await page.waitForTimeout(600);
-    expect(await page.getByText('All Campaigns', { exact: true }).filter({ visible: true }).count() > 0, `${tag}: under the flow was the Campaigns page`);
-    expect(!(await page.evaluate(() => sessionStorage.getItem('stasht_storeel_flow_resume'))), `${tag}: the note is used once`);
-    await page.screenshot({ path: `${OUT}/${tag}-09-campaigns-after-cancel.png` });
+    await page.getByText('All Campaigns', { exact: true }).filter({ visible: true }).first().waitFor({ timeout: 10000 }).catch(() => {});
+    // The Campaigns page's own "+ Create a Campaign" (the Sidebar's opens on Newsletter, by design).
+    await page.getByRole('button', { name: /^Create( a Campaign)?$/ }).filter({ visible: true }).last().click(); // phones: "Create"
+    const create = page.getByRole('dialog', { name: 'Create Campaign' });
+    await create.getByPlaceholder('Give your campaign a meaningful title').waitFor({ timeout: 10000 }).catch(() => {});
+    await page.waitForTimeout(800);
+    await create.getByPlaceholder('Give your campaign a meaningful title').fill(`Winter tires ${tag}`);
+    // This account has no "Personal" category to default to: pick its own.
+    await create.locator('#st-step-campaign').getByRole('combobox').first().click();
+    await page.getByRole('option', { name: 'Campaigns' }).click();
+    await page.waitForTimeout(400);
+    expect(!state.created.length, `${tag}: nothing created before Create Campaign`);
+    await create.locator('#st-step-moments').scrollIntoViewIfNeeded();
+    await page.screenshot({ path: `${OUT}/${tag}-08-create-one-page.png` });
+    await create.getByRole('button', { name: 'Create Campaign', exact: true }).filter({ visible: true }).last().click();
+    await page.waitForTimeout(1500);
+    expect(state.created.length === 1, `${tag}: Create Campaign made one campaign (got ${state.created.length})`);
+    expect(!(await create.count()), `${tag}: Create Campaign closes`);
+    expect(await page.getByText('Campaign created').first().isVisible().catch(() => false), `${tag}: toast "Campaign created"`);
+    expect(await page.getByText(`Winter tires ${tag}`).filter({ visible: true }).count() > 0, `${tag}: the Campaigns list shows the new campaign`);
+    await page.screenshot({ path: `${OUT}/${tag}-09-campaigns-list-after-done.png` });
     await context.close();
   }
 } finally {

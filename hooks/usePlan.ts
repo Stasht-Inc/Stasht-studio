@@ -12,9 +12,15 @@ let cache: { userId: string; isStarter: boolean } | null = null;
 type Outcome = { userId: string; isStarter: boolean | null; failed: boolean };
 const listeners = new Set<(outcome: Outcome) => void>();
 const announce = (outcome: Outcome) => listeners.forEach((listener) => listener(outcome));
+// When the plan was last asked for. A plan changed elsewhere (the Admin Portal, another tab) shows when the person
+// comes back to this tab: asked again on focus once REFRESH_AFTER_MS has passed (Chris, 5 Nov 2026: TheBodyPolitik
+// upgraded to Teams in the Admin Portal still had no Dashboard).
+let lastCheckAt = 0;
+const REFRESH_AFTER_MS = 30_000;
 
-function check(userId: string): void {
-  dashboardAPI.getStorageOverview()
+function check(userId: string, fresh = false): void {
+  lastCheckAt = Date.now();
+  dashboardAPI.getStorageOverview({ fresh })
     .then((res: any) => {
       const overview = res?.data?.data?.storage_overview || res?.data?.storage_overview;
       if (!res?.success || !overview) {
@@ -65,11 +71,20 @@ export function useIsStarterPlan(): StarterPlanState {
     if (cache && cache.userId === userId) setState({ isStarter: cache.isStarter, known: true, failed: false });
     else check(userId);
 
-    const onChange = () => { cache = null; check(userId); };
+    const onChange = () => { cache = null; check(userId, true); };
     window.addEventListener(PLAN_CHANGED_EVENT, onChange);
+    // Back on this tab: ask again (once for every caller: the first one to hear it moves lastCheckAt).
+    const onReturn = () => {
+      if (document.visibilityState === 'hidden' || Date.now() - lastCheckAt < REFRESH_AFTER_MS) return;
+      check(userId, true);
+    };
+    window.addEventListener('focus', onReturn);
+    document.addEventListener('visibilitychange', onReturn);
     return () => {
       listeners.delete(onOutcome);
       window.removeEventListener(PLAN_CHANGED_EVENT, onChange);
+      window.removeEventListener('focus', onReturn);
+      document.removeEventListener('visibilitychange', onReturn);
     };
   }, [isAuthenticated, userId]);
 

@@ -68,9 +68,9 @@ function ComposerHarness() {
       <button type="button" onClick={() => setOpen(true)}>Open Create Campaign</button>
       <CreateMemory open={open} onOpenChange={setOpen} newsletterId={id ? Number(id) : null} defaultCategory={params.get('category') || undefined}
         initialPhotos={photos} onNewsletterChanged={() => console.log('newsletter changed')}
-        // The Storeel flow on a saved campaign (?campaignId=, ?resume=send), as the campaign page opens it.
+        // The Storeel flow on a saved campaign (?campaignId=), as the campaign page's Edit opens it.
         campaignId={params.get('campaignId') ? Number(params.get('campaignId')) : null}
-        resumeStep={params.get('resume') === 'send' ? 'send' : null}
+        onMemoryCreated={() => console.log('memory created')}
         onDeleteCampaign={() => console.log('delete campaign')}
         onCampaignSaved={(memoryId) => console.log(`campaign saved ${memoryId}`)} />
     </div>

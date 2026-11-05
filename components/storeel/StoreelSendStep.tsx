@@ -1,4 +1,4 @@
-import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import type { AudienceItem, NewsletterBlock, NewsletterChannel } from '../../services/newslettersAPI';
 import { storeelBroadcastAPI } from '../../services/storeelBroadcastAPI';
@@ -7,7 +7,7 @@ import StepCard from '../newsletters/StepCard';
 import { useAudienceCount } from '../newsletters/hooks/useAudienceCount';
 import { countableAudience } from '../newsletters/lib/person';
 import StoreelSendConfirmDialog from './StoreelSendConfirmDialog';
-import { stepNumber, type CampaignSeed, type StepStatus } from './lib/storeelFlow';
+import { stepNumber, type CampaignSeed } from './lib/storeelFlow';
 import { storeelSmsParts, storeelSmsPreview } from './lib/storeelSms';
 import { sendProblem, type SendFailure, type StoreelCount, type StoreelSendSummary } from './lib/storeelSend';
 
@@ -17,15 +17,24 @@ const CANT_SEND = "Only the campaign's owner or its business's admins can send i
 type Extra = { limit: StoreelCount['limit']; allowance: StoreelCount['allowance']; unavailable?: boolean; forbidden?: boolean; error?: string };
 type Patch = { audience?: AudienceItem[]; channels?: NewsletterChannel[]; sms_text?: string; blocks?: NewsletterBlock[] };
 
-export interface StoreelSendStepHandle {
-  /** Send Now in the top bar / phone footer: check the step, then ask to confirm. */
-  startSend(): void;
-}
+/** Before the campaign exists there is nothing to count against (POST /memories/{id}/storeel-audience-count). */
+export const COUNTED_ONCE_CREATED = 'We count who gets it once the campaign is created.';
 
 export interface StoreelSendStepProps {
-  /** The saved campaign (null until Set up is saved: the card is not reached yet). */
+  /** The saved campaign (null until Create Campaign / Create & Send made it: the card is filled in anyway). */
   campaign: CampaignSeed | null;
-  status: StepStatus;
+  /** The card's first line: sending is optional. */
+  optionalLine: string;
+  /**
+   * Create & Send / Save & Send pressed and the campaign saved: each new number opens the send confirm once the
+   * campaign is there (a just-created campaign arrives a render later).
+   */
+  sendRequest: number;
+  /**
+   * For the bottom actions: what still stops a send (null: nothing Studio can see) and whether the card is filled in
+   * at all (someone to send to, or a message) — Create Campaign then says it was not sent.
+   */
+  onStatus?(status: { problem: string | null; filled: boolean }): void;
   /** Who the text says it came from (senderLabelFor). */
   sender: string;
   /** Lists and lead suggestions (paid plans only). */
@@ -41,13 +50,15 @@ export interface StoreelSendStepProps {
 }
 
 /**
- * Step 3 Send (Chris, 4 Nov 2026, point 9): the newsletter composer's audience (Single person — email box and/or
+ * Step 2 Send — optional (Chris, 4 Nov 2026, point 9; v2 the same day: one page like the newsletter composer, so this
+ * card is always open and filled in before the campaign exists): the newsletter composer's audience (Single person — email box and/or
  * country-code phone — All leads, lead groups, lists, one or the other), Email and/or Text, a personal message with the
- * text-parts counter, and Estimated recipients from POST /memories/{id}/storeel-audience-count. Send Now (top bar)
- * checks, then asks to confirm (StoreelSendConfirmDialog). Each person gets the message and their own tracked link.
+ * text-parts counter, and Estimated recipients from POST /memories/{id}/storeel-audience-count (once the campaign exists).
+ * The page's bottom Create & Send / Save & Send saves, then asks to confirm (StoreelSendConfirmDialog). Each person gets
+ * the message and their own tracked link.
  */
-const StoreelSendStep = forwardRef<StoreelSendStepHandle, StoreelSendStepProps>(function StoreelSendStep(
-  { campaign, status, sender, paid, canSend, active, onSent, onSeePlans, onForbidden }, ref,
+export default function StoreelSendStep(
+  { campaign, optionalLine, sendRequest, onStatus, sender, paid, canSend, active, onSent, onSeePlans, onForbidden }: StoreelSendStepProps,
 ) {
   // Single person first (as newsletters), sent by email and text (Deepak, 4 Nov).
   const [audience, setAudience] = useState<AudienceItem[]>([]);
@@ -64,9 +75,8 @@ const StoreelSendStep = forwardRef<StoreelSendStepHandle, StoreelSendStepProps>(
   const audienceRef = useRef(audience);
   audienceRef.current = audience;
 
-  const current = status === 'current' && campaign !== null;
   const campaignId = campaign?.id ?? 0;
-  const count = useAudienceCount<Extra>(countableAudience(audience), channels, active && current && canSend && !forbidden, async (aud, ch) => {
+  const counted = useAudienceCount<Extra>(countableAudience(audience), channels, active && campaignId > 0 && canSend && !forbidden, async (aud, ch) => {
     const r = await storeelBroadcastAPI.audienceCount(campaignId, aud, ch);
     if (r.forbidden) setForbidden(true);
     return {
@@ -74,6 +84,8 @@ const StoreelSendStep = forwardRef<StoreelSendStepHandle, StoreelSendStepProps>(
       extra: { limit: r.data?.limit ?? null, allowance: r.data?.allowance ?? null, unavailable: r.unavailable, forbidden: r.forbidden },
     };
   }, campaignId);
+  // No campaign yet: nothing to count against (the estimate says so; the confirm counts after Create & Send).
+  const count = campaignId > 0 ? counted : { counts: null, loading: false, error: audience.length && channels.length ? COUNTED_ONCE_CREATED : null };
   const limit = count.extra?.limit ?? null;
   const allowance = count.extra?.allowance ?? null;
   const parts = storeelSmsParts({ sender, message, slug: campaign?.slug ?? null, isCar: Boolean(campaign?.isCar), viewOnly: campaign?.published === 2 });
@@ -94,8 +106,14 @@ const StoreelSendStep = forwardRef<StoreelSendStepHandle, StoreelSendStepProps>(
     setServerStepError(null);
   };
 
-  const problem = attempted ? sendProblem({ audience, channels, message, counts: count.counts, smsProblem: parts.problem, limit }) : null;
-  const unavailable = count.extra?.unavailable ? count.error : null;
+  // What still stops a send: the bottom Create & Send button shows it (and stays off); the card marks it once tried.
+  const blocker = !canSend || forbidden ? CANT_SEND : sendProblem({ audience, channels, message, counts: count.counts, smsProblem: parts.problem, limit });
+  const filled = countableAudience(audience).length > 0 || message.trim().length > 0;
+  const onStatusRef = useRef(onStatus);
+  onStatusRef.current = onStatus;
+  useEffect(() => { onStatusRef.current?.({ problem: blocker, filled }); }, [blocker, filled]);
+  const problem = attempted && blocker !== CANT_SEND ? blocker : null;
+  const unavailable = 'extra' in count && count.extra?.unavailable ? count.error : null;
 
   const showStep = () => {
     const el = document.getElementById(SEND_STEP_ID);
@@ -103,18 +121,19 @@ const StoreelSendStep = forwardRef<StoreelSendStepHandle, StoreelSendStepProps>(
     el?.focus({ preventScroll: true });
   };
 
-  useImperativeHandle(ref, () => ({
-    startSend: () => {
-      setAttempted(true);
-      const p = sendProblem({ audience, channels, message, counts: count.counts, smsProblem: parts.problem, limit });
-      if (p) {
-        showStep();
-        toast.error('Finish the step marked in red, then try again.');
-        return;
-      }
-      setConfirmOpen(true);
-    },
-  }));
+  // Create & Send / Save & Send: the campaign is saved; ask to confirm (once per press, once the campaign is here).
+  const handledRequest = useRef(sendRequest);
+  useEffect(() => {
+    if (sendRequest === handledRequest.current || !campaign) return;
+    handledRequest.current = sendRequest;
+    setAttempted(true);
+    if (blocker) {
+      showStep();
+      toast.error('Finish the step marked in red, then try again.');
+      return;
+    }
+    setConfirmOpen(true);
+  }, [sendRequest, campaign]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const failed = (f: SendFailure) => {
     setConfirmOpen(false);
@@ -130,13 +149,6 @@ const StoreelSendStep = forwardRef<StoreelSendStepHandle, StoreelSendStepProps>(
   };
 
   const title = 'Send';
-  if (status === 'locked' || !campaign) {
-    return (
-      <StepCard number={stepNumber('send')} title={title} id={SEND_STEP_ID}>
-        <p className="text-sm text-gray-500">Send your campaign to a person, your leads or your lists. Finish the steps above first.</p>
-      </StepCard>
-    );
-  }
   if (!canSend || forbidden) {
     return (
       <StepCard number={stepNumber('send')} title={title} id={SEND_STEP_ID}>
@@ -164,16 +176,17 @@ const StoreelSendStep = forwardRef<StoreelSendStepHandle, StoreelSendStepProps>(
         fieldErrors={fieldErrors}
         stepError={problem ?? serverStepError ?? unavailable ?? undefined}
         onChange={change}
+        intro={<p className="text-sm text-gray-500">{optionalLine}</p>}
         message={{
           required: true,
           hint: 'Your note to each person. We add their own link to your campaign after it.',
           placeholder: 'Come see our spring open house this weekend.',
           smsHelp: 'We add their link, a YES / NO question and "Reply STOP to unsubscribe."',
           parts,
-          preview: storeelSmsPreview(sender, message, campaign.isCar),
+          preview: storeelSmsPreview(sender, message, Boolean(campaign?.isCar)),
         }}
       />
-      <StoreelSendConfirmDialog
+      {campaign ? <StoreelSendConfirmDialog
         open={confirmOpen}
         onOpenChange={setConfirmOpen}
         memoryId={campaign.id}
@@ -189,9 +202,7 @@ const StoreelSendStep = forwardRef<StoreelSendStepHandle, StoreelSendStepProps>(
         onSent={(s) => { setConfirmOpen(false); onSent(s); }}
         onFailed={failed}
         onSeePlans={() => { setConfirmOpen(false); onSeePlans(); }}
-      />
+      /> : null}
     </>
   );
-});
-
-export default StoreelSendStep;
+}

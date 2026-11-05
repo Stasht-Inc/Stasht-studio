@@ -32,6 +32,11 @@ import { googleAuthAPI } from './utils/googleAuthAPI';
 import { openGooglePhotosPicker, retryPickerWithSession } from './utils/googlePhotosPickerUtils';
 import { PopupBlockedGuideModal } from './components/PopupBlockedGuideModal';
 import UpgradePlanModal from './components/UpgradePlanModal';
+import PlanGateExits from './components/PlanGateExits';
+import { useIsStarterPlan } from './hooks/usePlan';
+import { landingAfterSignIn } from './utils/landing';
+import { newAccountPlanPicker, phoneBarShowsAccountTools, showsAccountTools } from './utils/planGate';
+import { clearNewAccountFlag, newAccountFlagged, propertyViewIsStale } from './utils/accountState';
 import { mediaAPI, mediaTransformers, resetMediaCache } from './services/mediaAPI';
 import { initializeCategoryColors } from './utils/categoryColorManager';
 import { useMemoriesRefreshProvider } from './hooks/useMemoriesRefresh';
@@ -58,7 +63,7 @@ import { AddMomentModal } from './components/AddMomentModal';
 import exifr from 'exifr';
 import { takeSwitchNotice } from './utils/accountSwitch';
 import { allPropertyRows, propertyViewHasLeads, resolvePendingPropertySwitch } from './utils/salespersonLanding';
-import { skipsPlanPicker, storageOverviewOf } from './utils/effectivePlan';
+import { planKey, skipsPlanPicker, storageOverviewOf } from './utils/effectivePlan';
 import { usersTabForReport } from './utils/propertyRows';
 
 // CAPTURE EMAIL PARAMETER IMMEDIATELY (before React even starts)
@@ -258,9 +263,12 @@ function MainApp() {
   }
 
   const { isAuthenticated, isLoading, login, register, user } = useAuth();
+  // Dashboard / Apps for a self sign-up (role 3) once its plan is paid (utils/planGate; Chris 5 Nov, TheBodyPolitik).
+  const accountPlan = useIsStarterPlan();
+  const showsDashboardAndApps = showsAccountTools(user?.role, accountPlan);
   usePresenceHeartbeat(isAuthenticated);
   const { limitData, checkLimit } = useMemoryLimit();
-  const { viewType, currentProperty, switchToProperty: switchToPropertyCtx, isPendingPropertySwitch, cancelPendingPropertySwitch } = useProperty();
+  const { viewType, currentProperty, switchToProperty: switchToPropertyCtx, switchToPersonal: switchToPersonalCtx, isPendingPropertySwitch, cancelPendingPropertySwitch } = useProperty();
 
   // Check if user is property owner (admin) or visitor (read-only)
   const isPropertyOwner = useMemo(() => {
@@ -315,38 +323,65 @@ function MainApp() {
   const [showNewUserUpgradeModal, setShowNewUserUpgradeModal] = useState(false);
   const [newUserHasProperties, setNewUserHasProperties] = useState(false);
 
+  // The new-account plan picker (utils/planGate, Chris 5 Nov 2026): only for a just-created account (is_new_user) that
+  // has no plan yet, in its own view. An account already on a paid plan — its own or covered by its main account — or
+  // a property view (it works on its owner's plan) never gets it.
   useEffect(() => {
-    if (isAuthenticated && localStorage.getItem('is_new_user') === 'true') {
-      // An account covered by its main account (a salesperson, utils/effectivePlan) already works on that plan: no
-      // picker, and it is no longer a "new user" waiting for a plan.
-      dashboardAPI.getStorageOverview()
-        .catch(() => null)
-        .then((storage) => {
-          if (skipsPlanPicker(storageOverviewOf(storage))) {
-            localStorage.removeItem('is_new_user');
-            window.dispatchEvent(new Event('is_new_user_removed'));
-            return;
-          }
-          // Check if account has any properties before showing the modal
-          // If yes → hide Starter (show only Intermediate + Professional)
-          dashboardAPI.getProperties()
-            .then(res => {
-              if (res.success && res.data) {
-                const d = res.data.data || res.data;
-                const owned = d.owned_properties || d.properties || [];
-                setNewUserHasProperties(Array.isArray(owned) && owned.length > 0);
-              }
-            })
-            .catch(() => {
-              // On error fall back to false (show all plans)
-              setNewUserHasProperties(false);
-            })
-            .finally(() => {
-              setShowNewUserUpgradeModal(true);
-            });
-        });
-    }
-  }, [isAuthenticated]);
+    if (!isAuthenticated || !newAccountFlagged()) return undefined;
+    let cancelled = false;
+    dashboardAPI.getStorageOverview()
+      .catch(() => null)
+      .then((storage) => {
+        if (cancelled) return;
+        const decision = newAccountPlanPicker({ flagged: true, viewType, storageOverview: storageOverviewOf(storage) });
+        if (decision === 'clear') {
+          clearNewAccountFlag();
+          window.dispatchEvent(new Event('is_new_user_removed'));
+          setShowNewUserUpgradeModal(false);
+          return;
+        }
+        if (decision === 'later') {
+          setShowNewUserUpgradeModal(false);
+          return;
+        }
+        // An account that owns properties is offered the paid plans only (as before); a new account gets Starter too.
+        dashboardAPI.getProperties()
+          .then(res => {
+            if (res.success && res.data) {
+              const d = res.data.data || res.data;
+              const owned = d.owned_properties || d.properties || [];
+              if (!cancelled) setNewUserHasProperties(Array.isArray(owned) && owned.length > 0);
+            }
+          })
+          .catch(() => {
+            // On error fall back to false (show all plans)
+            if (!cancelled) setNewUserHasProperties(false);
+          })
+          .finally(() => {
+            if (!cancelled) setShowNewUserUpgradeModal(true);
+          });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isAuthenticated, viewType]);
+
+  // A property view restored from storage must be one of this account's properties (utils/accountState): a view left
+  // behind by another sign-in (Chris, 5 Nov: a new account opened in Pedalheads' "Point Grey") goes back to the
+  // account view. Waits while a pending property switch is being resolved.
+  useEffect(() => {
+    if (!isAuthenticated || viewType !== 'property' || !currentProperty || isPendingPropertySwitch) return undefined;
+    let cancelled = false;
+    dashboardAPI.getProperties()
+      .then((response) => {
+        if (cancelled || !response?.success) return;
+        if (propertyViewIsStale('property', currentProperty, allPropertyRows(response))) switchToPersonalCtx();
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [isAuthenticated, user?.id, viewType, currentProperty?.id, isPendingPropertySwitch]);
 
   // Handle pending property switch immediately when authenticated — prevents personal account flash
   useEffect(() => {
@@ -1142,11 +1177,16 @@ function MainApp() {
   // upgrade plans right where the user is (Chris, 2026-09-28). Asked for by the Connectors page
   // and by apiRequest whenever the API answers 403 plan_required.
   const [planUpgradeOpen, setPlanUpgradeOpen] = useState(false);
+  // The account's real plan, so a Teams account is offered Business, never "Upgrade to Teams" (review of 5 Nov 2026).
+  const [planUpgradeFrom, setPlanUpgradeFrom] = useState('starter');
   useEffect(() => {
     const onUpgradeRequired = (e: Event) => {
       const message = (e as CustomEvent<{ message?: string }>).detail?.message;
       toast(message || 'Connectors are available on the Teams and Business plans.', { id: 'plan-required' });
       setPlanUpgradeOpen(true);
+      dashboardAPI.getStorageOverview()
+        .then((res: any) => setPlanUpgradeFrom(planKey(storageOverviewOf(res)?.plan_name) ?? 'starter'))
+        .catch(() => {});
     };
     window.addEventListener(UPGRADE_REQUIRED_EVENT, onUpgradeRequired);
     return () => window.removeEventListener(UPGRADE_REQUIRED_EVENT, onUpgradeRequired);
@@ -1836,39 +1876,23 @@ function MainApp() {
       currentPage
     });
 
-    // Only run this check once when the user first authenticates
-    // Don't run if hasInitialRedirectHappened is already true
-    if (isAuthenticated && user && !isLoading && !hasInitialRedirectHappened && currentPage === 'dashboard') {
-      // Check if user just completed an invite login - redirect to /stories instead of dashboard
-      const urlParams = new URLSearchParams(window.location.search);
-      const fromInviteLogin = urlParams.get('from_invite_login') === '1';
-      const inviteLoginCompleted = sessionStorage.getItem('invite_login_completed') || localStorage.getItem('invite_login_completed');
-      const inviteRedirectFlag = sessionStorage.getItem('invite_redirect_to_stories');
-
-      if (fromInviteLogin || inviteLoginCompleted || inviteRedirectFlag) {
-        console.log('🎯 Invite login detected - redirecting to /stories instead of dashboard');
-        sessionStorage.removeItem('invite_redirect_to_stories');
-        setHasInitialRedirectHappened(true);
-        handleNavigation('memories');
-        return;
-      }
-
-      const userRole = user.role;
-      console.log('🔍 Checking user role for initial redirect:', userRole, typeof userRole);
-
-      // Check if user has role 3 or 4 (handle both string and number types)
-      const roleValue = typeof userRole === 'string' ? userRole : String(userRole);
-      if (roleValue === '3' || roleValue === '4') {
-        console.log('🚀 User has role', roleValue, '- redirecting to memories page (one-time)');
-        handleNavigation('memories');
-        // Mark that initial redirect has happened immediately
-        setHasInitialRedirectHappened(true);
-      } else {
-        console.log('👤 User has role', roleValue, '- staying on dashboard');
-        // Also mark as happened so we don't check again
-        setHasInitialRedirectHappened(true);
-      }
-    }
+    // Decided ONCE, when the sign-in is ready, on the page the app opened on (utils/landing). Opened on another page it
+    // is simply done — it used to stay pending and fire on the person's first Dashboard click (release E2E, 5 Nov).
+    const urlParams = new URLSearchParams(window.location.search);
+    const inviteLanding = urlParams.get('from_invite_login') === '1'
+      || !!(sessionStorage.getItem('invite_login_completed') || localStorage.getItem('invite_login_completed'))
+      || !!sessionStorage.getItem('invite_redirect_to_stories');
+    const landing = landingAfterSignIn({
+      authReady: !!(isAuthenticated && user && !isLoading),
+      done: hasInitialRedirectHappened,
+      currentPage,
+      role: user?.role,
+      inviteLanding,
+    });
+    if (landing === 'wait') return;
+    if (inviteLanding) sessionStorage.removeItem('invite_redirect_to_stories');
+    setHasInitialRedirectHappened(true);
+    if (landing === 'campaigns') handleNavigation('memories');
   }, [isAuthenticated, user?.id, isLoading, hasInitialRedirectHappened, currentPage, handleNavigation]);
 
   // Debug: Log auth state and URL on every render
@@ -4637,8 +4661,8 @@ function MainApp() {
             </div>
 
             <div className="flex items-center justify-around h-24">
-              {/* Only show Dashboard if user role is NOT 3 */}
-              {user?.role !== '3' && user?.role !== 3 && (
+              {/* Dashboard: every role but 3, and role 3 on a paid plan; never in a property view, as the sidebar (utils/planGate) */}
+              {phoneBarShowsAccountTools(viewType, showsDashboardAndApps) && (
                 <button
                   onClick={() => {
                     handleNavigation("dashboard");
@@ -4707,8 +4731,8 @@ function MainApp() {
                 <span className="text-xs font-medium">Users</span>
               </button>
 
-              {/* Only show Apps if user role is NOT 3 */}
-              {user?.role !== '3' && user?.role !== 3 && (
+              {/* Apps: same rule as Dashboard (utils/planGate) */}
+              {phoneBarShowsAccountTools(viewType, showsDashboardAndApps) && (
                 <button
                   onClick={() => {
                     handleNavigation("apps");
@@ -4786,9 +4810,13 @@ function MainApp() {
         isOpen={showNewUserUpgradeModal}
         onClose={() => {}}
         canClose={false}
-        hideStarter={newUserHasProperties || !!currentProperty}
+        // Starter is offered to a new account; only an account that owns properties gets the paid plans alone. (A
+        // property view never opens this picker: utils/planGate. The stale property view of a previous sign-in hid
+        // Starter here for brand-new accounts — Chris, 5 Nov.)
+        hideStarter={newUserHasProperties}
+        exitActions={<PlanGateExits />}
         onSuccess={() => {
-          localStorage.removeItem('is_new_user');
+          clearNewAccountFlag();
           window.dispatchEvent(new Event('is_new_user_removed'));
           setShowNewUserUpgradeModal(false);
           checkLimit();
@@ -4799,7 +4827,7 @@ function MainApp() {
       <UpgradePlanModal
         isOpen={planUpgradeOpen}
         onClose={() => setPlanUpgradeOpen(false)}
-        currentPlan="starter"
+        currentPlan={planUpgradeFrom}
         onSuccess={() => {
           setPlanUpgradeOpen(false);
           checkLimit();

@@ -17,6 +17,7 @@ import { format } from 'date-fns';
 import { toast } from 'sonner';
 import ToneSelectionModal from './ToneSelectionModal';
 import AISuggestionModal from './AISuggestionModal';
+import { localDateISO } from '../utils/localDate';
 
 interface UploadProgressItem {
   id: string;
@@ -174,7 +175,7 @@ export function AddMomentModal({
         newPreviews[imageIndex] = img.image;
         newDetails[imageIndex] = {
           description: img.content || '',
-          date: img.date || new Date().toISOString().split('T')[0],
+          date: img.date || localDateISO(),
           location: img.location || memoryLocation || ''
         };
       });
@@ -368,7 +369,7 @@ export function AddMomentModal({
 
                 // Extract metadata
                 let extractedMetadata = {
-                  capture_date: new Date().toISOString().split('T')[0],
+                  capture_date: localDateISO(),
                   capture_location: ''
                 };
 
@@ -429,7 +430,7 @@ export function AddMomentModal({
                   ...prev,
                   [fileIndex]: {
                     description: prev[fileIndex]?.description || '',
-                    date: new Date().toISOString().split('T')[0],
+                    date: localDateISO(),
                     location: memoryLocation || ''
                   }
                 }));
@@ -599,7 +600,7 @@ export function AddMomentModal({
 
             // Extract metadata from response
             let extractedMetadata = {
-              capture_date: new Date().toISOString().split('T')[0],
+              capture_date: localDateISO(),
               location: ''
             };
 
@@ -663,7 +664,7 @@ export function AddMomentModal({
               ...prev,
               [fileIndex]: {
                 description: prev[fileIndex]?.description || '',
-                date: new Date().toISOString().split('T')[0],
+                date: localDateISO(),
                 location: memoryLocation || ''
               }
             }));
@@ -820,7 +821,7 @@ export function AddMomentModal({
           [selectedImageIndex]: {
             ...prev[selectedImageIndex],
             description: response.data.description,
-            date: prev[selectedImageIndex]?.date || new Date().toISOString().split('T')[0],
+            date: prev[selectedImageIndex]?.date || localDateISO(),
             location: prev[selectedImageIndex]?.location || memoryLocation || ''
           }
         }));
@@ -843,7 +844,7 @@ export function AddMomentModal({
       [selectedImageIndex]: {
         ...prev[selectedImageIndex],
         description: currentSuggestion,
-        date: prev[selectedImageIndex]?.date || new Date().toISOString().split('T')[0],
+        date: prev[selectedImageIndex]?.date || localDateISO(),
         location: prev[selectedImageIndex]?.location || memoryLocation || ''
       }
     }));
@@ -885,7 +886,7 @@ export function AddMomentModal({
       let successCount = 0;
       for (let i = 0; i < formData.files.length; i++) {
         const file = formData.files[i];
-        const details = imageDetails[i] || { description: '', date: new Date().toISOString().split('T')[0], location: '' };
+        const details = imageDetails[i] || { description: '', date: localDateISO(), location: '' };
         const response = await dashboardAPI.uploadPhotosFromMediaWithOutMemory(
           file,
           file.name,
@@ -941,7 +942,7 @@ export function AddMomentModal({
           title: imageDetails[index]?.title || '',
           description: imageDetails[index]?.description || '',
           location: imageDetails[index]?.location || '',
-          capture_date: imageDetails[index]?.date || new Date().toISOString().split('T')[0],
+          capture_date: imageDetails[index]?.date || localDateISO(),
           capture_time: '',
           fileUrl: uploadedS3Urls[index] || '',
           imageName: file.name,
@@ -997,7 +998,7 @@ export function AddMomentModal({
         const globalIndex = formData.files.length + index;
         const details = imageDetails[globalIndex] || {
           description: img.content || '',
-          date: img.date || new Date().toISOString().split('T')[0],
+          date: img.date || localDateISO(),
           location: img.location || '',
           title: undefined,
           tags: [] as string[]
@@ -1155,7 +1156,7 @@ export function AddMomentModal({
       [selectedImageIndex]: {
         ...prev[selectedImageIndex],
         description: prev[selectedImageIndex]?.description || '',
-        date: prev[selectedImageIndex]?.date || new Date().toISOString().split('T')[0],
+        date: prev[selectedImageIndex]?.date || localDateISO(),
         location: prev[selectedImageIndex]?.location || memoryLocation || '',
         tags: [...currentTags, ...newTags]
       }
@@ -1169,7 +1170,7 @@ export function AddMomentModal({
       [selectedImageIndex]: {
         ...prev[selectedImageIndex],
         description: prev[selectedImageIndex]?.description || '',
-        date: prev[selectedImageIndex]?.date || new Date().toISOString().split('T')[0],
+        date: prev[selectedImageIndex]?.date || localDateISO(),
         location: prev[selectedImageIndex]?.location || memoryLocation || '',
         tags: (prev[selectedImageIndex]?.tags || []).filter(t => t !== tagToRemove)
       }
@@ -1779,7 +1780,7 @@ export function AddMomentModal({
                     [selectedImageIndex]: {
                       ...prev[selectedImageIndex],
                       description: prev[selectedImageIndex]?.description || '',
-                      date: prev[selectedImageIndex]?.date || new Date().toISOString().split('T')[0],
+                      date: prev[selectedImageIndex]?.date || localDateISO(),
                       location: prev[selectedImageIndex]?.location || memoryLocation || '',
                       showTitleInput: e.target.checked,
                       title: e.target.checked ? (prev[selectedImageIndex]?.title || '') : undefined
@@ -1802,7 +1803,7 @@ export function AddMomentModal({
                   [selectedImageIndex]: {
                     ...prev[selectedImageIndex],
                     description: prev[selectedImageIndex]?.description || '',
-                    date: prev[selectedImageIndex]?.date || new Date().toISOString().split('T')[0],
+                    date: prev[selectedImageIndex]?.date || localDateISO(),
                     location: prev[selectedImageIndex]?.location || memoryLocation || '',
                     showTitleInput: true,
                     title: e.target.value
@@ -1857,7 +1858,7 @@ export function AddMomentModal({
                 [selectedImageIndex]: {
                   ...prev[selectedImageIndex],
                   description: e.target.value,
-                  date: prev[selectedImageIndex]?.date || new Date().toISOString().split('T')[0],
+                  date: prev[selectedImageIndex]?.date || localDateISO(),
                   location: prev[selectedImageIndex]?.location || memoryLocation || ''
                 }
               }))}
@@ -1930,7 +1931,7 @@ export function AddMomentModal({
                 [selectedImageIndex]: {
                   ...prev[selectedImageIndex],
                   description: prev[selectedImageIndex]?.description || '',
-                  date: prev[selectedImageIndex]?.date || new Date().toISOString().split('T')[0],
+                  date: prev[selectedImageIndex]?.date || localDateISO(),
                   location: value
                 }
               }))}
@@ -1969,7 +1970,7 @@ export function AddMomentModal({
                     return matches.length > 0 ? (
                       <div className="absolute top-full left-0 right-0 z-50 bg-white border border-gray-200 rounded-lg shadow-md mt-1 overflow-hidden">
                         {matches.slice(0, 5).map(tag => (
-                          <button key={tag} type="button" onMouseDown={(e) => { e.preventDefault(); const newTags = tag.split(',').map(t => t.trim()).filter(t => t && !currentTags.includes(t)); if (newTags.length > 0) { setImageDetails(prev => ({ ...prev, [selectedImageIndex]: { ...prev[selectedImageIndex], description: prev[selectedImageIndex]?.description || '', date: prev[selectedImageIndex]?.date || new Date().toISOString().split('T')[0], location: prev[selectedImageIndex]?.location || memoryLocation || '', tags: [...currentTags, ...newTags] } })); } setNewTag(''); }} className="w-full text-left px-3 py-2 text-xs text-gray-900 hover:bg-gray-50 flex items-center gap-2">
+                          <button key={tag} type="button" onMouseDown={(e) => { e.preventDefault(); const newTags = tag.split(',').map(t => t.trim()).filter(t => t && !currentTags.includes(t)); if (newTags.length > 0) { setImageDetails(prev => ({ ...prev, [selectedImageIndex]: { ...prev[selectedImageIndex], description: prev[selectedImageIndex]?.description || '', date: prev[selectedImageIndex]?.date || localDateISO(), location: prev[selectedImageIndex]?.location || memoryLocation || '', tags: [...currentTags, ...newTags] } })); } setNewTag(''); }} className="w-full text-left px-3 py-2 text-xs text-gray-900 hover:bg-gray-50 flex items-center gap-2">
                             <Tag className="w-3 h-3 text-gray-400 flex-shrink-0" />{tag}
                           </button>
                         ))}
@@ -2015,7 +2016,7 @@ export function AddMomentModal({
                     <p className="text-xs text-gray-400 mb-1.5">Suggested</p>
                     <div className="flex flex-wrap gap-1.5">
                       {suggestions.map(tag => (
-                        <button key={tag} type="button" onClick={() => { if (!currentTags.includes(tag)) { setImageDetails(prev => ({ ...prev, [selectedImageIndex]: { ...prev[selectedImageIndex], description: prev[selectedImageIndex]?.description || '', date: prev[selectedImageIndex]?.date || new Date().toISOString().split('T')[0], location: prev[selectedImageIndex]?.location || memoryLocation || '', tags: [...currentTags, tag] } })); } }} className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[14px] bg-gray-100 text-gray-700 rounded-full border border-gray-200 hover:bg-gray-200 transition-colors">
+                        <button key={tag} type="button" onClick={() => { if (!currentTags.includes(tag)) { setImageDetails(prev => ({ ...prev, [selectedImageIndex]: { ...prev[selectedImageIndex], description: prev[selectedImageIndex]?.description || '', date: prev[selectedImageIndex]?.date || localDateISO(), location: prev[selectedImageIndex]?.location || memoryLocation || '', tags: [...currentTags, tag] } })); } }} className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[14px] bg-gray-100 text-gray-700 rounded-full border border-gray-200 hover:bg-gray-200 transition-colors">
                           {tag}<span className="text-gray-400 font-medium">+</span>
                         </button>
                       ))}

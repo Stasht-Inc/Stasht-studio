@@ -1,5 +1,6 @@
 // Media API service functions
 import { apiRequest, fetchWithRateLimitRetry } from '../utils/authUtils';
+import { localDateISO } from '../utils/localDate';
 
 // Cache buster for media API to prevent stale data
 let mediaCacheBuster = Date.now();
@@ -487,7 +488,7 @@ export const mediaAPI = {
           formData.append('name', file.name.split('.')[0] || 'Image'); // File name without extension
           if (params.sizes?.[index] != null) formData.append('size', String(params.sizes[index]));
           formData.append('location', imageDetail?.location || '');
-          formData.append('capture_date', imageDetail?.date || new Date().toISOString().split('T')[0]);
+          formData.append('capture_date', imageDetail?.date || localDateISO());
           formData.append('description', imageDetail?.description || '');
           // Add title as separate field if provided
           if (imageDetail?.title) {
@@ -507,7 +508,7 @@ export const mediaAPI = {
           formData.append(`name_${currentIndex}`, file.name.split('.')[0] || `Image ${currentIndex + 1}`); // File name without extension
           if (params.sizes?.[index] != null) formData.append(`size_${currentIndex}`, String(params.sizes[index]));
           formData.append(`location_${currentIndex}`, imageDetail?.location || '');
-          formData.append(`capture_date_${currentIndex}`, imageDetail?.date || new Date().toISOString().split('T')[0]);
+          formData.append(`capture_date_${currentIndex}`, imageDetail?.date || localDateISO());
           formData.append(`description_${currentIndex}`, imageDetail?.description || '');
           // Add title as separate field if provided
           if (imageDetail?.title) {
@@ -531,7 +532,7 @@ export const mediaAPI = {
         const imageDetail = params.imageDetails[0] || {} as { description?: string; date?: string; location?: string; title?: string; tags?: string[] };
         formData.append('name', imageDetail.title || 'Moment');
         formData.append('description', imageDetail.description || '');
-        formData.append('capture_date', imageDetail.date || new Date().toISOString().split('T')[0]);
+        formData.append('capture_date', imageDetail.date || localDateISO());
         formData.append('location', imageDetail.location || '');
         if (imageDetail.title) {
           formData.append('title', imageDetail.title);
@@ -552,7 +553,7 @@ export const mediaAPI = {
             formData.append('image_url', mlImage.image_url);
             formData.append('name', 'Media Library Image'); // Default name
             formData.append('location', mlImage.location || '');
-            formData.append('capture_date', mlImage.capture_date || new Date().toISOString().split('T')[0]);
+            formData.append('capture_date', mlImage.capture_date || localDateISO());
             formData.append('description', mlImage.description || '');
             // Add title as separate field if provided
             if (mlImage.title) {
@@ -571,7 +572,7 @@ export const mediaAPI = {
             formData.append(`image_url_${currentIndex}`, mlImage.image_url);
             formData.append(`name_${currentIndex}`, `Media Library Image ${currentIndex + 1}`); // Default name
             formData.append(`location_${currentIndex}`, mlImage.location || '');
-            formData.append(`capture_date_${currentIndex}`, mlImage.capture_date || new Date().toISOString().split('T')[0]);
+            formData.append(`capture_date_${currentIndex}`, mlImage.capture_date || localDateISO());
             formData.append(`description_${currentIndex}`, mlImage.description || '');
             // Add title as separate field if provided
             if (mlImage.title) {

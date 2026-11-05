@@ -4,6 +4,7 @@ import { authAPI } from '../utils/authUtils';
 import StashtLogo from '../components/StashtLogo';
 import { useAuth } from '../contexts/AuthContext';
 import SessionValidator from '../utils/sessionValidator';
+import { clearAccountState, markNewAccount } from '../utils/accountState';
 import { AccountChoiceModal, getAdminCollaborator, AdminCollaborator } from '../components/AccountChoiceModal';
 
 
@@ -94,6 +95,9 @@ export default function AccountActivationPage({ token, onActivationComplete }: A
 
           if (userData && tokenData) {
             console.log('💾 Activation successful, checking for admin collaborators first...');
+            // A new sign-in: nothing of a previous one in this browser (its property view, plan picker flag) carries
+            // over (utils/accountState). pending_property_switch (set above for a property invite) is kept.
+            clearAccountState();
 
             // 1. Check for admin collaborators FIRST - from activation response, then from localStorage (stored during signup)
             const responseCollaborators = response.collaborators || [];
@@ -170,7 +174,7 @@ export default function AccountActivationPage({ token, onActivationComplete }: A
             localStorage.setItem('stasht_token', tokenData);
             console.log('✅ stasht_token saved:', tokenData);
 
-            localStorage.setItem('is_new_user', 'true');
+            markNewAccount(localStorage, userData);
 
             // 3. Initialize session validation (required for AuthContext)
             const userIdentifier = userData.email || userData.phone_number;

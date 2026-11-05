@@ -1,7 +1,7 @@
 // [wdy2xh2t3z] The Storeel tab uses the Newsletter tab's full-window frame: the same top bar (Back, Create Campaign,
-// Newsletter | Storeel, Cancel / Continue), no centred modal, the form in step 1 Set up (Chris, 4 Nov 2026, point 9: the
-// Storeel flow) with Advanced filters kept, and a live phone-style preview that follows the form. Phones keep the
-// compact footer (Cancel / Continue).
+// Newsletter | Storeel, Cancel), no centred modal, one page of open cards (Storeel flow v2, 4 Nov 2026: 1 Campaign with
+// Advanced filters kept, 2 Moments, 3 Send) with the actions at the END of the list (Create Campaign / Create & Send),
+// and a live phone-style preview that follows the form. Phones: the actions right after the Send card, then the preview.
 import { IMG, createMockApi } from '../mock-api.mjs';
 
 const STOREEL_TITLE = 'Give your campaign a meaningful title';
@@ -23,10 +23,10 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
   await expectVisible(header.getByRole('button', { name: 'Back' }), 'Back in the top bar');
   await expectVisible(header.getByRole('radio', { name: 'Storeel', checked: true }), 'switch in the top bar');
   await expectVisible(header.getByRole('button', { name: 'Cancel' }), 'Cancel in the top bar');
-  await expectVisible(header.getByRole('button', { name: 'Continue', exact: true }), 'Continue in the top bar');
+  expect(!(await header.getByRole('button', { name: /Create Campaign|Create & Send/ }).count()), 'no action in the top bar (they are at the end of the list)');
   expect(!(await header.getByRole('button', { name: 'Publish' }).count()), 'no Publish menu (sending publishes: Storeel flow)');
   expect(!(await page.getByRole('button', { name: 'Save', exact: true }).isVisible().catch(() => false)), 'no phone footer on wide screens');
-  await expectVisible(page.getByRole('heading', { name: 'Set up' }), 'form card (step 1 Set up)');
+  await expectVisible(page.getByRole('heading', { name: 'Campaign', exact: true }), 'form card (step 1 Campaign)');
   await expectVisible(frame.getByText('Preview', { exact: true }), 'preview heading');
   await expectVisible(frame.getByText('Live', { exact: true }), 'Live badge');
   const preview = page.getByTestId('storeel-preview');
@@ -59,8 +59,8 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
   await page.getByRole('radio', { name: 'Storeel', exact: true }).click();
   expect(await page.getByPlaceholder(STOREEL_TITLE).inputValue() === 'Fall service event', 'the Storeel form kept its title');
 
-  // Continue still creates the Storeel (then the flow goes on to Moments).
-  await header.getByRole('button', { name: 'Continue', exact: true }).click();
+  // Create Campaign (at the end of the list) creates the Storeel.
+  await frame.getByRole('button', { name: 'Create Campaign', exact: true }).click();
   await page.waitForTimeout(1500);
   expect(api.state.storeels.some((s) => s.title === 'Fall service event'), `Storeel created with POST /memories (got ${JSON.stringify(api.state.storeels.map((s) => s.title))})`);
   await context.close();
@@ -86,15 +86,20 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
   await expectVisible(limited.page.getByText('Campaign Limit Reached'), 'limit notice inline in the frame');
   await limited.context.close();
 
-  // Phones: compact footer, preview below the form, nothing scrolls sideways.
+  // Phones: the actions right after the Send card (reached right after the form), the preview below them.
   for (const width of [360, 375, 390]) {
     const phone = await open({ width, height: 844 });
     await phone.page.locator('#nl-name').waitFor();
     await phone.page.getByRole('radio', { name: 'Storeel', exact: true }).click();
-    await expectVisible(phone.page.getByRole('button', { name: 'Continue' }).filter({ visible: true }), `Continue in the phone footer at ${width}`);
-    await expectVisible(phone.page.getByRole('button', { name: 'Cancel' }).filter({ visible: true }), `Cancel in the phone footer at ${width}`);
-    const footer = await phone.page.getByRole('button', { name: 'Continue' }).filter({ visible: true }).boundingBox();
-    expect(footer && footer.y + footer.height <= 844 && footer.y > 700, `footer pinned to the bottom at ${width} (y ${footer?.y})`);
+    const create = phone.page.getByRole('button', { name: 'Create Campaign', exact: true });
+    await expectVisible(create, `Create Campaign after the Send card at ${width}`);
+    const before = await create.boundingBox();
+    const pvBox = await phone.page.getByTestId('storeel-preview').boundingBox();
+    const sendBox = await phone.page.locator('#st-step-send').boundingBox();
+    expect(before && pvBox && sendBox && before.y > sendBox.y && before.y < pvBox.y, `the actions come after the Send card and before the preview at ${width} (button y ${before?.y}, send y ${sendBox?.y}, preview y ${pvBox?.y})`);
+    await create.scrollIntoViewIfNeeded();
+    const end = await create.boundingBox();
+    expect(end && end.y >= 0 && end.y + end.height <= 844, `scrolled to, the actions show on screen at ${width} (y ${end?.y})`);
     expect(!(await hasOverflow(phone.page)), `no sideways scroll at ${width}`);
     const pv = phone.page.getByTestId('storeel-preview');
     await pv.scrollIntoViewIfNeeded();

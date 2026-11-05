@@ -1,6 +1,10 @@
-import { memo, type ReactNode } from 'react';
+import { memo, type CSSProperties, type ReactNode } from 'react';
 import { ArrowDown, ArrowUp, LayoutGrid, Trash2, X } from 'lucide-react';
 import { BUTTON_SMALL_PRIMARY } from './lib/ui';
+import { IMAGE_SHADE, type SectionLook } from './lib/sectionStyle';
+
+/** Room above and below a section (NewsletterRenderer::section): 12 px as always, 24 on a band, 40 on a picture. */
+const PAD_Y: Record<SectionLook['padY'], string> = { 12: 'py-3', 24: 'py-6', 40: 'py-10' };
 
 function IconButton({ label, onClick, disabled, danger, children }: { label: string; onClick(): void; disabled?: boolean; danger?: boolean; children: ReactNode }) {
   return (
@@ -15,7 +19,7 @@ function IconButton({ label, onClick, disabled, danger, children }: { label: str
 /** One section in the preview: purple outline when selected, with move up / move down / delete. A tab stop of its
  *  own (Enter or Space selects it), so sections with no field of their own (a picture, a button, a divider) can be
  *  reached without a mouse. */
-function BlockFrame({ blockId, label, index, count, canUp, canDown, selected, readOnly, problem, padClass, onSelect, onMoveUp, onMoveDown, onDelete, onEdit, editLabel, onDone, children }: {
+function BlockFrame({ blockId, label, index, count, canUp, canDown, selected, readOnly, problem, padClass, onSelect, onMoveUp, onMoveDown, onDelete, onEdit, editLabel, onDone, look, children }: {
   /** The section's id (data-block-id), so focus can come back to it. */
   blockId?: string;
   label: string;
@@ -38,12 +42,20 @@ function BlockFrame({ blockId, label, index, count, canUp, canDown, selected, re
   editLabel?: string;
   /** Done / × : close the editor (changes are already saved). */
   onDone(): void;
+  /** A Title or Text section's style (Chris, 5 Nov): its background colour or picture fills the whole section. */
+  look?: SectionLook | null;
   children: ReactNode;
 }) {
+  // On a band (even one in Studio's purple) the selection shows as the purple line with a white edge inside it, and Done
+  // has a white ring.
+  const surface: CSSProperties | undefined = look?.image
+    ? { backgroundColor: look.fallback ?? undefined, backgroundImage: `url(${JSON.stringify(look.image)})`, backgroundSize: 'cover', backgroundPosition: 'center center', backgroundRepeat: 'no-repeat' }
+    : look?.bg ? { backgroundColor: look.bg } : undefined;
   return (
     <div role="group" aria-label={`${label} section`} data-block-id={blockId} data-nl-selected={selected && !readOnly ? 'true' : undefined} tabIndex={readOnly ? -1 : 0} onClick={readOnly ? undefined : onSelect} onFocusCapture={readOnly ? undefined : onSelect}
       onKeyDown={readOnly ? undefined : (e) => { if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); onSelect(); } }}
-      className={`relative ${padClass} py-3 outline outline-2 -outline-offset-2 transition-[outline-color] focus-visible:outline-[#6C60FF]/60 ${selected ? 'outline-[#6C60FF]' : problem ? 'outline-red-300' : readOnly ? 'outline-transparent' : 'outline-transparent hover:outline-[#6C60FF]/30'}`}>
+      data-nl-section-bg={surface ? (look?.image ? 'image' : 'color') : undefined} style={surface}
+      className={`relative ${padClass} ${PAD_Y[look?.padY ?? 12]} ${surface && selected && !readOnly ? 'shadow-[inset_0_0_0_4px_#fff]' : ''} outline outline-2 -outline-offset-2 transition-[outline-color] focus-visible:outline-[#6C60FF]/60 ${selected ? 'outline-[#6C60FF]' : problem ? 'outline-red-300' : readOnly ? 'outline-transparent' : 'outline-transparent hover:outline-[#6C60FF]/30'}`}>
       {selected && !readOnly ? (
         <div role="toolbar" aria-label={`${label} section actions`} className="absolute -top-3.5 right-3 z-10 flex items-center gap-0.5 rounded-lg border border-gray-200 bg-white p-0.5 shadow-sm">
           {onEdit && editLabel ? <IconButton label={editLabel} onClick={onEdit}><LayoutGrid className="h-4 w-4" /></IconButton> : null}
@@ -54,13 +66,15 @@ function BlockFrame({ blockId, label, index, count, canUp, canDown, selected, re
           <IconButton label="Close editor" onClick={onDone}><X className="h-4 w-4" /></IconButton>
         </div>
       ) : null}
-      {children}
+      {/* On a picture: the header's dark layer, under the words and controls. */}
+      {look?.image ? <div aria-hidden="true" data-nl-shade="" className="pointer-events-none absolute inset-0" style={{ backgroundColor: IMAGE_SHADE }} /> : null}
+      <div className="relative">{children}</div>
       {selected && !readOnly ? (
-        <div className="flex justify-end pt-3">
-          <button type="button" onClick={(e) => { e.stopPropagation(); onDone(); }} className={BUTTON_SMALL_PRIMARY}>Done</button>
+        <div className="relative flex justify-end pt-3">
+          <button type="button" onClick={(e) => { e.stopPropagation(); onDone(); }} className={`${BUTTON_SMALL_PRIMARY} ${surface ? 'ring-2 ring-white' : ''}`}>Done</button>
         </div>
       ) : null}
-      {problem ? <p role="alert" className="pt-2 text-xs text-red-600">{problem}</p> : null}
+      {problem ? <p role="alert" className={`relative pt-2 text-xs ${surface ? 'font-medium text-red-600 [text-shadow:0_0_2px_#fff]' : 'text-red-600'}`}>{problem}</p> : null}
     </div>
   );
 }

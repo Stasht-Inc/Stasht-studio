@@ -1,111 +1,98 @@
-// Chris, 4 Nov 2026, point 9 (Deepak's decisions): Create / Edit a Storeel is one full-screen page with three numbered
-// steps, like the newsletter composer:
-//   1 Set up   — the Create Campaign fields. Continue saves: POST /memories (new) or PUT /memories/{id} (edit).
-//   2 Moments  — a link to the campaign page, where moments are added (no moments editor in the flow). Coming back
-//                resumes on step 3 for that campaign (a note in sessionStorage, read by the Campaigns page and the
-//                campaign page).
-//   3 Send     — the newsletter audience (Single person, All leads, lead groups, lists), email and/or text, a personal
-//                message; POST /memories/{id}/storeel-send sends it as tracked Storeels.
+// Storeel flow v2 (Deepak, 4 Nov 2026; Chris's change the same day: "It should flow just like newsletter"): Create /
+// Edit a Storeel is ONE scrolling page like the newsletter composer. Numbered cards, all open, top to bottom:
+//   1 Campaign — title, category (+ the catalogue / vehicle / Shopify / campaign picker), cover photo or intro video,
+//                date, location, tags, label.
+//   2 Moments  — every moment it will have (picked items, photos and videos with their titles and captions), made with
+//                the original "Add a Moment" UI (AddMomentModal); captions edited the way the campaign page edits them.
+//                Before the campaign exists they're held here and sent with POST /memories; on a saved campaign the
+//                original UI works on the campaign directly. The live preview shows every moment.
+//   3 Send     — optional: the newsletter audience (Single person, All leads, lead groups, lists), email and/or text,
+//                a personal message; POST /memories/{id}/storeel-send.
+// The actions sit at the BOTTOM of the list: "Create Campaign" (POST /memories, then closes: the Campaigns list) and
+// "Create & Send" (creates, then the send confirm). Edit: "Save Changes" (PUT /memories/{id}) and "Save & Send".
+// Nothing is saved before one of them is pressed; a failed save sends nothing. No step gating, no Continue, no primary
+// action in the header, no Moments step (more moments are added on the campaign page afterwards).
 // Pure, so `node --test` loads it.
 import type { AudienceItem, NewsletterChannel } from '../../../services/newslettersAPI.ts';
+import { savedPreviewMoments, type PreviewMoment } from './previewMoments.ts';
 
-export type FlowStep = 'setup' | 'moments' | 'send';
-export const FLOW_STEPS: readonly FlowStep[] = ['setup', 'moments', 'send'];
+export type FlowStep = 'campaign' | 'moments' | 'send';
+export const FLOW_STEPS: readonly FlowStep[] = ['campaign', 'moments', 'send'];
 
 export function stepNumber(step: FlowStep): number {
   return FLOW_STEPS.indexOf(step) + 1;
 }
 
-/** Where the flow opens: Set up, unless it is coming back to a saved campaign (then the step it left for). */
-export function startStep({ campaignId, resume = null }: { campaignId: number | null; resume?: FlowStep | null }): FlowStep {
-  return campaignId && resume ? resume : 'setup';
+export interface FlowView {
+  title: 'Create Campaign' | 'Edit Campaign';
+  /** The bottom "save only" action: POST (create) or PUT (save). */
+  save: { label: 'Create Campaign' | 'Save Changes'; action: 'create' | 'save' };
+  /** The bottom primary action: the same save, then the send confirm. */
+  saveAndSend: { label: 'Create & Send' | 'Save & Send'; action: 'create' | 'save' };
+  /** The toast after the save-only action (the flow closes). */
+  savedToast: 'Campaign created' | 'Changes saved';
+  /** Send card's first line. */
+  sendOptional: string;
+  /** Above the bottom actions once Create & Send made the campaign but the send wasn't confirmed. */
+  createdNote: string | null;
+  /** The toast when the flow is closed (Back / Cancel) after the campaign was made in it. */
+  closeToast: 'Campaign created' | null;
+  /** The bottom / top bar Cancel: "Close" once something is already saved on the campaign (nothing to cancel). */
+  closeLabel: 'Cancel' | 'Close';
+  /** Step 2's line on a saved campaign: moments and captions are saved at once there, as on the campaign page. */
+  momentsNote: string | null;
 }
-
-export type StepStatus = 'current' | 'done' | 'locked';
-
-/** A card is the step being worked on, one already done, or one not reached yet (nothing past Set up until saved). */
-export function stepStatus(step: FlowStep, current: FlowStep, saved: boolean): StepStatus {
-  if (step === current) return 'current';
-  if (!saved && step !== 'setup') return 'locked';
-  return FLOW_STEPS.indexOf(step) < FLOW_STEPS.indexOf(current) ? 'done' : 'locked';
-}
-
-// ── Coming back from the campaign page ────────────────────────────────────────────────────────────────────────────
-export const FLOW_RESUME_KEY = 'stasht_storeel_flow_resume';
-/** A note older than this is forgotten (the person went on to something else). */
-export const FLOW_RESUME_MAX_AGE_MS = 30 * 60 * 1000;
-
-type NoteStorage = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>;
-export interface FlowResume { memoryId: number; step: FlowStep; at: number }
 
 /**
- * Whose note it is: the signed-in account and the view it was written in (personal, or a business's property view).
- * Another sign-in, another business or the other view never resumes it (review, 4 Nov). null: nobody signed in.
+ * What the page shows. editing: opened on a saved campaign (the campaign page's Edit). created: Create & Send made the
+ * campaign in this flow (its send was not confirmed yet), so saving again is a PUT, never a second campaign.
  */
-export function flowOwnerKey(user: { id?: unknown } | null | undefined, viewType: unknown, property: { id?: unknown } | null | undefined): string | null {
-  const id = user?.id === null || user?.id === undefined ? '' : String(user.id).trim();
-  if (!id) return null;
-  const pid = property?.id === null || property?.id === undefined ? '' : String(property.id).trim();
-  return viewType === 'property' && pid ? `${id}|property:${pid}` : `${id}|personal`;
+export function flowView({ editing, created, savedNow = false, changesSaved = false }: {
+  editing: boolean;
+  created: boolean;
+  /** A caption or a moment was saved straight to the saved campaign (step 2). */
+  savedNow?: boolean;
+  /** Edit: Save & Send saved the changes (PUT) but the send wasn't confirmed. */
+  changesSaved?: boolean;
+}): FlowView {
+  const saved = editing || created;
+  return {
+    title: saved ? 'Edit Campaign' : 'Create Campaign',
+    save: saved ? { label: 'Save Changes', action: 'save' } : { label: 'Create Campaign', action: 'create' },
+    saveAndSend: saved ? { label: 'Save & Send', action: 'save' } : { label: 'Create & Send', action: 'create' },
+    savedToast: saved ? 'Changes saved' : 'Campaign created',
+    sendOptional: 'Optional — send it now or later from the campaign page.',
+    createdNote: created && !editing ? 'Campaign created. Send it now, or later from the campaign page.'
+      : editing && changesSaved ? 'Changes saved. Send it now, or later.' : null,
+    closeToast: created && !editing ? 'Campaign created' : null,
+    closeLabel: created || savedNow || changesSaved ? 'Close' : 'Cancel',
+    momentsNote: saved ? 'Moments and captions save straight to your campaign.' : null,
+  };
 }
 
-/** "Add moments on the campaign page": remember to come back to Send for this campaign (for this account and view). */
-export function writeFlowResume(storage: NoteStorage | null | undefined, memoryId: number, owner: string | null, now: number = Date.now()): void {
-  if (!owner) return;
-  try {
-    storage?.setItem(FLOW_RESUME_KEY, JSON.stringify({ memoryId, step: 'send', at: now, owner }));
-  } catch {
-    // Storage blocked (private window): the campaign page's own Edit still opens the flow.
-  }
+/** Why Create Campaign / Save Changes is off (said above the actions). null: it can be pressed. */
+export function saveBlockedReason({ title, category, coverUploading }: { title: string; category: string; coverUploading: boolean }): string | null {
+  if (!title.trim()) return 'Add a campaign title.';
+  if (!category) return 'Pick a category.';
+  if (coverUploading) return 'Wait for the cover to finish uploading.';
+  return null;
 }
 
-/** The note, if it is fresh, this account's and view's (and for this campaign, when one is given); null otherwise. */
-export function readFlowResume(storage: NoteStorage | null | undefined, owner: string | null, { now = Date.now(), memoryId }: { now?: number; memoryId?: number } = {}): FlowResume | null {
-  if (!owner) return null;
-  try {
-    const raw = storage?.getItem(FLOW_RESUME_KEY);
-    if (!raw) return null;
-    const note = JSON.parse(raw) as Partial<FlowResume> & { owner?: unknown };
-    if (note?.owner !== owner) return null;
-    const id = Number(note?.memoryId);
-    const at = Number(note?.at);
-    if (!Number.isInteger(id) || id <= 0 || !Number.isFinite(at)) return null;
-    if (now - at > FLOW_RESUME_MAX_AGE_MS || at - now > 60_000) return null;
-    if (memoryId !== undefined && Number(memoryId) !== id) return null;
-    const step: FlowStep = note.step === 'moments' || note.step === 'setup' ? note.step : 'send';
-    return { memoryId: id, step, at };
-  } catch {
-    return null;
-  }
+/** Create Campaign's toast: a filled-in Send card is not sent by it (only Create & Send sends). */
+export function createdToast(sendFilled: boolean): string {
+  return sendFilled ? 'Campaign created — not sent.' : 'Campaign created';
 }
 
-export function clearFlowResume(storage: NoteStorage | null | undefined): void {
-  try {
-    storage?.removeItem(FLOW_RESUME_KEY);
-  } catch {
-    // ignore
-  }
-}
-
-/** The tab's sessionStorage, or null where there is none (tests, blocked storage). */
-export function sessionNotes(): NoteStorage | null {
-  try {
-    return typeof sessionStorage === 'undefined' ? null : sessionStorage;
-  } catch {
-    return null;
-  }
-}
-
-// ── Edit: the campaign as Set up shows it ─────────────────────────────────────────────────────────────────────────
+// ── Edit: the campaign as step 1 shows it ─────────────────────────────────────────────────────────────────────────
 /** What a campaign is filed under. GET /memories/{id} sends category null for the last three (review, 4 Nov). */
 export type CategoryKind = 'regular' | 'shopify' | 'car' | 'property' | 'none';
-/** Set up's label for a category Studio can't name here (a property's category seen from the personal view). */
+/** Step 1's label for a category Studio can't name here (a property's category seen from the personal view). */
 export const CURRENT_CATEGORY = 'Current category';
 
 export interface CampaignSeed {
   id: number;
   title: string;
-  /** The name Set up shows (Shopify, Cars, the category, else CURRENT_CATEGORY). */
+  /** The name step 1 shows (Shopify, Cars, the category, else CURRENT_CATEGORY). */
   category: string;
   categoryId: number | string | null;
   categoryKind: CategoryKind;
@@ -124,8 +111,8 @@ export interface CampaignSeed {
   isCar: boolean;
   moments: number;
   ownerId: number | null;
-  /** The first moment's picture (the preview's moment card). */
-  firstImage: string | null;
+  /** The campaign's own moments, as the live preview shows them in Edit. */
+  previewMoments: PreviewMoment[];
 }
 
 export interface SetupForm {
@@ -156,24 +143,14 @@ function memoryOf(raw: unknown): Record<string, any> | null {
   return null;
 }
 
-/** The moments on the campaign: its top-level posts, else the photo count the API gives. */
+/** The moments on the campaign: its top-level posts and linked campaigns / vehicles, else the photo count the API gives. */
 export function momentsOf(memory: Record<string, any> | null | undefined): number {
   const posts = memory?.posts;
-  if (Array.isArray(posts)) return posts.filter((p) => p && (p.parent_id === null || p.parent_id === undefined)).length;
+  const linked = Array.isArray(memory?.linked_memories) ? memory.linked_memories.length : 0;
+  if (Array.isArray(posts)) return posts.filter((p) => p && (p.parent_id === null || p.parent_id === undefined)).length + linked;
+  if (linked) return linked;
   const n = Number(memory?.photos?.count ?? memory?.photos_count ?? memory?.memory_images_count ?? 0);
   return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
-}
-
-/** The first top-level moment's picture (not a video), else the API's preview image, else null. */
-export function firstImageOf(memory: Record<string, any> | null | undefined): string | null {
-  const pick = (v: unknown) => (typeof v === 'string' && /^https?:\/\//i.test(v.trim()) && !VIDEO_EXTENSIONS.test(v) ? v.trim() : null);
-  const posts = Array.isArray(memory?.posts) ? memory.posts.filter((p: any) => p && (p.parent_id === null || p.parent_id === undefined)) : [];
-  for (const p of posts) {
-    const url = pick(p.image_link) ?? pick(p.master_image_link) ?? pick(p.media_url);
-    if (url) return url;
-  }
-  const preview = Array.isArray(memory?.photos?.preview_images) ? memory.photos.preview_images[0] : null;
-  return pick(preview?.url);
 }
 
 /** categories: the caller's list (the property view's names its own categories). */
@@ -216,7 +193,7 @@ export function seedFromMemory(raw: unknown, categories: ReadonlyArray<{ id?: un
     isCar: flag(m.is_car),
     moments: momentsOf(m),
     ownerId: Number.isFinite(ownerId) && ownerId > 0 ? ownerId : null,
-    firstImage: firstImageOf(m),
+    previewMoments: savedPreviewMoments(m),
   };
 }
 
@@ -248,8 +225,8 @@ export function dateRangeFor(date: string, endDate: string): string {
 }
 
 /**
- * PUT /memories/{id} for Set up of a saved campaign. The cover is sent only when it changed (null removes it).
- * category_id only when the person picked another category (seededCategory = what Set up opened with) and it is a real
+ * PUT /memories/{id} for step 1 of a saved campaign. The cover is sent only when it changed (null removes it).
+ * category_id only when the person picked another category (seededCategory = what step 1 opened with) and it is a real
  * one: a numeric id, or "shopify" for Shopify. Never the cars / website_catalogue placeholders (the API refuses them),
  * and never for an untouched Shopify / Cars / catalogue / property campaign (the API would re-file it and drop its
  * Shopify links) — review, 4 Nov.

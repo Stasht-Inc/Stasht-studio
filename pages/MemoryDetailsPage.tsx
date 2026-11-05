@@ -75,9 +75,7 @@ import { catalogueAPI, type CatalogueItemDetail } from "../services/catalogueAPI
 import Cropper from 'react-easy-crop';
 import { mapLimit } from "../utils/requestLimit";
 import CreateMemory from "../components/CreateMemory";
-import { clearFlowResume, flowOwnerKey, readFlowResume, seedFromMemory, sessionNotes, type FlowStep } from "../components/storeel/lib/storeelFlow";
-import { BUTTON_SMALL_PRIMARY } from "../components/newsletters/lib/ui";
-import { OPEN_CAMPAIGN_EVENT } from "../components/storeel/lib/openCampaign";
+import { seedFromMemory } from "../components/storeel/lib/storeelFlow";
 const samanthaAvatar = 'https://images.unsplash.com/photo-1494790108755-2616b612b5bc?w=100&h=100&fit=crop';
 
 // Helper: convert S3 URL to proxied path so auth headers work and canvas doesn't get tainted
@@ -967,20 +965,9 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
     return Array.from(tags);
   }, [apiMemoryData]);
   const postIdFromUrl = urlParams.get('post_id');
-  // Edit = the Storeel flow on this campaign (Chris, 4 Nov 2026, points 8-9); resume: the step to open on (Send when
-  // coming back from adding moments). null = closed.
-  const [storeelFlow, setStoreelFlow] = useState<{ resume: FlowStep | null } | null>(null);
-  // "Add moments, then continue to Send": set when the flow sent the person here to add moments (storeelFlow.ts).
-  const flowOwner = flowOwnerKey(user, viewType, currentProperty);
-  const [flowResume, setFlowResume] = useState(() => readFlowResume(sessionNotes(), flowOwner, { memoryId: Number(memoryId) }));
-  // The flow (opened here) sent the person to this page to add moments: the note was just written.
-  useEffect(() => {
-    const onOpenCampaign = () => setFlowResume(readFlowResume(sessionNotes(), flowOwner, { memoryId: Number(memoryId) }));
-    // Another account or view (switched here): its note, if any.
-    onOpenCampaign();
-    window.addEventListener(OPEN_CAMPAIGN_EVENT, onOpenCampaign);
-    return () => window.removeEventListener(OPEN_CAMPAIGN_EVENT, onOpenCampaign);
-  }, [memoryId, flowOwner]);
+  // Edit = the Storeel flow on this campaign (Chris, 4 Nov 2026, points 8-9; v2: 1 Campaign · 2 Send, Done comes back
+  // here). false = closed.
+  const [storeelFlow, setStoreelFlow] = useState(false);
   const [updatedPosts, setUpdatedPosts] = useState<{[key: string]: string}>({});
   const [updatedCommentCounts, setUpdatedCommentCounts] = useState<{[key: string]: number}>({});
   const [deletedPosts, setDeletedPosts] = useState<Set<string>>(new Set());
@@ -5355,10 +5342,10 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
     }
   };
 
-  /** Edit: the Storeel flow on this campaign, Set up prefilled (only a saved campaign: not inventory or collections). */
-  const handleEdit = (resume: FlowStep | null = null) => {
+  /** Edit: the Storeel flow on this campaign, step 1 prefilled (only a saved campaign: not inventory or collections). */
+  const handleEdit = () => {
     if (!/^\d+$/.test(String(memoryId))) return;
-    setStoreelFlow({ resume });
+    setStoreelFlow(true);
   };
 
   const handleDeleteConfirm = async () => {
@@ -18251,33 +18238,18 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
       </button>
 
       {/* Delete Confirmation Dialog */}
-      {/* Back from the Storeel flow's Moments step (Chris, 4 Nov 2026, point 9): add moments here, then continue to
-          Send. Shown only for the campaign the flow sent the person to, for a while (storeelFlow.ts). */}
-      {flowResume && isOwner && !storeelFlow ? (
-        <div role="status" className="fixed inset-x-4 bottom-[calc(8.5rem+env(safe-area-inset-bottom))] z-40 flex items-center gap-3 rounded-xl border border-gray-200 bg-white px-4 py-3 shadow-lg md:inset-x-auto md:bottom-6 md:right-6 md:max-w-md">
-          <p className="min-w-0 flex-1 text-sm text-gray-700">Add your moments, then continue to send your Storeel.</p>
-          <button type="button" onClick={() => { setFlowResume(null); clearFlowResume(sessionNotes()); handleEdit('send'); }} className={`${BUTTON_SMALL_PRIMARY} flex-shrink-0`}>
-            Continue to Send
-          </button>
-          <button type="button" aria-label="Dismiss" onClick={() => { setFlowResume(null); clearFlowResume(sessionNotes()); }}
-            className="-mr-1 flex-shrink-0 rounded-lg p-1 text-gray-500 hover:bg-gray-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#6C60FF]/40">
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-      ) : null}
-
-      {/* Edit = the Storeel flow on this campaign: Set up prefilled (PUT /memories/{id}), Moments, Send again. */}
+      {/* Edit = the Storeel flow on this campaign: step 1 prefilled (Save Changes = PUT /memories/{id}), then Send
+          (optional) or Done back to this page. The preview shows this campaign's moments. */}
       {storeelFlow ? (
         <CreateMemory
           open
-          onOpenChange={(o) => { if (!o) setStoreelFlow(null); }}
+          onOpenChange={(o) => { if (!o) setStoreelFlow(false); }}
           categories={categories}
           campaignId={Number(memoryId)}
           campaignSeed={(() => {
             const seed = seedFromMemory(apiMemoryData, categories);
             return seed ? { ...seed, moments: totalMomentsCount } : null;
           })()}
-          resumeStep={storeelFlow.resume}
           canSend={isOwner}
           onDeleteCampaign={() => setShowDeleteDialog(true)}
           onCampaignSaved={() => { void fetchMemoryDetails(true); onRefresh?.(); }}

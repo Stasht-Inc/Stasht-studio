@@ -156,7 +156,7 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
     await shot(starter.page, `${width}-07-starter`);
     if (width === 1280) {
       await starter.page.getByRole('button', { name: 'Make a Storeel instead' }).click();
-      await expectVisible(starter.page.getByRole('heading', { name: 'Set up' }), 'Storeel form after the upgrade card');
+      await expectVisible(starter.page.getByRole('heading', { name: 'Campaign', exact: true }), 'Storeel form after the upgrade card');
     }
     await starter.context.close();
   }
