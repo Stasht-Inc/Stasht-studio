@@ -1,7 +1,8 @@
 // The text block's allowed HTML (spec §4.2), the same list as the API's NewsletterHtmlSanitizer:
-// p, br, strong, em, a[href https/mailto], ul/ol/li; b→strong, i→em, div/h1–h6→p. Scripts, styles, forms and
+// p, br, strong, em, a[href https/mailto], ul/ol/li; b→strong, i→em, div/h1–h6→p; and (Chris, 5 Nov) a span with
+// one of the toolbar's font sizes, <span style="font-size:14|16|20|24px">. Scripts, styles, forms and
 // media are dropped with their content; other tags are unwrapped (their words stay); every attribute but a
-// safe href goes. Used both ways: clean what the browser's contentEditable produces before saving, and turn
+// safe href (or that font size) goes. Used both ways: clean what the browser's contentEditable produces before saving, and turn
 // stored HTML into nodes that React renders, so no HTML string is ever injected into the page. The API
 // sanitises again on its side.
 import { LIMITS } from './rules.ts';
@@ -12,11 +13,27 @@ export type TextNode =
   | { kind: 'text'; text: string }
   | { kind: 'br' }
   | { kind: 'el'; tag: TextTag; children: TextNode[] }
-  | { kind: 'a'; href: string; children: TextNode[] };
+  | { kind: 'a'; href: string; children: TextNode[] }
+  | { kind: 'size'; px: number; children: TextNode[] };
 
-const TAGS: Record<string, TextTag | 'a' | 'br'> = {
+/** The toolbar's font sizes in px (lib/sectionStyle.ts TEXT_SIZES; the API's NewsletterHtmlSanitizer::FONT_SIZES). */
+export const FONT_SIZE_PX: readonly number[] = [14, 16, 20, 24];
+
+/** The px of a style's font-size when it is one of FONT_SIZE_PX (written "font-size: Npx"), else null. */
+export function styleFontSize(style: string | null): number | null {
+  for (const declaration of String(style ?? '').toLowerCase().split(';')) {
+    const m = /^\s*font-size\s*:\s*(\d{2})px\s*$/.exec(declaration);
+    if (m) {
+      const px = Number(m[1]);
+      return FONT_SIZE_PX.includes(px) ? px : null;
+    }
+  }
+  return null;
+}
+
+const TAGS: Record<string, TextTag | 'a' | 'br' | 'span'> = {
   p: 'p', div: 'p', h1: 'p', h2: 'p', h3: 'p', h4: 'p', h5: 'p', h6: 'p',
-  strong: 'strong', b: 'strong', em: 'em', i: 'em', ul: 'ul', ol: 'ol', li: 'li', a: 'a', br: 'br',
+  strong: 'strong', b: 'strong', em: 'em', i: 'em', ul: 'ul', ol: 'ol', li: 'li', a: 'a', br: 'br', span: 'span',
 };
 // Dropped with everything inside. Void tags (img, input) need no entry: unknown tags are dropped anyway.
 const DROP_WITH_CONTENT = new Set([
@@ -114,6 +131,22 @@ export function parseTextHtml(html: string | null | undefined): TextNode[] {
       }
       continue;
     }
+    if (tag === 'span') {
+      const px = styleFontSize(attrValue(attrs, 'style'));
+      if (px !== null) {
+        const node = { kind: 'size' as const, px, children: [] as TextNode[] };
+        top().push(node);
+        stack.push({ tag: 'span', children: node.children });
+      } else {
+        stack.push({ tag: 'span', children: top() }); // any other span: keep the words (its </span> closes only it)
+      }
+      continue;
+    }
+    // A paragraph or list never sits inside a font size (inline): it ends any size that is open.
+    if (BLOCK_TAGS.has(tag as TextTag)) {
+      const inSpan = stack.findIndex((e) => e.tag === 'span');
+      if (inSpan > 0) stack.length = inSpan;
+    }
     if (tag === 'p') closeTo('p');
     const node = { kind: 'el' as const, tag, children: [] as TextNode[] };
     top().push(node);
@@ -128,6 +161,10 @@ function serializeNode(n: TextNode): string {
   if (n.kind === 'text') return esc(n.text);
   if (n.kind === 'br') return '<br>';
   if (n.kind === 'a') return `<a href="${esc(n.href)}">${n.children.map(serializeNode).join('')}</a>`;
+  if (n.kind === 'size') {
+    const inner = n.children.map(serializeNode).join('');
+    return inner === '' ? '' : `<span style="font-size:${n.px}px">${inner}</span>`;
+  }
   return `<${n.tag}>${n.children.map(serializeNode).join('')}</${n.tag}>`;
 }
 
