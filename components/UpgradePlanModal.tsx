@@ -7,6 +7,7 @@ import StripePaymentForm from './StripePaymentForm';
 import { stripeApi } from '../utils/stripeApi';
 import { announcePlanChange } from '../utils/planEvents';
 import { toast } from 'sonner';
+import { PLAN_PRICING, creditsFeature, priceLabel, yearlyMonthlyPrice, yearlyTotal } from '../utils/planPricing';
 
 // Initialize Stripe
 const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY);
@@ -43,7 +44,7 @@ export const plans: Plan[] = [
     storage: '1 GB storage',
     icon: <Award className="w-5 h-5 text-white" />,
     features: [
-      'AI Credits\n(5 credits/mo)',
+      creditsFeature('starter'),
       'All Accounts Sync',
       '1 Admin Role',
       'Unlimited Collaborators',
@@ -54,13 +55,14 @@ export const plans: Plan[] = [
     id: 'intermediate',
     name: 'Teams',
     subtitle: 'Power users',
-    price: 9,
-    yearlyPrice: 7.47, // ~17% savings
+    // Prices and credits: utils/planPricing (Chris + Deepak, 5 Nov 2026: Teams $19 / 100 credits, Business $29 / 250).
+    price: PLAN_PRICING.intermediate.monthly,
+    yearlyPrice: yearlyMonthlyPrice(PLAN_PRICING.intermediate.monthly), // ~17% savings
     storage: '500 GB storage',
     icon: <Zap className="w-5 h-5 text-white" />,
     features: [
       'Everything in Starter',
-      'AI Credits\n(50 credits/mo)',
+      creditsFeature('intermediate'),
       'All Accounts Sync',
       '3 Admin Roles',
       'Unlimited Collaborators',
@@ -72,14 +74,14 @@ export const plans: Plan[] = [
     id: 'professional',
     name: 'Business',
     subtitle: 'Teams & orgs',
-    price: 19,
-    yearlyPrice: 15.77, // ~17% savings
+    price: PLAN_PRICING.professional.monthly,
+    yearlyPrice: yearlyMonthlyPrice(PLAN_PRICING.professional.monthly), // ~17% savings
     storage: '1 TB storage',
     isPopular: true,
     icon: <Crown className="w-5 h-5 text-white" />,
     features: [
       'Everything in Teams',
-      'AI Credits\n(150 credits/mo)',
+      creditsFeature('professional'),
       'All Account Sync',
       '5 Admin Roles',
       'Unlimited Collaborators',
@@ -553,7 +555,7 @@ export function UpgradePlanModal({ isOpen, onClose, currentPlan, onUpgrade, onSu
                         ) : (
                           <div className="flex items-baseline gap-0.5 justify-end">
                             <span className="text-xl font-bold text-gray-900">
-                              ${isYearly ? plan.yearlyPrice.toFixed(2) : plan.price}
+                              ${priceLabel(plan.price, isYearly)}
                             </span>
                             <span className="text-gray-500 text-xs">/mo</span>
                           </div>
@@ -570,7 +572,7 @@ export function UpgradePlanModal({ isOpen, onClose, currentPlan, onUpgrade, onSu
                         ) : (
                           <>
                             <span className="text-3xl font-bold text-gray-900">
-                              ${isYearly ? plan.yearlyPrice.toFixed(2) : plan.price}
+                              ${priceLabel(plan.price, isYearly)}
                             </span>
                             <span className="text-gray-500">/mo</span>
                           </>
@@ -611,6 +613,9 @@ export function UpgradePlanModal({ isOpen, onClose, currentPlan, onUpgrade, onSu
                       <span className="font-medium text-gray-900">Total</span>
                       <span className="font-bold text-gray-900">{selectedPlan === 'starter' ? 'FREE' : `$${currentPrice}/month`}</span>
                     </div>
+                    {isYearly && selectedPlan !== 'starter' && selectedPlanData && (
+                      <p className="text-xs text-gray-500 text-right mt-1">${yearlyTotal(selectedPlanData.price).toFixed(2)} billed yearly</p>
+                    )}
                   </div>
                 </div>
 
