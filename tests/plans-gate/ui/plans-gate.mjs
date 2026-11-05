@@ -341,25 +341,15 @@ try {
     // Release fixes: it says why, and offers Starter (the account's own choice); the title is one line on a phone.
     const notice = page.getByText('Your trial has ended — choose a plan to keep using Stasht.');
     expect(await notice.count() === 1 && await inViewport(notice, w, h), `T1 ${tag}: says why ("Your trial has ended…"), in view`);
-    expect(await gateDialog(page).getByRole('heading', { name: 'Starter', exact: true }).count() === 1, `T1 ${tag}: Starter offered`);
+    // Paid plans only: it opens because the account owns properties, and properties need a paid plan.
+    expect(await gateDialog(page).getByRole('heading', { name: 'Starter', exact: true }).count() === 0, `T1 ${tag}: no Starter (properties need a paid plan)`);
+    expect(await gateDialog(page).getByRole('heading', { name: 'Teams', exact: true }).count() === 1 && await gateDialog(page).getByRole('heading', { name: 'Business', exact: true }).count() === 1, `T1 ${tag}: Teams and Business offered`);
     const title = await gateDialog(page).getByRole('heading', { name: 'Upgrade Your Plan' }).boundingBox();
     expect(!!title && title.height < 40, `T1 ${tag}: "Upgrade Your Plan" on one line (${title && Math.round(title.height)}px)`);
     await shot(page, `T1-01-trial-ended-picker-${tag}`);
-    if (tag === 'phone') {
-      await out.first().click();
-      await page.waitForURL(/\/login/, { timeout: 20000 }).catch(() => {});
-      expect(/\/login/.test(page.url()), `T1 ${tag}: "Sign out" leaves it`);
-    } else {
-      await gateDialog(page).getByRole('heading', { name: 'Starter', exact: true }).click();
-      await gateDialog(page).getByRole('button', { name: /Get Started/ }).click();
-      await gateBanner(page).first().waitFor({ state: 'hidden', timeout: 15000 }).catch(() => {});
-      expect(await gateBanner(page).count() === 0, `T1 ${tag}: choosing Starter closes it`);
-      await page.reload();
-      await appReady(page);
-      await page.waitForTimeout(5000);
-      expect(await gateBanner(page).count() === 0, `T1 ${tag}: and it isn't asked again`);
-      await shot(page, `T1-02-after-starter-${tag}`);
-    }
+    await out.first().click();
+    await page.waitForURL(/\/login/, { timeout: 20000 }).catch(() => {});
+    expect(/\/login/.test(page.url()), `T1 ${tag}: "Sign out" leaves it`);
     await context.close();
   }
   if (run('T2')) {

@@ -42,15 +42,13 @@ export function showsAccountTools(role: unknown, plan: { isStarter: boolean; kno
  * account covered by its main account, and never on an unknown plan (storage-overview failed, e.g. 429): unknown is
  * "don't gate" (review, 5 Nov 2026).
  */
-export function trialEndedPicker({ storageOverview, viewType, role, ownedProperties, starterChosen = false }: {
+export function trialEndedPicker({ storageOverview, viewType, role, ownedProperties }: {
   storageOverview: any;
   viewType: unknown;
   role: unknown;
   ownedProperties: any[] | null | undefined;
-  /** The account already chose Starter in this picker (trialStarterChoiceKey): not asked again. */
-  starterChosen?: boolean;
 }): boolean {
-  if (starterChosen || viewType === 'property' || !storageOverview) return false;
+  if (viewType === 'property' || !storageOverview) return false;
   if (planCoveredBy(storageOverview)) return false;
   if (planKey(storageOverview.plan_name) !== 'starter') return false;
   const owned = Array.isArray(ownedProperties) ? ownedProperties : [];
@@ -60,9 +58,4 @@ export function trialEndedPicker({ storageOverview, viewType, role, ownedPropert
 /** The phone bottom bar's Dashboard / Apps: as the sidebar, so never in a property view. */
 export function phoneBarShowsAccountTools(viewType: unknown, accountTools: boolean): boolean {
   return viewType !== 'property' && accountTools;
-}
-
-/** localStorage key remembering that this account chose Starter in the Trial Ended picker. */
-export function trialStarterChoiceKey(accountId: unknown): string {
-  return `stasht_trial_starter_chosen:${String(accountId ?? '')}`;
 }

@@ -20,7 +20,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useProperty } from '../contexts/PropertyContext';
 import { allPropertyRows, carOwnerAuthor, inventoryOwnerAuthor, resolvePendingPropertySwitch } from '../utils/salespersonLanding';
 import { planCoveredBy } from '../utils/effectivePlan';
-import { trialEndedPicker, trialStarterChoiceKey } from '../utils/planGate';
+import { trialEndedPicker } from '../utils/planGate';
 import PlanGateExits from '../components/PlanGateExits';
 import { useMemoryLimit, recheckMemoryLimit } from '../hooks/useMemoryLimit';
 import { Avatar, AvatarFallback, AvatarImage } from "../components/ui/avatar";
@@ -327,8 +327,6 @@ function MemoriesPageContent({
 
   const [trialExpiringProperties, setTrialExpiringProperties] = useState<any[]>([]);
   const [showTrialEndedModal, setShowTrialEndedModal] = useState(false);
-  // The Trial Ended picker's choice was a paid plan (onUpgrade); otherwise its success was Starter.
-  const trialPaidPlanChosen = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -350,9 +348,7 @@ function MemoriesPageContent({
         // Show the upgrade modal on the Starter plan when the account (role 3) owns properties or an owned property's
         // trial ended — never in a property view, never for a covered account, and never when the plan is unknown
         // (storage-overview failed, e.g. 429): utils/planGate (Chris 5 Nov, review).
-        let starterChosen = false;
-        try { starterChosen = localStorage.getItem(trialStarterChoiceKey(user?.id)) === '1'; } catch { starterChosen = false; }
-        setShowTrialEndedModal(trialEndedPicker({ storageOverview, viewType, role: userRole, ownedProperties: owned, starterChosen }));
+        setShowTrialEndedModal(trialEndedPicker({ storageOverview, viewType, role: userRole, ownedProperties: owned }));
         // Covered by its main account (a salesperson): no trial warnings or upgrade nudges, the main account's plan
         // applies (utils/effectivePlan; Deepak, 1 Nov 2026).
         if (planCoveredBy(storageOverview)) {
@@ -3869,21 +3865,16 @@ function MemoriesPageContent({
       />
 
       {/* Trial Ended — auto-open upgrade modal for the account's own view (never a property view / covered account:
-          utils/planGate). Starter is offered too (release fixes, 5 Nov): choosing it is remembered, so it isn't asked again. */}
+          utils/planGate). Paid plans only: it opens because the account owns properties, and properties need a paid plan. */}
       <UpgradePlanModal
         isOpen={showTrialEndedModal}
         onClose={() => {}}
+        currentPlan="starter"
+        hideStarter={true}
         canClose={false}
         notice="Your trial has ended — choose a plan to keep using Stasht."
         exitActions={<PlanGateExits />}
-        onUpgrade={() => { trialPaidPlanChosen.current = true; }}
-        onSuccess={() => {
-          if (!trialPaidPlanChosen.current) {
-            try { localStorage.setItem(trialStarterChoiceKey(user?.id), '1'); } catch { /* private mode: asked again next time */ }
-          }
-          trialPaidPlanChosen.current = false;
-          setShowTrialEndedModal(false);
-        }}
+        onSuccess={() => setShowTrialEndedModal(false)}
       />
 
       <RemoveCollaborationModal

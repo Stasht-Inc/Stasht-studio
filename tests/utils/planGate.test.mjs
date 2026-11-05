@@ -75,9 +75,3 @@ test('phone bottom bar: Dashboard / Apps follow the sidebar (never in a property
   assert.equal(phoneBarShowsAccountTools('property', true), false);
 });
 
-// Release fixes (5 Nov): the Trial Ended picker offers Starter too (it is the account's own choice); once the account
-// chose Starter there, it isn't asked again.
-test('Trial Ended picker: not again once the account chose Starter there', () => {
-  assert.equal(trialEndedPicker({ storageOverview: overview('Starter'), viewType: 'personal', role: '3', ownedProperties: owned({ trial_ended: true }), starterChosen: true }), false);
-  assert.equal(trialEndedPicker({ storageOverview: overview('Starter'), viewType: 'personal', role: '3', ownedProperties: owned({ trial_ended: true }), starterChosen: false }), true);
-});
