@@ -8,7 +8,8 @@ import { stripeApi } from '../utils/stripeApi';
 import { announcePlanChange } from '../utils/planEvents';
 import { toast } from 'sonner';
 import { planKey } from '../utils/effectivePlan';
-import { defaultPickerPlan, isCurrentPlan, pickerButton } from '../utils/planPicker';
+import { accountTrialOf, defaultPickerPlan, hasActiveSubscription, isCurrentPlan, pickerButton, pickerCurrentPlan } from '../utils/planPicker';
+import { dashboardAPI } from '../utils/authUtils';
 import { PLAN_PRICING, creditsFeature, priceLabel, yearlyMonthlyPrice, yearlyTotal } from '../utils/planPricing';
 
 // Initialize Stripe
@@ -120,6 +121,26 @@ export function UpgradePlanModal({ isOpen, onClose, currentPlan, onUpgrade, onSu
     toast.info('Please select a plan to access the Stasht portal.');
   };
 
+  // Whether the account's paid plan is really its own (utils/planPicker pickerCurrentPlan): on an Admin Portal trial
+  // without a Stripe subscription it can still buy it. Asked each time the picker opens on a paid plan.
+  const [ownership, setOwnership] = useState<{ known: boolean; accountTrial: unknown; activeSubscription: boolean }>({ known: false, accountTrial: null, activeSubscription: false });
+  useEffect(() => {
+    const paid = planKey(currentPlan);
+    setOwnership({ known: false, accountTrial: null, activeSubscription: false });
+    if (!isOpen || (paid !== 'intermediate' && paid !== 'professional')) return undefined;
+    let cancelled = false;
+    Promise.all([dashboardAPI.getProperties().catch(() => null), stripeApi.getCurrentSubscription().catch(() => null)])
+      .then(([properties, subscription]) => {
+        const active = hasActiveSubscription(subscription);
+        if (cancelled || !properties?.success || active === null) return; // unknown: the plan stays current
+        setOwnership({ known: true, accountTrial: accountTrialOf(properties), activeSubscription: active });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, currentPlan]);
+  const ownPlan = pickerCurrentPlan(currentPlan, ownership);
+
   // Reset selected plan based on currentPlan whenever modal opens
   useEffect(() => {
     if (isOpen) {
@@ -130,7 +151,7 @@ export function UpgradePlanModal({ isOpen, onClose, currentPlan, onUpgrade, onSu
   if (!isOpen && !isPaymentModalOpen && !isStripeFormOpen) return null;
 
   const selectedPlanData = plans.find(p => p.id === selectedPlan);
-  const selectedButton = pickerButton(currentPlan, selectedPlan, selectedPlanData?.name ?? '');
+  const selectedButton = pickerButton(ownPlan, selectedPlan, selectedPlanData?.name ?? '');
   const currentPrice = isYearly
     ? selectedPlanData?.yearlyPrice.toFixed(2)
     : selectedPlanData?.price.toFixed(2);
@@ -532,19 +553,19 @@ export function UpgradePlanModal({ isOpen, onClose, currentPlan, onUpgrade, onSu
                     }`}
                   >
                     {/* Selected / Current plan badge (the account's own plan can't be bought again: utils/planPicker) */}
-                    {(selectedPlan === plan.id || isCurrentPlan(currentPlan, plan.id)) && (
+                    {(selectedPlan === plan.id || isCurrentPlan(ownPlan, plan.id)) && (
                       <div className={`absolute -top-3 left-4 text-xs px-3 py-1 rounded-full font-medium ${
-                        isCurrentPlan(currentPlan, plan.id)
+                        isCurrentPlan(ownPlan, plan.id)
                           ? 'bg-gray-900 text-white'
                           : `text-white ${plan.id === 'starter' ? 'bg-[#4A9CF5]' : plan.id === 'intermediate' ? 'bg-[#f6339A]' : 'bg-[#6C60FF]'}`
                       }`}>
-                        {isCurrentPlan(currentPlan, plan.id) ? 'Current plan' : 'Selected'}
+                        {isCurrentPlan(ownPlan, plan.id) ? 'Current plan' : 'Selected'}
                       </div>
                     )}
 
                     {/* Popular Badge */}
                     {plan.isPopular && (
-                      <div className={`absolute -top-3 ${selectedPlan === plan.id || isCurrentPlan(currentPlan, plan.id) ? 'right-4' : 'left-4'} bg-[#6C60FF] text-white text-xs px-3 py-1 rounded-full font-medium`}>
+                      <div className={`absolute -top-3 ${selectedPlan === plan.id || isCurrentPlan(ownPlan, plan.id) ? 'right-4' : 'left-4'} bg-[#6C60FF] text-white text-xs px-3 py-1 rounded-full font-medium`}>
                         Popular
                       </div>
                     )}

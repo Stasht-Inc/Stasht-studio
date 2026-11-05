@@ -38,9 +38,9 @@ const browser = await chromium.launch({ headless: true, channel: 'chrome' });
  * plans: token → plan_name for GET /user/storage-overview (mutable during a test).
  * seed: localStorage to start from (null = signed out).
  */
-async function open({ seed, plans = {}, width = 1280, height = 900, path = '/', waitFor = null, newbieMember = false, newbieOwns = false, overview = 'ok', stripeSub = null, widgets = null }) {
+async function open({ seed, plans = {}, width = 1280, height = 900, path = '/', waitFor = null, newbieMember = false, newbieOwns = false, overview = 'ok', stripeSub = null, widgets = null, bodyTrial = null }) {
   const calls = [];
-  const state = { plans: { 'pedal-token': 'Business', 'newbie-token': 'Starter', 'body-token': 'Intermediate', ...plans }, downgraded: false, newbieMember, newbieOwns, overview, overviewCalls: 0, stripeSub, widgets };
+  const state = { plans: { 'pedal-token': 'Business', 'newbie-token': 'Starter', 'body-token': 'Intermediate', ...plans }, downgraded: false, newbieMember, newbieOwns, overview, overviewCalls: 0, stripeSub, widgets, bodyTrial };
   const context = await browser.newContext({ viewport: { width, height }, serviceWorkers: 'block', locale: 'en-US', timezoneId: 'America/Vancouver', hasTouch: width < 1024, isMobile: width < 1024 });
   await context.addInitScript(([entries]) => {
     if (localStorage.getItem('pg-seeded')) return; // once per browser: a second tab shares the first one's storage
@@ -94,7 +94,8 @@ async function open({ seed, plans = {}, width = 1280, height = 900, path = '/', 
     if (p === '/properties' && req.method() === 'GET') {
       const owned = me && me.id === PEDALHEADS.id ? [POINT_GREY] : me && me.id === NEWBIE.id && state.newbieOwns ? [KITS_OWN] : [];
       const shared = me && me.id === NEWBIE.id && state.newbieMember ? [KITS_SHARED] : [];
-      return route.fulfill({ json: { success: true, data: { properties: owned, owned_properties: owned, shared_properties: shared, owned_count: owned.length, shared_count: shared.length, total_count: owned.length + shared.length } } });
+      const accountTrial = me && me.id === BODY.id ? state.bodyTrial : null;
+      return route.fulfill({ json: { success: true, data: { properties: owned, owned_properties: owned, shared_properties: shared, owned_count: owned.length, shared_count: shared.length, total_count: owned.length + shared.length, account_trial: accountTrial } } });
     }
     if (/^\/properties\/41\//.test(p)) {
       if (me && me.id === PEDALHEADS.id) return route.fulfill({ json: { success: true, data: { memories: [], categories: [], pagination: { total: 0, current_page: 1, last_page: 1 } } } });
@@ -464,6 +465,43 @@ try {
       await shot(page, `R2-02-${kind}-teams-selected-disabled-${tag}`);
       await context.close();
     }
+  }
+
+  // ── R4. Release follow-up: a Teams account on a running Admin Portal trial, no Stripe subscription, can buy Teams ──
+  for (const [w, h, tag] of [[1280, 900, 'desktop'], [390, 844, 'phone']]) {
+    if (!run('R4')) break;
+    console.log(`R4 (${tag}): trial Teams account buys Teams`);
+    const { page, context } = await open({ width: w, height: h, plans: { 'body-token': 'Teams' }, bodyTrial: { trial_ends_at: '2026-12-01T23:59:59+00:00', trial_ends_on: '2026-12-01', trial_ended: false }, seed: session(BODY, { view_type: 'personal', stasht_alvin_intro_seen_950: '1' }), waitFor: appReady });
+    await page.waitForTimeout(2000);
+    if (tag === 'desktop') {
+      await page.locator('[data-name="Dropdown"]').filter({ visible: true }).first().click();
+      await page.getByText('Billing & Payment').filter({ visible: true }).first().click();
+    } else {
+      await page.evaluate(() => window.dispatchEvent(new CustomEvent('app-navigate', { detail: 'billing' })));
+    }
+    await page.getByRole('button', { name: /Upgrade Plan/ }).filter({ visible: true }).first().click({ timeout: 20000 });
+    const dialog = gateDialog(page);
+    await dialog.waitFor({ state: 'visible', timeout: 10000 });
+    // The picker knows the plan once Billing's plan answer is in (it opens on Business for a Teams account), then asks
+    // whether that plan is really the account's own (trial / subscription).
+    await dialog.getByRole('button', { name: /Upgrade to Business/ }).waitFor({ state: 'visible', timeout: 15000 }).catch(() => {});
+    await dialog.getByText('Current plan', { exact: true }).waitFor({ state: 'hidden', timeout: 15000 }).catch(() => {});
+    await page.waitForTimeout(500);
+    expect(await dialog.getByText('Current plan', { exact: true }).count() === 0, `R4 ${tag}: no "Current plan" on a trial without a subscription`);
+    await dialog.locator('div.border-2', { has: page.getByRole('heading', { name: 'Teams', level: 3 }) }).first().click();
+    const buy = dialog.getByRole('button', { name: /Upgrade to Teams/ });
+    expect(await buy.count() === 1 && await buy.isEnabled(), `R4 ${tag}: Teams selected → "Upgrade to Teams", enabled`);
+    await buy.scrollIntoViewIfNeeded();
+    await shot(page, `R4-01-trial-teams-buyable-${tag}`);
+    await buy.click();
+    const pay = page.getByRole('dialog', { name: 'Payment method' });
+    await pay.waitFor({ state: 'visible', timeout: 10000 }).catch(() => {});
+    expect(await pay.count() === 1, `R4 ${tag}: checkout opens (payment method)`);
+    const cont = pay.getByRole('button', { name: /Continue/ });
+    const uncovered = await cont.evaluate((el) => { const r = el.getBoundingClientRect(); const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return r.bottom <= window.innerHeight && !!hit && (hit === el || el.contains(hit)); }).catch(() => false);
+    expect(uncovered, `R4 ${tag}: "Continue" in view and not covered (phone bottom bar / + button)`);
+    await shot(page, `R4-02-trial-teams-checkout-${tag}`);
+    await context.close();
   }
 
   // ── R3. Teams widget manager: "New widget" only opens the plans, so it looks like a Business option ──

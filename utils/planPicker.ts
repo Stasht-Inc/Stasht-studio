@@ -36,3 +36,30 @@ export function creditsLeftLabel(used: unknown, allowance: unknown): string {
   const left = Math.max(0, total - Math.max(0, Math.floor(Number(used) || 0)));
   return `${left.toLocaleString('en-US')} of ${total.toLocaleString('en-US')} ${total === 1 ? 'credit' : 'credits'} left`;
 }
+
+/** The account's plan trial from a GET /properties answer (data.account_trial), or null. Property trials don't count. */
+export function accountTrialOf(propertiesResponse: any): { trial_ended?: boolean } | null {
+  const d = propertiesResponse?.data?.data || propertiesResponse?.data || {};
+  const t = d?.account_trial;
+  return t && typeof t === 'object' ? t : null;
+}
+
+/** An active Stripe subscription in a stripeApi.getCurrentSubscription() answer; null when unknown (failed). */
+export function hasActiveSubscription(subscriptionResponse: any): boolean | null {
+  if (!subscriptionResponse || subscriptionResponse.success !== true) return null;
+  return Array.isArray(subscriptionResponse.active_subscriptions) && subscriptionResponse.active_subscriptions.length > 0;
+}
+
+/**
+ * The plan the picker treats as the account's own ("Current plan", not for sale): with an active subscription, or an
+ * admin-set plan with no Admin Portal trial (comped). On a trial (running or ended) without a subscription the account
+ * must be able to buy its plan, so nothing is current. Until both answers are in, the plan stays current.
+ */
+export function pickerCurrentPlan(
+  planName: string | undefined,
+  { known, accountTrial, activeSubscription }: { known: boolean; accountTrial: unknown; activeSubscription: boolean },
+): string | undefined {
+  if (!planName || !known) return planName;
+  if (activeSubscription) return planName;
+  return accountTrial ? undefined : planName;
+}

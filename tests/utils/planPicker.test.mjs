@@ -50,3 +50,26 @@ test('credits left, plainly', async () => {
   assert.equal(creditsLeftLabel(null, null), '0 of 0 credits left');
   assert.equal(creditsLeftLabel(0, 1500), '1,500 of 1,500 credits left');
 });
+
+// Release follow-up (5 Nov): an account on a running Admin Portal trial with no Stripe subscription must be able to buy
+// its trial plan, so that plan is not "current" then. Current = an active subscription, or an admin-set plan with no
+// trial (TheBodyPolitik: comped Teams). Until both answers are in (or if one fails) the plan stays current (no double buy).
+test('which plan the picker treats as the account\'s own', async () => {
+  const { pickerCurrentPlan, accountTrialOf, hasActiveSubscription } = await import('../../utils/planPicker.ts');
+  const running = { trial_ends_on: '2026-12-01', trial_ended: false };
+  const ended = { trial_ends_on: '2026-11-01', trial_ended: true };
+  assert.equal(pickerCurrentPlan('Teams', { known: true, accountTrial: running, activeSubscription: false }), undefined, 'trial, no subscription: buyable');
+  assert.equal(pickerCurrentPlan('Teams', { known: true, accountTrial: ended, activeSubscription: false }), undefined, 'ended trial, no subscription: buyable');
+  assert.equal(pickerCurrentPlan('Teams', { known: true, accountTrial: running, activeSubscription: true }), 'Teams', 'paying');
+  assert.equal(pickerCurrentPlan('Teams', { known: true, accountTrial: null, activeSubscription: false }), 'Teams', 'comped (admin-set, no trial)');
+  assert.equal(pickerCurrentPlan('intermediate', { known: true, accountTrial: null, activeSubscription: true }), 'intermediate', 'Stripe Teams');
+  assert.equal(pickerCurrentPlan('Teams', { known: false, accountTrial: running, activeSubscription: false }), 'Teams', 'not known yet: stays current');
+  assert.equal(pickerCurrentPlan(undefined, { known: true, accountTrial: null, activeSubscription: false }), undefined);
+
+  assert.deepEqual(accountTrialOf({ success: true, data: { data: { account_trial: running } } }), running);
+  assert.deepEqual(accountTrialOf({ success: true, data: { account_trial: running } }), running);
+  assert.equal(accountTrialOf({ success: true, data: { owned_properties: [{ trial_ends_at: 'x' }] } }), null, 'a property trial is not the plan trial');
+  assert.equal(hasActiveSubscription({ success: true, active_subscriptions: [{ plan_name: 'intermediate' }] }), true);
+  assert.equal(hasActiveSubscription({ success: true, active_subscriptions: [] }), false);
+  assert.equal(hasActiveSubscription({ success: false }), null, 'unknown');
+});
