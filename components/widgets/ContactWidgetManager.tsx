@@ -9,6 +9,7 @@ import type {
 } from '../../services/widgetsAPI';
 import { useAuth } from '../../contexts/AuthContext';
 import { WIDGET_ICON_BLUE } from '../connectors/catalog';
+import { openBillingUpgrade } from '../connectors/websiteCatalogue';
 import { WidgetPreview } from './WidgetPreview';
 import { InstallGuide } from './InstallGuide';
 import { InstallStatusLine } from './InstallStatus';
@@ -1108,6 +1109,9 @@ export function ContactWidgetManager({
 }) {
   const [widgets, setWidgets] = useState<ContactWidget[] | null>(null);
   const [teamOptions, setTeamOptions] = useState<WidgetTeamOption[]>([]);
+  // Creating or changing a widget needs the Business plan (5 Nov 2026). On Teams the widgets it has keep working: the
+  // list, the install code and Delete stay; New widget / Edit open the plans instead.
+  const [businessPlanRequired, setBusinessPlanRequired] = useState(false);
   const [loadError, setLoadError] = useState('');
   const [view, setView] = useState<'list' | 'builder' | 'install'>('list');
   const [editing, setEditing] = useState<ContactWidget | null>(null);
@@ -1130,6 +1134,7 @@ export function ContactWidgetManager({
       return;
     }
     setTeamOptions(res.data.teamOptions);
+    setBusinessPlanRequired(res.data.businessPlanRequired === true);
     setWidgets(res.data.widgets);
   }, [propertyId]);
 
@@ -1148,6 +1153,10 @@ export function ContactWidgetManager({
   }, [onClose]);
 
   const openBuilder = (w: ContactWidget | null) => {
+    if (businessPlanRequired) {
+      openBillingUpgrade();
+      return;
+    }
     setJustCreatedId(null);
     setEditing(w);
     setBuilderKey((k) => k + 1);
@@ -1160,8 +1169,8 @@ export function ContactWidgetManager({
   useEffect(() => {
     if (widgets === null || firstLoadHandled.current) return;
     firstLoadHandled.current = true;
-    if (widgets.length === 0) openBuilder(null);
-  }, [widgets]);
+    if (widgets.length === 0 && !businessPlanRequired) openBuilder(null);
+  }, [widgets, businessPlanRequired]);
 
   const backToList = () => {
     if (!confirmDiscard()) return;
@@ -1320,6 +1329,12 @@ export function ContactWidgetManager({
                 <Plus className="w-4 h-4" /> New widget
               </button>
             </div>
+            {businessPlanRequired && (
+              <p className="text-sm text-gray-500 mb-4">
+                Your widgets keep working on your website. Creating or changing a widget is available on the Business plan.{' '}
+                <button type="button" onClick={openBillingUpgrade} className="font-semibold text-[#6C60FF] hover:underline">See plans</button>
+              </p>
+            )}
 
             {widgets === null && !loadError && (
               <div className="flex items-center justify-center gap-2 py-16 text-gray-500 text-sm" role="status">
