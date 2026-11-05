@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { clearNewsletterBackups } from '../utils/newsletterBackups';
+import { claimAccountConveniences } from '../utils/accountState';
 import { authAPI, tokenUtils, userUtils, dashboardAPI } from '../utils/authUtils';
 import { initializeAccountCreation } from '../utils/passwordSecurityStorage';
 import SessionValidator from '../utils/sessionValidator';
@@ -120,6 +121,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
             // 60-second logout-protection window (same as login).
             localStorage.setItem('last_successful_login_timestamp', String(Date.now()));
 
+            claimAccountConveniences(localStorage, res.user);
             setUser(res.user as User);
             dashboardAPI.autoMarkImagesSeen().catch(() => {});
             setIsLoading(false);
@@ -186,6 +188,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
           try {
             const parsedUser = JSON.parse(storedUser);
             console.log('✅ User authenticated from localStorage:', parsedUser.email || parsedUser.phone_number);
+            // Before anything renders for this account: another account's conveniences go (utils/accountState).
+            claimAccountConveniences(localStorage, parsedUser);
             setUser(parsedUser);
             dashboardAPI.autoMarkImagesSeen().catch(() => {});
           } catch (parseError) {
@@ -303,6 +307,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         localStorage.setItem('stasht_user', JSON.stringify(oauthUser));
         localStorage.setItem('stasht_token', oauthToken);
 
+        claimAccountConveniences(localStorage, oauthUser);
         setUser(oauthUser);
 
         console.log('✅ OAuth Token saved:', oauthToken.substring(0, 20) + '...');
@@ -341,6 +346,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         localStorage.setItem('stasht_user', JSON.stringify(response.user));
         localStorage.setItem('stasht_token', response.token);
 
+        claimAccountConveniences(localStorage, response.user);
         setUser(response.user);
         dashboardAPI.autoMarkImagesSeen().catch(() => {});
 
@@ -406,6 +412,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
           localStorage.setItem('stasht_user', JSON.stringify(response.user));
           localStorage.setItem('stasht_token', response.token);
 
+          claimAccountConveniences(localStorage, response.user);
           setUser(response.user);
 
           return { success: true, collaborators: collaborators };

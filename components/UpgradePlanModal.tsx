@@ -31,6 +31,8 @@ interface UpgradePlanModalProps {
   onSuccess?: () => void;
   canClose?: boolean;
   hideStarter?: boolean;
+  /** Shown under the lock line when the picker can't be closed: the way out (sign out / back to the main account). */
+  exitActions?: React.ReactNode;
 }
 
 export const plans: Plan[] = [
@@ -97,7 +99,7 @@ function getDefaultPlan(currentPlan?: string): string {
   return 'intermediate'; // starter or unknown → intermediate
 }
 
-export function UpgradePlanModal({ isOpen, onClose, currentPlan, onUpgrade, onSuccess, canClose = true, hideStarter = false }: UpgradePlanModalProps) {
+export function UpgradePlanModal({ isOpen, onClose, currentPlan, onUpgrade, onSuccess, canClose = true, hideStarter = false, exitActions }: UpgradePlanModalProps) {
   const [isYearly, setIsYearly] = useState(false);
   const [selectedPlan, setSelectedPlan] = useState<string>(() => getDefaultPlan(currentPlan));
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
@@ -437,9 +439,15 @@ export function UpgradePlanModal({ isOpen, onClose, currentPlan, onUpgrade, onSu
               <span className="text-sm font-medium tracking-wide">Select a plan to unlock the Stasht portal</span>
             </div>
           )}
+          {!canClose && exitActions && (
+            <div onClick={(e) => e.stopPropagation()}>{exitActions}</div>
+          )}
 
           {/* Modal */}
           <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="upgrade-plan-title"
             className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full relative max-h-[90vh] overflow-y-auto"
             onClick={(e) => e.stopPropagation()}
           >
@@ -447,7 +455,7 @@ export function UpgradePlanModal({ isOpen, onClose, currentPlan, onUpgrade, onSu
           <div className="p-6 pb-0">
             <div className="flex items-start justify-between">
               <div>
-                <h2 className="text-2xl font-bold text-gray-900">Upgrade Your Plan</h2>
+                <h2 id="upgrade-plan-title" className="text-2xl font-bold text-gray-900">Upgrade Your Plan</h2>
                 <p className="text-gray-600 mt-1">Choose the perfect plan for your needs</p>
               </div>
 

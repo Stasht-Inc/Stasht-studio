@@ -19,6 +19,8 @@ import { useUploadProgress } from "../contexts/UploadProgressContext";
 import { useSyncProgress } from "../contexts/SyncProgressContext";
 import { useProperty } from "../contexts/PropertyContext";
 import useAlvinEnabled, { openAlvin } from './alvin/useAlvinEnabled';
+import { useIsStarterPlan } from '../hooks/usePlan';
+import { showsAccountTools } from '../utils/planGate';
 
 // Navigation item component
 function NavItem({
@@ -283,6 +285,8 @@ export default function Sidebar({
   const [showCreateMemory, setShowCreateMemory] = useState(false);
   const [videoStep, setVideoStep] = useState<number | null>(null);
   const alvinOn = useAlvinEnabled();
+  const accountPlan = useIsStarterPlan();
+  const showsDashboardAndApps = showsAccountTools(user?.role, accountPlan);
   const [watchedSteps, setWatchedSteps] = useState<number[]>(() => {
     try { return JSON.parse(localStorage.getItem('stasht_watched_videos') || '[]'); } catch { return []; }
   });
@@ -481,8 +485,8 @@ export default function Sidebar({
     }
 
     // Personal account navigation (existing logic)
-    // Only show Dashboard if user role is NOT 3
-    if (user?.role !== '3' && user?.role !== 3) {
+    // Dashboard: every role but 3, and role 3 (a self sign-up) once its plan is Teams or Business (utils/planGate).
+    if (showsDashboardAndApps) {
       items.push({
         id: 'dashboard',
         label: 'Dashboard',
@@ -534,8 +538,8 @@ export default function Sidebar({
         count: usersCount,
       });
 
-      // Only show Apps section if user role is NOT 3
-      if (user?.role !== '3' && user?.role !== 3) {
+      // Apps: same rule as Dashboard
+      if (showsDashboardAndApps) {
         items.push({
           id: 'apps',
           label: 'Apps',

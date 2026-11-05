@@ -5,6 +5,7 @@ import { imgFemaleAvatar1 } from "./svg-2rf14";
 import { useAuth } from "../contexts/AuthContext";
 import { Avatar, AvatarFallback, AvatarImage } from "../components/ui/avatar";
 import { getAdminSwitchData, switchAccount, clearAdminSwitchData, switchIntoPropertyAccount } from "../components/AccountChoiceModal";
+import { newAccountFlagged } from '../utils/accountState';
 import { opensAsFullAccount, propertyRowActions } from "../utils/propertyRows";
 import { toast } from "sonner";
 import { dashboardAPI } from "../utils/authUtils";
@@ -144,7 +145,7 @@ function ProfileInfo({ user }: { user?: { name?: string; email?: string; phone_n
   const displayName = user?.name || user?.email || user?.phone_number || 'User';
   const planName = user?.plan_name || 'free';
   const credits = user?.credits ?? 0;
-  const [isNewUser, setIsNewUser] = useState(() => localStorage.getItem('is_new_user') === 'true');
+  const [isNewUser, setIsNewUser] = useState(() => newAccountFlagged());
   useEffect(() => {
     const handler = () => setIsNewUser(false);
     window.addEventListener('is_new_user_removed', handler);
@@ -272,7 +273,7 @@ export function ProfileDropdownMenu({ isOpen, onClose, user, onShowProfileSettin
   // The property view's avatar camera: changes the PROPERTY's own image, not the person's (Chris, 1 Nov 2026).
   const propertyImageInputRef = useRef<HTMLInputElement>(null);
   const [isUploadingPropertyImage, setIsUploadingPropertyImage] = useState(false);
-  const [isNewUser, setIsNewUser] = useState(() => localStorage.getItem('is_new_user') === 'true');
+  const [isNewUser, setIsNewUser] = useState(() => newAccountFlagged());
   useEffect(() => {
     const handler = () => setIsNewUser(false);
     window.addEventListener('is_new_user_removed', handler);

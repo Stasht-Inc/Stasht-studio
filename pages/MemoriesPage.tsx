@@ -20,6 +20,8 @@ import { useAuth } from '../contexts/AuthContext';
 import { useProperty } from '../contexts/PropertyContext';
 import { allPropertyRows, carOwnerAuthor, inventoryOwnerAuthor, resolvePendingPropertySwitch } from '../utils/salespersonLanding';
 import { planCoveredBy } from '../utils/effectivePlan';
+import { trialEndedPicker } from '../utils/planGate';
+import PlanGateExits from '../components/PlanGateExits';
 import { useMemoryLimit, recheckMemoryLimit } from '../hooks/useMemoryLimit';
 import { Avatar, AvatarFallback, AvatarImage } from "../components/ui/avatar";
 import EmptyMemoriesState from "../components/EmptyMemoriesState";
@@ -327,30 +329,26 @@ function MemoriesPageContent({
   const [showTrialEndedModal, setShowTrialEndedModal] = useState(false);
 
   useEffect(() => {
+    let cancelled = false;
     const checkTrialAndPlan = async () => {
       try {
         const [propertiesRes, storageRes] = await Promise.all([
           dashboardAPI.getProperties(),
           dashboardAPI.getStorageOverview(),
         ]);
+        if (cancelled) return; // the view changed meanwhile: the newer check decides
 
         const d = propertiesRes?.data?.data || propertiesRes?.data || {};
         const owned: any[] = d.owned_properties || [];
         const now = new Date();
         const userRole = String(user?.role ?? '');
 
-        const storageOverview = storageRes?.data?.data?.storage_overview || storageRes?.data?.storage_overview;
-        const planName = (storageOverview?.plan_name || 'starter').toLowerCase();
-        const isStarterPlan = planName === 'starter';
+        const storageOverview = storageRes?.success ? (storageRes?.data?.data?.storage_overview || storageRes?.data?.storage_overview) : null;
 
-        // Show upgrade modal if:
-        // 1. role === "3" (main account) + has owned properties + still on starter plan
-        // 2. OR any owned property trial has ended + still on starter plan
-        const isMainAccountWithProperties = userRole === '3' && owned.length > 0;
-        const trialEnded = owned.some(p => p.trial_ended === true);
-        if (isStarterPlan && (isMainAccountWithProperties || trialEnded)) {
-          setShowTrialEndedModal(true);
-        }
+        // Show the upgrade modal on the Starter plan when the account (role 3) owns properties or an owned property's
+        // trial ended — never in a property view, never for a covered account, and never when the plan is unknown
+        // (storage-overview failed, e.g. 429): utils/planGate (Chris 5 Nov, review).
+        setShowTrialEndedModal(trialEndedPicker({ storageOverview, viewType, role: userRole, ownedProperties: owned }));
         // Covered by its main account (a salesperson): no trial warnings or upgrade nudges, the main account's plan
         // applies (utils/effectivePlan; Deepak, 1 Nov 2026).
         if (planCoveredBy(storageOverview)) {
@@ -376,7 +374,10 @@ function MemoriesPageContent({
     };
 
     checkTrialAndPlan();
-  }, [user]);
+    return () => {
+      cancelled = true;
+    };
+  }, [user, viewType]);
 
   // Check if user is property owner (admin) or visitor (read-only)
   const isPropertyOwner = useMemo(() => {
@@ -3870,6 +3871,7 @@ function MemoriesPageContent({
         currentPlan="starter"
         hideStarter={true}
         canClose={false}
+        exitActions={<PlanGateExits />}
         onSuccess={() => setShowTrialEndedModal(false)}
       />
 

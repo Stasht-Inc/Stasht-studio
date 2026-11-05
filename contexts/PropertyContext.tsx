@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { setTabPropertyView } from '../utils/inventoryView';
+import { ACCOUNT_STATE_CLEARED_EVENT, PROPERTY_VIEW_OWNER_KEY } from '../utils/accountState';
 
 interface Property {
   id: number;
@@ -29,6 +30,27 @@ interface PropertyContextType {
 
 const PropertyContext = createContext<PropertyContextType | undefined>(undefined);
 
+/** The signed-in account's login id from localStorage stasht_user, or null. */
+function signedInAccountId(): string | null {
+  try {
+    const user = JSON.parse(localStorage.getItem('stasht_user') || 'null');
+    const id = user?.id ?? user?.email ?? user?.phone_number;
+    return id === null || id === undefined || String(id).trim() === '' ? null : String(id);
+  } catch {
+    return null;
+  }
+}
+
+function storedViewIsForAnotherAccount(): boolean {
+  try {
+    const owner = localStorage.getItem(PROPERTY_VIEW_OWNER_KEY);
+    const me = signedInAccountId();
+    return !!owner && !!me && owner !== me;
+  } catch {
+    return false;
+  }
+}
+
 export function PropertyProvider({ children }: { children: ReactNode }) {
   const [isPendingPropertySwitch, setIsPendingPropertySwitch] = useState(() => {
     return !!localStorage.getItem('pending_property_switch');
@@ -36,12 +58,24 @@ export function PropertyProvider({ children }: { children: ReactNode }) {
 
   // Initialize from localStorage. A salesperson's External account view (their own external property) is restored
   // like any other property view (utils/salespersonLanding).
+  // A view saved for another sign-in (selected_property_owner names the account it was opened by) is never restored
+  // (utils/accountState, Chris 5 Nov 2026). Views saved before the owner was recorded are checked against the
+  // account's properties once signed in (App).
+  const [restoredForOtherAccount] = useState(() => {
+    const other = storedViewIsForAnotherAccount();
+    // Before any page's first request (their effects run before this provider's): this tab is in the account view.
+    if (other) setTabPropertyView('personal', null);
+    return other;
+  });
+
   const [viewType, setViewType] = useState<'personal' | 'property'>(() => {
+    if (restoredForOtherAccount) return 'personal';
     const stored = localStorage.getItem('view_type');
     return (stored === 'property' ? 'property' : 'personal') as 'personal' | 'property';
   });
 
   const [currentProperty, setCurrentProperty] = useState<Property | null>(() => {
+    if (restoredForOtherAccount) return null;
     const stored = localStorage.getItem('selected_property');
     if (stored) {
       try {
@@ -61,10 +95,26 @@ export function PropertyProvider({ children }: { children: ReactNode }) {
     localStorage.setItem('view_type', viewType);
     if (currentProperty) {
       localStorage.setItem('selected_property', JSON.stringify(currentProperty));
+      const owner = signedInAccountId();
+      if (owner) localStorage.setItem(PROPERTY_VIEW_OWNER_KEY, owner);
     } else {
       localStorage.removeItem('selected_property');
+      localStorage.removeItem(PROPERTY_VIEW_OWNER_KEY);
     }
   }, [viewType, currentProperty]);
+
+  // A sign-out / sign-in cleared the account's stored view (utils/accountState): this page must not keep showing the
+  // previous account's property either (a sign-in doesn't reload the page). Back to the account view.
+  useEffect(() => {
+    const onCleared = () => {
+      setTabPropertyView('personal', null);
+      setViewType('personal');
+      setCurrentProperty(null);
+      setIsPendingPropertySwitch(!!localStorage.getItem('pending_property_switch'));
+    };
+    window.addEventListener(ACCOUNT_STATE_CLEARED_EVENT, onCleared);
+    return () => window.removeEventListener(ACCOUNT_STATE_CLEARED_EVENT, onCleared);
+  }, []);
 
   const switchToProperty = (property: Property) => {
     console.log('🏠 Switching to property view:', property.name);

@@ -1,0 +1,167 @@
+// What belongs to the signed-in account in this browser (Chris, 5 Nov 2026, point 1).
+//
+// Chris signed out of Pedalheads and created a new account: it opened in Pedalheads' "Point Grey" property view
+// (header "Point Grey · Property") behind the new-account plan picker, with Starter hidden because a property view was
+// open. view_type / selected_property (PropertyContext) and is_new_user outlived the sign-out: userUtils.clearAuthData
+// removed only the auth keys. clearAccountState removes everything that belongs to one account; it runs on every
+// sign-out, token expiry / 401 and sign-in (clearAuthData), and before a sign-up / activation / SSO writes the new
+// sign-in directly. PropertyContext listens for ACCOUNT_STATE_CLEARED_EVENT and returns to the account view.
+//
+// Kept on purpose: device preferences (pwa-install-dismissed, stasht_login_method_*, google_photos_dont_ask) and
+// sign-in flows in progress, which are written BEFORE the sign-in they are for (pending_property_switch,
+// pendingInvite, pendingRedirectAfterLogin, magic-link and QR-invite keys). Newsletter draft copies are keyed per
+// account and go on an explicit sign-out (utils/newsletterBackups). No imports, so authUtils can use it.
+
+export const ACCOUNT_STATE_CLEARED_EVENT = 'stasht-account-state-cleared';
+
+/** localStorage: the login id of the account that opened the stored property view (PropertyContext). */
+export const PROPERTY_VIEW_OWNER_KEY = 'selected_property_owner';
+
+/** localStorage keys of one sign-in (besides the auth keys clearAuthData removes itself): cleared on every sign-out,
+ * token expiry and sign-in. */
+export const ACCOUNT_LOCAL_KEYS: readonly string[] = [
+  // The property view (PropertyContext) and the new-account plan picker's flag (App).
+  'view_type',
+  'selected_property',
+  PROPERTY_VIEW_OWNER_KEY,
+  'is_new_user',
+  'is_new_user_account',
+];
+
+/** Per-account conveniences: kept when the same account signs in again, cleared when a DIFFERENT account signs in
+ * (claimAccountConveniences, called by AuthContext whenever a sign-in is taken up). */
+export const ACCOUNT_CONVENIENCE_KEYS: readonly string[] = [
+  'stasht_campaigns_view',
+  'stash_invited_memories',
+  'stasht_recent_searches',
+  'hiddenServices',
+  'imageCropSettings',
+  'stasht_watched_videos',
+  'stasht_category_colors',
+  'moderation_preference_updated',
+];
+
+/** localStorage: the account the conveniences belong to. */
+export const CONVENIENCES_OWNER_KEY = 'stasht_conveniences_account';
+
+/** sessionStorage keys that open a screen of the signed-in account on the next page. */
+export const ACCOUNT_SESSION_KEYS: readonly string[] = [
+  'users_open_tab',
+  'billing_open_upgrade',
+  'openPurchaseCreditsModal',
+  'restorePublishedEntry',
+];
+
+type RemovableStorage = { removeItem(key: string): void } | null | undefined;
+type KeyValueStorage = { getItem(key: string): string | null; setItem(key: string, value: string): void; removeItem(key: string): void } | null | undefined;
+
+/** An account's id (login id; email / phone without one), or null. */
+export function accountId(user: unknown): string | null {
+  const u = user as { id?: unknown; email?: unknown; phone_number?: unknown } | null | undefined;
+  const id = u?.id ?? u?.email ?? u?.phone_number;
+  return id === null || id === undefined || String(id).trim() === '' ? null : String(id).trim();
+}
+
+function browserStorage(kind: 'localStorage' | 'sessionStorage'): KeyValueStorage {
+  try {
+    return typeof window !== 'undefined' ? window[kind] : null;
+  } catch {
+    return null;
+  }
+}
+
+function removeAll(storage: RemovableStorage, keys: readonly string[]): void {
+  if (!storage) return;
+  for (const key of keys) {
+    try {
+      storage.removeItem(key);
+    } catch {
+      // storage refused (private mode): nothing kept to clear
+    }
+  }
+}
+
+/**
+ * Removes the signed-in account's keys (tests pass their own storages; the app uses the browser's) and tells
+ * PropertyContext (ACCOUNT_STATE_CLEARED_EVENT). Never throws.
+ */
+export function clearAccountState(
+  local: RemovableStorage = browserStorage('localStorage'),
+  session: RemovableStorage = browserStorage('sessionStorage'),
+): void {
+  removeAll(local, ACCOUNT_LOCAL_KEYS);
+  removeAll(session, ACCOUNT_SESSION_KEYS);
+  try {
+    if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
+      window.dispatchEvent(new Event(ACCOUNT_STATE_CLEARED_EVENT));
+    }
+  } catch {
+    // no window (tests)
+  }
+}
+
+/**
+ * A sign-in is taken up (AuthContext): when the conveniences in this browser belong to a different account, they go;
+ * then they belong to this one. The first time (nothing recorded) what is there is adopted. Never throws.
+ */
+export function claimAccountConveniences(local: KeyValueStorage = browserStorage('localStorage'), user: unknown = null): void {
+  const id = accountId(user);
+  if (!local || !id) return;
+  try {
+    const owner = local.getItem(CONVENIENCES_OWNER_KEY);
+    if (owner && owner !== id) removeAll(local, ACCOUNT_CONVENIENCE_KEYS);
+    local.setItem(CONVENIENCES_OWNER_KEY, id);
+  } catch {
+    // storage refused
+  }
+}
+
+function storedUser(local: KeyValueStorage): unknown {
+  try {
+    return JSON.parse(local?.getItem('stasht_user') || 'null');
+  } catch {
+    return null;
+  }
+}
+
+/** Sign-up / activation: this account has not chosen its plan yet (the new-account plan picker, App). */
+export function markNewAccount(local: KeyValueStorage = browserStorage('localStorage'), user: unknown = null): void {
+  const id = accountId(user);
+  if (!local || !id) return;
+  try {
+    local.setItem('is_new_user', 'true');
+    local.setItem('is_new_user_account', id);
+  } catch {
+    // storage refused
+  }
+}
+
+/** The signed-in account is a new account that has not chosen its plan. A flag set for another account (a switch
+ * carried it) or by an older build (no account named) does not count. */
+export function newAccountFlagged(local: KeyValueStorage = browserStorage('localStorage')): boolean {
+  if (!local) return false;
+  try {
+    if (local.getItem('is_new_user') !== 'true') return false;
+    const flaggedFor = local.getItem('is_new_user_account');
+    const me = accountId(storedUser(local));
+    return !!flaggedFor && !!me && flaggedFor === me;
+  } catch {
+    return false;
+  }
+}
+
+export function clearNewAccountFlag(local: KeyValueStorage = browserStorage('localStorage')): void {
+  removeAll(local, ['is_new_user', 'is_new_user_account']);
+}
+
+/**
+ * A property view restored from storage that is not one of the signed-in account's properties (owned or shared, as
+ * GET /properties lists them): left behind by another sign-in, so the account view is shown instead. Unknown
+ * (`rows` null: the list could not be loaded) keeps the view.
+ */
+export function propertyViewIsStale(viewType: unknown, property: { id?: unknown } | null | undefined, rows: unknown): boolean {
+  if (viewType !== 'property' || !property || !Array.isArray(rows)) return false;
+  const id = property.id === null || property.id === undefined ? '' : String(property.id).trim();
+  if (!id) return false;
+  return !rows.some((row: any) => row && String(row.id).trim() === id);
+}
