@@ -2,7 +2,7 @@ import { dayOf } from '../../../utils/localDate.ts';
 
 // Storeel flow v2 (Deepak, 4 Nov 2026): the moments the live preview shows. Pure, so `node --test` loads it.
 //
-// Create: every moment "Create Campaign" will make, in the order the web API makes them (MemoriesController::store):
+// Create: every moment "Save as Draft" will make, in the order the web API makes them (MemoriesController::store):
 // the picked items first — Website Catalogue products in the order picked (CatalogCampaignCreator keeps the order
 // sent; one moment each, plus its "View on website" button card), vehicles and Shopify collections / linked campaigns
 // (linked items, shown before the photos on the campaign page) — then the uploaded photos and videos (the `photos` the

@@ -21,18 +21,18 @@ type Patch = { audience?: AudienceItem[]; channels?: NewsletterChannel[]; sms_te
 export const COUNTED_ONCE_CREATED = 'We count who gets it once the campaign is created.';
 
 export interface StoreelSendStepProps {
-  /** The saved campaign (null until Create Campaign / Create & Send made it: the card is filled in anyway). */
+  /** The saved campaign (null until Save as Draft / Save & Send made it: the card is filled in anyway). */
   campaign: CampaignSeed | null;
   /** The card's first line: sending is optional. */
   optionalLine: string;
   /**
-   * Create & Send / Save & Send pressed and the campaign saved: each new number opens the send confirm once the
+   * Save & Send pressed and the campaign saved: each new number opens the send confirm once the
    * campaign is there (a just-created campaign arrives a render later).
    */
   sendRequest: number;
   /**
    * For the bottom actions: what still stops a send (null: nothing Studio can see) and whether the card is filled in
-   * at all (someone to send to, or a message) — Create Campaign then says it was not sent.
+   * at all (someone to send to, or a message) — Save as Draft then says it was not sent.
    */
   onStatus?(status: { problem: string | null; filled: boolean }): void;
   /** Who the text says it came from (senderLabelFor). */
@@ -54,7 +54,7 @@ export interface StoreelSendStepProps {
  * card is always open and filled in before the campaign exists): the newsletter composer's audience (Single person — email box and/or
  * country-code phone — All leads, lead groups, lists, one or the other), Email and/or Text, a personal message with the
  * text-parts counter, and Estimated recipients from POST /memories/{id}/storeel-audience-count (once the campaign exists).
- * The page's bottom Create & Send / Save & Send saves, then asks to confirm (StoreelSendConfirmDialog). Each person gets
+ * The page's bottom Save & Send saves, then asks to confirm (StoreelSendConfirmDialog). Each person gets
  * the message and their own tracked link.
  */
 export default function StoreelSendStep(
@@ -84,7 +84,7 @@ export default function StoreelSendStep(
       extra: { limit: r.data?.limit ?? null, allowance: r.data?.allowance ?? null, unavailable: r.unavailable, forbidden: r.forbidden },
     };
   }, campaignId);
-  // No campaign yet: nothing to count against (the estimate says so; the confirm counts after Create & Send).
+  // No campaign yet: nothing to count against (the estimate says so; the confirm counts after Save & Send).
   const count = campaignId > 0 ? counted : { counts: null, loading: false, error: audience.length && channels.length ? COUNTED_ONCE_CREATED : null };
   const limit = count.extra?.limit ?? null;
   const allowance = count.extra?.allowance ?? null;
@@ -106,7 +106,7 @@ export default function StoreelSendStep(
     setServerStepError(null);
   };
 
-  // What still stops a send: the bottom Create & Send button shows it (and stays off); the card marks it once tried.
+  // What still stops a send: the bottom Save & Send button shows it (and stays off); the card marks it once tried.
   const blocker = !canSend || forbidden ? CANT_SEND : sendProblem({ audience, channels, message, counts: count.counts, smsProblem: parts.problem, limit });
   const filled = countableAudience(audience).length > 0 || message.trim().length > 0;
   const onStatusRef = useRef(onStatus);
@@ -121,7 +121,7 @@ export default function StoreelSendStep(
     el?.focus({ preventScroll: true });
   };
 
-  // Create & Send / Save & Send: the campaign is saved; ask to confirm (once per press, once the campaign is here).
+  // Save & Send: the campaign is saved; ask to confirm (once per press, once the campaign is here).
   const handledRequest = useRef(sendRequest);
   useEffect(() => {
     if (sendRequest === handledRequest.current || !campaign) return;

@@ -1,6 +1,6 @@
 // [wdy2xh2t3z] The Storeel tab uses the Newsletter tab's full-window frame: the same top bar (Back, Create Campaign,
 // Newsletter | Storeel, Cancel), no centred modal, one page of open cards (Storeel flow v2, 4 Nov 2026: 1 Campaign with
-// Advanced filters kept, 2 Moments, 3 Send) with the actions at the END of the list (Create Campaign / Create & Send),
+// Advanced filters kept, 2 Moments, 3 Send) with the actions at the END of the list (Save as Draft / Save & Send),
 // and a live phone-style preview that follows the form. Phones: the actions right after the Send card, then the preview.
 import { IMG, createMockApi } from '../mock-api.mjs';
 
@@ -23,7 +23,7 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
   await expectVisible(header.getByRole('button', { name: 'Back' }), 'Back in the top bar');
   await expectVisible(header.getByRole('radio', { name: 'Storeel', checked: true }), 'switch in the top bar');
   await expectVisible(header.getByRole('button', { name: 'Cancel' }), 'Cancel in the top bar');
-  expect(!(await header.getByRole('button', { name: /Create Campaign|Create & Send/ }).count()), 'no action in the top bar (they are at the end of the list)');
+  expect(!(await header.getByRole('button', { name: /Save as Draft|Save & Send/ }).count()), 'no action in the top bar (they are at the end of the list)');
   expect(!(await header.getByRole('button', { name: 'Publish' }).count()), 'no Publish menu (sending publishes: Storeel flow)');
   expect(!(await page.getByRole('button', { name: 'Save', exact: true }).isVisible().catch(() => false)), 'no phone footer on wide screens');
   await expectVisible(page.getByRole('heading', { name: 'Campaign', exact: true }), 'form card (step 1 Campaign)');
@@ -59,8 +59,8 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
   await page.getByRole('radio', { name: 'Storeel', exact: true }).click();
   expect(await page.getByPlaceholder(STOREEL_TITLE).inputValue() === 'Fall service event', 'the Storeel form kept its title');
 
-  // Create Campaign (at the end of the list) creates the Storeel.
-  await frame.getByRole('button', { name: 'Create Campaign', exact: true }).click();
+  // Save as Draft (at the end of the list) creates the Storeel.
+  await frame.getByRole('button', { name: 'Save as Draft', exact: true }).click();
   await page.waitForTimeout(1500);
   expect(api.state.storeels.some((s) => s.title === 'Fall service event'), `Storeel created with POST /memories (got ${JSON.stringify(api.state.storeels.map((s) => s.title))})`);
   await context.close();
@@ -91,8 +91,8 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
     const phone = await open({ width, height: 844 });
     await phone.page.locator('#nl-name').waitFor();
     await phone.page.getByRole('radio', { name: 'Storeel', exact: true }).click();
-    const create = phone.page.getByRole('button', { name: 'Create Campaign', exact: true });
-    await expectVisible(create, `Create Campaign after the Send card at ${width}`);
+    const create = phone.page.getByRole('button', { name: 'Save as Draft', exact: true });
+    await expectVisible(create, `Save as Draft after the Send card at ${width}`);
     const before = await create.boundingBox();
     const pvBox = await phone.page.getByTestId('storeel-preview').boundingBox();
     const sendBox = await phone.page.locator('#st-step-send').boundingBox();

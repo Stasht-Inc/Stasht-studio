@@ -1008,16 +1008,16 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
   };
 
   // ── The Storeel flow v2 (Deepak, 4 Nov 2026; Chris the same day: "flow just like newsletter"): ONE page, cards all
-  // open — 1 Campaign · 2 Moments · 3 Send (optional) — and the actions at the bottom of the list: Create Campaign /
-  // Create & Send (edit: Save Changes / Save & Send). Nothing is created or saved before one of them is pressed.
+  // open — 1 Campaign · 2 Moments · 3 Send (optional) — and the actions at the bottom of the list: Save as Draft /
+  // Save & Send (edit: Save Changes / Save & Send). Nothing is created or saved before one of them is pressed.
   // Editing a saved campaign (campaignId): no pickers or property here (PUT doesn't change them); its moments are
   // shown in step 2, where the original Add a Moment UI works on the campaign directly.
   const flowEditing = Boolean(campaignId);
-  // The saved campaign: the one being edited, or the one Create & Send just made.
+  // The saved campaign: the one being edited, or the one Save & Send just made.
   const [flowCampaign, setFlowCampaignState] = useState<CampaignSeed | null>(null);
   const flowCampaignRef = useRef<CampaignSeed | null>(null);
   const setFlowCampaign = (seed: CampaignSeed | null) => { flowCampaignRef.current = seed; setFlowCampaignState(seed); };
-  // Create & Send made the campaign in this flow (its send not confirmed yet): saving again is a PUT.
+  // Save & Send made the campaign in this flow (its send not confirmed yet): saving again is a PUT.
   const [flowCreated, setFlowCreated] = useState(false);
   // A caption or moment saved straight to the saved campaign (step 2), and Edit's Save & Send left at the confirm.
   const [savedNow, setSavedNow] = useState(false);
@@ -1036,7 +1036,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
   };
   // The refusal is about what was there then: it goes once the title, the category or the picked items change.
   useEffect(() => { setActionError(null); }, [formData.title, formData.category, selectedMemoryIds]);
-  // The Send card is filled in (someone to send to, or a message): Create Campaign then says it was not sent.
+  // The Send card is filled in (someone to send to, or a message): Save as Draft then says it was not sent.
   const [sendFilled, setSendFilled] = useState(false);
   // Add a Moment's "Add from Media Library": the library opens over it (the files chosen in it stay), and on a saved
   // campaign its picks go back into it, as on the campaign page.
@@ -1048,9 +1048,9 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
   const [setupError, setSetupError] = useState<string | null>(null);
   // The cover the campaign had when it was opened or last saved: last_update_img is sent only when it changes.
   const initialCoverUrlRef = useRef<string | null>(null);
-  // Create & Send / Save & Send: each new number asks the Send card to confirm, once the campaign is saved.
+  // Save & Send: each new number asks the Send card to confirm, once the campaign is saved.
   const [sendRequest, setSendRequest] = useState(0);
-  // What still stops a send (the Send card says), shown at the bottom Create & Send button.
+  // What still stops a send (the Send card says), shown at the bottom Save & Send button.
   const [sendBlocker, setSendBlocker] = useState<string | null>(null);
   // Which bottom button is working (its spinner).
   const [savingAction, setSavingAction] = useState<'save' | 'send' | null>(null);
@@ -1980,7 +1980,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
   };
 
 
-  // ── The live preview's moments (Storeel flow v2): what "Create Campaign" will make, in the order the API makes them
+  // ── The live preview's moments (Storeel flow v2): what "Save as Draft" will make, in the order the API makes them
   // (lib/previewMoments.ts) — the picked items the form sends (selectedMemoryIds), then the uploaded photos it sends
   // (mainPhotosArray). Once saved — Edit, or just created — the campaign's own moments (PUT can't add any, and a later
   // category change in step 1 must not take the made moments off the preview).
@@ -1997,9 +1997,9 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
   const previewMoments = flowEditing || flowCampaign ? (flowCampaign?.previewMoments ?? []) : createMoments;
 
   /**
-   * Create Campaign (andSend false) or Create & Send: POST /memories with every moment of step 2 — its photos and
-   * videos in order with their titles and captions, and the picked items — in one request, as Create Campaign always
-   * sent them (so a moment can't half-fail). Create Campaign then closes on the Campaigns list; Create & Send asks the
+   * Save as Draft (andSend false) or Save & Send: POST /memories with every moment of step 2 — its photos and
+   * videos in order with their titles and captions, and the picked items — in one request, as Save as Draft always
+   * sent them (so a moment can't half-fail). Save as Draft then closes on the Campaigns list; Save & Send asks the
    * Send card to confirm. A failed create sends nothing.
    */
   const handleSubmit = async (andSend = false, publish = false, publishType: 1 | 2 | 3 = 1) => {
@@ -2158,18 +2158,18 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
             // The moments the preview showed are the ones just made (the API answers only the campaign's id).
             moments: createMoments.length, previewMoments: createMoments,
           });
-          // Saving again (after Create & Send's confirm was left) is a PUT, which keeps this category.
+          // Saving again (after Save & Send's confirm was left) is a PUT, which keeps this category.
           setSeededCategory(formData.category);
         }
         // The Campaigns page shows Storeels with the new campaign (the Sidebar's Create goes there too).
         writeCampaignsView('storeels');
         if (onMemoryCreated) await onMemoryCreated();
         if (!andSend || !created) {
-          // Create Campaign: done — the Campaigns list shows it (a filled-in Send card was not sent).
+          // Save as Draft: done — the Campaigns list shows it (a filled-in Send card was not sent).
           toast.success(createdToast(sendFilled));
           handleModalClose();
         } else {
-          // Create & Send: the campaign is made; step 2 now shows its real moments (ids, for their captions), and the
+          // Save & Send: the campaign is made; step 2 now shows its real moments (ids, for their captions), and the
           // Send card asks to confirm.
           setFlowCreated(true);
           setSendRequest((n) => n + 1);
@@ -2260,12 +2260,12 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
     }
   };
 
-  /** The bottom actions: Create Campaign / Save Changes (save only), Create & Send / Save & Send (save, then confirm). */
+  /** The bottom actions: Save as Draft / Save Changes (save only), Save & Send (save, then confirm). */
   const saveFlow = (andSend: boolean) => {
     if ((andSend ? view.saveAndSend : view.save).action === 'create') void handleSubmit(andSend);
     else void saveSetup(andSend);
   };
-  /** Back / Cancel: closes; a campaign Create & Send already made is kept (and the toast says so). */
+  /** Back / Cancel: closes; a campaign Save & Send already made is kept (and the toast says so). */
   const closeFlow = () => {
     if (view.closeToast) toast.success(view.closeToast);
     handleModalClose();
@@ -3298,7 +3298,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
           }}
           capturedFiles={editingPhotoIndex !== null ? null : momentFiles}
           // Step 2 Moments' Add a Moment (Storeel flow v2): before the campaign exists the moments are held here and
-          // sent with Create Campaign; on a saved campaign the original UI adds them to it directly, as on its page.
+          // sent with Save as Draft; on a saved campaign the original UI adds them to it directly, as on its page.
           memoryId={flowCampaign ? String(flowCampaign.id) : undefined}
           memoryTitle={formData.title || 'New Campaign'}
           memoryLocation={formData.location}

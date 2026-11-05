@@ -2,7 +2,7 @@
 // campaign page), at 1280 and 390: the campaign page's Edit (phones: the Timeline pencil) opens the one-page flow on
 // that campaign — 1 Campaign prefilled, 2 Moments with its moments, 3 Send (optional) — with the actions at the end:
 // Save Changes (PUT /memories/{id}, toast, back on the page) and Save & Send (PUT, then the confirm). No "Continue to
-// Send" card, no resume note. Delete is in step 1. From the Campaigns page: Create Campaign → toast → the new campaign
+// Send" card, no resume note. Delete is in step 1. From the Campaigns page: Save as Draft → toast → the new campaign
 // is in the Storeels list.
 // node tests/campaign-detail/ui/storeel-edit-flow.mjs   (needs the dev server: CD_BASE, default http://localhost:5311)
 // Every API call is answered here and every non-local request is aborted: nothing leaves this machine.
@@ -68,7 +68,7 @@ async function open({ width, height }) {
       const all = [...state.created, campaign()];
       return route.fulfill({ json: { status: 'success', data: { all_memories: { data: all, total: all.length }, latest_memories: all, sidebar: { categories: { items: [{ id: 5, name: 'Campaigns', memory_count: all.length }] }, labels: { items: [] } } } } });
     }
-    // Create Campaign (MemoriesController::store): the new campaign joins the list.
+    // Save as Draft (MemoriesController::store): the new campaign joins the list.
     if (p === '/memories' && m === 'POST') {
       const id = 950 + state.created.length;
       state.created.unshift({ ...CAMPAIGN, id, title: body?.title, slug: `new-${id}`, published: 0, created_at: '2026-11-04 10:00:00' });
@@ -189,7 +189,7 @@ try {
     expect(!state.deleted, `${tag}: nothing deleted without confirming`);
     expect(!(await page.evaluate(() => sessionStorage.getItem('stasht_storeel_flow_resume'))), `${tag}: no resume note`);
 
-    // ── Create from the Campaigns page → Create Campaign → Done → the new campaign is in the Storeels list ─────────
+    // ── Create from the Campaigns page → Save as Draft → Done → the new campaign is in the Storeels list ─────────
     await page.getByRole('button', { name: 'Back', exact: true }).filter({ visible: true }).first().click();
     await page.getByText('All Campaigns', { exact: true }).filter({ visible: true }).first().waitFor({ timeout: 10000 }).catch(() => {});
     // The Campaigns page's own "+ Create a Campaign" (the Sidebar's opens on Newsletter, by design).
@@ -202,14 +202,14 @@ try {
     await create.locator('#st-step-campaign').getByRole('combobox').first().click();
     await page.getByRole('option', { name: 'Campaigns' }).click();
     await page.waitForTimeout(400);
-    expect(!state.created.length, `${tag}: nothing created before Create Campaign`);
+    expect(!state.created.length, `${tag}: nothing created before Save as Draft`);
     await create.locator('#st-step-moments').scrollIntoViewIfNeeded();
     await page.screenshot({ path: `${OUT}/${tag}-08-create-one-page.png` });
-    await create.getByRole('button', { name: 'Create Campaign', exact: true }).filter({ visible: true }).last().click();
+    await create.getByRole('button', { name: 'Save as Draft', exact: true }).filter({ visible: true }).last().click();
     await page.waitForTimeout(1500);
-    expect(state.created.length === 1, `${tag}: Create Campaign made one campaign (got ${state.created.length})`);
-    expect(!(await create.count()), `${tag}: Create Campaign closes`);
-    expect(await page.getByText('Campaign created').first().isVisible().catch(() => false), `${tag}: toast "Campaign created"`);
+    expect(state.created.length === 1, `${tag}: Save as Draft made one campaign (got ${state.created.length})`);
+    expect(!(await create.count()), `${tag}: Save as Draft closes`);
+    expect(await page.getByText('Saved as a draft').first().isVisible().catch(() => false), `${tag}: toast "Saved as a draft"`);
     expect(await page.getByText(`Winter tires ${tag}`).filter({ visible: true }).count() > 0, `${tag}: the Campaigns list shows the new campaign`);
     await page.screenshot({ path: `${OUT}/${tag}-09-campaigns-list-after-done.png` });
     await context.close();

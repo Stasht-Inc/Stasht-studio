@@ -1,12 +1,12 @@
 // Storeel flow v2 (Deepak, 4 Nov 2026) with Chris's changes the same day: ONE scrolling page like the newsletter
 // composer — cards all open, top to bottom: 1 Campaign, 2 Moments (the original Add a Moment UI, captions edited the
-// way the campaign page edits them), 3 Send (optional) — and the actions at the END of the list: Create Campaign /
-// Create & Send (edit: Save Changes / Save & Send). Nothing is saved before one of them; no Continue, no header action.
+// way the campaign page edits them), 3 Send (optional) — and the actions at the END of the list: Save as Draft /
+// Save & Send (edit: Save Changes / Save & Send). Nothing is saved before one of them; no Continue, no header action.
 // At 1280 and 390:
 //  - create with 2 uploaded photos with captions + 1 picked product → the preview shows 3 moments, nothing POSTed;
-//    Create Campaign → one POST with the product and both photos (captions, in order) → toast, closed;
-//  - Create & Send: off with the reason until Send is filled in; then one POST → confirm → sent;
-//  - Create & Send, confirm left → "Campaign created…", Save Changes / Save & Send (PUT, never a second campaign);
+//    Save as Draft → one POST with the product and both photos (captions, in order) → toast, closed;
+//  - Save & Send: off with the reason until Send is filled in; then one POST → confirm → sent;
+//  - Save & Send, confirm left → "Saved as a draft…", Save Changes / Save & Send (PUT, never a second campaign);
 //  - Edit: prefilled, step 2 lists its moments, a caption saved on the campaign (PUT /memory-images/{id}); Save Changes
 //    → PUT → toast, closed; Save & Send → confirm; 422s; 503; Starter allowance; 403;
 //  - Shopify / Cars / catalogue / property / no-dates campaigns never re-filed or dated; a Cars campaign's vehicle.
@@ -84,7 +84,7 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
   for (const [width, height] of [[1280, 1000], [390, 844]]) {
     const tag = String(width);
 
-    // ── Create: 2 photos with captions + 1 picked product → 3 moments; Create Campaign → one POST, in order ───────
+    // ── Create: 2 photos with captions + 1 picked product → 3 moments; Save as Draft → one POST, in order ───────
     const api = createMockApi({ catalogue: true });
     const { page, context } = await openStoreel(open, width, height, api);
     for (const [id, name] of [['st-step-campaign', 'Campaign'], ['st-step-moments', 'Moments'], ['st-step-send', 'Send']]) {
@@ -92,19 +92,19 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
     }
     expect((await step(page, 'st-step-send').textContent()).includes(OPTIONAL), `${tag}: Send says it is optional`);
     expect(!(await flow(page).getByRole('button', { name: /^(Continue|Done)$/ }).count()), `${tag}: no Continue / Done`);
-    expect(!(await page.locator('header').getByRole('button', { name: /Create Campaign|Create & Send|Send Now/ }).count()), `${tag}: no action in the top bar`);
+    expect(!(await page.locator('header').getByRole('button', { name: /Save as Draft|Save & Send|Send Now/ }).count()), `${tag}: no action in the top bar`);
     expect(!(await page.getByText('Press Continue').count()), `${tag}: no "Press Continue…" text`);
-    expect(await button(page, 'Create & Send').isDisabled(), `${tag}: Create & Send off until Send is filled in`);
+    expect(await button(page, 'Save & Send').isDisabled(), `${tag}: Save & Send off until Send is filled in`);
     await shot(page, `${tag}-01-empty`);
     // No title: the button is off and says why, above the actions.
     await page.locator('#st-actions').scrollIntoViewIfNeeded();
-    expect(await button(page, 'Create Campaign').isDisabled() && await inView(page, page.getByText('Add a campaign title.')), `${tag}: Create Campaign off, "Add a campaign title." above the actions`);
+    expect(await button(page, 'Save as Draft').isDisabled() && await inView(page, page.getByText('Add a campaign title.')), `${tag}: Save as Draft off, "Add a campaign title." above the actions`);
 
     await page.getByPlaceholder(STOREEL_TITLE).fill(`Great Products ${tag}`);
     await chooseCategory(page, 'Website Catalogue');
     // Pressed with no catalogue item: the picker is scrolled into view, and the error shows above the actions too.
     await page.locator('#st-actions').scrollIntoViewIfNeeded();
-    await button(page, 'Create Campaign').click();
+    await button(page, 'Save as Draft').click();
     await page.waitForTimeout(900);
     expect(await inView(page, page.locator('#st-pick-items')), `${tag}: no item picked → the picker is brought into view`);
     expect((await page.locator('#st-actions').getByRole('alert').textContent())?.includes('Pick at least one item from your Website Catalogue.'), `${tag}: …and said above the actions`);
@@ -146,7 +146,7 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
     expect(ptext.includes('3 moments') && (await previewMoments(page).count()) === 3, `${tag}: the preview shows 3 moments (got "${ptext.slice(0, 120)}")`);
     expect(ptext.includes('Oak bench') && ptext.includes('View on website') && ptext.includes('Front porch, freshly painted') && ptext.includes('Brand new kitchen'),
       `${tag}: product, View on website and both captions in the preview`);
-    expect(createPosts(api).length === 0, `${tag}: NOTHING POSTed before Create Campaign`);
+    expect(createPosts(api).length === 0, `${tag}: NOTHING POSTed before Save as Draft`);
     expect(!(await hasOverflow(page)), `${tag}: no sideways scroll`);
     await step(page, 'st-step-moments').scrollIntoViewIfNeeded();
     await shot(page, `${tag}-02-three-moments`);
@@ -158,11 +158,11 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
     expect(actionsBox && sendBox && pvBox && actionsBox.y > sendBox.y + sendBox.height - 2 && (width < 1024 ? actionsBox.y < pvBox.y : actionsBox.x < pvBox.x),
       `${tag}: the actions right after the Send card${width < 1024 ? ', before the preview' : ''} (actions ${JSON.stringify(actionsBox)}, preview ${JSON.stringify(pvBox)})`);
     await page.locator('#st-actions').scrollIntoViewIfNeeded();
-    expect(await inView(page, button(page, 'Create Campaign')), `${tag}: Create Campaign in the viewport once scrolled to`);
+    expect(await inView(page, button(page, 'Save as Draft')), `${tag}: Save as Draft in the viewport once scrolled to`);
     await shot(page, `${tag}-03-end-of-list-actions`);
 
-    await button(page, 'Create Campaign').click();
-    await expectVisible(page.getByText('Campaign created').last(), `${tag}: toast "Campaign created"`);
+    await button(page, 'Save as Draft').click();
+    await expectVisible(page.getByText('Saved as a draft').last(), `${tag}: toast "Saved as a draft"`);
     await page.waitForTimeout(400);
     const made = api.state.storeels.at(-1);
     expect(createPosts(api).length === 1, `${tag}: one POST /memories`);
@@ -174,33 +174,33 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
     await shot(page, `${tag}-04-created-toast`);
     await context.close();
 
-    // ── Create Campaign with a filled-in Send card: created, and the toast says it was not sent ───────────────────
+    // ── Save as Draft with a filled-in Send card: created, and the toast says it was not sent ───────────────────
     const napi = createMockApi({});
     const n = await openStoreel(open, width, height, napi);
     await n.page.getByPlaceholder(STOREEL_TITLE).fill(`Not sent ${tag}`);
     await step(n.page, 'st-step-send').getByLabel(/^Message/).fill('Hello there');
-    await button(n.page, 'Create Campaign').click();
-    await expectVisible(n.page.getByText('Campaign created — not sent.'), `${tag}: "Campaign created — not sent."`);
+    await button(n.page, 'Save as Draft').click();
+    await expectVisible(n.page.getByText('Saved as a draft — not sent.'), `${tag}: "Saved as a draft — not sent."`);
     expect(createPosts(napi).length === 1 && !napi.state.storeelSends.length, `${tag}: created, nothing sent`);
     await n.context.close();
 
-    // ── Create & Send: off with the reason until Send is filled in; then POST → confirm → sent ───────────────────
+    // ── Save & Send: off with the reason until Send is filled in; then POST → confirm → sent ───────────────────
     const sapi = createMockApi({});
     const s = await openStoreel(open, width, height, sapi);
     await s.page.getByPlaceholder(STOREEL_TITLE).fill(`Spring sale ${tag}`);
     await scrollToEnd(s.page);
-    await expectVisible(s.page.getByText(/^To send now:/), `${tag}: the reason Create & Send is off`);
+    await expectVisible(s.page.getByText(/^To send now:/), `${tag}: the reason Save & Send is off`);
     await shot(s.page, `${tag}-05-send-reason`);
     const send = step(s.page, 'st-step-send');
     await send.getByLabel('Email address').fill('jordan@example.com');
     await send.getByLabel('Phone number').fill('4165550171');
     await send.getByLabel(/^Message/).fill('Our spring sale starts Saturday.');
     await s.page.waitForTimeout(500);
-    expect(!(await button(s.page, 'Create & Send').isDisabled()), `${tag}: Create & Send on once Send is filled in`);
+    expect(!(await button(s.page, 'Save & Send').isDisabled()), `${tag}: Save & Send on once Send is filled in`);
     expect(createPosts(sapi).length === 0, `${tag}: still nothing created`);
-    await button(s.page, 'Create & Send').click();
+    await button(s.page, 'Save & Send').click();
     const confirm = s.page.getByRole('dialog', { name: 'Send this Storeel now?' });
-    await expectVisible(confirm, `${tag}: Create & Send → created, then the confirm`);
+    await expectVisible(confirm, `${tag}: Save & Send → created, then the confirm`);
     await s.page.waitForTimeout(1200);
     expect(createPosts(sapi).length === 1, `${tag}: one POST before the confirm`);
     expect(/1 person/.test((await confirm.textContent()) ?? '') && /Sending publishes your campaign/.test((await confirm.textContent()) ?? ''), `${tag}: confirm counted and says it publishes`);
@@ -216,7 +216,7 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
     await shot(s.page, `${tag}-07-sent`);
     await s.context.close();
 
-    // ── Create & Send, confirm left: it's saved; Save Changes / Save & Send are PUTs (never a second campaign) ──────
+    // ── Save & Send, confirm left: it's saved; Save Changes / Save & Send are PUTs (never a second campaign) ──────
     const bapi = createMockApi({});
     const b = await openStoreel(open, width, height, bapi);
     await b.page.getByPlaceholder(STOREEL_TITLE).fill(`Back out ${tag}`);
@@ -224,7 +224,7 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
     await bsend.getByLabel('Email address').fill('jordan@example.com');
     await bsend.getByLabel(/^Message/).fill('Hello');
     await b.page.waitForTimeout(400);
-    await button(b.page, 'Create & Send').click();
+    await button(b.page, 'Save & Send').click();
     const bconfirm = b.page.getByRole('dialog', { name: 'Send this Storeel now?' });
     await bconfirm.waitFor();
     await bconfirm.getByRole('button', { name: 'Back' }).click();
@@ -232,7 +232,7 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
     const best = (await bsend.getByText('Estimated recipients').locator('..').locator('..').textContent()) ?? '';
     expect(/1 email/.test(best), `${tag}: once created, the Send card counts with the campaign (got "${best}")`);
     await scrollToEnd(b.page);
-    await expectVisible(b.page.getByText('Campaign created. Send it now, or later from the campaign page.'), `${tag}: says it was created`);
+    await expectVisible(b.page.getByText('Saved as a draft. Send it now, or later from the campaign page.'), `${tag}: says it was created`);
     await expectVisible(button(b.page, 'Save Changes'), `${tag}: now Save Changes`);
     await expectVisible(b.page.getByRole('heading', { name: 'Edit Campaign' }), `${tag}: the campaign exists: the header says Edit Campaign`);
     expect(await inView(b.page, button(b.page, 'Close')) && !(await flow(b.page).getByRole('button', { name: 'Cancel', exact: true }).count()), `${tag}: …and Cancel says Close`);
@@ -243,7 +243,7 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
     expect(createPosts(bapi).length === 1 && bapi.state.memoryPuts.length === 1, `${tag}: one campaign, then a PUT (posts ${createPosts(bapi).length}, puts ${bapi.state.memoryPuts.length})`);
     await b.page.getByRole('dialog', { name: 'Send this Storeel now?' }).getByRole('button', { name: 'Back' }).click();
     await button(b.page, 'Close').click();
-    await expectVisible(b.page.getByText('Campaign created').last(), `${tag}: Close keeps it and says so`);
+    await expectVisible(b.page.getByText('Saved as a draft').last(), `${tag}: Close keeps it and says so`);
     await b.context.close();
 
     // ── Edit: prefilled, its moments in step 2, a caption saved on the campaign; Save Changes → PUT → closed ──────
@@ -408,7 +408,7 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
     expect(ctext.includes('1 moment') && ctext.includes('$34,995 · 45,000 mi · Stock #S2300'), `${tag}: the vehicle in the preview`);
     await cc.page.getByTestId('storeel-preview').scrollIntoViewIfNeeded();
     await shot(cc.page, `${tag}-14-cars`);
-    await button(cc.page, 'Create Campaign').click();
+    await button(cc.page, 'Save as Draft').click();
     await cc.page.waitForTimeout(800);
     expect(JSON.stringify(carApi.state.storeels.at(-1)?.car_ids) === '["5"]', `${tag}: car_ids sent`);
     await cc.context.close();
