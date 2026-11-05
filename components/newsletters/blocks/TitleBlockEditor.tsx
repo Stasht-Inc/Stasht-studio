@@ -1,7 +1,7 @@
 import { useLayoutEffect, useRef } from 'react';
 import type { TitleBlockData, TitleSize } from '../../../services/newslettersAPI';
 import { LIMITS } from '../lib/rules';
-import { IMAGE_SHADOW, TITLE_INK, TITLE_SIZE_OPTIONS, sectionLook, sectionStyleOf, stylePatch } from '../lib/sectionStyle';
+import { IMAGE_SHADOW, TITLE_INK, TITLE_SIZE_OPTIONS, readableInk, sectionLook, sectionStyleOf, stylePatch } from '../lib/sectionStyle';
 import { AlignMenu, BackgroundMenu, SizeMenu, TextColorMenu, ToolbarDivider, useRovingToolbar } from './StyleToolbar';
 import type { BlockEditorProps } from './types';
 
@@ -38,12 +38,16 @@ export default function TitleBlockEditor({ blockId, data, selected, readOnly, on
           <SizeMenu label="Title size" options={TITLE_SIZE_OPTIONS} value={data.size ?? 'medium'} preview={(s) => Math.min(TITLE_PX[s], 22)} onPick={(size) => onChange({ size })} />
           <ToolbarDivider />
           <AlignMenu value={look.align} onPick={(align) => onChange(stylePatch({ align }))} />
-          <TextColorMenu idPrefix={blockId} value={style.color ?? null} shown={look.ink} onPick={(color) => onChange(stylePatch({ color }))} />
-          <BackgroundMenu idPrefix={blockId} allowImage color={style.background_color ?? null} image={style.background_image_url ?? null}
+          <TextColorMenu idPrefix={blockId} value={style.color ?? null} shown={look.ink} bg={look.bg} onPick={(color) => onChange(stylePatch({ color }))} />
+          <BackgroundMenu idPrefix={blockId} allowImage color={style.background_color ?? null} image={style.background_image_url ?? null} textColor={style.color ?? null} sampleText={data.text}
             onColor={(c) => onChange(stylePatch({ background_color: c }))}
             onImage={(url) => onChange(stylePatch({ background_image_url: url }))}
             // Colour takes the picture away (as the header's switch does); Image waits for an upload.
-            onMode={(mode) => { if (mode === 'color' && style.background_image_url) onChange(stylePatch({ background_image_url: null })); }} />
+            // Image starts from the dark fallback when the band was light (white words read on it where pictures are hidden).
+            onMode={(mode) => {
+              if (mode === 'color' && style.background_image_url) onChange(stylePatch({ background_image_url: null }));
+              else if (mode === 'image' && !style.background_image_url && style.background_color && readableInk(style.background_color, TITLE_INK) !== '#FFFFFF') onChange(stylePatch({ background_color: null }));
+            }} />
         </div>
       ) : null}
       <label htmlFor={`${blockId}-title`} className="sr-only">Title</label>

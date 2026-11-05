@@ -3,7 +3,8 @@ import * as Popover from '@radix-ui/react-popover';
 import { Bold, Italic, Link as LinkIcon } from 'lucide-react';
 import { composerToast } from '../ComposerToaster';
 import type { TextBlockData } from '../../../services/newslettersAPI';
-import { editorHtml, parseTextHtml, pastedTextNodes, safeLinkHref, styleFontSize, type TextNode } from '../lib/textHtml';
+import { editorHtml, parseTextHtml, pastedTextNodes, resizeTextNodes, safeLinkHref, serializeTextNodes, styleFontSize, type TextNode } from '../lib/textHtml';
+import { createHistory, recordHistory, redoHistory, undoHistory } from '../lib/textHistory';
 import { TEXT_INK, TEXT_SIZES, sectionLook, sectionStyleOf, stylePatch, textLinkColor, textSizeOf, type TextSize } from '../lib/sectionStyle';
 import { AlignMenu, BackgroundMenu, SizeMenu, TextColorMenu, ToolbarDivider, useRovingToolbar } from './StyleToolbar';
 import { toHttpsUrl } from '../lib/urls';
@@ -61,6 +62,28 @@ function ToolbarButton({ label, onClick, children }: { label: string; onClick():
   );
 }
 
+/** Characters of text before a point in the editor (text nodes only, as resizeTextNodes counts them). */
+function offsetOf(root: HTMLElement, node: Node, offset: number): number {
+  const r = document.createRange();
+  r.setStart(root, 0);
+  r.setEnd(node, offset);
+  return r.toString().length;
+}
+
+/** The point `chars` characters into the editor's text (its end when there are fewer). start: at a boundary between two
+ *  text nodes, the start of the next one (so a selection begins inside the words it covers). */
+function pointAt(root: HTMLElement, chars: number, start = false): [Node, number] {
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  let left = chars;
+  let last: Text | null = null;
+  for (let n = walker.nextNode() as Text | null; n; n = walker.nextNode() as Text | null) {
+    if (start ? left < n.data.length : left <= n.data.length) return [n, left];
+    left -= n.data.length;
+    last = n;
+  }
+  return last ? [last, last.data.length] : [root, root.childNodes.length];
+}
+
 /** The caret position under the pointer: caretRangeFromPoint (Chrome, Safari) or caretPositionFromPoint (Firefox). */
 function rangeFromPoint(x: number, y: number): Range | null {
   const doc = document as Document & { caretPositionFromPoint?: (x: number, y: number) => { offsetNode: Node; offset: number } | null };
@@ -86,15 +109,63 @@ export default function TextBlockEditor({ blockId, data, selected, readOnly, onC
   // The last html handed to onChange: execCommand fires `input` itself, so formatting must not emit twice.
   const lastEmitted = useRef(data.html);
   const [empty, setEmpty] = useState(() => data.html === '');
-  const emit = () => {
+  // Undo / redo are this editor's own (review, 5 Nov): clean html snapshots, never the browser's history, which can't
+  // replay changes made outside it and could bring back markup the email doesn't allow.
+  const history = useRef(createHistory(data.html));
+  // Set around a formatting command, whose own `input` event must count as a formatting step, not typing.
+  const formatting = useRef(false);
+  const emit = (kind: 'typing' | 'format' = 'typing') => {
     const el = ref.current;
     if (!el) return;
     const html = editorHtml(el.innerHTML);
     setEmpty(html === '');
     if (html === lastEmitted.current) return;
     lastEmitted.current = html;
+    history.current = recordHistory(history.current, html, formatting.current ? 'format' : kind, Date.now());
     onChange({ html });
   };
+  /** The editor's words from clean html (built node by node), the selection put back by character offsets. */
+  const show = (html: string, sel: { start: number; end: number } | null) => {
+    const el = ref.current;
+    if (!el) return;
+    el.replaceChildren(...domNodes(parseTextHtml(html)));
+    const range = document.createRange();
+    if (sel) {
+      const [sn, so] = pointAt(el, sel.start, true);
+      const [en, eo] = pointAt(el, sel.end);
+      range.setStart(sn, so);
+      range.setEnd(en, eo);
+    } else {
+      range.selectNodeContents(el);
+      range.collapse(false);
+    }
+    el.focus();
+    select(range);
+    lastRange.current = range.cloneRange();
+  };
+  const travel = (direction: 'undo' | 'redo') => {
+    const step = direction === 'undo' ? undoHistory(history.current) : redoHistory(history.current);
+    if (step.html === null) return;
+    history.current = step.history;
+    show(step.html, null);
+    lastEmitted.current = step.html;
+    setEmpty(step.html === '');
+    onChange({ html: step.html });
+  };
+  const travelRef = useRef(travel);
+  travelRef.current = travel;
+  // The Edit menu, a mouse's back gesture, or a key this editor didn't catch: the browser asks first (beforeinput).
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return undefined;
+    const onBeforeInput = (e: InputEvent) => {
+      if (e.inputType !== 'historyUndo' && e.inputType !== 'historyRedo') return;
+      e.preventDefault();
+      travelRef.current(e.inputType === 'historyUndo' ? 'undo' : 'redo');
+    };
+    el.addEventListener('beforeinput', onBeforeInput);
+    return () => el.removeEventListener('beforeinput', onBeforeInput);
+  }, []);
 
   // Where the caret or selection was when the editor lost focus (for example to Tab onto the toolbar), so
   // Bold / Italic / Link still act on it.
@@ -118,8 +189,8 @@ export default function TextBlockEditor({ blockId, data, selected, readOnly, onC
   };
   const format = (command: 'bold' | 'italic') => {
     focusWithSelection();
-    document.execCommand(command);
-    emit();
+    formatting.current = true;
+    try { document.execCommand(command); emit('format'); } finally { formatting.current = false; }
   };
   const openLink = () => {
     if (!rangeInEditor()) select(lastRange.current);
@@ -143,8 +214,8 @@ export default function TextBlockEditor({ blockId, data, selected, readOnly, onC
     setLinkOpen(false);
     ref.current?.focus();
     select(savedRange.current);
-    document.execCommand('createLink', false, href);
-    emit();
+    formatting.current = true;
+    try { document.execCommand('createLink', false, href); emit('format'); } finally { formatting.current = false; }
   };
   const onPaste = (e: ClipboardEvent<HTMLDivElement>) => {
     e.preventDefault(); // never someone else's HTML as it is
@@ -153,7 +224,8 @@ export default function TextBlockEditor({ blockId, data, selected, readOnly, onC
     const nodes = html ? pastedTextNodes(html) : [];
     const range = rangeInEditor();
     if (!nodes.length || !range) {
-      document.execCommand('insertText', false, e.clipboardData.getData('text/plain'));
+      formatting.current = true;
+      try { document.execCommand('insertText', false, e.clipboardData.getData('text/plain')); emit('format'); } finally { formatting.current = false; }
       return;
     }
     range.deleteContents();
@@ -165,7 +237,7 @@ export default function TextBlockEditor({ blockId, data, selected, readOnly, onC
     after.setStartAfter(made[made.length - 1]);
     after.collapse(true);
     select(after);
-    emit();
+    emit('format');
   };
   // Text dragged within this editor moves as usual (the browser keeps its formatting; the save sanitises it).
   // Anything dropped from outside (text, a link or a picture) arrives as words only, where it was dropped.
@@ -185,11 +257,19 @@ export default function TextBlockEditor({ blockId, data, selected, readOnly, onC
       sel?.removeAllRanges();
       sel?.addRange(at);
     }
-    document.execCommand('insertText', false, text);
+    formatting.current = true;
+    try { document.execCommand('insertText', false, text); emit('format'); } finally { formatting.current = false; }
   };
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
-    if (!(e.metaKey || e.ctrlKey) || e.shiftKey || e.altKey) return;
+    if (!(e.metaKey || e.ctrlKey) || e.altKey) return;
     const key = e.key.toLowerCase();
+    // Cmd/Ctrl+Z undo, Cmd/Ctrl+Shift+Z (or Ctrl+Y) redo: this editor's own history.
+    if (key === 'z' || key === 'y') {
+      e.preventDefault();
+      travel(key === 'y' || e.shiftKey ? 'redo' : 'undo');
+      return;
+    }
+    if (e.shiftKey) return;
     if (key === 'b') { e.preventDefault(); format('bold'); }
     else if (key === 'i') { e.preventDefault(); format('italic'); }
     else if (key === 'k') { e.preventDefault(); openLink(); }
@@ -233,53 +313,14 @@ export default function TextBlockEditor({ blockId, data, selected, readOnly, onC
     const size = TEXT_SIZES.find((s) => s.value === value);
     if (!el || !size) return;
     focusWithSelection();
+    // Worked out on the text itself (review, 5 Nov), not with the browser's font command: the selected words (as
+    // character offsets), or everything when nothing is selected, then the words are drawn again from clean html.
     const picked = rangeInEditor();
-    const whole = !picked || picked.collapsed;
-    if (whole) {
-      const all = document.createRange();
-      all.selectNodeContents(el);
-      select(all);
-    }
-    // The browser marks the words with <font size="7">; each one becomes our span (sizes already inside it go, so the
-    // new size wins). Normal outside any other size needs no span at all.
-    document.execCommand('styleWithCSS', false, 'false');
-    document.execCommand('fontSize', false, '7');
-    const made: Node[] = [];
-    for (const font of Array.from(el.querySelectorAll('font[size="7"]'))) {
-      for (const inner of Array.from(font.querySelectorAll('span'))) inner.replaceWith(...Array.from(inner.childNodes));
-      const outer = font.parentElement?.closest('span');
-      const sized = outer && el.contains(outer) && styleFontSize(outer.getAttribute('style')) !== null;
-      const children = Array.from(font.childNodes);
-      if (size.px === 16 && !sized) {
-        font.replaceWith(...children);
-        made.push(...children);
-        continue;
-      }
-      const span = document.createElement('span');
-      Object.assign(span.style, sizeStyle(size.px));
-      span.append(...children);
-      font.replaceWith(span);
-      made.push(span);
-    }
-    // Spans the browser left without a size (it takes the size off ones it splits) go; their words stay.
-    for (const stray of Array.from(el.querySelectorAll('span'))) {
-      if (styleFontSize(stray.getAttribute('style')) === null) stray.replaceWith(...Array.from(stray.childNodes));
-    }
-    // The words stay selected (a whole-section change leaves the caret at the end).
-    const after = document.createRange();
-    if (whole || !made.length) {
-      after.selectNodeContents(el);
-      after.collapse(false);
-    } else {
-      after.setStartBefore(made[0]);
-      after.setEndAfter(made[made.length - 1]);
-    }
-    select(after);
-    // Words split by the change join up again (the selection follows: ranges are kept through normalize).
-    el.normalize();
-    lastRange.current = rangeInEditor()?.cloneRange() ?? after.cloneRange();
+    const sel = picked && !picked.collapsed ? { start: offsetOf(el, picked.startContainer, picked.startOffset), end: offsetOf(el, picked.endContainer, picked.endOffset) } : null;
+    const html = editorHtml(serializeTextNodes(resizeTextNodes(parseTextHtml(el.innerHTML), size.px, sel)));
+    show(html, sel);
     setCaretSize(value);
-    emit();
+    emit('format');
   };
 
   return (
@@ -319,12 +360,12 @@ export default function TextBlockEditor({ blockId, data, selected, readOnly, onC
             </Popover.Portal>
           </Popover.Root>
           <ToolbarDivider />
-          <SizeMenu label="Font size" options={TEXT_SIZES} value={caretSize} preview={(v) => TEXT_SIZES.find((s) => s.value === v)?.px ?? 16} onPick={applySize}
+          <SizeMenu label="Font size" hint="Select words to size just them; otherwise the whole section." options={TEXT_SIZES} value={caretSize} preview={(v) => TEXT_SIZES.find((s) => s.value === v)?.px ?? 16} onPick={applySize}
             // Back to the words, still selected, so the change can be seen (Radix would focus the button).
             onCloseAutoFocus={(e) => { e.preventDefault(); ref.current?.focus(); select(lastRange.current); }} />
           <AlignMenu value={look.align} onPick={(align) => onChange(stylePatch({ align }))} />
-          <TextColorMenu idPrefix={blockId} value={style.color ?? null} shown={look.ink} onPick={(color) => onChange(stylePatch({ color }))} />
-          <BackgroundMenu idPrefix={blockId} allowImage={false} color={style.background_color ?? null} image={null}
+          <TextColorMenu idPrefix={blockId} value={style.color ?? null} shown={look.ink} bg={look.bg} onPick={(color) => onChange(stylePatch({ color }))} />
+          <BackgroundMenu idPrefix={blockId} allowImage={false} color={style.background_color ?? null} image={null} textColor={style.color ?? null}
             onColor={(c) => onChange(stylePatch({ background_color: c }))} onImage={() => {}} />
         </div>
       ) : null}
@@ -336,7 +377,7 @@ export default function TextBlockEditor({ blockId, data, selected, readOnly, onC
         aria-readonly={readOnly || undefined}
         contentEditable={!readOnly}
         suppressContentEditableWarning
-        onInput={emit}
+        onInput={() => emit()}
         onBlur={() => { lastRange.current = rangeInEditor()?.cloneRange() ?? lastRange.current; emit(); }}
         onPaste={onPaste}
         onDragOver={(e) => { if (!readOnly) e.preventDefault(); }}

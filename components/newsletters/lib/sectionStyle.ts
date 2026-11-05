@@ -3,7 +3,7 @@
 // background colour. The same keys, rules and numbers as the API (NewsletterContent::sectionStyle,
 // NewsletterRenderer::section, NewsletterHtmlSanitizer::FONT_SIZES), so the editor draws what the email shows. Pure.
 import type { SectionAlign, SectionStyle, TitleSize } from '../../../services/newslettersAPI.ts';
-import { contrastInk, safeHexColor } from './colors.ts';
+import { safeHexColor } from './colors.ts';
 import { httpsUrl } from './urls.ts';
 
 export const TITLE_SIZE_OPTIONS = [
@@ -122,6 +122,36 @@ export interface SectionLook {
   ink: string;
   /** Room above and below, px: 12 as before, 24 on a band, 40 on a picture. */
   padY: 12 | 24 | 40;
+  /** Links: purple, or the words' colour on a band that needs other words' colour. */
+  link: string;
+}
+
+/** WCAG contrast ratio of two #RRGGBB colours, 1 to 21 (NewsletterRenderer::contrastRatio). */
+export function contrastRatio(a: string, b: string): number {
+  const lum = (hexColor: string) => {
+    const n = parseInt(hexColor.replace('#', ''), 16);
+    const [r, g, bl] = [(n >> 16) & 255, (n >> 8) & 255, n & 255].map((v) => {
+      const c = v / 255;
+      return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+    });
+    return 0.2126 * r + 0.7152 * g + 0.0722 * bl;
+  };
+  const [x, y] = [lum(a), lum(b)];
+  return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05);
+}
+
+/** Automatic words on a band: the usual colour, else white, else near-black, the first at 4.5:1; else the most contrast. */
+export function readableInk(bg: string, defaultInk: string): string {
+  const candidates = [...new Set([defaultInk, '#FFFFFF', '#111827'])];
+  return candidates.find((ink) => contrastRatio(bg, ink) >= 4.5)
+    ?? [...candidates].sort((x, y) => contrastRatio(bg, y) - contrastRatio(bg, x))[0];
+}
+
+/** A picked text colour that is hard to read on the band (under 4.5:1): the panels say so. */
+export function poorContrast(color: string | null | undefined, bg: string | null | undefined): boolean {
+  const c = hex(color);
+  const b = hex(bg);
+  return !!c && !!b && contrastRatio(c, b) < 4.5;
 }
 
 /** How the section looks (NewsletterRenderer::section). */
@@ -129,8 +159,10 @@ export function sectionLook(data: Record<string, unknown>, allowImage: boolean, 
   const style = sectionStyleOf(data, allowImage);
   const image = style.background_image_url ?? null;
   const bg = style.background_color ?? null;
-  const ink = style.color ?? (image ? '#FFFFFF' : bg && contrastInk(bg) === '#FFFFFF' ? '#FFFFFF' : defaultInk);
+  const auto = image ? '#FFFFFF' : bg ? readableInk(bg, defaultInk) : defaultInk;
+  const ink = style.color ?? auto;
   return {
+    link: !image && bg && auto !== defaultInk ? ink : LINK,
     styled: Object.keys(style).length > 0,
     align: style.align ?? 'left',
     bg: image ? null : bg,
@@ -141,7 +173,7 @@ export function sectionLook(data: Record<string, unknown>, allowImage: boolean, 
   };
 }
 
-/** Links in a text section: purple, except on a dark band, where they take the words' colour. */
+/** Links in a text section: purple, except on a band that needs other words' colour (NewsletterRenderer::section). */
 export function textLinkColor(look: SectionLook): string {
-  return look.bg && contrastInk(look.bg) === '#FFFFFF' ? look.ink : LINK;
+  return look.link;
 }

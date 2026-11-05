@@ -6,7 +6,7 @@ import ColorSwatches from '../ColorSwatches';
 import SegmentedSwitch from '../SegmentedSwitch';
 import { useImageUpload } from '../hooks/useImageUpload';
 import { FALLBACK_HINT } from '../lib/headerDesign';
-import { ALIGN_OPTIONS, BACKGROUND_SWATCHES, IMAGE_FALLBACK, TITLE_BACKGROUND_MODES, type TitleBackgroundMode } from '../lib/sectionStyle';
+import { ALIGN_OPTIONS, BACKGROUND_SWATCHES, IMAGE_FALLBACK, TITLE_BACKGROUND_MODES, TITLE_INK, poorContrast, readableInk, type TitleBackgroundMode } from '../lib/sectionStyle';
 import { BUTTON_SMALL, LAYER, LINK_BUTTON } from '../lib/ui';
 
 // Chris (5 Nov, points 2 and 3): one compact style toolbar for the Title and Text sections, laid out like the block
@@ -26,8 +26,15 @@ export function ToolbarDivider() {
   return <span aria-hidden="true" className="mx-px h-5 w-px bg-gray-200" />;
 }
 
-/** A toolbar button that opens a small panel. onCloseAutoFocus: where focus goes when it closes (default: the button). */
-function ToolMenu({ label, trigger, children, open, onOpenChange, onCloseAutoFocus, wide = false }: {
+/** Under this width a panel opens below the whole section, so it never covers the words being styled. */
+const NARROW = '(max-width: 639px)';
+
+/**
+ * A toolbar button that opens a small panel. onCloseAutoFocus: where focus goes when it closes (default: the button).
+ * list: a menu of choices (arrow keys move, the current choice has focus first). A wide panel on a phone is placed
+ * below the section (above it when there is no room), never over it.
+ */
+function ToolMenu({ label, trigger, children, open, onOpenChange, onCloseAutoFocus, wide = false, list = false }: {
   label: string;
   trigger: ReactNode;
   children: ReactNode;
@@ -35,16 +42,42 @@ function ToolMenu({ label, trigger, children, open, onOpenChange, onCloseAutoFoc
   onOpenChange(open: boolean): void;
   onCloseAutoFocus?(e: Event): void;
   wide?: boolean;
+  list?: boolean;
 }) {
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const anchor = useRef({
+    getBoundingClientRect: (): DOMRect => {
+      const button = triggerRef.current;
+      const section = button?.closest<HTMLElement>('[data-block-id]');
+      const narrow = typeof window !== 'undefined' && window.matchMedia(NARROW).matches;
+      return (wide && narrow && section ? section : button)?.getBoundingClientRect() ?? new DOMRect();
+    },
+  });
+  const onListKeys = (e: KeyboardEvent<HTMLDivElement>) => {
+    const items = Array.from(e.currentTarget.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]'));
+    const at = items.indexOf(document.activeElement as HTMLButtonElement);
+    const next = e.key === 'ArrowDown' ? (at + 1) % items.length : e.key === 'ArrowUp' ? (at - 1 + items.length) % items.length
+      : e.key === 'Home' ? 0 : e.key === 'End' ? items.length - 1 : -1;
+    if (next < 0) return;
+    e.preventDefault();
+    items[next]?.focus();
+  };
   return (
     <Popover.Root open={open} onOpenChange={onOpenChange}>
+      <Popover.Anchor virtualRef={anchor} />
       <Popover.Trigger asChild>
-        <button type="button" aria-label={label} title={label} onMouseDown={(e) => e.preventDefault()} className={TOOL_BUTTON}>
+        <button ref={triggerRef} type="button" aria-label={label} title={label} onMouseDown={(e) => e.preventDefault()} className={TOOL_BUTTON}>
           {trigger}
         </button>
       </Popover.Trigger>
       <Popover.Portal>
         <Popover.Content side="bottom" align="start" sideOffset={6} collisionPadding={12} style={{ zIndex: LAYER.popover }} onCloseAutoFocus={onCloseAutoFocus}
+          onOpenAutoFocus={list ? (e) => {
+            e.preventDefault();
+            const el = e.currentTarget as HTMLElement;
+            (el.querySelector<HTMLButtonElement>('[role="menuitemradio"][aria-checked="true"]') ?? el.querySelector<HTMLButtonElement>('[role="menuitemradio"]'))?.focus();
+          } : undefined}
+          onKeyDown={list ? onListKeys : undefined}
           // A click inside the panel never reaches the email preview behind it (which would close the section).
           onClick={(e) => e.stopPropagation()}
           className={`${wide ? 'w-[min(22.5rem,calc(100vw-1.5rem))] p-4' : 'min-w-[9rem] p-1'} rounded-xl border border-gray-200 bg-white shadow-lg outline-none`}>
@@ -53,6 +86,11 @@ function ToolMenu({ label, trigger, children, open, onOpenChange, onCloseAutoFoc
       </Popover.Portal>
     </Popover.Root>
   );
+}
+
+/** A small note in a panel when the words would be hard to read (under 4.5:1). */
+function ContrastNote() {
+  return <p role="status" data-nl-contrast-note="" className="mt-2 rounded-md bg-amber-50 px-2 py-1 text-xs text-amber-800">Hard to read on this background. Try a darker or lighter colour.</p>;
 }
 
 /** One choice in a list panel (Size, Align): a tick on the current one. */
@@ -68,8 +106,10 @@ function MenuChoice({ label, checked, onPick, icon, style }: { label: string; ch
 }
 
 /** "Size: Large ▾" — the title's size (Small / Medium / Large) or the text's font size (Small … X-Large). */
-export function SizeMenu<T extends string>({ label, options, value, onPick, onCloseAutoFocus, preview }: {
+export function SizeMenu<T extends string>({ label, options, value, onPick, onCloseAutoFocus, preview, hint }: {
   label: string;
+  /** A line under the choices (the Text section: what the size applies to). */
+  hint?: string;
   options: ReadonlyArray<{ value: T; label: string }>;
   value: T;
   onPick(value: T): void;
@@ -80,7 +120,7 @@ export function SizeMenu<T extends string>({ label, options, value, onPick, onCl
   const [open, setOpen] = useState(false);
   const current = options.find((o) => o.value === value)?.label ?? options[0]?.label ?? '';
   return (
-    <ToolMenu label={`${label}: ${current}`} open={open} onOpenChange={setOpen} onCloseAutoFocus={onCloseAutoFocus}
+    <ToolMenu label={`${label}: ${current}`} open={open} onOpenChange={setOpen} onCloseAutoFocus={onCloseAutoFocus} list
       trigger={<><span className="text-sm font-medium">{current}</span><ChevronDown className="h-3 w-3 text-gray-500" aria-hidden="true" /></>}>
       <div role="menu" aria-label={label}>
         {options.map((o) => (
@@ -88,6 +128,7 @@ export function SizeMenu<T extends string>({ label, options, value, onPick, onCl
             onPick={() => { setOpen(false); onPick(o.value); }} />
         ))}
       </div>
+      {hint ? <p className="max-w-[12rem] px-2.5 pb-1.5 pt-1 text-xs leading-4 text-gray-500">{hint}</p> : null}
     </ToolMenu>
   );
 }
@@ -96,7 +137,7 @@ export function AlignMenu({ value, onPick }: { value: SectionAlign; onPick(value
   const [open, setOpen] = useState(false);
   const current = ALIGN_OPTIONS.find((o) => o.value === value) ?? ALIGN_OPTIONS[0];
   return (
-    <ToolMenu label={`Align: ${current.label}`} open={open} onOpenChange={setOpen} trigger={<>{ALIGN_ICON[current.value]}<ChevronDown className="h-3 w-3 text-gray-500" aria-hidden="true" /></>}>
+    <ToolMenu label={`Align: ${current.label}`} open={open} onOpenChange={setOpen} list trigger={<>{ALIGN_ICON[current.value]}<ChevronDown className="h-3 w-3 text-gray-500" aria-hidden="true" /></>}>
       <div role="menu" aria-label="Align">
         {ALIGN_OPTIONS.map((o) => (
           <MenuChoice key={o.value} label={o.label} icon={ALIGN_ICON[o.value]} checked={o.value === value} onPick={() => { setOpen(false); onPick(o.value); }} />
@@ -107,8 +148,10 @@ export function AlignMenu({ value, onPick }: { value: SectionAlign; onPick(value
 }
 
 /** "A" with a bar in the words' colour: the swatches and Custom; Automatic goes back to the usual colour. */
-export function TextColorMenu({ idPrefix, value, shown, onPick }: {
+export function TextColorMenu({ idPrefix, value, shown, onPick, bg = null }: {
   idPrefix: string;
+  /** The band's colour, to warn when the picked colour is hard to read on it. */
+  bg?: string | null;
   /** The picked colour, or null (automatic). */
   value: string | null;
   /** The colour the words have now (automatic included), for the bar under the A. */
@@ -124,6 +167,7 @@ export function TextColorMenu({ idPrefix, value, shown, onPick }: {
         <span className="text-xs text-gray-500">{value ? 'Your colour' : 'Automatic: reads on the background'}</span>
         {value ? <button type="button" onClick={() => onPick(null)} className={LINK_BUTTON}>Automatic</button> : null}
       </div>
+      {poorContrast(value, bg) ? <ContrastNote /> : null}
     </ToolMenu>
   );
 }
@@ -133,8 +177,12 @@ export function TextColorMenu({ idPrefix, value, shown, onPick }: {
  * also has Image (the header's pattern): a picture behind the words, the colour kept as the fallback for email apps
  * that hide pictures.
  */
-export function BackgroundMenu({ idPrefix, color, image, allowImage, onColor, onImage, onMode }: {
+export function BackgroundMenu({ idPrefix, color, image, allowImage, onColor, onImage, onMode, textColor = null, sampleText = '' }: {
   idPrefix: string;
+  /** A text colour that was picked, to warn when it is hard to read on the band. */
+  textColor?: string | null;
+  /** The words, for the fallback sample (how the section reads where pictures are hidden). */
+  sampleText?: string;
   color: string | null;
   image: string | null;
   allowImage: boolean;
@@ -172,7 +220,15 @@ export function BackgroundMenu({ idPrefix, color, image, allowImage, onColor, on
           <div>
             <ColorSwatches label={allowImage && mode === 'image' ? 'Fallback colour' : 'Background colour'} idPrefix={`${idPrefix}-bg`} swatches={BACKGROUND_SWATCHES}
               value={color ?? (allowImage && mode === 'image' ? IMAGE_FALLBACK : '')} onChange={(c) => onColor(c)} />
-            {allowImage && mode === 'image' ? <p className="mt-1.5 text-xs text-gray-500">{FALLBACK_HINT}</p> : null}
+            {allowImage && mode === 'image' ? (
+              <p className="mt-1.5 flex flex-wrap items-center gap-2 text-xs text-gray-500">
+                {/* As the header's: the fallback colour with words that read on it (the email's Outlook rule). */}
+                <span data-nl-fallback-sample="" className="inline-flex h-6 max-w-[12rem] items-center truncate rounded px-2 font-semibold"
+                  style={{ backgroundColor: color ?? IMAGE_FALLBACK, color: textColor ?? readableInk(color ?? IMAGE_FALLBACK, TITLE_INK) }}>{sampleText.trim() || 'Your title'}</span>
+                {FALLBACK_HINT}
+              </p>
+            ) : null}
+            {!(allowImage && mode === 'image') && poorContrast(textColor, color) ? <ContrastNote /> : null}
           </div>
           {color && !(allowImage && mode === 'image') ? (
             <button type="button" onClick={() => onColor(null)} className={LINK_BUTTON}>No background</button>

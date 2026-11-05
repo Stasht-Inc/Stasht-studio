@@ -56,7 +56,7 @@ test('title background: Colour | Image, Colour takes the picture away (as the he
 
 test('the look matches NewsletterRenderer::section: band padding, picture padding, readable words', () => {
   // No style: the usual section.
-  assert.deepEqual(sectionLook({ text: 'x', size: 'large' }, true, TITLE_INK), { styled: false, align: 'left', bg: null, image: null, fallback: null, ink: TITLE_INK, padY: 12 });
+  assert.deepEqual(sectionLook({ text: 'x', size: 'large' }, true, TITLE_INK), { styled: false, align: 'left', bg: null, image: null, fallback: null, ink: TITLE_INK, padY: 12, link: '#6C60FF' });
   // A dark band: white words; a light one: the usual dark words; a picked colour always wins.
   assert.equal(sectionLook({ background_color: '#111827' }, true, TITLE_INK).ink, '#FFFFFF');
   assert.equal(sectionLook({ background_color: '#FEF3C7' }, true, TITLE_INK).ink, TITLE_INK);
@@ -66,7 +66,7 @@ test('the look matches NewsletterRenderer::section: band padding, picture paddin
   assert.equal(sectionLook({ align: 'center' }, true, TITLE_INK).padY, 12);
   // A picture: white words over the header's dark layer, 40 px of room, the colour (or a dark one) as fallback.
   const pic = sectionLook({ background_image_url: PHOTO, align: 'center' }, true, TITLE_INK);
-  assert.deepEqual(pic, { styled: true, align: 'center', bg: null, image: PHOTO, fallback: IMAGE_FALLBACK, ink: '#FFFFFF', padY: 40 });
+  assert.deepEqual(pic, { styled: true, align: 'center', bg: null, image: PHOTO, fallback: IMAGE_FALLBACK, ink: '#FFFFFF', padY: 40, link: '#6C60FF' });
   assert.equal(sectionLook({ background_image_url: PHOTO, background_color: '#2563EB' }, true, TITLE_INK).fallback, '#2563EB');
   assert.equal(IMAGE_SHADE, 'rgba(17,24,39,0.55)');
   assert.equal(IMAGE_SHADOW, '0 1px 3px rgba(0,0,0,0.5)');

@@ -41,7 +41,7 @@ export default function ColorSwatches({ label, idPrefix, value, onChange, swatch
                 tabIndex={active || (activeIndex === -1 && index === 0) ? 0 : -1}
                 onClick={() => onChange(swatch.value)}
                 onKeyDown={(e) => onKeyDown(e, index)}
-                className={`h-7 w-7 rounded-full border-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#6C60FF]/40 focus-visible:ring-offset-1 ${active ? 'border-gray-900' : 'border-white shadow-[0_0_0_1px_#e5e7eb]'}`}
+                className={`h-7 w-7 rounded-full border-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#6C60FF]/40 focus-visible:ring-offset-1 ${active ? 'border-white ring-2 ring-gray-900 ring-offset-1' : 'border-white shadow-[0_0_0_1px_#e5e7eb]'}`}
                 style={{ backgroundColor: swatch.value }}
               />
             );

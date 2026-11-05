@@ -46,6 +46,8 @@ function BlockFrame({ blockId, label, index, count, canUp, canDown, selected, re
   look?: SectionLook | null;
   children: ReactNode;
 }) {
+  // On a band (even one in Studio's purple) the selection shows as the purple line with a white edge inside it, and Done
+  // has a white ring.
   const surface: CSSProperties | undefined = look?.image
     ? { backgroundColor: look.fallback ?? undefined, backgroundImage: `url(${JSON.stringify(look.image)})`, backgroundSize: 'cover', backgroundPosition: 'center center', backgroundRepeat: 'no-repeat' }
     : look?.bg ? { backgroundColor: look.bg } : undefined;
@@ -53,7 +55,7 @@ function BlockFrame({ blockId, label, index, count, canUp, canDown, selected, re
     <div role="group" aria-label={`${label} section`} data-block-id={blockId} data-nl-selected={selected && !readOnly ? 'true' : undefined} tabIndex={readOnly ? -1 : 0} onClick={readOnly ? undefined : onSelect} onFocusCapture={readOnly ? undefined : onSelect}
       onKeyDown={readOnly ? undefined : (e) => { if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); onSelect(); } }}
       data-nl-section-bg={surface ? (look?.image ? 'image' : 'color') : undefined} style={surface}
-      className={`relative ${padClass} ${PAD_Y[look?.padY ?? 12]} outline outline-2 -outline-offset-2 transition-[outline-color] focus-visible:outline-[#6C60FF]/60 ${selected ? 'outline-[#6C60FF]' : problem ? 'outline-red-300' : readOnly ? 'outline-transparent' : 'outline-transparent hover:outline-[#6C60FF]/30'}`}>
+      className={`relative ${padClass} ${PAD_Y[look?.padY ?? 12]} ${surface && selected && !readOnly ? 'shadow-[inset_0_0_0_4px_#fff]' : ''} outline outline-2 -outline-offset-2 transition-[outline-color] focus-visible:outline-[#6C60FF]/60 ${selected ? 'outline-[#6C60FF]' : problem ? 'outline-red-300' : readOnly ? 'outline-transparent' : 'outline-transparent hover:outline-[#6C60FF]/30'}`}>
       {selected && !readOnly ? (
         <div role="toolbar" aria-label={`${label} section actions`} className="absolute -top-3.5 right-3 z-10 flex items-center gap-0.5 rounded-lg border border-gray-200 bg-white p-0.5 shadow-sm">
           {onEdit && editLabel ? <IconButton label={editLabel} onClick={onEdit}><LayoutGrid className="h-4 w-4" /></IconButton> : null}
@@ -69,7 +71,7 @@ function BlockFrame({ blockId, label, index, count, canUp, canDown, selected, re
       <div className="relative">{children}</div>
       {selected && !readOnly ? (
         <div className="relative flex justify-end pt-3">
-          <button type="button" onClick={(e) => { e.stopPropagation(); onDone(); }} className={BUTTON_SMALL_PRIMARY}>Done</button>
+          <button type="button" onClick={(e) => { e.stopPropagation(); onDone(); }} className={`${BUTTON_SMALL_PRIMARY} ${surface ? 'ring-2 ring-white' : ''}`}>Done</button>
         </div>
       ) : null}
       {problem ? <p role="alert" className={`relative pt-2 text-xs ${surface ? 'font-medium text-red-600 [text-shadow:0_0_2px_#fff]' : 'text-red-600'}`}>{problem}</p> : null}

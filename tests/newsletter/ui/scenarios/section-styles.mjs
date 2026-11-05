@@ -40,6 +40,11 @@ async function closePanel(page) {
   await page.locator('[data-radix-popper-content-wrapper]').waitFor({ state: 'detached', timeout: 3000 }).catch(() => {});
 }
 
+/** Two boxes overlap. */
+function overlaps(a, b) {
+  return !!a && !!b && a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
+}
+
 async function inViewport(page, locator) {
   const box = await locator.boundingBox();
   const vp = page.viewportSize();
@@ -138,6 +143,15 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
   expect(await titleFrame.evaluate((el) => getComputedStyle(el).paddingTop) === '24px', 'preview: 24 px above on a band (the email\'s)');
   expect(await title.evaluate((el) => getComputedStyle(el).color) === 'rgb(17, 24, 39)', 'dark words on cream');
   await partShot(page.locator('[data-radix-popper-content-wrapper]'), '1280-04-title-background-colour');
+  // On Studio's own purple the selection still shows (a white edge inside the purple line) and so does Done.
+  await panel.getByRole('radio', { name: 'Purple', exact: true }).click();
+  await until((b) => b[0]?.data?.background_color === '#6C60FF', 'title purple band');
+  expect((await titleFrame.evaluate((el) => getComputedStyle(el).boxShadow)).includes('rgb(255, 255, 255)'), 'white edge inside the selection on a band');
+  expect((await titleFrame.getByRole('button', { name: 'Done' }).evaluate((el) => getComputedStyle(el).boxShadow)).includes('rgb(255, 255, 255)'), 'Done has a white ring on a band');
+  await closePanel(page);
+  await partShot(titleFrame, '1280-05a-title-on-purple-selected');
+  await titleBar.getByRole('button', { name: 'Section background' }).click();
+  panel = page.locator('[data-radix-popper-content-wrapper]');
   await panel.getByRole('radio', { name: 'Black' }).click();
   await until((b) => b[0]?.data?.background_color === '#111827', 'title black band');
   expect(await title.evaluate((el) => getComputedStyle(el).color) === 'rgb(255, 255, 255)', 'white words on black, automatically');
@@ -190,6 +204,13 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
   await textBar.getByRole('button', { name: 'Font size: Normal' }).click();
   const fontMenu = page.getByRole('menu', { name: 'Font size' });
   expect(await inViewport(page, fontMenu), '1280: font size choices in view');
+  await expectVisible(page.getByText('Select words to size just them; otherwise the whole section.'), 'the font size hint');
+  // Arrow keys move through the choices (focus starts on the current one).
+  expect(await page.evaluate(() => document.activeElement?.textContent) === 'Normal', 'focus starts on the current size');
+  await page.keyboard.press('ArrowDown');
+  expect(await page.evaluate(() => document.activeElement?.textContent) === 'Large', 'ArrowDown moves to Large');
+  await page.keyboard.press('End');
+  expect(await page.evaluate(() => document.activeElement?.textContent) === 'X-Large', 'End moves to X-Large');
   await partShot(page.locator('[data-radix-popper-content-wrapper]'), '1280-08-font-size-menu');
   await fontMenu.getByRole('menuitemradio', { name: 'X-Large', exact: true }).click();
   blocks = await until((b) => b[1]?.data?.html?.includes('<span style="font-size:24px">Big savings</span>'), 'X-Large on the selected words');
@@ -225,6 +246,33 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
   await textBar.getByRole('button', { name: 'Bold' }).click();
   blocks = await until((b) => /<strong>Big<\/strong>/.test(b[1]?.data?.html ?? ''), 'bold inside a size');
 
+  // Undo / redo after a size change (review): always back to the clean html saved before, never <font> or lost words.
+  const savedHtml = () => savedBlocks(api)[1].data.html;
+  const domHtml = () => text.evaluate((el) => el.innerHTML);
+  const steps = [savedHtml()];
+  await selectWords(page, editorSel, 'winter tire');
+  await textBar.getByRole('button', { name: /^Font size/ }).click();
+  await page.getByRole('menu', { name: 'Font size' }).getByRole('menuitemradio', { name: 'X-Large', exact: true }).click();
+  await until((b) => b[1]?.data?.html?.includes('<span style="font-size:24px">winter tire</span>'), 'X-Large on "winter tire"');
+  steps.push(savedHtml());
+  await page.evaluate((sel) => { const el = document.querySelector(sel); const r = document.createRange(); r.selectNodeContents(el); r.collapse(false); const s = getSelection(); s.removeAllRanges(); s.addRange(r); }, editorSel);
+  await textBar.getByRole('button', { name: /^Font size/ }).click();
+  await page.getByRole('menu', { name: 'Font size' }).getByRole('menuitemradio', { name: 'Small', exact: true }).click();
+  await until((b) => /^<p><span style="font-size:14px">/.test(b[1]?.data?.html ?? ''), 'Small on the whole section');
+  steps.push(savedHtml());
+  await text.focus();
+  const MOD = process.platform === 'darwin' ? 'Meta' : 'Control';
+  for (const [key, want, label] of [[`${MOD}+z`, steps[1], 'undo the whole-section size'], [`${MOD}+z`, steps[0], 'undo the selected-words size'],
+    [`${MOD}+Shift+z`, steps[1], 'redo the selected-words size'], [`${MOD}+Shift+z`, steps[2], 'redo the whole-section size'], [`${MOD}+z`, steps[1], 'undo again']]) {
+    await page.keyboard.press(key);
+    await until((b) => b[1]?.data?.html === want, label);
+    const dom = await domHtml();
+    expect(!/<font/i.test(dom), `${label}: no <font> in the editor (got ${dom})`);
+    expect((await text.innerText()).replace(/\s+/g, ' ').trim() === 'Book your winter tire swap this week. Big savings on all brands.', `${label}: no words lost or doubled`);
+  }
+  await page.keyboard.press(`${MOD}+Shift+z`);
+  await until((b) => b[1]?.data?.html === steps[2], 'back to Small everywhere');
+
   // Align, colour and background for the whole section.
   await textBar.getByRole('button', { name: 'Align: Left' }).click();
   await page.getByRole('menu', { name: 'Align' }).getByRole('menuitemradio', { name: 'Centre', exact: true }).click();
@@ -242,6 +290,11 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
   await page.locator('[data-radix-popper-content-wrapper]').getByRole('radio', { name: 'Green' }).click();
   blocks = await until((b) => b[1]?.data?.color === '#059669', 'text green');
   expect(await text.evaluate((el) => getComputedStyle(el).color) === 'rgb(5, 150, 105)', 'preview: green words');
+  // A picked colour that is hard to read on the band gets a small note.
+  await page.locator('[data-radix-popper-content-wrapper]').getByRole('radio', { name: 'Orange' }).click();
+  await expectVisible(page.locator('[data-nl-contrast-note]'), 'hard-to-read note for orange on light purple');
+  await partShot(page.locator('[data-radix-popper-content-wrapper]'), '1280-11-contrast-note');
+  await page.locator('[data-radix-popper-content-wrapper]').getByRole('radio', { name: 'Green' }).click();
   await closePanel(page);
 
   // A third section: text on a dark band, with a link (links take the light colour there).
@@ -295,10 +348,17 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
   await pTitleBar.getByRole('button', { name: 'Section background' }).click();
   panel = page.locator('[data-radix-popper-content-wrapper]');
   expect(await inViewport(page, panel), '390: background panel fits the screen');
+  expect(!overlaps(await panel.boundingBox(), await page.locator('[role="group"][aria-label="Title section"]').boundingBox()), '390: the panel leaves the section visible');
+  // A light band, then Image: the fallback starts dark (white words read on it where pictures are hidden).
+  await panel.getByRole('radio', { name: 'Cream' }).click();
+  await until((b) => b[0]?.data?.background_color === '#FEF3C7', '390: cream band');
   await panel.getByRole('radio', { name: 'Image', exact: true }).click();
+  await until((b) => !('background_color' in b[0].data), '390: Image after a light band drops it for the dark fallback');
+  expect(await panel.locator('[data-nl-fallback-sample]').evaluate((el) => getComputedStyle(el).backgroundColor) === 'rgb(17, 24, 39)', '390: the fallback sample is the dark colour');
   await page.locator('[role="group"][aria-label="Title section"] input[type="file"]').setInputFiles(FILE);
   await until((b) => b[0]?.data?.background_image_url === PHOTO, '390: title picture');
   expect(await inViewport(page, panel), '390: the panel still fits with the picture choices');
+  expect(!overlaps(await panel.boundingBox(), await page.locator('[role="group"][aria-label="Title section"]').boundingBox()), '390: still clear of the section with the picture');
   await shot(page, '390-02-title-background-panel');
   await closePanel(page);
   await pTitleBar.getByRole('button', { name: 'Title size: Large' }).click();

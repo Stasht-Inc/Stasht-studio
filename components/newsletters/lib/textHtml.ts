@@ -251,3 +251,106 @@ export function editorHtml(raw: string): string {
   const html = sanitizeTextHtml(raw);
   return textHtmlIsEmpty(html) ? '' : html;
 }
+
+/**
+ * A font size on the text model (review, 5 Nov: no execCommand / <font>, so nothing escapes the editor's own undo).
+ * range: plain-text character offsets [start, end) counted over text nodes only, or null for everything. Inside the
+ * range the words get `px` (16 = Normal: no size); outside, each word keeps the size it had. Sizes are then put back
+ * as few spans as possible, only ever around words and inline formatting, never around a paragraph, list or item.
+ */
+export function resizeTextNodes(nodes: TextNode[], px: number, range: { start: number; end: number } | null): TextNode[] {
+  const target = px === 16 ? null : px;
+  const pos = { n: 0 };
+  const flatten = (list: TextNode[], inherited: number | null): TextNode[] => list.flatMap((node): TextNode[] => {
+    if (node.kind === 'br') return [node];
+    if (node.kind === 'size') return flatten(node.children, node.px === 16 ? null : node.px);
+    if (node.kind !== 'text') return [{ ...node, children: flatten(node.children, inherited) }];
+    const start = pos.n;
+    pos.n += node.text.length;
+    const cuts = range ? [range.start, range.end].filter((c) => c > start && c < pos.n).map((c) => c - start) : [];
+    const bounds = [0, ...cuts, node.text.length];
+    const out: TextNode[] = [];
+    for (let i = 0; i < bounds.length - 1; i++) {
+      const text = node.text.slice(bounds[i], bounds[i + 1]);
+      if (!text) continue;
+      const from = start + bounds[i];
+      const inside = !range || (from >= range.start && from < range.end);
+      const size = inside ? target : inherited;
+      out.push(size === null ? { kind: 'text', text } : { kind: 'size', px: size, children: [{ kind: 'text', text }] });
+    }
+    return out;
+  });
+  return groupSizes(flatten(nodes, null));
+}
+
+type Uniform = number | null | 'any' | 'mixed';
+const isBlock = (n: TextNode) => n.kind === 'el' && (n.tag === 'p' || n.tag === 'ul' || n.tag === 'ol' || n.tag === 'li');
+
+function uniformSize(n: TextNode): Uniform {
+  if (n.kind === 'text') return null;
+  if (n.kind === 'br') return 'any';
+  if (n.kind === 'size') return n.px;
+  const seen = new Set<number | null>();
+  for (const c of n.children) {
+    const u = uniformSize(c);
+    if (u === 'mixed') return 'mixed';
+    if (u !== 'any') seen.add(u);
+  }
+  return seen.size === 0 ? 'any' : seen.size === 1 ? [...seen][0] : 'mixed';
+}
+
+function stripSizes(n: TextNode): TextNode[] {
+  if (n.kind === 'size') return n.children.flatMap(stripSizes);
+  if (n.kind === 'el' || n.kind === 'a') return [{ ...n, children: mergeTexts(n.children.flatMap(stripSizes)) }];
+  return [n];
+}
+
+function mergeTexts(list: TextNode[]): TextNode[] {
+  const out: TextNode[] = [];
+  for (const n of list) {
+    const last = out[out.length - 1];
+    if (n.kind === 'text' && last?.kind === 'text') out[out.length - 1] = { kind: 'text', text: last.text + n.text };
+    else out.push(n);
+  }
+  return out;
+}
+
+/** Runs of neighbours with one size become one span around them; mixed inline elements are opened up. */
+function groupSizes(list: TextNode[]): TextNode[] {
+  const out: TextNode[] = [];
+  let run: TextNode[] = [];
+  let runPx: number | null | undefined;
+  const flush = () => {
+    if (!run.length) return;
+    const flat = mergeTexts(run.flatMap(stripSizes));
+    if (typeof runPx === 'number') out.push({ kind: 'size', px: runPx, children: flat });
+    else out.push(...flat);
+    run = [];
+    runPx = undefined;
+  };
+  for (const n of list) {
+    if (isBlock(n)) {
+      flush();
+      out.push({ ...(n as Extract<TextNode, { kind: 'el' }>), children: groupSizes((n as Extract<TextNode, { kind: 'el' }>).children) });
+      continue;
+    }
+    const u = uniformSize(n);
+    if (u === 'mixed') {
+      flush();
+      out.push({ ...(n as Extract<TextNode, { kind: 'el' | 'a' }>), children: groupSizes((n as Extract<TextNode, { kind: 'el' | 'a' }>).children) });
+    } else if (u === 'any' || runPx === undefined || runPx === u) {
+      if (u !== 'any') runPx = u;
+      run.push(n);
+    } else {
+      flush();
+      run = [n];
+      runPx = u;
+    }
+  }
+  flush();
+  return mergeTexts(out);
+}
+
+export function resizeTextHtml(html: string, px: number, range: { start: number; end: number } | null): string {
+  return serializeTextNodes(resizeTextNodes(parseTextHtml(html), px, range));
+}
