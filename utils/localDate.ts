@@ -8,6 +8,21 @@ export function localDateISO(now: Date = new Date()): string {
   return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
 }
 
+/**
+ * The calendar day a date value names, as YYYY-MM-DD ('' when it names none). A value written as YYYY-MM-DD or
+ * YYYY:MM:DD (EXIF) keeps the day it says, whatever follows it: new Date('2026-11-04 22:30:00').toISOString() reads it as
+ * local time then converts to UTC, which is 5 Nov in Toronto. Anything else is parsed and read as the LOCAL day.
+ * Never toISOString.
+ */
+export function dayOf(value: unknown): string {
+  const text = typeof value === 'string' ? value.trim() : '';
+  if (!text) return '';
+  const m = /^(\d{4})[-:](\d{2})[-:](\d{2})/.exec(text);
+  if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+  const parsed = new Date(text);
+  return Number.isNaN(parsed.getTime()) ? '' : localDateISO(parsed);
+}
+
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 /**

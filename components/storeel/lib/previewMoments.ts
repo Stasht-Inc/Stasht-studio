@@ -1,3 +1,5 @@
+import { dayOf } from '../../../utils/localDate.ts';
+
 // Storeel flow v2 (Deepak, 4 Nov 2026): the moments the live preview shows. Pure, so `node --test` loads it.
 //
 // Create: every moment "Create Campaign" will make, in the order the web API makes them (MemoriesController::store):
@@ -53,7 +55,7 @@ export interface PhotoInput {
 const VIDEO = /\.(mp4|mov|avi|webm|mkv|m4v)(?:[?#]|$)/i;
 const text = (v: unknown): string => (typeof v === 'string' ? v.trim() : '');
 const link = (v: unknown): string | null => (typeof v === 'string' && v.trim() ? v.trim() : null);
-const day = (v: unknown): string => /^(\d{4}-\d{2}-\d{2})/.exec(text(v))?.[1] ?? '';
+const day = dayOf;
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
 /** A vehicle's price as its card shows it on the campaign page ("$34,995"); '' without one. */

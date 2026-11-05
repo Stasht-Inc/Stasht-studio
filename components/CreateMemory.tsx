@@ -10,7 +10,7 @@ import GooglePlacesInput from './ui/google-places-input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import * as Popover from '@radix-ui/react-popover';
 import { clearApiCache, dashboardAPI, getApiBaseUrl } from '../utils/authUtils';
-import { isoToApiDay, localDateISO } from '../utils/localDate';
+import { dayOf, isoToApiDay, localDateISO } from '../utils/localDate';
 import { loadCatalogueForBrowsing } from '../services/catalogueAPI';
 import exifr from 'exifr';
 import { getCategoryColor } from '../constants/mediaConstants';
@@ -1866,12 +1866,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
     if (photosWithDates.length > 0) {
       // Get all valid dates from photos with metadata
       const validDates = photosWithDates.map(photo => {
-        try {
-          const date = new Date(photo.capture_date!);
-          return date.toISOString().split('T')[0];
-        } catch {
-          return null;
-        }
+        return dayOf(photo.capture_date) || null;
       }).filter(date => date !== null) as string[];
 
       if (validDates.length > 0) {
@@ -2074,15 +2069,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
         const todayDate = localDateISO();
 
         // Use capture_date if available, otherwise use today's date
-        let photoDate = todayDate;
-        if (photo.capture_date && photo.capture_date.trim() !== '') {
-          try {
-            const parsedDate = new Date(photo.capture_date);
-            photoDate = parsedDate.toISOString().split('T')[0];
-          } catch {
-            photoDate = todayDate;
-          }
-        }
+        const photoDate = dayOf(photo.capture_date) || todayDate;
 
         return {
           name: photo.name,
