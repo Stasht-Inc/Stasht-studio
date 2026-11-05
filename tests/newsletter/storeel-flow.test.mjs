@@ -1,6 +1,6 @@
 // Storeel flow v2 (Deepak, 4 Nov 2026) with Chris's change the same day: ONE scrolling page like the newsletter
 // composer. Numbered cards, all open, top to bottom — 1 Campaign (every field; the preview shows every moment), 2 Send
-// (optional) — and the actions at the BOTTOM of the list: Create Campaign (creates only) and Create & Send (creates,
+// (optional) — and the actions at the BOTTOM of the list: Save as Draft (creates only) and Save & Send (creates,
 // then the send confirm). Edit: Save Changes / Save & Send. Nothing is saved before one of them is pressed; no step
 // gating, no Continue, no primary action in the header. No Moments step, no resume note.
 import { test } from 'node:test';
@@ -22,26 +22,26 @@ test('the resume note and its helpers are gone (moments come from step 1)', () =
   }
 });
 
-test('create: the bottom actions are Create Campaign (creates only) and Create & Send; Send is optional', () => {
+test('create: the bottom actions are Save as Draft (creates only) and Save & Send; Send is optional', () => {
   const v = flowView({ editing: false, created: false });
   assert.equal(v.title, 'Create Campaign');
-  assert.deepEqual(v.save, { label: 'Create Campaign', action: 'create' });
-  assert.deepEqual(v.saveAndSend, { label: 'Create & Send', action: 'create' });
-  assert.equal(v.savedToast, 'Campaign created');
+  assert.deepEqual(v.save, { label: 'Save as Draft', action: 'create' });
+  assert.deepEqual(v.saveAndSend, { label: 'Save & Send', action: 'create' });
+  assert.equal(v.savedToast, 'Saved as a draft');
   assert.equal(v.sendOptional, 'Optional — send it now or later from the campaign page.');
   assert.equal(v.createdNote, null);
   assert.equal(v.closeToast, null, 'Cancel before anything is saved: nothing to say');
 });
 
-test('create, after Create & Send made it but the send was not confirmed: it is saved (PUT from now on), and says so', () => {
+test('create, after Save & Send made it but the send was not confirmed: it is saved (PUT from now on), and says so', () => {
   const v = flowView({ editing: false, created: true });
   assert.equal(v.title, 'Edit Campaign', 'the campaign exists now');
   assert.equal(v.closeLabel, 'Close', 'nothing to cancel any more');
   assert.deepEqual(v.save, { label: 'Save Changes', action: 'save' });
   assert.deepEqual(v.saveAndSend, { label: 'Save & Send', action: 'save' });
-  assert.equal(v.createdNote, 'Campaign created. Send it now, or later from the campaign page.');
+  assert.equal(v.createdNote, 'Saved as a draft. Send it now, or later from the campaign page.');
   assert.equal(v.savedToast, 'Changes saved');
-  assert.equal(v.closeToast, 'Campaign created', 'closing keeps it, and says so');
+  assert.equal(v.closeToast, 'Saved as a draft', 'closing keeps it, and says so');
 });
 
 test('edit: Save Changes (PUT) and Save & Send on the same single page', () => {
@@ -75,9 +75,9 @@ test('why the save button is off, said above the actions', () => {
   assert.equal(saveBlockedReason({ title: 'Spring', category: 'Personal', coverUploading: false }), null);
 });
 
-test('Create Campaign with a filled-in Send card says it was not sent', () => {
-  assert.equal(createdToast(false), 'Campaign created');
-  assert.equal(createdToast(true), 'Campaign created — not sent.');
+test('Save as Draft with a filled-in Send card says it was not sent', () => {
+  assert.equal(createdToast(false), 'Saved as a draft');
+  assert.equal(createdToast(true), 'Saved as a draft — not sent.');
 });
 
 const CATEGORIES = [{ id: 7, name: 'Personal' }, { id: 8, name: 'Service' }];
