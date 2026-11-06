@@ -104,7 +104,7 @@ export default function StoreelLivePreview({ input, avatarUrl, avatarColor }: {
             value={device.id}
             onChange={(e) => chooseDevice(e.target.value)}
             // Compact beside "Live"; 44 px tall on phones (touch target).
-            className="h-11 w-[8.5rem] rounded-md border border-gray-200 bg-white pl-2 pr-6 text-xs text-gray-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#6C60FF]/40 sm:h-7"
+            className="h-11 w-[9.5rem] rounded-md border border-gray-200 bg-white pl-2 pr-6 text-xs text-gray-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#6C60FF]/40 sm:h-7"
           >
             {PREVIEW_DEVICES.map((d) => <option key={d.id} value={d.id}>{d.label}</option>)}
           </select>
