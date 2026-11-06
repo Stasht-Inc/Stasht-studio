@@ -323,7 +323,7 @@ export function fontTextHtml(html: string, font: FontKey | null, range: { start:
   return serializeTextNodes(fontTextNodes(parseTextHtml(html), font, range));
 }
 
-interface TextContext { px: number | null; font: FontKey | null; bold: boolean; italic: boolean; link: boolean }
+interface TextContext { px: number | null; font: FontKey | null; bold: boolean; italic: boolean; link: boolean; anchor: TextNode | null }
 /** Every text node with its offset and what it sits in. */
 function eachText(nodes: TextNode[], visit: (text: string, from: number, ctx: TextContext) => void): void {
   let n = 0;
@@ -331,24 +331,27 @@ function eachText(nodes: TextNode[], visit: (text: string, from: number, ctx: Te
     for (const node of list) {
       if (node.kind === 'text') { visit(node.text, n, ctx); n += node.text.length; }
       else if (node.kind === 'size') walk(node.children, { ...ctx, px: node.px ?? ctx.px, font: node.font ?? ctx.font });
-      else if (node.kind === 'a') walk(node.children, { ...ctx, link: true });
+      else if (node.kind === 'a') walk(node.children, { ...ctx, link: true, anchor: node });
       else if (node.kind === 'el') walk(node.children, { ...ctx, bold: ctx.bold || node.tag === 'strong', italic: ctx.italic || node.tag === 'em' });
     }
   };
-  walk(nodes, { px: null, font: null, bold: false, italic: false, link: false });
+  walk(nodes, { px: null, font: null, bold: false, italic: false, link: false, anchor: null });
+}
+
+/** What the character at index `at` sits in, or null when there is none. */
+function charContext(nodes: TextNode[], at: number): TextContext | null {
+  let found: TextContext | null = null;
+  eachText(nodes, (text, from, ctx) => {
+    if (!found && text && at >= from && at < from + text.length) found = ctx;
+  });
+  return found;
 }
 
 /** What the character before the caret sits in (the first character at the very start); for a selection, its first. */
 function contextAt(nodes: TextNode[], chars: number): TextContext | null {
-  const at = Math.max(chars - 1, 0);
-  let found: TextContext | null = null;
   let last: TextContext | null = null;
-  eachText(nodes, (text, from, ctx) => {
-    if (!text) return;
-    last = ctx;
-    if (!found && at >= from && at < from + text.length) found = ctx;
-  });
-  return found ?? last;
+  eachText(nodes, (text, _from, ctx) => { if (text) last = ctx; });
+  return charContext(nodes, Math.max(chars - 1, 0)) ?? last;
 }
 
 /** The font size (px; null: Normal) where the caret (or a selection's start) is: what the size button shows. */
@@ -368,7 +371,11 @@ export function fontAt(nodes: TextNode[], chars: number): FontKey | null {
 export function formatAt(nodes: TextNode[], start: number, end = start): { bold: boolean; italic: boolean; link: boolean } {
   if (end <= start) {
     const ctx = contextAt(nodes, start);
-    return { bold: !!ctx?.bold, italic: !!ctx?.italic, link: !!ctx?.link };
+    // Link: only inside one (review, 6 Nov). Just before or after it, typing is not linked, unlike bold and italic.
+    const before = start > 0 ? charContext(nodes, start - 1) : null;
+    const after = charContext(nodes, start);
+    const inLink = !!before?.anchor && before.anchor === after?.anchor;
+    return { bold: !!ctx?.bold, italic: !!ctx?.italic, link: inLink };
   }
   const all = { bold: true, italic: true, link: true };
   let any = false;

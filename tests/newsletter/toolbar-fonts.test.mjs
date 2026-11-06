@@ -54,6 +54,14 @@ test('the sanitiser keeps size and/or font spans canonically (size first) and no
   assert.deepEqual(parseTextHtml('<span style="font-size:20px">a</span>'), [{ kind: 'size', px: 20, children: [{ kind: 'text', text: 'a' }] }]);
 });
 
+test('review (6 Nov): a non-breaking or other Unicode space reads as a space, exactly as the API (NewsletterFonts::normaliseSpaces)', () => {
+  // The same cases as the API's NewsletterHtmlSanitizerFontsTest.
+  assert.equal(sanitizeTextHtml('<p><span style="font-family:\u00a0Georgia\u00a0">a</span></p>'), `<p><span style="font-family:${GEORGIA}">a</span></p>`);
+  assert.equal(sanitizeTextHtml('<p><span style="font-family:Times\u00a0New Roman">a</span></p>'), `<p><span style="font-family:'Times New Roman', Times, serif">a</span></p>`);
+  assert.equal(sanitizeTextHtml('<p><span style="font-size:\u00a020px\u3000">a</span></p>'), '<p><span style="font-size:20px">a</span></p>');
+  assert.equal(sanitizeTextHtml('<p><span style="font-family:&nbsp;Verdana">a</span></p>'), '<p><span style="font-family:Verdana, Geneva, sans-serif">a</span></p>');
+});
+
 test('a paste never brings a font (other apps set one on every word)', () => {
   assert.deepEqual(pastedTextNodes('<p><span style="font-family:Arial,sans-serif">pasted</span> words</p>'), [{ kind: 'text', text: 'pasted words' }]);
 });
@@ -103,6 +111,24 @@ test('the font and formatting at the caret (what the toolbar shows)', () => {
   assert.deepEqual(formatAt(nodes, at('bold')), { bold: true, italic: false, link: false });
   assert.deepEqual(formatAt(nodes, at('both')), { bold: true, italic: true, link: false });
   assert.deepEqual(formatAt(nodes, at('link')), { bold: false, italic: false, link: true });
+});
+
+test('review (6 Nov): Link is pressed only with the caret inside a link, not just before or after it (typing there is not linked)', () => {
+  const nodes = parseTextHtml('<p>Book <a href="https://a.test/x">winter tire</a> swap</p>');
+  const text = 'Book winter tire swap';
+  const start = text.indexOf('winter');
+  const end = start + 'winter tire'.length;
+  assert.equal(formatAt(nodes, start).link, false, 'just before the link');
+  assert.equal(formatAt(nodes, start + 1).link, true, 'inside');
+  assert.equal(formatAt(nodes, end - 1).link, true, 'inside, before the last letter');
+  assert.equal(formatAt(nodes, end).link, false, 'just after the link');
+  assert.equal(formatAt(nodes, start, end).link, true, 'the whole link selected');
+  assert.equal(formatAt(nodes, start - 1, end).link, false, 'a selection reaching outside it');
+  // Two links side by side: the caret between them is in neither.
+  const two = parseTextHtml('<p><a href="https://a.test/1">one</a><a href="https://a.test/2">two</a></p>');
+  assert.equal(formatAt(two, 3).link, false);
+  // At the very end of text that ends with a link.
+  assert.equal(formatAt(parseTextHtml('<p><a href="https://a.test/1">one</a></p>'), 3).link, false);
 });
 
 test('undo / redo across font changes lands on the exact html each time', () => {

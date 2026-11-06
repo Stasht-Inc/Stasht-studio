@@ -4,13 +4,13 @@
 // NewsletterRecentColors). Pure helpers.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { MAX_RECENT_COLORS, addRecentColor, hexToHsv, hsvToHex, parseHexInput, recentColorsFrom } from '../../components/newsletters/lib/colorPicker.ts';
+import { MAX_RECENT_COLORS, addRecentColor, hexFieldText, hexToHsv, hsvToHex, parseHexInput, recentColorsFrom, recentFromBrand, recentFromServer, recentPick, recentStart } from '../../components/newsletters/lib/colorPicker.ts';
 
 test('the HEX field takes #RRGGBB with or without the #, any case, and nothing else', () => {
   assert.equal(parseHexInput('#ebf4ff'), '#EBF4FF');
   assert.equal(parseHexInput('EBF4FF'), '#EBF4FF');
   assert.equal(parseHexInput('  #6c60ff '), '#6C60FF');
-  for (const bad of ['', '#', '#12345', '1234567', '#12345g', 'red', 'rgb(1,2,3)', '##123456', '#123456;', null, undefined, 123456]) {
+  for (const bad of ['', '#', '#12', '#1234', '#12345', '1234567', '#12345g', '#ffg', 'red', 'rgb(1,2,3)', '##123456', '#123456;', null, undefined, 123456]) {
     assert.equal(parseHexInput(bad), null, String(bad));
   }
 });
@@ -44,4 +44,37 @@ test('HEX ⇄ HSV (the colour area and hue strip) round-trips', () => {
   }
   // Out-of-range input is clamped, never NaN.
   assert.match(hsvToHex({ h: 400, s: 2, v: -1 }), /^#[0-9A-F]{6}$/);
+});
+
+test('review (6 Nov): #FFF shorthand expands; pasted spaces are dropped before anything is checked', () => {
+  assert.equal(parseHexInput('#FFF'), '#FFFFFF');
+  assert.equal(parseHexInput('abc'), '#AABBCC');
+  assert.equal(parseHexInput(' #1f6 '), '#11FF66');
+  assert.equal(hexFieldText(' #1F6F8B '), '#1F6F8B');
+  assert.equal(hexFieldText('#1F 6F\t8B\n'), '#1F6F8B');
+  assert.equal(parseHexInput(hexFieldText('\u00a0#1f6f8b ')), '#1F6F8B');
+});
+
+test('review (6 Nov): a late answer never drops a newer pick; the brand list arriving late keeps the picks made meanwhile', () => {
+  let s = recentStart(['#111111']);
+  const a = recentPick(s, '#AAAAAA');
+  s = a.state;
+  const b = recentPick(s, '#BBBBBB');
+  s = b.state;
+  assert.deepEqual(s.colors, ['#BBBBBB', '#AAAAAA', '#111111']);
+  // B's answer first (the server has both), then A's late answer (without B): ignored.
+  s = recentFromServer(s, ['#BBBBBB', '#AAAAAA', '#111111'], b.seq);
+  s = recentFromServer(s, ['#AAAAAA', '#111111'], a.seq);
+  assert.deepEqual(s.colors, ['#BBBBBB', '#AAAAAA', '#111111']);
+  // The latest answer is taken as it is (another device may have added one).
+  const c = recentPick(s, '#CCCCCC');
+  s = recentFromServer(c.state, ['#CCCCCC', '#999999', '#BBBBBB'], c.seq);
+  assert.deepEqual(s.colors, ['#CCCCCC', '#999999', '#BBBBBB']);
+  // The brand loads after a pick: the pick stays first.
+  let t = recentPick(recentStart(null), '#ABCDEF').state;
+  t = recentFromBrand(t, ['#123456']);
+  assert.deepEqual(t.colors, ['#ABCDEF', '#123456']);
+  // A failed save (null list): the local list stays.
+  const d = recentPick(t, '#DDDDDD');
+  assert.deepEqual(recentFromServer(d.state, null, d.seq).colors, ['#DDDDDD', '#ABCDEF', '#123456']);
 });

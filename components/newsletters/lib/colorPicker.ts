@@ -4,11 +4,19 @@
 
 export const MAX_RECENT_COLORS = 8;
 
-/** What was typed in the HEX field as #RRGGBB (uppercase), with or without the #; else null. */
+/** What was typed in the HEX field as #RRGGBB (uppercase), with or without the #; #RGB shorthand is expanded (review,
+ *  6 Nov). Else null. */
 export function parseHexInput(value: unknown): string | null {
   if (typeof value !== 'string') return null;
-  const m = /^#?([0-9a-f]{6})$/i.exec(value.trim());
-  return m ? `#${m[1].toUpperCase()}` : null;
+  const m = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(value.trim());
+  if (!m) return null;
+  const hex = m[1].length === 3 ? m[1].split('').map((c) => c + c).join('') : m[1];
+  return `#${hex.toUpperCase()}`;
+}
+
+/** The HEX field's text with every space dropped (a pasted " #1F6F8B " stays whole). */
+export function hexFieldText(text: string): string {
+  return text.replace(/\s+/g, '');
 }
 
 /** color first, then the others without it (any case), at most MAX_RECENT_COLORS. A bad colour changes nothing. */
@@ -60,4 +68,32 @@ export function hsvToHex({ h, s, v }: Hsv): string {
     return vv - vv * ss * Math.max(0, Math.min(p, 4 - p, 1));
   };
   return `#${[f(5), f(3), f(1)].map((c) => Math.round(c * 255).toString(16).padStart(2, '0')).join('').toUpperCase()}`;
+}
+
+/**
+ * The recent colours as the editor keeps them (review, 6 Nov): the list shown, the colours picked in this session, and
+ * the number of the last save. A save's answer only counts when it is the latest one, so a late answer never drops a
+ * newer pick; the account's list loading late keeps the picks made meanwhile first.
+ */
+export interface RecentState { colors: string[]; picked: string[]; seq: number }
+
+export function recentStart(raw: unknown): RecentState {
+  return { colors: recentColorsFrom(raw), picked: [], seq: 0 };
+}
+
+/** A colour picked with Custom: first now; `seq` numbers its save. */
+export function recentPick(s: RecentState, color: string): { state: RecentState; seq: number } {
+  const seq = s.seq + 1;
+  return { state: { colors: addRecentColor(s.colors, color), picked: addRecentColor(s.picked, color), seq }, seq };
+}
+
+/** A save's answer (null: failed or an API without recent colours): taken only when it answers the latest save. */
+export function recentFromServer(s: RecentState, raw: unknown, seq: number): RecentState {
+  if (seq !== s.seq || !Array.isArray(raw)) return s;
+  return { ...s, colors: recentColorsFrom(raw) };
+}
+
+/** The account's list (the brand GET): with this session's picks first. */
+export function recentFromBrand(s: RecentState, raw: unknown): RecentState {
+  return { ...s, colors: s.picked.reduceRight((list, c) => addRecentColor(list, c), recentColorsFrom(raw)) };
 }

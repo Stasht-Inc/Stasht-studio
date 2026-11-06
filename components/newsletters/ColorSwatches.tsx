@@ -61,16 +61,17 @@ export default function ColorSwatches({ label, idPrefix, value, onChange, swatch
   swatches?: ReadonlyArray<Swatch>;
 }) {
   const recent = useRecentColors();
+  const root = useRef<HTMLDivElement>(null);
   const isPreset = (c: string) => presets.some((s) => s.value.toLowerCase() === c.toLowerCase());
   // Recent colours that aren't one of this panel's presets already.
   const recents = recent.colors.filter((c) => !isPreset(c)).map((c) => ({ value: c, name: `Recent colour ${c}` }));
   const custom = value !== '' && !isPreset(value) && !recents.some((s) => s.value.toLowerCase() === value.toLowerCase());
   return (
-    <div>
+    <div ref={root}>
       <p id={`${idPrefix}-label`} className={LABEL}>{label}</p>
       <div className="flex flex-wrap items-center gap-2">
         <SwatchGroup list={presets} value={value} onChange={onChange} labelledBy={`${idPrefix}-label`} />
-        <CustomColorPicker label={label} value={value} active={custom} onChange={onChange}
+        <CustomColorPicker label={label} value={value} active={custom} onChange={onChange} container={root}
           onClose={(color) => { if (color && !isPreset(color)) recent.add(color); }} />
         {recents.length ? <SwatchGroup list={recents} value={value} onChange={onChange} label={`${label}: recent colours`} recent /> : null}
       </div>

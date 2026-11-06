@@ -88,6 +88,34 @@ async function caretIn(page, selector, words) {
   await page.waitForTimeout(100);
 }
 
+/** The caret right after the given words. */
+async function caretAfter(page, selector, words) {
+  await page.evaluate(([sel, w]) => {
+    const root = document.querySelector(sel);
+    root.focus();
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    let node;
+    while ((node = walker.nextNode())) {
+      const i = node.textContent.indexOf(w);
+      if (i >= 0) {
+        const r = document.createRange();
+        r.setStart(node, i + w.length);
+        r.collapse(true);
+        const s = window.getSelection();
+        s.removeAllRanges();
+        s.addRange(r);
+        return;
+      }
+    }
+    throw new Error(`words not found: ${w}`);
+  }, [selector, words]);
+  await page.waitForTimeout(100);
+}
+
+function overlaps(a, b) {
+  return !!a && !!b && a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
+}
+
 async function caretAtEnd(page, selector) {
   await page.evaluate((sel) => { const el = document.querySelector(sel); el.focus(); const r = document.createRange(); r.selectNodeContents(el); r.collapse(false); const s = getSelection(); s.removeAllRanges(); s.addRange(r); }, selector);
   await page.waitForTimeout(100);
@@ -199,6 +227,9 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
     expect(await pressed(L) === 'true', `${width}: Link pressed in linked words`);
     await caretIn(page, sel, 'Book');
     expect(await pressed(L) === 'false', `${width}: Link not pressed outside`);
+    // Review (6 Nov): right after the link (typing there is not linked) Link is not pressed.
+    await caretAfter(page, sel, 'winter tire');
+    expect(await pressed(L) === 'false', `${width}: Link not pressed with the caret just after the link`);
 
     // Font on selected words only.
     await selectWords(page, sel, 'this week');
@@ -246,14 +277,29 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
     expect(await hex.evaluate((el) => document.activeElement === el), `${width}: the HEX field has focus`);
     expect(/^#[0-9A-F]{6}$/.test(await hex.inputValue()), `${width}: HEX value shown (${await hex.inputValue()})`);
     expect(await inViewport(page, picker), `${width}: the picker is in view`);
+    expect(!overlaps(await picker.boundingBox(), await panel.boundingBox()), `${width}: the picker leaves the colour panel visible (${JSON.stringify([await picker.boundingBox(), await panel.boundingBox()])})`);
     const hasDropper = await page.evaluate(() => 'EyeDropper' in window);
     expect(await picker.getByRole('button', { name: 'Pick a colour from the screen' }).count() === (hasDropper ? 1 : 0), `${width}: eyedropper only where the browser has one (${hasDropper})`);
     await shot(page, `${width}-07-picker`);
     await partShot(picker, `${width}-07b-picker`);
-    // An invalid value is flagged and never applied.
+    // An invalid value applies nothing; it is called out only on leaving the field (or Enter), not while typing.
     await hex.fill('#12');
-    await expectVisible(picker.getByText('Use 6 characters, like #6C60FF.'), 'invalid hex note');
+    await page.waitForTimeout(150);
+    expect(await picker.getByRole('alert').count() === 0, `${width}: no error while typing`);
+    expect(await hex.getAttribute('aria-invalid') === 'false', `${width}: not marked invalid while typing`);
+    await hex.press('Tab');
+    await expectVisible(picker.getByText('Use a colour like #6C60FF or #FFF.'), 'invalid hex note on leaving the field');
+    expect(await hex.getAttribute('aria-invalid') === 'true', `${width}: marked invalid after leaving the field`);
     expect(!('color' in (savedBlocks(api)[0].data)), `${width}: an invalid hex applies nothing`);
+    // #FFF shorthand expands when the field is left.
+    await hex.fill('#FFF');
+    expect(await picker.getByRole('alert').count() === 0, `${width}: typing again clears the error`);
+    await hex.press('Tab');
+    await until((b) => b[0]?.data?.color === '#FFFFFF', 'shorthand #FFF expanded and applied');
+    expect(await hex.inputValue() === '#FFFFFF', `${width}: the field shows the full value`);
+    // A pasted value with spaces around it works whole.
+    await hex.fill(' #DC2626 ');
+    await until((b) => b[0]?.data?.color === '#DC2626', 'pasted hex with spaces applied');
     // Without the # works too.
     await hex.fill('1f6f8b');
     blocks = await until((b) => b[0]?.data?.color === '#1F6F8B', 'typed hex applied');
@@ -288,12 +334,32 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
     await text.click();
     await textBar.getByRole('button', { name: 'Section background' }).click();
     const bgPanel = page.locator('[data-radix-popper-content-wrapper]').first();
+    // Review (6 Nov): with no background yet, typing the default purple applies it (it is not "unchanged").
+    await bgPanel.getByRole('button', { name: 'Background colour: custom colour' }).click();
+    await picker.getByRole('textbox', { name: 'HEX colour' }).fill('6C60FF');
+    await until((b) => b[1]?.data?.background_color === '#6C60FF', 'the default purple typed on an unset background applies');
+    await picker.getByRole('textbox', { name: 'HEX colour' }).press('Enter');
+    await page.waitForTimeout(200);
     const recentBg = bgPanel.getByRole('radio', { name: 'Recent colour #1F6F8B' });
     await expectVisible(recentBg, 'the recent colour in another panel (section background)');
     expect(await inViewport(page, bgPanel), `${width}: background panel in view`);
     await partShot(bgPanel, `${width}-09-recent-in-background`);
     await recentBg.click();
     await until((b) => b[1]?.data?.background_color === '#1F6F8B', 'recent colour applied as a background');
+    await closeAllPanels(page);
+
+    // ...in the Button section's colour (review, 6 Nov: exercised, not just shared code).
+    await scope.getByRole('button', { name: 'Add a section after section 2' }).click();
+    await page.getByRole('menuitem', { name: /^Button/ }).click();
+    const buttonFrame = scope.locator('[role="group"][aria-label="Button section"]');
+    await buttonFrame.scrollIntoViewIfNeeded();
+    await expectVisible(buttonFrame.getByRole('radio', { name: 'Recent colour #1F6F8B' }), 'the recent colour in the Button colour');
+    await buttonFrame.getByRole('button', { name: 'Button colour: custom colour' }).click();
+    await expectVisible(picker, 'the picker from the Button colour');
+    expect(await inViewport(page, picker), `${width}: Button colour picker in view`);
+    const swatchRow = buttonFrame.getByRole('radiogroup', { name: 'Button colour: recent colours' });
+    expect(!overlaps(await picker.boundingBox(), await swatchRow.boundingBox()), `${width}: the picker leaves the Button's colours visible`);
+    await shot(page, `${width}-09b-button-picker`);
     await closeAllPanels(page);
 
     // ...and in the header's background colours.
@@ -321,6 +387,56 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
     await scope2.getByRole('toolbar', { name: 'Title style' }).getByRole('button', { name: 'Section background' }).click();
     await expectVisible(page.locator('[data-radix-popper-content-wrapper]').getByRole('radio', { name: 'Recent colour #1F6F8B' }), 'the recent colour after a reload');
     await shot(page, `${width}-11-after-reload`);
+    await context.close();
+  }
+
+  // ---- Review (6 Nov): the picker at 768 and 1024 (Title colour panel and Button colour), and on a touch screen ---------
+  for (const width of [768, 1024, 390]) {
+    const touch = width === 390;
+    const api = createMockApi({ recentColors: ['#1F6F8B'] });
+    const { page, context } = await open({ width, height: touch ? 844 : 1000, api });
+    if (touch) {
+      const cdp = await context.newCDPSession(page);
+      await cdp.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 });
+      await page.reload();
+    }
+    const scope = width < 1024 ? page : page.locator('aside');
+    await page.locator('#nl-name').fill('Picker sizes');
+    const addTop = scope.getByRole('button', { name: 'Add a section at the top' });
+    await addTop.scrollIntoViewIfNeeded();
+    await addTop.click();
+    await page.getByRole('menuitem', { name: /^Title/ }).click();
+    await scope.getByLabel('Title', { exact: true }).fill('Picker sizes');
+    const bar = scope.getByRole('toolbar', { name: 'Title style' });
+    await bar.scrollIntoViewIfNeeded();
+    await bar.getByRole('button', { name: 'Text colour' }).click();
+    const panel = page.locator('[data-radix-popper-content-wrapper]').first();
+    await panel.getByRole('button', { name: 'Text colour: custom colour' }).click();
+    const picker = page.locator('[data-nl-color-picker]');
+    await expectVisible(picker, `${width}: picker`);
+    expect(await inViewport(page, picker), `${width}: the picker is in view`);
+    expect(!overlaps(await picker.boundingBox(), await panel.boundingBox()), `${width}: the picker leaves the colour panel (and its recent colours) visible`);
+    if (touch) {
+      expect(await page.evaluate(() => matchMedia('(pointer: coarse)').matches), 'touch emulation gives a coarse pointer');
+      expect(await page.evaluate(() => document.activeElement?.getAttribute('aria-label')) === 'Colour', 'touch: the colour area has focus, not HEX (no keyboard popping up)');
+      await expectVisible(picker.getByRole('textbox', { name: 'HEX colour' }), 'touch: HEX still shown');
+    } else {
+      expect(await page.evaluate(() => document.activeElement?.getAttribute('aria-label')) === 'HEX colour', `${width}: HEX has focus`);
+    }
+    await shot(page, `${width}-12-picker${touch ? '-touch' : ''}`);
+    await closeAllPanels(page);
+    if (!touch) {
+      await scope.getByRole('button', { name: 'Add a section after section 1' }).click();
+      await page.getByRole('menuitem', { name: /^Button/ }).click();
+      const buttonFrame = scope.locator('[role="group"][aria-label="Button section"]');
+      await buttonFrame.scrollIntoViewIfNeeded();
+      await buttonFrame.getByRole('button', { name: 'Button colour: custom colour' }).click();
+      await expectVisible(picker, `${width}: Button picker`);
+      expect(await inViewport(page, picker), `${width}: the Button picker is in view`);
+      expect(!overlaps(await picker.boundingBox(), await buttonFrame.getByRole('radiogroup', { name: 'Button colour: recent colours' }).boundingBox()), `${width}: the Button picker leaves its colours visible`);
+      await shot(page, `${width}-13-button-picker`);
+      expect(!(await hasOverflow(page)), `${width}: nothing scrolls sideways`);
+    }
     await context.close();
   }
 
