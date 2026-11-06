@@ -34,7 +34,8 @@ export type BlockType = 'image' | 'title' | 'text' | 'youtube' | 'button' | 'div
 export type TitleSize = 'large' | 'medium' | 'small';
 export type DividerStyle = 'line' | 'space';
 
-export interface ImageBlockData { url: string; alt: string; link: string | null }
+/** width: the picture's own width in px when it is narrower than the card (below 598; review, 6 Nov), else absent. */
+export interface ImageBlockData { url: string; alt: string; link: string | null; width?: number }
 /** Section alignment (Chris, 5 Nov). Left is the default and is never stored. */
 export type SectionAlign = 'left' | 'center' | 'right';
 /**
@@ -53,7 +54,8 @@ export interface TitleBlockData extends SectionStyle { text: string; size: Title
  *  font size and font family (the API keeps only those). */
 export interface TextBlockData extends Omit<SectionStyle, 'background_image_url'> { html: string }
 export interface YoutubeBlockData { url: string }
-export interface ButtonBlockData { label: string; url: string; color: string }
+/** full_width / new_window (Chris, 6 Nov; API NewsletterContent::buttonOptions): only present when on. */
+export interface ButtonBlockData { label: string; url: string; color: string; full_width?: boolean; new_window?: boolean }
 export interface DividerBlockData { style: DividerStyle }
 /** What a Campaigns section can show (shared brief 2026-10-29): the owner's campaigns, Website Catalogue products
  *  and dealer vehicles. Products and vehicles link to their own page on the business's website. */

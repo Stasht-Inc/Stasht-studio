@@ -6,16 +6,26 @@ import { toHttpsUrl } from '../lib/urls';
 import { LABEL, PURPLE, inputClass } from '../lib/ui';
 import type { BlockEditorProps } from './types';
 import { useUrlField } from './useUrlField';
+import { buttonOptionPatch, buttonOptionsOf, type ButtonOption } from '../lib/buttonOptions';
 
 export default function ButtonBlockEditor({ blockId, data, selected, readOnly, onChange }: BlockEditorProps<ButtonBlockData>) {
   const url = useUrlField(data.url ?? '', (next) => onChange({ url: next }), toHttpsUrl);
   const color = safeHexColor(data.color, PURPLE);
+  const options = buttonOptionsOf(data as unknown as Record<string, unknown>);
+  const option = (key: ButtonOption, label: string) => (
+    <label className="inline-flex cursor-pointer select-none items-center gap-2">
+      <input id={`${blockId}-${key}`} type="checkbox" checked={options[key] === true} onChange={(e) => onChange(buttonOptionPatch(key, e.target.checked))}
+        className="h-4 w-4 flex-shrink-0 accent-[#6C60FF]" />
+      <span className="text-sm text-gray-700">{label}</span>
+    </label>
+  );
 
   return (
     <div>
-      {/* As in the email (blocks/button.blade.php): a centred button sized to its words. */}
+      {/* As in the email (blocks/button.blade.php): a centred button sized to its words, or the content's full width
+          (Chris, 6 Nov). */}
       <div className="flex justify-center py-2">
-        <span className="inline-block max-w-full break-words rounded-[10px] px-7 py-3.5 text-center text-base font-bold leading-5" style={{ backgroundColor: color, color: contrastInk(color) }}>
+        <span data-nl-button="" className={`${options.full_width ? 'block w-full' : 'inline-block max-w-full'} break-words rounded-[10px] px-7 py-3.5 text-center text-base font-bold leading-5`} style={{ backgroundColor: color, color: contrastInk(color) }}>
           {data.label.trim() || 'Button text'}
         </span>
       </div>
@@ -32,6 +42,10 @@ export default function ButtonBlockEditor({ blockId, data, selected, readOnly, o
               aria-invalid={url.invalid} aria-describedby={url.invalid ? `${blockId}-url-help` : undefined}
               onChange={(e) => url.change(e.target.value)} onBlur={url.blur} className={inputClass(url.invalid)} />
             {url.invalid ? <p id={`${blockId}-url-help`} role="alert" className="mt-1.5 text-xs text-red-600">Use a link that starts with https://.</p> : null}
+          </div>
+          <div className="flex flex-wrap items-center gap-x-6 gap-y-2 sm:col-span-2">
+            {option('full_width', 'Full width')}
+            {option('new_window', 'Open in new window')}
           </div>
           <div className="sm:col-span-2">
             <ColorSwatches label="Button colour" idPrefix={`${blockId}-color`} value={color} onChange={(c) => onChange({ color: c })} />
