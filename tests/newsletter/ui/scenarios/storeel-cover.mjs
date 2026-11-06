@@ -95,7 +95,8 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
         const r = el.getBoundingClientRect(); const i = img.getBoundingClientRect();
         return { boxH: r.height, w: i.width, h: i.height, src: img.getAttribute('src') };
       });
-      expect(info.src === LOGO && info.w === info.h && info.w <= Math.ceil(info.boxH * 0.6) + 1, `${tag}: brand avatar ${info.w}x${info.h} in a ${info.boxH}px cover (${info.src})`);
+      // The preview is a scaled phone (Chris, 6 Nov 2026): round, to a fraction of a pixel.
+      expect(info.src === LOGO && Math.abs(info.w - info.h) <= 0.5 && info.w <= Math.ceil(info.boxH * 0.6) + 1, `${tag}: brand avatar ${info.w}x${info.h} in a ${info.boxH}px cover (${info.src})`);
     }
     await addCover.scrollIntoViewIfNeeded();
     await shot(page, `${tag}-01-row-empty`);

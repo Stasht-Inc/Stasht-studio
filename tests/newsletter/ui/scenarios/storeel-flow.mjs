@@ -98,7 +98,7 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
     await shot(page, `${tag}-01-empty`);
     // No title: the button is off and says why, above the actions.
     await page.locator('#st-actions').scrollIntoViewIfNeeded();
-    expect(await button(page, 'Save as Draft').isDisabled() && await inView(page, page.getByText('Add a campaign title.')), `${tag}: Save as Draft off, "Add a campaign title." above the actions`);
+    expect(await button(page, 'Save as Draft').isDisabled() && await inView(page, page.getByText('*Add a campaign title', { exact: true })), `${tag}: Save as Draft off, "*Add a campaign title" above the actions`);
 
     await page.getByPlaceholder(STOREEL_TITLE).fill(`Great Products ${tag}`);
     await chooseCategory(page, 'Website Catalogue');
@@ -107,7 +107,7 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
     await button(page, 'Save as Draft').click();
     await page.waitForTimeout(900);
     expect(await inView(page, page.locator('#st-pick-items')), `${tag}: no item picked → the picker is brought into view`);
-    expect((await page.locator('#st-actions').getByRole('alert').textContent())?.includes('Pick at least one item from your Website Catalogue.'), `${tag}: …and said above the actions`);
+    expect((await page.locator('#st-actions').getByRole('alert').textContent()) === '*Pick at least one item from your Website Catalogue', `${tag}: …and said above the actions (Chris 6 Nov: "*…", no full stop)`);
     expect(createPosts(api).length === 0, `${tag}: refused before any POST`);
     await shot(page, `${tag}-01b-no-item-picked`);
     await page.getByText('Oak bench', { exact: true }).first().click();
@@ -150,7 +150,8 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
     expect(!(await hasOverflow(page)), `${tag}: no sideways scroll`);
     await step(page, 'st-step-moments').scrollIntoViewIfNeeded();
     await shot(page, `${tag}-02-three-moments`);
-    expect(!(await page.getByTestId('storeel-preview').getByText('Continue', { exact: true }).count()), `${tag}: no "Continue" pill in the preview`);
+    // Chris's Figma (6 Nov 2026) shows the app's Continue on the cover: drawn in the preview, never a button there.
+    expect(!(await page.getByTestId('storeel-preview').getByRole('button').count()), `${tag}: nothing in the preview is a button`);
     // The actions come right after the Send card (phones: before the preview, so they're reached after the form).
     const actionsBox = await page.locator('#st-actions').boundingBox();
     const sendBox = await step(page, 'st-step-send').boundingBox();
@@ -189,7 +190,7 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
     const s = await openStoreel(open, width, height, sapi);
     await s.page.getByPlaceholder(STOREEL_TITLE).fill(`Spring sale ${tag}`);
     await scrollToEnd(s.page);
-    await expectVisible(s.page.getByText(/^To send now:/), `${tag}: the reason Save & Send is off`);
+    await expectVisible(s.page.getByText(/^\*To send now:/), `${tag}: the reason Save & Send is off`);
     await shot(s.page, `${tag}-05-send-reason`);
     const send = step(s.page, 'st-step-send');
     await send.getByLabel('Email address').fill('jordan@example.com');
@@ -235,6 +236,8 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
     await expectVisible(b.page.getByText('Saved as a draft. Send it now, or later from the campaign page.'), `${tag}: says it was created`);
     await expectVisible(button(b.page, 'Save Changes'), `${tag}: now Save Changes`);
     await expectVisible(b.page.getByRole('heading', { name: 'Edit Campaign' }), `${tag}: the campaign exists: the header says Edit Campaign`);
+    // Phones: the actions sit above the preview, which is now a full phone screen (Chris, 6 Nov 2026) — scroll to them.
+    await b.page.locator('#st-actions').scrollIntoViewIfNeeded();
     expect(await inView(b.page, button(b.page, 'Close')) && !(await flow(b.page).getByRole('button', { name: 'Cancel', exact: true }).count()), `${tag}: …and Cancel says Close`);
     await expectVisible(button(b.page, 'Save & Send'), `${tag}: now Save & Send`);
     await shot(b.page, `${tag}-08-created-confirm-left`);
@@ -296,7 +299,7 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
     await expectVisible(e.page.getByText('This title is already taken.'), `${tag}: 422 title under the title`);
     await e.page.waitForTimeout(800);
     expect(await inView(e.page, title), `${tag}: the title is brought into view on the 422`);
-    expect((await e.page.locator('#st-actions').getByRole('alert').textContent())?.includes('This title is already taken.'), `${tag}: …and the error shows above the actions`);
+    expect((await e.page.locator('#st-actions').getByRole('alert').textContent()) === '*This title is already taken', `${tag}: …and the error shows above the actions`);
     await shot(e.page, `${tag}-09b-edit-422-title-in-view`);
     edit.state.putErrors = null;
     await button(e.page, 'Save Changes').click();
