@@ -103,7 +103,8 @@ export default function StoreelLivePreview({ input, avatarUrl, avatarColor }: {
             data-testid="storeel-preview-device"
             value={device.id}
             onChange={(e) => chooseDevice(e.target.value)}
-            className="h-7 min-w-0 rounded-md border border-gray-200 bg-white pl-2 pr-7 text-xs text-gray-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#6C60FF]/40"
+            // Compact beside "Live"; 44 px tall on phones (touch target).
+            className="h-11 w-[8.5rem] rounded-md border border-gray-200 bg-white pl-2 pr-6 text-xs text-gray-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#6C60FF]/40 sm:h-7"
           >
             {PREVIEW_DEVICES.map((d) => <option key={d.id} value={d.id}>{d.label}</option>)}
           </select>
@@ -121,16 +122,20 @@ export default function StoreelLivePreview({ input, avatarUrl, avatarColor }: {
           >
             <div
               ref={screenRef}
+              // Keyboard users can scroll the Storeel inside the phone (Safari / Firefox don't focus scrollers themselves).
+              tabIndex={0}
+              aria-label="Storeel preview, scrolls"
               data-testid="storeel-preview-screen"
-              className="relative h-full w-full overflow-y-auto overflow-x-hidden bg-white text-gray-900 [&::-webkit-scrollbar]:hidden"
+              className="relative h-full w-full overflow-y-auto overflow-x-hidden bg-white text-gray-900 focus:outline-none focus-visible:ring-4 focus-visible:ring-[#6C60FF]/50 [&::-webkit-scrollbar]:hidden"
               style={{ width: device.width, height: device.height, borderRadius: screenRadius, scrollbarWidth: 'none' }}
             >
-              <Cover m={m} height={device.height} color={color} avatarUrl={avatarUrl} initialCover={initialCover} />
+              <Cover m={m} width={device.width} height={device.height} color={color} avatarUrl={avatarUrl} initialCover={initialCover} />
               {/* Moment cards: every moment, in order (the page scrolls inside the phone) */}
               <ul data-testid="storeel-preview-moments" aria-label="Moments" className="relative z-10 px-4" style={{ marginTop: -CARD_OVERLAP }}>
                 {m.momentCards.length ? m.momentCards.map((moment, i) => (
                   <li key={moment.key} data-moment-kind={moment.kind}>
-                    {i > 0 ? <div className="my-[18px]"><Divider subtle={moment.kind === 'vehicle' || moment.kind === 'campaign'} /></div> : null}
+                    {/* Figma: purple between moments and before the first campaign card, grey after a campaign card. */}
+                    {i > 0 ? <div className="my-[18px]"><Divider subtle={isCampaignCard(m.momentCards[i - 1])} /></div> : null}
                     <MomentCard moment={moment} author={m.author} initial={m.initial} avatarUrl={avatarUrl} color={color} />
                   </li>
                 )) : (
@@ -161,7 +166,7 @@ type Model = ReturnType<typeof storeelPreviewModel>;
  * The full-screen cover (Figma "Story Details - Cover"): the picture fills the phone's first screen; the details sit
  * at its bottom over a dark fade, ending with "Timeline • N moments" and the divider the first card follows.
  */
-function Cover({ m, height, color, avatarUrl, initialCover }: { m: Model; height: number; color: string; avatarUrl?: string | null; initialCover: ReactNode }) {
+function Cover({ m, width, height, color, avatarUrl, initialCover }: { m: Model; width: number; height: number; color: string; avatarUrl?: string | null; initialCover: ReactNode }) {
   const chip = 'flex items-center justify-center bg-black/25 text-white backdrop-blur-sm';
   return (
     <div className="relative overflow-hidden" style={{ height }} data-testid="storeel-preview-cover" data-cover-kind={m.coverKind ?? 'none'}>
@@ -175,7 +180,9 @@ function Cover({ m, height, color, avatarUrl, initialCover }: { m: Model; height
           </span>
         </>
       ) : m.cover ? (
-        <CampaignCover src={m.cover} isFallback={m.coverKind === 'brand'} color={color} className="h-full w-full" fallback={initialCover} centerY={0.3} />
+        <CampaignCover src={m.cover} isFallback={m.coverKind === 'brand'} color={color} className="h-full w-full" fallback={initialCover} centerY={0.3}
+          // "Too small" is judged against the phone's width, not its tall screen: an ordinary photo fills the cover.
+          judgeBox={{ width, height: width }} />
       ) : initialCover}
       <div className="pointer-events-none absolute inset-0" style={{ background: 'linear-gradient(to bottom, rgba(0,0,0,0) 38%, rgba(0,0,0,0.45) 62%, rgba(0,0,0,0.82) 100%)' }} />
       {/* Edit Cover / close, as in the design (display only) */}
@@ -185,17 +192,20 @@ function Cover({ m, height, color, avatarUrl, initialCover }: { m: Model; height
       </div>
       <div className="absolute inset-x-0 bottom-0 px-4 text-white" style={{ paddingBottom: CARD_OVERLAP + 18 }}>
         <div className="flex h-[35px] items-center gap-[5px]">
-          {m.category ? <span className="flex h-full max-w-[60%] items-center truncate rounded-lg bg-[#6C60FF] px-[9px] text-[12.5px] text-white">{m.category}</span> : null}
+          {m.category ? <span data-testid="storeel-preview-category" className="flex h-full min-w-0 max-w-[60%] items-center rounded-lg bg-[#6C60FF] px-[9px] text-[12.5px] text-white"><span className="truncate">{m.category}</span></span> : null}
           {m.year ? <span className="flex h-full items-center rounded-lg bg-[#FEC53D] px-[10px] text-[12.5px] font-medium text-gray-900">{m.year}</span> : null}
-          <span className="ml-auto flex items-center gap-3 text-[13px]">
+          <span aria-hidden="true" className="ml-auto flex flex-shrink-0 items-center gap-3 text-[13px]">
             <span className="flex items-center gap-1"><Heart className="h-[18px] w-[18px]" aria-hidden="true" />0</span>
             <span className="flex items-center gap-1"><MessageSquare className="h-[18px] w-[18px]" aria-hidden="true" />0</span>
           </span>
         </div>
-        <div className="mt-1 flex min-h-[36px] items-start gap-3">
-          <p data-testid="storeel-preview-title" className="line-clamp-2 min-w-0 flex-1 break-words text-[29px] font-bold leading-[36px]">{m.title}</p>
-          <span aria-hidden="true" className="mt-[5px] flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md bg-black/30"><MoreVertical className="h-4 w-4" /></span>
-        </div>
+        {/* No title yet: no row (as the old preview), so no empty band with a lone ⋮. */}
+        {m.title ? (
+          <div className="mt-1 flex min-h-[36px] items-start gap-3">
+            <p data-testid="storeel-preview-title" className="line-clamp-2 min-w-0 flex-1 break-words text-[29px] font-bold leading-[36px]">{m.title}</p>
+            <span aria-hidden="true" className="mt-[5px] flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md bg-black/30"><MoreVertical className="h-4 w-4" /></span>
+          </div>
+        ) : null}
         {m.location || m.dateRange ? (
           <div className="mt-[6px] flex h-5 min-w-0 items-center gap-4 text-[13.5px]">
             {m.location ? <span className="flex min-w-0 items-center gap-[6px]"><MapPin className="h-[17px] w-[17px] flex-shrink-0" aria-hidden="true" /><span className="truncate">{m.location}</span></span> : null}
@@ -230,6 +240,7 @@ function Divider({ subtle = false }: { subtle?: boolean }) {
 }
 
 const VIDEO_FRAME = (src: string) => `${src}#t=0.1`;
+const isCampaignCard = (moment: PreviewMoment) => moment.kind === 'vehicle' || moment.kind === 'campaign';
 
 function Card({ children }: { children: ReactNode }) {
   return <div className="overflow-hidden rounded-2xl border border-gray-200 bg-white text-gray-900">{children}</div>;
@@ -256,7 +267,7 @@ function AuthorRow({ author, initial, avatarUrl, color }: { author: string; init
     <div className="flex items-center gap-2">
       <Avatar url={avatarUrl} initial={initial} color={color} size={35} />
       <span className="min-w-0 flex-1 truncate text-[15px]">{author}</span>
-      <span className="flex flex-shrink-0 items-center gap-3 text-[13px] text-gray-900">
+      <span aria-hidden="true" className="flex flex-shrink-0 items-center gap-3 text-[13px] text-gray-900">
         <span className="flex items-center gap-1"><Heart className="h-[18px] w-[18px]" aria-hidden="true" />0</span>
         <span className="flex items-center gap-1"><MessageSquare className="h-[18px] w-[18px]" aria-hidden="true" />0</span>
         <MoreVertical className="h-[18px] w-[18px]" aria-hidden="true" />

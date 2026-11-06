@@ -6,11 +6,15 @@
 //   filling the first screen (the Figma's 852 of 852 pt), the page scrolling inside the phone; the choice remembered.
 // At 1280 and 390. node tests/newsletter/ui/check.mjs storeel-phone-preview   (NL_BASE = the dev server)
 import { readFileSync } from 'fs';
+import sharp from 'sharp';
 import { createMockApi } from '../mock-api.mjs';
 
 const STOREEL_TITLE = 'Give your campaign a meaningful title';
 const PNG = readFileSync(new URL('../../../../public/pwa-icon-512.png', import.meta.url));
 const RED_600 = 'rgb(220, 38, 38)';
+// Chris's Figma "Story Details - Cover" (an 852 pt tall first screen): the cover ends at 852, the Continue chip's
+// bottom is at 690, the pills' top at 500 and the first moment card's top at 767 (measured from the PDF).
+const FIGMA = { screen: 852, cover: 852, continueBottom: 690, pillsTop: 500, cardTop: 767 };
 const DEVICES = [['iphone-se', 375, 667], ['iphone-15', 393, 852], ['iphone-15-pro-max', 430, 932], ['pixel-8', 412, 915]];
 
 const flow = (page) => page.getByRole('dialog', { name: /^(Create|Edit) Campaign$/ });
@@ -60,21 +64,24 @@ async function checkLine(page, expect, id, text, label) {
   return g;
 }
 
-/** The phone screen's size on the page, and the cover's / first-screen pieces in it. */
+/** The phone screen's size on the page, and where the cover's pieces sit in it, in the phone's own CSS px. */
 async function phoneGeometry(page) {
   return page.evaluate(() => {
     const scr = document.querySelector('[data-testid="storeel-preview-screen"]');
     const phone = document.querySelector('[data-testid="storeel-preview"]');
     const cover = document.querySelector('[data-testid="storeel-preview-cover"]');
     const r = scr.getBoundingClientRect();
-    const c = cover.getBoundingClientRect();
+    const k = r.width / scr.offsetWidth; // the phone's scale on the page
+    const y = (el) => (el ? { top: (el.getBoundingClientRect().top - r.top + scr.scrollTop * k) / k, bottom: (el.getBoundingClientRect().bottom - r.top + scr.scrollTop * k) / k } : null);
     const timeline = [...cover.querySelectorAll('p')].find((p) => p.textContent.startsWith('Timeline'));
-    const t = timeline?.getBoundingClientRect();
+    const cont = [...cover.querySelectorAll('span')].find((el) => el.textContent === 'Continue');
+    const pills = document.querySelector('[data-testid="storeel-preview-category"]');
+    const firstCard = document.querySelector('[data-testid="storeel-preview-moments"] > li');
     return {
-      device: phone.getAttribute('data-device'), width: r.width, height: r.height, top: r.top, bottom: r.bottom, left: r.left, right: r.right,
-      cssWidth: scr.offsetWidth, cssHeight: scr.offsetHeight, coverShare: c.height / r.height,
-      timelineInFirstScreen: t ? t.bottom <= r.bottom : false, scrollable: scr.scrollHeight > scr.clientHeight,
-      transform: phone.style.transform,
+      device: phone.getAttribute('data-device'), width: r.width, height: r.height, scale: k,
+      cssWidth: scr.offsetWidth, cssHeight: scr.offsetHeight,
+      cover: y(cover), timeline: y(timeline), cont: y(cont), pills: y(pills), card: y(firstCard),
+      scrollable: scr.scrollHeight > scr.clientHeight,
     };
   });
 }
@@ -93,6 +100,15 @@ export async function run({ open, shot, expect, hasOverflow }) {
     expect(!(await page.getByText('Add a campaign title.', { exact: true }).count()), `${tag}: the old wording with a full stop is gone`);
     await page.waitForTimeout(200);
     await shot(page, `${tag}-01-error-no-title`);
+    // Review: no title yet → no title row (no empty band with a lone ⋮), as the old preview.
+    expect(!(await page.getByTestId('storeel-preview-title').count()), `${tag}: no title row on the cover before a title is typed`);
+    // Review: the phone's scroll area is reachable by keyboard and named; the decorative counts are hidden from readers.
+    expect(await screen(page).getAttribute('tabindex') === '0' && Boolean(await screen(page).getAttribute('aria-label')), `${tag}: the phone's scroll area is focusable and labelled`);
+    expect(await page.getByTestId('storeel-preview').evaluate((el) => [...el.querySelectorAll('.lucide-heart, .lucide-message-square')].every((i) => i.closest('[aria-hidden="true"]'))),
+      `${tag}: like / comment counts hidden from screen readers`);
+    // Review: the picker is compact on desktop and a real touch target on phones.
+    const pk = await picker(page).boundingBox();
+    expect(pk && pk.width <= 140 && (width < 640 ? pk.height >= 44 : pk.height <= 30), `${tag}: the phone picker is compact / touch-sized (${JSON.stringify(pk)})`);
 
     // A refused save (no catalogue item picked) and the Send reason, in the same style.
     await page.getByPlaceholder(STOREEL_TITLE).fill(`Great Products ${tag}`);
@@ -126,6 +142,25 @@ export async function run({ open, shot, expect, hasOverflow }) {
     const coverText = (await page.getByTestId('storeel-preview-cover').textContent()) ?? '';
     expect(coverText.includes('Website Catalogue') && coverText.includes(start.slice(0, 4)) && coverText.includes(`Dec 31, ${start.slice(0, 4)}`) && coverText.includes(' – '),
       `${tag}: the cover shows the category, the year and start – end (got "${coverText.slice(0, 160)}")`);
+    // Review: a long category ends in "…" inside its pill.
+    const ell = await page.getByTestId('storeel-preview-category').evaluate((pill) => {
+      const inner = pill.querySelector('span');
+      inner.textContent = 'Spring Open House Collection 2026 and more';
+      const st = getComputedStyle(inner);
+      return { ellipsis: st.textOverflow === 'ellipsis', cut: inner.scrollWidth > inner.clientWidth, fits: pill.getBoundingClientRect().right <= pill.parentElement.getBoundingClientRect().right };
+    });
+    expect(ell.ellipsis && ell.cut && ell.fits, `${tag}: a long category is cut with an ellipsis (${JSON.stringify(ell)})`);
+    // Review: an ordinary 640x400 cover photo still fills the cover (only genuinely small pictures are contained).
+    const mid = await sharp({ create: { width: 640, height: 400, channels: 3, background: '#0EA5E9' } }).jpeg().toBuffer();
+    await page.getByTestId('cover-photo-input').setInputFiles({ name: 'mid.jpg', mimeType: 'image/jpeg', buffer: mid });
+    await page.waitForTimeout(900);
+    expect(await page.getByTestId('storeel-preview-cover').locator('[data-cover-mode]').first().getAttribute('data-cover-mode') === 'cover', `${tag}: a 640×400 cover photo fills the cover`);
+    const tiny = await sharp({ create: { width: 120, height: 120, channels: 3, background: '#22C55E' } }).png().toBuffer();
+    await page.getByTestId('cover-photo-input').setInputFiles({ name: 'tiny.png', mimeType: 'image/png', buffer: tiny });
+    await page.waitForTimeout(900);
+    expect(await page.getByTestId('storeel-preview-cover').locator('[data-cover-mode]').first().getAttribute('data-cover-mode') === 'small', `${tag}: a 120×120 picture is shown whole (contained)`);
+    await page.getByTestId('cover-photo-input').setInputFiles({ name: 'mid.jpg', mimeType: 'image/jpeg', buffer: mid });
+    await page.waitForTimeout(900);
     expect(await picker(page).inputValue() === 'iphone-15', `${tag}: iPhone 15 by default (got ${await picker(page).inputValue()})`);
     const options = await picker(page).locator('option').allTextContents();
     expect(JSON.stringify(options) === JSON.stringify(['iPhone SE', 'iPhone 15', 'iPhone 15 Pro Max', 'Pixel 8']), `${tag}: the four phones (${options})`);
@@ -136,8 +171,20 @@ export async function run({ open, shot, expect, hasOverflow }) {
       const g = await phoneGeometry(page);
       expect(g.device === id && g.cssWidth === w && g.cssHeight === h, `${tag} ${id}: laid out at ${w}×${h} (got ${g.cssWidth}×${g.cssHeight})`);
       expect(Math.abs(g.width / g.height - w / h) < 0.005, `${tag} ${id}: on screen at the device's aspect ${(w / h).toFixed(4)} (got ${(g.width / g.height).toFixed(4)})`);
-      expect(Math.abs(g.coverShare - 1) <= 0.05, `${tag} ${id}: the cover fills the first screen like the Figma (share ${g.coverShare.toFixed(3)})`);
-      expect(g.timelineInFirstScreen, `${tag} ${id}: "Timeline • N moments" on the first screen`);
+      // Against the Figma (not by construction): the cover fills the first screen and the pills / Continue / first
+      // card sit where the PDF has them — as shares of the screen on iPhone 15 (the PDF's phone), and at the same
+      // distance from the bottom of the first screen on the others (the design keeps the details at the cover's foot).
+      expect(g.cover && Math.abs(g.cover.bottom - h) <= 1 && Math.abs(g.cover.top) <= 1, `${tag} ${id}: the cover fills the first screen (cover ${JSON.stringify(g.cover)})`);
+      const at = (v) => (v == null ? NaN : v);
+      if (id === 'iphone-15') {
+        for (const [name, got, want] of [['cover', at(g.cover?.bottom), FIGMA.cover], ['Continue', at(g.cont?.bottom), FIGMA.continueBottom], ['pills', at(g.pills?.top), FIGMA.pillsTop], ['first card', at(g.card?.top), FIGMA.cardTop]]) {
+          expect(Math.abs(got / h - want / FIGMA.screen) <= 0.02, `${tag} ${id}: ${name} at ${(got / h).toFixed(3)} of the screen, Figma ${(want / FIGMA.screen).toFixed(3)}`);
+        }
+      }
+      for (const [name, got, want] of [['Continue', at(g.cont?.bottom), FIGMA.continueBottom], ['pills', at(g.pills?.top), FIGMA.pillsTop], ['first card', at(g.card?.top), FIGMA.cardTop]]) {
+        expect(Math.abs((h - got) - (FIGMA.screen - want)) <= 6, `${tag} ${id}: ${name} ${(h - got).toFixed(1)} px above the screen's foot, Figma ${FIGMA.screen - want}`);
+      }
+      expect(g.timeline && g.timeline.bottom <= h, `${tag} ${id}: "Timeline • N moments" on the first screen`);
       expect(g.scrollable, `${tag} ${id}: the Storeel scrolls inside the phone`);
       // The whole phone in view (beside the form at 1280: sticky; at 390 once scrolled to).
       await page.getByTestId('storeel-preview').evaluate((el) => el.scrollIntoView({ block: 'center' }));
@@ -155,6 +202,22 @@ export async function run({ open, shot, expect, hasOverflow }) {
     expect(await screen(page).evaluate((el) => el.scrollTop) > 0, `${tag}: scrolled inside the phone`);
     await shot(page, `${tag}-04-scrolled-inside`);
     expect(!(await page.getByTestId('storeel-preview').getByRole('button').count()), `${tag}: nothing in the preview is a button`);
+
+    // ── A resized window: the phone follows (smaller when the window is shorter / narrower), still whole and in view ─
+    const before = await phoneGeometry(page);
+    const smaller = width >= 1024 ? { width, height: 640 } : { width: 360, height: 700 };
+    await page.setViewportSize(smaller);
+    await page.waitForTimeout(400);
+    await page.getByTestId('storeel-preview').evaluate((el) => el.scrollIntoView({ block: 'center' }));
+    await page.waitForTimeout(200);
+    const after = await phoneGeometry(page);
+    expect(after.scale < before.scale - 0.01, `${tag}: after resizing to ${smaller.width}×${smaller.height} the phone is smaller (scale ${before.scale.toFixed(3)} → ${after.scale.toFixed(3)})`);
+    expect(Math.abs(after.width / after.height - 393 / 852) < 0.005, `${tag}: still the iPhone 15's shape after the resize`);
+    expect(await inView(page, page.getByTestId('storeel-preview')) && !(await hasOverflow(page)), `${tag}: the whole phone in view, no sideways scroll after the resize`);
+    await shot(page, `${tag}-04b-resized-${smaller.width}x${smaller.height}`);
+    await page.setViewportSize({ width, height });
+    await page.waitForTimeout(400);
+    expect(Math.abs((await phoneGeometry(page)).scale - before.scale) < 0.01, `${tag}: back to the first size when the window is restored`);
 
     // ── The choice is remembered after a reload ────────────────────────────────────────────────────────────────
     await picker(page).selectOption('pixel-8');

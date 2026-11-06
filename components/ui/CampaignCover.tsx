@@ -32,6 +32,8 @@ export interface CampaignCoverProps {
   /** Where the middle of a contained picture sits, as a share of the box height (default COVER_CENTER_Y). For a
    *  layout whose title sits higher than usual. */
   centerY?: number;
+  /** Judge "too small" against this box instead of the cover's own (campaignCoverLayout's judgeBox). */
+  judgeBox?: CoverSize | null;
 }
 
 // One ResizeObserver for every cover on the page (a campaign grid can have hundreds of cards).
@@ -60,7 +62,7 @@ function observeSize(el: Element, listener: (size: CoverSize) => void): () => vo
 }
 
 export default function CampaignCover({
-  src, alt = '', isFallback = false, color, className = '', fallback, onError, loading, backdrop = 'blur', centerY,
+  src, alt = '', isFallback = false, color, className = '', fallback, onError, loading, backdrop = 'blur', centerY, judgeBox,
 }: CampaignCoverProps) {
   const boxRef = useRef<HTMLDivElement>(null);
   const imgRef = useRef<HTMLImageElement>(null);
@@ -98,7 +100,7 @@ export default function CampaignCover({
   }
 
   // An SVG never goes blurry when enlarged (and may report no size): never "too small", the brand sized by the box.
-  const layout = campaignCoverLayout({ isFallback, natural, box, vector: isVectorImage(src) });
+  const layout = campaignCoverLayout({ isFallback, natural, box, vector: isVectorImage(src), judgeBox });
   const contain = layout.mode === 'contain';
   const pending = layout.mode === 'pending';
   const mainClass = layout.mode !== 'contain'
