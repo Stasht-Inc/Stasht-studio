@@ -15,6 +15,7 @@ import { GENERIC_ERROR, PLAN_REQUIRED_ERROR, type NlResult } from './lib/apiResu
 import { BUTTON_OUTLINE, BUTTON_PRIMARY, BUTTON_SECONDARY, LAYER, LINK_BUTTON } from './lib/ui';
 import StepCard from './StepCard';
 import NewsletterEditor from './NewsletterEditor';
+import { RecentColorsProvider } from './RecentColors';
 import DeviceToggle, { type PreviewDevice } from './DeviceToggle';
 import TemplatePicker from './TemplatePicker';
 import AudiencePicker from './AudiencePicker';
@@ -520,6 +521,8 @@ const NewsletterComposer = forwardRef<NewsletterComposerHandle, NewsletterCompos
                   <DeviceToggle value={device} onChange={setDevice} />
                 </div>
               </div>
+              {/* The account's recent custom colours (Chris, 6 Nov), offered in every colour panel of the editor. */}
+              <RecentColorsProvider initial={brand.brand?.recent_colors}>
               <NewsletterEditor
                 draft={draft}
                 readOnly={readOnly}
@@ -534,6 +537,7 @@ const NewsletterComposer = forwardRef<NewsletterComposerHandle, NewsletterCompos
                 savedBlocks={savedBlocks}
                 active={!hidden}
               />
+              </RecentColorsProvider>
             </aside>
           </div>
         )}

@@ -6,6 +6,7 @@ import { DEFAULT_BUTTON_COLOR, safeHexColor } from './colors.ts';
 import { httpsUrl, youtubeVideoId } from './urls.ts';
 import { textHtmlIsEmpty } from './textHtml.ts';
 import { sectionStyleOf } from './sectionStyle.ts';
+import { titleTypeOf } from './fonts.ts';
 import { NEW_SECTION_COLUMNS, campaignColumns, campaignIdsOf, normaliseCampaignItems, normaliseColumns, normaliseOverrides, normaliseSelections, overridesForInput } from './campaignsBlock.ts';
 
 export const BLOCK_TYPES: readonly BlockType[] = ['image', 'title', 'text', 'youtube', 'button', 'divider', 'campaigns'];
@@ -52,7 +53,7 @@ export function normaliseBlocks(raw: unknown): NewsletterBlock[] {
     switch (type as BlockType) {
       case 'image': out.push({ id, type: 'image', data: { url: str(d.url), alt: str(d.alt), link: str(d.link) || null } }); break;
       // Their style keys (Chris, 5 Nov) only when set, so an older section stays exactly as it was.
-      case 'title': out.push({ id, type: 'title', data: { text: str(d.text), size: TITLE_SIZES.includes(d.size as TitleSize) ? (d.size as TitleSize) : 'medium', ...sectionStyleOf(d, true) } }); break;
+      case 'title': out.push({ id, type: 'title', data: { text: str(d.text), size: TITLE_SIZES.includes(d.size as TitleSize) ? (d.size as TitleSize) : 'medium', ...sectionStyleOf(d, true), ...titleTypeOf(d) } }); break;
       case 'text': out.push({ id, type: 'text', data: { html: str(d.html), ...sectionStyleOf(d, false) } }); break;
       case 'youtube': out.push({ id, type: 'youtube', data: { url: str(d.url) } }); break;
       case 'button': out.push({ id, type: 'button', data: { label: str(d.label), url: str(d.url), color: safeHexColor(d.color, DEFAULT_BUTTON_COLOR) } }); break;

@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, type CSSProperties, type FocusEvent, type KeyboardEvent, type ReactNode } from 'react';
 import * as Popover from '@radix-ui/react-popover';
 import { AlignCenter, AlignLeft, AlignRight, Check, ChevronDown, PaintBucket } from 'lucide-react';
-import type { SectionAlign } from '../../../services/newslettersAPI';
+import type { FontKey, SectionAlign } from '../../../services/newslettersAPI';
+import { DEFAULT_FONT_LABEL, DEFAULT_FONT_STACK, FONTS, fontLabel, fontStack } from '../lib/fonts';
 import ColorSwatches from '../ColorSwatches';
 import SegmentedSwitch from '../SegmentedSwitch';
 import { useImageUpload } from '../hooks/useImageUpload';
@@ -15,12 +16,15 @@ import { BUTTON_SMALL, LAYER, LINK_BUTTON } from '../lib/ui';
 // on the words that were selected.
 
 const FOCUS = 'focus:outline-none focus-visible:ring-2 focus-visible:ring-[#6C60FF]/40';
-export const TOOL_BUTTON = `flex h-8 min-w-[2rem] items-center justify-center gap-0.5 rounded-md px-1 text-gray-700 hover:bg-gray-100 data-[state=open]:bg-gray-100 ${FOCUS}`;
+export const TOOL_BUTTON = `flex h-8 min-w-[1.75rem] items-center justify-center gap-0.5 rounded-md px-1 text-gray-700 sm:min-w-[2rem] hover:bg-gray-100 data-[state=open]:bg-gray-100 ${FOCUS}`;
 const ALIGN_ICON: Record<SectionAlign, ReactNode> = {
   left: <AlignLeft className="h-4 w-4" aria-hidden="true" />,
   center: <AlignCenter className="h-4 w-4" aria-hidden="true" />,
   right: <AlignRight className="h-4 w-4" aria-hidden="true" />,
 };
+
+// Under 640 px the menus drop their ▾ so the Text toolbar (with Font, Chris 6 Nov) stays one row on a phone.
+const CHEVRON = 'hidden h-3 w-3 text-gray-500 sm:block';
 
 export function ToolbarDivider() {
   return <span aria-hidden="true" className="mx-px h-5 w-px bg-gray-200" />;
@@ -121,7 +125,7 @@ export function SizeMenu<T extends string>({ label, options, value, onPick, onCl
   const current = options.find((o) => o.value === value)?.label ?? options[0]?.label ?? '';
   return (
     <ToolMenu label={`${label}: ${current}`} open={open} onOpenChange={setOpen} onCloseAutoFocus={onCloseAutoFocus} list
-      trigger={<><span className="text-sm font-medium">{current}</span><ChevronDown className="h-3 w-3 text-gray-500" aria-hidden="true" /></>}>
+      trigger={<><span className="text-sm font-medium">{current}</span><ChevronDown className={CHEVRON} aria-hidden="true" /></>}>
       <div role="menu" aria-label={label}>
         {options.map((o) => (
           <MenuChoice key={o.value} label={o.label} checked={o.value === value} style={preview ? { fontSize: `${preview(o.value)}px`, lineHeight: 1.3 } : undefined}
@@ -133,11 +137,60 @@ export function SizeMenu<T extends string>({ label, options, value, onPick, onCl
   );
 }
 
+/**
+ * "Font: Georgia ▾" (Chris, 6 Nov): Default and the email-safe fonts, each choice drawn in its own font. The button
+ * shows the font where the caret is, in that font; on a phone just "Aa" in it, so the toolbar stays one row.
+ */
+export function FontMenu({ value, onPick, onCloseAutoFocus, hint }: {
+  value: FontKey | null;
+  onPick(value: FontKey | null): void;
+  onCloseAutoFocus?(e: Event): void;
+  /** A line under the choices (the Text section: what the font applies to). */
+  hint?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const current = fontLabel(value);
+  const stack = fontStack(value);
+  return (
+    <ToolMenu label={`Font: ${current}`} open={open} onOpenChange={setOpen} onCloseAutoFocus={onCloseAutoFocus} list
+      trigger={<>
+        <span className="hidden max-w-[6.5rem] truncate text-sm font-medium sm:inline" style={{ fontFamily: stack }}>{current}</span>
+        <span className="text-sm font-medium sm:hidden" style={{ fontFamily: stack }}>Aa</span>
+        <ChevronDown className={CHEVRON} aria-hidden="true" />
+      </>}>
+      <div role="menu" aria-label="Font">
+        {[{ value: null, label: DEFAULT_FONT_LABEL, stack: DEFAULT_FONT_STACK }, ...FONTS].map((f) => (
+          <MenuChoice key={f.value ?? 'default'} label={f.label} checked={f.value === value} style={{ fontFamily: f.stack }}
+            onPick={() => { setOpen(false); onPick(f.value); }} />
+        ))}
+      </div>
+      {hint ? <p className="max-w-[12rem] px-2.5 pb-1.5 pt-1 text-xs leading-4 text-gray-500">{hint}</p> : null}
+    </ToolMenu>
+  );
+}
+
+/** Bold / Italic / Link (Chris, 6 Nov): pressed (aria-pressed, tinted) when the words at the caret have it. */
+export function ToolbarToggle({ label, pressed, onClick, children }: { label: string; pressed: boolean; onClick(): void; children: ReactNode }) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      aria-pressed={pressed}
+      title={label}
+      onMouseDown={(e) => e.preventDefault()} // keep the text selection
+      onClick={onClick}
+      className={`flex h-8 w-8 items-center justify-center rounded-md ${pressed ? 'bg-[#EEEDFF] text-[#6C60FF]' : 'text-gray-700 hover:bg-gray-100'} ${FOCUS}`}
+    >
+      {children}
+    </button>
+  );
+}
+
 export function AlignMenu({ value, onPick }: { value: SectionAlign; onPick(value: SectionAlign): void }) {
   const [open, setOpen] = useState(false);
   const current = ALIGN_OPTIONS.find((o) => o.value === value) ?? ALIGN_OPTIONS[0];
   return (
-    <ToolMenu label={`Align: ${current.label}`} open={open} onOpenChange={setOpen} list trigger={<>{ALIGN_ICON[current.value]}<ChevronDown className="h-3 w-3 text-gray-500" aria-hidden="true" /></>}>
+    <ToolMenu label={`Align: ${current.label}`} open={open} onOpenChange={setOpen} list trigger={<>{ALIGN_ICON[current.value]}<ChevronDown className={CHEVRON} aria-hidden="true" /></>}>
       <div role="menu" aria-label="Align">
         {ALIGN_OPTIONS.map((o) => (
           <MenuChoice key={o.value} label={o.label} icon={ALIGN_ICON[o.value]} checked={o.value === value} onPick={() => { setOpen(false); onPick(o.value); }} />

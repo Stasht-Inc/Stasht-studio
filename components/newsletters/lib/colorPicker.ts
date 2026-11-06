@@ -1,0 +1,63 @@
+// Chris (6 Nov, point 4): Studio's own colour picker behind "Custom" (HEX first, which the browser's picker can't be
+// told to do) and the account's recent colours (newest first, no repeats, at most 8: the API's NewsletterRecentColors).
+// Pure.
+
+export const MAX_RECENT_COLORS = 8;
+
+/** What was typed in the HEX field as #RRGGBB (uppercase), with or without the #; else null. */
+export function parseHexInput(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const m = /^#?([0-9a-f]{6})$/i.exec(value.trim());
+  return m ? `#${m[1].toUpperCase()}` : null;
+}
+
+/** color first, then the others without it (any case), at most MAX_RECENT_COLORS. A bad colour changes nothing. */
+export function addRecentColor(list: readonly string[], color: string): string[] {
+  const hex = parseHexInput(color);
+  if (!hex) return [...list];
+  return [hex, ...list.filter((c) => c.toUpperCase() !== hex)].slice(0, MAX_RECENT_COLORS);
+}
+
+/** The API's list, checked again. */
+export function recentColorsFrom(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  const out: string[] = [];
+  for (const c of raw) {
+    const hex = typeof c === 'string' && /^#[0-9a-f]{6}$/i.test(c) ? c.toUpperCase() : null;
+    if (hex && !out.includes(hex)) out.push(hex);
+  }
+  return out.slice(0, MAX_RECENT_COLORS);
+}
+
+export interface Hsv { h: number; s: number; v: number }
+
+const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, Number.isFinite(n) ? n : lo));
+
+/** #RRGGBB → hue 0–360, saturation and value 0–1 (rounded to 4 places). */
+export function hexToHsv(hex: string): Hsv {
+  const n = parseInt((parseHexInput(hex) ?? '#000000').slice(1), 16);
+  const [r, g, b] = [(n >> 16) & 255, (n >> 8) & 255, n & 255].map((c) => c / 255);
+  const max = Math.max(r, g, b);
+  const d = max - Math.min(r, g, b);
+  let h = 0;
+  if (d) {
+    if (max === r) h = ((g - b) / d) % 6;
+    else if (max === g) h = (b - r) / d + 2;
+    else h = (r - g) / d + 4;
+    h *= 60;
+    if (h < 0) h += 360;
+  }
+  const round = (x: number) => Math.round(x * 10000) / 10000;
+  return { h: round(h), s: round(max ? d / max : 0), v: round(max) };
+}
+
+export function hsvToHex({ h, s, v }: Hsv): string {
+  const hh = ((clamp(h, 0, 360) % 360) + 360) % 360;
+  const ss = clamp(s, 0, 1);
+  const vv = clamp(v, 0, 1);
+  const f = (k: number) => {
+    const p = (k + hh / 60) % 6;
+    return vv - vv * ss * Math.max(0, Math.min(p, 4 - p, 1));
+  };
+  return `#${[f(5), f(3), f(1)].map((c) => Math.round(c * 255).toString(16).padStart(2, '0')).join('').toUpperCase()}`;
+}

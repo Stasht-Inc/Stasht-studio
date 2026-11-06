@@ -45,8 +45,12 @@ export type SectionAlign = 'left' | 'center' | 'right';
  * Title / Text data as {text, size} / {html} when it saves, so it would drop these keys (and the font-size spans).
  */
 export interface SectionStyle { align?: SectionAlign; color?: string; background_color?: string; background_image_url?: string }
-export interface TitleBlockData extends SectionStyle { text: string; size: TitleSize }
-/** html may hold <span style="font-size:14|16|20|24px"> from the toolbar's font size (the API keeps only those). */
+/** The toolbar's font families (Chris, 6 Nov; lib/fonts.ts, the API's NewsletterFonts). No key: the usual font. */
+export type FontKey = 'arial' | 'helvetica' | 'georgia' | 'times' | 'verdana' | 'trebuchet' | 'tahoma' | 'courier';
+/** font: the whole title's font; bold false: normal weight (no key = bold, as every title was before). */
+export interface TitleBlockData extends SectionStyle { text: string; size: TitleSize; font?: FontKey; bold?: false }
+/** html may hold <span style="font-size:14|16|20|24px;font-family:STACK"> (either part alone too) from the toolbar's
+ *  font size and font family (the API keeps only those). */
 export interface TextBlockData extends Omit<SectionStyle, 'background_image_url'> { html: string }
 export interface YoutubeBlockData { url: string }
 export interface ButtonBlockData { label: string; url: string; color: string }
@@ -223,7 +227,8 @@ export interface LeadOptionsPage { data: LeadOption[]; meta: { page: number; per
 export interface LeadOptionsQuery { search?: string; page?: number; lead_id?: number }
 
 /** default_message: the Message box text saved with "Set as my default message" (null: none; an older API leaves it out). */
-export interface NewsletterBrand { header: NewsletterHeader; business_address: string | null; default_message?: string | null }
+/** recent_colors (Chris, 6 Nov): the account's colours picked with Custom, newest first, at most 8. */
+export interface NewsletterBrand { header: NewsletterHeader; business_address: string | null; default_message?: string | null; recent_colors?: string[] }
 export interface NewsletterAllowance {
   plan: string;
   email_limit: number;
@@ -427,7 +432,7 @@ export const newslettersAPI = {
   getBrand: () => get<NewsletterBrand>('/newsletter-brand'),
   // Only used to set business_address and default_message: a newsletter's header reaches the brand through
   // PUT /newsletters/{id}.
-  updateBrand: (input: { header?: NewsletterHeader; business_address?: string | null; default_message?: string | null }) =>
+  updateBrand: (input: { header?: NewsletterHeader; business_address?: string | null; default_message?: string | null; recent_color?: string }) =>
     write<NewsletterBrand>('PUT', '/newsletter-brand', input),
   allowance: () => get<NewsletterAllowance>('/newsletter-allowance'),
   contactLists: () => get<ContactList[]>('/contact-lists'),
