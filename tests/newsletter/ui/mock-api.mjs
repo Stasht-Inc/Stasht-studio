@@ -291,7 +291,9 @@ export function createMockApi(options = {}) {
     newsletters: options.newsletters ?? [],
     // default_message: "Set as my default message" (batch 3). defaultMessageColumn: false = an API before
     // docs/sql/2026-11-01-newsletter-default-message.sql ran (accepts the field, keeps nothing).
-    brand: { header: { logo_url: null, banner_url: null, background_color: '#6C60FF', title: 'Serpa Chrysler' }, business_address: options.businessAddress ?? null, default_message: options.defaultMessage ?? null },
+    // recent_colors (Chris, 6 Nov): NewsletterRecentColors; options.recentColors: false = an API without them (no key).
+    brand: { header: { logo_url: null, banner_url: null, background_color: '#6C60FF', title: 'Serpa Chrysler' }, business_address: options.businessAddress ?? null, default_message: options.defaultMessage ?? null,
+      ...(options.recentColors === false ? {} : { recent_colors: options.recentColors ?? [] }) },
     // ContactListController::summary: consent_type (null for lists made before consent was recorded) and created_at.
     lists: options.lists ?? [{ id: 9, name: 'Open house sign-ups', source: 'import', member_count: 212, email_count: 198, sms_count: 140, consent_type: 'express', created_at: '2026-10-02T15:00:00Z' }],
     // AudienceResolver's skipped counts on top of the defaults (consent_expired, unsupported_number, ...).
@@ -905,6 +907,11 @@ export function createMockApi(options = {}) {
       if (method === 'PUT') {
         if (body && 'header' in body) state.brand.header = body.header;
         if (body && 'business_address' in body) state.brand.business_address = body.business_address;
+        if (body && 'recent_color' in body && options.recentColors !== false) {
+          if (typeof body.recent_color !== 'string' || !/^#[0-9a-f]{6}$/i.test(body.recent_color)) return fail(422, { message: 'Pick a colour like #6C60FF.', errors: { recent_color: ['Pick a colour like #6C60FF.'] } });
+          const c = body.recent_color.toUpperCase();
+          state.brand.recent_colors = [c, ...state.brand.recent_colors.filter((x) => x !== c)].slice(0, 8);
+        }
         if (body && 'default_message' in body && options.defaultMessageColumn !== false) {
           const text = typeof body.default_message === 'string' ? body.default_message.trim() : '';
           state.brand.default_message = text || null;

@@ -2,11 +2,12 @@ import { useEffect, useMemo, useRef, useState, type ClipboardEvent, type CSSProp
 import * as Popover from '@radix-ui/react-popover';
 import { Bold, Italic, Link as LinkIcon } from 'lucide-react';
 import { composerToast } from '../ComposerToaster';
-import type { TextBlockData } from '../../../services/newslettersAPI';
-import { editorHtml, parseTextHtml, pastedTextNodes, resizeTextNodes, safeLinkHref, serializeTextNodes, styleFontSize, type TextNode } from '../lib/textHtml';
+import type { FontKey, TextBlockData } from '../../../services/newslettersAPI';
+import { editorHtml, fontAt, fontTextNodes, formatAt, parseTextHtml, pastedTextNodes, resizeTextNodes, safeLinkHref, serializeTextNodes, sizeAtOffset, type TextNode } from '../lib/textHtml';
+import { fontStack } from '../lib/fonts';
 import { createHistory, recordHistory, redoHistory, undoHistory } from '../lib/textHistory';
 import { TEXT_INK, TEXT_SIZES, sectionLook, sectionStyleOf, stylePatch, textLinkColor, textSizeOf, type TextSize } from '../lib/sectionStyle';
-import { AlignMenu, BackgroundMenu, SizeMenu, TextColorMenu, ToolbarDivider, useRovingToolbar } from './StyleToolbar';
+import { AlignMenu, BackgroundMenu, FontMenu, SizeMenu, TextColorMenu, ToolbarDivider, ToolbarToggle, useRovingToolbar } from './StyleToolbar';
 import { toHttpsUrl } from '../lib/urls';
 import { BUTTON_PRIMARY, LABEL, LAYER, inputClass } from '../lib/ui';
 import type { BlockEditorProps } from './types';
@@ -22,16 +23,19 @@ export function renderTextNodes(nodes: TextNode[], prefix = 'n'): ReactNode[] {
     if (node.kind === 'text') return node.text;
     if (node.kind === 'br') return <br key={key} />;
     if (node.kind === 'a') return <a key={key} href={node.href}>{renderTextNodes(node.children, key)}</a>;
-    if (node.kind === 'size') return <span key={key} style={sizeStyle(node.px)}>{renderTextNodes(node.children, key)}</span>;
+    if (node.kind === 'size') return <span key={key} style={sizeStyle(node.px, node.font)}>{renderTextNodes(node.children, key)}</span>;
     const Tag = node.tag;
     return <Tag key={key}>{renderTextNodes(node.children, key)}</Tag>;
   });
 }
 
-/** A font size as the email draws it: the size and its line height (NewsletterRenderer::styleText). */
-function sizeStyle(px: number): CSSProperties {
-  const size = textSizeOf(px);
-  return { fontSize: `${px}px`, lineHeight: `${size?.lineHeight ?? 26}px` };
+/** A font size and/or family as the email draws it: the size and its line height, the font's stack (NewsletterRenderer::styleText). */
+function sizeStyle(px: number | null, font?: FontKey): CSSProperties {
+  const size = px === null ? null : textSizeOf(px);
+  return {
+    ...(px !== null ? { fontSize: `${px}px`, lineHeight: `${size?.lineHeight ?? 26}px` } : {}),
+    ...(font ? { fontFamily: fontStack(font) } : {}),
+  };
 }
 
 /** Allowed nodes → DOM nodes for a paste (built element by element; no HTML string reaches the page). */
@@ -41,25 +45,10 @@ function domNodes(nodes: TextNode[]): Node[] {
     if (node.kind === 'br') return document.createElement('br');
     const el = document.createElement(node.kind === 'a' ? 'a' : node.kind === 'size' ? 'span' : node.tag);
     if (node.kind === 'a') el.setAttribute('href', node.href);
-    if (node.kind === 'size') Object.assign(el.style, sizeStyle(node.px));
+    if (node.kind === 'size') Object.assign(el.style, sizeStyle(node.px, node.font));
     for (const child of domNodes(node.children)) el.appendChild(child);
     return el;
   });
-}
-
-function ToolbarButton({ label, onClick, children }: { label: string; onClick(): void; children: ReactNode }) {
-  return (
-    <button
-      type="button"
-      aria-label={label}
-      title={label}
-      onMouseDown={(e) => e.preventDefault()} // keep the text selection
-      onClick={onClick}
-      className="flex h-8 w-8 items-center justify-center rounded-md text-gray-700 hover:bg-gray-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#6C60FF]/40"
-    >
-      {children}
-    </button>
-  );
 }
 
 /** Characters of text before a point in the editor (text nodes only, as resizeTextNodes counts them). */
@@ -191,6 +180,7 @@ export default function TextBlockEditor({ blockId, data, selected, readOnly, onC
     focusWithSelection();
     formatting.current = true;
     try { document.execCommand(command); emit('format'); } finally { formatting.current = false; }
+    readCaret();
   };
   const openLink = () => {
     if (!rangeInEditor()) select(lastRange.current);
@@ -216,6 +206,7 @@ export default function TextBlockEditor({ blockId, data, selected, readOnly, onC
     select(savedRange.current);
     formatting.current = true;
     try { document.execCommand('createLink', false, href); emit('format'); } finally { formatting.current = false; }
+    readCaret();
   };
   const onPaste = (e: ClipboardEvent<HTMLDivElement>) => {
     e.preventDefault(); // never someone else's HTML as it is
@@ -284,29 +275,43 @@ export default function TextBlockEditor({ blockId, data, selected, readOnly, onC
   // Font size: on the selected words; with nothing selected, on the whole section. The size where the caret is shows
   // on the button.
   const [caretSize, setCaretSize] = useState<TextSize>('normal');
-  const sizeAt = (node: Node | null): TextSize => {
+  // Chris (6 Nov): what the B / I / link buttons show as pressed, and the font the Font button names, at the caret.
+  const [caret, setCaret] = useState<{ bold: boolean; italic: boolean; link: boolean; font: FontKey | null }>({ bold: false, italic: false, link: false, font: null });
+  const readCaret = () => {
     const el = ref.current;
-    let at: Node | null = node;
-    while (at && at !== el) {
-      if (at instanceof HTMLElement && at.tagName === 'SPAN') {
-        const size = textSizeOf(styleFontSize(at.getAttribute('style')) ?? 0);
-        if (size) return size.value;
-      }
-      at = at.parentNode;
-    }
-    return 'normal';
+    const range = rangeInEditor();
+    if (!el || !range) return;
+    const nodes = parseTextHtml(el.innerHTML);
+    const start = offsetOf(el, range.startContainer, range.startOffset);
+    const end = range.collapsed ? start : offsetOf(el, range.endContainer, range.endOffset);
+    const model = formatAt(nodes, start, end);
+    // The browser knows a bold / italic just switched on at the caret (the next words typed get it); the text doesn't yet.
+    const state = (command: 'bold' | 'italic', fallback: boolean) => {
+      try { return document.queryCommandState(command); } catch { return fallback; }
+    };
+    const at = range.collapsed ? start : start + 1;
+    const next = { bold: state('bold', model.bold), italic: state('italic', model.italic), link: model.link, font: fontAt(nodes, at) };
+    // The size from the text too (Chris, 6 Nov): after a whole-section change the caret sits after the last word,
+    // between nodes, where the elements around it said Normal.
+    setCaretSize(textSizeOf(sizeAtOffset(nodes, at) ?? 16)?.value ?? 'normal');
+    setCaret((prev) => (prev.bold === next.bold && prev.italic === next.italic && prev.link === next.link && prev.font === next.font ? prev : next));
   };
+  const readCaretRef = useRef(readCaret);
+  readCaretRef.current = readCaret;
   useEffect(() => {
     if (!selected || readOnly) return undefined;
-    const onSelection = () => {
-      const range = rangeInEditor();
-      if (!range) return;
-      // A selection that starts between nodes (as after a size change) starts at the node after that point.
-      const start = range.startContainer;
-      setCaretSize(sizeAt(start.nodeType === Node.ELEMENT_NODE ? start.childNodes[range.startOffset] ?? start : start));
-    };
+    const onSelection = () => readCaretRef.current();
+    // keyup / mouseup too: Ctrl+B with a caret changes no selection, nor does a click on the words already selected.
+    const el = ref.current;
+    onSelection();
     document.addEventListener('selectionchange', onSelection);
-    return () => document.removeEventListener('selectionchange', onSelection);
+    el?.addEventListener('keyup', onSelection);
+    el?.addEventListener('mouseup', onSelection);
+    return () => {
+      document.removeEventListener('selectionchange', onSelection);
+      el?.removeEventListener('keyup', onSelection);
+      el?.removeEventListener('mouseup', onSelection);
+    };
   }, [selected, readOnly]); // eslint-disable-line react-hooks/exhaustive-deps
   const applySize = (value: TextSize) => {
     const el = ref.current;
@@ -321,17 +326,30 @@ export default function TextBlockEditor({ blockId, data, selected, readOnly, onC
     show(html, sel);
     setCaretSize(value);
     emit('format');
+    readCaret();
+  };
+  // Font family (Chris, 6 Nov): exactly as the font size, on the selected words or else the whole section.
+  const applyFont = (font: FontKey | null) => {
+    const el = ref.current;
+    if (!el) return;
+    focusWithSelection();
+    const picked = rangeInEditor();
+    const sel = picked && !picked.collapsed ? { start: offsetOf(el, picked.startContainer, picked.startOffset), end: offsetOf(el, picked.endContainer, picked.endOffset) } : null;
+    const html = editorHtml(serializeTextNodes(fontTextNodes(parseTextHtml(el.innerHTML), font, sel)));
+    show(html, sel);
+    emit('format');
+    readCaret();
   };
 
   return (
     <div className="relative">
       {selected && !readOnly ? (
-        <div ref={roving.ref} onFocus={roving.onFocus} onKeyDown={roving.onKeyDown} role="toolbar" aria-label="Text formatting" className="mb-2 mt-2 inline-flex max-w-full flex-wrap items-center gap-0.5 rounded-lg border border-gray-200 bg-white p-1 shadow-sm">
-          <ToolbarButton label="Bold" onClick={() => format('bold')}><Bold className="h-4 w-4" /></ToolbarButton>
-          <ToolbarButton label="Italic" onClick={() => format('italic')}><Italic className="h-4 w-4" /></ToolbarButton>
+        <div ref={roving.ref} onFocus={roving.onFocus} onKeyDown={roving.onKeyDown} role="toolbar" aria-label="Text formatting" className="mb-2 mt-2 inline-flex max-w-full flex-wrap items-center gap-0 sm:gap-0.5 rounded-lg border border-gray-200 bg-white p-1 shadow-sm">
+          <ToolbarToggle label="Bold" pressed={caret.bold} onClick={() => format('bold')}><Bold className="h-4 w-4" /></ToolbarToggle>
+          <ToolbarToggle label="Italic" pressed={caret.italic} onClick={() => format('italic')}><Italic className="h-4 w-4" /></ToolbarToggle>
           <Popover.Root open={linkOpen} onOpenChange={setLinkOpen}>
             <Popover.Anchor asChild>
-              <span><ToolbarButton label="Link" onClick={openLink}><LinkIcon className="h-4 w-4" /></ToolbarButton></span>
+              <span><ToolbarToggle label="Link" pressed={caret.link} onClick={openLink}><LinkIcon className="h-4 w-4" /></ToolbarToggle></span>
             </Popover.Anchor>
             <Popover.Portal>
               <Popover.Content
@@ -360,6 +378,8 @@ export default function TextBlockEditor({ blockId, data, selected, readOnly, onC
             </Popover.Portal>
           </Popover.Root>
           <ToolbarDivider />
+          <FontMenu value={caret.font} hint="Select words to change just them; otherwise the whole section." onPick={applyFont}
+            onCloseAutoFocus={(e) => { e.preventDefault(); ref.current?.focus(); select(lastRange.current); }} />
           <SizeMenu label="Font size" hint="Select words to size just them; otherwise the whole section." options={TEXT_SIZES} value={caretSize} preview={(v) => TEXT_SIZES.find((s) => s.value === v)?.px ?? 16} onPick={applySize}
             // Back to the words, still selected, so the change can be seen (Radix would focus the button).
             onCloseAutoFocus={(e) => { e.preventDefault(); ref.current?.focus(); select(lastRange.current); }} />

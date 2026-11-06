@@ -100,7 +100,7 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
     expect(await raced.page.getByText('Campaign Limit Reached').count() === 0, `no limit notice before creating at ${width}`);
     await raced.page.waitForTimeout(800); // categories load
     await raced.page.getByPlaceholder('Give your campaign a meaningful title').fill('Raced past the limit');
-    await raced.page.getByRole('button', { name: 'Create Campaign', exact: true }).filter({ visible: true }).first().click();
+    await raced.page.getByRole('button', { name: 'Save as Draft', exact: true }).filter({ visible: true }).first().click();
     const notice = raced.page.getByRole('alert').filter({ hasText: 'Campaign Limit Reached' });
     await expectVisible(notice, `server limit shown inline at ${width}`);
     await expectVisible(notice.getByText(/You've reached your plan's campaign limit/), `server limit message at ${width}`);

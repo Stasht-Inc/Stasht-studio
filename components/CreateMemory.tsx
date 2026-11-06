@@ -30,6 +30,7 @@ import { initialCampaignType, type CampaignType } from './newsletters/lib/campai
 import { announceNewslettersChanged, writeCampaignsView } from './newsletters/lib/campaignsView';
 import { requestUpgrade } from '../utils/planEvents';
 import StoreelLivePreview from './storeel/StoreelLivePreview';
+import { actionLines } from './storeel/lib/actionLines';
 import { storeelBrandImage } from './storeel/storeelPreview';
 import { createPreviewMoments, type PickKind, type PickerItem } from './storeel/lib/previewMoments';
 import { coverChoiceReducer, coverChoicePayload, coverPhotoFileError, EMPTY_COVER_CHOICE, COVER_PHOTO_ACCEPT, type CoverChoice, type CoverChoiceAction } from '../utils/coverChoice';
@@ -38,7 +39,7 @@ import StepCard from './newsletters/StepCard';
 import StoreelSendStep, { SEND_STEP_ID } from './storeel/StoreelSendStep';
 import StoreelMomentsCard, { MOMENTS_STEP_ID, type MomentRow } from './storeel/StoreelMomentsCard';
 import {
-  coverFromSeed, createdToast, flowView, formFromSeed, saveBlockedReason, seedFromMemory, stepNumber, updatePayload,
+  CURRENT_CATEGORY, coverFromSeed, createdToast, flowView, formFromSeed, saveBlockedReason, seedFromMemory, stepNumber, updatePayload,
   type CampaignSeed,
 } from './storeel/lib/storeelFlow';
 import { senderLabelFor } from './storeel/lib/storeelSms';
@@ -2275,6 +2276,8 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
   const saveReason = isSubmitting || flowLoading || flowLoadError ? null
     : saveBlockedReason({ title: formData.title, category: formData.category, coverUploading: isUploadingCover });
   const sendDisabledReason = !canSend || sendForbidden ? "Only the campaign's owner or its business's admins can send it." : sendBlocker;
+  // What is said above the actions (Chris, 6 Nov 2026: each as "*Reason", red, left): a refused save, then why a button is off.
+  const actionMessages = actionLines({ actionError, saveReason, sendReason: sendDisabledReason });
 
   /** A saved campaign's real moments (GET /memories/{id}): step 2 and the preview show them, with their ids. */
   const refreshSavedMoments = async (id: number) => {
@@ -3224,11 +3227,17 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
                 the list"): save only, or save and then confirm the send. Nothing is saved before one is pressed. Right
                 after the Send card on every screen (phones: before the preview, so they are reached right after the
                 form). A refused save says why here too, and its field is scrolled to. */}
-            <div id="st-actions" className="space-y-2 pt-2">
-              {actionError ? <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{actionError}</p> : null}
-              {view.createdNote ? <p role="status" className="text-sm text-gray-700">{view.createdNote}</p> : null}
-              {saveReason ? <p id="st-save-reason" className="text-sm text-gray-500 sm:text-right">{saveReason}</p>
-                : sendDisabledReason ? <p id="st-send-reason" className="text-sm text-gray-500 sm:text-right">{`To send now: ${sendDisabledReason}`}</p> : null}
+            {/* Chris, 6 Nov 2026: every reason / error here reads like an error — "*Add a campaign title", red, on the
+                left, in the middle of the gap between the Send card and the buttons (as much space above as below). */}
+            <div id="st-actions" className={actionMessages.length || view.createdNote ? '' : 'pt-2'}>
+              {actionMessages.length || view.createdNote ? (
+                <div data-testid="st-action-lines" className="space-y-1 pb-4 text-left">
+                  {actionMessages.map((line) => (
+                    <p key={line.id} id={line.id} role={line.alert ? 'alert' : undefined} className="text-sm text-red-600">{line.text}</p>
+                  ))}
+                  {view.createdNote ? <p role="status" className="text-sm text-gray-700">{view.createdNote}</p> : null}
+                </div>
+              ) : null}
               <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-end sm:gap-3">
                 <button type="button" onClick={closeFlow} className={`${BUTTON_OUTLINE} w-full sm:w-auto`}>{view.closeLabel}</button>
                 <button type="button" onClick={() => saveFlow(false)} disabled={saveDisabled} aria-describedby={saveReason ? 'st-save-reason' : undefined} className={`${BUTTON_SECONDARY} w-full sm:w-auto`}>
@@ -3247,6 +3256,8 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
               input={{
                 title: formData.title, moments: previewMoments,
                 location: formData.location, date: formData.date, authorName: user?.name,
+                // The cover's pills and dates (Chris's Figma, 6 Nov 2026).
+                category: formData.category === CURRENT_CATEGORY ? '' : formData.category, endDate: showEndDate ? formData.endDate : '',
                 // The cover the saved campaign page will show: cover photo, intro video, else the brand.
                 coverPhoto: coverChoice.kind === 'photo' ? coverDisplayUrl : null,
                 introVideo: coverChoice.kind === 'video' ? coverDisplayUrl : null,

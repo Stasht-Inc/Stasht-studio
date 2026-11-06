@@ -6,6 +6,9 @@ import { DEFAULT_BUTTON_COLOR, safeHexColor } from './colors.ts';
 import { httpsUrl, youtubeVideoId } from './urls.ts';
 import { textHtmlIsEmpty } from './textHtml.ts';
 import { sectionStyleOf } from './sectionStyle.ts';
+import { titleTypeOf } from './fonts.ts';
+import { buttonOptionsOf } from './buttonOptions.ts';
+import { smallImageWidth } from './imageWidth.ts';
 import { NEW_SECTION_COLUMNS, campaignColumns, campaignIdsOf, normaliseCampaignItems, normaliseColumns, normaliseOverrides, normaliseSelections, overridesForInput } from './campaignsBlock.ts';
 
 export const BLOCK_TYPES: readonly BlockType[] = ['image', 'title', 'text', 'youtube', 'button', 'divider', 'campaigns'];
@@ -29,7 +32,8 @@ export function createBlock(type: BlockType, id: string): NewsletterBlock {
     case 'title': return { id, type: 'title', data: { text: '', size: 'large' } };
     case 'text': return { id, type: 'text', data: { html: '' } };
     case 'youtube': return { id, type: 'youtube', data: { url: '' } };
-    case 'button': return { id, type: 'button', data: { label: 'Learn more', url: '', color: DEFAULT_BUTTON_COLOR } };
+    // New buttons open in a new window (Chris, 6 Nov); older ones have no new_window key and keep opening as they did.
+    case 'button': return { id, type: 'button', data: { label: 'Learn more', url: '', color: DEFAULT_BUTTON_COLOR, new_window: true } };
     case 'campaigns': return { id, type: 'campaigns', data: { selections: [], campaign_ids: [], columns: NEW_SECTION_COLUMNS } };
     default: return { id, type: 'divider', data: { style: 'line' } };
   }
@@ -50,12 +54,17 @@ export function normaliseBlocks(raw: unknown): NewsletterBlock[] {
     if (typeof id !== 'string' || !BLOCK_TYPES.includes(type as BlockType)) continue;
     const d = (data && typeof data === 'object' ? data : {}) as Record<string, unknown>;
     switch (type as BlockType) {
-      case 'image': out.push({ id, type: 'image', data: { url: str(d.url), alt: str(d.alt), link: str(d.link) || null } }); break;
+      case 'image': {
+        // width: only a picture narrower than the card (lib/imageWidth.ts), so an older picture stays as it was.
+        const width = smallImageWidth(d.width);
+        out.push({ id, type: 'image', data: { url: str(d.url), alt: str(d.alt), link: str(d.link) || null, ...(width ? { width } : {}) } });
+        break;
+      }
       // Their style keys (Chris, 5 Nov) only when set, so an older section stays exactly as it was.
-      case 'title': out.push({ id, type: 'title', data: { text: str(d.text), size: TITLE_SIZES.includes(d.size as TitleSize) ? (d.size as TitleSize) : 'medium', ...sectionStyleOf(d, true) } }); break;
+      case 'title': out.push({ id, type: 'title', data: { text: str(d.text), size: TITLE_SIZES.includes(d.size as TitleSize) ? (d.size as TitleSize) : 'medium', ...sectionStyleOf(d, true), ...titleTypeOf(d) } }); break;
       case 'text': out.push({ id, type: 'text', data: { html: str(d.html), ...sectionStyleOf(d, false) } }); break;
       case 'youtube': out.push({ id, type: 'youtube', data: { url: str(d.url) } }); break;
-      case 'button': out.push({ id, type: 'button', data: { label: str(d.label), url: str(d.url), color: safeHexColor(d.color, DEFAULT_BUTTON_COLOR) } }); break;
+      case 'button': out.push({ id, type: 'button', data: { label: str(d.label), url: str(d.url), color: safeHexColor(d.color, DEFAULT_BUTTON_COLOR), ...buttonOptionsOf(d) } }); break;
       // The API's snapshot (items) comes back on every save; Studio never sends it (blocksToInput). A block saved
       // before products and vehicles has campaign_ids only: those are campaign selections. columns is left out
       // when the API has none (an older section: 1 column, and it stays so until the person changes it).

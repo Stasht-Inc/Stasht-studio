@@ -47,7 +47,7 @@ export function isVectorImage(src?: string | null): boolean {
 
 const known = (s?: CoverSize | null): s is CoverSize => !!s && s.width > 0 && s.height > 0;
 
-export function campaignCoverLayout({ isFallback = false, natural = null, box = null, vector = false }: {
+export function campaignCoverLayout({ isFallback = false, natural = null, box = null, vector = false, judgeBox = null }: {
   /** The picture is the brand default (account / property avatar), not a cover someone chose. */
   isFallback?: boolean;
   /** The picture's own size (naturalWidth / naturalHeight), once it has loaded. */
@@ -56,6 +56,9 @@ export function campaignCoverLayout({ isFallback = false, natural = null, box = 
   box?: CoverSize | null;
   /** The picture is an SVG (isVectorImage). */
   vector?: boolean;
+  /** Judge "too small" against this box instead of `box` (the Storeel preview's tall phone-screen cover judges against
+   *  a square of the phone's width, so an ordinary photo still fills it). The picture is still sized in `box`. */
+  judgeBox?: CoverSize | null;
 }): CampaignCoverLayout {
   if (isFallback) {
     if (!known(box)) return { mode: 'pending' };
@@ -76,7 +79,8 @@ export function campaignCoverLayout({ isFallback = false, natural = null, box = 
   if (vector) return { mode: 'cover' };
   if (!known(natural)) return { mode: 'pending' };
   if (!known(box)) return { mode: 'cover' };
-  if (natural.width >= COVER_SMALL_SIDE * box.width && natural.height >= COVER_SMALL_SIDE * box.height) return { mode: 'cover' };
+  const judge = known(judgeBox) ? judgeBox : box;
+  if (natural.width >= COVER_SMALL_SIDE * judge.width && natural.height >= COVER_SMALL_SIDE * judge.height) return { mode: 'cover' };
   return containRect(natural, box, SMALL_COVER_FRACTION);
 }
 

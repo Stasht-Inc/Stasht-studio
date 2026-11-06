@@ -16,6 +16,10 @@ export interface StoreelPreviewInput {
   introVideo?: string | null;
   /** The brand: what the saved campaign page shows when there's no cover (storeelBrandImage). */
   brandImage?: string | null;
+  /** The category's name (the cover's purple pill). */
+  category?: string | null;
+  /** The form's end date, YYYY-MM-DD (optional). */
+  endDate?: string | null;
 }
 
 export type StoreelCoverKind = 'photo' | 'video' | 'brand';
@@ -32,6 +36,11 @@ export interface StoreelPreviewModel {
   initial: string;
   location: string;
   date: string;
+  /** The cover's pills (Chris's Figma, 6 Nov 2026): the category and the campaign's year. */
+  category: string;
+  year: string;
+  /** The cover's dates: the start, or "start – end". */
+  dateRange: string;
 }
 
 export function momentsLabel(count: number): string {
@@ -73,6 +82,7 @@ export function storeelPreviewModel(input: StoreelPreviewInput, locale?: string)
     ? { ...m, location: m.location || campaignLocation, date: m.date ? formatDay(m.date, locale) : campaignDate }
     : m));
   const author = String(input.authorName ?? '').trim();
+  const endDate = formatDay(input.endDate ?? '', locale);
   const photo = present(input.coverPhoto);
   const video = photo ? null : present(input.introVideo);
   const brand = photo || video ? null : present(input.brandImage);
@@ -86,5 +96,8 @@ export function storeelPreviewModel(input: StoreelPreviewInput, locale?: string)
     initial: initialsOf(author),
     location: campaignLocation,
     date: campaignDate,
+    category: String(input.category ?? '').trim(),
+    year: /^(\d{4})-\d{2}-\d{2}$/.exec((input.date ?? '').trim())?.[1] ?? '',
+    dateRange: campaignDate && endDate && endDate !== campaignDate ? `${campaignDate} – ${endDate}` : campaignDate,
   };
 }
