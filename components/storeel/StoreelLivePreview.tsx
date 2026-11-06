@@ -124,6 +124,7 @@ export default function StoreelLivePreview({ input, avatarUrl, avatarColor }: {
               ref={screenRef}
               // Keyboard users can scroll the Storeel inside the phone (Safari / Firefox don't focus scrollers themselves).
               tabIndex={0}
+              role="region"
               aria-label="Storeel preview, scrolls"
               data-testid="storeel-preview-screen"
               className="relative h-full w-full overflow-y-auto overflow-x-hidden bg-white text-gray-900 focus:outline-none focus-visible:ring-4 focus-visible:ring-[#6C60FF]/50 [&::-webkit-scrollbar]:hidden"
