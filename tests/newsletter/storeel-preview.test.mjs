@@ -85,3 +85,23 @@ test('the brand image is the one the campaign page falls back to', () => {
   assert.equal(storeelBrandImage({ viewType: 'personal', propertyImage: 'https://cdn.test/prop.png', userAvatar: 'https://cdn.test/me.png' }), 'https://cdn.test/me.png');
   assert.equal(storeelBrandImage({ viewType: 'personal', propertyImage: null, userAvatar: '' }), null);
 });
+
+// Chris, 6 Nov 2026 (point 2, Figma "Story Details - Cover"): the cover shows the category and year pills and the
+// campaign's dates (start – end when there is an end date).
+test('the cover pills: the category and the campaign year', () => {
+  const m = storeelPreviewModel({ ...base, category: '  Events ', date: '2025-02-12' }, 'en-US');
+  assert.equal(m.category, 'Events');
+  assert.equal(m.year, '2025');
+  const none = storeelPreviewModel({ ...base, category: undefined, date: '' }, 'en-US');
+  assert.equal(none.category, '');
+  assert.equal(none.year, '');
+});
+
+test('the cover dates: the start, or start – end', () => {
+  assert.equal(storeelPreviewModel({ ...base, date: '2025-02-12' }, 'en-US').dateRange, 'Feb 12, 2025');
+  assert.equal(storeelPreviewModel({ ...base, date: '2025-02-12', endDate: '2025-02-28' }, 'en-US').dateRange, 'Feb 12, 2025 – Feb 28, 2025');
+  // An end date on the same day, or a broken one, is just the start.
+  assert.equal(storeelPreviewModel({ ...base, date: '2025-02-12', endDate: '2025-02-12' }, 'en-US').dateRange, 'Feb 12, 2025');
+  assert.equal(storeelPreviewModel({ ...base, date: '2025-02-12', endDate: 'soon' }, 'en-US').dateRange, 'Feb 12, 2025');
+  assert.equal(storeelPreviewModel({ ...base, date: '' }, 'en-US').dateRange, '');
+});
