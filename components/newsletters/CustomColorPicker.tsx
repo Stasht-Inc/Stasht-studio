@@ -77,6 +77,8 @@ export default function CustomColorPicker({ label, value, active, onChange, onCl
   const [draft, setDraft] = useState(current);
   const atOpen = useRef(actual);
   const changed = useRef(false);
+  // Something was typed in the HEX field and not yet settled (Enter, leaving the field, or closing).
+  const edited = useRef(false);
   // The colour changed from outside (a swatch, the HEX field, undo): follow it, keeping the hue when it has none (grey).
   useEffect(() => {
     setHsv((prev) => (hsvToHex(prev) === current ? prev : { ...hexToHsv(current), h: hexToHsv(current).s === 0 ? prev.h : hexToHsv(current).h }));
@@ -91,6 +93,9 @@ export default function CustomColorPicker({ label, value, active, onChange, onCl
     setHsv(next);
     const hex = hsvToHex(next);
     setDraft(hex);
+    // The field now shows a good colour: no error, nothing typed left to settle (re-review, 6 Nov).
+    setShowError(false);
+    edited.current = false;
     if (hex !== latest.current.current) {
       changed.current = true;
       latest.current.current = hex;
@@ -115,6 +120,7 @@ export default function CustomColorPicker({ label, value, active, onChange, onCl
     pick({ ...hsv, h: Math.min(360, Math.max(0, next)) });
   };
   const apply = (hex: string) => {
+    setShowError(false);
     if (hex === latest.current.current) return;
     changed.current = true;
     latest.current.current = hex;
@@ -123,7 +129,6 @@ export default function CustomColorPicker({ label, value, active, onChange, onCl
   };
   // Typing: spaces dropped (a pasted " #1F6F8B "); a full #RRGGBB applies straight away; nothing is called wrong yet
   // (review, 6 Nov). Shorthand and mistakes are settled on Enter or leaving the field.
-  const edited = useRef(false);
   const typed = (text: string) => {
     edited.current = true;
     const clean = hexFieldText(text);
@@ -142,6 +147,7 @@ export default function CustomColorPicker({ label, value, active, onChange, onCl
     }
     setDraft(hex);
     apply(hex);
+    edited.current = false;
     return true;
   };
   const Dropper = eyeDropper();
@@ -164,6 +170,11 @@ export default function CustomColorPicker({ label, value, active, onChange, onCl
       const wide = typeof window !== 'undefined' && window.matchMedia('(min-width: 640px)').matches;
       setPlacement(panel ? { side: wide ? 'left' : 'top', anchor: panel } : { side: 'bottom', anchor: container?.current ?? null });
     } else {
+      // Closed any way (a click outside, Escape) with a good colour typed but not settled, #FFF included: it counts,
+      // as with Enter or leaving the field, and becomes a recent colour (re-review, 6 Nov).
+      const typedHex = edited.current ? parseHexInput(draft) : null;
+      if (typedHex) apply(typedHex);
+      edited.current = false;
       const end = latest.current.current;
       onClose(changed.current && end !== atOpen.current ? end : null);
     }

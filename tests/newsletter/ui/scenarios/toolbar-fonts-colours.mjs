@@ -328,6 +328,23 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
     expect(await picker.count() === 0, `${width}: Escape closes the picker`);
     expect(await panel.getByText('Text colour', { exact: true }).isVisible(), `${width}: the colour panel stays open`);
     expect(brandPuts() === putsBefore, `${width}: no recent colour saved when nothing changed`);
+    // Re-review (N2): dragging the colour area clears a HEX error; a click outside the picker commits a typed #ABC
+    // (expanded) and keeps it as a recent colour, as Enter does.
+    await panel.getByRole('button', { name: 'Text colour: custom colour' }).click();
+    await picker.getByRole('textbox', { name: 'HEX colour' }).fill('#12');
+    await picker.getByRole('textbox', { name: 'HEX colour' }).press('Tab');
+    await expectVisible(picker.getByRole('alert'), 'the HEX error');
+    await picker.locator('[data-nl-color-area]').click({ position: { x: 30, y: 30 } });
+    await page.waitForTimeout(150);
+    expect(await picker.getByRole('alert').count() === 0, `${width}: dragging the colour area clears the HEX error`);
+    expect(await picker.getByRole('textbox', { name: 'HEX colour' }).getAttribute('aria-invalid') === 'false', `${width}: and the field is no longer marked invalid`);
+    await picker.getByRole('textbox', { name: 'HEX colour' }).fill('#ABC');
+    await panel.getByText('Text colour', { exact: true }).click();
+    await page.waitForTimeout(300);
+    expect(await picker.count() === 0, `${width}: a click outside closes the picker`);
+    await until((b) => b[0]?.data?.color === '#AABBCC', 'a typed #ABC committed by a click outside');
+    await expectVisible(panel.getByRole('radio', { name: 'Recent colour #AABBCC' }), 'the committed colour as a recent colour');
+    expect(api.state.calls.some((c) => c.method === 'PUT' && c.path === '/newsletter-brand' && c.body?.recent_color === '#AABBCC'), `${width}: saved for the account`);
     await closeAllPanels(page);
 
     // ...in the Text section's background panel...

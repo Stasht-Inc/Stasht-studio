@@ -66,10 +66,17 @@ test('review (6 Nov): a late answer never drops a newer pick; the brand list arr
   s = recentFromServer(s, ['#BBBBBB', '#AAAAAA', '#111111'], b.seq);
   s = recentFromServer(s, ['#AAAAAA', '#111111'], a.seq);
   assert.deepEqual(s.colors, ['#BBBBBB', '#AAAAAA', '#111111']);
-  // The latest answer is taken as it is (another device may have added one).
+  // The latest answer is taken (another device may have added one), with this session's picks first.
   const c = recentPick(s, '#CCCCCC');
   s = recentFromServer(c.state, ['#CCCCCC', '#999999', '#BBBBBB'], c.seq);
-  assert.deepEqual(s.colors, ['#CCCCCC', '#999999', '#BBBBBB']);
+  assert.deepEqual(s.colors, ['#CCCCCC', '#BBBBBB', '#AAAAAA', '#999999']);
+  // Re-review (N3): the server handled B's save before A's, so B's (latest) answer lacks A: A still shows.
+  let r = recentStart([]);
+  const pa = recentPick(r, '#AAAAAA'); r = pa.state;
+  const pb = recentPick(r, '#BBBBBB'); r = pb.state;
+  r = recentFromServer(r, ['#BBBBBB'], pb.seq);
+  r = recentFromServer(r, ['#AAAAAA', '#BBBBBB'], pa.seq);
+  assert.deepEqual(r.colors, ['#BBBBBB', '#AAAAAA']);
   // The brand loads after a pick: the pick stays first.
   let t = recentPick(recentStart(null), '#ABCDEF').state;
   t = recentFromBrand(t, ['#123456']);

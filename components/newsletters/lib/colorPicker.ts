@@ -87,10 +87,11 @@ export function recentPick(s: RecentState, color: string): { state: RecentState;
   return { state: { colors: addRecentColor(s.colors, color), picked: addRecentColor(s.picked, color), seq }, seq };
 }
 
-/** A save's answer (null: failed or an API without recent colours): taken only when it answers the latest save. */
+/** A save's answer (null: failed or an API without recent colours): taken only when it answers the latest save, with
+ *  this session's picks kept first (the server may have handled the saves in another order; re-review, 6 Nov). */
 export function recentFromServer(s: RecentState, raw: unknown, seq: number): RecentState {
   if (seq !== s.seq || !Array.isArray(raw)) return s;
-  return { ...s, colors: recentColorsFrom(raw) };
+  return recentFromBrand(s, raw);
 }
 
 /** The account's list (the brand GET): with this session's picks first. */
