@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { newslettersAPI, type NewsletterBrand } from '../../../services/newslettersAPI';
 import type { NlResult } from '../lib/apiResult';
 import { headerFrom } from '../lib/draft';
+import { recentColorsFrom } from '../lib/colorPicker';
 
 // The account's newsletter brand. GET pre-fills a new draft's header and gives the footer's business address.
 // The header is never PUT here: saving a newsletter's header saves the brand header too (contract note 8).
@@ -19,6 +20,8 @@ const normalise = (b: NewsletterBrand): NewsletterBrand => ({
   header: headerFrom(b.header),
   business_address: b.business_address ?? null,
   default_message: typeof b.default_message === 'string' && b.default_message.trim() ? b.default_message : null,
+  // Chris, 6 Nov: the colours picked with Custom (RecentColors). Left out when the API has none to give.
+  ...(Array.isArray(b.recent_colors) ? { recent_colors: recentColorsFrom(b.recent_colors) } : {}),
 });
 
 export const DEFAULT_MESSAGE_ERROR = "Your default message couldn't be saved. Try again.";

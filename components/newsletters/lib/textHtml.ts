@@ -1,12 +1,15 @@
 // The text block's allowed HTML (spec §4.2), the same list as the API's NewsletterHtmlSanitizer:
 // p, br, strong, em, a[href https/mailto], ul/ol/li; b→strong, i→em, div/h1–h6→p; and (Chris, 5 Nov) a span with
-// one of the toolbar's font sizes, <span style="font-size:14|16|20|24px">. Scripts, styles, forms and
+// one of the toolbar's font sizes, <span style="font-size:14|16|20|24px">, and/or (Chris, 6 Nov) one of its font
+// families, <span style="font-size:20px;font-family:STACK"> (lib/fonts.ts; either part alone too). Scripts, styles, forms and
 // media are dropped with their content; other tags are unwrapped (their words stay); every attribute but a
 // safe href (or that font size) goes. Used both ways: clean what the browser's contentEditable produces before saving, and turn
 // stored HTML into nodes that React renders, so no HTML string is ever injected into the page. The API
 // sanitises again on its side.
+import type { FontKey } from '../../../services/newslettersAPI.ts';
 import { LIMITS } from './rules.ts';
 import { httpsUrl } from './urls.ts';
+import { fontStack, styleFontFamily } from './fonts.ts';
 
 export type TextTag = 'p' | 'strong' | 'em' | 'ul' | 'ol' | 'li';
 export type TextNode =
@@ -14,7 +17,8 @@ export type TextNode =
   | { kind: 'br' }
   | { kind: 'el'; tag: TextTag; children: TextNode[] }
   | { kind: 'a'; href: string; children: TextNode[] }
-  | { kind: 'size'; px: number; children: TextNode[] };
+  /** A font size (px; null: none) and/or a font family (Chris, 6 Nov; no key: none). */
+  | { kind: 'size'; px: number | null; font?: FontKey; children: TextNode[] };
 
 /** The toolbar's font sizes in px (lib/sectionStyle.ts TEXT_SIZES; the API's NewsletterHtmlSanitizer::FONT_SIZES). */
 export const FONT_SIZE_PX: readonly number[] = [14, 16, 20, 24];
@@ -132,9 +136,11 @@ export function parseTextHtml(html: string | null | undefined): TextNode[] {
       continue;
     }
     if (tag === 'span') {
-      const px = styleFontSize(attrValue(attrs, 'style'));
-      if (px !== null) {
-        const node = { kind: 'size' as const, px, children: [] as TextNode[] };
+      const style = attrValue(attrs, 'style');
+      const px = styleFontSize(style);
+      const font = styleFontFamily(style);
+      if (px !== null || font !== null) {
+        const node: Extract<TextNode, { kind: 'size' }> = { kind: 'size', px, ...(font ? { font } : {}), children: [] };
         top().push(node);
         stack.push({ tag: 'span', children: node.children });
       } else {
@@ -163,9 +169,16 @@ function serializeNode(n: TextNode): string {
   if (n.kind === 'a') return `<a href="${esc(n.href)}">${n.children.map(serializeNode).join('')}</a>`;
   if (n.kind === 'size') {
     const inner = n.children.map(serializeNode).join('');
-    return inner === '' ? '' : `<span style="font-size:${n.px}px">${inner}</span>`;
+    const open = spanOpen(n.px, n.font ?? null);
+    return inner === '' || !open ? inner : `${open}${inner}</span>`;
   }
   return `<${n.tag}>${n.children.map(serializeNode).join('')}</${n.tag}>`;
+}
+
+/** The canonical opening tag for a size and/or a font, size first (NewsletterHtmlSanitizer::spanOpen); null for neither. */
+export function spanOpen(px: number | null, font: FontKey | null): string | null {
+  const style = [px !== null ? `font-size:${px}px` : null, font ? `font-family:${fontStack(font)}` : null].filter(Boolean);
+  return style.length ? `<span style="${style.join(';')}">` : null;
 }
 
 /** Back to HTML. Loose top-level words go into paragraphs so every line is a block in the email. */
@@ -252,18 +265,33 @@ export function editorHtml(raw: string): string {
   return textHtmlIsEmpty(html) ? '' : html;
 }
 
+/** A run of words' size and font (null: none). */
+interface RunStyle { px: number | null; font: FontKey | null }
+const NO_STYLE: RunStyle = { px: null, font: null };
+const styleKey = (st: RunStyle): string => `${st.px ?? ''}|${st.font ?? ''}`;
+const NO_STYLE_KEY = styleKey(NO_STYLE);
+const styledText = (text: string, st: RunStyle): TextNode => (st.px === null && st.font === null ? { kind: 'text', text }
+  : { kind: 'size', px: st.px, ...(st.font ? { font: st.font } : {}), children: [{ kind: 'text', text }] });
+
 /**
- * A font size on the text model (review, 5 Nov: no execCommand / <font>, so nothing escapes the editor's own undo).
- * range: plain-text character offsets [start, end) counted over text nodes only, or null for everything. Inside the
- * range the words get `px` (16 = Normal: no size); outside, each word keeps the size it had. Sizes are then put back
- * as few spans as possible, only ever around words and inline formatting, never around a paragraph, list or item.
+ * A font size or font family on the text model (review, 5 Nov: no execCommand / <font>, so nothing escapes the editor's
+ * own undo; Chris, 6 Nov: the font family works the same way). range: plain-text character offsets [start, end)
+ * counted over text nodes only, or null for everything. Inside the range the words get the patch (px 16 = Normal: no
+ * size; font null = Default: no font) and keep the other part; outside, each word keeps what it had. Sizes and fonts
+ * are then put back as few spans as possible, only ever around words and inline formatting, never around a paragraph,
+ * list or item.
  */
-export function resizeTextNodes(nodes: TextNode[], px: number, range: { start: number; end: number } | null): TextNode[] {
-  const target = px === 16 ? null : px;
+export function restyleTextNodes(nodes: TextNode[], patch: { px?: number | null; font?: FontKey | null }, range: { start: number; end: number } | null): TextNode[] {
+  const apply = (st: RunStyle): RunStyle => ({
+    px: 'px' in patch ? (patch.px === 16 ? null : patch.px ?? null) : st.px,
+    font: 'font' in patch ? patch.font ?? null : st.font,
+  });
   const pos = { n: 0 };
-  const flatten = (list: TextNode[], inherited: number | null): TextNode[] => list.flatMap((node): TextNode[] => {
+  const flatten = (list: TextNode[], inherited: RunStyle): TextNode[] => list.flatMap((node): TextNode[] => {
     if (node.kind === 'br') return [node];
-    if (node.kind === 'size') return flatten(node.children, node.px === 16 ? null : node.px);
+    if (node.kind === 'size') {
+      return flatten(node.children, { px: node.px === null ? inherited.px : node.px === 16 ? null : node.px, font: node.font ?? inherited.font });
+    }
     if (node.kind !== 'text') return [{ ...node, children: flatten(node.children, inherited) }];
     const start = pos.n;
     pos.n += node.text.length;
@@ -275,22 +303,101 @@ export function resizeTextNodes(nodes: TextNode[], px: number, range: { start: n
       if (!text) continue;
       const from = start + bounds[i];
       const inside = !range || (from >= range.start && from < range.end);
-      const size = inside ? target : inherited;
-      out.push(size === null ? { kind: 'text', text } : { kind: 'size', px: size, children: [{ kind: 'text', text }] });
+      out.push(styledText(text, inside ? apply(inherited) : inherited));
     }
     return out;
   });
-  return groupSizes(flatten(nodes, null));
+  return groupSizes(flatten(nodes, NO_STYLE));
 }
 
-type Uniform = number | null | 'any' | 'mixed';
+export function resizeTextNodes(nodes: TextNode[], px: number, range: { start: number; end: number } | null): TextNode[] {
+  return restyleTextNodes(nodes, { px }, range);
+}
+
+/** A font family (null: Default) on the selected words, or on everything when range is null. */
+export function fontTextNodes(nodes: TextNode[], font: FontKey | null, range: { start: number; end: number } | null): TextNode[] {
+  return restyleTextNodes(nodes, { font }, range);
+}
+
+export function fontTextHtml(html: string, font: FontKey | null, range: { start: number; end: number } | null): string {
+  return serializeTextNodes(fontTextNodes(parseTextHtml(html), font, range));
+}
+
+interface TextContext { px: number | null; font: FontKey | null; bold: boolean; italic: boolean; link: boolean; anchor: TextNode | null }
+/** Every text node with its offset and what it sits in. */
+function eachText(nodes: TextNode[], visit: (text: string, from: number, ctx: TextContext) => void): void {
+  let n = 0;
+  const walk = (list: TextNode[], ctx: TextContext) => {
+    for (const node of list) {
+      if (node.kind === 'text') { visit(node.text, n, ctx); n += node.text.length; }
+      else if (node.kind === 'size') walk(node.children, { ...ctx, px: node.px ?? ctx.px, font: node.font ?? ctx.font });
+      else if (node.kind === 'a') walk(node.children, { ...ctx, link: true, anchor: node });
+      else if (node.kind === 'el') walk(node.children, { ...ctx, bold: ctx.bold || node.tag === 'strong', italic: ctx.italic || node.tag === 'em' });
+    }
+  };
+  walk(nodes, { px: null, font: null, bold: false, italic: false, link: false, anchor: null });
+}
+
+/** What the character at index `at` sits in, or null when there is none. */
+function charContext(nodes: TextNode[], at: number): TextContext | null {
+  let found: TextContext | null = null;
+  eachText(nodes, (text, from, ctx) => {
+    if (!found && text && at >= from && at < from + text.length) found = ctx;
+  });
+  return found;
+}
+
+/** What the character before the caret sits in (the first character at the very start); for a selection, its first. */
+function contextAt(nodes: TextNode[], chars: number): TextContext | null {
+  let last: TextContext | null = null;
+  eachText(nodes, (text, _from, ctx) => { if (text) last = ctx; });
+  return charContext(nodes, Math.max(chars - 1, 0)) ?? last;
+}
+
+/** The font size (px; null: Normal) where the caret (or a selection's start) is: what the size button shows. */
+export function sizeAtOffset(nodes: TextNode[], chars: number): number | null {
+  return contextAt(nodes, chars)?.px ?? null;
+}
+
+/** The font where the caret (or a selection's start) is: what the Font button shows. */
+export function fontAt(nodes: TextNode[], chars: number): FontKey | null {
+  return contextAt(nodes, chars)?.font ?? null;
+}
+
+/**
+ * Bold / italic / link where the caret is, or, for a selection [start, end), whether all of it is (Chris, 6 Nov: the
+ * B / I / link buttons show a pressed state).
+ */
+export function formatAt(nodes: TextNode[], start: number, end = start): { bold: boolean; italic: boolean; link: boolean } {
+  if (end <= start) {
+    const ctx = contextAt(nodes, start);
+    // Link: only inside one (review, 6 Nov). Just before or after it, typing is not linked, unlike bold and italic.
+    const before = start > 0 ? charContext(nodes, start - 1) : null;
+    const after = charContext(nodes, start);
+    const inLink = !!before?.anchor && before.anchor === after?.anchor;
+    return { bold: !!ctx?.bold, italic: !!ctx?.italic, link: inLink };
+  }
+  const all = { bold: true, italic: true, link: true };
+  let any = false;
+  eachText(nodes, (text, from, ctx) => {
+    if (!text || from + text.length <= start || from >= end) return;
+    any = true;
+    all.bold &&= ctx.bold;
+    all.italic &&= ctx.italic;
+    all.link &&= ctx.link;
+  });
+  return any ? all : { bold: false, italic: false, link: false };
+}
+
+/** A node's one style key (styleKey) when all its words share it; 'any' for no words; 'mixed' otherwise. */
+type Uniform = string | 'any' | 'mixed';
 const isBlock = (n: TextNode) => n.kind === 'el' && (n.tag === 'p' || n.tag === 'ul' || n.tag === 'ol' || n.tag === 'li');
 
 function uniformSize(n: TextNode): Uniform {
-  if (n.kind === 'text') return null;
+  if (n.kind === 'text') return NO_STYLE_KEY;
   if (n.kind === 'br') return 'any';
-  if (n.kind === 'size') return n.px;
-  const seen = new Set<number | null>();
+  if (n.kind === 'size') return styleKey({ px: n.px, font: n.font ?? null });
+  const seen = new Set<string>();
   for (const c of n.children) {
     const u = uniformSize(c);
     if (u === 'mixed') return 'mixed';
@@ -315,16 +422,24 @@ function mergeTexts(list: TextNode[]): TextNode[] {
   return out;
 }
 
-/** Runs of neighbours with one size become one span around them; mixed inline elements are opened up. */
+/** The style a key stands for (styleKey). */
+function styleOfKey(key: string): RunStyle {
+  const [px, font] = key.split('|');
+  return { px: px ? Number(px) : null, font: (font || null) as FontKey | null };
+}
+
+/** Runs of neighbours with one size and font become one span around them; mixed inline elements are opened up. */
 function groupSizes(list: TextNode[]): TextNode[] {
   const out: TextNode[] = [];
   let run: TextNode[] = [];
-  let runPx: number | null | undefined;
+  let runPx: string | undefined;
   const flush = () => {
     if (!run.length) return;
     const flat = mergeTexts(run.flatMap(stripSizes));
-    if (typeof runPx === 'number') out.push({ kind: 'size', px: runPx, children: flat });
-    else out.push(...flat);
+    if (runPx !== undefined && runPx !== NO_STYLE_KEY) {
+      const st = styleOfKey(runPx);
+      out.push({ kind: 'size', px: st.px, ...(st.font ? { font: st.font } : {}), children: flat });
+    } else out.push(...flat);
     run = [];
     runPx = undefined;
   };
