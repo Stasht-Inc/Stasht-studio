@@ -14,14 +14,6 @@ export function buttonOptionsOf(d: Record<string, unknown>): Pick<ButtonBlockDat
   return out;
 }
 
-/** The data with one option ticked (true) or unticked (the key removed). */
-export function withButtonOption<D extends Record<string, unknown>>(data: D, key: ButtonOption, on: boolean): D {
-  const out: Record<string, unknown> = { ...data };
-  if (on) out[key] = true;
-  else delete out[key];
-  return out as D;
-}
-
 /** The same change as an editor patch (onChange merges it): unticked is undefined, which JSON leaves out. */
 export function buttonOptionPatch(key: ButtonOption, on: boolean): Partial<ButtonBlockData> {
   return { [key]: on ? true : undefined };

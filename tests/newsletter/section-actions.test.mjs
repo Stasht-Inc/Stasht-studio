@@ -5,9 +5,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { canDuplicateBlock, duplicateBlock } from '../../components/newsletters/lib/duplicateBlock.ts';
-import { buttonOptionPatch, buttonOptionsOf, withButtonOption } from '../../components/newsletters/lib/buttonOptions.ts';
+import { buttonOptionPatch, buttonOptionsOf } from '../../components/newsletters/lib/buttonOptions.ts';
 import { createBlock, normaliseBlocks, blocksToInput } from '../../components/newsletters/lib/blocks.ts';
 import { MESSAGE_BLOCK_ID } from '../../components/newsletters/lib/messageBlock.ts';
+import { IMAGE_FULL_WIDTH, smallImageWidth } from '../../components/newsletters/lib/imageWidth.ts';
 
 const title = (id, text = 'Hi') => ({ id, type: 'title', data: { text, size: 'large' } });
 const ids = (blocks) => blocks.map((b) => b.id);
@@ -123,18 +124,26 @@ test('button options: only true is kept (the API stores them only when on); olde
   assert.deepEqual(newer.data, { label: 'Go', url: 'https://example.com', color: '#6C60FF', full_width: true, new_window: true });
 });
 
-test('ticking and unticking an option: on stores true, off removes the key (as the API does)', () => {
-  const data = { label: 'Go', url: 'https://example.com', color: '#6C60FF', new_window: true };
-  assert.deepEqual(withButtonOption(data, 'full_width', true), { ...data, full_width: true });
-  const off = withButtonOption(data, 'new_window', false);
-  assert.ok(!('new_window' in off));
-  assert.deepEqual(off, { label: 'Go', url: 'https://example.com', color: '#6C60FF' });
-  assert.equal(data.new_window, true, 'the data passed in is not changed');
-});
-
 test('the editor patch for an option: true when ticked, undefined (left out of the JSON) when unticked', () => {
   assert.deepEqual(buttonOptionPatch('full_width', true), { full_width: true });
   const off = buttonOptionPatch('new_window', false);
   assert.ok('new_window' in off && off.new_window === undefined);
   assert.equal(JSON.stringify({ label: 'Go', ...off }), '{"label":"Go"}');
+});
+
+// ---- 6. small pictures are never stretched (review, 6 Nov) ----------------------------------------------------------
+
+test('a picture narrower than the card keeps its width (the API\'s NewsletterContent::smallImageWidth rule)', () => {
+  assert.equal(IMAGE_FULL_WIDTH, 598);
+  assert.equal(smallImageWidth(300), 300);
+  assert.equal(smallImageWidth(597), 597);
+  for (const bad of [598, 1600, 0, -5, 300.5, '300', null, undefined, NaN]) assert.equal(smallImageWidth(bad), undefined, String(bad));
+  const [small, wide, older] = normaliseBlocks([
+    { id: 'i1', type: 'image', data: { url: 'https://cdn.example.com/logo.png', alt: 'Logo', link: null, width: 300 } },
+    { id: 'i2', type: 'image', data: { url: 'https://cdn.example.com/a.jpg', alt: '', link: null, width: 1200 } },
+    { id: 'i3', type: 'image', data: { url: 'https://cdn.example.com/a.jpg', alt: '', link: null } },
+  ]);
+  assert.deepEqual(small.data, { url: 'https://cdn.example.com/logo.png', alt: 'Logo', link: null, width: 300 });
+  assert.deepEqual(wide.data, { url: 'https://cdn.example.com/a.jpg', alt: '', link: null });
+  assert.deepEqual(older.data, { url: 'https://cdn.example.com/a.jpg', alt: '', link: null }, 'an older picture (width unknown) stays full-bleed');
 });

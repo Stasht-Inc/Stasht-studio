@@ -64,7 +64,7 @@ interface BlockHandlers {
 }
 
 /** One section with its frame. Memoised: typing in one section doesn't re-render the others. */
-const BlockRow = memo(function BlockRow({ block, index, count, canUp, canDown, selected, readOnly, problem, padClass, handlers, serverItems, accent, phone }: {
+const BlockRow = memo(function BlockRow({ block, index, count, canUp, canDown, selected, readOnly, problem, padClass, handlers, serverItems, accent, phone, full }: {
   block: NewsletterBlock;
   index: number;
   count: number;
@@ -78,6 +78,8 @@ const BlockRow = memo(function BlockRow({ block, index, count, canUp, canDown, s
   serverItems?: CampaignItem[];
   accent?: string | null;
   phone: boolean;
+  /** The email has the most sections allowed: Duplicate is off, like the "+" buttons. */
+  full: boolean;
 }) {
   const campaigns = block.type === 'campaigns';
   // Title and Text sections can have a background over the whole section (Chris, 5 Nov); the Message section can't.
@@ -88,7 +90,7 @@ const BlockRow = memo(function BlockRow({ block, index, count, canUp, canDown, s
   return (
     <BlockFrame blockId={block.id} label={BLOCK_LABEL[block.type]} index={index} count={count} canUp={canUp} canDown={canDown} selected={selected} readOnly={readOnly} problem={problem} padClass={padClass} look={look} bleed={bleed}
       onSelect={handlers.onSelect} onDone={handlers.onDone} onMoveUp={handlers.onMoveUp} onMoveDown={handlers.onMoveDown} onDelete={handlers.onDelete}
-      onDuplicate={canDuplicateBlock(block) ? handlers.onDuplicate : undefined}
+      onDuplicate={canDuplicateBlock(block) ? handlers.onDuplicate : undefined} duplicateBlocked={full ? `You can add up to ${LIMITS.blocks} sections.` : null}
       onEdit={campaigns ? handlers.onPick : undefined} editLabel={campaigns ? EDIT_ITEMS_LABEL : undefined}>
       <BlockEditor block={block} selected={selected} readOnly={readOnly} onChange={handlers.onChange} onUpdate={campaigns ? handlers.onUpdate : undefined}
         serverItems={campaigns ? serverItems : undefined} accent={campaigns ? accent : undefined} onPick={campaigns ? handlers.onPick : undefined} phone={phone} padClass={padClass} />
@@ -110,6 +112,8 @@ export default function NewsletterEditor({
   // A section just made by Duplicate: brought into view and focused once it is drawn (the Duplicate button that had
   // focus went with the old section's toolbar).
   const [revealId, setRevealId] = useState<string | null>(null);
+  // Each copy's original (copy id → original id), for a Campaigns copy's cards until its own first save.
+  const copiedFromRef = useRef(new Map<string, string>());
   useEffect(() => {
     if (!revealId) return;
     const el = rootRef.current?.querySelector<HTMLElement>(`[data-block-id="${CSS.escape(revealId)}"]`);
@@ -223,7 +227,12 @@ export default function NewsletterEditor({
           return r.outcome === 'duplicated' ? { blocks: r.blocks } : null;
         });
         if (result.outcome === 'full') composerToast.error(`You can add up to ${LIMITS.blocks} sections.`);
-        else if (result.id) { setSelectedId(result.id); setRevealId(result.id); }
+        else if (result.id) {
+          // A Campaigns copy shows the original's cards straight away (its own come back with its first save).
+          copiedFromRef.current.set(result.id, id);
+          setSelectedId(result.id);
+          setRevealId(result.id);
+        }
       },
       onChange: (data) => onBlocks((list) => updateBlockData(list, id, data)),
       onUpdate: (fn) => onBlocks((list, index) => {
@@ -241,6 +250,18 @@ export default function NewsletterEditor({
     for (const id of handlersRef.current.keys()) if (!ids.has(id)) handlersRef.current.delete(id);
   }, [blocks]);
   const full = blocks.length >= LIMITS.blocks;
+  // A section's saved cards; a copy not saved yet uses its original's (and so on up a chain of copies).
+  const serverItemsFor = (id: string): CampaignItem[] | undefined => {
+    let at: string | undefined = id;
+    for (let hops = 0; at && hops < 10; hops += 1) {
+      const items = savedItems.get(at);
+      if (items) return items;
+      at = copiedFromRef.current.get(at);
+    }
+    return undefined;
+  };
+  const lastBlock = blocks[blocks.length - 1];
+  const lastBleed = lastBlock?.type === 'image' && httpsUrl(lastBlock.data.url) !== null;
   const phone = device === 'phone';
   // The email narrows its side padding to 20 px under 620 px wide; the phone view and small screens do too.
   const padClass = phone ? 'px-5' : 'px-5 sm:px-10';
@@ -288,7 +309,9 @@ export default function NewsletterEditor({
   return (
     // A tap anywhere in the preview outside the selected part closes its editor (a tap on another part selects
     // that one instead). Clicks from popovers and dialogs (portals) don't count.
-    <div ref={rootRef} className="overflow-hidden rounded-xl border border-gray-200 bg-white"
+    // Pictures in the preview are never selectable: a text selection across it (Cmd+A, a drag) would paint the browser's
+    // highlight over them as a tinted frame (Chris, 6 Nov).
+    <div ref={rootRef} className="overflow-hidden rounded-xl border border-gray-200 bg-white [&_img]:select-none"
       onClick={(e) => {
         const target = e.target as Element;
         if (!selectedRef.current || !rootRef.current?.contains(target)) return;
@@ -305,7 +328,8 @@ export default function NewsletterEditor({
           <div className="mx-auto w-full max-w-[600px] overflow-hidden rounded-2xl border border-[#ECEDF3] bg-white">
             <HeaderEditor header={draft.header} onChange={onHeaderChange} selected={selectedId === HEADER_ID}
               onSelect={() => { if (!readOnly) select(HEADER_ID); }} onDone={() => deselect(true)} readOnly={readOnly} padClass={padClass} />
-            <div className="py-3">
+            {/* No room under a full-bleed picture that ends the email: the e-card follows it directly, as in the email. */}
+            <div className={`pt-3 ${lastBleed ? '' : 'pb-3'}`}>
               {/* The Message section is always first under the header: no + above it. */}
               {firstInsertIndex(blocks) === 0 ? plus(0, 'Add a section at the top') : null}
               {blocks.length === 0 && !readOnly ? <p className={`${padClass} pb-3 text-center text-sm text-gray-500`}>Tap + to add your first section.</p> : null}
@@ -314,7 +338,7 @@ export default function NewsletterEditor({
                   <BlockRow block={block} index={index} count={blocks.length}
                     canUp={canMoveBlock(blocks, index, -1)} canDown={canMoveBlock(blocks, index, 1)} selected={selectedId === block.id} readOnly={readOnly}
                     problem={problems[block.id] ?? serverBlockError(fieldErrors, index)} padClass={padClass} handlers={handlersFor(block.id)}
-                    serverItems={savedItems.get(block.id)} accent={draft.header.background_color} phone={phone} />
+                    serverItems={serverItemsFor(block.id)} accent={draft.header.background_color} phone={phone} full={full} />
                   {plus(index + 1, `Add a section after section ${index + 1}`)}
                 </Fragment>
               ))}

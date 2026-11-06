@@ -7,6 +7,7 @@ import { httpsUrl, youtubeVideoId } from './urls.ts';
 import { textHtmlIsEmpty } from './textHtml.ts';
 import { sectionStyleOf } from './sectionStyle.ts';
 import { buttonOptionsOf } from './buttonOptions.ts';
+import { smallImageWidth } from './imageWidth.ts';
 import { NEW_SECTION_COLUMNS, campaignColumns, campaignIdsOf, normaliseCampaignItems, normaliseColumns, normaliseOverrides, normaliseSelections, overridesForInput } from './campaignsBlock.ts';
 
 export const BLOCK_TYPES: readonly BlockType[] = ['image', 'title', 'text', 'youtube', 'button', 'divider', 'campaigns'];
@@ -52,7 +53,12 @@ export function normaliseBlocks(raw: unknown): NewsletterBlock[] {
     if (typeof id !== 'string' || !BLOCK_TYPES.includes(type as BlockType)) continue;
     const d = (data && typeof data === 'object' ? data : {}) as Record<string, unknown>;
     switch (type as BlockType) {
-      case 'image': out.push({ id, type: 'image', data: { url: str(d.url), alt: str(d.alt), link: str(d.link) || null } }); break;
+      case 'image': {
+        // width: only a picture narrower than the card (lib/imageWidth.ts), so an older picture stays as it was.
+        const width = smallImageWidth(d.width);
+        out.push({ id, type: 'image', data: { url: str(d.url), alt: str(d.alt), link: str(d.link) || null, ...(width ? { width } : {}) } });
+        break;
+      }
       // Their style keys (Chris, 5 Nov) only when set, so an older section stays exactly as it was.
       case 'title': out.push({ id, type: 'title', data: { text: str(d.text), size: TITLE_SIZES.includes(d.size as TitleSize) ? (d.size as TitleSize) : 'medium', ...sectionStyleOf(d, true) } }); break;
       case 'text': out.push({ id, type: 'text', data: { html: str(d.html), ...sectionStyleOf(d, false) } }); break;

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Image as ImageIcon, Loader2 } from 'lucide-react';
 import type { ImageBlockData } from '../../../services/newslettersAPI';
 import { useImageUpload } from '../hooks/useImageUpload';
@@ -6,13 +6,19 @@ import { httpsUrl, toHttpsUrl } from '../lib/urls';
 import { BUTTON_SMALL, LABEL, LINK_BUTTON, inputClass } from '../lib/ui';
 import type { BlockEditorProps } from './types';
 import { useUrlField } from './useUrlField';
+import { smallImageWidth } from '../lib/imageWidth';
 
 const ALT_MAX = 200; // NewsletterContent::ALT_MAX
 
 /** padClass: the email column's side padding. With a picture the section is full-bleed (BlockFrame bleed), so only the
  *  controls under the picture take it. */
 export default function ImageBlockEditor({ blockId, data, selected, readOnly, onChange, padClass = '' }: BlockEditorProps<ImageBlockData> & { padClass?: string }) {
-  const { uploading, upload, choose, input } = useImageUpload((url) => onChange({ url }), `${blockId}-image-input`);
+  // A picture chosen here (uploaded or pasted) is measured once it loads: narrower than the card, it keeps its own width
+  // (lib/imageWidth.ts). A new picture drops the old one's width until then. Pictures saved before are never measured
+  // (opening a draft changes nothing), so they stay full-bleed.
+  const measureRef = useRef<string | null>(null);
+  const choosePicture = (url: string) => { measureRef.current = url; onChange({ url, width: undefined }); };
+  const { uploading, upload, choose, input } = useImageUpload(choosePicture, `${blockId}-image-input`);
   const link = useUrlField(data.link ?? '', (next) => onChange({ link: next || null }), toHttpsUrl);
   const [pasteDraft, setPasteDraft] = useState('');
   const src = httpsUrl(data.url);
@@ -20,7 +26,7 @@ export default function ImageBlockEditor({ blockId, data, selected, readOnly, on
 
   const applyPasted = () => {
     const value = toHttpsUrl(pasteDraft);
-    if (value) { onChange({ url: value }); setPasteDraft(''); }
+    if (value) { choosePicture(value); setPasteDraft(''); }
   };
 
   return (
@@ -28,7 +34,17 @@ export default function ImageBlockEditor({ blockId, data, selected, readOnly, on
       {src ? (
         // As in the email (image-row.blade.php, Chris 6 Nov): edge to edge across the section, at the picture's own
         // height, square corners, nothing over it.
-        <img src={src} alt={data.alt} data-nl-image="" className="block h-auto w-full" />
+        // Never selectable or draggable: a text selection across the canvas (Cmd+A, a drag over sections) used to paint the
+        // browser's highlight over the picture as a square lavender frame and a blue cast (Chris's 179/180 screenshots).
+        <img src={src} alt={data.alt} data-nl-image="" draggable={false}
+          onLoad={(e) => {
+            if (measureRef.current !== src) return;
+            measureRef.current = null;
+            const width = smallImageWidth(e.currentTarget.naturalWidth);
+            if (width !== data.width) onChange({ width });
+          }}
+          style={data.width ? { maxWidth: `${data.width}px` } : undefined}
+          className={`block h-auto w-full select-none ${data.width ? 'mx-auto' : ''}`} />
       ) : (
         <div
           className="flex flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed border-gray-200 bg-gray-50 px-4 py-8 text-center"

@@ -79,6 +79,21 @@ async function imageFillsSection(page, frame) {
   };
 }
 
+/** How much two same-size screenshots differ: the share of pixels with a channel off by more than 24 (anti-aliasing and
+ *  sub-pixel placement move a few pixels by a little; a selection highlight tints every pixel by a lot). */
+async function pixelDiff(page, a, b) {
+  return page.evaluate(async ([x, y]) => {
+    const load = (src) => new Promise((resolve) => { const i = new Image(); i.onload = () => resolve(i); i.src = src; });
+    const [ia, ib] = await Promise.all([load(x), load(y)]);
+    if (ia.width !== ib.width || ia.height !== ib.height) return 1;
+    const read = (img) => { const c = document.createElement('canvas'); c.width = img.width; c.height = img.height; const g = c.getContext('2d'); g.drawImage(img, 0, 0); return g.getImageData(0, 0, c.width, c.height).data; };
+    const [da, db] = [read(ia), read(ib)];
+    let off = 0;
+    for (let i = 0; i < da.length; i += 4) if (Math.max(Math.abs(da[i] - db[i]), Math.abs(da[i + 1] - db[i + 1]), Math.abs(da[i + 2] - db[i + 2])) > 24) off += 1;
+    return off / (da.length / 4);
+  }, [`data:image/png;base64,${a.toString('base64')}`, `data:image/png;base64,${b.toString('base64')}`]);
+}
+
 export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
   for (const width of [1280, 390]) {
     const api = createMockApi({ newsletters: [newsletter(71, { name: 'Chris 6 Nov', subject: 'The event', from_name: 'Serpa Chrysler', sms_text: 'Hello from Serpa', blocks: EVERY() })] });
@@ -112,6 +127,42 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
     const imgBox = await image.boundingBox();
     expect(cardBox && imgBox && close(imgBox.x, cardBox.x + 1, 1) && close(imgBox.width, cardBox.width - 2, 1), `${width}: the picture spans the card edge to edge (${JSON.stringify({ cardBox, imgBox })})`);
     await partShot(image, `${width}-01-image-unselected`);
+
+    // Review (6 Nov): Chris's lavender frame and blue cast were the browser's text-selection highlight painted over the
+    // picture (Cmd+A, or a drag across sections). A selection over the whole canvas now leaves the picture untouched.
+    await page.mouse.move(2, 2);
+    await page.waitForTimeout(200);
+    const props = await image.locator('img[data-nl-image]').evaluate((el) => ({ select: getComputedStyle(el).userSelect, drag: el.getAttribute('draggable') }));
+    expect(props.select === 'none' && props.drag === 'false', `${width}: the picture can't be selected or dragged (${JSON.stringify(props)})`);
+    const text = frameOf('bx1');
+    const [imgBefore, textBefore] = [await image.screenshot(), await text.screenshot()];
+    const picked = await page.evaluate(() => {
+      const root = document.querySelector('aside [data-block-id="nl-message"]').parentElement;
+      const sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.selectAllChildren(root);
+      return sel.toString().length;
+    });
+    await page.waitForTimeout(200);
+    const [imgAfter, textAfter] = [await image.screenshot(), await text.screenshot()];
+    expect(picked > 20, `${width}: the whole canvas is selected (${picked} characters)`);
+    const [textDiff, imgDiff] = [await pixelDiff(page, textBefore, textAfter), await pixelDiff(page, imgBefore, imgAfter)];
+    expect(textDiff > 0.01, `${width}: control: the selected words do show the highlight (${textDiff})`);
+    expect(imgDiff < 0.005, `${width}: the picture shows no highlight while everything around it is selected (${imgDiff})`);
+    if (process.env.NLB_DEBUG) { writeFileSync(`${OUT}/dbg-${width}-img-before.png`, imgBefore); writeFileSync(`${OUT}/dbg-${width}-img-after.png`, imgAfter); }
+    await shot(page, `${width}-01b-select-all`);
+    await page.evaluate(() => window.getSelection().removeAllRanges());
+    // The hover / selected outline is drawn outside the picture, never on it.
+    expect(await image.evaluate((el) => getComputedStyle(el).outlineOffset) === '0px', `${width}: the picture's outline sits outside its edge`);
+    await image.hover();
+    await page.waitForTimeout(250);
+    const hb = await image.boundingBox();
+    await page.screenshot({ path: `${OUT}/section-actions-${width}-01c-image-hover.png`, clip: { x: Math.max(0, hb.x - 12), y: hb.y - 12, width: hb.width + 24, height: hb.height + 24 } });
+    const edge = await image.locator('img[data-nl-image]').screenshot();
+    const hoverDiff = await pixelDiff(page, imgBefore, edge);
+    expect(hoverDiff < 0.005, `${width}: hovering draws nothing on the picture (${hoverDiff})`);
+    if (process.env.NLB_DEBUG) writeFileSync(`${OUT}/dbg-${width}-img-hover.png`, edge);
+    await page.mouse.move(2, 2);
 
     // Selected: same box; the outline is drawn on top of the edge, not as a frame around an inset picture.
     await image.focus();
@@ -267,14 +318,68 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
   const preview = page.locator('aside');
   await expectVisible(preview.locator('[data-block-id="d0"]'), 'full draft opened');
   await page.waitForTimeout(800);
-  const putsBefore = api.state.calls.filter((c) => c.method === 'PUT').length;
   await preview.locator('[data-block-id="d0"]').focus();
-  await preview.getByRole('toolbar', { name: 'Title section actions' }).getByRole('button', { name: 'Duplicate' }).click();
-  await expectVisible(page.getByText('You can add up to 40 sections.'), 'the limit message (as "+" shows it)');
-  await page.waitForTimeout(1200);
+  const fullDup = preview.getByRole('toolbar', { name: 'Title section actions' }).getByRole('button', { name: 'Duplicate', exact: true });
+  await expectVisible(fullDup, 'Duplicate shown on a full email');
+  // Off, like the "+" buttons, with the same words as their tooltip.
+  expect(await fullDup.isDisabled(), 'Duplicate is off at 40 sections');
+  expect(await fullDup.getAttribute('title') === 'You can add up to 40 sections.', `the limit message is its tooltip (${await fullDup.getAttribute('title')})`);
+  const plus = preview.getByRole('button', { name: /^Add a section after section 1$/ });
+  expect(await plus.isDisabled() && await plus.getAttribute('title') === 'You can add up to 40 sections.', 'the "+" buttons are off with the same words');
   expect(await preview.locator('[data-block-id]').count() === 40, 'still 40 sections');
-  const puts = api.state.calls.filter((c) => c.method === 'PUT' && c.body && 'blocks' in c.body).slice(putsBefore);
-  expect(puts.every((c) => c.body.blocks.length === 40), 'nothing saved past the limit');
+  await partShot(preview.getByRole('toolbar', { name: 'Title section actions' }), '1280-11-limit-bar');
   await shot(page, '1280-11-limit');
   await context.close();
+
+  for (const width of [1280, 390]) {
+    // ---- 6. a small picture keeps its width; an image that ends the email has no gap under it ----------------------
+    const api2 = createMockApi({ uploadUrl: 'https://127.0.0.1/nl-img/pwa-icon-192.png', newsletters: [newsletter(74, { name: 'Small', subject: 'Small', blocks: [{ id: 'bt1', type: 'title', data: { text: 'Logo below', size: 'large' } }] })] });
+    const two = await open({ width, height: width === 390 ? 844 : 1100, api: api2, query: '&newsletterId=74' });
+    const p2 = two.page.locator('aside');
+    await expectVisible(p2.locator('[data-block-id="bt1"]'), `${width}: small-picture draft opened`);
+    await two.page.waitForTimeout(600);
+    await p2.getByRole('button', { name: 'Add a section after section 1' }).click();
+    await two.page.getByRole('menuitem', { name: /^Image/ }).click();
+    const imgFrame = p2.locator('[role="group"][aria-label="Image section"]');
+    // The upload is answered with a 192 px wide picture (narrower than the card's 598).
+    await imgFrame.locator('input[type="file"]').setInputFiles(new URL('../../../../public/pwa-icon-192.png', import.meta.url).pathname);
+    let saved = null;
+    for (let i = 0; i < 50; i += 1) {
+      saved = savedBlocks(api2)?.find((b) => b.type === 'image');
+      if (saved?.data?.width) break;
+      await two.page.waitForTimeout(150);
+    }
+    expect(saved?.data?.width === 192, `${width}: a small picture's width is saved (${JSON.stringify(saved?.data)})`);
+    const small = imgFrame.locator('img[data-nl-image]');
+    const [sb, fb3] = [await small.boundingBox(), await imgFrame.boundingBox()];
+    const expectW = 192;
+    expect(sb && close(sb.width, expectW, 1) && close(sb.x + sb.width / 2, fb3.x + fb3.width / 2, 1), `${width}: drawn at its own width, centred, never stretched (${JSON.stringify({ sb, fb3 })})`);
+    await imgFrame.getByRole('button', { name: 'Done' }).click();
+    await two.page.mouse.move(2, 2);
+    // The image is the last section: nothing under it but the "+" (no 12 px the email doesn't have).
+    const list = p2.locator('[data-block-id="bt1"]').locator('xpath=..');
+    expect(await list.evaluate((el) => getComputedStyle(el).paddingBottom) === '0px', `${width}: no extra room under a picture that ends the email`);
+    await shot(two.page, `${width}-12-small-picture-last`);
+    await two.context.close();
+  }
+
+  // ---- 5. a Campaigns copy shows its picks at once, even before (or without) its own save ----------------------------
+  const api3 = createMockApi({ failPuts: 500, newsletters: [newsletter(75, { name: 'Picks', subject: 'Picks', blocks: [
+    { id: 'bc1', type: 'campaigns', data: { selections: [{ kind: 'campaign', id: 601 }, { kind: 'campaign', id: 602 }], campaign_ids: [601, 602], columns: 1, items: [card(601, 'Fall service event')] } },
+  ] })] });
+  const three = await open({ width: 1280, height: 1100, api: api3, query: '&newsletterId=75' });
+  await serve(three.page);
+  const p3 = three.page.locator('aside');
+  await expectVisible(p3.locator('[data-block-id="bc1"]').getByText('Fall service event'), 'campaigns draft opened');
+  await three.page.waitForTimeout(600);
+  const note = (await p3.locator('[data-block-id="bc1"] p.text-xs').first().textContent())?.trim();
+  await p3.locator('[data-block-id="bc1"]').focus();
+  await p3.getByRole('toolbar', { name: 'Campaigns section actions' }).getByRole('button', { name: 'Duplicate', exact: true }).click();
+  const copy3 = p3.locator('[data-block-id]').nth(1);
+  await expectVisible(copy3.getByText('Fall service event'), 'the copy shows the card');
+  await three.page.waitForTimeout(1200); // saving fails here (failPuts): the copy never gets cards of its own
+  expect(await copy3.getByText('Getting your picks…').count() === 0, 'the copy never says "Getting your picks…"');
+  expect(!!note && await copy3.getByText(note, { exact: true }).count() === 1, `the copy shows the same note as the original (${note})`);
+  await partShot(copy3, '1280-13-campaigns-copy-picks');
+  await three.context.close();
 }

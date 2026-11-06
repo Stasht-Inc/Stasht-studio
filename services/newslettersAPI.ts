@@ -34,7 +34,8 @@ export type BlockType = 'image' | 'title' | 'text' | 'youtube' | 'button' | 'div
 export type TitleSize = 'large' | 'medium' | 'small';
 export type DividerStyle = 'line' | 'space';
 
-export interface ImageBlockData { url: string; alt: string; link: string | null }
+/** width: the picture's own width in px when it is narrower than the card (below 598; review, 6 Nov), else absent. */
+export interface ImageBlockData { url: string; alt: string; link: string | null; width?: number }
 /** Section alignment (Chris, 5 Nov). Left is the default and is never stored. */
 export type SectionAlign = 'left' | 'center' | 'right';
 /**
