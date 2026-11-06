@@ -9,7 +9,9 @@ import { useUrlField } from './useUrlField';
 
 const ALT_MAX = 200; // NewsletterContent::ALT_MAX
 
-export default function ImageBlockEditor({ blockId, data, selected, readOnly, onChange }: BlockEditorProps<ImageBlockData>) {
+/** padClass: the email column's side padding. With a picture the section is full-bleed (BlockFrame bleed), so only the
+ *  controls under the picture take it. */
+export default function ImageBlockEditor({ blockId, data, selected, readOnly, onChange, padClass = '' }: BlockEditorProps<ImageBlockData> & { padClass?: string }) {
   const { uploading, upload, choose, input } = useImageUpload((url) => onChange({ url }), `${blockId}-image-input`);
   const link = useUrlField(data.link ?? '', (next) => onChange({ link: next || null }), toHttpsUrl);
   const [pasteDraft, setPasteDraft] = useState('');
@@ -24,8 +26,9 @@ export default function ImageBlockEditor({ blockId, data, selected, readOnly, on
   return (
     <div>
       {src ? (
-        // As in the email (blocks/image.blade.php): full column width, rounded 8 px.
-        <img src={src} alt={data.alt} className="block h-auto w-full rounded-lg" />
+        // As in the email (image-row.blade.php, Chris 6 Nov): edge to edge across the section, at the picture's own
+        // height, square corners, nothing over it.
+        <img src={src} alt={data.alt} data-nl-image="" className="block h-auto w-full" />
       ) : (
         <div
           className="flex flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed border-gray-200 bg-gray-50 px-4 py-8 text-center"
@@ -44,6 +47,7 @@ export default function ImageBlockEditor({ blockId, data, selected, readOnly, on
       )}
       {input}
       {selected && !readOnly ? (
+        <div className={src ? padClass : undefined}>
         <div className="mt-3 grid gap-3 rounded-lg border border-gray-200 bg-gray-50 p-3">
           {src ? (
             <div><button type="button" onClick={choose} disabled={uploading} className={BUTTON_SMALL}>{uploading ? 'Uploading…' : 'Replace image'}</button></div>
@@ -70,6 +74,7 @@ export default function ImageBlockEditor({ blockId, data, selected, readOnly, on
               onChange={(e) => link.change(e.target.value)} onBlur={link.blur} className={inputClass(link.invalid)} />
             {link.invalid ? <p role="alert" className="mt-1.5 text-xs text-red-600">Use a link that starts with https://.</p> : null}
           </div>
+        </div>
         </div>
       ) : null}
     </div>

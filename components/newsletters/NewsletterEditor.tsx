@@ -8,6 +8,8 @@ import { ACTION_TOAST_MS, blocksProblems, canMoveBlock, firstInsertIndex, campai
 import { EDIT_ITEMS_LABEL, campaignIdsOf, pruneOverrides } from './lib/campaignsBlock';
 import { TEXT_INK, TITLE_INK, sectionLook } from './lib/sectionStyle';
 import { isMessageBlock } from './lib/messageBlock';
+import { canDuplicateBlock, duplicateBlock, type DuplicateOutcome } from './lib/duplicateBlock';
+import { httpsUrl } from './lib/urls';
 import InboxRow from './InboxRow';
 import HeaderEditor from './HeaderEditor';
 import EcardFooter from './EcardFooter';
@@ -52,6 +54,8 @@ interface BlockHandlers {
   onMoveUp(): void;
   onMoveDown(): void;
   onDelete(): void;
+  /** Copy the section right below it and select the copy (Chris, 6 Nov). */
+  onDuplicate(): void;
   onChange(data: Record<string, unknown>): void;
   /** A change worked out from the section's data as it is at that moment (null: nothing to change). */
   onUpdate(fn: (latest: Record<string, unknown>) => Record<string, unknown> | null): void;
@@ -79,12 +83,15 @@ const BlockRow = memo(function BlockRow({ block, index, count, canUp, canDown, s
   // Title and Text sections can have a background over the whole section (Chris, 5 Nov); the Message section can't.
   const look = block.type === 'title' ? sectionLook(block.data as unknown as Record<string, unknown>, true, TITLE_INK)
     : block.type === 'text' && !isMessageBlock(block) ? sectionLook(block.data as unknown as Record<string, unknown>, false, TEXT_INK) : null;
+  // An Image section with its picture is full-bleed, as in the email (Chris, 6 Nov).
+  const bleed = block.type === 'image' && httpsUrl(block.data.url) !== null;
   return (
-    <BlockFrame blockId={block.id} label={BLOCK_LABEL[block.type]} index={index} count={count} canUp={canUp} canDown={canDown} selected={selected} readOnly={readOnly} problem={problem} padClass={padClass} look={look}
+    <BlockFrame blockId={block.id} label={BLOCK_LABEL[block.type]} index={index} count={count} canUp={canUp} canDown={canDown} selected={selected} readOnly={readOnly} problem={problem} padClass={padClass} look={look} bleed={bleed}
       onSelect={handlers.onSelect} onDone={handlers.onDone} onMoveUp={handlers.onMoveUp} onMoveDown={handlers.onMoveDown} onDelete={handlers.onDelete}
+      onDuplicate={canDuplicateBlock(block) ? handlers.onDuplicate : undefined}
       onEdit={campaigns ? handlers.onPick : undefined} editLabel={campaigns ? EDIT_ITEMS_LABEL : undefined}>
       <BlockEditor block={block} selected={selected} readOnly={readOnly} onChange={handlers.onChange} onUpdate={campaigns ? handlers.onUpdate : undefined}
-        serverItems={campaigns ? serverItems : undefined} accent={campaigns ? accent : undefined} onPick={campaigns ? handlers.onPick : undefined} phone={phone} />
+        serverItems={campaigns ? serverItems : undefined} accent={campaigns ? accent : undefined} onPick={campaigns ? handlers.onPick : undefined} phone={phone} padClass={padClass} />
     </BlockFrame>
   );
 });
@@ -100,6 +107,17 @@ export default function NewsletterEditor({
 }: NewsletterEditorProps) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
+  // A section just made by Duplicate: brought into view and focused once it is drawn (the Duplicate button that had
+  // focus went with the old section's toolbar).
+  const [revealId, setRevealId] = useState<string | null>(null);
+  useEffect(() => {
+    if (!revealId) return;
+    const el = rootRef.current?.querySelector<HTMLElement>(`[data-block-id="${CSS.escape(revealId)}"]`);
+    setRevealId(null);
+    if (!el) return;
+    el.scrollIntoView?.({ block: 'nearest' });
+    el.focus({ preventScroll: true });
+  }, [revealId]);
   const selectedRef = useRef(selectedId);
   selectedRef.current = selectedId;
   // True while focus is moved back to a part on purpose (after Done), so that focus doesn't select it again.
@@ -193,6 +211,19 @@ export default function NewsletterEditor({
             },
           },
         });
+      },
+      // Like adding a section (no Undo toast): the copy is selected and in view, and its own Delete has Undo.
+      onDuplicate: () => {
+        // Filled in by the updater, which runs straight away.
+        const result: { outcome: DuplicateOutcome; id: string | null } = { outcome: 'missing', id: null };
+        onChangeRef.current((d) => {
+          const r = duplicateBlock(d.blocks, id);
+          result.outcome = r.outcome;
+          result.id = r.id;
+          return r.outcome === 'duplicated' ? { blocks: r.blocks } : null;
+        });
+        if (result.outcome === 'full') composerToast.error(`You can add up to ${LIMITS.blocks} sections.`);
+        else if (result.id) { setSelectedId(result.id); setRevealId(result.id); }
       },
       onChange: (data) => onBlocks((list) => updateBlockData(list, id, data)),
       onUpdate: (fn) => onBlocks((list, index) => {

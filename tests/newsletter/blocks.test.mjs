@@ -12,7 +12,7 @@ test('createBlock makes every type with the §8 fields', () => {
   assert.deepEqual(createBlock('title', 'b2').data, { text: '', size: 'large' });
   assert.deepEqual(createBlock('text', 'b3').data, { html: '' });
   assert.deepEqual(createBlock('youtube', 'b4').data, { url: '' });
-  assert.deepEqual(createBlock('button', 'b5').data, { label: 'Learn more', url: '', color: '#6C60FF' });
+  assert.deepEqual(createBlock('button', 'b5').data, { label: 'Learn more', url: '', color: '#6C60FF', new_window: true }); // Chris, 6 Nov: new buttons open in a new window
   assert.deepEqual(createBlock('divider', 'b6').data, { style: 'line' });
 });
 

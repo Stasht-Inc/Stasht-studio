@@ -49,7 +49,8 @@ export interface TitleBlockData extends SectionStyle { text: string; size: Title
 /** html may hold <span style="font-size:14|16|20|24px"> from the toolbar's font size (the API keeps only those). */
 export interface TextBlockData extends Omit<SectionStyle, 'background_image_url'> { html: string }
 export interface YoutubeBlockData { url: string }
-export interface ButtonBlockData { label: string; url: string; color: string }
+/** full_width / new_window (Chris, 6 Nov; API NewsletterContent::buttonOptions): only present when on. */
+export interface ButtonBlockData { label: string; url: string; color: string; full_width?: boolean; new_window?: boolean }
 export interface DividerBlockData { style: DividerStyle }
 /** What a Campaigns section can show (shared brief 2026-10-29): the owner's campaigns, Website Catalogue products
  *  and dealer vehicles. Products and vehicles link to their own page on the business's website. */
