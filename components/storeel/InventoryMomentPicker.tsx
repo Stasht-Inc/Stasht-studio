@@ -4,7 +4,8 @@ import { catalogueAPI, loadCatalogueForBrowsing } from '../../services/catalogue
 import { dashboardAPI } from '../../utils/authUtils';
 import { useIsStarterPlan } from '../../hooks/usePlan';
 import { requestUpgrade } from '../../utils/planEvents';
-import { catalogGate, type InventoryPick } from './lib/momentPicks';
+import { catalogGate, inventoryCacheable, type InventoryPick } from './lib/momentPicks';
+import { CATALOGUE_SYNC_FINISHED_EVENT, CATALOGUE_SYNC_STARTED_EVENT } from '../connectors/websiteCatalogue';
 import { vehiclePrice, vehicleTags } from './lib/previewMoments';
 
 /** Add a Moment's sources: photos & videos (the modal's own), the Website Catalogue's products, a dealer's vehicles. */
@@ -40,6 +41,12 @@ export interface InventorySources {
 /** The last answer, reused for a short while (review minor 10: a 400+ item catalogue on every Add a Moment). Per account. */
 const CACHE_MS = 2 * 60 * 1000;
 let cache: { key: string; at: number; value: InventorySources } | null = null;
+/** Forget the last answer (a catalogue import started or finished: the products changed). */
+export function clearInventoryCache(): void { cache = null; }
+if (typeof window !== 'undefined') {
+  window.addEventListener(CATALOGUE_SYNC_STARTED_EVENT, clearInventoryCache);
+  window.addEventListener(CATALOGUE_SYNC_FINISHED_EVENT, clearInventoryCache);
+}
 function cacheKey(isStarter: boolean): string {
   try {
     return `${localStorage.getItem('stasht_token') ?? ''}|${localStorage.getItem('view_type') ?? ''}|${isStarter ? 1 : 0}`;
@@ -74,7 +81,9 @@ export function useInventorySources(enabled: boolean): InventorySources {
         products: products.map((p) => ({ id: p.id, title: p.title || 'Untitled product', main_image: p.main_image, price_label: p.price_label, url: p.url, images_count: p.images_count, category: p.category })),
         vehicles,
       };
-      cache = { key, at: Date.now(), value };
+      // Only a load that fully answered is reused (re-review N3).
+      const carsOk = (cars as any)?.success === true;
+      cache = inventoryCacheable({ statusOk: Boolean(status && status.ok), carsOk, gate, products: products.length }) ? { key, at: Date.now(), value } : null;
       if (!cancelled) setState(value);
     })();
     return () => { cancelled = true; };

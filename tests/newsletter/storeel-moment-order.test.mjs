@@ -151,3 +151,12 @@ test('what an add on a saved campaign says: what was added, and what was already
   assert.equal(addedMessage({ products: 1, vehicles: 0, already: 1 }), '1 product added to your campaign. 1 was already in it.');
   assert.equal(addedMessage({ products: 0, vehicles: 0, already: 2 }), 'Those are already in this campaign.');
 });
+
+test('re-review N3: only a load that fully answered is kept for reuse (a failure is asked again next time)', async () => {
+  const { inventoryCacheable } = await import('../../components/storeel/lib/momentPicks.ts');
+  assert.equal(inventoryCacheable({ statusOk: true, carsOk: true, gate: 'ready', products: 40 }), true);
+  assert.equal(inventoryCacheable({ statusOk: true, carsOk: true, gate: 'upgrade', products: 0 }), true);
+  assert.equal(inventoryCacheable({ statusOk: false, carsOk: true, gate: 'hidden', products: 0 }), false);
+  assert.equal(inventoryCacheable({ statusOk: true, carsOk: false, gate: 'ready', products: 40 }), false);
+  assert.equal(inventoryCacheable({ statusOk: true, carsOk: true, gate: 'ready', products: 0 }), false, 'a catalogue with items that listed none failed');
+});

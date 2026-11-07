@@ -2487,7 +2487,8 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
     setSavedNow(true);
     onCampaignSaved?.(c.id);
     // Edit saves moments at once, the title / cover with Save Changes: say so (review minor 6).
-    toast.success('Order saved.');
+    // One toast for a burst of moves (re-review nit): the same id updates it instead of stacking.
+    toast.success('Order saved.', { id: 'storeel-order-saved' });
   };
 
   /** After a moment is taken off: focus the next moment's ⋮ (else the one before, else the "+" under the cover). */

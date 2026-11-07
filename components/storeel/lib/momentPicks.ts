@@ -80,3 +80,11 @@ export function addedMessage({ products, vehicles, already = 0 }: { products: nu
   if (!parts.length) return 'Those are already in this campaign.';
   return `${parts.join(' and ')} added to your campaign.${already ? ` ${already} ${already === 1 ? 'was' : 'were'} already in it.` : ''}`;
 }
+
+/**
+ * Whether Add a Moment's products / vehicles load may be reused for a while (re-review N3): only when every answer came
+ * back — a failure (or a catalogue with items that listed none) is asked again the next time the window opens.
+ */
+export function inventoryCacheable({ statusOk, carsOk, gate, products }: { statusOk: boolean; carsOk: boolean; gate: string; products: number }): boolean {
+  return statusOk && carsOk && !(gate === 'ready' && products === 0);
+}
