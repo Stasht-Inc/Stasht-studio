@@ -26,7 +26,7 @@ export const WHOLE_MAX_WIDTH = 0.9;
 export const COVER_MAX_UPSCALE = 1.5;
 /** A chosen picture counts as too small only when it is under this share of the box on a side. */
 export const COVER_SMALL_SIDE = 0.5;
-/** The brand is cut to a circle only when it is about square (width / height in this range). */
+/** Unused since Chris 7 Nov point 11 (no brand is cut round any more); kept for the 4 Nov tests' record. */
 export const BRAND_CIRCLE_ASPECT: [number, number] = [0.85, 1.18];
 /** A contained picture sits a little above the middle: covers carry their title, pills and buttons at the bottom. */
 export const COVER_CENTER_Y = 0.38;
@@ -87,14 +87,7 @@ export function campaignCoverLayout({ isFallback = false, brandKind = null, natu
       return { mode: 'contain', shape: 'rect', width: Math.round(brandFraction * box.width), height: Math.round(brandFraction * box.height) };
     }
     if (!known(natural)) return { mode: 'pending' };
-    const aspect = natural.width / natural.height;
-    if (brandKind !== 'logo' && aspect >= BRAND_CIRCLE_ASPECT[0] && aspect <= BRAND_CIRCLE_ASPECT[1]) {
-      const side = Math.round(Math.min(
-        brandFraction * Math.min(box.width, box.height),
-        COVER_MAX_UPSCALE * Math.min(natural.width, natural.height),
-      ));
-      return { mode: 'contain', shape: 'circle', width: side, height: side };
-    }
+    // Drawn whole, never cut round (Chris 7 Nov point 11: "this needs to be smooth" — the 4 Nov round avatar is gone).
     return containRect(natural, box, brandFraction);
   }
   if (vector) return { mode: 'cover' };
@@ -121,6 +114,44 @@ export function lightCoverFill(color?: string | null): boolean {
   const lin = (v: number) => { const c = v / 255; return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; };
   const lum = 0.2126 * lin((n >> 16) & 255) + 0.7152 * lin((n >> 8) & 255) + 0.0722 * lin(n & 255);
   return 1.05 / (lum + 0.05) < 4.5;
+}
+
+/** The least free height (px) a card's brand is fitted into; with less, the caller frees more room. */
+export const MIN_FIT_AREA = 24;
+
+/**
+ * A card's brand fitted into its free area (Chris 7 Nov, grid review): between the top pills row and the title's top
+ * (px from the box's top) and, when given, between `left` and `right` (the pills column on the right) — at most 90% of
+ * that height and 80% of its width (90% of a given span), never enlarged past `maxUpscale`, centred in it, so it never
+ * sits behind the title, its scrim or a pill. null when the area is under MIN_FIT_AREA high.
+ */
+export function fitInArea(natural: CoverSize, box: CoverSize, area: { top: number; bottom: number; left?: number; right?: number }, maxUpscale: number): { width: number; height: number; centerTop: number; centerLeft: number } | null {
+  const h = area.bottom - area.top;
+  const span = area.left !== undefined && area.right !== undefined ? area.right - area.left : null;
+  if (!known(natural) || !known(box) || h < MIN_FIT_AREA || (span !== null && span < MIN_FIT_AREA)) return null;
+  const maxW = span !== null ? 0.9 * span : 0.8 * box.width;
+  const scale = Math.min(maxW / natural.width, (0.9 * h) / natural.height, maxUpscale);
+  return {
+    width: Math.round(natural.width * scale),
+    height: Math.round(natural.height * scale),
+    centerTop: Math.round(area.top + h / 2),
+    centerLeft: Math.round(span !== null ? (area.left as number) + span / 2 : box.width / 2),
+  };
+}
+
+/**
+ * The CSS fill behind a logo drawn whole (Chris point 11, "seamless"): its own background colour, or — when that
+ * background runs from one colour at the top to another at the bottom — the top colour down to the logo's top, the
+ * bottom colour from the logo's bottom, blending between them, so the logo's edges disappear. `at`: where the logo is
+ * drawn (px from the box's top, and its height); null until it is laid out.
+ */
+export function seamlessFill(pic: { color: string | null; gradient: [string, string] | null }, at: { top: number; height: number } | null, fallback = '#FFFFFF'): string {
+  const flat = pic.color ?? fallback;
+  if (!pic.gradient || !at) return flat;
+  const [top, bottom] = pic.gradient;
+  const y0 = Math.round(at.top);
+  const y1 = Math.round(at.top + at.height);
+  return `linear-gradient(to bottom, ${top} 0px, ${top} ${y0}px, ${bottom} ${y1}px, ${bottom} 100%)`;
 }
 
 /** The colour behind a contained cover: the account's profile colour (stored with or without #), else Studio purple. */

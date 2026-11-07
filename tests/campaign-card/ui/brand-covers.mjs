@@ -62,6 +62,13 @@ const WALL_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="480" height="60
 const DOCU_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="600" height="200"><rect width="600" height="200" fill="#fff"/>
   <rect x="30" y="60" width="60" height="60" fill="#E2231A"/><rect x="50" y="80" width="60" height="60" fill="#4C00FF" opacity="0.85"/>
   <text x="130" y="128" font-family="Arial" font-size="78" font-weight="700" fill="#111">docuseal</text></svg>`;
+// Chris's 193.jpg: the Stasht "S" avatar — a purple S on a light-to-darker grey vertical gradient (square JPEG).
+const STASHT_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512"><defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1">
+  <stop offset="0" stop-color="#DCDCDC"/><stop offset="1" stop-color="#9A9A9A"/></linearGradient></defs><rect width="512" height="512" fill="url(#g)"/>
+  <text x="256" y="350" text-anchor="middle" font-family="Arial Black, Arial" font-size="300" font-weight="900" fill="#554AC8">S</text>
+  <rect x="120" y="380" width="272" height="12" rx="6" fill="#554AC8"/></svg>`;
+// A one-colour transparent wordmark.
+const ACME_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="800" height="240"><text x="400" y="170" text-anchor="middle" font-family="Arial" font-size="160" font-weight="800" fill="#1D4ED8">ACME</text></svg>`;
 const pictures = {
   'royal.jpg': async () => sharp(Buffer.from(ROYAL_SVG)).jpeg({ quality: 85 }).toBuffer(),
   'selfie.jpg': async () => sharp(Buffer.from(selfieSvg())).jpeg({ quality: 80 }).toBuffer(),
@@ -71,6 +78,8 @@ const pictures = {
   'green.jpg': async () => sharp(Buffer.from(GREEN_SVG)).jpeg({ quality: 80 }).toBuffer(),
   'wall.jpg': async () => sharp(Buffer.from(WALL_SVG)).blur(1.5).jpeg({ quality: 82 }).toBuffer(),
   'docu.jpg': async () => sharp(Buffer.from(DOCU_SVG)).jpeg({ quality: 85 }).toBuffer(),
+  'stasht.jpg': async () => sharp(Buffer.from(STASHT_SVG)).jpeg({ quality: 90 }).toBuffer(),
+  'acme.png': async () => sharp(Buffer.from(ACME_SVG)).png().toBuffer(),
 };
 const bytes = new Map();
 async function picture(name) {
@@ -86,6 +95,8 @@ const HEX = img('hexagon.png');
 const GREEN = img('green.jpg');
 const WALL = img('wall.jpg');
 const DOCU = img('docu.jpg');
+const STASHT = img('stasht.jpg');
+const ACME = img('acme.png');
 const S3_HOST = 'stasht-data.s3.us-east-2.amazonaws.com';
 const s3 = (k) => `https://${S3_HOST}/profile_images/${k}`;
 const S3_ROYAL = s3('royal-wood.jpg');
@@ -95,12 +106,15 @@ const S3_UNKNOWN = s3('not-judged-yet.jpg');
 const S3_FILES = { 'royal-wood.jpg': 'royal.jpg', 'selfie.jpg': 'selfie.jpg', 'account-logo.jpg': 'royal.jpg', 'not-judged-yet.jpg': 'royal.jpg' };
 
 // What the web API's BrandPictures answers for each picture (tests/Unit/BrandPictures there checks the judging itself).
-const LOGO_BLUE = { kind: 'logo', color: ROYAL_BLUE, frame: false };
+const LOGO_BLUE = { kind: 'logo', color: ROYAL_BLUE, frame: false, gradient: null };
 const ANSWERS = {
   [ROYAL]: LOGO_BLUE, [S3_ROYAL]: LOGO_BLUE, [S3_MAIN]: LOGO_BLUE,
   [SELFIE]: { kind: 'photo', color: '#6F7F62', frame: false }, [S3_SELFIE]: { kind: 'photo', color: '#6F7F62', frame: false },
   [HEX]: { kind: 'logo', color: '#0B1442', frame: false },
-  [GREEN]: { kind: 'logo', color: '#16803E', frame: true },
+  // Chris point 11: a logo on white sits on white (the image's own background) — seamless, no card.
+  [GREEN]: { kind: 'logo', color: '#FFFFFF', frame: false, gradient: null },
+  [STASHT]: { kind: 'logo', color: '#BBBBBB', frame: false, gradient: ['#DCDCDC', '#9A9A9A'] },
+  [ACME]: { kind: 'logo', color: '#D6DFF8', frame: false, gradient: null },
   [WALL]: { kind: 'whole', color: '#F5F5F2', frame: false },
   [DOCU]: { kind: 'whole', color: '#FFFFFF', frame: false },
 };
@@ -138,7 +152,9 @@ const HEXC = campaign(907, 'Hex Motors', null, HEX);
 const GREENC = campaign(908, 'Green Grocer', null, GREEN);
 const WALLC = campaign(911, 'Open House Weekend', null, WALL);
 const DOCUC = campaign(912, 'Signing Day', null, DOCU);
-const ALL = [MILL, TORONTO, ENGLAND, SUMMER, DAY, S3BRAND, HEXC, GREENC, WALLC, DOCUC];
+const STASHTC = campaign(913, 'Stasht Studio Launch', null, STASHT, { photos: { count: 0, preview_images: [] } });
+const ACMEC = campaign(914, 'Acme Spring Sale', null, ACME);
+const ALL = [MILL, TORONTO, ENGLAND, SUMMER, DAY, S3BRAND, HEXC, GREENC, WALLC, DOCUC, STASHTC, ACMEC];
 const listItem = (c) => ({ ...c, last_update_img: c.last_update_img ?? c.user.profile_image });
 const detail = (c) => ({ ...c, posts: [post(c.id * 10 + 1, 1)], linked_memories: [], widgets: [], unified_order: null });
 const published = {
@@ -146,6 +162,7 @@ const published = {
   's3-royal': detail(S3BRAND), 's3-selfie': detail(campaign(909, 'Selfie From The Bucket', null, S3_SELFIE)),
   unknown: detail(campaign(910, 'Not Judged Yet', null, S3_UNKNOWN)),
   wall: detail(WALLC),
+  stasht: detail(STASHTC),
 };
 
 const failures = [];
@@ -203,7 +220,7 @@ async function newContext({ width, height, signedIn }) {
     }
     if (p === '/memories' && req.method() === 'GET') {
       const all = ALL.map(listItem);
-      return route.fulfill({ json: withBrandPictures({ status: 'success', data: { all_memories: { data: all, total: all.length }, latest_memories: all, sidebar: { categories: { items: [{ id: 5, name: 'Travel', memory_count: 8 }, { id: 9, name: 'suggested', memory_count: 2 }] }, labels: { items: [] } } } }) });
+      return route.fulfill({ json: withBrandPictures({ status: 'success', data: { all_memories: { data: all, total: all.length }, latest_memories: all, sidebar: { categories: { items: [{ id: 5, name: 'Travel', memory_count: 10 }, { id: 9, name: 'suggested', memory_count: 2 }] }, labels: { items: [] } } } }) });
     }
     const m = p.match(/^\/memories\/(\d+)$/);
     if (m && req.method() === 'GET') {
@@ -236,7 +253,8 @@ async function cover(locator) {
     const ir = img ? img.getBoundingClientRect() : null;
     return {
       mode: el.getAttribute('data-cover-mode'), shape: el.getAttribute('data-cover-shape'), kind: el.getAttribute('data-brand-kind'),
-      fill: el.getAttribute('data-cover-fill'), frame: el.getAttribute('data-brand-frame'),
+      hidden: el.getAttribute('data-brand-hidden') === 'true',
+      fill: el.getAttribute('data-cover-fill'), gradient: el.getAttribute('data-cover-gradient'), bgImage: getComputedStyle(el).backgroundImage,
       bg: getComputedStyle(el).backgroundColor, blurred: !!el.querySelector('img[aria-hidden="true"]'),
       box: { w: Math.round(r.width), h: Math.round(r.height) },
       img: ir ? { w: Math.round(ir.width), h: Math.round(ir.height), fit: getComputedStyle(img).objectFit, radius: getComputedStyle(img).borderRadius, shadow: getComputedStyle(img).boxShadow, filter: getComputedStyle(img).filter, opacity: getComputedStyle(img).opacity } : null,
@@ -244,15 +262,40 @@ async function cover(locator) {
   });
 }
 const rgbHex = (rgb) => { const m = String(rgb).match(/\d+/g); return m ? '#' + m.slice(0, 3).map((n) => Number(n).toString(16).padStart(2, '0')).join('').toUpperCase() : null; };
-function checkSolidLogo(tag, info, { color = ROYAL_BLUE, aspect = 600 / 420, frame = false } = {}) {
+function checkSolidLogo(tag, info, { color = ROYAL_BLUE, aspect = 600 / 420, gradient = null } = {}) {
   expect(info?.mode === 'brand' && info?.kind === 'logo' && info?.shape === 'rect', `${tag}: the logo, drawn whole, not cut round (mode=${info?.mode}, kind=${info?.kind}, shape=${info?.shape})`);
-  expect(near(info?.fill, color) && near(rgbHex(info?.bg), color), `${tag}: ONE solid colour from the logo (fill=${info?.fill}, bg=${rgbHex(info?.bg)})`);
-  expect(info && !info.blurred, `${tag}: no blurred copy behind it`);
-  if (info?.img) {
-    expect(info.img.fit === 'contain' && info.img.w < info.box.w && Math.abs(info.img.w / info.img.h - aspect) < 0.05 && info.img.opacity === '1', `${tag}: logo whole at its own shape, never stretched (${info.img.w}x${info.img.h} in ${info.box.w}x${info.box.h})`);
-    if (frame) expect(info.frame === 'true' && info.img.radius !== '0px' && info.img.shadow !== 'none', `${tag}: a logo on white is a rounded card (radius ${info.img.radius})`);
-    else expect(!info.frame && info.img.shadow === 'none' && info.img.filter === 'none', `${tag}: the logo box blends in (no shadow)`);
+  if (gradient) {
+    expect(info?.gradient === gradient.join(' ') && /linear-gradient/.test(info?.bgImage || ''), `${tag}: its own gradient background around it (${info?.gradient}; ${String(info?.bgImage).slice(0, 80)})`);
+  } else {
+    expect(near(info?.fill, color) && near(rgbHex(info?.bg), color), `${tag}: ONE solid colour, the logo's own background (fill=${info?.fill}, bg=${rgbHex(info?.bg)})`);
   }
+  expect(info && !info.blurred, `${tag}: no blurred copy behind it`);
+  if (info?.hidden) {
+    // a card whose text fills it: just the seamless fill (the logo would sit behind the title)
+    expect(info.img?.opacity === '0', `${tag}: no room above the title — the fill alone (opacity ${info.img?.opacity})`);
+    return;
+  }
+  if (info?.img) {
+    expect(info.img.fit === 'contain' && info.img.w < info.box.w && Math.abs(info.img.w / info.img.h / aspect - 1) < 0.05 && info.img.opacity === '1', `${tag}: logo whole at its own shape, never stretched (${info.img.w}x${info.img.h} in ${info.box.w}x${info.box.h})`);
+    expect(info.img.radius === '0px' && info.img.shadow === 'none' && info.img.filter === 'none', `${tag}: seamless — no ring, card, radius or shadow`);
+  }
+}
+/** The cover's pixels just outside / inside the logo's left and right edges, at the same height (the callers'
+ *  overlays are the same there): alike when seamless. */
+async function edgeSeam(page, coverLoc) {
+  const pts = await coverLoc.evaluate((el) => {
+    const r = el.querySelector('img:not([aria-hidden="true"])').getBoundingClientRect();
+    const y = r.top + r.height / 2;
+    return [[r.left - 3, y], [r.left + 3, y], [r.right - 4, y], [r.right + 2, y]];
+  });
+  const px = [];
+  for (const [x, y] of pts) {
+    const png = await page.screenshot({ clip: { x, y, width: 1, height: 1 } });
+    const { data } = await sharp(png).raw().toBuffer({ resolveWithObject: true });
+    px.push([data[0], data[1], data[2]]);
+  }
+  const d = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+  return { top: d(px[0], px[1]), side: d(px[2], px[3]), px }; // top: the left edge, side: the right edge
 }
 function checkWhole(tag, info, { color, aspect }) {
   expect(info?.mode === 'brand' && info?.kind === 'whole' && info?.shape === 'rect', `${tag}: drawn whole, never cut round (mode=${info?.mode}, kind=${info?.kind}, shape=${info?.shape})`);
@@ -308,7 +351,34 @@ try {
       checkFills(`${tag} card Joyful Summer (suggested, selfie)`, await cover(cardButton(page, 'Joyful Summer at the Lake House').locator('[data-cover-mode]').first()));
       checkSolidLogo(`${tag} card S3 logo`, await cover(cardButton(page, 'Bucket Logo Sale').locator('[data-cover-mode]').first()));
       checkSolidLogo(`${tag} card square logo (never a circle)`, await cover(cardButton(page, 'Hex Motors').locator('[data-cover-mode]').first()), { color: '#0B1442', aspect: 1 });
-      checkSolidLogo(`${tag} card logo on white (a card)`, await cover(cardButton(page, 'Green Grocer').locator('[data-cover-mode]').first()), { color: '#16803E', aspect: 500 / 300, frame: true });
+      checkSolidLogo(`${tag} card logo on white (seamless on white)`, await cover(cardButton(page, 'Green Grocer').locator('[data-cover-mode]').first()), { color: '#FFFFFF', aspect: 500 / 300 });
+      checkSolidLogo(`${tag} card Stasht S badge (gradient)`, await cover(cardButton(page, 'Stasht Studio Launch').locator('[data-cover-mode]').first()), { aspect: 1, gradient: ['#DCDCDC', '#9A9A9A'] });
+      checkSolidLogo(`${tag} card transparent wordmark`, await cover(cardButton(page, 'Acme Spring Sale').locator('[data-cover-mode]').first()), { color: '#D6DFF8', aspect: 800 / 240 });
+      // Cards: the brand sits in the free area above the title, never behind the title text (grid review).
+      for (const title of ['Around the Mill - Sale Items', 'Bucket Logo Sale', 'Hex Motors', 'Green Grocer', 'Stasht Studio Launch', 'Acme Spring Sale']) {
+        const card = cardButton(page, title);
+        await card.scrollIntoViewIfNeeded();
+        const g = await card.evaluate((el) => {
+          const img = el.querySelector('[data-cover-mode] img:not([aria-hidden="true"])').getBoundingClientRect();
+          const h3 = el.querySelector('h3').getBoundingClientRect();
+          const photo = el.querySelector('[class*="aspect-"]').getBoundingClientRect();
+          const hidden = el.querySelector('[data-cover-mode]').getAttribute('data-brand-hidden') === 'true';
+          const pills = [...el.querySelectorAll('.absolute.top-3.left-3 > *, [data-testid="memory-card-suggested"], .shadow-md, .shadow-lg')]
+            .map((p) => p.getBoundingClientRect()).filter((r) => r.width > 0 && r.height < 60);
+          const hitsPill = pills.some((r) => !(r.right <= img.left || r.left >= img.right || r.bottom <= img.top || r.top >= img.bottom));
+          return { hidden, hitsPill, imgTop: img.top - photo.top, imgBottom: img.bottom - photo.top, titleTop: h3.top - photo.top, h: img.height };
+        });
+        if (g.hidden) { expect(g.titleTop < 60, `${tag} ${title}: hidden only when the text fills the card (title from ${Math.round(g.titleTop)})`); continue; }
+        expect(!g.hitsPill, `${tag} ${title}: the brand is clear of the pills`);
+        expect(g.imgBottom <= g.titleTop + 0.5 && g.imgTop >= 0, `${tag} ${title}: the brand sits above the title (brand ${Math.round(g.imgTop)}–${Math.round(g.imgBottom)}, title from ${Math.round(g.titleTop)})`);
+      }
+      for (const title of ['Green Grocer', 'Stasht Studio Launch', 'Around the Mill - Sale Items']) {
+        const loc = cardButton(page, title).locator('[data-cover-mode]').first();
+        await loc.scrollIntoViewIfNeeded();
+        if ((await loc.getAttribute('data-brand-hidden')) === 'true') continue;
+        const seam = await edgeSeam(page, loc);
+        expect(seam.top <= 20 && seam.side <= 20, `${tag} ${title}: seamless edges (left Δ${seam.top.toFixed(1)}, right Δ${seam.side.toFixed(1)}; ${JSON.stringify(seam.px)})`);
+      }
       checkWhole(`${tag} card white-wall headshot (unsure → whole)`, await cover(cardButton(page, 'Open House Weekend').locator('[data-cover-mode]').first()), { color: '#F5F5F2', aspect: 480 / 600 });
       checkWhole(`${tag} card JPEG logo (unsure → whole)`, await cover(cardButton(page, 'Signing Day').locator('[data-cover-mode]').first()), { color: '#FFFFFF', aspect: 3 });
       // Light fills: the white title must read (>= 4.5:1 against what is behind it).
@@ -343,7 +413,7 @@ try {
       await page.waitForTimeout(300);
       await page.screenshot({ path: `${OUT}/${tag}-01-grid.png`, fullPage: width < 1024 });
       await cardButton(page, 'Joyful Summer at the Lake House').screenshot({ path: `${OUT}/${tag}-01b-suggested-card.png` });
-      for (const [title, file] of [['Open House Weekend', '01c-whole-headshot-card'], ['Signing Day', '01d-whole-jpeg-logo-card'], ['Around the Mill - Sale Items', '01e-logo-card']]) {
+      for (const [title, file] of [['Open House Weekend', '01c-whole-headshot-card'], ['Signing Day', '01d-whole-jpeg-logo-card'], ['Around the Mill - Sale Items', '01e-logo-card'], ['Stasht Studio Launch', '01f-stasht-badge-card'], ['Green Grocer', '01g-logo-on-white-card'], ['Acme Spring Sale', '01h-transparent-logo-card']]) {
         await cardButton(page, title).scrollIntoViewIfNeeded();
         await cardButton(page, title).screenshot({ path: `${OUT}/${tag}-${file}.png` });
       }
@@ -393,7 +463,7 @@ try {
     }
 
     // 4. Published pages, SIGNED OUT: the answers come on the payload — S3 pictures included.
-    for (const [slug, n] of [['royal', '04'], ['selfie', '05'], ['s3-royal', '06'], ['s3-selfie', '07'], ['unknown', '08'], ['wall', '09']]) {
+    for (const [slug, n] of [['royal', '04'], ['selfie', '05'], ['s3-royal', '06'], ['s3-selfie', '07'], ['unknown', '08'], ['wall', '09'], ['stasht', '10']]) {
       const { page, context } = await newPage({ width, height, signedIn: false });
       const t0 = Date.now();
       await page.goto(`${BASE}/published-memory/${slug}`);
@@ -402,13 +472,19 @@ try {
       if (slug === 'unknown') {
         // not judged yet: the 4 Nov look, painted at once (no hidden wait)
         const info = await cover(pc);
-        expect(info?.mode === 'brand' && !info?.kind && info?.img?.opacity === '1', `${tag} published page (not judged yet): the 4 Nov look straight away (mode=${info?.mode}, ${Date.now() - t0} ms)`);
+        expect(info?.mode === 'brand' && !info?.kind && info?.img?.opacity === '1' && info?.shape === 'rect' && !info?.blurred && info?.img?.radius === '0px' && info?.img?.shadow === 'none',
+          `${tag} published page (not judged yet): drawn whole and plain straight away — no circle, ring or blur (mode=${info?.mode}, shape=${info?.shape}, blurred=${info?.blurred}, ${Date.now() - t0} ms)`);
+        expect(near(rgbHex(info?.bg), '#FFFFFF'), `${tag} published page (not judged yet): on white (${rgbHex(info?.bg)})`);
       }
       await page.waitForTimeout(1500);
       const info = await cover(pc);
       if (slug === 'royal' || slug === 's3-royal') checkSolidLogo(`${tag} published page signed out (${slug})`, info);
       else if (slug === 'selfie' || slug === 's3-selfie') checkFills(`${tag} published page signed out (${slug})`, info);
-      else if (slug === 'wall') {
+      else if (slug === 'stasht') {
+        checkSolidLogo(`${tag} published page signed out (Stasht S badge)`, info, { aspect: 1, gradient: ['#DCDCDC', '#9A9A9A'] });
+        const seam = await edgeSeam(page, pc);
+        expect(seam.top <= 20 && seam.side <= 20, `${tag} published Stasht S: seamless edges (left Δ${seam.top.toFixed(1)}, right Δ${seam.side.toFixed(1)})`);
+      } else if (slug === 'wall') {
         checkWhole(`${tag} published page signed out (white-wall headshot)`, info, { color: '#F5F5F2', aspect: 480 / 600 });
         const c = await titleContrast(page, page.locator('body'), 'h1.text-white');
         if (c) expect(c.ratio >= 4.5, `${tag} published page (white wall): white title contrast ${c.ratio.toFixed(2)}:1 on rgb(${c.rgb})`);

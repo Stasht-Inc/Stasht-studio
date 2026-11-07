@@ -296,9 +296,27 @@ export default function MemoryCard({
   const [fitClear, setFitClear] = useState({ key: '', px: 0 });
   // How tall the title / meta block is, so a light brand fill's scrim reaches above it (CampaignCover textHeight).
   const [titleBlockHeight, setTitleBlockHeight] = useState(0);
+  // The free area for a brand cover (Chris 7 Nov grid review): from below the top row of pills to above the title.
+  const titleRef = useRef<HTMLHeadingElement>(null);
+  const [brandArea, setBrandArea] = useState<{ top: number; bottom: number; left?: number; right?: number } | null>(null);
   useLayoutEffect(() => {
     const h = titleBlockRef.current?.offsetHeight ?? 0;
     if (h && h !== titleBlockHeight) setTitleBlockHeight(h);
+    const photo = photoRef.current?.getBoundingClientRect();
+    const titleEl = textColRef.current?.firstElementChild ?? titleRef.current;
+    const title = titleEl?.getBoundingClientRect();
+    if (!photo || !title || !photo.height) return;
+    // Below the top-left badge (Public / Edit's checkbox); the right column's pills only narrow it from the right.
+    const badge = publishedRef.current?.getBoundingClientRect();
+    const top = Math.round((badge && badge.width > 0 ? badge.bottom - photo.top : 2) + 6);
+    const bottom = Math.round(title.top - photo.top - 6);
+    const rects = Array.from(badgesRef.current?.querySelectorAll(':scope > *, :scope > div > *') ?? [])
+      .map(el => el.getBoundingClientRect())
+      .filter(r => r.width > 0);
+    const lower = rects.filter(r => r.bottom - photo.top > top && r.top - photo.top < bottom);
+    const right = lower.length ? Math.round(Math.min(...lower.map(r => r.left)) - photo.left - 6) : undefined;
+    const next = right !== undefined ? { top, bottom, left: 8, right } : { top, bottom };
+    if (JSON.stringify(next) !== JSON.stringify(brandArea)) setBrandArea(next);
   });
   const fitClearTop = fitEnabled && fitClear.key === fitKey ? fitClear.px : 0;
 
@@ -549,6 +567,7 @@ export default function MemoryCard({
               // it less (Chris, 7 Nov 2026 review: no shadow separates them any more).
               brandFraction={0.45}
               textHeight={titleBlockHeight || undefined}
+              fitArea={brandArea}
             />
           )
         ) : (
@@ -746,6 +765,7 @@ export default function MemoryCard({
 
             {/* Title */}
             <h3
+              ref={titleRef}
               className={`font-bold text-white ${fitTitleOneLine ? 'line-clamp-1' : 'line-clamp-2'} ${fitCompact ? 'mb-0.5' : 'mb-1.5'}`}
               style={{ fontSize: '24px', lineHeight: '28px', letterSpacing: '-0.44px' }}
             >
