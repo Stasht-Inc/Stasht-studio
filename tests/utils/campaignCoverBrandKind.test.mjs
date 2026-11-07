@@ -69,3 +69,19 @@ test('a logo\'s gradient background: the cover fill runs top colour → bottom c
   // not laid out yet: the flat colour
   assert.equal(seamlessFill({ color: '#BBBBBB', gradient: ['#DCDCDC', '#9A9A9A'] }, null), '#BBBBBB');
 });
+
+test('on a card the brand fits the free area between the top pills and the title, centred in it (never behind the title)', async () => {
+  const { fitInArea } = await import('../../utils/campaignCover.ts');
+  // a 600x420 logo, card 212 wide, free band 44..110 → height ≤ 90% of 66 = 59, centred at y 77
+  const a = fitInArea({ width: 600, height: 420 }, { width: 212, height: 212 }, { top: 44, bottom: 110 }, 1.5);
+  assert.deepEqual(a, { width: 85, height: 59, centerTop: 77, centerLeft: 106 });
+  assert.ok(a.centerTop + a.height / 2 <= 110 && a.centerTop - a.height / 2 >= 44);
+  // a wide wordmark is limited by 80% of the width
+  assert.deepEqual(fitInArea({ width: 800, height: 100 }, { width: 212, height: 212 }, { top: 44, bottom: 110 }, 1.5), { width: 170, height: 21, centerTop: 77, centerLeft: 106 });
+  // never enlarged past the cap (a tiny logo)
+  assert.deepEqual(fitInArea({ width: 24, height: 24 }, { width: 212, height: 212 }, { top: 44, bottom: 110 }, 1.5), { width: 36, height: 36, centerTop: 77, centerLeft: 106 });
+  // beside a pills column on the right: centred in the span left of it
+  assert.deepEqual(fitInArea({ width: 600, height: 420 }, { width: 212, height: 212 }, { top: 46, bottom: 72, left: 8, right: 124 }, 1.5), { width: 33, height: 23, centerTop: 59, centerLeft: 66 });
+  // no room (title runs into the pills): null — the caller uses the area from the top of the card instead
+  assert.equal(fitInArea({ width: 600, height: 420 }, { width: 132, height: 132 }, { top: 44, bottom: 50 }, 1.5), null);
+});

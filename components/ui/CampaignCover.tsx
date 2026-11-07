@@ -1,5 +1,5 @@
 import React, { useEffect, useLayoutEffect, useReducer, useRef, useState } from 'react';
-import { brandCoverColor, campaignCoverLayout, coverCenterTop, isVectorImage, lightCoverFill, seamlessFill, type CoverSize } from '../../utils/campaignCover';
+import { brandCoverColor, campaignCoverLayout, COVER_MAX_UPSCALE, coverCenterTop, fitInArea, isVectorImage, lightCoverFill, seamlessFill, type CoverSize } from '../../utils/campaignCover';
 import { knownBrandPicture, requestBrandPicture, subscribeBrandPictures, type BrandPicture } from '../../utils/brandPictures';
 
 /**
@@ -44,6 +44,9 @@ export interface CampaignCoverProps {
   /** How far up from the bottom the caller's white text reaches (px), so a light fill's scrim covers all of it.
    *  Default: the lower 56% of the box. */
   textHeight?: number;
+  /** Cards: the free area (px from the box's top) between the top pills and the title. A brand drawn whole is fitted
+   *  and centred in it, never behind the title or its scrim. */
+  fitArea?: { top: number; bottom: number; left?: number; right?: number } | null;
   /** A judged logo's largest share of the box (campaignCoverLayout's brandFraction); not judged: the 4 Nov size. */
   brandFraction?: number;
 }
@@ -96,7 +99,7 @@ function useBrandPicture(src: string | null): BrandPicture | null | undefined {
 }
 
 export default function CampaignCover({
-  src, alt = '', isFallback = false, color, className = '', fallback, onError, loading, backdrop = 'blur', centerY, judgeBox, brandFraction, textHeight,
+  src, alt = '', isFallback = false, color, className = '', fallback, onError, loading, backdrop = 'blur', centerY, judgeBox, brandFraction, textHeight, fitArea,
 }: CampaignCoverProps) {
   const boxRef = useRef<HTMLDivElement>(null);
   const imgRef = useRef<HTMLImageElement>(null);
@@ -135,14 +138,21 @@ export default function CampaignCover({
   }
 
   // An SVG never goes blurry when enlarged (and may report no size): never "too small", the brand sized by the box.
-  const layout = campaignCoverLayout({ isFallback, brandKind: brand?.kind ?? null, natural, box, vector: isVectorImage(src), judgeBox, brandFraction: brand?.kind === 'logo' ? brandFraction : undefined });
+  const base = campaignCoverLayout({ isFallback, brandKind: brand?.kind ?? null, natural, box, vector: isVectorImage(src), judgeBox, brandFraction: brand?.kind === 'logo' ? brandFraction : undefined });
+  // A card's logo (or a brand not judged yet) goes in the free area above the title, so it never sits behind the title
+  // text or its scrim; a card too cramped for any (the text fills it) shows just the seamless fill. A 'whole' picture
+  // keeps its full height (it may be a headshot: never shrunk).
+  const fitsArea = base.mode === 'contain' && isFallback && (brand?.kind === 'logo' || !brand) && !!fitArea && !!box && !!natural;
+  const fitted = fitsArea ? fitInArea(natural as CoverSize, box as CoverSize, fitArea as { top: number; bottom: number; left?: number; right?: number }, COVER_MAX_UPSCALE) : null;
+  const brandHidden = fitsArea && !fitted;
+  const layout = fitted && base.mode === 'contain' ? { ...base, width: fitted.width, height: fitted.height } : base;
   const contain = layout.mode === 'contain';
   const pending = layout.mode === 'pending';
   // The brand drawn whole is PLAIN (Chris point 11): a logo, a 'whole' picture, or one not judged yet — no circle,
   // ring, card, shadow or blurred copy. Its fill: the logo image's own background (the API's answer), else white.
   const plainBrand = isFallback && brand?.kind !== 'photo';
   const fill = !isFallback ? brandCoverColor(color) : brand ? (brand.color ?? brandCoverColor(color)) : NEUTRAL_FILL;
-  const imageTop = contain && box ? coverCenterTop(box.height, layout.height, centerY) : 0;
+  const imageTop = fitted ? fitted.centerTop : contain && box ? coverCenterTop(box.height, layout.height, centerY) : 0;
   const gradient = contain && plainBrand && brand?.gradient && box
     ? seamlessFill(brand, { top: imageTop - layout.height / 2, height: layout.height }, fill)
     : null;
@@ -150,7 +160,7 @@ export default function CampaignCover({
   const titleScrim = contain && isFallback && lightCoverFill(brand?.gradient ? brand.gradient[1] : fill);
   const mainClass = layout.mode !== 'contain'
     ? `w-full h-full object-cover${pending ? ' opacity-0' : ''}`
-    : `absolute left-1/2 -translate-x-1/2 -translate-y-1/2 ${plainBrand ? 'object-contain' : 'rounded-xl object-contain shadow-lg'}`;
+    : `absolute left-1/2 -translate-x-1/2 -translate-y-1/2 ${plainBrand ? 'object-contain' : 'rounded-xl object-contain shadow-lg'}${brandHidden ? ' opacity-0' : ''}`;
 
   return (
     <div
@@ -163,6 +173,7 @@ export default function CampaignCover({
       data-cover-fill={contain && isFallback ? fill : undefined}
       data-cover-gradient={gradient && brand?.gradient ? brand.gradient.join(' ') : undefined}
       data-title-scrim={titleScrim ? 'true' : undefined}
+      data-brand-hidden={brandHidden ? 'true' : undefined}
     >
       {contain && backdrop === 'blur' && !isFallback && (
         <img
@@ -184,7 +195,7 @@ export default function CampaignCover({
         onError={() => { setFailedSrc(src ?? null); onError?.(); }}
         className={mainClass}
         style={layout.mode === 'contain' && box
-          ? { width: layout.width, height: layout.height, top: imageTop }
+          ? { width: layout.width, height: layout.height, top: imageTop, ...(fitted ? { left: fitted.centerLeft } : {}) }
           : undefined}
       />
       {titleScrim && (
@@ -192,8 +203,9 @@ export default function CampaignCover({
           aria-hidden="true"
           className="absolute inset-0 pointer-events-none"
           style={{ background: textHeight && box
-            // at least 56% black from just above the text down (white text then reads at 4.5:1 on any light fill)
-            ? `linear-gradient(to bottom, rgba(0,0,0,0) ${Math.max(0, box.height - textHeight - 70)}px, rgba(0,0,0,0.56) ${Math.max(0, box.height - textHeight - 8)}px, rgba(0,0,0,0.64) 100%)`
+            // at least 56% black from just above the text down (white text then reads at 4.5:1 on any light fill);
+            // a fitted card brand stays clear of it (the ramp starts below the brand)
+            ? `linear-gradient(to bottom, rgba(0,0,0,0) ${Math.max(0, fitted ? Math.min(fitted.centerTop + fitted.height / 2, box.height - textHeight - 8) : box.height - textHeight - 70)}px, rgba(0,0,0,0.56) ${Math.max(0, box.height - textHeight - 8)}px, rgba(0,0,0,0.64) 100%)`
             : 'linear-gradient(to bottom, rgba(0,0,0,0) 22%, rgba(0,0,0,0.5) 44%, rgba(0,0,0,0.62) 100%)' }}
         />
       )}

@@ -116,6 +116,29 @@ export function lightCoverFill(color?: string | null): boolean {
   return 1.05 / (lum + 0.05) < 4.5;
 }
 
+/** The least free height (px) a card's brand is fitted into; with less, the caller frees more room. */
+export const MIN_FIT_AREA = 24;
+
+/**
+ * A card's brand fitted into its free area (Chris 7 Nov, grid review): between the top pills row and the title's top
+ * (px from the box's top) and, when given, between `left` and `right` (the pills column on the right) — at most 90% of
+ * that height and 80% of its width (90% of a given span), never enlarged past `maxUpscale`, centred in it, so it never
+ * sits behind the title, its scrim or a pill. null when the area is under MIN_FIT_AREA high.
+ */
+export function fitInArea(natural: CoverSize, box: CoverSize, area: { top: number; bottom: number; left?: number; right?: number }, maxUpscale: number): { width: number; height: number; centerTop: number; centerLeft: number } | null {
+  const h = area.bottom - area.top;
+  const span = area.left !== undefined && area.right !== undefined ? area.right - area.left : null;
+  if (!known(natural) || !known(box) || h < MIN_FIT_AREA || (span !== null && span < MIN_FIT_AREA)) return null;
+  const maxW = span !== null ? 0.9 * span : 0.8 * box.width;
+  const scale = Math.min(maxW / natural.width, (0.9 * h) / natural.height, maxUpscale);
+  return {
+    width: Math.round(natural.width * scale),
+    height: Math.round(natural.height * scale),
+    centerTop: Math.round(area.top + h / 2),
+    centerLeft: Math.round(span !== null ? (area.left as number) + span / 2 : box.width / 2),
+  };
+}
+
 /**
  * The CSS fill behind a logo drawn whole (Chris point 11, "seamless"): its own background colour, or — when that
  * background runs from one colour at the top to another at the bottom — the top colour down to the logo's top, the

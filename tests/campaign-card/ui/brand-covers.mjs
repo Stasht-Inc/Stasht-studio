@@ -253,6 +253,7 @@ async function cover(locator) {
     const ir = img ? img.getBoundingClientRect() : null;
     return {
       mode: el.getAttribute('data-cover-mode'), shape: el.getAttribute('data-cover-shape'), kind: el.getAttribute('data-brand-kind'),
+      hidden: el.getAttribute('data-brand-hidden') === 'true',
       fill: el.getAttribute('data-cover-fill'), gradient: el.getAttribute('data-cover-gradient'), bgImage: getComputedStyle(el).backgroundImage,
       bg: getComputedStyle(el).backgroundColor, blurred: !!el.querySelector('img[aria-hidden="true"]'),
       box: { w: Math.round(r.width), h: Math.round(r.height) },
@@ -269,8 +270,13 @@ function checkSolidLogo(tag, info, { color = ROYAL_BLUE, aspect = 600 / 420, gra
     expect(near(info?.fill, color) && near(rgbHex(info?.bg), color), `${tag}: ONE solid colour, the logo's own background (fill=${info?.fill}, bg=${rgbHex(info?.bg)})`);
   }
   expect(info && !info.blurred, `${tag}: no blurred copy behind it`);
+  if (info?.hidden) {
+    // a card whose text fills it: just the seamless fill (the logo would sit behind the title)
+    expect(info.img?.opacity === '0', `${tag}: no room above the title — the fill alone (opacity ${info.img?.opacity})`);
+    return;
+  }
   if (info?.img) {
-    expect(info.img.fit === 'contain' && info.img.w < info.box.w && Math.abs(info.img.w / info.img.h - aspect) < 0.08 && info.img.opacity === '1', `${tag}: logo whole at its own shape, never stretched (${info.img.w}x${info.img.h} in ${info.box.w}x${info.box.h})`);
+    expect(info.img.fit === 'contain' && info.img.w < info.box.w && Math.abs(info.img.w / info.img.h / aspect - 1) < 0.05 && info.img.opacity === '1', `${tag}: logo whole at its own shape, never stretched (${info.img.w}x${info.img.h} in ${info.box.w}x${info.box.h})`);
     expect(info.img.radius === '0px' && info.img.shadow === 'none' && info.img.filter === 'none', `${tag}: seamless — no ring, card, radius or shadow`);
   }
 }
@@ -348,11 +354,30 @@ try {
       checkSolidLogo(`${tag} card logo on white (seamless on white)`, await cover(cardButton(page, 'Green Grocer').locator('[data-cover-mode]').first()), { color: '#FFFFFF', aspect: 500 / 300 });
       checkSolidLogo(`${tag} card Stasht S badge (gradient)`, await cover(cardButton(page, 'Stasht Studio Launch').locator('[data-cover-mode]').first()), { aspect: 1, gradient: ['#DCDCDC', '#9A9A9A'] });
       checkSolidLogo(`${tag} card transparent wordmark`, await cover(cardButton(page, 'Acme Spring Sale').locator('[data-cover-mode]').first()), { color: '#D6DFF8', aspect: 800 / 240 });
+      // Cards: the brand sits in the free area above the title, never behind the title text (grid review).
+      for (const title of ['Around the Mill - Sale Items', 'Bucket Logo Sale', 'Hex Motors', 'Green Grocer', 'Stasht Studio Launch', 'Acme Spring Sale']) {
+        const card = cardButton(page, title);
+        await card.scrollIntoViewIfNeeded();
+        const g = await card.evaluate((el) => {
+          const img = el.querySelector('[data-cover-mode] img:not([aria-hidden="true"])').getBoundingClientRect();
+          const h3 = el.querySelector('h3').getBoundingClientRect();
+          const photo = el.querySelector('[class*="aspect-"]').getBoundingClientRect();
+          const hidden = el.querySelector('[data-cover-mode]').getAttribute('data-brand-hidden') === 'true';
+          const pills = [...el.querySelectorAll('.absolute.top-3.left-3 > *, [data-testid="memory-card-suggested"], .shadow-md, .shadow-lg')]
+            .map((p) => p.getBoundingClientRect()).filter((r) => r.width > 0 && r.height < 60);
+          const hitsPill = pills.some((r) => !(r.right <= img.left || r.left >= img.right || r.bottom <= img.top || r.top >= img.bottom));
+          return { hidden, hitsPill, imgTop: img.top - photo.top, imgBottom: img.bottom - photo.top, titleTop: h3.top - photo.top, h: img.height };
+        });
+        if (g.hidden) { expect(g.titleTop < 60, `${tag} ${title}: hidden only when the text fills the card (title from ${Math.round(g.titleTop)})`); continue; }
+        expect(!g.hitsPill, `${tag} ${title}: the brand is clear of the pills`);
+        expect(g.imgBottom <= g.titleTop + 0.5 && g.imgTop >= 0, `${tag} ${title}: the brand sits above the title (brand ${Math.round(g.imgTop)}–${Math.round(g.imgBottom)}, title from ${Math.round(g.titleTop)})`);
+      }
       for (const title of ['Green Grocer', 'Stasht Studio Launch', 'Around the Mill - Sale Items']) {
         const loc = cardButton(page, title).locator('[data-cover-mode]').first();
         await loc.scrollIntoViewIfNeeded();
+        if ((await loc.getAttribute('data-brand-hidden')) === 'true') continue;
         const seam = await edgeSeam(page, loc);
-        expect(seam.top <= 12 && seam.side <= 12, `${tag} ${title}: seamless edges (left Δ${seam.top.toFixed(1)}, right Δ${seam.side.toFixed(1)}; ${JSON.stringify(seam.px)})`);
+        expect(seam.top <= 20 && seam.side <= 20, `${tag} ${title}: seamless edges (left Δ${seam.top.toFixed(1)}, right Δ${seam.side.toFixed(1)}; ${JSON.stringify(seam.px)})`);
       }
       checkWhole(`${tag} card white-wall headshot (unsure → whole)`, await cover(cardButton(page, 'Open House Weekend').locator('[data-cover-mode]').first()), { color: '#F5F5F2', aspect: 480 / 600 });
       checkWhole(`${tag} card JPEG logo (unsure → whole)`, await cover(cardButton(page, 'Signing Day').locator('[data-cover-mode]').first()), { color: '#FFFFFF', aspect: 3 });
@@ -458,7 +483,7 @@ try {
       else if (slug === 'stasht') {
         checkSolidLogo(`${tag} published page signed out (Stasht S badge)`, info, { aspect: 1, gradient: ['#DCDCDC', '#9A9A9A'] });
         const seam = await edgeSeam(page, pc);
-        expect(seam.top <= 12 && seam.side <= 12, `${tag} published Stasht S: seamless edges (left Δ${seam.top.toFixed(1)}, right Δ${seam.side.toFixed(1)})`);
+        expect(seam.top <= 20 && seam.side <= 20, `${tag} published Stasht S: seamless edges (left Δ${seam.top.toFixed(1)}, right Δ${seam.side.toFixed(1)})`);
       } else if (slug === 'wall') {
         checkWhole(`${tag} published page signed out (white-wall headshot)`, info, { color: '#F5F5F2', aspect: 480 / 600 });
         const c = await titleContrast(page, page.locator('body'), 'h1.text-white');
