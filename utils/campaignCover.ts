@@ -47,12 +47,16 @@ export function isVectorImage(src?: string | null): boolean {
 
 const known = (s?: CoverSize | null): s is CoverSize => !!s && s.width > 0 && s.height > 0;
 
-export function campaignCoverLayout({ isFallback = false, brandKind = null, natural = null, box = null, vector = false, judgeBox = null }: {
+export function campaignCoverLayout({ isFallback = false, brandKind = null, natural = null, box = null, vector = false, judgeBox = null, brandFraction = BRAND_COVER_FRACTION }: {
   /** The picture is the brand default (account / property avatar), not a cover someone chose. */
   isFallback?: boolean;
-  /** What the brand picture is (utils/brandPicture, Chris 7 Nov 2026): a 'photo' (the owner's selfie avatar) fills the
-   *  cover like a chosen photo; a 'logo' — or not known (null) — is drawn whole as below. */
+  /** What the brand picture is, as the web API judged it (utils/brandPictures, Chris 7 Nov 2026): a 'photo' (the owner's
+   *  selfie / headshot avatar) fills the cover like a chosen photo; a 'logo' is drawn whole, never cut to a circle (it
+   *  sits on its own solid colour); not known (null) — the 4 Nov rules below. */
   brandKind?: 'logo' | 'photo' | null;
+  /** The brand's largest share of the box (default BRAND_COVER_FRACTION). Cards use less: their pills and title leave
+   *  little room (Chris, 7 Nov 2026 review). */
+  brandFraction?: number;
   /** The picture's own size (naturalWidth / naturalHeight), once it has loaded. */
   natural?: CoverSize | null;
   /** The box it is shown in, in CSS pixels. */
@@ -66,18 +70,18 @@ export function campaignCoverLayout({ isFallback = false, brandKind = null, natu
   if (isFallback && brandKind !== 'photo') {
     if (!known(box)) return { mode: 'pending' };
     if (vector) {
-      return { mode: 'contain', shape: 'rect', width: Math.round(BRAND_COVER_FRACTION * box.width), height: Math.round(BRAND_COVER_FRACTION * box.height) };
+      return { mode: 'contain', shape: 'rect', width: Math.round(brandFraction * box.width), height: Math.round(brandFraction * box.height) };
     }
     if (!known(natural)) return { mode: 'pending' };
     const aspect = natural.width / natural.height;
-    if (aspect >= BRAND_CIRCLE_ASPECT[0] && aspect <= BRAND_CIRCLE_ASPECT[1]) {
+    if (brandKind !== 'logo' && aspect >= BRAND_CIRCLE_ASPECT[0] && aspect <= BRAND_CIRCLE_ASPECT[1]) {
       const side = Math.round(Math.min(
-        BRAND_COVER_FRACTION * Math.min(box.width, box.height),
+        brandFraction * Math.min(box.width, box.height),
         COVER_MAX_UPSCALE * Math.min(natural.width, natural.height),
       ));
       return { mode: 'contain', shape: 'circle', width: side, height: side };
     }
-    return containRect(natural, box, BRAND_COVER_FRACTION);
+    return containRect(natural, box, brandFraction);
   }
   if (vector) return { mode: 'cover' };
   if (!known(natural)) return { mode: 'pending' };

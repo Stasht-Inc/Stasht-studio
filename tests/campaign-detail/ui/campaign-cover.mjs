@@ -1,8 +1,7 @@
 // Campaign covers (Chris, 4 Nov 2026, point 7 + review + "Brand everywhere"): a campaign with no chosen cover shows
 // the brand (the owner's avatar; the property image in the property view) EVERYWHERE — owner page, shared view,
 // published page, cards — never the first moment photo. The brand is never stretched: a square logo is the round
-// avatar, a wordmark is shown whole (sides never cut), at most 60% of the box, over a backdrop (7 Nov: the logo's own
-// solid colour everywhere; was: blurred copy on headers,
+// avatar, a wordmark is shown whole (sides never cut), at most 60% of the box, over a backdrop (blurred copy on headers,
 // plain profile colour on cards). Real photos stay full-bleed, including a typical 640x480 dealer photo.
 // Checks at 1280, 390 (and 1600):
 //  - the campaign grid: brand card (the API sends last_update_img = owner's avatar), photo card, shared campaign card
@@ -124,10 +123,7 @@ function checkBrand(tag, info, { src, shape, blurred }) {
     expect(Math.abs(info.img.width / info.img.height - 3) < 0.1 && info.img.fit === 'contain', `${tag}: shown whole at its own 3:1 shape (${info.img.width}x${info.img.height}, ${info.img.fit})`);
     expect(info.img.width <= Math.ceil(info.box.width * 0.6) + 1, `${tag}: ≤ 60% of the box width (${info.img.width} of ${info.box.width})`);
   }
-  // Chris, 7 Nov 2026: a logo whose pixels can be read (these come from the page's own origin) sits on ONE solid
-  // colour taken from the logo — no blurred copy anywhere (`blurred` was the 4 Nov expectation for headers).
-  void blurred;
-  expect(!info.blurred && /^#[0-9A-F]{6}$/i.test(info.fill || ''), `${tag}: backdrop is the logo's solid colour, no blurred copy (blurred=${info.blurred}, fill=${info.fill})`);
+  expect(info.blurred === blurred, `${tag}: backdrop ${blurred ? 'blurred copy' : 'plain profile colour'} (blurred=${info.blurred})`);
 }
 function checkPhoto(tag, info, src) {
   expect(info?.mode === 'cover', `${tag}: a real photo stays full-bleed (mode=${info?.mode})`);

@@ -275,21 +275,23 @@ export default function MemoryCard({
   const badgesRef = useRef<HTMLDivElement>(null);
   const titleBlockRef = useRef<HTMLDivElement>(null);
   const textColRef = useRef<HTMLDivElement>(null);
-  // The web API's AI-suggested campaigns come in category "suggested" (lower case); the Accept / No flow uses "Suggested".
-  const isSuggestedPill = !!suggestedCategory || String(category ?? '').trim().toLowerCase() === 'suggested';
+  // The web API's AI-suggested campaigns come in category "suggested" (lower case, a see-through colour). Cards in the
+  // Accept / No flow ("Suggested", suggestedCategory) keep their own look.
+  const isSuggestedPill = String(category ?? '').trim() === 'suggested';
   const fitEnabled = !!label || isSuggestedPill;
   const [photoSize, setPhotoSize] = useState('');
   const [fitTick, setFitTick] = useState(0);
   const [fitState, setFitState] = useState({ key: '', level: 0 });
   const propertyCount = properties?.length || (property ? 1 : 0);
-  const fitKey = `${photoSize}|${title}|${label}|${category}|${location}|${imagesCount}|${countLabel}|${dateRange}|${propertyCount}`;
+  const fitKey = `${photoSize}|${title}|${label}|${category}|${location}|${imagesCount}|${countLabel}|${dateRange}|${propertyCount}|${published ?? ''}|${isEditMode}`;
   const fitLevel = fitEnabled && fitState.key === fitKey ? fitState.level : 0;
   const fitPillsInRow = fitLevel >= FIT_LEVELS.pillsInRow;
   const fitCompact = fitLevel >= FIT_LEVELS.compact;
   const fitTitleOneLine = fitLevel >= FIT_LEVELS.titleOneLine;
   const fitHideLocation = fitLevel >= FIT_LEVELS.hideLocation;
   const fitHideCount = fitLevel >= FIT_LEVELS.hideCount;
-  // The pills start below the Public / View Only badge when they would sit on it (a narrow card): px pushed down.
+  // The pills start below the top-left badge (Public / View Only, or Edit's checkbox) when any of them would sit on it
+  // (a narrow card): px pushed down.
   const publishedRef = useRef<HTMLDivElement>(null);
   const [fitClear, setFitClear] = useState({ key: '', px: 0 });
   const fitClearTop = fitEnabled && fitClear.key === fitKey ? fitClear.px : 0;
@@ -319,9 +321,10 @@ export default function MemoryCard({
     const text = textColRef.current;
     if (!photo || !badges || !block || !text || !photo.offsetWidth || !photo.offsetHeight) return;
     const pub = publishedRef.current?.getBoundingClientRect();
-    const firstPill = Array.from(badges.children).map(el => el.getBoundingClientRect()).find(r => r.width > 0);
-    if (pub && firstPill && !fitClearTop && pub.right + 4 > firstPill.left && pub.bottom > firstPill.top && pub.top < firstPill.bottom) {
-      setFitClear({ key: fitKey, px: Math.ceil(pub.bottom - firstPill.top) + 6 });
+    const pills = Array.from(badges.querySelectorAll(':scope > *, :scope > div > *')).map(el => el.getBoundingClientRect()).filter(r => r.width > 0);
+    const hit = pub && pills.some(r => pub.right + 4 > r.left && pub.left < r.right && pub.bottom > r.top && pub.top < r.bottom);
+    if (pub && hit && !fitClearTop) {
+      setFitClear({ key: fitKey, px: Math.ceil(pub.bottom - Math.min(...pills.map(r => r.top))) + 6 });
       return;
     }
     const gap = text.getBoundingClientRect().top - badges.getBoundingClientRect().bottom;
@@ -333,7 +336,7 @@ export default function MemoryCard({
 
   // Use the getCategoryColor function to match sidebar exactly
   const getInvitesCategoryColor = () => {
-    if (isSuggestedPill) {
+    if (category === 'Suggested' || suggestedCategory || isSuggestedPill) {
       return '#9CA3AF'; // Grey color for Suggested
     }
 
@@ -536,6 +539,9 @@ export default function MemoryCard({
               backdrop="color"
               color={displayProfileColor}
               className="w-full h-full"
+              // A judged logo on its solid colour is smaller on a card, so the pills above and the title below run over
+              // it less (Chris, 7 Nov 2026 review: no shadow separates them any more).
+              brandFraction={0.45}
             />
           )
         ) : (
@@ -553,6 +559,7 @@ export default function MemoryCard({
         {/* Edit Mode Checkbox - Top Left */}
         {isEditMode && !isSharedWith && (
           <div
+            ref={publishedRef}
             className="absolute top-3 left-3 z-20"
             onClick={e => { e.stopPropagation(); onSelectToggle?.(); }}
           >

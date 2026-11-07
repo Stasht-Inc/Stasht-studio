@@ -4,6 +4,7 @@ import { currentPropertyViewHeaders, propertyViewCacheKey } from './inventoryVie
 import { memoryDetailPath } from './memoryDetailPath';
 import { campaignAccessBody, withQr } from './qrAccess';
 import { clearAccountState } from './accountState';
+import { seedBrandPictures, setBrandPictureApiBase } from './brandPictures';
 
 // Auth utility functions for API integration
 
@@ -434,6 +435,7 @@ const performApiRequest = async <T = any>(
       } else {
         try {
           data = JSON.parse(responseText);
+          seedBrandPictures(data); // brand covers (Chris, 7 Nov 2026): the API's logo / photo answers
         } catch (jsonError) {
           // If JSON parsing fails and response is OK, treat the text as the data itself
           // This handles cases where API returns plain text/URL instead of JSON
@@ -5392,3 +5394,6 @@ export default {
   validationUtils,
   userDisplayUtils,
 };
+
+// Brand covers (Chris, 7 Nov 2026): utils/brandPictures asks GET /brand-picture on the same API.
+setBrandPictureApiBase(getApiBaseUrl);
