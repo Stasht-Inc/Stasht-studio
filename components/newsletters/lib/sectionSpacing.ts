@@ -58,18 +58,31 @@ export function lineHeight(px: number, usual: number, spacing: LineSpacing | nul
   return Math.round(Math.max(usual + k * px, (MIN[spacing as string] ?? 0) * px) * 100) / 100;
 }
 
-/** Gaps after a paragraph or list, and after a list row, px (normal 16 and 6). */
-const GAPS: Record<string, [number, number]> = { tight: [8, 2], relaxed: [24, 12] };
+/**
+ * Gaps after a paragraph or list, and after a list row, as parts of the section's Normal text size (type scale, Chris
+ * 7 Nov): 8 / 2 px tight and 24 / 12 px relaxed at the usual 16 px. Normal keeps 16 and 6 (TEXT_CLASS).
+ */
+const GAP_K: Record<string, [number, number]> = { tight: [0.5, 0.125], relaxed: [1.5, 0.75] };
+const NORMAL_GAPS: [number, number] = [16, 6];
+
+/** NewsletterSpacing::gaps: tight never opens them wider than Normal's 16 / 6, relaxed never closes them tighter. */
+export function spacingGaps(spacing: LineSpacing | null | undefined, normalPx = 16): [number, number] | null {
+  const k = spacing ? GAP_K[spacing] : undefined;
+  if (!k) return null;
+  const pick = spacing === 'tight' ? Math.min : Math.max;
+  return [pick(Math.round(normalPx * k[0]), NORMAL_GAPS[0]), pick(Math.round(normalPx * k[1]), NORMAL_GAPS[1])];
+}
 
 /**
  * A text section's spacing in the editor: its line height and the variables its sized words and gaps read
- * (spanLineHeight, SPACED_TEXT_CLASS). Empty for Normal, so an older section is drawn as before.
+ * (spanLineHeight, SPACED_TEXT_CLASS), from the section's Normal size and line height in the newsletter's type scale
+ * (16 / 26 with the usual one). Empty for Normal, so an older section is drawn as before.
  */
-export function textSpacingStyle(spacing: LineSpacing | null | undefined): CSSProperties {
-  const gaps = spacing ? GAPS[spacing] : undefined;
+export function textSpacingStyle(spacing: LineSpacing | null | undefined, normalPx = 16, normalLineHeight = 26): CSSProperties {
+  const gaps = spacingGaps(spacing, normalPx);
   if (!spacing || !gaps) return {};
   return {
-    lineHeight: `${lineHeight(16, 26, spacing)}px`,
+    lineHeight: `${lineHeight(normalPx, normalLineHeight, spacing)}px`,
     '--nl-lh-k': String(K[spacing]),
     '--nl-lh-min': String(MIN[spacing]),
     '--nl-gap': `${gaps[0]}px`,
@@ -77,9 +90,15 @@ export function textSpacingStyle(spacing: LineSpacing | null | undefined): CSSPr
   } as CSSProperties;
 }
 
-/** Sized words' line height in the editor: their usual one, moved by the section's spacing variables (lineHeight()). */
-export function spanLineHeight(px: number, usual: number): string {
-  return `max(calc(${usual}px + var(--nl-lh-k, 0) * ${px}px), calc(var(--nl-lh-min, 0) * ${px}px))`;
+const cssLength = (v: number | string) => (typeof v === 'number' ? `${v}px` : v);
+
+/**
+ * Sized words' line height in the editor: their usual one, moved by the section's spacing variables (lineHeight()).
+ * px / usual: numbers (px) or CSS lengths, such as the type scale's variables (lib/typeScale.ts sizeVar, lineHeightVar).
+ */
+export function spanLineHeight(px: number | string, usual: number | string): string {
+  const size = cssLength(px);
+  return `max(calc(${cssLength(usual)} + var(--nl-lh-k, 0) * ${size}), calc(var(--nl-lh-min, 0) * ${size}))`;
 }
 
 /**

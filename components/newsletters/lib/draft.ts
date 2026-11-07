@@ -1,6 +1,7 @@
 import type {
-  AudienceItem, Newsletter, NewsletterBlock, NewsletterChannel, NewsletterHeader, NewsletterInput,
+  AudienceItem, Newsletter, NewsletterBlock, NewsletterChannel, NewsletterHeader, NewsletterInput, TypeScale,
 } from '../../../services/newslettersAPI.ts';
+import { storedScale } from './typeScale.ts';
 import { LIMITS, isPlausibleEmail, smsPlain } from './rules.ts';
 import { blocksToInput, campaignSelections, normaliseBlocks, overLimitTextIds } from './blocks.ts';
 import { campaignIdsOf, overridesForInput, pruneOverrides } from './campaignsBlock.ts';
@@ -22,6 +23,8 @@ export interface NewsletterDraft {
   audience: AudienceItem[];
   /** The time picked under Schedule for later, kept while it is a draft (never used to send). ISO UTC or null. */
   planned_send_at: string | null;
+  /** The newsletter's text sizes (Chris, 7 Nov), or null for the usual ones (lib/typeScale.ts). */
+  type_scale: TypeScale | null;
 }
 
 export const DEFAULT_HEADER: NewsletterHeader = { logo_url: null, banner_url: null, background_color: '#6C60FF', title: null };
@@ -37,7 +40,7 @@ export function emptyDraft(header?: Partial<NewsletterHeader> | null): Newslette
     name: '', subject: '', preview_text: '', from_name: '', reply_to_email: '',
     // Single person, nobody picked yet (Chris, 3 Nov 2026: most newsletters go to one prospective buyer).
     channels: ['email'], sms_text: '', template: 'basic', header: headerFrom(header), blocks: [], audience: [],
-    planned_send_at: null,
+    planned_send_at: null, type_scale: null,
   };
 }
 
@@ -55,7 +58,19 @@ export function draftFromNewsletter(n: Newsletter): NewsletterDraft {
     blocks: normaliseBlocks(n.blocks),
     audience: Array.isArray(n.audience) ? n.audience : [],
     planned_send_at: typeof n.planned_send_at === 'string' && n.planned_send_at ? n.planned_send_at : null,
+    type_scale: storedScale(n.type_scale),
   };
+}
+
+/**
+ * Review I2: a new draft that isn't saved yet takes the account's default sizes ("Use as my default") as soon as the
+ * brand arrives, as its header does, so nothing changes size when the first save comes back; never once the sizes were
+ * changed here or the newsletter exists.
+ */
+export function seedBrandTypeScale(d: NewsletterDraft, brandScale: unknown, touched: ReadonlySet<string>, id: number | null): NewsletterDraft {
+  const scale = storedScale(brandScale);
+  if (!scale || id || touched.has('type_scale') || d.type_scale) return d;
+  return { ...d, type_scale: scale };
 }
 
 /** The PUT body for a draft: text trimmed, empty text as null. A blank name is left out: the API requires a
@@ -63,6 +78,7 @@ export function draftFromNewsletter(n: Newsletter): NewsletterDraft {
 export function draftToInput(d: NewsletterDraft): NewsletterInput {
   const input: NewsletterInput = {
     channels: d.channels, template: d.template, header: d.header, blocks: blocksToInput(d.blocks), audience: d.audience, planned_send_at: d.planned_send_at ?? null,
+    type_scale: d.type_scale ?? null,
   };
   for (const key of TEXT_FIELDS) {
     const value = d[key].trim();

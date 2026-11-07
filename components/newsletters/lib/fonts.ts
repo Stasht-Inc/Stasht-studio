@@ -17,7 +17,9 @@ export const FONTS = [
 
 /** The email's usual font (the section cells in body.blade.php): what "Default" means. */
 export const DEFAULT_FONT_STACK = "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif";
-export const DEFAULT_FONT_LABEL = 'Default';
+/** Chris (7 Nov, point 3): "Default" alone didn't read as a font. The usual font is the device's sans-serif system font,
+ *  so it is named as Gmail names its own default ("Sans Serif"); the menu adds "(default)". */
+export const DEFAULT_FONT_LABEL = 'Sans Serif';
 
 export function isFontKey(value: unknown): value is FontKey {
   return typeof value === 'string' && FONTS.some((f) => f.value === value);

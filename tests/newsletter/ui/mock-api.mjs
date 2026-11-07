@@ -88,6 +88,14 @@ const MONTH_NAME = () => {
 };
 
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+// NewsletterTypeScale::normalise: the full scale, or null for none / the usual sizes.
+const USUAL_SCALE = { small: 14, normal: 16, large: 20, xlarge: 24 };
+function mockScale(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const s = { ...USUAL_SCALE };
+  for (const k of Object.keys(s)) if (Number.isInteger(raw[k]) && raw[k] >= 10 && raw[k] <= 72) s[k] = raw[k];
+  return Object.keys(s).every((k) => s[k] === USUAL_SCALE[k]) ? null : s;
+}
 const pickEditable = (src) => Object.fromEntries(EDITABLE.filter((k) => src && k in src).map((k) => [k, structuredClone(src[k])]));
 
 export function newsletter(id, over = {}) {
@@ -294,7 +302,9 @@ export function createMockApi(options = {}) {
     // docs/sql/2026-11-01-newsletter-default-message.sql ran (accepts the field, keeps nothing).
     // recent_colors (Chris, 6 Nov): NewsletterRecentColors; options.recentColors: false = an API without them (no key).
     brand: { header: { logo_url: null, banner_url: null, background_color: '#6C60FF', title: 'Serpa Chrysler' }, business_address: options.businessAddress ?? null, default_message: options.defaultMessage ?? null,
-      ...(options.recentColors === false ? {} : { recent_colors: options.recentColors ?? [] }) },
+      ...(options.recentColors === false ? {} : { recent_colors: options.recentColors ?? [] }),
+      // The account's default text sizes (Chris, 7 Nov), when one was saved.
+      ...(options.brandTypeScale ? { type_scale: options.brandTypeScale } : {}) },
     // ContactListController::summary: consent_type (null for lists made before consent was recorded) and created_at.
     lists: options.lists ?? [{ id: 9, name: 'Open house sign-ups', source: 'import', member_count: 212, email_count: 198, sms_count: 140, consent_type: 'express', created_at: '2026-10-02T15:00:00Z' }],
     // AudienceResolver's skipped counts on top of the defaults (consent_expired, unsupported_number, ...).
@@ -926,6 +936,7 @@ export function createMockApi(options = {}) {
       const n = newsletter(state.nextId++, {
         name: body?.name?.trim() || MONTH_NAME(), from_name: state.owner.name, reply_to_email: state.owner.email,
         audience: [], header: structuredClone(state.brand.header),
+        ...(state.brand.type_scale ? { type_scale: structuredClone(state.brand.type_scale) } : {}),
       });
       state.newsletters.push(n);
       return ok(n, 201);
@@ -969,6 +980,9 @@ export function createMockApi(options = {}) {
           if (typeof body.recent_color !== 'string' || !/^#[0-9a-f]{6}$/i.test(body.recent_color)) return fail(422, { message: 'Pick a colour like #6C60FF.', errors: { recent_color: ['Pick a colour like #6C60FF.'] } });
           const c = body.recent_color.toUpperCase();
           state.brand.recent_colors = [c, ...state.brand.recent_colors.filter((x) => x !== c)].slice(0, 8);
+        }
+        if (body && 'type_scale' in body) {
+          if (mockScale(body.type_scale)) state.brand.type_scale = mockScale(body.type_scale); else delete state.brand.type_scale;
         }
         if (body && 'default_message' in body && options.defaultMessageColumn !== false) {
           const text = typeof body.default_message === 'string' ? body.default_message.trim() : '';
@@ -1077,6 +1091,10 @@ export function createMockApi(options = {}) {
         }
         if (Object.keys(errors).length) return fail(422, { message: Object.values(errors)[0][0], errors });
         Object.assign(n, pickEditable(body), { updated_at: now() });
+        // Text sizes (Chris, 7 Nov; NewsletterTypeScale): kept whole, null / the usual sizes take them away.
+        if (body && 'type_scale' in body) {
+          if (mockScale(body.type_scale)) n.type_scale = mockScale(body.type_scale); else delete n.type_scale;
+        }
         // A Campaigns section: drop ids the owner can't share, then the server's own snapshot (never the client's),
         // refreshed by every PUT that sends blocks (and by duplicate).
         if (body && 'blocks' in body) {

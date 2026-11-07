@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import { newslettersAPI, type Newsletter, type NewsletterHeader } from '../../../services/newslettersAPI';
+import { newslettersAPI, type Newsletter, type NewsletterHeader, type TypeScale } from '../../../services/newslettersAPI';
 import { GENERIC_ERROR, retryableSaveFailure, type NlResult } from '../lib/apiResult';
 import { createAutosaver, type Autosaver } from '../lib/autosave';
 import { normaliseBlocks } from '../lib/blocks';
 import { withDefaultMessage } from '../lib/defaultMessage';
-import { adoptCampaignSnapshots, changedFields, draftFromNewsletter, emptyDraft, headerFrom, mergeUntouched, rejectedKeys, savableChanges, type NewsletterDraft } from '../lib/draft';
+import { adoptCampaignSnapshots, changedFields, draftFromNewsletter, emptyDraft, headerFrom, mergeUntouched, rejectedKeys, savableChanges, seedBrandTypeScale, type NewsletterDraft } from '../lib/draft';
 import { backupKey, backupToOffer, browserStorage, clearBackup, readBackup, staleBackupToOffer, writeBackup, type OfferedBackup } from '../lib/draftBackup';
 
 export type SaveState = 'idle' | 'saving' | 'saved' | 'error';
@@ -75,7 +75,7 @@ function currentUserId(): number | string | null {
 const isOffline = () => typeof navigator !== 'undefined' && navigator.onLine === false;
 
 /** defaultMessage: the account's saved Message box text ("Set as my default message"), pre-filled into a new draft. */
-export function useNewsletterDraft(newsletterId: number | null, enabled: boolean, brandHeader: NewsletterHeader | null, defaultMessage: string | null = null): NewsletterDraftState {
+export function useNewsletterDraft(newsletterId: number | null, enabled: boolean, brandHeader: NewsletterHeader | null, defaultMessage: string | null = null, brandTypeScale: TypeScale | null = null): NewsletterDraftState {
   const [loading, setLoading] = useState<boolean>(Boolean(newsletterId));
   const [loadError, setLoadError] = useState<string | null>(null);
   const [newsletter, setNewsletter] = useState<Newsletter | null>(null);
@@ -287,6 +287,15 @@ export function useNewsletterDraft(newsletterId: number | null, enabled: boolean
     draftRef.current = next;
     setDraft(next);
   }, [brandHeader]);
+
+  // Review I2: a new, untouched draft takes the account's default text sizes when the brand arrives, as the header does
+  // (saved with the first save; nothing changes size when it comes back).
+  useEffect(() => {
+    const next = seedBrandTypeScale(draftRef.current, brandTypeScale, touchedRef.current, idRef.current);
+    if (next === draftRef.current) return;
+    draftRef.current = next;
+    setDraft(next);
+  }, [brandTypeScale]);
 
   // A new draft whose Message box is still empty and untouched takes the account's default message when it arrives.
   // Not saved by itself (no draft is made just by opening): it goes with the first save, as the header does.
