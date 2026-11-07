@@ -63,6 +63,8 @@ export default function CustomColorPicker({ label, value, active, onChange, onCl
   onClose(color: string | null): void;
 }) {
   const [open, setOpen] = useState(false);
+  // Open now (kept in step by openChange; read when the picker is unmounted, Chris 7 Nov).
+  const openRef = useRef(false);
   // The colour set now, '' when none is (review, 6 Nov: then typing the default colour still applies it); the picker
   // starts from Studio purple then.
   const actual = parseHexInput(value) ?? '';
@@ -178,8 +180,26 @@ export default function CustomColorPicker({ label, value, active, onChange, onCl
       const end = latest.current.current;
       onClose(changed.current && end !== atOpen.current ? end : null);
     }
+    openRef.current = next;
     setOpen(next);
   };
+  // Chris (7 Nov, point 1): a click outside closes the colour panel this picker sits in (and the section's toolbar, as
+  // Done does) in the same moment, so the picker is unmounted without its own close ever running and the colour was
+  // never kept as a recent one. Unmounted while open counts as closed: the same as a click outside.
+  const closeOnUnmount = useRef<() => void>(() => {});
+  closeOnUnmount.current = () => {
+    if (!openRef.current) return;
+    openRef.current = false;
+    const typedHex = edited.current ? parseHexInput(draft) : null;
+    if (typedHex && typedHex !== latest.current.current) {
+      changed.current = true;
+      latest.current.current = typedHex;
+      latest.current.onChange(typedHex);
+    }
+    const end = latest.current.current;
+    onClose(changed.current && end !== atOpen.current ? end : null);
+  };
+  useEffect(() => () => closeOnUnmount.current(), []);
   const invalid = showError;
   const hueColor = hsvToHex({ h: hsv.h, s: 1, v: 1 });
 

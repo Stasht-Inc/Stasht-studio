@@ -42,23 +42,23 @@ test('a style\'s font family: its first family when offered (by label, any case,
 
 test('the sanitiser keeps size and/or font spans canonically (size first) and nothing else (as the API)', () => {
   assert.equal(sanitizeTextHtml('<p><span style="font-family:Georgia">a</span></p>'), `<p><span style="font-family:${GEORGIA}">a</span></p>`);
-  assert.equal(sanitizeTextHtml(`<p><span style="font-family:${GEORGIA}; font-size: 20px">a</span></p>`), `<p><span style="font-size:20px;font-family:${GEORGIA}">a</span></p>`);
+  assert.equal(sanitizeTextHtml(`<p><span style="font-family:${GEORGIA}; font-size: 20px">a</span></p>`), `<p><span data-size="large" style="font-family:${GEORGIA}">a</span></p>`);
   assert.equal(sanitizeTextHtml('<p><span style="color:red;font-family:Arial;background:url(https://x.test/a.png)">a</span></p>'), '<p><span style="font-family:Arial, Helvetica, sans-serif">a</span></p>');
   assert.equal(sanitizeTextHtml('<p><span style="font-family:Comic Sans MS">a</span></p>'), '<p>a</p>');
-  assert.equal(sanitizeTextHtml('<p><span style="font-size:24px;font-family:Papyrus">a</span></p>'), '<p><span style="font-size:24px">a</span></p>');
+  assert.equal(sanitizeTextHtml('<p><span data-size="xlarge" style="font-family:Papyrus">a</span></p>'), '<p><span data-size="xlarge">a</span></p>');
   assert.equal(sanitizeTextHtml('<p><span style="font-family:expression(alert(1))">a</span></p>'), '<p>a</p>');
   assert.equal(sanitizeTextHtml('<p><span style="font-family:url(https://evil.test/f.woff)">a</span></p>'), '<p>a</p>');
   assert.equal(sanitizeTextHtml('<font face="Georgia">a</font>'), '<p>a</p>');
   // The parsed node: px null for a font alone; no font key for a size alone (as before).
   assert.deepEqual(parseTextHtml('<span style="font-family:Tahoma">a</span>'), [{ kind: 'size', px: null, font: 'tahoma', children: [{ kind: 'text', text: 'a' }] }]);
-  assert.deepEqual(parseTextHtml('<span style="font-size:20px">a</span>'), [{ kind: 'size', px: 20, children: [{ kind: 'text', text: 'a' }] }]);
+  assert.deepEqual(parseTextHtml('<span data-size="large">a</span>'), [{ kind: 'size', px: 20, children: [{ kind: 'text', text: 'a' }] }]);
 });
 
 test('review (6 Nov): a non-breaking or other Unicode space reads as a space, exactly as the API (NewsletterFonts::normaliseSpaces)', () => {
   // The same cases as the API's NewsletterHtmlSanitizerFontsTest.
   assert.equal(sanitizeTextHtml('<p><span style="font-family:\u00a0Georgia\u00a0">a</span></p>'), `<p><span style="font-family:${GEORGIA}">a</span></p>`);
   assert.equal(sanitizeTextHtml('<p><span style="font-family:Times\u00a0New Roman">a</span></p>'), `<p><span style="font-family:'Times New Roman', Times, serif">a</span></p>`);
-  assert.equal(sanitizeTextHtml('<p><span style="font-size:\u00a020px\u3000">a</span></p>'), '<p><span style="font-size:20px">a</span></p>');
+  assert.equal(sanitizeTextHtml('<p><span style="font-size:\u00a020px\u3000">a</span></p>'), '<p><span data-size="large">a</span></p>');
   assert.equal(sanitizeTextHtml('<p><span style="font-family:&nbsp;Verdana">a</span></p>'), '<p><span style="font-family:Verdana, Geneva, sans-serif">a</span></p>');
 });
 
@@ -82,9 +82,9 @@ test('font with nothing selected: the whole section, every paragraph and list it
 
 test('font and size combine on the same words in one canonical span, and each keeps the other', () => {
   const sized = resizeTextHtml('<p>Big savings</p>', 24, null);
-  assert.equal(sized, '<p><span style="font-size:24px">Big savings</span></p>');
+  assert.equal(sized, '<p><span data-size="xlarge">Big savings</span></p>');
   const both = fontTextHtml(sized, 'courier', { start: 0, end: 3 });
-  assert.equal(both, `<p><span style="font-size:24px;font-family:'Courier New', Courier, monospace">Big</span><span style="font-size:24px"> savings</span></p>`);
+  assert.equal(both, `<p><span data-size="xlarge" style="font-family:'Courier New', Courier, monospace">Big</span><span data-size="xlarge"> savings</span></p>`);
   // Resizing later keeps the font; Normal keeps the font and drops only the size.
   assert.equal(resizeTextHtml(both, 16, null), `<p><span style="font-family:'Courier New', Courier, monospace">Big</span> savings</p>`);
   // Bold and links inside keep their markup.
@@ -97,8 +97,8 @@ test('a font inside another font on part of the words; Default inside a font', (
   const mid = fontTextHtml(all, null, { start: 4, end: 7 });
   assert.equal(mid, '<p><span style="font-family:Arial, Helvetica, sans-serif">one </span>two<span style="font-family:Arial, Helvetica, sans-serif"> three</span></p>');
   // Nested spans (as another editor might save them) are flattened first.
-  assert.equal(fontTextHtml('<p><span style="font-size:20px"><span style="font-family:Georgia">a</span>b</span></p>', 'arial', { start: 1, end: 2 }),
-    `<p><span style="font-size:20px;font-family:${GEORGIA}">a</span><span style="font-size:20px;font-family:Arial, Helvetica, sans-serif">b</span></p>`);
+  assert.equal(fontTextHtml('<p><span data-size="large"><span style="font-family:Georgia">a</span>b</span></p>', 'arial', { start: 1, end: 2 }),
+    `<p><span data-size="large" style="font-family:${GEORGIA}">a</span><span data-size="large" style="font-family:Arial, Helvetica, sans-serif">b</span></p>`);
 });
 
 test('the font and formatting at the caret (what the toolbar shows)', () => {

@@ -32,6 +32,8 @@ export interface NewsletterHeader {
 
 export type BlockType = 'image' | 'title' | 'text' | 'youtube' | 'button' | 'divider' | 'campaigns';
 export type TitleSize = 'large' | 'medium' | 'small';
+/** Text size styles (Chris, 7 Nov): px per style, 10–72 (the API's NewsletterTypeScale). */
+export type TypeScale = Record<'small' | 'normal' | 'large' | 'xlarge', number>;
 export type DividerStyle = 'line' | 'space';
 
 /** width: the picture's own width in px when it is narrower than the card (below 598; review, 6 Nov), else absent. */
@@ -161,6 +163,8 @@ export interface Newsletter {
   /** Why a failed newsletter failed: too_late (over 6 hours late, nothing sent) or error (before it started). */
   failure_reason?: 'too_late' | 'error' | null;
   public_url: string | null;
+  /** The newsletter's text sizes (Chris, 7 Nov): px for each style; absent = the usual 14 / 16 / 20 / 24. */
+  type_scale?: TypeScale | null;
   counts: NewsletterCounts;
   created_at: string;
   updated_at: string;
@@ -172,7 +176,7 @@ export type NewsletterSummary = Omit<Newsletter, 'blocks'>;
 /** PUT /newsletters/{id}: any editable field (only drafts can be edited). Unfinished sections are accepted;
  *  send / schedule reject them (contract note 6). Saving `header` also saves the account's brand header (note 8). */
 export type NewsletterInput = Partial<Pick<Newsletter,
-  'name' | 'subject' | 'preview_text' | 'from_name' | 'reply_to_email' | 'channels' | 'sms_text' | 'template' | 'header' | 'blocks' | 'audience' | 'planned_send_at'>>;
+  'name' | 'subject' | 'preview_text' | 'from_name' | 'reply_to_email' | 'channels' | 'sms_text' | 'template' | 'header' | 'blocks' | 'audience' | 'planned_send_at' | 'type_scale'>>;
 
 export interface AudienceCount {
   email: number;
@@ -230,7 +234,9 @@ export interface LeadOptionsQuery { search?: string; page?: number; lead_id?: nu
 
 /** default_message: the Message box text saved with "Set as my default message" (null: none; an older API leaves it out). */
 /** recent_colors (Chris, 6 Nov): the account's colours picked with Custom, newest first, at most 8. */
-export interface NewsletterBrand { header: NewsletterHeader; business_address: string | null; default_message?: string | null; recent_colors?: string[] }
+export interface NewsletterBrand { header: NewsletterHeader; business_address: string | null; default_message?: string | null; recent_colors?: string[];
+  /** The account's default text sizes ("Use as my default", Chris 7 Nov); absent: none saved. */
+  type_scale?: TypeScale | null }
 export interface NewsletterAllowance {
   plan: string;
   email_limit: number;
@@ -434,7 +440,7 @@ export const newslettersAPI = {
   getBrand: () => get<NewsletterBrand>('/newsletter-brand'),
   // Only used to set business_address and default_message: a newsletter's header reaches the brand through
   // PUT /newsletters/{id}.
-  updateBrand: (input: { header?: NewsletterHeader; business_address?: string | null; default_message?: string | null; recent_color?: string }) =>
+  updateBrand: (input: { header?: NewsletterHeader; business_address?: string | null; default_message?: string | null; recent_color?: string; type_scale?: TypeScale | null }) =>
     write<NewsletterBrand>('PUT', '/newsletter-brand', input),
   allowance: () => get<NewsletterAllowance>('/newsletter-allowance'),
   contactLists: () => get<ContactList[]>('/contact-lists'),

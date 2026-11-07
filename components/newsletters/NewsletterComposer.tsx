@@ -16,6 +16,7 @@ import { BUTTON_OUTLINE, BUTTON_PRIMARY, BUTTON_SECONDARY, LAYER, LINK_BUTTON } 
 import StepCard from './StepCard';
 import NewsletterEditor from './NewsletterEditor';
 import { RecentColorsProvider } from './RecentColors';
+import { TypeScaleProvider } from './TypeScale';
 import DeviceToggle, { type PreviewDevice } from './DeviceToggle';
 import TemplatePicker from './TemplatePicker';
 import AudiencePicker from './AudiencePicker';
@@ -523,6 +524,9 @@ const NewsletterComposer = forwardRef<NewsletterComposerHandle, NewsletterCompos
               </div>
               {/* The account's recent custom colours (Chris, 6 Nov), offered in every colour panel of the editor. */}
               <RecentColorsProvider initial={brand.brand?.recent_colors}>
+              {/* The newsletter's text sizes (Chris, 7 Nov): every Title and Text section is drawn from them. */}
+              <TypeScaleProvider value={draft.type_scale} accountDefault={brand.brand?.type_scale} editable={!readOnly}
+                onChange={(next) => update({ type_scale: next })} onSaveDefault={brand.saveTypeScale}>
               <NewsletterEditor
                 draft={draft}
                 readOnly={readOnly}
@@ -537,6 +541,7 @@ const NewsletterComposer = forwardRef<NewsletterComposerHandle, NewsletterCompos
                 savedBlocks={savedBlocks}
                 active={!hidden}
               />
+              </TypeScaleProvider>
               </RecentColorsProvider>
             </aside>
           </div>

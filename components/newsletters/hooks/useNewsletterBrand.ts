@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
-import { newslettersAPI, type NewsletterBrand } from '../../../services/newslettersAPI';
+import { newslettersAPI, type NewsletterBrand, type TypeScale } from '../../../services/newslettersAPI';
 import type { NlResult } from '../lib/apiResult';
 import { headerFrom } from '../lib/draft';
 import { recentColorsFrom } from '../lib/colorPicker';
+import { sameScale, scaleOf, storedScale } from '../lib/typeScale';
 
 // The account's newsletter brand. GET pre-fills a new draft's header and gives the footer's business address.
 // The header is never PUT here: saving a newsletter's header saves the brand header too (contract note 8).
@@ -14,6 +15,8 @@ export interface BrandState {
   saveAddress(address: string): Promise<NlResult<NewsletterBrand>>;
   /** Null clears it. Not ok when the API did not keep exactly this text (refused, or an API without the column). */
   saveDefaultMessage(message: string | null): Promise<NlResult<NewsletterBrand>>;
+  /** "Use as my default" text sizes (Chris, 7 Nov; null: the usual ones). True when the API kept exactly these. */
+  saveTypeScale(scale: TypeScale | null): Promise<boolean>;
 }
 
 const normalise = (b: NewsletterBrand): NewsletterBrand => ({
@@ -22,6 +25,7 @@ const normalise = (b: NewsletterBrand): NewsletterBrand => ({
   default_message: typeof b.default_message === 'string' && b.default_message.trim() ? b.default_message : null,
   // Chris, 6 Nov: the colours picked with Custom (RecentColors). Left out when the API has none to give.
   ...(Array.isArray(b.recent_colors) ? { recent_colors: recentColorsFrom(b.recent_colors) } : {}),
+  type_scale: storedScale(b.type_scale),
 });
 
 export const DEFAULT_MESSAGE_ERROR = "Your default message couldn't be saved. Try again.";
@@ -56,5 +60,14 @@ export function useNewsletterBrand(enabled: boolean): BrandState {
     return next.default_message === wanted ? res : { ok: false, error: DEFAULT_MESSAGE_ERROR, fieldErrors: {} };
   }, []);
 
-  return { brand, loaded, saveAddress, saveDefaultMessage };
+  const saveTypeScale = useCallback(async (scale: TypeScale | null) => {
+    const res = await newslettersAPI.updateBrand({ type_scale: scale });
+    if (!res.ok || !res.data) return false;
+    const next = normalise(res.data);
+    setBrand(next);
+    // An API without text sizes answers without them: not saved.
+    return sameScale(scaleOf(next.type_scale), scaleOf(scale));
+  }, []);
+
+  return { brand, loaded, saveAddress, saveDefaultMessage, saveTypeScale };
 }

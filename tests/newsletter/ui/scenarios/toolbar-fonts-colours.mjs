@@ -151,7 +151,7 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
 
     // ---- 3a: Title is bold by default, B pressed; B toggles it ------------------------------------------------------
     const titleB = titleBar.getByRole('button', { name: 'Bold' });
-    for (const name of ['Bold', 'Font: Default', 'Title size: Large', 'Align: Left', 'Text colour', 'Section background']) {
+    for (const name of ['Bold', 'Font: Sans Serif', 'Title size: Large', 'Align: Left', 'Text colour', 'Section background']) {
       expect(await inViewport(page, titleBar.getByRole('button', { name })), `${width}: title "${name}" is in view`);
     }
     expect(await oneRow(titleBar), `${width}: the title toolbar is one row`);
@@ -168,12 +168,12 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
     expect(await pressed(titleB) === 'true', `${width}: B pressed again`);
 
     // ---- 3b: Title font ---------------------------------------------------------------------------------------------
-    await titleBar.getByRole('button', { name: 'Font: Default' }).click();
+    await titleBar.getByRole('button', { name: 'Font: Sans Serif' }).click();
     const fontMenu = page.getByRole('menu', { name: 'Font' });
     await expectVisible(fontMenu, 'font choices');
     expect(await inViewport(page, fontMenu), `${width}: font choices in view`);
     const choices = await fontMenu.getByRole('menuitemradio').evaluateAll((els) => els.map((el) => [el.textContent.trim(), getComputedStyle(el.querySelector('span')).fontFamily]));
-    expect(JSON.stringify(choices.map((c) => c[0])) === JSON.stringify(['Default', 'Arial', 'Helvetica', 'Georgia', 'Times New Roman', 'Verdana', 'Trebuchet MS', 'Tahoma', 'Courier New']), `${width}: the fonts offered (got ${JSON.stringify(choices.map((c) => c[0]))})`);
+    expect(JSON.stringify(choices.map((c) => c[0])) === JSON.stringify(['Sans Serif (default)', 'Arial', 'Helvetica', 'Georgia', 'Times New Roman', 'Verdana', 'Trebuchet MS', 'Tahoma', 'Courier New']), `${width}: the fonts offered (got ${JSON.stringify(choices.map((c) => c[0]))})`);
     expect(choices.find((c) => c[0] === 'Georgia')?.[1].startsWith('Georgia'), `${width}: each choice is drawn in its own font (${choices.find((c) => c[0] === 'Georgia')?.[1]})`);
     await partShot(page.locator('[data-radix-popper-content-wrapper]'), `${width}-03-font-menu`);
     await fontMenu.getByRole('menuitemradio', { name: 'Times New Roman' }).click();
@@ -193,7 +193,7 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
     const B = textBar.getByRole('button', { name: 'Bold' });
     const I = textBar.getByRole('button', { name: 'Italic' });
     const L = textBar.getByRole('button', { name: 'Link' });
-    for (const name of ['Bold', 'Italic', 'Link', 'Font: Default', 'Font size: Normal', 'Align: Left', 'Text colour', 'Section background']) {
+    for (const name of ['Bold', 'Italic', 'Link', 'Font: Sans Serif', 'Font size: Normal', 'Align: Left', 'Text colour', 'Section background']) {
       expect(await inViewport(page, textBar.getByRole('button', { name })), `${width}: text "${name}" is in view`);
     }
     expect(await oneRow(textBar), `${width}: the text toolbar is one row`);
@@ -233,7 +233,7 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
 
     // Font on selected words only.
     await selectWords(page, sel, 'this week');
-    await textBar.getByRole('button', { name: 'Font: Default' }).click();
+    await textBar.getByRole('button', { name: 'Font: Sans Serif' }).click();
     await expectVisible(page.getByText('Select words to change just them; otherwise the whole section.'), 'the font hint');
     await page.getByRole('menu', { name: 'Font' }).getByRole('menuitemradio', { name: 'Georgia' }).click();
     blocks = await until((b) => b[1]?.data?.html?.includes(`<span style="font-family:${GEORGIA}">this week</span>`), 'Georgia on the selected words');
@@ -242,7 +242,7 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
     expect(await textBar.getByRole('button', { name: 'Font: Georgia' }).count() === 1, `${width}: the Font button shows the font where the words are`);
     expect(!/font-family/.test(blocks[1].data.html.replace(/<span style="font-family:[^"]*">this week<\/span>/, '')), `${width}: the other words keep the usual font`);
     await caretIn(page, sel, 'Book');
-    expect(await textBar.getByRole('button', { name: 'Font: Default' }).count() === 1, `${width}: Default with the caret in other words`);
+    expect(await textBar.getByRole('button', { name: 'Font: Sans Serif' }).count() === 1, `${width}: Default with the caret in other words`);
     await partShot(scope.locator('[role="group"][aria-label="Text section"]'), `${width}-06-text-georgia-words`);
 
     // Nothing selected: the whole section; then undo / redo.
