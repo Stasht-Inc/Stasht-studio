@@ -15,7 +15,7 @@ import {
   SINGLE_PERSON, audienceKey, audienceLabel, countSummary, formatCount, hasAudienceItem, isSinglePerson, personId, skippedSummary, smsInfo,
   smsPreview, toggleChannel, toggleGroupItem,
 } from './lib/audience';
-import { personCountSummary, personEntryProblem, personStatusProblems, personSummary } from './lib/person';
+import { personCountSummary, personEntry, personEntryProblem, personStatusProblems, personSummary } from './lib/person';
 import { smsPartsInfo, smsPartsLabel, type SmsPartsInfo } from './lib/smsParts';
 import { MESSAGE_TOO_LONG } from './lib/draft';
 import { syncMessageBlock } from './lib/messageBlock';
@@ -36,6 +36,8 @@ export interface AudiencePickerProps {
   enabled: boolean;
   fieldErrors: Record<string, string>;
   stepError?: string;
+  /** Show every box's problem now (after Send was pressed). Default: when the card has a problem of its own. */
+  showProblems?: boolean;
   /** A patch, or a function of the latest draft (null: no change), so a later answer never undoes newer edits. */
   onChange(patch: AudiencePatch | ((latest: { audience: AudienceItem[]; blocks: NewsletterBlock[] }) => AudiencePatch | null)): void;
   /** The account's saved default message (null: none; undefined: not loaded yet, so the box can't be ticked yet). */
@@ -73,7 +75,7 @@ const GROUP_HEADING = 'px-3 pb-1 pt-3 text-xs font-semibold uppercase tracking-w
  * default, Chris 3 Nov — or All leads, lead groups, lists), by email and/or text, with live counts.
  */
 export default function AudiencePicker({
-  audience, channels, smsText, fromName, count, readOnly, enabled, fieldErrors, stepError, onChange, defaultMessage, onDefaultMessageChange,
+  audience, channels, smsText, fromName, count, readOnly, enabled, fieldErrors, stepError, showProblems, onChange, defaultMessage, onDefaultMessageChange,
   step = { number: 2, title: 'Recipients', id: 'nl-step-recipients' }, idPrefix = 'nl', paid = true, message, children, intro,
 }: AudiencePickerProps) {
   const id = (name: string) => `${idPrefix}-${name}`;
@@ -110,7 +112,9 @@ export default function AudiencePicker({
   // A Single person box's problem shows under that box (PersonFields), not again under Send to: the live check of a box
   // still being typed, and the API's audience.N.email / audience.N.phone (whose message apiResult also files as `audience`).
   const boxErrors = Object.entries(fieldErrors).filter(([key]) => /^audience\.\d+\.(email|phone)$/.test(key)).map(([, message]) => message);
-  const audienceError = fieldErrors.audience && !(single && (fieldErrors.audience === personEntryProblem(audience) || boxErrors.some((m) => fieldErrors.audience.includes(m))))
+  // Single person with nobody typed yet: the box to fill is marked instead (Chris, 7 Nov).
+  const personMissing = single && Boolean(fieldErrors.audience) && !personEntry(audience);
+  const audienceError = fieldErrors.audience && !personMissing && !(single && (fieldErrors.audience === personEntryProblem(audience) || boxErrors.some((m) => fieldErrors.audience.includes(m))))
     ? fieldErrors.audience : undefined;
   const parts = message?.parts ?? smsPartsInfo(fromName, smsText);
   // Screen readers hear the parts line only when the number of parts changes, not on every key.
@@ -169,8 +173,8 @@ export default function AudiencePicker({
   const channelBox = (channel: NewsletterChannel, title: string, Icon: typeof Mail) => {
     const checked = channels.includes(channel);
     return (
-      <label key={channel} className={`flex min-w-0 flex-1 items-center gap-3 rounded-lg border-2 px-4 py-2.5 ${checked ? 'border-[#6C60FF] bg-[#6C60FF]/5' : 'border-gray-200 bg-white'} ${readOnly ? 'opacity-70' : 'cursor-pointer'}`}>
-        <input type="checkbox" checked={checked} disabled={readOnly} onChange={() => onChange({ channels: toggleChannel(channels, channel) })} className="h-4 w-4 flex-shrink-0 accent-[#6C60FF]" />
+      <label key={channel} className={`flex min-w-0 flex-1 items-center gap-3 rounded-lg border-2 px-4 py-2.5 ${checked ? 'border-[#6C60FF] bg-[#6C60FF]/5' : fieldErrors.channels ? 'border-red-300 bg-white' : 'border-gray-200 bg-white'} ${readOnly ? 'opacity-70' : 'cursor-pointer'}`}>
+        <input type="checkbox" checked={checked} disabled={readOnly} aria-invalid={Boolean(fieldErrors.channels)} aria-describedby={fieldErrors.channels ? id('channels-error') : undefined} onChange={() => onChange({ channels: toggleChannel(channels, channel) })} className="h-4 w-4 flex-shrink-0 accent-[#6C60FF]" />
         <Icon className="h-4 w-4 flex-shrink-0 text-gray-600" aria-hidden="true" />
         <span className="truncate text-sm text-gray-900">{title}</span>
       </label>
@@ -189,6 +193,7 @@ export default function AudiencePicker({
           <Popover.Root open={open} onOpenChange={setOpen}>
             <Popover.Trigger asChild>
               <button type="button" disabled={readOnly} aria-labelledby={`${id('send-to-label')} ${id('send-to-value')}`}
+                aria-invalid={Boolean(audienceError)} aria-describedby={audienceError ? id('send-to-error') : undefined}
                 className={`${inputClass(Boolean(audienceError))} flex items-center justify-between gap-2 text-left`}>
                 <span id={id('send-to-value')} className="truncate">{label}</span>
                 <ChevronDown className="h-4 w-4 flex-shrink-0 text-gray-500" aria-hidden="true" />
@@ -233,11 +238,11 @@ export default function AudiencePicker({
               </Popover.Content>
             </Popover.Portal>
           </Popover.Root>
-          {audienceError ? <p role="alert" className="mt-1.5 text-xs text-red-600">{audienceError}</p> : null}
+          {audienceError ? <p id={id('send-to-error')} role="alert" className="mt-1.5 text-xs text-red-600">{audienceError}</p> : null}
 
           {single ? (
             <PersonFields ref={personRef} idPrefix={idPrefix} audience={audience} channels={channels} counts={count.counts} readOnly={readOnly} enabled={enabled && paid}
-              fieldErrors={fieldErrors} showProblems={Boolean(stepError)} onChange={(next) => onChange({ audience: next })} onLeadName={setPersonLabel} />
+              fieldErrors={fieldErrors} showProblems={showProblems ?? Boolean(stepError)} missing={personMissing} onChange={(next) => onChange({ audience: next })} onLeadName={setPersonLabel} />
           ) : null}
 
           <div className="mt-3 rounded-lg bg-gray-50 px-4 py-3" aria-live="polite">
@@ -255,7 +260,7 @@ export default function AudiencePicker({
             {channelBox('email', 'Email', Mail)}
             {channelBox('sms', 'Text message (SMS)', MessageSquare)}
           </div>
-          {fieldErrors.channels ? <p role="alert" className="mt-1.5 text-xs text-red-600">{fieldErrors.channels}</p> : null}
+          {fieldErrors.channels ? <p id={id('channels-error')} role="alert" className="mt-1.5 text-xs text-red-600">{fieldErrors.channels}</p> : null}
         </fieldset>
 
         <div>

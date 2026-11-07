@@ -18,7 +18,9 @@ export const LINK_BUTTON = `inline-flex items-center gap-1.5 rounded text-sm fon
 export const LABEL = 'mb-1.5 block text-sm font-medium text-gray-900';
 
 const INPUT_BASE = 'w-full h-9 rounded-lg border bg-white px-3 text-sm text-gray-900 placeholder:text-gray-400 outline-none transition-colors focus:border-[#6C60FF] focus:ring-2 focus:ring-[#6C60FF]/20 disabled:bg-gray-50 disabled:text-gray-500';
-export const inputClass = (invalid = false): string => `${INPUT_BASE} ${invalid ? 'border-red-400' : 'border-gray-200'}`;
+// A marked field stays red while it has focus (Chris, 7 Nov: Send focuses the first problem, so it must still read as one).
+const INVALID = 'border-red-400 focus:!border-red-400 focus:!ring-red-400/20';
+export const inputClass = (invalid = false): string => `${INPUT_BASE} ${invalid ? INVALID : 'border-gray-200'}`;
 
 const TEXTAREA_BASE = 'w-full rounded-lg border bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 outline-none transition-colors focus:border-[#6C60FF] focus:ring-2 focus:ring-[#6C60FF]/20 disabled:bg-gray-50 disabled:text-gray-500';
-export const textareaClass = (invalid = false): string => `${TEXTAREA_BASE} ${invalid ? 'border-red-400' : 'border-gray-200'}`;
+export const textareaClass = (invalid = false): string => `${TEXTAREA_BASE} ${invalid ? INVALID : 'border-gray-200'}`;

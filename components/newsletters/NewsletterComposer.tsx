@@ -26,7 +26,8 @@ import ScheduleStep from './ScheduleStep';
 import PreviewDialog from './PreviewDialog';
 import SendTestButton from './SendTestButton';
 import { formatSendTime, plannedFromSchedule, sameInstant, scheduleFromPlanned, type ScheduleChoice } from './lib/schedule';
-import { firstProblemStep, preSendProblems, stepDomId, stepErrorsFrom, type StepKey } from './lib/sendChecks';
+import { STEP_ORDER, firstProblemStep, stepDomId, stepErrorsFrom, type StepKey } from './lib/sendChecks';
+import { firstProblem, sendProblems, type SendProblems } from './lib/sendFieldChecks';
 import { nextSubjectForName } from './lib/subjectSync';
 import { formatSentTo } from './lib/phoneDisplay';
 import { smsPartsInfo } from './lib/smsParts';
@@ -64,6 +65,9 @@ const PLAN_CHECK_PATIENCE_MS = 20000;
 
 // 422 keys shown under their own field (so the step card doesn't repeat them).
 const INLINE_KEYS = new Set(['name', 'from_name', 'reply_to_email', 'subject', 'preview_text', 'audience', 'channels', 'sms_text']);
+/** Chris (7 Nov): the toast when Send / Schedule finds problems; each is marked on its field (or section). */
+const FIX_MARKED = 'Fix what\u2019s marked in red, then try again.';
+const NO_PROBLEMS: SendProblems = { fields: {}, steps: {} };
 
 // Phones: the three buttons share the row; from sm up they keep their natural width.
 const ROW_BUTTON = 'min-w-0 flex-1 whitespace-nowrap px-2 sm:flex-none sm:px-5';
@@ -196,22 +200,39 @@ const NewsletterComposer = forwardRef<NewsletterComposerHandle, NewsletterCompos
 
   // Studio's own checks once Send was pressed, then the API's 422 answer. Keys a step's fields already show
   // (name, from, subject, recipients' audience / channels / text) appear under the field, not twice.
-  const problems = attempted ? preSendProblems(draft, audienceCount.counts, schedule, undefined, fallbackFromName) : {};
-  const serverSteps = stepErrorsFrom(Object.fromEntries(Object.entries(state.fieldErrors).filter(([key]) => !INLINE_KEYS.has(key.split('.')[0]))));
-  const stepError = (key: StepKey): string | undefined => problems[key] ?? serverSteps[key];
+  // Chris (7 Nov): problems are filed by field (marked, message under it); only one that belongs to no field stays with
+  // its card, at the card's bottom.
+  const problems = attempted ? sendProblems(draft, audienceCount.counts, schedule, undefined, fallbackFromName) : NO_PROBLEMS;
+  // A refused time (scheduled_at) is shown under the date and time when they show (Schedule for later).
+  const serverSteps = stepErrorsFrom(Object.fromEntries(Object.entries(state.fieldErrors).filter(([key]) => !INLINE_KEYS.has(key.split('.')[0]) && !(later && key.split('.')[0] === 'scheduled_at'))));
+  const stepError = (key: StepKey): string | undefined => problems.steps[key] ?? serverSteps[key];
 
-  const showStep = (key: StepKey) => {
-    const el = document.getElementById(stepDomId(key));
-    el?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    el?.focus({ preventScroll: true });
+  /**
+   * Take the person to the first problem (once the marks are drawn): the first marked field of that step (of any step
+   * when step is null), else the first marked section for Content, else the card. Scrolled to the middle and focused.
+   */
+  const showProblem = (step: StepKey | null) => {
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      const steps = step ? [step] : STEP_ORDER;
+      for (const key of steps) {
+        const card = document.getElementById(stepDomId(key));
+        const target = card?.querySelector<HTMLElement>('[aria-invalid="true"]')
+          ?? (key === 'content' ? rootRef.current?.querySelector<HTMLElement>('[data-nl-invalid="true"]') : null)
+          ?? (step ? card : null);
+        if (!target) continue;
+        target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        target.focus({ preventScroll: true });
+        return;
+      }
+    }));
   };
 
   const startSend = async () => {
     setAttempted(true);
-    const first = firstProblemStep(preSendProblems(draft, audienceCount.counts, schedule, undefined, fallbackFromName));
+    const first = firstProblem(sendProblems(draft, audienceCount.counts, schedule, undefined, fallbackFromName));
     if (first) {
-      showStep(first);
-      composerToast.error('Finish the steps marked in red, then try again.');
+      showProblem(first.step);
+      composerToast.error(FIX_MARKED);
       return;
     }
     setStarting(true);
@@ -268,8 +289,8 @@ const NewsletterComposer = forwardRef<NewsletterComposerHandle, NewsletterCompos
     state.setFieldErrors(res.fieldErrors);
     const first = firstProblemStep(stepErrorsFrom(res.fieldErrors));
     if (first) {
-      showStep(first);
-      composerToast.error('Finish the steps marked in red, then try again.');
+      showProblem(first);
+      composerToast.error(FIX_MARKED);
     } else {
       composerToast.error(res.error ?? GENERIC_ERROR);
     }
@@ -287,7 +308,7 @@ const NewsletterComposer = forwardRef<NewsletterComposerHandle, NewsletterCompos
     return subject === d.subject ? { name } : { name, subject };
   });
   const live = fieldProblems(draft);
-  const fieldError = (key: keyof NewsletterDraft): string | undefined => live[key] ?? state.fieldErrors[key];
+  const fieldError = (key: keyof NewsletterDraft): string | undefined => live[key] ?? problems.fields[key as keyof SendProblems['fields']] ?? state.fieldErrors[key];
 
   // Cancel, Back and Escape. If the last changes can't be saved, ask instead of closing silently.
   const [unsaved, setUnsaved] = useState<string | null>(null);
@@ -375,6 +396,8 @@ const NewsletterComposer = forwardRef<NewsletterComposerHandle, NewsletterCompos
     const result = await state.saveNow();
     if (!result.newsletter) {
       composerToast.error(result.error ?? GENERIC_ERROR);
+      // A field the API refused is marked: go to it (Chris, 7 Nov).
+      showProblem(null);
       return;
     }
     const id = result.newsletter.id;
@@ -485,8 +508,9 @@ const NewsletterComposer = forwardRef<NewsletterComposerHandle, NewsletterCompos
                 count={audienceCount}
                 readOnly={readOnly}
                 enabled={enabled}
-                fieldErrors={{ ...state.fieldErrors, ...live }}
+                fieldErrors={{ ...state.fieldErrors, ...problems.fields, ...live }}
                 stepError={stepError('recipients')}
+                showProblems={attempted}
                 onChange={update}
                 defaultMessage={brand.loaded ? brand.brand?.default_message ?? null : undefined}
                 onDefaultMessageChange={async (message) => {
@@ -503,7 +527,8 @@ const NewsletterComposer = forwardRef<NewsletterComposerHandle, NewsletterCompos
                 <TemplatePicker value={draft.template} readOnly={readOnly} />
               </StepCard>
 
-              <ScheduleStep value={schedule} onChange={changeSchedule} stepError={stepError('schedule')} readOnly={readOnly} texts={draft.channels.includes('sms')} />
+              <ScheduleStep value={schedule} onChange={changeSchedule} stepError={stepError('schedule')} readOnly={readOnly} texts={draft.channels.includes('sms')}
+                errors={{ send_date: problems.fields.send_date, send_time: problems.fields.send_time ?? (problems.fields.send_date ? undefined : state.fieldErrors.scheduled_at) }} />
 
               <div className="flex flex-col gap-3 pb-[max(2rem,env(safe-area-inset-bottom))] sm:flex-row sm:items-center sm:justify-between">
                 {readOnly || !enabled ? <span /> : <SendTestButton channels={draft.channels} busy={testing} onSend={sendTest} />}

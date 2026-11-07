@@ -11,6 +11,8 @@ import { campaignSelections } from '../lib/blocks';
 import { BUTTON_SMALL, LINK_BUTTON } from '../lib/ui';
 import CampaignCardEditor from './CampaignCardEditor';
 import type { BlockEditorProps } from './types';
+import { PaddingSwitch } from './SpacingMenu';
+import { spacingOf, spacingPatch } from '../lib/sectionSpacing';
 
 /** True on screens 640 px and wider (Tailwind sm), where a 2-column section shows two cards a row. */
 const WIDE = '(min-width: 640px)';
@@ -155,6 +157,7 @@ export default function CampaignsBlockEditor({ blockId, data, selected, readOnly
           <p id={`${blockId}-campaigns-hint`} className="mt-2 text-xs text-gray-500">
             Up to {CAMPAIGNS_MAX}. Each card opens its own page.{columns === 2 ? ' On phones the cards show one under another.' : ''}
           </p>
+          <PaddingSwitch className="mt-3" value={spacingOf(data as unknown as Record<string, unknown>, false).padding ?? 'normal'} onChange={(padding) => onChange(spacingPatch({ padding }))} />
         </div>
       ) : null}
     </div>
