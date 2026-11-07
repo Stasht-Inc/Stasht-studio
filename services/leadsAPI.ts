@@ -1,4 +1,5 @@
 import { apiRequest, isPartialAdmin, getPartialAdminEmail } from '../utils/authUtils';
+import { leadViaText } from '../utils/leadVia';
 
 // Fail closed: a session flagged as partial-admin with no email on record is
 // corrupted, not "not partial admin" — sending nothing here would let the
@@ -91,6 +92,8 @@ export interface Lead {
   campaign_deleted?: boolean;
   // 'widget' = captured by the Contact Us website widget (no campaign, no account).
   source?: 'memory' | 'widget';
+  // Chris 7 Nov: a direct lead made from a newsletter list — its "Via" line reads "List: <name>".
+  source_list?: { id: number; name: string; added_at?: string | null } | null;
   status: 'hot' | 'warm' | 'cold' | 'visited' | 'sold' | null;
   engagement: number;
   comments: LeadComment[];
@@ -147,14 +150,13 @@ export interface AssignableUser extends LeadAssignee {
   role: 'owner' | 'admin' | 'rep' | string;
 }
 
-/** Text for a lead's "Via" line: its campaign, the website widget, or a direct message. */
-export function leadViaLabel(lead: Pick<Lead, 'story' | 'source'>): string {
-  if (lead.story?.title) return `Via: ${lead.story.title}`;
-  return lead.source === 'widget' ? 'Website widget' : 'Direct message';
+/** Text for a lead's "Via" line: its campaign, the website widget, its newsletter list, or a direct message. */
+export function leadViaLabel(lead: Pick<Lead, 'story' | 'source' | 'source_list'>): string {
+  return leadViaText(lead);
 }
 
 /** The "Via" line as plain text (tooltips), noting a deleted campaign. */
-export function leadViaTitle(lead: Pick<Lead, 'story' | 'source' | 'campaign_deleted'>): string {
+export function leadViaTitle(lead: Pick<Lead, 'story' | 'source' | 'source_list' | 'campaign_deleted'>): string {
   return lead.campaign_deleted ? `${leadViaLabel(lead)} (campaign deleted)` : leadViaLabel(lead);
 }
 
