@@ -39,25 +39,25 @@ beforeEach(() => { store.clear(); fetches = []; fetchHeaders = []; __resetBrandP
 
 test('answers on a payload are kept and readable at once (no request)', () => {
   seedBrandPictures({ success: true, data: {}, brand_pictures: { [S3]: { kind: 'logo', color: '#0062a8', frame: false } } });
-  assert.deepEqual(knownBrandPicture(S3), { kind: 'logo', color: '#0062A8', frame: false });
+  assert.deepEqual(knownBrandPicture(S3), { kind: 'logo', color: '#0062A8', frame: false, gradient: null });
   assert.equal(fetches.length, 0);
 });
 
 test('they survive a reload (localStorage), so a picture seen before never switches look', () => {
   seedBrandPictures({ brand_pictures: { [S3]: { kind: 'photo', color: null, frame: false } } });
   __resetBrandPictures({ keepStorage: true });
-  assert.deepEqual(knownBrandPicture(S3), { kind: 'photo', color: null, frame: false });
+  assert.deepEqual(knownBrandPicture(S3), { kind: 'photo', color: null, frame: false, gradient: null });
 });
 
 test('bad shapes are ignored', () => {
   assert.equal(parseBrandPicture(null), null);
   assert.equal(parseBrandPicture({ kind: 'banner', color: '#000000', frame: false }), null);
   assert.equal(parseBrandPicture({ kind: 'logo', color: 'red', frame: false }), null);
-  assert.deepEqual(parseBrandPicture({ kind: 'logo', color: null }), { kind: 'logo', color: null, frame: false });
+  assert.deepEqual(parseBrandPicture({ kind: 'logo', color: null }), { kind: 'logo', color: null, frame: false, gradient: null });
   seedBrandPictures({ brand_pictures: 'nope' });
   seedBrandPictures({ brand_pictures: { [S3]: { kind: 'x' } } });
   assert.equal(knownBrandPicture(S3), undefined);
-  store.set('stasht_brand_pictures_v2', '{not json');
+  store.set('stasht_brand_pictures_v3', '{not json');
   __resetBrandPictures({ keepStorage: true });
   assert.equal(knownBrandPicture(S3), undefined);
 });
@@ -83,8 +83,8 @@ test('all of a page\'s unknown pictures are asked about in ONE call (re-review N
   assert.equal(fetches.length, 1);
   assert.match(fetches[0], /\/brand-pictures\?/);
   assert.deepEqual(new URL(fetches[0], 'https://x').searchParams.getAll('urls[]').sort(), [other, S3].sort());
-  assert.deepEqual(knownBrandPicture(S3), { kind: 'logo', color: '#0062A8', frame: false });
-  assert.deepEqual(knownBrandPicture(other), { kind: 'logo', color: '#0062A8', frame: false });
+  assert.deepEqual(knownBrandPicture(S3), { kind: 'logo', color: '#0062A8', frame: false, gradient: null });
+  assert.deepEqual(knownBrandPicture(other), { kind: 'logo', color: '#0062A8', frame: false, gradient: null });
   assert.equal(heard, 1);
 });
 
@@ -96,8 +96,14 @@ test('signed in, the call carries the token (so the server works the misses out)
   assert.equal(fetchHeaders[0].Authorization, 'Bearer t');
 });
 
+test('a logo\'s gradient background comes through; a card frame never does (Chris point 11)', () => {
+  assert.deepEqual(parseBrandPicture({ kind: 'logo', color: '#bbbbbb', frame: true, gradient: ['#dcdcdc', '#9a9a9a'] }),
+    { kind: 'logo', color: '#BBBBBB', frame: false, gradient: ['#DCDCDC', '#9A9A9A'] });
+  assert.equal(parseBrandPicture({ kind: 'logo', color: '#bbbbbb', gradient: ['red', '#9a9a9a'] }).gradient, null);
+});
+
 test('"whole" (the API\'s unsure answer) is a real answer', () => {
-  assert.deepEqual(parseBrandPicture({ kind: 'whole', color: '#f4f4f2', frame: false }), { kind: 'whole', color: '#F4F4F2', frame: false });
+  assert.deepEqual(parseBrandPicture({ kind: 'whole', color: '#f4f4f2', frame: false }), { kind: 'whole', color: '#F4F4F2', frame: false, gradient: null });
 });
 
 test('signed out, a pending picture is not asked about again (nothing is being worked out for us)', async () => {
@@ -125,7 +131,7 @@ test('the store is capped', () => {
   const many = {};
   for (let i = 0; i < 260; i++) many[`${S3}-${i}`] = { kind: 'logo', color: '#112233', frame: false };
   seedBrandPictures({ brand_pictures: many });
-  const saved = JSON.parse(store.get('stasht_brand_pictures_v2'));
+  const saved = JSON.parse(store.get('stasht_brand_pictures_v3'));
   assert.ok(Object.keys(saved).length <= 200);
   assert.ok(saved[`${S3}-259`], 'the newest are kept');
 });

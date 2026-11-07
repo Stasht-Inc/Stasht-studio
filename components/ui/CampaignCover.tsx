@@ -1,5 +1,5 @@
 import React, { useEffect, useLayoutEffect, useReducer, useRef, useState } from 'react';
-import { brandCoverColor, campaignCoverLayout, coverCenterTop, isVectorImage, lightCoverFill, type CoverSize } from '../../utils/campaignCover';
+import { brandCoverColor, campaignCoverLayout, coverCenterTop, isVectorImage, lightCoverFill, seamlessFill, type CoverSize } from '../../utils/campaignCover';
 import { knownBrandPicture, requestBrandPicture, subscribeBrandPictures, type BrandPicture } from '../../utils/brandPictures';
 
 /**
@@ -13,9 +13,10 @@ import { knownBrandPicture, requestBrandPicture, subscribeBrandPictures, type Br
  * hidden until its size is known, so it never shows stretched for a frame. Layout rules: utils/campaignCover.ts.
  *
  * Chris, 7 Nov 2026: the web API judges the brand picture once (utils/brandPictures; it comes with the campaign
- * payloads): a LOGO is drawn whole — never cut to a circle — on ONE SOLID colour taken from it (no blurred copy; a logo
- * box blends into its cover; a logo on white is drawn as a rounded card); the owner's PHOTO avatar fills the cover like
- * a chosen photo. Not known (yet): the 4 Nov look, painted at once — no waiting.
+ * payloads): a LOGO is drawn whole — never cut round, no ring, card, shadow or blurred copy — on the logo image's OWN
+ * background colour (or its top-to-bottom gradient), so logo and cover read as one surface (Chris point 11:
+ * "seamless"); the owner's PHOTO avatar fills the cover like a chosen photo; 'whole' (unsure) is drawn full height on
+ * its edge colour. Not known (yet): the brand drawn whole and plain on white, painted at once — no waiting.
  *
  * The wrapper takes `className` (size / position, e.g. "w-full h-full" or "absolute inset-0"); overlays (gradient,
  * title, buttons) stay with the caller, on top of it.
@@ -33,7 +34,7 @@ export interface CampaignCoverProps {
   onError?: () => void;
   loading?: 'lazy' | 'eager';
   /** Behind a contained picture: a blurred copy of it (headers, preview) or just the profile colour (cards — cheaper
-   *  in big grids). A brand whose pixels could be read always gets its solid colour instead (Chris, 7 Nov 2026). */
+   *  in big grids) — for a small CHOSEN picture only: a brand is always drawn plain on its own background (Chris 7 Nov). */
   backdrop?: 'blur' | 'color';
   /** Where the middle of a contained picture sits, as a share of the box height (default COVER_CENTER_Y). For a
    *  layout whose title sits higher than usual. */
@@ -71,6 +72,9 @@ function observeSize(el: Element, listener: (size: CoverSize) => void): () => vo
     sharedObserver?.unobserve(el);
   };
 }
+
+/** Behind a brand not judged yet (or never judgeable, e.g. SVG): white — most logos sit on white (Chris point 11). */
+const NEUTRAL_FILL = '#FFFFFF';
 
 /** The web API's answer for the brand picture (null / undefined: not known — the 4 Nov look). Asks once if needed. */
 function useBrandPicture(src: string | null): BrandPicture | null | undefined {
@@ -134,36 +138,33 @@ export default function CampaignCover({
   const layout = campaignCoverLayout({ isFallback, brandKind: brand?.kind ?? null, natural, box, vector: isVectorImage(src), judgeBox, brandFraction: brand?.kind === 'logo' ? brandFraction : undefined });
   const contain = layout.mode === 'contain';
   const pending = layout.mode === 'pending';
-  // A judged brand sits on one solid colour: the API's, else the profile colour (then Studio purple). A logo box blends
-  // into it (no shadow); a logo on white is a rounded card; a (tiny) photo is a rounded picture.
-  const solid = isFallback && !!brand;
-  const fill = solid ? (brand.color ?? brandCoverColor(color)) : brandCoverColor(color);
-  // A 'whole' picture (the API was unsure: a flat backdrop) is drawn plain too, its backdrop running on into the fill.
-  const blendedLogo = solid && ((brand.kind === 'logo' && !brand.frame) || brand.kind === 'whole');
+  // The brand drawn whole is PLAIN (Chris point 11): a logo, a 'whole' picture, or one not judged yet — no circle,
+  // ring, card, shadow or blurred copy. Its fill: the logo image's own background (the API's answer), else white.
+  const plainBrand = isFallback && brand?.kind !== 'photo';
+  const fill = !isFallback ? brandCoverColor(color) : brand ? (brand.color ?? brandCoverColor(color)) : NEUTRAL_FILL;
+  const imageTop = contain && box ? coverCenterTop(box.height, layout.height, centerY) : 0;
+  const gradient = contain && plainBrand && brand?.gradient && box
+    ? seamlessFill(brand, { top: imageTop - layout.height / 2, height: layout.height }, fill)
+    : null;
   // On a light fill the callers' bottom gradient isn't enough for their white title / meta: darken the lower part.
-  const titleScrim = contain && solid && lightCoverFill(fill);
+  const titleScrim = contain && isFallback && lightCoverFill(brand?.gradient ? brand.gradient[1] : fill);
   const mainClass = layout.mode !== 'contain'
     ? `w-full h-full object-cover${pending ? ' opacity-0' : ''}`
-    : `absolute left-1/2 -translate-x-1/2 -translate-y-1/2 ${
-      layout.shape === 'circle'
-        ? 'rounded-full object-cover border-4 border-white/60 shadow-lg'
-        : blendedLogo ? 'object-contain'
-          : isFallback && !solid ? 'object-contain drop-shadow-lg' : 'rounded-xl object-contain shadow-lg'
-    }`;
+    : `absolute left-1/2 -translate-x-1/2 -translate-y-1/2 ${plainBrand ? 'object-contain' : 'rounded-xl object-contain shadow-lg'}`;
 
   return (
     <div
       ref={boxRef}
       className={`${/\b(absolute|fixed|relative|sticky)\b/.test(className) ? '' : 'relative '}overflow-hidden ${className}`}
-      style={contain || (pending && isFallback) ? { backgroundColor: fill } : undefined}
+      style={gradient ? { background: gradient } : contain || (pending && isFallback) ? { backgroundColor: fill } : undefined}
       data-cover-mode={pending ? 'pending' : contain ? (isFallback ? 'brand' : 'small') : 'cover'}
       data-cover-shape={contain ? layout.shape : undefined}
       data-brand-kind={isFallback && brand ? brand.kind : undefined}
-      data-cover-fill={contain && solid ? fill : undefined}
-      data-brand-frame={contain && solid && brand.frame ? 'true' : undefined}
+      data-cover-fill={contain && isFallback ? fill : undefined}
+      data-cover-gradient={gradient && brand?.gradient ? brand.gradient.join(' ') : undefined}
       data-title-scrim={titleScrim ? 'true' : undefined}
     >
-      {contain && backdrop === 'blur' && !solid && (
+      {contain && backdrop === 'blur' && !isFallback && (
         <img
           src={src as string}
           alt=""
@@ -183,7 +184,7 @@ export default function CampaignCover({
         onError={() => { setFailedSrc(src ?? null); onError?.(); }}
         className={mainClass}
         style={layout.mode === 'contain' && box
-          ? { width: layout.width, height: layout.height, top: coverCenterTop(box.height, layout.height, centerY) }
+          ? { width: layout.width, height: layout.height, top: imageTop }
           : undefined}
       />
       {titleScrim && (

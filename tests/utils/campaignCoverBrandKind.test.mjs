@@ -26,9 +26,9 @@ test('a brand LOGO is drawn whole, never cut to a circle, even when square (revi
     { mode: 'contain', shape: 'rect', width: 96, height: 96 });
 });
 
-test('not judged (yet): the 4 Nov rules — a square brand is the round avatar', () => {
+test('not judged (yet): whole, 60% at most — never cut round any more (Chris point 11)', () => {
   for (const brandKind of [null, undefined]) {
-    assert.equal(campaignCoverLayout({ isFallback: true, brandKind, natural: { width: 256, height: 256 }, box: card }).shape, 'circle');
+    assert.equal(campaignCoverLayout({ isFallback: true, brandKind, natural: { width: 256, height: 256 }, box: card }).shape, 'rect');
     assert.deepEqual(campaignCoverLayout({ isFallback: true, brandKind, natural: { width: 600, height: 420 }, box: card }),
       { mode: 'contain', shape: 'rect', width: 174, height: 122 });
   }
@@ -57,4 +57,15 @@ test('a light brand fill gets a stronger bottom scrim so the white title reads (
   const { lightCoverFill } = await import('../../utils/campaignCover.ts');
   for (const light of ['#FFFFFF', '#F5F5F2', '#E5E2FF', '#D6DFF8', '#FCD6D8', '#F29D0D']) assert.equal(lightCoverFill(light), true, light);
   for (const dark of ['#0062A8', '#0B1442', '#16803E', '#111827', null, 'nonsense']) assert.equal(lightCoverFill(dark), false, String(dark));
+});
+
+test('a logo\'s gradient background: the cover fill runs top colour → bottom colour around the logo (seamless)', async () => {
+  const { seamlessFill } = await import('../../utils/campaignCover.ts');
+  // flat: one colour
+  assert.equal(seamlessFill({ color: '#FFFFFF', gradient: null }, null), '#FFFFFF');
+  // a 200px-tall logo whose top sits at 100px in a 600px box: top colour down to 100px, bottom colour from 300px
+  assert.equal(seamlessFill({ color: '#BBBBBB', gradient: ['#DCDCDC', '#9A9A9A'] }, { top: 100, height: 200 }),
+    'linear-gradient(to bottom, #DCDCDC 0px, #DCDCDC 100px, #9A9A9A 300px, #9A9A9A 100%)');
+  // not laid out yet: the flat colour
+  assert.equal(seamlessFill({ color: '#BBBBBB', gradient: ['#DCDCDC', '#9A9A9A'] }, null), '#BBBBBB');
 });

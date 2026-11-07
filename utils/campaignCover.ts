@@ -26,7 +26,7 @@ export const WHOLE_MAX_WIDTH = 0.9;
 export const COVER_MAX_UPSCALE = 1.5;
 /** A chosen picture counts as too small only when it is under this share of the box on a side. */
 export const COVER_SMALL_SIDE = 0.5;
-/** The brand is cut to a circle only when it is about square (width / height in this range). */
+/** Unused since Chris 7 Nov point 11 (no brand is cut round any more); kept for the 4 Nov tests' record. */
 export const BRAND_CIRCLE_ASPECT: [number, number] = [0.85, 1.18];
 /** A contained picture sits a little above the middle: covers carry their title, pills and buttons at the bottom. */
 export const COVER_CENTER_Y = 0.38;
@@ -87,14 +87,7 @@ export function campaignCoverLayout({ isFallback = false, brandKind = null, natu
       return { mode: 'contain', shape: 'rect', width: Math.round(brandFraction * box.width), height: Math.round(brandFraction * box.height) };
     }
     if (!known(natural)) return { mode: 'pending' };
-    const aspect = natural.width / natural.height;
-    if (brandKind !== 'logo' && aspect >= BRAND_CIRCLE_ASPECT[0] && aspect <= BRAND_CIRCLE_ASPECT[1]) {
-      const side = Math.round(Math.min(
-        brandFraction * Math.min(box.width, box.height),
-        COVER_MAX_UPSCALE * Math.min(natural.width, natural.height),
-      ));
-      return { mode: 'contain', shape: 'circle', width: side, height: side };
-    }
+    // Drawn whole, never cut round (Chris 7 Nov point 11: "this needs to be smooth" — the 4 Nov round avatar is gone).
     return containRect(natural, box, brandFraction);
   }
   if (vector) return { mode: 'cover' };
@@ -121,6 +114,21 @@ export function lightCoverFill(color?: string | null): boolean {
   const lin = (v: number) => { const c = v / 255; return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; };
   const lum = 0.2126 * lin((n >> 16) & 255) + 0.7152 * lin((n >> 8) & 255) + 0.0722 * lin(n & 255);
   return 1.05 / (lum + 0.05) < 4.5;
+}
+
+/**
+ * The CSS fill behind a logo drawn whole (Chris point 11, "seamless"): its own background colour, or — when that
+ * background runs from one colour at the top to another at the bottom — the top colour down to the logo's top, the
+ * bottom colour from the logo's bottom, blending between them, so the logo's edges disappear. `at`: where the logo is
+ * drawn (px from the box's top, and its height); null until it is laid out.
+ */
+export function seamlessFill(pic: { color: string | null; gradient: [string, string] | null }, at: { top: number; height: number } | null, fallback = '#FFFFFF'): string {
+  const flat = pic.color ?? fallback;
+  if (!pic.gradient || !at) return flat;
+  const [top, bottom] = pic.gradient;
+  const y0 = Math.round(at.top);
+  const y1 = Math.round(at.top + at.height);
+  return `linear-gradient(to bottom, ${top} 0px, ${top} ${y0}px, ${bottom} ${y1}px, ${bottom} 100%)`;
 }
 
 /** The colour behind a contained cover: the account's profile colour (stored with or without #), else Studio purple. */

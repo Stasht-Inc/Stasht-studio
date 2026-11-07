@@ -13,11 +13,13 @@ export interface BrandPicture {
   kind: 'logo' | 'photo' | 'whole';
   /** The solid colour behind a logo (#RRGGBB); null: the profile colour, then Studio purple. */
   color: string | null;
-  /** Draw the logo as a rounded card (a logo on a white background), not blended. */
+  /** Always false since Chris point 11 (no card look); kept for older answers. */
   frame: boolean;
+  /** The logo image's own background running from [top] to [bottom] colour (a gradient badge), else null. */
+  gradient: [string, string] | null;
 }
 
-const STORE_KEY = 'stasht_brand_pictures_v2';
+const STORE_KEY = 'stasht_brand_pictures_v3'; // v3: seamless fills (Chris point 11)
 const STORE_MAX = 200;
 
 const known = new Map<string, BrandPicture | null>();
@@ -48,7 +50,12 @@ export function parseBrandPicture(v: unknown): BrandPicture | null {
   const o = v as Record<string, unknown>;
   if (o.kind !== 'logo' && o.kind !== 'photo' && o.kind !== 'whole') return null;
   if (o.color !== null && o.color !== undefined && !(typeof o.color === 'string' && /^#[0-9a-f]{6}$/i.test(o.color))) return null;
-  return { kind: o.kind, color: typeof o.color === 'string' ? o.color.toUpperCase() : null, frame: o.frame === true };
+  const hex = (v: unknown) => typeof v === 'string' && /^#[0-9a-f]{6}$/i.test(v);
+  const g = Array.isArray(o.gradient) && o.gradient.length === 2 && hex(o.gradient[0]) && hex(o.gradient[1])
+    ? [String(o.gradient[0]).toUpperCase(), String(o.gradient[1]).toUpperCase()] as [string, string]
+    : null;
+  // A logo is never drawn as a card any more (Chris point 11): frame is dropped whatever an older answer says.
+  return { kind: o.kind, color: typeof o.color === 'string' ? o.color.toUpperCase() : null, frame: false, gradient: g };
 }
 
 function readStore(): Record<string, BrandPicture> {
@@ -106,7 +113,7 @@ export function seedBrandPictures(body: unknown): void {
     if (!pic) continue;
     const before = known.get(url);
     remember(url, pic);
-    if (!before || before.kind !== pic.kind || before.color !== pic.color || before.frame !== pic.frame) added = true;
+    if (!before || before.kind !== pic.kind || before.color !== pic.color || String(before.gradient) !== String(pic.gradient)) added = true;
   }
   if (added) {
     save();
