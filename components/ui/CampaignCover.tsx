@@ -74,10 +74,16 @@ function useBrandPicture(src: string | null): BrandPicture | null | undefined {
   const [, rerender] = useReducer((n: number) => n + 1, 0);
   const pic = src ? knownBrandPicture(src) : undefined;
   useEffect(() => {
-    if (!src || knownBrandPicture(src) !== undefined) return undefined;
+    if (!src) return undefined;
+    if (knownBrandPicture(src) !== undefined) {
+      // Arrived between this render and the effect (re-review N7): show it now.
+      if (pic === undefined) rerender();
+      return undefined;
+    }
     const off = subscribeBrandPictures(() => { if (knownBrandPicture(src) !== undefined) rerender(); });
     requestBrandPicture(src);
     return off;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [src]);
   return pic;
 }

@@ -1,7 +1,7 @@
 // Brand pictures (Chris, 7 Nov 2026; review rework): what an account / property avatar is — a LOGO, drawn whole on one
 // solid colour, or a PHOTO, which fills the cover — as the web API judged it (BrandPictures there: once per picture,
 // cached, our storage only). It comes as `brand_pictures: { url: { kind, color, frame } }` on campaign payloads
-// (seeded by apiRequest) or, for a cover whose payload didn't carry it, from GET /brand-picture?url=.
+// (seeded by apiRequest) or, for covers whose payload didn't carry them, from ONE GET /brand-pictures?urls[]= per page.
 //
 // Kept here in memory and in localStorage, so CampaignCover reads it synchronously: it paints the right look at once,
 // never waits hidden, and a picture seen before never switches look on a later visit. A picture not known yet shows the
@@ -21,13 +21,25 @@ const STORE_MAX = 200;
 
 const known = new Map<string, BrandPicture | null>();
 const inFlight = new Set<string>();
+const retried = new Set<string>();
 const listeners = new Set<() => void>();
 let stored: Record<string, BrandPicture> | null = null;
 let apiBase: () => string = () => '/api/react';
+let authHeaders: () => Record<string, string> = () => ({});
+let queue: string[] = [];
+let flushTimer: ReturnType<typeof setTimeout> | null = null;
+/** Unknown covers that appear together are asked about together; a still-pending picture once more a little later. */
+let timing = { batchMs: 40, retryMs: 5000 };
+const BATCH_MAX = 40;
 
 /** authUtils hands over getApiBaseUrl (kept out of this file so it stays loadable in node tests). */
 export function setBrandPictureApiBase(base: () => string): void {
   apiBase = base;
+}
+
+/** authUtils hands over the signed-in headers: a signed-in call lets the server work the misses out. */
+export function setBrandPictureHeaders(headers: () => Record<string, string>): void {
+  authHeaders = headers;
 }
 
 export function parseBrandPicture(v: unknown): BrandPicture | null {
@@ -113,23 +125,47 @@ export function brandPictureEligible(url: string | null | undefined): boolean {
   return host === 'lh3.googleusercontent.com' && /^\/a-?\//.test(u.pathname);
 }
 
-/** Ask the API about a picture not known yet (once per visit). Listeners hear the answer. */
+/** Ask the API about a picture not known yet (batched with the page's other unknown covers). Listeners hear the answer. */
 export function requestBrandPicture(url: string | null | undefined): void {
   if (!url || knownBrandPicture(url) !== undefined || inFlight.has(url) || !brandPictureEligible(url)) return;
   inFlight.add(url);
-  void fetch(`${apiBase()}/brand-picture?${new URLSearchParams({ url })}`, { headers: { Accept: 'application/json' } })
+  queue.push(url);
+  if (!flushTimer) flushTimer = setTimeout(flush, timing.batchMs);
+}
+
+function flush(): void {
+  flushTimer = null;
+  const batch = queue.splice(0, BATCH_MAX);
+  if (queue.length) flushTimer = setTimeout(flush, timing.batchMs);
+  if (!batch.length) return;
+  const qs = batch.map((u) => `urls[]=${encodeURIComponent(u)}`).join('&');
+  let headers: Record<string, string> = {};
+  try { headers = authHeaders() || {}; } catch { headers = {}; }
+  void fetch(`${apiBase()}/brand-pictures?${qs}`, { headers: { ...headers, Accept: 'application/json' } })
     .then(async (r) => (r.ok ? r.json() : null))
     .catch(() => null)
     .then((body) => {
-      inFlight.delete(url);
-      const pic = parseBrandPicture(body?.data);
-      if (pic) {
-        remember(url, pic);
-        save();
-      } else {
-        known.set(url, null); // this visit only: the server remembers failures for a while itself
+      const data = body && typeof body.data === 'object' && body.data ? body.data as Record<string, unknown> : {};
+      let saved = false;
+      const again: string[] = [];
+      for (const url of batch) {
+        inFlight.delete(url);
+        const pic = parseBrandPicture(data[url]);
+        if (pic) {
+          remember(url, pic);
+          saved = true;
+        } else if (body && body.pending > 0 && !retried.has(url)) {
+          retried.add(url); // the server is working it out after that response: ask once more
+          again.push(url);
+        } else {
+          known.set(url, null); // this visit: the 4 Nov look
+        }
       }
+      if (saved) save();
       notify();
+      if (again.length) {
+        setTimeout(() => again.forEach((u) => requestBrandPicture(u)), timing.retryMs);
+      }
     });
 }
 
@@ -140,9 +176,18 @@ export function subscribeBrandPictures(fn: () => void): () => void {
 }
 
 /** Tests only. */
+export function __setBrandPictureTiming(t: { batchMs: number; retryMs: number }): void {
+  timing = t;
+}
+
+/** Tests only. */
 export function __resetBrandPictures({ keepStorage = false }: { keepStorage?: boolean } = {}): void {
   known.clear();
   inFlight.clear();
+  retried.clear();
+  queue = [];
+  if (flushTimer) clearTimeout(flushTimer);
+  flushTimer = null;
   stored = null;
   if (!keepStorage) {
     try { localStorage.removeItem(STORE_KEY); } catch { /* none */ }

@@ -15,18 +15,27 @@ globalThis.localStorage = {
   removeItem: (k) => { store.delete(k); },
 };
 let fetches = [];
-globalThis.fetch = async (url) => {
+let fetchHeaders = [];
+globalThis.fetch = async (url, init) => {
   fetches.push(String(url));
-  const target = new URL(String(url), 'https://studio.example').searchParams.get('url');
-  if (target?.includes('slow')) return { ok: false, status: 503, json: async () => ({}) };
-  return { ok: true, status: 200, json: async () => ({ success: true, data: { kind: 'logo', color: '#0062A8', frame: false } }) };
+  fetchHeaders.push(init?.headers ?? {});
+  const urls = new URL(String(url), 'https://studio.example').searchParams.getAll('urls[]');
+  const data = {};
+  let pending = 0;
+  for (const u of urls) {
+    if (u.includes('slow')) pending += 1;
+    else data[u] = { kind: 'logo', color: '#0062A8', frame: false };
+  }
+  return { ok: true, status: 200, json: async () => ({ success: true, data, pending }) };
 };
+const tick = (ms = 0) => new Promise((r) => setTimeout(r, ms));
 
 const mod = await import('../../utils/brandPictures.ts');
-const { seedBrandPictures, knownBrandPicture, requestBrandPicture, subscribeBrandPictures, parseBrandPicture, brandPictureEligible, __resetBrandPictures } = mod;
+const { seedBrandPictures, knownBrandPicture, requestBrandPicture, subscribeBrandPictures, parseBrandPicture, brandPictureEligible, __resetBrandPictures, __setBrandPictureTiming, setBrandPictureHeaders } = mod;
+__setBrandPictureTiming({ batchMs: 5, retryMs: 20 });
 
 const S3 = 'https://stasht-data.s3.us-east-2.amazonaws.com/profile_images/royal.png';
-beforeEach(() => { store.clear(); fetches = []; __resetBrandPictures(); });
+beforeEach(() => { store.clear(); fetches = []; fetchHeaders = []; __resetBrandPictures(); });
 
 test('answers on a payload are kept and readable at once (no request)', () => {
   seedBrandPictures({ success: true, data: {}, brand_pictures: { [S3]: { kind: 'logo', color: '#0062a8', frame: false } } });
@@ -62,29 +71,40 @@ test('only pictures the API can judge are asked about (our bucket, Google profil
   }
 });
 
-test('an unknown picture is asked about once; listeners hear the answer', async () => {
+test('all of a page\'s unknown pictures are asked about in ONE call (re-review N3); listeners hear the answers', async () => {
   let heard = 0;
   const off = subscribeBrandPictures(() => { heard += 1; });
+  const other = S3.replace('royal', 'other');
   requestBrandPicture(S3);
   requestBrandPicture(S3);
-  await new Promise((r) => setTimeout(r, 0));
-  await new Promise((r) => setTimeout(r, 0));
+  requestBrandPicture(other);
+  await tick(30);
   off();
   assert.equal(fetches.length, 1);
-  assert.match(fetches[0], /\/brand-picture\?url=/);
+  assert.match(fetches[0], /\/brand-pictures\?/);
+  assert.deepEqual(new URL(fetches[0], 'https://x').searchParams.getAll('urls[]').sort(), [other, S3].sort());
   assert.deepEqual(knownBrandPicture(S3), { kind: 'logo', color: '#0062A8', frame: false });
+  assert.deepEqual(knownBrandPicture(other), { kind: 'logo', color: '#0062A8', frame: false });
   assert.equal(heard, 1);
 });
 
-test('a failed answer is not asked again in this visit (the cover keeps the 4 Nov look)', async () => {
+test('signed in, the call carries the token (so the server works the misses out)', async () => {
+  setBrandPictureHeaders(() => ({ Authorization: 'Bearer t' }));
+  requestBrandPicture(S3);
+  await tick(30);
+  setBrandPictureHeaders(() => ({}));
+  assert.equal(fetchHeaders[0].Authorization, 'Bearer t');
+});
+
+test('a picture the server is still working out is asked once more, then left to the 4 Nov look this visit', async () => {
   const slow = S3.replace('royal', 'slow');
   requestBrandPicture(slow);
-  await new Promise((r) => setTimeout(r, 0));
-  await new Promise((r) => setTimeout(r, 0));
-  requestBrandPicture(slow);
-  await new Promise((r) => setTimeout(r, 0));
-  assert.equal(fetches.length, 1);
+  await tick(80);
+  assert.equal(fetches.length, 2, 'one retry');
   assert.equal(knownBrandPicture(slow), null);
+  requestBrandPicture(slow);
+  await tick(30);
+  assert.equal(fetches.length, 2, 'not asked again');
 });
 
 test('the store is capped', () => {

@@ -3,7 +3,7 @@
 //  5.  a campaign with no cover shows the brand LOGO whole on ONE SOLID colour from the logo (The Royal Wood Shop's blue
 //      box → a blue cover; no blurred copy): campaign cards, owner page, published page — SIGNED OUT too, an S3 logo
 //      included (the answer comes on the payload as `brand_pictures`) — and the Storeel phone preview (asked once via
-//      GET /brand-picture, then remembered: no switch on the next visit). A square logo is never cut to a circle; a
+//      GET /brand-pictures, all unknown covers in one call, then remembered: no switch on the next visit). A square logo is never cut to a circle; a
 //      logo on white is a rounded card. No answer: the 4 Nov look, painted at once (no hidden wait).
 //  10. the owner's PHOTO avatar (a selfie) used as the brand FILLS the card / page; a chosen photo fills as before.
 //  10b. a suggested campaign's "Suggested" pill: white like "12 moments", inside the card, never over the title or the
@@ -135,6 +135,7 @@ const published = {
 const failures = [];
 const pageErrors = [];
 const asked = [];
+const batches = [];
 const expect = (ok, label) => { if (!ok) failures.push(label); console.log(ok ? '  ok  ' : '  FAIL', label); };
 const hex = (h) => [1, 3, 5].map((i) => parseInt(String(h).slice(i, i + 2), 16));
 const near = (a, b, tol = 2) => !!a && Math.hypot(...hex(a).map((v, i) => v - hex(b)[i])) <= tol;
@@ -175,10 +176,14 @@ async function newContext({ width, height, signedIn }) {
     if (!url.pathname.startsWith('/api/')) return route.continue();
     const p = url.pathname.replace(/^\/api\/react/, '');
     if (p === '/qr-codes/logo-image') { failures.push('the browser must not fetch picture bytes any more'); return route.fulfill({ status: 404, json: {} }); }
-    if (p === '/brand-picture') {
-      const u = url.searchParams.get('url');
-      asked.push(u);
-      return route.fulfill({ json: { success: true, data: ANSWERS[u] ?? null } });
+    if (p === '/brand-pictures') {
+      // GET /brand-pictures?urls[]= (one call per page): cached answers; the rest "pending" (worked out after the response).
+      const urls = url.searchParams.getAll('urls[]');
+      asked.push(...urls);
+      batches.push(urls);
+      const data = {};
+      for (const u of urls) if (ANSWERS[u]) data[u] = ANSWERS[u];
+      return route.fulfill({ json: { success: true, data, pending: urls.filter((u) => !ANSWERS[u]).length } });
     }
     if (p === '/memories' && req.method() === 'GET') {
       const all = ALL.map(listItem);

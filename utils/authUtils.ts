@@ -4,7 +4,7 @@ import { currentPropertyViewHeaders, propertyViewCacheKey } from './inventoryVie
 import { memoryDetailPath } from './memoryDetailPath';
 import { campaignAccessBody, withQr } from './qrAccess';
 import { clearAccountState } from './accountState';
-import { seedBrandPictures, setBrandPictureApiBase } from './brandPictures';
+import { seedBrandPictures, setBrandPictureApiBase, setBrandPictureHeaders } from './brandPictures';
 
 // Auth utility functions for API integration
 
@@ -5395,5 +5395,9 @@ export default {
   userDisplayUtils,
 };
 
-// Brand covers (Chris, 7 Nov 2026): utils/brandPictures asks GET /brand-picture on the same API.
+// Brand covers (Chris, 7 Nov 2026): utils/brandPictures asks GET /brand-pictures on the same API, signed in when we are.
 setBrandPictureApiBase(getApiBaseUrl);
+setBrandPictureHeaders(() => {
+  const token = tokenUtils.getToken();
+  return token && !tokenUtils.isTokenExpired(token) ? { Authorization: `Bearer ${token}` } : {};
+});
