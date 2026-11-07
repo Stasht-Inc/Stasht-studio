@@ -3,7 +3,7 @@
 // under it, the field is marked); only problems that belong to no one field stay on the card (at its bottom).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { sendProblems, firstProblem, scheduleField } from '../../components/newsletters/lib/sendFieldChecks.ts';
+import { CHOOSE_AUDIENCE, saveRefusedFields, scheduleField, sendProblems, sendToMessage, firstProblem, stepSummary } from '../../components/newsletters/lib/sendFieldChecks.ts';
 import { preSendProblems } from '../../components/newsletters/lib/sendChecks.ts';
 import { emptyDraft } from '../../components/newsletters/lib/draft.ts';
 
@@ -67,4 +67,31 @@ test('the first problem follows the steps\' order, then the fields\' order insid
   const p = sendProblems({ ...emptyDraft(), name: 'x', channels: [] }, counts, { mode: 'later', date: '', time: '' }, NOW);
   assert.deepEqual(firstProblem(p), { step: 'name', field: 'subject' });
   assert.deepEqual(firstProblem({ fields: { send_date: 'x', reply_to_email: 'y' }, steps: { content: 'z' } }), { step: 'from', field: 'reply_to_email' });
+});
+
+// Review (7 Nov), I1 + M5: what shows under "Send to" when Single person is picked.
+test('Single person: a typed person\'s status problem is said under their box only, never under Send to', () => {
+  const typed = [{ type: 'person', email: 'gone@example.com' }];
+  const status = { email: 'This email address has unsubscribed.' };
+  assert.deepEqual(sendToMessage({ single: true, audience: typed, message: status.email, statusProblems: status, boxErrors: [] }), { sendTo: undefined, personMissing: false });
+  // Nobody typed yet: the box to fill is marked (generic message only).
+  assert.deepEqual(sendToMessage({ single: true, audience: [], message: CHOOSE_AUDIENCE, statusProblems: {}, boxErrors: [] }), { sendTo: undefined, personMissing: true });
+  // A server message about the audience is kept, under Send to, even with nobody typed.
+  assert.deepEqual(sendToMessage({ single: true, audience: [], message: 'Your plan does not include Single person.', statusProblems: {}, boxErrors: [] }), { sendTo: 'Your plan does not include Single person.', personMissing: false });
+  // Lists: under Send to as before.
+  assert.deepEqual(sendToMessage({ single: false, audience: [], message: CHOOSE_AUDIENCE, statusProblems: {}, boxErrors: [] }), { sendTo: CHOOSE_AUDIENCE, personMissing: false });
+  // A box error from the API (audience.0.email) is said under the box.
+  assert.deepEqual(sendToMessage({ single: true, audience: typed, message: 'audience.0.email: Enter a real email.', statusProblems: {}, boxErrors: ['Enter a real email.'] }).sendTo, undefined);
+  assert.deepEqual(sendToMessage({ single: true, audience: typed, message: undefined, statusProblems: status, boxErrors: [] }), { sendTo: undefined, personMissing: false });
+});
+
+test('a failed Save Draft goes to a field only when the API refused fields (not on a network error)', () => {
+  assert.equal(saveRefusedFields({}), false);
+  assert.equal(saveRefusedFields({ subject: 'Keep the subject to 150 characters or fewer.' }), true);
+});
+
+test('the step summary (preSendProblems) is derived from the field checks: one set of rules', () => {
+  const p = sendProblems(emptyDraft(), counts, { mode: 'now' }, NOW);
+  assert.deepEqual(stepSummary(p), preSendProblems(emptyDraft(), counts, { mode: 'now' }, NOW));
+  assert.equal(stepSummary(p).name, 'Give your newsletter a name and a subject line.');
 });

@@ -17,6 +17,7 @@ const seed = () => newsletter(70, {
     { id: 'x1', type: 'text', data: { html: LIST, background_color: BROWN } },
     { id: 'u1', type: 'button', data: { label: 'Book now', url: 'https://serpachrysler.ca/book', color: '#6C60FF' } },
     { id: 'd1', type: 'divider', data: { style: 'line' } },
+    { id: 'c1', type: 'campaigns', data: { campaign_ids: [601], items: [{ id: 601, title: 'Fall service event', description: 'About the event.', cover_url: null, url: 'http://localhost:5173/published-memory/campaign-601', date: '2026-10-20' }] } },
   ],
 });
 
@@ -34,6 +35,11 @@ async function inViewport(page, locator) {
 async function oneRow(toolbar) {
   const tops = await toolbar.getByRole('button').evaluateAll((els) => els.map((el) => Math.round(el.getBoundingClientRect().top)));
   return tops.length > 0 && Math.max(...tops) - Math.min(...tops) <= 2;
+}
+
+/** Scroll a control into view; a toolbar that is still re-rendering just after a click gets one more try. */
+async function intoView(page, locator) {
+  try { await locator.scrollIntoViewIfNeeded({ timeout: 5000 }); } catch { await page.waitForTimeout(400); await locator.scrollIntoViewIfNeeded(); }
 }
 
 const css = (locator, prop) => locator.first().evaluate((el, p) => getComputedStyle(el)[p], prop);
@@ -72,9 +78,13 @@ export async function run({ open, expectVisible, expect, hasOverflow }) {
     const spacingButton = bar.getByRole('button', { name: /^Spacing/ });
     await expectVisible(spacingButton, 'Spacing button on the Text toolbar');
     expect(await spacingButton.getAttribute('aria-label') === 'Spacing: line spacing Normal, padding Normal', `${width}: the button says the current choices`);
-    await spacingButton.scrollIntoViewIfNeeded();
+    await intoView(page, spacingButton);
     expect(await inViewport(page, spacingButton), `${width}: Spacing is in view`);
     expect(await oneRow(bar), `${width}: the text toolbar is still one row`);
+    // Review M6: Bold / Italic / Link keep 32 px tap targets on phones too.
+    const toggles = await bar.getByRole('button', { name: /^(Bold|Italic|Link)$/ }).evaluateAll((els) => els.map((el) => Math.round(el.getBoundingClientRect().width)));
+    expect(toggles.length === 3 && toggles.every((w) => w >= 32), `${width}: B / I / link are at least 32 px wide (${toggles})`);
+    expect(await inViewport(page, bar), `${width}: the whole toolbar is in view`);
     await shot(textFrame, '01-text-before');
 
     // The menu: Line spacing and Padding, the current ones ticked.
@@ -135,7 +145,7 @@ export async function run({ open, expectVisible, expect, hasOverflow }) {
     const titleBar = preview.getByRole('toolbar', { name: 'Title style' });
     const titleSpacing = titleBar.getByRole('button', { name: /^Spacing/ });
     await expectVisible(titleSpacing, 'Spacing button on the Title toolbar');
-    await titleSpacing.scrollIntoViewIfNeeded();
+    await intoView(page, titleSpacing);
     expect(await inViewport(page, titleSpacing), `${width}: title Spacing in view`);
     expect(await oneRow(titleBar), `${width}: the title toolbar is one row`);
     await titleSpacing.click();
@@ -153,7 +163,7 @@ export async function run({ open, expectVisible, expect, hasOverflow }) {
     await buttonFrame.click({ position: { x: 10, y: 10 } });
     const buttonPadding = buttonFrame.getByRole('radiogroup', { name: 'Padding (top and bottom)' });
     await expectVisible(buttonPadding, 'Button: Padding switch');
-    await buttonPadding.scrollIntoViewIfNeeded();
+    await intoView(page, buttonPadding);
     expect(await inViewport(page, buttonPadding), `${width}: Button padding switch in view`);
     await buttonPadding.getByRole('radio', { name: 'None' }).click();
     await until((b) => b[2]?.data?.padding === 'none', 'button padding none');
@@ -163,7 +173,7 @@ export async function run({ open, expectVisible, expect, hasOverflow }) {
     await dividerFrame.focus();
     const dividerPadding = dividerFrame.getByRole('radiogroup', { name: 'Padding (top and bottom)' });
     await expectVisible(dividerPadding, 'Divider: Padding switch');
-    await dividerPadding.scrollIntoViewIfNeeded();
+    await intoView(page, dividerPadding);
     expect(await inViewport(page, dividerPadding), `${width}: Divider padding switch in view`);
     await dividerPadding.getByRole('radio', { name: 'Large' }).click();
     await until((b) => b[3]?.data?.padding === 'large', 'divider padding large');
@@ -171,8 +181,24 @@ export async function run({ open, expectVisible, expect, hasOverflow }) {
     expect(!(await hasOverflow(page)), `${width}: nothing scrolls sideways`);
     await shot(dividerFrame, '08-divider-padding-large');
 
+    // Campaigns (review M8): the same switch with its Edit / Columns controls.
+    const campaignsFrame = preview.locator('[role="group"][aria-label="Campaigns section"]');
+    await campaignsFrame.focus();
+    const campaignsPadding = campaignsFrame.getByRole('radiogroup', { name: 'Padding (top and bottom)' });
+    await expectVisible(campaignsPadding, 'Campaigns: Padding switch');
+    await intoView(page, campaignsPadding);
+    expect(await inViewport(page, campaignsPadding), `${width}: Campaigns padding switch in view`);
+    // Every choice inside the section's panel (none cut off at the edge on a phone).
+    const panelBox = await campaignsPadding.locator('xpath=ancestor::div[contains(@class,"bg-gray-50")][1]').boundingBox();
+    const lastBox = await campaignsPadding.getByRole('radio', { name: 'Large' }).boundingBox();
+    expect(!!panelBox && !!lastBox && lastBox.x + lastBox.width <= panelBox.x + panelBox.width, `${width}: "Large" fits inside the panel`);
+    await campaignsPadding.getByRole('radio', { name: 'Small' }).click();
+    await until((b) => b[4]?.data?.padding === 'small', 'campaigns padding small');
+    expect(await css(campaignsFrame, 'paddingTop') === '6px', `${width}: campaigns padding Small: 6 px (got ${await css(campaignsFrame, 'paddingTop')})`);
+    await shot(campaignsFrame, '08b-campaigns-padding-small');
+
     // Done: the preview as the email will look.
-    await dividerFrame.getByRole('button', { name: 'Done' }).click();
+    await campaignsFrame.getByRole('button', { name: 'Done' }).click();
     await page.waitForTimeout(300);
     if (width === 1280) await shot(preview, '09-preview-done');
     else {
@@ -182,7 +208,7 @@ export async function run({ open, expectVisible, expect, hasOverflow }) {
       console.log('shot', `${OUT}/section-spacing-390-09-preview-done.png`);
     }
     const final = savedBlocks(api);
-    expect(JSON.stringify(final.map((b) => [b.data.line_spacing ?? null, b.data.padding ?? null])) === JSON.stringify([['tight', 'none'], ['tight', 'small'], [null, 'none'], [null, 'large']]), `${width}: saved keys ${JSON.stringify(final)}`);
+    expect(JSON.stringify(final.map((b) => [b.data.line_spacing ?? null, b.data.padding ?? null])) === JSON.stringify([['tight', 'none'], ['tight', 'small'], [null, 'none'], [null, 'large'], [null, 'small']]), `${width}: saved keys ${JSON.stringify(final)}`);
     if (width === 1280 && process.env.SP_PAYLOAD) writeFileSync(process.env.SP_PAYLOAD, JSON.stringify(final));
     await context.close();
   }

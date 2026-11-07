@@ -27,7 +27,7 @@ import PreviewDialog from './PreviewDialog';
 import SendTestButton from './SendTestButton';
 import { formatSendTime, plannedFromSchedule, sameInstant, scheduleFromPlanned, type ScheduleChoice } from './lib/schedule';
 import { STEP_ORDER, firstProblemStep, stepDomId, stepErrorsFrom, type StepKey } from './lib/sendChecks';
-import { firstProblem, sendProblems, type SendProblems } from './lib/sendFieldChecks';
+import { firstProblem, saveRefusedFields, sendProblems, type SendProblems } from './lib/sendFieldChecks';
 import { nextSubjectForName } from './lib/subjectSync';
 import { formatSentTo } from './lib/phoneDisplay';
 import { smsPartsInfo } from './lib/smsParts';
@@ -211,8 +211,12 @@ const NewsletterComposer = forwardRef<NewsletterComposerHandle, NewsletterCompos
    * Take the person to the first problem (once the marks are drawn): the first marked field of that step (of any step
    * when step is null), else the first marked section for Content, else the card. Scrolled to the middle and focused.
    */
-  const showProblem = (step: StepKey | null) => {
+  // The latest field errors, read once a failed save has been drawn (review M2).
+  const fieldErrorsRef = useRef(state.fieldErrors);
+  fieldErrorsRef.current = state.fieldErrors;
+  const showProblem = (step: StepKey | null, onlyRefusedFields = false) => {
     requestAnimationFrame(() => requestAnimationFrame(() => {
+      if (onlyRefusedFields && !saveRefusedFields(fieldErrorsRef.current)) return;
       const steps = step ? [step] : STEP_ORDER;
       for (const key of steps) {
         const card = document.getElementById(stepDomId(key));
@@ -396,8 +400,8 @@ const NewsletterComposer = forwardRef<NewsletterComposerHandle, NewsletterCompos
     const result = await state.saveNow();
     if (!result.newsletter) {
       composerToast.error(result.error ?? GENERIC_ERROR);
-      // A field the API refused is marked: go to it (Chris, 7 Nov).
-      showProblem(null);
+      // A field the API refused is marked: go to it (Chris, 7 Nov). Not on a network or server error (review M2).
+      showProblem(null, true);
       return;
     }
     const id = result.newsletter.id;

@@ -113,5 +113,22 @@ export async function run({ open, expectVisible, expect }) {
     await step.scrollIntoViewIfNeeded();
     await shot(step, '06-schedule');
     await context.close();
+
+    // Review I1: Single person, a typed address that unsubscribed: marked and said under the Email address box only;
+    // Send to (which is right) is not marked, and Send focuses the box.
+    ({ page, context } = await open({ width, height: width === 390 ? 844 : 1000, api: createMockApi({ unsubscribed: ['gone@example.com'] }) }));
+    await page.locator('#nl-subject').fill('Hello');
+    await page.locator('#nl-person-email').fill('gone@example.com');
+    await page.waitForTimeout(1500); // counted
+    await sendButton(page).click();
+    await page.waitForTimeout(800);
+    const rStep = page.locator('#nl-step-recipients');
+    expect(await page.locator('#nl-person-email').getAttribute('aria-invalid') === 'true', `${width}: unsubscribed: the Email address box is marked`);
+    expect(((await page.locator('#nl-person-email-error').textContent()) ?? '').includes('has unsubscribed'), `${width}: unsubscribed: said under the box`);
+    expect(await rStep.getByText('This email address has unsubscribed', { exact: false }).count() === 1, `${width}: unsubscribed: said once, not again under Send to`);
+    expect(await rStep.locator('[aria-invalid="true"]').first().getAttribute('id') === 'nl-person-email', `${width}: Send to is not marked`);
+    expect(await focusedId(page) === 'nl-person-email', `${width}: unsubscribed: Send focused the Email address box (got ${await focusedId(page)})`);
+    await shot(rStep, '07-single-person-unsubscribed');
+    await context.close();
   }
 }

@@ -44,7 +44,7 @@ export default function TitleBlockEditor({ blockId, data, selected, readOnly, on
   return (
     <div>
       {selected && !readOnly ? (
-        <div ref={roving.ref} onFocus={roving.onFocus} onKeyDown={roving.onKeyDown} role="toolbar" aria-label="Title style" style={{ marginTop: toolbarGap(look.padY) }} className="mb-2 mt-2 inline-flex max-w-full flex-wrap items-center gap-0 sm:gap-0.5 rounded-lg border border-gray-200 bg-white p-1 shadow-sm">
+        <div ref={roving.ref} onFocus={roving.onFocus} onKeyDown={roving.onKeyDown} role="toolbar" aria-label="Title style" style={{ marginTop: toolbarGap(look.padY) }} className="-mx-3 mb-2 mt-2 inline-flex max-w-[calc(100%+1.5rem)] flex-wrap sm:mx-0 sm:max-w-full items-center gap-0 sm:gap-0.5 rounded-lg border border-gray-200 bg-white p-1 shadow-sm">
           <ToolbarToggle label="Bold" pressed={bold} onClick={() => onChange(titleTypePatch({ bold: !bold }))}><Bold className="h-4 w-4" aria-hidden="true" /></ToolbarToggle>
           <ToolbarDivider />
           <FontMenu value={type.font ?? null} onPick={(font) => onChange(titleTypePatch({ font }))} />

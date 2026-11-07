@@ -4,6 +4,7 @@ import type {
 import { LIMITS, isPlausibleEmail, smsPlain } from './rules.ts';
 import { blocksToInput, campaignSelections, normaliseBlocks, overLimitTextIds } from './blocks.ts';
 import { campaignIdsOf, overridesForInput, pruneOverrides } from './campaignsBlock.ts';
+import { spacingOf } from './sectionSpacing.ts';
 import { personEntryProblem } from './person.ts';
 
 /** What the composer edits. Text fields are never null here ('' instead). */
@@ -188,6 +189,8 @@ export function adoptCampaignSnapshots(current: NewsletterDraft, sent: Newslette
       const overrides = sameEdits ? pruneOverrides(b.data.overrides, selections) : s.data.overrides;
       return { ...b, data: {
         selections, campaign_ids: campaignIdsOf(selections), items: s.data.items ?? [], ...(columns ? { columns } : {}), ...(overrides ? { overrides } : {}),
+        // Its padding (Chris, 7 Nov), as the API kept it.
+        ...spacingOf(s.data as unknown as Record<string, unknown>, false),
       } };
     });
     return changed ? next : blocks;

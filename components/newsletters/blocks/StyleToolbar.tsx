@@ -179,7 +179,7 @@ export function ToolbarToggle({ label, pressed, onClick, children }: { label: st
       title={label}
       onMouseDown={(e) => e.preventDefault()} // keep the text selection
       onClick={onClick}
-      className={`flex h-8 w-7 sm:w-8 items-center justify-center rounded-md ${pressed ? 'bg-[#EEEDFF] text-[#6C60FF]' : 'text-gray-700 hover:bg-gray-100'} ${FOCUS}`}
+      className={`flex h-8 w-8 items-center justify-center rounded-md ${pressed ? 'bg-[#EEEDFF] text-[#6C60FF]' : 'text-gray-700 hover:bg-gray-100'} ${FOCUS}`}
     >
       {children}
     </button>

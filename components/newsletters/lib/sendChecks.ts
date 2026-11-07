@@ -1,12 +1,8 @@
 import type { AudienceCount, NewsletterAllowance, NewsletterChannel } from '../../../services/newslettersAPI.ts';
 import type { NewsletterDraft } from './draft.ts';
 import type { ScheduleChoice } from './schedule.ts';
-import { fieldProblems } from './draft.ts';
-import { blocksProblems } from './blocks.ts';
-import { formatCount, reachable } from './audience.ts';
-import { personSendProblem } from './person.ts';
-import { scheduleProblem, textQuietHoursProblem } from './schedule.ts';
-import { smsPartsInfo } from './smsParts.ts';
+import { formatCount } from './audience.ts';
+import { sendProblems, stepSummary } from './sendFieldChecks.ts';
 import { userLocale } from './locale.ts';
 
 // Step 1 holds the name, subject line and preview text (Chris, 29 Oct), so those all point at 'name'.
@@ -35,42 +31,11 @@ export function stepErrorsFrom(fieldErrors: Record<string, string>): StepProblem
   return out;
 }
 
-/** Everything Studio can check before asking the API to send (the API checks again). fallbackFromName: the name the
- *  API puts before the text when the From name is empty (the owner's name). */
+/** Everything Studio can check before asking the API to send (the API checks again), one line per step. Derived from
+ *  the field checks (lib/sendFieldChecks.ts, Chris 7 Nov), so there is one set of rules. fallbackFromName: the name
+ *  the API puts before the text when the From name is empty (the owner's name). */
 export function preSendProblems(d: NewsletterDraft, counts: AudienceCount | null, schedule: ScheduleChoice, now: Date = new Date(), fallbackFromName = 'Stasht'): StepProblems {
-  const out: StepProblems = {};
-  const live = fieldProblems(d);
-  const email = d.channels.includes('email');
-
-  // Step 1: the name's problem first, then the subject's (one message; both missing say so together).
-  const noName = !d.name.trim();
-  const noSubject = !d.subject.trim();
-  if (noName && noSubject) out.name = 'Give your newsletter a name and a subject line.';
-  else if (noName) out.name = 'Give your newsletter a name.';
-  else if (live.name) out.name = live.name;
-  else if (noSubject) out.name = 'Add a subject line.';
-  else if (live.subject || live.preview_text) out.name = live.subject ?? live.preview_text;
-
-  if (!d.audience.length) out.recipients = 'Choose who gets this newsletter.';
-  else if (!d.channels.length) out.recipients = 'Choose email, text or both.';
-  else if (personSendProblem(d.audience, d.channels, counts)) out.recipients = personSendProblem(d.audience, d.channels, counts) as string;
-  else if (d.channels.includes('sms') && !d.sms_text.trim()) out.recipients = 'Write the text message.';
-  else if (live.sms_text) out.recipients = live.sms_text;
-  else if (d.channels.includes('sms') && smsPartsInfo(d.from_name.trim() || fallbackFromName, d.sms_text).problem) {
-    out.recipients = smsPartsInfo(d.from_name.trim() || fallbackFromName, d.sms_text).problem as string;
-  }
-  else if (counts && reachable(counts, d.channels) === 0) out.recipients = 'Nobody on these lists can get this newsletter yet.';
-
-  // Alignment decision 5: an empty from name or reply-to never blocks (pre-filled, and the API fills them in on
-  // send). Only what can't be sent is flagged; the API's 422 reply_to_email (account with no email) maps here too.
-  if (email && (live.from_name || live.reply_to_email)) out.from = live.from_name ?? live.reply_to_email;
-
-  if (!d.blocks.length) out.content = 'Add at least one section to the email.';
-  else if (Object.keys(blocksProblems(d.blocks)).length) out.content = 'Finish or remove the sections marked in red.';
-
-  const when = scheduleProblem(schedule, now) ?? textQuietHoursProblem(schedule, d.channels);
-  if (when) out.schedule = when;
-  return out;
+  return stepSummary(sendProblems(d, counts, schedule, now, fallbackFromName));
 }
 
 export function firstProblemStep(problems: StepProblems): StepKey | null {

@@ -15,7 +15,8 @@ import {
   SINGLE_PERSON, audienceKey, audienceLabel, countSummary, formatCount, hasAudienceItem, isSinglePerson, personId, skippedSummary, smsInfo,
   smsPreview, toggleChannel, toggleGroupItem,
 } from './lib/audience';
-import { personCountSummary, personEntry, personEntryProblem, personStatusProblems, personSummary } from './lib/person';
+import { personCountSummary, personStatusProblems, personSummary } from './lib/person';
+import { sendToMessage } from './lib/sendFieldChecks';
 import { smsPartsInfo, smsPartsLabel, type SmsPartsInfo } from './lib/smsParts';
 import { MESSAGE_TOO_LONG } from './lib/draft';
 import { syncMessageBlock } from './lib/messageBlock';
@@ -112,10 +113,11 @@ export default function AudiencePicker({
   // A Single person box's problem shows under that box (PersonFields), not again under Send to: the live check of a box
   // still being typed, and the API's audience.N.email / audience.N.phone (whose message apiResult also files as `audience`).
   const boxErrors = Object.entries(fieldErrors).filter(([key]) => /^audience\.\d+\.(email|phone)$/.test(key)).map(([, message]) => message);
-  // Single person with nobody typed yet: the box to fill is marked instead (Chris, 7 Nov).
-  const personMissing = single && Boolean(fieldErrors.audience) && !personEntry(audience);
-  const audienceError = fieldErrors.audience && !personMissing && !(single && (fieldErrors.audience === personEntryProblem(audience) || boxErrors.some((m) => fieldErrors.audience.includes(m))))
-    ? fieldErrors.audience : undefined;
+  // Single person (Chris, 7 Nov; review I1, M5): a person's problem is said under their box, and with nobody typed the
+  // box to fill is marked; only another (server) message stays under Send to.
+  const { sendTo: audienceError, personMissing } = sendToMessage({
+    single, audience, message: fieldErrors.audience, statusProblems: single ? personStatusProblems(count.counts, channels) : {}, boxErrors,
+  });
   const parts = message?.parts ?? smsPartsInfo(fromName, smsText);
   // Screen readers hear the parts line only when the number of parts changes, not on every key.
   const [partsAnnouncement, setPartsAnnouncement] = useState('');

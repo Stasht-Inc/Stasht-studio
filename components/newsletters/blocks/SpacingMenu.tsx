@@ -47,7 +47,8 @@ export function PaddingSwitch({ value, onChange, className = '' }: { value: Sect
   return (
     <div className={`flex flex-wrap items-center gap-x-3 gap-y-1.5 ${className}`}>
       <span className="text-sm text-gray-700">Padding</span>
-      <SegmentedSwitch label="Padding (top and bottom)" options={PADDING_OPTIONS} value={value} onChange={onChange} />
+      {/* The choices share the width, so all four fit inside a phone's section panel. */}
+      <SegmentedSwitch label="Padding (top and bottom)" options={PADDING_OPTIONS} value={value} onChange={onChange} fill className="min-w-[15rem] flex-1 sm:max-w-[20rem]" />
     </div>
   );
 }

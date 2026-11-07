@@ -79,7 +79,8 @@ function campaignLayout(data, selections = []) {
     const kept = Object.fromEntries(OVERRIDE_FIELDS.filter((f) => typeof o[f] === 'string' && o[f].trim()).map((f) => [f, f === 'image_url' ? o[f].trim() : o[f].replace(/\s+/g, ' ').trim()]));
     if (Object.keys(kept).length) overrides[k] = kept;
   }
-  return { ...([1, 2].includes(data?.columns) ? { columns: data.columns } : {}), overrides };
+  // Chris (7 Nov): its padding is kept too (NewsletterCampaigns::withLayout).
+  return { ...([1, 2].includes(data?.columns) ? { columns: data.columns } : {}), overrides, ...(['none', 'small', 'large'].includes(data?.padding) ? { padding: data.padding } : {}) };
 }
 const MONTH_NAME = () => {
   const d = new Date();

@@ -91,3 +91,13 @@ test('while editing, the style toolbar clears the move / delete buttons even wit
   assert.equal(toolbarGap(6), 14);
   assert.equal(toolbarGap(0), 20);
 });
+
+test('after a save, a Campaigns section keeps the padding the API answers with (adoptCampaignSnapshots)', async () => {
+  const { adoptCampaignSnapshots, emptyDraft } = await import('../../components/newsletters/lib/draft.ts');
+  const block = { id: 'c1', type: 'campaigns', data: { selections: [{ kind: 'campaign', id: 5 }], campaign_ids: [5], columns: 1, padding: 'small' } };
+  const draft = { ...emptyDraft(), blocks: [block] };
+  const server = [{ id: 'c1', type: 'campaigns', data: { selections: [{ kind: 'campaign', id: 5 }], campaign_ids: [5], columns: 1, padding: 'small', items: [] } }];
+  const out = adoptCampaignSnapshots(draft, draft, server);
+  assert.equal(out.draft.blocks[0].data.padding, 'small');
+  assert.equal(out.saved.blocks[0].data.padding, 'small');
+});
