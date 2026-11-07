@@ -47,9 +47,12 @@ export function isVectorImage(src?: string | null): boolean {
 
 const known = (s?: CoverSize | null): s is CoverSize => !!s && s.width > 0 && s.height > 0;
 
-export function campaignCoverLayout({ isFallback = false, natural = null, box = null, vector = false, judgeBox = null }: {
+export function campaignCoverLayout({ isFallback = false, brandKind = null, natural = null, box = null, vector = false, judgeBox = null }: {
   /** The picture is the brand default (account / property avatar), not a cover someone chose. */
   isFallback?: boolean;
+  /** What the brand picture is (utils/brandPicture, Chris 7 Nov 2026): a 'photo' (the owner's selfie avatar) fills the
+   *  cover like a chosen photo; a 'logo' — or not known (null) — is drawn whole as below. */
+  brandKind?: 'logo' | 'photo' | null;
   /** The picture's own size (naturalWidth / naturalHeight), once it has loaded. */
   natural?: CoverSize | null;
   /** The box it is shown in, in CSS pixels. */
@@ -60,7 +63,7 @@ export function campaignCoverLayout({ isFallback = false, natural = null, box = 
    *  a square of the phone's width, so an ordinary photo still fills it). The picture is still sized in `box`. */
   judgeBox?: CoverSize | null;
 }): CampaignCoverLayout {
-  if (isFallback) {
+  if (isFallback && brandKind !== 'photo') {
     if (!known(box)) return { mode: 'pending' };
     if (vector) {
       return { mode: 'contain', shape: 'rect', width: Math.round(BRAND_COVER_FRACTION * box.width), height: Math.round(BRAND_COVER_FRACTION * box.height) };

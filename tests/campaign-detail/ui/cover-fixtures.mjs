@@ -59,6 +59,7 @@ export async function coverInfo(locator) {
       mode: el.getAttribute('data-cover-mode'),
       shape: el.getAttribute('data-cover-shape'),
       blurred: !!el.querySelector('img[aria-hidden="true"]'),
+      fill: el.getAttribute('data-cover-fill'),
       src: img ? img.getAttribute('src') : null,
       box: { width: Math.round(r.width), height: Math.round(r.height) },
       img: ir ? { width: Math.round(ir.width), height: Math.round(ir.height), natural: img.naturalWidth, radius: getComputedStyle(img).borderRadius, fit: getComputedStyle(img).objectFit } : null,

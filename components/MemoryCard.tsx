@@ -157,7 +157,8 @@ function UserFallbackAvatar({
 // title at the bottom; on small cards (~190px with the sidebar and categories column open) they don't all fit
 // (Chris, ClickUp wdy2xh2x96: "2025 Audi A5 45" sat under "$44,095"). Such a card lays its overlay out as one
 // column (pills at the top, title at the bottom) and, while the two don't fit with this much room between them,
-// steps through FIT_LEVELS in order. Cards without a label keep the original layout untouched.
+// steps through FIT_LEVELS in order. Cards without a label keep the original layout untouched — except a suggested
+// campaign's card (Chris, 7 Nov 2026: its "suggested" pill sat over the title), which fits the same way.
 const FIT_MIN_GAP = 6;
 const FIT_LEVELS = {
   pillsInRow: 1,   // category + price share a row when both fit (wraps back under each other when not)
@@ -274,7 +275,9 @@ export default function MemoryCard({
   const badgesRef = useRef<HTMLDivElement>(null);
   const titleBlockRef = useRef<HTMLDivElement>(null);
   const textColRef = useRef<HTMLDivElement>(null);
-  const fitEnabled = !!label;
+  // The web API's AI-suggested campaigns come in category "suggested" (lower case); the Accept / No flow uses "Suggested".
+  const isSuggestedPill = !!suggestedCategory || String(category ?? '').trim().toLowerCase() === 'suggested';
+  const fitEnabled = !!label || isSuggestedPill;
   const [photoSize, setPhotoSize] = useState('');
   const [fitTick, setFitTick] = useState(0);
   const [fitState, setFitState] = useState({ key: '', level: 0 });
@@ -286,6 +289,10 @@ export default function MemoryCard({
   const fitTitleOneLine = fitLevel >= FIT_LEVELS.titleOneLine;
   const fitHideLocation = fitLevel >= FIT_LEVELS.hideLocation;
   const fitHideCount = fitLevel >= FIT_LEVELS.hideCount;
+  // The pills start below the Public / View Only badge when they would sit on it (a narrow card): px pushed down.
+  const publishedRef = useRef<HTMLDivElement>(null);
+  const [fitClear, setFitClear] = useState({ key: '', px: 0 });
+  const fitClearTop = fitEnabled && fitClear.key === fitKey ? fitClear.px : 0;
 
   useLayoutEffect(() => {
     if (!fitEnabled) return;
@@ -311,16 +318,22 @@ export default function MemoryCard({
     const block = titleBlockRef.current;
     const text = textColRef.current;
     if (!photo || !badges || !block || !text || !photo.offsetWidth || !photo.offsetHeight) return;
+    const pub = publishedRef.current?.getBoundingClientRect();
+    const firstPill = Array.from(badges.children).map(el => el.getBoundingClientRect()).find(r => r.width > 0);
+    if (pub && firstPill && !fitClearTop && pub.right + 4 > firstPill.left && pub.bottom > firstPill.top && pub.top < firstPill.bottom) {
+      setFitClear({ key: fitKey, px: Math.ceil(pub.bottom - firstPill.top) + 6 });
+      return;
+    }
     const gap = text.getBoundingClientRect().top - badges.getBoundingClientRect().bottom;
     const overflows = block.getBoundingClientRect().bottom - photo.getBoundingClientRect().bottom > 0.5;
     if ((gap < FIT_MIN_GAP || overflows) && fitLevel < FIT_MAX) {
       setFitState({ key: fitKey, level: fitLevel + 1 });
     }
-  }, [fitEnabled, fitKey, fitLevel, fitTick, photoSize]);
+  }, [fitEnabled, fitKey, fitLevel, fitTick, photoSize, fitClearTop]);
 
   // Use the getCategoryColor function to match sidebar exactly
   const getInvitesCategoryColor = () => {
-    if (category === 'Suggested' || suggestedCategory) {
+    if (isSuggestedPill) {
       return '#9CA3AF'; // Grey color for Suggested
     }
 
@@ -430,8 +443,17 @@ export default function MemoryCard({
       : (user?.profile_color || profileColor || '');
   const hasFooterContent = !!displayName || contributors.length > 0 || tags.length > 0;
 
-  // Category Badge
-  const categoryPill = category ? (
+  // Category Badge. "Suggested" is a plain white pill like "12 moments" (Chris, 7 Nov 2026): its category colour is
+  // see-through (#80808000), so it showed as faint white text over the photo.
+  const categoryPill = category && isSuggestedPill ? (
+    <div
+      data-testid="memory-card-suggested"
+      className="shadow-md flex items-center bg-white whitespace-nowrap"
+      style={{ padding: '6px 12px', borderRadius: '8px', color: '#374151', fontSize: '12px', fontWeight: 600, lineHeight: '16px' }}
+    >
+      Suggested
+    </div>
+  ) : category ? (
     <div
       className="shadow-lg"
       style={{
@@ -572,7 +594,7 @@ export default function MemoryCard({
 
         {/* Published Badge - Top Left */}
         {published && !isEditMode && (
-          <div className="absolute top-3 left-3 z-10">
+          <div ref={publishedRef} className="absolute top-3 left-3 z-10">
             <div
               className="shadow-md flex items-center gap-1.5 bg-white"
               style={{
@@ -613,6 +635,7 @@ export default function MemoryCard({
           className={fitEnabled
             ? `self-end flex flex-col items-end flex-shrink-0 ${fitCompact ? 'mt-2 mr-2 gap-1' : 'mt-3 mr-3 gap-2'}`
             : 'absolute top-3 right-3 z-10 flex flex-col items-end gap-2'}
+          style={fitClearTop ? { paddingTop: fitClearTop } : undefined}
         >
           {/* Moments Count Badge */}
           {imagesCount > 0 && !fitHideCount && (
