@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Pencil, Plus, X } from 'lucide-react';
 import StepCard from '../newsletters/StepCard';
 import { BUTTON_SECONDARY, LINK_BUTTON } from '../newsletters/lib/ui';
@@ -28,8 +28,10 @@ export interface MomentRow {
  * moment editor on the pencil, and "Add a Moment", which opens the original Add a Moment UI (AddMomentModal).
  * Photos can be dropped on the card, as on the old Media box.
  */
-export default function StoreelMomentsCard({ rows, onAddMoment, onDropFiles, busy = false, note = null }: {
+export default function StoreelMomentsCard({ rows, onAddMoment, onDropFiles, busy = false, note = null, captionRequest = null }: {
   rows: MomentRow[];
+  /** The preview's Edit Moment on a saved moment (Chris, 7 Nov 2026): open this row's caption editor, scrolled to. */
+  captionRequest?: { key: string; n: number } | null;
   /** On a saved campaign: "Moments and captions save straight to your campaign." */
   note?: string | null;
   onAddMoment(): void;
@@ -46,7 +48,7 @@ export default function StoreelMomentsCard({ rows, onAddMoment, onDropFiles, bus
         {note ? <p className="text-sm text-gray-500">{note}</p> : null}
         {rows.length ? (
           <ul aria-label="Moments" className="divide-y divide-gray-100 rounded-lg border border-gray-200">
-            {rows.map((row) => <MomentRowItem key={row.moment.key} row={row} />)}
+            {rows.map((row) => <MomentRowItem key={row.moment.key} row={row} captionRequest={captionRequest?.key === row.moment.key ? captionRequest.n : 0} />)}
           </ul>
         ) : (
           <p className="text-sm text-gray-500">No moments yet. Add photos or videos with Add a Moment, or pick items in step 1.</p>
@@ -61,12 +63,21 @@ export default function StoreelMomentsCard({ rows, onAddMoment, onDropFiles, bus
 
 const VIDEO_FRAME = (src: string) => `${src}#t=0.1`;
 
-function MomentRowItem({ row }: { row: MomentRow }) {
+function MomentRowItem({ row, captionRequest = 0 }: { row: MomentRow; captionRequest?: number }) {
   const { moment } = row;
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState('');
   const [saving, setSaving] = useState(false);
   const caption = moment.kind === 'photo' ? moment.caption : '';
+  const itemRef = useRef<HTMLLIElement>(null);
+  useEffect(() => {
+    if (!captionRequest || !row.onSaveCaption) return;
+    setDraft(caption);
+    setEditing(true);
+    itemRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
+    window.setTimeout(() => itemRef.current?.querySelector('textarea')?.focus(), 300);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [captionRequest]);
   const meta = moment.kind === 'product' ? moment.price
     : moment.kind === 'vehicle' ? [moment.price, ...moment.tags].filter(Boolean).join(' · ')
     : moment.kind === 'campaign' ? moment.meta : '';
@@ -83,7 +94,7 @@ function MomentRowItem({ row }: { row: MomentRow }) {
   };
 
   return (
-    <li className="flex gap-3 p-3" data-moment-row={moment.kind}>
+    <li ref={itemRef} className="flex gap-3 p-3" data-moment-row={moment.kind} data-moment-key={moment.key}>
       <div className="h-16 w-16 flex-shrink-0 overflow-hidden rounded-lg bg-gray-100">
         {moment.image
           ? (moment.kind === 'photo' && moment.video

@@ -7,10 +7,14 @@ import { editorHtml, fontAt, fontTextNodes, formatAt, parseTextHtml, pastedTextN
 import { fontStack } from '../lib/fonts';
 import { createHistory, recordHistory, redoHistory, undoHistory } from '../lib/textHistory';
 import { TEXT_INK, TEXT_SIZES, sectionLook, sectionStyleOf, stylePatch, textLinkColor, textSizeOf, type TextSize } from '../lib/sectionStyle';
+import { lineHeightVar, sizeVar, styleLineHeight, styleOfPx } from '../lib/typeScale';
+import { EditSizesPanel, useTypeScale } from '../TypeScale';
 import { AlignMenu, BackgroundMenu, FontMenu, SizeMenu, TextColorMenu, ToolbarDivider, ToolbarToggle, useRovingToolbar } from './StyleToolbar';
 import { toHttpsUrl } from '../lib/urls';
 import { BUTTON_PRIMARY, LABEL, LAYER, inputClass } from '../lib/ui';
 import type { BlockEditorProps } from './types';
+import { SpacingMenu } from './SpacingMenu';
+import { FLUSH_END_CLASS, SPACED_TEXT_CLASS, spacingOf, spacingPatch, spanLineHeight, textSpacingStyle, toolbarGap } from '../lib/sectionSpacing';
 
 /** The email's text styles (blocks/text.blade.php + NewsletterRenderer::styleText): 16/26 px, grey-700. Links take
  *  --nl-link (purple unless the section is a dark band, lib/sectionStyle.ts textLinkColor). */
@@ -23,20 +27,25 @@ export function renderTextNodes(nodes: TextNode[], prefix = 'n'): ReactNode[] {
     if (node.kind === 'text') return node.text;
     if (node.kind === 'br') return <br key={key} />;
     if (node.kind === 'a') return <a key={key} href={node.href}>{renderTextNodes(node.children, key)}</a>;
-    if (node.kind === 'size') return <span key={key} style={sizeStyle(node.px, node.font)}>{renderTextNodes(node.children, key)}</span>;
+    if (node.kind === 'size') return <span key={key} data-size={styleOfPx(node.px) ?? undefined} style={sizeStyle(node.px, node.font)}>{renderTextNodes(node.children, key)}</span>;
     const Tag = node.tag;
     return <Tag key={key}>{renderTextNodes(node.children, key)}</Tag>;
   });
 }
 
-/** A font size and/or family as the email draws it: the size and its line height, the font's stack (NewsletterRenderer::styleText). */
+/** A size style and/or font as the email draws them (NewsletterRenderer::styleText): the style's px and line height in
+ *  this newsletter's scale (CSS variables, Chris 7 Nov: a change to the scale shows at once), the font's stack. */
 function sizeStyle(px: number | null, font?: FontKey): CSSProperties {
-  const size = px === null ? null : textSizeOf(px);
+  const size = styleOfPx(px);
   return {
-    ...(px !== null ? { fontSize: `${px}px`, lineHeight: `${size?.lineHeight ?? 26}px` } : {}),
+    // The line height follows the section's line spacing (Chris, 7 Nov; lib/sectionSpacing.ts): normal unless it is set.
+    ...(size ? { fontSize: sizeVar(size), lineHeight: spanLineHeight(sizeVar(size), lineHeightVar(size)) } : {}),
     ...(font ? { fontFamily: fontStack(font) } : {}),
   };
 }
+
+/** The Text section's usual words are Normal (text.blade.php), in this newsletter's scale. */
+export const TEXT_NORMAL_STYLE: CSSProperties = { fontSize: sizeVar('normal'), lineHeight: lineHeightVar('normal') };
 
 /** Allowed nodes → DOM nodes for a paste (built element by element; no HTML string reaches the page). */
 function domNodes(nodes: TextNode[]): Node[] {
@@ -45,7 +54,11 @@ function domNodes(nodes: TextNode[]): Node[] {
     if (node.kind === 'br') return document.createElement('br');
     const el = document.createElement(node.kind === 'a' ? 'a' : node.kind === 'size' ? 'span' : node.tag);
     if (node.kind === 'a') el.setAttribute('href', node.href);
-    if (node.kind === 'size') Object.assign(el.style, sizeStyle(node.px, node.font));
+    if (node.kind === 'size') {
+      const size = styleOfPx(node.px);
+      if (size) el.setAttribute('data-size', size);
+      Object.assign(el.style, sizeStyle(node.px, node.font));
+    }
     for (const child of domNodes(node.children)) el.appendChild(child);
     return el;
   });
@@ -267,10 +280,14 @@ export default function TextBlockEditor({ blockId, data, selected, readOnly, onC
   };
 
   const roving = useRovingToolbar();
+  // The newsletter's text sizes (Chris, 7 Nov): the menu draws each choice at its size and offers "Edit sizes…".
+  const scale = useTypeScale();
   // Section style (Chris, 5 Nov): alignment, the words' colour and a background over the whole section (drawn by
   // BlockFrame). The links' colour follows the band (textLinkColor).
   const look = sectionLook(data as unknown as Record<string, unknown>, false, TEXT_INK);
   const style = sectionStyleOf(data as unknown as Record<string, unknown>, false);
+  // Line spacing and padding (Chris, 7 Nov).
+  const spacing = spacingOf(data as unknown as Record<string, unknown>, true);
 
   // Font size: on the selected words; with nothing selected, on the whole section. The size where the caret is shows
   // on the button.
@@ -344,7 +361,7 @@ export default function TextBlockEditor({ blockId, data, selected, readOnly, onC
   return (
     <div className="relative">
       {selected && !readOnly ? (
-        <div ref={roving.ref} onFocus={roving.onFocus} onKeyDown={roving.onKeyDown} role="toolbar" aria-label="Text formatting" className="mb-2 mt-2 inline-flex max-w-full flex-wrap items-center gap-0 sm:gap-0.5 rounded-lg border border-gray-200 bg-white p-1 shadow-sm">
+        <div ref={roving.ref} onFocus={roving.onFocus} onKeyDown={roving.onKeyDown} role="toolbar" aria-label="Text formatting" style={{ marginTop: toolbarGap(look.padY) }} className="-mx-3 mb-2 mt-2 inline-flex max-w-[calc(100%+1.5rem)] flex-wrap sm:mx-0 sm:-mr-10 sm:max-w-[calc(100%+2.5rem)] items-center gap-0 sm:gap-0.5 rounded-lg border border-gray-200 bg-white p-1 shadow-sm">
           <ToolbarToggle label="Bold" pressed={caret.bold} onClick={() => format('bold')}><Bold className="h-4 w-4" /></ToolbarToggle>
           <ToolbarToggle label="Italic" pressed={caret.italic} onClick={() => format('italic')}><Italic className="h-4 w-4" /></ToolbarToggle>
           <Popover.Root open={linkOpen} onOpenChange={setLinkOpen}>
@@ -380,13 +397,16 @@ export default function TextBlockEditor({ blockId, data, selected, readOnly, onC
           <ToolbarDivider />
           <FontMenu value={caret.font} hint="Select words to change just them; otherwise the whole section." onPick={applyFont}
             onCloseAutoFocus={(e) => { e.preventDefault(); ref.current?.focus(); select(lastRange.current); }} />
-          <SizeMenu label="Font size" hint="Select words to size just them; otherwise the whole section." options={TEXT_SIZES} value={caretSize} preview={(v) => TEXT_SIZES.find((s) => s.value === v)?.px ?? 16} onPick={applySize}
+          <SizeMenu label="Font size" hint="Select words to size just them; otherwise the whole section." options={TEXT_SIZES} value={caretSize} preview={(v) => Math.min(scale.scale[v], 28)} onPick={applySize}
+            editSizes={scale.editable ? <EditSizesPanel /> : undefined}
             // Back to the words, still selected, so the change can be seen (Radix would focus the button).
             onCloseAutoFocus={(e) => { e.preventDefault(); ref.current?.focus(); select(lastRange.current); }} />
           <AlignMenu value={look.align} onPick={(align) => onChange(stylePatch({ align }))} />
           <TextColorMenu idPrefix={blockId} value={style.color ?? null} shown={look.ink} bg={look.bg} onPick={(color) => onChange(stylePatch({ color }))} />
           <BackgroundMenu idPrefix={blockId} allowImage={false} color={style.background_color ?? null} image={null} textColor={style.color ?? null}
             onColor={(c) => onChange(stylePatch({ background_color: c }))} onImage={() => {}} />
+          <SpacingMenu lineSpacing={spacing.line_spacing ?? 'normal'} padding={spacing.padding ?? 'normal'}
+            onLineSpacing={(line_spacing) => onChange(spacingPatch({ line_spacing }))} onPadding={(padding) => onChange(spacingPatch({ padding }))} />
         </div>
       ) : null}
       <div
@@ -404,13 +424,13 @@ export default function TextBlockEditor({ blockId, data, selected, readOnly, onC
         onDrop={onDrop} onDragStart={onDragStart} onDragEnd={onDragEnd}
         onKeyDown={onKeyDown}
         onClick={(e) => { if ((e.target as HTMLElement).closest('a')) e.preventDefault(); }}
-        style={{ color: look.ink, textAlign: look.align, '--nl-link': textLinkColor(look) } as CSSProperties}
-        className={`min-h-[1.625rem] break-words outline-none ${TEXT_CLASS}`}
+        style={{ ...TEXT_NORMAL_STYLE, color: look.ink, textAlign: look.align, '--nl-link': textLinkColor(look), ...textSpacingStyle(spacing.line_spacing, scale.scale.normal, styleLineHeight('normal', scale.scale.normal)) } as CSSProperties}
+        className={`min-h-[1.625rem] break-words outline-none ${TEXT_CLASS} ${spacing.line_spacing ? SPACED_TEXT_CLASS : ''} ${look.styled ? FLUSH_END_CLASS : ''}`}
       >
         {initial}
       </div>
       {/* A blank editor can still hold <p><br></p>, so the placeholder is drawn over it rather than with :empty. */}
-      {empty && !readOnly ? <span aria-hidden="true" className={`pointer-events-none absolute inset-x-0 bottom-0 text-base leading-[1.625rem] ${look.ink === '#FFFFFF' ? 'text-white/60' : 'text-gray-300'}`} style={{ textAlign: look.align }}>Write something…</span> : null}
+      {empty && !readOnly ? <span aria-hidden="true" className={`pointer-events-none absolute inset-x-0 bottom-0 text-base leading-[1.625rem] ${look.ink === '#FFFFFF' ? 'text-white/60' : 'text-gray-300'}`} style={{ ...TEXT_NORMAL_STYLE, textAlign: look.align }}>Write something…</span> : null}
     </div>
   );
 }

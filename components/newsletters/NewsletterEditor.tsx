@@ -7,6 +7,7 @@ import { LIMITS } from './lib/rules';
 import { ACTION_TOAST_MS, blocksProblems, canMoveBlock, firstInsertIndex, campaignSelections, campaignsBlockWith, createBlock, insertBlock, liveBlockProblems, moveBlock, newBlockId, removeBlock, undoDelete, updateBlockData } from './lib/blocks';
 import { EDIT_ITEMS_LABEL, campaignIdsOf, pruneOverrides } from './lib/campaignsBlock';
 import { TEXT_INK, TITLE_INK, sectionLook } from './lib/sectionStyle';
+import { paddingPx, spacingOf } from './lib/sectionSpacing';
 import { isMessageBlock } from './lib/messageBlock';
 import { canDuplicateBlock, duplicateBlock, type DuplicateOutcome } from './lib/duplicateBlock';
 import { httpsUrl } from './lib/urls';
@@ -87,8 +88,10 @@ const BlockRow = memo(function BlockRow({ block, index, count, canUp, canDown, s
     : block.type === 'text' && !isMessageBlock(block) ? sectionLook(block.data as unknown as Record<string, unknown>, false, TEXT_INK) : null;
   // An Image section with its picture is full-bleed, as in the email (Chris, 6 Nov).
   const bleed = block.type === 'image' && httpsUrl(block.data.url) !== null;
+  // Button, Divider and Campaigns: their padding (Chris, 7 Nov).
+  const padY = block.type === 'button' || block.type === 'divider' || block.type === 'campaigns' ? paddingPx(12, spacingOf(block.data as unknown as Record<string, unknown>, false).padding) : undefined;
   return (
-    <BlockFrame blockId={block.id} label={BLOCK_LABEL[block.type]} index={index} count={count} canUp={canUp} canDown={canDown} selected={selected} readOnly={readOnly} problem={problem} padClass={padClass} look={look} bleed={bleed}
+    <BlockFrame blockId={block.id} label={BLOCK_LABEL[block.type]} index={index} count={count} canUp={canUp} canDown={canDown} selected={selected} readOnly={readOnly} problem={problem} padClass={padClass} look={look} bleed={bleed} padY={padY}
       onSelect={handlers.onSelect} onDone={handlers.onDone} onMoveUp={handlers.onMoveUp} onMoveDown={handlers.onMoveDown} onDelete={handlers.onDelete}
       onDuplicate={canDuplicateBlock(block) ? handlers.onDuplicate : undefined} duplicateBlocked={full ? `You can add up to ${LIMITS.blocks} sections.` : null}
       onEdit={campaigns ? handlers.onPick : undefined} editLabel={campaigns ? EDIT_ITEMS_LABEL : undefined}>

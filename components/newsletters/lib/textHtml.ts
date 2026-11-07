@@ -1,7 +1,9 @@
 // The text block's allowed HTML (spec §4.2), the same list as the API's NewsletterHtmlSanitizer:
 // p, br, strong, em, a[href https/mailto], ul/ol/li; b→strong, i→em, div/h1–h6→p; and (Chris, 5 Nov) a span with
 // one of the toolbar's font sizes, <span style="font-size:14|16|20|24px">, and/or (Chris, 6 Nov) one of its font
-// families, <span style="font-size:20px;font-family:STACK"> (lib/fonts.ts; either part alone too). Scripts, styles, forms and
+// families, <span style="font-size:20px;font-family:STACK"> (lib/fonts.ts; either part alone too). Chris, 7 Nov: a size is
+// now written as its style, <span data-size="large" style="font-family:STACK">, and older px spans read as their style.
+// Scripts, styles, forms and
 // media are dropped with their content; other tags are unwrapped (their words stay); every attribute but a
 // safe href (or that font size) goes. Used both ways: clean what the browser's contentEditable produces before saving, and turn
 // stored HTML into nodes that React renders, so no HTML string is ever injected into the page. The API
@@ -10,6 +12,7 @@ import type { FontKey } from '../../../services/newslettersAPI.ts';
 import { LIMITS } from './rules.ts';
 import { httpsUrl } from './urls.ts';
 import { fontStack, styleFontFamily } from './fonts.ts';
+import { TYPE_STYLES, USUAL_SCALE, styleOfPx } from './typeScale.ts';
 
 export type TextTag = 'p' | 'strong' | 'em' | 'ul' | 'ol' | 'li';
 export type TextNode =
@@ -17,7 +20,9 @@ export type TextNode =
   | { kind: 'br' }
   | { kind: 'el'; tag: TextTag; children: TextNode[] }
   | { kind: 'a'; href: string; children: TextNode[] }
-  /** A font size (px; null: none) and/or a font family (Chris, 6 Nov; no key: none). */
+  /** A font size and/or a font family (Chris, 6 Nov; no key: none). px: the size STYLE, named by its usual px (14 Small,
+   *  16 Normal, 20 Large, 24 X-Large; null: none). Chris, 7 Nov: it is written <span data-size="large"> and drawn at the
+   *  newsletter's own px for that style (lib/typeScale.ts). */
   | { kind: 'size'; px: number | null; font?: FontKey; children: TextNode[] };
 
 /** The toolbar's font sizes in px (lib/sectionStyle.ts TEXT_SIZES; the API's NewsletterHtmlSanitizer::FONT_SIZES). */
@@ -31,6 +36,12 @@ export function styleFontSize(style: string | null): number | null {
       const px = Number(m[1]);
       return FONT_SIZE_PX.includes(px) ? px : null;
     }
+    // Review I1: the editor draws a size with its CSS variable; when Chrome joins two paragraphs it copies that inline
+    // style onto a new span without data-size. The variable names the style.
+    // Normal there is the section's own size (Chrome copies the editor's base style too): no size, as Studio never writes
+    // a Normal span itself.
+    const v = /^\s*font-size\s*:\s*var\(\s*--nl-size-([a-z]+)\b/.exec(declaration);
+    if (v) return v[1] !== 'normal' && (TYPE_STYLES as readonly string[]).includes(v[1]) ? USUAL_SCALE[v[1] as keyof typeof USUAL_SCALE] : null;
   }
   return null;
 }
@@ -137,7 +148,9 @@ export function parseTextHtml(html: string | null | undefined): TextNode[] {
     }
     if (tag === 'span') {
       const style = attrValue(attrs, 'style');
-      const px = styleFontSize(style);
+      // A size style (Chris, 7 Nov) wins over a px; an older px span is read as the style it was.
+      const named = attrValue(attrs, 'data-size');
+      const px = named !== null && (TYPE_STYLES as readonly string[]).includes(named) ? USUAL_SCALE[named as keyof typeof USUAL_SCALE] : styleFontSize(style);
       const font = styleFontFamily(style);
       if (px !== null || font !== null) {
         const node: Extract<TextNode, { kind: 'size' }> = { kind: 'size', px, ...(font ? { font } : {}), children: [] };
@@ -175,10 +188,17 @@ function serializeNode(n: TextNode): string {
   return `<${n.tag}>${n.children.map(serializeNode).join('')}</${n.tag}>`;
 }
 
-/** The canonical opening tag for a size and/or a font, size first (NewsletterHtmlSanitizer::spanOpen); null for neither. */
+/**
+ * The canonical opening tag for a size style and/or a font (Chris, 7 Nov; the API's NewsletterHtmlSanitizer::styleOpen /
+ * spanOpen): <span data-size="large" style="font-size:20px;font-family:STACK">; null for neither. The px is the style's
+ * usual px (review I3): an older reader (a stale first load after a deploy, the app's editor) still keeps the size;
+ * what it draws comes from the newsletter's scale, and data-size wins when read back.
+ */
 export function spanOpen(px: number | null, font: FontKey | null): string | null {
-  const style = [px !== null ? `font-size:${px}px` : null, font ? `font-family:${fontStack(font)}` : null].filter(Boolean);
-  return style.length ? `<span style="${style.join(';')}">` : null;
+  const size = styleOfPx(px);
+  const decl = [size ? `font-size:${USUAL_SCALE[size]}px` : null, font ? `font-family:${fontStack(font)}` : null].filter(Boolean);
+  if (!decl.length) return null;
+  return `<span${size ? ` data-size="${size}"` : ''} style="${decl.join(';')}">`;
 }
 
 /** Back to HTML. Loose top-level words go into paragraphs so every line is a block in the email. */

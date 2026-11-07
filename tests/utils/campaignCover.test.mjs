@@ -69,18 +69,17 @@ test('a picture under half its box on a side is shown whole, centred, never enla
   assert.equal(k.width, Math.round(Math.min(0.8 * 394, 1.5 * 256)));
 });
 
-test('the brand default: a square logo is the round avatar, at most 60% of the box and 1.5x its own size', () => {
-  // The 8abfd1b2 case: a 256px logo as the cover of a 394x600 header → 236px circle (60% of 394), not full-bleed.
+test('the brand default: a square logo is shown whole (never cut round — Chris 7 Nov point 11), 60% of the box, 1.5x at most', () => {
+  // The 8abfd1b2 case: a 256px logo as the cover of a 394x600 header → 236px square (60% of 394), not full-bleed.
   assert.deepEqual(campaignCoverLayout({ isFallback: true, natural: { width: 256, height: 256 }, box: desktopHeader }),
-    { mode: 'contain', shape: 'circle', width: 236, height: 236 });
+    { mode: 'contain', shape: 'rect', width: 236, height: 236 });
   // A tiny 64px logo is never enlarged past 96px.
   assert.deepEqual(campaignCoverLayout({ isFallback: true, natural: { width: 64, height: 64 }, box: desktopHeader }),
-    { mode: 'contain', shape: 'circle', width: 96, height: 96 });
-  // A big logo still stays the avatar (60% of the card's short side), never full-bleed.
+    { mode: 'contain', shape: 'rect', width: 96, height: 96 });
+  // A big logo still stays 60% of the card's short side, never full-bleed.
   assert.deepEqual(campaignCoverLayout({ isFallback: true, natural: { width: 2000, height: 2000 }, box: card }),
-    { mode: 'contain', shape: 'circle', width: 180, height: 180 });
-  // Nearly square (0.85–1.18) still counts as square.
-  assert.equal(campaignCoverLayout({ isFallback: true, natural: { width: 590, height: 500 }, box: card }).shape, 'circle');
+    { mode: 'contain', shape: 'rect', width: 180, height: 180 });
+  assert.equal(campaignCoverLayout({ isFallback: true, natural: { width: 590, height: 500 }, box: card }).shape, 'rect');
 });
 
 test('the brand default: a wide or tall logo is never cut — shown whole (rect), 60% of the box, 1.5x at most', () => {

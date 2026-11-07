@@ -58,13 +58,13 @@ test('edit: Save Changes (PUT) and Save & Send on the same single page', () => {
 test('Cancel says Close once something was saved straight to the campaign; Save & Send left: "Changes saved…"', () => {
   const base = flowView({ editing: true, created: false });
   assert.equal(base.closeLabel, 'Cancel');
-  assert.equal(base.momentsNote, 'Moments and captions save straight to your campaign.');
+  assert.equal(base.momentsNote, 'Moments and captions save straight to your campaign. The title, cover and other details save with Save Changes.');
   assert.equal(flowView({ editing: true, created: false, savedNow: true }).closeLabel, 'Close', 'a caption or moment was saved');
   const sent = flowView({ editing: true, created: false, changesSaved: true });
   assert.equal(sent.closeLabel, 'Close');
   assert.equal(sent.createdNote, 'Changes saved. Send it now, or later.');
   assert.equal(flowView({ editing: false, created: false }).momentsNote, null, 'before creating, moments are held here');
-  assert.equal(flowView({ editing: false, created: true }).momentsNote, 'Moments and captions save straight to your campaign.');
+  assert.equal(flowView({ editing: false, created: true }).momentsNote, 'Moments and captions save straight to your campaign. The title, cover and other details save with Save Changes.');
   assert.equal(flowView({ editing: false, created: false }).closeLabel, 'Cancel');
 });
 
@@ -102,6 +102,9 @@ test('Edit opens the flow prefilled from the campaign', () => {
       { kind: 'photo', key: 'post-1', postId: 1, image: null, video: false, title: '', caption: '', location: '', date: '' },
       { kind: 'photo', key: 'post-2', postId: 2, image: null, video: false, title: '', caption: '', location: '', date: '' },
     ],
+    // Moderation per campaign (Chris, 7 Nov 2026): unknown here (no moderation fields) → the account decides.
+    moderation: null,
+    moderationApplies: null,
   });
   assert.deepEqual(formFromSeed(seed), {
     title: 'Spring Open House', category: 'Service', label: 'Events', date: '2026-10-01', endDate: '2026-10-09', location: 'Toronto, ON', tags: ['spring', 'open house'],

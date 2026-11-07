@@ -18,6 +18,8 @@ import { toast } from 'sonner';
 import ToneSelectionModal from './ToneSelectionModal';
 import AISuggestionModal from './AISuggestionModal';
 import { localDateISO } from '../utils/localDate';
+import SegmentedSwitch from './newsletters/SegmentedSwitch';
+import InventoryMomentPicker, { useInventorySources, type MomentInventory, type MomentSource } from './storeel/InventoryMomentPicker';
 
 interface UploadProgressItem {
   id: string;
@@ -76,6 +78,8 @@ interface AddMomentModalProps {
     tags: string[];
     originalSizeMB: number;
   };
+  /** Chris, 7 Nov 2026: also offer the account's Website Catalogue products and a dealer's vehicles. */
+  inventory?: MomentInventory;
 }
 
 // HEIC/HEIF has no browser decoder, so it can never be shown as an <img> preview —
@@ -107,7 +111,8 @@ export function AddMomentModal({
   insertAfterPostId,
   getInsertAfterPostId,
   libraryMode = false,
-  editPhotoData
+  editPhotoData,
+  inventory
 }: AddMomentModalProps) {
   const { user } = useAuth();
   const { viewType } = useProperty();
@@ -155,6 +160,31 @@ export function AddMomentModal({
 
   // Calculate total images count (desktop files + media library images)
   const totalImagesCount = formData.files.length + mediaLibraryImages.length;
+  // Products / vehicles (Chris, 7 Nov 2026): a switch above the photos when the account has any; "Add all (N)" counts
+  // the photos and the picks together.
+  const sources = useInventorySources(Boolean(inventory) && isOpen && !editPhotoData && !libraryMode);
+  const [source, setSource] = useState<MomentSource>('media');
+  // Follows the window (rotation / resize), review minor 9.
+  const [narrow, setNarrow] = useState(() => typeof window !== 'undefined' && window.innerWidth < 640);
+  useEffect(() => {
+    const onResize = () => setNarrow(window.innerWidth < 640);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+  const [pickedProducts, setPickedProducts] = useState<string[]>([]);
+  const [pickedVehicles, setPickedVehicles] = useState<string[]>([]);
+  const sourceOptions: Array<{ value: MomentSource; label: string }> = inventory && !editPhotoData && !libraryMode ? [
+    // Phones: one row for the three choices ("Photos & Videos" wraps at 390).
+    { value: 'media', label: narrow && sources.productGate !== 'hidden' && sources.vehicles.length ? 'Photos' : 'Photos & Videos' },
+    ...(sources.productGate !== 'hidden' ? [{ value: 'product' as const, label: 'Products' }] : []),
+    ...(sources.vehicles.length ? [{ value: 'vehicle' as const, label: 'Vehicles' }] : []),
+  ] : [];
+  const pickCount = pickedProducts.length + pickedVehicles.length;
+  const togglePick = (setList: (fn: (prev: string[]) => string[]) => void) => (id: string) =>
+    setList((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  useEffect(() => {
+    if (!isOpen) { setSource('media'); setPickedProducts([]); setPickedVehicles([]); }
+  }, [isOpen]);
 
   // Handle media library images when they're passed in
   useEffect(() => {
@@ -915,6 +945,25 @@ export function AddMomentModal({
       return handleLibrarySubmit();
     }
 
+    // Products / vehicles first (Chris, 7 Nov 2026): they need nothing uploaded. Then the photos, if any.
+    if (inventory && pickCount > 0) {
+      if (isUploading) { toast.error('Still uploading — please wait a moment and try again.'); return; }
+      setIsSubmitting(true);
+      let added = false;
+      try {
+        added = await inventory.onAdd({
+          products: sources.products.filter((p) => pickedProducts.includes(String(p.id))),
+          vehicles: sources.vehicles.filter((v) => pickedVehicles.includes(String(v.id))),
+        });
+      } finally {
+        setIsSubmitting(false);
+      }
+      if (!added) return;
+      setPickedProducts([]);
+      setPickedVehicles([]);
+      if (totalImagesCount === 0) { handleCancel(); return; }
+    }
+
     if (!memoryId) {
       // Files finish uploading to S3 in the background after selection
       // (see the batch-upload effect above), populating uploadedS3Urls per
@@ -1225,6 +1274,21 @@ export function AddMomentModal({
 
         {/* Form Content */}
         <div className="flex-1 p-4 md:p-4 space-y-4 overflow-y-auto">
+          {sourceOptions.length > 1 ? (
+            <SegmentedSwitch<MomentSource> label="Add from" options={sourceOptions} value={source} onChange={setSource} fill />
+          ) : null}
+          {source !== 'media' ? (
+            <InventoryMomentPicker
+              kind={source}
+              gate={source === 'product' ? sources.productGate : 'ready'}
+              items={source === 'product' ? sources.products : sources.vehicles}
+              loading={sources.loading}
+              picked={source === 'product' ? pickedProducts : pickedVehicles}
+              onToggle={source === 'product' ? togglePick(setPickedProducts) : togglePick(setPickedVehicles)}
+              alreadyAdded={source === 'product' ? inventory?.alreadyAdded?.products : inventory?.alreadyAdded?.vehicles}
+              onSeePlans={inventory?.onSeePlans ? () => { handleCancel(); inventory.onSeePlans?.(); } : undefined}
+            />
+          ) : (<>
           {/* Photos & Videos */}
           <div>
             <label className="flex items-center gap-2 text-[14px] md:text-sm font-medium text-gray-700 mb-2">
@@ -2026,6 +2090,7 @@ export function AddMomentModal({
               })()}
             </div>
           </div>
+          </>)}
         </div>
 
         {/* Footer */}
@@ -2075,7 +2140,7 @@ export function AddMomentModal({
               ) : (
                 <>
                   <Save className="w-4 h-4 mr-2" />
-                  Add all ({totalImagesCount})
+                  Add all ({totalImagesCount + pickCount})
                 </>
               )}
             </Button>

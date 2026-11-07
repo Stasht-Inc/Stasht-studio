@@ -79,7 +79,8 @@ function campaignLayout(data, selections = []) {
     const kept = Object.fromEntries(OVERRIDE_FIELDS.filter((f) => typeof o[f] === 'string' && o[f].trim()).map((f) => [f, f === 'image_url' ? o[f].trim() : o[f].replace(/\s+/g, ' ').trim()]));
     if (Object.keys(kept).length) overrides[k] = kept;
   }
-  return { ...([1, 2].includes(data?.columns) ? { columns: data.columns } : {}), overrides };
+  // Chris (7 Nov): its padding is kept too (NewsletterCampaigns::withLayout).
+  return { ...([1, 2].includes(data?.columns) ? { columns: data.columns } : {}), overrides, ...(['none', 'small', 'large'].includes(data?.padding) ? { padding: data.padding } : {}) };
 }
 const MONTH_NAME = () => {
   const d = new Date();
@@ -87,6 +88,14 @@ const MONTH_NAME = () => {
 };
 
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+// NewsletterTypeScale::normalise: the full scale, or null for none / the usual sizes.
+const USUAL_SCALE = { small: 14, normal: 16, large: 20, xlarge: 24 };
+function mockScale(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const s = { ...USUAL_SCALE };
+  for (const k of Object.keys(s)) if (Number.isInteger(raw[k]) && raw[k] >= 10 && raw[k] <= 72) s[k] = raw[k];
+  return Object.keys(s).every((k) => s[k] === USUAL_SCALE[k]) ? null : s;
+}
 const pickEditable = (src) => Object.fromEntries(EDITABLE.filter((k) => src && k in src).map((k) => [k, structuredClone(src[k])]));
 
 export function newsletter(id, over = {}) {
@@ -293,7 +302,9 @@ export function createMockApi(options = {}) {
     // docs/sql/2026-11-01-newsletter-default-message.sql ran (accepts the field, keeps nothing).
     // recent_colors (Chris, 6 Nov): NewsletterRecentColors; options.recentColors: false = an API without them (no key).
     brand: { header: { logo_url: null, banner_url: null, background_color: '#6C60FF', title: 'Serpa Chrysler' }, business_address: options.businessAddress ?? null, default_message: options.defaultMessage ?? null,
-      ...(options.recentColors === false ? {} : { recent_colors: options.recentColors ?? [] }) },
+      ...(options.recentColors === false ? {} : { recent_colors: options.recentColors ?? [] }),
+      // The account's default text sizes (Chris, 7 Nov), when one was saved.
+      ...(options.brandTypeScale ? { type_scale: options.brandTypeScale } : {}) },
     // ContactListController::summary: consent_type (null for lists made before consent was recorded) and created_at.
     lists: options.lists ?? [{ id: 9, name: 'Open house sign-ups', source: 'import', member_count: 212, email_count: 198, sms_count: 140, consent_type: 'express', created_at: '2026-10-02T15:00:00Z' }],
     // AudienceResolver's skipped counts on top of the defaults (consent_expired, unsupported_number, ...).
@@ -741,8 +752,67 @@ export function createMockApi(options = {}) {
       return ok({ storage_overview: { plan_name: state.plan } });
     }
     if (path === '/user/profile') return ok({ user: PROFILE });
+    // UserController notification preferences ({status: 1, data: {...}}): options.accountModeration (default on).
+    if (path === '/user/notification-preferences' && method === 'GET') {
+      return { status: 200, json: { status: 1, data: { moderation_enabled: options.accountModeration ?? true } } };
+    }
     // options.catalogue: the account has Website Catalogue items (Create Campaign then offers its "Website Catalogue").
-    if (path === '/website-catalogue') return ok(options.catalogue ? { available: true, item_count: 2 } : { available: false });
+    // options.cataloguePlanRequired: the account is in the catalogue pilot but not on the Business plan (Chris 7 Nov).
+    if (path === '/website-catalogue') {
+      if (options.cataloguePlanRequired) return ok({ available: false, reason: 'plan_required', item_count: 2 });
+      return ok(options.catalogue ? { available: true, reason: null, item_count: 2 } : { available: false, reason: 'not_available', item_count: 0 });
+    }
+    // CampaignMomentsController (Chris, 7 Nov 2026): a saved campaign's products, vehicles and moment order.
+    const momentsMatch = /^\/memories\/(\d+)\/(catalogue-items|cars|moment-order)(?:\/(\d+))?$/.exec(path);
+    if (momentsMatch) {
+      const id = Number(momentsMatch[1]);
+      const m = state.memories.get(id);
+      state.momentCalls = [...(state.momentCalls ?? []), { method, kind: momentsMatch[2], id, body, sub: momentsMatch[3] ?? null }];
+      if (!m) return fail(404, { success: false, message: 'Campaign not found.' });
+      const orderOf = () => (Array.isArray(m.unified_order) && m.unified_order.length ? m.unified_order : [
+        ...(m.posts ?? []).filter((p) => p.parent_id == null).map((p) => ({ type: 'post', id: p.id })),
+        ...(m.linked_memories ?? []).filter((l) => !l.is_car).map((l) => ({ type: 'linked_memory', id: l.id })),
+      ]);
+      if (momentsMatch[2] === 'moment-order' && method === 'PUT') {
+        m.unified_order = body.order.map((o) => ({ type: o.type, id: Number(o.id) }));
+        return ok({ order: m.unified_order });
+      }
+      if (momentsMatch[2] === 'catalogue-items' && method === 'POST') {
+        if (options.cataloguePlanRequired) return fail(403, { success: false, code: 'plan_required', message: 'Website Catalogue campaigns are available on the Business plan.' });
+        const order = orderOf();
+        const made = (body.catalog_item_ids ?? []).map((itemId, i) => ({
+          id: id * 1000 + 500 + (m.posts?.length ?? 0) + i, parent_id: null, image_link: IMG, title: itemId === 61 ? 'Oak bench' : 'Pine shelf', description: 'Price: $450',
+        }));
+        m.posts = [...(m.posts ?? []), ...made];
+        const at = body.after_item_id ? order.findIndex((o) => o.type === body.after_item_type && Number(o.id) === Number(body.after_item_id)) + 1
+          : body.position === 'start' ? 0 : order.length;
+        order.splice(at > 0 || body.position === 'start' ? at : order.length, 0, ...made.map((p) => ({ type: 'post', id: p.id })));
+        m.unified_order = order;
+        return ok({ moments: made.length, skipped_item_ids: [], already_added_item_ids: [], moment_ids: made.map((p) => p.id) });
+      }
+      if (momentsMatch[2] === 'cars' && method === 'POST') {
+        const before = (m.linked_memories ?? []).length;
+        for (const carId of body.car_ids ?? []) {
+          if (!(m.linked_memories ?? []).some((l) => l.is_car && Number(l.id) === Number(carId))) m.linked_memories = [...(m.linked_memories ?? []), { id: Number(carId), is_car: 1, title: '2024 Jeep Wrangler', price: '34995', mileage: 45000, stock_number: 'S2300' }];
+        }
+        return ok({ linked: (m.linked_memories ?? []).length - before });
+      }
+      if (momentsMatch[2] === 'cars' && method === 'DELETE') {
+        m.linked_memories = (m.linked_memories ?? []).filter((l) => !(l.is_car && Number(l.id) === Number(momentsMatch[3])));
+        return ok({});
+      }
+    }
+    // The campaign page's moment delete (dashboardAPI.deletePost) on a saved Storeel.
+    const postDelete = /^\/memory-images\/(\d+)$/.exec(path);
+    if (postDelete && method === 'DELETE') {
+      const postId = Number(postDelete[1]);
+      for (const m of state.memories.values()) {
+        m.posts = (m.posts ?? []).filter((p) => p.id !== postId);
+        if (Array.isArray(m.unified_order)) m.unified_order = m.unified_order.filter((o) => !(o.type === 'post' && Number(o.id) === postId));
+      }
+      state.deletedPosts = [...(state.deletedPosts ?? []), postId];
+      return ok({});
+    }
     if (path === '/website-catalogue/items' && options.catalogue) {
       // The Storeel flow's live preview shows a picked item as a product moment (its photo, price, "View on website").
       return ok({ items: [
@@ -778,12 +848,14 @@ export function createMockApi(options = {}) {
         id, slug, title: body?.title, published: Number(body?.published) || 0, is_car: 0, user_id: 990002,
         category: { id: body?.category_id, name: body?.category_id === 8 ? 'Service' : 'Personal' }, sub_category: body?.sub_category?.[0] ? { name: body.sub_category[0] } : null,
         min_uploaded_img_date: null, max_uploaded_img_date: null, location: body?.location ?? '', tags: body?.tags ?? [], last_update_img: body?.last_update_img ?? null,
+        moderation_enabled: body?.moderation_enabled ?? null, moderation_effective: body?.moderation_enabled ?? (options.accountModeration ?? true),
         // A catalogue item becomes a moment (CatalogSnapshotWriter), a picked vehicle a linked campaign (memory_cars).
         posts: [
           ...(body?.catalog_item_ids ?? []).map((itemId) => ({ title: itemId === 61 ? 'Oak bench' : 'Pine shelf', description: 'Price: $450', image_link: IMG })),
           ...(body?.photos ?? []).map((p) => ({ title: p.title ?? '', description: p.description ?? '', image_link: p.fileUrl ?? IMG })),
         ].map((p, i) => ({ id: id * 100 + i, parent_id: null, ...p })),
-        linked_memories: (body?.car_ids ?? []).map((carId) => ({ id: Number(carId), is_car: 1, title: '2024 Jeep Wrangler' })),
+        // Add a Moment's vehicles on another category come as linked_memory_ids (store() links a vehicle id it finds there).
+        linked_memories: [...(body?.car_ids ?? []), ...(body?.linked_memory_ids ?? []).filter((v) => Number(v) === 5)].map((carId) => ({ id: Number(carId), is_car: 1, title: '2024 Jeep Wrangler', price: '34995', mileage: 45000, stock_number: 'S2300' })),
       });
       return ok({ id, title: body?.title, slug, category_id: body?.category_id, sub_category_id: null, collaborators_count: 0, created_at: now() }, 201);
     }
@@ -795,7 +867,7 @@ export function createMockApi(options = {}) {
     const memoryMatch = /^\/memories\/(\d+)$/.exec(path);
     if (memoryMatch && method === 'GET') {
       const m = state.memories.get(Number(memoryMatch[1]));
-      return m ? { status: 200, json: { status: 'success', data: { memory: m } } } : fail(404, { success: false, message: 'Memory not found' });
+      return m ? { status: 200, json: { status: 'success', data: { memory: m, ...(m.unified_order ? { unified_order: m.unified_order } : {}), ...(m.linked_memories ? { linked_memories: m.linked_memories } : {}) } } } : fail(404, { success: false, message: 'Memory not found' });
     }
     if (memoryMatch && method === 'PUT') {
       const id = Number(memoryMatch[1]);
@@ -805,7 +877,8 @@ export function createMockApi(options = {}) {
       }
       if (state.putErrors) return fail(422, { message: Object.values(state.putErrors)[0], errors: Object.fromEntries(Object.entries(state.putErrors).map(([k, v]) => [k, [v]])) });
       const m = state.memories.get(id);
-      if (m) Object.assign(m, { title: body?.title ?? m.title, location: body?.location ?? m.location, tags: body?.tags ?? m.tags, ...('last_update_img' in (body ?? {}) ? { last_update_img: body.last_update_img } : {}) });
+      if (m) Object.assign(m, { title: body?.title ?? m.title, location: body?.location ?? m.location, tags: body?.tags ?? m.tags, ...('last_update_img' in (body ?? {}) ? { last_update_img: body.last_update_img } : {}),
+        ...('moderation_enabled' in (body ?? {}) ? { moderation_enabled: body.moderation_enabled, moderation_effective: body.moderation_enabled } : {}) });
       return ok(m ?? { id });
     }
     // StoreelBroadcastController (the Storeel flow's step 3 Send).
@@ -852,7 +925,8 @@ export function createMockApi(options = {}) {
     // The Leads page (Lists tab checks): an empty inbox.
     // LeadsController@index answers with the payload itself (no success/data wrapper; LeadsTab reads it off the body).
     // options.leadTabCounts: the Open / Closed counts (the Leads tab shows their sum).
-    if (path === '/leads' && method === 'GET') return { status: 200, json: { leads: [], total: 0, status_counts: {}, messages_total: 0, meta: { total_pages: 1 }, tab_counts: options.leadTabCounts ?? { open: 0, closed: 0 } } };
+    // inboxLeads (Chris 7 Nov list leads): rows for the Leads inbox, as GET /leads sends them.
+    if (path === '/leads' && method === 'GET') return { status: 200, json: { leads: options.inboxLeads ?? [], total: (options.inboxLeads ?? []).length, status_counts: {}, messages_total: 0, meta: { total_pages: 1 }, tab_counts: options.leadTabCounts ?? { open: 0, closed: 0 } } };
     if (path === '/leads/unread-count') return ok({ total_unread: 0, total_unread_messages: 0, total_unread_comments: 0 });
     // leadsAPI.getMyConversations reads {total, conversations} straight off the body (as LeadsTab uses it).
     if (path === '/my-conversations' && method === 'GET') return { status: 200, json: { total: state.conversations.length, conversations: state.conversations } };
@@ -868,6 +942,7 @@ export function createMockApi(options = {}) {
       const n = newsletter(state.nextId++, {
         name: body?.name?.trim() || MONTH_NAME(), from_name: state.owner.name, reply_to_email: state.owner.email,
         audience: [], header: structuredClone(state.brand.header),
+        ...(state.brand.type_scale ? { type_scale: structuredClone(state.brand.type_scale) } : {}),
       });
       state.newsletters.push(n);
       return ok(n, 201);
@@ -911,6 +986,9 @@ export function createMockApi(options = {}) {
           if (typeof body.recent_color !== 'string' || !/^#[0-9a-f]{6}$/i.test(body.recent_color)) return fail(422, { message: 'Pick a colour like #6C60FF.', errors: { recent_color: ['Pick a colour like #6C60FF.'] } });
           const c = body.recent_color.toUpperCase();
           state.brand.recent_colors = [c, ...state.brand.recent_colors.filter((x) => x !== c)].slice(0, 8);
+        }
+        if (body && 'type_scale' in body) {
+          if (mockScale(body.type_scale)) state.brand.type_scale = mockScale(body.type_scale); else delete state.brand.type_scale;
         }
         if (body && 'default_message' in body && options.defaultMessageColumn !== false) {
           const text = typeof body.default_message === 'string' ? body.default_message.trim() : '';
@@ -1019,6 +1097,10 @@ export function createMockApi(options = {}) {
         }
         if (Object.keys(errors).length) return fail(422, { message: Object.values(errors)[0][0], errors });
         Object.assign(n, pickEditable(body), { updated_at: now() });
+        // Text sizes (Chris, 7 Nov; NewsletterTypeScale): kept whole, null / the usual sizes take them away.
+        if (body && 'type_scale' in body) {
+          if (mockScale(body.type_scale)) n.type_scale = mockScale(body.type_scale); else delete n.type_scale;
+        }
         // A Campaigns section: drop ids the owner can't share, then the server's own snapshot (never the client's),
         // refreshed by every PUT that sends blocks (and by duplicate).
         if (body && 'blocks' in body) {

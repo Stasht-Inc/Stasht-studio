@@ -48,7 +48,7 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
   // Delete: a list a scheduled newsletter uses can't go (409, the API's words).
   const winter = dialog.getByRole('listitem').filter({ hasText: 'Winter tire customers' });
   await winter.getByRole('button', { name: 'Delete' }).click();
-  await expectVisible(winter.getByText(/The people on it are removed for good/), 'delete asks first');
+  await expectVisible(winter.getByText(/People on it who are in your Leads stay there/), 'delete asks first (list people stay in Leads, Chris 7 Nov)');
   await winter.getByRole('button', { name: 'Yes, delete it' }).click();
   await expectVisible(winter.getByText('This list is used by a scheduled newsletter. Cancel it first.'), '409 message');
   await shot(page, '1280-03-in-use');

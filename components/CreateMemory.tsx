@@ -29,10 +29,17 @@ import CampaignTypeSwitch from './newsletters/CampaignTypeSwitch';
 import { initialCampaignType, type CampaignType } from './newsletters/lib/campaignType';
 import { announceNewslettersChanged, writeCampaignsView } from './newsletters/lib/campaignsView';
 import { requestUpgrade } from '../utils/planEvents';
-import StoreelLivePreview from './storeel/StoreelLivePreview';
+import StoreelLivePreview, { type PreviewControls } from './storeel/StoreelLivePreview';
+import ComposerDialog from './newsletters/ComposerDialog';
+import { apiDefaultOrder, focusAfterRemove, insertKeysAfter, isOrderable, momentMenu, moveKey, needsServerOrder, orderMoments, savedOrderPayload, savedRef, sentPostKeys, serverOrderAfterCreate } from './storeel/lib/momentOrder';
+import { addedMessage, pickPayload, pickedPreviewMoments, type InventoryPick } from './storeel/lib/momentPicks';
+import { accountModerationFrom, moderationPayload, moderationSwitchShown, shownModeration } from './storeel/lib/moderation';
+import { Switch } from './ui/switch';
+import type { MomentInventory } from './storeel/InventoryMomentPicker';
+import { campaignMomentsAPI, type MomentPlace } from '../services/campaignMomentsAPI';
 import { actionLines } from './storeel/lib/actionLines';
 import { storeelBrandImage } from './storeel/storeelPreview';
-import { createPreviewMoments, type PickKind, type PickerItem } from './storeel/lib/previewMoments';
+import { createPreviewMoments, type PickKind, type PickerItem, type PreviewMoment } from './storeel/lib/previewMoments';
 import { coverChoiceReducer, coverChoicePayload, coverPhotoFileError, EMPTY_COVER_CHOICE, COVER_PHOTO_ACCEPT, type CoverChoice, type CoverChoiceAction } from '../utils/coverChoice';
 import { BUTTON_OUTLINE, BUTTON_PRIMARY, BUTTON_SECONDARY, LINK_BUTTON } from './newsletters/lib/ui';
 import StepCard from './newsletters/StepCard';
@@ -206,6 +213,22 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
   };
   const [editingPhotoIndex, setEditingPhotoIndex] = useState<number | null>(null);
   const [isAddMomentOpen, setIsAddMomentOpen] = useState(false);
+  // Chris, 7 Nov 2026 (points 6, 7): the moments' order before the campaign exists (keys; [] = the API's own order),
+  // the products / vehicles added with Add a Moment (beside step 1's picks), and where a preview "+" adds moments
+  // (a moment's key, null = first; undefined = the Moments card's Add a Moment, at the end).
+  const [momentOrder, setMomentOrder] = useState<string[]>([]);
+  const [extraCatalog, setExtraCatalog] = useState<InventoryPick[]>([]);
+  const [extraCars, setExtraCars] = useState<InventoryPick[]>([]);
+  const addAnchorRef = useRef<string | null | undefined>(undefined);
+  const [momentBusy, setMomentBusy] = useState(false);
+  const [deleteAsk, setDeleteAsk] = useState<PreviewMoment | null>(null);
+  const [captionRequest, setCaptionRequest] = useState<{ key: string; n: number } | null>(null);
+  // See plans from inside this page (review I2): the plans open under it, so leaving is asked first — never silently.
+  const [plansAsk, setPlansAsk] = useState<string | null>(null);
+  // Moderation per campaign (Chris, 7 Nov 2026, point 12): the person's choice (null = untouched) and the account's
+  // setting (the default for a new campaign, and for a saved one that never had its own value).
+  const [moderationChoice, setModerationChoice] = useState<boolean | null>(null);
+  const [accountModeration, setAccountModeration] = useState<boolean | null>(null);
   const [momentFiles, setMomentFiles] = useState<FileList | null>(null);
   const [isVideoRecorderOpen, setIsVideoRecorderOpen] = useState(false);
 
@@ -1129,6 +1152,11 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
       setShowPropertyDropdown(false);
       setPropertySearch('');
       setMainPhotosArray([]);
+      setMomentOrder([]);
+      setExtraCatalog([]);
+      setExtraCars([]);
+      addAnchorRef.current = undefined;
+      setModerationChoice(null);
       setPhotosWithMetadata([]);
       setExifExtractionResults([]);
       setShowExifModal(false);
@@ -1147,6 +1175,8 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
       (async () => {
         try {
           const res = await dashboardAPI.getNotificationPreferences();
+          // The same answer gives the Moderation switch its default (Chris, 7 Nov 2026; review M3: one request).
+          if (!cancelled) setAccountModeration(accountModerationFrom(res));
           if (cancelled || !res?.success || !res.data) return;
 
           // apiRequest returns the whole server payload as `data` (i.e. { status, data: {...} }),
@@ -1167,7 +1197,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
             // from Existing Campaigns" here, pre-filtered to that category.
             setSelectFromExisting(true);
           }
-        } catch { /* keep the existing default */ }
+        } catch { if (!cancelled) setAccountModeration(true); /* keep the existing default */ }
       })();
       return () => { cancelled = true; };
     }
@@ -1352,6 +1382,11 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
     setCatalogNotice('');
     wasCatalogCategoryRef.current = false;
     setVisibleCampaignsCount(CAMPAIGNS_LOAD_BATCH);
+    setMomentOrder([]);
+    setExtraCatalog([]);
+    setExtraCars([]);
+    setDeleteAsk(null);
+    setModerationChoice(null);
     onOpenChange(false);
   };
 
@@ -1992,10 +2027,40 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
     : previewPick === 'cars' ? carsForPicker
     : previewPick === 'campaigns' ? [...existingMemories, ...carsForPicker.map((c: any) => ({ ...c, kind: 'cars' as const })), ...shopifyCollections.map((c: any) => ({ ...c, kind: 'shopify' as const }))]
     : [];
-  const createMoments = createPreviewMoments({
-    pick: previewPick, picked: previewPicked, selectedIds: selectedMemoryIds, photos: mainPhotosArray, location: formData.location, today: todayDate,
-  });
-  const previewMoments = flowEditing || flowCampaign ? (flowCampaign?.previewMoments ?? []) : createMoments;
+  // With the products / vehicles added in Add a Moment (Chris, 7 Nov 2026), in the order the API makes them on its own.
+  const extraCatalogShown = previewPick === 'catalog' ? [] : extraCatalog;
+  const extraCarsShown = previewPick === 'cars' ? [] : extraCars.filter((c) => !selectedMemoryIds.includes(String(c.id)));
+  const createMoments = apiDefaultOrder([
+    ...createPreviewMoments({
+      pick: previewPick, picked: previewPicked, selectedIds: selectedMemoryIds, photos: mainPhotosArray, location: formData.location, today: todayDate,
+    }),
+    ...pickedPreviewMoments('catalog', extraCatalogShown, formData.location, todayDate),
+    ...pickedPreviewMoments('cars', extraCarsShown, formData.location, todayDate),
+  ]);
+  const savedMomentsList = flowEditing || flowCampaign;
+  // What the Moments card and the phone show, in order: before the campaign exists, the order given with the preview's
+  // "+" / Move (momentOrder); once saved, the campaign's own. Vehicles / Shopify collections always last.
+  const previewMoments = savedMomentsList ? orderMoments(flowCampaign?.previewMoments ?? [], []) : orderMoments(createMoments, momentOrder);
+  const shownPlacedKeys = previewMoments.filter(isOrderable).map((m) => m.key);
+
+  /** The Moderation switch's value: the person's choice, else the campaign's, else the account's (on by default). */
+  const moderationOn = shownModeration({ choice: moderationChoice, campaign: flowCampaign?.moderation ?? null, account: accountModeration });
+
+  /** Just created: give its moments the shown order (GET it, match its moments to the form's, PUT the order). */
+  const orderNewCampaign = async (id: number, shown: PreviewMoment[]) => {
+    const failed = () => toast.error("Campaign saved. The moments' order couldn't be saved — reorder them on the campaign page.");
+    try {
+      clearApiCache();
+      const res = await dashboardAPI.getMemoryDetails(String(id));
+      const fresh = res?.success ? (seedFromMemory(res.data)?.previewMoments ?? []) : [];
+      const order = serverOrderAfterCreate(shown, sentPostKeys(createMoments), fresh);
+      if (!order) { failed(); return; }
+      const put = await campaignMomentsAPI.setOrder(id, order);
+      if (!put.ok) failed();
+    } catch {
+      failed();
+    }
+  };
 
   /**
    * Save as Draft (andSend false) or Save & Send: POST /memories with every moment of step 2 — its photos and
@@ -2096,7 +2161,10 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
         tags: formData.tags,
         photos_count: photosArray.length,
         photos: photosArray,
-        ...coverChoicePayload(coverChoice)
+        ...coverChoicePayload(coverChoice),
+        // Moderation per campaign (Chris, 7 Nov 2026): only when the switch was touched (review I1); untouched, the
+        // campaign follows the account's setting (NULL).
+        ...moderationPayload(moderationChoice),
       };
 
       // Publish immediately if requested
@@ -2105,18 +2173,14 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
       }
 
       // Selected items: Website Catalogue item ids / Shopify collection ids / Cars listing ids go
-      // to their own field (they are not real memory rows); normal campaigns stay on linked_memory_ids.
-      if (selectedMemoryIds.length > 0) {
-        if (isCatalogCategory) {
-          memoryData.catalog_item_ids = selectedMemoryIds.map(id => parseInt(id, 10));
-        } else if (isShopifyCategory) {
-          memoryData.shopify_collection_ids = selectedMemoryIds;
-        } else if (isCarsCategory) {
-          memoryData.car_ids = selectedMemoryIds;
-        } else {
-          memoryData.linked_memory_ids = selectedMemoryIds.map(id => parseInt(id, 10));
-        }
-      }
+      // to their own field (they are not real memory rows); normal campaigns stay on linked_memory_ids. The products /
+      // vehicles added with Add a Moment go beside them (Chris, 7 Nov 2026; lib/momentPicks pickPayload).
+      Object.assign(memoryData, pickPayload({
+        pick: isCatalogCategory ? 'catalog' : isShopifyCategory ? 'shopify' : isCarsCategory ? 'cars' : selectedMemoryIds.length ? 'campaigns' : null,
+        selectedIds: selectedMemoryIds,
+        extraCatalog: extraCatalog.map((p) => String(p.id)),
+        extraCars: extraCars.map((c) => String(c.id)),
+      }));
 
       // Add sub_category as array of label names
       if (formData.label) {
@@ -2145,6 +2209,9 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
       
       if (response.success) {
         const created = seedFromMemory(response.data);
+        // The order given with the preview's "+" / Move (Chris, 7 Nov 2026): the API made the moments in its own
+        // order, so put them in the shown one. The campaign is made either way.
+        if (created && needsServerOrder(previewMoments, createMoments)) await orderNewCampaign(created.id, previewMoments);
         await recheckMemoryLimit();
         void triggerMemoryCountsRefresh();
         if (created) {
@@ -2157,7 +2224,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
             date: formData.date, endDate: showEndDate ? formData.endDate : '', location: formData.location || '', tags: [...formData.tags], cover,
             published: Number(memoryData.published) || 0, isCar: isCarsCategory,
             // The moments the preview showed are the ones just made (the API answers only the campaign's id).
-            moments: createMoments.length, previewMoments: createMoments,
+            moments: previewMoments.length, previewMoments,
           });
           // Saving again (after Save & Send's confirm was left) is a PUT, which keeps this category.
           setSeededCategory(formData.category);
@@ -2174,7 +2241,9 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
           // Send card asks to confirm.
           setFlowCreated(true);
           setSendRequest((n) => n + 1);
-          void refreshSavedMoments(created.id);
+          // The moments' controls wait for the campaign's real moments (ids): a Move before them would leave some out.
+          setMomentBusy(true);
+          void refreshSavedMoments(created.id).finally(() => setMomentBusy(false));
         }
       } else {
         console.error('Failed to create memory:', response);
@@ -2225,7 +2294,8 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
     setSetupError(null);
     const coverUrl = coverChoice.kind && coverChoice.url ? coverChoice.url : null;
     const form = { ...formData, endDate: showEndDate ? formData.endDate : '' };
-    const body = updatePayload(form, categoriesForDropdown, { changed: coverUrl !== initialCoverUrlRef.current, url: coverUrl }, seededCategory ?? formData.category);
+    // Moderation: only when the switch was touched (review I1); untouched, the campaign's value is left alone.
+    const body: Record<string, unknown> = { ...updatePayload(form, categoriesForDropdown, { changed: coverUrl !== initialCoverUrlRef.current, url: coverUrl }, seededCategory ?? formData.category), ...moderationPayload(moderationChoice) };
     try {
       const res = await dashboardAPI.updateMemory(String(c.id), body);
       if (res.success) {
@@ -2233,6 +2303,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
         setFlowCampaign({
           ...c, title: String(body.title), category: formData.category, label: formData.label.trim(), date: form.date, endDate: form.endDate,
           location: formData.location, tags: [...formData.tags], cover: coverChoice.kind && coverUrl ? { kind: coverChoice.kind, url: coverUrl } : null,
+          moderation: moderationChoice ?? c.moderation,
         });
         setSeededCategory(formData.category);
         onCampaignSaved?.(c.id);
@@ -2280,7 +2351,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
   const actionMessages = actionLines({ actionError, saveReason, sendReason: sendDisabledReason });
 
   /** A saved campaign's real moments (GET /memories/{id}): step 2 and the preview show them, with their ids. */
-  const refreshSavedMoments = async (id: number) => {
+  const refreshSavedMoments = async (id: number): Promise<PreviewMoment[] | null> => {
     try {
       // Add a Moment uploads with its own fetch (not apiRequest), which doesn't clear apiRequest's 15 s GET cache:
       // without this the campaign would come back as it was before the moment was added.
@@ -2289,9 +2360,241 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
       const fresh = res?.success ? seedFromMemory(res.data, categoriesProp?.length ? categoriesProp : apiCategories) : null;
       const c = flowCampaignRef.current;
       if (fresh && c && c.id === id) setFlowCampaign({ ...c, previewMoments: fresh.previewMoments, moments: fresh.moments, slug: fresh.slug ?? c.slug });
+      return fresh ? fresh.previewMoments : null;
     } catch {
       // Keep the moments shown so far.
+      return null;
     }
+  };
+
+  // ── The preview's controls and Add a Moment's products / vehicles (Chris, 7 Nov 2026, points 6, 7) ──────────────
+  // Before the campaign exists, everything stays here until Save as Draft. On a saved campaign (Edit, or after Save &
+  // Send made it) moments save straight to it, as step 2 Moments already does there.
+
+  /** Open the original Add a Moment: from a preview "+" (`anchor`: the moment it follows, null = first), or the card. */
+  const openAddMoment = (anchor: string | null | undefined) => {
+    addAnchorRef.current = anchor;
+    setEditingPhotoIndex(null);
+    setMomentFiles(null);
+    setIsAddMomentOpen(true);
+  };
+
+  /** Before the campaign exists: put just-added moments where the "+" was (the card's Add a Moment: at the end). */
+  const placeAdded = (keys: string[]) => {
+    const anchor = addAnchorRef.current;
+    if (anchor === undefined || !keys.length) return;
+    setMomentOrder(insertKeysAfter(shownPlacedKeys, anchor, keys));
+  };
+
+  /** Where a "+" on a saved campaign adds: after a moment / linked campaign, first, or (the card, a vehicle's +) last. */
+  const savedPlace = (anchor: string | null | undefined): MomentPlace => {
+    if (anchor === undefined) return null;
+    if (anchor === null) return { start: true };
+    const m = previewMoments.find((x) => x.key === anchor);
+    const ref = m ? savedRef(m) : null;
+    return ref && ref.type !== 'car' ? { after: ref } : null;
+  };
+
+  /** A saved campaign: after an upload from a "+", move its new moments to that place (PUT moment-order). */
+  const placeSavedUploads = async (id: number, before: string[], anchor: string | null | undefined) => {
+    // Busy until placed (review I3): no Move / Delete in between.
+    setMomentBusy(true);
+    try {
+      await placeSavedUploadsNow(id, before, anchor);
+    } finally {
+      setMomentBusy(false);
+    }
+  };
+  const placeSavedUploadsNow = async (id: number, before: string[], anchor: string | null | undefined) => {
+    const fresh = await refreshSavedMoments(id);
+    if (!fresh || anchor === undefined) return;
+    const shown = orderMoments(fresh, []);
+    const added = shown.filter((m) => isOrderable(m) && !before.includes(m.key)).map((m) => m.key);
+    if (!added.length) return;
+    const keys = insertKeysAfter(shown.filter((m) => isOrderable(m) && !added.includes(m.key)).map((m) => m.key), anchor, added);
+    const byKey = new Map(shown.map((m) => [m.key, m]));
+    const res = await campaignMomentsAPI.setOrder(id, savedOrderPayload(keys.map((k) => byKey.get(k)!).filter(Boolean)));
+    if (!res.ok) toast.error(res.error || "The moment was added, but not at that place. Move it with its ⋮ menu.");
+    await refreshSavedMoments(id);
+  };
+
+  /** Add a Moment's products / vehicles. */
+  const momentInventory: MomentInventory = {
+    alreadyAdded: {
+      products: previewMoments.filter((m) => m.kind === 'product').map((m) => (m as { sourceId: string }).sourceId),
+      vehicles: previewMoments.filter((m) => m.kind === 'vehicle').map((m) => (m as { sourceId: string }).sourceId),
+    },
+    // The plans open under this page: ask before leaving it (review I2).
+    onSeePlans: () => setPlansAsk('Adding Website Catalogue products is available on the Business plan.'),
+    onAdd: async ({ products, vehicles }) => {
+      const anchor = addAnchorRef.current;
+      const c = flowCampaignRef.current;
+      if (c) {
+        setMomentBusy(true);
+        let added = { products: 0, vehicles: 0, already: 0 };
+        try {
+          if (products.length) {
+            const res = await campaignMomentsAPI.addProducts(c.id, products.map((p) => p.id), savedPlace(anchor));
+            if (!res.ok) { toast.error(res.error || "The products couldn't be added. Try again."); return false; }
+            added = { ...added, products: res.data?.moments ?? 0, already: res.data?.already_added_item_ids?.length ?? 0 };
+          }
+          if (vehicles.length) {
+            const res = await campaignMomentsAPI.addVehicles(c.id, vehicles.map((v) => v.id));
+            if (!res.ok) {
+              // The products went in: show them; a retry skips them (the API answers "already in it") and adds the vehicles.
+              toast.error(res.error || "The vehicles couldn't be added. Try again.");
+              if (added.products) await refreshSavedMoments(c.id);
+              return false;
+            }
+            added = { ...added, vehicles: res.data?.linked ?? vehicles.length, already: added.already + Math.max(0, vehicles.length - (res.data?.linked ?? vehicles.length)) };
+          }
+          setSavedNow(true);
+          onCampaignSaved?.(c.id);
+          toast.success(addedMessage(added));
+          await refreshSavedMoments(c.id);
+          return true;
+        } finally {
+          setMomentBusy(false);
+        }
+      }
+      // Before the campaign exists: with step 1's picks when the category is the same kind, else beside them.
+      const keys: string[] = [];
+      if (products.length) {
+        const ids = products.map((p) => String(p.id));
+        if (isCatalogCategory) {
+          setSelectedMemoryIds((prev) => {
+            const next = [...prev, ...ids.filter((id) => !prev.includes(id))];
+            if (next.length > CATALOG_MAX_ITEMS) toast.error(`${catalogCapMessage} The first ${CATALOG_MAX_ITEMS} are kept.`);
+            return next.slice(0, CATALOG_MAX_ITEMS);
+          });
+        } else {
+          setExtraCatalog((prev) => [...prev, ...products.filter((p) => !prev.some((x) => String(x.id) === String(p.id)))]);
+        }
+        keys.push(...ids.map((id) => `catalog-${id}`));
+      }
+      if (vehicles.length) {
+        if (isCarsCategory) {
+          setSelectedMemoryIds((prev) => [...prev, ...vehicles.map((v) => String(v.id)).filter((id) => !prev.includes(id))]);
+        } else {
+          setExtraCars((prev) => [...prev, ...vehicles.filter((v) => !prev.some((x) => String(x.id) === String(v.id)) && !selectedMemoryIds.includes(String(v.id)))]);
+        }
+      }
+      placeAdded(keys);
+      return true;
+    },
+  };
+
+  /** Move a moment up / down: here before the campaign exists, on the campaign once saved. */
+  const moveMoment = async (key: string, direction: 'up' | 'down') => {
+    const keys = moveKey(shownPlacedKeys, key, direction);
+    const c = flowCampaignRef.current;
+    if (!c) { setMomentOrder(keys); return; }
+    const byKey = new Map(previewMoments.map((m) => [m.key, m]));
+    const reordered = [...keys.map((k) => byKey.get(k)!).filter(Boolean), ...previewMoments.filter((m) => !isOrderable(m))];
+    const before = c.previewMoments;
+    setFlowCampaign({ ...c, previewMoments: reordered });
+    setMomentBusy(true);
+    const res = await campaignMomentsAPI.setOrder(c.id, savedOrderPayload(reordered));
+    setMomentBusy(false);
+    if (!res.ok) {
+      toast.error(res.error || "The new order couldn't be saved. Try again.");
+      const now = flowCampaignRef.current;
+      if (now && now.id === c.id) setFlowCampaign({ ...now, previewMoments: before });
+      return;
+    }
+    setSavedNow(true);
+    onCampaignSaved?.(c.id);
+    // Edit saves moments at once, the title / cover with Save Changes: say so (review minor 6).
+    // One toast for a burst of moves (re-review nit): the same id updates it instead of stacking.
+    toast.success('Order saved.', { id: 'storeel-order-saved' });
+  };
+
+  /** After a moment is taken off: focus the next moment's ⋮ (else the one before, else the "+" under the cover). */
+  const focusAfter = (removedKey: string) => {
+    const target = focusAfterRemove(previewMoments.map((x) => x.key), removedKey);
+    window.setTimeout(() => {
+      const root = document.querySelector('[data-testid="storeel-preview-moments"]');
+      const menu = target ? root?.querySelector<HTMLElement>(`li[data-moment-key="${CSS.escape(target)}"] [data-testid="storeel-preview-moment-menu"]`) : null;
+      (menu ?? document.querySelector<HTMLElement>('[data-testid="storeel-preview-add"]'))?.focus();
+    }, 350);
+  };
+
+  /** Take a moment off: before the campaign exists, out of the form (a step 1 pick is unticked); saved: asks first. */
+  const removeMoment = (m: PreviewMoment) => {
+    if (flowCampaignRef.current) { setDeleteAsk(m); return; }
+    focusAfter(m.key);
+    if (m.kind === 'photo' && m.index !== undefined) { handleRemoveMediaFile(m.index); return; }
+    if (m.kind === 'product' && extraCatalog.some((p) => String(p.id) === m.sourceId) && !isCatalogCategory) {
+      setExtraCatalog((prev) => prev.filter((p) => String(p.id) !== m.sourceId));
+      return;
+    }
+    if (m.kind === 'vehicle' && extraCars.some((v) => String(v.id) === m.sourceId) && !selectedMemoryIds.includes(m.sourceId)) {
+      setExtraCars((prev) => prev.filter((v) => String(v.id) !== m.sourceId));
+      return;
+    }
+    if (m.kind !== 'photo') toggleSelectedId(m.sourceId);
+  };
+
+  /** Saved: delete the asked-about moment from the campaign (as the campaign page does), then show it as it is now. */
+  const confirmDelete = async () => {
+    const m = deleteAsk;
+    const c = flowCampaignRef.current;
+    if (!m || !c) return;
+    const ref = savedRef(m);
+    setMomentBusy(true);
+    try {
+      const res = !ref ? { ok: false } as { ok: boolean; error?: string }
+        : ref.type === 'post' ? await dashboardAPI.deletePost(String(ref.id)).then((r) => ({ ok: Boolean(r?.success), error: r?.message || r?.error }))
+        : ref.type === 'linked_memory' ? await dashboardAPI.removeLinkedMemory(String(c.id), String(ref.id)).then((r) => ({ ok: Boolean(r?.success), error: r?.message || r?.error }))
+        : await campaignMomentsAPI.removeVehicle(c.id, ref.id);
+      if (!res.ok) { toast.error(res.error || "The moment couldn't be deleted. Try again."); return; }
+      setDeleteAsk(null);
+      setSavedNow(true);
+      onCampaignSaved?.(c.id);
+      void triggerMemoryCountsRefresh();
+      toast.success('Moment deleted.');
+      focusAfter(m.key);
+      await refreshSavedMoments(c.id);
+    } finally {
+      setMomentBusy(false);
+    }
+  };
+
+  /** Edit Moment: a photo's original editor before the campaign exists; once saved, its caption in step 2. */
+  const editMoment = (m: PreviewMoment) => {
+    if (m.kind !== 'photo') return;
+    if (!flowCampaignRef.current && m.index !== undefined) { addAnchorRef.current = undefined; setEditingPhotoIndex(m.index); setIsAddMomentOpen(true); return; }
+    setCaptionRequest((prev) => ({ key: m.key, n: (prev?.n ?? 0) + 1 }));
+  };
+
+  const previewControls: PreviewControls = {
+    onAddAfter: (key) => openAddMoment(key),
+    menuFor: (key, index) => {
+      const m = previewMoments[index];
+      if (!m || m.key !== key) return null;
+      const can = momentMenu(previewMoments, index, { saved: Boolean(flowCampaign) });
+      const label = m.title || (m.kind === 'photo' ? (m.caption.split('\n')[0] || (m.video ? 'Video' : 'Photo')) : 'Moment');
+      return {
+        label,
+        edit: can.edit ? () => editMoment(m) : undefined,
+        up: can.up ? () => { void moveMoment(key, 'up'); } : undefined,
+        down: can.down ? () => { void moveMoment(key, 'down'); } : undefined,
+        remove: can.remove ? () => removeMoment(m) : undefined,
+      };
+    },
+    cover: {
+      onPhoto: () => coverPhotoInputRef.current?.click(),
+      onVideo: () => {
+        const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) || window.innerWidth < 768;
+        if (isMobile) setIsVideoRecorderOpen(true); else introVideoInputRef.current?.click();
+      },
+      onRemove: coverChoice.kind ? clearCover : undefined,
+    },
+    onEditTitle: () => {
+      titleInputRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      setTimeout(() => titleInputRef.current?.focus(), 300);
+    },
+    busy: momentBusy || isSubmitting,
   };
 
   /** Step 2's rows: what can be done to each moment here (see StoreelMomentsCard). */
@@ -2323,11 +2626,12 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
       };
     }
     if (savedMoments) return { moment: m };
-    // A picked item: its caption is made from the website / listing by the API; taking it out unticks it in step 1.
+    // A picked item: its caption is made from the website / listing by the API; taking it out unticks it in step 1
+    // (or takes it off Add a Moment's picks).
     return {
       moment: m,
       note: m.kind === 'product' ? 'Its caption comes from your website.' : undefined,
-      onRemove: () => toggleSelectedId(m.sourceId),
+      onRemove: () => removeMoment(m),
     };
   });
 
@@ -2405,7 +2709,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
                   {/* The upgrade plans (z-[60]) would open under this modal, so close it first. */}
                   <button
                     type="button"
-                    onClick={() => { handleModalClose(); requestUpgrade('Upgrade your plan for more campaigns.'); }}
+                    onClick={() => setPlansAsk('Upgrade your plan for more campaigns.')}
                     className="mt-2 inline-flex h-8 items-center rounded-lg bg-[#6C60FF] px-3 text-sm font-medium text-white hover:bg-[#5B50E6] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#6C60FF]/40"
                   >
                     Upgrade
@@ -3178,6 +3482,23 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
                     </div>
                   )}
                 </div>
+
+                {/* Moderation (Chris, 7 Nov 2026, point 12): this campaign's own setting. Saved with the campaign. Only
+                    where moderation applies: a business owner (review M2). */}
+                {moderationSwitchShown({ campaignApplies: flowCampaign?.moderationApplies ?? null, role: user?.role, viewType }) ? (
+                <div className="flex items-center justify-between gap-4" data-testid="st-moderation">
+                  <div className="min-w-0">
+                    <label htmlFor="st-moderation-switch" className="block text-base md:text-sm font-medium text-gray-700">Moderation</label>
+                    <p id="st-moderation-help" className="text-xs text-gray-500">Moderate media before it goes live.</p>
+                  </div>
+                  <Switch
+                    id="st-moderation-switch"
+                    checked={moderationOn}
+                    onCheckedChange={(v) => setModerationChoice(Boolean(v))}
+                    aria-describedby="st-moderation-help"
+                  />
+                </div>
+                ) : null}
               </div>
             )}
 
@@ -3197,7 +3518,8 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
               rows={momentRows}
               note={view.momentsNote}
               busy={isSubmitting}
-              onAddMoment={() => { setEditingPhotoIndex(null); setMomentFiles(null); setIsAddMomentOpen(true); }}
+              onAddMoment={() => openAddMoment(undefined)}
+              captionRequest={captionRequest}
               onDropFiles={savedMoments ? undefined : (files) => {
                 const valid = Array.from(files).filter((f) => ['image/jpeg', 'image/jpg', 'image/png'].includes(f.type.toLowerCase()));
                 if (valid.length !== files.length) toast.error('Please choose only JPG, JPEG or PNG photos.');
@@ -3205,6 +3527,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
                 const dt = new DataTransfer();
                 valid.forEach((f) => dt.items.add(f));
                 setMomentFiles(dt.files);
+                addAnchorRef.current = undefined;
                 setIsAddMomentOpen(true);
               }}
             />
@@ -3220,7 +3543,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
               active={open && campaignType === 'storeel'}
               onSent={onStoreelSent}
               onForbidden={() => setSendForbidden(true)}
-              onSeePlans={() => { handleModalClose(); requestUpgrade('Upgrade your plan to send more messages this month.'); }}
+              onSeePlans={() => setPlansAsk('Upgrade your plan to send more messages this month.')}
             />
 
             {/* The actions, at the end of the list like the newsletter composer's (Chris, 4 Nov: "Just keep going down
@@ -3265,8 +3588,37 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
               }}
               avatarUrl={user?.avatar ?? null}
               avatarColor={user?.profile_color ?? null}
+              controls={flowLoading || flowLoadError ? undefined : previewControls}
             />
           </aside>
+          {/* See plans (review I2): the plans open under this page, so leaving it is asked first. */}
+          <ComposerDialog
+            open={plansAsk !== null}
+            onOpenChange={(o) => { if (!o) setPlansAsk(null); }}
+            title="Leave this Storeel to see the plans?"
+            description={flowCampaign ? 'Changes you haven’t saved yet (title, cover, dates…) will be lost. Save Changes first to keep them.' : 'It isn’t saved yet. Save as Draft first to keep it, or leave now and it will be lost.'}
+            footer={(
+              <>
+                <button type="button" onClick={() => setPlansAsk(null)} className={BUTTON_OUTLINE}>Stay</button>
+                <button type="button" onClick={() => { const msg = plansAsk ?? undefined; setPlansAsk(null); handleModalClose(); requestUpgrade(msg); }} className={BUTTON_PRIMARY}>Leave and see plans</button>
+              </>
+            )}
+          />
+          {/* Saved campaign: a moment is deleted from it at once, so ask first (Chris, 7 Nov 2026). */}
+          <ComposerDialog
+            open={deleteAsk !== null}
+            onOpenChange={(o) => { if (!o && !momentBusy) setDeleteAsk(null); }}
+            title="Delete this moment?"
+            description="It is removed from the campaign now."
+            footer={(
+              <>
+                <button type="button" onClick={() => setDeleteAsk(null)} disabled={momentBusy} className={BUTTON_OUTLINE}>Cancel</button>
+                <button type="button" onClick={() => { void confirmDelete(); }} disabled={momentBusy} className={`${BUTTON_PRIMARY} !bg-red-600 hover:!bg-red-700`}>
+                  {momentBusy ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Trash2 className="h-4 w-4" aria-hidden="true" />}Delete
+                </button>
+              </>
+            )}
+          />
         </div>
       </div>
 
@@ -3308,6 +3660,8 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
             if (flowCampaignRef.current) void refreshSavedMoments(flowCampaignRef.current.id);
           }}
           capturedFiles={editingPhotoIndex !== null ? null : momentFiles}
+          // Products / vehicles too (Chris, 7 Nov 2026, point 7).
+          inventory={momentInventory}
           // Step 2 Moments' Add a Moment (Storeel flow v2): before the campaign exists the moments are held here and
           // sent with Save as Draft; on a saved campaign the original UI adds them to it directly, as on its page.
           memoryId={flowCampaign ? String(flowCampaign.id) : undefined}
@@ -3334,12 +3688,13 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
           } : undefined}
           onAddMoment={(momentData) => {
             if (flowCampaignRef.current) {
-              // Added to the saved campaign by the original UI: show its moments as they now are.
+              // Added to the saved campaign by the original UI: show its moments as they now are — at the "+" it was
+              // added from (Chris, 7 Nov 2026).
               setIsAddMomentOpen(false);
               setMomentFiles(null);
               setMomentLibraryImages([]);
               setSavedNow(true);
-              void refreshSavedMoments(flowCampaignRef.current.id);
+              void placeSavedUploads(flowCampaignRef.current.id, shownPlacedKeys, addAnchorRef.current);
               onCampaignSaved?.(flowCampaignRef.current.id);
               return;
             }
@@ -3351,8 +3706,10 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
                 ));
               }
             } else if (momentData?.photos?.length > 0) {
-              // Add mode — append new photos
-              setMainPhotosArray(prev => [...prev, ...withPhotoIds(momentData.photos as typeof prev)]);
+              // Add mode — append new photos (where the preview's "+" was, Chris 7 Nov 2026)
+              const added = withPhotoIds(momentData.photos as typeof mainPhotosArray);
+              setMainPhotosArray(prev => [...prev, ...added]);
+              placeAdded(added.filter((p) => p.fileUrl).map((p) => `photo-${p.id}`));
             }
             setIsAddMomentOpen(false);
             setMomentFiles(null);
@@ -3408,8 +3765,10 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
             originalSizeMB: img.originalSizeMB || 0
           }));
 
-          // Add to mainPhotosArray
-          setMainPhotosArray(prev => [...prev, ...withPhotoIds(libraryPhotos)]);
+          // Add to mainPhotosArray (where the preview's "+" was, Chris 7 Nov 2026)
+          const addedFromLibrary = withPhotoIds(libraryPhotos);
+          setMainPhotosArray(prev => [...prev, ...addedFromLibrary]);
+          placeAdded(addedFromLibrary.filter((p) => p.fileUrl).map((p) => `photo-${p.id}`));
 
           console.log('✅ Added media library images to mainPhotosArray:', libraryPhotos);
         }}

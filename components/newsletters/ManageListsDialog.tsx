@@ -216,7 +216,7 @@ export default function ManageListsDialog({ open, onOpenChange, onChanged, onDel
                 )}
                 {deleting === l.id ? (
                   <div role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800">
-                    <p>Delete &ldquo;{l.name}&rdquo;? The people on it are removed for good. Newsletters already sent keep their results.</p>
+                    <p>Delete &ldquo;{l.name}&rdquo;? People on it who are in your Leads stay there. Newsletters already sent keep their results.</p>
                     <div className="mt-2 flex flex-wrap gap-2">
                       <button ref={yesRef} type="button" onClick={() => void remove(l)} disabled={busy} className={`${SMALL_DANGER} bg-white`}>{busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> : null}Yes, delete it</button>
                       <button type="button" onClick={() => { setDeleting(null); setFocusAfter({ kind: 'button', id: l.id, action: 'delete' }); }} disabled={busy} className={BUTTON_SMALL}>Keep it</button>

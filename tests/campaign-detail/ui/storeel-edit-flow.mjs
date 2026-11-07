@@ -141,7 +141,8 @@ try {
     const ptext = (await flow(page).getByTestId('storeel-preview').textContent()) ?? '';
     expect(ptext.includes('3 moments'), `${tag}: the preview shows the campaign's 3 moments`);
     expect(((await flow(page).locator('#st-step-send').textContent()) ?? '').includes('Optional — send it now or later from the campaign page.'), `${tag}: Send is open and optional`);
-    expect(!(await flow(page).getByRole('button', { name: /^(Continue|Done)$/ }).count()), `${tag}: no Continue / Done`);
+    // (The phone preview's own Continue scrolls the phone to its timeline — Chris 7 Nov — and is not a flow step.)
+    expect(!(await flow(page).getByRole('button', { name: /^(Continue|Done)$/ }).evaluateAll((bs) => bs.filter((b) => !b.closest('[data-testid="storeel-preview"]')).length)), `${tag}: no Continue / Done`);
     await page.screenshot({ path: `${OUT}/${tag}-02-edit-flow.png` });
 
     await title.fill('Fall Promo 2026');

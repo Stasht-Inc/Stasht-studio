@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type CSSProperties, type FocusEvent, type KeyboardEvent, type ReactNode } from 'react';
 import * as Popover from '@radix-ui/react-popover';
-import { AlignCenter, AlignLeft, AlignRight, Check, ChevronDown, PaintBucket } from 'lucide-react';
+import { AlignCenter, AlignLeft, AlignRight, Check, ChevronDown, PaintBucket, Type } from 'lucide-react';
 import type { FontKey, SectionAlign } from '../../../services/newslettersAPI';
 import { DEFAULT_FONT_LABEL, DEFAULT_FONT_STACK, FONTS, fontLabel, fontStack } from '../lib/fonts';
 import ColorSwatches from '../ColorSwatches';
@@ -38,8 +38,10 @@ const NARROW = '(max-width: 639px)';
  * list: a menu of choices (arrow keys move, the current choice has focus first). A wide panel on a phone is placed
  * below the section (above it when there is no room), never over it.
  */
-function ToolMenu({ label, trigger, children, open, onOpenChange, onCloseAutoFocus, wide = false, list = false }: {
+export function ToolMenu({ label, tooltip, trigger, children, open, onOpenChange, onCloseAutoFocus, wide = false, list = false }: {
   label: string;
+  /** The button's tooltip (default: its label). */
+  tooltip?: string;
   trigger: ReactNode;
   children: ReactNode;
   open: boolean;
@@ -58,7 +60,8 @@ function ToolMenu({ label, trigger, children, open, onOpenChange, onCloseAutoFoc
     },
   });
   const onListKeys = (e: KeyboardEvent<HTMLDivElement>) => {
-    const items = Array.from(e.currentTarget.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]'));
+    // "Edit sizes…" (a menuitem, Chris 7 Nov) is reached with the arrows too (review M3).
+    const items = Array.from(e.currentTarget.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"], [role="menuitem"]'));
     const at = items.indexOf(document.activeElement as HTMLButtonElement);
     const next = e.key === 'ArrowDown' ? (at + 1) % items.length : e.key === 'ArrowUp' ? (at - 1 + items.length) % items.length
       : e.key === 'Home' ? 0 : e.key === 'End' ? items.length - 1 : -1;
@@ -70,7 +73,7 @@ function ToolMenu({ label, trigger, children, open, onOpenChange, onCloseAutoFoc
     <Popover.Root open={open} onOpenChange={onOpenChange}>
       <Popover.Anchor virtualRef={anchor} />
       <Popover.Trigger asChild>
-        <button ref={triggerRef} type="button" aria-label={label} title={label} onMouseDown={(e) => e.preventDefault()} className={TOOL_BUTTON}>
+        <button ref={triggerRef} type="button" aria-label={label} title={tooltip ?? label} onMouseDown={(e) => e.preventDefault()} className={TOOL_BUTTON}>
           {trigger}
         </button>
       </Popover.Trigger>
@@ -98,7 +101,7 @@ function ContrastNote() {
 }
 
 /** One choice in a list panel (Size, Align): a tick on the current one. */
-function MenuChoice({ label, checked, onPick, icon, style }: { label: string; checked: boolean; onPick(): void; icon?: ReactNode; style?: CSSProperties }) {
+export function MenuChoice({ label, checked, onPick, icon, style }: { label: string; checked: boolean; onPick(): void; icon?: ReactNode; style?: CSSProperties }) {
   return (
     <button type="button" role="menuitemradio" aria-checked={checked} onMouseDown={(e) => e.preventDefault()} onClick={onPick}
       className={`flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-sm text-gray-800 hover:bg-gray-100 ${FOCUS}`}>
@@ -110,8 +113,10 @@ function MenuChoice({ label, checked, onPick, icon, style }: { label: string; ch
 }
 
 /** "Size: Large ▾" — the title's size (Small / Medium / Large) or the text's font size (Small … X-Large). */
-export function SizeMenu<T extends string>({ label, options, value, onPick, onCloseAutoFocus, preview, hint }: {
+export function SizeMenu<T extends string>({ label, options, value, onPick, onCloseAutoFocus, preview, hint, editSizes }: {
   label: string;
+  /** Chris, 7 Nov: "Edit sizes…" at the bottom opens this (the newsletter's text sizes) in place of the choices. */
+  editSizes?: ReactNode;
   /** A line under the choices (the Text section: what the size applies to). */
   hint?: string;
   options: ReadonlyArray<{ value: T; label: string }>;
@@ -122,10 +127,12 @@ export function SizeMenu<T extends string>({ label, options, value, onPick, onCl
   preview?: (value: T) => number;
 }) {
   const [open, setOpen] = useState(false);
+  const [editing, setEditing] = useState(false);
   const current = options.find((o) => o.value === value)?.label ?? options[0]?.label ?? '';
   return (
-    <ToolMenu label={`${label}: ${current}`} open={open} onOpenChange={setOpen} onCloseAutoFocus={onCloseAutoFocus} list
+    <ToolMenu label={`${label}: ${current}`} open={open} onOpenChange={(next) => { setOpen(next); if (!next) setEditing(false); }} onCloseAutoFocus={onCloseAutoFocus} list={!editing}
       trigger={<><span className="text-sm font-medium">{current}</span><ChevronDown className={CHEVRON} aria-hidden="true" /></>}>
+      {editing && editSizes ? editSizes : <>
       <div role="menu" aria-label={label}>
         {options.map((o) => (
           <MenuChoice key={o.value} label={o.label} checked={o.value === value} style={preview ? { fontSize: `${preview(o.value)}px`, lineHeight: 1.3 } : undefined}
@@ -133,6 +140,13 @@ export function SizeMenu<T extends string>({ label, options, value, onPick, onCl
         ))}
       </div>
       {hint ? <p className="max-w-[12rem] px-2.5 pb-1.5 pt-1 text-xs leading-4 text-gray-500">{hint}</p> : null}
+      {editSizes ? (
+        <div className="mt-1 border-t border-gray-100 pt-1">
+          <button type="button" role="menuitem" onMouseDown={(e) => e.preventDefault()} onClick={() => setEditing(true)}
+            className={`flex w-full items-center rounded-lg px-2.5 py-1.5 text-left text-sm text-gray-700 hover:bg-gray-100 ${FOCUS}`}>Edit sizes…</button>
+        </div>
+      ) : null}
+      </>}
     </ToolMenu>
   );
 }
@@ -152,14 +166,16 @@ export function FontMenu({ value, onPick, onCloseAutoFocus, hint }: {
   const current = fontLabel(value);
   const stack = fontStack(value);
   return (
-    <ToolMenu label={`Font: ${current}`} open={open} onOpenChange={setOpen} onCloseAutoFocus={onCloseAutoFocus} list
+    // Chris (7 Nov, point 3): it reads as a font control: a font icon and the font's name (never "Default" alone), tooltip "Font".
+    <ToolMenu label={`Font: ${current}`} tooltip="Font" open={open} onOpenChange={setOpen} onCloseAutoFocus={onCloseAutoFocus} list
       trigger={<>
-        <span className="hidden max-w-[6.5rem] truncate text-sm font-medium sm:inline" style={{ fontFamily: stack }}>{current}</span>
+        <Type className="hidden h-3.5 w-3.5 shrink-0 text-gray-500 sm:block" aria-hidden="true" />
+        <span className="hidden max-w-[5.5rem] truncate text-sm font-medium sm:inline" style={{ fontFamily: stack }}>{current}</span>
         <span className="text-sm font-medium sm:hidden" style={{ fontFamily: stack }}>Aa</span>
         <ChevronDown className={CHEVRON} aria-hidden="true" />
       </>}>
       <div role="menu" aria-label="Font">
-        {[{ value: null, label: DEFAULT_FONT_LABEL, stack: DEFAULT_FONT_STACK }, ...FONTS].map((f) => (
+        {[{ value: null, label: `${DEFAULT_FONT_LABEL} (default)`, stack: DEFAULT_FONT_STACK }, ...FONTS].map((f) => (
           <MenuChoice key={f.value ?? 'default'} label={f.label} checked={f.value === value} style={{ fontFamily: f.stack }}
             onPick={() => { setOpen(false); onPick(f.value); }} />
         ))}

@@ -32,6 +32,8 @@ export interface NewsletterHeader {
 
 export type BlockType = 'image' | 'title' | 'text' | 'youtube' | 'button' | 'divider' | 'campaigns';
 export type TitleSize = 'large' | 'medium' | 'small';
+/** Text size styles (Chris, 7 Nov): px per style, 10–72 (the API's NewsletterTypeScale). */
+export type TypeScale = Record<'small' | 'normal' | 'large' | 'xlarge', number>;
 export type DividerStyle = 'line' | 'space';
 
 /** width: the picture's own width in px when it is narrower than the card (below 598; review, 6 Nov), else absent. */
@@ -45,7 +47,12 @@ export type SectionAlign = 'left' | 'center' | 'right';
  * Known app follow-up: the mobile app's newsletter editor (stasht-app-2026 feat/app-newsletters, not shipped) rebuilds
  * Title / Text data as {text, size} / {html} when it saves, so it would drop these keys (and the font-size spans).
  */
-export interface SectionStyle { align?: SectionAlign; color?: string; background_color?: string; background_image_url?: string }
+export interface SectionStyle extends SectionSpacing { align?: SectionAlign; color?: string; background_color?: string; background_image_url?: string }
+/** Chris (7 Nov; API NewsletterSpacing): line spacing (Title, Text) and the room above and below (Title, Text, Button,
+ *  Divider, Campaigns). Normal is never stored. */
+export type LineSpacing = 'tight' | 'normal' | 'relaxed';
+export type SectionPadding = 'none' | 'small' | 'normal' | 'large';
+export interface SectionSpacing { line_spacing?: LineSpacing; padding?: SectionPadding }
 /** The toolbar's font families (Chris, 6 Nov; lib/fonts.ts, the API's NewsletterFonts). No key: the usual font. */
 export type FontKey = 'arial' | 'helvetica' | 'georgia' | 'times' | 'verdana' | 'trebuchet' | 'tahoma' | 'courier';
 /** font: the whole title's font; bold false: normal weight (no key = bold, as every title was before). */
@@ -55,8 +62,8 @@ export interface TitleBlockData extends SectionStyle { text: string; size: Title
 export interface TextBlockData extends Omit<SectionStyle, 'background_image_url'> { html: string }
 export interface YoutubeBlockData { url: string }
 /** full_width / new_window (Chris, 6 Nov; API NewsletterContent::buttonOptions): only present when on. */
-export interface ButtonBlockData { label: string; url: string; color: string; full_width?: boolean; new_window?: boolean }
-export interface DividerBlockData { style: DividerStyle }
+export interface ButtonBlockData { label: string; url: string; color: string; full_width?: boolean; new_window?: boolean; padding?: SectionPadding }
+export interface DividerBlockData { style: DividerStyle; padding?: SectionPadding }
 /** What a Campaigns section can show (shared brief 2026-10-29): the owner's campaigns, Website Catalogue products
  *  and dealer vehicles. Products and vehicles link to their own page on the business's website. */
 export type CampaignKind = 'campaign' | 'product' | 'vehicle';
@@ -88,6 +95,8 @@ export interface CampaignsBlockData {
   /** Per-card edits for this newsletter only, keyed "<kind>:<id>" as in selections (shared brief 2026-10-29 round
    *  2). Every field is optional; empty or missing = the item's own value. The card's link can't be changed. */
   overrides?: CardOverrides;
+  /** The room above and below the section (Chris, 7 Nov). */
+  padding?: SectionPadding;
 }
 export type CampaignColumns = 1 | 2;
 /** One card's edits: image_url https (from POST /newsletters/images), title ≤ 120, description ≤ 300 (plain text,
@@ -161,6 +170,8 @@ export interface Newsletter {
   /** Why a failed newsletter failed: too_late (over 6 hours late, nothing sent) or error (before it started). */
   failure_reason?: 'too_late' | 'error' | null;
   public_url: string | null;
+  /** The newsletter's text sizes (Chris, 7 Nov): px for each style; absent = the usual 14 / 16 / 20 / 24. */
+  type_scale?: TypeScale | null;
   counts: NewsletterCounts;
   created_at: string;
   updated_at: string;
@@ -172,7 +183,7 @@ export type NewsletterSummary = Omit<Newsletter, 'blocks'>;
 /** PUT /newsletters/{id}: any editable field (only drafts can be edited). Unfinished sections are accepted;
  *  send / schedule reject them (contract note 6). Saving `header` also saves the account's brand header (note 8). */
 export type NewsletterInput = Partial<Pick<Newsletter,
-  'name' | 'subject' | 'preview_text' | 'from_name' | 'reply_to_email' | 'channels' | 'sms_text' | 'template' | 'header' | 'blocks' | 'audience' | 'planned_send_at'>>;
+  'name' | 'subject' | 'preview_text' | 'from_name' | 'reply_to_email' | 'channels' | 'sms_text' | 'template' | 'header' | 'blocks' | 'audience' | 'planned_send_at' | 'type_scale'>>;
 
 export interface AudienceCount {
   email: number;
@@ -230,7 +241,9 @@ export interface LeadOptionsQuery { search?: string; page?: number; lead_id?: nu
 
 /** default_message: the Message box text saved with "Set as my default message" (null: none; an older API leaves it out). */
 /** recent_colors (Chris, 6 Nov): the account's colours picked with Custom, newest first, at most 8. */
-export interface NewsletterBrand { header: NewsletterHeader; business_address: string | null; default_message?: string | null; recent_colors?: string[] }
+export interface NewsletterBrand { header: NewsletterHeader; business_address: string | null; default_message?: string | null; recent_colors?: string[];
+  /** The account's default text sizes ("Use as my default", Chris 7 Nov); absent: none saved. */
+  type_scale?: TypeScale | null }
 export interface NewsletterAllowance {
   plan: string;
   email_limit: number;
@@ -434,7 +447,7 @@ export const newslettersAPI = {
   getBrand: () => get<NewsletterBrand>('/newsletter-brand'),
   // Only used to set business_address and default_message: a newsletter's header reaches the brand through
   // PUT /newsletters/{id}.
-  updateBrand: (input: { header?: NewsletterHeader; business_address?: string | null; default_message?: string | null; recent_color?: string }) =>
+  updateBrand: (input: { header?: NewsletterHeader; business_address?: string | null; default_message?: string | null; recent_color?: string; type_scale?: TypeScale | null }) =>
     write<NewsletterBrand>('PUT', '/newsletter-brand', input),
   allowance: () => get<NewsletterAllowance>('/newsletter-allowance'),
   contactLists: () => get<ContactList[]>('/contact-lists'),

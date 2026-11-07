@@ -4,6 +4,15 @@
 
 export const MAX_RECENT_COLORS = 8;
 
+/**
+ * Chris (7 Nov, point 1): the colour to keep as a recent one when the picker is unmounted while open (a click outside or
+ * Done closes its panel with it): only a colour already applied and different from where it started; nothing typed but
+ * not yet applied is applied then (review M2: the composer may be going away).
+ */
+export function unmountRecent(s: { open: boolean; changed: boolean; end: string; atOpen: string }): string | null {
+  return s.open && s.changed && s.end !== s.atOpen ? s.end : null;
+}
+
 /** What was typed in the HEX field as #RRGGBB (uppercase), with or without the #; #RGB shorthand is expanded (review,
  *  6 Nov). Else null. */
 export function parseHexInput(value: unknown): string | null {

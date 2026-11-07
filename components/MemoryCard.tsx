@@ -157,7 +157,8 @@ function UserFallbackAvatar({
 // title at the bottom; on small cards (~190px with the sidebar and categories column open) they don't all fit
 // (Chris, ClickUp wdy2xh2x96: "2025 Audi A5 45" sat under "$44,095"). Such a card lays its overlay out as one
 // column (pills at the top, title at the bottom) and, while the two don't fit with this much room between them,
-// steps through FIT_LEVELS in order. Cards without a label keep the original layout untouched.
+// steps through FIT_LEVELS in order. Cards without a label keep the original layout untouched — except a suggested
+// campaign's card (Chris, 7 Nov 2026: its "suggested" pill sat over the title), which fits the same way.
 const FIT_MIN_GAP = 6;
 const FIT_LEVELS = {
   pillsInRow: 1,   // category + price share a row when both fit (wraps back under each other when not)
@@ -274,18 +275,50 @@ export default function MemoryCard({
   const badgesRef = useRef<HTMLDivElement>(null);
   const titleBlockRef = useRef<HTMLDivElement>(null);
   const textColRef = useRef<HTMLDivElement>(null);
-  const fitEnabled = !!label;
+  // The web API's AI-suggested campaigns come in category "suggested" (lower case, a see-through colour). Cards in the
+  // Accept / No flow ("Suggested", suggestedCategory) keep their own look.
+  const isSuggestedPill = String(category ?? '').trim() === 'suggested';
+  const fitEnabled = !!label || isSuggestedPill;
   const [photoSize, setPhotoSize] = useState('');
   const [fitTick, setFitTick] = useState(0);
   const [fitState, setFitState] = useState({ key: '', level: 0 });
   const propertyCount = properties?.length || (property ? 1 : 0);
-  const fitKey = `${photoSize}|${title}|${label}|${category}|${location}|${imagesCount}|${countLabel}|${dateRange}|${propertyCount}`;
+  const fitKey = `${photoSize}|${title}|${label}|${category}|${location}|${imagesCount}|${countLabel}|${dateRange}|${propertyCount}|${published ?? ''}|${isEditMode}`;
   const fitLevel = fitEnabled && fitState.key === fitKey ? fitState.level : 0;
   const fitPillsInRow = fitLevel >= FIT_LEVELS.pillsInRow;
   const fitCompact = fitLevel >= FIT_LEVELS.compact;
   const fitTitleOneLine = fitLevel >= FIT_LEVELS.titleOneLine;
   const fitHideLocation = fitLevel >= FIT_LEVELS.hideLocation;
   const fitHideCount = fitLevel >= FIT_LEVELS.hideCount;
+  // The pills start below the top-left badge (Public / View Only, or Edit's checkbox) when any of them would sit on it
+  // (a narrow card): px pushed down.
+  const publishedRef = useRef<HTMLDivElement>(null);
+  const [fitClear, setFitClear] = useState({ key: '', px: 0 });
+  // How tall the title / meta block is, so a light brand fill's scrim reaches above it (CampaignCover textHeight).
+  const [titleBlockHeight, setTitleBlockHeight] = useState(0);
+  // The free area for a brand cover (Chris 7 Nov grid review): from below the top row of pills to above the title.
+  const titleRef = useRef<HTMLHeadingElement>(null);
+  const [brandArea, setBrandArea] = useState<{ top: number; bottom: number; left?: number; right?: number } | null>(null);
+  useLayoutEffect(() => {
+    const h = titleBlockRef.current?.offsetHeight ?? 0;
+    if (h && h !== titleBlockHeight) setTitleBlockHeight(h);
+    const photo = photoRef.current?.getBoundingClientRect();
+    const titleEl = textColRef.current?.firstElementChild ?? titleRef.current;
+    const title = titleEl?.getBoundingClientRect();
+    if (!photo || !title || !photo.height) return;
+    // Below the top-left badge (Public / Edit's checkbox); the right column's pills only narrow it from the right.
+    const badge = publishedRef.current?.getBoundingClientRect();
+    const top = Math.round((badge && badge.width > 0 ? badge.bottom - photo.top : 2) + 6);
+    const bottom = Math.round(title.top - photo.top - 6);
+    const rects = Array.from(badgesRef.current?.querySelectorAll(':scope > *, :scope > div > *') ?? [])
+      .map(el => el.getBoundingClientRect())
+      .filter(r => r.width > 0);
+    const lower = rects.filter(r => r.bottom - photo.top > top && r.top - photo.top < bottom);
+    const right = lower.length ? Math.round(Math.min(...lower.map(r => r.left)) - photo.left - 6) : undefined;
+    const next = right !== undefined ? { top, bottom, left: 8, right } : { top, bottom };
+    if (JSON.stringify(next) !== JSON.stringify(brandArea)) setBrandArea(next);
+  });
+  const fitClearTop = fitEnabled && fitClear.key === fitKey ? fitClear.px : 0;
 
   useLayoutEffect(() => {
     if (!fitEnabled) return;
@@ -311,16 +344,23 @@ export default function MemoryCard({
     const block = titleBlockRef.current;
     const text = textColRef.current;
     if (!photo || !badges || !block || !text || !photo.offsetWidth || !photo.offsetHeight) return;
+    const pub = publishedRef.current?.getBoundingClientRect();
+    const pills = Array.from(badges.querySelectorAll(':scope > *, :scope > div > *')).map(el => el.getBoundingClientRect()).filter(r => r.width > 0);
+    const hit = pub && pills.some(r => pub.right + 4 > r.left && pub.left < r.right && pub.bottom > r.top && pub.top < r.bottom);
+    if (pub && hit && !fitClearTop) {
+      setFitClear({ key: fitKey, px: Math.ceil(pub.bottom - Math.min(...pills.map(r => r.top))) + 6 });
+      return;
+    }
     const gap = text.getBoundingClientRect().top - badges.getBoundingClientRect().bottom;
     const overflows = block.getBoundingClientRect().bottom - photo.getBoundingClientRect().bottom > 0.5;
     if ((gap < FIT_MIN_GAP || overflows) && fitLevel < FIT_MAX) {
       setFitState({ key: fitKey, level: fitLevel + 1 });
     }
-  }, [fitEnabled, fitKey, fitLevel, fitTick, photoSize]);
+  }, [fitEnabled, fitKey, fitLevel, fitTick, photoSize, fitClearTop]);
 
   // Use the getCategoryColor function to match sidebar exactly
   const getInvitesCategoryColor = () => {
-    if (category === 'Suggested' || suggestedCategory) {
+    if (category === 'Suggested' || suggestedCategory || isSuggestedPill) {
       return '#9CA3AF'; // Grey color for Suggested
     }
 
@@ -430,8 +470,17 @@ export default function MemoryCard({
       : (user?.profile_color || profileColor || '');
   const hasFooterContent = !!displayName || contributors.length > 0 || tags.length > 0;
 
-  // Category Badge
-  const categoryPill = category ? (
+  // Category Badge. "Suggested" is a plain white pill like "12 moments" (Chris, 7 Nov 2026): its category colour is
+  // see-through (#80808000), so it showed as faint white text over the photo.
+  const categoryPill = category && isSuggestedPill ? (
+    <div
+      data-testid="memory-card-suggested"
+      className="shadow-md flex items-center bg-white whitespace-nowrap"
+      style={{ padding: '6px 12px', borderRadius: '8px', color: '#374151', fontSize: '12px', fontWeight: 600, lineHeight: '16px' }}
+    >
+      Suggested
+    </div>
+  ) : category ? (
     <div
       className="shadow-lg"
       style={{
@@ -514,6 +563,11 @@ export default function MemoryCard({
               backdrop="color"
               color={displayProfileColor}
               className="w-full h-full"
+              // A judged logo on its solid colour is smaller on a card, so the pills above and the title below run over
+              // it less (Chris, 7 Nov 2026 review: no shadow separates them any more).
+              brandFraction={0.45}
+              textHeight={titleBlockHeight || undefined}
+              fitArea={brandArea}
             />
           )
         ) : (
@@ -531,6 +585,7 @@ export default function MemoryCard({
         {/* Edit Mode Checkbox - Top Left */}
         {isEditMode && !isSharedWith && (
           <div
+            ref={publishedRef}
             className="absolute top-3 left-3 z-20"
             onClick={e => { e.stopPropagation(); onSelectToggle?.(); }}
           >
@@ -572,7 +627,7 @@ export default function MemoryCard({
 
         {/* Published Badge - Top Left */}
         {published && !isEditMode && (
-          <div className="absolute top-3 left-3 z-10">
+          <div ref={publishedRef} className="absolute top-3 left-3 z-10">
             <div
               className="shadow-md flex items-center gap-1.5 bg-white"
               style={{
@@ -613,6 +668,7 @@ export default function MemoryCard({
           className={fitEnabled
             ? `self-end flex flex-col items-end flex-shrink-0 ${fitCompact ? 'mt-2 mr-2 gap-1' : 'mt-3 mr-3 gap-2'}`
             : 'absolute top-3 right-3 z-10 flex flex-col items-end gap-2'}
+          style={fitClearTop ? { paddingTop: fitClearTop } : undefined}
         >
           {/* Moments Count Badge */}
           {imagesCount > 0 && !fitHideCount && (
@@ -709,6 +765,7 @@ export default function MemoryCard({
 
             {/* Title */}
             <h3
+              ref={titleRef}
               className={`font-bold text-white ${fitTitleOneLine ? 'line-clamp-1' : 'line-clamp-2'} ${fitCompact ? 'mb-0.5' : 'mb-1.5'}`}
               style={{ fontSize: '24px', lineHeight: '28px', letterSpacing: '-0.44px' }}
             >
