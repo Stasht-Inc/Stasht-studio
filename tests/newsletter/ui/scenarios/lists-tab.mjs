@@ -273,6 +273,8 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
   await page.getByRole('button', { name: 'More list actions' }).click();
   await page.getByRole('menuitem', { name: 'Delete list' }).click();
   dialog = page.getByRole('dialog', { name: 'Delete “Open house 2026”?' });
+  await expectVisible(dialog.getByText(/who are in your Leads stay there/), 'list people stay in Leads (Chris 7 Nov)');
+  expect(await dialog.getByText(/removed for good/).count() === 0, 'no "removed for good" promise');
   await dialog.getByRole('button', { name: 'Delete list' }).click();
   await expectVisible(page.getByText('Deleted the list “Open house 2026”.'), 'deleted toast');
   await expectVisible(page.getByRole('cell', { name: 'Spring buyers' }), 'back to all lists');

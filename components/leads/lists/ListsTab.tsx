@@ -204,7 +204,7 @@ const ListsTab = forwardRef<ListsTabHandle, ListsTabProps>(function ListsTab({ s
         initialName={renaming?.name ?? ''} onSubmit={renameList} />
       <ConfirmDialog open={deleting !== null} onOpenChange={(o) => { if (!o) setDeleting(null); }} title={`Delete “${deleting?.name ?? ''}”?`}
         confirmLabel="Delete list" onConfirm={deleteList} onCloseAutoFocus={focusAfterDialog}>
-        <p>The {deleting ? peopleText(deleting.member_count) : 'people'} on it are removed for good. Newsletters already sent keep their results.</p>
+        <p>The list is deleted. People on it who are in your Leads stay there. Newsletters already sent keep their results.</p>
       </ConfirmDialog>
       <ImportListModal open={importOpen} onOpenChange={setImportOpen} groups={groups}
         onCreated={(list) => { setLists((prev) => (prev ? withListSummary(prev, list) : [list])); announceListsChanged(); }} />

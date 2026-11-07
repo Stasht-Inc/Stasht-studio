@@ -4,6 +4,9 @@ import { createMockApi } from '../mock-api.mjs';
 
 const SHOTS = process.env.NL_SHOTS || '/private/tmp/claude-501/newsletters-ui/shots';
 const at = (minutesAgo) => new Date(Date.now() - minutesAgo * 60000).toISOString();
+// Their consent date: ~200 days ago, always another month than today (when they were added).
+const CONSENT_AT = at(200 * 24 * 60);
+const month = (iso) => new Date(iso).toLocaleString('en-US', { month: 'short' });
 
 const lead = (id, name, email, phone, extra) => ({
   id, source: 'memory', user: { id: null, name, email, profile_image: null, location: null, phone_number: phone },
@@ -17,7 +20,7 @@ const lead = (id, name, email, phone, extra) => ({
 
 export async function run({ open, expectVisible, expect }) {
   const inboxLeads = [
-    lead(1, 'Jordan Price', 'jordan@example.com', '+14165550101', { engagement: 0, first_seen_at: '2024-01-05T15:00:00Z', source_list: { id: 4, name: 'Subscriber list sept 30th 2026', added_at: at(5) } }),
+    lead(1, 'Jordan Price', 'jordan@example.com', '+14165550101', { engagement: 0, first_seen_at: CONSENT_AT, source_list: { id: 4, name: 'Subscriber list sept 30th 2026', added_at: at(5) } }),
     lead(2, 'Sam Lee', 'sam@example.com', null, { story: { id: 9, title: 'Fall show' } }),
     lead(3, 'Walk In', 'walkin@example.com', null, {}),
   ];
@@ -35,9 +38,9 @@ export async function run({ open, expectVisible, expect }) {
     await page.waitForTimeout(600);
     await expectVisible(page.getByText(/was added from the list/).locator('visible=true').first(), `${width}: the thread says they were added from the list`);
     expect(await page.getByText(/viewed "a campaign"/).locator('visible=true').count() === 0, `${width}: not "viewed a campaign"`);
-    // Dated when they were added to the list (today), not their 2024 consent date.
-    const row = page.getByText(/was added from the list/).locator('visible=true').first().locator('xpath=..');
-    expect(!(await row.innerText()).includes('Jan'), `${width}: the row shows the date they were added`);
+    // Dated when they were added to the list (today's month), not their consent date (~200 days ago).
+    const row = (await page.getByText(/was added from the list/).locator('visible=true').first().locator('xpath=..').innerText());
+    expect(row.includes(month(at(5))) && !row.includes(month(CONSENT_AT)), `${width}: the row shows the date they were added (got "${row}")`);
     await page.screenshot({ path: `${SHOTS}/list-leads-${width}-open.png` });
     await context.close();
   }
