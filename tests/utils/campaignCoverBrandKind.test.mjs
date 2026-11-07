@@ -52,3 +52,9 @@ test('an unsure ("whole") brand is drawn whole at the full cover height, at most
     { mode: 'contain', shape: 'rect', width: 261, height: 261 });
   assert.deepEqual(campaignCoverLayout({ isFallback: true, brandKind: 'whole', natural: null, box: card }), { mode: 'pending' });
 });
+
+test('a light brand fill gets a stronger bottom scrim so the white title reads (4.5:1)', async () => {
+  const { lightCoverFill } = await import('../../utils/campaignCover.ts');
+  for (const light of ['#FFFFFF', '#F5F5F2', '#E5E2FF', '#D6DFF8', '#FCD6D8', '#F29D0D']) assert.equal(lightCoverFill(light), true, light);
+  for (const dark of ['#0062A8', '#0B1442', '#16803E', '#111827', null, 'nonsense']) assert.equal(lightCoverFill(dark), false, String(dark));
+});

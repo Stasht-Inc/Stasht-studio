@@ -294,6 +294,12 @@ export default function MemoryCard({
   // (a narrow card): px pushed down.
   const publishedRef = useRef<HTMLDivElement>(null);
   const [fitClear, setFitClear] = useState({ key: '', px: 0 });
+  // How tall the title / meta block is, so a light brand fill's scrim reaches above it (CampaignCover textHeight).
+  const [titleBlockHeight, setTitleBlockHeight] = useState(0);
+  useLayoutEffect(() => {
+    const h = titleBlockRef.current?.offsetHeight ?? 0;
+    if (h && h !== titleBlockHeight) setTitleBlockHeight(h);
+  });
   const fitClearTop = fitEnabled && fitClear.key === fitKey ? fitClear.px : 0;
 
   useLayoutEffect(() => {
@@ -542,6 +548,7 @@ export default function MemoryCard({
               // A judged logo on its solid colour is smaller on a card, so the pills above and the title below run over
               // it less (Chris, 7 Nov 2026 review: no shadow separates them any more).
               brandFraction={0.45}
+              textHeight={titleBlockHeight || undefined}
             />
           )
         ) : (

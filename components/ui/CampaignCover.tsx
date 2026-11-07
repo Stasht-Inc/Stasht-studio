@@ -1,5 +1,5 @@
 import React, { useEffect, useLayoutEffect, useReducer, useRef, useState } from 'react';
-import { brandCoverColor, campaignCoverLayout, coverCenterTop, isVectorImage, type CoverSize } from '../../utils/campaignCover';
+import { brandCoverColor, campaignCoverLayout, coverCenterTop, isVectorImage, lightCoverFill, type CoverSize } from '../../utils/campaignCover';
 import { knownBrandPicture, requestBrandPicture, subscribeBrandPictures, type BrandPicture } from '../../utils/brandPictures';
 
 /**
@@ -40,6 +40,9 @@ export interface CampaignCoverProps {
   centerY?: number;
   /** Judge "too small" against this box instead of the cover's own (campaignCoverLayout's judgeBox). */
   judgeBox?: CoverSize | null;
+  /** How far up from the bottom the caller's white text reaches (px), so a light fill's scrim covers all of it.
+   *  Default: the lower 56% of the box. */
+  textHeight?: number;
   /** A judged logo's largest share of the box (campaignCoverLayout's brandFraction); not judged: the 4 Nov size. */
   brandFraction?: number;
 }
@@ -89,7 +92,7 @@ function useBrandPicture(src: string | null): BrandPicture | null | undefined {
 }
 
 export default function CampaignCover({
-  src, alt = '', isFallback = false, color, className = '', fallback, onError, loading, backdrop = 'blur', centerY, judgeBox, brandFraction,
+  src, alt = '', isFallback = false, color, className = '', fallback, onError, loading, backdrop = 'blur', centerY, judgeBox, brandFraction, textHeight,
 }: CampaignCoverProps) {
   const boxRef = useRef<HTMLDivElement>(null);
   const imgRef = useRef<HTMLImageElement>(null);
@@ -137,6 +140,8 @@ export default function CampaignCover({
   const fill = solid ? (brand.color ?? brandCoverColor(color)) : brandCoverColor(color);
   // A 'whole' picture (the API was unsure: a flat backdrop) is drawn plain too, its backdrop running on into the fill.
   const blendedLogo = solid && ((brand.kind === 'logo' && !brand.frame) || brand.kind === 'whole');
+  // On a light fill the callers' bottom gradient isn't enough for their white title / meta: darken the lower part.
+  const titleScrim = contain && solid && lightCoverFill(fill);
   const mainClass = layout.mode !== 'contain'
     ? `w-full h-full object-cover${pending ? ' opacity-0' : ''}`
     : `absolute left-1/2 -translate-x-1/2 -translate-y-1/2 ${
@@ -156,6 +161,7 @@ export default function CampaignCover({
       data-brand-kind={isFallback && brand ? brand.kind : undefined}
       data-cover-fill={contain && solid ? fill : undefined}
       data-brand-frame={contain && solid && brand.frame ? 'true' : undefined}
+      data-title-scrim={titleScrim ? 'true' : undefined}
     >
       {contain && backdrop === 'blur' && !solid && (
         <img
@@ -180,6 +186,16 @@ export default function CampaignCover({
           ? { width: layout.width, height: layout.height, top: coverCenterTop(box.height, layout.height, centerY) }
           : undefined}
       />
+      {titleScrim && (
+        <div
+          aria-hidden="true"
+          className="absolute inset-0 pointer-events-none"
+          style={{ background: textHeight && box
+            // at least 56% black from just above the text down (white text then reads at 4.5:1 on any light fill)
+            ? `linear-gradient(to bottom, rgba(0,0,0,0) ${Math.max(0, box.height - textHeight - 70)}px, rgba(0,0,0,0.56) ${Math.max(0, box.height - textHeight - 8)}px, rgba(0,0,0,0.64) 100%)`
+            : 'linear-gradient(to bottom, rgba(0,0,0,0) 22%, rgba(0,0,0,0.5) 44%, rgba(0,0,0,0.62) 100%)' }}
+        />
+      )}
     </div>
   );
 }
