@@ -70,6 +70,9 @@ export function announceCatalogueSync(): void {
   window.dispatchEvent(new CustomEvent(CATALOGUE_SYNC_STARTED_EVENT));
 }
 
+/** Window event CatalogueSyncWatcher sends when an import has finished (Add a Moment then reloads the products). */
+export const CATALOGUE_SYNC_FINISHED_EVENT = 'catalogue-sync-finished';
+
 /**
  * The running import's percentage for a progress bar, or null when the API can't tell yet (starting, a total not
  * known yet, an unknown phase): show an indeterminate bar and no number then.

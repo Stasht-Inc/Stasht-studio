@@ -742,7 +742,62 @@ export function createMockApi(options = {}) {
     }
     if (path === '/user/profile') return ok({ user: PROFILE });
     // options.catalogue: the account has Website Catalogue items (Create Campaign then offers its "Website Catalogue").
-    if (path === '/website-catalogue') return ok(options.catalogue ? { available: true, item_count: 2 } : { available: false });
+    // options.cataloguePlanRequired: the account is in the catalogue pilot but not on the Business plan (Chris 7 Nov).
+    if (path === '/website-catalogue') {
+      if (options.cataloguePlanRequired) return ok({ available: false, reason: 'plan_required', item_count: 2 });
+      return ok(options.catalogue ? { available: true, reason: null, item_count: 2 } : { available: false, reason: 'not_available', item_count: 0 });
+    }
+    // CampaignMomentsController (Chris, 7 Nov 2026): a saved campaign's products, vehicles and moment order.
+    const momentsMatch = /^\/memories\/(\d+)\/(catalogue-items|cars|moment-order)(?:\/(\d+))?$/.exec(path);
+    if (momentsMatch) {
+      const id = Number(momentsMatch[1]);
+      const m = state.memories.get(id);
+      state.momentCalls = [...(state.momentCalls ?? []), { method, kind: momentsMatch[2], id, body, sub: momentsMatch[3] ?? null }];
+      if (!m) return fail(404, { success: false, message: 'Campaign not found.' });
+      const orderOf = () => (Array.isArray(m.unified_order) && m.unified_order.length ? m.unified_order : [
+        ...(m.posts ?? []).filter((p) => p.parent_id == null).map((p) => ({ type: 'post', id: p.id })),
+        ...(m.linked_memories ?? []).filter((l) => !l.is_car).map((l) => ({ type: 'linked_memory', id: l.id })),
+      ]);
+      if (momentsMatch[2] === 'moment-order' && method === 'PUT') {
+        m.unified_order = body.order.map((o) => ({ type: o.type, id: Number(o.id) }));
+        return ok({ order: m.unified_order });
+      }
+      if (momentsMatch[2] === 'catalogue-items' && method === 'POST') {
+        if (options.cataloguePlanRequired) return fail(403, { success: false, code: 'plan_required', message: 'Website Catalogue campaigns are available on the Business plan.' });
+        const order = orderOf();
+        const made = (body.catalog_item_ids ?? []).map((itemId, i) => ({
+          id: id * 1000 + 500 + (m.posts?.length ?? 0) + i, parent_id: null, image_link: IMG, title: itemId === 61 ? 'Oak bench' : 'Pine shelf', description: 'Price: $450',
+        }));
+        m.posts = [...(m.posts ?? []), ...made];
+        const at = body.after_item_id ? order.findIndex((o) => o.type === body.after_item_type && Number(o.id) === Number(body.after_item_id)) + 1
+          : body.position === 'start' ? 0 : order.length;
+        order.splice(at > 0 || body.position === 'start' ? at : order.length, 0, ...made.map((p) => ({ type: 'post', id: p.id })));
+        m.unified_order = order;
+        return ok({ moments: made.length, skipped_item_ids: [], already_added_item_ids: [], moment_ids: made.map((p) => p.id) });
+      }
+      if (momentsMatch[2] === 'cars' && method === 'POST') {
+        const before = (m.linked_memories ?? []).length;
+        for (const carId of body.car_ids ?? []) {
+          if (!(m.linked_memories ?? []).some((l) => l.is_car && Number(l.id) === Number(carId))) m.linked_memories = [...(m.linked_memories ?? []), { id: Number(carId), is_car: 1, title: '2024 Jeep Wrangler', price: '34995', mileage: 45000, stock_number: 'S2300' }];
+        }
+        return ok({ linked: (m.linked_memories ?? []).length - before });
+      }
+      if (momentsMatch[2] === 'cars' && method === 'DELETE') {
+        m.linked_memories = (m.linked_memories ?? []).filter((l) => !(l.is_car && Number(l.id) === Number(momentsMatch[3])));
+        return ok({});
+      }
+    }
+    // The campaign page's moment delete (dashboardAPI.deletePost) on a saved Storeel.
+    const postDelete = /^\/memory-images\/(\d+)$/.exec(path);
+    if (postDelete && method === 'DELETE') {
+      const postId = Number(postDelete[1]);
+      for (const m of state.memories.values()) {
+        m.posts = (m.posts ?? []).filter((p) => p.id !== postId);
+        if (Array.isArray(m.unified_order)) m.unified_order = m.unified_order.filter((o) => !(o.type === 'post' && Number(o.id) === postId));
+      }
+      state.deletedPosts = [...(state.deletedPosts ?? []), postId];
+      return ok({});
+    }
     if (path === '/website-catalogue/items' && options.catalogue) {
       // The Storeel flow's live preview shows a picked item as a product moment (its photo, price, "View on website").
       return ok({ items: [
@@ -783,7 +838,8 @@ export function createMockApi(options = {}) {
           ...(body?.catalog_item_ids ?? []).map((itemId) => ({ title: itemId === 61 ? 'Oak bench' : 'Pine shelf', description: 'Price: $450', image_link: IMG })),
           ...(body?.photos ?? []).map((p) => ({ title: p.title ?? '', description: p.description ?? '', image_link: p.fileUrl ?? IMG })),
         ].map((p, i) => ({ id: id * 100 + i, parent_id: null, ...p })),
-        linked_memories: (body?.car_ids ?? []).map((carId) => ({ id: Number(carId), is_car: 1, title: '2024 Jeep Wrangler' })),
+        // Add a Moment's vehicles on another category come as linked_memory_ids (store() links a vehicle id it finds there).
+        linked_memories: [...(body?.car_ids ?? []), ...(body?.linked_memory_ids ?? []).filter((v) => Number(v) === 5)].map((carId) => ({ id: Number(carId), is_car: 1, title: '2024 Jeep Wrangler', price: '34995', mileage: 45000, stock_number: 'S2300' })),
       });
       return ok({ id, title: body?.title, slug, category_id: body?.category_id, sub_category_id: null, collaborators_count: 0, created_at: now() }, 201);
     }
@@ -795,7 +851,7 @@ export function createMockApi(options = {}) {
     const memoryMatch = /^\/memories\/(\d+)$/.exec(path);
     if (memoryMatch && method === 'GET') {
       const m = state.memories.get(Number(memoryMatch[1]));
-      return m ? { status: 200, json: { status: 'success', data: { memory: m } } } : fail(404, { success: false, message: 'Memory not found' });
+      return m ? { status: 200, json: { status: 'success', data: { memory: m, ...(m.unified_order ? { unified_order: m.unified_order } : {}), ...(m.linked_memories ? { linked_memories: m.linked_memories } : {}) } } } : fail(404, { success: false, message: 'Memory not found' });
     }
     if (memoryMatch && method === 'PUT') {
       const id = Number(memoryMatch[1]);

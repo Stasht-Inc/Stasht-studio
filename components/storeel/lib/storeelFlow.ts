@@ -66,7 +66,7 @@ export function flowView({ editing, created, savedNow = false, changesSaved = fa
       : editing && changesSaved ? 'Changes saved. Send it now, or later.' : null,
     closeToast: created && !editing ? 'Saved as a draft' : null,
     closeLabel: created || savedNow || changesSaved ? 'Close' : 'Cancel',
-    momentsNote: saved ? 'Moments and captions save straight to your campaign.' : null,
+    momentsNote: saved ? 'Moments and captions save straight to your campaign. The title, cover and other details save with Save Changes.' : null,
   };
 }
 
@@ -136,7 +136,14 @@ const day = (v: unknown): string => {
 function memoryOf(raw: unknown): Record<string, any> | null {
   let cur: any = raw;
   for (let depth = 0; depth < 4 && cur && typeof cur === 'object'; depth++) {
-    if (cur.memory && typeof cur.memory === 'object') return cur.memory;
+    // GET /memories/{id} answers the campaign's linked campaigns / vehicles and its order BESIDE memory: keep them with
+    // it, so the Storeel page shows the campaign's own order (Chris, 7 Nov 2026).
+    if (cur.memory && typeof cur.memory === 'object') {
+      const extra: Record<string, unknown> = {};
+      if (!Array.isArray(cur.memory.linked_memories) && Array.isArray(cur.linked_memories)) extra.linked_memories = cur.linked_memories;
+      if (!Array.isArray(cur.memory.unified_order) && Array.isArray(cur.unified_order)) extra.unified_order = cur.unified_order;
+      return Object.keys(extra).length ? { ...cur.memory, ...extra } : cur.memory;
+    }
     if ('id' in cur && ('title' in cur || 'slug' in cur)) return cur;
     cur = cur.data;
   }

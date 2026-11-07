@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { useSyncProgress } from '../contexts/SyncProgressContext';
 import { catalogueAPI, type CatalogueOverview, type CatalogueSource } from '../services/catalogueAPI';
-import { CATALOGUE_SYNC_STARTED_EVENT } from './connectors/websiteCatalogue';
+import { CATALOGUE_SYNC_FINISHED_EVENT, CATALOGUE_SYNC_STARTED_EVENT } from './connectors/websiteCatalogue';
 
 const SERVICE_ID = 'website-catalogue';
 const SERVICE_TYPE = 'catalogue'; // Sidebar: "Importing {host} (n%)", and View catalogue when it's done
@@ -85,7 +85,10 @@ export function CatalogueSyncWatcher({ enabled }: { enabled: boolean }) {
         // (last_success_at written with last_sync_at at its end) is "done".
         // The engine marks the run finished a moment before it writes those times, so a first "not yet" is
         // checked again in a few seconds before the bar says the import didn't finish.
-        if (finishedWithSuccess(source)) completeSync(source.item_count);
+        if (finishedWithSuccess(source)) {
+          completeSync(source.item_count);
+          window.dispatchEvent(new CustomEvent(CATALOGUE_SYNC_FINISHED_EVENT));
+        }
         else if (!wasConfirming) confirmingEnd = true;
         else failSync("The import didn't finish. We'll try again tonight.");
       } else {

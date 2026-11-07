@@ -23,7 +23,7 @@ import { carOwnerAuthor, inventoryItemIsReadOnly, inventoryOwnerAuthor, isCarPho
 import { getCategoryColor } from "../constants/mediaConstants";
 import { triggerMemoryCountsRefresh } from '../hooks/useMemoryCounts';
 import { useMemoryLimit, recheckMemoryLimit } from '../hooks/useMemoryLimit';
-import { dashboardAPI, tokenUtils, apiRequest, getApiBaseUrl, userUtils } from "../utils/authUtils";
+import { dashboardAPI, tokenUtils, apiRequest, getApiBaseUrl, userUtils, clearApiCache } from "../utils/authUtils";
 import { EditMediaItemPopover } from "../components/EditMediaItemPopover";
 import mediaAPI from "../services/mediaAPI";
 import { aiCreditsAPI } from "../services/aiCreditsAPI";
@@ -76,6 +76,7 @@ import Cropper from 'react-easy-crop';
 import { mapLimit } from "../utils/requestLimit";
 import CreateMemory from "../components/CreateMemory";
 import { seedFromMemory } from "../components/storeel/lib/storeelFlow";
+import { campaignPageInventory } from "../components/storeel/campaignPageInventory";
 const samanthaAvatar = 'https://images.unsplash.com/photo-1494790108755-2616b612b5bc?w=100&h=100&fit=crop';
 
 // Helper: convert S3 URL to proxied path so auth headers work and canvas doesn't get tainted
@@ -17991,6 +17992,13 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
         buttonRef={addMomentButtonRef}
         insertAfterPostId={insertAfterPostId}
         getInsertAfterPostId={() => insertAfterPostIdRef.current}
+        // Chris, 7 Nov 2026: the owner can add Website Catalogue products / vehicles here too (saved at once).
+        inventory={memoryId && !isCollaboratorView ? campaignPageInventory({
+          memoryId,
+          afterPostId: () => insertAfterPostIdRef.current,
+          onAdded: () => { clearApiCache(); fetchMemoryDetails(); },
+          linkedVehicleIds: (apiMemoryData?.linked_memories || []).filter((lm: any) => lm?.is_car === true || Number(lm?.is_car) === 1).map((lm: any) => String(lm.id)),
+        }) : undefined}
         onOpenMediaLibrary={() => {
           console.log('🔍 onOpenMediaLibrary called - Opening media library');
           console.log('🔍 Current userRole:', currentUserRole);
