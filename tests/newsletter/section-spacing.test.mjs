@@ -101,3 +101,36 @@ test('after a save, a Campaigns section keeps the padding the API answers with (
   assert.equal(out.draft.blocks[0].data.padding, 'small');
   assert.equal(out.saved.blocks[0].data.padding, 'small');
 });
+
+// ---- line spacing x the newsletter's text sizes (Chris 7 Nov integration of points 2 and 4) -----------------------
+// The same numbers as the API's NewsletterSectionSpacingTest custom-scale case, so editor and email agree.
+import { spacingGaps } from '../../components/newsletters/lib/sectionSpacing.ts';
+import { scaleOf, sizeVar, lineHeightVar, styleLineHeight, titlePx } from '../../components/newsletters/lib/typeScale.ts';
+
+test('spacing follows a custom type scale: text line heights and gaps from the Normal size, titles from titlePx', () => {
+  const scale = scaleOf({ small: 14, normal: 20, large: 26, xlarge: 30 });
+  const lh = styleLineHeight('normal', scale.normal);
+  assert.equal(lh, 33);
+  assert.deepEqual(textSpacingStyle('tight', scale.normal, lh), { lineHeight: '28px', '--nl-lh-k': '-0.25', '--nl-lh-min': '1.2', '--nl-gap': '10px', '--nl-row': '3px' });
+  assert.deepEqual(textSpacingStyle('relaxed', scale.normal, lh), { lineHeight: '40.5px', '--nl-lh-k': '0.375', '--nl-lh-min': '0', '--nl-gap': '30px', '--nl-row': '15px' });
+  // The usual scale gives exactly the numbers the spacing branch shipped.
+  assert.deepEqual(textSpacingStyle('tight', 16, 26), textSpacingStyle('tight'));
+  // Sized words: Large 26 / 39, tight -> 32.5 (as the email); in the editor through the scale's variables.
+  assert.equal(lineHeight(scale.large, styleLineHeight('large', scale.large), 'tight'), 32.5);
+  assert.equal(spanLineHeight(sizeVar('large'), lineHeightVar('large')),
+    'max(calc(var(--nl-lh-large, 30px) + var(--nl-lh-k, 0) * var(--nl-size-large, 20px)), calc(var(--nl-lh-min, 0) * var(--nl-size-large, 20px)))');
+  // Titles: Large 35 px (line 43) tight -> 42 (1.2 x 35); Small 23 px (line 31) relaxed -> 39.63.
+  assert.equal(lineHeight(titlePx(scale, 'large'), titlePx(scale, 'large') + 8, 'tight'), 42);
+  assert.equal(lineHeight(titlePx(scale, 'small'), titlePx(scale, 'small') + 8, 'relaxed'), 39.63);
+});
+
+test('spacing gaps follow the Normal size but never cross Normal (NewsletterSpacing::gaps)', () => {
+  assert.equal(spacingGaps(null, 20), null);
+  assert.equal(spacingGaps('normal', 20), null);
+  assert.deepEqual(spacingGaps('tight'), [8, 2]);
+  assert.deepEqual(spacingGaps('relaxed'), [24, 12]);
+  assert.deepEqual(spacingGaps('tight', 14), [7, 2]);
+  assert.deepEqual(spacingGaps('relaxed', 10), [16, 8]);
+  assert.deepEqual(spacingGaps('tight', 72), [16, 6]);
+  assert.deepEqual(spacingGaps('relaxed', 72), [108, 54]);
+});
