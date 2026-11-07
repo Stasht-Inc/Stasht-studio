@@ -33,6 +33,8 @@ import StoreelLivePreview, { type PreviewControls } from './storeel/StoreelLiveP
 import ComposerDialog from './newsletters/ComposerDialog';
 import { apiDefaultOrder, focusAfterRemove, insertKeysAfter, isOrderable, momentMenu, moveKey, needsServerOrder, orderMoments, savedOrderPayload, savedRef, sentPostKeys, serverOrderAfterCreate } from './storeel/lib/momentOrder';
 import { addedMessage, pickPayload, pickedPreviewMoments, type InventoryPick } from './storeel/lib/momentPicks';
+import { accountModerationFrom, moderationPayload, moderationSwitchShown, shownModeration } from './storeel/lib/moderation';
+import { Switch } from './ui/switch';
 import type { MomentInventory } from './storeel/InventoryMomentPicker';
 import { campaignMomentsAPI, type MomentPlace } from '../services/campaignMomentsAPI';
 import { actionLines } from './storeel/lib/actionLines';
@@ -223,6 +225,10 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
   const [captionRequest, setCaptionRequest] = useState<{ key: string; n: number } | null>(null);
   // See plans from inside this page (review I2): the plans open under it, so leaving is asked first — never silently.
   const [plansAsk, setPlansAsk] = useState<string | null>(null);
+  // Moderation per campaign (Chris, 7 Nov 2026, point 12): the person's choice (null = untouched) and the account's
+  // setting (the default for a new campaign, and for a saved one that never had its own value).
+  const [moderationChoice, setModerationChoice] = useState<boolean | null>(null);
+  const [accountModeration, setAccountModeration] = useState<boolean | null>(null);
   const [momentFiles, setMomentFiles] = useState<FileList | null>(null);
   const [isVideoRecorderOpen, setIsVideoRecorderOpen] = useState(false);
 
@@ -1150,6 +1156,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
       setExtraCatalog([]);
       setExtraCars([]);
       addAnchorRef.current = undefined;
+      setModerationChoice(null);
       setPhotosWithMetadata([]);
       setExifExtractionResults([]);
       setShowExifModal(false);
@@ -1168,6 +1175,8 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
       (async () => {
         try {
           const res = await dashboardAPI.getNotificationPreferences();
+          // The same answer gives the Moderation switch its default (Chris, 7 Nov 2026; review M3: one request).
+          if (!cancelled) setAccountModeration(accountModerationFrom(res));
           if (cancelled || !res?.success || !res.data) return;
 
           // apiRequest returns the whole server payload as `data` (i.e. { status, data: {...} }),
@@ -1188,7 +1197,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
             // from Existing Campaigns" here, pre-filtered to that category.
             setSelectFromExisting(true);
           }
-        } catch { /* keep the existing default */ }
+        } catch { if (!cancelled) setAccountModeration(true); /* keep the existing default */ }
       })();
       return () => { cancelled = true; };
     }
@@ -1377,6 +1386,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
     setExtraCatalog([]);
     setExtraCars([]);
     setDeleteAsk(null);
+    setModerationChoice(null);
     onOpenChange(false);
   };
 
@@ -2033,6 +2043,9 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
   const previewMoments = savedMomentsList ? orderMoments(flowCampaign?.previewMoments ?? [], []) : orderMoments(createMoments, momentOrder);
   const shownPlacedKeys = previewMoments.filter(isOrderable).map((m) => m.key);
 
+  /** The Moderation switch's value: the person's choice, else the campaign's, else the account's (on by default). */
+  const moderationOn = shownModeration({ choice: moderationChoice, campaign: flowCampaign?.moderation ?? null, account: accountModeration });
+
   /** Just created: give its moments the shown order (GET it, match its moments to the form's, PUT the order). */
   const orderNewCampaign = async (id: number, shown: PreviewMoment[]) => {
     const failed = () => toast.error("Campaign saved. The moments' order couldn't be saved — reorder them on the campaign page.");
@@ -2148,7 +2161,10 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
         tags: formData.tags,
         photos_count: photosArray.length,
         photos: photosArray,
-        ...coverChoicePayload(coverChoice)
+        ...coverChoicePayload(coverChoice),
+        // Moderation per campaign (Chris, 7 Nov 2026): only when the switch was touched (review I1); untouched, the
+        // campaign follows the account's setting (NULL).
+        ...moderationPayload(moderationChoice),
       };
 
       // Publish immediately if requested
@@ -2278,7 +2294,8 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
     setSetupError(null);
     const coverUrl = coverChoice.kind && coverChoice.url ? coverChoice.url : null;
     const form = { ...formData, endDate: showEndDate ? formData.endDate : '' };
-    const body = updatePayload(form, categoriesForDropdown, { changed: coverUrl !== initialCoverUrlRef.current, url: coverUrl }, seededCategory ?? formData.category);
+    // Moderation: only when the switch was touched (review I1); untouched, the campaign's value is left alone.
+    const body: Record<string, unknown> = { ...updatePayload(form, categoriesForDropdown, { changed: coverUrl !== initialCoverUrlRef.current, url: coverUrl }, seededCategory ?? formData.category), ...moderationPayload(moderationChoice) };
     try {
       const res = await dashboardAPI.updateMemory(String(c.id), body);
       if (res.success) {
@@ -2286,6 +2303,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
         setFlowCampaign({
           ...c, title: String(body.title), category: formData.category, label: formData.label.trim(), date: form.date, endDate: form.endDate,
           location: formData.location, tags: [...formData.tags], cover: coverChoice.kind && coverUrl ? { kind: coverChoice.kind, url: coverUrl } : null,
+          moderation: moderationChoice ?? c.moderation,
         });
         setSeededCategory(formData.category);
         onCampaignSaved?.(c.id);
@@ -3464,6 +3482,23 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
                     </div>
                   )}
                 </div>
+
+                {/* Moderation (Chris, 7 Nov 2026, point 12): this campaign's own setting. Saved with the campaign. Only
+                    where moderation applies: a business owner (review M2). */}
+                {moderationSwitchShown({ campaignApplies: flowCampaign?.moderationApplies ?? null, role: user?.role, viewType }) ? (
+                <div className="flex items-center justify-between gap-4" data-testid="st-moderation">
+                  <div className="min-w-0">
+                    <label htmlFor="st-moderation-switch" className="block text-base md:text-sm font-medium text-gray-700">Moderation</label>
+                    <p id="st-moderation-help" className="text-xs text-gray-500">Moderate media before it goes live.</p>
+                  </div>
+                  <Switch
+                    id="st-moderation-switch"
+                    checked={moderationOn}
+                    onCheckedChange={(v) => setModerationChoice(Boolean(v))}
+                    aria-describedby="st-moderation-help"
+                  />
+                </div>
+                ) : null}
               </div>
             )}
 
