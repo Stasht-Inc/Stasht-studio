@@ -20,6 +20,8 @@ export type CampaignCoverLayout =
 export const BRAND_COVER_FRACTION = 0.6;
 /** A too-small picture is at most this share of the box (it is a photo, so it gets a little more room). */
 export const SMALL_COVER_FRACTION = 0.8;
+/** A 'whole' brand (re-review 2, option C) is at most this share of the box's width (it takes the full height). */
+export const WHOLE_MAX_WIDTH = 0.9;
 /** Never enlarge a picture past this many times its own size. */
 export const COVER_MAX_UPSCALE = 1.5;
 /** A chosen picture counts as too small only when it is under this share of the box on a side. */
@@ -47,9 +49,18 @@ export function isVectorImage(src?: string | null): boolean {
 
 const known = (s?: CoverSize | null): s is CoverSize => !!s && s.width > 0 && s.height > 0;
 
-export function campaignCoverLayout({ isFallback = false, natural = null, box = null, vector = false, judgeBox = null }: {
+export function campaignCoverLayout({ isFallback = false, brandKind = null, natural = null, box = null, vector = false, judgeBox = null, brandFraction = BRAND_COVER_FRACTION }: {
   /** The picture is the brand default (account / property avatar), not a cover someone chose. */
   isFallback?: boolean;
+  /** What the brand picture is, as the web API judged it (utils/brandPictures, Chris 7 Nov 2026): a 'photo' (the owner's
+   *  selfie / headshot avatar) fills the cover like a chosen photo; a 'logo' is drawn whole, never cut to a circle (it
+   *  sits on its own solid colour); 'whole' (the API was unsure: a flat backdrop) is drawn whole at the FULL height of
+   *  the box, at most WHOLE_MAX_WIDTH of its width, never cut round (re-review 2, option C); not known (null) — the
+   *  4 Nov rules below. */
+  brandKind?: 'logo' | 'photo' | 'whole' | null;
+  /** The brand's largest share of the box (default BRAND_COVER_FRACTION). Cards use less: their pills and title leave
+   *  little room (Chris, 7 Nov 2026 review). */
+  brandFraction?: number;
   /** The picture's own size (naturalWidth / naturalHeight), once it has loaded. */
   natural?: CoverSize | null;
   /** The box it is shown in, in CSS pixels. */
@@ -60,21 +71,31 @@ export function campaignCoverLayout({ isFallback = false, natural = null, box = 
    *  a square of the phone's width, so an ordinary photo still fills it). The picture is still sized in `box`. */
   judgeBox?: CoverSize | null;
 }): CampaignCoverLayout {
-  if (isFallback) {
+  if (isFallback && brandKind === 'whole') {
+    if (!known(box) || !known(natural)) return { mode: 'pending' };
+    let height = box.height;
+    let width = (natural.width / natural.height) * height;
+    if (width > WHOLE_MAX_WIDTH * box.width) {
+      width = WHOLE_MAX_WIDTH * box.width;
+      height = width * (natural.height / natural.width);
+    }
+    return { mode: 'contain', shape: 'rect', width: Math.round(width), height: Math.round(height) };
+  }
+  if (isFallback && brandKind !== 'photo') {
     if (!known(box)) return { mode: 'pending' };
     if (vector) {
-      return { mode: 'contain', shape: 'rect', width: Math.round(BRAND_COVER_FRACTION * box.width), height: Math.round(BRAND_COVER_FRACTION * box.height) };
+      return { mode: 'contain', shape: 'rect', width: Math.round(brandFraction * box.width), height: Math.round(brandFraction * box.height) };
     }
     if (!known(natural)) return { mode: 'pending' };
     const aspect = natural.width / natural.height;
-    if (aspect >= BRAND_CIRCLE_ASPECT[0] && aspect <= BRAND_CIRCLE_ASPECT[1]) {
+    if (brandKind !== 'logo' && aspect >= BRAND_CIRCLE_ASPECT[0] && aspect <= BRAND_CIRCLE_ASPECT[1]) {
       const side = Math.round(Math.min(
-        BRAND_COVER_FRACTION * Math.min(box.width, box.height),
+        brandFraction * Math.min(box.width, box.height),
         COVER_MAX_UPSCALE * Math.min(natural.width, natural.height),
       ));
       return { mode: 'contain', shape: 'circle', width: side, height: side };
     }
-    return containRect(natural, box, BRAND_COVER_FRACTION);
+    return containRect(natural, box, brandFraction);
   }
   if (vector) return { mode: 'cover' };
   if (!known(natural)) return { mode: 'pending' };
