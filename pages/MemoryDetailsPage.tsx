@@ -1562,9 +1562,12 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
   // - Other roles: Show if owner (don't check moderation_enabled preference)
   // Chris, 7 Nov 2026 (point 12): role 2 follows the CAMPAIGN's moderation (its own value, else the account's).
   const campaignModeration = campaignModerationOf(apiMemoryData);
+  // Review M1: items still waiting keep the tab, even with moderation now off.
+  const pendingForTab = [...(Array.isArray(apiMemoryData?.posts) ? apiMemoryData.posts : []), ...(Array.isArray(apiMemoryData?.widgets) ? apiMemoryData.widgets : [])]
+    .filter((x: any) => x && (x.admin_approval === 0 || x.admin_approval === '0')).length;
   const shouldShowModeration = useMemo(() => moderationTabVisible({
-    role: userRoleFromLocalStorage, isOwner, loaded: isModerationPreferenceLoaded, campaign: campaignModeration, account: moderationEnabled,
-  }), [isOwner, moderationEnabled, userRoleFromLocalStorage, isModerationPreferenceLoaded, campaignModeration]);
+    role: userRoleFromLocalStorage, isOwner, loaded: isModerationPreferenceLoaded, campaign: campaignModeration, account: moderationEnabled, pending: pendingForTab,
+  }), [isOwner, moderationEnabled, userRoleFromLocalStorage, isModerationPreferenceLoaded, campaignModeration, pendingForTab]);
 
   // Log whenever shouldShowModeration changes
   useEffect(() => {

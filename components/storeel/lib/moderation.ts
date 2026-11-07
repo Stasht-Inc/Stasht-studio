@@ -25,13 +25,29 @@ export function campaignModerationOf(memory: Record<string, any> | null | undefi
 
 /**
  * The campaign page's Moderation tab. Role 3 / 4: never. Role 2: the owner, once the account's setting has loaded, when
- * the campaign's effective value is on (its own value, else the account's). Other roles: the owner (as before).
+ * the campaign's effective value is on (its own value, else the account's) — or while items still wait for approval,
+ * so turning moderation off never strands them (review M1). Other roles: the owner (as before).
  */
-export function moderationTabVisible({ role, isOwner, loaded, campaign, account }: {
-  role: unknown; isOwner: boolean; loaded: boolean; campaign: boolean | null; account: boolean;
+export function moderationTabVisible({ role, isOwner, loaded, campaign, account, pending = 0 }: {
+  role: unknown; isOwner: boolean; loaded: boolean; campaign: boolean | null; account: boolean; pending?: number;
 }): boolean {
   const r = String(role ?? '');
   if (r === '3' || r === '4') return false;
-  if (r === '2') return loaded && isOwner && (campaign ?? account);
+  if (r === '2') return loaded && isOwner && ((campaign ?? account) || pending > 0);
   return isOwner;
+}
+
+/**
+ * Whether the Storeel page shows the Moderation switch (review M2): only where moderation applies — a business (role 2)
+ * owner. Edit: the API says (moderation_applies). Create: the signed-in business account, or a property view (a
+ * property / salesperson view of a business account).
+ */
+export function moderationSwitchShown({ campaignApplies, role, viewType }: { campaignApplies: boolean | null; role: unknown; viewType: unknown }): boolean {
+  if (campaignApplies !== null) return campaignApplies;
+  return String(role ?? '') === '2' || viewType === 'property';
+}
+
+/** What Save as Draft / Save Changes send (review I1): the value only when the switch was touched; untouched = nothing. */
+export function moderationPayload(choice: boolean | null): { moderation_enabled?: boolean } {
+  return choice === null ? {} : { moderation_enabled: choice };
 }

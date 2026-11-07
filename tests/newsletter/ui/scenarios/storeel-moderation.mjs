@@ -66,7 +66,7 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
     expect(!(await hasOverflow(page)), `${tag}: no sideways scroll`);
     await context.close();
 
-    // ── Create, account ON, untouched: sends true ───────────────────────────────────────────────────────────────
+    // ── Create, account ON, untouched: shows on, sends NOTHING (review I1: the campaign follows the account) ──────
     const on = createMockApi({ accountModeration: true });
     const o = await open({ width, height, api: on });
     await o.page.locator('#nl-name').waitFor();
@@ -80,7 +80,7 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
     await button(o.page, 'Save as Draft').click();
     await o.page.waitForTimeout(1500);
     const post2 = on.state.calls.find((c) => c.method === 'POST' && c.path === '/memories');
-    expect(post2 && post2.body.moderation_enabled === true, `${tag}: untouched → the shown value (true) is saved`);
+    expect(post2 && !('moderation_enabled' in post2.body), `${tag}: untouched → not sent (follows the account) (got ${JSON.stringify(post2?.body?.moderation_enabled)})`);
     await o.context.close();
 
     // ── Edit: the campaign's own value (off, although the account is on); turn on; Save Changes sends true ─────
@@ -103,18 +103,49 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
     expect(put && put.body.moderation_enabled === true, `${tag}: Save Changes sends moderation_enabled true (got ${JSON.stringify(put?.body)})`);
     await e.context.close();
 
-    // ── Edit an older campaign (no own value): shows what the account makes it do (on) ─────────────────────────
+    // ── Edit an older campaign (no own value): shows what the account makes it do (on); an untouched Save Changes
+    //    leaves it alone (review I1); Cancel saves nothing ─────────────────────────────────────────────────────────
     const older = createMockApi({ accountModeration: true, memories: { 3021: saved({ moderation_enabled: null, moderation_effective: true }) } });
     const d = await open({ width, height, api: older, query: '&campaignId=3021' });
     await d.page.getByRole('heading', { name: 'Edit Campaign' }).waitFor();
     await d.page.waitForTimeout(900);
     await openAdvanced(d.page);
     expect((await sw(d.page).getAttribute('aria-checked')) === 'true', `${tag}: an older campaign shows its effective value (on)`);
-    // Cancel saves nothing.
-    await sw(d.page).click();
-    await button(d.page, 'Cancel').click();
-    await d.page.waitForTimeout(500);
-    expect(!older.state.memoryPuts.length, `${tag}: Cancel saves nothing`);
+    await d.page.locator('#st-actions').scrollIntoViewIfNeeded();
+    await button(d.page, 'Save Changes').click();
+    await d.page.waitForTimeout(1500);
+    const put2 = older.state.memoryPuts.at(-1);
+    expect(put2 && !('moderation_enabled' in put2.body), `${tag}: untouched Save Changes leaves it alone (got ${JSON.stringify(put2?.body)})`);
     await d.context.close();
+    const cancel = createMockApi({ accountModeration: true, memories: { 3021: saved({ moderation_enabled: null, moderation_effective: true }) } });
+    const c = await open({ width, height, api: cancel, query: '&campaignId=3021' });
+    await c.page.getByRole('heading', { name: 'Edit Campaign' }).waitFor();
+    await c.page.waitForTimeout(900);
+    await openAdvanced(c.page);
+    await sw(c.page).click();
+    await button(c.page, 'Cancel').click();
+    await c.page.waitForTimeout(500);
+    expect(!cancel.state.memoryPuts.length, `${tag}: Cancel saves nothing`);
+    await c.context.close();
+
+    // ── Review M2: only where moderation applies ──────────────────────────────────────────────────────────────
+    const personal = createMockApi({ accountModeration: true });
+    const p = await open({ width, height, api: personal, user: { id: 1, external_user_id: 990002, name: 'Pat Personal', email: 'pat@example.com', role: '1', profile_image: null, profile_color: '#F59E0B' } });
+    await p.page.locator('#nl-name').waitFor();
+    await p.page.getByRole('radio', { name: 'Storeel', exact: true }).click();
+    await p.page.getByPlaceholder(STOREEL_TITLE).waitFor();
+    await p.page.waitForTimeout(900);
+    await p.page.getByRole('button', { name: /^Advanced filters/ }).click();
+    await p.page.waitForTimeout(300);
+    expect(!(await sw(p.page).count()), `${tag}: a personal account sees no Moderation switch`);
+    await p.context.close();
+    const notBiz = createMockApi({ accountModeration: true, memories: { 3021: saved({ moderation_enabled: null, moderation_effective: true, moderation_applies: false }) } });
+    const nb = await open({ width, height, api: notBiz, query: '&campaignId=3021' });
+    await nb.page.getByRole('heading', { name: 'Edit Campaign' }).waitFor();
+    await nb.page.waitForTimeout(900);
+    await nb.page.getByRole('button', { name: /^Advanced filters/ }).click();
+    await nb.page.waitForTimeout(300);
+    expect(!(await sw(nb.page).count()), `${tag}: Edit hides it when the campaign's owner isn't a business (moderation_applies false)`);
+    await nb.context.close();
   }
 }

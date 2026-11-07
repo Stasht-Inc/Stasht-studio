@@ -38,3 +38,32 @@ test("the campaign page's Moderation tab follows the campaign's effective value 
   assert.equal(moderationTabVisible({ role: '1', isOwner: true, loaded: true, campaign: false, account: false }), true);
   assert.equal(moderationTabVisible({ role: '3', isOwner: true, loaded: true, campaign: true, account: true }), false);
 });
+
+test('review M1: the tab stays while items still wait for approval, even with moderation now off', () => {
+  assert.equal(moderationTabVisible({ role: '2', isOwner: true, loaded: true, campaign: false, account: false, pending: 2 }), true);
+  assert.equal(moderationTabVisible({ role: '2', isOwner: false, loaded: true, campaign: false, account: false, pending: 2 }), false);
+});
+
+test('review M2: the switch only where moderation applies (a business owner; property / salesperson views of one)', async () => {
+  const { moderationSwitchShown } = await import('../../components/storeel/lib/moderation.ts');
+  assert.equal(moderationSwitchShown({ campaignApplies: true, role: '1', viewType: 'personal' }), true, 'Edit: the API says');
+  assert.equal(moderationSwitchShown({ campaignApplies: false, role: '2', viewType: 'personal' }), false, 'Edit: the API says');
+  assert.equal(moderationSwitchShown({ campaignApplies: null, role: '2', viewType: 'personal' }), true);
+  assert.equal(moderationSwitchShown({ campaignApplies: null, role: '1', viewType: 'property' }), true);
+  assert.equal(moderationSwitchShown({ campaignApplies: null, role: '1', viewType: 'personal' }), false, 'a personal account: hidden');
+  assert.equal(moderationSwitchShown({ campaignApplies: null, role: '3', viewType: 'personal' }), false);
+});
+
+test('review I1: the value is sent only when the switch was touched', async () => {
+  const { moderationPayload } = await import('../../components/storeel/lib/moderation.ts');
+  assert.deepEqual(moderationPayload(null), {});
+  assert.deepEqual(moderationPayload(false), { moderation_enabled: false });
+  assert.deepEqual(moderationPayload(true), { moderation_enabled: true });
+});
+
+test("Edit: whether moderation applies, from GET /memories/{id}'s moderation_applies", () => {
+  const seed = (memory) => seedFromMemory({ data: { memory: { id: 4, title: 'T', ...memory } } });
+  assert.equal(seed({ moderation_applies: false }).moderationApplies, false);
+  assert.equal(seed({ moderation_applies: true }).moderationApplies, true);
+  assert.equal(seed({}).moderationApplies, null);
+});

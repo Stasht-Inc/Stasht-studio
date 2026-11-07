@@ -33,7 +33,7 @@ import StoreelLivePreview, { type PreviewControls } from './storeel/StoreelLiveP
 import ComposerDialog from './newsletters/ComposerDialog';
 import { apiDefaultOrder, focusAfterRemove, insertKeysAfter, isOrderable, momentMenu, moveKey, needsServerOrder, orderMoments, savedOrderPayload, savedRef, sentPostKeys, serverOrderAfterCreate } from './storeel/lib/momentOrder';
 import { addedMessage, pickPayload, pickedPreviewMoments, type InventoryPick } from './storeel/lib/momentPicks';
-import { accountModerationFrom, shownModeration } from './storeel/lib/moderation';
+import { accountModerationFrom, moderationPayload, moderationSwitchShown, shownModeration } from './storeel/lib/moderation';
 import { Switch } from './ui/switch';
 import type { MomentInventory } from './storeel/InventoryMomentPicker';
 import { campaignMomentsAPI, type MomentPlace } from '../services/campaignMomentsAPI';
@@ -692,16 +692,6 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
     setCatalogNotice('');
   };
 
-  // The account's moderation setting (Settings › Notifications), the Moderation switch's default (Chris, 7 Nov 2026).
-  useEffect(() => {
-    if (!open) return;
-    let cancelled = false;
-    dashboardAPI.getNotificationPreferences()
-      .then((res) => { if (!cancelled) setAccountModeration(accountModerationFrom(res)); })
-      .catch(() => { if (!cancelled) setAccountModeration(true); });
-    return () => { cancelled = true; };
-  }, [open]);
-
   // Detect a connected store when the modal opens, to gate the Shopify option.
   useEffect(() => {
     if (!open) return;
@@ -1185,6 +1175,8 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
       (async () => {
         try {
           const res = await dashboardAPI.getNotificationPreferences();
+          // The same answer gives the Moderation switch its default (Chris, 7 Nov 2026; review M3: one request).
+          if (!cancelled) setAccountModeration(accountModerationFrom(res));
           if (cancelled || !res?.success || !res.data) return;
 
           // apiRequest returns the whole server payload as `data` (i.e. { status, data: {...} }),
@@ -1205,7 +1197,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
             // from Existing Campaigns" here, pre-filtered to that category.
             setSelectFromExisting(true);
           }
-        } catch { /* keep the existing default */ }
+        } catch { if (!cancelled) setAccountModeration(true); /* keep the existing default */ }
       })();
       return () => { cancelled = true; };
     }
@@ -2170,8 +2162,9 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
         photos_count: photosArray.length,
         photos: photosArray,
         ...coverChoicePayload(coverChoice),
-        // Moderation per campaign (Chris, 7 Nov 2026): always the value the switch shows.
-        moderation_enabled: moderationOn,
+        // Moderation per campaign (Chris, 7 Nov 2026): only when the switch was touched (review I1); untouched, the
+        // campaign follows the account's setting (NULL).
+        ...moderationPayload(moderationChoice),
       };
 
       // Publish immediately if requested
@@ -2301,7 +2294,8 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
     setSetupError(null);
     const coverUrl = coverChoice.kind && coverChoice.url ? coverChoice.url : null;
     const form = { ...formData, endDate: showEndDate ? formData.endDate : '' };
-    const body: Record<string, unknown> = { ...updatePayload(form, categoriesForDropdown, { changed: coverUrl !== initialCoverUrlRef.current, url: coverUrl }, seededCategory ?? formData.category), moderation_enabled: moderationOn };
+    // Moderation: only when the switch was touched (review I1); untouched, the campaign's value is left alone.
+    const body: Record<string, unknown> = { ...updatePayload(form, categoriesForDropdown, { changed: coverUrl !== initialCoverUrlRef.current, url: coverUrl }, seededCategory ?? formData.category), ...moderationPayload(moderationChoice) };
     try {
       const res = await dashboardAPI.updateMemory(String(c.id), body);
       if (res.success) {
@@ -2309,7 +2303,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
         setFlowCampaign({
           ...c, title: String(body.title), category: formData.category, label: formData.label.trim(), date: form.date, endDate: form.endDate,
           location: formData.location, tags: [...formData.tags], cover: coverChoice.kind && coverUrl ? { kind: coverChoice.kind, url: coverUrl } : null,
-          moderation: moderationOn,
+          moderation: moderationChoice ?? c.moderation,
         });
         setSeededCategory(formData.category);
         onCampaignSaved?.(c.id);
@@ -3489,7 +3483,9 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
                   )}
                 </div>
 
-                {/* Moderation (Chris, 7 Nov 2026, point 12): this campaign's own setting. Saved with the campaign. */}
+                {/* Moderation (Chris, 7 Nov 2026, point 12): this campaign's own setting. Saved with the campaign. Only
+                    where moderation applies: a business owner (review M2). */}
+                {moderationSwitchShown({ campaignApplies: flowCampaign?.moderationApplies ?? null, role: user?.role, viewType }) ? (
                 <div className="flex items-center justify-between gap-4" data-testid="st-moderation">
                   <div className="min-w-0">
                     <label htmlFor="st-moderation-switch" className="block text-base md:text-sm font-medium text-gray-700">Moderation</label>
@@ -3502,6 +3498,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
                     aria-describedby="st-moderation-help"
                   />
                 </div>
+                ) : null}
               </div>
             )}
 
