@@ -20,14 +20,17 @@ interface TypeScaleValue {
   set(next: TypeScale): void;
   /** Keep these sizes for the account; true when saved. */
   saveDefault(scale: TypeScale): Promise<boolean>;
+  /** Why the API refused the sizes, if it did. */
+  error: string | null;
 }
 
 const TypeScaleContext = createContext<TypeScaleValue>({
-  scale: USUAL_SCALE, editable: false, accountDefault: USUAL_SCALE, set: () => {}, saveDefault: async () => false,
+  scale: USUAL_SCALE, editable: false, accountDefault: USUAL_SCALE, set: () => {}, saveDefault: async () => false, error: null,
 });
 
-export function TypeScaleProvider({ value, accountDefault, editable, onChange, onSaveDefault, children }: {
+export function TypeScaleProvider({ value, accountDefault, editable, onChange, onSaveDefault, error = null, children }: {
   value: TypeScale | null;
+  error?: string | null;
   accountDefault: TypeScale | null | undefined;
   editable: boolean;
   onChange(next: TypeScale | null): void;
@@ -44,7 +47,8 @@ export function TypeScaleProvider({ value, accountDefault, editable, onChange, o
     accountDefault: scaleOf(accountDefault),
     set: (next) => handlers.current.onChange(storedScale(next)),
     saveDefault: (next) => handlers.current.onSaveDefault(storedScale(next)),
-  }), [scale, editable, accountDefault]);
+    error,
+  }), [scale, editable, accountDefault, error]);
   // display: contents — the variables reach everything inside without a box of its own.
   return (
     <TypeScaleContext.Provider value={ctx}>
@@ -104,7 +108,7 @@ function SizeRow({ style, label, px, onPx, autoFocus }: { style: string; label: 
  * that uses it). Reset goes back to the usual sizes; "Use as my default" keeps these for the account's new newsletters.
  */
 export function EditSizesPanel() {
-  const { scale, set, accountDefault, saveDefault } = useTypeScale();
+  const { scale, set, accountDefault, saveDefault, error } = useTypeScale();
   const [saving, setSaving] = useState(false);
   const [note, setNote] = useState<{ ok: boolean; text: string } | null>(null);
   const isDefault = sameScale(scale, accountDefault);
@@ -135,6 +139,7 @@ export function EditSizesPanel() {
       </div>
       {/* Errors at the bottom (Chris's rule); the saved note too. */}
       {note ? <p role={note.ok ? 'status' : 'alert'} className={`mt-2 text-xs ${note.ok ? 'text-gray-600' : 'text-red-600'}`}>{note.text}</p> : null}
+      {error ? <p role="alert" data-nl-sizes-error="" className="mt-2 text-xs text-red-600">{error}</p> : null}
     </div>
   );
 }

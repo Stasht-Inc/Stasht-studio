@@ -61,6 +61,17 @@ export function draftFromNewsletter(n: Newsletter): NewsletterDraft {
   };
 }
 
+/**
+ * Review I2: a new draft that isn't saved yet takes the account's default sizes ("Use as my default") as soon as the
+ * brand arrives, as its header does, so nothing changes size when the first save comes back; never once the sizes were
+ * changed here or the newsletter exists.
+ */
+export function seedBrandTypeScale(d: NewsletterDraft, brandScale: unknown, touched: ReadonlySet<string>, id: number | null): NewsletterDraft {
+  const scale = storedScale(brandScale);
+  if (!scale || id || touched.has('type_scale') || d.type_scale) return d;
+  return { ...d, type_scale: scale };
+}
+
 /** The PUT body for a draft: text trimmed, empty text as null. A blank name is left out: the API requires a
  *  name whenever one is sent (`name: sometimes|required`), and every draft already has the server's default. */
 export function draftToInput(d: NewsletterDraft): NewsletterInput {

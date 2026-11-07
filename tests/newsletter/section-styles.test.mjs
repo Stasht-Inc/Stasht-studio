@@ -94,27 +94,27 @@ test('normaliseBlocks keeps the style keys the API returns, and old blocks are u
 });
 
 test('text html keeps the toolbar font sizes, as the API sanitiser does', () => {
-  const sizes = '<p>a <span data-size="small">s</span> <span data-size="normal">n</span> <span data-size="large">l</span> <span data-size="xlarge">x</span></p>';
+  const sizes = '<p>a <span data-size="small" style="font-size:14px">s</span> <span data-size="normal" style="font-size:16px">n</span> <span data-size="large" style="font-size:20px">l</span> <span data-size="xlarge" style="font-size:24px">x</span></p>';
   assert.equal(sanitizeTextHtml(sizes), sizes);
-  assert.equal(sanitizeTextHtml('<span style=" FONT-SIZE : 20PX ; ">a</span>'), '<p><span data-size="large">a</span></p>');
-  assert.equal(sanitizeTextHtml('<span style="color:red;font-size:20px;background:url(https://evil.example/x)" onclick="x()">a</span>'), '<p><span data-size="large">a</span></p>');
+  assert.equal(sanitizeTextHtml('<span style=" FONT-SIZE : 20PX ; ">a</span>'), '<p><span data-size="large" style="font-size:20px">a</span></p>');
+  assert.equal(sanitizeTextHtml('<span style="color:red;font-size:20px;background:url(https://evil.example/x)" onclick="x()">a</span>'), '<p><span data-size="large" style="font-size:20px">a</span></p>');
   assert.equal(sanitizeTextHtml('<span style="font-size:13px">a</span><span style="font-size:20pt">b</span><span style="font-size:larger">c</span>'), '<p>abc</p>');
   assert.equal(sanitizeTextHtml('<span style="font-size:expression(alert(1))">a</span>'), '<p>a</p>');
   assert.equal(sanitizeTextHtml('<p style="font-size:20px">a <strong style="font-size:24px">b</strong></p>'), '<p>a <strong>b</strong></p>');
-  assert.equal(sanitizeTextHtml('<p><span data-size="large">a <span data-size="normal">b</span> c</span></p>'), '<p><span data-size="large">a <span data-size="normal">b</span> c</span></p>');
-  assert.equal(sanitizeTextHtml('<p>a<span data-size="large"></span></p>'), '<p>a</p>');
-  assert.equal(sanitizeTextHtml('<p><span data-size="xlarge"><strong>Big</strong> <a href="https://a.example/deal">deal</a></span></p>'), '<p><span data-size="xlarge"><strong>Big</strong> <a href="https://a.example/deal">deal</a></span></p>');
+  assert.equal(sanitizeTextHtml('<p><span data-size="large" style="font-size:20px">a <span data-size="normal" style="font-size:16px">b</span> c</span></p>'), '<p><span data-size="large" style="font-size:20px">a <span data-size="normal" style="font-size:16px">b</span> c</span></p>');
+  assert.equal(sanitizeTextHtml('<p>a<span data-size="large" style="font-size:20px"></span></p>'), '<p>a</p>');
+  assert.equal(sanitizeTextHtml('<p><span data-size="xlarge" style="font-size:24px"><strong>Big</strong> <a href="https://a.example/deal">deal</a></span></p>'), '<p><span data-size="xlarge" style="font-size:24px"><strong>Big</strong> <a href="https://a.example/deal">deal</a></span></p>');
   // A plain span inside a sized one doesn't end the size early.
-  assert.equal(sanitizeTextHtml('<p><span data-size="large">a <span>b</span> c</span></p>'), '<p><span data-size="large">a b c</span></p>');
+  assert.equal(sanitizeTextHtml('<p><span data-size="large" style="font-size:20px">a <span>b</span> c</span></p>'), '<p><span data-size="large" style="font-size:20px">a b c</span></p>');
   // A paragraph never ends up inside a size.
-  assert.equal(sanitizeTextHtml('<span data-size="large">a<p>b</p></span>'), '<p><span data-size="large">a</span></p><p>b</p>');
+  assert.equal(sanitizeTextHtml('<span data-size="large" style="font-size:20px">a<p>b</p></span>'), '<p><span data-size="large" style="font-size:20px">a</span></p><p>b</p>');
   // The browser's <font size="7"> (execCommand) never reaches the email.
   assert.equal(sanitizeTextHtml('<font size="7">big</font>'), '<p>big</p>');
-  assert.deepEqual(parseTextHtml('<span data-size="large">a</span>'), [{ kind: 'size', px: 20, children: [{ kind: 'text', text: 'a' }] }]);
+  assert.deepEqual(parseTextHtml('<span data-size="large" style="font-size:20px">a</span>'), [{ kind: 'size', px: 20, children: [{ kind: 'text', text: 'a' }] }]);
 });
 
 test('a paste never brings a font size (other apps size their words in pt and px of their own)', () => {
-  assert.deepEqual(pastedTextNodes('<p><span data-size="large">big</span> words</p>'), [{ kind: 'text', text: 'big words' }]);
+  assert.deepEqual(pastedTextNodes('<p><span data-size="large" style="font-size:20px">big</span> words</p>'), [{ kind: 'text', text: 'big words' }]);
 });
 
 test('stylePatch: the editor patch for a style change (undefined takes a key away, so the saved JSON has no key)', async () => {

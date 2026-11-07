@@ -210,10 +210,13 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
   await page.keyboard.press('ArrowDown');
   expect(await page.evaluate(() => document.activeElement?.textContent) === 'Large', 'ArrowDown moves to Large');
   await page.keyboard.press('End');
-  expect(await page.evaluate(() => document.activeElement?.textContent) === 'X-Large', 'End moves to X-Large');
+  // Chris 7 Nov: "Edit sizes…" is the last item of the menu (arrow keys and End reach it); X-Large just above it.
+  expect(await page.evaluate(() => document.activeElement?.textContent) === 'Edit sizes…', 'End moves to Edit sizes…');
+  await page.keyboard.press('ArrowUp');
+  expect(await page.evaluate(() => document.activeElement?.textContent) === 'X-Large', 'ArrowUp moves to X-Large');
   await partShot(page.locator('[data-radix-popper-content-wrapper]'), '1280-08-font-size-menu');
   await fontMenu.getByRole('menuitemradio', { name: 'X-Large', exact: true }).click();
-  blocks = await until((b) => b[1]?.data?.html?.includes('<span data-size="xlarge">Big savings</span>'), 'X-Large on the selected words');
+  blocks = await until((b) => b[1]?.data?.html?.includes('<span data-size="xlarge" style="font-size:24px">Big savings</span>'), 'X-Large on the selected words');
   expect(!/data-size="xlarge">Book/.test(blocks[1].data.html), 'the other words keep their size');
   const big = text.locator('span[data-size]', { hasText: 'Big savings' });
   expect(await big.evaluate((el) => getComputedStyle(el).fontSize) === '24px', 'preview: the words are 24 px');
@@ -224,7 +227,7 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
   await page.evaluate((sel) => { const el = document.querySelector(sel); const r = document.createRange(); r.selectNodeContents(el); r.collapse(false); const s = getSelection(); s.removeAllRanges(); s.addRange(r); }, editorSel);
   await textBar.getByRole('button', { name: /^Font size/ }).click();
   await page.getByRole('menu', { name: 'Font size' }).getByRole('menuitemradio', { name: 'Large', exact: true }).click();
-  blocks = await until((b) => /^<p><span data-size="large">Book your winter tire swap this week\. Big savings on all brands\.<\/span><\/p>$/.test(b[1]?.data?.html ?? ''), 'Large on the whole section');
+  blocks = await until((b) => /^<p><span data-size="large" style="font-size:20px">Book your winter tire swap this week\. Big savings on all brands\.<\/span><\/p>$/.test(b[1]?.data?.html ?? ''), 'Large on the whole section');
   // Normal on the whole section: no size left at all.
   await page.evaluate((sel) => { const el = document.querySelector(sel); const r = document.createRange(); r.selectNodeContents(el); r.collapse(false); const s = getSelection(); s.removeAllRanges(); s.addRange(r); }, editorSel);
   await textBar.getByRole('button', { name: /^Font size/ }).click();
@@ -234,12 +237,12 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
   await selectWords(page, editorSel, 'Big savings on all brands.');
   await textBar.getByRole('button', { name: /^Font size/ }).click();
   await page.getByRole('menu', { name: 'Font size' }).getByRole('menuitemradio', { name: 'Large', exact: true }).click();
-  await until((b) => b[1]?.data?.html?.includes('<span data-size="large">Big savings on all brands.</span>'), 'Large on a sentence');
+  await until((b) => b[1]?.data?.html?.includes('<span data-size="large" style="font-size:20px">Big savings on all brands.</span>'), 'Large on a sentence');
   await selectWords(page, editorSel, 'all brands');
   await textBar.getByRole('button', { name: /^Font size/ }).click();
   await page.getByRole('menu', { name: 'Font size' }).getByRole('menuitemradio', { name: 'Normal', exact: true }).click();
   // The browser splits the Large words around them, so they are simply Normal again (no span inside a span).
-  blocks = await until((b) => (b[1]?.data?.html ?? '') === '<p>Book your winter tire swap this week. <span data-size="large">Big savings on </span>all brands<span data-size="large">.</span></p>', 'Normal inside Large');
+  blocks = await until((b) => (b[1]?.data?.html ?? '') === '<p>Book your winter tire swap this week. <span data-size="large" style="font-size:20px">Big savings on </span>all brands<span data-size="large" style="font-size:20px">.</span></p>', 'Normal inside Large');
   expect(await text.locator('span[data-size]', { hasText: 'Big savings' }).evaluate((el) => getComputedStyle(el).fontSize) === '20px', 'preview: the rest stays Large');
   // Bold still works on sized words.
   await selectWords(page, editorSel, 'Big');
@@ -253,12 +256,12 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
   await selectWords(page, editorSel, 'winter tire');
   await textBar.getByRole('button', { name: /^Font size/ }).click();
   await page.getByRole('menu', { name: 'Font size' }).getByRole('menuitemradio', { name: 'X-Large', exact: true }).click();
-  await until((b) => b[1]?.data?.html?.includes('<span data-size="xlarge">winter tire</span>'), 'X-Large on "winter tire"');
+  await until((b) => b[1]?.data?.html?.includes('<span data-size="xlarge" style="font-size:24px">winter tire</span>'), 'X-Large on "winter tire"');
   steps.push(savedHtml());
   await page.evaluate((sel) => { const el = document.querySelector(sel); const r = document.createRange(); r.selectNodeContents(el); r.collapse(false); const s = getSelection(); s.removeAllRanges(); s.addRange(r); }, editorSel);
   await textBar.getByRole('button', { name: /^Font size/ }).click();
   await page.getByRole('menu', { name: 'Font size' }).getByRole('menuitemradio', { name: 'Small', exact: true }).click();
-  await until((b) => /^<p><span data-size="small">/.test(b[1]?.data?.html ?? ''), 'Small on the whole section');
+  await until((b) => /^<p><span data-size="small" style="font-size:14px">/.test(b[1]?.data?.html ?? ''), 'Small on the whole section');
   steps.push(savedHtml());
   await text.focus();
   const MOD = process.platform === 'darwin' ? 'Meta' : 'Control';
@@ -384,7 +387,7 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
   const pFont = page.getByRole('menu', { name: 'Font size' });
   expect(await inViewport(page, pFont), '390: font size choices fit');
   await pFont.getByRole('menuitemradio', { name: 'Large', exact: true }).click();
-  await until((b) => b[1]?.data?.html?.includes('<span data-size="large">first snow</span>'), '390: Large on the words');
+  await until((b) => b[1]?.data?.html?.includes('<span data-size="large" style="font-size:20px">first snow</span>'), '390: Large on the words');
   await pTextBar.getByRole('button', { name: 'Text colour' }).click();
   expect(await inViewport(page, page.locator('[data-radix-popper-content-wrapper]')), '390: colour panel fits');
   await closePanel(page);

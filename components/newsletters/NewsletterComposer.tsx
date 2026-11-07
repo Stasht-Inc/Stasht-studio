@@ -107,7 +107,7 @@ const NewsletterComposer = forwardRef<NewsletterComposerHandle, NewsletterCompos
   const planStuck = !known && (plan.failed || planSlow);
   const retryPlan = () => { setPlanSlow(false); plan.retry(); };
   const brand = useNewsletterBrand(enabled);
-  const state = useNewsletterDraft(newsletterId, enabled, brand.brand?.header ?? null, brand.brand?.default_message ?? null);
+  const state = useNewsletterDraft(newsletterId, enabled, brand.brand?.header ?? null, brand.brand?.default_message ?? null, brand.brand?.type_scale ?? null);
   const profile = useSenderProfile(enabled);
   const { draft, update, readOnly } = state;
   // Opening a draft tidies its sections once, through update() so autosave saves it (never a scheduled, sending or
@@ -526,6 +526,8 @@ const NewsletterComposer = forwardRef<NewsletterComposerHandle, NewsletterCompos
               <RecentColorsProvider initial={brand.brand?.recent_colors}>
               {/* The newsletter's text sizes (Chris, 7 Nov): every Title and Text section is drawn from them. */}
               <TypeScaleProvider value={draft.type_scale} accountDefault={brand.brand?.type_scale} editable={!readOnly}
+                // A size the API refused (review M8): said at the bottom of Edit sizes.
+                error={Object.entries(state.fieldErrors).find(([k]) => k === 'type_scale' || k.startsWith('type_scale.'))?.[1] ?? null}
                 onChange={(next) => update({ type_scale: next })} onSaveDefault={brand.saveTypeScale}>
               <NewsletterEditor
                 draft={draft}

@@ -60,7 +60,8 @@ function ToolMenu({ label, tooltip, trigger, children, open, onOpenChange, onClo
     },
   });
   const onListKeys = (e: KeyboardEvent<HTMLDivElement>) => {
-    const items = Array.from(e.currentTarget.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]'));
+    // "Edit sizes…" (a menuitem, Chris 7 Nov) is reached with the arrows too (review M3).
+    const items = Array.from(e.currentTarget.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"], [role="menuitem"]'));
     const at = items.indexOf(document.activeElement as HTMLButtonElement);
     const next = e.key === 'ArrowDown' ? (at + 1) % items.length : e.key === 'ArrowUp' ? (at - 1 + items.length) % items.length
       : e.key === 'Home' ? 0 : e.key === 'End' ? items.length - 1 : -1;
@@ -141,7 +142,7 @@ export function SizeMenu<T extends string>({ label, options, value, onPick, onCl
       {hint ? <p className="max-w-[12rem] px-2.5 pb-1.5 pt-1 text-xs leading-4 text-gray-500">{hint}</p> : null}
       {editSizes ? (
         <div className="mt-1 border-t border-gray-100 pt-1">
-          <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => setEditing(true)}
+          <button type="button" role="menuitem" onMouseDown={(e) => e.preventDefault()} onClick={() => setEditing(true)}
             className={`flex w-full items-center rounded-lg px-2.5 py-1.5 text-left text-sm text-gray-700 hover:bg-gray-100 ${FOCUS}`}>Edit sizes…</button>
         </div>
       ) : null}

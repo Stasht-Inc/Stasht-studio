@@ -36,6 +36,12 @@ export function styleFontSize(style: string | null): number | null {
       const px = Number(m[1]);
       return FONT_SIZE_PX.includes(px) ? px : null;
     }
+    // Review I1: the editor draws a size with its CSS variable; when Chrome joins two paragraphs it copies that inline
+    // style onto a new span without data-size. The variable names the style.
+    // Normal there is the section's own size (Chrome copies the editor's base style too): no size, as Studio never writes
+    // a Normal span itself.
+    const v = /^\s*font-size\s*:\s*var\(\s*--nl-size-([a-z]+)\b/.exec(declaration);
+    if (v) return v[1] !== 'normal' && (TYPE_STYLES as readonly string[]).includes(v[1]) ? USUAL_SCALE[v[1] as keyof typeof USUAL_SCALE] : null;
   }
   return null;
 }
@@ -183,14 +189,16 @@ function serializeNode(n: TextNode): string {
 }
 
 /**
- * The canonical opening tag for a size style and/or a font, the style first (Chris, 7 Nov; the API's
- * NewsletterHtmlSanitizer::styleOpen / spanOpen): <span data-size="large" style="font-family:STACK">; null for neither.
+ * The canonical opening tag for a size style and/or a font (Chris, 7 Nov; the API's NewsletterHtmlSanitizer::styleOpen /
+ * spanOpen): <span data-size="large" style="font-size:20px;font-family:STACK">; null for neither. The px is the style's
+ * usual px (review I3): an older reader (a stale first load after a deploy, the app's editor) still keeps the size;
+ * what it draws comes from the newsletter's scale, and data-size wins when read back.
  */
 export function spanOpen(px: number | null, font: FontKey | null): string | null {
   const size = styleOfPx(px);
-  const style = font ? ` style="font-family:${fontStack(font)}"` : '';
-  if (size) return `<span data-size="${size}"${style}>`;
-  return style ? `<span${style}>` : null;
+  const decl = [size ? `font-size:${USUAL_SCALE[size]}px` : null, font ? `font-family:${fontStack(font)}` : null].filter(Boolean);
+  if (!decl.length) return null;
+  return `<span${size ? ` data-size="${size}"` : ''} style="${decl.join(';')}">`;
 }
 
 /** Back to HTML. Loose top-level words go into paragraphs so every line is a block in the email. */

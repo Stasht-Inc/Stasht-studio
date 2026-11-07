@@ -111,7 +111,7 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
     // ---- point 4: Edit sizes from the Title size menu ----------------------------------------------------------------
     expect(await px(title) === '28px', `${width}: a Large title is 28 px with the usual sizes`);
     await titleBar.getByRole('button', { name: /^Title size:/ }).click();
-    const editItem = page.getByRole('button', { name: 'Edit sizes…' });
+    const editItem = page.getByRole('menuitem', { name: 'Edit sizes…' });
     await expectVisible(editItem, '"Edit sizes…" at the bottom of the Title size menu');
     await partShot(page.locator('[data-radix-popper-content-wrapper]'), `${width}-04-title-size-menu`);
     await editItem.click();
@@ -145,20 +145,35 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
     });
     await textBar.getByRole('button', { name: /^Font size:/ }).click();
     await page.getByRole('menu', { name: 'Font size' }).getByRole('menuitemradio', { name: 'Large', exact: true }).click();
-    await until((b) => (b[1]?.data?.html ?? '').includes('<span data-size="large">Book this week</span>'), 'the words keep the style name, not a px');
+    await until((b) => (b[1]?.data?.html ?? '').includes('<span data-size="large" style="font-size:20px">Book this week</span>'), 'the words keep the style name, not a px');
+    // Review I1: join two paragraphs with Backspace (Chrome copies the size's CSS variable onto a new span): the size stays.
+    await page.evaluate(() => {
+      const root = document.querySelector('[role="textbox"][aria-label="Text"]');
+      const span = root.querySelector('span[data-size="large"]');
+      const r = document.createRange(); r.selectNodeContents(span); r.collapse(true);
+      getSelection().removeAllRanges(); getSelection().addRange(r);
+    });
+    await page.keyboard.press('Enter');
+    await until((b) => /<\/p><p><span data-size="large" style="font-size:20px">Book this week<\/span>/.test(b[1]?.data?.html ?? ''), 'the sized words on a line of their own');
+    await page.keyboard.press('Backspace');
+    await until((b) => /^<p>Spring tune-ups are here\.[ \u00a0]?<span data-size="large" style="font-size:20px">Book this week<\/span>\.?<\/p>$/.test(b[1]?.data?.html ?? ''), 'joined back with Backspace, still Large');
     const big = text.locator('span[data-size="large"]');
     expect(await px(big) === '20px', `${width}: Large is 20 px`);
     expect(await px(text) === '16px', `${width}: the usual words are Normal 16 px`);
     await textBar.getByRole('button', { name: /^Font size:/ }).click();
-    await expectVisible(page.getByRole('button', { name: 'Edit sizes…' }), '"Edit sizes…" in the Text size menu');
+    await expectVisible(page.getByRole('menuitem', { name: 'Edit sizes…' }), '"Edit sizes…" in the Text size menu');
+    // Review M3: the arrow keys reach it (after the size choices).
+    for (let i = 0; i < 20 && (await page.evaluate(() => document.activeElement?.getAttribute('role'))) !== 'menuitemradio'; i += 1) await page.waitForTimeout(100);
+    for (let i = 0; i < 6 && (await page.evaluate(() => document.activeElement?.textContent?.trim())) !== 'Edit sizes…'; i += 1) await page.keyboard.press('ArrowDown');
+    expect(await page.evaluate(() => document.activeElement?.textContent?.trim()) === 'Edit sizes…', `${width}: arrow keys reach "Edit sizes…" (focus on "${await page.evaluate(() => document.activeElement?.textContent?.trim())}")`);
     await partShot(page.locator('[data-radix-popper-content-wrapper]'), `${width}-06-text-size-menu`);
-    await page.getByRole('button', { name: 'Edit sizes…' }).click();
+    await page.getByRole('menuitem', { name: 'Edit sizes…' }).click();
     await sizes.getByRole('button', { name: 'Large bigger', exact: true }).click();
     await sizes.getByRole('button', { name: 'Large bigger', exact: true }).click();
     await until((s) => s.large === 22, 'Large 22', lastScalePut);
     expect(await px(big) === '22px' && await px(big, 'lineHeight') === '33px', `${width}: every Large word follows live (22 / 33, got ${await px(big)} / ${await px(big, 'lineHeight')})`);
     expect(await px(text) === '16px', `${width}: Normal words unchanged`);
-    expect((savedBlocks(api)[1].data.html).includes('<span data-size="large">'), `${width}: the html is unchanged (the style, not a px)`);
+    expect((savedBlocks(api)[1].data.html).includes('<span data-size="large" style="font-size:20px">'), `${width}: the html is unchanged (the style and its usual px, not 22)`);
     // A size out of range: said under the field, nothing saved.
     const normal = sizes.getByLabel('Normal', { exact: true });
     await normal.fill('99');
@@ -204,6 +219,15 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
     await s2.getByRole('button', { name: 'Add a section at the top' }).click();
     await p2.getByRole('menuitem', { name: /^Title/ }).click();
     await s2.getByLabel('Title', { exact: true }).fill('Next month');
+    // Review I2: right away (no waiting for the first save), and Edit sizes starts from the account's sizes.
+    expect(await px(s2.getByLabel('Title', { exact: true })) === '35px', `${width}: a fresh draft draws the account's sizes at once (got ${await px(s2.getByLabel('Title', { exact: true }))})`);
+    await s2.getByRole('toolbar', { name: 'Title style' }).getByRole('button', { name: /^Title size:/ }).click();
+    await p2.getByRole('menuitem', { name: 'Edit sizes…' }).click();
+    const sizes2 = p2.getByRole('group', { name: 'Edit sizes' });
+    expect(await sizes2.getByLabel('Large', { exact: true }).inputValue() === '22' && await sizes2.getByLabel('Normal', { exact: true }).inputValue() === '17', `${width}: Edit sizes on a fresh draft starts from the account default`);
+    await expectVisible(sizes2.getByText('Your default sizes'), 'fresh draft: "Your default sizes"');
+    await partShot(p2.locator('[data-radix-popper-content-wrapper]'), `${width}-11-fresh-draft-default-sizes`);
+    await p2.keyboard.press('Escape');
     for (let i = 0; i < 30 && (await px(s2.getByLabel('Title', { exact: true }))) !== '35px'; i += 1) await p2.waitForTimeout(150);
     expect(await px(s2.getByLabel('Title', { exact: true })) === '35px', `${width}: a new newsletter uses the account's default sizes (got ${await px(s2.getByLabel('Title', { exact: true }))})`);
     await c2.close();
@@ -225,6 +249,27 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
     for (let i = 0; i < 30 && !puts(api).some((c) => 'blocks' in c.body); i += 1) await page.waitForTimeout(150);
     expect(puts(api).length > 0 && puts(api).every((c) => !('type_scale' in c.body)), `older: no sizes saved (${JSON.stringify(puts(api).map((c) => Object.keys(c.body)))})`);
     expect(JSON.stringify(savedBlocks(api)?.[0]?.data) === JSON.stringify({ text: 'Old title edited', size: 'small' }), 'older: the title saves exactly its old keys');
+    await context.close();
+  }
+
+  // ---- Review M8: a size the API refuses is said at the bottom of Edit sizes ------------------------------------------
+  {
+    const api = createMockApi({ rejectPut: { type_scale: 'Use a size from 10 to 72 px.' } });
+    const { page, context } = await open({ width: 1280, height: 1300, api });
+    const scope = page.locator('aside');
+    await page.locator('#nl-name').fill('Refused sizes');
+    await scope.getByRole('button', { name: 'Add a section at the top' }).click();
+    await page.getByRole('menuitem', { name: /^Title/ }).click();
+    await scope.getByLabel('Title', { exact: true }).fill('Refused');
+    await scope.getByRole('toolbar', { name: 'Title style' }).getByRole('button', { name: /^Title size:/ }).click();
+    await page.getByRole('menuitem', { name: 'Edit sizes…' }).click();
+    const sizes = page.getByRole('group', { name: 'Edit sizes' });
+    await sizes.getByRole('button', { name: 'Large bigger', exact: true }).click();
+    const err = sizes.locator('[data-nl-sizes-error]');
+    await expectVisible(err, 'the refused-size error in the panel');
+    const errBox = await err.boundingBox(); const resetBox = await sizes.getByRole('button', { name: 'Reset' }).boundingBox();
+    expect(errBox && resetBox && errBox.y > resetBox.y, 'the error is at the bottom of the panel');
+    await partShot(page.locator('[data-radix-popper-content-wrapper]'), '1280-12-sizes-refused');
     await context.close();
   }
 
