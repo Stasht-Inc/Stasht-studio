@@ -31,8 +31,8 @@ import { announceNewslettersChanged, writeCampaignsView } from './newsletters/li
 import { requestUpgrade } from '../utils/planEvents';
 import StoreelLivePreview, { type PreviewControls } from './storeel/StoreelLivePreview';
 import ComposerDialog from './newsletters/ComposerDialog';
-import { apiDefaultOrder, insertKeysAfter, isOrderable, momentMenu, moveKey, needsServerOrder, orderMoments, savedOrderPayload, savedRef, sentPostKeys, serverOrderAfterCreate } from './storeel/lib/momentOrder';
-import { pickPayload, pickedPreviewMoments, type InventoryPick } from './storeel/lib/momentPicks';
+import { apiDefaultOrder, focusAfterRemove, insertKeysAfter, isOrderable, momentMenu, moveKey, needsServerOrder, orderMoments, savedOrderPayload, savedRef, sentPostKeys, serverOrderAfterCreate } from './storeel/lib/momentOrder';
+import { addedMessage, pickPayload, pickedPreviewMoments, type InventoryPick } from './storeel/lib/momentPicks';
 import type { MomentInventory } from './storeel/InventoryMomentPicker';
 import { campaignMomentsAPI, type MomentPlace } from '../services/campaignMomentsAPI';
 import { actionLines } from './storeel/lib/actionLines';
@@ -221,6 +221,8 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
   const [momentBusy, setMomentBusy] = useState(false);
   const [deleteAsk, setDeleteAsk] = useState<PreviewMoment | null>(null);
   const [captionRequest, setCaptionRequest] = useState<{ key: string; n: number } | null>(null);
+  // See plans from inside this page (review I2): the plans open under it, so leaving is asked first — never silently.
+  const [plansAsk, setPlansAsk] = useState<string | null>(null);
   const [momentFiles, setMomentFiles] = useState<FileList | null>(null);
   const [isVideoRecorderOpen, setIsVideoRecorderOpen] = useState(false);
 
@@ -2223,7 +2225,9 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
           // Send card asks to confirm.
           setFlowCreated(true);
           setSendRequest((n) => n + 1);
-          void refreshSavedMoments(created.id);
+          // The moments' controls wait for the campaign's real moments (ids): a Move before them would leave some out.
+          setMomentBusy(true);
+          void refreshSavedMoments(created.id).finally(() => setMomentBusy(false));
         }
       } else {
         console.error('Failed to create memory:', response);
@@ -2375,6 +2379,15 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
 
   /** A saved campaign: after an upload from a "+", move its new moments to that place (PUT moment-order). */
   const placeSavedUploads = async (id: number, before: string[], anchor: string | null | undefined) => {
+    // Busy until placed (review I3): no Move / Delete in between.
+    setMomentBusy(true);
+    try {
+      await placeSavedUploadsNow(id, before, anchor);
+    } finally {
+      setMomentBusy(false);
+    }
+  };
+  const placeSavedUploadsNow = async (id: number, before: string[], anchor: string | null | undefined) => {
     const fresh = await refreshSavedMoments(id);
     if (!fresh || anchor === undefined) return;
     const shown = orderMoments(fresh, []);
@@ -2393,25 +2406,33 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
       products: previewMoments.filter((m) => m.kind === 'product').map((m) => (m as { sourceId: string }).sourceId),
       vehicles: previewMoments.filter((m) => m.kind === 'vehicle').map((m) => (m as { sourceId: string }).sourceId),
     },
-    // The plans open under this page (as the Send card's See plans): close it first.
-    onSeePlans: () => { handleModalClose(); requestUpgrade('Adding Website Catalogue products is available on the Business plan.'); },
+    // The plans open under this page: ask before leaving it (review I2).
+    onSeePlans: () => setPlansAsk('Adding Website Catalogue products is available on the Business plan.'),
     onAdd: async ({ products, vehicles }) => {
       const anchor = addAnchorRef.current;
       const c = flowCampaignRef.current;
       if (c) {
         setMomentBusy(true);
+        let added = { products: 0, vehicles: 0, already: 0 };
         try {
           if (products.length) {
             const res = await campaignMomentsAPI.addProducts(c.id, products.map((p) => p.id), savedPlace(anchor));
             if (!res.ok) { toast.error(res.error || "The products couldn't be added. Try again."); return false; }
+            added = { ...added, products: res.data?.moments ?? 0, already: res.data?.already_added_item_ids?.length ?? 0 };
           }
           if (vehicles.length) {
             const res = await campaignMomentsAPI.addVehicles(c.id, vehicles.map((v) => v.id));
-            if (!res.ok) { toast.error(res.error || "The vehicles couldn't be added. Try again."); return false; }
+            if (!res.ok) {
+              // The products went in: show them; a retry skips them (the API answers "already in it") and adds the vehicles.
+              toast.error(res.error || "The vehicles couldn't be added. Try again.");
+              if (added.products) await refreshSavedMoments(c.id);
+              return false;
+            }
+            added = { ...added, vehicles: res.data?.linked ?? vehicles.length, already: added.already + Math.max(0, vehicles.length - (res.data?.linked ?? vehicles.length)) };
           }
           setSavedNow(true);
           onCampaignSaved?.(c.id);
-          toast.success('Added to your campaign.');
+          toast.success(addedMessage(added));
           await refreshSavedMoments(c.id);
           return true;
         } finally {
@@ -2423,7 +2444,11 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
       if (products.length) {
         const ids = products.map((p) => String(p.id));
         if (isCatalogCategory) {
-          setSelectedMemoryIds((prev) => [...prev, ...ids.filter((id) => !prev.includes(id))].slice(0, CATALOG_MAX_ITEMS));
+          setSelectedMemoryIds((prev) => {
+            const next = [...prev, ...ids.filter((id) => !prev.includes(id))];
+            if (next.length > CATALOG_MAX_ITEMS) toast.error(`${catalogCapMessage} The first ${CATALOG_MAX_ITEMS} are kept.`);
+            return next.slice(0, CATALOG_MAX_ITEMS);
+          });
         } else {
           setExtraCatalog((prev) => [...prev, ...products.filter((p) => !prev.some((x) => String(x.id) === String(p.id)))]);
         }
@@ -2461,11 +2486,24 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
     }
     setSavedNow(true);
     onCampaignSaved?.(c.id);
+    // Edit saves moments at once, the title / cover with Save Changes: say so (review minor 6).
+    toast.success('Order saved.');
+  };
+
+  /** After a moment is taken off: focus the next moment's ⋮ (else the one before, else the "+" under the cover). */
+  const focusAfter = (removedKey: string) => {
+    const target = focusAfterRemove(previewMoments.map((x) => x.key), removedKey);
+    window.setTimeout(() => {
+      const root = document.querySelector('[data-testid="storeel-preview-moments"]');
+      const menu = target ? root?.querySelector<HTMLElement>(`li[data-moment-key="${CSS.escape(target)}"] [data-testid="storeel-preview-moment-menu"]`) : null;
+      (menu ?? document.querySelector<HTMLElement>('[data-testid="storeel-preview-add"]'))?.focus();
+    }, 350);
   };
 
   /** Take a moment off: before the campaign exists, out of the form (a step 1 pick is unticked); saved: asks first. */
   const removeMoment = (m: PreviewMoment) => {
     if (flowCampaignRef.current) { setDeleteAsk(m); return; }
+    focusAfter(m.key);
     if (m.kind === 'photo' && m.index !== undefined) { handleRemoveMediaFile(m.index); return; }
     if (m.kind === 'product' && extraCatalog.some((p) => String(p.id) === m.sourceId) && !isCatalogCategory) {
       setExtraCatalog((prev) => prev.filter((p) => String(p.id) !== m.sourceId));
@@ -2495,6 +2533,8 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
       setSavedNow(true);
       onCampaignSaved?.(c.id);
       void triggerMemoryCountsRefresh();
+      toast.success('Moment deleted.');
+      focusAfter(m.key);
       await refreshSavedMoments(c.id);
     } finally {
       setMomentBusy(false);
@@ -2650,7 +2690,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
                   {/* The upgrade plans (z-[60]) would open under this modal, so close it first. */}
                   <button
                     type="button"
-                    onClick={() => { handleModalClose(); requestUpgrade('Upgrade your plan for more campaigns.'); }}
+                    onClick={() => setPlansAsk('Upgrade your plan for more campaigns.')}
                     className="mt-2 inline-flex h-8 items-center rounded-lg bg-[#6C60FF] px-3 text-sm font-medium text-white hover:bg-[#5B50E6] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#6C60FF]/40"
                   >
                     Upgrade
@@ -3467,7 +3507,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
               active={open && campaignType === 'storeel'}
               onSent={onStoreelSent}
               onForbidden={() => setSendForbidden(true)}
-              onSeePlans={() => { handleModalClose(); requestUpgrade('Upgrade your plan to send more messages this month.'); }}
+              onSeePlans={() => setPlansAsk('Upgrade your plan to send more messages this month.')}
             />
 
             {/* The actions, at the end of the list like the newsletter composer's (Chris, 4 Nov: "Just keep going down
@@ -3515,6 +3555,19 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
               controls={flowLoading || flowLoadError ? undefined : previewControls}
             />
           </aside>
+          {/* See plans (review I2): the plans open under this page, so leaving it is asked first. */}
+          <ComposerDialog
+            open={plansAsk !== null}
+            onOpenChange={(o) => { if (!o) setPlansAsk(null); }}
+            title="Leave this Storeel to see the plans?"
+            description={flowCampaign ? 'Changes you haven’t saved yet (title, cover, dates…) will be lost. Save Changes first to keep them.' : 'It isn’t saved yet. Save as Draft first to keep it, or leave now and it will be lost.'}
+            footer={(
+              <>
+                <button type="button" onClick={() => setPlansAsk(null)} className={BUTTON_OUTLINE}>Stay</button>
+                <button type="button" onClick={() => { const msg = plansAsk ?? undefined; setPlansAsk(null); handleModalClose(); requestUpgrade(msg); }} className={BUTTON_PRIMARY}>Leave and see plans</button>
+              </>
+            )}
+          />
           {/* Saved campaign: a moment is deleted from it at once, so ask first (Chris, 7 Nov 2026). */}
           <ComposerDialog
             open={deleteAsk !== null}

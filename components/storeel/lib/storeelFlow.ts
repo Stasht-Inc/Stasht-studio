@@ -66,7 +66,7 @@ export function flowView({ editing, created, savedNow = false, changesSaved = fa
       : editing && changesSaved ? 'Changes saved. Send it now, or later.' : null,
     closeToast: created && !editing ? 'Saved as a draft' : null,
     closeLabel: created || savedNow || changesSaved ? 'Close' : 'Cancel',
-    momentsNote: saved ? 'Moments and captions save straight to your campaign.' : null,
+    momentsNote: saved ? 'Moments and captions save straight to your campaign. The title, cover and other details save with Save Changes.' : null,
   };
 }
 

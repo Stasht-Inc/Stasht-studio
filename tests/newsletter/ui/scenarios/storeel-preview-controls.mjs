@@ -140,9 +140,13 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
     expect(JSON.stringify(lastItems) === JSON.stringify(['Edit Moment', 'Move up', 'Delete']), `${tag}: the last photo's ⋮ = Edit Moment / Move up / Delete (got ${lastItems})`);
     const moved = await previewKeys(page);
     expect(moved[2] === inserted[3] && moved[3] === inserted[2], `${tag}: Move up swapped it (got ${moved})`);
+    const nextAfterDeleted = moved[2];
     await menu(page, inserted[1], 'Delete');
     const afterDelete = await previewKeys(page);
     expect(afterDelete.length === 3 && !afterDelete.includes(inserted[1]), `${tag}: Delete took it off (got ${afterDelete})`);
+    await page.waitForTimeout(300);
+    expect(await page.evaluate((k) => document.activeElement?.closest('li')?.getAttribute('data-moment-key') === k && document.activeElement?.getAttribute('data-testid') === 'storeel-preview-moment-menu', nextAfterDeleted),
+      `${tag}: after Delete, focus is on the next moment's ⋮ (review minor 8)`);
 
     await clickPlus(page, 'Add a moment at the end');
     await page.getByRole('radiogroup', { name: 'Add from' }).getByRole('radio', { name: 'Vehicles' }).click();
@@ -153,6 +157,9 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
     await page.waitForTimeout(900);
     const withCar = await previewKeys(page);
     expect(withCar.at(-1) === 'car-5' && withCar.length === 4, `${tag}: the vehicle is last (got ${withCar})`);
+    // Review minor 5: no "+" below a vehicle (it would add above it); the "+" above the vehicle stays.
+    expect(await plus(page, 'Add a moment at the end').count() === 0, `${tag}: no "+" below the vehicle`);
+    expect(await page.getByTestId('storeel-preview-moments').locator('li[data-moment-key="car-5"]').getByTestId('storeel-preview-add').count() === 1, `${tag}: the "+" above the vehicle stays`);
     expect(JSON.stringify(await menu(page, 'car-5')) === JSON.stringify(['Delete']), `${tag}: a vehicle's ⋮ = Delete only`);
     await shot(page, `${tag}-04-vehicle`);
 
@@ -193,8 +200,9 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
     await page.waitForTimeout(2500);
     const posts = api.state.calls.filter((c) => c.method === 'POST' && c.path === '/memories');
     const body = posts[0]?.body ?? {};
-    expect(posts.length === 1 && JSON.stringify(body.catalog_item_ids) === '[61]' && JSON.stringify(body.linked_memory_ids) === '[5]' && body.photos?.length === 2,
-      `${tag}: one POST with product, vehicle, 2 photos (got ${JSON.stringify({ c: body.catalog_item_ids, l: body.linked_memory_ids, p: body.photos?.length })})`);
+    // Review minor 1: the vehicle goes as car_ids (never among linked campaigns).
+    expect(posts.length === 1 && JSON.stringify(body.catalog_item_ids) === '[61]' && JSON.stringify(body.car_ids) === '["5"]' && !('linked_memory_ids' in body) && body.photos?.length === 2,
+      `${tag}: one POST with product, vehicle (car_ids), 2 photos (got ${JSON.stringify({ c: body.catalog_item_ids, car: body.car_ids, l: body.linked_memory_ids, p: body.photos?.length })})`);
     const orderPut = (api.state.momentCalls ?? []).find((c) => c.kind === 'moment-order');
     const id = api.state.storeels[0]?.id;
     expect(orderPut && JSON.stringify(orderPut.body.order) === JSON.stringify([{ type: 'post', id: id * 100 }, { type: 'post', id: id * 100 + 2 }, { type: 'post', id: id * 100 + 1 }]),
@@ -204,15 +212,27 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
     // ── Off the Business plan ────────────────────────────────────────────────────────────────────────────────
     const teams = createMockApi({ cataloguePlanRequired: true });
     const t = await openStoreel(open, width, height, teams);
+    await t.page.getByPlaceholder(STOREEL_TITLE).fill('Keep me');
     await clickPlus(t.page, 'Add a moment at the start');
     await t.page.getByRole('radiogroup', { name: 'Add from' }).getByRole('radio', { name: 'Products' }).click();
     await expectVisible(t.page.getByText('Available on the Business plan.', { exact: true }), `${tag}: plan note`);
     await expectVisible(t.page.getByRole('button', { name: 'See plans' }), `${tag}: See plans`);
     expect(!teams.state.calls.some((c) => c.path === '/website-catalogue/items'), `${tag}: no Business-only call`);
     await shot(t.page, `${tag}-07-plan-gate`);
+    // Review I2: never silently lost — See plans asks first; Stay keeps the page and everything typed.
     await t.page.getByRole('button', { name: 'See plans' }).click();
+    const ask = t.page.getByRole('dialog', { name: 'Leave this Storeel to see the plans?' });
+    await expectVisible(ask, `${tag}: See plans asks before leaving`);
+    await shot(t.page, `${tag}-07b-plans-ask`);
+    await ask.getByRole('button', { name: 'Stay' }).click();
+    await t.page.waitForTimeout(400);
+    expect(await flow(t.page).count() === 1 && (await t.page.getByPlaceholder(STOREEL_TITLE).inputValue()) === 'Keep me', `${tag}: Stay keeps the page and the title`);
+    await clickPlus(t.page, 'Add a moment at the start');
+    await t.page.getByRole('radiogroup', { name: 'Add from' }).getByRole('radio', { name: 'Products' }).click();
+    await t.page.getByRole('button', { name: 'See plans' }).click();
+    await t.page.getByRole('dialog', { name: 'Leave this Storeel to see the plans?' }).getByRole('button', { name: 'Leave and see plans' }).click();
     await t.page.waitForTimeout(700);
-    expect(!(await flow(t.page).count()), `${tag}: See plans closes the page so the plans show (as the Send card's See plans)`);
+    expect(!(await flow(t.page).count()), `${tag}: Leave and see plans closes the page`);
     await t.context.close();
 
     // ── Edit ─────────────────────────────────────────────────────────────────────────────────────────────────
@@ -234,6 +254,7 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
     const orderCall = (edit.state.momentCalls ?? []).filter((c) => c.kind === 'moment-order').at(-1);
     expect(orderCall && JSON.stringify(orderCall.body.order.map((o) => o.id)) === JSON.stringify([1, Number(edited[1].replace('post-', '')), 3, 2]), `${tag}: Move up saved the order (got ${JSON.stringify(orderCall?.body)})`);
     expect((await previewKeys(e.page))[2] === 'post-3', `${tag}: …and shows it`);
+    expect(await e.page.getByText('Order saved.').first().isVisible().catch(() => false), `${tag}: says the order is saved (review minor 6)`);
     await menu(e.page, 'post-2', 'Delete');
     await expectVisible(e.page.getByRole('dialog', { name: 'Delete this moment?' }), `${tag}: Delete asks first`);
     await shot(e.page, `${tag}-08-edit-delete-ask`);

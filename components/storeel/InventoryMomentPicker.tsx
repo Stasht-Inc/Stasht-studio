@@ -37,12 +37,25 @@ export interface InventorySources {
  * What the account can add: GET /website-catalogue first (the items route is Business-only, and its 403 would open the
  * upgrade window by itself), then its items; GET /cars for a dealer's vehicles. Loaded when Add a Moment opens.
  */
+/** The last answer, reused for a short while (review minor 10: a 400+ item catalogue on every Add a Moment). Per account. */
+const CACHE_MS = 2 * 60 * 1000;
+let cache: { key: string; at: number; value: InventorySources } | null = null;
+function cacheKey(isStarter: boolean): string {
+  try {
+    return `${localStorage.getItem('stasht_token') ?? ''}|${localStorage.getItem('view_type') ?? ''}|${isStarter ? 1 : 0}`;
+  } catch {
+    return `none|${isStarter ? 1 : 0}`;
+  }
+}
+
 export function useInventorySources(enabled: boolean): InventorySources {
   const { isStarter } = useIsStarterPlan();
   const [state, setState] = useState<InventorySources>({ loading: false, productGate: 'hidden', products: [], vehicles: [] });
   useEffect(() => {
     if (!enabled) return undefined;
     let cancelled = false;
+    const key = cacheKey(isStarter);
+    if (cache && cache.key === key && Date.now() - cache.at < CACHE_MS) { setState(cache.value); return undefined; }
     setState((s) => ({ ...s, loading: true }));
     (async () => {
       const status = await catalogueAPI.getStatus().catch(() => null);
@@ -55,14 +68,14 @@ export function useInventorySources(enabled: boolean): InventorySources {
       const vehicles: InventoryPick[] = (Array.isArray(raw) ? raw : []).filter((c: any) => c?.id != null).map((c: any) => ({
         id: c.id, title: c.title || 'Untitled vehicle', main_image: c.main_image || null, price: c.price ?? null, mileage: c.mileage ?? null, stock_number: c.stock_number ?? null,
       }));
-      if (!cancelled) {
-        setState({
-          loading: false,
-          productGate: gate === 'ready' && products.length === 0 ? 'hidden' : gate,
-          products: products.map((p) => ({ id: p.id, title: p.title || 'Untitled product', main_image: p.main_image, price_label: p.price_label, url: p.url, images_count: p.images_count, category: p.category })),
-          vehicles,
-        });
-      }
+      const value: InventorySources = {
+        loading: false,
+        productGate: gate === 'ready' && products.length === 0 ? 'hidden' : gate,
+        products: products.map((p) => ({ id: p.id, title: p.title || 'Untitled product', main_image: p.main_image, price_label: p.price_label, url: p.url, images_count: p.images_count, category: p.category })),
+        vehicles,
+      };
+      cache = { key, at: Date.now(), value };
+      if (!cancelled) setState(value);
     })();
     return () => { cancelled = true; };
   }, [enabled, isStarter]);

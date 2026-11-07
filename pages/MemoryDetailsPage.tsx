@@ -17997,6 +17997,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
           memoryId,
           afterPostId: () => insertAfterPostIdRef.current,
           onAdded: () => { clearApiCache(); fetchMemoryDetails(); },
+          linkedVehicleIds: (apiMemoryData?.linked_memories || []).filter((lm: any) => lm?.is_car === true || Number(lm?.is_car) === 1).map((lm: any) => String(lm.id)),
         }) : undefined}
         onOpenMediaLibrary={() => {
           console.log('🔍 onOpenMediaLibrary called - Opening media library');

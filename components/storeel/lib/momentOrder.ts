@@ -133,3 +133,19 @@ export function apiDefaultOrder(moments: ReadonlyArray<PreviewMoment>): PreviewM
 export function sentPostKeys(moments: ReadonlyArray<PreviewMoment>): string[] {
   return apiDefaultOrder(moments).filter((m) => m.kind === 'product' || m.kind === 'photo').map((m) => m.key);
 }
+
+/**
+ * Whether the preview shows a "+" after the moment at `index` (review minor 5): only after a moment with a place —
+ * vehicles / collections always show last, so a "+" between or below them would put the new moment somewhere else.
+ */
+export function plusAfter(shown: ReadonlyArray<PreviewMoment>, index: number): boolean {
+  const m = shown[index];
+  return Boolean(m && isOrderable(m));
+}
+
+/** Where focus goes once the moment `removed` is taken off (review minor 8): the next one, else the one before, else null. */
+export function focusAfterRemove(keys: ReadonlyArray<string>, removed: string): string | null {
+  const i = keys.indexOf(removed);
+  if (i < 0) return null;
+  return keys[i + 1] ?? keys[i - 1] ?? null;
+}

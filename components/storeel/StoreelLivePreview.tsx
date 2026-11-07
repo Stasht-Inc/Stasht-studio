@@ -5,6 +5,7 @@ import { storeelPreviewModel, type StoreelPreviewInput } from './storeelPreview'
 import CampaignCover from '../ui/CampaignCover';
 import { brandCoverColor } from '../../utils/campaignCover';
 import type { PreviewMoment } from './lib/previewMoments';
+import { plusAfter } from './lib/momentOrder';
 import { PREVIEW_DEVICES, fitScale, previewDevice, readPreviewDevice, savePreviewDevice, type PreviewDevice } from './lib/previewDevice';
 
 /**
@@ -169,13 +170,14 @@ export default function StoreelLivePreview({ input, avatarUrl, avatarColor, cont
                     {/* Figma: purple between moments and before the first campaign card, grey after a campaign card. */}
                     {i > 0 ? (
                       <div className="my-[18px]">
-                        <Divider subtle={isCampaignCard(m.momentCards[i - 1])} controls={controls}
+                        {/* A "+" only after a moment with a place: vehicles always show last (review minor 5). */}
+                        <Divider subtle={isCampaignCard(m.momentCards[i - 1])} controls={plusAfter(m.momentCards, i - 1) ? controls : undefined}
                           label={`Add a moment after ${momentLabel(m.momentCards[i - 1])}`} onAdd={() => controls?.onAddAfter(m.momentCards[i - 1].key)} />
                       </div>
                     ) : null}
                     <MomentCard moment={moment} author={m.author} initial={m.initial} avatarUrl={avatarUrl} color={color} menu={controls?.menuFor(moment.key, i) ?? null} busy={controls?.busy} />
                     {/* After the last moment: one more "+" (Chris: "+ after moments"). */}
-                    {controls && i === m.momentCards.length - 1 ? (
+                    {controls && i === m.momentCards.length - 1 && plusAfter(m.momentCards, i) ? (
                       <div className="mt-[18px]">
                         <Divider subtle={isCampaignCard(moment)} controls={controls} label="Add a moment at the end" onAdd={() => controls.onAddAfter(moment.key)} />
                       </div>

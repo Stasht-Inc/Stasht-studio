@@ -4,7 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  isOrderable, orderMoments, insertKeysAfter, moveKey, needsServerOrder, serverOrderAfterCreate, savedOrderPayload, momentMenu, savedRef, apiDefaultOrder, sentPostKeys,
+  isOrderable, orderMoments, insertKeysAfter, moveKey, needsServerOrder, serverOrderAfterCreate, savedOrderPayload, momentMenu, savedRef, apiDefaultOrder, sentPostKeys, plusAfter, focusAfterRemove,
 } from '../../components/storeel/lib/momentOrder.ts';
 import { pickPayload, catalogGate, pickedPreviewMoments } from '../../components/storeel/lib/momentPicks.ts';
 
@@ -88,15 +88,16 @@ test('the ⋮ menu: Edit for photos (and saved moments), Move only between place
   assert.deepEqual(momentMenu(saved, 2, { saved: true }), { edit: false, up: false, down: false, remove: true });
 });
 
-test('what Save as Draft sends for the picks: step 1 by category, Add a Moment products / vehicles beside them', () => {
+test('what Save as Draft sends for the picks: step 1 by category, Add a Moment products / vehicles beside them (vehicles always car_ids)', () => {
   assert.deepEqual(pickPayload({ pick: 'catalog', selectedIds: ['1', '2'], extraCatalog: ['2', '3'], extraCars: ['9'] }),
-    { catalog_item_ids: [1, 2, 3], linked_memory_ids: [9] });
+    { catalog_item_ids: [1, 2, 3], car_ids: ['9'] });
   assert.deepEqual(pickPayload({ pick: 'cars', selectedIds: ['4'], extraCatalog: ['3'], extraCars: ['4', '5'] }),
     { car_ids: ['4', '5'], catalog_item_ids: [3] });
   assert.deepEqual(pickPayload({ pick: 'shopify', selectedIds: ['gid1'], extraCatalog: [], extraCars: ['5'] }),
-    { shopify_collection_ids: ['gid1'], linked_memory_ids: [5] });
+    { shopify_collection_ids: ['gid1'], car_ids: ['5'] });
+  // Review minor 1: a vehicle is never sent among linked campaigns (their ids clash with campaign ids).
   assert.deepEqual(pickPayload({ pick: 'campaigns', selectedIds: ['12'], extraCatalog: ['3'], extraCars: ['5'] }),
-    { linked_memory_ids: [12, 5], catalog_item_ids: [3] });
+    { linked_memory_ids: [12], car_ids: ['5'], catalog_item_ids: [3] });
   assert.deepEqual(pickPayload({ pick: null, selectedIds: [], extraCatalog: [], extraCars: [] }), {});
 });
 
@@ -130,4 +131,23 @@ test("a saved campaign's moments follow GET /memories/{id}'s unified_order and l
     unified_order: [{ type: 'post', id: 2 }, { type: 'linked_memory', id: 40 }, { type: 'post', id: 1 }],
   } } };
   assert.deepEqual(seedFromMemory(res).previewMoments.map((m) => m.key), ['post-2', 'campaign-40', 'post-1']);
+});
+
+test('the "+" positions are honest: a "+" only after a moment that has a place (none between or after vehicles)', () => {
+  const list = [product(1), photo(0), car(3), car(4)];
+  assert.deepEqual(list.map((m, i) => plusAfter(list, i)), [true, true, false, false]);
+  assert.deepEqual([car(3)].map((m, i) => plusAfter([car(3)], i)), [false]);
+});
+
+test('focus after a moment is taken off: the next moment, else the one before, else the "+" under the cover', () => {
+  assert.equal(focusAfterRemove(['a', 'b', 'c'], 'b'), 'c');
+  assert.equal(focusAfterRemove(['a', 'b', 'c'], 'c'), 'b');
+  assert.equal(focusAfterRemove(['a'], 'a'), null);
+});
+
+test('what an add on a saved campaign says: what was added, and what was already there (never "added" for nothing)', async () => {
+  const { addedMessage } = await import('../../components/storeel/lib/momentPicks.ts');
+  assert.equal(addedMessage({ products: 2, vehicles: 1 }), '2 products and 1 vehicle added to your campaign.');
+  assert.equal(addedMessage({ products: 1, vehicles: 0, already: 1 }), '1 product added to your campaign. 1 was already in it.');
+  assert.equal(addedMessage({ products: 0, vehicles: 0, already: 2 }), 'Those are already in this campaign.');
 });

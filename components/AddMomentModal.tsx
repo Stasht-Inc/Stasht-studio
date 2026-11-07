@@ -164,11 +164,18 @@ export function AddMomentModal({
   // the photos and the picks together.
   const sources = useInventorySources(Boolean(inventory) && isOpen && !editPhotoData && !libraryMode);
   const [source, setSource] = useState<MomentSource>('media');
+  // Follows the window (rotation / resize), review minor 9.
+  const [narrow, setNarrow] = useState(() => typeof window !== 'undefined' && window.innerWidth < 640);
+  useEffect(() => {
+    const onResize = () => setNarrow(window.innerWidth < 640);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
   const [pickedProducts, setPickedProducts] = useState<string[]>([]);
   const [pickedVehicles, setPickedVehicles] = useState<string[]>([]);
   const sourceOptions: Array<{ value: MomentSource; label: string }> = inventory && !editPhotoData && !libraryMode ? [
     // Phones: one row for the three choices ("Photos & Videos" wraps at 390).
-    { value: 'media', label: typeof window !== 'undefined' && window.innerWidth < 640 && (sources.productGate !== 'hidden' && sources.vehicles.length) ? 'Photos' : 'Photos & Videos' },
+    { value: 'media', label: narrow && sources.productGate !== 'hidden' && sources.vehicles.length ? 'Photos' : 'Photos & Videos' },
     ...(sources.productGate !== 'hidden' ? [{ value: 'product' as const, label: 'Products' }] : []),
     ...(sources.vehicles.length ? [{ value: 'vehicle' as const, label: 'Vehicles' }] : []),
   ] : [];

@@ -27,8 +27,8 @@ const ints = (ids: ReadonlyArray<string>): number[] => unique(ids.map((id) => pa
 /**
  * What Save as Draft sends for the picks: step 1's picks by the category's kind (as before), and the products and
  * vehicles added with Add a Moment beside them — products as catalog_item_ids (the API makes them moments on a campaign
- * of any category), vehicles with the Cars category's car_ids or else as linked items (the API links a vehicle id it
- * finds in linked_memory_ids, as for "All Categories" picks).
+ * of any category), vehicles as car_ids on any category (review minor 1: never among linked_memory_ids, whose ids the
+ * API matches against campaigns first).
  */
 export function pickPayload({ pick, selectedIds, extraCatalog, extraCars }: {
   pick: PickKind;
@@ -38,10 +38,10 @@ export function pickPayload({ pick, selectedIds, extraCatalog, extraCars }: {
 }): Record<string, Array<string | number>> {
   const out: Record<string, Array<string | number>> = {};
   const catalog = pick === 'catalog' ? [...selectedIds, ...extraCatalog] : [...extraCatalog];
-  if (pick === 'cars') out.car_ids = unique([...selectedIds, ...extraCars].map(String));
   if (pick === 'shopify' && selectedIds.length) out.shopify_collection_ids = [...selectedIds];
-  const linked = [...(pick === 'campaigns' ? selectedIds : []), ...(pick === 'cars' ? [] : extraCars)];
-  if (linked.length) out.linked_memory_ids = ints(linked);
+  if (pick === 'campaigns' && selectedIds.length) out.linked_memory_ids = ints(selectedIds);
+  const cars = unique([...(pick === 'cars' ? selectedIds : []), ...extraCars].map(String));
+  if (cars.length) out.car_ids = cars;
   if (catalog.length) out.catalog_item_ids = ints(catalog);
   return out;
 }
@@ -70,4 +70,13 @@ export function pickedPreviewMoments(kind: 'catalog' | 'cars', items: ReadonlyAr
     }
     return { kind: 'vehicle', key: `car-${sourceId}`, sourceId, image, title, price: vehiclePrice(item), tags: vehicleTags(item) };
   });
+}
+
+const count = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+
+/** The toast after products / vehicles are added to a saved campaign: what was added, and how many were already in it. */
+export function addedMessage({ products, vehicles, already = 0 }: { products: number; vehicles: number; already?: number }): string {
+  const parts = [products ? count(products, 'product', 'products') : '', vehicles ? count(vehicles, 'vehicle', 'vehicles') : ''].filter(Boolean);
+  if (!parts.length) return 'Those are already in this campaign.';
+  return `${parts.join(' and ')} added to your campaign.${already ? ` ${already} ${already === 1 ? 'was' : 'were'} already in it.` : ''}`;
 }
