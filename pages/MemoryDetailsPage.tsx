@@ -77,6 +77,7 @@ import { mapLimit } from "../utils/requestLimit";
 import CreateMemory from "../components/CreateMemory";
 import { seedFromMemory } from "../components/storeel/lib/storeelFlow";
 import { campaignPageInventory } from "../components/storeel/campaignPageInventory";
+import { campaignModerationOf, moderationTabVisible } from "../components/storeel/lib/moderation";
 const samanthaAvatar = 'https://images.unsplash.com/photo-1494790108755-2616b612b5bc?w=100&h=100&fit=crop';
 
 // Helper: convert S3 URL to proxied path so auth headers work and canvas doesn't get tainted
@@ -1559,52 +1560,11 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
   // - Role 3 or 4: Never show
   // - Role 2: Only show if owner AND moderation_enabled preference is true (AND preference is loaded)
   // - Other roles: Show if owner (don't check moderation_enabled preference)
-  const shouldShowModeration = useMemo(() => {
-    // Use role from localStorage (same as ProfileSettingsPage)
-    const userRole = userRoleFromLocalStorage;
-
-    console.log('=== MODERATION TAB VISIBILITY CALCULATION ===');
-    console.log('Is Owner:', isOwner);
-    console.log('User Role (from localStorage):', userRole, 'Type:', typeof userRole);
-    console.log('Moderation Enabled (from state):', moderationEnabled);
-    console.log('Is Moderation Preference Loaded:', isModerationPreferenceLoaded);
-
-    // Never show for roles 3 or 4
-    if ([3, '3', 4, '4'].includes(userRole)) {
-      console.log('✋ Role is 3 or 4 - HIDE moderation tab');
-      console.log('=== END MODERATION TAB VISIBILITY ===');
-      return false;
-    }
-
-    // For role 2: Check moderation_enabled preference (only show after preference is loaded)
-    if (userRole === 2 || userRole === '2') {
-      console.log('🎯 Role is 2 - Check moderation preference from API');
-      console.log('  - isOwner:', isOwner);
-      console.log('  - moderationEnabled:', moderationEnabled);
-      console.log('  - isModerationPreferenceLoaded:', isModerationPreferenceLoaded);
-
-      // Don't show the tab until we've loaded the preference from API
-      if (!isModerationPreferenceLoaded) {
-        console.log('⏳ Preference not loaded yet - HIDE moderation tab temporarily');
-        console.log('=== END MODERATION TAB VISIBILITY ===');
-        return false;
-      }
-
-      const result = isOwner && moderationEnabled;
-      console.log('  - Result (isOwner && moderationEnabled):', result);
-      console.log(result ? '✅ SHOW moderation tab' : '❌ HIDE moderation tab');
-      console.log('=== END MODERATION TAB VISIBILITY ===');
-      return result;
-    }
-
-    // For other roles (1, etc.): Only check if owner
-    const result = isOwner;
-    console.log('🔹 Role is', userRole, '- Only check owner status');
-    console.log('Result (isOwner):', result);
-    console.log(result ? '✅ SHOW moderation tab' : '❌ HIDE moderation tab');
-    console.log('=== END MODERATION TAB VISIBILITY ===');
-    return result;
-  }, [isOwner, moderationEnabled, userRoleFromLocalStorage, isModerationPreferenceLoaded]);
+  // Chris, 7 Nov 2026 (point 12): role 2 follows the CAMPAIGN's moderation (its own value, else the account's).
+  const campaignModeration = campaignModerationOf(apiMemoryData);
+  const shouldShowModeration = useMemo(() => moderationTabVisible({
+    role: userRoleFromLocalStorage, isOwner, loaded: isModerationPreferenceLoaded, campaign: campaignModeration, account: moderationEnabled,
+  }), [isOwner, moderationEnabled, userRoleFromLocalStorage, isModerationPreferenceLoaded, campaignModeration]);
 
   // Log whenever shouldShowModeration changes
   useEffect(() => {

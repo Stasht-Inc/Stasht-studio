@@ -15,6 +15,7 @@
 // Pure, so `node --test` loads it.
 import type { AudienceItem, NewsletterChannel } from '../../../services/newslettersAPI.ts';
 import { savedPreviewMoments, type PreviewMoment } from './previewMoments.ts';
+import { campaignModerationOf } from './moderation.ts';
 
 export type FlowStep = 'campaign' | 'moments' | 'send';
 export const FLOW_STEPS: readonly FlowStep[] = ['campaign', 'moments', 'send'];
@@ -113,6 +114,8 @@ export interface CampaignSeed {
   ownerId: number | null;
   /** The campaign's own moments, as the live preview shows them in Edit. */
   previewMoments: PreviewMoment[];
+  /** Moderation (Chris, 7 Nov 2026): the campaign's effective value; null = not known (the account decides). Optional: older seeds. */
+  moderation?: boolean | null;
 }
 
 export interface SetupForm {
@@ -201,6 +204,7 @@ export function seedFromMemory(raw: unknown, categories: ReadonlyArray<{ id?: un
     moments: momentsOf(m),
     ownerId: Number.isFinite(ownerId) && ownerId > 0 ? ownerId : null,
     previewMoments: savedPreviewMoments(m),
+    moderation: campaignModerationOf(m),
   };
 }
 

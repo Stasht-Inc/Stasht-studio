@@ -102,6 +102,8 @@ test('Edit opens the flow prefilled from the campaign', () => {
       { kind: 'photo', key: 'post-1', postId: 1, image: null, video: false, title: '', caption: '', location: '', date: '' },
       { kind: 'photo', key: 'post-2', postId: 2, image: null, video: false, title: '', caption: '', location: '', date: '' },
     ],
+    // Moderation per campaign (Chris, 7 Nov 2026): unknown here (no moderation fields) → the account decides.
+    moderation: null,
   });
   assert.deepEqual(formFromSeed(seed), {
     title: 'Spring Open House', category: 'Service', label: 'Events', date: '2026-10-01', endDate: '2026-10-09', location: 'Toronto, ON', tags: ['spring', 'open house'],

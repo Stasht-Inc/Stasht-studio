@@ -741,6 +741,10 @@ export function createMockApi(options = {}) {
       return ok({ storage_overview: { plan_name: state.plan } });
     }
     if (path === '/user/profile') return ok({ user: PROFILE });
+    // UserController notification preferences ({status: 1, data: {...}}): options.accountModeration (default on).
+    if (path === '/user/notification-preferences' && method === 'GET') {
+      return { status: 200, json: { status: 1, data: { moderation_enabled: options.accountModeration ?? true } } };
+    }
     // options.catalogue: the account has Website Catalogue items (Create Campaign then offers its "Website Catalogue").
     // options.cataloguePlanRequired: the account is in the catalogue pilot but not on the Business plan (Chris 7 Nov).
     if (path === '/website-catalogue') {
@@ -833,6 +837,7 @@ export function createMockApi(options = {}) {
         id, slug, title: body?.title, published: Number(body?.published) || 0, is_car: 0, user_id: 990002,
         category: { id: body?.category_id, name: body?.category_id === 8 ? 'Service' : 'Personal' }, sub_category: body?.sub_category?.[0] ? { name: body.sub_category[0] } : null,
         min_uploaded_img_date: null, max_uploaded_img_date: null, location: body?.location ?? '', tags: body?.tags ?? [], last_update_img: body?.last_update_img ?? null,
+        moderation_enabled: body?.moderation_enabled ?? null, moderation_effective: body?.moderation_enabled ?? (options.accountModeration ?? true),
         // A catalogue item becomes a moment (CatalogSnapshotWriter), a picked vehicle a linked campaign (memory_cars).
         posts: [
           ...(body?.catalog_item_ids ?? []).map((itemId) => ({ title: itemId === 61 ? 'Oak bench' : 'Pine shelf', description: 'Price: $450', image_link: IMG })),
@@ -861,7 +866,8 @@ export function createMockApi(options = {}) {
       }
       if (state.putErrors) return fail(422, { message: Object.values(state.putErrors)[0], errors: Object.fromEntries(Object.entries(state.putErrors).map(([k, v]) => [k, [v]])) });
       const m = state.memories.get(id);
-      if (m) Object.assign(m, { title: body?.title ?? m.title, location: body?.location ?? m.location, tags: body?.tags ?? m.tags, ...('last_update_img' in (body ?? {}) ? { last_update_img: body.last_update_img } : {}) });
+      if (m) Object.assign(m, { title: body?.title ?? m.title, location: body?.location ?? m.location, tags: body?.tags ?? m.tags, ...('last_update_img' in (body ?? {}) ? { last_update_img: body.last_update_img } : {}),
+        ...('moderation_enabled' in (body ?? {}) ? { moderation_enabled: body.moderation_enabled, moderation_effective: body.moderation_enabled } : {}) });
       return ok(m ?? { id });
     }
     // StoreelBroadcastController (the Storeel flow's step 3 Send).
