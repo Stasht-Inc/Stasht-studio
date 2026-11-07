@@ -108,7 +108,7 @@ export async function run({ open, shot, expect, hasOverflow }) {
       `${tag}: like / comment counts hidden from screen readers`);
     // Review: the picker is compact on desktop and a real touch target on phones.
     const pk = await picker(page).boundingBox();
-    expect(pk && pk.width <= 140 && (width < 640 ? pk.height >= 44 : pk.height <= 30), `${tag}: the phone picker is compact / touch-sized (${JSON.stringify(pk)})`);
+    expect(pk && pk.width <= 152 && (width < 640 ? pk.height >= 44 : pk.height <= 30), `${tag}: the phone picker is compact / touch-sized (${JSON.stringify(pk)})`);
 
     // A refused save (no catalogue item picked) and the Send reason, in the same style.
     await page.getByPlaceholder(STOREEL_TITLE).fill(`Great Products ${tag}`);

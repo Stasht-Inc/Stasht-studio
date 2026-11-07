@@ -170,7 +170,7 @@ export function FontMenu({ value, onPick, onCloseAutoFocus, hint }: {
     <ToolMenu label={`Font: ${current}`} tooltip="Font" open={open} onOpenChange={setOpen} onCloseAutoFocus={onCloseAutoFocus} list
       trigger={<>
         <Type className="hidden h-3.5 w-3.5 shrink-0 text-gray-500 sm:block" aria-hidden="true" />
-        <span className="hidden max-w-[6.5rem] truncate text-sm font-medium sm:inline" style={{ fontFamily: stack }}>{current}</span>
+        <span className="hidden max-w-[5.5rem] truncate text-sm font-medium sm:inline" style={{ fontFamily: stack }}>{current}</span>
         <span className="text-sm font-medium sm:hidden" style={{ fontFamily: stack }}>Aa</span>
         <ChevronDown className={CHEVRON} aria-hidden="true" />
       </>}>

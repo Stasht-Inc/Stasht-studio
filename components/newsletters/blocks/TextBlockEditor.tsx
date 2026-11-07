@@ -361,7 +361,7 @@ export default function TextBlockEditor({ blockId, data, selected, readOnly, onC
   return (
     <div className="relative">
       {selected && !readOnly ? (
-        <div ref={roving.ref} onFocus={roving.onFocus} onKeyDown={roving.onKeyDown} role="toolbar" aria-label="Text formatting" style={{ marginTop: toolbarGap(look.padY) }} className="-mx-3 mb-2 mt-2 inline-flex max-w-[calc(100%+1.5rem)] flex-wrap sm:mx-0 sm:max-w-full items-center gap-0 sm:gap-0.5 rounded-lg border border-gray-200 bg-white p-1 shadow-sm">
+        <div ref={roving.ref} onFocus={roving.onFocus} onKeyDown={roving.onKeyDown} role="toolbar" aria-label="Text formatting" style={{ marginTop: toolbarGap(look.padY) }} className="-mx-3 mb-2 mt-2 inline-flex max-w-[calc(100%+1.5rem)] flex-wrap sm:mx-0 sm:-mr-10 sm:max-w-[calc(100%+2.5rem)] items-center gap-0 sm:gap-0.5 rounded-lg border border-gray-200 bg-white p-1 shadow-sm">
           <ToolbarToggle label="Bold" pressed={caret.bold} onClick={() => format('bold')}><Bold className="h-4 w-4" /></ToolbarToggle>
           <ToolbarToggle label="Italic" pressed={caret.italic} onClick={() => format('italic')}><Italic className="h-4 w-4" /></ToolbarToggle>
           <Popover.Root open={linkOpen} onOpenChange={setLinkOpen}>
