@@ -39,3 +39,16 @@ test('a card can draw the brand smaller (brandFraction), never past 1.5x its own
     { mode: 'contain', shape: 'rect', width: 131, height: 91 });
   assert.equal(campaignCoverLayout({ isFallback: true, brandKind: 'logo', natural: { width: 64, height: 64 }, box: card, brandFraction: 0.45 }).width, 96);
 });
+
+test('an unsure ("whole") brand is drawn whole at the full cover height, at most 90% wide (re-review 2, option C)', () => {
+  // a square headshot on a white wall in a tall header: full height, sides on the wall colour
+  assert.deepEqual(campaignCoverLayout({ isFallback: true, brandKind: 'whole', natural: { width: 400, height: 400 }, box: { width: 600, height: 300 } }),
+    { mode: 'contain', shape: 'rect', width: 300, height: 300 });
+  // a wide JPEG logo: capped at 90% of the width
+  assert.deepEqual(campaignCoverLayout({ isFallback: true, brandKind: 'whole', natural: { width: 600, height: 200 }, box: { width: 290, height: 290 } }),
+    { mode: 'contain', shape: 'rect', width: 261, height: 87 });
+  // a small picture still goes full height (never the small circle), even square ones never cut round
+  assert.deepEqual(campaignCoverLayout({ isFallback: true, brandKind: 'whole', natural: { width: 96, height: 96 }, box: card }),
+    { mode: 'contain', shape: 'rect', width: 261, height: 261 });
+  assert.deepEqual(campaignCoverLayout({ isFallback: true, brandKind: 'whole', natural: null, box: card }), { mode: 'pending' });
+});

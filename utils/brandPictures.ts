@@ -9,7 +9,8 @@
 // in the browser. Pure apart from fetch / localStorage, so `node --test` loads it (tests/utils/brandPictures.test.mjs).
 
 export interface BrandPicture {
-  kind: 'logo' | 'photo';
+  /** 'whole': the API was unsure (a flat backdrop): drawn whole at full height on `color` (re-review 2, option C). */
+  kind: 'logo' | 'photo' | 'whole';
   /** The solid colour behind a logo (#RRGGBB); null: the profile colour, then Studio purple. */
   color: string | null;
   /** Draw the logo as a rounded card (a logo on a white background), not blended. */
@@ -45,7 +46,7 @@ export function setBrandPictureHeaders(headers: () => Record<string, string>): v
 export function parseBrandPicture(v: unknown): BrandPicture | null {
   if (!v || typeof v !== 'object') return null;
   const o = v as Record<string, unknown>;
-  if (o.kind !== 'logo' && o.kind !== 'photo') return null;
+  if (o.kind !== 'logo' && o.kind !== 'photo' && o.kind !== 'whole') return null;
   if (o.color !== null && o.color !== undefined && !(typeof o.color === 'string' && /^#[0-9a-f]{6}$/i.test(o.color))) return null;
   return { kind: o.kind, color: typeof o.color === 'string' ? o.color.toUpperCase() : null, frame: o.frame === true };
 }
@@ -141,6 +142,8 @@ function flush(): void {
   const qs = batch.map((u) => `urls[]=${encodeURIComponent(u)}`).join('&');
   let headers: Record<string, string> = {};
   try { headers = authHeaders() || {}; } catch { headers = {}; }
+  // Only a signed-in call gets its misses worked out, so only then is a pending picture worth asking about again.
+  const signedIn = !!headers.Authorization;
   void fetch(`${apiBase()}/brand-pictures?${qs}`, { headers: { ...headers, Accept: 'application/json' } })
     .then(async (r) => (r.ok ? r.json() : null))
     .catch(() => null)
@@ -154,7 +157,7 @@ function flush(): void {
         if (pic) {
           remember(url, pic);
           saved = true;
-        } else if (body && body.pending > 0 && !retried.has(url)) {
+        } else if (signedIn && body && body.pending > 0 && !retried.has(url)) {
           retried.add(url); // the server is working it out after that response: ask once more
           again.push(url);
         } else {

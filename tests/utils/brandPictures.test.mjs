@@ -96,7 +96,20 @@ test('signed in, the call carries the token (so the server works the misses out)
   assert.equal(fetchHeaders[0].Authorization, 'Bearer t');
 });
 
-test('a picture the server is still working out is asked once more, then left to the 4 Nov look this visit', async () => {
+test('"whole" (the API\'s unsure answer) is a real answer', () => {
+  assert.deepEqual(parseBrandPicture({ kind: 'whole', color: '#f4f4f2', frame: false }), { kind: 'whole', color: '#F4F4F2', frame: false });
+});
+
+test('signed out, a pending picture is not asked about again (nothing is being worked out for us)', async () => {
+  const slow = S3.replace('royal', 'slow');
+  requestBrandPicture(slow);
+  await tick(80);
+  assert.equal(fetches.length, 1);
+  assert.equal(knownBrandPicture(slow), null);
+});
+
+test('a picture the server is still working out is asked once more (signed in), then left to the 4 Nov look this visit', async () => {
+  setBrandPictureHeaders(() => ({ Authorization: 'Bearer t' }));
   const slow = S3.replace('royal', 'slow');
   requestBrandPicture(slow);
   await tick(80);
@@ -104,6 +117,7 @@ test('a picture the server is still working out is asked once more, then left to
   assert.equal(knownBrandPicture(slow), null);
   requestBrandPicture(slow);
   await tick(30);
+  setBrandPictureHeaders(() => ({}));
   assert.equal(fetches.length, 2, 'not asked again');
 });
 

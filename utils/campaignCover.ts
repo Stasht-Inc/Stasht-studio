@@ -20,6 +20,8 @@ export type CampaignCoverLayout =
 export const BRAND_COVER_FRACTION = 0.6;
 /** A too-small picture is at most this share of the box (it is a photo, so it gets a little more room). */
 export const SMALL_COVER_FRACTION = 0.8;
+/** A 'whole' brand (re-review 2, option C) is at most this share of the box's width (it takes the full height). */
+export const WHOLE_MAX_WIDTH = 0.9;
 /** Never enlarge a picture past this many times its own size. */
 export const COVER_MAX_UPSCALE = 1.5;
 /** A chosen picture counts as too small only when it is under this share of the box on a side. */
@@ -52,8 +54,10 @@ export function campaignCoverLayout({ isFallback = false, brandKind = null, natu
   isFallback?: boolean;
   /** What the brand picture is, as the web API judged it (utils/brandPictures, Chris 7 Nov 2026): a 'photo' (the owner's
    *  selfie / headshot avatar) fills the cover like a chosen photo; a 'logo' is drawn whole, never cut to a circle (it
-   *  sits on its own solid colour); not known (null) — the 4 Nov rules below. */
-  brandKind?: 'logo' | 'photo' | null;
+   *  sits on its own solid colour); 'whole' (the API was unsure: a flat backdrop) is drawn whole at the FULL height of
+   *  the box, at most WHOLE_MAX_WIDTH of its width, never cut round (re-review 2, option C); not known (null) — the
+   *  4 Nov rules below. */
+  brandKind?: 'logo' | 'photo' | 'whole' | null;
   /** The brand's largest share of the box (default BRAND_COVER_FRACTION). Cards use less: their pills and title leave
    *  little room (Chris, 7 Nov 2026 review). */
   brandFraction?: number;
@@ -67,6 +71,16 @@ export function campaignCoverLayout({ isFallback = false, brandKind = null, natu
    *  a square of the phone's width, so an ordinary photo still fills it). The picture is still sized in `box`. */
   judgeBox?: CoverSize | null;
 }): CampaignCoverLayout {
+  if (isFallback && brandKind === 'whole') {
+    if (!known(box) || !known(natural)) return { mode: 'pending' };
+    let height = box.height;
+    let width = (natural.width / natural.height) * height;
+    if (width > WHOLE_MAX_WIDTH * box.width) {
+      width = WHOLE_MAX_WIDTH * box.width;
+      height = width * (natural.height / natural.width);
+    }
+    return { mode: 'contain', shape: 'rect', width: Math.round(width), height: Math.round(height) };
+  }
   if (isFallback && brandKind !== 'photo') {
     if (!known(box)) return { mode: 'pending' };
     if (vector) {

@@ -55,6 +55,13 @@ const HEX_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256
   <polygon points="128,28 214,78 214,178 128,228 42,178 42,78" fill="#1D4ED8"/><polygon points="128,62 184,94 184,162 128,194 72,162 72,94" fill="#0B1442"/></svg>`;
 const GREEN_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="500" height="300"><rect width="500" height="300" fill="#fff"/>
   <text x="250" y="190" text-anchor="middle" font-family="Arial" font-size="110" font-weight="700" fill="#15803D">GREEN</text></svg>`;
+// A realtor headshot on a plain white studio wall, and a JPEG wordmark on white: the API is unsure about both → "whole".
+const WALL_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="480" height="600"><rect width="480" height="600" fill="#F5F5F2"/>
+  <ellipse cx="240" cy="250" rx="95" ry="120" fill="#d9a882"/><ellipse cx="240" cy="160" rx="105" ry="55" fill="#2f2622"/>
+  <path d="M60 600 Q90 420 240 400 Q390 420 420 600 Z" fill="#2b3f5c"/><ellipse cx="205" cy="245" rx="11" ry="7" fill="#2b2020"/><ellipse cx="275" cy="245" rx="11" ry="7" fill="#2b2020"/></svg>`;
+const DOCU_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="600" height="200"><rect width="600" height="200" fill="#fff"/>
+  <rect x="30" y="60" width="60" height="60" fill="#E2231A"/><rect x="50" y="80" width="60" height="60" fill="#4C00FF" opacity="0.85"/>
+  <text x="130" y="128" font-family="Arial" font-size="78" font-weight="700" fill="#111">docuseal</text></svg>`;
 const pictures = {
   'royal.jpg': async () => sharp(Buffer.from(ROYAL_SVG)).jpeg({ quality: 85 }).toBuffer(),
   'selfie.jpg': async () => sharp(Buffer.from(selfieSvg())).jpeg({ quality: 80 }).toBuffer(),
@@ -62,6 +69,8 @@ const pictures = {
   'moment.jpg': async () => sharp(Buffer.from(ENGLAND_SVG)).resize(900, 600).jpeg({ quality: 70 }).toBuffer(),
   'hexagon.png': async () => sharp(Buffer.from(HEX_SVG)).png().toBuffer(),
   'green.jpg': async () => sharp(Buffer.from(GREEN_SVG)).jpeg({ quality: 80 }).toBuffer(),
+  'wall.jpg': async () => sharp(Buffer.from(WALL_SVG)).blur(1.5).jpeg({ quality: 82 }).toBuffer(),
+  'docu.jpg': async () => sharp(Buffer.from(DOCU_SVG)).jpeg({ quality: 85 }).toBuffer(),
 };
 const bytes = new Map();
 async function picture(name) {
@@ -75,6 +84,8 @@ const ROYAL = img('royal.jpg');
 const SELFIE = img('selfie.jpg');
 const HEX = img('hexagon.png');
 const GREEN = img('green.jpg');
+const WALL = img('wall.jpg');
+const DOCU = img('docu.jpg');
 const S3_HOST = 'stasht-data.s3.us-east-2.amazonaws.com';
 const s3 = (k) => `https://${S3_HOST}/profile_images/${k}`;
 const S3_ROYAL = s3('royal-wood.jpg');
@@ -90,6 +101,8 @@ const ANSWERS = {
   [SELFIE]: { kind: 'photo', color: '#6F7F62', frame: false }, [S3_SELFIE]: { kind: 'photo', color: '#6F7F62', frame: false },
   [HEX]: { kind: 'logo', color: '#0B1442', frame: false },
   [GREEN]: { kind: 'logo', color: '#16803E', frame: true },
+  [WALL]: { kind: 'whole', color: '#F5F5F2', frame: false },
+  [DOCU]: { kind: 'whole', color: '#FFFFFF', frame: false },
 };
 /** brand_pictures as AttachBrandPictures adds it: the known answers for the avatars in the payload. */
 function withBrandPictures(body) {
@@ -123,13 +136,16 @@ const DAY = campaign(905, 'Joyful Day at the Mill Pond', null, SELFIE, { categor
 const S3BRAND = campaign(906, 'Bucket Logo Sale', null, S3_ROYAL);
 const HEXC = campaign(907, 'Hex Motors', null, HEX);
 const GREENC = campaign(908, 'Green Grocer', null, GREEN);
-const ALL = [MILL, TORONTO, ENGLAND, SUMMER, DAY, S3BRAND, HEXC, GREENC];
+const WALLC = campaign(911, 'Open House Weekend', null, WALL);
+const DOCUC = campaign(912, 'Signing Day', null, DOCU);
+const ALL = [MILL, TORONTO, ENGLAND, SUMMER, DAY, S3BRAND, HEXC, GREENC, WALLC, DOCUC];
 const listItem = (c) => ({ ...c, last_update_img: c.last_update_img ?? c.user.profile_image });
 const detail = (c) => ({ ...c, posts: [post(c.id * 10 + 1, 1)], linked_memories: [], widgets: [], unified_order: null });
 const published = {
   royal: detail(MILL), selfie: detail(TORONTO),
   's3-royal': detail(S3BRAND), 's3-selfie': detail(campaign(909, 'Selfie From The Bucket', null, S3_SELFIE)),
   unknown: detail(campaign(910, 'Not Judged Yet', null, S3_UNKNOWN)),
+  wall: detail(WALLC),
 };
 
 const failures = [];
@@ -187,7 +203,7 @@ async function newContext({ width, height, signedIn }) {
     }
     if (p === '/memories' && req.method() === 'GET') {
       const all = ALL.map(listItem);
-      return route.fulfill({ json: withBrandPictures({ status: 'success', data: { all_memories: { data: all, total: all.length }, latest_memories: all, sidebar: { categories: { items: [{ id: 5, name: 'Travel', memory_count: 6 }, { id: 9, name: 'suggested', memory_count: 2 }] }, labels: { items: [] } } } }) });
+      return route.fulfill({ json: withBrandPictures({ status: 'success', data: { all_memories: { data: all, total: all.length }, latest_memories: all, sidebar: { categories: { items: [{ id: 5, name: 'Travel', memory_count: 8 }, { id: 9, name: 'suggested', memory_count: 2 }] }, labels: { items: [] } } } }) });
     }
     const m = p.match(/^\/memories\/(\d+)$/);
     if (m && req.method() === 'GET') {
@@ -238,6 +254,18 @@ function checkSolidLogo(tag, info, { color = ROYAL_BLUE, aspect = 600 / 420, fra
     else expect(!info.frame && info.img.shadow === 'none' && info.img.filter === 'none', `${tag}: the logo box blends in (no shadow)`);
   }
 }
+function checkWhole(tag, info, { color, aspect }) {
+  expect(info?.mode === 'brand' && info?.kind === 'whole' && info?.shape === 'rect', `${tag}: drawn whole, never cut round (mode=${info?.mode}, kind=${info?.kind}, shape=${info?.shape})`);
+  expect(near(info?.fill, color) && near(rgbHex(info?.bg), color), `${tag}: on its edge colour (fill=${info?.fill}, bg=${rgbHex(info?.bg)})`);
+  expect(info && !info.blurred, `${tag}: no blurred copy`);
+  if (info?.img) {
+    const fullHeight = Math.abs(info.img.h - info.box.h) <= 1;
+    const maxWide = Math.abs(info.img.w - Math.round(info.box.w * 0.9)) <= 1;
+    expect((fullHeight && info.img.w <= Math.round(info.box.w * 0.9) + 1) || (maxWide && info.img.h <= info.box.h), `${tag}: full height, at most 90% wide (${info.img.w}x${info.img.h} in ${info.box.w}x${info.box.h})`);
+    expect(Math.abs(info.img.w / info.img.h - aspect) < 0.03, `${tag}: its own shape (${info.img.w}x${info.img.h})`);
+    expect(info.img.radius === '0px' && info.img.shadow === 'none' && info.img.filter === 'none' && info.img.opacity === '1', `${tag}: a plain rectangle (no ring, radius or shadow)`);
+  }
+}
 function checkFills(tag, info) {
   expect(info?.mode === 'cover', `${tag}: the photo fills it (mode=${info?.mode}, kind=${info?.kind})`);
   if (info?.img) expect(info.img.fit === 'cover' && info.img.w === info.box.w && info.img.h === info.box.h && info.img.opacity === '1', `${tag}: edge to edge (${info.img.w}x${info.img.h} of ${info.box.w}x${info.box.h}, ${info.img.fit})`);
@@ -266,6 +294,8 @@ try {
       checkSolidLogo(`${tag} card S3 logo`, await cover(cardButton(page, 'Bucket Logo Sale').locator('[data-cover-mode]').first()));
       checkSolidLogo(`${tag} card square logo (never a circle)`, await cover(cardButton(page, 'Hex Motors').locator('[data-cover-mode]').first()), { color: '#0B1442', aspect: 1 });
       checkSolidLogo(`${tag} card logo on white (a card)`, await cover(cardButton(page, 'Green Grocer').locator('[data-cover-mode]').first()), { color: '#16803E', aspect: 500 / 300, frame: true });
+      checkWhole(`${tag} card white-wall headshot (unsure → whole)`, await cover(cardButton(page, 'Open House Weekend').locator('[data-cover-mode]').first()), { color: '#F5F5F2', aspect: 480 / 600 });
+      checkWhole(`${tag} card JPEG logo (unsure → whole)`, await cover(cardButton(page, 'Signing Day').locator('[data-cover-mode]').first()), { color: '#FFFFFF', aspect: 3 });
       expect(asked.length === 0, `${tag}: the grid asked nothing separately (${asked.length} asks)`);
 
       for (const title of ['Joyful Summer at the Lake House', 'Joyful Day at the Mill Pond']) {
@@ -291,6 +321,10 @@ try {
       await page.waitForTimeout(300);
       await page.screenshot({ path: `${OUT}/${tag}-01-grid.png`, fullPage: width < 1024 });
       await cardButton(page, 'Joyful Summer at the Lake House').screenshot({ path: `${OUT}/${tag}-01b-suggested-card.png` });
+      for (const [title, file] of [['Open House Weekend', '01c-whole-headshot-card'], ['Signing Day', '01d-whole-jpeg-logo-card'], ['Around the Mill - Sale Items', '01e-logo-card']]) {
+        await cardButton(page, title).scrollIntoViewIfNeeded();
+        await cardButton(page, title).screenshot({ path: `${OUT}/${tag}-${file}.png` });
+      }
 
       // 2. The owner campaign page.
       await cardButton(page, 'Around the Mill - Sale Items').click();
@@ -337,7 +371,7 @@ try {
     }
 
     // 4. Published pages, SIGNED OUT: the answers come on the payload — S3 pictures included.
-    for (const [slug, n] of [['royal', '04'], ['selfie', '05'], ['s3-royal', '06'], ['s3-selfie', '07'], ['unknown', '08']]) {
+    for (const [slug, n] of [['royal', '04'], ['selfie', '05'], ['s3-royal', '06'], ['s3-selfie', '07'], ['unknown', '08'], ['wall', '09']]) {
       const { page, context } = await newPage({ width, height, signedIn: false });
       const t0 = Date.now();
       await page.goto(`${BASE}/published-memory/${slug}`);
@@ -352,6 +386,7 @@ try {
       const info = await cover(pc);
       if (slug === 'royal' || slug === 's3-royal') checkSolidLogo(`${tag} published page signed out (${slug})`, info);
       else if (slug === 'selfie' || slug === 's3-selfie') checkFills(`${tag} published page signed out (${slug})`, info);
+      else if (slug === 'wall') checkWhole(`${tag} published page signed out (white-wall headshot)`, info, { color: '#F5F5F2', aspect: 480 / 600 });
       await page.screenshot({ path: `${OUT}/${tag}-${n}-published-${slug}.png` });
       await context.close();
     }

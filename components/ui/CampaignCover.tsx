@@ -135,7 +135,8 @@ export default function CampaignCover({
   // into it (no shadow); a logo on white is a rounded card; a (tiny) photo is a rounded picture.
   const solid = isFallback && !!brand;
   const fill = solid ? (brand.color ?? brandCoverColor(color)) : brandCoverColor(color);
-  const blendedLogo = solid && brand.kind === 'logo' && !brand.frame;
+  // A 'whole' picture (the API was unsure: a flat backdrop) is drawn plain too, its backdrop running on into the fill.
+  const blendedLogo = solid && ((brand.kind === 'logo' && !brand.frame) || brand.kind === 'whole');
   const mainClass = layout.mode !== 'contain'
     ? `w-full h-full object-cover${pending ? ' opacity-0' : ''}`
     : `absolute left-1/2 -translate-x-1/2 -translate-y-1/2 ${
