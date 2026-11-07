@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
-import { Calendar, ExternalLink, Heart, MapPin, MessageSquare, MoreVertical, Play, Plus, SquarePen, X } from 'lucide-react';
+import { ArrowDown, ArrowUp, Calendar, ExternalLink, Heart, ImageIcon, MapPin, MessageSquare, MoreVertical, Pencil, Play, Plus, SquarePen, Trash2, Video, X } from 'lucide-react';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '../ui/dropdown-menu';
 import { storeelPreviewModel, type StoreelPreviewInput } from './storeelPreview';
 import CampaignCover from '../ui/CampaignCover';
 import { brandCoverColor } from '../../utils/campaignCover';
@@ -22,6 +23,28 @@ import { PREVIEW_DEVICES, fitScale, previewDevice, readPreviewDevice, savePrevie
  * first frame, else the brand (account / property avatar) shown nicely by CampaignCover — else the initial on the
  * profile colour, as the campaign page does. Never the first photo, never a grey box.
  */
+
+/** A moment's ⋮ menu (Chris, 7 Nov 2026): only the actions it has are shown. */
+export interface MomentMenuActions { label: string; edit?: () => void; up?: () => void; down?: () => void; remove?: () => void }
+
+/**
+ * The preview's controls (Chris, 7 Nov 2026, point 6: "I am not able to tap the + buttons"): every "+" adds moments at
+ * that place, a moment's ⋮ edits / moves / deletes it, Edit Cover picks the cover, the title's ⋮ goes to the title
+ * field, Continue scrolls to the timeline. Without them the preview is display only.
+ */
+export interface PreviewControls {
+  /** A "+": add moments right after the moment with this key (null: first, under the cover). */
+  onAddAfter(key: string | null): void;
+  menuFor(key: string, index: number): MomentMenuActions | null;
+  cover: { onPhoto(): void; onVideo(): void; onRemove?: () => void };
+  onEditTitle(): void;
+  /** While a change is being saved: the controls wait. */
+  busy?: boolean;
+}
+
+/** Radix menus portal to <body>: above the Storeel page (z 99999) and its pickers. */
+const MENU_Z = { zIndex: 100002 };
+const MENU_ITEM = 'flex cursor-pointer items-center gap-2 px-3 py-2 text-sm text-gray-800 focus:bg-gray-100';
 
 /** The phone's frame around the screen (device CSS px, scaled with it). */
 const BEZEL = 10;
@@ -68,10 +91,11 @@ function useRoom(ref: React.RefObject<HTMLDivElement>) {
   return room;
 }
 
-export default function StoreelLivePreview({ input, avatarUrl, avatarColor }: {
+export default function StoreelLivePreview({ input, avatarUrl, avatarColor, controls }: {
   input: StoreelPreviewInput;
   avatarUrl?: string | null;
   avatarColor?: string | null;
+  controls?: PreviewControls;
 }) {
   const m = storeelPreviewModel(input);
   const color = brandCoverColor(avatarColor);
@@ -85,6 +109,13 @@ export default function StoreelLivePreview({ input, avatarUrl, avatarColor }: {
   // A new phone starts at the top of the Storeel.
   const screenRef = useRef<HTMLDivElement>(null);
   useEffect(() => { screenRef.current?.scrollTo?.(0, 0); }, [device.id]);
+  // Continue: down to the timeline (the first moment), inside the phone.
+  const momentsRef = useRef<HTMLUListElement>(null);
+  const toTimeline = () => {
+    const screen = screenRef.current;
+    const list = momentsRef.current;
+    if (screen && list) screen.scrollTo?.({ top: Math.max(0, list.offsetTop - 24), behavior: 'smooth' });
+  };
 
   // The initial sits in the cover's upper part (as the brand logo does, centerY 0.3), clear of the details at its foot.
   const initialCover = (
@@ -130,14 +161,25 @@ export default function StoreelLivePreview({ input, avatarUrl, avatarColor }: {
               className="relative h-full w-full overflow-y-auto overflow-x-hidden bg-white text-gray-900 focus:outline-none focus-visible:ring-4 focus-visible:ring-[#6C60FF]/50 [&::-webkit-scrollbar]:hidden"
               style={{ width: device.width, height: device.height, borderRadius: screenRadius, scrollbarWidth: 'none' }}
             >
-              <Cover m={m} width={device.width} height={device.height} color={color} avatarUrl={avatarUrl} initialCover={initialCover} />
+              <Cover m={m} width={device.width} height={device.height} color={color} avatarUrl={avatarUrl} initialCover={initialCover} controls={controls} onContinue={toTimeline} />
               {/* Moment cards: every moment, in order (the page scrolls inside the phone) */}
-              <ul data-testid="storeel-preview-moments" aria-label="Moments" className="relative z-10 px-4" style={{ marginTop: -CARD_OVERLAP }}>
+              <ul ref={momentsRef} data-testid="storeel-preview-moments" aria-label="Moments" className="relative z-10 px-4" style={{ marginTop: -CARD_OVERLAP }}>
                 {m.momentCards.length ? m.momentCards.map((moment, i) => (
-                  <li key={moment.key} data-moment-kind={moment.kind}>
+                  <li key={moment.key} data-moment-kind={moment.kind} data-moment-key={moment.key}>
                     {/* Figma: purple between moments and before the first campaign card, grey after a campaign card. */}
-                    {i > 0 ? <div className="my-[18px]"><Divider subtle={isCampaignCard(m.momentCards[i - 1])} /></div> : null}
-                    <MomentCard moment={moment} author={m.author} initial={m.initial} avatarUrl={avatarUrl} color={color} />
+                    {i > 0 ? (
+                      <div className="my-[18px]">
+                        <Divider subtle={isCampaignCard(m.momentCards[i - 1])} controls={controls}
+                          label={`Add a moment after ${momentLabel(m.momentCards[i - 1])}`} onAdd={() => controls?.onAddAfter(m.momentCards[i - 1].key)} />
+                      </div>
+                    ) : null}
+                    <MomentCard moment={moment} author={m.author} initial={m.initial} avatarUrl={avatarUrl} color={color} menu={controls?.menuFor(moment.key, i) ?? null} busy={controls?.busy} />
+                    {/* After the last moment: one more "+" (Chris: "+ after moments"). */}
+                    {controls && i === m.momentCards.length - 1 ? (
+                      <div className="mt-[18px]">
+                        <Divider subtle={isCampaignCard(moment)} controls={controls} label="Add a moment at the end" onAdd={() => controls.onAddAfter(moment.key)} />
+                      </div>
+                    ) : null}
                   </li>
                 )) : (
                   <li>
@@ -167,7 +209,9 @@ type Model = ReturnType<typeof storeelPreviewModel>;
  * The full-screen cover (Figma "Story Details - Cover"): the picture fills the phone's first screen; the details sit
  * at its bottom over a dark fade, ending with "Timeline • N moments" and the divider the first card follows.
  */
-function Cover({ m, width, height, color, avatarUrl, initialCover }: { m: Model; width: number; height: number; color: string; avatarUrl?: string | null; initialCover: ReactNode }) {
+function Cover({ m, width, height, color, avatarUrl, initialCover, controls, onContinue }: {
+  m: Model; width: number; height: number; color: string; avatarUrl?: string | null; initialCover: ReactNode; controls?: PreviewControls; onContinue(): void;
+}) {
   const chip = 'flex items-center justify-center bg-black/25 text-white backdrop-blur-sm';
   return (
     <div className="relative overflow-hidden" style={{ height }} data-testid="storeel-preview-cover" data-cover-kind={m.coverKind ?? 'none'}>
@@ -186,10 +230,28 @@ function Cover({ m, width, height, color, avatarUrl, initialCover }: { m: Model;
           judgeBox={{ width, height: width }} />
       ) : initialCover}
       <div className="pointer-events-none absolute inset-0" style={{ background: 'linear-gradient(to bottom, rgba(0,0,0,0) 38%, rgba(0,0,0,0.45) 62%, rgba(0,0,0,0.82) 100%)' }} />
-      {/* Edit Cover / close, as in the design (display only) */}
-      <div aria-hidden="true" className="absolute left-[27px] right-[28px] top-[18px] flex items-center justify-between">
-        <span className={`${chip} h-10 gap-2 rounded-full px-4 text-[12.5px] font-medium`}><SquarePen className="h-[18px] w-[18px]" />Edit Cover</span>
-        <span className={`${chip} h-[42px] w-[42px] rounded-full`}><X className="h-5 w-5" /></span>
+      {/* Edit Cover: the form's Cover photo / Intro video pickers (Chris, 7 Nov 2026). The design's ✕ closes the app's
+          screen, which means nothing here, so it is not drawn. */}
+      <div className="absolute left-[27px] top-[18px] flex items-center">
+        {controls ? (
+          <DropdownMenu modal={false}>
+            <DropdownMenuTrigger asChild>
+              <button type="button" disabled={controls.busy} data-testid="storeel-preview-edit-cover"
+                className={`${chip} h-10 gap-2 rounded-full px-4 text-[12.5px] font-medium hover:bg-black/40 focus:outline-none focus-visible:ring-4 focus-visible:ring-white/70`}>
+                <SquarePen className="h-[18px] w-[18px]" aria-hidden="true" />Edit Cover
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" style={MENU_Z} className="bg-white">
+              <DropdownMenuItem className={MENU_ITEM} onSelect={() => controls.cover.onPhoto()}><ImageIcon className="h-4 w-4" aria-hidden="true" />Cover photo</DropdownMenuItem>
+              <DropdownMenuItem className={MENU_ITEM} onSelect={() => controls.cover.onVideo()}><Video className="h-4 w-4" aria-hidden="true" />Intro video</DropdownMenuItem>
+              {controls.cover.onRemove ? (
+                <DropdownMenuItem className={`${MENU_ITEM} text-red-600 focus:text-red-600`} onSelect={() => controls.cover.onRemove?.()}><X className="h-4 w-4" aria-hidden="true" />Remove cover</DropdownMenuItem>
+              ) : null}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ) : (
+          <span aria-hidden="true" className={`${chip} h-10 gap-2 rounded-full px-4 text-[12.5px] font-medium`}><SquarePen className="h-[18px] w-[18px]" />Edit Cover</span>
+        )}
       </div>
       <div className="absolute inset-x-0 bottom-0 px-4 text-white" style={{ paddingBottom: CARD_OVERLAP + 18 }}>
         <div className="flex h-[35px] items-center gap-[5px]">
@@ -204,7 +266,14 @@ function Cover({ m, width, height, color, avatarUrl, initialCover }: { m: Model;
         {m.title ? (
           <div className="mt-1 flex min-h-[36px] items-start gap-3">
             <p data-testid="storeel-preview-title" className="line-clamp-2 min-w-0 flex-1 break-words text-[29px] font-bold leading-[36px]">{m.title}</p>
-            <span aria-hidden="true" className="mt-[5px] flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md bg-black/30"><MoreVertical className="h-4 w-4" /></span>
+            {controls ? (
+              <button type="button" onClick={controls.onEditTitle} aria-label="Edit the campaign's title and details" data-testid="storeel-preview-title-menu"
+                className="mt-[5px] flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md bg-black/30 hover:bg-black/50 focus:outline-none focus-visible:ring-4 focus-visible:ring-white/70">
+                <MoreVertical className="h-4 w-4" aria-hidden="true" />
+              </button>
+            ) : (
+              <span aria-hidden="true" className="mt-[5px] flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md bg-black/30"><MoreVertical className="h-4 w-4" /></span>
+            )}
           </div>
         ) : null}
         {m.location || m.dateRange ? (
@@ -219,24 +288,65 @@ function Cover({ m, width, height, color, avatarUrl, initialCover }: { m: Model;
         </div>
         <div className="mt-[17px] flex h-[39px] items-center justify-between gap-3 pl-2 pr-0.5">
           <p className="min-w-0 truncate"><span className="text-[16px] font-bold">Timeline</span><span className="text-[13.5px]"> • {m.moments}</span></p>
-          {/* The app's Continue (display only) */}
-          <span aria-hidden="true" className="flex h-[39px] w-[103px] flex-shrink-0 items-center justify-center rounded-lg border border-gray-200 bg-white text-[12.5px] text-gray-900 shadow-sm">Continue</span>
+          {/* The app's Continue: down to the timeline. */}
+          {controls ? (
+            <button type="button" onClick={onContinue} data-testid="storeel-preview-continue"
+              className="flex h-[39px] w-[103px] flex-shrink-0 items-center justify-center rounded-lg border border-gray-200 bg-white text-[12.5px] text-gray-900 shadow-sm hover:bg-gray-50 focus:outline-none focus-visible:ring-4 focus-visible:ring-white/70">
+              Continue
+            </button>
+          ) : (
+            <span aria-hidden="true" className="flex h-[39px] w-[103px] flex-shrink-0 items-center justify-center rounded-lg border border-gray-200 bg-white text-[12.5px] text-gray-900 shadow-sm">Continue</span>
+          )}
         </div>
-        <div className="mt-[25px]"><Divider /></div>
+        <div className="mt-[25px]"><Divider controls={controls} label="Add a moment at the start" onAdd={() => controls?.onAddAfter(null)} /></div>
       </div>
     </div>
   );
 }
 
-/** The line with the round + between the timeline's items (display only). */
-function Divider({ subtle = false }: { subtle?: boolean }) {
+/** The line with the round + between the timeline's items: a button that adds moments there (with controls). */
+function Divider({ subtle = false, controls, label = '', onAdd }: { subtle?: boolean; controls?: PreviewControls; label?: string; onAdd?: () => void }) {
+  const circle = `relative flex h-[33px] w-[33px] items-center justify-center rounded-full border bg-[#F3F4F6] ${subtle ? 'border-gray-200 text-gray-400' : 'border-[#6C60FF] text-[#6C60FF]'}`;
   return (
-    <div aria-hidden="true" className="relative flex items-center justify-center">
-      <span className={`absolute inset-x-0 top-1/2 h-px ${subtle ? 'bg-gray-200' : 'bg-[#6C60FF]'}`} />
-      <span className={`relative flex h-[33px] w-[33px] items-center justify-center rounded-full border bg-[#F3F4F6] ${subtle ? 'border-gray-200 text-gray-400' : 'border-[#6C60FF] text-[#6C60FF]'}`}>
-        <Plus className="h-4 w-4" />
-      </span>
+    <div aria-hidden={controls ? undefined : true} className="relative flex items-center justify-center">
+      <span aria-hidden="true" className={`absolute inset-x-0 top-1/2 h-px ${subtle ? 'bg-gray-200' : 'bg-[#6C60FF]'}`} />
+      {controls ? (
+        // A 44 px hit area (device px) around the drawn 33 px circle.
+        <button type="button" onClick={onAdd} disabled={controls.busy} aria-label={label} data-testid="storeel-preview-add"
+          className="group relative -my-[5.5px] flex h-11 w-11 items-center justify-center rounded-full focus:outline-none disabled:cursor-wait">
+          <span className={`${circle} transition-colors group-hover:bg-[#6C60FF] group-hover:text-white group-focus-visible:ring-4 group-focus-visible:ring-[#6C60FF]/50`}>
+            <Plus className="h-4 w-4" aria-hidden="true" />
+          </span>
+        </button>
+      ) : (
+        <span className={circle}><Plus className="h-4 w-4" /></span>
+      )}
     </div>
+  );
+}
+
+/** How a moment is named in the controls' labels. */
+function momentLabel(moment: PreviewMoment): string {
+  const caption = moment.kind === 'photo' ? moment.caption.split('\n')[0] : '';
+  return moment.title || caption || (moment.kind === 'photo' ? (moment.video ? 'this video' : 'this photo') : 'this moment');
+}
+
+/** A moment's ⋮: Edit Moment / Move up / Move down / Delete (only those it has). */
+function MomentMenu({ menu, busy, className, iconClass = 'h-[18px] w-[18px]' }: { menu: MomentMenuActions; busy?: boolean; className: string; iconClass?: string }) {
+  return (
+    <DropdownMenu modal={false}>
+      <DropdownMenuTrigger asChild>
+        <button type="button" disabled={busy} aria-label={`Moment actions: ${menu.label}`} data-testid="storeel-preview-moment-menu" className={className}>
+          <MoreVertical className={iconClass} aria-hidden="true" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" style={MENU_Z} className="bg-white">
+        {menu.edit ? <DropdownMenuItem className={MENU_ITEM} onSelect={() => menu.edit?.()}><Pencil className="h-4 w-4" aria-hidden="true" />Edit Moment</DropdownMenuItem> : null}
+        {menu.up ? <DropdownMenuItem className={MENU_ITEM} onSelect={() => menu.up?.()}><ArrowUp className="h-4 w-4" aria-hidden="true" />Move up</DropdownMenuItem> : null}
+        {menu.down ? <DropdownMenuItem className={MENU_ITEM} onSelect={() => menu.down?.()}><ArrowDown className="h-4 w-4" aria-hidden="true" />Move down</DropdownMenuItem> : null}
+        {menu.remove ? <DropdownMenuItem className={`${MENU_ITEM} text-red-600 focus:text-red-600`} onSelect={() => menu.remove?.()}><Trash2 className="h-4 w-4" aria-hidden="true" />Delete</DropdownMenuItem> : null}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
@@ -263,7 +373,7 @@ function Avatar({ url, initial, color, size }: { url?: string | null; initial: s
     );
 }
 
-function AuthorRow({ author, initial, avatarUrl, color }: { author: string; initial: string; avatarUrl?: string | null; color: string }) {
+function AuthorRow({ author, initial, avatarUrl, color, menu = null, busy }: { author: string; initial: string; avatarUrl?: string | null; color: string; menu?: MomentMenuActions | null; busy?: boolean }) {
   return (
     <div className="flex items-center gap-2">
       <Avatar url={avatarUrl} initial={initial} color={color} size={35} />
@@ -271,8 +381,12 @@ function AuthorRow({ author, initial, avatarUrl, color }: { author: string; init
       <span aria-hidden="true" className="flex flex-shrink-0 items-center gap-3 text-[13px] text-gray-900">
         <span className="flex items-center gap-1"><Heart className="h-[18px] w-[18px]" aria-hidden="true" />0</span>
         <span className="flex items-center gap-1"><MessageSquare className="h-[18px] w-[18px]" aria-hidden="true" />0</span>
-        <MoreVertical className="h-[18px] w-[18px]" aria-hidden="true" />
+        {menu ? null : <MoreVertical className="h-[18px] w-[18px]" aria-hidden="true" />}
       </span>
+      {menu ? (
+        <MomentMenu menu={menu} busy={busy}
+          className="-my-2 -mr-2 flex h-11 w-9 flex-shrink-0 items-center justify-center rounded-md text-gray-900 hover:bg-gray-100 focus:outline-none focus-visible:ring-4 focus-visible:ring-[#6C60FF]/50" />
+      ) : null}
     </div>
   );
 }
@@ -288,7 +402,9 @@ function PlaceAndDate({ location, date }: { location: string; date: string }) {
 }
 
 /** One moment as the published campaign shows it (PublishedMemoryPage / the campaign page's timeline). */
-function MomentCard({ moment, author, initial, avatarUrl, color }: { moment: PreviewMoment; author: string; initial: string; avatarUrl?: string | null; color: string }) {
+function MomentCard({ moment, author, initial, avatarUrl, color, menu = null, busy }: {
+  moment: PreviewMoment; author: string; initial: string; avatarUrl?: string | null; color: string; menu?: MomentMenuActions | null; busy?: boolean;
+}) {
   if (moment.kind === 'photo' || moment.kind === 'product') {
     // The campaign page: the moment's title, then its caption (a product's caption is made from the website by the API).
     const caption = moment.kind === 'photo' ? moment.caption : '';
@@ -297,7 +413,7 @@ function MomentCard({ moment, author, initial, avatarUrl, color }: { moment: Pre
         <Card>
           <MomentPicture src={moment.image} video={moment.kind === 'photo' && moment.video} />
           <div className="px-[21px] pb-[22px] pt-[21px]">
-            <AuthorRow author={author} initial={initial} avatarUrl={avatarUrl} color={color} />
+            <AuthorRow author={author} initial={initial} avatarUrl={avatarUrl} color={color} menu={menu} busy={busy} />
             <PlaceAndDate location={moment.location} date={moment.date} />
             {moment.title ? <p className="mt-[6px] line-clamp-2 break-words text-[18.5px] font-bold leading-[26px] text-[#1A1A1A]">{moment.title}</p> : null}
             {caption ? <p className="mt-[6px] line-clamp-3 whitespace-pre-line break-words text-[14.5px] leading-[21px] text-[#364153]">{caption}</p> : null}
@@ -322,6 +438,10 @@ function MomentCard({ moment, author, initial, avatarUrl, color }: { moment: Pre
     <div className="relative aspect-[370/281] overflow-hidden rounded-[20px] bg-gray-200 text-white">
       {moment.image ? <img src={moment.image} alt="" className="absolute inset-0 h-full w-full object-cover" /> : null}
       <div className="absolute inset-0" style={{ background: 'linear-gradient(to bottom, rgba(0,0,0,0) 45%, rgba(0,0,0,0.75) 100%)' }} />
+      {menu ? (
+        <MomentMenu menu={menu} busy={busy}
+          className="absolute right-2 top-2 flex h-11 w-11 items-center justify-center rounded-full bg-black/30 text-white backdrop-blur-sm hover:bg-black/50 focus:outline-none focus-visible:ring-4 focus-visible:ring-white/70" />
+      ) : null}
       <div className="absolute inset-x-0 bottom-0 px-4 pb-4">
         <p className="line-clamp-2 break-words text-[24px] font-bold leading-[30px]">{moment.title || 'Untitled'}</p>
         {details.length ? <p className="mt-1 truncate text-[14px]">{details.join(' · ')}</p> : null}

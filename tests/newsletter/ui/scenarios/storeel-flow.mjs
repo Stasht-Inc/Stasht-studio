@@ -91,7 +91,8 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
       await expectVisible(step(page, id).getByRole('heading', { name, exact: true }), `${tag}: card ${name} open`);
     }
     expect((await step(page, 'st-step-send').textContent()).includes(OPTIONAL), `${tag}: Send says it is optional`);
-    expect(!(await flow(page).getByRole('button', { name: /^(Continue|Done)$/ }).count()), `${tag}: no Continue / Done`);
+    // (The phone preview's own Continue scrolls the phone to its timeline — Chris 7 Nov — and is not a flow step.)
+    expect(!(await flow(page).getByRole('button', { name: /^(Continue|Done)$/ }).evaluateAll((bs) => bs.filter((b) => !b.closest('[data-testid="storeel-preview"]')).length)), `${tag}: no Continue / Done`);
     expect(!(await page.locator('header').getByRole('button', { name: /Save as Draft|Save & Send|Send Now/ }).count()), `${tag}: no action in the top bar`);
     expect(!(await page.getByText('Press Continue').count()), `${tag}: no "Press Continue…" text`);
     expect(await button(page, 'Save & Send').isDisabled(), `${tag}: Save & Send off until Send is filled in`);
@@ -150,8 +151,8 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
     expect(!(await hasOverflow(page)), `${tag}: no sideways scroll`);
     await step(page, 'st-step-moments').scrollIntoViewIfNeeded();
     await shot(page, `${tag}-02-three-moments`);
-    // Chris's Figma (6 Nov 2026) shows the app's Continue on the cover: drawn in the preview, never a button there.
-    expect(!(await page.getByTestId('storeel-preview').getByRole('button').count()), `${tag}: nothing in the preview is a button`);
+    // Chris, 7 Nov 2026 (point 6): the preview's controls are real buttons now, each with a name (storeel-preview-controls).
+    expect(await page.getByTestId('storeel-preview').getByRole('button').evaluateAll((bs) => bs.length > 0 && bs.every((b) => (b.getAttribute('aria-label') || b.textContent || '').trim())), `${tag}: the preview's controls are named buttons`);
     // The actions come right after the Send card (phones: before the preview, so they're reached after the form).
     const actionsBox = await page.locator('#st-actions').boundingBox();
     const sendBox = await step(page, 'st-step-send').boundingBox();

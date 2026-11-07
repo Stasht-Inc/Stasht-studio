@@ -74,7 +74,7 @@ async function phoneGeometry(page) {
     const k = r.width / scr.offsetWidth; // the phone's scale on the page
     const y = (el) => (el ? { top: (el.getBoundingClientRect().top - r.top + scr.scrollTop * k) / k, bottom: (el.getBoundingClientRect().bottom - r.top + scr.scrollTop * k) / k } : null);
     const timeline = [...cover.querySelectorAll('p')].find((p) => p.textContent.startsWith('Timeline'));
-    const cont = [...cover.querySelectorAll('span')].find((el) => el.textContent === 'Continue');
+    const cont = [...cover.querySelectorAll('span, button')].find((el) => el.textContent === 'Continue');
     const pills = document.querySelector('[data-testid="storeel-preview-category"]');
     const firstCard = document.querySelector('[data-testid="storeel-preview-moments"] > li');
     return {
@@ -201,7 +201,8 @@ export async function run({ open, shot, expect, hasOverflow }) {
     await page.waitForTimeout(250);
     expect(await screen(page).evaluate((el) => el.scrollTop) > 0, `${tag}: scrolled inside the phone`);
     await shot(page, `${tag}-04-scrolled-inside`);
-    expect(!(await page.getByTestId('storeel-preview').getByRole('button').count()), `${tag}: nothing in the preview is a button`);
+    // Chris, 7 Nov 2026 (point 6): the preview's controls are real buttons now, each with a name (storeel-preview-controls).
+    expect(await page.getByTestId('storeel-preview').getByRole('button').evaluateAll((bs) => bs.length > 0 && bs.every((b) => (b.getAttribute('aria-label') || b.textContent || '').trim())), `${tag}: the preview's controls are named buttons`);
 
     // ── A resized window: the phone follows (smaller when the window is shorter / narrower), still whole and in view ─
     const before = await phoneGeometry(page);
