@@ -93,7 +93,7 @@ export interface Lead {
   // 'widget' = captured by the Contact Us website widget (no campaign, no account).
   source?: 'memory' | 'widget';
   // Chris 7 Nov: a direct lead made from a newsletter list — its "Via" line reads "List: <name>".
-  source_list?: { id: number; name: string } | null;
+  source_list?: { id: number; name: string; added_at?: string | null } | null;
   status: 'hot' | 'warm' | 'cold' | 'visited' | 'sold' | null;
   engagement: number;
   comments: LeadComment[];

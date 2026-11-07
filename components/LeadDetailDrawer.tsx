@@ -2,6 +2,7 @@ import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import { Mail, Phone, MessageSquare, X, Paperclip, Send, ChevronDown, Smile, RefreshCw, Eye, Sparkles, Search, Heart, Gift, Calendar, MessageCircle, ThumbsUp, TrendingUp, Lightbulb, FileText, UserRound, Plus, ChevronLeft } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from './ui/avatar';
 import { Lead, LeadMessage, LeadMessageAttachment, leadsAPI, CommentaryTarget, messageChannelLabel, WidgetAiState } from '../services/leadsAPI';
+import { listAddedAt } from '../utils/leadVia';
 import { useAuth } from '../contexts/AuthContext';
 import { useMemoryLimit, recheckMemoryLimit } from '../hooks/useMemoryLimit';
 import { useDialogBehavior } from '../hooks/useDialogBehavior';
@@ -1198,7 +1199,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
                       <span className="text-sm text-gray-600 flex-1">
                         {firstName} was added from the list <span className="font-medium text-gray-600">"{lead.source_list.name.trim()}"</span>
                       </span>
-                      <span className="text-sm text-gray-600 shrink-0">{formatShortDate(lead.first_seen_at)}</span>
+                      <span className="text-sm text-gray-600 shrink-0">{formatShortDate(listAddedAt(lead) ?? lead.first_seen_at)}</span>
                     </div>
                   )}
 

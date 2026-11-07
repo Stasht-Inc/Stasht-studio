@@ -17,7 +17,7 @@ const lead = (id, name, email, phone, extra) => ({
 
 export async function run({ open, expectVisible, expect }) {
   const inboxLeads = [
-    lead(1, 'Jordan Price', 'jordan@example.com', '+14165550101', { engagement: 0, source_list: { id: 4, name: 'Subscriber list sept 30th 2026' } }),
+    lead(1, 'Jordan Price', 'jordan@example.com', '+14165550101', { engagement: 0, first_seen_at: '2024-01-05T15:00:00Z', source_list: { id: 4, name: 'Subscriber list sept 30th 2026', added_at: at(5) } }),
     lead(2, 'Sam Lee', 'sam@example.com', null, { story: { id: 9, title: 'Fall show' } }),
     lead(3, 'Walk In', 'walkin@example.com', null, {}),
   ];
@@ -35,6 +35,9 @@ export async function run({ open, expectVisible, expect }) {
     await page.waitForTimeout(600);
     await expectVisible(page.getByText(/was added from the list/).locator('visible=true').first(), `${width}: the thread says they were added from the list`);
     expect(await page.getByText(/viewed "a campaign"/).locator('visible=true').count() === 0, `${width}: not "viewed a campaign"`);
+    // Dated when they were added to the list (today), not their 2024 consent date.
+    const row = page.getByText(/was added from the list/).locator('visible=true').first().locator('xpath=..');
+    expect(!(await row.innerText()).includes('Jan'), `${width}: the row shows the date they were added`);
     await page.screenshot({ path: `${SHOTS}/list-leads-${width}-open.png` });
     await context.close();
   }
