@@ -266,6 +266,21 @@ function checkWhole(tag, info, { color, aspect }) {
     expect(info.img.radius === '0px' && info.img.shadow === 'none' && info.img.filter === 'none' && info.img.opacity === '1', `${tag}: a plain rectangle (no ring, radius or shadow)`);
   }
 }
+/** White text's contrast against what is behind the title (sampled just left of it, at its middle). */
+async function titleContrast(page, root, titleSel) {
+  const at = await root.evaluate((el, sel) => {
+    const node = [...el.querySelectorAll(sel)].find((n) => n.getBoundingClientRect().width > 0);
+    if (!node) return null;
+    const t = node.getBoundingClientRect();
+    return { x: Math.max(0, t.left - 6), y: t.top + t.height / 2 };
+  }, titleSel);
+  if (!at) return null;
+  const png = await page.screenshot({ clip: { x: at.x, y: at.y, width: 1, height: 1 } });
+  const { data } = await sharp(png).raw().toBuffer({ resolveWithObject: true });
+  const lin = (v) => { const c = v / 255; return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; };
+  const lum = 0.2126 * lin(data[0]) + 0.7152 * lin(data[1]) + 0.0722 * lin(data[2]);
+  return { ratio: 1.05 / (lum + 0.05), rgb: [data[0], data[1], data[2]] };
+}
 function checkFills(tag, info) {
   expect(info?.mode === 'cover', `${tag}: the photo fills it (mode=${info?.mode}, kind=${info?.kind})`);
   if (info?.img) expect(info.img.fit === 'cover' && info.img.w === info.box.w && info.img.h === info.box.h && info.img.opacity === '1', `${tag}: edge to edge (${info.img.w}x${info.img.h} of ${info.box.w}x${info.box.h}, ${info.img.fit})`);
@@ -296,6 +311,13 @@ try {
       checkSolidLogo(`${tag} card logo on white (a card)`, await cover(cardButton(page, 'Green Grocer').locator('[data-cover-mode]').first()), { color: '#16803E', aspect: 500 / 300, frame: true });
       checkWhole(`${tag} card white-wall headshot (unsure → whole)`, await cover(cardButton(page, 'Open House Weekend').locator('[data-cover-mode]').first()), { color: '#F5F5F2', aspect: 480 / 600 });
       checkWhole(`${tag} card JPEG logo (unsure → whole)`, await cover(cardButton(page, 'Signing Day').locator('[data-cover-mode]').first()), { color: '#FFFFFF', aspect: 3 });
+      // Light fills: the white title must read (>= 4.5:1 against what is behind it).
+      for (const title of ['Signing Day', 'Open House Weekend']) {
+        const card = cardButton(page, title);
+        await card.scrollIntoViewIfNeeded();
+        const c = await titleContrast(page, card, 'h3');
+        expect(c.ratio >= 4.5, `${tag} ${title}: white title contrast ${c.ratio.toFixed(2)}:1 on rgb(${c.rgb})`);
+      }
       expect(asked.length === 0, `${tag}: the grid asked nothing separately (${asked.length} asks)`);
 
       for (const title of ['Joyful Summer at the Lake House', 'Joyful Day at the Mill Pond']) {
@@ -386,7 +408,11 @@ try {
       const info = await cover(pc);
       if (slug === 'royal' || slug === 's3-royal') checkSolidLogo(`${tag} published page signed out (${slug})`, info);
       else if (slug === 'selfie' || slug === 's3-selfie') checkFills(`${tag} published page signed out (${slug})`, info);
-      else if (slug === 'wall') checkWhole(`${tag} published page signed out (white-wall headshot)`, info, { color: '#F5F5F2', aspect: 480 / 600 });
+      else if (slug === 'wall') {
+        checkWhole(`${tag} published page signed out (white-wall headshot)`, info, { color: '#F5F5F2', aspect: 480 / 600 });
+        const c = await titleContrast(page, page.locator('body'), 'h1.text-white');
+        if (c) expect(c.ratio >= 4.5, `${tag} published page (white wall): white title contrast ${c.ratio.toFixed(2)}:1 on rgb(${c.rgb})`);
+      }
       await page.screenshot({ path: `${OUT}/${tag}-${n}-published-${slug}.png` });
       await context.close();
     }

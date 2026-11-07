@@ -110,6 +110,19 @@ function containRect(natural: CoverSize, box: CoverSize, fraction: number): Camp
   return { mode: 'contain', shape: 'rect', width: Math.round(natural.width * scale), height: Math.round(natural.height * scale) };
 }
 
+/**
+ * A brand fill white text wouldn't read on (contrast under 4.5:1, WCAG): the cover then gets a stronger bottom scrim
+ * behind the title / meta (Chris 7 Nov review: "Signing Day" on a white fill was faint). #RRGGBB only.
+ */
+export function lightCoverFill(color?: string | null): boolean {
+  const m = /^#([0-9a-f]{6})$/i.exec(String(color ?? '').trim());
+  if (!m) return false;
+  const n = parseInt(m[1], 16);
+  const lin = (v: number) => { const c = v / 255; return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; };
+  const lum = 0.2126 * lin((n >> 16) & 255) + 0.7152 * lin((n >> 8) & 255) + 0.0722 * lin(n & 255);
+  return 1.05 / (lum + 0.05) < 4.5;
+}
+
 /** The colour behind a contained cover: the account's profile colour (stored with or without #), else Studio purple. */
 export function brandCoverColor(color?: string | null): string {
   const c = String(color ?? '').trim();
