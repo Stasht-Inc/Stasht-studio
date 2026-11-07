@@ -110,7 +110,11 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
   expect(!/email/.test(await estimateText()), `the refused email isn't counted (got "${await estimateText()}")`);
   await page.locator('#nl-subject').fill('Hi');
   await page.getByRole('button', { name: 'Send Now' }).first().click();
-  await expectVisible(step.locator('[role="alert"]').filter({ hasText: "This email address has unsubscribed" }), 'Recipients step says why');
+  // Chris (7 Nov) / review I1: said under the Email address box only (not again under Send to), and that box has focus.
+  await expectVisible(step.locator('#nl-person-email-error').filter({ hasText: 'This email address has unsubscribed' }), 'Recipients step says why, under the box');
+  expect(!(await step.locator('[role="alert"]').filter({ hasText: 'This email address has unsubscribed' }).count()), 'not repeated under Send to');
+  await page.waitForTimeout(800);
+  expect(await page.evaluate(() => document.activeElement?.id) === 'nl-person-email', 'Send focused the Email address box');
   expect(!api.state.calls.some((c) => /\/(send|schedule)$/.test(c.path)), 'nothing sent');
   await shot(page, '1280-06-unsubscribed');
 
@@ -122,7 +126,9 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
   await expectVisible(step.locator('#nl-person-phone-error').filter({ hasText: 'That email and phone belong to two different leads — use one.' }), 'two different leads');
   expect(/1 email/.test(await estimateText()) && !/text/.test(await estimateText()), `the refused phone isn't counted (got "${await estimateText()}")`);
   await page.getByRole('button', { name: 'Send Now' }).first().click();
-  await expectVisible(step.locator('[role="alert"]').filter({ hasText: 'two different leads' }), 'Send stops at Recipients');
+  // Chris (7 Nov) / review I1: said under the Phone box only, not again under Send to.
+  await expectVisible(step.locator('#nl-person-phone-error').filter({ hasText: 'two different leads' }), 'Send stops at Recipients (under the box)');
+  expect(!(await step.locator('[role="alert"]').filter({ hasText: 'two different leads' }).count()), 'not repeated under Send to');
   expect(!api.state.calls.some((c) => /\/(send|schedule)$/.test(c.path)), 'still nothing sent');
   await shot(page, '1280-07-two-leads');
 

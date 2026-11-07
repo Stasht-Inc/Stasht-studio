@@ -24,6 +24,8 @@ export interface PersonFieldsProps {
   fieldErrors: Record<string, string>;
   /** Send was pressed with a problem here: show every box's problem now, not only after leaving the box. */
   showProblems: boolean;
+  /** Chris (7 Nov): Send with nobody typed yet: said on the first box (the field to fill), not under Send to. */
+  missing?: boolean;
   onChange(audience: AudienceItem[]): void;
   /** An older draft's picked lead, once read back (for the step's summary). */
   onLeadName?(name: string | null): void;
@@ -49,7 +51,7 @@ const searchText = (fields: Fields, box: Box): string => {
  * [{type: 'person', email?, phone?}] (lib/person.ts); the API finds or creates their lead when it is sent.
  */
 const PersonFields = forwardRef<PersonFieldsHandle, PersonFieldsProps>(function PersonFields(
-  { audience, channels, counts, readOnly, enabled, fieldErrors, showProblems, onChange, onLeadName, idPrefix = 'nl' }, ref,
+  { audience, channels, counts, readOnly, enabled, fieldErrors, showProblems, missing = false, onChange, onLeadName, idPrefix = 'nl' }, ref,
 ) {
   const showEmail = channels.includes('email');
   const showPhone = channels.includes('sms');
@@ -156,8 +158,9 @@ const PersonFields = forwardRef<PersonFieldsHandle, PersonFieldsProps>(function 
   const box = personBoxProblems(fields, channels);
   const status = personStatusProblems(counts, channels);
   const errorFor = (b: Box): string | undefined => ((touched[b] || showProblems) ? box[b] : undefined) ?? apiError(fieldErrors, b) ?? status[b];
-  const emailError = errorFor('email');
-  const phoneError = errorFor('phone');
+  const missingLine = missing ? (showEmail && showPhone ? 'Type their email address or phone number.' : showEmail ? 'Type their email address.' : 'Type their phone number.') : undefined;
+  const emailError = errorFor('email') ?? (showEmail ? missingLine : undefined);
+  const phoneError = errorFor('phone') ?? (!showEmail ? missingLine : undefined);
 
   const listId = (b: Box) => `${idPrefix}-person-${b}-suggestions`;
   const optionId = (b: Box, i: number) => `${idPrefix}-person-${b}-suggestion-${i}`;

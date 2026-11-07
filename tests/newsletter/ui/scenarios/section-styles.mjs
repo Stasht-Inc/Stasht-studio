@@ -189,9 +189,9 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
   await page.keyboard.press('Shift+Tab');
   expect(await page.evaluate(() => document.activeElement?.getAttribute('aria-label')) === 'Bold', 'Shift+Tab from the words lands on Bold');
   await page.keyboard.press('End');
-  expect(await page.evaluate(() => document.activeElement?.getAttribute('aria-label')) === 'Section background', 'End moves to Section background');
+  expect(await page.evaluate(() => document.activeElement?.getAttribute('aria-label')) === 'Spacing: line spacing Normal, padding Normal', 'End moves to Spacing (the last control since Chris, 7 Nov)');
   await page.keyboard.press('ArrowLeft');
-  expect(await page.evaluate(() => document.activeElement?.getAttribute('aria-label')) === 'Text colour', 'ArrowLeft moves to Text colour');
+  expect(await page.evaluate(() => document.activeElement?.getAttribute('aria-label')) === 'Section background', 'ArrowLeft moves to Section background');
   await page.keyboard.press('Home');
   await text.click();
   expect(await oneRow(textBar), '1280: the text toolbar is one row');

@@ -45,7 +45,12 @@ export type SectionAlign = 'left' | 'center' | 'right';
  * Known app follow-up: the mobile app's newsletter editor (stasht-app-2026 feat/app-newsletters, not shipped) rebuilds
  * Title / Text data as {text, size} / {html} when it saves, so it would drop these keys (and the font-size spans).
  */
-export interface SectionStyle { align?: SectionAlign; color?: string; background_color?: string; background_image_url?: string }
+export interface SectionStyle extends SectionSpacing { align?: SectionAlign; color?: string; background_color?: string; background_image_url?: string }
+/** Chris (7 Nov; API NewsletterSpacing): line spacing (Title, Text) and the room above and below (Title, Text, Button,
+ *  Divider, Campaigns). Normal is never stored. */
+export type LineSpacing = 'tight' | 'normal' | 'relaxed';
+export type SectionPadding = 'none' | 'small' | 'normal' | 'large';
+export interface SectionSpacing { line_spacing?: LineSpacing; padding?: SectionPadding }
 /** The toolbar's font families (Chris, 6 Nov; lib/fonts.ts, the API's NewsletterFonts). No key: the usual font. */
 export type FontKey = 'arial' | 'helvetica' | 'georgia' | 'times' | 'verdana' | 'trebuchet' | 'tahoma' | 'courier';
 /** font: the whole title's font; bold false: normal weight (no key = bold, as every title was before). */
@@ -55,8 +60,8 @@ export interface TitleBlockData extends SectionStyle { text: string; size: Title
 export interface TextBlockData extends Omit<SectionStyle, 'background_image_url'> { html: string }
 export interface YoutubeBlockData { url: string }
 /** full_width / new_window (Chris, 6 Nov; API NewsletterContent::buttonOptions): only present when on. */
-export interface ButtonBlockData { label: string; url: string; color: string; full_width?: boolean; new_window?: boolean }
-export interface DividerBlockData { style: DividerStyle }
+export interface ButtonBlockData { label: string; url: string; color: string; full_width?: boolean; new_window?: boolean; padding?: SectionPadding }
+export interface DividerBlockData { style: DividerStyle; padding?: SectionPadding }
 /** What a Campaigns section can show (shared brief 2026-10-29): the owner's campaigns, Website Catalogue products
  *  and dealer vehicles. Products and vehicles link to their own page on the business's website. */
 export type CampaignKind = 'campaign' | 'product' | 'vehicle';
@@ -88,6 +93,8 @@ export interface CampaignsBlockData {
   /** Per-card edits for this newsletter only, keyed "<kind>:<id>" as in selections (shared brief 2026-10-29 round
    *  2). Every field is optional; empty or missing = the item's own value. The card's link can't be changed. */
   overrides?: CardOverrides;
+  /** The room above and below the section (Chris, 7 Nov). */
+  padding?: SectionPadding;
 }
 export type CampaignColumns = 1 | 2;
 /** One card's edits: image_url https (from POST /newsletters/images), title ≤ 120, description ≤ 300 (plain text,

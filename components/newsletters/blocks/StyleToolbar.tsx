@@ -38,7 +38,7 @@ const NARROW = '(max-width: 639px)';
  * list: a menu of choices (arrow keys move, the current choice has focus first). A wide panel on a phone is placed
  * below the section (above it when there is no room), never over it.
  */
-function ToolMenu({ label, trigger, children, open, onOpenChange, onCloseAutoFocus, wide = false, list = false }: {
+export function ToolMenu({ label, trigger, children, open, onOpenChange, onCloseAutoFocus, wide = false, list = false }: {
   label: string;
   trigger: ReactNode;
   children: ReactNode;
@@ -98,7 +98,7 @@ function ContrastNote() {
 }
 
 /** One choice in a list panel (Size, Align): a tick on the current one. */
-function MenuChoice({ label, checked, onPick, icon, style }: { label: string; checked: boolean; onPick(): void; icon?: ReactNode; style?: CSSProperties }) {
+export function MenuChoice({ label, checked, onPick, icon, style }: { label: string; checked: boolean; onPick(): void; icon?: ReactNode; style?: CSSProperties }) {
   return (
     <button type="button" role="menuitemradio" aria-checked={checked} onMouseDown={(e) => e.preventDefault()} onClick={onPick}
       className={`flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-sm text-gray-800 hover:bg-gray-100 ${FOCUS}`}>

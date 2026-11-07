@@ -8,6 +8,7 @@ import { textHtmlIsEmpty } from './textHtml.ts';
 import { sectionStyleOf } from './sectionStyle.ts';
 import { titleTypeOf } from './fonts.ts';
 import { buttonOptionsOf } from './buttonOptions.ts';
+import { spacingOf } from './sectionSpacing.ts';
 import { smallImageWidth } from './imageWidth.ts';
 import { NEW_SECTION_COLUMNS, campaignColumns, campaignIdsOf, normaliseCampaignItems, normaliseColumns, normaliseOverrides, normaliseSelections, overridesForInput } from './campaignsBlock.ts';
 
@@ -61,10 +62,10 @@ export function normaliseBlocks(raw: unknown): NewsletterBlock[] {
         break;
       }
       // Their style keys (Chris, 5 Nov) only when set, so an older section stays exactly as it was.
-      case 'title': out.push({ id, type: 'title', data: { text: str(d.text), size: TITLE_SIZES.includes(d.size as TitleSize) ? (d.size as TitleSize) : 'medium', ...sectionStyleOf(d, true), ...titleTypeOf(d) } }); break;
-      case 'text': out.push({ id, type: 'text', data: { html: str(d.html), ...sectionStyleOf(d, false) } }); break;
+      case 'title': out.push({ id, type: 'title', data: { text: str(d.text), size: TITLE_SIZES.includes(d.size as TitleSize) ? (d.size as TitleSize) : 'medium', ...sectionStyleOf(d, true), ...titleTypeOf(d), ...spacingOf(d, true) } }); break;
+      case 'text': out.push({ id, type: 'text', data: { html: str(d.html), ...sectionStyleOf(d, false), ...spacingOf(d, true) } }); break;
       case 'youtube': out.push({ id, type: 'youtube', data: { url: str(d.url) } }); break;
-      case 'button': out.push({ id, type: 'button', data: { label: str(d.label), url: str(d.url), color: safeHexColor(d.color, DEFAULT_BUTTON_COLOR), ...buttonOptionsOf(d) } }); break;
+      case 'button': out.push({ id, type: 'button', data: { label: str(d.label), url: str(d.url), color: safeHexColor(d.color, DEFAULT_BUTTON_COLOR), ...buttonOptionsOf(d), ...spacingOf(d, false) } }); break;
       // The API's snapshot (items) comes back on every save; Studio never sends it (blocksToInput). A block saved
       // before products and vehicles has campaign_ids only: those are campaign selections. columns is left out
       // when the API has none (an older section: 1 column, and it stays so until the person changes it).
@@ -73,11 +74,11 @@ export function normaliseBlocks(raw: unknown): NewsletterBlock[] {
         const columns = normaliseColumns(d.columns);
         const overrides = normaliseOverrides(d.overrides);
         out.push({ id, type: 'campaigns', data: {
-          selections, campaign_ids: campaignIdsOf(selections), items: normaliseCampaignItems(d.items), ...(columns ? { columns } : {}), ...(overrides ? { overrides } : {}),
+          selections, campaign_ids: campaignIdsOf(selections), items: normaliseCampaignItems(d.items), ...(columns ? { columns } : {}), ...(overrides ? { overrides } : {}), ...spacingOf(d, false),
         } });
         break;
       }
-      default: out.push({ id, type: 'divider', data: { style: d.style === 'space' ? 'space' : 'line' } });
+      default: out.push({ id, type: 'divider', data: { style: d.style === 'space' ? 'space' : 'line', ...spacingOf(d, false) } });
     }
   }
   return out;
@@ -207,7 +208,7 @@ export function blocksToInput(blocks: readonly NewsletterBlock[]): NewsletterBlo
     const selections = campaignSelections(b.data);
     const overrides = overridesForInput(b.data.overrides, selections);
     return { id: b.id, type: 'campaigns', data: {
-      selections, campaign_ids: campaignIdsOf(selections), columns: campaignColumns(b.data), ...(Object.keys(overrides).length ? { overrides } : {}),
+      selections, campaign_ids: campaignIdsOf(selections), columns: campaignColumns(b.data), ...(Object.keys(overrides).length ? { overrides } : {}), ...spacingOf(b.data as unknown as Record<string, unknown>, false),
     } };
   });
 }

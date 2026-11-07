@@ -5,6 +5,8 @@ import { LIMITS } from '../lib/rules';
 import { toHttpsUrl } from '../lib/urls';
 import { LABEL, PURPLE, inputClass } from '../lib/ui';
 import type { BlockEditorProps } from './types';
+import { PaddingSwitch } from './SpacingMenu';
+import { spacingOf, spacingPatch } from '../lib/sectionSpacing';
 import { useUrlField } from './useUrlField';
 import { buttonOptionPatch, buttonOptionsOf, type ButtonOption } from '../lib/buttonOptions';
 
@@ -50,6 +52,7 @@ export default function ButtonBlockEditor({ blockId, data, selected, readOnly, o
           <div className="sm:col-span-2">
             <ColorSwatches label="Button colour" idPrefix={`${blockId}-color`} value={color} onChange={(c) => onChange({ color: c })} />
           </div>
+          <PaddingSwitch className="sm:col-span-2" value={spacingOf(data as unknown as Record<string, unknown>, false).padding ?? 'normal'} onChange={(padding) => onChange(spacingPatch({ padding }))} />
         </div>
       ) : null}
     </div>

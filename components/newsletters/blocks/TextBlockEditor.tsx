@@ -11,6 +11,8 @@ import { AlignMenu, BackgroundMenu, FontMenu, SizeMenu, TextColorMenu, ToolbarDi
 import { toHttpsUrl } from '../lib/urls';
 import { BUTTON_PRIMARY, LABEL, LAYER, inputClass } from '../lib/ui';
 import type { BlockEditorProps } from './types';
+import { SpacingMenu } from './SpacingMenu';
+import { FLUSH_END_CLASS, SPACED_TEXT_CLASS, spacingOf, spacingPatch, spanLineHeight, textSpacingStyle, toolbarGap } from '../lib/sectionSpacing';
 
 /** The email's text styles (blocks/text.blade.php + NewsletterRenderer::styleText): 16/26 px, grey-700. Links take
  *  --nl-link (purple unless the section is a dark band, lib/sectionStyle.ts textLinkColor). */
@@ -33,7 +35,8 @@ export function renderTextNodes(nodes: TextNode[], prefix = 'n'): ReactNode[] {
 function sizeStyle(px: number | null, font?: FontKey): CSSProperties {
   const size = px === null ? null : textSizeOf(px);
   return {
-    ...(px !== null ? { fontSize: `${px}px`, lineHeight: `${size?.lineHeight ?? 26}px` } : {}),
+    // The line height follows the section's line spacing (Chris, 7 Nov; lib/sectionSpacing.ts): normal unless it is set.
+    ...(px !== null ? { fontSize: `${px}px`, lineHeight: spanLineHeight(px, size?.lineHeight ?? 26) } : {}),
     ...(font ? { fontFamily: fontStack(font) } : {}),
   };
 }
@@ -271,6 +274,8 @@ export default function TextBlockEditor({ blockId, data, selected, readOnly, onC
   // BlockFrame). The links' colour follows the band (textLinkColor).
   const look = sectionLook(data as unknown as Record<string, unknown>, false, TEXT_INK);
   const style = sectionStyleOf(data as unknown as Record<string, unknown>, false);
+  // Line spacing and padding (Chris, 7 Nov).
+  const spacing = spacingOf(data as unknown as Record<string, unknown>, true);
 
   // Font size: on the selected words; with nothing selected, on the whole section. The size where the caret is shows
   // on the button.
@@ -344,7 +349,7 @@ export default function TextBlockEditor({ blockId, data, selected, readOnly, onC
   return (
     <div className="relative">
       {selected && !readOnly ? (
-        <div ref={roving.ref} onFocus={roving.onFocus} onKeyDown={roving.onKeyDown} role="toolbar" aria-label="Text formatting" className="mb-2 mt-2 inline-flex max-w-full flex-wrap items-center gap-0 sm:gap-0.5 rounded-lg border border-gray-200 bg-white p-1 shadow-sm">
+        <div ref={roving.ref} onFocus={roving.onFocus} onKeyDown={roving.onKeyDown} role="toolbar" aria-label="Text formatting" style={{ marginTop: toolbarGap(look.padY) }} className="-mx-3 mb-2 mt-2 inline-flex max-w-[calc(100%+1.5rem)] flex-wrap sm:mx-0 sm:max-w-full items-center gap-0 sm:gap-0.5 rounded-lg border border-gray-200 bg-white p-1 shadow-sm">
           <ToolbarToggle label="Bold" pressed={caret.bold} onClick={() => format('bold')}><Bold className="h-4 w-4" /></ToolbarToggle>
           <ToolbarToggle label="Italic" pressed={caret.italic} onClick={() => format('italic')}><Italic className="h-4 w-4" /></ToolbarToggle>
           <Popover.Root open={linkOpen} onOpenChange={setLinkOpen}>
@@ -387,6 +392,8 @@ export default function TextBlockEditor({ blockId, data, selected, readOnly, onC
           <TextColorMenu idPrefix={blockId} value={style.color ?? null} shown={look.ink} bg={look.bg} onPick={(color) => onChange(stylePatch({ color }))} />
           <BackgroundMenu idPrefix={blockId} allowImage={false} color={style.background_color ?? null} image={null} textColor={style.color ?? null}
             onColor={(c) => onChange(stylePatch({ background_color: c }))} onImage={() => {}} />
+          <SpacingMenu lineSpacing={spacing.line_spacing ?? 'normal'} padding={spacing.padding ?? 'normal'}
+            onLineSpacing={(line_spacing) => onChange(spacingPatch({ line_spacing }))} onPadding={(padding) => onChange(spacingPatch({ padding }))} />
         </div>
       ) : null}
       <div
@@ -404,8 +411,8 @@ export default function TextBlockEditor({ blockId, data, selected, readOnly, onC
         onDrop={onDrop} onDragStart={onDragStart} onDragEnd={onDragEnd}
         onKeyDown={onKeyDown}
         onClick={(e) => { if ((e.target as HTMLElement).closest('a')) e.preventDefault(); }}
-        style={{ color: look.ink, textAlign: look.align, '--nl-link': textLinkColor(look) } as CSSProperties}
-        className={`min-h-[1.625rem] break-words outline-none ${TEXT_CLASS}`}
+        style={{ color: look.ink, textAlign: look.align, '--nl-link': textLinkColor(look), ...textSpacingStyle(spacing.line_spacing) } as CSSProperties}
+        className={`min-h-[1.625rem] break-words outline-none ${TEXT_CLASS} ${spacing.line_spacing ? SPACED_TEXT_CLASS : ''} ${look.styled ? FLUSH_END_CLASS : ''}`}
       >
         {initial}
       </div>

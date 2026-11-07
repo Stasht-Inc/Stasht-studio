@@ -5,6 +5,7 @@
 import type { SectionAlign, SectionStyle, TitleSize } from '../../../services/newslettersAPI.ts';
 import { safeHexColor } from './colors.ts';
 import { httpsUrl } from './urls.ts';
+import { paddingPx, spacingOf } from './sectionSpacing.ts';
 
 export const TITLE_SIZE_OPTIONS = [
   { value: 'small', label: 'Small' },
@@ -120,8 +121,8 @@ export interface SectionLook {
   fallback: string | null;
   /** The words' colour: the one picked, else white on a picture or a dark band, else the usual. */
   ink: string;
-  /** Room above and below, px: 12 as before, 24 on a band, 40 on a picture. */
-  padY: 12 | 24 | 40;
+  /** Room above and below, px: 12 as before, 24 on a band, 40 on a picture; less or more with padding (Chris, 7 Nov). */
+  padY: number;
   /** Links: purple, or the words' colour on a band that needs other words' colour. */
   link: string;
 }
@@ -157,19 +158,21 @@ export function poorContrast(color: string | null | undefined, bg: string | null
 /** How the section looks (NewsletterRenderer::section). */
 export function sectionLook(data: Record<string, unknown>, allowImage: boolean, defaultInk: string): SectionLook {
   const style = sectionStyleOf(data, allowImage);
+  // Chris (7 Nov): line spacing and padding make a section styled too (the email's section.blade.php draws it).
+  const spacing = spacingOf(data, true);
   const image = style.background_image_url ?? null;
   const bg = style.background_color ?? null;
   const auto = image ? '#FFFFFF' : bg ? readableInk(bg, defaultInk) : defaultInk;
   const ink = style.color ?? auto;
   return {
     link: !image && bg && auto !== defaultInk ? ink : LINK,
-    styled: Object.keys(style).length > 0,
+    styled: Object.keys(style).length > 0 || Object.keys(spacing).length > 0,
     align: style.align ?? 'left',
     bg: image ? null : bg,
     image,
     fallback: image ? (bg ?? IMAGE_FALLBACK) : null,
     ink,
-    padY: image ? 40 : bg ? 24 : 12,
+    padY: paddingPx(image ? 40 : bg ? 24 : 12, spacing.padding),
   };
 }
 

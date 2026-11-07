@@ -4,7 +4,7 @@ import { BUTTON_SMALL_PRIMARY } from './lib/ui';
 import { IMAGE_SHADE, type SectionLook } from './lib/sectionStyle';
 
 /** Room above and below a section (NewsletterRenderer::section): 12 px as always, 24 on a band, 40 on a picture. */
-const PAD_Y: Record<SectionLook['padY'], string> = { 12: 'py-3', 24: 'py-6', 40: 'py-10' };
+const PAD_Y: Record<number, string> = { 12: 'py-3', 24: 'py-6', 40: 'py-10' };
 
 function IconButton({ label, onClick, disabled, danger, hint, children }: { label: string; onClick(): void; disabled?: boolean; danger?: boolean; hint?: string; children: ReactNode }) {
   return (
@@ -19,7 +19,7 @@ function IconButton({ label, onClick, disabled, danger, hint, children }: { labe
 /** One section in the preview: purple outline when selected, with move up / move down / delete. A tab stop of its
  *  own (Enter or Space selects it), so sections with no field of their own (a picture, a button, a divider) can be
  *  reached without a mouse. */
-function BlockFrame({ blockId, label, index, count, canUp, canDown, selected, readOnly, problem, padClass, onSelect, onMoveUp, onMoveDown, onDelete, onDuplicate, duplicateBlocked = null, onEdit, editLabel, onDone, look, bleed = false, children }: {
+function BlockFrame({ blockId, label, index, count, canUp, canDown, selected, readOnly, problem, padClass, onSelect, onMoveUp, onMoveDown, onDelete, onDuplicate, duplicateBlocked = null, onEdit, editLabel, onDone, look, bleed = false, padY, children }: {
   /** The section's id (data-block-id), so focus can come back to it. */
   blockId?: string;
   label: string;
@@ -53,6 +53,8 @@ function BlockFrame({ blockId, label, index, count, canUp, canDown, selected, re
    *  hover / selected outline is drawn outside the picture (above and below it; the card clips the sides), never on
    *  the photo, so it can't read as a frame. */
   bleed?: boolean;
+  /** A Button, Divider or Campaigns section's room above and below, px (Chris, 7 Nov; Title and Text: look.padY). */
+  padY?: number;
   children: ReactNode;
 }) {
   // On a band (even one in Studio's purple) the selection shows as the purple line with a white edge inside it, and Done
@@ -60,11 +62,14 @@ function BlockFrame({ blockId, label, index, count, canUp, canDown, selected, re
   const surface: CSSProperties | undefined = look?.image
     ? { backgroundColor: look.fallback ?? undefined, backgroundImage: `url(${JSON.stringify(look.image)})`, backgroundSize: 'cover', backgroundPosition: 'center center', backgroundRepeat: 'no-repeat' }
     : look?.bg ? { backgroundColor: look.bg } : undefined;
+  // Room above and below: the usual classes, or exact px for a padding choice (Chris, 7 Nov).
+  const pad = look?.padY ?? padY ?? 12;
+  const padStyle: CSSProperties | undefined = bleed || PAD_Y[pad] ? undefined : { paddingTop: pad, paddingBottom: pad };
   return (
-    <div role="group" aria-label={`${label} section`} data-block-id={blockId} data-nl-selected={selected && !readOnly ? 'true' : undefined} tabIndex={readOnly ? -1 : 0} onClick={readOnly ? undefined : onSelect} onFocusCapture={readOnly ? undefined : onSelect}
+    <div role="group" aria-label={`${label} section`} data-block-id={blockId} data-nl-selected={selected && !readOnly ? 'true' : undefined} data-nl-invalid={problem ? 'true' : undefined} tabIndex={readOnly ? -1 : 0} onClick={readOnly ? undefined : onSelect} onFocusCapture={readOnly ? undefined : onSelect}
       onKeyDown={readOnly ? undefined : (e) => { if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); onSelect(); } }}
-      data-nl-section-bg={surface ? (look?.image ? 'image' : 'color') : undefined} style={surface}
-      className={`relative ${bleed ? '' : `${padClass} ${PAD_Y[look?.padY ?? 12]}`} ${surface && selected && !readOnly ? 'shadow-[inset_0_0_0_4px_#fff]' : ''} outline outline-2 ${bleed ? 'outline-offset-0' : '-outline-offset-2'} transition-[outline-color] focus-visible:outline-[#6C60FF]/60 ${selected ? 'outline-[#6C60FF]' : problem ? 'outline-red-300' : readOnly ? 'outline-transparent' : 'outline-transparent hover:outline-[#6C60FF]/30'}`}>
+      data-nl-section-bg={surface ? (look?.image ? 'image' : 'color') : undefined} style={padStyle ? { ...surface, ...padStyle } : surface}
+      className={`relative ${bleed ? '' : `${padClass} ${PAD_Y[pad] ?? ''}`} ${surface && selected && !readOnly ? 'shadow-[inset_0_0_0_4px_#fff]' : ''} outline outline-2 ${bleed ? 'outline-offset-0' : '-outline-offset-2'} transition-[outline-color] focus-visible:outline-[#6C60FF]/60 ${selected ? 'outline-[#6C60FF]' : problem ? 'outline-red-300' : readOnly ? 'outline-transparent' : 'outline-transparent hover:outline-[#6C60FF]/30'}`}>
       {selected && !readOnly ? (
         <div role="toolbar" aria-label={`${label} section actions`} className="absolute -top-3.5 right-3 z-10 flex items-center gap-0.5 rounded-lg border border-gray-200 bg-white p-0.5 shadow-sm">
           {onEdit && editLabel ? <IconButton label={editLabel} onClick={onEdit}><LayoutGrid className="h-4 w-4" /></IconButton> : null}
@@ -80,7 +85,8 @@ function BlockFrame({ blockId, label, index, count, canUp, canDown, selected, re
       {look?.image ? <div aria-hidden="true" data-nl-shade="" className="pointer-events-none absolute inset-0" style={{ backgroundColor: IMAGE_SHADE }} /> : null}
       <div className="relative">{children}</div>
       {selected && !readOnly ? (
-        <div className={`relative flex justify-end pt-3 ${bleed ? `${padClass} pb-3` : ''}`}>
+        // With little padding, Done keeps 12 px clear of the section's bottom edge (Chris, 7 Nov).
+        <div className={`relative flex justify-end pt-3 ${bleed ? `${padClass} pb-3` : ''}`} style={!bleed && pad < 12 ? { paddingBottom: 12 - pad } : undefined}>
           <button type="button" onClick={(e) => { e.stopPropagation(); onDone(); }} className={`${BUTTON_SMALL_PRIMARY} ${surface ? 'ring-2 ring-white' : ''}`}>Done</button>
         </div>
       ) : null}

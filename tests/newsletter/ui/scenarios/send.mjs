@@ -36,8 +36,8 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
   await sendButton(page).click();
   await expectVisible(page.locator('#nl-step-name').getByText('Add a subject line.'), 'step 1 marked for the subject');
   await expectVisible(page.locator('#nl-step-content').getByText('Add at least one section to the email.'), 'Content step marked');
-  await expectVisible(page.locator('#nl-step-recipients').getByText('Choose who gets this newsletter.'), 'Recipients: Single person with nobody picked');
-  await expectVisible(page.getByText('Finish the steps marked in red, then try again.'), 'toast says what to do');
+  await expectVisible(page.locator('#nl-step-recipients').getByText('Type their email address.'), 'Recipients: Single person with nobody typed: the Email address box is marked (Chris, 7 Nov)');
+  await expectVisible(page.getByText('Fix what\u2019s marked in red, then try again.'), 'toast says what to do (Chris, 7 Nov: fields are marked, not steps)');
   expect(await page.locator('#nl-step-from [role="alert"]').count() === 0, 'empty from name and reply-to do not block (decision 5)');
   expect(!api.state.calls.some((c) => /\/(send|schedule)$/.test(c.path)), 'nothing sent while steps are unfinished');
   await page.waitForTimeout(700); // counts are debounced
