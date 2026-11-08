@@ -49,3 +49,34 @@ test('a private campaign: the send confirm points at Publishing (no longer "on t
   assert.match(PRIVATE_LINK_SEND_LINE, /in Publishing/);
   assert.doesNotMatch(PRIVATE_LINK_SEND_LINE, /on the campaign page/);
 });
+
+// Review fixes (8 Nov 2026 b): one published normaliser; the device location never replaces a saved campaign's.
+import { publishedRole } from '../../components/storeel/lib/publishing.ts';
+import { detectsDeviceLocation, withDeviceLocation } from '../../components/storeel/lib/deviceLocation.ts';
+
+test('publishedRole: one normaliser (1/2/3, numeric strings too) used everywhere; anything else is 0', () => {
+  assert.equal(publishedRole(1), 1);
+  assert.equal(publishedRole('2'), 2);
+  assert.equal(publishedRole(' 3 '), 3);
+  for (const v of [0, null, undefined, '', '0', 4, 'yes', true, false, NaN]) assert.equal(publishedRole(v), 0, String(v));
+  assert.deepEqual(publishStatus('1'), { live: true, role: 1, label: 'Public' });
+});
+
+test('device location: only looked up when creating (never on a saved campaign: Edit / Send)', () => {
+  assert.equal(detectsDeviceLocation({ open: true, campaignId: null, saved: false, deviceLocation: '' }), true);
+  assert.equal(detectsDeviceLocation({ open: true, campaignId: 901, saved: true, deviceLocation: '' }), false, 'Edit / Send');
+  assert.equal(detectsDeviceLocation({ open: true, campaignId: null, saved: true, deviceLocation: '' }), false, 'made in this flow');
+  assert.equal(detectsDeviceLocation({ open: false, campaignId: null, saved: false, deviceLocation: '' }), false);
+  assert.equal(detectsDeviceLocation({ open: true, campaignId: null, saved: false, deviceLocation: 'Mumbai, India' }), false);
+});
+
+test('device location: fills only a truly empty field, read from the current form (never overwrites)', () => {
+  const empty = { title: 'T', location: '' };
+  assert.deepEqual(withDeviceLocation(empty, 'Mumbai, India', false), { title: 'T', location: 'Mumbai, India' });
+  const typed = { title: 'T', location: 'Paris' };
+  assert.equal(withDeviceLocation(typed, 'Mumbai, India', false), typed, 'typed meanwhile: kept (same object)');
+  const saved = { title: 'T', location: '' };
+  assert.equal(withDeviceLocation(saved, 'Mumbai, India', true), saved, 'a saved campaign: never');
+  assert.equal(withDeviceLocation({ location: '   ' }, 'Mumbai', false).location, 'Mumbai', 'blank counts as empty');
+  assert.equal(withDeviceLocation(empty, '', false), empty);
+});

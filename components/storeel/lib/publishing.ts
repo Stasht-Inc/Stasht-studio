@@ -15,10 +15,16 @@ export type PublishRole = 1 | 2 | 3;
 
 const LABELS: Record<PublishRole, 'Public' | 'View Only' | 'Private'> = { 1: 'Public', 2: 'View Only', 3: 'Private' };
 
-/** memories.published: 1 public, 2 view only, 3 private (access-token link); anything else = not published. */
+/** memories.published as one number (review fix: every check uses this): 1 public, 2 view only, 3 private
+ *  (access-token link); a numeric string counts; anything else = 0, not published. */
+export function publishedRole(published: unknown): 0 | PublishRole {
+  const n = typeof published === 'number' ? published : typeof published === 'string' && published.trim() !== '' ? Number(published) : NaN;
+  return n === 1 || n === 2 || n === 3 ? n : 0;
+}
+
 export function publishStatus(published: unknown): { live: boolean; role: PublishRole | null; label: 'Public' | 'View Only' | 'Private' | null } {
-  const n = typeof published === 'string' && published.trim() !== '' ? Number(published) : published;
-  if (n === 1 || n === 2 || n === 3) return { live: true, role: n, label: LABELS[n] };
+  const n = publishedRole(published);
+  if (n) return { live: true, role: n, label: LABELS[n] };
   return { live: false, role: null, label: null };
 }
 
