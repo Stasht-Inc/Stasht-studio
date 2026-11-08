@@ -56,6 +56,7 @@ import { addWidgetOptions, type AddWidgetKind, type AddWidgetOption } from './wi
 import { postIdsAfterCreate, saveWidgetIntent, widgetAnchorPostId, type PreviewWidget } from './storeel/lib/storeelWidgets';
 import { campaignPreviewMoments, linkedCampaignsMessage, type CampaignPick } from './storeel/lib/momentCampaigns';
 import { PUBLISHING_STEP_ID, opensAtTarget, publishingStepNumber, type StepperOpensAt } from './storeel/lib/publishing';
+import { detectsDeviceLocation, withDeviceLocation } from './storeel/lib/deviceLocation';
 import { ACTION_TOAST_MS } from './newsletters/lib/blocks';
 import { DOCUSIGN_ENABLED } from '../constants/features.ts';
 
@@ -567,9 +568,10 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
   const opensAtRef = useRef(opensAt);
   opensAtRef.current = opensAt;
 
-  // Detect device location when modal opens
+  // Detect device location when modal opens — only when creating (review fix, 8 Nov 2026 (b)): on a saved campaign
+  // (Edit / the campaign page's Send) it would replace the saved Location, and it asked for location permission on Send.
   useEffect(() => {
-    if (open && !deviceLocation) {
+    if (detectsDeviceLocation({ open, campaignId, saved: Boolean(flowCampaignRef.current), deviceLocation })) {
       console.log('🌍 Detecting device location...');
 
       // Check if geolocation is available
@@ -604,11 +606,9 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
               console.log('✅ Device location detected:', locationString);
               setDeviceLocation(locationString);
 
-              // Set as default location only if location field is empty
-              if (locationString && !formData.location) {
-                setFormData(prev => ({ ...prev, location: locationString }));
-                console.log('✅ Set default location:', locationString);
-              }
+              // Set as default location only if the location field is STILL empty (the current form, not the one when the
+              // lookup started) and no campaign was saved meanwhile.
+              setFormData(prev => withDeviceLocation(prev, locationString, Boolean(flowCampaignRef.current)));
             } catch (error) {
               console.error('❌ Error reverse geocoding:', error);
             }
@@ -2923,7 +2923,8 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
               <Input
                 ref={titleInputRef}
                 type="text"
-                autoFocus
+                // Not when the campaign page's Send opens this at the Send card (the phone keyboard would flash up).
+                autoFocus={opensAt !== 'send'}
                 value={formData.title}
                 onChange={handleTitleChange}
                 placeholder="Give your campaign a meaningful title"

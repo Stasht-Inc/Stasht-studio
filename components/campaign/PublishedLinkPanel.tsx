@@ -11,6 +11,7 @@ import { Badge } from '../ui/badge';
 import { Input } from '../ui/input';
 import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
 import { dashboardAPI } from '../../utils/authUtils';
+import { publishedRole } from '../storeel/lib/publishing';
 
 // Per-campaign social share message (OG description on shared links).
 export const DEFAULT_SHARE_MESSAGE = 'View this published storeel on stasht.';
@@ -44,6 +45,37 @@ export default function PublishedLinkPanel({ apiMemoryData, uiMemory, isOwner, c
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [apiMemoryData?.id, apiMemoryData?.share_message]);
 
+  const savedShareMessage = String(apiMemoryData?.share_message || DEFAULT_SHARE_MESSAGE).trim();
+  const savingRef = useRef(false);
+  const touchedRef = useRef(false); // typed in by the user (not just loaded)
+  /** POST /memories/published/share-message (the page's own call). onlyIfChanged: leaving the field / the stepper. */
+  const saveShareMessage = async (text: string, onlyIfChanged = false) => {
+    const next = text.trim();
+    if (savingRef.current || !isOwner || !apiMemoryData?.id) return;
+    if (onlyIfChanged && (!touchedRef.current || next === savedShareMessage)) return;
+    savingRef.current = true;
+    try {
+      setIsSavingShareMessage(true);
+      const res: any = await dashboardAPI.updateShareMessage(apiMemoryData.id, next);
+      if (res?.success || res?.status === 1 || res?.data?.success) {
+        setApiMemoryData((prev: any) => prev ? { ...prev, share_message: next || null } : prev);
+        toast.success('Share message saved');
+      } else {
+        toast.error('Failed to save share message');
+      }
+    } catch {
+      toast.error('Failed to save share message');
+    } finally {
+      savingRef.current = false;
+      setIsSavingShareMessage(false);
+    }
+  };
+  // The stepper closed (Save Changes, Save & Send, Cancel…) with a share message typed but not saved: save it, never
+  // drop it silently.
+  const unsavedRef = useRef<() => void>(() => {});
+  unsavedRef.current = () => { if (inCard && touchedRef.current && shareMessage.trim() !== savedShareMessage) void saveShareMessage(shareMessage, true); };
+  useEffect(() => () => unsavedRef.current(), []);
+
   // Close share menu when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -61,7 +93,8 @@ export default function PublishedLinkPanel({ apiMemoryData, uiMemory, isOwner, c
     };
   }, [isSharePopoverOpen]);
 
-  if (!((apiMemoryData?.published === 1 || apiMemoryData?.published === 2 || apiMemoryData?.published === 3) && apiMemoryData?.published_url)) return null;
+  const role = publishedRole(apiMemoryData?.published);
+  if (!(role && apiMemoryData?.published_url)) return null;
 
   return (
     <div className="bg-gradient-to-r from-green-50 to-emerald-50 border border-green-200 rounded-lg p-4 shadow-sm" style={inCard ? undefined : { margin: '1rem 0' }}>
@@ -78,7 +111,10 @@ export default function PublishedLinkPanel({ apiMemoryData, uiMemory, isOwner, c
             <div className="flex items-center gap-2">
               <Input
                 value={shareMessage}
-                onChange={(e) => setShareMessage(e.target.value)}
+                onChange={(e) => { touchedRef.current = true; setShareMessage(e.target.value); }}
+                // In the stepper its Save is easy to miss next to Save Changes: leaving the field saves it (not when
+                // leaving it for its own Save button, which saves it).
+                onBlur={inCard ? (e) => { if (!(e.relatedTarget as HTMLElement | null)?.dataset?.shareMessageSave) void saveShareMessage(shareMessage, true); } : undefined}
                 disabled={!isOwner}
                 maxLength={500}
                 placeholder={DEFAULT_SHARE_MESSAGE}
@@ -88,22 +124,8 @@ export default function PublishedLinkPanel({ apiMemoryData, uiMemory, isOwner, c
                 variant="outline"
                 size="sm"
                 disabled={!isOwner || isSavingShareMessage}
-                onClick={async () => {
-                  try {
-                    setIsSavingShareMessage(true);
-                    const res: any = await dashboardAPI.updateShareMessage(apiMemoryData.id, shareMessage.trim());
-                    if (res?.success || res?.status === 1 || res?.data?.success) {
-                      setApiMemoryData((prev: any) => prev ? { ...prev, share_message: shareMessage.trim() || null } : prev);
-                      toast.success('Share message saved');
-                    } else {
-                      toast.error('Failed to save share message');
-                    }
-                  } catch {
-                    toast.error('Failed to save share message');
-                  } finally {
-                    setIsSavingShareMessage(false);
-                  }
-                }}
+                onClick={() => { void saveShareMessage(shareMessage); }}
+                data-share-message-save="1"
                 className="flex-shrink-0 h-9 px-3 bg-white hover:bg-green-50 border-green-200 text-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {isSavingShareMessage ? 'Saving…' : 'Save'}
@@ -117,17 +139,17 @@ export default function PublishedLinkPanel({ apiMemoryData, uiMemory, isOwner, c
               Live
             </Badge>
             {/* Privacy Badge */}
-            {apiMemoryData?.published === 1 && (
+            {role === 1 && (
               <Badge variant="secondary" className="bg-blue-100 text-blue-700 border-blue-200 text-xs">
                 Public
               </Badge>
             )}
-            {apiMemoryData?.published === 2 && (
+            {role === 2 && (
               <Badge variant="secondary" className="bg-yellow-100 text-yellow-700 border-yellow-200 text-xs">
                 View Only
               </Badge>
             )}
-            {apiMemoryData?.published === 3 && (
+            {role === 3 && (
               <Badge variant="secondary" className="bg-red-100 text-red-700 border-red-200 text-xs">
                 Private
               </Badge>

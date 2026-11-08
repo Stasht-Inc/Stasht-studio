@@ -27,7 +27,7 @@ const post = (id, n) => ({
 const LINK = `${BASE}/published-memory/thomas-jeeps`;
 const BASE_CAMPAIGN = {
   id: 901, title: 'Thomas Jeeps Inventory', user_id: 707, slug: 'thomas-jeeps', category: { id: 5, name: 'Personal' }, sub_category: null, photos: { count: 2 },
-  collaborators: [], user: { id: 707, name: 'Serpa Chrysler' }, created_at: '2026-10-01 10:00:00', location: '', tags: [],
+  collaborators: [], user: { id: 707, name: 'Serpa Chrysler' }, created_at: '2026-10-01 10:00:00', location: 'Toronto, Canada', tags: [],
   min_uploaded_img_date: '2026-10-01', max_uploaded_img_date: '2026-10-01', last_update_img: null, share_message: null,
 };
 
@@ -41,6 +41,12 @@ async function open({ width, height }, { published = 0, owner = true, role = 'ad
   const state = { published, url: published ? LINK : null, publishes: [], unpublishes: 0, shareMessages: [], puts: [] };
   const context = await browser.newContext({ viewport: { width, height }, serviceWorkers: 'block', locale: 'en-US', hasTouch: width < 1024, isMobile: width < 1024 });
   await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: BASE });
+  // The device location (review I1): counted, answered after 1.2 s (Mumbai via the reverse-geocoder below).
+  await context.addInitScript(() => {
+    window.__geoCalls = 0;
+    const geo = { getCurrentPosition: (ok) => { window.__geoCalls++; setTimeout(() => ok({ coords: { latitude: 19.07, longitude: 72.87 } }), 1200); }, watchPosition: () => 0, clearWatch: () => {} };
+    try { Object.defineProperty(navigator, 'geolocation', { configurable: true, get: () => geo }); } catch { /* ignore */ }
+  });
   await context.addInitScript(([user]) => {
     if (sessionStorage.getItem('cd-seeded')) return;
     sessionStorage.setItem('cd-seeded', '1');
@@ -60,6 +66,7 @@ async function open({ width, height }, { published = 0, owner = true, role = 'ad
     const url = new URL(req.url());
     if (!['localhost', '127.0.0.1'].includes(url.hostname)) {
       if (url.hostname === 'js.stripe.com') return route.fulfill({ contentType: 'text/javascript', body: STUB_STRIPE });
+      if (url.hostname === 'nominatim.openstreetmap.org') return route.fulfill({ json: { address: { city: 'Mumbai', country: 'India' } } });
       if (url.hostname === 'apis.google.com' && url.pathname === '/js/api.js') return route.fulfill({ contentType: 'text/javascript', body: STUB_GAPI });
       return route.abort('blockedbyclient');
     }
@@ -155,12 +162,16 @@ try {
       await page.waitForTimeout(2500);
       expect(await inViewport(page, sendTitle), `${tag}: still at the Send card 3 s later (nothing scrolls it back to step 1)`);
       expect(state.puts.length === 0 && state.publishes.length === 0, `${tag}: opening saves nothing`);
+      expect((await page.evaluate(() => window.__geoCalls)) === 0, `${tag}: Send doesn't ask for the device location`);
+      expect(!(await page.evaluate(() => document.activeElement?.getAttribute('placeholder') === 'Give your campaign a meaningful title')), `${tag}: the title isn't focused (no keyboard) when opened at Send`);
+      expect((await flow(page).getByPlaceholder(/Enter location/).inputValue()) === 'Toronto, Canada', `${tag}: the saved Location is kept`);
       await page.screenshot({ path: `${OUT}/${tag}-02-send-opens-at-send-step.png` });
 
       // Publishing card: 4, after Send, not published, three choices
       expect(await pub(page).count() === 1, `${tag}: the Publishing card is in the stepper`);
       const ptext = (await pub(page).textContent()) ?? '';
       expect(ptext.includes('Publishing') && ptext.includes('Not published'), `${tag}: Publishing says Not published`);
+      expect(ptext.includes("Publish and Unpublish apply right away. They don't need Save Changes."), `${tag}: Publishing says its changes apply right away`);
       for (const t of ['Publish as View Only', 'Publish as Public', 'Publish as Private', 'Users can only view the campaign, no comments allowed', 'Anyone can view and leave comments', 'Only visible with a valid access token']) expect(ptext.includes(t), `${tag}: Publishing offers "${t}"`);
       const order = await flow(page).evaluate((el) => ['#st-step-send', '#st-step-publishing', '#st-actions'].map((s) => el.querySelector(s)?.getBoundingClientRect().top ?? -1));
       expect(order[0] < order[1] && order[1] < order[2], `${tag}: Send, then Publishing, then the actions (${order})`);
@@ -175,6 +186,9 @@ try {
       const top = await done.evaluate((b) => { const r = b.getBoundingClientRect(); const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return Boolean(hit && b.contains(hit)); }).catch(() => false);
       expect(top, `${tag}: the "Published!" modal is on top of the stepper (Done is clickable)`);
       expect(await page.getByText(LINK).first().isVisible().catch(() => false) || (await page.locator(`input[value="${LINK}"]`).filter({ visible: true }).count()) > 0, `${tag}: the modal shows the link`);
+      await page.waitForTimeout(700);
+      const toastsOverModal = await page.locator('[data-sonner-toast]').filter({ visible: true }).count();
+      expect(toastsOverModal === 0, `${tag}: no toasts over the "Published!" modal (${toastsOverModal})`);
       await page.screenshot({ path: `${OUT}/${tag}-04-published-modal-over-stepper.png` });
       await done.click();
       await page.waitForTimeout(700);
@@ -213,7 +227,7 @@ try {
       await msg.fill('Fresh Jeeps this week');
       await pub(page).getByRole('button', { name: 'Save', exact: true }).click();
       expect(await toast(page, 'Share message saved'), `${tag}: Share message saved`);
-      expect(state.shareMessages.at(-1) === 'Fresh Jeeps this week', `${tag}: POST share-message (${JSON.stringify(state.shareMessages)})`);
+      expect(state.shareMessages.at(-1) === 'Fresh Jeeps this week' && state.shareMessages.length === 1, `${tag}: POST share-message once (${JSON.stringify(state.shareMessages)})`);
 
       // Unpublish
       await pub(page).getByRole('button', { name: 'Unpublish', exact: true }).click();
@@ -248,6 +262,7 @@ try {
       await page.waitForTimeout(500);
       if (await confirm.isVisible().catch(() => false)) { await page.keyboard.press('Escape'); await page.waitForTimeout(400); }
       expect(!state.sends, `${tag}: nothing sent`);
+      expect(state.puts.at(-1)?.location === 'Toronto, Canada', `${tag}: Send → Save & Send PUT keeps the saved Location (${state.puts.at(-1)?.location})`);
       await pub(page).getByRole('button', { name: 'Unpublish', exact: true }).click();
       await page.waitForTimeout(800);
       await pub(page).getByRole('button', { name: /Publish as View Only/ }).click();
@@ -257,8 +272,12 @@ try {
       expect(state.publishes.at(-1)?.role === 2 && ((await pub(page).textContent()) ?? '').includes('Published · View Only'), `${tag}: Publish as View Only → role 2, Published · View Only`);
       expect(state.puts.length === 1, `${tag}: publishing saved nothing else (the one PUT is Save & Send's)`);
 
+      // A share message typed in the card but not Saved: leaving the stepper saves it (review M2)
+      await pub(page).getByPlaceholder('View this published storeel on stasht.').fill('Typed, not saved');
       // Close → the campaign page shows the published box as before; Send still there (no Unpublish button)
       await flow(page).getByRole('button', { name: /^(Cancel|Close)$/ }).filter({ visible: true }).last().click();
+      await page.waitForTimeout(800);
+      expect(state.shareMessages.at(-1) === 'Typed, not saved', `${tag}: a typed share message is saved when the stepper closes (${JSON.stringify(state.shareMessages)})`);
       await page.waitForTimeout(700);
       expect(!(await flow(page).count()), `${tag}: Close → back on the campaign page`);
       expect(await page.getByText('Published Campaign').filter({ visible: true }).count() > 0 || await page.getByText('Published Campaign').count() > 0, `${tag}: the page still shows its published box`);
@@ -274,8 +293,14 @@ try {
       expect((await flow(page).getByPlaceholder('Give your campaign a meaningful title').inputValue()) === 'Thomas Jeeps Inventory', `${tag}: step 1 prefilled`);
       expect(await pub(page).count() === 1, `${tag}: Publishing is in the stepper from Edit too`);
       await page.screenshot({ path: `${OUT}/${tag}-10-edit-opens-at-step-1.png` });
-      await flow(page).getByRole('button', { name: /^(Cancel|Close)$/ }).filter({ visible: true }).last().click();
-      await page.waitForTimeout(500);
+      await page.waitForTimeout(2000); // longer than the device-location answer
+      expect((await flow(page).getByPlaceholder(/Enter location/).inputValue()) === 'Toronto, Canada', `${tag}: Edit keeps the saved Location (no device city)`);
+      const putsBefore = state.puts.length;
+      await flow(page).getByRole('button', { name: 'Save Changes', exact: true }).filter({ visible: true }).last().click();
+      await page.getByText('Changes saved').first().waitFor({ timeout: 8000 }).catch(() => {});
+      await page.waitForTimeout(800);
+      expect(state.puts.length === putsBefore + 1 && state.puts.at(-1)?.location === 'Toronto, Canada', `${tag}: Edit → Save Changes PUT keeps the saved Location (${state.puts.at(-1)?.location})`);
+      expect((await page.evaluate(() => window.__geoCalls)) === 0, `${tag}: Edit / Send never asked for the device location`);
 
       // Phones: the scrolled (compact) header's ⋮ → Edit Campaign · Send (no publish items)
       if (width < 1024) {
@@ -293,7 +318,27 @@ try {
           await flow(page).locator('#st-step-send').waitFor({ timeout: 10000 }).catch(() => {});
           await page.waitForTimeout(900);
           expect(await inViewport(page, flow(page).locator('#st-step-send-title')), `${tag}: compact ⋮ Send opens at the Send card`);
+          await flow(page).getByRole('button', { name: /^(Cancel|Close)$/ }).filter({ visible: true }).last().click();
+          await page.waitForTimeout(500);
         } else expect(false, `${tag}: the compact header appeared after scrolling`);
+      }
+
+      // Create Campaign keeps the device-city default, but only for an empty Location, read when the answer comes
+      await page.getByRole('button', { name: 'Back', exact: true }).filter({ visible: true }).first().click();
+      await page.getByText('All Campaigns', { exact: true }).filter({ visible: true }).first().waitFor({ timeout: 10000 }).catch(() => {});
+      const create = page.getByRole('dialog', { name: 'Create Campaign' });
+      for (const typed of ['', 'Paris, France']) {
+        await page.getByRole('button', { name: /^Create( a Campaign)?$/ }).filter({ visible: true }).last().click();
+        const loc = create.getByPlaceholder(/Enter location/);
+        await loc.waitFor({ timeout: 10000 }).catch(() => {});
+        if (typed) await loc.fill(typed);
+        await page.waitForTimeout(2500);
+        const got = await loc.inputValue().catch(() => '');
+        expect(got === (typed || 'Mumbai, India'), `${tag}: Create with ${typed ? 'a typed' : 'an empty'} Location → "${got}"`);
+        await create.getByRole('button', { name: 'Cancel', exact: true }).filter({ visible: true }).last().click();
+        await page.waitForTimeout(600);
+        const discard = page.getByRole('button', { name: /^(Discard|Leave|Yes, discard|Discard changes)$/ }).filter({ visible: true });
+        if (await discard.count()) { await discard.first().click(); await page.waitForTimeout(400); }
       }
       await context.close();
     }

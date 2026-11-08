@@ -35,6 +35,8 @@ export default function CampaignPublishing({ published, canPublish, isPublishing
       <p className="text-sm text-gray-600">
         {status.live ? <>Published · <span className="font-medium text-gray-900">{status.label}</span></> : 'Not published'}
       </p>
+      {/* Everything else here waits for Save Changes; these don't (review fix, 8 Nov 2026 (b)). */}
+      <p className="text-xs text-gray-500">Publish and Unpublish apply right away. They don't need Save Changes.</p>
 
       {isPublishing ? (
         <div role="status" className="space-y-2">

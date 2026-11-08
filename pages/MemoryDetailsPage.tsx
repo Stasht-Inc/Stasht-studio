@@ -79,7 +79,7 @@ import CreateMemory from "../components/CreateMemory";
 import { seedFromMemory } from "../components/storeel/lib/storeelFlow";
 import PublishedLinkPanel from "../components/campaign/PublishedLinkPanel";
 import CampaignPublishing from "../components/storeel/CampaignPublishing";
-import { campaignCanOpenStepper, type StepperOpensAt } from "../components/storeel/lib/publishing";
+import { campaignCanOpenStepper, publishedRole, type StepperOpensAt } from "../components/storeel/lib/publishing";
 import { campaignPageInventory } from "../components/storeel/campaignPageInventory";
 import { campaignModerationOf, moderationTabVisible } from "../components/storeel/lib/moderation";
 import ProductCardButton from "../components/ProductCardButton";
@@ -5401,9 +5401,11 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
     }
   };
 
+  const PUBLISH_PROGRESS_TOAST = 'campaign-publish-progress';
   const handlePublish = async (roleOverride?: number) => {
     // Check if memory is published (published can be 1, 2, or 3)
-    const isCurrentlyPublished = apiMemoryData?.published && (apiMemoryData.published === 1 || apiMemoryData.published === 2 || apiMemoryData.published === 3);
+    // One normaliser for the published state (components/storeel/lib/publishing.ts), as the Publishing card and the box use.
+    const isCurrentlyPublished = publishedRole(apiMemoryData?.published) !== 0;
     setIsPublishing(true);
     setPublishProgress(0);
     
@@ -5448,7 +5450,9 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
         for (const { step, message } of progressSteps) {
           await new Promise(resolve => setTimeout(resolve, 300));
           setPublishProgress(step);
-          toast.info(message);
+          // One progress toast updated in place (review fix, 8 Nov 2026 (b)): three stacked ones covered the
+          // "Published!" modal on phones.
+          toast.info(message, { id: PUBLISH_PROGRESS_TOAST });
         }
         
         // Make the actual API call
@@ -5520,14 +5524,16 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
           await triggerMemoryCountsRefresh();
 
           setIsPublishing(false);
+          // The "Published!" modal says it; its duplicate toast (and the progress toast) would sit on top of it.
+          toast.dismiss(PUBLISH_PROGRESS_TOAST);
           setIsPublishModalOpen(true);
-          toast.success("Campaign published successfully!");
         } else {
           throw new Error(response.error || 'Failed to publish campaign');
         }
       }
     } catch (error) {
       console.error('Error publishing/unpublishing memory:', error);
+      toast.dismiss(PUBLISH_PROGRESS_TOAST);
       setIsPublishing(false);
       setPublishProgress(0);
       toast.error(isCurrentlyPublished ? "Failed to unpublish campaign. Please try again." : "Failed to publish campaign. Please try again.");
@@ -17875,7 +17881,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
           opensAt={storeelFlow}
           publishing={(
             <CampaignPublishing
-              published={apiMemoryData?.published}
+              published={publishedRole(apiMemoryData?.published)}
               canPublish={isOwner}
               isPublishing={isPublishing}
               publishProgress={publishProgress}
