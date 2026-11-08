@@ -10,6 +10,7 @@ import StashtLogo from '../components/StashtLogo';
 import { webPushLogin, webPushLogout } from '../utils/webPush';
 import { toast } from 'sonner';
 import { isDifferentAccount, markTabStale, rememberSwitchNotice, STALE_TAB_MESSAGE } from '../utils/accountSwitch';
+import { friendlyCodeMessage } from '../utils/verificationCodeWording';
 
 // Module-level guard: survives React StrictMode's double-invoke (and any remount)
 // in the same page load, so a single-use SSO code is exchanged exactly once.
@@ -324,7 +325,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       // Check if account needs activation - DON'T throw, just check requiresActivation flag
       if (response.requiresActivation === true) {
         console.log('🎯 AuthContext: Account needs activation - throwing error for LoginPage to catch');
-        const errorMessage = response.message || response.error || 'Please activate your account before logging in. Check your email or phone for the activation link/OTP.';
+        const errorMessage = friendlyCodeMessage(response.message || response.error) || 'Please activate your account before logging in. Check your email or phone for the activation link or verification code.';
         throw new Error(errorMessage);
       }
 

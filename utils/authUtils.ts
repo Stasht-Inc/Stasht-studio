@@ -5,6 +5,7 @@ import { memoryDetailPath } from './memoryDetailPath';
 import { campaignAccessBody, withQr } from './qrAccess';
 import { clearAccountState } from './accountState';
 import { seedBrandPictures, setBrandPictureApiBase, setBrandPictureHeaders } from './brandPictures';
+import { friendlyCodeMessage } from './verificationCodeWording';
 
 // Auth utility functions for API integration
 
@@ -644,7 +645,7 @@ export const authAPI = {
           success: false,
           requires_verification: true,
           attempt_id: attemptId,
-          message: response.message || response.data?.message || 'Device verification required',
+          message: friendlyCodeMessage(response.message || response.data?.message) || 'Device verification required',
           device_info: response.device_info || response.data?.device_info || {}
         };
       }
@@ -1267,7 +1268,7 @@ export const authAPI = {
 
       // Handle error response
       devLog('❌❌❌ OTP VERIFICATION FAILED');
-      const errorMsg = response.error || response.message || 'OTP verification failed';
+      const errorMsg = friendlyCodeMessage(response.error || response.message) || "We couldn't verify your code. Please try again.";
       devLog('📤 Returning error response:', errorMsg);
 
       return {
@@ -1311,14 +1312,14 @@ export const authAPI = {
         devLog('✅✅✅ OTP RESENT SUCCESSFULLY');
         return {
           success: true,
-          message: response.message || 'OTP has been resent to your phone number',
+          message: friendlyCodeMessage(response.message) || 'A new verification code has been sent to your phone number',
         };
       }
 
       devLog('❌ RESEND OTP FAILED');
       return {
         success: false,
-        error: response.error || response.message || 'Failed to resend OTP',
+        error: friendlyCodeMessage(response.error || response.message) || "We couldn't send a new verification code. Please try again.",
       };
     } catch (error) {
       console.error('❌❌❌ authAPI.resendPhoneOtp: EXCEPTION OCCURRED');
@@ -1352,7 +1353,7 @@ export const authAPI = {
       if (response.success) {
         return {
           success: true,
-          message: response.message,
+          message: friendlyCodeMessage(response.message),
           channel: response.channel || response.data?.channel,
         };
       }
@@ -1365,7 +1366,7 @@ export const authAPI = {
 
       return {
         success: false,
-        error: response.message || response.error || 'Failed to send OTP. Please try again.',
+        error: friendlyCodeMessage(response.message || response.error) || "We couldn't send your verification code. Please try again.",
         alreadyRegistered,
         noAccount,
       };
@@ -1517,7 +1518,7 @@ export const authAPI = {
       if (response.success && verification_token) {
         return {
           success: true,
-          message: response.message,
+          message: friendlyCodeMessage(response.message),
           channel: response.channel || data?.channel,
           verification_token,
           user: data?.user,
@@ -1527,7 +1528,7 @@ export const authAPI = {
 
       return {
         success: false,
-        error: response.message || response.error || 'OTP verification failed',
+        error: friendlyCodeMessage(response.message || response.error) || "We couldn't verify your code. Please try again.",
       };
     } catch (error) {
       console.error('❌ authAPI.verifyOtp: exception', error);
@@ -1676,7 +1677,7 @@ export const authAPI = {
             success: true,
             user,
             token,
-            message: response.message || 'Device verified successfully',
+            message: friendlyCodeMessage(response.message) || 'Device verified successfully',
             collaborators: collaborators,
             data: response.data,
             owned_properties: response.data?.owned_properties || response.data?.data?.owned_properties || [],
@@ -1688,13 +1689,13 @@ export const authAPI = {
 
       return {
         success: false,
-        error: response.error || response.message || 'Failed to verify OTP'
+        error: friendlyCodeMessage(response.error || response.message) || "We couldn't check your code. Please try again."
       };
     } catch (error) {
       console.error('authAPI.verifyDeviceOtp: Error:', error);
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Failed to verify OTP'
+        error: (error instanceof Error ? friendlyCodeMessage(error.message) : undefined) || "We couldn't check your code. Please try again."
       };
     }
   },
@@ -1713,14 +1714,14 @@ export const authAPI = {
 
       return {
         success: response.success || false,
-        message: response.message || (response.success ? 'OTP resent successfully' : 'Failed to resend OTP'),
-        error: response.error
+        message: friendlyCodeMessage(response.message) || (response.success ? 'A new verification code has been sent' : "We couldn't send a new verification code. Please try again."),
+        error: friendlyCodeMessage(response.error)
       };
     } catch (error) {
       console.error('authAPI.resendDeviceOtp: Error:', error);
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Failed to resend OTP'
+        error: (error instanceof Error ? friendlyCodeMessage(error.message) : undefined) || "We couldn't send a new verification code. Please try again."
       };
     }
   },

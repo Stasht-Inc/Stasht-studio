@@ -160,18 +160,18 @@ export function DeviceVerificationModal({
           onClose();
         } else {
           console.error('🔍 DeviceVerificationModal: Missing user or token!');
-          setError(response.error || 'Invalid OTP. Please try again.');
+          setError(response.error || "That code isn't right. Please check it and try again.");
           setOtp(['', '', '', '', '', '']);
           inputRefs.current[0]?.focus();
         }
       } else {
-        setError(response.error || 'Invalid OTP. Please try again.');
+        setError(response.error || "That code isn't right. Please check it and try again.");
         setOtp(['', '', '', '', '', '']);
         inputRefs.current[0]?.focus();
       }
     } catch (error) {
       console.error('OTP verification error:', error);
-      setError('Failed to verify OTP. Please try again.');
+      setError("We couldn't check your code. Please try again.");
       setOtp(['', '', '', '', '', '']);
       inputRefs.current[0]?.focus();
     } finally {
@@ -189,16 +189,16 @@ export function DeviceVerificationModal({
       const response = await authAPI.resendDeviceOtp({ attempt_id: attemptId });
 
       if (response.success) {
-        toast.success(`New OTP sent to your ${loginMethod === 'phone' ? 'phone number' : 'email'}`);
+        toast.success(`New verification code sent to your ${loginMethod === 'phone' ? 'phone number' : 'email'}`);
         setResendTimer(60); // 60 second cooldown
         setOtp(['', '', '', '', '', '']);
         inputRefs.current[0]?.focus();
       } else {
-        toast.error(response.error || 'Failed to resend OTP');
+        toast.error(response.error || "We couldn't send a new verification code. Please try again.");
       }
     } catch (error) {
       console.error('Resend OTP error:', error);
-      toast.error('Failed to resend OTP');
+      toast.error("We couldn't send a new verification code. Please try again.");
     } finally {
       setIsResending(false);
     }

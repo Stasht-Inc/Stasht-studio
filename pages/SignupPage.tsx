@@ -17,6 +17,7 @@ import { GooglePhotosConnectModal } from '../components/GooglePhotosConnectModal
 import { PopupBlockedGuideModal } from '../components/PopupBlockedGuideModal';
 import { AccountChoiceModal, getAdminCollaborator, AdminCollaborator } from '../components/AccountChoiceModal';
 import { clearAccountState, markNewAccount } from '../utils/accountState';
+import { friendlyCodeMessage, isCodeSentMessage } from '../utils/verificationCodeWording';
 
 // Google Picker API type declarations
 declare global {
@@ -463,7 +464,7 @@ export default function SignupPage({ onSignup, onSwitchToLogin }: SignupPageProp
           setErrors({ phone: res.error || 'The phone number has already been taken.' });
         }
       } else {
-        setErrors({ submit: res.error || 'Failed to send OTP. Please try again.' });
+        setErrors({ submit: res.error || "We couldn't send your verification code. Please try again." });
       }
     } catch (error) {
       console.error('Send OTP error:', error);
@@ -530,16 +531,16 @@ export default function SignupPage({ onSignup, onSwitchToLogin }: SignupPageProp
         if (result.message) {
           console.log('✅ SignupPage: Has message:', result.message);
           // Check if OTP verification is required
-          if (result.message.includes('OTP') && method === 'phone') {
+          if (isCodeSentMessage(result.message) && method === 'phone') {
             console.log('✅ SignupPage: OTP flow - showing OTP screen');
             setShowOtpScreen(true);
-            setActivationMessage(result.message);
+            setActivationMessage(friendlyCodeMessage(result.message) || '');
             setRegistrationComplete(true);
           } else {
             // Email activation flow - show message and don't redirect
             console.log('✅ SignupPage: Email activation flow - setting activation message');
             console.log('✅ SignupPage: Setting activationMessage to:', result.message);
-            setActivationMessage(result.message);
+            setActivationMessage(friendlyCodeMessage(result.message) || '');
             setRegistrationComplete(true);
             console.log('✅ SignupPage: activationMessage state should now be set');
           }
@@ -803,7 +804,7 @@ export default function SignupPage({ onSignup, onSwitchToLogin }: SignupPageProp
 
   const handleVerifyOtp = async () => {
     if (!otp || otp.trim().length < 4) {
-      setOtpError('Please enter a valid OTP');
+      setOtpError('Please enter the verification code');
       return;
     }
 
@@ -820,7 +821,7 @@ export default function SignupPage({ onSignup, onSwitchToLogin }: SignupPageProp
         const verifyRes = await authAPI.verifyOtp({ ...identifier, otp: otp.trim() });
 
         if (!verifyRes.success || !verifyRes.verification_token) {
-          setOtpError(verifyRes.error || 'Invalid OTP. Please try again.');
+          setOtpError(verifyRes.error || "That code isn't right. Please check it and try again.");
           setIsVerifyingOtp(false);
           return;
         }
@@ -984,7 +985,7 @@ export default function SignupPage({ onSignup, onSwitchToLogin }: SignupPageProp
         console.log('  - response.error:', response.error);
         console.log('  - response.message:', response.message);
 
-        setOtpError(response.error || response.message || 'Invalid OTP. Please try again.');
+        setOtpError(response.error || response.message || "That code isn't right. Please check it and try again.");
       }
     } catch (error) {
       console.error('❌❌❌ OTP VERIFICATION EXCEPTION');
@@ -1020,16 +1021,16 @@ export default function SignupPage({ onSignup, onSwitchToLogin }: SignupPageProp
         const res = await authAPI.sendOtp(identifier, 'register');
 
         if (res.success) {
-          setResendMessage(res.message || `OTP has been resent to your ${method === "email" ? "email" : "phone number"}`);
+          setResendMessage(res.message || `A new verification code has been sent to your ${method === "email" ? "email" : "phone number"}`);
           setResendCooldown(60);
           setOtpCountdown(600);
           setTimeout(() => setResendMessage(''), 5000);
         } else {
-          setOtpError(res.error || 'Failed to resend OTP. Please try again.');
+          setOtpError(res.error || "We couldn't send a new verification code. Please try again.");
         }
       } catch (error) {
         console.error('Resend OTP (passwordless) error:', error);
-        setOtpError('An error occurred while resending OTP. Please try again.');
+        setOtpError('Something went wrong sending a new code. Please try again.');
       } finally {
         setIsResendingOtp(false);
       }
@@ -1051,7 +1052,7 @@ export default function SignupPage({ onSignup, onSwitchToLogin }: SignupPageProp
 
       if (response.success) {
         console.log('✅✅✅ OTP RESENT SUCCESSFULLY');
-        setResendMessage(response.message || 'OTP has been resent to your phone number');
+        setResendMessage(response.message || 'A new verification code has been sent to your phone number');
         setResendCooldown(60); // 60 second cooldown
 
         // Clear the success message after 5 seconds
@@ -1060,12 +1061,12 @@ export default function SignupPage({ onSignup, onSwitchToLogin }: SignupPageProp
         }, 5000);
       } else {
         console.log('❌ RESEND OTP FAILED');
-        setOtpError(response.error || 'Failed to resend OTP. Please try again.');
+        setOtpError(response.error || "We couldn't send a new verification code. Please try again.");
       }
     } catch (error) {
       console.error('❌❌❌ RESEND OTP EXCEPTION');
       console.error('🔥 Error:', error);
-      setOtpError('An error occurred while resending OTP. Please try again.');
+      setOtpError('Something went wrong sending a new code. Please try again.');
     } finally {
       setIsResendingOtp(false);
       console.log('🔍 Resend OTP process completed');
@@ -1166,7 +1167,7 @@ export default function SignupPage({ onSignup, onSwitchToLogin }: SignupPageProp
                   {method === "email" ? "Verify Your Email" : "Verify Your Phone"}
                 </CardTitle>
                 <CardDescription className="text-center">
-                  {activationMessage || `Enter the OTP sent to ${method === "email" ? formData.email : `${countryCode} ${phoneNumber}`}`}
+                  {activationMessage || `We sent a verification code to ${method === "email" ? formData.email : `${countryCode} ${phoneNumber}`}`}
                 </CardDescription>
                 {authMode === "otp" && otpCountdown > 0 && (
                   <p className="text-center text-xs text-gray-500 pt-1">
@@ -1186,7 +1187,7 @@ export default function SignupPage({ onSignup, onSwitchToLogin }: SignupPageProp
                 {/* OTP Input */}
                 <div>
                   <label htmlFor="otp" className="block text-sm font-medium text-gray-700 mb-2">
-                    Enter OTP <span className="text-red-500">*</span>
+                    Enter the verification code <span className="text-red-500">*</span>
                   </label>
                   <input
                     id="otp"
@@ -1223,7 +1224,7 @@ export default function SignupPage({ onSignup, onSwitchToLogin }: SignupPageProp
                     </>
                   ) : (
                     <>
-                      Verify OTP
+                      Verify Code
                       <ArrowRight className="h-5 w-5" />
                     </>
                   )}
@@ -1254,9 +1255,9 @@ export default function SignupPage({ onSignup, onSwitchToLogin }: SignupPageProp
                         Resending...
                       </span>
                     ) : resendCooldown > 0 ? (
-                      `Resend OTP in ${resendCooldown}s`
+                      `Resend code in ${resendCooldown}s`
                     ) : (
-                      "Didn't receive OTP? Resend"
+                      "Didn't receive the code? Resend"
                     )}
                   </button>
                 </div>
@@ -1684,7 +1685,7 @@ export default function SignupPage({ onSignup, onSwitchToLogin }: SignupPageProp
               {isSubmitting ? (
                 <>
                   <Loader2 className="h-5 w-5 animate-spin" />
-                  {authMode === "otp" ? "Sending OTP..." : "Creating Account..."}
+                  {authMode === "otp" ? "Sending Code..." : "Creating Account..."}
                 </>
               ) : registrationComplete ? (
                 <>
@@ -1696,7 +1697,7 @@ export default function SignupPage({ onSignup, onSwitchToLogin }: SignupPageProp
               ) : authMode === "otp" ? (
                 <>
                   <ArrowRight className="h-5 w-5" />
-                  Send OTP
+                  Send Verification Code
                 </>
               ) : (
                 <>
