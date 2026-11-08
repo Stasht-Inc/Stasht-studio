@@ -79,7 +79,8 @@ import { seedFromMemory } from "../components/storeel/lib/storeelFlow";
 import { campaignPageInventory } from "../components/storeel/campaignPageInventory";
 import { campaignModerationOf, moderationTabVisible } from "../components/storeel/lib/moderation";
 import { AddWidgetMenu, ADD_WIDGET_PANEL, addWidgetOptions, type AddWidgetKind } from "../components/widgets/AddWidgetChooser";
-import { previewWidgetsFrom, takeWidgetIntent } from "../components/storeel/lib/storeelWidgets";
+import { previewCardButtons, previewWidgetsFrom, takeWidgetIntent } from "../components/storeel/lib/storeelWidgets";
+import { isPinnedCta, isTimelineCta } from "../utils/timelineWidgets";
 const samanthaAvatar = 'https://images.unsplash.com/photo-1494790108755-2616b612b5bc?w=100&h=100&fit=crop';
 
 // Helper: convert S3 URL to proxied path so auth headers work and canvas doesn't get tainted
@@ -7741,8 +7742,10 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
   openAddWidgetRef.current = openAddWidget;
 
   // One of the widget editors is open (over the Storeel page, when it is open).
+  // (AI Creator has no credit purchase of its own: the purchase windows belong to the page's AI Wizard / AI scan,
+  // which can't be opened from the Storeel page — review M8.)
   const widgetEditorOpen = isAddHtmlModalOpen || isAddYoutubeModalOpen || isAddQuoteModalOpen || isAddAiCreatorModalOpen || isAddCtaModalOpen
-    || isVoiceToTextOpen || isProductPickerOpen || showDocuSignSendModal || isPurchaseModalOpen;
+    || isVoiceToTextOpen || isProductPickerOpen || showDocuSignSendModal;
 
   // Plus Divider between post cards (mobile only)
   // Reusable "+" Add-Widget divider used inside desktop sidebar timeline entries (incl. CTA)
@@ -9226,7 +9229,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
             ))}
             {renderProductWidgets(null)}
             {renderAiCreatorWidgets(null)}
-            {ctaWidgets.filter(w => w.afterPostId === null && !w.pinToBottom).map(widget => (
+            {ctaWidgets.filter(w => w.afterPostId === null && isTimelineCta(w)).map(widget => (
               <React.Fragment key={widget.id}>
                 <CTAWidgetCard onRequestMoment={openSharedRequestMoment} widget={widget} memoryId={memoryId} />
                 {renderPlusDivider(`shared-mobile-cta-top-div-${widget.id}`)}
@@ -9260,7 +9263,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
               </React.Fragment>
             ); }) : <div className="text-center py-12 text-gray-500 bg-white rounded-xl"><p>No moments to display</p></div>}
             {/* Pinned "Share Request a Moment" buttons — always after the last item, however long the list grows */}
-            {ctaWidgets.filter(w => w.pinToBottom).map(widget => (
+            {ctaWidgets.filter(isPinnedCta).map(widget => (
               <CTAWidgetCard onRequestMoment={openSharedRequestMoment} key={widget.id} widget={widget} memoryId={memoryId} />
             ))}
 
@@ -9448,7 +9451,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                           </div>
                         </div>
                       ))}
-                      {ctaWidgets.filter(w => w.afterPostId === null && !w.pinToBottom).map(widget => (
+                      {ctaWidgets.filter(w => w.afterPostId === null && isTimelineCta(w)).map(widget => (
                         <div key={widget.id} className="relative pl-10 pb-4 cursor-pointer" onClick={() => { const el = ctaWidgetCardRefs.current[widget.id]; if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' }); }}>
                           <div className="absolute left-0 top-7 bottom-8 w-0.5 bg-[#D1D5DC]" style={{ transform: 'translateX(-1px)' }} />
                           <div className="absolute -left-3.5 top-0 w-7 h-7 rounded-full flex items-center justify-center bg-[#6C60FF]/10 text-[#6C60FF]"><Pointer className="w-3.5 h-3.5" /></div>
@@ -9540,7 +9543,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                         );
                       })}
                       {/* Pinned "Share Request a Moment" buttons — always after the last item */}
-                      {ctaWidgets.filter(w => w.pinToBottom).map(widget => (
+                      {ctaWidgets.filter(isPinnedCta).map(widget => (
                         <div key={widget.id} className="relative pl-10 pb-4 cursor-pointer" onClick={() => { const el = ctaWidgetCardRefs.current[widget.id]; if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' }); }}>
                           <div className="absolute left-0 top-7 bottom-8 w-0.5 bg-[#D1D5DC]" style={{ transform: 'translateX(-1px)' }} />
                           <div className="absolute -left-3.5 top-0 w-7 h-7 rounded-full flex items-center justify-center bg-[#6C60FF]/10 text-[#6C60FF]"><Pointer className="w-3.5 h-3.5" /></div>
@@ -9644,7 +9647,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                       ))}
                       {renderProductWidgets(null)}
                       {renderAiCreatorWidgets(null)}
-                      {ctaWidgets.filter(w => w.afterPostId === null && !w.pinToBottom).map(widget => (
+                      {ctaWidgets.filter(w => w.afterPostId === null && isTimelineCta(w)).map(widget => (
                         <CTAWidgetCard onRequestMoment={openSharedRequestMoment} key={widget.id} widget={widget} memoryId={memoryId} cardRef={(el) => { ctaWidgetCardRefs.current[widget.id] = el; }} isActive={activeCtaWidgetId === widget.id} />
                       ))}
                       {sharedUnifiedItems.length > 0 ? sharedUnifiedItems.map((uItem: any) => {
@@ -9674,7 +9677,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                         );
                       }) : <div className="text-center py-12 text-gray-500 bg-white rounded-xl"><p>No moments to display</p></div>}
                       {/* Pinned "Share Request a Moment" buttons — always after the last item */}
-                      {ctaWidgets.filter(w => w.pinToBottom).map(widget => (
+                      {ctaWidgets.filter(isPinnedCta).map(widget => (
                         <CTAWidgetCard onRequestMoment={openSharedRequestMoment} key={widget.id} widget={widget} memoryId={memoryId} cardRef={(el) => { ctaWidgetCardRefs.current[widget.id] = el; }} isActive={activeCtaWidgetId === widget.id} />
                       ))}
                       <div className="mt-8 py-6 text-center"><p className="text-base text-gray-500">Powered by <span className="font-semibold text-[#6C60FF]">Stasht</span></p></div>
@@ -13313,7 +13316,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                         </div>
                       );
                     })}
-                    {ctaWidgets.filter(w => w.afterPostId === null && !w.pinToBottom).map(widget => renderCtaSidebarEntry(widget))}
+                    {ctaWidgets.filter(w => w.afterPostId === null && isTimelineCta(w)).map(widget => renderCtaSidebarEntry(widget))}
 
                     {(combinedTimeline || [
                       ...(apiMemoryData?.linked_memories || []).map((lm: any) => ({ type: 'linked' as const, id: String(lm.id) })),
@@ -13997,7 +14000,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                       }
                     })}
                     {/* Pinned "Share Request a Moment" buttons — always after the last item */}
-                    {ctaWidgets.filter(w => w.pinToBottom).map(widget => renderCtaSidebarEntry(widget))}
+                    {ctaWidgets.filter(isPinnedCta).map(widget => renderCtaSidebarEntry(widget))}
 
                     {/* E-Business Card - desktop only */}
                     {!!apiMemoryData?.user?.is_business && (
@@ -14301,7 +14304,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                         ))}
                         {renderProductWidgets(null)}
                         {renderAiCreatorWidgets(null)}
-                        {ctaWidgets.filter(w => w.afterPostId === null && !w.pinToBottom).map(widget => (
+                        {ctaWidgets.filter(w => w.afterPostId === null && isTimelineCta(w)).map(widget => (
                           <CTAWidgetCard key={widget.id} widget={widget} memoryId={memoryId} cardRef={(el) => { ctaWidgetCardRefs.current[widget.id] = el; }} isActive={activeCtaWidgetId === widget.id} />
                         ))}
 
@@ -14589,7 +14592,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                           </div>
                         )}
                         {/* Pinned "Share Request a Moment" buttons — always after the last item */}
-                        {ctaWidgets.filter(w => w.pinToBottom).map(widget => (
+                        {ctaWidgets.filter(isPinnedCta).map(widget => (
                           <CTAWidgetCard key={widget.id} widget={widget} memoryId={memoryId} cardRef={(el) => { ctaWidgetCardRefs.current[widget.id] = el; }} isActive={activeCtaWidgetId === widget.id} />
                         ))}
 
@@ -14933,7 +14936,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                       ))}
                       {renderProductWidgets(null)}
                       {renderAiCreatorWidgets(null)}
-                      {ctaWidgets.filter(w => w.afterPostId === null && !w.pinToBottom).map(widget => (
+                      {ctaWidgets.filter(w => w.afterPostId === null && isTimelineCta(w)).map(widget => (
                         <React.Fragment key={`mobile-cta-top-${widget.id}`}>
                         <div className="mx-4">
                           <CTAWidgetCard widget={widget} memoryId={memoryId} isActive={activeCtaWidgetId === widget.id} onEdit={() => openEditCta(widget)} onDelete={() => deleteCta(widget)} />
@@ -15308,7 +15311,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                         }
                       })}
                       {/* Pinned "Share Request a Moment" buttons — always after the last item */}
-                      {ctaWidgets.filter(w => w.pinToBottom).map(widget => (
+                      {ctaWidgets.filter(isPinnedCta).map(widget => (
                         <div key={`mobile-cta-bottom-${widget.id}`} className="mx-4">
                           <CTAWidgetCard widget={widget} memoryId={memoryId} isActive={activeCtaWidgetId === widget.id} onEdit={() => openEditCta(widget)} onDelete={() => deleteCta(widget)} />
                         </div>
@@ -18223,6 +18226,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
           onAddWidget={(kind, afterPostId) => openAddWidget(kind, afterPostId)}
           widgetOptions={addWidgetOptions({ docuSign: docuSignConnected, shopifyProduct: true })}
           previewWidgets={previewWidgetsFrom({ html: htmlWidgets, youtube: youtubeWidgets, quote: quoteWidgets, cta: ctaWidgets, aiCreator: aiCreatorWidgets, product: productWidgets })}
+          previewCardButtons={previewCardButtons(ctaWidgets)}
           widgetEditorOpen={widgetEditorOpen}
         />
       ) : null}

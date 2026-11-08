@@ -61,7 +61,8 @@ export interface CatalogStatusLike { available: boolean; reason: string | null; 
 export function catalogGate(status: CatalogStatusLike | null, isStarter: boolean): 'hidden' | 'upgrade' | 'ready' {
   if (!status || status.reason === 'not_available') return 'hidden';
   // Chris, 8 Nov 2026: the Products tab only when the account HAS products (the scraper picked some up).
-  const items = Math.max(Number(status.item_count) || 0, Number(status.source?.item_count) || 0);
+  // On the Business plan only what can be listed counts (review M3); off it, the website's items on its source.
+  const items = status.available ? Number(status.item_count) || 0 : Math.max(Number(status.item_count) || 0, Number(status.source?.item_count) || 0);
   if (items <= 0) return 'hidden';
   if (isStarter || status.reason === 'plan_required') return 'upgrade';
   return status.available ? 'ready' : 'hidden';

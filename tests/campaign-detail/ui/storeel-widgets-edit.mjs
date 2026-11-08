@@ -33,6 +33,14 @@ const OTHERS = [
   { ...CAMPAIGN, id: 701, title: 'Open House Weekend', slug: 'open-house', last_update_img: img(2), posts_count: 4 },
   { ...CAMPAIGN, id: 702, title: 'Kitchen Reno', slug: 'kitchen-reno', last_update_img: img(1), posts_count: 2 },
 ];
+// Review I1: added in this order after Moment 1 — CTA, Quote, HTML — plus a pinned Share Request a Moment.
+const W = (id, type, after, order, data) => ({ id, widget_type: type, after_post_id: after, widget_order: order, widget_data: data, admin_approval: 1, is_visible: true, created_at: '2026-11-08 10:00:00' });
+const SEEDED = [
+  W(5001, 'cta', 11, 0, { title: 'Ready to visit?', buttonText: 'Book a tour', buttonLink: 'https://example.com/tour' }),
+  W(5002, 'quote', 11, 1, { text: 'Home is where the heart is.' }),
+  W(5003, 'html', 11, 2, { title: '', content: '<p><strong>Open daily</strong> 9–5</p>' }),
+  W(5004, 'cta', 12, 0, { title: '', buttonText: 'Share a Moment', mode: 'request_moment', pinToBottom: true }),
+];
 const ALL = ['Moment', 'Call to Action', 'Share Request a Moment', 'Voice to Text', 'HTML', 'Youtube', 'Quote', 'AI Creator', 'Shopify Product', 'DocuSign'];
 
 const failures = [];
@@ -40,8 +48,8 @@ const pageErrors = [];
 const expect = (ok, label) => { if (!ok) failures.push(label); console.log(ok ? '  ok  ' : '  FAIL', label); };
 const browser = await chromium.launch({ headless: true, channel: 'chrome' });
 
-async function open({ width, height, intent = null }) {
-  const state = { widgets: [], widgetPosts: [], linked: [], linkCalls: [], nextWidget: 4000 };
+async function open({ width, height, intent = null, widgets = [] }) {
+  const state = { widgets: structuredClone(widgets), widgetPosts: [], linked: [], linkCalls: [], nextWidget: 4000 };
   const context = await browser.newContext({ viewport: { width, height }, serviceWorkers: 'block', locale: 'en-US', hasTouch: width < 1024, isMobile: width < 1024 });
   await context.addInitScript(([user, intent]) => {
     if (sessionStorage.getItem('cd-seeded')) return;
@@ -148,9 +156,42 @@ async function inView(page, locator) {
   return Boolean(box && vp && box.y >= 0 && box.y + box.height <= vp.height + 1 && box.x >= 0 && box.x + box.width <= vp.width + 1);
 }
 
+/** The y of the first visible element matching `selector` that contains `text`. */
+const yOf = (page, selector, text) => page.locator(selector).filter({ hasText: text }).filter({ visible: true }).first().boundingBox().then((b) => b?.y ?? NaN).catch(() => NaN);
+
 try {
   for (const [width, height] of [[1280, 900], [390, 844]]) {
     const tag = String(width);
+
+    // ── Review I1: the preview orders widgets exactly like the campaign page ───────────────────────────────────
+    {
+      const o = await open({ width, height, widgets: SEEDED });
+      await openCampaign(o.page);
+      await o.page.waitForTimeout(1500);
+      const pageOrder = [
+        ['html', await yOf(o.page, 'div.rounded-2xl', 'Open daily')],
+        ['quote', await yOf(o.page, 'div.rounded-2xl', 'Home is where the heart is.')],
+        ['cta', await yOf(o.page, 'a, button', 'Book a tour')],
+        ['pinned', await yOf(o.page, 'button', 'Share a Moment')],
+      ].filter(([, y]) => Number.isFinite(y)).sort((a, b) => a[1] - b[1]).map(([k]) => k);
+      await o.page.screenshot({ path: `${OUT}/${tag}-00-campaign-page-order.png` });
+      await openEdit(o.page, width);
+      const previewOrder = await o.page.getByTestId('storeel-preview-moments').evaluate((ul) => {
+        const out = [];
+        for (const el of ul.querySelectorAll('[data-preview-widget], li[data-moment-key]')) {
+          if (el.matches('li')) { if (el.getAttribute('data-moment-key') === 'post-13') out.push('moment3'); continue; }
+          const kind = el.getAttribute('data-preview-widget');
+          out.push(kind === 'cta' && el.textContent.includes('Share a Moment') ? 'pinned' : kind);
+        }
+        return out;
+      });
+      expect(JSON.stringify(previewOrder) === JSON.stringify(['html', 'quote', 'cta', 'moment3', 'pinned']), `${tag}: preview order HTML, Quote, CTA, …, pinned last (got ${previewOrder})`);
+      expect(JSON.stringify(pageOrder) === JSON.stringify(['html', 'quote', 'cta', 'pinned']), `${tag}: the campaign page shows the same order (got ${pageOrder})`);
+      await o.page.getByTestId('storeel-preview-moments').locator('[data-preview-widget="quote"]').scrollIntoViewIfNeeded();
+      await o.page.screenshot({ path: `${OUT}/${tag}-00b-preview-order.png` });
+      await o.context.close();
+    }
+
     const { page, context, state } = await open({ width, height });
     await openCampaign(page);
     await openEdit(page, width);

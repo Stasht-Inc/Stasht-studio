@@ -42,6 +42,16 @@ export function AddWidgetMenu({ options, onPick, headingClassName = 'text-base' 
       </div>
       <div className="max-h-[320px] overflow-y-auto" role="menu" aria-label="Add Widget">
         {options.map((item) => (
+          item.disabled ? (
+            <button key={item.kind} type="button" role="menuitem" aria-disabled="true" data-widget-kind={item.kind} disabled
+              className="flex w-full cursor-not-allowed items-center gap-4 px-5 py-4 text-left opacity-50">
+              <div className="w-10 h-10 flex-shrink-0 rounded-[8px] bg-gray-50 flex items-center justify-center">{ICONS[item.kind]}</div>
+              <div>
+                <p className="text-sm font-medium text-gray-900">{item.label}</p>
+                <p className="text-xs text-gray-500">{item.disabledReason || item.desc}</p>
+              </div>
+            </button>
+          ) : (
           <PopoverClose asChild key={item.kind}>
             <button
               type="button"
@@ -57,6 +67,7 @@ export function AddWidgetMenu({ options, onPick, headingClassName = 'text-base' 
               </div>
             </button>
           </PopoverClose>
+          )
         ))}
       </div>
     </div>

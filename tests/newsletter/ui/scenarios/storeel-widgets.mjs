@@ -12,12 +12,16 @@ import { createMockApi, IMG } from '../mock-api.mjs';
 
 const STOREEL_TITLE = 'Give your campaign a meaningful title';
 const PNG = readFileSync(new URL('../../../../public/pwa-icon-512.png', import.meta.url));
+// Review I2: more than 50 campaigns — the three named ones are on the first page, "Spring kitchen reno" and "Lakeside
+// cabin" only further down (found by searching the server, or by scrolling to the next page).
 const CAMPAIGNS = [
   { id: 701, title: 'Fall open house', last_update_img: IMG, posts_count: 4 },
-  { id: 702, title: 'Spring kitchen reno', last_update_img: IMG, posts_count: 2 },
   { id: 703, title: 'Backyard deck', last_update_img: null, posts_count: 1 },
+  ...Array.from({ length: 70 }, (_, i) => ({ id: 800 + i, title: `Weekly update ${i + 1}`, last_update_img: null, posts_count: 1 })),
+  { id: 702, title: 'Spring kitchen reno', last_update_img: IMG, posts_count: 2 },
+  { id: 704, title: 'Lakeside cabin', last_update_img: IMG, posts_count: 3 },
 ];
-const ALL = ['Moment', 'Call to Action', 'Share Request a Moment', 'Voice to Text', 'HTML', 'Youtube', 'Quote', 'AI Creator', 'Shopify Product'];
+const ALL = ['Moment', 'Call to Action', 'Share Request a Moment', 'Voice to Text', 'HTML', 'Youtube', 'Quote', 'AI Creator', 'Shopify Product', 'DocuSign'];
 
 const flow = (page) => page.getByRole('dialog', { name: /^(Create|Edit) Campaign$/ });
 const preview = (page) => page.getByTestId('storeel-preview');
@@ -58,13 +62,16 @@ const labels = async (page) => (await chooser(page).getByRole('menuitem').evalua
 export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
   for (const [width, height] of [[1280, 1000], [390, 844]]) {
     const tag = String(width);
-    const api = createMockApi({ catalogue: true, cars: true, existingCampaigns: CAMPAIGNS });
+    const api = createMockApi({ catalogue: true, cars: true, existingCampaigns: CAMPAIGNS, docuSign: true });
     const { page, context } = await openStoreel(open, width, height, api);
     await page.getByPlaceholder(STOREEL_TITLE).fill('Around the Mill');
+    // DocuSign's connection is asked when the page opens.
+    for (let i = 0; i < 20 && !api.state.calls.some((c) => c.path === '/integrations/docusign/status'); i++) await page.waitForTimeout(200);
+    await page.waitForTimeout(300);
 
     // ── 1. The "+" opens the Add Widget chooser with every option ─────────────────────────────────────────────────
     await tapPlus(page, 'Add a moment at the start');
-    expect(JSON.stringify(await labels(page)) === JSON.stringify(ALL), `${tag}: the chooser lists every option (got ${await labels(page)})`);
+    expect(JSON.stringify(await labels(page)) === JSON.stringify(ALL), `${tag}: the chooser lists every option, DocuSign when connected (got ${await labels(page)})`);
     await expectVisible(chooser(page).getByText('Choose a widget to add to your timeline'), `${tag}: chooser heading`);
     const cb = await chooser(page).boundingBox();
     expect(await inView(page, chooser(page)), `${tag}: the chooser is in the viewport (${cb ? [cb.x, cb.y, cb.width, cb.height].map(Math.round) : 'none'})`);
@@ -89,11 +96,23 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
     const fieldBox = await field.boundingBox();
     expect(Boolean(fieldBox && (!uploadBox || fieldBox.y > uploadBox.y)), `${tag}: it sits under the upload`);
     await page.locator('#moment-campaigns-toggle').click();
-    await page.getByRole('searchbox', { name: 'Search campaigns' }).fill('spring');
-    expect(await field.getByRole('checkbox').count() === 1, `${tag}: search narrows the campaigns`);
-    await page.getByRole('searchbox', { name: 'Search campaigns' }).fill('');
+    await expectVisible(field.getByRole('checkbox', { name: /Fall open house/ }), `${tag}: the first page of campaigns`);
+    expect(await field.getByRole('checkbox', { name: /Spring kitchen reno/ }).count() === 0, `${tag}: …50 at a time`);
+    // Scrolling to the end of the list loads the next page (infinite scroll).
+    await field.getByRole('list', { name: 'Campaigns' }).evaluate((el) => { el.scrollTop = el.scrollHeight; });
+    await page.waitForTimeout(1200);
+    expect((api.state.campaignListCalls ?? []).some((c) => c.page === 2 && !c.search), `${tag}: scrolling asks for page 2`);
+    await expectVisible(field.getByRole('checkbox', { name: /Lakeside cabin/ }), `${tag}: a campaign past the first 50 shows after scrolling`);
+    await field.getByRole('list', { name: 'Campaigns' }).evaluate((el) => { el.scrollTop = 0; });
     await field.getByRole('checkbox', { name: /Fall open house/ }).click();
+    // Search asks the server (debounced): a campaign past the first 50 is found.
+    await page.getByRole('searchbox', { name: 'Search campaigns' }).fill('spring');
+    await page.waitForTimeout(1000);
+    expect((api.state.campaignListCalls ?? []).some((c) => c.search === 'spring' && c.page === 1), `${tag}: search is sent to the server`);
+    expect(await field.getByRole('checkbox').count() === 1, `${tag}: search finds the one match`);
     await field.getByRole('checkbox', { name: /Spring kitchen reno/ }).click();
+    await page.getByRole('searchbox', { name: 'Search campaigns' }).fill('');
+    await page.waitForTimeout(800);
     await expectVisible(field.getByText('2 campaigns selected'), `${tag}: 2 selected`);
     await expectVisible(field.getByRole('button', { name: 'Remove Fall open house' }), `${tag}: chips with remove`);
     const addAll = page.getByRole('button', { name: 'Add all (2)' });
@@ -137,10 +156,19 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
     expect(!api.state.calls.some((c) => c.method === 'POST' && c.path === '/memories'), `${tag}: Cancel saves nothing`);
     expect(await flow(page).count() === 1, `${tag}: …and stays on the page`);
 
+    // DocuSign (connected) goes the same way (review I3).
+    await tapPlus(page, 'Add a moment at the end');
+    await pick(page, 'DocuSign');
+    const dsAsk = page.getByRole('dialog', { name: 'Save this Storeel as a draft first?' });
+    expect(((await dsAsk.textContent().catch(() => '')) ?? '').includes('DocuSign is added to a saved Storeel'), `${tag}: DocuSign asks to save first too`);
+    await dsAsk.getByRole('button', { name: 'Cancel' }).click();
+    await page.waitForTimeout(300);
+
     await tapPlus(page, 'Add a moment at the end');
     await pick(page, 'Call to Action');
     await page.getByRole('dialog', { name: 'Save this Storeel as a draft first?' }).getByRole('button', { name: 'Save draft and continue' }).click();
     await page.waitForTimeout(2500);
+    await shot(page, `${tag}-05b-after-save`);
     const posts = api.state.calls.filter((c) => c.method === 'POST' && c.path === '/memories');
     const body = posts[0]?.body ?? {};
     expect(posts.length === 1 && JSON.stringify(body.linked_memory_ids) === '[701,702]' && body.photos?.length === 1,

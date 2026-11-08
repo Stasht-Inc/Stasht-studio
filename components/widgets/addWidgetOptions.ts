@@ -9,6 +9,9 @@ export interface AddWidgetOption {
   kind: AddWidgetKind;
   label: string;
   desc: string;
+  /** Shown but not pickable yet (e.g. Edit Storeel still loading), with why. */
+  disabled?: boolean;
+  disabledReason?: string;
 }
 
 const BASE: AddWidgetOption[] = [

@@ -20,7 +20,8 @@ import AISuggestionModal from './AISuggestionModal';
 import { localDateISO } from '../utils/localDate';
 import SegmentedSwitch from './newsletters/SegmentedSwitch';
 import InventoryMomentPicker, { useInventorySources, type MomentInventory, type MomentSource } from './storeel/InventoryMomentPicker';
-import CampaignsMultiSelect, { useMomentCampaigns } from './storeel/CampaignsMultiSelect';
+import CampaignsMultiSelect from './storeel/CampaignsMultiSelect';
+import type { CampaignPick } from './storeel/lib/momentCampaigns';
 
 interface UploadProgressItem {
   id: string;
@@ -169,8 +170,8 @@ export function AddMomentModal({
   const [pickedVehicles, setPickedVehicles] = useState<string[]>([]);
   // Media's "Campaigns (optional)" (Chris, 8 Nov 2026, point 2): link existing campaigns, where a campaign is being built.
   const campaignsShown = Boolean(inventory?.campaigns) && !editPhotoData && !libraryMode;
-  const campaignSource = useMomentCampaigns(campaignsShown && isOpen, inventory?.campaigns?.exclude ?? null);
-  const [pickedCampaigns, setPickedCampaigns] = useState<string[]>([]);
+  const [pickedCampaigns, setPickedCampaigns] = useState<CampaignPick[]>([]);
+  const toggleCampaign = (c: CampaignPick) => setPickedCampaigns((prev) => (prev.some((x) => x.id === c.id) ? prev.filter((x) => x.id !== c.id) : [...prev, c]));
   // Chris, 8 Nov 2026: "Photos & Videos" → "Media" (one short label, so the three fit one row on phones too). Products /
   // Vehicles only when the account has them; Media alone → no tab bar.
   const sourceOptions: Array<{ value: MomentSource; label: string }> = inventory && !editPhotoData && !libraryMode ? [
@@ -953,7 +954,7 @@ export function AddMomentModal({
         added = await inventory.onAdd({
           products: sources.products.filter((p) => pickedProducts.includes(String(p.id))),
           vehicles: sources.vehicles.filter((v) => pickedVehicles.includes(String(v.id))),
-          campaigns: campaignSource.campaigns.filter((c) => pickedCampaigns.includes(c.id)),
+          campaigns: pickedCampaigns,
         });
       } finally {
         setIsSubmitting(false);
@@ -1638,11 +1639,10 @@ export function AddMomentModal({
 
           {campaignsShown ? (
             <CampaignsMultiSelect
-              campaigns={campaignSource.campaigns}
-              loading={campaignSource.loading}
               picked={pickedCampaigns}
-              onToggle={togglePick(setPickedCampaigns)}
+              onToggle={toggleCampaign}
               alreadyLinked={inventory?.alreadyAdded?.campaigns}
+              exclude={inventory?.campaigns?.exclude ?? null}
             />
           ) : null}
 

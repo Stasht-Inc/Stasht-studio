@@ -1,5 +1,6 @@
 import type { PreviewMoment } from './previewMoments.ts';
 import type { AddWidgetKind } from '../../widgets/addWidgetOptions.ts';
+import { isPinnedCta, orderTimelineWidgets } from '../../../utils/timelineWidgets.ts';
 
 // Chris, 8 Nov 2026 (point 1): the Storeel preview's "+" opens the campaign page's Add Widget chooser. Pure, so
 // `node --test` loads it.
@@ -12,6 +13,8 @@ import type { AddWidgetKind } from '../../widgets/addWidgetOptions.ts';
 /** The top group (after_post_id null) and widgets whose moment isn't shown (a sub-photo, deleted): last. */
 export const WIDGET_TOP = '__top__';
 export const WIDGET_END = '__end__';
+/** Pinned "Share Request a Moment" buttons: after the timeline's last item, as on the campaign page. */
+export const WIDGET_PINNED = '__pinned__';
 
 export type PreviewWidgetType = 'html' | 'youtube' | 'quote' | 'cta' | 'ai_creator' | 'product';
 
@@ -30,11 +33,17 @@ export interface PreviewWidget {
   buttonColor?: string;
   textColor?: string;
   borderRadius?: number;
+  /** Call to Action: font size (px) and button width (px; 0 = the card's full width), as the campaign page draws it. */
+  fontSize?: number;
+  buttonWidth?: number;
   mode?: string;
   background?: string;
   imageUrl?: string | null;
+  isDark?: boolean | null;
   price?: string;
   image?: string | null;
+  /** A Call to Action pinned to the bottom (pinToBottom). */
+  pinned?: boolean;
 }
 
 /**
@@ -70,29 +79,35 @@ export function postIdsAfterCreate(sentKeys: ReadonlyArray<string>, fresh: Reado
   return new Map(sentKeys.map((key, i) => [key, ids[i]]));
 }
 
-/** The preview's widgets grouped by where they show: WIDGET_TOP, a moment's key, or WIDGET_END; each group in order. */
+/**
+ * The preview's widgets grouped by where they show: WIDGET_TOP, a moment's key, WIDGET_END or WIDGET_PINNED; each
+ * group in the campaign page's order (utils/timelineWidgets: by type, then each type's own order).
+ */
 export function widgetsByAnchor(moments: ReadonlyArray<PreviewMoment>, widgets: ReadonlyArray<PreviewWidget>): Map<string, PreviewWidget[]> {
   const keyOfPost = new Map<string, string>();
   for (const m of moments) if (m.kind === 'photo' && typeof m.postId === 'number') keyOfPost.set(String(m.postId), m.key);
   const out = new Map<string, PreviewWidget[]>();
-  const sorted = [...widgets].sort((a, b) => a.order - b.order);
-  for (const w of sorted) {
-    const key = w.afterPostId === null || w.afterPostId === '' ? WIDGET_TOP : keyOfPost.get(String(w.afterPostId)) ?? WIDGET_END;
+  for (const w of orderTimelineWidgets(widgets)) {
+    const key = w.type === 'cta' && w.pinned ? WIDGET_PINNED
+      : w.afterPostId === null || w.afterPostId === '' ? WIDGET_TOP : keyOfPost.get(String(w.afterPostId)) ?? WIDGET_END;
     out.set(key, [...(out.get(key) ?? []), w]);
   }
   return out;
 }
 
-/** The "View on website" card the web API makes beside each catalogue product (CatalogSnapshotWriter::CTA_BUTTON_TEXT). */
-const PRODUCT_CTA_TEXT = 'View on website';
+/**
+ * A catalogue product's "View on website" button that belongs INSIDE its moment card (Chris, 8 Nov 2026, point 3):
+ * the campaign page marks it `inCard` (from the API's in_card flag). Never matched by its words (review M2).
+ */
+const isInCard = (w: any): boolean => w?.inCard === true && w?.mode !== 'request_moment';
 
 const str = (v: unknown): string => (typeof v === 'string' ? v : v === null || v === undefined ? '' : String(v));
 const num = (v: unknown, d = 0): number => (Number.isFinite(Number(v)) ? Number(v) : d);
 const anchorOf = (w: any): string | null => (w?.afterPostId === null || w?.afterPostId === undefined || w?.afterPostId === '' ? null : String(w.afterPostId));
 
 /**
- * The campaign page's widget lists (its fetchWidgets states) as preview widgets. A catalogue product's auto-made
- * "View on website" card is left out: its button belongs in the product's own card (Chris, 8 Nov 2026, point 3).
+ * The campaign page's widget lists (its fetchWidgets states) as preview widgets. A product's in-card button is left
+ * out here: it is drawn inside the product's moment card (previewCardButtons).
  */
 export function previewWidgetsFrom(lists: {
   html?: ReadonlyArray<any>; youtube?: ReadonlyArray<any>; quote?: ReadonlyArray<any>; cta?: ReadonlyArray<any>;
@@ -103,16 +118,30 @@ export function previewWidgetsFrom(lists: {
     ...(lists.html ?? []).map((w) => ({ ...base(w, 'html'), title: str(w.title), content: str(w.content) })),
     ...(lists.youtube ?? []).map((w) => ({ ...base(w, 'youtube'), title: str(w.title), videoId: str(w.videoId) })),
     ...(lists.quote ?? []).map((w) => ({ ...base(w, 'quote'), text: str(w.text), author: str(w.author) })),
-    ...(lists.cta ?? []).filter((w) => str(w.buttonText).trim() !== PRODUCT_CTA_TEXT).map((w) => ({
+    ...(lists.cta ?? []).filter((w) => !isInCard(w)).map((w) => ({
       ...base(w, 'cta'), title: str(w.title), buttonText: str(w.buttonText), buttonColor: str(w.buttonColor), textColor: str(w.textColor),
-      borderRadius: num(w.borderRadius, 12), mode: str(w.mode) || 'link',
+      borderRadius: num(w.borderRadius, 12), fontSize: num(w.fontSize, 16), buttonWidth: num(w.buttonWidth, 0),
+      mode: str(w.mode) || 'link', ...(isPinnedCta(w) ? { pinned: true } : {}),
     })),
-    ...(lists.aiCreator ?? []).map((w) => ({ ...base(w, 'ai_creator'), text: str(w.text), background: str(w.background), imageUrl: w.imageUrl ? str(w.imageUrl) : null })),
+    ...(lists.aiCreator ?? []).map((w) => ({
+      ...base(w, 'ai_creator'), text: str(w.text), background: str(w.background), imageUrl: w.imageUrl ? str(w.imageUrl) : null,
+      isDark: typeof w.isDark === 'boolean' ? w.isDark : null,
+    })),
     ...(lists.product ?? []).map((w) => ({
       ...base(w, 'product'), title: str(w.title), image: w.image ? str(w.image) : null,
       price: w.price ? (w.currency ? `${str(w.currency)} ${str(w.price)}` : str(w.price)) : '',
     })),
   ];
+}
+
+/** Each product moment's in-card button (its post id → the button), drawn inside that moment's card in the preview. */
+export function previewCardButtons(ctas: ReadonlyArray<any> | undefined): Map<string, { buttonText: string }> {
+  const out = new Map<string, { buttonText: string }>();
+  for (const w of ctas ?? []) {
+    const post = anchorOf(w);
+    if (isInCard(w) && post !== null && !out.has(post)) out.set(post, { buttonText: str(w.buttonText) || 'View on website' });
+  }
+  return out;
 }
 
 // ── Create: a widget picked before the Storeel exists ────────────────────────────────────────────────────────────

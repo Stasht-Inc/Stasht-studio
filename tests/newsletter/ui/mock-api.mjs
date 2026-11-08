@@ -829,8 +829,16 @@ export function createMockApi(options = {}) {
     }
     // options.existingCampaigns (Chris, 8 Nov 2026): the account's campaigns, as GET /memories lists them (Add a Moment's
     // "Campaigns (optional)"), and POST /memories/{id}/linked-memories linking them into a saved campaign.
+    // options.docuSign (Chris, 8 Nov 2026): DocuSign connected (the Add Widget chooser then offers DocuSign).
+    if (path === '/integrations/docusign/status' && options.docuSign !== undefined) return ok({ connected: Boolean(options.docuSign) });
     if (path === '/memories' && method === 'GET' && options.existingCampaigns) {
-      return ok({ all_memories: { data: options.existingCampaigns } });
+      // MemoriesController::index: ?search= (title), ?page= / ?per_page= with all_memories.pagination.
+      const q = (params?.get?.('search') ?? '').toLowerCase();
+      const per = Number(params?.get?.('per_page') ?? 20) || 20;
+      const page = Number(params?.get?.('page') ?? 1) || 1;
+      const all = options.existingCampaigns.filter((c) => !q || String(c.title).toLowerCase().includes(q));
+      state.campaignListCalls = [...(state.campaignListCalls ?? []), { search: q, page }];
+      return ok({ all_memories: { data: all.slice((page - 1) * per, page * per), pagination: { current_page: page, per_page: per, total: all.length, last_page: Math.max(1, Math.ceil(all.length / per)) } } });
     }
     const linkMatch = /^\/memories\/(\d+)\/linked-memories$/.exec(path);
     if (linkMatch && method === 'POST') {

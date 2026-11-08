@@ -9,7 +9,7 @@ import { plusAfter } from './lib/momentOrder';
 import { PREVIEW_DEVICES, fitScale, previewDevice, readPreviewDevice, savePreviewDevice, type PreviewDevice } from './lib/previewDevice';
 import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
 import { AddWidgetMenu, ADD_WIDGET_PANEL, type AddWidgetKind, type AddWidgetOption } from '../widgets/AddWidgetChooser';
-import { WIDGET_END, WIDGET_TOP, widgetsByAnchor, type PreviewWidget } from './lib/storeelWidgets';
+import { WIDGET_END, WIDGET_PINNED, WIDGET_TOP, widgetsByAnchor, type PreviewWidget } from './lib/storeelWidgets';
 import PreviewWidgetCard from './PreviewWidgetCard';
 
 /**
@@ -64,6 +64,17 @@ const SCREEN_RADIUS: Record<string, number> = { 'iphone-se': 28, 'iphone-15': 55
 /** Figma: the first moment card overlaps the bottom of the cover by this much. */
 const CARD_OVERLAP = 85;
 
+/** Phones / narrow windows (follows rotation and resizing): the chooser opens under its "+" there. */
+function useNarrow(): boolean {
+  const [narrow, setNarrow] = useState(() => typeof window !== 'undefined' && window.innerWidth < 768);
+  useEffect(() => {
+    const on = () => setNarrow(window.innerWidth < 768);
+    window.addEventListener('resize', on);
+    return () => window.removeEventListener('resize', on);
+  }, []);
+  return narrow;
+}
+
 /** The nearest scrolling ancestor (the Storeel page's scroller), else null (the window scrolls). */
 function scrollParent(el: HTMLElement | null): HTMLElement | null {
   for (let node = el?.parentElement ?? null; node; node = node.parentElement) {
@@ -102,13 +113,15 @@ function useRoom(ref: React.RefObject<HTMLDivElement>) {
   return room;
 }
 
-export default function StoreelLivePreview({ input, avatarUrl, avatarColor, controls, widgets }: {
+export default function StoreelLivePreview({ input, avatarUrl, avatarColor, controls, widgets, cardButtons }: {
   input: StoreelPreviewInput;
   avatarUrl?: string | null;
   avatarColor?: string | null;
   controls?: PreviewControls;
   /** A saved campaign's widgets (Chris, 8 Nov 2026): shown after their moment, like the campaign page. */
   widgets?: ReadonlyArray<PreviewWidget>;
+  /** A saved product moment's in-card "View on website" button, by the moment's post id (Chris, 8 Nov 2026, point 3). */
+  cardButtons?: ReadonlyMap<string, { buttonText: string }>;
 }) {
   const m = storeelPreviewModel(input);
   const widgetGroups = widgetsByAnchor(m.momentCards, widgets ?? []);
@@ -196,9 +209,12 @@ export default function StoreelLivePreview({ input, avatarUrl, avatarColor, cont
                           label={`Add a moment after ${momentLabel(m.momentCards[i - 1])}`} anchorKey={m.momentCards[i - 1].key} onAdd={() => controls?.onAddAfter(m.momentCards[i - 1].key)} />
                       </div>
                     ) : null}
-                    <MomentCard moment={moment} author={m.author} initial={m.initial} avatarUrl={avatarUrl} color={color} menu={controls?.menuFor(moment.key, i) ?? null} busy={controls?.busy} />
+                    <MomentCard moment={moment} author={m.author} initial={m.initial} avatarUrl={avatarUrl} color={color} menu={controls?.menuFor(moment.key, i) ?? null} busy={controls?.busy}
+                      cardButton={moment.kind === 'photo' && typeof moment.postId === 'number' ? cardButtons?.get(String(moment.postId))?.buttonText : undefined} />
                     {widgetStack(moment.key)}
                     {i === m.momentCards.length - 1 ? widgetStack(WIDGET_END) : null}
+                    {/* Pinned "Share Request a Moment" buttons: after the last item, as on the campaign page. */}
+                    {i === m.momentCards.length - 1 ? widgetStack(WIDGET_PINNED) : null}
                     {/* After the last moment: one more "+" (Chris: "+ after moments"). */}
                     {controls && i === m.momentCards.length - 1 && plusAfter(m.momentCards, i) ? (
                       <div className="mt-[18px]">
@@ -336,6 +352,7 @@ function Cover({ m, width, height, color, avatarUrl, initialCover, controls, onC
 function Divider({ subtle = false, controls, label = '', anchorKey = null, onAdd }: { subtle?: boolean; controls?: PreviewControls; label?: string; anchorKey?: string | null; onAdd?: () => void }) {
   const circle = `relative flex h-[33px] w-[33px] items-center justify-center rounded-full border bg-[#F3F4F6] ${subtle ? 'border-gray-200 text-gray-400' : 'border-[#6C60FF] text-[#6C60FF]'}`;
   const chooser = controls?.onAddWidget && controls.widgetOptions?.length ? controls : null;
+  const narrow = useNarrow();
   const button = controls ? (
     // A 44 px hit area (device px) around the drawn 33 px circle.
     <button type="button" onClick={chooser ? undefined : onAdd} disabled={controls.busy} aria-label={label} data-testid="storeel-preview-add"
@@ -352,7 +369,7 @@ function Divider({ subtle = false, controls, label = '', anchorKey = null, onAdd
         <Popover>
           <PopoverTrigger asChild>{button}</PopoverTrigger>
           {/* Portalled above the Storeel page (z 99999): beside the "+" as on the campaign page; under it on phones. */}
-          <PopoverContent side={typeof window !== 'undefined' && window.innerWidth < 768 ? 'bottom' : 'left'} align="center" className={`${ADD_WIDGET_PANEL} max-w-[calc(100vw-2rem)]`} style={MENU_Z} sideOffset={8}>
+          <PopoverContent side={narrow ? 'bottom' : 'left'} align="center" className={`${ADD_WIDGET_PANEL} max-w-[calc(100vw-2rem)]`} style={MENU_Z} sideOffset={8}>
             <AddWidgetMenu options={chooser.widgetOptions!} onPick={(kind) => chooser.onAddWidget!(kind, anchorKey)} />
           </PopoverContent>
         </Popover>
@@ -440,8 +457,10 @@ function PlaceAndDate({ location, date }: { location: string; date: string }) {
 }
 
 /** One moment as the published campaign shows it (PublishedMemoryPage / the campaign page's timeline). */
-function MomentCard({ moment, author, initial, avatarUrl, color, menu = null, busy }: {
+function MomentCard({ moment, author, initial, avatarUrl, color, menu = null, busy, cardButton }: {
   moment: PreviewMoment; author: string; initial: string; avatarUrl?: string | null; color: string; menu?: MomentMenuActions | null; busy?: boolean;
+  /** A saved product moment's in-card button text (its own CTA row, marked in_card): drawn inside the card. */
+  cardButton?: string;
 }) {
   if (moment.kind === 'photo' || moment.kind === 'product') {
     // The campaign page: the moment's title, then its caption (a product's caption is made from the website by the API).
@@ -456,6 +475,13 @@ function MomentCard({ moment, author, initial, avatarUrl, color, menu = null, bu
             {moment.title ? <p className="mt-[6px] line-clamp-2 break-words text-[18.5px] font-bold leading-[26px] text-[#1A1A1A]">{moment.title}</p> : null}
             {caption ? <p className="mt-[6px] line-clamp-3 whitespace-pre-line break-words text-[14.5px] leading-[21px] text-[#364153]">{caption}</p> : null}
           </div>
+          {cardButton ? (
+            <div className="-mt-[10px] px-[21px] pb-[22px]">
+              <span data-testid="storeel-preview-card-button" className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#6C60FF] px-4 py-3 text-[15px] font-semibold text-white">
+                <ExternalLink className="h-4 w-4" aria-hidden="true" />{cardButton}
+              </span>
+            </div>
+          ) : null}
         </Card>
         {/* A product's "View on website" button card (CatalogSnapshotWriter's CTA: its price, else its title). */}
         {moment.kind === 'product' && moment.cta ? (

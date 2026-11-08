@@ -4,8 +4,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { ADD_WIDGET_KINDS, addWidgetOptions } from '../../components/widgets/addWidgetOptions.ts';
-import { widgetAnchorPostId, postIdsAfterCreate, widgetsByAnchor, previewWidgetsFrom, saveWidgetIntent, takeWidgetIntent, WIDGET_TOP, WIDGET_END } from '../../components/storeel/lib/storeelWidgets.ts';
-import { campaignsFromMemoriesResponse, linkedCampaignsMessage, campaignPreviewMoments } from '../../components/storeel/lib/momentCampaigns.ts';
+import { widgetAnchorPostId, postIdsAfterCreate, widgetsByAnchor, previewWidgetsFrom, previewCardButtons, saveWidgetIntent, takeWidgetIntent, WIDGET_TOP, WIDGET_END, WIDGET_PINNED } from '../../components/storeel/lib/storeelWidgets.ts';
+import { campaignsFromMemoriesResponse, linkedCampaignsMessage, campaignPreviewMoments, campaignsQuery, campaignsLastPage } from '../../components/storeel/lib/momentCampaigns.ts';
 import { catalogGate, pickPayload } from '../../components/storeel/lib/momentPicks.ts';
 
 const photo = (key, postId) => ({ kind: 'photo', key, ...(postId ? { postId } : {}), image: 'x', video: false, title: '', caption: '', location: '', date: '' });
@@ -42,36 +42,45 @@ test('just created: each sent moment key gets its new id (ids rise in the order 
   assert.equal(postIdsAfterCreate(['photo-a'], fresh).size, 0, 'counts differ: no guessing');
 });
 
-test("the preview shows a saved campaign's widgets after their moment, top ones first, unknown anchors last", () => {
+test("the preview groups a moment's widgets like the campaign page; top ones first, unknown anchors last, pinned after all", () => {
   const moments = [photo('post-1', 1), photo('post-2', 2)];
   const widgets = [
     { id: 'a', type: 'quote', afterPostId: '2', order: 1, text: 'Q' },
     { id: 'b', type: 'html', afterPostId: null, order: 0, title: 'Top' },
     { id: 'c', type: 'cta', afterPostId: '2', order: 0, title: 'Book', buttonText: 'Book now' },
+    { id: 'e', type: 'html', afterPostId: '2', order: 2, content: 'x' },
+    { id: 'f', type: 'cta', afterPostId: '1', order: 0, buttonText: 'Share a Moment', mode: 'request_moment', pinned: true },
     { id: 'd', type: 'youtube', afterPostId: '99', order: 0, videoId: 'abc' },
   ];
   const by = widgetsByAnchor(moments, widgets);
   assert.deepEqual(by.get(WIDGET_TOP).map((w) => w.id), ['b']);
-  assert.deepEqual(by.get('post-2').map((w) => w.id), ['c', 'a']);
+  // Added CTA, then Quote, then HTML: the campaign page shows HTML, Quote, CTA.
+  assert.deepEqual(by.get('post-2').map((w) => w.id), ['e', 'a', 'c']);
   assert.deepEqual(by.get(WIDGET_END).map((w) => w.id), ['d']);
+  assert.deepEqual(by.get(WIDGET_PINNED).map((w) => w.id), ['f']);
   assert.equal(by.get('post-1'), undefined);
 });
 
-test("the campaign page's widget lists become preview widgets; a product's auto \"View on website\" card is left to the product", () => {
+test("the campaign page's widget lists become preview widgets; a product's in-card button (in_card) goes inside its card", () => {
+  const cta = [
+    { id: '4', title: 'Book', buttonText: 'Book now', buttonColor: '#111', textColor: '#fff', borderRadius: 8, mode: 'link', afterPostId: '5', widget_order: 3 },
+    // An owner-made CTA that happens to say "View on website" stays a card (review M2: never filtered by its text).
+    { id: '8', title: 'Shop', buttonText: 'View on website', afterPostId: '5', widget_order: 4, mode: 'link' },
+    { id: '5', title: '$20', buttonText: 'View on website', afterPostId: '6', widget_order: 0, mode: 'link', inCard: true },
+    { id: '9', title: '', buttonText: 'Share a Moment', afterPostId: '5', widget_order: 5, mode: 'request_moment', pinToBottom: true },
+  ];
   const list = previewWidgetsFrom({
     html: [{ id: '1', title: 'T', content: '<b>x</b>', afterPostId: '5', widget_order: 0 }],
     youtube: [{ id: '2', title: 'Y', url: 'u', videoId: 'vid', afterPostId: null, widget_order: 1 }],
     quote: [{ id: '3', text: 'Q', author: 'A', afterPostId: '5', widget_order: 2 }],
-    cta: [
-      { id: '4', title: 'Book', buttonText: 'Book now', buttonColor: '#111', textColor: '#fff', borderRadius: 8, mode: 'link', afterPostId: '5', widget_order: 3 },
-      { id: '5', title: '$20', buttonText: 'View on website', afterPostId: '6', widget_order: 0, mode: 'link' },
-    ],
-    aiCreator: [{ id: '6', text: 'Hello', background: 'red', imageUrl: null, afterPostId: '5', widget_order: 4 }],
+    cta,
+    aiCreator: [{ id: '6', text: '<span style="color: red">Hello</span>', background: 'red', imageUrl: null, isDark: null, afterPostId: '5', widget_order: 4 }],
     product: [{ id: '7', title: 'Mug', price: '9.00', image: 'i', afterPostId: '5', widget_order: 5 }],
-    productPostIds: ['6'],
   });
-  assert.deepEqual(list.map((w) => `${w.type}:${w.id}`), ['html:1', 'youtube:2', 'quote:3', 'cta:4', 'ai_creator:6', 'product:7']);
+  assert.deepEqual(list.map((w) => `${w.type}:${w.id}`), ['html:1', 'youtube:2', 'quote:3', 'cta:4', 'cta:8', 'cta:9', 'ai_creator:6', 'product:7']);
   assert.equal(list.find((w) => w.id === '4').buttonText, 'Book now');
+  assert.equal(list.find((w) => w.id === '9').pinned, true);
+  assert.deepEqual([...previewCardButtons(cta).entries()].map(([k, v]) => [k, v.buttonText]), [['6', 'View on website']]);
 });
 
 test('a create-mode widget is handed to the campaign page once, for that campaign only, and goes stale', () => {
@@ -102,6 +111,14 @@ test("Campaigns (optional): the account's campaigns from GET /memories, without 
   assert.deepEqual(campaignsFromMemoriesResponse({ success: true, data: { memories: [{ id: 9, title: 'X' }] } }, null).map((c) => c.id), ['9']);
 });
 
+test('Campaigns (optional) asks the server: search, page by page (all of an account\'s campaigns, not the first 50)', () => {
+  assert.equal(campaignsQuery({ search: '', page: 1 }), '/memories?per_page=50&page=1');
+  assert.equal(campaignsQuery({ search: ' Fall open ', page: 3 }), '/memories?per_page=50&page=3&search=Fall%20open');
+  assert.equal(campaignsLastPage({ data: { all_memories: { data: [], pagination: { last_page: 3 } } } }), 3);
+  assert.equal(campaignsLastPage({ success: true, data: { data: { all_memories: { pagination: { last_page: '2' } } } } }), 2);
+  assert.equal(campaignsLastPage({}), 1);
+});
+
 test('linked campaigns show in the preview as campaign cards and are sent as linked_memory_ids with step 1 picks', () => {
   assert.deepEqual(campaignPreviewMoments([{ id: '1', title: 'Fall', image: 'a.jpg', count: 3 }]), [
     { kind: 'campaign', key: 'campaign-1', sourceId: '1', image: 'a.jpg', title: 'Fall', meta: '3 photos' },
@@ -128,4 +145,6 @@ test('Products tab only when the account has products (no plan-note tab for an e
   assert.equal(catalogGate({ available: true, reason: null, item_count: 5 }, true), 'upgrade');
   assert.equal(catalogGate({ available: true, reason: null, item_count: 5 }, false), 'ready');
   assert.equal(catalogGate(null, false), 'hidden');
+  // Review M3: on the Business plan only what can be listed (item_count) counts — no empty Products tab.
+  assert.equal(catalogGate({ available: true, reason: null, item_count: 0, source: { item_count: 7 } }, false), 'hidden');
 });

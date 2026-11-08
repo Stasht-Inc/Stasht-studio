@@ -28,6 +28,22 @@ export function campaignsFromMemoriesResponse(res: any, exclude: string | number
     }));
 }
 
+/** Campaigns per request (the web API allows up to 100). */
+export const CAMPAIGNS_PER_PAGE = 50;
+
+/** GET /memories for one page of the account's campaigns, searched on the server (review I2: not only the first 50). */
+export function campaignsQuery({ search, page }: { search: string; page: number }): string {
+  const q = search.trim();
+  return `/memories?per_page=${CAMPAIGNS_PER_PAGE}&page=${Math.max(1, Math.floor(page) || 1)}${q ? `&search=${encodeURIComponent(q)}` : ''}`;
+}
+
+/** all_memories.pagination.last_page of a GET /memories answer (1 when it isn't there). */
+export function campaignsLastPage(res: any): number {
+  const d = res?.data?.data || res?.data || {};
+  const n = Math.floor(Number(d?.all_memories?.pagination?.last_page));
+  return Number.isFinite(n) && n > 0 ? n : 1;
+}
+
 /** Picked campaigns as the live preview shows them before Save as Draft: a linked campaign card each. */
 export function campaignPreviewMoments(picks: ReadonlyArray<CampaignPick>): PreviewMoment[] {
   return picks.map((c) => ({ kind: 'campaign', key: `campaign-${c.id}`, sourceId: c.id, image: c.image, title: c.title, meta: `${c.count} ${c.count === 1 ? 'photo' : 'photos'}` }));

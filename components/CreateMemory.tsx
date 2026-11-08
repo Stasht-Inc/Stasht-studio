@@ -83,6 +83,7 @@ interface CreateMemoryProps {
   onAddWidget?: (kind: AddWidgetKind, afterPostId: string | null) => void;
   widgetOptions?: AddWidgetOption[]; // The chooser's options (default: every option but DocuSign, which needs the page)
   previewWidgets?: PreviewWidget[]; // A saved campaign's widgets, shown in the preview like the campaign page
+  previewCardButtons?: ReadonlyMap<string, { buttonText: string }>; // Product moments' in-card buttons, by post id
   widgetEditorOpen?: boolean; // One of the campaign page's widget editors is open over this page
 }
 
@@ -131,7 +132,7 @@ function CampaignVideoThumbnail({ src, className }: { src: string; className?: s
   );
 }
 
-const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function CreateMemory({ open, onOpenChange, onMemoryCreated, onOpenMediaLibrary, selectedMediaLibraryImages, defaultCategory, categories: categoriesProp, newsletterId = null, onNewsletterChanged, initialPhotos = null, beforeStoreel, opensOn, campaignId = null, campaignSeed = null, canSend = true, onDeleteCampaign, onCampaignSaved, onAddWidget, widgetOptions, previewWidgets, widgetEditorOpen = false }, ref) {
+const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function CreateMemory({ open, onOpenChange, onMemoryCreated, onOpenMediaLibrary, selectedMediaLibraryImages, defaultCategory, categories: categoriesProp, newsletterId = null, onNewsletterChanged, initialPhotos = null, beforeStoreel, opensOn, campaignId = null, campaignSeed = null, canSend = true, onDeleteCampaign, onCampaignSaved, onAddWidget, widgetOptions, previewWidgets, previewCardButtons, widgetEditorOpen = false }, ref) {
   const { isAuthenticated, user } = useAuth();
   const { viewType, currentProperty } = useProperty();
   const { isLimitExceeded, limitData, checkLimit } = useMemoryLimit();
@@ -1362,6 +1363,14 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
 
   // A campaign-page widget editor (or Voice to Text) just closed over this page (Chris, 8 Nov 2026): show the campaign
   // as it now is. (Above the early return: hooks run on every render.)
+  // DocuSign connected? Asked when the Storeel page opens without the campaign page's options (Create).
+  const [docuSignOn, setDocuSignOn] = useState(false);
+  useEffect(() => {
+    if (!open || widgetOptions) return undefined;
+    let cancelled = false;
+    dashboardAPI.docuSignGetStatus().then((res: any) => { if (!cancelled) setDocuSignOn(Boolean(res?.data?.connected ?? res?.data?.data?.connected ?? res?.connected)); }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [open, Boolean(widgetOptions)]);
   const editorWasOpenRef = useRef(false);
   const refreshSavedRef = useRef<((id: number) => void) | null>(null);
   useEffect(() => {
@@ -2661,7 +2670,12 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
   };
 
   // ── The Add Widget chooser (Chris, 8 Nov 2026, point 1): every "+" and the Moments card's Add a Moment ──────────
-  const chooserOptions = widgetOptions ?? addWidgetOptions({ docuSign: false, shopifyProduct: true });
+  // Create (no campaign page): DocuSign when connected (review I3), through the same save-first path. Edit still loading
+  // or not loaded: the editors need the campaign, so only Moment can be picked (review M6).
+  const editNotReady = flowEditing && (flowLoading || Boolean(flowLoadError) || !flowCampaign);
+  const chooserOptions = (widgetOptions ?? addWidgetOptions({ docuSign: docuSignOn, shopifyProduct: true })).map((o) => (
+    editNotReady && o.kind !== 'moment' ? { ...o, disabled: true, disabledReason: flowLoadError ? 'Reload the Storeel to add this' : 'Available once the Storeel has loaded' } : o
+  ));
   /** An option picked at a place (`anchor` as for Add a Moment). Moment: Add a Moment. The rest: their own editors. */
   const pickWidget = (kind: AddWidgetKind, anchor: string | null | undefined) => {
     if (kind === 'moment') { openAddMoment(anchor); return; }
@@ -2785,8 +2799,9 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
       // Phones: top/height follow window.visualViewport (useVisualViewportSheet) so the
       // footer stays above the iOS keyboard; wider screens fill the window.
       className="fixed inset-x-0 top-[var(--vv-top,0px)] h-[var(--vv-height,100%)] md:inset-0 md:h-auto flex flex-col bg-[#F8F8FA]"
-      // While a campaign-page widget editor is open over it (Chris, 8 Nov 2026), it sits just under that editor.
-      style={{ zIndex: widgetEditorOpen ? 49 : 99999 }}
+      // While a campaign-page widget editor is open over it (Chris, 8 Nov 2026), it drops to the app's top bar's level:
+      // above the bar (later in the page), under the editor and its dimming (portalled after it) — review M7.
+      style={{ zIndex: widgetEditorOpen ? 50 : 99999 }}
     >
       <header className="flex flex-shrink-0 flex-wrap items-center gap-x-3 gap-y-2 border-b border-gray-200 bg-white px-4 py-3 md:px-6">
         <div className="flex min-w-0 items-center gap-3">
@@ -3718,6 +3733,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
               avatarColor={user?.profile_color ?? null}
               controls={flowLoading || flowLoadError ? undefined : previewControls}
               widgets={savedMomentsList ? previewWidgets : undefined}
+              cardButtons={savedMomentsList ? previewCardButtons : undefined}
             />
           </aside>
           {/* See plans (review I2): the plans open under this page, so leaving it is asked first. */}
