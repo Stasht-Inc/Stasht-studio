@@ -1,6 +1,7 @@
 import type { PreviewMoment } from './previewMoments.ts';
 import type { AddWidgetKind } from '../../widgets/addWidgetOptions.ts';
 import { isPinnedCta, orderTimelineWidgets } from '../../../utils/timelineWidgets.ts';
+import { productButtonsByPost } from '../../../utils/productCardButton.ts';
 
 // Chris, 8 Nov 2026 (point 1): the Storeel preview's "+" opens the campaign page's Add Widget chooser. Pure, so
 // `node --test` loads it.
@@ -98,8 +99,10 @@ export function widgetsByAnchor(moments: ReadonlyArray<PreviewMoment>, widgets: 
 /**
  * A catalogue product's "View on website" button that belongs INSIDE its moment card (Chris, 8 Nov 2026, point 3):
  * the campaign page marks it `inCard` (from the API's in_card flag). Never matched by its words (review M2).
+ * Split exactly as the campaign page does (productButtonsByPost): the first marked button per moment goes in the
+ * card; anything else (a second one, one at the top) stays a card, so nothing is dropped.
  */
-const isInCard = (w: any): boolean => w?.inCard === true && w?.mode !== 'request_moment';
+const inCardByPost = (ctas: ReadonlyArray<any> | undefined): Map<string, any> => productButtonsByPost((ctas ?? []) as any[]).byPost;
 
 const str = (v: unknown): string => (typeof v === 'string' ? v : v === null || v === undefined ? '' : String(v));
 const num = (v: unknown, d = 0): number => (Number.isFinite(Number(v)) ? Number(v) : d);
@@ -114,11 +117,12 @@ export function previewWidgetsFrom(lists: {
   aiCreator?: ReadonlyArray<any>; product?: ReadonlyArray<any>;
 }): PreviewWidget[] {
   const base = (w: any, type: PreviewWidgetType): PreviewWidget => ({ id: str(w.id), type, afterPostId: anchorOf(w), order: num(w.widget_order) });
+  const inCard = new Set(inCardByPost(lists.cta).values());
   return [
     ...(lists.html ?? []).map((w) => ({ ...base(w, 'html'), title: str(w.title), content: str(w.content) })),
     ...(lists.youtube ?? []).map((w) => ({ ...base(w, 'youtube'), title: str(w.title), videoId: str(w.videoId) })),
     ...(lists.quote ?? []).map((w) => ({ ...base(w, 'quote'), text: str(w.text), author: str(w.author) })),
-    ...(lists.cta ?? []).filter((w) => !isInCard(w)).map((w) => ({
+    ...(lists.cta ?? []).filter((w) => !inCard.has(w)).map((w) => ({
       ...base(w, 'cta'), title: str(w.title), buttonText: str(w.buttonText), buttonColor: str(w.buttonColor), textColor: str(w.textColor),
       borderRadius: num(w.borderRadius, 12), fontSize: num(w.fontSize, 16), buttonWidth: num(w.buttonWidth, 0),
       mode: str(w.mode) || 'link', ...(isPinnedCta(w) ? { pinned: true } : {}),
@@ -137,10 +141,7 @@ export function previewWidgetsFrom(lists: {
 /** Each product moment's in-card button (its post id → the button), drawn inside that moment's card in the preview. */
 export function previewCardButtons(ctas: ReadonlyArray<any> | undefined): Map<string, { buttonText: string }> {
   const out = new Map<string, { buttonText: string }>();
-  for (const w of ctas ?? []) {
-    const post = anchorOf(w);
-    if (isInCard(w) && post !== null && !out.has(post)) out.set(post, { buttonText: str(w.buttonText) || 'View on website' });
-  }
+  for (const [post, w] of inCardByPost(ctas)) out.set(post, { buttonText: str(w.buttonText) || 'View on website' });
   return out;
 }
 

@@ -83,6 +83,17 @@ test("the campaign page's widget lists become preview widgets; a product's in-ca
   assert.deepEqual([...previewCardButtons(cta).entries()].map(([k, v]) => [k, v.buttonText]), [['6', 'View on website']]);
 });
 
+test('the preview splits in-card buttons exactly as the campaign page (productButtonsByPost): a second marked button on the same moment stays a card', () => {
+  const cta = [
+    { id: '5', title: '$20', buttonText: 'View on website', afterPostId: '6', widget_order: 0, mode: 'link', inCard: true },
+    { id: '15', title: '$20', buttonText: 'Buy it', afterPostId: '6', widget_order: 1, mode: 'link', inCard: true },
+    { id: '16', title: '', buttonText: 'Top', afterPostId: null, widget_order: 0, mode: 'link', inCard: true },
+  ];
+  const list = previewWidgetsFrom({ cta });
+  assert.deepEqual(list.map((w) => `${w.type}:${w.id}`), ['cta:15', 'cta:16'], 'only the first per moment goes in the card; nothing dropped');
+  assert.deepEqual([...previewCardButtons(cta).entries()].map(([k, v]) => [k, v.buttonText]), [['6', 'View on website']]);
+});
+
 test('a create-mode widget is handed to the campaign page once, for that campaign only, and goes stale', () => {
   const store = new Map();
   const storage = { getItem: (k) => store.get(k) ?? null, setItem: (k, v) => store.set(k, v), removeItem: (k) => store.delete(k) };
