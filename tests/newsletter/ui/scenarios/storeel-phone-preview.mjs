@@ -130,6 +130,8 @@ export async function run({ open, shot, expect, hasOverflow }) {
 
     // ── Point 2: a phone screen, iPhone 15 by default ───────────────────────────────────────────────────────────
     await page.getByRole('button', { name: 'Add a Moment' }).first().click();
+    // Chris, 8 Nov 2026: Add a Moment opens the Add Widget chooser; Moment opens Add a Moment.
+    await page.getByTestId('add-widget-chooser').getByRole('menuitem', { name: /^Moment/ }).click();
     await page.locator('#file-upload').setInputFiles([{ name: 'front.png', mimeType: 'image/png', buffer: PNG }]);
     await page.waitForTimeout(1500);
     await page.getByRole('button', { name: /^Add all/ }).click();

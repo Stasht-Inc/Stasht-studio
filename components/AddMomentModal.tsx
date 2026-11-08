@@ -20,6 +20,8 @@ import AISuggestionModal from './AISuggestionModal';
 import { localDateISO } from '../utils/localDate';
 import SegmentedSwitch from './newsletters/SegmentedSwitch';
 import InventoryMomentPicker, { useInventorySources, type MomentInventory, type MomentSource } from './storeel/InventoryMomentPicker';
+import CampaignsMultiSelect from './storeel/CampaignsMultiSelect';
+import type { CampaignPick } from './storeel/lib/momentCampaigns';
 
 interface UploadProgressItem {
   id: string;
@@ -164,26 +166,24 @@ export function AddMomentModal({
   // the photos and the picks together.
   const sources = useInventorySources(Boolean(inventory) && isOpen && !editPhotoData && !libraryMode);
   const [source, setSource] = useState<MomentSource>('media');
-  // Follows the window (rotation / resize), review minor 9.
-  const [narrow, setNarrow] = useState(() => typeof window !== 'undefined' && window.innerWidth < 640);
-  useEffect(() => {
-    const onResize = () => setNarrow(window.innerWidth < 640);
-    window.addEventListener('resize', onResize);
-    return () => window.removeEventListener('resize', onResize);
-  }, []);
   const [pickedProducts, setPickedProducts] = useState<string[]>([]);
   const [pickedVehicles, setPickedVehicles] = useState<string[]>([]);
+  // Media's "Campaigns (optional)" (Chris, 8 Nov 2026, point 2): link existing campaigns, where a campaign is being built.
+  const campaignsShown = Boolean(inventory?.campaigns) && !editPhotoData && !libraryMode;
+  const [pickedCampaigns, setPickedCampaigns] = useState<CampaignPick[]>([]);
+  const toggleCampaign = (c: CampaignPick) => setPickedCampaigns((prev) => (prev.some((x) => x.id === c.id) ? prev.filter((x) => x.id !== c.id) : [...prev, c]));
+  // Chris, 8 Nov 2026: "Photos & Videos" → "Media" (one short label, so the three fit one row on phones too). Products /
+  // Vehicles only when the account has them; Media alone → no tab bar.
   const sourceOptions: Array<{ value: MomentSource; label: string }> = inventory && !editPhotoData && !libraryMode ? [
-    // Phones: one row for the three choices ("Photos & Videos" wraps at 390).
-    { value: 'media', label: narrow && sources.productGate !== 'hidden' && sources.vehicles.length ? 'Photos' : 'Photos & Videos' },
+    { value: 'media', label: 'Media' },
     ...(sources.productGate !== 'hidden' ? [{ value: 'product' as const, label: 'Products' }] : []),
     ...(sources.vehicles.length ? [{ value: 'vehicle' as const, label: 'Vehicles' }] : []),
   ] : [];
-  const pickCount = pickedProducts.length + pickedVehicles.length;
+  const pickCount = pickedProducts.length + pickedVehicles.length + pickedCampaigns.length;
   const togglePick = (setList: (fn: (prev: string[]) => string[]) => void) => (id: string) =>
     setList((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
   useEffect(() => {
-    if (!isOpen) { setSource('media'); setPickedProducts([]); setPickedVehicles([]); }
+    if (!isOpen) { setSource('media'); setPickedProducts([]); setPickedVehicles([]); setPickedCampaigns([]); }
   }, [isOpen]);
 
   // Handle media library images when they're passed in
@@ -954,6 +954,7 @@ export function AddMomentModal({
         added = await inventory.onAdd({
           products: sources.products.filter((p) => pickedProducts.includes(String(p.id))),
           vehicles: sources.vehicles.filter((v) => pickedVehicles.includes(String(v.id))),
+          campaigns: pickedCampaigns,
         });
       } finally {
         setIsSubmitting(false);
@@ -961,6 +962,7 @@ export function AddMomentModal({
       if (!added) return;
       setPickedProducts([]);
       setPickedVehicles([]);
+      setPickedCampaigns([]);
       if (totalImagesCount === 0) { handleCancel(); return; }
     }
 
@@ -1634,6 +1636,15 @@ export function AddMomentModal({
               </div>
             )}
           </div>
+
+          {campaignsShown ? (
+            <CampaignsMultiSelect
+              picked={pickedCampaigns}
+              onToggle={toggleCampaign}
+              alreadyLinked={inventory?.alreadyAdded?.campaigns}
+              exclude={inventory?.campaigns?.exclude ?? null}
+            />
+          ) : null}
 
           {/* Memory Hierarchy Section */}
           {!libraryMode && memoryId && memoryTitle && (

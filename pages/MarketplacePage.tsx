@@ -14,6 +14,7 @@ import { useProperty } from '../contexts/PropertyContext';
 import { catalogueAPI, type CatalogueOverview } from '../services/catalogueAPI';
 import { openBillingUpgrade, websiteCatalogueCard } from '../components/connectors/websiteCatalogue';
 import { contactWidgetCard } from '../components/connectors/contactWidget';
+import { DOCUSIGN_ENABLED } from '../constants/features.ts';
 import { WebsiteCatalogueConnectModal } from '../components/connectors/WebsiteCatalogueConnectModal';
 import { WebsiteCatalogueManageModal } from '../components/connectors/WebsiteCatalogueManageModal';
 
@@ -625,7 +626,8 @@ export default function MarketplacePage() {
   useEffect(() => {
     // Handle OAuth callback result from URL params
     const params = new URLSearchParams(window.location.search);
-    const docusignParam = params.get('docusign');
+    // DocuSign hidden (FEATURES.docusign off, constants/features.ts): its OAuth callback is ignored.
+    const docusignParam = DOCUSIGN_ENABLED ? params.get('docusign') : null;
     if (docusignParam === 'connected') {
       toast.success('DocuSign connected successfully');
       setActiveModal('docusign');
@@ -687,7 +689,8 @@ export default function MarketplacePage() {
       return () => { cancelled = true; };
     }
 
-    const docusign = dashboardAPI.docuSignGetStatus()
+    // DocuSign hidden (FEATURES.docusign off): its status endpoint is not called.
+    const docusign = !DOCUSIGN_ENABLED ? Promise.resolve() : dashboardAPI.docuSignGetStatus()
       .then(res => {
         if (cancelled) return;
         if (res.success && res.data) {
@@ -737,7 +740,7 @@ export default function MarketplacePage() {
         status: ['Connected', shopifyShopDomain, since(shopifyConnectedAt)].filter(Boolean).join(' · '),
       });
     }
-    if (docusignConnected) {
+    if (DOCUSIGN_ENABLED && docusignConnected) {
       items.push({
         connector: connectorById('docusign'),
         status: ['Connected', since(docusignConnectedAt)].filter(Boolean).join(' · '),
@@ -894,7 +897,7 @@ export default function MarketplacePage() {
       )}
 
       {/* DocuSign Connect Modal */}
-      {activeModal === 'docusign' && (
+      {DOCUSIGN_ENABLED && activeModal === 'docusign' && (
         <DocuSignConnectModal
           onClose={closeModal}
           isConnected={docusignConnected}

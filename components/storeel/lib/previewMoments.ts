@@ -4,7 +4,7 @@ import { dayOf } from '../../../utils/localDate.ts';
 //
 // Create: every moment "Save as Draft" will make, in the order the web API makes them (MemoriesController::store):
 // the picked items first — Website Catalogue products in the order picked (CatalogCampaignCreator keeps the order
-// sent; one moment each, plus its "View on website" button card), vehicles and Shopify collections / linked campaigns
+// sent; one moment each, its "View on website" button inside the card), vehicles and Shopify collections / linked campaigns
 // (linked items, shown before the photos on the campaign page) — then the uploaded photos and videos (the `photos` the
 // form sends). A product with no photo at all makes no moment (the API skips it); a photo not uploaded yet isn't sent.
 // Edit: the campaign's own moments from the campaign page's data (GET /memories/{id}).

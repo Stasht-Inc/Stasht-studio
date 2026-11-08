@@ -30,33 +30,42 @@ const ints = (ids: ReadonlyArray<string>): number[] => unique(ids.map((id) => pa
  * of any category), vehicles as car_ids on any category (review minor 1: never among linked_memory_ids, whose ids the
  * API matches against campaigns first).
  */
-export function pickPayload({ pick, selectedIds, extraCatalog, extraCars }: {
+export function pickPayload({ pick, selectedIds, extraCatalog, extraCars, extraCampaigns = [] }: {
   pick: PickKind;
   selectedIds: ReadonlyArray<string>;
   extraCatalog: ReadonlyArray<string>;
   extraCars: ReadonlyArray<string>;
+  /** Add a Moment's "Campaigns (optional)" (Chris, 8 Nov 2026): linked like step 1's existing campaigns. */
+  extraCampaigns?: ReadonlyArray<string>;
 }): Record<string, Array<string | number>> {
   const out: Record<string, Array<string | number>> = {};
   const catalog = pick === 'catalog' ? [...selectedIds, ...extraCatalog] : [...extraCatalog];
   if (pick === 'shopify' && selectedIds.length) out.shopify_collection_ids = [...selectedIds];
-  if (pick === 'campaigns' && selectedIds.length) out.linked_memory_ids = ints(selectedIds);
+  const linked = ints([...(pick === 'campaigns' ? selectedIds : []), ...extraCampaigns]);
+  if (linked.length) out.linked_memory_ids = linked;
   const cars = unique([...(pick === 'cars' ? selectedIds : []), ...extraCars].map(String));
   if (cars.length) out.car_ids = cars;
   if (catalog.length) out.catalog_item_ids = ints(catalog);
   return out;
 }
 
-/** GET /website-catalogue's answer for the account (null: none yet / failed). */
-export interface CatalogStatusLike { available: boolean; reason: string | null; item_count: number }
+/** GET /website-catalogue's answer for the account (null: none yet / failed). Off the Business plan item_count is 0 and
+ * the website's items are counted on its `source`. */
+export interface CatalogStatusLike { available: boolean; reason: string | null; item_count: number; source?: { item_count?: number | null } | null }
 
 /**
- * Add a Moment's Products choice: 'hidden' outside the Website Catalogue pilot, with no answer, or with no products;
+ * Add a Moment's Products choice: 'hidden' outside the Website Catalogue pilot, with no answer, or with no products
+ * (on any plan);
  * 'upgrade' off the Business plan ("Available on the Business plan." + See plans); 'ready' to pick.
  */
 export function catalogGate(status: CatalogStatusLike | null, isStarter: boolean): 'hidden' | 'upgrade' | 'ready' {
   if (!status || status.reason === 'not_available') return 'hidden';
+  // Chris, 8 Nov 2026: the Products tab only when the account HAS products (the scraper picked some up).
+  // On the Business plan only what can be listed counts (review M3); off it, the website's items on its source.
+  const items = status.available ? Number(status.item_count) || 0 : Math.max(Number(status.item_count) || 0, Number(status.source?.item_count) || 0);
+  if (items <= 0) return 'hidden';
   if (isStarter || status.reason === 'plan_required') return 'upgrade';
-  return status.available && status.item_count > 0 ? 'ready' : 'hidden';
+  return status.available ? 'ready' : 'hidden';
 }
 
 /** Products / vehicles picked in Add a Moment, as the live preview shows them (like step 1's picks). */

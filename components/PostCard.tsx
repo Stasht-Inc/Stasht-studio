@@ -158,6 +158,7 @@ interface PostCardProps {
   onMoveUp?: () => void;
   onMoveDown?: () => void;
   carSpec?: string; // Car spec line ("STK# … / … km / … engine"), shown under the location for car cards
+  cardButton?: React.ReactNode; // A product's "View on website" button, inside the card under its details (Chris, 8 Nov 2026)
   /** Bump this number to open this card's caption editor from outside (the campaign page's timeline sidebar "Edit text"). */
   editCaptionRequest?: number;
   docusignDocument?: {
@@ -168,7 +169,7 @@ interface PostCardProps {
   };
 }
 
-export default function PostCard({ post, variant = 'thumbnail', onContentUpdate, onImageClick, memoryOwnerId, onPostDelete, onUpdateItem, activeCollaborators = [], subImageCount = 0, subImages = [], memoryTitle, memoryThumbnail, memoryCreatedDate, memoryImages = [], onRefresh, memoryPublished, memoryId, memorySlug, searchHighlight, storyTags = [], onInsufficientCredits, docusignDocument, onMoveUp, onMoveDown, carSpec, editCaptionRequest }: PostCardProps) {
+export default function PostCard({ post, variant = 'thumbnail', onContentUpdate, onImageClick, memoryOwnerId, onPostDelete, onUpdateItem, activeCollaborators = [], subImageCount = 0, subImages = [], memoryTitle, memoryThumbnail, memoryCreatedDate, memoryImages = [], onRefresh, memoryPublished, memoryId, memorySlug, searchHighlight, storyTags = [], onInsufficientCredits, docusignDocument, onMoveUp, onMoveDown, carSpec, editCaptionRequest, cardButton }: PostCardProps) {
   // Debug log to check title in PostCard
   console.log(`📝 PostCard received post ${post.id}: title="${post.title}", name="${post.name}"`);
 
@@ -2364,7 +2365,7 @@ export default function PostCard({ post, variant = 'thumbnail', onContentUpdate,
           </div>
         ) : null}
 
-
+        {cardButton}
 
 
       </div>

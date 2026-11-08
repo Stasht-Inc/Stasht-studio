@@ -54,6 +54,8 @@ async function clickPlus(page, name) {
   const b = plus(page, name).first();
   await b.scrollIntoViewIfNeeded();
   await b.click();
+  // Chris, 8 Nov 2026: a "+" opens the Add Widget chooser; Moment opens Add a Moment.
+  await page.getByTestId('add-widget-chooser').getByRole('menuitem', { name: /^Moment/ }).click();
   await page.getByRole('heading', { name: 'Add a Moment' }).waitFor();
   await page.waitForTimeout(600);
 }
@@ -101,7 +103,7 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
 
     await clickPlus(page, 'Add a moment at the start');
     const sw = page.getByRole('radiogroup', { name: 'Add from' });
-    expect(((await sw.textContent()) ?? '') === (width < 640 ? 'PhotosProductsVehicles' : 'Photos & VideosProductsVehicles'), `${tag}: Add a Moment offers Photos & Videos | Products | Vehicles (got ${await sw.textContent()})`);
+    expect(((await sw.textContent()) ?? '') === 'MediaProductsVehicles', `${tag}: Add a Moment offers Media | Products | Vehicles (got ${await sw.textContent()})`);
     const swHeight = (await sw.boundingBox())?.height ?? 0;
     expect(swHeight < 50, `${tag}: the switch is one row (${swHeight}px)`);
     expect(await inView(page, sw), `${tag}: the switch is in view`);
@@ -123,6 +125,7 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
     expect(((await preview(page).textContent()) ?? '').includes('View on website'), `${tag}: with its View on website card`);
 
     await page.locator('#st-step-moments').getByRole('button', { name: 'Add a Moment' }).click();
+    await page.getByTestId('add-widget-chooser').getByRole('menuitem', { name: /^Moment/ }).click();
     await page.getByRole('heading', { name: 'Add a Moment' }).waitFor();
     await uploadIn(page, ['front.png', 'kitchen.png']);
     const afterPhotos = await previewKeys(page);

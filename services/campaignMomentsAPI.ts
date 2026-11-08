@@ -39,6 +39,14 @@ export const campaignMomentsAPI = {
   removeVehicle: (memoryId: string | number, carId: string | number) =>
     run(apiRequest(`${path(memoryId)}/cars/${encodeURIComponent(String(carId))}`, send('DELETE')), "The vehicle couldn't be removed. Try again."),
 
+  /** Add a Moment's "Campaigns (optional)" (Chris, 8 Nov 2026): link existing campaigns at `place`. */
+  addLinkedCampaigns: (memoryId: string | number, campaignIds: Array<string | number>, place: MomentPlace) =>
+    run<{ linked: number; already_linked_ids: number[] }>(apiRequest(`${path(memoryId)}/linked-memories`, send('POST', {
+      linked_memory_ids: campaignIds.map((id) => Number(id)),
+      ...(place && 'after' in place ? { after_item_id: place.after.id, after_item_type: place.after.type } : {}),
+      ...(place && 'start' in place ? { position: 'start' } : {}),
+    })), "The campaigns couldn't be linked. Try again."),
+
   setOrder: (memoryId: string | number, order: OrderRef[]) =>
     run(apiRequest(`${path(memoryId)}/moment-order`, send('PUT', { order })), "The new order couldn't be saved. Try again."),
 };

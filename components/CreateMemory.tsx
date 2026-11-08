@@ -52,7 +52,11 @@ import {
 import { senderLabelFor } from './storeel/lib/storeelSms';
 import { sentMessage, type StoreelSendSummary } from './storeel/lib/storeelSend';
 import { requestOpenCampaign } from './storeel/lib/openCampaign';
+import { addWidgetOptions, type AddWidgetKind, type AddWidgetOption } from './widgets/addWidgetOptions';
+import { postIdsAfterCreate, saveWidgetIntent, widgetAnchorPostId, type PreviewWidget } from './storeel/lib/storeelWidgets';
+import { campaignPreviewMoments, linkedCampaignsMessage, type CampaignPick } from './storeel/lib/momentCampaigns';
 import { ACTION_TOAST_MS } from './newsletters/lib/blocks';
+import { DOCUSIGN_ENABLED } from '../constants/features.ts';
 
 const CAMPAIGN_STEP_ID = 'st-step-campaign';
 
@@ -75,6 +79,13 @@ interface CreateMemoryProps {
   canSend?: boolean; // False when this account may not send it (only the owner / the property's admins may)
   onDeleteCampaign?: () => void; // Edit: Delete in Set up (the campaign page asks to confirm)
   onCampaignSaved?: (memoryId: number) => void; // Step 1 saved (PUT) or the Storeel sent: the page refreshes
+  // Chris, 8 Nov 2026 (point 1): the preview's "+" opens the campaign page's Add Widget chooser. On the campaign page
+  // (Edit) its editors open there: onAddWidget(kind, after this moment's id; null = the top).
+  onAddWidget?: (kind: AddWidgetKind, afterPostId: string | null) => void;
+  widgetOptions?: AddWidgetOption[]; // The chooser's options (default: every option but DocuSign, which needs the page)
+  previewWidgets?: PreviewWidget[]; // A saved campaign's widgets, shown in the preview like the campaign page
+  previewCardButtons?: ReadonlyMap<string, { buttonText: string }>; // Product moments' in-card buttons, by post id
+  widgetEditorOpen?: boolean; // One of the campaign page's widget editors is open over this page
 }
 
 export interface CreateMemoryHandle {
@@ -122,7 +133,7 @@ function CampaignVideoThumbnail({ src, className }: { src: string; className?: s
   );
 }
 
-const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function CreateMemory({ open, onOpenChange, onMemoryCreated, onOpenMediaLibrary, selectedMediaLibraryImages, defaultCategory, categories: categoriesProp, newsletterId = null, onNewsletterChanged, initialPhotos = null, beforeStoreel, opensOn, campaignId = null, campaignSeed = null, canSend = true, onDeleteCampaign, onCampaignSaved }, ref) {
+const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function CreateMemory({ open, onOpenChange, onMemoryCreated, onOpenMediaLibrary, selectedMediaLibraryImages, defaultCategory, categories: categoriesProp, newsletterId = null, onNewsletterChanged, initialPhotos = null, beforeStoreel, opensOn, campaignId = null, campaignSeed = null, canSend = true, onDeleteCampaign, onCampaignSaved, onAddWidget, widgetOptions, previewWidgets, previewCardButtons, widgetEditorOpen = false }, ref) {
   const { isAuthenticated, user } = useAuth();
   const { viewType, currentProperty } = useProperty();
   const { isLimitExceeded, limitData, checkLimit } = useMemoryLimit();
@@ -219,6 +230,11 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
   const [momentOrder, setMomentOrder] = useState<string[]>([]);
   const [extraCatalog, setExtraCatalog] = useState<InventoryPick[]>([]);
   const [extraCars, setExtraCars] = useState<InventoryPick[]>([]);
+  // Add a Moment's "Campaigns (optional)" before the campaign exists (Chris, 8 Nov 2026): sent as linked_memory_ids.
+  const [extraCampaigns, setExtraCampaigns] = useState<CampaignPick[]>([]);
+  // A non-Moment widget picked before the campaign exists: "Save as Draft first?" (Chris, 8 Nov 2026, point 1).
+  const [widgetAsk, setWidgetAsk] = useState<{ kind: AddWidgetKind; label: string; anchor: string | null | undefined } | null>(null);
+  const widgetAfterSaveRef = useRef<{ kind: AddWidgetKind; anchor: string | null | undefined } | null>(null);
   const addAnchorRef = useRef<string | null | undefined>(undefined);
   const [momentBusy, setMomentBusy] = useState(false);
   const [deleteAsk, setDeleteAsk] = useState<PreviewMoment | null>(null);
@@ -1346,6 +1362,23 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
     setIsAddMomentOpen(true);
   }, [open, initialPhotos]);
 
+  // A campaign-page widget editor (or Voice to Text) just closed over this page (Chris, 8 Nov 2026): show the campaign
+  // as it now is. (Above the early return: hooks run on every render.)
+  // DocuSign connected? Asked when the Storeel page opens without the campaign page's options (Create).
+  const [docuSignOn, setDocuSignOn] = useState(false);
+  useEffect(() => {
+    if (!DOCUSIGN_ENABLED || !open || widgetOptions) return undefined; // DocuSign hidden: status not called (constants/features.ts)
+    let cancelled = false;
+    dashboardAPI.docuSignGetStatus().then((res: any) => { if (!cancelled) setDocuSignOn(Boolean(res?.data?.connected ?? res?.data?.data?.connected ?? res?.connected)); }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [open, Boolean(widgetOptions)]);
+  const editorWasOpenRef = useRef(false);
+  const refreshSavedRef = useRef<((id: number) => void) | null>(null);
+  useEffect(() => {
+    if (editorWasOpenRef.current && !widgetEditorOpen && flowCampaignRef.current) refreshSavedRef.current?.(flowCampaignRef.current.id);
+    editorWasOpenRef.current = widgetEditorOpen;
+  }, [widgetEditorOpen]);
+
   if (!open && !showSuccessDialog) return null;
 
   // Debug current state when modal is open
@@ -1385,6 +1418,8 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
     setMomentOrder([]);
     setExtraCatalog([]);
     setExtraCars([]);
+    setExtraCampaigns([]);
+    setWidgetAsk(null);
     setDeleteAsk(null);
     setModerationChoice(null);
     onOpenChange(false);
@@ -2030,12 +2065,14 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
   // With the products / vehicles added in Add a Moment (Chris, 7 Nov 2026), in the order the API makes them on its own.
   const extraCatalogShown = previewPick === 'catalog' ? [] : extraCatalog;
   const extraCarsShown = previewPick === 'cars' ? [] : extraCars.filter((c) => !selectedMemoryIds.includes(String(c.id)));
+  const extraCampaignsShown = extraCampaigns.filter((c) => !(previewPick === 'campaigns' && selectedMemoryIds.includes(c.id)));
   const createMoments = apiDefaultOrder([
     ...createPreviewMoments({
       pick: previewPick, picked: previewPicked, selectedIds: selectedMemoryIds, photos: mainPhotosArray, location: formData.location, today: todayDate,
     }),
     ...pickedPreviewMoments('catalog', extraCatalogShown, formData.location, todayDate),
     ...pickedPreviewMoments('cars', extraCarsShown, formData.location, todayDate),
+    ...campaignPreviewMoments(extraCampaignsShown),
   ]);
   const savedMomentsList = flowEditing || flowCampaign;
   // What the Moments card and the phone show, in order: before the campaign exists, the order given with the preview's
@@ -2060,6 +2097,31 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
     } catch {
       failed();
     }
+  };
+
+  /**
+   * A widget picked before its editor could open (Chris, 8 Nov 2026, point 1): remember it for the campaign page, after
+   * the moment its "+" followed — just created: the new moments' ids matched to the form's (products then photos, as
+   * sent); already saved: the moments' own ids. The page then opens Edit Storeel with that editor.
+   */
+  const handOffWidget = async (id: number, w: { kind: AddWidgetKind; anchor: string | null | undefined }, justCreated: boolean) => {
+    let after: number | null = null;
+    if (justCreated) {
+      if (w.anchor !== null) {
+        try {
+          clearApiCache();
+          const res = await dashboardAPI.getMemoryDetails(String(id));
+          const fresh = res?.success ? (seedFromMemory(res.data)?.previewMoments ?? []) : [];
+          const ids = postIdsAfterCreate(sentPostKeys(createMoments), fresh);
+          after = widgetAnchorPostId(previewMoments, w.anchor, (m) => ids.get(m.key));
+          // Not matched (the API skipped a product): after the campaign's last moment.
+          if (after === null && ids.size === 0) after = widgetAnchorPostId(fresh, undefined, (m) => (m.kind === 'photo' ? m.postId : undefined));
+        } catch { /* top */ }
+      }
+    } else {
+      after = widgetAnchorPostId(previewMoments, w.anchor, (m) => (m.kind === 'photo' ? m.postId : undefined));
+    }
+    saveWidgetIntent({ memoryId: id, kind: w.kind, afterPostId: after });
   };
 
   /**
@@ -2180,6 +2242,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
         selectedIds: selectedMemoryIds,
         extraCatalog: extraCatalog.map((p) => String(p.id)),
         extraCars: extraCars.map((c) => String(c.id)),
+        extraCampaigns: extraCampaigns.map((c) => c.id),
       }));
 
       // Add sub_category as array of label names
@@ -2232,7 +2295,16 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
         // The Campaigns page shows Storeels with the new campaign (the Sidebar's Create goes there too).
         writeCampaignsView('storeels');
         if (onMemoryCreated) await onMemoryCreated();
-        if (!andSend || !created) {
+        const widgetNext = widgetAfterSaveRef.current;
+        widgetAfterSaveRef.current = null;
+        if (created && widgetNext && !andSend) {
+          // A widget was picked before the Storeel existed (Chris, 8 Nov 2026): open the campaign page's Edit Storeel
+          // with that widget's editor, after the moment its "+" followed (the new moments' ids, matched to the form's).
+          await handOffWidget(created.id, widgetNext, true);
+          toast.success(createdToast(sendFilled));
+          handleModalClose();
+          requestOpenCampaign(created.id);
+        } else if (!andSend || !created) {
           // Save as Draft: done — the Campaigns list shows it (a filled-in Send card was not sent).
           toast.success(createdToast(sendFilled));
           handleModalClose();
@@ -2246,6 +2318,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
           void refreshSavedMoments(created.id).finally(() => setMomentBusy(false));
         }
       } else {
+        widgetAfterSaveRef.current = null;
         console.error('Failed to create memory:', response);
 
         if ((response as { code?: string }).code === 'memory_limit_reached') {
@@ -2309,7 +2382,14 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
         onCampaignSaved?.(c.id);
         void triggerMemoryCountsRefresh();
         if (andSend) { setSendRequest((n) => n + 1); if (flowEditing) setChangesSaved(true); }
-        else { toast.success(view.savedToast); handleModalClose(); }
+        else {
+          const widgetNext = widgetAfterSaveRef.current;
+          widgetAfterSaveRef.current = null;
+          if (widgetNext) await handOffWidget(c.id, widgetNext, false);
+          toast.success(view.savedToast);
+          handleModalClose();
+          if (widgetNext) requestOpenCampaign(c.id);
+        }
         return;
       }
       const errors = (res as { errors?: Record<string, string[] | string> }).errors;
@@ -2423,16 +2503,31 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
     alreadyAdded: {
       products: previewMoments.filter((m) => m.kind === 'product').map((m) => (m as { sourceId: string }).sourceId),
       vehicles: previewMoments.filter((m) => m.kind === 'vehicle').map((m) => (m as { sourceId: string }).sourceId),
+      campaigns: previewMoments.filter((m) => m.kind === 'campaign' && !m.key.startsWith('shopify-')).map((m) => (m as { sourceId: string }).sourceId),
     },
+    // Media's "Campaigns (optional)" (Chris, 8 Nov 2026, point 2): never the campaign itself.
+    campaigns: { exclude: flowCampaign?.id ?? campaignId ?? null },
     // The plans open under this page: ask before leaving it (review I2).
     onSeePlans: () => setPlansAsk('Adding Website Catalogue products is available on the Business plan.'),
-    onAdd: async ({ products, vehicles }) => {
+    onAdd: async ({ products, vehicles, campaigns = [] }) => {
       const anchor = addAnchorRef.current;
       const c = flowCampaignRef.current;
       if (c) {
         setMomentBusy(true);
         let added = { products: 0, vehicles: 0, already: 0 };
         try {
+          // Campaigns: linked at the "+" (as Create links them), straight away like the other moments here.
+          if (campaigns.length) {
+            const res = await campaignMomentsAPI.addLinkedCampaigns(c.id, campaigns.map((x) => x.id), savedPlace(anchor));
+            if (!res.ok) { toast.error(res.error || "The campaigns couldn't be linked. Try again."); return false; }
+            toast.success(linkedCampaignsMessage(res.data?.linked ?? campaigns.length, res.data?.already_linked_ids?.length ?? 0));
+            if (!products.length && !vehicles.length) {
+              setSavedNow(true);
+              onCampaignSaved?.(c.id);
+              await refreshSavedMoments(c.id);
+              return true;
+            }
+          }
           if (products.length) {
             const res = await campaignMomentsAPI.addProducts(c.id, products.map((p) => p.id), savedPlace(anchor));
             if (!res.ok) { toast.error(res.error || "The products couldn't be added. Try again."); return false; }
@@ -2478,6 +2573,10 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
         } else {
           setExtraCars((prev) => [...prev, ...vehicles.filter((v) => !prev.some((x) => String(x.id) === String(v.id)) && !selectedMemoryIds.includes(String(v.id)))]);
         }
+      }
+      if (campaigns.length) {
+        setExtraCampaigns((prev) => [...prev, ...campaigns.filter((x) => !prev.some((p) => p.id === x.id))]);
+        keys.push(...campaigns.map((x) => `campaign-${x.id}`));
       }
       placeAdded(keys);
       return true;
@@ -2532,6 +2631,10 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
       setExtraCars((prev) => prev.filter((v) => String(v.id) !== m.sourceId));
       return;
     }
+    if (m.kind === 'campaign' && extraCampaigns.some((x) => x.id === m.sourceId)) {
+      setExtraCampaigns((prev) => prev.filter((x) => x.id !== m.sourceId));
+      if (!selectedMemoryIds.includes(m.sourceId)) return;
+    }
     if (m.kind !== 'photo') toggleSelectedId(m.sourceId);
   };
 
@@ -2567,8 +2670,46 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
     setCaptionRequest((prev) => ({ key: m.key, n: (prev?.n ?? 0) + 1 }));
   };
 
+  // ── The Add Widget chooser (Chris, 8 Nov 2026, point 1): every "+" and the Moments card's Add a Moment ──────────
+  // Create (no campaign page): DocuSign when connected (review I3), through the same save-first path. Edit still loading
+  // or not loaded: the editors need the campaign, so only Moment can be picked (review M6).
+  const editNotReady = flowEditing && (flowLoading || Boolean(flowLoadError) || !flowCampaign);
+  const chooserOptions = (widgetOptions ?? addWidgetOptions({ docuSign: docuSignOn, shopifyProduct: true })).map((o) => (
+    editNotReady && o.kind !== 'moment' ? { ...o, disabled: true, disabledReason: flowLoadError ? 'Reload the Storeel to add this' : 'Available once the Storeel has loaded' } : o
+  ));
+  /** An option picked at a place (`anchor` as for Add a Moment). Moment: Add a Moment. The rest: their own editors. */
+  const pickWidget = (kind: AddWidgetKind, anchor: string | null | undefined) => {
+    if (kind === 'moment') { openAddMoment(anchor); return; }
+    if (flowCampaignRef.current && onAddWidget) {
+      // On the campaign page (Edit): its own editor, saved there at once, after the moment the "+" followed.
+      const after = widgetAnchorPostId(previewMoments, anchor, (m) => (m.kind === 'photo' ? m.postId : undefined));
+      onAddWidget(kind, after === null ? null : String(after));
+      return;
+    }
+    // Before the campaign exists (or after Save & Send, away from the campaign page): its editor needs the saved
+    // campaign and lives on its page, so save first — asked, never silently.
+    setWidgetAsk({ kind, label: chooserOptions.find((o) => o.kind === kind)?.label ?? 'This widget', anchor });
+  };
+  const confirmWidgetAsk = async () => {
+    const ask = widgetAsk;
+    if (!ask) return;
+    setWidgetAsk(null);
+    widgetAfterSaveRef.current = { kind: ask.kind, anchor: ask.anchor };
+    try {
+      if (view.save.action === 'create') await handleSubmit(false);
+      else await saveSetup(false);
+    } finally {
+      // A refused save (a missing title…) leaves the page as it was; the next Save as Draft is an ordinary one.
+      widgetAfterSaveRef.current = null;
+    }
+  };
+
+  refreshSavedRef.current = (id: number) => { void refreshSavedMoments(id); };
+
   const previewControls: PreviewControls = {
     onAddAfter: (key) => openAddMoment(key),
+    widgetOptions: chooserOptions,
+    onAddWidget: (kind, key) => pickWidget(kind, key),
     menuFor: (key, index) => {
       const m = previewMoments[index];
       if (!m || m.key !== key) return null;
@@ -2659,7 +2800,9 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
       // Phones: top/height follow window.visualViewport (useVisualViewportSheet) so the
       // footer stays above the iOS keyboard; wider screens fill the window.
       className="fixed inset-x-0 top-[var(--vv-top,0px)] h-[var(--vv-height,100%)] md:inset-0 md:h-auto flex flex-col bg-[#F8F8FA]"
-      style={{ zIndex: 99999 }}
+      // While a campaign-page widget editor is open over it (Chris, 8 Nov 2026), it drops to the app's top bar's level:
+      // above the bar (later in the page), under the editor and its dimming (portalled after it) — review M7.
+      style={{ zIndex: widgetEditorOpen ? 50 : 99999 }}
     >
       <header className="flex flex-shrink-0 flex-wrap items-center gap-x-3 gap-y-2 border-b border-gray-200 bg-white px-4 py-3 md:px-6">
         <div className="flex min-w-0 items-center gap-3">
@@ -3519,6 +3662,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
               note={view.momentsNote}
               busy={isSubmitting}
               onAddMoment={() => openAddMoment(undefined)}
+              addChooser={{ options: chooserOptions, onPick: (kind) => pickWidget(kind, undefined) }}
               captionRequest={captionRequest}
               onDropFiles={savedMoments ? undefined : (files) => {
                 const valid = Array.from(files).filter((f) => ['image/jpeg', 'image/jpg', 'image/png'].includes(f.type.toLowerCase()));
@@ -3589,6 +3733,8 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
               avatarUrl={user?.avatar ?? null}
               avatarColor={user?.profile_color ?? null}
               controls={flowLoading || flowLoadError ? undefined : previewControls}
+              widgets={savedMomentsList ? previewWidgets : undefined}
+              cardButtons={savedMomentsList ? previewCardButtons : undefined}
             />
           </aside>
           {/* See plans (review I2): the plans open under this page, so leaving it is asked first. */}
@@ -3601,6 +3747,23 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
               <>
                 <button type="button" onClick={() => setPlansAsk(null)} className={BUTTON_OUTLINE}>Stay</button>
                 <button type="button" onClick={() => { const msg = plansAsk ?? undefined; setPlansAsk(null); handleModalClose(); requestUpgrade(msg); }} className={BUTTON_PRIMARY}>Leave and see plans</button>
+              </>
+            )}
+          />
+          {/* A widget's editor needs the saved Storeel and its page (Chris, 8 Nov 2026, point 1): save first, asked. */}
+          <ComposerDialog
+            open={widgetAsk !== null}
+            onOpenChange={(o) => { if (!o) setWidgetAsk(null); }}
+            title={flowCampaign ? 'Continue on the Storeel’s page?' : 'Save this Storeel as a draft first?'}
+            description={flowCampaign
+              ? `${widgetAsk?.label ?? 'This widget'} is added on the Storeel’s page. We’ll save your changes, then open the ${widgetAsk?.label ?? ''} editor at this place.`
+              : `${widgetAsk?.label ?? 'This widget'} is added to a saved Storeel. We’ll save your draft, then open the ${widgetAsk?.label ?? ''} editor at this place on the Storeel’s page.`}
+            footer={(
+              <>
+                <button type="button" onClick={() => setWidgetAsk(null)} className={BUTTON_OUTLINE}>Cancel</button>
+                <button type="button" onClick={() => { void confirmWidgetAsk(); }} disabled={isSubmitting} className={BUTTON_PRIMARY}>
+                  {flowCampaign ? 'Save and continue' : 'Save draft and continue'}
+                </button>
               </>
             )}
           />

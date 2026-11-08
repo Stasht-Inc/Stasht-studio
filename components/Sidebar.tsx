@@ -21,6 +21,7 @@ import { useProperty } from "../contexts/PropertyContext";
 import useAlvinEnabled, { openAlvin } from './alvin/useAlvinEnabled';
 import { useIsStarterPlan } from '../hooks/usePlan';
 import { showsAccountTools } from '../utils/planGate';
+import { DOCUSIGN_ENABLED } from '../constants/features.ts';
 
 // Navigation item component
 function NavItem({
@@ -329,7 +330,8 @@ export default function Sidebar({
             ? widgetsAPI.list({ propertyId: currentProperty.id }).then(r => (r.ok && Array.isArray(r.data) && r.data.length > 0 ? 1 : 0)).catch(() => 0)
             : Promise.resolve(0))
         : Promise.all([
-            dashboardAPI.docuSignGetStatus().then(r => (r?.success && r.data?.connected ? 1 : 0)).catch(() => 0),
+            // DocuSign hidden (FEATURES.docusign off, constants/features.ts): not counted, status not called.
+            DOCUSIGN_ENABLED ? dashboardAPI.docuSignGetStatus().then(r => (r?.success && r.data?.connected ? 1 : 0)).catch(() => 0) : Promise.resolve(0),
             dashboardAPI.shopifyGetStatus().then(r => (r?.success && r.data?.connected ? 1 : 0)).catch(() => 0),
             widgetsAPI.list().then(r => (r.ok && Array.isArray(r.data) && r.data.length > 0 ? 1 : 0)).catch(() => 0),
             // GET /website-catalogue answers every account. A website counts only on the Business plan (available):
