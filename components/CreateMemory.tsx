@@ -55,6 +55,8 @@ import { requestOpenCampaign } from './storeel/lib/openCampaign';
 import { addWidgetOptions, type AddWidgetKind, type AddWidgetOption } from './widgets/addWidgetOptions';
 import { postIdsAfterCreate, saveWidgetIntent, widgetAnchorPostId, type PreviewWidget } from './storeel/lib/storeelWidgets';
 import { campaignPreviewMoments, linkedCampaignsMessage, type CampaignPick } from './storeel/lib/momentCampaigns';
+import { PUBLISHING_STEP_ID, opensAtTarget, publishingStepNumber, type StepperOpensAt } from './storeel/lib/publishing';
+import { detectsDeviceLocation, withDeviceLocation } from './storeel/lib/deviceLocation';
 import { ACTION_TOAST_MS } from './newsletters/lib/blocks';
 import { DOCUSIGN_ENABLED } from '../constants/features.ts';
 
@@ -86,6 +88,10 @@ interface CreateMemoryProps {
   previewWidgets?: PreviewWidget[]; // A saved campaign's widgets, shown in the preview like the campaign page
   previewCardButtons?: ReadonlyMap<string, { buttonText: string }>; // Product moments' in-card buttons, by post id
   widgetEditorOpen?: boolean; // One of the campaign page's widget editors is open over this page
+  // Chris, 8 Nov 2026 (b), point 2: the campaign page's Send opens this page at the Send card (Edit: at the top), and
+  // the old Publish options are the "Publishing" card after Send (the campaign page renders its body).
+  opensAt?: StepperOpensAt;
+  publishing?: React.ReactNode;
 }
 
 export interface CreateMemoryHandle {
@@ -133,7 +139,7 @@ function CampaignVideoThumbnail({ src, className }: { src: string; className?: s
   );
 }
 
-const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function CreateMemory({ open, onOpenChange, onMemoryCreated, onOpenMediaLibrary, selectedMediaLibraryImages, defaultCategory, categories: categoriesProp, newsletterId = null, onNewsletterChanged, initialPhotos = null, beforeStoreel, opensOn, campaignId = null, campaignSeed = null, canSend = true, onDeleteCampaign, onCampaignSaved, onAddWidget, widgetOptions, previewWidgets, previewCardButtons, widgetEditorOpen = false }, ref) {
+const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function CreateMemory({ open, onOpenChange, onMemoryCreated, onOpenMediaLibrary, selectedMediaLibraryImages, defaultCategory, categories: categoriesProp, newsletterId = null, onNewsletterChanged, initialPhotos = null, beforeStoreel, opensOn, campaignId = null, campaignSeed = null, canSend = true, onDeleteCampaign, onCampaignSaved, onAddWidget, widgetOptions, previewWidgets, previewCardButtons, widgetEditorOpen = false, opensAt = 'campaign', publishing = null }, ref) {
   const { isAuthenticated, user } = useAuth();
   const { viewType, currentProperty } = useProperty();
   const { isLimitExceeded, limitData, checkLimit } = useMemoryLimit();
@@ -559,9 +565,13 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
     };
   }, [open]);
 
-  // Detect device location when modal opens
+  const opensAtRef = useRef(opensAt);
+  opensAtRef.current = opensAt;
+
+  // Detect device location when modal opens — only when creating (review fix, 8 Nov 2026 (b)): on a saved campaign
+  // (Edit / the campaign page's Send) it would replace the saved Location, and it asked for location permission on Send.
   useEffect(() => {
-    if (open && !deviceLocation) {
+    if (detectsDeviceLocation({ open, campaignId, saved: Boolean(flowCampaignRef.current), deviceLocation })) {
       console.log('🌍 Detecting device location...');
 
       // Check if geolocation is available
@@ -596,22 +606,22 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
               console.log('✅ Device location detected:', locationString);
               setDeviceLocation(locationString);
 
-              // Set as default location only if location field is empty
-              if (locationString && !formData.location) {
-                setFormData(prev => ({ ...prev, location: locationString }));
-                console.log('✅ Set default location:', locationString);
-              }
+              // Set as default location only if the location field is STILL empty (the current form, not the one when the
+              // lookup started) and no campaign was saved meanwhile.
+              setFormData(prev => withDeviceLocation(prev, locationString, Boolean(flowCampaignRef.current)));
             } catch (error) {
               console.error('❌ Error reverse geocoding:', error);
             }
 
-            // Re-focus title input after permission popup closes (keyboard restore)
-            setTimeout(() => titleInputRef.current?.focus(), 300);
+            // Re-focus title input after permission popup closes (keyboard restore) — not when opened at the Send card
+            // (the campaign page's Send, Chris 8 Nov 2026 (b)): focusing the title would scroll back to step 1.
+            setTimeout(() => { if (!opensAtTarget(opensAtRef.current)) titleInputRef.current?.focus(); }, 300);
           },
           (error) => {
             console.log('⚠️ Geolocation error:', error.message);
-            // Re-focus title input after permission popup closes (keyboard restore)
-            setTimeout(() => titleInputRef.current?.focus(), 300);
+            // Re-focus title input after permission popup closes (keyboard restore) — not when opened at the Send card
+            // (the campaign page's Send, Chris 8 Nov 2026 (b)): focusing the title would scroll back to step 1.
+            setTimeout(() => { if (!opensAtTarget(opensAtRef.current)) titleInputRef.current?.focus(); }, 300);
           },
           {
             enableHighAccuracy: false,
@@ -1270,6 +1280,38 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, campaignId]);
+
+  // The campaign page's Send (Chris, 8 Nov 2026 (b), point 2): once the saved campaign is shown, bring the Send card to
+  // the top, once per opening. Edit opens at the top (step 1) as before.
+  const openedAtRef = useRef(false);
+  useEffect(() => {
+    if (!open) { openedAtRef.current = false; return undefined; }
+    const target = opensAtTarget(opensAt);
+    if (!target || openedAtRef.current || !flowCampaign || flowLoading) return undefined;
+    // Marked done only once it has scrolled (a cancelled frame — StrictMode's re-run — tries again).
+    let inner = 0;
+    const outer = window.requestAnimationFrame(() => {
+      inner = window.requestAnimationFrame(() => {
+        const el = document.getElementById(target);
+        if (!el) return;
+        openedAtRef.current = true;
+        el.scrollIntoView({ block: 'start' });
+        el.focus?.({ preventScroll: true });
+      });
+    });
+    return () => { window.cancelAnimationFrame(outer); window.cancelAnimationFrame(inner); };
+  }, [open, opensAt, flowCampaign, flowLoading]);
+
+  // Published / unpublished from the Publishing card: the Send card's checks (a private link can't be sent; view-only
+  // texts) follow the campaign page's state.
+  useEffect(() => {
+    const cur = flowCampaignRef.current;
+    if (!open || !campaignSeed || !cur || campaignSeed.id !== cur.id) return;
+    if (campaignSeed.published !== cur.published || campaignSeed.slug !== cur.slug) {
+      setFlowCampaign({ ...cur, published: campaignSeed.published, slug: campaignSeed.slug ?? cur.slug });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, campaignSeed?.id, campaignSeed?.published, campaignSeed?.slug]);
 
   // Completes the category resolution once apiCategories loads asynchronously — the
   // synchronous pass above only sees categories already available via categoriesProp,
@@ -2881,7 +2923,8 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
               <Input
                 ref={titleInputRef}
                 type="text"
-                autoFocus
+                // Not when the campaign page's Send opens this at the Send card (the phone keyboard would flash up).
+                autoFocus={opensAt !== 'send'}
                 value={formData.title}
                 onChange={handleTitleChange}
                 placeholder="Give your campaign a meaningful title"
@@ -3689,6 +3732,14 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
               onForbidden={() => setSendForbidden(true)}
               onSeePlans={() => setPlansAsk('Upgrade your plan to send more messages this month.')}
             />
+
+            {/* Publishing (Chris, 8 Nov 2026 (b), point 2): the campaign page's old Publish options — only on a saved
+                campaign opened from its page, which renders the body (same calls as before). */}
+            {publishing && flowCampaign && !flowLoading && !flowLoadError ? (
+              <StepCard number={publishingStepNumber()} title="Publishing" id={PUBLISHING_STEP_ID}>
+                {publishing}
+              </StepCard>
+            ) : null}
 
             {/* The actions, at the end of the list like the newsletter composer's (Chris, 4 Nov: "Just keep going down
                 the list"): save only, or save and then confirm the send. Nothing is saved before one is pressed. Right
