@@ -78,6 +78,8 @@ import CreateMemory from "../components/CreateMemory";
 import { seedFromMemory } from "../components/storeel/lib/storeelFlow";
 import { campaignPageInventory } from "../components/storeel/campaignPageInventory";
 import { campaignModerationOf, moderationTabVisible } from "../components/storeel/lib/moderation";
+import { AddWidgetMenu, ADD_WIDGET_PANEL, addWidgetOptions, type AddWidgetKind } from "../components/widgets/AddWidgetChooser";
+import { previewWidgetsFrom, takeWidgetIntent } from "../components/storeel/lib/storeelWidgets";
 const samanthaAvatar = 'https://images.unsplash.com/photo-1494790108755-2616b612b5bc?w=100&h=100&fit=crop';
 
 // Helper: convert S3 URL to proxied path so auth headers work and canvas doesn't get tainted
@@ -4232,6 +4234,17 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
     return urls;
   }, [hiddenClusterIds, unhiddenImageUrls, aiScanResults]);
 
+  // A widget picked on the Storeel page before the Storeel existed (Chris, 8 Nov 2026): Save as Draft ran, then this page
+  // opened — open Edit Storeel with that widget's editor, at the same place. Once. (Above the early returns: a hook.)
+  const openAddWidgetRef = useRef<((kind: AddWidgetKind, afterPostId: string | null) => void) | null>(null);
+  useEffect(() => {
+    if (!memoryId || !apiMemoryData || !isOwner || !openAddWidgetRef.current) return;
+    const intent = takeWidgetIntent(Number(memoryId));
+    if (!intent) return;
+    setStoreelFlow(true);
+    openAddWidgetRef.current(intent.kind, intent.afterPostId === null ? null : String(intent.afterPostId));
+  }, [memoryId, apiMemoryData, isOwner, isLoadingMemory]);
+
   // Show loading state
   if (isLoadingMemory) {
     return (
@@ -7710,20 +7723,30 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
     }
   };
 
+  // Open one Add Widget option at a place (after this moment; null = the top). The campaign page's sidebar "+" and the
+  // Storeel page's "+" (Chris, 8 Nov 2026, point 1) both come here, so each option opens its existing editor.
+  const openAddWidget = (kind: AddWidgetKind, afterPostId: string | null) => {
+    if (kind === 'moment') { insertAfterPostIdRef.current = afterPostId; setInsertAfterPostId(afterPostId); setIsAddMomentModalOpen(true); }
+    else if (kind === 'html') { setHtmlWidgetAfterPostId(afterPostId); setEditingHtmlWidgetId(null); setIsAddHtmlModalOpen(true); }
+    else if (kind === 'youtube') { setYoutubeWidgetAfterPostId(afterPostId); setIsAddYoutubeModalOpen(true); }
+    else if (kind === 'quote') { setQuoteWidgetAfterPostId(afterPostId); setIsAddQuoteModalOpen(true); }
+    else if (kind === 'ai_creator') { setAiCreatorWidgetAfterPostId(afterPostId); setIsAddAiCreatorModalOpen(true); }
+    else if (kind === 'cta') { setCtaWidgetAfterPostId(afterPostId); setEditingCtaWidgetId(null); setIsAddCtaModalOpen(true); }
+    else if (kind === 'request_moment') { openAddRequestMomentCta(afterPostId); }
+    else if (kind === 'voice') { setVoiceToTextAfterPostId(afterPostId); setIsVoiceToTextOpen(true); }
+    else if (kind === 'shopify_product') { setProductWidgetAfterPostId(afterPostId); setIsProductPickerOpen(true); }
+    else if (kind === 'docusign') { setDocuSignPostId(afterPostId); setShowDocuSignSendModal(true); }
+  };
+
+  openAddWidgetRef.current = openAddWidget;
+
+  // One of the widget editors is open (over the Storeel page, when it is open).
+  const widgetEditorOpen = isAddHtmlModalOpen || isAddYoutubeModalOpen || isAddQuoteModalOpen || isAddAiCreatorModalOpen || isAddCtaModalOpen
+    || isVoiceToTextOpen || isProductPickerOpen || showDocuSignSendModal || isPurchaseModalOpen;
+
   // Plus Divider between post cards (mobile only)
   // Reusable "+" Add-Widget divider used inside desktop sidebar timeline entries (incl. CTA)
   const renderSidebarAddWidgetPlus = (afterPostId: string | null) => {
-    const items: Array<{ icon: React.ReactNode; label: string; desc: string }> = [
-      { icon: <Clock className="w-5 h-5 text-[#009689]" />, label: 'Moment', desc: 'Add a special moment' },
-      { icon: <Pointer className="w-5 h-5 text-[#6C60FF]" />, label: 'Call to Action', desc: 'Add a button with a link' },
-      { icon: <Upload className="w-5 h-5 text-[#6C60FF]" />, label: 'Share Request a Moment', desc: 'Allow photos and caption contributions' },
-      { icon: <Mic className="w-5 h-5 text-[#6C60FF]" />, label: 'Voice to Text', desc: 'Create moment captions' },
-      { icon: <Code className="w-5 h-5 text-[#6C60FF]" />, label: 'HTML', desc: 'Add custom HTML content' },
-      { icon: <Video className="w-5 h-5 text-[#FF4444]" />, label: 'Youtube', desc: 'Embed a YouTube link' },
-      { icon: <MessageSquare className="w-5 h-5 text-[#F59E0B]" />, label: 'Quote', desc: 'Add an inspirational quote' },
-      { icon: <Sparkles className="w-5 h-5 text-[#6C60FF]" />, label: 'AI Creator', desc: 'Generate content with AI' },
-      ...(docuSignConnected ? [{ icon: <FileText className="w-5 h-5 text-[#1464A5]" />, label: 'DocuSign', desc: 'Send for signature' }] : []),
-    ];
     return (
       <div className="relative mt-8">
         <div className="border-b border-dashed border-[#6C60FF]/40 group-hover/border:border-[#6C60FF]/40" />
@@ -7734,37 +7757,8 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                 <Plus className="w-4 h-4 text-[#6C60FF]" />
               </div>
             </PopoverTrigger>
-            <PopoverContent side="right" align="center" className="w-80 p-0 rounded-xl shadow-lg border border-gray-200 bg-white" sideOffset={8}>
-              <div className="p-4 pb-2">
-                <h4 className="text-base font-semibold text-gray-900">Add Widget</h4>
-                <p className="text-sm text-gray-500">Choose a widget to add to your timeline</p>
-              </div>
-              <div className="max-h-[320px] overflow-y-auto">
-                {items.map((item) => (
-                  <PopoverClose asChild key={item.label}>
-                    <div
-                      className="flex items-center gap-4 px-5 py-4 hover:bg-gray-50 cursor-pointer transition-colors"
-                      onClick={() => {
-                        if (item.label === 'Moment') { insertAfterPostIdRef.current = afterPostId; setInsertAfterPostId(afterPostId); setIsAddMomentModalOpen(true); }
-                        else if (item.label === 'HTML') { setHtmlWidgetAfterPostId(afterPostId); setEditingHtmlWidgetId(null); setIsAddHtmlModalOpen(true); }
-                        else if (item.label === 'Youtube') { setYoutubeWidgetAfterPostId(afterPostId); setIsAddYoutubeModalOpen(true); }
-                        else if (item.label === 'Quote') { setQuoteWidgetAfterPostId(afterPostId); setIsAddQuoteModalOpen(true); }
-                        else if (item.label === 'AI Creator') { setAiCreatorWidgetAfterPostId(afterPostId); setIsAddAiCreatorModalOpen(true); }
-                        else if (item.label === 'Call to Action') { setCtaWidgetAfterPostId(afterPostId); setEditingCtaWidgetId(null); setIsAddCtaModalOpen(true); }
-                        else if (item.label === 'Share Request a Moment') { openAddRequestMomentCta(afterPostId); }
-                        else if (item.label === 'Voice to Text') { setVoiceToTextAfterPostId(afterPostId); setIsVoiceToTextOpen(true); }
-                        else if (item.label === 'DocuSign') { setDocuSignPostId(afterPostId); setShowDocuSignSendModal(true); }
-                      }}
-                    >
-                      <div className="w-10 h-10 flex-shrink-0 rounded-[8px] bg-gray-50 flex items-center justify-center">{item.icon}</div>
-                      <div>
-                        <p className="text-sm font-medium text-gray-900">{item.label}</p>
-                        <p className="text-xs text-gray-500">{item.desc}</p>
-                      </div>
-                    </div>
-                  </PopoverClose>
-                ))}
-              </div>
+            <PopoverContent side="right" align="center" className={ADD_WIDGET_PANEL} sideOffset={8}>
+              <AddWidgetMenu options={addWidgetOptions({ docuSign: docuSignConnected })} onPick={(kind) => openAddWidget(kind, afterPostId)} />
             </PopoverContent>
           </Popover>
         </div>
@@ -17961,6 +17955,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
           afterPostId: () => insertAfterPostIdRef.current,
           onAdded: () => { clearApiCache(); fetchMemoryDetails(); },
           linkedVehicleIds: (apiMemoryData?.linked_memories || []).filter((lm: any) => lm?.is_car === true || Number(lm?.is_car) === 1).map((lm: any) => String(lm.id)),
+          linkedCampaignIds: (apiMemoryData?.linked_memories || []).filter((lm: any) => !(lm?.is_car === true || Number(lm?.is_car) === 1)).map((lm: any) => String(lm.id)),
         }) : undefined}
         onOpenMediaLibrary={() => {
           console.log('🔍 onOpenMediaLibrary called - Opening media library');
@@ -18224,6 +18219,11 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
           canSend={isOwner}
           onDeleteCampaign={() => setShowDeleteDialog(true)}
           onCampaignSaved={() => { void fetchMemoryDetails(true); onRefresh?.(); }}
+          // The preview's "+" (Chris, 8 Nov 2026, point 1): every Add Widget option opens this page's own editor.
+          onAddWidget={(kind, afterPostId) => openAddWidget(kind, afterPostId)}
+          widgetOptions={addWidgetOptions({ docuSign: docuSignConnected, shopifyProduct: true })}
+          previewWidgets={previewWidgetsFrom({ html: htmlWidgets, youtube: youtubeWidgets, quote: quoteWidgets, cta: ctaWidgets, aiCreator: aiCreatorWidgets, product: productWidgets })}
+          widgetEditorOpen={widgetEditorOpen}
         />
       ) : null}
 

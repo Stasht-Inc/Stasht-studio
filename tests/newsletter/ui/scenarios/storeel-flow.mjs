@@ -53,6 +53,8 @@ async function chooseCategory(page, name) {
 /** Step 2's Add a Moment → the original Add a Moment UI → pick photos → Add all (each is uploaded; mock answers IMG). */
 async function addPhotos(page, names) {
   await step(page, 'st-step-moments').getByRole('button', { name: 'Add a Moment' }).click();
+  // Chris, 8 Nov 2026: Add a Moment opens the Add Widget chooser; Moment opens Add a Moment.
+  await page.getByTestId('add-widget-chooser').getByRole('menuitem', { name: /^Moment/ }).click();
   await page.locator('#file-upload').setInputFiles(names.map((name) => ({ name, mimeType: 'image/png', buffer: PNG })));
   await page.waitForTimeout(1500);
   await page.getByRole('button', { name: /^Add all/ }).click();
@@ -121,6 +123,8 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
     // opens over it, the file already chosen in it stays, and the library pick is added to step 2.
     if (width >= 768) {
       await step(page, 'st-step-moments').getByRole('button', { name: 'Add a Moment' }).click();
+      // Chris, 8 Nov 2026: Add a Moment opens the Add Widget chooser; Moment opens Add a Moment.
+      await page.getByTestId('add-widget-chooser').getByRole('menuitem', { name: /^Moment/ }).click();
       await page.locator('#file-upload').setInputFiles({ name: 'garden.png', mimeType: 'image/png', buffer: PNG });
       await page.waitForTimeout(1200);
       // Add a Moment's own "+ Add" menu (not step 1's tag / label Add buttons, which have no icon).
@@ -272,6 +276,8 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
     expect(((await e.page.getByTestId('storeel-preview').textContent()) ?? '').includes('All new cabinets'), `${tag}: the preview shows the new caption`);
     // The original Add a Moment works on the campaign directly (as on its page), and step 2 / the preview follow.
     await step(e.page, 'st-step-moments').getByRole('button', { name: 'Add a Moment' }).click();
+    // Chris, 8 Nov 2026: Add a Moment opens the Add Widget chooser; Moment opens Add a Moment.
+    await e.page.getByTestId('add-widget-chooser').getByRole('menuitem', { name: /^Moment/ }).click();
     await e.page.locator('#file-upload').setInputFiles({ name: 'garage.png', mimeType: 'image/png', buffer: PNG });
     await e.page.waitForTimeout(1500);
     await e.page.getByRole('button', { name: /^Add all/ }).click();
@@ -283,6 +289,8 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
     // adds it to the campaign.
     if (width >= 768) {
       await step(e.page, 'st-step-moments').getByRole('button', { name: 'Add a Moment' }).click();
+      // Chris, 8 Nov 2026: Add a Moment opens the Add Widget chooser; Moment opens Add a Moment.
+      await e.page.getByTestId('add-widget-chooser').getByRole('menuitem', { name: /^Moment/ }).click();
       await e.page.getByRole('button', { name: 'Choose Files' }).filter({ visible: true }).first().click();
       await e.page.getByText('Add from Media Library').filter({ visible: true }).first().click();
       await expectVisible(e.page.getByRole('heading', { name: 'Add Moments from Library' }), `${tag}: Edit: the Media Library opens over Add a Moment`);

@@ -827,6 +827,31 @@ export function createMockApi(options = {}) {
     if (path === '/user/check-memory-limit') {
       return ok({ limit_status: { status: options.storeelLimit ? 'limit_exceeded' : 'within_limit', current_memories: options.storeelLimit ? 5 : 2, memory_limit: 5, ai_connects: 120 } });
     }
+    // options.existingCampaigns (Chris, 8 Nov 2026): the account's campaigns, as GET /memories lists them (Add a Moment's
+    // "Campaigns (optional)"), and POST /memories/{id}/linked-memories linking them into a saved campaign.
+    if (path === '/memories' && method === 'GET' && options.existingCampaigns) {
+      return ok({ all_memories: { data: options.existingCampaigns } });
+    }
+    const linkMatch = /^\/memories\/(\d+)\/linked-memories$/.exec(path);
+    if (linkMatch && method === 'POST') {
+      const id = Number(linkMatch[1]);
+      const m = state.memories.get(id);
+      state.momentCalls = [...(state.momentCalls ?? []), { method, kind: 'linked-memories', id, body, sub: null }];
+      if (!m) return fail(404, { success: false, message: 'Campaign not found.' });
+      const order = Array.isArray(m.unified_order) && m.unified_order.length ? m.unified_order : [
+        ...(m.posts ?? []).filter((p) => p.parent_id == null).map((p) => ({ type: 'post', id: p.id })),
+        ...(m.linked_memories ?? []).filter((l) => !l.is_car).map((l) => ({ type: 'linked_memory', id: l.id })),
+      ];
+      const already = (body.linked_memory_ids ?? []).filter((lid) => (m.linked_memories ?? []).some((l) => !l.is_car && Number(l.id) === Number(lid)));
+      const fresh = (body.linked_memory_ids ?? []).filter((lid) => !already.includes(lid));
+      const camp = (lid) => (options.existingCampaigns ?? []).find((c) => Number(c.id) === Number(lid)) ?? { id: lid, title: `Campaign ${lid}` };
+      m.linked_memories = [...(m.linked_memories ?? []), ...fresh.map((lid) => ({ ...camp(lid), id: Number(lid), is_car: 0 }))];
+      const at = body.after_item_id ? order.findIndex((o) => o.type === body.after_item_type && Number(o.id) === Number(body.after_item_id)) + 1
+        : body.position === 'start' ? 0 : order.length;
+      order.splice(at > 0 || body.position === 'start' ? at : order.length, 0, ...fresh.map((lid) => ({ type: 'linked_memory', id: Number(lid) })));
+      m.unified_order = order;
+      return ok({ linked: fresh.length, already_linked_ids: already });
+    }
     // The Storeel form: its categories, and POST /memories (MemoryController::store) to create a Storeel.
     if (path === '/memories/categories-labels') {
       return ok({ categories: [{ id: 7, name: 'Personal', is_owner: true, can_add_story: true }, { id: 8, name: 'Service', is_owner: true, can_add_story: true }], labels: [] });
@@ -855,7 +880,11 @@ export function createMockApi(options = {}) {
           ...(body?.photos ?? []).map((p) => ({ title: p.title ?? '', description: p.description ?? '', image_link: p.fileUrl ?? IMG })),
         ].map((p, i) => ({ id: id * 100 + i, parent_id: null, ...p })),
         // Add a Moment's vehicles on another category come as linked_memory_ids (store() links a vehicle id it finds there).
-        linked_memories: [...(body?.car_ids ?? []), ...(body?.linked_memory_ids ?? []).filter((v) => Number(v) === 5)].map((carId) => ({ id: Number(carId), is_car: 1, title: '2024 Jeep Wrangler', price: '34995', mileage: 45000, stock_number: 'S2300' })),
+        linked_memories: [
+          ...[...(body?.car_ids ?? []), ...(body?.linked_memory_ids ?? []).filter((v) => Number(v) === 5)].map((carId) => ({ id: Number(carId), is_car: 1, title: '2024 Jeep Wrangler', price: '34995', mileage: 45000, stock_number: 'S2300' })),
+          // Linked campaigns (Chris, 8 Nov 2026): the ids that are options.existingCampaigns.
+          ...(body?.linked_memory_ids ?? []).map((lid) => (options.existingCampaigns ?? []).find((c) => Number(c.id) === Number(lid))).filter(Boolean).map((c) => ({ ...c, id: Number(c.id), is_car: 0 })),
+        ],
       });
       return ok({ id, title: body?.title, slug, category_id: body?.category_id, sub_category_id: null, collaborators_count: 0, created_at: now() }, 201);
     }

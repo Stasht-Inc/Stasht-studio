@@ -6,6 +6,8 @@ import { Textarea } from '../ui/textarea';
 import { momentsLabel } from './storeelPreview';
 import { stepNumber } from './lib/storeelFlow';
 import type { PreviewMoment } from './lib/previewMoments';
+import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
+import { AddWidgetMenu, ADD_WIDGET_PANEL, type AddWidgetKind, type AddWidgetOption } from '../widgets/AddWidgetChooser';
 
 export const MOMENTS_STEP_ID = 'st-step-moments';
 
@@ -28,7 +30,7 @@ export interface MomentRow {
  * moment editor on the pencil, and "Add a Moment", which opens the original Add a Moment UI (AddMomentModal).
  * Photos can be dropped on the card, as on the old Media box.
  */
-export default function StoreelMomentsCard({ rows, onAddMoment, onDropFiles, busy = false, note = null, captionRequest = null }: {
+export default function StoreelMomentsCard({ rows, onAddMoment, onDropFiles, busy = false, note = null, captionRequest = null, addChooser }: {
   rows: MomentRow[];
   /** The preview's Edit Moment on a saved moment (Chris, 7 Nov 2026): open this row's caption editor, scrolled to. */
   captionRequest?: { key: string; n: number } | null;
@@ -37,7 +39,14 @@ export default function StoreelMomentsCard({ rows, onAddMoment, onDropFiles, bus
   onAddMoment(): void;
   onDropFiles?(files: FileList): void;
   busy?: boolean;
+  /** Chris, 8 Nov 2026 (point 1): "Add a Moment" opens the campaign page's Add Widget chooser (at the end). */
+  addChooser?: { options: ReadonlyArray<AddWidgetOption>; onPick(kind: AddWidgetKind): void };
 }) {
+  const addButton = (
+    <button type="button" onClick={addChooser ? undefined : onAddMoment} disabled={busy} className={BUTTON_SECONDARY} data-testid="storeel-moments-add">
+      <Plus className="h-4 w-4" aria-hidden="true" />Add a Moment
+    </button>
+  );
   return (
     <StepCard number={stepNumber('moments')} title="Moments" id={MOMENTS_STEP_ID} aside={momentsLabel(rows.length)}>
       <div
@@ -53,9 +62,15 @@ export default function StoreelMomentsCard({ rows, onAddMoment, onDropFiles, bus
         ) : (
           <p className="text-sm text-gray-500">No moments yet. Add photos or videos with Add a Moment, or pick items in step 1.</p>
         )}
-        <button type="button" onClick={onAddMoment} disabled={busy} className={BUTTON_SECONDARY}>
-          <Plus className="h-4 w-4" aria-hidden="true" />Add a Moment
-        </button>
+        {addChooser ? (
+          <Popover>
+            <PopoverTrigger asChild>{addButton}</PopoverTrigger>
+            {/* Above the Storeel page (z 99999). */}
+            <PopoverContent side="top" align="start" className={ADD_WIDGET_PANEL} style={{ zIndex: 100002 }} sideOffset={8}>
+              <AddWidgetMenu options={addChooser.options} onPick={addChooser.onPick} />
+            </PopoverContent>
+          </Popover>
+        ) : addButton}
       </div>
     </StepCard>
   );
