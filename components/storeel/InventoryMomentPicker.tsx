@@ -7,6 +7,7 @@ import { requestUpgrade } from '../../utils/planEvents';
 import { catalogGate, inventoryCacheable, type InventoryPick } from './lib/momentPicks';
 import { CATALOGUE_SYNC_FINISHED_EVENT, CATALOGUE_SYNC_STARTED_EVENT } from '../connectors/websiteCatalogue';
 import { vehiclePrice, vehicleTags } from './lib/previewMoments';
+import type { CampaignPick } from './lib/momentCampaigns';
 
 /** Add a Moment's sources: photos & videos (the modal's own), the Website Catalogue's products, a dealer's vehicles. */
 export type MomentSource = 'media' | 'product' | 'vehicle';
@@ -14,9 +15,14 @@ export type MomentSource = 'media' | 'product' | 'vehicle';
 /** Add a Moment's products / vehicles (Chris, 7 Nov 2026), for whoever opened it (the Storeel page, the campaign page). */
 export interface MomentInventory {
   /** Add the picks. False keeps the window open (the caller has said why). */
-  onAdd(picks: { products: InventoryPick[]; vehicles: InventoryPick[] }): Promise<boolean> | boolean;
+  onAdd(picks: { products: InventoryPick[]; vehicles: InventoryPick[]; campaigns: CampaignPick[] }): Promise<boolean> | boolean;
   /** Already in the campaign: shown ticked and not pickable again. */
-  alreadyAdded?: { products?: ReadonlyArray<string>; vehicles?: ReadonlyArray<string> };
+  alreadyAdded?: { products?: ReadonlyArray<string>; vehicles?: ReadonlyArray<string>; campaigns?: ReadonlyArray<string> };
+  /**
+   * Media's "Campaigns (optional)" (Chris, 8 Nov 2026): link existing campaigns. Shown when given; `exclude` is the
+   * campaign being built (never linked to itself).
+   */
+  campaigns?: { exclude?: string | number | null };
   /** "See plans" (off the Business plan). Default: ask App to open the plans. */
   onSeePlans?(): void;
 }

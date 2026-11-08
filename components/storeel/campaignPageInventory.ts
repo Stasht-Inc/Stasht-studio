@@ -2,6 +2,7 @@ import { toast } from 'sonner';
 import { campaignMomentsAPI } from '../../services/campaignMomentsAPI';
 import { requestUpgrade } from '../../utils/planEvents';
 import { addedMessage } from './lib/momentPicks';
+import { linkedCampaignsMessage } from './lib/momentCampaigns';
 import type { MomentInventory } from './InventoryMomentPicker';
 
 /**
@@ -9,20 +10,31 @@ import type { MomentInventory } from './InventoryMomentPicker';
  * images/189.jpg). They are added to the campaign at once, as Add a Moment's photos are: products right after the
  * moment whose "+" was used (else at the end), vehicles linked like a Cars campaign's.
  */
-export function campaignPageInventory({ memoryId, afterPostId, onAdded, linkedVehicleIds = [] }: {
+export function campaignPageInventory({ memoryId, afterPostId, onAdded, linkedVehicleIds = [], linkedCampaignIds = [] }: {
   memoryId: string | number;
   /** The "+" the window was opened from (a moment's id), or null. */
   afterPostId(): string | null;
   onAdded(): void;
   /** Vehicles already linked to the campaign (shown ticked, not pickable again). */
   linkedVehicleIds?: ReadonlyArray<string>;
+  /** Campaigns already linked to it (Media's "Campaigns (optional)", Chris 8 Nov 2026): ticked, not pickable again. */
+  linkedCampaignIds?: ReadonlyArray<string>;
 }): MomentInventory {
   return {
-    alreadyAdded: { vehicles: linkedVehicleIds },
+    alreadyAdded: { vehicles: linkedVehicleIds, campaigns: linkedCampaignIds },
+    campaigns: { exclude: memoryId },
     onSeePlans: () => requestUpgrade('Adding Website Catalogue products is available on the Business plan.'),
-    onAdd: async ({ products, vehicles }) => {
+    onAdd: async ({ products, vehicles, campaigns = [] }) => {
       const after = afterPostId();
       const added = { products: 0, vehicles: 0, already: 0 };
+      // Campaigns first: linked right after the "+"'s moment (else at the end), as Create links them.
+      if (campaigns.length) {
+        const place = after && Number(after) > 0 ? { after: { type: 'post' as const, id: Number(after) } } : null;
+        const res = await campaignMomentsAPI.addLinkedCampaigns(memoryId, campaigns.map((c) => c.id), place);
+        if (!res.ok) { toast.error(res.error || "The campaigns couldn't be linked. Try again."); return false; }
+        toast.success(linkedCampaignsMessage(res.data?.linked ?? campaigns.length, res.data?.already_linked_ids?.length ?? 0));
+        if (!products.length && !vehicles.length) { onAdded(); return true; }
+      }
       if (products.length) {
         const place = after && Number(after) > 0 ? { after: { type: 'post' as const, id: Number(after) } } : null;
         const res = await campaignMomentsAPI.addProducts(memoryId, products.map((p) => p.id), place);

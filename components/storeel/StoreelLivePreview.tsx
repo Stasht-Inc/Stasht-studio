@@ -7,6 +7,10 @@ import { brandCoverColor } from '../../utils/campaignCover';
 import type { PreviewMoment } from './lib/previewMoments';
 import { plusAfter } from './lib/momentOrder';
 import { PREVIEW_DEVICES, fitScale, previewDevice, readPreviewDevice, savePreviewDevice, type PreviewDevice } from './lib/previewDevice';
+import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
+import { AddWidgetMenu, ADD_WIDGET_PANEL, type AddWidgetKind, type AddWidgetOption } from '../widgets/AddWidgetChooser';
+import { WIDGET_END, WIDGET_PINNED, WIDGET_TOP, widgetsByAnchor, type PreviewWidget } from './lib/storeelWidgets';
+import PreviewWidgetCard from './PreviewWidgetCard';
 
 /**
  * [wdy2xh2t3z] The Storeel tab's PREVIEW: the Storeel as it will look, following the form. Display only.
@@ -36,6 +40,12 @@ export interface MomentMenuActions { label: string; edit?: () => void; up?: () =
 export interface PreviewControls {
   /** A "+": add moments right after the moment with this key (null: first, under the cover). */
   onAddAfter(key: string | null): void;
+  /**
+   * Chris, 8 Nov 2026 (point 1): with these, a "+" opens the campaign page's Add Widget chooser (every option) and the
+   * pick is added at that place; without them a "+" opens Add a Moment as before.
+   */
+  widgetOptions?: ReadonlyArray<AddWidgetOption>;
+  onAddWidget?(kind: AddWidgetKind, key: string | null): void;
   menuFor(key: string, index: number): MomentMenuActions | null;
   cover: { onPhoto(): void; onVideo(): void; onRemove?: () => void };
   onEditTitle(): void;
@@ -53,6 +63,17 @@ const BEZEL = 10;
 const SCREEN_RADIUS: Record<string, number> = { 'iphone-se': 28, 'iphone-15': 55, 'iphone-15-pro-max': 55, 'pixel-8': 46 };
 /** Figma: the first moment card overlaps the bottom of the cover by this much. */
 const CARD_OVERLAP = 85;
+
+/** Phones / narrow windows (follows rotation and resizing): the chooser opens under its "+" there. */
+function useNarrow(): boolean {
+  const [narrow, setNarrow] = useState(() => typeof window !== 'undefined' && window.innerWidth < 768);
+  useEffect(() => {
+    const on = () => setNarrow(window.innerWidth < 768);
+    window.addEventListener('resize', on);
+    return () => window.removeEventListener('resize', on);
+  }, []);
+  return narrow;
+}
 
 /** The nearest scrolling ancestor (the Storeel page's scroller), else null (the window scrolls). */
 function scrollParent(el: HTMLElement | null): HTMLElement | null {
@@ -92,13 +113,24 @@ function useRoom(ref: React.RefObject<HTMLDivElement>) {
   return room;
 }
 
-export default function StoreelLivePreview({ input, avatarUrl, avatarColor, controls }: {
+export default function StoreelLivePreview({ input, avatarUrl, avatarColor, controls, widgets, cardButtons }: {
   input: StoreelPreviewInput;
   avatarUrl?: string | null;
   avatarColor?: string | null;
   controls?: PreviewControls;
+  /** A saved campaign's widgets (Chris, 8 Nov 2026): shown after their moment, like the campaign page. */
+  widgets?: ReadonlyArray<PreviewWidget>;
+  /** A saved product moment's in-card "View on website" button, by the moment's post id (Chris, 8 Nov 2026, point 3). */
+  cardButtons?: ReadonlyMap<string, { buttonText: string }>;
 }) {
   const m = storeelPreviewModel(input);
+  const widgetGroups = widgetsByAnchor(m.momentCards, widgets ?? []);
+  const widgetStack = (key: string) => {
+    const list = widgetGroups.get(key);
+    return list?.length ? (
+      <div className="mt-3 space-y-3" data-testid="storeel-preview-widgets">{list.map((w) => <PreviewWidgetCard key={`${w.type}-${w.id}`} widget={w} />)}</div>
+    ) : null;
+  };
   const color = brandCoverColor(avatarColor);
   const [device, setDevice] = useState<PreviewDevice>(() => readPreviewDevice());
   const chooseDevice = (id: string) => { setDevice(previewDevice(id)); savePreviewDevice(id); };
@@ -165,6 +197,8 @@ export default function StoreelLivePreview({ input, avatarUrl, avatarColor, cont
               <Cover m={m} width={device.width} height={device.height} color={color} avatarUrl={avatarUrl} initialCover={initialCover} controls={controls} onContinue={toTimeline} />
               {/* Moment cards: every moment, in order (the page scrolls inside the phone) */}
               <ul ref={momentsRef} data-testid="storeel-preview-moments" aria-label="Moments" className="relative z-10 px-4" style={{ marginTop: -CARD_OVERLAP }}>
+                {/* The campaign's top widgets (before its first moment), as on the campaign page. */}
+                {widgetGroups.get(WIDGET_TOP)?.length ? <li data-moment-kind="widgets" className="-mt-3 mb-[18px]">{widgetStack(WIDGET_TOP)}</li> : null}
                 {m.momentCards.length ? m.momentCards.map((moment, i) => (
                   <li key={moment.key} data-moment-kind={moment.kind} data-moment-key={moment.key}>
                     {/* Figma: purple between moments and before the first campaign card, grey after a campaign card. */}
@@ -172,14 +206,19 @@ export default function StoreelLivePreview({ input, avatarUrl, avatarColor, cont
                       <div className="my-[18px]">
                         {/* A "+" only after a moment with a place: vehicles always show last (review minor 5). */}
                         <Divider subtle={isCampaignCard(m.momentCards[i - 1])} controls={plusAfter(m.momentCards, i - 1) ? controls : undefined}
-                          label={`Add a moment after ${momentLabel(m.momentCards[i - 1])}`} onAdd={() => controls?.onAddAfter(m.momentCards[i - 1].key)} />
+                          label={`Add a moment after ${momentLabel(m.momentCards[i - 1])}`} anchorKey={m.momentCards[i - 1].key} onAdd={() => controls?.onAddAfter(m.momentCards[i - 1].key)} />
                       </div>
                     ) : null}
-                    <MomentCard moment={moment} author={m.author} initial={m.initial} avatarUrl={avatarUrl} color={color} menu={controls?.menuFor(moment.key, i) ?? null} busy={controls?.busy} />
+                    <MomentCard moment={moment} author={m.author} initial={m.initial} avatarUrl={avatarUrl} color={color} menu={controls?.menuFor(moment.key, i) ?? null} busy={controls?.busy}
+                      cardButton={moment.kind === 'photo' && typeof moment.postId === 'number' ? cardButtons?.get(String(moment.postId))?.buttonText : undefined} />
+                    {widgetStack(moment.key)}
+                    {i === m.momentCards.length - 1 ? widgetStack(WIDGET_END) : null}
+                    {/* Pinned "Share Request a Moment" buttons: after the last item, as on the campaign page. */}
+                    {i === m.momentCards.length - 1 ? widgetStack(WIDGET_PINNED) : null}
                     {/* After the last moment: one more "+" (Chris: "+ after moments"). */}
                     {controls && i === m.momentCards.length - 1 && plusAfter(m.momentCards, i) ? (
                       <div className="mt-[18px]">
-                        <Divider subtle={isCampaignCard(moment)} controls={controls} label="Add a moment at the end" onAdd={() => controls.onAddAfter(moment.key)} />
+                        <Divider subtle={isCampaignCard(moment)} controls={controls} label="Add a moment at the end" anchorKey={moment.key} onAdd={() => controls.onAddAfter(moment.key)} />
                       </div>
                     ) : null}
                   </li>
@@ -300,27 +339,41 @@ function Cover({ m, width, height, color, avatarUrl, initialCover, controls, onC
             <span aria-hidden="true" className="flex h-[39px] w-[103px] flex-shrink-0 items-center justify-center rounded-lg border border-gray-200 bg-white text-[12.5px] text-gray-900 shadow-sm">Continue</span>
           )}
         </div>
-        <div className="mt-[25px]"><Divider controls={controls} label="Add a moment at the start" onAdd={() => controls?.onAddAfter(null)} /></div>
+        <div className="mt-[25px]"><Divider controls={controls} label="Add a moment at the start" anchorKey={null} onAdd={() => controls?.onAddAfter(null)} /></div>
       </div>
     </div>
   );
 }
 
-/** The line with the round + between the timeline's items: a button that adds moments there (with controls). */
-function Divider({ subtle = false, controls, label = '', onAdd }: { subtle?: boolean; controls?: PreviewControls; label?: string; onAdd?: () => void }) {
+/**
+ * The line with the round + between the timeline's items: a button that adds there (with controls) — the campaign
+ * page's Add Widget chooser when the controls give its options (Chris, 8 Nov 2026), else Add a Moment.
+ */
+function Divider({ subtle = false, controls, label = '', anchorKey = null, onAdd }: { subtle?: boolean; controls?: PreviewControls; label?: string; anchorKey?: string | null; onAdd?: () => void }) {
   const circle = `relative flex h-[33px] w-[33px] items-center justify-center rounded-full border bg-[#F3F4F6] ${subtle ? 'border-gray-200 text-gray-400' : 'border-[#6C60FF] text-[#6C60FF]'}`;
+  const chooser = controls?.onAddWidget && controls.widgetOptions?.length ? controls : null;
+  const narrow = useNarrow();
+  const button = controls ? (
+    // A 44 px hit area (device px) around the drawn 33 px circle.
+    <button type="button" onClick={chooser ? undefined : onAdd} disabled={controls.busy} aria-label={label} data-testid="storeel-preview-add"
+      className="group relative -my-[5.5px] flex h-11 w-11 items-center justify-center rounded-full focus:outline-none disabled:cursor-wait">
+      <span className={`${circle} transition-colors group-hover:bg-[#6C60FF] group-hover:text-white group-focus-visible:ring-4 group-focus-visible:ring-[#6C60FF]/50`}>
+        <Plus className="h-4 w-4" aria-hidden="true" />
+      </span>
+    </button>
+  ) : null;
   return (
     <div aria-hidden={controls ? undefined : true} className="relative flex items-center justify-center">
       <span aria-hidden="true" className={`absolute inset-x-0 top-1/2 h-px ${subtle ? 'bg-gray-200' : 'bg-[#6C60FF]'}`} />
-      {controls ? (
-        // A 44 px hit area (device px) around the drawn 33 px circle.
-        <button type="button" onClick={onAdd} disabled={controls.busy} aria-label={label} data-testid="storeel-preview-add"
-          className="group relative -my-[5.5px] flex h-11 w-11 items-center justify-center rounded-full focus:outline-none disabled:cursor-wait">
-          <span className={`${circle} transition-colors group-hover:bg-[#6C60FF] group-hover:text-white group-focus-visible:ring-4 group-focus-visible:ring-[#6C60FF]/50`}>
-            <Plus className="h-4 w-4" aria-hidden="true" />
-          </span>
-        </button>
-      ) : (
+      {button && chooser ? (
+        <Popover>
+          <PopoverTrigger asChild>{button}</PopoverTrigger>
+          {/* Portalled above the Storeel page (z 99999): beside the "+" as on the campaign page; under it on phones. */}
+          <PopoverContent side={narrow ? 'bottom' : 'left'} align="center" className={`${ADD_WIDGET_PANEL} max-w-[calc(100vw-2rem)]`} style={MENU_Z} sideOffset={8}>
+            <AddWidgetMenu options={chooser.widgetOptions!} onPick={(kind) => chooser.onAddWidget!(kind, anchorKey)} />
+          </PopoverContent>
+        </Popover>
+      ) : button ? button : (
         <span className={circle}><Plus className="h-4 w-4" /></span>
       )}
     </div>
@@ -404,8 +457,10 @@ function PlaceAndDate({ location, date }: { location: string; date: string }) {
 }
 
 /** One moment as the published campaign shows it (PublishedMemoryPage / the campaign page's timeline). */
-function MomentCard({ moment, author, initial, avatarUrl, color, menu = null, busy }: {
+function MomentCard({ moment, author, initial, avatarUrl, color, menu = null, busy, cardButton }: {
   moment: PreviewMoment; author: string; initial: string; avatarUrl?: string | null; color: string; menu?: MomentMenuActions | null; busy?: boolean;
+  /** A saved product moment's in-card button text (its own CTA row, marked in_card): drawn inside the card. */
+  cardButton?: string;
 }) {
   if (moment.kind === 'photo' || moment.kind === 'product') {
     // The campaign page: the moment's title, then its caption (a product's caption is made from the website by the API).
@@ -428,6 +483,13 @@ function MomentCard({ moment, author, initial, avatarUrl, color, menu = null, bu
               </span>
             ) : null}
           </div>
+          {cardButton ? (
+            <div className="-mt-[10px] px-[21px] pb-[22px]">
+              <span data-testid="storeel-preview-card-button" className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#6C60FF] px-4 py-3 text-[15px] font-semibold text-white">
+                <ExternalLink className="h-4 w-4" aria-hidden="true" />{cardButton}
+              </span>
+            </div>
+          ) : null}
         </Card>
       </>
     );
