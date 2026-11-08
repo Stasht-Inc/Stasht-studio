@@ -10,16 +10,20 @@ export interface CampaignPick { id: string; title: string; image: string | null;
 const text = (v: unknown): string => (typeof v === 'string' ? v.trim() : '');
 const link = (v: unknown): string | null => (typeof v === 'string' && v.trim() ? v.trim() : null);
 
+/** A pending invite GET /memories merges into all_memories (another account's campaign): it can't be linked. */
+const isInvite = (m: any): boolean => m?.is_invite === true || m?.is_invite === 1 || m?.is_invite === '1' || (m?.invite_id !== undefined && m?.invite_id !== null);
+
 /**
  * GET /memories (dashboardAPI.getMemories) → the account's campaigns, read the way Create Campaign's picker reads it
- * (all_memories.data / all_memories / memories / user_memories), without `exclude` (the campaign being built).
+ * (all_memories.data / all_memories / memories / user_memories), without `exclude` (the campaign being built) and
+ * without pending invites (the web API links only the account's own campaigns; an invite would be refused with 422).
  */
 export function campaignsFromMemoriesResponse(res: any, exclude: string | number | null): CampaignPick[] {
   const d = res?.data?.data || res?.data || {};
   const list = d?.all_memories?.data || (Array.isArray(d?.all_memories) ? d.all_memories : null) || d?.memories || d?.user_memories || [];
   if (!Array.isArray(list)) return [];
   return list
-    .filter((m: any) => m && m.id !== undefined && m.id !== null && String(m.id) !== String(exclude ?? ''))
+    .filter((m: any) => m && m.id !== undefined && m.id !== null && String(m.id) !== String(exclude ?? '') && !isInvite(m))
     .map((m: any) => ({
       id: String(m.id),
       title: text(m.title) || 'Untitled campaign',

@@ -122,6 +122,19 @@ test("Campaigns (optional): the account's campaigns from GET /memories, without 
   assert.deepEqual(campaignsFromMemoriesResponse({ success: true, data: { memories: [{ id: 9, title: 'X' }] } }, null).map((c) => c.id), ['9']);
 });
 
+test('Campaigns (optional) lists only campaigns the account can link: pending invites (is_invite) are left out', () => {
+  // GET /memories merges the account's pending invites into all_memories (is_invite: true, invite_id); linking one of
+  // those is refused by the web API (422 "do not belong to you"), so they are never offered.
+  const res = { success: true, data: { all_memories: { data: [
+    { id: 1, title: 'Mine', posts_count: 2 },
+    { id: 4, title: 'Invited A', is_invite: true, invite_id: 77 },
+    { id: 5, title: 'Invited B', is_invite: 1 },
+    { id: 6, title: 'Invited C', invite_id: 78 },
+    { id: 7, title: 'Mine too', is_invite: false },
+  ] } } };
+  assert.deepEqual(campaignsFromMemoriesResponse(res, null).map((c) => c.id), ['1', '7']);
+});
+
 test('Campaigns (optional) asks the server: search, page by page (all of an account\'s campaigns, not the first 50)', () => {
   assert.equal(campaignsQuery({ search: '', page: 1 }), '/memories?per_page=50&page=1');
   assert.equal(campaignsQuery({ search: ' Fall open ', page: 3 }), '/memories?per_page=50&page=3&search=Fall%20open');
