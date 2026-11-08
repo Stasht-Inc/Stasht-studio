@@ -78,6 +78,8 @@ import CreateMemory from "../components/CreateMemory";
 import { seedFromMemory } from "../components/storeel/lib/storeelFlow";
 import { campaignPageInventory } from "../components/storeel/campaignPageInventory";
 import { campaignModerationOf, moderationTabVisible } from "../components/storeel/lib/moderation";
+import ProductCardButton from "../components/ProductCardButton";
+import { isInCardProductButton, productButtonsByPost } from "../utils/productCardButton";
 const samanthaAvatar = 'https://images.unsplash.com/photo-1494790108755-2616b612b5bc?w=100&h=100&fit=crop';
 
 // Helper: convert S3 URL to proxied path so auth headers work and canvas doesn't get tainted
@@ -291,6 +293,9 @@ type CtaWidget = {
   // "Share Request a Moment" only: keep this button pinned after the current last
   // post/item in its timeline, instead of the fixed spot it was inserted at.
   pinToBottom?: boolean;
+  // A Website Catalogue product's own "View on website" button: drawn inside the moment card it follows, not as a
+  // card of its own (Chris, 8 Nov 2026; utils/productCardButton). The owner's sidebar entry (Edit / Duplicate / Delete) stays.
+  inCard?: boolean;
   widget_order: number;
   createdAt: number;
 };
@@ -623,8 +628,10 @@ function TimelinePostCard({ post, subImages, memoryData, onImageClick }: {
 }
 
 // SharedPostCard — used by the shared-with view (raw API data format)
-function SharedPostCard({ post, index, memoryData, onImageClick, onCommentClick, onUpdateItem, onDeletePost, onRefresh }: {
+function SharedPostCard({ post, index, memoryData, onImageClick, onCommentClick, onUpdateItem, onDeletePost, onRefresh, cardButton }: {
   post: any; index: number; memoryData: any;
+  /** A product's "View on website" button, inside the card under its details (Chris, 8 Nov 2026). */
+  cardButton?: React.ReactNode;
   onImageClick: (post: any, index: number) => void;
   onCommentClick?: (post: any, index: number) => void;
   onUpdateItem?: (id: string, updates: any) => void;
@@ -884,6 +891,7 @@ function SharedPostCard({ post, index, memoryData, onImageClick, onCommentClick,
         ) : (
           hasCaption && !isCaptionHidden && <p className="whitespace-pre-line" style={{ color: '#364153', fontSize: '16px', lineHeight: '24px', letterSpacing: '-0.15px' }}>{currentCaption}</p>
         )}
+        {cardButton}
       </div>
     </div>
   );
@@ -2196,6 +2204,24 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
       toast.success('Call to action duplicated');
     } catch { toast.error('Failed to duplicate call to action'); }
   };
+  // Each product moment's "View on website" button (Chris, 8 Nov 2026): inside its card, never a separate card.
+  const productCardButtons = useMemo(() => productButtonsByPost(ctaWidgets).byPost, [ctaWidgets]);
+  const isCardCta = (w: CtaWidget) => !!w.afterPostId && productCardButtons.get(w.afterPostId)?.id === w.id;
+  // owner: the phone timeline's card offered Edit / Delete; anchor: the desktop sidebar entry scrolls to it.
+  const renderProductCardButton = (postId: string | undefined, opts: { owner?: boolean; anchor?: boolean; className?: string } = {}) => {
+    const w = postId ? productCardButtons.get(postId) : undefined;
+    if (!w) return null;
+    return (
+      <ProductCardButton
+        button={w}
+        memoryId={memoryId}
+        className={opts.className}
+        anchorRef={opts.anchor ? (el) => { ctaWidgetCardRefs.current[w.id] = el; } : undefined}
+        onEdit={opts.owner ? () => openEditCta(w) : undefined}
+        onDelete={opts.owner ? () => deleteCta(w) : undefined}
+      />
+    );
+  };
   const [addHtmlTitle, setAddHtmlTitle] = useState('');
   const [addHtmlContent, setAddHtmlContent] = useState('');
   const [htmlWidgets, setHtmlWidgets] = useState<Array<{ id: string; title: string; content: string; afterPostId: string | null; widget_order: number; createdAt: number; updatedAt: number }>>([]);
@@ -3067,6 +3093,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
             fontSize: w.widget_data?.fontSize || CTA_DEFAULT_FONT_SIZE,
             borderRadius: w.widget_data?.borderRadius ?? CTA_DEFAULT_BORDER_RADIUS,
             pinToBottom: !!w.widget_data?.pinToBottom,
+            inCard: isInCardProductButton(w),
             afterPostId: w.after_post_id ? w.after_post_id.toString() : null,
             widget_order: w.widget_order,
             createdAt: new Date(w.created_at).getTime(),
@@ -9245,7 +9272,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
               return (
               <React.Fragment key={post.id}>
                 <div ref={(el) => { sharedMobileCardRefs.current[index] = el; }} data-mobile-index={index} className={`bg-white rounded-2xl shadow-sm overflow-hidden transition-all duration-200 ${sharedMobileActiveIdx === index && sharedIsHeaderScrolled ? 'border-2 border-[#6C60FF]' : 'border border-gray-100'}`}>
-                  <SharedPostCard post={post} index={index} memoryData={apiMemoryData} onImageClick={sharedHandleImageClick} onCommentClick={sharedHandleImageClick} onUpdateItem={handleUpdateItem} onDeletePost={handlePostDelete} onRefresh={() => fetchMemoryDetails()} />
+                  <SharedPostCard post={post} index={index} memoryData={apiMemoryData} onImageClick={sharedHandleImageClick} onCommentClick={sharedHandleImageClick} onUpdateItem={handleUpdateItem} onDeletePost={handlePostDelete} onRefresh={() => fetchMemoryDetails()} cardButton={renderProductCardButton(post.id?.toString(), { anchor: false, className: 'mt-3' })} />
                 </div>
                 {htmlWidgets.filter(w => w.afterPostId === post.id?.toString()).map(widget => (
                   <div key={widget.id} className="rounded-2xl bg-white p-4 border border-gray-100"><div className="[&_h1]:text-2xl [&_h1]:font-bold [&_p]:my-2 [&_ul]:list-disc [&_ul]:pl-5 [&_a]:text-[#6C60FF] [&_a]:underline [&_strong]:font-bold" dangerouslySetInnerHTML={{ __html: widget.content }} /></div>
@@ -9258,7 +9285,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                 ))}
                 {renderProductWidgets(post.id?.toString())}
                 {renderAiCreatorWidgets(post.id?.toString())}
-                {ctaWidgets.filter(w => w.afterPostId === post.id?.toString() && !w.pinToBottom).map(widget => (
+                {ctaWidgets.filter(w => w.afterPostId === post.id?.toString() && !w.pinToBottom && !isCardCta(w)).map(widget => (
                   <CTAWidgetCard onRequestMoment={openSharedRequestMoment} key={widget.id} widget={widget} memoryId={memoryId} />
                 ))}
                 {/* Plus divider between posts — same as personal memories */}
@@ -9531,7 +9558,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                             ))}
                             {renderProductWidgets(post.id?.toString())}
                             {renderAiCreatorWidgets(post.id?.toString())}
-                            {ctaWidgets.filter(w => w.afterPostId === post.id?.toString() && !w.pinToBottom).map(widget => (
+                            {ctaWidgets.filter(w => w.afterPostId === post.id?.toString() && !w.pinToBottom && !isCardCta(w)).map(widget => (
                               <div key={widget.id} className="relative pl-10 pb-4 cursor-pointer" onClick={() => { const el = ctaWidgetCardRefs.current[widget.id]; if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' }); }}>
                                 <div className="absolute left-0 top-7 bottom-8 w-0.5 bg-[#D1D5DC]" style={{ transform: 'translateX(-1px)' }} />
                                 <div className="absolute -left-3.5 top-0 w-7 h-7 rounded-full flex items-center justify-center bg-[#6C60FF]/10 text-[#6C60FF]"><Pointer className="w-3.5 h-3.5" /></div>
@@ -9660,7 +9687,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                         return (
                         <React.Fragment key={post.id}>
                           <div ref={(el) => { sharedDesktopCardRefs.current[index] = el; }} data-index={index} className={`bg-white rounded-2xl shadow-sm overflow-hidden transition-all duration-200 ${activeMemoryIndex === index && sharedIsHeaderScrolled ? 'border-2 border-[#6C60FF]' : 'border border-gray-100'}`}>
-                            <SharedPostCard post={post} index={index} memoryData={apiMemoryData} onImageClick={sharedHandleImageClick} onCommentClick={sharedHandleImageClick} onUpdateItem={handleUpdateItem} onDeletePost={handlePostDelete} onRefresh={() => fetchMemoryDetails()} />
+                            <SharedPostCard post={post} index={index} memoryData={apiMemoryData} onImageClick={sharedHandleImageClick} onCommentClick={sharedHandleImageClick} onUpdateItem={handleUpdateItem} onDeletePost={handlePostDelete} onRefresh={() => fetchMemoryDetails()} cardButton={renderProductCardButton(post.id?.toString(), { anchor: true, className: 'mt-3' })} />
                           </div>
                           {htmlWidgets.filter(w => w.afterPostId === post.id?.toString()).map(widget => (
                             <div key={widget.id} ref={(el) => { htmlWidgetCardRefs.current[widget.id] = el; }} data-widget-id={widget.id} className="rounded-2xl bg-white p-4 border border-gray-100"><div className="[&_h1]:text-2xl [&_h1]:font-bold [&_p]:my-2 [&_ul]:list-disc [&_ul]:pl-5 [&_a]:text-[#6C60FF] [&_a]:underline [&_strong]:font-bold" dangerouslySetInnerHTML={{ __html: widget.content }} /></div>
@@ -9673,7 +9700,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                           ))}
                           {renderProductWidgets(post.id?.toString())}
                           {renderAiCreatorWidgets(post.id?.toString())}
-                          {ctaWidgets.filter(w => w.afterPostId === post.id?.toString() && !w.pinToBottom).map(widget => (
+                          {ctaWidgets.filter(w => w.afterPostId === post.id?.toString() && !w.pinToBottom && !isCardCta(w)).map(widget => (
                             <CTAWidgetCard onRequestMoment={openSharedRequestMoment} key={widget.id} widget={widget} memoryId={memoryId} cardRef={(el) => { ctaWidgetCardRefs.current[widget.id] = el; }} isActive={activeCtaWidgetId === widget.id} />
                           ))}
                         </React.Fragment>
@@ -14443,6 +14470,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                     ) : (
                                     <PostCard
                                       post={post}
+                                      cardButton={renderProductCardButton(post.id?.toString(), { anchor: true })}
                                       variant="card"
                                       onContentUpdate={handlePostContentUpdate}
                                       onImageClick={handleTimelineImageView}
@@ -14568,7 +14596,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                   ))}
                                   {renderProductWidgets(post.id?.toString())}
                                   {renderAiCreatorWidgets(post.id?.toString())}
-                                  {ctaWidgets.filter(w => w.afterPostId === post.id?.toString() && !w.pinToBottom).map(widget => (
+                                  {ctaWidgets.filter(w => w.afterPostId === post.id?.toString() && !w.pinToBottom && !isCardCta(w)).map(widget => (
                                     <CTAWidgetCard key={widget.id} widget={widget} memoryId={memoryId} cardRef={(el) => { ctaWidgetCardRefs.current[widget.id] = el; }} isActive={activeCtaWidgetId === widget.id} />
                                   ))}
                                   {/* Plus Divider after each card - mobile only, not after last */}
@@ -15065,6 +15093,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                             ) : (
                             <PostCard
                               post={post}
+                              cardButton={renderProductCardButton(post.id?.toString(), { owner: true })}
                               variant="card"
                               onContentUpdate={handlePostContentUpdate}
                               onImageClick={handleTimelineImageView}
@@ -15299,7 +15328,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                             ))}
                             {renderProductWidgets(post.id?.toString())}
                             {renderAiCreatorWidgets(post.id?.toString())}
-                            {ctaWidgets.filter(w => w.afterPostId === post.id?.toString() && !w.pinToBottom).map(widget => (
+                            {ctaWidgets.filter(w => w.afterPostId === post.id?.toString() && !w.pinToBottom && !isCardCta(w)).map(widget => (
                               <React.Fragment key={`mobile-cta-${widget.id}`}>
                                 {renderPlusDivider(`mobile-cta-div-${widget.id}`, post.id?.toString())}
                               <div className="mx-4">

@@ -17,8 +17,8 @@ import { PREVIEW_DEVICES, fitScale, previewDevice, readPreviewDevice, savePrevie
  * the title, place and dates, the author), "Timeline • N moments" with Continue, then the moments as cards.
  *
  * Storeel flow v2 (4 Nov 2026): the timeline shows EVERY moment the campaign will have, in order, as the campaign
- * page shows it: an uploaded photo / video, a Website Catalogue product (its moment, then its "View on website"
- * button card), a vehicle or a linked campaign — with the right "N moments". With none yet, one empty card.
+ * page shows it: an uploaded photo / video, a Website Catalogue product (its moment, with its "View on website"
+ * button inside the card — Chris, 8 Nov 2026), a vehicle or a linked campaign — with the right "N moments". With none yet, one empty card.
  *
  * The cover is what the saved campaign page will show (Chris, 4 Nov 2026): the chosen cover photo, the intro video's
  * first frame, else the brand (account / property avatar) shown nicely by CampaignCover — else the initial on the
@@ -419,17 +419,16 @@ function MomentCard({ moment, author, initial, avatarUrl, color, menu = null, bu
             <PlaceAndDate location={moment.location} date={moment.date} />
             {moment.title ? <p className="mt-[6px] line-clamp-2 break-words text-[18.5px] font-bold leading-[26px] text-[#1A1A1A]">{moment.title}</p> : null}
             {caption ? <p className="mt-[6px] line-clamp-3 whitespace-pre-line break-words text-[14.5px] leading-[21px] text-[#364153]">{caption}</p> : null}
+            {/* A product: its price (the moment's details carry it), then its "View on website" button INSIDE the card,
+                under the details — no second card repeating the title (Chris, 8 Nov 2026). */}
+            {moment.kind === 'product' && moment.price ? <p className="mt-[6px] break-words text-[14.5px] leading-[21px] text-[#364153]">Price: {moment.price}</p> : null}
+            {moment.kind === 'product' && moment.cta ? (
+              <span data-testid="storeel-preview-product-button" className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl bg-[#6C60FF] px-4 py-3 text-[15px] font-semibold text-white">
+                <ExternalLink className="h-4 w-4" aria-hidden="true" />View on website
+              </span>
+            ) : null}
           </div>
         </Card>
-        {/* A product's "View on website" button card (CatalogSnapshotWriter's CTA: its price, else its title). */}
-        {moment.kind === 'product' && moment.cta ? (
-          <div className="mt-3 flex flex-col items-center gap-3 rounded-2xl border border-gray-200 bg-white p-5 text-center text-gray-900">
-            <p className="line-clamp-2 break-words text-[19px] font-bold">{moment.price || moment.title}</p>
-            <span className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[#6C60FF] px-4 py-3 text-[15px] font-semibold text-white">
-              <ExternalLink className="h-4 w-4" aria-hidden="true" />View on website
-            </span>
-          </div>
-        ) : null}
       </>
     );
   }

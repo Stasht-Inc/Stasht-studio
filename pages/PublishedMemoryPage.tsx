@@ -24,6 +24,8 @@ import { dashboardAPI } from "../utils/authUtils";
 import { useAuth } from "../contexts/AuthContext";
 import { useStoreelTracking } from "../hooks/useStoreelTracking";
 import { endOfTimelinePostId } from "../utils/addMomentPosition";
+import ProductCardButton, { productButtonData } from "../components/ProductCardButton";
+import { productButtonsByPost } from "../utils/productCardButton";
 import { qrFromSearch, withQr } from "../utils/qrAccess";
 
 // Custom Comment Icon Component (for mobile)
@@ -207,6 +209,8 @@ interface PublishedPostCardProps {
   memoryData: any;
   onImageClick: (post: any, index: number) => void;
   onCommentClick?: (post: any, index: number) => void;
+  /** A product's "View on website" button, inside the card under its details (Chris, 8 Nov 2026). */
+  cardButton?: React.ReactNode;
 }
 
 const isVideoUrl = (url: string): boolean => {
@@ -259,7 +263,7 @@ const carImageLarge = (url: string): string =>
     ? url.replace(/^(https?:\/\/images\.edealer\.ca)\/\d+\//i, '$1/1/')
     : url;
 
-function PublishedPostCard({ post, index, memoryData, onImageClick, onCommentClick }: PublishedPostCardProps) {
+function PublishedPostCard({ post, index, memoryData, onImageClick, onCommentClick, cardButton }: PublishedPostCardProps) {
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
 
   // Build array of all images (main + sub-images)
@@ -450,6 +454,7 @@ function PublishedPostCard({ post, index, memoryData, onImageClick, onCommentCli
             {post.description}
           </p>
         )}
+        {cardButton}
       </div>
     </div>
   );
@@ -1565,12 +1570,19 @@ export default function PublishedMemoryPage() {
     .filter((w: any) => !(addMomentBarOn && isRequestMomentCta(w)))
     .slice()
     .sort((a: any, b: any) => (a.widget_order ?? 0) - (b.widget_order ?? 0));
+  // A product moment's own "View on website" button goes inside that moment's card (Chris, 8 Nov 2026), so it is
+  // neither a card of its own nor an entry in the left timeline nav.
+  const { byPost: publishedProductButtons, rest: publishedTimelineWidgets } = productButtonsByPost(publishedWidgets);
+  const renderProductButton = (postId: any) => {
+    const w = publishedProductButtons.get(String(postId));
+    return w ? <ProductCardButton button={productButtonData(w as any)} memoryId={w.memory_id ?? memoryData?.id} onClick={() => trackStoreelCtaClick(w.id)} className="mt-3" /> : null;
+  };
   // Widgets pinned to bottom render at the very end of the timeline regardless of their
   // after_post_id — matching the owner/editor view. Keep them out of the per-post grouping.
-  const bottomWidgetList: any[] = publishedWidgets.filter((w: any) => w.widget_data?.pinToBottom);
+  const bottomWidgetList: any[] = publishedTimelineWidgets.filter((w: any) => w.widget_data?.pinToBottom);
   const widgetsByAfterPostId = (() => {
     const map = new Map<string, any[]>();
-    publishedWidgets.forEach((w: any) => {
+    publishedTimelineWidgets.forEach((w: any) => {
       if (w.widget_data?.pinToBottom) return; // rendered at the end via bottomWidgetList
       const key = (w.after_post_id === null || w.after_post_id === undefined || w.after_post_id === '' || w.after_post_id === 0 || w.after_post_id === '0')
         ? 'top'
@@ -2359,6 +2371,7 @@ export default function PublishedMemoryPage() {
                       memoryData={memoryData}
                       onImageClick={handleImageClick}
                       onCommentClick={handleCommentClick}
+                      cardButton={renderProductButton(post.id)}
                     />
                   </div>
                   {docusignDoc && (
@@ -3039,6 +3052,7 @@ export default function PublishedMemoryPage() {
                             memoryData={memoryData}
                             onImageClick={handleImageClick}
                             onCommentClick={handleCommentClick}
+                            cardButton={renderProductButton(post.id)}
                           />
                         </div>
                         {docusignDoc && (
