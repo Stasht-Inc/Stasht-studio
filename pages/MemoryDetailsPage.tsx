@@ -2205,6 +2205,18 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
     } catch { toast.error('Failed to duplicate call to action'); }
   };
   // Each product moment's "View on website" button (Chris, 8 Nov 2026): inside its card, never a separate card.
+  // Picked from its sidebar entry: highlighted (the button is small, so the scroll band may never reach it) until the
+  // person scrolls themselves, or the timeline moves on to another item once the jump has settled.
+  const [selectedCardButton, setSelectedCardButton] = useState<{ id: string; at: number } | null>(null);
+  useEffect(() => {
+    if (!selectedCardButton) return;
+    const clear = () => setSelectedCardButton(null);
+    const opts = { passive: true } as AddEventListenerOptions;
+    window.addEventListener('wheel', clear, opts);
+    window.addEventListener('touchmove', clear, opts);
+    window.addEventListener('keydown', clear);
+    return () => { window.removeEventListener('wheel', clear); window.removeEventListener('touchmove', clear); window.removeEventListener('keydown', clear); };
+  }, [selectedCardButton]);
   const productCardButtons = useMemo(() => productButtonsByPost(ctaWidgets).byPost, [ctaWidgets]);
   const isCardCta = (w: CtaWidget) => !!w.afterPostId && productCardButtons.get(w.afterPostId)?.id === w.id;
   // owner: the phone timeline's card offered Edit / Delete; anchor: the desktop sidebar entry scrolls to it.
@@ -2216,6 +2228,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
         button={w}
         memoryId={memoryId}
         className={opts.className}
+        isActive={!!opts.anchor && (activeCtaWidgetId === w.id || selectedCardButton?.id === w.id)}
         anchorRef={opts.anchor ? (el) => { ctaWidgetCardRefs.current[w.id] = el; } : undefined}
         onEdit={opts.owner ? () => openEditCta(w) : undefined}
         onDelete={opts.owner ? () => deleteCta(w) : undefined}
@@ -4068,10 +4081,12 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
         (entries) => {
           entries.forEach((entry) => {
             if (entry.isIntersecting) {
+              setSelectedCardButton(prev => (prev && prev.id !== entry.target.getAttribute('data-product-card-button') && Date.now() - prev.at > 2500 ? null : prev));
               const widgetId = entry.target.getAttribute('data-widget-id');
               const ytWidgetId = entry.target.getAttribute('data-yt-widget-id');
               const quoteWId = entry.target.getAttribute('data-quote-widget-id');
-              const ctaWId = entry.target.getAttribute('data-cta-widget-id');
+              // A product's in-card "View on website" button counts as its CTA (Chris, 8 Nov 2026): its sidebar entry turns purple.
+              const ctaWId = entry.target.getAttribute('data-cta-widget-id') || entry.target.getAttribute('data-product-card-button');
               const lmId = entry.target.getAttribute('data-lm-id');
               const index = Number(entry.target.getAttribute('data-index'));
               if (lmId) {
@@ -7801,12 +7816,12 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
 
   // Reusable CTA sidebar timeline entry (icon node + title + edit/delete + "+" divider)
   const renderCtaSidebarEntry = (widget: CtaWidget) => {
-    const isActive = activeCtaWidgetId === widget.id;
+    const isActive = activeCtaWidgetId === widget.id || selectedCardButton?.id === widget.id;
     return (
       <div
         key={widget.id}
         className="relative pl-10 pb-4 transition-all duration-200 cursor-pointer"
-        onClick={() => { const el = ctaWidgetCardRefs.current[widget.id]; if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' }); }}
+        onClick={() => { const el = ctaWidgetCardRefs.current[widget.id]; if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' }); if (isCardCta(widget)) setSelectedCardButton({ id: widget.id, at: Date.now() }); }}
       >
         <div className="absolute left-0 top-7 bottom-8 w-0.5 bg-[#D1D5DC]" style={{ transform: 'translateX(-1px)' }} />
         <div className={`absolute -left-3.5 top-0 w-7 h-7 rounded-full flex items-center justify-center transition-all ${isActive ? 'bg-[#6C60FF] text-white shadow-md' : 'bg-[#6C60FF]/10 text-[#6C60FF]'}`}>
@@ -8966,10 +8981,12 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                   pinToBottom: ctaPinToBottom,
                 };
                 if (editingCtaWidgetId) {
+                  // A product's in-card button keeps its placement, so it stays in its card after the edit (Chris, 8 Nov 2026).
+                  const keepInCard = ctaMode !== 'request_moment' && !!ctaWidgets.find(w => w.id === editingCtaWidgetId)?.inCard;
                   try {
                     await apiRequest(`/memories/${memoryId}/widgets/${editingCtaWidgetId}`, {
                       method: 'PUT',
-                      body: JSON.stringify({ widget_data }),
+                      body: JSON.stringify({ widget_data: keepInCard ? { ...widget_data, placement: 'in_card' } : widget_data }),
                     });
                     setCtaWidgets(prev => prev.map(w => w.id === editingCtaWidgetId ? { ...w, ...widget_data } : w));
                     toast.success('Call to action updated');
@@ -9558,7 +9575,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                             ))}
                             {renderProductWidgets(post.id?.toString())}
                             {renderAiCreatorWidgets(post.id?.toString())}
-                            {ctaWidgets.filter(w => w.afterPostId === post.id?.toString() && !w.pinToBottom && !isCardCta(w)).map(widget => (
+                            {ctaWidgets.filter(w => w.afterPostId === post.id?.toString() && !w.pinToBottom).map(widget => (
                               <div key={widget.id} className="relative pl-10 pb-4 cursor-pointer" onClick={() => { const el = ctaWidgetCardRefs.current[widget.id]; if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' }); }}>
                                 <div className="absolute left-0 top-7 bottom-8 w-0.5 bg-[#D1D5DC]" style={{ transform: 'translateX(-1px)' }} />
                                 <div className="absolute -left-3.5 top-0 w-7 h-7 rounded-full flex items-center justify-center bg-[#6C60FF]/10 text-[#6C60FF]"><Pointer className="w-3.5 h-3.5" /></div>

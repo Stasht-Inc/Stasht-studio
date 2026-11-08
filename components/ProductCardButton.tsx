@@ -19,6 +19,8 @@ export interface ProductCardButtonData {
   buttonText?: string | null;
   buttonLink?: string | null;
   buttonColor?: string | null;
+  /** 0 / empty = full width; otherwise the owner's width in px (never wider than the card). */
+  buttonWidth?: number | null;
   textColor?: string | null;
   icon?: string | null;
   iconSize?: number | null;
@@ -29,7 +31,7 @@ export interface ProductCardButtonData {
 /** A raw API widget ({ id, widget_data }) as the button's data. */
 export function productButtonData(w: { id: string | number; widget_data?: Record<string, any> | null }): ProductCardButtonData {
   const d = w.widget_data || {};
-  return { id: w.id, buttonText: d.buttonText, buttonLink: d.buttonLink, buttonColor: d.buttonColor, textColor: d.textColor, icon: d.icon, iconSize: d.iconSize, fontSize: d.fontSize, borderRadius: d.borderRadius };
+  return { id: w.id, buttonText: d.buttonText, buttonLink: d.buttonLink, buttonColor: d.buttonColor, buttonWidth: d.buttonWidth, textColor: d.textColor, icon: d.icon, iconSize: d.iconSize, fontSize: d.fontSize, borderRadius: d.borderRadius };
 }
 
 /** http(s) only, scheme added when missing (as the CTA card does); '' when there is no usable link. */
@@ -45,7 +47,7 @@ function href(link: string | null | undefined): string {
   }
 }
 
-export default function ProductCardButton({ button, memoryId, onClick, onEdit, onDelete, anchorRef, className = '' }: {
+export default function ProductCardButton({ button, memoryId, onClick, onEdit, onDelete, anchorRef, isActive = false, className = '' }: {
   button: ProductCardButtonData;
   /** For the widget's click count (the same call the CTA card makes). */
   memoryId?: string | number | null;
@@ -56,16 +58,21 @@ export default function ProductCardButton({ button, memoryId, onClick, onEdit, o
   onDelete?: () => void;
   /** So the timeline's nav entry for this button can still scroll to it. */
   anchorRef?: (el: HTMLDivElement | null) => void;
+  /** Its sidebar entry is the selected one: the purple outline the separate card had. */
+  isActive?: boolean;
   className?: string;
 }) {
   const link = href(button.buttonLink);
-  const Icon = ICONS[button.icon || 'ExternalLink'] || ExternalLink;
+  // As the CTA card: the owner's icon, or none when they chose none.
+  const Icon = button.icon ? ICONS[button.icon] : undefined;
+  const width = button.buttonWidth ? `${button.buttonWidth}px` : undefined;
   const size = button.iconSize || 18;
   const style: React.CSSProperties = {
     backgroundColor: button.buttonColor || '#6C60FF',
     color: button.textColor || '#FFFFFF',
     fontSize: button.fontSize || 16,
     borderRadius: `${button.borderRadius ?? 12}px`,
+    ...(width ? { width, maxWidth: '100%' } : {}),
   };
   const track = () => {
     onClick?.();
@@ -74,16 +81,21 @@ export default function ProductCardButton({ button, memoryId, onClick, onEdit, o
   };
   const hasMenu = !!(onEdit || onDelete);
   return (
-    <div ref={anchorRef} data-product-card-button={String(button.id)} className={`flex items-center gap-2 ${className}`}>
+    <div
+      ref={anchorRef}
+      data-product-card-button={String(button.id)}
+      data-active={isActive ? 'true' : undefined}
+      className={`flex items-center gap-2 rounded-xl ${width ? 'justify-center' : ''} ${isActive ? 'ring-2 ring-[#6C60FF] ring-offset-2' : ''} ${className}`}
+    >
       <a
         href={link || undefined}
         target="_blank"
         rel="noopener noreferrer"
         onClick={(e) => { e.stopPropagation(); if (!link) e.preventDefault(); track(); }}
-        className="flex min-w-0 flex-1 items-center justify-center gap-2 px-6 py-3 font-semibold no-underline transition-opacity hover:opacity-90"
+        className={`flex min-w-0 items-center justify-center gap-2 px-6 py-3 font-semibold no-underline transition-opacity hover:opacity-90 ${width ? '' : 'flex-1'}`}
         style={style}
       >
-        <Icon style={{ width: size, height: size }} className="flex-shrink-0" />
+        {Icon && <Icon style={{ width: size, height: size }} className="flex-shrink-0" />}
         <span className="truncate">{button.buttonText || 'View on website'}</span>
       </a>
       {hasMenu && (

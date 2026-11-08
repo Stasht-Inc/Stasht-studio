@@ -34,7 +34,8 @@ const cta = (id, after, data, inCard) => ({
 });
 const WIDGETS = [
   cta(501, 21, { title: HINGE, buttonLink: 'https://royalwoodshop.com/product/hinge', placement: 'in_card' }, true),
-  cta(502, 22, { title: '$1,299 CAD', buttonLink: 'https://royalwoodshop.com/product/oak-table' }, true),
+  // The owner styled this one: 240px wide, no icon (review M3: both must survive in the card).
+  cta(502, 22, { title: '$1,299 CAD', buttonLink: 'https://royalwoodshop.com/product/oak-table', buttonWidth: 240, icon: '' }, true),
   cta(503, 23, { title: 'Book a visit', buttonText: 'Book now', buttonLink: 'https://royalwoodshop.com/book', icon: 'Calendar' }, false),
   cta(504, 21, { title: 'Ask about bulk pricing', buttonLink: 'https://royalwoodshop.com/bulk' }, false), // the owner's own, same words
 ];
@@ -44,13 +45,16 @@ const CAMPAIGN = {
   min_uploaded_img_date: '2026-11-01', max_uploaded_img_date: '2026-11-07', last_update_img: img(0),
 };
 const DETAIL = { ...CAMPAIGN, posts: POSTS, linked_memories: [], unified_order: null };
+// The same campaign opened by a collaborator with edit rights (another account owns it): the shared view.
+const SHARED_CAMPAIGN = { ...CAMPAIGN, user_id: 808, user: { id: 808, name: 'TheRoyalWoodShop', is_business: 0 } };
+const SHARED_DETAIL = { ...DETAIL, ...SHARED_CAMPAIGN, collaborator: [{ id: 1, user_id: 707, status: 1, permission: 'edit', role: 'edit', user: { id: 70, email: MAIN.email, name: MAIN.name } }] };
 
 const failures = [];
 const pageErrors = [];
 const expect = (ok, label) => { if (!ok) failures.push(label); console.log(ok ? '  ok  ' : '  FAIL', label); };
 const browser = await chromium.launch({ headless: true, channel: 'chrome' });
 
-async function newContext(width, height, state) {
+async function newContext(width, height, state, shared = false) {
   const context = await browser.newContext({ viewport: { width, height }, serviceWorkers: 'block', locale: 'en-US', hasTouch: width < 1024, isMobile: width < 1024 });
   await context.addInitScript(([user]) => {
     if (sessionStorage.getItem('cd-seeded')) return;
@@ -76,9 +80,11 @@ async function newContext(width, height, state) {
     const p = url.pathname.replace(/^\/api\/react/, '');
     const m = req.method();
     if (p === '/memories' && m === 'GET') {
-      return route.fulfill({ json: { status: 'success', data: { all_memories: { data: [CAMPAIGN], total: 1 }, latest_memories: [CAMPAIGN], sidebar: { categories: { items: [{ id: 5, name: 'Campaigns', memory_count: 1 }] }, labels: { items: [] } } } } });
+      const c = shared ? SHARED_CAMPAIGN : CAMPAIGN;
+      return route.fulfill({ json: { status: 'success', data: { all_memories: { data: [c], total: 1 }, latest_memories: [c], sidebar: { categories: { items: [{ id: 5, name: 'Campaigns', memory_count: 1 }] }, labels: { items: [] } } } } });
     }
-    if (p === '/memories/901' && m === 'GET') return route.fulfill({ json: { status: 'success', data: { memory: DETAIL } } });
+    if (p === '/memories/901' && m === 'GET') return route.fulfill({ json: { status: 'success', data: { memory: shared ? SHARED_DETAIL : DETAIL } } });
+    if (/^\/memories\/901\/widgets\/\d+$/.test(p) && m === 'PUT') { state.puts.push({ path: p, body: JSON.parse(req.postData() || 'null') }); return route.fulfill({ json: { success: true } }); }
     if (p === '/memories/901/widgets' && m === 'GET') return route.fulfill({ json: { success: true, data: WIDGETS } });
     if (/^\/memories\/901\/widgets\/\d+\/track-click$/.test(p)) { state.clicks.push(p); return route.fulfill({ json: { success: true } }); }
     if (p === '/published-memories') return route.fulfill({ json: { success: true, data: { memory: { ...DETAIL, widgets: WIDGETS }, order_by: 'asc' } } });
@@ -122,6 +128,13 @@ async function checkInCard(page, tag, widgetId, imgN, text, href) {
   expect(info.inView, `${tag}: ${widgetId}'s button is in the viewport when scrolled to`);
 }
 
+/** Review M3: the owner's width (240px) and "no icon" survive in the card. */
+async function checkStyle(page, tag) {
+  const st = await visible(page, '[data-product-card-button="502"]').first().locator('a').evaluate((a) => ({ w: Math.round(a.getBoundingClientRect().width), icons: a.querySelectorAll('svg').length }));
+  expect(Math.abs(st.w - 240) <= 1, `${tag}: the owner's button width (240px) is kept (${st.w})`);
+  expect(st.icons === 0, `${tag}: the owner's "no icon" is kept (${st.icons} icons)`);
+}
+
 async function noSeparateCards(page, tag) {
   expect(!(await visible(page, '[data-cta-widget-id="501"]').count()) && !(await visible(page, '[data-cta-widget-id="502"]').count()), `${tag}: no separate card for either product's button`);
   // The old card's heading repeated the product title / price: neither is a heading anywhere now.
@@ -134,7 +147,7 @@ try {
     const tag = String(width);
     // ── Campaign page (owner) ──────────────────────────────────────────────────────────────────────────────
     {
-      const state = { clicks: [] };
+      const state = { clicks: [], puts: [] };
       const { context, page } = await newContext(width, height, state);
       await page.goto(`${BASE}/memories`);
       const card = page.getByText('Hinges and Tables', { exact: true }).filter({ visible: true }).first();
@@ -148,6 +161,7 @@ try {
       await page.screenshot({ path: `${OUT}/campaign-${tag}-new-style-product.png` });
       await checkInCard(page, `campaign ${tag}`, 502, 2, 'Solid oak, seats six.', 'https://royalwoodshop.com/product/oak-table');
       await page.screenshot({ path: `${OUT}/campaign-${tag}-old-style-product.png` });
+      await checkStyle(page, `campaign ${tag}`);
       await noSeparateCards(page, `campaign ${tag}`);
       // The owner's own Call to Action widgets are untouched: their own cards, with their titles.
       for (const [id, t] of [[503, 'Book a visit'], [504, 'Ask about bulk pricing']]) {
@@ -168,10 +182,21 @@ try {
         await page.waitForTimeout(500);
         expect(await page.getByText('Edit Call to Action').filter({ visible: true }).count() > 0, `campaign ${tag}: Edit opens the Call to Action editor`);
         await page.screenshot({ path: `${OUT}/campaign-${tag}-edit-button.png` });
+        await page.getByRole('button', { name: 'Save Changes' }).filter({ visible: true }).first().click();
+        await page.waitForTimeout(600);
+        const put = state.puts.find((x) => x.path === '/memories/901/widgets/501');
+        expect(put && put.body?.widget_data?.placement === 'in_card' && put.body.widget_data.buttonLink === 'https://royalwoodshop.com/product/hinge', `campaign ${tag}: saving the edit keeps placement "in_card" (review M1) (${JSON.stringify(put?.body?.widget_data)})`);
+        expect((await visible(page, '[data-product-card-button="501"]').count()) === 1 && !(await visible(page, '[data-cta-widget-id="501"]').count()), `campaign ${tag}: after the edit the button is still in the card`);
       } else {
         // Desktop: the sidebar entry (Edit / Duplicate / Delete) stays and scrolls to the button.
         const entries = await page.getByText('$1,299 CAD', { exact: true }).filter({ visible: true }).count();
         expect(entries >= 1, `campaign ${tag}: the sidebar still lists the Oak Table button (Edit / Duplicate / Delete) (${entries})`);
+        // Review M5: selecting the button's sidebar entry highlights the in-card button (purple), as it did the card.
+        await page.getByText('$1,299 CAD', { exact: true }).filter({ visible: true }).first().click();
+        await page.waitForTimeout(1500);
+        const active = await visible(page, '[data-product-card-button="502"]').first().getAttribute('data-active');
+        expect(active === 'true', `campaign ${tag}: sidebar entry selected → the in-card button is highlighted (data-active=${active})`);
+        await page.screenshot({ path: `${OUT}/campaign-${tag}-sidebar-selected.png` });
         // (At 1280 Studio's Media panel overlaps the timeline's right edge — existing layout — so the click is dispatched.)
         await visible(page, '[data-product-card-button="501"]').first().locator('a').dispatchEvent('click');
         await page.waitForTimeout(400);
@@ -179,9 +204,42 @@ try {
       }
       await context.close();
     }
+    // ── Shared view (a collaborator with edit rights) — review I1 ─────────────────────────────────────────
+    {
+      const state = { clicks: [], puts: [] };
+      const { context, page } = await newContext(width, height, state, true);
+      await page.goto(`${BASE}/memories`);
+      const card = page.getByText('Hinges and Tables', { exact: true }).filter({ visible: true }).first();
+      await card.waitFor({ state: 'visible', timeout: 30000 });
+      await page.waitForTimeout(800);
+      await card.click();
+      await page.getByText('Our showroom').first().waitFor({ state: 'attached', timeout: 20000 }).catch(() => {});
+      await page.waitForTimeout(2500);
+      await checkInCard(page, `shared ${tag}`, 502, 2, 'Solid oak, seats six.', 'https://royalwoodshop.com/product/oak-table');
+      await page.screenshot({ path: `${OUT}/shared-${tag}-old-style-product.png` });
+      expect(!(await visible(page, '[data-cta-widget-id="502"]').count()), `shared ${tag}: no separate card for the product's button`);
+      if (width >= 1024) {
+        // The shared desktop nav entry under the moment keeps its ⋮ Edit / Delete (as on development).
+        const entry = page.getByText('$1,299 CAD', { exact: true }).filter({ visible: true }).first();
+        expect(await entry.count() === 1, `shared ${tag}: the nav still lists the product's button`);
+        const navItem = entry.locator('xpath=ancestor::div[contains(@class,"pl-10")][1]');
+        await navItem.locator('svg.lucide-ellipsis-vertical, svg.lucide-more-vertical').first().click();
+        await page.waitForTimeout(300);
+        expect(await page.getByText('Edit', { exact: true }).filter({ visible: true }).count() > 0 && await page.getByText('Delete', { exact: true }).filter({ visible: true }).count() > 0, `shared ${tag}: its ⋮ → Edit / Delete`);
+        await page.screenshot({ path: `${OUT}/shared-${tag}-nav-menu.png` });
+        await page.getByText('Edit', { exact: true }).filter({ visible: true }).first().click();
+        await page.waitForTimeout(500);
+        expect(await page.getByText('Edit Call to Action').filter({ visible: true }).count() > 0, `shared ${tag}: Edit opens the Call to Action editor`);
+        await page.getByRole('button', { name: 'Save Changes' }).filter({ visible: true }).first().click();
+        await page.waitForTimeout(600);
+        const put = state.puts.find((x) => x.path === '/memories/901/widgets/502');
+        expect(put && put.body?.widget_data?.placement === 'in_card', `shared ${tag}: the saved edit keeps it in the card (${JSON.stringify(put?.body?.widget_data)})`);
+      }
+      await context.close();
+    }
     // ── Published page (visitor) ───────────────────────────────────────────────────────────────────────────
     {
-      const state = { clicks: [] };
+      const state = { clicks: [], puts: [] };
       const { context, page } = await newContext(width, height, state);
       await page.goto(`${BASE}/published-memory/hinges-and-tables`);
       await page.getByText('Timeline').filter({ visible: true }).first().waitFor({ state: 'visible', timeout: 20000 });
@@ -191,6 +249,7 @@ try {
       await page.screenshot({ path: `${OUT}/published-${tag}-new-style-product.png` });
       await checkInCard(page, `published ${tag}`, 502, 2, 'Solid oak, seats six.', 'https://royalwoodshop.com/product/oak-table');
       await page.screenshot({ path: `${OUT}/published-${tag}-old-style-product.png` });
+      await checkStyle(page, `published ${tag}`);
       expect(!(await page.getByText('$1,299 CAD', { exact: true }).filter({ visible: true }).count()), `published ${tag}: the old button card's title (price) is nowhere — not a card, not a nav entry`);
       const headings = await page.locator('h3').filter({ visible: true }).allTextContents();
       expect(!headings.includes(HINGE), `published ${tag}: no repeated product title heading`);
