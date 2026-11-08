@@ -9,6 +9,7 @@
 // node tests/newsletter/ui/check.mjs storeel-widgets   (NL_BASE = the dev server)
 import { readFileSync } from 'fs';
 import { createMockApi, IMG } from '../mock-api.mjs';
+import { DOCUSIGN_ENABLED } from '../../../../constants/features.ts';
 
 const STOREEL_TITLE = 'Give your campaign a meaningful title';
 const PNG = readFileSync(new URL('../../../../public/pwa-icon-512.png', import.meta.url));
@@ -21,7 +22,8 @@ const CAMPAIGNS = [
   { id: 702, title: 'Spring kitchen reno', last_update_img: IMG, posts_count: 2 },
   { id: 704, title: 'Lakeside cabin', last_update_img: IMG, posts_count: 3 },
 ];
-const ALL = ['Moment', 'Call to Action', 'Share Request a Moment', 'Voice to Text', 'HTML', 'Youtube', 'Quote', 'AI Creator', 'Shopify Product', 'DocuSign'];
+// DocuSign only while FEATURES.docusign is on (hidden everywhere since 8 Nov 2026, even when connected).
+const ALL = ['Moment', 'Call to Action', 'Share Request a Moment', 'Voice to Text', 'HTML', 'Youtube', 'Quote', 'AI Creator', 'Shopify Product', ...(DOCUSIGN_ENABLED ? ['DocuSign'] : [])];
 
 const flow = (page) => page.getByRole('dialog', { name: /^(Create|Edit) Campaign$/ });
 const preview = (page) => page.getByTestId('storeel-preview');
@@ -65,13 +67,14 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
     const api = createMockApi({ catalogue: true, cars: true, existingCampaigns: CAMPAIGNS, docuSign: true });
     const { page, context } = await openStoreel(open, width, height, api);
     await page.getByPlaceholder(STOREEL_TITLE).fill('Around the Mill');
-    // DocuSign's connection is asked when the page opens.
-    for (let i = 0; i < 20 && !api.state.calls.some((c) => c.path === '/integrations/docusign/status'); i++) await page.waitForTimeout(200);
-    await page.waitForTimeout(300);
+    // DocuSign's connection is asked when the page opens — only while DocuSign is on.
+    if (DOCUSIGN_ENABLED) for (let i = 0; i < 20 && !api.state.calls.some((c) => c.path === '/integrations/docusign/status'); i++) await page.waitForTimeout(200);
+    await page.waitForTimeout(DOCUSIGN_ENABLED ? 300 : 1500);
+    if (!DOCUSIGN_ENABLED) expect(!api.state.calls.some((c) => /docusign/i.test(c.path)), `${tag}: DocuSign hidden — its status endpoint is not called`);
 
     // ── 1. The "+" opens the Add Widget chooser with every option ─────────────────────────────────────────────────
     await tapPlus(page, 'Add a moment at the start');
-    expect(JSON.stringify(await labels(page)) === JSON.stringify(ALL), `${tag}: the chooser lists every option, DocuSign when connected (got ${await labels(page)})`);
+    expect(JSON.stringify(await labels(page)) === JSON.stringify(ALL), `${tag}: the chooser lists every option, DocuSign ${DOCUSIGN_ENABLED ? 'when connected' : 'hidden even though connected'} (got ${await labels(page)})`);
     await expectVisible(chooser(page).getByText('Choose a widget to add to your timeline'), `${tag}: chooser heading`);
     const cb = await chooser(page).boundingBox();
     expect(await inView(page, chooser(page)), `${tag}: the chooser is in the viewport (${cb ? [cb.x, cb.y, cb.width, cb.height].map(Math.round) : 'none'})`);
@@ -156,13 +159,15 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
     expect(!api.state.calls.some((c) => c.method === 'POST' && c.path === '/memories'), `${tag}: Cancel saves nothing`);
     expect(await flow(page).count() === 1, `${tag}: …and stays on the page`);
 
-    // DocuSign (connected) goes the same way (review I3).
-    await tapPlus(page, 'Add a moment at the end');
-    await pick(page, 'DocuSign');
-    const dsAsk = page.getByRole('dialog', { name: 'Save this Storeel as a draft first?' });
-    expect(((await dsAsk.textContent().catch(() => '')) ?? '').includes('DocuSign is added to a saved Storeel'), `${tag}: DocuSign asks to save first too`);
-    await dsAsk.getByRole('button', { name: 'Cancel' }).click();
-    await page.waitForTimeout(300);
+    // DocuSign (connected) goes the same way (review I3) — only while DocuSign is on.
+    if (DOCUSIGN_ENABLED) {
+      await tapPlus(page, 'Add a moment at the end');
+      await pick(page, 'DocuSign');
+      const dsAsk = page.getByRole('dialog', { name: 'Save this Storeel as a draft first?' });
+      expect(((await dsAsk.textContent().catch(() => '')) ?? '').includes('DocuSign is added to a saved Storeel'), `${tag}: DocuSign asks to save first too`);
+      await dsAsk.getByRole('button', { name: 'Cancel' }).click();
+      await page.waitForTimeout(300);
+    }
 
     await tapPlus(page, 'Add a moment at the end');
     await pick(page, 'Call to Action');

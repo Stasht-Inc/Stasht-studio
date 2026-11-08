@@ -1,6 +1,7 @@
 // Chris, 8 Nov 2026 (points 1, 2), in the real app (App → Campaigns → campaign page) at 1280 and 390:
 //  - Edit a Storeel: a "+" in the phone preview opens the campaign page's Add Widget chooser (every option, DocuSign
-//    when connected); each option opens the campaign page's OWN editor ON TOP of the Storeel page, at that place;
+//    when connected — only while FEATURES.docusign is on: hidden everywhere since 8 Nov 2026, and its status / envelopes
+//    endpoints are not called); each option opens the campaign page's OWN editor ON TOP of the Storeel page, at that place;
 //    Call to Action / HTML / Quote save as on the campaign page (POST /memories/901/widgets with the moment's id) and
 //    the phone shows them; Moment → Add a Moment → Campaigns (optional) links campaigns at the "+"
 //    (POST /memories/901/linked-memories after that moment) and they show as campaign cards;
@@ -10,6 +11,7 @@
 import { mkdirSync } from 'fs';
 import pw from '/Users/deepaksharma/.nvm/versions/node/v24.5.0/lib/node_modules/@executeautomation/playwright-mcp-server/node_modules/playwright-core/index.js';
 import { STUB_STRIPE, STUB_GAPI } from './cover-fixtures.mjs';
+import { DOCUSIGN_ENABLED } from '../../../constants/features.ts';
 
 const { chromium } = pw;
 const BASE = process.env.CD_BASE || 'http://localhost:5311';
@@ -41,7 +43,7 @@ const SEEDED = [
   W(5003, 'html', 11, 2, { title: '', content: '<p><strong>Open daily</strong> 9–5</p>' }),
   W(5004, 'cta', 12, 0, { title: '', buttonText: 'Share a Moment', mode: 'request_moment', pinToBottom: true }),
 ];
-const ALL = ['Moment', 'Call to Action', 'Share Request a Moment', 'Voice to Text', 'HTML', 'Youtube', 'Quote', 'AI Creator', 'Shopify Product', 'DocuSign'];
+const ALL = ['Moment', 'Call to Action', 'Share Request a Moment', 'Voice to Text', 'HTML', 'Youtube', 'Quote', 'AI Creator', 'Shopify Product', ...(DOCUSIGN_ENABLED ? ['DocuSign'] : [])];
 
 const failures = [];
 const pageErrors = [];
@@ -49,7 +51,7 @@ const expect = (ok, label) => { if (!ok) failures.push(label); console.log(ok ? 
 const browser = await chromium.launch({ headless: true, channel: 'chrome' });
 
 async function open({ width, height, intent = null, widgets = [] }) {
-  const state = { widgets: structuredClone(widgets), widgetPosts: [], linked: [], linkCalls: [], nextWidget: 4000 };
+  const state = { widgets: structuredClone(widgets), widgetPosts: [], linked: [], linkCalls: [], nextWidget: 4000, docuSignCalls: [] };
   const context = await browser.newContext({ viewport: { width, height }, serviceWorkers: 'block', locale: 'en-US', hasTouch: width < 1024, isMobile: width < 1024 });
   await context.addInitScript(([user, intent]) => {
     if (sessionStorage.getItem('cd-seeded')) return;
@@ -98,6 +100,7 @@ async function open({ width, height, intent = null, widgets = [] }) {
       state.linked.push(...fresh);
       return route.fulfill({ json: { success: true, data: { linked: fresh.length, already_linked_ids: [] } } });
     }
+    if (/docusign/i.test(p)) state.docuSignCalls.push(`${m} ${p}`);
     if (p === '/integrations/docusign/status') return route.fulfill({ json: { success: true, connected: true, data: { connected: true } } });
     if (p === '/memories/categories-labels') return route.fulfill({ json: { success: true, data: { categories: [{ id: 5, name: 'Campaigns', is_owner: true, can_add_story: true }], labels: [] } } });
     if (p === '/website-catalogue') return route.fulfill({ json: { success: true, data: { available: false, reason: 'not_available', item_count: 0 } } });
@@ -199,7 +202,8 @@ try {
     // ── The chooser, from a "+" in the preview ──────────────────────────────────────────────────────────────────
     await plusAfterMoment1(page);
     const labels = await chooser(page).getByRole('menuitem').evaluateAll((els) => els.map((e) => e.querySelector('p')?.textContent?.trim()));
-    expect(JSON.stringify(labels) === JSON.stringify(ALL), `${tag}: every option, DocuSign when connected (got ${labels})`);
+    expect(JSON.stringify(labels) === JSON.stringify(ALL), `${tag}: every option, DocuSign ${DOCUSIGN_ENABLED ? 'when connected' : 'hidden even though connected'} (got ${labels})`);
+    if (!DOCUSIGN_ENABLED) expect(state.docuSignCalls.length === 0, `${tag}: DocuSign hidden — no DocuSign endpoint called (got ${JSON.stringify(state.docuSignCalls)})`);
     expect(await inView(page, chooser(page)), `${tag}: the chooser is in the viewport`);
     await page.screenshot({ path: `${OUT}/${tag}-01-chooser.png` });
 
@@ -248,7 +252,7 @@ try {
     await page.screenshot({ path: `${OUT}/${tag}-04-widgets-in-preview.png` });
 
     // ── The other options open their editors on top (closed without saving) ────────────────────────────────────
-    for (const [label, text] of [['Share Request a Moment', 'Visitors tap this button to submit a photo and caption'], ['Youtube', 'Embed YouTube Video'], ['AI Creator', 'AI Creator'], ['Voice to Text', 'Add Voice to Text Memo'], ['Shopify Product', 'Add Shopify Products'], ['DocuSign', 'Send for Signature']]) {
+    for (const [label, text] of [['Share Request a Moment', 'Visitors tap this button to submit a photo and caption'], ['Youtube', 'Embed YouTube Video'], ['AI Creator', 'AI Creator'], ['Voice to Text', 'Add Voice to Text Memo'], ['Shopify Product', 'Add Shopify Products'], ...(DOCUSIGN_ENABLED ? [['DocuSign', 'Send for Signature']] : [])]) {
       await plusAfterMoment1(page);
       await pick(page, label);
       // Share Request a Moment: its button-text field (the subtitle is desktop only).

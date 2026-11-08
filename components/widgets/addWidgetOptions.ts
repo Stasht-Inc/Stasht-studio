@@ -1,6 +1,7 @@
 // The campaign page's "+" → "Add Widget" chooser (images/198.jpg): its options, in its order, with its words. Pure, so
 // `node --test` loads it; AddWidgetChooser.tsx draws them. Chris, 8 Nov 2026 (point 1): the Storeel preview's "+"
 // opens this same chooser — every option, never a narrower copy.
+import { DOCUSIGN_ENABLED } from '../../constants/features.ts';
 
 export const ADD_WIDGET_KINDS = ['moment', 'cta', 'request_moment', 'voice', 'html', 'youtube', 'quote', 'ai_creator', 'shopify_product', 'docusign'] as const;
 export type AddWidgetKind = typeof ADD_WIDGET_KINDS[number];
@@ -27,12 +28,13 @@ const BASE: AddWidgetOption[] = [
 
 /**
  * The options: the desktop chooser's (Moment … AI Creator), Shopify Product when asked (the campaign page's phone "+"
- * menu has it), DocuSign only when DocuSign is connected (as on the campaign page).
+ * menu has it), DocuSign only when DocuSign is connected (as on the campaign page) AND the DocuSign feature is on
+ * (FEATURES.docusign, constants/features.ts — off since 8 Nov 2026). `docuSignFeature` is for tests.
  */
-export function addWidgetOptions({ docuSign, shopifyProduct = false }: { docuSign: boolean; shopifyProduct?: boolean }): AddWidgetOption[] {
+export function addWidgetOptions({ docuSign, shopifyProduct = false, docuSignFeature = DOCUSIGN_ENABLED }: { docuSign: boolean; shopifyProduct?: boolean; docuSignFeature?: boolean }): AddWidgetOption[] {
   return [
     ...BASE,
     ...(shopifyProduct ? [{ kind: 'shopify_product' as const, label: 'Shopify Product', desc: 'Add products from your store' }] : []),
-    ...(docuSign ? [{ kind: 'docusign' as const, label: 'DocuSign', desc: 'Send for signature' }] : []),
+    ...(docuSign && docuSignFeature ? [{ kind: 'docusign' as const, label: 'DocuSign', desc: 'Send for signature' }] : []),
   ];
 }

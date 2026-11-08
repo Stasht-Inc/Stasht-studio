@@ -27,6 +27,7 @@ import { endOfTimelinePostId } from "../utils/addMomentPosition";
 import ProductCardButton, { productButtonData } from "../components/ProductCardButton";
 import { productButtonsByPost } from "../utils/productCardButton";
 import { qrFromSearch, withQr } from "../utils/qrAccess";
+import { DOCUSIGN_ENABLED } from "../constants/features.ts";
 
 // Custom Comment Icon Component (for mobile)
 const CommentIcon = ({ className = "" }: { className?: string }) => (
@@ -2350,7 +2351,7 @@ export default function PublishedMemoryPage() {
               if (postIndex === -1) return null;
               const post = sortedPosts[postIndex];
               const index = postIndex;
-              const docusignDoc = memoryData?.docusign_documents?.[post.id?.toString()];
+              const docusignDoc = DOCUSIGN_ENABLED ? memoryData?.docusign_documents?.[post.id?.toString()] : undefined; // hidden while FEATURES.docusign is off
               const authorName = memoryData?.user?.name || 'Unknown';
               const authorAvatar = memoryData?.user?.profile_image;
               const initials = authorName.split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2);
@@ -3031,7 +3032,7 @@ export default function PublishedMemoryPage() {
                     if (postIndex === -1) return null;
                     const post = sortedPosts[postIndex];
                     const index = postIndex;
-                    const docusignDoc = memoryData?.docusign_documents?.[post.id?.toString()];
+                    const docusignDoc = DOCUSIGN_ENABLED ? memoryData?.docusign_documents?.[post.id?.toString()] : undefined; // hidden while FEATURES.docusign is off
                     const authorName = memoryData?.user?.name || 'Unknown';
                     const authorAvatar = memoryData?.user?.profile_image;
                     const initials = authorName.split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2);

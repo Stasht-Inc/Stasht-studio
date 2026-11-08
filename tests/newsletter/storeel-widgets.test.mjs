@@ -11,15 +11,20 @@ import { catalogGate, pickPayload } from '../../components/storeel/lib/momentPic
 const photo = (key, postId) => ({ kind: 'photo', key, ...(postId ? { postId } : {}), image: 'x', video: false, title: '', caption: '', location: '', date: '' });
 const linked = (id) => ({ kind: 'campaign', key: `campaign-${id}`, sourceId: String(id), image: null, title: `C${id}`, meta: '1 photo' });
 
-test('the chooser offers every campaign-page widget, in its order; DocuSign only when connected', () => {
+test('the chooser offers every campaign-page widget, in its order; DocuSign only when connected and the feature is on', () => {
   assert.deepEqual(addWidgetOptions({ docuSign: false }).map((o) => o.label),
     ['Moment', 'Call to Action', 'Share Request a Moment', 'Voice to Text', 'HTML', 'Youtube', 'Quote', 'AI Creator']);
-  assert.deepEqual(addWidgetOptions({ docuSign: true }).map((o) => o.label).slice(-1), ['DocuSign']);
-  const withShop = addWidgetOptions({ docuSign: true, shopifyProduct: true }).map((o) => o.label);
+  // DocuSign hidden everywhere (Deepak, 8 Nov 2026; FEATURES.docusign off): connected or not, never offered.
+  assert.ok(!addWidgetOptions({ docuSign: true }).some((o) => o.kind === 'docusign'));
+  assert.ok(!addWidgetOptions({ docuSign: true, shopifyProduct: true }).some((o) => o.kind === 'docusign'));
+  // Feature back on: DocuSign when connected, last.
+  assert.deepEqual(addWidgetOptions({ docuSign: true, docuSignFeature: true }).map((o) => o.label).slice(-1), ['DocuSign']);
+  assert.ok(!addWidgetOptions({ docuSign: false, docuSignFeature: true }).some((o) => o.kind === 'docusign'));
+  const withShop = addWidgetOptions({ docuSign: true, shopifyProduct: true, docuSignFeature: true }).map((o) => o.label);
   assert.deepEqual(withShop.slice(-2), ['Shopify Product', 'DocuSign']);
   assert.equal(addWidgetOptions({ docuSign: false })[0].desc, 'Add a special moment');
   assert.equal(addWidgetOptions({ docuSign: false })[1].desc, 'Add a button with a link');
-  for (const o of addWidgetOptions({ docuSign: true, shopifyProduct: true })) assert.ok(ADD_WIDGET_KINDS.includes(o.kind));
+  for (const o of addWidgetOptions({ docuSign: true, shopifyProduct: true, docuSignFeature: true })) assert.ok(ADD_WIDGET_KINDS.includes(o.kind));
 });
 
 test('a widget goes after the moment of the tapped "+"; under the cover = top; after a linked campaign = the moment above it', () => {

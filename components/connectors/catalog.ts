@@ -1,5 +1,6 @@
 // Connectors offered on the Connectors page (pages/MarketplacePage.tsx).
 import { WEBSITE_CATALOG_COLOR } from '../../utils/categoryColorManager';
+import { DOCUSIGN_ENABLED } from '../../constants/features.ts';
 
 export type ConnectorId = 'shopify' | 'docusign' | 'autotrader' | 'contact-widget' | 'website-catalogue';
 
@@ -74,7 +75,8 @@ export const CONNECTORS: ConnectorDef[] = [
 // AutoTrader hidden from the Connectors page (Deepak, 2026-09-22): its connect modal is kept,
 // just not offered. The Website Catalogue card keeps its place in this order, but has its own
 // plan / pilot / status logic, so MarketplacePage draws it with websiteCatalogueCard().
-export const OFFERED_CONNECTORS = CONNECTORS.filter((c) => c.id !== 'autotrader');
+// DocuSign hidden while FEATURES.docusign is off (Deepak, 2026-11-08; constants/features.ts).
+export const OFFERED_CONNECTORS = CONNECTORS.filter((c) => c.id !== 'autotrader' && (DOCUSIGN_ENABLED || c.id !== 'docusign'));
 
 // Contact Us Widget tile colour, from Chris's original ContactWidgetCard design.
 export const WIDGET_ICON_BLUE = '#0EA5E9';

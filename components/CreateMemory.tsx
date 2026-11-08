@@ -56,6 +56,7 @@ import { addWidgetOptions, type AddWidgetKind, type AddWidgetOption } from './wi
 import { postIdsAfterCreate, saveWidgetIntent, widgetAnchorPostId, type PreviewWidget } from './storeel/lib/storeelWidgets';
 import { campaignPreviewMoments, linkedCampaignsMessage, type CampaignPick } from './storeel/lib/momentCampaigns';
 import { ACTION_TOAST_MS } from './newsletters/lib/blocks';
+import { DOCUSIGN_ENABLED } from '../constants/features.ts';
 
 const CAMPAIGN_STEP_ID = 'st-step-campaign';
 
@@ -1366,7 +1367,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
   // DocuSign connected? Asked when the Storeel page opens without the campaign page's options (Create).
   const [docuSignOn, setDocuSignOn] = useState(false);
   useEffect(() => {
-    if (!open || widgetOptions) return undefined;
+    if (!DOCUSIGN_ENABLED || !open || widgetOptions) return undefined; // DocuSign hidden: status not called (constants/features.ts)
     let cancelled = false;
     dashboardAPI.docuSignGetStatus().then((res: any) => { if (!cancelled) setDocuSignOn(Boolean(res?.data?.connected ?? res?.data?.data?.connected ?? res?.connected)); }).catch(() => {});
     return () => { cancelled = true; };
