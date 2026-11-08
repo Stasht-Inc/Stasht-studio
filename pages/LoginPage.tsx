@@ -542,11 +542,11 @@ export default function LoginPage({ onLogin, onSwitchToSignup, onSocialLogin }: 
         setResendActivationCooldown(60); // 60s before resend allowed
       } else {
         // No account / any failure → stay on login and show the backend message
-        setError(res.error || 'Failed to send OTP. Please try again.');
+        setError(res.error || "We couldn't send your verification code. Please try again.");
       }
     } catch (err) {
       console.error('Send OTP (login) error:', err);
-      setError('Failed to send OTP. Please try again.');
+      setError("We couldn't send your verification code. Please try again.");
     } finally {
       setIsLoading(false);
     }
@@ -1089,7 +1089,7 @@ export default function LoginPage({ onLogin, onSwitchToSignup, onSocialLogin }: 
       console.log('📡 Resend OTP response:', response);
 
       if (response.success) {
-        setResendActivationMessage(response.message || 'OTP has been resent to your phone number');
+        setResendActivationMessage(response.message || 'A new verification code has been sent to your phone number');
         setResendActivationCooldown(60);
         setShowActivationError(false); // Hide activation error
         setShowOtpScreen(true); // Show OTP input screen
@@ -1097,11 +1097,11 @@ export default function LoginPage({ onLogin, onSwitchToSignup, onSocialLogin }: 
         // Clear message after 5 seconds
         setTimeout(() => setResendActivationMessage(''), 5000);
       } else {
-        setError(response.error || 'Failed to resend OTP. Please try again.');
+        setError(response.error || "We couldn't send a new verification code. Please try again.");
       }
     } catch (err) {
       console.error('Resend OTP error:', err);
-      setError('Failed to resend OTP. Please try again.');
+      setError("We couldn't send a new verification code. Please try again.");
     } finally {
       setIsResendingActivation(false);
     }
@@ -1142,7 +1142,7 @@ export default function LoginPage({ onLogin, onSwitchToSignup, onSocialLogin }: 
   // Handle OTP verification for phone login activation
   const handleVerifyOtp = async () => {
     if (!otp || otp.trim().length < 4) {
-      setOtpError('Please enter a valid OTP');
+      setOtpError('Please enter the verification code');
       return;
     }
 
@@ -1160,7 +1160,7 @@ export default function LoginPage({ onLogin, onSwitchToSignup, onSocialLogin }: 
         const verifyRes = await authAPI.verifyOtp({ ...identifier, otp: otp.trim() });
 
         if (!verifyRes.success || !verifyRes.verification_token) {
-          setOtpError(verifyRes.error || 'Invalid OTP. Please try again.');
+          setOtpError(verifyRes.error || "That code isn't right. Please check it and try again.");
           setIsVerifyingOtp(false);
           return;
         }
@@ -1297,7 +1297,7 @@ export default function LoginPage({ onLogin, onSwitchToSignup, onSocialLogin }: 
         console.log('  - response.message:', response.message);
 
         // Show detailed error alert
-        alert('OTP VERIFICATION FAILED - Missing Data!\n\n' +
+        alert('CODE VERIFICATION FAILED - Missing Data!\n\n' +
           'userData found: ' + !!userData + '\n' +
           'tokenData found: ' + !!tokenData + '\n' +
           'response.user: ' + !!response.user + '\n' +
@@ -1307,7 +1307,7 @@ export default function LoginPage({ onLogin, onSwitchToSignup, onSocialLogin }: 
           'error: ' + (response.error || 'none') + '\n' +
           'message: ' + (response.message || 'none'));
 
-        setOtpError(response.error || response.message || 'Invalid OTP or missing user/token data. Please try again.');
+        setOtpError(response.error || response.message || "That code didn't work, or your sign-in details are missing. Please try again.");
         setIsVerifyingOtp(false);
       }
     } catch (error) {
@@ -1318,7 +1318,7 @@ export default function LoginPage({ onLogin, onSwitchToSignup, onSocialLogin }: 
       console.error('🔥 Full error object:', error);
 
       // Show exception alert
-      alert('OTP VERIFICATION EXCEPTION!\n\n' +
+      alert('CODE VERIFICATION EXCEPTION!\n\n' +
         (error instanceof Error ? error.message : String(error)));
 
       setOtpError('An error occurred. Please try again.');
@@ -1345,16 +1345,16 @@ export default function LoginPage({ onLogin, onSwitchToSignup, onSocialLogin }: 
         const res = await authAPI.sendOtp(identifier, 'login');
 
         if (res.success) {
-          setResendActivationMessage(res.message || `OTP has been resent to your ${method === "email" ? "email" : "phone number"}`);
+          setResendActivationMessage(res.message || `A new verification code has been sent to your ${method === "email" ? "email" : "phone number"}`);
           setResendActivationCooldown(60);
           setOtpCountdown(600);
           setTimeout(() => setResendActivationMessage(''), 5000);
         } else {
-          setOtpError(res.error || 'Failed to resend OTP. Please try again.');
+          setOtpError(res.error || "We couldn't send a new verification code. Please try again.");
         }
       } catch (err) {
         console.error('Resend OTP (passwordless) error:', err);
-        setOtpError('Failed to resend OTP. Please try again.');
+        setOtpError("We couldn't send a new verification code. Please try again.");
       } finally {
         setIsResendingActivation(false);
       }
@@ -1369,17 +1369,17 @@ export default function LoginPage({ onLogin, onSwitchToSignup, onSocialLogin }: 
       console.log('📡 Resend OTP response:', response);
 
       if (response.success) {
-        setResendActivationMessage(response.message || 'OTP has been resent to your phone number');
+        setResendActivationMessage(response.message || 'A new verification code has been sent to your phone number');
         setResendActivationCooldown(60);
 
         // Clear message after 5 seconds
         setTimeout(() => setResendActivationMessage(''), 5000);
       } else {
-        setOtpError(response.error || 'Failed to resend OTP. Please try again.');
+        setOtpError(response.error || "We couldn't send a new verification code. Please try again.");
       }
     } catch (err) {
       console.error('Resend OTP error:', err);
-      setOtpError('Failed to resend OTP. Please try again.');
+      setOtpError("We couldn't send a new verification code. Please try again.");
     } finally {
       setIsResendingActivation(false);
     }
@@ -1606,7 +1606,7 @@ export default function LoginPage({ onLogin, onSwitchToSignup, onSocialLogin }: 
                   {method === "email" ? "Verify Your Email" : "Verify Your Phone"}
                 </CardTitle>
                 <CardDescription className="text-center">
-                  Enter the OTP sent to {method === "email" ? email : `${countryCode} ${phoneNumber}`}
+                  We sent a verification code to {method === "email" ? email : `${countryCode} ${phoneNumber}`}
                 </CardDescription>
                 {authMode === "otp" && otpCountdown > 0 && (
                   <p className="text-center text-xs text-gray-500 pt-1">
@@ -1657,7 +1657,7 @@ export default function LoginPage({ onLogin, onSwitchToSignup, onSocialLogin }: 
                 {/* OTP Input */}
                 <div>
                   <label htmlFor="otp" className="block text-sm font-medium text-gray-700 mb-2">
-                    Enter OTP <span className="text-red-500">*</span>
+                    Enter the verification code <span className="text-red-500">*</span>
                   </label>
                   <input
                     id="otp"
@@ -1695,12 +1695,12 @@ export default function LoginPage({ onLogin, onSwitchToSignup, onSocialLogin }: 
                   ) : isVerifyingOtp ? (
                     <>
                       <Loader2 className="h-5 w-5 animate-spin" />
-                      Verifying OTP...
+                      Verifying code...
                     </>
                   ) : authMode === "otp" ? (
                     'Verify & Sign In'
                   ) : (
-                    'Verify OTP & Activate Account'
+                    'Verify Code & Activate Account'
                   )}
                 </button>
 
@@ -1729,9 +1729,9 @@ export default function LoginPage({ onLogin, onSwitchToSignup, onSocialLogin }: 
                         Resending...
                       </span>
                     ) : resendActivationCooldown > 0 ? (
-                      `Resend OTP in ${resendActivationCooldown}s`
+                      `Resend code in ${resendActivationCooldown}s`
                     ) : (
-                      "Didn't receive OTP? Resend"
+                      "Didn't receive the code? Resend"
                     )}
                   </button>
                 </div>
@@ -1977,12 +1977,12 @@ export default function LoginPage({ onLogin, onSwitchToSignup, onSocialLogin }: 
                               {isResendingActivation ? (
                                 <div className="flex items-center justify-center space-x-2">
                                   <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                                  <span>Resending OTP...</span>
+                                  <span>Resending code...</span>
                                 </div>
                               ) : resendActivationCooldown > 0 ? (
-                                `Resend OTP in ${resendActivationCooldown}s`
+                                `Resend code in ${resendActivationCooldown}s`
                               ) : (
-                                'Resend OTP'
+                                'Resend code'
                               )}
                             </Button>
                           ) : (
@@ -2027,12 +2027,12 @@ export default function LoginPage({ onLogin, onSwitchToSignup, onSocialLogin }: 
                     {isLoading ? (
                       <div className="flex items-center space-x-2">
                         <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                        <span>{authMode === "otp" ? "Sending OTP..." : "Signing In..."}</span>
+                        <span>{authMode === "otp" ? "Sending Code..." : "Signing In..."}</span>
                       </div>
                     ) : authMode === "otp" ? (
                       <div className="flex items-center space-x-2">
                         <ArrowRight className="h-4 w-4" />
-                        <span>Send OTP</span>
+                        <span>Send Verification Code</span>
                       </div>
                     ) : (
                       <div className="flex items-center space-x-2">

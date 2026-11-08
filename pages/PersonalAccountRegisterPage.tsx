@@ -171,7 +171,7 @@ export default function PersonalAccountRegisterPage() {
         setIsExistingUser(true);
         toast.error('This account already exists — click Join Account to continue.');
       } else {
-        toast.error(res.error || 'Failed to send OTP. Please try again.');
+        toast.error(res.error || "We couldn't send your verification code. Please try again.");
       }
     } catch (err) {
       console.error('Send OTP error:', err);
@@ -183,7 +183,7 @@ export default function PersonalAccountRegisterPage() {
 
   const handleVerifyOtp = async () => {
     if (!otp || otp.trim().length < 4) {
-      setOtpError('Please enter a valid OTP');
+      setOtpError('Please enter the verification code');
       return;
     }
 
@@ -198,7 +198,7 @@ export default function PersonalAccountRegisterPage() {
       const verifyRes = await authAPI.verifyOtp({ ...identifier, otp: otp.trim() });
 
       if (!verifyRes.success || !verifyRes.verification_token) {
-        setOtpError(verifyRes.error || 'Invalid OTP. Please try again.');
+        setOtpError(verifyRes.error || "That code isn't right. Please check it and try again.");
         return;
       }
 
@@ -230,7 +230,7 @@ export default function PersonalAccountRegisterPage() {
         setResendCooldown(60);
         toast.success('A new code has been sent.');
       } else {
-        setOtpError(res.error || 'Failed to resend OTP.');
+        setOtpError(res.error || "We couldn't send a new verification code. Please try again.");
       }
     } catch (err) {
       console.error('Resend OTP error:', err);
@@ -274,7 +274,7 @@ export default function PersonalAccountRegisterPage() {
         setRegistrationComplete(true);
         const msg = response.data?.message || response.data?.data?.message ||
           (signUpMethod === 'phone'
-            ? 'Registration successful! Please verify your phone number with the OTP sent.'
+            ? 'Registration successful! Please verify your phone number with the code we sent.'
             : 'Registration successful! Please check your email to activate your account.');
         setSuccessMessage(msg);
         toast.success(response.data?.message || 'Registration successful!');
