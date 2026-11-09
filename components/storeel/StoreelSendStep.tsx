@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import type { AudienceItem, NewsletterBlock, NewsletterChannel } from '../../services/newslettersAPI';
 import { storeelBroadcastAPI } from '../../services/storeelBroadcastAPI';
@@ -8,6 +8,7 @@ import { useAudienceCount } from '../newsletters/hooks/useAudienceCount';
 import { countableAudience } from '../newsletters/lib/person';
 import StoreelSendConfirmDialog from './StoreelSendConfirmDialog';
 import { stepNumber, type CampaignSeed } from './lib/storeelFlow';
+import { PUBLISHING_SECTION_ID } from './lib/publishing';
 import { storeelSmsParts, storeelSmsPreview } from './lib/storeelSms';
 import { sendProblem, type SendFailure, type StoreelCount, type StoreelSendSummary } from './lib/storeelSend';
 
@@ -47,6 +48,18 @@ export interface StoreelSendStepProps {
   onSeePlans(): void;
   /** The API said this account may not send it (403): the top bar's Send Now goes off. */
   onForbidden?(): void;
+  /** "Publish on Send" (Deepak, 9 Nov 2026): the campaign page's publish options, at the top of this card. */
+  publishing?: ReactNode;
+}
+
+/** The Publishing section at the top of the Send card, then a divider before the send part. */
+function PublishingSection({ children }: { children: ReactNode }) {
+  return (
+    <section id={PUBLISHING_SECTION_ID} aria-labelledby={`${PUBLISHING_SECTION_ID}-title`} className="scroll-mt-6 space-y-2 border-b border-gray-100 pb-4">
+      <h4 id={`${PUBLISHING_SECTION_ID}-title`} className="text-sm font-semibold text-gray-900">Publishing</h4>
+      {children}
+    </section>
+  );
 }
 
 /**
@@ -58,7 +71,7 @@ export interface StoreelSendStepProps {
  * the message and their own tracked link.
  */
 export default function StoreelSendStep(
-  { campaign, optionalLine, sendRequest, onStatus, sender, paid, canSend, active, onSent, onSeePlans, onForbidden }: StoreelSendStepProps,
+  { campaign, optionalLine, sendRequest, onStatus, sender, paid, canSend, active, onSent, onSeePlans, onForbidden, publishing = null }: StoreelSendStepProps,
 ) {
   // Single person first (as newsletters), sent by email and text (Deepak, 4 Nov).
   const [audience, setAudience] = useState<AudienceItem[]>([]);
@@ -152,6 +165,7 @@ export default function StoreelSendStep(
   if (!canSend || forbidden) {
     return (
       <StepCard number={stepNumber('send')} title={title} id={SEND_STEP_ID}>
+        {publishing ? <div className="mb-4"><PublishingSection>{publishing}</PublishingSection></div> : null}
         <p role="status" className="rounded-lg bg-gray-50 px-3 py-2 text-sm text-gray-700">{CANT_SEND}</p>
       </StepCard>
     );
@@ -176,7 +190,12 @@ export default function StoreelSendStep(
         fieldErrors={fieldErrors}
         stepError={problem ?? serverStepError ?? unavailable ?? undefined}
         onChange={change}
-        intro={<p className="text-sm text-gray-500">{optionalLine}</p>}
+        intro={publishing ? (
+          <>
+            <PublishingSection>{publishing}</PublishingSection>
+            <p className="text-sm text-gray-500">{optionalLine}</p>
+          </>
+        ) : <p className="text-sm text-gray-500">{optionalLine}</p>}
         message={{
           required: true,
           hint: 'Your note to each person. We add their own link to your campaign after it.',

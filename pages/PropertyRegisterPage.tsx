@@ -267,7 +267,7 @@ export default function PropertyRegisterPage() {
         setIsExistingUser(true);
         toast.error('This account already exists — click Join Property to continue.');
       } else {
-        toast.error(res.error || 'Failed to send OTP. Please try again.');
+        toast.error(res.error || "We couldn't send your verification code. Please try again.");
       }
     } catch (err) {
       console.error('Send OTP error:', err);
@@ -279,7 +279,7 @@ export default function PropertyRegisterPage() {
 
   const handleVerifyOtp = async () => {
     if (!otp || otp.trim().length < 4) {
-      setOtpError('Please enter a valid OTP');
+      setOtpError('Please enter the verification code');
       return;
     }
 
@@ -294,7 +294,7 @@ export default function PropertyRegisterPage() {
       const verifyRes = await authAPI.verifyOtp({ ...identifier, otp: otp.trim() });
 
       if (!verifyRes.success || !verifyRes.verification_token) {
-        setOtpError(verifyRes.error || 'Invalid OTP. Please try again.');
+        setOtpError(verifyRes.error || "That code isn't right. Please check it and try again.");
         return;
       }
 
@@ -326,7 +326,7 @@ export default function PropertyRegisterPage() {
         setResendCooldown(60);
         toast.success('A new code has been sent.');
       } else {
-        setOtpError(res.error || 'Failed to resend OTP.');
+        setOtpError(res.error || "We couldn't send a new verification code. Please try again.");
       }
     } catch (err) {
       console.error('Resend OTP error:', err);
@@ -391,7 +391,7 @@ export default function PropertyRegisterPage() {
         setSuccessMessage(
           backendMessage || (
             signUpMethod === 'phone'
-              ? 'Registration successful! Please verify your phone number with the OTP sent.'
+              ? 'Registration successful! Please verify your phone number with the code we sent.'
               : 'Registration successful! Please check your email to activate your account.'
           )
         );

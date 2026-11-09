@@ -9,6 +9,7 @@ import { allowanceLine, sendAllowance, sendBlockedReason } from '../newsletters/
 import { BUTTON_OUTLINE, BUTTON_PRIMARY } from '../newsletters/lib/ui';
 import { newIdempotencyKey, sendPayload } from './lib/storeelFlow';
 import { sendFailure, type SendFailure, type StoreelLimit, type StoreelSendSummary } from './lib/storeelSend';
+import { PRIVATE_LINK_SEND_LINE } from './lib/publishing';
 
 export interface StoreelSendConfirmDialogProps {
   open: boolean;
@@ -49,7 +50,8 @@ export default function StoreelSendConfirmDialog({
   }, [open]);
 
   const check = sendAllowance(allowance, counts, channels, smsParts);
-  const privateLink = published === 3 ? 'This campaign is shared by private link only. Publish it as Public or View Only on the campaign page, then send it.' : null;
+  // The publish options are in the stepper's Publishing card now (Chris, 8 Nov 2026 (b), point 2).
+  const privateLink = published === 3 ? PRIVATE_LINK_SEND_LINE : null;
   const problem = allowanceError ?? check.problem ?? privateLink;
   const skipNote = allowanceError ? null : check.note;
   const blockedReason = sendBlockedReason({ busy, countsLoading, problem, saved: true });
