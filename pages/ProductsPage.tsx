@@ -1,5 +1,7 @@
 // pages/ProductsPage.tsx — Products (spec "Products page in Studio"; plan 2026-11-09-products-m1-m2 Tasks 12–14).
+import { useEffect } from 'react';
 import { Package } from 'lucide-react';
+import { useProperty } from '../contexts/PropertyContext';
 import { useProductsStatus } from '../hooks/useProductsStatus';
 import { productsGate, UPGRADE_LINE } from '../utils/products';
 import { requestUpgrade } from '../utils/planEvents';
@@ -8,6 +10,12 @@ import { BUTTON_PRIMARY } from '../components/newsletters/lib/ui';
 export default function ProductsPage({ onNavigate }: { onNavigate: (page: string) => void }) {
   const { status, loading } = useProductsStatus();
   const gate = productsGate(status);
+  const { viewType } = useProperty();
+
+  // Not available for this account / view (or the status can't be read): leave rather than sit on a dead page.
+  useEffect(() => {
+    if (!loading && gate === 'hidden') onNavigate(viewType === 'property' ? 'memories' : 'dashboard');
+  }, [loading, gate, viewType, onNavigate]);
 
   return (
     <div data-testid="products-page" className="flex min-h-[calc(100dvh-5rem)] flex-col">

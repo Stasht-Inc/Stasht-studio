@@ -1180,6 +1180,9 @@ function MainApp() {
   // Products shows only when /products/status says it is available for this account / view.
   const { status: productsStatus } = useProductsStatus();
   const productsNavShown = showsProductsNav(productsStatus, viewType, inventoryViewPropertyId(viewType, currentProperty, user) !== null);
+  // With Products the phone bar has a 7th item: smaller labels so none clips or collides at 320-390px. Other accounts keep text-xs.
+  const phoneItemClass = productsNavShown ? 'flex-auto min-w-0 py-2 px-0' : 'flex-1 min-w-0 py-2 px-0.5';
+  const phoneLabelClass = productsNavShown ? 'text-[10px] min-[360px]:text-[11px] font-medium tracking-tighter whitespace-nowrap' : 'text-xs font-medium';
 
   // Paid-plan-only features (Connectors) stay visible on the free plan; using one opens the
   // upgrade plans right where the user is (Chris, 2026-09-28). Asked for by the Connectors page
@@ -4675,8 +4678,7 @@ function MainApp() {
               </button>
             </div>
 
-            {/* With Products the bar has one more item: tighter labels so "Dashboard" and "Campaigns" don't collide. Other accounts are unchanged. */}
-            <div className={`flex items-center justify-around h-24 ${productsNavShown ? '[&_span]:tracking-tighter [&_button]:px-0' : ''}`}>
+                        <div className={`flex items-center justify-around h-24`}>
               {/* Dashboard: every role but 3, and role 3 on a paid plan; never in a property view, as the sidebar (utils/planGate) */}
               {phoneBarShowsAccountTools(viewType, showsDashboardAndApps) && (
                 <button
@@ -4684,12 +4686,12 @@ function MainApp() {
                     handleNavigation("dashboard");
                     window.scrollTo({ top: 0, behavior: 'smooth' });
                   }}
-                  className={`flex flex-col items-center justify-center flex-1 min-w-0 py-2 px-0.5 rounded-lg transition-colors ${
+                  className={`flex flex-col items-center justify-center ${phoneItemClass} rounded-lg transition-colors ${
                     currentPage === "dashboard" ? "text-[#6C60FF] bg-[#6C60FF]/10" : "text-gray-500"
                   }`}
                 >
                   <LayoutDashboard className="w-7 h-7 mb-1" />
-                  <span className="text-xs font-medium">Dashboard</span>
+                  <span className={phoneLabelClass}>Dashboard</span>
                 </button>
               )}
 
@@ -4698,12 +4700,12 @@ function MainApp() {
                   handleNavigation("memories");
                   window.scrollTo({ top: 0, behavior: 'smooth' });
                 }}
-                className={`flex flex-col items-center justify-center flex-1 min-w-0 py-2 px-0.5 rounded-lg transition-colors ${
+                className={`flex flex-col items-center justify-center ${phoneItemClass} rounded-lg transition-colors ${
                   currentPage === "memories" ? "text-[#6C60FF] bg-[#6C60FF]/10" : "text-gray-500"
                 }`}
               >
                 <FolderOpen className="w-7 h-7 mb-1" />
-                <span className="text-xs font-medium">Campaigns</span>
+                <span className={phoneLabelClass}>Campaigns</span>
               </button>
 
               {/* Leads tab - visible for all roles (was reachable through Users on mobile) */}
@@ -4712,12 +4714,12 @@ function MainApp() {
                   handleNavigation("leads");
                   window.scrollTo({ top: 0, behavior: 'smooth' });
                 }}
-                className={`flex flex-col items-center justify-center flex-1 min-w-0 py-2 px-0.5 rounded-lg transition-colors ${
+                className={`flex flex-col items-center justify-center ${phoneItemClass} rounded-lg transition-colors ${
                   currentPage === "leads" ? "text-[#6C60FF] bg-[#6C60FF]/10" : "text-gray-500"
                 }`}
               >
                 <Target className="w-7 h-7 mb-1" />
-                <span className="text-xs font-medium">Leads</span>
+                <span className={phoneLabelClass}>Leads</span>
               </button>
 
               <button
@@ -4725,12 +4727,12 @@ function MainApp() {
                   handleNavigationWithReset("media");
                   window.scrollTo({ top: 0, behavior: 'smooth' });
                 }}
-                className={`flex flex-col items-center justify-center flex-1 min-w-0 py-2 px-0.5 rounded-lg transition-colors ${
+                className={`flex flex-col items-center justify-center ${phoneItemClass} rounded-lg transition-colors ${
                   currentPage === "media" ? "text-[#6C60FF] bg-[#6C60FF]/10" : "text-gray-500"
                 }`}
               >
                 <Camera className="w-7 h-7 mb-1" />
-                <span className="text-xs font-medium">Media</span>
+                <span className={phoneLabelClass}>Media</span>
               </button>
 
               {productsNavShown && (
@@ -4740,12 +4742,12 @@ function MainApp() {
                     handleNavigation("products");
                     window.scrollTo({ top: 0, behavior: 'smooth' });
                   }}
-                  className={`flex flex-col items-center justify-center flex-1 min-w-0 py-2 px-0.5 rounded-lg transition-colors ${
+                  className={`flex flex-col items-center justify-center ${phoneItemClass} rounded-lg transition-colors ${
                     currentPage === "products" ? "text-[#6C60FF] bg-[#6C60FF]/10" : "text-gray-500"
                   }`}
                 >
                   <Package className="w-7 h-7 mb-1" />
-                  <span className="text-xs font-medium">Products</span>
+                  <span className={phoneLabelClass}>Products</span>
                 </button>
               )}
 
@@ -4755,12 +4757,12 @@ function MainApp() {
                   handleNavigation("users");
                   window.scrollTo({ top: 0, behavior: 'smooth' });
                 }}
-                className={`flex flex-col items-center justify-center flex-1 min-w-0 py-2 px-0.5 rounded-lg transition-colors ${
+                className={`flex flex-col items-center justify-center ${phoneItemClass} rounded-lg transition-colors ${
                   currentPage === "users" ? "text-[#6C60FF] bg-[#6C60FF]/10" : "text-gray-500"
                 }`}
               >
                 <Users className="w-7 h-7 mb-1" />
-                <span className="text-xs font-medium">Users</span>
+                <span className={phoneLabelClass}>Users</span>
               </button>
 
               {/* Apps: same rule as Dashboard (utils/planGate) */}
@@ -4770,12 +4772,12 @@ function MainApp() {
                     handleNavigation("apps");
                     window.scrollTo({ top: 0, behavior: 'smooth' });
                   }}
-                  className={`flex flex-col items-center justify-center flex-1 min-w-0 py-2 px-0.5 rounded-lg transition-colors ${
+                  className={`flex flex-col items-center justify-center ${phoneItemClass} rounded-lg transition-colors ${
                     currentPage === "apps" ? "text-[#6C60FF] bg-[#6C60FF]/10" : "text-gray-500"
                   }`}
                 >
                   <Grid3x3 className="w-7 h-7 mb-1" />
-                  <span className="text-xs font-medium">Apps</span>
+                  <span className={phoneLabelClass}>Apps</span>
                 </button>
               )}
             </div>

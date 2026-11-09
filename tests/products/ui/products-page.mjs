@@ -58,9 +58,9 @@ const pageErrors = [];
 const expect = (ok, label) => { if (!ok) failures.push(label); console.log(ok ? '  ok  ' : '  FAIL', label); };
 const browser = await chromium.launch({ headless: true, channel: 'chrome' });
 
-async function open(w, { width, height, path = '/products', view = 'personal' } = {}) {
+async function open(w, { width, height, path = '/products', view = 'personal', property = null } = {}) {
   const context = await browser.newContext({ viewport: { width, height }, serviceWorkers: 'block', locale: 'en-US', hasTouch: width < 1024, isMobile: width < 1024 });
-  await context.addInitScript(([user, view]) => {
+  await context.addInitScript(([user, view, property]) => {
     if (sessionStorage.getItem('pr-seeded')) return;
     sessionStorage.setItem('pr-seeded', '1');
     localStorage.clear();
@@ -68,7 +68,8 @@ async function open(w, { width, height, path = '/products', view = 'personal' } 
     localStorage.setItem('stasht_user', JSON.stringify(user));
     localStorage.setItem('view_type', view);
     localStorage.setItem('stasht_campaigns_view', 'storeels');
-  }, [USER, view]);
+    if (property) localStorage.setItem('selected_property', JSON.stringify(property));
+  }, [USER, view, property]);
   await context.route('**/*', async (route) => {
     const req = route.request();
     const url = new URL(req.url());
@@ -84,7 +85,7 @@ async function open(w, { width, height, path = '/products', view = 'personal' } 
     const m = req.method();
     let body = null;
     try { body = req.postData() ? JSON.parse(req.postData()) : null; } catch { body = null; }
-    w.calls.push({ m, p, q: url.search, body });
+    w.calls.push({ m, p, q: url.search, body, view: req.headers()['x-stasht-property'] || null });
     if (p === '/products/status') return route.fulfill({ json: { success: true, data: statusOf(w) } });
     if (p === '/products' && m === 'GET') {
       if (!w.pilot || w.reason) return route.fulfill({ status: 403, json: { success: false, code: w.reason || 'not_available', message: 'x' } });
@@ -174,6 +175,53 @@ try {
       expect(!free.calls.some((c) => c.p === '/products' && c.m === 'GET'), `${tag}: … and the gated list is never asked`);
       await f.page.screenshot({ path: `${OUT}/${tag}-02-upgrade.png` });
       await f.context.close();
+    }
+  }
+
+  if (run('nav')) {
+    // Phone bar with 7 items (Products shown): every label inside the viewport, none overlapping another.
+    for (const width of [320, 360, 390]) {
+      const { page, context } = await open(world(), { width, height: 740, path: '/' });
+      const boxes = await page.evaluate(() => {
+        const nav = [...document.querySelectorAll('nav')].find((n) => n.querySelector('[data-testid="phone-bar-products"]'));
+        return nav ? [...nav.querySelectorAll('button span')].map((s) => { const r = s.getBoundingClientRect(); return { t: s.textContent, l: r.left, r: r.right, w: s.scrollWidth, cw: s.clientWidth }; }) : [];
+      });
+      if (process.env.PR_DEBUG) console.log(width, JSON.stringify(boxes.map((b) => [b.t, Math.round(b.l), Math.round(b.r)])));
+      expect(boxes.length >= 7, `phone-${width}: the bar shows 7 labels (got ${boxes.length})`);
+      expect(boxes.every((b) => b.l >= 0 && b.r <= width), `phone-${width}: every label is inside the viewport`);
+      expect(boxes.every((b, i) => i === 0 || b.l >= boxes[i - 1].r - 0.5), `phone-${width}: no two labels overlap`);
+      await page.screenshot({ path: `${OUT}/phone-${width}-bar.png` });
+      await context.close();
+    }
+
+    // Products hidden for this account: /products leaves for the dashboard.
+    const hiddenW = world({ pilot: false });
+    const h = await open(hiddenW, { width: 1280, height: 900, path: '/products' });
+    expect(new URL(h.page.url()).pathname !== '/products' && !(await h.page.getByTestId('products-page').count()), `hidden: /products does not stay on a dead page (${h.page.url()})`);
+    await h.page.screenshot({ path: `${OUT}/hidden-redirect.png` });
+    await h.context.close();
+
+    // A salesperson's own External view: Products is there, asked for with the property header.
+    const OWN = { id: 31, name: 'Serpa Chrysler (External)', account_type: 'external', is_own_external_account: true, user_id: 959 };
+    for (const [width, height] of [[1280, 900], [390, 844]]) {
+      const tag = `external-${width}`;
+      const ew = world();
+      const e = await open(ew, { width, height, path: '/', view: 'property', property: OWN });
+      if (width >= 768) {
+        const item = e.page.getByRole('button', { name: /^Products\s*3$/ }).filter({ visible: true }).first();
+        expect(await item.isVisible().catch(() => false), `${tag}: the External view sidebar has Products`);
+        await item.click().catch(() => {});
+      } else {
+        const bar = e.page.getByTestId('phone-bar-products');
+        expect(await bar.isVisible().catch(() => false), `${tag}: the External view phone bar has Products`);
+        await bar.click().catch(() => {});
+      }
+      await e.page.getByTestId('products-page').waitFor({ timeout: 15000 }).catch(() => {});
+      expect(new URL(e.page.url()).pathname === '/products', `${tag}: the URL is /products (got ${e.page.url()})`);
+      expect(ew.calls.some((c) => c.p === '/products/status' && c.view === '31'), `${tag}: status is asked with the property header`);
+      expect(await e.page.getByRole('button', { name: /^Campaigns/ }).filter({ visible: true }).count() > 0 || width < 768, `${tag}: Campaigns is still in the sidebar`);
+      await e.page.screenshot({ path: `${OUT}/${tag}-products.png` });
+      await e.context.close();
     }
   }
   // (Tasks 13–15 add their blocks here.)
