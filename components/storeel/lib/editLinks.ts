@@ -36,9 +36,21 @@ export function toggleLink(saved: readonly string[], changes: LinkChanges, id: s
   return isSaved ? { add, remove } : { add: [...add, id], remove };
 }
 
-/** Select All / Deselect All: exactly `ids` ticked. */
-export function setLinks(saved: readonly string[], ids: readonly string[]): LinkChanges {
-  return { add: uniq(ids.filter((id) => !saved.includes(id))), remove: saved.filter((id) => !ids.includes(id)) };
+/** Select All (review fix): ADD the campaigns the list shows now (search / category) to the ticks; nothing else changes. */
+export function selectVisible(saved: readonly string[], changes: LinkChanges, visible: readonly string[]): LinkChanges {
+  return {
+    add: uniq([...changes.add, ...visible.filter((id) => !saved.includes(id))]),
+    remove: changes.remove.filter((id) => !visible.includes(id)),
+  };
+}
+
+/** Deselect All (review fix): untick only the campaigns the list shows now. A saved link hidden by the search, or not in
+ *  the list at all, is never unlinked this way. */
+export function deselectVisible(saved: readonly string[], changes: LinkChanges, visible: readonly string[]): LinkChanges {
+  return {
+    add: changes.add.filter((id) => !visible.includes(id)),
+    remove: uniq([...changes.remove, ...visible.filter((id) => saved.includes(id))]),
+  };
 }
 
 /** Save Changes: what to link and unlink now (against the saved links at that moment). */

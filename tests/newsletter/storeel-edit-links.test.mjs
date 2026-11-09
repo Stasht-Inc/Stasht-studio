@@ -4,7 +4,7 @@
 // "Campaigns (optional)" are saved links, so they show ticked here too.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { EMPTY_LINKS, savedLinkedCampaignIds, tickedLinks, toggleLink, setLinks, linkChanges, editPickerCampaigns, LINKS_SAVE_NOTE, LINKS_FAILED } from '../../components/storeel/lib/editLinks.ts';
+import { EMPTY_LINKS, savedLinkedCampaignIds, tickedLinks, toggleLink, selectVisible, deselectVisible, linkChanges, editPickerCampaigns, LINKS_SAVE_NOTE, LINKS_FAILED } from '../../components/storeel/lib/editLinks.ts';
 
 test('saved linked campaigns: the campaign cards of its moments (not vehicles, photos or Shopify collections)', () => {
   const moments = [
@@ -38,10 +38,25 @@ test('a campaign linked meanwhile with Add a Moment shows ticked; one unlinked f
   assert.deepEqual(linkChanges(['14', '20'], d), { link: [], unlink: [] }, 'already as wanted: nothing to send');
 });
 
-test('Select All / Deselect All: exactly those ticked', () => {
+test('Select All adds the visible campaigns to the ticks; Deselect All removes only the visible ones (review)', () => {
   const saved = ['12', '14'];
-  assert.deepEqual(setLinks(saved, ['14', '20', '21']), { add: ['20', '21'], remove: ['12'] });
-  assert.deepEqual(setLinks(saved, []), { add: [], remove: ['12', '14'] });
+  assert.deepEqual(tickedLinks(saved, selectVisible(saved, EMPTY_LINKS, ['20', '21'])), ['12', '14', '20', '21'], 'search shows 20, 21: 12, 14 stay');
+  assert.deepEqual(linkChanges(saved, selectVisible(saved, EMPTY_LINKS, ['20', '21'])), { link: ['20', '21'], unlink: [] });
+  const d = deselectVisible(saved, EMPTY_LINKS, ['14', '20']); // filtered list shows 14 and 20
+  assert.deepEqual(tickedLinks(saved, d), ['12'], '12 (hidden by the search) stays ticked');
+  assert.deepEqual(linkChanges(saved, d), { link: [], unlink: ['14'] });
+  // undoing: deselect then select the same visible ids → no change left
+  assert.deepEqual(linkChanges(saved, selectVisible(saved, d, ['14', '20'])), { link: ['20'], unlink: [] });
+});
+
+test('a saved link that is not in the list at all is never unlinked by Select All / Deselect All', () => {
+  const saved = ['12', '99']; // 99: linked, but not in the list (another page / not returned)
+  const listed = ['12', '14', '20'];
+  let d = deselectVisible(saved, EMPTY_LINKS, listed);
+  assert.deepEqual(linkChanges(saved, d), { link: [], unlink: ['12'] });
+  d = selectVisible(saved, d, listed);
+  assert.deepEqual(linkChanges(saved, d), { link: ['14', '20'], unlink: [] });
+  assert.ok(tickedLinks(saved, d).includes('99'));
 });
 
 test('Save Changes: link the newly ticked, unlink the unticked saved ones', () => {

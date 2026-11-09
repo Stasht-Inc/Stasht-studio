@@ -173,6 +173,22 @@ try {
       await picker(page).scrollIntoViewIfNeeded();
       await page.screenshot({ path: `${OUT}/${tag}-04-add-a-moment-consistent.png` });
 
+      // Review fix: with a search, Deselect All / Select All touch only the campaigns shown (saved links hidden stay)
+      const search = picker(page).getByPlaceholder('Search campaigns...');
+      await search.fill('Summer');
+      await picker(page).getByText('Linked and removed when you press Save Changes.').click(); // closes the suggestions
+      await picker(page).getByRole('button', { name: 'Deselect All', exact: true }).click();
+      await search.fill('');
+      await page.waitForTimeout(300);
+      expect(await ticked(page, 'Summer BBQ') === false && await ticked(page, 'Spring Open House') === true && await ticked(page, 'Winter Tires') === true, `${tag}: searched Deselect All unticks only Summer BBQ`);
+      await page.screenshot({ path: `${OUT}/${tag}-04b-search-deselect.png` });
+      await search.fill('Summer');
+      await picker(page).getByText('Linked and removed when you press Save Changes.').click(); // closes the suggestions
+      await picker(page).getByRole('button', { name: 'Select All', exact: true }).click();
+      await search.fill('');
+      await page.waitForTimeout(300);
+      expect(await ticked(page, 'Summer BBQ') === true && await ticked(page, 'Spring Open House') === true && await ticked(page, 'Winter Tires') === true, `${tag}: searched Select All adds Summer BBQ, keeps the rest`);
+
       // Deselect All / Select All, then untick Winter Tires → Save Changes unlinks only Winter Tires
       await picker(page).getByRole('button', { name: 'Deselect All', exact: true }).click();
       expect(await ticked(page, 'Spring Open House') === false && await ticked(page, 'Winter Tires') === false && await ticked(page, 'Summer BBQ') === false, `${tag}: Deselect All unticks all`);
