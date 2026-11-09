@@ -262,7 +262,9 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
     await title.waitFor();
     await e.page.waitForTimeout(600);
     expect((await title.inputValue()) === 'Spring Open House', `${tag}: title prefilled`);
-    expect(!(await e.page.getByText('Select from Existing Campaigns').count()), `${tag}: no pickers in Edit (PUT can't change them)`);
+    // Deepak, 9 Nov 2026: Edit has Create's "Select from Existing Campaigns" again (linked campaigns, saved with their own
+    // calls by Save Changes) — but no other pickers (the items picker / vehicles: Add a Moment on a saved campaign).
+    expect((await e.page.getByText('Select from Existing Campaigns').count()) === 1 && !(await e.page.getByText('Pick items from your Website Catalogue').count()), `${tag}: Edit: Select from Existing Campaigns only (no items picker)`);
     expect((await rows(e.page).count()) === 3 && ((await step(e.page, 'st-step-moments').textContent()) ?? '').includes('Fresh paint and new railings.'), `${tag}: step 2 lists the campaign's 3 moments`);
     expect(((await e.page.getByTestId('storeel-preview').textContent()) ?? '').includes('3 moments'), `${tag}: preview 3 moments`);
     await expectVisible(button(e.page, 'Save Changes'), `${tag}: Save Changes`);
