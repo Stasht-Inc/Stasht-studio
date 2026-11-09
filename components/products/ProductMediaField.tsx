@@ -6,14 +6,18 @@ import { ChevronLeft, ChevronRight, X } from 'lucide-react';
 import { productsAPI, type ProductDetail, type ProductMediaItem } from '../../services/productsAPI';
 import { moveItem } from '../../utils/products';
 import { BUTTON_SECONDARY } from '../newsletters/lib/ui';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '../ui/alert-dialog';
 
-export default function ProductMediaField({ productId, media, disabled, onChange }: {
-  productId: number | null; media: ProductMediaItem[]; disabled: boolean; onChange(detail: ProductDetail): void;
+/** onChange: every answer (the product's new detail). onSettled: once per finished action (an upload batch, a reorder,
+ *  a removal) that changed something, e.g. to refresh the grid. */
+export default function ProductMediaField({ productId, media, disabled, onChange, onSettled }: {
+  productId: number | null; media: ProductMediaItem[]; disabled: boolean; onChange(detail: ProductDetail): void; onSettled?(): void;
 }) {
   const [uploading, setUploading] = useState(0);
   const [busy, setBusy] = useState(false);
   const [errors, setErrors] = useState<string[]>([]);
   const [dragFrom, setDragFrom] = useState<number | null>(null);
+  const [removing, setRemoving] = useState<{ id: number; label: string } | null>(null);
   const input = useRef<HTMLInputElement>(null);
   if (!productId) return <p className="text-sm text-gray-500">Save the product to add photos and a video.</p>;
 
@@ -24,28 +28,31 @@ export default function ProductMediaField({ productId, media, disabled, onChange
     setErrors([]);
     setUploading(list.length);
     const failed: string[] = [];
+    let saved = 0;
     for (const file of list) {
       const r = await productsAPI.uploadMedia(productId, file);
-      if (r.ok && r.data) onChange(r.data); else failed.push(`${file.name}: ${r.error}`);
+      if (r.ok && r.data) { onChange(r.data); saved += 1; } else failed.push(`${file.name}: ${r.error || 'The file could not be uploaded. Please try again.'}`);
       setUploading((n) => n - 1);
     }
     setErrors(failed);
+    if (saved) onSettled?.();
   };
+  const locked = busy || uploading > 0; // one change at a time: no reorder or removal while files are uploading
   const reorder = async (from: number, to: number) => {
-    if (busy) return;
+    if (locked) return;
     setBusy(true);
     setErrors([]);
     const r = await productsAPI.orderMedia(productId, moveItem(media, from, to).map((m) => m.id));
     setBusy(false);
-    if (r.ok && r.data) onChange(r.data); else setErrors([r.error || 'The new order could not be saved. Please try again.']);
+    if (r.ok && r.data) { onChange(r.data); onSettled?.(); } else setErrors([r.error || 'The new order could not be saved. Please try again.']);
   };
   const remove = async (id: number) => {
-    if (busy) return;
+    if (locked) return;
     setBusy(true);
     setErrors([]);
     const r = await productsAPI.removeMedia(productId, id);
     setBusy(false);
-    if (r.ok && r.data) onChange(r.data); else setErrors([r.error || 'That could not be removed. Please try again.']);
+    if (r.ok && r.data) { onChange(r.data); onSettled?.(); } else setErrors([r.error || 'That could not be removed. Please try again.']);
   };
   let photoNumber = 0;
 
@@ -57,7 +64,7 @@ export default function ProductMediaField({ productId, media, disabled, onChange
           {media.map((m, i) => {
             const label = m.type === 'video' ? 'Video' : `Photo ${++photoNumber}`;
             return (
-              <li key={m.id} draggable={!disabled && !busy} onDragStart={() => setDragFrom(i)} onDragOver={(e) => e.preventDefault()}
+              <li key={m.id} draggable={!disabled && !locked} onDragStart={() => setDragFrom(i)} onDragOver={(e) => e.preventDefault()}
                 onDrop={() => { if (dragFrom !== null && dragFrom !== i) void reorder(dragFrom, i); setDragFrom(null); }}
                 className={`group relative aspect-square overflow-hidden rounded-lg border border-gray-200 bg-gray-100 ${disabled ? '' : 'cursor-grab'}`}>
                 {m.type === 'video'
@@ -68,10 +75,10 @@ export default function ProductMediaField({ productId, media, disabled, onChange
                 {!disabled && (
                   <div className="absolute inset-x-1 bottom-1 flex justify-between md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100">
                     <span className="flex gap-1">
-                      <button type="button" aria-label={`Move ${label} earlier`} disabled={i === 0 || busy} onClick={() => void reorder(i, i - 1)} className="rounded bg-white/90 p-1 disabled:opacity-40"><ChevronLeft className="h-4 w-4" /></button>
-                      <button type="button" aria-label={`Move ${label} later`} disabled={i === media.length - 1 || busy} onClick={() => void reorder(i, i + 1)} className="rounded bg-white/90 p-1 disabled:opacity-40"><ChevronRight className="h-4 w-4" /></button>
+                      <button type="button" aria-label={`Move ${label} earlier`} disabled={i === 0 || locked} onClick={() => void reorder(i, i - 1)} className="rounded bg-white/90 p-1 disabled:opacity-40"><ChevronLeft className="h-4 w-4" /></button>
+                      <button type="button" aria-label={`Move ${label} later`} disabled={i === media.length - 1 || locked} onClick={() => void reorder(i, i + 1)} className="rounded bg-white/90 p-1 disabled:opacity-40"><ChevronRight className="h-4 w-4" /></button>
                     </span>
-                    <button type="button" aria-label={`Remove ${label}`} disabled={busy} onClick={() => void remove(m.id)} className="rounded bg-white/90 p-1 text-red-600 disabled:opacity-40"><X className="h-4 w-4" /></button>
+                    <button type="button" aria-label={`Remove ${label}`} disabled={locked} onClick={() => setRemoving({ id: m.id, label })} className="rounded bg-white/90 p-1 text-red-600 disabled:opacity-40"><X className="h-4 w-4" /></button>
                   </div>
                 )}
               </li>
@@ -88,6 +95,18 @@ export default function ProductMediaField({ productId, media, disabled, onChange
           <p className="mt-1 text-xs text-gray-500">Drag to reorder. The first photo is the main photo. Up to 20 photos and one video.</p>
         </>
       )}
+      <AlertDialog open={removing !== null} onOpenChange={(o) => { if (!o) setRemoving(null); }}>
+        <AlertDialogContent className="bg-white">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove {removing?.label === 'Video' ? 'the video' : removing?.label.toLowerCase()}?</AlertDialogTitle>
+            <AlertDialogDescription>It is removed from this product straight away.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction className="bg-red-600 text-white hover:bg-red-700" onClick={() => { const r = removing; setRemoving(null); if (r) void remove(r.id); }}>Remove</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       {errors.length > 0 && <ul role="alert" className="mt-3 space-y-1 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{errors.map((e, i) => <li key={`${i}-${e}`}>{e}</li>)}</ul>}
     </div>
   );

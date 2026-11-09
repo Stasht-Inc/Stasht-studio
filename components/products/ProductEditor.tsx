@@ -2,10 +2,12 @@
 // Website products: read-only except Studio-only fields (status, categories, tags, collections, notes, visibility).
 // A salesperson's view of the main account's product: read-only. Actions in M2: Duplicate, Archive, Delete (manual).
 // Preview / Copy link (M3), Share / newsletter / QR (M4) and Analytics (M5) come with their milestones (conflict C6).
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { cloneElement, isValidElement, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactElement, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
+import { FocusScope } from '@radix-ui/react-focus-scope';
 import { ArrowLeft, Copy, Archive, ArchiveRestore, Trash2, ExternalLink } from 'lucide-react';
-import { productsAPI, type ProductCategory, type ProductDetail } from '../../services/productsAPI';
+import { productsAPI, type ProductCategory, type ProductDetail, type ProductStatus } from '../../services/productsAPI';
+import { useBackToClose } from '../newsletters/hooks/useBackToClose';
 import {
   WEBSITE_READ_ONLY_NOTE, editableFor, emptyProductForm, formFromDetail, payloadFromForm, validateProductForm, slugFromTitle, type ProductForm,
 } from '../../utils/products';
@@ -20,10 +22,13 @@ import ProductSpecsField, { ChipsInput } from './ProductSpecsField';
 const CHECK_FIELDS = 'Check the highlighted fields.';
 
 /** Error keys the editor shows under a field; anything else (an unexpected API key) is listed at the bottom of the card. */
-const PLACED = /^(title|short_description|description_html|brand|product_type|price|compare_at_price|currency|sku|barcode|quantity|weight|weight_unit|dimensions(\.(length|width|height|unit))?|slug|seo_title|seo_description|share_image|buy_url|internal_notes|status|category_ids(\.\d+)?|tags(\.\d+)?|collections(\.\d+)?|options(\.\d+\.(name|values(\.\d+)?))?|variants(\.\d+\.(price|compare_at_price|sku|quantity|image_id))?)$/;
+const PLACED = /^(title|short_description|description_html|brand|product_type|price|compare_at_price|currency|sku|barcode|quantity|weight|weight_unit|dimensions(\.(length|width|height|unit))?|slug|seo_title|seo_description|share_image|buy_url|internal_notes|status|category_ids(\.\d+)?|tags(\.\d+)?|collections(\.\d+)?|attributes(\.\d+\.(label|value))?|options(\.\d+\.(name|values(\.\d+)?))?|variants(\.\d+\.(price|compare_at_price|sku|quantity|image_id))?)$/;
 
 /** Set when Save creates a product: the editor remounts on the new id (ProductsPage's key) and still says "Saved." */
 let justCreated: number | null = null;
+/** What had focus when the editor opened (a product card, Add a product). Kept across the remount after a create or a
+ *  duplicate, and focused again when the editor finally closes. */
+let opener: HTMLElement | null = null;
 
 const under = (errors: Record<string, string>, key: string): string | undefined =>
   errors[key] ?? Object.entries(errors).find(([k]) => k.startsWith(`${key}.`))?.[1];
@@ -37,18 +42,23 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
   );
 }
 
+/** Label, control, hint and error. The control gets aria-invalid and aria-describedby (its hint and error). */
 function Field({ id, label, error, hint, children }: { id: string; label: string; error?: string; hint?: string; children: ReactNode }) {
+  const describedBy = [hint ? `${id}-hint` : '', error ? `${id}-error` : ''].filter(Boolean).join(' ') || undefined;
+  const control = isValidElement(children)
+    ? cloneElement(children as ReactElement<Record<string, unknown>>, { 'aria-invalid': error ? true : undefined, 'aria-describedby': describedBy })
+    : children;
   return (
     <div>
       <label htmlFor={id} className={LABEL}>{label}</label>
-      {children}
-      {hint && <p className="mt-1 text-xs text-gray-500">{hint}</p>}
-      {error && <p className="mt-1 text-xs text-red-600">{error}</p>}
+      {control}
+      {hint && <p id={`${id}-hint`} className="mt-1 text-xs text-gray-500">{hint}</p>}
+      {error && <p id={`${id}-error`} className="mt-1 text-xs text-red-600">{error}</p>}
     </div>
   );
 }
 
-const ErrorText = ({ text }: { text?: string }) => (text ? <p className="mt-1 text-xs text-red-600">{text}</p> : null);
+const ErrorText = ({ id, text }: { id?: string; text?: string }) => (text ? <p id={id} className="mt-1 text-xs text-red-600">{text}</p> : null);
 
 type Confirm = { kind: 'delete' } | { kind: 'leave'; then(): void };
 
@@ -81,12 +91,21 @@ export default function ProductEditor({ productId, categories, defaultCurrency, 
     return () => { cancelled = true; };
   }, [productId]);
 
-  // A full-screen layer: the page behind it doesn't scroll, and focus starts inside it.
+  // A full-screen layer: the page behind it doesn't scroll. Focus is trapped inside (FocusScope below) and goes back to
+  // what opened it when it finally closes (not when it only remounts on a new id after a create or a duplicate).
   useEffect(() => {
     const before = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
-    root.current?.focus();
-    return () => { document.body.style.overflow = before; };
+    const active = document.activeElement;
+    if (active instanceof HTMLElement && !active.closest('[data-testid="product-editor"]')) opener = active;
+    return () => {
+      document.body.style.overflow = before;
+      window.setTimeout(() => {
+        if (document.querySelector('[data-testid="product-editor"]')) return; // remounted on another product
+        if (opener?.isConnected) opener.focus({ preventScroll: true });
+        opener = null;
+      }, 0);
+    };
   }, []);
 
   const editable = useMemo(() => editableFor(detail), [detail]);
@@ -159,7 +178,48 @@ export default function ProductEditor({ productId, categories, defaultCurrency, 
   // Unsaved edits ask first, whether the editor closes or another product (a duplicate) opens.
   const guarded = (then: () => void) => (dirty && canSave ? setConfirm({ kind: 'leave', then }) : then());
   const close = () => guarded(onClose);
-  const archived = form.status === 'archived';
+  const archived = detail?.status === 'archived'; // the saved status: the Status menu may hold an unsaved choice
+
+  // Archive / Unarchive change the status only, on the server and in the form; any other edits stay unsaved.
+  const setStatus = async (status: ProductStatus) => {
+    if (!productId || saving) return;
+    setSaving(true);
+    setMessage(null);
+    const r = await productsAPI.update(productId, { status });
+    setSaving(false);
+    if (!r.ok || !r.data) {
+      const why = r.fieldErrors?.status;
+      if (why) setErrors((e) => ({ ...e, status: why }));
+      setMessage({ kind: 'error', text: why ? CHECK_FIELDS : r.error || 'The status could not be changed. Please try again.' });
+      return;
+    }
+    const now = r.data.status;
+    setDetail(r.data);
+    setForm((f) => ({ ...f, status: now }));
+    setSaved((s) => JSON.stringify({ ...(JSON.parse(s) as ProductForm), status: now }));
+    clearErrors('status');
+    setMessage({ kind: 'ok', text: now === 'archived' ? 'Archived.' : 'Unarchived.' });
+    await onChanged();
+  };
+
+  // Closing or reloading the tab with unsaved edits: the browser asks first.
+  const unsaved = dirty && canSave;
+  useEffect(() => {
+    if (!unsaved) return undefined;
+    const onBeforeUnload = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = ''; };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, [unsaved]);
+
+  // The browser's (and phone's) Back closes the editor, asking first when there are unsaved edits (as the composer does).
+  const backRef = useRef<() => boolean>(() => true);
+  backRef.current = () => {
+    if (confirm) return false; // a dialog is open: Back only keeps the editor
+    if (unsaved) { setConfirm({ kind: 'leave', then: onClose }); return false; }
+    onClose();
+    return true;
+  };
+  useBackToClose(true, () => backRef.current());
 
   // Media answers carry the product's new detail; the form keeps its unsaved edits, minus variant photos that are gone.
   const mediaChanged = (d: ProductDetail) => {
@@ -169,7 +229,6 @@ export default function ProductEditor({ productId, categories, defaultCurrency, 
       ? { ...f, variants: f.variants.map((v) => (v.image_id !== null && !ids.has(v.image_id) ? { ...v, image_id: null } : v)) } : f);
     setForm(prune);
     setSaved((s) => JSON.stringify(prune(JSON.parse(s) as ProductForm)));
-    void onChanged(); // the grid card's main photo and count
   };
 
   const onKeyDown = (e: KeyboardEvent) => {
@@ -184,6 +243,10 @@ export default function ProductEditor({ productId, categories, defaultCurrency, 
   ) : null;
 
   const editor = (
+    // Focus stays inside while the editor shows (Radix dialogs inside pause this trap), like NewsletterComposer.
+    <FocusScope asChild loop trapped
+      onMountAutoFocus={(e) => { e.preventDefault(); root.current?.focus({ preventScroll: true }); }}
+      onUnmountAutoFocus={(e) => e.preventDefault() /* the effect above returns focus to the opener */}>
     <div ref={root} tabIndex={-1} onKeyDown={onKeyDown} data-testid="product-editor" role="dialog" aria-modal="true" aria-label={productId ? form.title || 'Product' : 'New product'}
       className="fixed inset-0 z-50 overflow-y-auto overscroll-contain bg-gray-50 outline-none">
       <header className="sticky top-0 z-10 flex flex-wrap items-center gap-2 border-b border-gray-200 bg-white px-4 py-3 md:px-6">
@@ -193,7 +256,7 @@ export default function ProductEditor({ productId, categories, defaultCurrency, 
           <div className="order-last flex w-full flex-wrap gap-2 sm:order-none sm:w-auto">
             <button type="button" className={`${BUTTON_SECONDARY} flex-1 !px-3 sm:flex-none`} onClick={() => guarded(() => void duplicate())}><Copy className="h-4 w-4" aria-hidden="true" />Duplicate</button>
             {can('status') && (
-              <button type="button" className={`${BUTTON_SECONDARY} flex-1 !px-3 sm:flex-none`} disabled={saving} onClick={() => void save({ status: archived ? 'active' : 'archived' })}>
+              <button type="button" className={`${BUTTON_SECONDARY} flex-1 !px-3 sm:flex-none`} disabled={saving} onClick={() => void setStatus(archived ? 'active' : 'archived')}>
                 {archived ? <ArchiveRestore className="h-4 w-4" aria-hidden="true" /> : <Archive className="h-4 w-4" aria-hidden="true" />}{archived ? 'Unarchive' : 'Archive'}
               </button>
             )}
@@ -212,7 +275,7 @@ export default function ProductEditor({ productId, categories, defaultCurrency, 
           {website && !readOnly && (
             <p className="rounded-lg border border-teal-200 bg-teal-50 px-3 py-2 text-sm text-teal-900">
               {WEBSITE_READ_ONLY_NOTE}{' '}
-              {detail?.url && <a href={detail.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 font-medium underline">View on website<ExternalLink className="h-3.5 w-3.5" aria-hidden="true" /></a>}
+              {detail?.url && /^https?:\/\//i.test(detail.url) && <a href={detail.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 font-medium underline">View on website<ExternalLink className="h-3.5 w-3.5" aria-hidden="true" /></a>}
             </p>
           )}
           {readOnly && <p className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700">Shared by {detail?.owner?.name || 'your main account'}. You can view it here.</p>}
@@ -233,7 +296,7 @@ export default function ProductEditor({ productId, categories, defaultCurrency, 
                 </div>
               </Section>
               <Section title="Media">
-                <ProductMediaField productId={productId} media={detail?.media || []} disabled={readOnly || website} onChange={mediaChanged} />
+                <ProductMediaField productId={productId} media={detail?.media || []} disabled={readOnly || website} onChange={mediaChanged} onSettled={() => void onChanged() /* the grid card's main photo and count */} />
               </Section>
               <Section title="Pricing">
                 <div className="grid gap-4 sm:grid-cols-3">
@@ -292,8 +355,8 @@ export default function ProductEditor({ productId, categories, defaultCurrency, 
                   ))}
                   <ErrorText text={under(errors, 'category_ids')} />
                 </fieldset>
-                <div><span className={LABEL}>Tags</span><ChipsInput label="Tags" values={form.tags} placeholder="Type a tag and press Enter" disabled={!can('tags')} invalid={Boolean(under(errors, 'tags'))} onChange={(v) => set('tags', v)} /><ErrorText text={under(errors, 'tags')} /></div>
-                <div><span className={LABEL}>Collections</span><ChipsInput label="Collections" values={form.collections} placeholder="Type a collection and press Enter" disabled={!can('collections')} invalid={Boolean(under(errors, 'collections'))} onChange={(v) => set('collections', v)} /><ErrorText text={under(errors, 'collections')} /></div>
+                <div><label htmlFor="p-tags" className={LABEL}>Tags</label><ChipsInput id="p-tags" label="Tags" describedBy={under(errors, 'tags') ? 'p-tags-error' : undefined} values={form.tags} placeholder="Type a tag and press Enter" disabled={!can('tags')} invalid={Boolean(under(errors, 'tags'))} onChange={(v) => set('tags', v)} /><ErrorText id="p-tags-error" text={under(errors, 'tags')} /></div>
+                <div><label htmlFor="p-collections" className={LABEL}>Collections</label><ChipsInput id="p-collections" label="Collections" describedBy={under(errors, 'collections') ? 'p-collections-error' : undefined} values={form.collections} placeholder="Type a collection and press Enter" disabled={!can('collections')} invalid={Boolean(under(errors, 'collections'))} onChange={(v) => set('collections', v)} /><ErrorText id="p-collections-error" text={under(errors, 'collections')} /></div>
               </Section>
               <Section title="SEO and sharing">
                 <Field id="p-slug" label="URL slug" error={errors.slug} hint={`studio.stasht.com/p/${form.slug || slugFromTitle(form.title) || 'your-product'}. Your public product page is coming soon.`}>
@@ -341,6 +404,7 @@ export default function ProductEditor({ productId, categories, defaultCurrency, 
         </AlertDialogContent>
       </AlertDialog>
     </div>
+    </FocusScope>
   );
 
   // On document.body, after the app: above the app header and the phone bar (same z-50, later in the page), and below

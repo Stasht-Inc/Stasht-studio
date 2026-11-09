@@ -4,8 +4,9 @@ import { useState } from 'react';
 import { Plus, X } from 'lucide-react';
 import { BUTTON_SMALL, LINK_BUTTON, inputClass } from '../newsletters/lib/ui';
 
-export function ChipsInput({ label, values, onChange, placeholder, disabled, invalid }: {
-  label: string; values: string[]; onChange(values: string[]): void; placeholder?: string; disabled?: boolean; invalid?: boolean;
+/** id: give the input an id when a real <label htmlFor> names it (Tags, Collections); otherwise label is its aria-label. */
+export function ChipsInput({ id, label, values, onChange, placeholder, disabled, invalid, describedBy }: {
+  id?: string; label: string; values: string[]; onChange(values: string[]): void; placeholder?: string; disabled?: boolean; invalid?: boolean; describedBy?: string;
 }) {
   const [draft, setDraft] = useState('');
   const add = () => {
@@ -23,7 +24,7 @@ export function ChipsInput({ label, values, onChange, placeholder, disabled, inv
       ))}
       {disabled && values.length === 0 && <span className="py-1 text-sm text-gray-400">None</span>}
       {!disabled && (
-        <input aria-label={label} value={draft} maxLength={50} placeholder={values.length ? '' : placeholder} onChange={(e) => setDraft(e.target.value)} onBlur={add}
+        <input id={id} aria-label={id ? undefined : label} aria-invalid={invalid || undefined} aria-describedby={describedBy} value={draft} maxLength={50} placeholder={values.length ? '' : placeholder} onChange={(e) => setDraft(e.target.value)} onBlur={add}
           onKeyDown={(e) => {
             if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); add(); }
             else if (e.key === 'Backspace' && !draft && values.length) onChange(values.slice(0, -1));

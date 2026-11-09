@@ -411,6 +411,7 @@ try {
       await editor.getByRole('button', { name: 'Save' }).last().click();
       expect(await editor.getByText('Give the product a title.').isVisible(), `${tag}: an empty title says so under the field`);
       expect(await editor.getByText('Check the highlighted fields.').isVisible(), `${tag}: … and at the bottom of the card`);
+      expect(await editor.locator('#p-title').getAttribute('aria-invalid') === 'true' && (await editor.locator('#p-title').getAttribute('aria-describedby') || '').includes('p-title-error'), `${tag}: the title is aria-invalid and described by its error`);
       // getByLabel matches substrings by default ("Title" would also find "Page title"): exact everywhere.
       await editor.getByLabel('Title', { exact: true }).fill('Oak Bench');
       expect(!(await editor.getByText('Give the product a title.').count()), `${tag}: typing a title clears its error`);
@@ -492,6 +493,17 @@ try {
       expect(await redRow.getByText('The compare-at price should be higher than the price.').isVisible(), `${tag}: a variant's compare-at below its price shows in its row`);
       expect(!w.calls.slice(before).some((c) => c.m === 'POST'), `${tag}: … and nothing is sent`);
       await editor.getByLabel('Red compare-at price', { exact: true }).fill('');
+      // Renaming the option (even clearing it on the way) keeps the rows and what was typed in them.
+      await editor.getByLabel('Option 1 name', { exact: true }).fill('');
+      expect(await editor.getByLabel('Red price', { exact: true }).inputValue() === '300', `${tag}: clearing the option name keeps the rows`);
+      await editor.getByLabel('Option 1 name', { exact: true }).pressSequentially('Finish');
+      expect(await editor.getByLabel('Red price', { exact: true }).inputValue() === '300' && await editor.getByLabel('Blue price', { exact: true }).isVisible(), `${tag}: renaming the option keeps both rows and the Red price`);
+      expect(await editor.getByRole('cell', { name: 'Red', exact: true }).evaluate((td) => getComputedStyle(td).position === 'sticky'), `${tag}: the variant name column stays put while the row scrolls`);
+      await editor.locator('table').evaluate((t) => { t.parentElement.scrollLeft = 400; });
+      await editor.getByRole('heading', { name: 'Variants', exact: true }).evaluate((h) => h.scrollIntoView({ block: 'start' }));
+      await page.waitForTimeout(200);
+      await page.screenshot({ path: `${OUT}/${tag}-01b-variants-scrolled.png` });
+      await editor.locator('table').evaluate((t) => { t.parentElement.scrollLeft = 0; });
 
       await editor.getByLabel('URL slug', { exact: true }).fill('taken');
       w.reject = { slug: ['This address is already used by another product.'] };
@@ -513,9 +525,13 @@ try {
       const id = w.products[0].id;
       expect(w.products[0].title === 'Pine Table' && await editor.getByText('Saved. You can add photos now.').isVisible(), `${tag}: created, and the reopened editor says Saved`);
       expect(await editor.getByLabel('Red price', { exact: true }).inputValue() === '300', `${tag}: the reopened product keeps its variants`);
+      const made = w.calls.filter((c) => c.m === 'POST' && c.p === '/products').pop();
+      expect(made && made.body.options[0].name === 'Finish' && made.body.variants.every((v) => Object.keys(v.options).join() === 'Finish') && made.body.variants[0].price === 300, `${tag}: the renamed option and its rows are saved (${JSON.stringify(made?.body?.variants?.map((v) => v.options))})`);
 
+      const listsBefore = w.calls.filter((c) => c.m === 'GET' && c.p === '/products').length;
       await editor.locator('input[type=file]').setInputFiles([tiny('a.jpg'), tiny('b.jpg')]);
       await page.waitForTimeout(1200);
+      expect(w.calls.filter((c) => c.m === 'GET' && c.p === '/products').length - listsBefore === 1, `${tag}: one grid refresh for the whole upload batch`);
       const uploads = w.calls.filter((c) => c.m === 'POST' && c.p === `/products/${id}/media`);
       expect(uploads.length === 2, `${tag}: two uploads, one request each (${uploads.length})`);
       expect(await editor.getByRole('img', { name: 'Photo 1' }).isVisible() && await editor.getByRole('img', { name: 'Photo 2' }).isVisible() && await editor.getByText('Main', { exact: true }).isVisible(), `${tag}: two photos, the first marked Main`);
@@ -538,6 +554,11 @@ try {
       await page.screenshot({ path: `${OUT}/${tag}-02a-upload-limit.png` });
       await editor.getByRole('img', { name: 'Photo 1' }).hover().catch(() => {});
       await editor.getByRole('button', { name: 'Remove Photo 1' }).click();
+      const removeDialog = page.getByRole('alertdialog');
+      expect(await removeDialog.getByText('Remove photo 1?').isVisible() && !w.calls.some((c) => c.m === 'DELETE' && c.p.includes('/media/')), `${tag}: removing a photo asks first`);
+      await page.waitForTimeout(400); // the dialog's zoom-in
+      await page.screenshot({ path: `${OUT}/${tag}-02b-remove-confirm.png` });
+      await removeDialog.getByRole('button', { name: 'Remove' }).click();
       await page.waitForTimeout(700);
       expect(w.calls.some((c) => c.m === 'DELETE' && c.p === `/products/${id}/media/${second}`) && await editor.getByRole('img', { name: /^Photo \d/ }).count() === 1, `${tag}: Remove deletes that photo`);
       await shootEditor(page, `${OUT}/${tag}-02-photos.png`);
@@ -553,6 +574,30 @@ try {
       await editor.getByLabel('Title', { exact: true }).fill('Pine Table');
 
       expect(await editor.getByRole('button', { name: 'Archive' }).isVisible(), `${tag}: a manual product has Archive`);
+      // Archive changes the status only: an unsaved title stays unsaved (and still guarded).
+      await editor.getByLabel('Title', { exact: true }).fill('Pine Table Draft Name');
+      await editor.getByRole('button', { name: 'Archive' }).click();
+      await page.waitForTimeout(800);
+      const arch = w.calls.filter((c) => c.m === 'PATCH').pop();
+      expect(arch && JSON.stringify(arch.body) === '{"status":"archived"}', `${tag}: Archive sends only the status (${JSON.stringify(arch?.body)})`);
+      expect(await editor.getByLabel('Title', { exact: true }).inputValue() === 'Pine Table Draft Name' && await editor.getByLabel('Status', { exact: true }).inputValue() === 'archived' && await editor.getByRole('button', { name: 'Unarchive' }).isVisible(), `${tag}: … the title edit is kept, the status reads Archived, the button Unarchive`);
+      // Back (browser or phone) with unsaved edits asks first; Keep editing stays.
+      await page.goBack();
+      await page.waitForTimeout(500);
+      expect(await page.getByRole('alertdialog').getByText('Leave without saving?').isVisible() && await editor.isVisible(), `${tag}: Back with unsaved edits asks first`);
+      await page.getByRole('alertdialog').getByRole('button', { name: 'Keep editing' }).click();
+      await page.getByRole('alertdialog').waitFor({ state: 'detached' });
+      // Focus is trapped: tabbing round never leaves the editor.
+      let outside = 0;
+      for (let k = 0; k < 60; k += 1) {
+        await page.keyboard.press('Tab');
+        if (!(await page.evaluate(() => Boolean(document.activeElement?.closest('[data-testid="product-editor"]'))))) outside += 1;
+      }
+      expect(outside === 0, `${tag}: Tab stays inside the editor (${outside} stops outside)`);
+      await editor.getByRole('button', { name: 'Unarchive' }).click();
+      await page.waitForTimeout(800);
+      expect(JSON.stringify(w.calls.filter((c) => c.m === 'PATCH').pop()?.body) === '{"status":"active"}', `${tag}: Unarchive sends only the status`);
+      await editor.getByLabel('Title', { exact: true }).fill('Pine Table'); // back to the saved title: nothing unsaved
       await editor.getByRole('button', { name: 'Duplicate' }).click();
       await page.waitForTimeout(1200);
       expect(w.calls.some((c) => c.m === 'POST' && c.p === `/products/${id}/duplicate`) && await editor.getByRole('heading', { name: 'Pine Table (copy)' }).isVisible(), `${tag}: Duplicate opens the copy`);
@@ -566,6 +611,28 @@ try {
       await page.waitForTimeout(1000);
       expect(w.calls.some((c) => c.m === 'DELETE' && c.p === `/products/${copyId}`) && !(await editor.count()), `${tag}: … deletes it and closes the editor`);
       expect(!(await page.getByTestId('product-card').filter({ hasText: 'Pine Table (copy)' }).count()), `${tag}: … and the copy left the grid`);
+
+      // Closing returns focus to the card that opened the editor; a clean editor closes on Back.
+      const chairOpen = page.getByTestId('product-card').filter({ hasText: 'Walnut Chair' }).getByRole('button').first();
+      await chairOpen.click();
+      await editor.getByLabel('Title', { exact: true }).waitFor({ timeout: 10000 });
+      await editor.getByRole('button', { name: 'Close' }).click();
+      await page.waitForTimeout(400);
+      expect(await chairOpen.evaluate((el) => el === document.activeElement), `${tag}: closing puts focus back on the card`);
+      await chairOpen.click();
+      await editor.getByLabel('Title', { exact: true }).waitFor({ timeout: 10000 });
+      await page.goBack();
+      await page.waitForTimeout(500);
+      expect(!(await editor.count()) && new URL(page.url()).pathname === '/products', `${tag}: Back closes a clean editor and stays on Products`);
+
+      // Closing the tab with unsaved edits: the browser asks.
+      await chairOpen.click();
+      await editor.getByLabel('Title', { exact: true }).fill('Walnut Chair 2');
+      let asked = false;
+      page.on('dialog', async (d) => { if (d.type() === 'beforeunload') asked = true; await d.dismiss().catch(() => {}); });
+      await page.close({ runBeforeUnload: true });
+      await new Promise((r) => setTimeout(r, 800));
+      expect(asked, `${tag}: closing the tab with unsaved edits asks first`);
       await context.close();
 
       // A salesperson's External view: the main account's product, every field read-only, no actions, no notes.

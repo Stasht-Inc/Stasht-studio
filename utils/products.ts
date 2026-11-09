@@ -85,7 +85,8 @@ export function editableFor(detail: Pick<ProductDetail, 'editable_fields'> | nul
   return detail ? detail.editable_fields.filter((f) => f !== 'media') : MANUAL_FIELDS;
 }
 
-export interface OptionDraft { name: string; values: string[] }
+/** key: the name the variant rows use for this option while its name is being retyped (renameOption); absent = name. */
+export interface OptionDraft { name: string; values: string[]; key?: string }
 export interface VariantDraft {
   id?: number;
   options: Record<string, string>;
@@ -99,7 +100,7 @@ export interface VariantDraft {
 
 export function variantCombinations(options: OptionDraft[], cap = 100): Array<Record<string, string>> {
   const usable = options
-    .map((o) => ({ name: o.name.trim(), values: [...new Set(o.values.map((v) => v.trim()).filter(Boolean))] }))
+    .map((o) => ({ name: o.name.trim() || (o.key ?? '').trim(), values: [...new Set(o.values.map((v) => v.trim()).filter(Boolean))] }))
     .filter((o) => o.name && o.values.length);
   if (!usable.length) return [];
   let combos: Array<Record<string, string>> = [{}];
@@ -118,6 +119,25 @@ const sameOptions = (a: Record<string, string>, b: Record<string, string>): bool
 export function mergeVariants(existing: VariantDraft[], options: OptionDraft[]): VariantDraft[] {
   return variantCombinations(options).map((combo) => existing.find((v) => sameOptions(v.options, combo))
     ?? { options: combo, sku: '', price: '', compare_at_price: '', stock_status: 'in_stock', quantity: '', image_id: null });
+}
+
+const optionKey = (o: OptionDraft): string => (o.key ?? o.name).trim();
+
+/** Option i gets a new name: the variant rows keep everything (ids, prices, SKUs, stock, photos) under the new name.
+ *  While the name is empty, or the same as another option's, the rows keep the name they had (o.key). */
+export function renameOption(options: OptionDraft[], variants: VariantDraft[], i: number, name: string): { options: OptionDraft[]; variants: VariantDraft[] } {
+  const prev = optionKey(options[i]);
+  const next = name.trim();
+  const clash = options.some((o, j) => j !== i && optionKey(o).toLowerCase() === next.toLowerCase());
+  const usable = next !== '' && !clash && next !== prev;
+  const key = usable || next === prev ? next : prev;
+  // key only while it differs from the name, so typing a name back to what it was leaves the form unchanged.
+  const nextOptions = options.map((o, j) => (j === i ? { name, values: o.values, ...(key !== next ? { key } : {}) } : o));
+  if (!usable) return { options: nextOptions, variants };
+  const renamed = variants.map((v) => (prev in v.options
+    ? { ...v, options: Object.fromEntries(Object.entries(v.options).map(([k, val]) => [k === prev ? next : k, val])) }
+    : v));
+  return { options: nextOptions, variants: mergeVariants(renamed, nextOptions) };
 }
 
 export const variantLabel = (options: Record<string, string>): string => Object.values(options).join(' / ');
@@ -242,6 +262,11 @@ export function validateProductForm(form: ProductForm, editable: readonly string
     if (can(k) && form[k].trim() && !/^https?:\/\/\S+$/i.test(form[k].trim())) e[k] = 'Use a web address starting with https://';
   }
   if (can('currency') && form.currency.trim() && !/^[A-Za-z]{3}$/.test(form.currency.trim())) e.currency = 'Use a three-letter currency code, like CAD.';
+  if (can('options')) {
+    form.options.forEach((o, i) => {
+      if (!o.name.trim() && o.values.some((v) => v.trim())) e[`options.${i}.name`] = 'Give each option a name.';
+    });
+  }
   // Variant rows, keyed like the API's errors (variants.N.price …) so each shows under its own field.
   if (can('variants')) {
     form.variants.forEach((v, i) => {

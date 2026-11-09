@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import {
   BADGE_LABEL, sourceLabel, priceLine, productQueryString, productsGate, campaignGridHidesCatalogue, showsProductsNav,
   variantCombinations, mergeVariants, moveItem, emptyProductForm, formFromDetail, payloadFromForm, validateProductForm,
-  fieldErrorsFrom, slugFromTitle, bulkResultMessage, pageToClampTo, WEBSITE_DELETE_HINT, MANUAL_FIELDS, editableFor,
+  fieldErrorsFrom, slugFromTitle, bulkResultMessage, pageToClampTo, WEBSITE_DELETE_HINT, MANUAL_FIELDS, editableFor, renameOption,
 } from '../../utils/products.ts';
 
 const status = (over = {}) => ({ pilot: true, available: true, reason: null, can_create: true, counts: { total: 3, manual: 2, website: 1 }, default_currency: 'CAD', ...over });
@@ -196,4 +196,41 @@ test('variant rows: number format and compare-at above the price, under each row
   assert.equal(e['variants.1.quantity'], 'Enter a whole number.');
   assert.ok(!Object.keys(e).some((k) => k.startsWith('variants.2')));
   assert.deepEqual(validateProductForm(form, ['status']), {}); // a website product never checks rows it can't change
+});
+
+test('renaming an option keeps every variant row (ids, prices, SKUs, stock, photos); a cleared name drops nothing', () => {
+  const row = (size, colour, over) => ({ options: { Size: size, Colour: colour }, sku: '', price: '', compare_at_price: '', stock_status: 'in_stock', quantity: '', image_id: null, ...over });
+  const options = [{ name: 'Size', values: ['S', 'L'] }, { name: 'Colour', values: ['Oak'] }];
+  const variants = [row('S', 'Oak', { id: 9, price: '40', sku: 'S-OAK', stock_status: 'out_of_stock', image_id: 31 }), row('L', 'Oak', { id: 10, price: '50' })];
+
+  const renamed = renameOption(options, variants, 0, 'Width');
+  assert.equal(renamed.options[0].name, 'Width');
+  assert.deepEqual(renamed.variants.map((v) => [v.id, v.options, v.price]), [[9, { Width: 'S', Colour: 'Oak' }, '40'], [10, { Width: 'L', Colour: 'Oak' }, '50']]);
+  assert.deepEqual(Object.keys(renamed.variants[0].options), ['Width', 'Colour']); // order kept
+  assert.equal(renamed.variants[0].sku, 'S-OAK');
+  assert.equal(renamed.variants[0].stock_status, 'out_of_stock');
+  assert.equal(renamed.variants[0].image_id, 31);
+
+  // Cleared while typing a new name: the rows stay; the new name then takes them over.
+  const cleared = renameOption(renamed.options, renamed.variants, 0, '');
+  assert.equal(cleared.variants.length, 2);
+  assert.equal(cleared.variants[0].id, 9);
+  const retyped = renameOption(cleared.options, cleared.variants, 0, 'Length');
+  assert.deepEqual(retyped.variants.map((v) => [v.id, v.options.Length, v.price]), [[9, 'S', '40'], [10, 'L', '50']]);
+
+  // A cleared name, then a new value: the rows still keep their data.
+  const more = { options: cleared.options.map((o, i) => (i === 0 ? { ...o, values: [...o.values, 'XL'] } : o)) };
+  const merged = mergeVariants(cleared.variants, more.options);
+  assert.equal(merged.length, 3);
+  assert.equal(merged[0].id, 9);
+
+  // A name another option already has: nothing is renamed (the API would refuse it), and nothing is lost.
+  const clash = renameOption(options, variants, 0, 'colour');
+  assert.deepEqual(clash.variants.map((v) => v.id), [9, 10]);
+  assert.deepEqual(clash.variants[0].options, { Size: 'S', Colour: 'Oak' });
+});
+
+test('an option with values needs a name (the API\'s sentence)', () => {
+  const form = { ...emptyProductForm('CAD'), title: 'Bench', options: [{ name: ' ', values: ['S'] }, { name: '', values: [] }] };
+  assert.deepEqual(validateProductForm(form, MANUAL_FIELDS), { 'options.0.name': 'Give each option a name.' });
 });
