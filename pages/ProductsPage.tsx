@@ -7,6 +7,7 @@ import ProductCard from '../components/products/ProductCard';
 import ProductCategoryNav from '../components/products/ProductCategoryNav';
 import ProductFilters from '../components/products/ProductFilters';
 import ProductBulkBar from '../components/products/ProductBulkBar';
+import ProductEditor from '../components/products/ProductEditor';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '../components/ui/sheet';
 import { useProperty } from '../contexts/PropertyContext';
 import { announceProductsChanged, PRODUCTS_CHANGED_EVENT, useProductsStatus } from '../hooks/useProductsStatus';
@@ -208,8 +209,10 @@ function ProductsReady({ onNavigate }: { onNavigate: (page: string) => void }) {
           <div className="p-2 pt-4">{nav}</div>
         </SheetContent>
       </Sheet>
-      {/* Task 14 renders the editor here: {editor && <ProductEditor … />} */}
-      {editor && null}
+      {editor && (
+        <ProductEditor key={editor.id ?? 'new'} productId={editor.id} categories={ownCategories} defaultCurrency={status?.default_currency || 'CAD'}
+          onClose={() => setEditor(null)} onChanged={changed} onOpen={(id) => setEditor({ id })} />
+      )}
     </div>
   );
 }

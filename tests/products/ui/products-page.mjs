@@ -32,7 +32,23 @@ function detailOf(p) {
     editable_fields: p.read_only ? [] : website
       ? ['status', 'tags', 'collections', 'internal_notes', 'show_price', 'show_enquire', 'category_ids']
       : ['title', 'short_description', 'description_html', 'brand', 'product_type', 'price', 'compare_at_price', 'currency', 'price_on_request', 'sku', 'barcode', 'stock_status', 'quantity', 'options', 'variants', 'attributes', 'weight', 'weight_unit', 'dimensions', 'category_ids', 'tags', 'collections', 'status', 'show_enquire', 'show_price', 'slug', 'seo_title', 'seo_description', 'share_image', 'buy_url', 'internal_notes', 'media'],
+    ...(p.extra || {}), // what the editor saved (options, variants, tags, slug) and the media routes changed
   };
+}
+// The detail-only fields a POST / PATCH body changes, kept on the product as p.extra (variants get ids, like the API).
+function extrasFrom(body, prev, w) {
+  const x = { ...(prev || {}) };
+  if ('options' in body) x.options = body.options;
+  if ('variants' in body) {
+    x.variants = body.variants.map((v, i) => ({
+      id: v.id || w.nextId++, title: Object.values(v.options).join(' / '), options: v.options, sku: v.sku, barcode: null,
+      price: v.price != null ? String(v.price) : null, compare_at_price: v.compare_at_price != null ? String(v.compare_at_price) : null,
+      price_label: '', stock_status: v.stock_status || 'in_stock', quantity: v.quantity, image_id: v.image_id ?? null, sort_order: i,
+    }));
+  }
+  if ('tags' in body) x.tags = body.tags;
+  if ('slug' in body) x.seo = { slug: body.slug || 'generated-slug', title: body.seo_title ?? null, description: body.seo_description ?? null, share_image: body.share_image ?? null };
+  return x;
 }
 
 function world(over = {}) {
@@ -97,8 +113,12 @@ async function open(w, { width, height, path = '/products', view = 'personal', p
       if (s.get('category_id')) list = list.filter((x) => x.categories.some((c) => String(c.id) === s.get('category_id')));
       return route.fulfill({ json: { success: true, data: { items: list, pagination: { current_page: 1, per_page: 48, total: list.length, last_page: 1 } } } });
     }
+    // w.reject = {field: [message]}: the next save answers 422 with those errors (like ProductRules / ProductWriter).
+    const reject422 = () => { const errors = w.reject; w.reject = null; return route.fulfill({ status: 422, json: { success: false, message: Object.values(errors)[0][0], errors } }); };
     if (p === '/products' && m === 'POST') {
-      const created = product(w.nextId++, body.title, { status: body.status || 'draft', badge: body.status || 'draft', price: body.price != null ? String(body.price) : null, price_label: body.price != null ? `$${body.price} CAD` : '' });
+      if (w.reject) return reject422();
+      const created = product(w.nextId++, body.title, { status: body.status || 'draft', badge: body.status || 'draft', price: body.price != null ? String(body.price) : null, price_label: body.price != null ? `$${body.price} CAD` : '', main_image: null, images_count: 0 });
+      created.extra = extrasFrom(body, { media: [] }, w);
       w.products.unshift(created);
       return route.fulfill({ status: 201, json: { success: true, data: detailOf(created) } });
     }
@@ -106,9 +126,35 @@ async function open(w, { width, height, path = '/products', view = 'personal', p
     if (one) {
       const found = w.products.find((x) => x.id === Number(one[1]));
       if (!found) return route.fulfill({ status: 404, json: { success: false, message: 'Product not found.' } });
-      if (m === 'PATCH') Object.assign(found, body, body.status ? { badge: body.status } : {});
+      if (m === 'PATCH' && w.reject) return reject422();
+      if (m === 'PATCH') { const extra = extrasFrom(body, found.extra, w); Object.assign(found, body, body.status ? { badge: body.status } : {}); found.extra = extra; }
       if (m === 'DELETE') { w.products = w.products.filter((x) => x !== found); return route.fulfill({ json: { success: true, data: { deleted: true } } }); }
       return route.fulfill({ json: { success: true, data: detailOf(found) } });
+    }
+    const media = /^\/products\/(\d+)\/media(?:\/(order|\d+))?$/.exec(p);
+    if (media) {
+      const found = w.products.find((x) => x.id === Number(media[1]));
+      if (!found) return route.fulfill({ status: 404, json: { success: false, message: 'Product not found.' } });
+      let list = detailOf(found).media;
+      if (m === 'POST' && !media[2]) {
+        if (w.mediaReject) { const msg = w.mediaReject; w.mediaReject = null; return route.fulfill({ status: 422, json: { success: false, message: msg, errors: { file: [msg] } } }); }
+        const raw = req.postDataBuffer()?.toString('latin1') || '';
+        const id = w.nextId++;
+        list = [...list, { id, url: img(id), type: /Content-Type: video\//i.test(raw) ? 'video' : 'photo', sort_order: list.length }];
+      }
+      if (m === 'PUT' && media[2] === 'order') list = body.ids.map((id) => list.find((x) => x.id === id));
+      if (m === 'DELETE') list = list.filter((x) => x.id !== Number(media[2]));
+      found.extra = { ...(found.extra || {}), media: list };
+      found.main_image = list.find((x) => x.type === 'photo')?.url || null;
+      found.images_count = list.filter((x) => x.type === 'photo').length;
+      return route.fulfill({ json: { success: true, data: detailOf(found) } });
+    }
+    const dup = /^\/products\/(\d+)\/duplicate$/.exec(p);
+    if (dup && m === 'POST') {
+      const found = w.products.find((x) => x.id === Number(dup[1]));
+      const copy = { ...found, id: w.nextId++, origin: 'manual', title: `${found.title} (copy)`, status: 'draft', badge: 'draft', extra: { ...(found.extra || {}) } };
+      w.products.unshift(copy);
+      return route.fulfill({ status: 201, json: { success: true, data: detailOf(copy) } });
     }
     if (p === '/products/bulk') {
       // Like ProductBulk: ids in w.skip (not the account's own) and, on delete, website products are skipped.
@@ -146,6 +192,17 @@ async function open(w, { width, height, path = '/products', view = 'personal', p
 }
 
 const run = (name) => !ONLY || ONLY === name;
+
+// The product editor is a fixed layer that scrolls itself: grow the viewport to its full height for one shot.
+async function shootEditor(page, path) {
+  const size = page.viewportSize();
+  const full = await page.getByTestId('product-editor').evaluate((el) => el.scrollHeight);
+  await page.setViewportSize({ width: size.width, height: Math.max(size.height, full) });
+  await page.waitForTimeout(300);
+  await page.screenshot({ path });
+  await page.setViewportSize(size);
+  await page.waitForTimeout(200);
+}
 
 try {
   if (run('nav')) {
@@ -339,7 +396,201 @@ try {
       await x.context.close();
     }
   }
-  // (Tasks 14–15 add their blocks here.)
+  if (run('editor')) {
+    for (const [width, height] of [[1280, 900], [390, 844]]) {
+      const tag = `editor-${width}`;
+      const w = world();
+      const { page, context } = await open(w, { width, height });
+      await page.getByTestId('product-card').first().waitFor({ timeout: 15000 });
+      await page.getByRole('button', { name: 'Add a product' }).filter({ visible: true }).first().click();
+      const editor = page.getByTestId('product-editor');
+      await editor.waitFor({ timeout: 10000 });
+      for (const group of ['Basics', 'Media', 'Pricing', 'Inventory', 'Variants', 'Details', 'Organisation', 'Visibility', 'SEO and sharing', 'Links']) {
+        expect(await editor.getByRole('heading', { name: group, exact: true }).count() === 1, `${tag}: the editor has the ${group} group`);
+      }
+      await editor.getByRole('button', { name: 'Save' }).last().click();
+      expect(await editor.getByText('Give the product a title.').isVisible(), `${tag}: an empty title says so under the field`);
+      expect(await editor.getByText('Check the highlighted fields.').isVisible(), `${tag}: … and at the bottom of the card`);
+      // getByLabel matches substrings by default ("Title" would also find "Page title"): exact everywhere.
+      await editor.getByLabel('Title', { exact: true }).fill('Oak Bench');
+      expect(!(await editor.getByText('Give the product a title.').count()), `${tag}: typing a title clears its error`);
+      await editor.getByLabel('Price', { exact: true }).fill('120');
+      await editor.getByLabel('Compare-at price', { exact: true }).fill('150');
+      await editor.getByRole('button', { name: /Add an option/ }).click();
+      await editor.getByLabel('Option 1 name', { exact: true }).fill('Size');
+      const values = editor.getByLabel('Option 1 values', { exact: true });
+      await values.fill('S');
+      await values.press('Enter');
+      await values.fill('L');
+      await values.press('Enter');
+      expect(await editor.getByLabel('S price', { exact: true }).isVisible() && await editor.getByLabel('L price', { exact: true }).isVisible(), `${tag}: two variant rows (S, L)`);
+      await shootEditor(page, `${OUT}/${tag}-01-new.png`);
+      await editor.getByRole('button', { name: 'Save' }).last().click();
+      await page.waitForTimeout(1000);
+      const created = w.calls.find((c) => c.p === '/products' && c.m === 'POST');
+      expect(created && created.body.title === 'Oak Bench' && created.body.price === 120 && created.body.compare_at_price === 150, `${tag}: POST /products body (${JSON.stringify(created?.body)?.slice(0, 160)})`);
+      expect(created && created.body.variants.length === 2 && created.body.options[0].name === 'Size', `${tag}: options and variants saved`);
+      expect(!('media' in (created?.body || {})), `${tag}: media is never in the JSON body`);
+      expect(await editor.getByRole('button', { name: /Add photos or a video/ }).isVisible(), `${tag}: after the first save, photos can be added`);
+      await editor.getByRole('button', { name: 'Close' }).click();
+      await page.waitForTimeout(600);
+
+      await page.getByTestId('product-card').filter({ hasText: 'Harbour Sofa' }).getByRole('button').first().click();
+      await editor.waitFor({ timeout: 10000 });
+      await editor.getByLabel('Title', { exact: true }).waitFor({ timeout: 10000 }); // loaded (the editor says "Loading…" first)
+      expect(await editor.getByText(/This product comes from your website\./).isVisible(), `${tag}: a website product says it is read-only`);
+      expect(await editor.getByLabel('Title', { exact: true }).isDisabled(), `${tag}: … its title can't be changed`);
+      expect(!(await editor.getByLabel('Status', { exact: true }).isDisabled()), `${tag}: … its status can`);
+      expect(!(await editor.getByRole('button', { name: 'Delete' }).count()), `${tag}: … and it has no Delete`);
+      await editor.getByLabel('Status', { exact: true }).selectOption('archived');
+      await editor.getByRole('button', { name: 'Save' }).last().click();
+      await page.waitForTimeout(800);
+      const patch = w.calls.filter((c) => c.m === 'PATCH').pop();
+      expect(patch && Object.keys(patch.body).every((k) => ['status', 'tags', 'collections', 'internal_notes', 'show_price', 'show_enquire', 'category_ids'].includes(k)) && patch.body.status === 'archived', `${tag}: PATCH carries Studio-only fields only (${JSON.stringify(patch?.body)})`);
+      await shootEditor(page, `${OUT}/${tag}-02-website.png`);
+      await context.close();
+    }
+  }
+  if (run('editor')) {
+    // More of the editor: errors under their fields (the form's own checks and the API's 422s), photos (upload, API
+    // limit message, reorder, remove), a variant's photo, unsaved-changes guard, Duplicate, Delete, and the
+    // salesperson's read-only External view. Phone: key controls inside the viewport, no sideways scroll.
+    const tiny = (name) => ({ name, mimeType: 'image/jpeg', buffer: Buffer.from(name) });
+    for (const [width, height] of [[1280, 900], [390, 844]]) {
+      const tag = `editor2-${width}`;
+      const w = world();
+      const { page, context } = await open(w, { width, height });
+      await page.getByTestId('product-card').first().waitFor({ timeout: 15000 });
+      await page.getByRole('button', { name: 'Add a product' }).filter({ visible: true }).first().click();
+      const editor = page.getByTestId('product-editor');
+      await editor.waitFor({ timeout: 10000 });
+      const fits = await editor.evaluate((el) => el.scrollWidth <= el.clientWidth && document.documentElement.scrollWidth <= window.innerWidth);
+      expect(fits, `${tag}: no sideways scroll`);
+      const headerSave = await editor.locator('header').getByRole('button', { name: 'Save' }).boundingBox();
+      expect(headerSave && headerSave.x >= 0 && headerSave.x + headerSave.width <= width && headerSave.y >= 0 && headerSave.y + headerSave.height <= height, `${tag}: the header Save is inside the viewport`);
+      const close = await editor.getByRole('button', { name: 'Close' }).boundingBox();
+      expect(close && close.x >= 0 && close.y >= 0 && close.y + close.height <= height, `${tag}: Close is inside the viewport`);
+
+      await editor.getByLabel('Title', { exact: true }).fill('Pine Table');
+      await editor.getByLabel('Price', { exact: true }).fill('300');
+      await editor.getByRole('button', { name: /Add an option/ }).click();
+      await editor.getByLabel('Option 1 name', { exact: true }).fill('Colour');
+      const values = editor.getByLabel('Option 1 values', { exact: true });
+      for (const v of ['Red', 'Blue']) { await values.fill(v); await values.press('Enter'); }
+      await editor.getByLabel('Red price', { exact: true }).fill('300');
+      await editor.getByLabel('Red compare-at price', { exact: true }).fill('250');
+      const variantScroll = await editor.locator('table').evaluate((t) => {
+        const box = t.parentElement.getBoundingClientRect();
+        const card = t.closest('section').getBoundingClientRect();
+        return getComputedStyle(t.parentElement).overflowX === 'auto' && box.left >= card.left && box.right <= card.right;
+      });
+      expect(variantScroll, `${tag}: the variant table scrolls inside its card`);
+      const before = w.calls.length;
+      await editor.getByRole('button', { name: 'Save' }).last().click();
+      await page.waitForTimeout(300);
+      const redRow = editor.getByRole('row').filter({ hasText: 'Red' });
+      expect(await redRow.getByText('The compare-at price should be higher than the price.').isVisible(), `${tag}: a variant's compare-at below its price shows in its row`);
+      expect(!w.calls.slice(before).some((c) => c.m === 'POST'), `${tag}: … and nothing is sent`);
+      await editor.getByLabel('Red compare-at price', { exact: true }).fill('');
+
+      await editor.getByLabel('URL slug', { exact: true }).fill('taken');
+      w.reject = { slug: ['This address is already used by another product.'] };
+      await editor.getByRole('button', { name: 'Save' }).last().click();
+      await page.waitForTimeout(800);
+      const slugField = editor.locator('#p-slug').locator('xpath=..');
+      expect(await slugField.getByText('This address is already used by another product.').isVisible(), `${tag}: the API's slug clash shows under the slug`);
+      expect(await editor.getByText('Check the highlighted fields.').isVisible(), `${tag}: … and the bottom of the card says so`);
+      await shootEditor(page, `${OUT}/${tag}-01-errors.png`);
+      w.reject = { options: ['Some variants use options that are no longer there. Change the variants too.'], 'variants.1.compare_at_price': ['The compare-at price should be higher than the price.'] };
+      await editor.getByRole('button', { name: 'Save' }).last().click();
+      await page.waitForTimeout(800);
+      expect(await editor.getByText('Some variants use options that are no longer there. Change the variants too.').isVisible(), `${tag}: the API's options message shows under the options`);
+      expect(await editor.getByRole('row').filter({ hasText: 'Blue' }).getByText('The compare-at price should be higher than the price.').isVisible(), `${tag}: the API's variants.1 message shows in the Blue row`);
+
+      await editor.getByLabel('URL slug', { exact: true }).fill('');
+      await editor.getByRole('button', { name: 'Save' }).last().click();
+      await page.waitForTimeout(1200);
+      const id = w.products[0].id;
+      expect(w.products[0].title === 'Pine Table' && await editor.getByText('Saved. You can add photos now.').isVisible(), `${tag}: created, and the reopened editor says Saved`);
+      expect(await editor.getByLabel('Red price', { exact: true }).inputValue() === '300', `${tag}: the reopened product keeps its variants`);
+
+      await editor.locator('input[type=file]').setInputFiles([tiny('a.jpg'), tiny('b.jpg')]);
+      await page.waitForTimeout(1200);
+      const uploads = w.calls.filter((c) => c.m === 'POST' && c.p === `/products/${id}/media`);
+      expect(uploads.length === 2, `${tag}: two uploads, one request each (${uploads.length})`);
+      expect(await editor.getByRole('img', { name: 'Photo 1' }).isVisible() && await editor.getByRole('img', { name: 'Photo 2' }).isVisible() && await editor.getByText('Main', { exact: true }).isVisible(), `${tag}: two photos, the first marked Main`);
+      const [first, second] = w.products[0].extra.media.map((x) => x.id);
+      await editor.getByRole('img', { name: 'Photo 1' }).hover().catch(() => {});
+      await editor.getByRole('button', { name: 'Move Photo 1 later' }).click();
+      await page.waitForTimeout(700);
+      const order = w.calls.filter((c) => c.m === 'PUT' && c.p === `/products/${id}/media/order`).pop();
+      expect(order && JSON.stringify(order.body.ids) === JSON.stringify([second, first]), `${tag}: reorder sends the new order (${JSON.stringify(order?.body)})`);
+      await editor.getByLabel('Blue photo', { exact: true }).selectOption({ label: 'Photo 2' });
+      await editor.getByRole('button', { name: 'Save' }).last().click();
+      await page.waitForTimeout(800);
+      const vp = w.calls.filter((c) => c.m === 'PATCH').pop();
+      expect(vp && vp.body.variants[1].image_id === first && !('media' in vp.body), `${tag}: Blue's photo is saved as its image_id (${JSON.stringify(vp?.body?.variants?.map((v) => v.image_id))})`);
+      w.mediaReject = 'A product can have up to 20 photos.';
+      await editor.locator('input[type=file]').setInputFiles([tiny('c.jpg')]);
+      await page.waitForTimeout(800);
+      expect(await editor.getByText('c.jpg: A product can have up to 20 photos.').isVisible(), `${tag}: the API's upload limit message shows in the Media card`);
+      await editor.getByRole('heading', { name: 'Media', exact: true }).scrollIntoViewIfNeeded();
+      await page.screenshot({ path: `${OUT}/${tag}-02a-upload-limit.png` });
+      await editor.getByRole('img', { name: 'Photo 1' }).hover().catch(() => {});
+      await editor.getByRole('button', { name: 'Remove Photo 1' }).click();
+      await page.waitForTimeout(700);
+      expect(w.calls.some((c) => c.m === 'DELETE' && c.p === `/products/${id}/media/${second}`) && await editor.getByRole('img', { name: /^Photo \d/ }).count() === 1, `${tag}: Remove deletes that photo`);
+      await shootEditor(page, `${OUT}/${tag}-02-photos.png`);
+
+      await editor.getByLabel('Title', { exact: true }).fill('Pine Table XL');
+      await editor.getByRole('button', { name: 'Close' }).click();
+      const leave = page.getByRole('alertdialog');
+      expect(await leave.getByText('Leave without saving?').isVisible(), `${tag}: unsaved changes ask before closing`);
+      const onTop = await leave.evaluate((el) => { const r = el.getBoundingClientRect(); const hit = document.elementFromPoint(r.x + r.width / 2, r.y + 20); return el.contains(hit); });
+      expect(onTop, `${tag}: … above the editor`);
+      await leave.getByRole('button', { name: 'Keep editing' }).click();
+      await leave.waitFor({ state: 'detached' }); // Radix hides the rest of the page from the accessibility tree while it is open
+      await editor.getByLabel('Title', { exact: true }).fill('Pine Table');
+
+      expect(await editor.getByRole('button', { name: 'Archive' }).isVisible(), `${tag}: a manual product has Archive`);
+      await editor.getByRole('button', { name: 'Duplicate' }).click();
+      await page.waitForTimeout(1200);
+      expect(w.calls.some((c) => c.m === 'POST' && c.p === `/products/${id}/duplicate`) && await editor.getByRole('heading', { name: 'Pine Table (copy)' }).isVisible(), `${tag}: Duplicate opens the copy`);
+      const copyId = w.products[0].id;
+      await editor.getByRole('button', { name: 'Delete' }).click();
+      const del = page.getByRole('alertdialog');
+      expect(await del.getByText('Delete this product?').isVisible(), `${tag}: Delete asks first`);
+      await page.waitForTimeout(400); // the dialog's zoom-in
+      await page.screenshot({ path: `${OUT}/${tag}-03-delete.png` });
+      await del.getByRole('button', { name: 'Delete' }).click();
+      await page.waitForTimeout(1000);
+      expect(w.calls.some((c) => c.m === 'DELETE' && c.p === `/products/${copyId}`) && !(await editor.count()), `${tag}: … deletes it and closes the editor`);
+      expect(!(await page.getByTestId('product-card').filter({ hasText: 'Pine Table (copy)' }).count()), `${tag}: … and the copy left the grid`);
+      await context.close();
+
+      // A salesperson's External view: the main account's product, every field read-only, no actions, no notes.
+      const EXT = { id: 31, name: 'Serpa Chrysler (External)', account_type: 'external', is_own_external_account: true, user_id: 959 };
+      const owner = { id: 959, name: 'Serpa Chrysler', profile_image: null, profile_color: '#0062A8' };
+      const xw = world({ canCreate: false, properties: [EXT] });
+      xw.products = xw.products.map((x) => ({ ...x, read_only: true, owner }));
+      const x = await open(xw, { width, height, path: '/products', view: 'property', property: EXT });
+      await x.page.getByTestId('product-card').filter({ hasText: 'Walnut Chair' }).getByRole('button').first().click();
+      const xe = x.page.getByTestId('product-editor');
+      await xe.waitFor({ timeout: 10000 });
+      await x.page.waitForTimeout(500);
+      expect(await xe.getByText('Shared by Serpa Chrysler. You can view it here.').isVisible(), `${tag}: External view says who shared it`);
+      expect(await xe.getByLabel('Title', { exact: true }).isDisabled() && await xe.getByLabel('Status', { exact: true }).isDisabled() && await xe.getByLabel('Price', { exact: true }).isDisabled(), `${tag}: … title, status and price are read-only`);
+      expect(!(await xe.getByRole('button', { name: /^(Save|Duplicate|Archive|Delete)$/ }).count()), `${tag}: … no Save, Duplicate, Archive or Delete`);
+      expect(!(await xe.getByRole('button', { name: /Add photos/ }).count()) && !(await xe.getByRole('heading', { name: 'Internal notes' }).count()), `${tag}: … no photo upload and no internal notes`);
+      expect(xw.calls.some((c) => c.p === '/products/601' && c.view === '31'), `${tag}: … asked with the property header`);
+      await shootEditor(x.page, `${OUT}/${tag}-04-external.png`);
+      await xe.getByRole('button', { name: 'Close' }).click();
+      await x.page.waitForTimeout(400);
+      expect(!(await xe.count()) && !xw.calls.some((c) => ['PATCH', 'POST', 'PUT', 'DELETE'].includes(c.m) && c.p.startsWith('/products')), `${tag}: … closes without asking and nothing was written`);
+      await x.context.close();
+    }
+  }
+  // (Task 15 adds its block here.)
 } finally {
   await browser.close();
 }

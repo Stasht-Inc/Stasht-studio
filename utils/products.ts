@@ -72,6 +72,19 @@ export function showsProductsNav(s: ProductsStatus | null | undefined, viewType:
   return productsGate(s) !== 'hidden' && (viewType !== 'property' || isOwnExternalView);
 }
 
+/** Same list as the web API's ProductPresenter::MANUAL_FIELDS (media has its own routes and is never in the JSON body). */
+export const MANUAL_FIELDS: readonly string[] = [
+  'title', 'short_description', 'description_html', 'brand', 'product_type', 'price', 'compare_at_price', 'currency',
+  'price_on_request', 'sku', 'barcode', 'stock_status', 'quantity', 'options', 'variants', 'attributes', 'weight',
+  'weight_unit', 'dimensions', 'category_ids', 'tags', 'collections', 'status', 'show_enquire', 'show_price', 'slug',
+  'seo_title', 'seo_description', 'share_image', 'buy_url', 'internal_notes',
+];
+
+/** null = a new manual product (every field). */
+export function editableFor(detail: Pick<ProductDetail, 'editable_fields'> | null): readonly string[] {
+  return detail ? detail.editable_fields.filter((f) => f !== 'media') : MANUAL_FIELDS;
+}
+
 export interface OptionDraft { name: string; values: string[] }
 export interface VariantDraft {
   id?: number;
@@ -229,6 +242,17 @@ export function validateProductForm(form: ProductForm, editable: readonly string
     if (can(k) && form[k].trim() && !/^https?:\/\/\S+$/i.test(form[k].trim())) e[k] = 'Use a web address starting with https://';
   }
   if (can('currency') && form.currency.trim() && !/^[A-Za-z]{3}$/.test(form.currency.trim())) e.currency = 'Use a three-letter currency code, like CAD.';
+  // Variant rows, keyed like the API's errors (variants.N.price …) so each shows under its own field.
+  if (can('variants')) {
+    form.variants.forEach((v, i) => {
+      for (const k of ['price', 'compare_at_price'] as const) {
+        if (v[k].trim() && !(Number(v[k]) >= 0)) e[`variants.${i}.${k}`] = 'Enter a number, like 49.99.';
+      }
+      if (v.quantity.trim() && !/^\d+$/.test(v.quantity.trim())) e[`variants.${i}.quantity`] = 'Enter a whole number.';
+      if (!e[`variants.${i}.price`] && !e[`variants.${i}.compare_at_price`] && v.price.trim() && v.compare_at_price.trim()
+        && Number(v.compare_at_price) <= Number(v.price)) e[`variants.${i}.compare_at_price`] = 'The compare-at price should be higher than the price.';
+    });
+  }
   return e;
 }
 

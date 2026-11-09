@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import {
   BADGE_LABEL, sourceLabel, priceLine, productQueryString, productsGate, campaignGridHidesCatalogue, showsProductsNav,
   variantCombinations, mergeVariants, moveItem, emptyProductForm, formFromDetail, payloadFromForm, validateProductForm,
-  fieldErrorsFrom, slugFromTitle, bulkResultMessage, pageToClampTo, WEBSITE_DELETE_HINT,
+  fieldErrorsFrom, slugFromTitle, bulkResultMessage, pageToClampTo, WEBSITE_DELETE_HINT, MANUAL_FIELDS, editableFor,
 } from '../../utils/products.ts';
 
 const status = (over = {}) => ({ pilot: true, available: true, reason: null, can_create: true, counts: { total: 3, manual: 2, website: 1 }, default_currency: 'CAD', ...over });
@@ -179,4 +179,21 @@ test('page clamp: an empty page past the last one goes back to the last page', (
   assert.equal(pageToClampTo(1, pg(1, 1), 0), null); // page 1 empty: the real empty state
   assert.equal(pageToClampTo(2, pg(2, 2), 0), null); // within range: show what came back
   assert.equal(pageToClampTo(3, pg(3, 2), 5), null); // items came back: nothing to fix
+});
+
+test('a new product edits every manual field; a loaded one what the API says', () => {
+  assert.ok(MANUAL_FIELDS.includes('variants') && MANUAL_FIELDS.includes('slug') && !MANUAL_FIELDS.includes('media'));
+  assert.deepEqual(editableFor(null), MANUAL_FIELDS);
+  assert.deepEqual(editableFor({ editable_fields: ['status', 'tags'] }), ['status', 'tags']);
+});
+
+test('variant rows: number format and compare-at above the price, under each row\'s field (API keys variants.N.*)', () => {
+  const v = (over) => ({ options: { Size: 'S' }, sku: '', price: '', compare_at_price: '', stock_status: 'in_stock', quantity: '', image_id: null, ...over });
+  const form = { ...emptyProductForm('CAD'), title: 'Bench', variants: [v({ price: '10', compare_at_price: '8' }), v({ price: 'abc', quantity: '1.5' }), v({ price: '10', compare_at_price: '12' })] };
+  const e = validateProductForm(form, MANUAL_FIELDS);
+  assert.equal(e['variants.0.compare_at_price'], 'The compare-at price should be higher than the price.');
+  assert.equal(e['variants.1.price'], 'Enter a number, like 49.99.');
+  assert.equal(e['variants.1.quantity'], 'Enter a whole number.');
+  assert.ok(!Object.keys(e).some((k) => k.startsWith('variants.2')));
+  assert.deepEqual(validateProductForm(form, ['status']), {}); // a website product never checks rows it can't change
 });
