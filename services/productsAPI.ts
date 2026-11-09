@@ -1,7 +1,7 @@
 // services/productsAPI.ts — Products (web API /api/react, plan 2026-11-09-products-m1-m2 in the web API repo).
 // GET /products/status answers every account. Every other route is pilot switch + any paid plan, and apiRequest opens
 // the upgrade modal on a 403 plan_required, so callers check useProductsStatus() first (productsGate === 'ready').
-import { apiRequest, fetchWithRateLimitRetry, getApiBaseUrl } from '../utils/authUtils';
+import { apiRequest, postFormData } from '../utils/authUtils';
 import type { ApiResponse } from '../utils/authUtils';
 import { requestUpgrade } from '../utils/planEvents';
 import { fieldErrorsFrom, productQueryString } from '../utils/products';
@@ -147,21 +147,17 @@ async function run<T>(request: Promise<ApiResponse<any>>): Promise<ProductResult
 
 const json = (method: string, body?: unknown): RequestInit => ({ method, ...(body !== undefined ? { body: JSON.stringify(body) } : {}) });
 
-// Multipart can't go through apiRequest (it forces JSON). Own products only, so no property-view header is needed.
+// Multipart can't go through apiRequest (it forces JSON); postFormData shares its session handling.
 async function uploadMedia(id: number, file: File): Promise<ProductResult<ProductDetail>> {
-  const token = localStorage.getItem('stasht_token');
   const form = new FormData();
   form.append('file', file);
-  let response: Response;
+  let response: Response | null;
   try {
-    response = await fetchWithRateLimitRetry(`${getApiBaseUrl()}/products/${encodeURIComponent(String(id))}/media`, {
-      method: 'POST',
-      headers: { Accept: 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-      body: form,
-    });
+    response = await postFormData(`/products/${encodeURIComponent(String(id))}/media`, form);
   } catch {
     return { ok: false, error: 'The file could not be uploaded. Check your connection and try again.' };
   }
+  if (!response) return { ok: false, error: 'Your session has expired. Please log in again.' };
   let body: any = null;
   try {
     const text = await response.text();

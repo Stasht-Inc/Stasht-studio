@@ -352,6 +352,31 @@ export const apiRequest = async <T = any>(
   return cloneResponse(await promise) as ApiResponse<T>;
 };
 
+/**
+ * Multipart POST with the same session handling as apiRequest (expired-token check, auth + property-view headers,
+ * 429/network retry, 401 clears the session and returns to login). Returns null when the session is already
+ * expired; the caller shows its own message.
+ */
+export const postFormData = async (endpoint: string, body: FormData): Promise<Response | null> => {
+  const token = tokenUtils.getToken();
+  if (token && tokenUtils.isTokenExpired(token)) {
+    userUtils.clearAuthData();
+    return null;
+  }
+  const { 'Content-Type': _json, ...headers } = getAuthHeaders(); // the browser sets the multipart boundary
+  const response = await fetchWithRateLimitRetry(`${API_BASE_URL}${endpoint}`, {
+    method: 'POST',
+    headers: { Accept: 'application/json', ...headers },
+    body,
+    credentials: 'same-origin',
+  });
+  if (response.status === 401) {
+    userUtils.clearAuthData();
+    setTimeout(() => { window.location.href = '/login'; }, 100);
+  }
+  return response;
+};
+
 const performApiRequest = async <T = any>(
   endpoint: string,
   options: RequestInit = {}

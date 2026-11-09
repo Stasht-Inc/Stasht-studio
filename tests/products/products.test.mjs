@@ -107,3 +107,57 @@ test('field errors and slugs', () => {
   assert.deepEqual(fieldErrorsFrom(null), {});
   assert.equal(slugFromTitle('  Café Chair — Walnut & Oak!  '), 'cafe-chair-walnut-oak');
 });
+
+import { createKeyedStore } from '../../utils/keyedStore.ts';
+
+const deferred = () => { let resolve; const promise = new Promise((r) => { resolve = r; }); return { promise, resolve }; };
+
+test('keyed store: per-key cache, a slow old key never overwrites the current one', async () => {
+  const store = createKeyedStore();
+  const slow = deferred();
+  const a = store.load('A', false, () => slow.promise);
+  assert.equal(await store.load('B', false, async () => 'b'), 'b');
+  slow.resolve('a');
+  await a;
+  assert.equal(store.peek('A'), 'a');
+  assert.equal(store.peek('B'), 'b');
+  assert.equal(await store.load('A', false, async () => 'zzz'), 'a'); // cached, no second fetch
+});
+
+test('keyed store: concurrent fresh loads share one request; failures are not cached', async () => {
+  const store = createKeyedStore();
+  let calls = 0;
+  const d = deferred();
+  const fetcher = () => { calls += 1; return d.promise; };
+  const loads = [store.load('K', true, fetcher), store.load('K', true, fetcher), store.load('K', true, fetcher)];
+  d.resolve(null);
+  assert.deepEqual(await Promise.all(loads), [null, null, null]);
+  assert.equal(calls, 1);
+  assert.equal(store.peek('K'), undefined);
+  assert.equal(await store.load('K', false, async () => 'ok'), 'ok'); // retried after the failure
+  assert.equal(await store.load('K', false, async () => { throw new Error('x'); }), 'ok');
+  assert.equal(await store.load('Z', false, async () => { throw new Error('x'); }), null);
+});
+
+test('keyed store: a stale non-fresh response does not overwrite a later fresh one', async () => {
+  const store = createKeyedStore();
+  const old = deferred();
+  const first = store.load('K', false, () => old.promise);
+  assert.equal(await store.load('K', true, async () => 'new'), 'new');
+  old.resolve('old');
+  await first;
+  assert.equal(store.peek('K'), 'new');
+});
+
+test('number-format errors, weight and dimensions payload', () => {
+  const f = { ...emptyProductForm('CAD'), title: 'T', price: 'abc', weight: '-1', compare_at_price: '' };
+  const errs = validateProductForm(f, ['title', 'price', 'weight', 'compare_at_price']);
+  assert.equal(errs.price, 'Enter a number, like 49.99.');
+  assert.equal(errs.weight, 'Enter a number, like 49.99.');
+  const g = { ...emptyProductForm('CAD'), weight: '2.5', weight_unit: 'lb', dimensions: { length: '10', width: '', height: '3', unit: 'in' } };
+  const p = payloadFromForm(g, ['weight', 'weight_unit', 'dimensions']);
+  assert.equal(p.weight, 2.5);
+  assert.equal(p.weight_unit, 'lb');
+  assert.deepEqual(p.dimensions, { length: 10, width: null, height: 3, unit: 'in' });
+  assert.equal(payloadFromForm({ ...g, weight: '' }, ['weight', 'weight_unit']).weight_unit, null);
+});
