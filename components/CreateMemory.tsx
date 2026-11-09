@@ -55,7 +55,8 @@ import { requestOpenCampaign } from './storeel/lib/openCampaign';
 import { addWidgetOptions, type AddWidgetKind, type AddWidgetOption } from './widgets/addWidgetOptions';
 import { postIdsAfterCreate, saveWidgetIntent, widgetAnchorPostId, type PreviewWidget } from './storeel/lib/storeelWidgets';
 import { campaignPreviewMoments, linkedCampaignsMessage, type CampaignPick } from './storeel/lib/momentCampaigns';
-import { PUBLISHING_STEP_ID, opensAtTarget, publishingStepNumber, type StepperOpensAt } from './storeel/lib/publishing';
+import { opensAtTarget, type StepperOpensAt } from './storeel/lib/publishing';
+import { EMPTY_LINKS, LINKS_FAILED, LINKS_SAVE_NOTE, editPickerCampaigns, linkChanges, savedLinkedCampaignIds, setLinks, tickedLinks, toggleLink, type LinkChanges } from './storeel/lib/editLinks';
 import { detectsDeviceLocation, withDeviceLocation } from './storeel/lib/deviceLocation';
 import { ACTION_TOAST_MS } from './newsletters/lib/blocks';
 import { DOCUSIGN_ENABLED } from '../constants/features.ts';
@@ -89,7 +90,7 @@ interface CreateMemoryProps {
   previewCardButtons?: ReadonlyMap<string, { buttonText: string }>; // Product moments' in-card buttons, by post id
   widgetEditorOpen?: boolean; // One of the campaign page's widget editors is open over this page
   // Chris, 8 Nov 2026 (b), point 2: the campaign page's Send opens this page at the Send card (Edit: at the top), and
-  // the old Publish options are the "Publishing" card after Send (the campaign page renders its body).
+  // the old Publish options are the "Publishing" section at the top of the Send card (the campaign page renders it).
   opensAt?: StepperOpensAt;
   publishing?: React.ReactNode;
 }
@@ -675,7 +676,10 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
   // "All Categories" merges every source (real campaigns + Cars + Shopify) since those two
   // are pulled from separate catalog APIs, not from the regular campaigns list — without this
   // they'd never show up unless the user filters specifically to "Cars"/picks it as the category.
-  const existingCampaignsPickerSource = isCatalogCategory
+  // Edit (Deepak, 9 Nov 2026): the account's campaigns only — vehicles / products are added with Add a Moment there.
+  const existingCampaignsPickerSource = campaignId
+    ? editPickerCampaigns(existingMemories, campaignId)
+    : isCatalogCategory
     ? catalogForPicker
     : isShopifyCategory
     ? shopifyCollections
@@ -1063,10 +1067,28 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
   // Editing a saved campaign (campaignId): no pickers or property here (PUT doesn't change them); its moments are
   // shown in step 2, where the original Add a Moment UI works on the campaign directly.
   const flowEditing = Boolean(campaignId);
+  // Edit's "Select from Existing Campaigns" (Deepak, 9 Nov 2026): changes to the saved links, made by Save Changes.
+  const [linkEdits, setLinkEdits] = useState<LinkChanges>(EMPTY_LINKS);
   // The saved campaign: the one being edited, or the one Save & Send just made.
   const [flowCampaign, setFlowCampaignState] = useState<CampaignSeed | null>(null);
   const flowCampaignRef = useRef<CampaignSeed | null>(null);
   const setFlowCampaign = (seed: CampaignSeed | null) => { flowCampaignRef.current = seed; setFlowCampaignState(seed); };
+  // "Select from Existing Campaigns": on Edit the ticks are the saved links (its campaign moments, so Add a Moment's
+  // links show too) plus linkEdits; on Create, selectedMemoryIds as always.
+  const savedLinks = flowEditing ? savedLinkedCampaignIds(flowCampaign?.previewMoments) : [];
+  const pickerIds = flowEditing ? tickedLinks(savedLinks, linkEdits) : selectedMemoryIds;
+  const pickerToggle = (id: string) => { if (flowEditing) setLinkEdits((d) => toggleLink(savedLinks, d, id)); else toggleSelectedId(id); };
+  const pickerSelectAll = (ids: string[]) => { if (flowEditing) setLinkEdits(setLinks(savedLinks, ids)); else selectAllIds(ids); };
+  const pickerClear = () => { if (flowEditing) setLinkEdits(setLinks(savedLinks, [])); else { setSelectedMemoryIds([]); setCatalogNotice(''); } };
+  const pickerCatalog = isCatalogCategory && !flowEditing;
+  // Every opening starts from the saved links; an Edit whose campaign links campaigns opens the list (ticked).
+  const linksShownForRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (!open) { setLinkEdits(EMPTY_LINKS); linksShownForRef.current = null; return; }
+    if (!flowEditing || !flowCampaign || linksShownForRef.current === flowCampaign.id) return;
+    linksShownForRef.current = flowCampaign.id;
+    if (savedLinkedCampaignIds(flowCampaign.previewMoments).length) setSelectFromExisting(true);
+  }, [open, flowEditing, flowCampaign]);
   // Save & Send made the campaign in this flow (its send not confirmed yet): saving again is a PUT.
   const [flowCreated, setFlowCreated] = useState(false);
   // A caption or moment saved straight to the saved campaign (step 2), and Edit's Save & Send left at the confirm.
@@ -2421,6 +2443,16 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
           moderation: moderationChoice ?? c.moderation,
         });
         setSeededCategory(formData.category);
+        // Edit's "Select from Existing Campaigns" (Deepak, 9 Nov 2026): link the newly ticked, unlink the unticked.
+        if (flowEditing) {
+          const linksOk = await saveLinkChanges(c.id, linkChanges(savedLinkedCampaignIds(c.previewMoments), linkEdits));
+          if (!linksOk) {
+            onCampaignSaved?.(c.id);
+            setSetupError(LINKS_FAILED);
+            showActionError(LINKS_FAILED, 'st-pick-items');
+            return;
+          }
+        }
         onCampaignSaved?.(c.id);
         void triggerMemoryCountsRefresh();
         if (andSend) { setSendRequest((n) => n + 1); if (flowEditing) setChangesSaved(true); }
@@ -2452,6 +2484,24 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
       setIsSubmitting(false);
       setSavingAction(null);
     }
+  };
+
+  /** POST /memories/{id}/linked-memories for the newly ticked (at the end), DELETE …/linked-memories/{id} for the unticked;
+   *  then the saved moments again (so the ticks, step 2 and the preview are the saved state). False: something failed. */
+  const saveLinkChanges = async (id: number, changes: { link: string[]; unlink: string[] }): Promise<boolean> => {
+    if (!changes.link.length && !changes.unlink.length) return true;
+    let ok = true;
+    if (changes.link.length) {
+      const res = await campaignMomentsAPI.addLinkedCampaigns(id, changes.link, null);
+      if (!res.ok) ok = false;
+    }
+    for (const linked of changes.unlink) {
+      const res = await dashboardAPI.removeLinkedMemory(String(id), linked).catch(() => null);
+      if (!res?.success) ok = false;
+    }
+    await refreshSavedMoments(id);
+    if (ok) setLinkEdits(EMPTY_LINKS);
+    return ok;
   };
 
   /** The bottom actions: Save as Draft / Save Changes (save only), Save & Send (save, then confirm). */
@@ -2991,7 +3041,9 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
               </div>
             </div>
 
-            {!flowEditing && !flowCampaign && (<>
+            {/* Back on Edit (Deepak, 9 Nov 2026; hidden there by 2c44261): the same control, ticks = the campaign's linked
+                campaigns + changes here, linked / removed by Save Changes (lib/editLinks). Not after Save & Send made the campaign. */}
+            {(flowEditing || !flowCampaign) && (<>
             {/* Select from Existing Campaigns */}
             <div id="st-pick-items" className="!mt-6 !mb-6 scroll-mt-6">
               <label className="flex items-center gap-2 cursor-pointer select-none">
@@ -3006,7 +3058,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
                   }}
                   className="w-5 h-5 md:w-4 md:h-4 bg-gray-100 border-gray-300 rounded focus:ring-2 focus:ring-[#6C60FF] accent-[#6C60FF]"
                 />
-                <span className="text-base md:text-sm font-medium text-gray-700">{isCatalogCategory ? 'Pick items from your Website Catalogue' : 'Select from Existing Campaigns'}</span>
+                <span className="text-base md:text-sm font-medium text-gray-700">{pickerCatalog ? 'Pick items from your Website Catalogue' : 'Select from Existing Campaigns'}</span>
               </label>
 
               {selectFromExisting && (
@@ -3017,7 +3069,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
                       <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
                       <input
                         type="text"
-                        placeholder={isCatalogCategory ? 'Search items...' : 'Search campaigns...'}
+                        placeholder={pickerCatalog ? 'Search items...' : 'Search campaigns...'}
                         value={memorySearch}
                         onChange={(e) => { setMemorySearch(e.target.value); setVisibleCampaignsCount(CAMPAIGNS_LOAD_BATCH); }}
                         onFocus={() => setIsMemorySearchFocused(true)}
@@ -3029,11 +3081,11 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
                           style={{ zIndex: 100002 }}
                         >
                           {memorySearchSuggestions.length === 0 ? (
-                            <div className="px-3 py-3 text-sm text-gray-400">{isCatalogCategory ? 'No items found' : 'No campaigns found'}</div>
+                            <div className="px-3 py-3 text-sm text-gray-400">{pickerCatalog ? 'No items found' : 'No campaigns found'}</div>
                           ) : (
                             memorySearchSuggestions.map((m: any) => {
                               const id = String(m.id);
-                              const isChecked = selectedMemoryIds.includes(id);
+                              const isChecked = pickerIds.includes(id);
                               const loc = typeof m.location === 'string' ? m.location : (m.location?.formatted || m.location?.address || '');
                               const thumb = m.image_link || m.last_update_img || m.thumbnail || '';
                               // No campaign image → fall back to the author's profile, same as the list below.
@@ -3047,7 +3099,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
                                   type="button"
                                   key={id}
                                   onClick={() => {
-                                    toggleSelectedId(id);
+                                    pickerToggle(id);
                                     setIsMemorySearchFocused(false);
                                   }}
                                   className={`w-full flex items-center gap-3 md:gap-2.5 px-5 py-5 md:px-3 md:py-2.5 text-left border-b border-gray-100 last:border-b-0 transition-colors ${
@@ -3097,7 +3149,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
                               </div>
                             </SelectItem>
                           ))}
-                          {carsAvailable && (
+                          {carsAvailable && !flowEditing && (
                             <SelectItem value={CARS_CATEGORY_NAME}>
                               <div className="flex items-center gap-2">
                                 <div className="w-3 h-3 rounded-full" style={{ backgroundColor: getCategoryColor(CARS_CATEGORY_NAME) }} />
@@ -3123,37 +3175,37 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
                       return matchSearch && matchCat;
                     });
                     const visibleItems = filtered.slice(0, visibleCampaignsCount);
-                    const allSelected = filtered.length > 0 && filtered.every((m: any) => selectedMemoryIds.includes(String(m.id)));
+                    const allSelected = filtered.length > 0 && filtered.every((m: any) => pickerIds.includes(String(m.id)));
 
                     return (
                       <>
                         {/* Select All / Deselect All */}
                         <div className="flex items-center justify-between px-3 py-2 bg-white border-b border-gray-100">
                           <span className="text-xs font-medium text-[#6C60FF] bg-[#6C60FF]/10 px-2 py-0.5 rounded-full">
-                            {isCatalogCategory ? `${selectedMemoryIds.length} / ${CATALOG_MAX_ITEMS} selected` : `${selectedMemoryIds.length} selected`}
+                            {pickerCatalog ? `${pickerIds.length} / ${CATALOG_MAX_ITEMS} selected` : `${pickerIds.length} selected`}
                           </span>
                           <div className="flex items-center gap-2 text-xs">
                             <button
                               type="button"
-                              onClick={() => selectAllIds(filtered.map((m: any) => String(m.id)))}
+                              onClick={() => pickerSelectAll(filtered.map((m: any) => String(m.id)))}
                               className="text-[#6C60FF] font-medium hover:underline"
                             >Select All</button>
                             <span className="text-gray-300">|</span>
                             <button
                               type="button"
-                              onClick={() => { setSelectedMemoryIds([]); setCatalogNotice(''); }}
+                              onClick={pickerClear}
                               className="text-gray-500 font-medium hover:underline"
                             >Deselect All</button>
                           </div>
                         </div>
-                        {isCatalogCategory && catalogNotice && (
+                        {pickerCatalog && catalogNotice && (
                           <p role="status" className="px-3 py-2 text-xs text-amber-700 bg-amber-50 border-b border-amber-100">{catalogNotice}</p>
                         )}
 
                         {/* Memory list — each campaign is its own bordered card. Fixed-height,
                             internally scrollable; more items load in as you near the bottom. */}
                         {visibleItems.length === 0 ? (
-                          <div className="py-6 text-center text-sm text-gray-400">{isCatalogCategory ? 'No items found' : 'No campaigns found'}</div>
+                          <div className="py-6 text-center text-sm text-gray-400">{pickerCatalog ? 'No items found' : 'No campaigns found'}</div>
                         ) : (
                           <div
                             className="space-y-2 p-3 bg-white max-h-80 overflow-y-auto modal-scrollbar"
@@ -3169,7 +3221,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
                           >
                             {visibleItems.map((m: any) => {
                               const id = String(m.id);
-                              const isChecked = selectedMemoryIds.includes(id);
+                              const isChecked = pickerIds.includes(id);
                               const thumb = m.image_link || m.last_update_img || m.thumbnail || '';
                               const loc = typeof m.location === 'string' ? m.location : (m.location?.formatted || m.location?.address || 'Unknown location');
                               const count = m.posts_count || m.photos?.count || m.photos_count || m.media_count || m.new_images || 0;
@@ -3189,7 +3241,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
                                       ? 'border-[#6C60FF] bg-[#6C60FF]/5'
                                       : 'border-gray-200 bg-white hover:bg-gray-50'
                                   }`}
-                                  onClick={() => toggleSelectedId(id)}
+                                  onClick={() => pickerToggle(id)}
                                 >
                                   <input
                                     type="checkbox"
@@ -3224,6 +3276,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
                   })()}
                 </div>
               )}
+              {flowEditing && selectFromExisting ? <p className="mt-2 text-xs text-gray-500">{LINKS_SAVE_NOTE}</p> : null}
             </div>
             </>)}
 
@@ -3731,15 +3784,11 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
               onSent={onStoreelSent}
               onForbidden={() => setSendForbidden(true)}
               onSeePlans={() => setPlansAsk('Upgrade your plan to send more messages this month.')}
+              // "Publish on Send" (Deepak, 9 Nov 2026): the campaign page's publish options at the top of the Send card —
+              // only on a saved campaign opened from its page, which renders them (same calls as before).
+              publishing={publishing && flowCampaign && !flowLoading && !flowLoadError ? publishing : null}
             />
 
-            {/* Publishing (Chris, 8 Nov 2026 (b), point 2): the campaign page's old Publish options — only on a saved
-                campaign opened from its page, which renders the body (same calls as before). */}
-            {publishing && flowCampaign && !flowLoading && !flowLoadError ? (
-              <StepCard number={publishingStepNumber()} title="Publishing" id={PUBLISHING_STEP_ID}>
-                {publishing}
-              </StepCard>
-            ) : null}
 
             {/* The actions, at the end of the list like the newsletter composer's (Chris, 4 Nov: "Just keep going down
                 the list"): save only, or save and then confirm the send. Nothing is saved before one is pressed. Right
