@@ -9,8 +9,8 @@ import ProductFilters from '../components/products/ProductFilters';
 import ProductBulkBar from '../components/products/ProductBulkBar';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '../components/ui/sheet';
 import { useProperty } from '../contexts/PropertyContext';
-import { announceProductsChanged, useProductsStatus } from '../hooks/useProductsStatus';
-import { productsGate, UPGRADE_LINE } from '../utils/products';
+import { announceProductsChanged, PRODUCTS_CHANGED_EVENT, useProductsStatus } from '../hooks/useProductsStatus';
+import { pageToClampTo, productsGate, UPGRADE_LINE } from '../utils/products';
 import { requestUpgrade } from '../utils/planEvents';
 import { BUTTON_PRIMARY, BUTTON_SECONDARY } from '../components/newsletters/lib/ui';
 
@@ -50,13 +50,15 @@ export default function ProductsPage({ onNavigate }: { onNavigate: (page: string
 // Same look as the Campaigns search box and filter selects (gray-50 fill, gray-200 border, white on focus).
 const FIELD = 'h-10 rounded-lg border border-gray-200 bg-gray-50 text-sm text-gray-900 outline-none transition-colors focus:border-[#6C60FF] focus:bg-white focus-visible:ring-2 focus-visible:ring-[#6C60FF]/20';
 
+const DEFAULT_FILTERS: Filters = { status: [], sort: 'updated', page: 1 };
+
 const SORTS: Array<[ProductSort, string]> = [['updated', 'Recently updated'], ['newest', 'Newest'], ['title', 'Title A–Z'], ['price_asc', 'Price: low to high'], ['price_desc', 'Price: high to low']];
 
 function ProductsReady({ onNavigate }: { onNavigate: (page: string) => void }) {
   const { status, refresh } = useProductsStatus();
   const viewKey = useInventoryViewKey();
   const canCreate = Boolean(status?.can_create);
-  const [filters, setFilters] = useState<Filters>({ status: [], sort: 'updated', page: 1 });
+  const [filters, setFilters] = useState<Filters>(() => ({ ...DEFAULT_FILTERS }));
   const [search, setSearch] = useState('');
   const [result, setResult] = useState<PageData | null>(null);
   const [categories, setCategories] = useState<ProductCategory[]>([]);
@@ -64,26 +66,63 @@ function ProductsReady({ onNavigate }: { onNavigate: (page: string) => void }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<number[]>([]);
+  const [bulkNotice, setBulkNotice] = useState<string | null>(null);
   const [editor, setEditor] = useState<{ id: number | null } | null>(null);
   const [categorySheet, setCategorySheet] = useState(false);
   const ticket = useRef(0);
+  const categoryTicket = useRef(0);
+  const keepSelection = useRef(false); // a page clamp after a bulk action keeps what the API skipped selected
+  const shownView = useRef(viewKey);
 
   useEffect(() => {
     const t = window.setTimeout(() => setFilters((f) => ((f.q || '') === search ? f : { ...f, q: search, page: 1 })), 300);
     return () => window.clearTimeout(t);
   }, [search]);
 
+  // Another inventory view (a salesperson's External view ⇄ the account): its categories and ids differ, so start
+  // over. The new filters object reloads the list; the sort stays.
+  useEffect(() => {
+    if (shownView.current === viewKey) return;
+    shownView.current = viewKey;
+    setSearch('');
+    setFilters((f) => ({ ...DEFAULT_FILTERS, sort: f.sort }));
+    setBulkNotice(null);
+  }, [viewKey]);
+
   const load = useCallback(async () => {
     const mine = ++ticket.current;
     setLoading(true);
-    const [list, cats] = await Promise.all([productsAPI.list(filters), productsAPI.categories()]);
+    const list = await productsAPI.list(filters);
     if (mine !== ticket.current) return; // a newer search / filter answered first
+    if (list.ok && list.data) {
+      // Emptied the last page (bulk delete / archive under a status filter): go back to the real last page.
+      const to = pageToClampTo(filters.page ?? 1, list.data.pagination, list.data.items.length);
+      if (to !== null) { keepSelection.current = true; setFilters((f) => ({ ...f, page: to })); return; }
+      setResult(list.data);
+      setError(null);
+    } else setError(list.error || 'Products could not be loaded. Please try again.');
     setLoading(false);
-    if (list.ok && list.data) { setResult(list.data); setError(null); } else setError(list.error || 'Products could not be loaded. Please try again.');
-    if (cats.ok && cats.data) { setCategories(cats.data.categories); setTotal(cats.data.total); }
   }, [filters]);
-  useEffect(() => { void load(); }, [load, viewKey]);
-  useEffect(() => { setSelected([]); }, [viewKey, filters]);
+  useEffect(() => { void load(); }, [load]);
+
+  // Categories: on mount, on a view change and after any products change (this page's or another component's).
+  const loadCategories = useCallback(async () => {
+    const mine = ++categoryTicket.current;
+    const cats = await productsAPI.categories();
+    if (mine !== categoryTicket.current) return;
+    if (cats.ok && cats.data) { setCategories(cats.data.categories); setTotal(cats.data.total); }
+  }, []);
+  useEffect(() => { void loadCategories(); }, [loadCategories, viewKey]);
+  useEffect(() => {
+    const onChanged = () => { void loadCategories(); };
+    window.addEventListener(PRODUCTS_CHANGED_EVENT, onChanged);
+    return () => window.removeEventListener(PRODUCTS_CHANGED_EVENT, onChanged);
+  }, [loadCategories]);
+
+  useEffect(() => {
+    if (keepSelection.current) { keepSelection.current = false; return; }
+    setSelected([]);
+  }, [viewKey, filters]);
 
   const changed = useCallback(async () => { await load(); await refresh(); announceProductsChanged(); }, [load, refresh]);
   const items = result?.items ?? [];
@@ -91,7 +130,8 @@ function ProductsReady({ onNavigate }: { onNavigate: (page: string) => void }) {
   const filtered = Boolean(filters.q || filters.category_id || filters.status?.length || filters.source || filters.price_min || filters.price_max || filters.in_stock);
   const selectedItems = items.filter((p) => selected.includes(p.id));
   const ownCategories = categories.filter((c) => !c.read_only);
-  const toggle = (p: ProductSummary) => setSelected((s) => (s.includes(p.id) ? s.filter((id) => id !== p.id) : [...s, p.id]));
+  const toggle = (p: ProductSummary) => { setBulkNotice(null); setSelected((s) => (s.includes(p.id) ? s.filter((id) => id !== p.id) : [...s, p.id])); };
+  const clearSelection = () => { setSelected([]); setBulkNotice(null); };
   const nav = (
     <ProductCategoryNav categories={categories} total={total} selectedId={filters.category_id ?? null} canEdit={canCreate}
       onSelect={(id) => { setFilters((f) => ({ ...f, category_id: id, page: 1 })); setCategorySheet(false); }} onChanged={changed} />
@@ -126,8 +166,9 @@ function ProductsReady({ onNavigate }: { onNavigate: (page: string) => void }) {
             {SORTS.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
           </select>
         </div>
-        {selectedItems.length > 0 && (
-          <ProductBulkBar selected={selectedItems} categories={ownCategories} onClear={() => setSelected([])} onDone={async () => { setSelected([]); await changed(); }} />
+        {(selectedItems.length > 0 || bulkNotice) && (
+          <ProductBulkBar selected={selectedItems} categories={ownCategories} notice={bulkNotice} onClear={clearSelection}
+            onDone={async ({ message, keepIds }) => { setSelected(keepIds); setBulkNotice(message); await changed(); }} />
         )}
         {loading && !result ? (
           <p className="py-10 text-center text-sm text-gray-500">Loading products…</p>

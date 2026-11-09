@@ -14,6 +14,26 @@ export const BADGE_CLASS: Record<ProductBadge, string> = {
   archived: 'bg-slate-100 text-slate-600 border-slate-300',
 };
 
+export const WEBSITE_DELETE_HINT = "Products from your website can't be deleted. Archive them instead.";
+
+/** The bulk bar's result line (Chris: messages at the bottom of the card), from POST /products/bulk's answer. */
+export function bulkResultMessage(action: 'status' | 'category' | 'delete', r: { updated: number; deleted: number; skipped_ids: number[] }, websiteIds: readonly number[] = []): string {
+  const done = action === 'delete' ? `${r.deleted} deleted` : `${r.updated} updated`;
+  const skipped = r.skipped_ids.length;
+  if (!skipped) return `${done}.`;
+  // The API skips ids that aren't the account's own products, and (delete only) website products.
+  const website = action === 'delete' && r.skipped_ids.every((id) => websiteIds.includes(id));
+  const why = website ? "website products can't be deleted" : "they're no longer available to you";
+  return `${done}, ${skipped} skipped (${why}).`;
+}
+
+/** A page that came back empty past the last page (after a bulk delete / archive) → the page to load instead, else null. */
+export function pageToClampTo(page: number, pagination: { last_page: number }, itemCount: number): number | null {
+  if (itemCount > 0 || page <= 1) return null;
+  const last = Math.max(1, pagination.last_page || 1);
+  return page > last ? last : null;
+}
+
 export const sourceLabel = (p: Pick<ProductSummary, 'origin'>): string => (p.origin === 'website' ? 'Website' : 'Manual');
 
 /** The card's price: main line + struck-through compare-at ('' = none). */

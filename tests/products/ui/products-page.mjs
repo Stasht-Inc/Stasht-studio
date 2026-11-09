@@ -111,10 +111,13 @@ async function open(w, { width, height, path = '/products', view = 'personal', p
       return route.fulfill({ json: { success: true, data: detailOf(found) } });
     }
     if (p === '/products/bulk') {
+      // Like ProductBulk: ids in w.skip (not the account's own) and, on delete, website products are skipped.
       const ids = body.ids || [];
-      if (body.action === 'status') w.products.filter((x) => ids.includes(x.id)).forEach((x) => { x.status = body.status; x.badge = body.status; });
-      if (body.action === 'delete') w.products = w.products.filter((x) => !(ids.includes(x.id) && x.origin === 'manual'));
-      return route.fulfill({ json: { success: true, data: { updated: ids.length, deleted: body.action === 'delete' ? ids.length : 0, skipped_ids: [] } } });
+      const skipped = ids.filter((id) => (w.skip || []).includes(id) || (body.action === 'delete' && w.products.find((x) => x.id === id)?.origin !== 'manual'));
+      const done = ids.filter((id) => !skipped.includes(id));
+      if (body.action === 'status') w.products.filter((x) => done.includes(x.id)).forEach((x) => { x.status = body.status; x.badge = body.status; });
+      if (body.action === 'delete') w.products = w.products.filter((x) => !done.includes(x.id));
+      return route.fulfill({ json: { success: true, data: { updated: body.action === 'delete' ? 0 : done.length, deleted: body.action === 'delete' ? done.length : 0, skipped_ids: skipped } } });
     }
     if (p === '/product-categories' && m === 'GET') return route.fulfill({ json: { success: true, data: { categories: w.categories, total: w.products.length } } });
     if (p === '/product-categories' && m === 'POST') {
@@ -122,6 +125,9 @@ async function open(w, { width, height, path = '/products', view = 'personal', p
       w.categories.push(c);
       return route.fulfill({ status: 201, json: { success: true, data: { category: c } } });
     }
+    // App drops a stored property view that isn't among the account's properties (utils/accountState), so a world that
+    // opens in a property view lists that property here.
+    if (p === '/properties' && m === 'GET') return route.fulfill({ json: { success: true, data: { owned_properties: w.properties || [], shared_properties: [] } } });
     if (p === '/memories' && m === 'GET') return route.fulfill({ json: { success: true, data: { latest_memories: [], sharedWith: [], published: [], shopify: { count: 0, collections: [] }, all_memories: { data: [], pagination: { current_page: 1, per_page: 50, total: 0, last_page: 1 } }, sidebar: { categories: { title: 'Categories', count: 1, items: [{ id: 5, name: 'Campaigns', color: '#6366F1', memory_count: 0, admin_id: null, memories: [] }] }, labels: { title: 'Labels', count: 0, items: [] } }, filters: { authors: [] } } } });
     if (p === '/user/memory-counts') return route.fulfill({ json: { success: true, data: { memory_counts: { total_memories: 4, total_memory_images: 10, published_memories: 0 } } } });
     if (p === '/website-catalogue') return route.fulfill({ json: { success: true, data: { available: true, reason: null, item_count: 1, source: null, scan: null, limits: { item_limit: 500, sync_now_minutes: 15 } } } });
@@ -284,6 +290,53 @@ try {
       expect(await e.page.getByRole('button', { name: 'Import from your website' }).filter({ visible: true }).count() > 0, `${tag}: … and Import from your website`);
       await e.page.screenshot({ path: `${OUT}/${tag}-03-empty.png` });
       await e.context.close();
+
+      // The server's answer shows at the bottom of the bar; what it skipped stays selected.
+      const sk = world({ skip: [602] });
+      const s2 = await open(sk, { width, height });
+      const sc = s2.page.getByTestId('product-card');
+      await sc.first().waitFor({ timeout: 15000 });
+      await sc.filter({ hasText: 'Walnut Chair' }).getByRole('checkbox').check();
+      await sc.filter({ hasText: 'Draft Stool' }).getByRole('checkbox').check();
+      const sbar = s2.page.getByTestId('product-bulk-bar');
+      await sbar.getByRole('button', { name: 'Delete' }).click();
+      await s2.page.getByRole('alertdialog').getByRole('button', { name: 'Delete' }).click();
+      await s2.page.waitForTimeout(800);
+      expect(await sbar.getByText("1 deleted, 1 skipped (they're no longer available to you).").isVisible().catch(() => false), `${tag}: the bulk result shows at the bottom of the bar`);
+      expect(await sbar.getByText('1 selected').isVisible().catch(() => false) && await sc.filter({ hasText: 'Draft Stool' }).getByRole('checkbox').isChecked(), `${tag}: the skipped product stays selected`);
+      expect(await sc.count() === 2, `${tag}: the deleted product left the grid`);
+      await s2.page.screenshot({ path: `${OUT}/${tag}-04-skipped.png` });
+
+      // A website product in the selection: Delete is aria-disabled and described by a visible hint.
+      await sc.filter({ hasText: 'Harbour Sofa' }).getByRole('checkbox').check();
+      const del = sbar.getByRole('button', { name: 'Delete' });
+      const hint = sbar.getByText("Products from your website can't be deleted. Archive them instead.");
+      expect(await hint.isVisible().catch(() => false), `${tag}: the website-delete hint is visible under the bar`);
+      const hintId = await hint.getAttribute('id').catch(() => null);
+      expect(await del.getAttribute('aria-disabled') === 'true' && Boolean(hintId) && await del.getAttribute('aria-describedby') === hintId, `${tag}: Delete is aria-disabled and described by the hint`);
+      await del.click({ force: true });
+      await s2.page.waitForTimeout(300);
+      expect(!(await s2.page.getByRole('alertdialog').count()), `${tag}: … and clicking it opens nothing`);
+      await s2.page.screenshot({ path: `${OUT}/${tag}-05-website-hint.png` });
+      await s2.context.close();
+
+      // A salesperson's External view: the main account's products, read-only — no checkboxes, no bulk bar, no create.
+      const EXT = { id: 31, name: 'Serpa Chrysler (External)', account_type: 'external', is_own_external_account: true, user_id: 959 };
+      const owner = { id: 959, name: 'Serpa Chrysler', profile_image: null, profile_color: '#0062A8' };
+      const xw = world({ canCreate: false, properties: [EXT] });
+      xw.products = xw.products.map((x) => ({ ...x, read_only: true, owner }));
+      xw.categories = xw.categories.map((c) => ({ ...c, read_only: true }));
+      const x = await open(xw, { width, height, path: '/products', view: 'property', property: EXT });
+      const xc = x.page.getByTestId('product-card');
+      await xc.first().waitFor({ timeout: 15000 }).catch(() => {});
+      expect(await xc.count() === 3, `${tag}: External view lists the parent's products`);
+      expect(await xc.getByRole('checkbox').count() === 0, `${tag}: … with no checkboxes`);
+      expect(!(await x.page.getByTestId('product-bulk-bar').count()), `${tag}: … and no bulk bar`);
+      expect(!(await x.page.getByRole('button', { name: 'Add a product' }).filter({ visible: true }).count()), `${tag}: … and no Add a product`);
+      expect(await xc.first().getByText('Shared by Serpa Chrysler').isVisible().catch(() => false), `${tag}: cards say who shared them`);
+      expect(xw.calls.some((c) => c.p === '/products' && c.view === '31'), `${tag}: the list is asked with the property header`);
+      await x.page.screenshot({ path: `${OUT}/${tag}-06-external.png` });
+      await x.context.close();
     }
   }
   // (Tasks 14–15 add their blocks here.)

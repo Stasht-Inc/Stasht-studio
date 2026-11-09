@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import {
   BADGE_LABEL, sourceLabel, priceLine, productQueryString, productsGate, campaignGridHidesCatalogue, showsProductsNav,
   variantCombinations, mergeVariants, moveItem, emptyProductForm, formFromDetail, payloadFromForm, validateProductForm,
-  fieldErrorsFrom, slugFromTitle,
+  fieldErrorsFrom, slugFromTitle, bulkResultMessage, pageToClampTo, WEBSITE_DELETE_HINT,
 } from '../../utils/products.ts';
 
 const status = (over = {}) => ({ pilot: true, available: true, reason: null, can_create: true, counts: { total: 3, manual: 2, website: 1 }, default_currency: 'CAD', ...over });
@@ -160,4 +160,23 @@ test('number-format errors, weight and dimensions payload', () => {
   assert.equal(p.weight_unit, 'lb');
   assert.deepEqual(p.dimensions, { length: 10, width: null, height: 3, unit: 'in' });
   assert.equal(payloadFromForm({ ...g, weight: '' }, ['weight', 'weight_unit']).weight_unit, null);
+});
+
+test('bulk result message: counts, skipped ids and why', () => {
+  assert.equal(bulkResultMessage('status', { updated: 3, deleted: 0, skipped_ids: [] }), '3 updated.');
+  assert.equal(bulkResultMessage('category', { updated: 1, deleted: 0, skipped_ids: [9] }), "1 updated, 1 skipped (they're no longer available to you).");
+  assert.equal(bulkResultMessage('delete', { updated: 0, deleted: 3, skipped_ids: [4] }, [4, 7]), "3 deleted, 1 skipped (website products can't be deleted).");
+  assert.equal(bulkResultMessage('delete', { updated: 0, deleted: 1, skipped_ids: [4, 5] }, [4]), "1 deleted, 2 skipped (they're no longer available to you).");
+  assert.equal(bulkResultMessage('delete', { updated: 0, deleted: 2, skipped_ids: [] }), '2 deleted.');
+  assert.equal(WEBSITE_DELETE_HINT, "Products from your website can't be deleted. Archive them instead.");
+});
+
+test('page clamp: an empty page past the last one goes back to the last page', () => {
+  const pg = (current_page, last_page) => ({ current_page, per_page: 48, total: 0, last_page });
+  assert.equal(pageToClampTo(3, pg(3, 2), 0), 2);
+  assert.equal(pageToClampTo(2, pg(2, 1), 0), 1);
+  assert.equal(pageToClampTo(2, pg(2, 0), 0), 1); // nothing left at all → page 1
+  assert.equal(pageToClampTo(1, pg(1, 1), 0), null); // page 1 empty: the real empty state
+  assert.equal(pageToClampTo(2, pg(2, 2), 0), null); // within range: show what came back
+  assert.equal(pageToClampTo(3, pg(3, 2), 5), null); // items came back: nothing to fix
 });
