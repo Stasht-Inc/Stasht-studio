@@ -1,0 +1,209 @@
+// services/productsAPI.ts — Products (web API /api/react, plan 2026-11-09-products-m1-m2 in the web API repo).
+// GET /products/status answers every account. Every other route is pilot switch + any paid plan, and apiRequest opens
+// the upgrade modal on a 403 plan_required, so callers check useProductsStatus() first (productsGate === 'ready').
+import { apiRequest, fetchWithRateLimitRetry, getApiBaseUrl } from '../utils/authUtils';
+import type { ApiResponse } from '../utils/authUtils';
+import { requestUpgrade } from '../utils/planEvents';
+import { fieldErrorsFrom, productQueryString } from '../utils/products';
+
+export type ProductBadge = 'active' | 'draft' | 'out_of_stock' | 'archived';
+export type ProductStatus = 'draft' | 'active' | 'archived';
+export type StockStatus = 'in_stock' | 'out_of_stock';
+export type ProductSort = 'updated' | 'newest' | 'title' | 'price_asc' | 'price_desc';
+
+export interface ProductsStatus {
+  pilot: boolean; // the account's pilot switch is on (Campaigns no longer shows website product cards)
+  available: boolean;
+  reason: 'not_available' | 'plan_required' | null;
+  can_create: boolean; // false in a salesperson's External view
+  counts: { total: number; manual: number; website: number };
+  default_currency: string;
+}
+
+export interface ProductCategoryRef { id: number; name: string }
+
+export interface ProductSummary {
+  id: number;
+  user_id: number;
+  read_only: boolean;
+  owner?: { id: number; name: string | null; profile_image: string | null; profile_color: string | null };
+  origin: 'website' | 'manual';
+  status: ProductStatus;
+  stock_status: StockStatus;
+  badge: ProductBadge;
+  title: string;
+  price: string | null;
+  compare_at_price: string | null;
+  currency: string | null;
+  price_label: string;
+  compare_at_label: string;
+  price_on_request: boolean;
+  show_price: boolean;
+  main_image: string | null;
+  images_count: number;
+  category: string | null;
+  categories: ProductCategoryRef[];
+  sku: string | null;
+  brand: string | null;
+  url: string | null; // website products: the product's page on the business's website
+  updated_at: string | null;
+}
+
+export interface ProductVariant {
+  id: number;
+  title: string | null;
+  options: Record<string, string>;
+  sku: string | null;
+  barcode: string | null;
+  price: string | null;
+  compare_at_price: string | null;
+  price_label: string;
+  stock_status: StockStatus;
+  quantity: number | null;
+  image_id: number | null;
+  sort_order: number;
+}
+
+export interface ProductMediaItem { id: number; url: string; type: 'photo' | 'video'; sort_order: number }
+
+export interface ProductDetail extends ProductSummary {
+  short_description: string | null;
+  description: string | null;
+  description_html: string | null;
+  product_type: string | null;
+  barcode: string | null;
+  quantity: number | null;
+  availability: 'available' | 'retired';
+  options: Array<{ name: string; values: string[] }>;
+  variants: ProductVariant[];
+  attributes: Array<{ label: string; value: string }>;
+  weight: string | null;
+  weight_unit: string | null;
+  dimensions: { length?: number; width?: number; height?: number; unit?: string } | null;
+  tags: string[];
+  collections: string[];
+  seo: { slug: string | null; title: string | null; description: string | null; share_image: string | null };
+  buy_url: string | null;
+  show_enquire: boolean;
+  media: ProductMediaItem[];
+  editable_fields: string[];
+  internal_notes?: string | null;
+}
+
+export interface ProductsPage {
+  items: ProductSummary[];
+  pagination: { current_page: number; per_page: number; total: number; last_page: number };
+}
+
+export interface ProductCategory { id: number; name: string; from_website: boolean; product_count: number; read_only: boolean }
+
+export interface ProductFilters {
+  q?: string;
+  category_id?: number | null;
+  status?: ProductBadge[];
+  source?: 'website' | 'manual' | '';
+  price_min?: string;
+  price_max?: string;
+  in_stock?: boolean;
+  sort?: ProductSort;
+  page?: number;
+  per_page?: number;
+}
+
+export interface ProductResult<T> {
+  ok: boolean;
+  data?: T;
+  error?: string;
+  code?: string; // not_available, plan_required, read_only, imported_read_only, website_category
+  fieldErrors?: Record<string, string>;
+  fields?: string[];
+}
+
+const GENERIC = 'Something went wrong. Please try again.';
+
+function unwrap<T>(body: unknown): T | undefined {
+  if (body && typeof body === 'object' && !Array.isArray(body) && 'data' in (body as object)) return (body as { data: T }).data;
+  return body as T | undefined;
+}
+
+async function run<T>(request: Promise<ApiResponse<any>>): Promise<ProductResult<T>> {
+  try {
+    const res = await request;
+    if (!res.success) {
+      const raw = res as any;
+      return {
+        ok: false,
+        error: res.message || res.error || GENERIC,
+        code: typeof raw.code === 'string' ? raw.code : undefined,
+        fieldErrors: fieldErrorsFrom(res.errors),
+        fields: Array.isArray(raw.fields) ? raw.fields : undefined,
+      };
+    }
+    return { ok: true, data: unwrap<T>(res.data) };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : GENERIC };
+  }
+}
+
+const json = (method: string, body?: unknown): RequestInit => ({ method, ...(body !== undefined ? { body: JSON.stringify(body) } : {}) });
+
+// Multipart can't go through apiRequest (it forces JSON). Own products only, so no property-view header is needed.
+async function uploadMedia(id: number, file: File): Promise<ProductResult<ProductDetail>> {
+  const token = localStorage.getItem('stasht_token');
+  const form = new FormData();
+  form.append('file', file);
+  let response: Response;
+  try {
+    response = await fetchWithRateLimitRetry(`${getApiBaseUrl()}/products/${encodeURIComponent(String(id))}/media`, {
+      method: 'POST',
+      headers: { Accept: 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      body: form,
+    });
+  } catch {
+    return { ok: false, error: 'The file could not be uploaded. Check your connection and try again.' };
+  }
+  let body: any = null;
+  try {
+    const text = await response.text();
+    body = text ? JSON.parse(text) : null;
+  } catch {
+    body = null;
+  }
+  if (response.ok && body?.success) return { ok: true, data: body.data as ProductDetail };
+  if (response.status === 403 && body?.code === 'plan_required') requestUpgrade(body?.message);
+  const fieldErrors = fieldErrorsFrom(body?.errors);
+  return { ok: false, error: fieldErrors.file || body?.message || 'The file could not be uploaded. Please try again.', code: body?.code, fieldErrors };
+}
+
+const path = (id: number) => `/products/${encodeURIComponent(String(id))}`;
+
+export const productsAPI = {
+  getStatus: (fresh = false) => run<ProductsStatus>(apiRequest('/products/status', { method: 'GET', ...(fresh ? { skipCache: true } : {}) } as RequestInit)),
+  list: (filters: ProductFilters) => run<ProductsPage>(apiRequest(`/products?${productQueryString(filters)}`, { method: 'GET', skipCache: true } as RequestInit)),
+  get: (id: number) => run<ProductDetail>(apiRequest(path(id), { method: 'GET', skipCache: true } as RequestInit)),
+  create: (payload: Record<string, unknown>) => run<ProductDetail>(apiRequest('/products', json('POST', payload))),
+  update: (id: number, payload: Record<string, unknown>) => run<ProductDetail>(apiRequest(path(id), json('PATCH', payload))),
+  remove: (id: number) => run<{ deleted: boolean }>(apiRequest(path(id), json('DELETE'))),
+  duplicate: (id: number) => run<ProductDetail>(apiRequest(`${path(id)}/duplicate`, json('POST', {}))),
+  bulk: (body: { ids: number[]; action: 'status' | 'category' | 'delete'; status?: ProductStatus; category_id?: number; mode?: 'add' | 'replace' }) =>
+    run<{ updated: number; deleted: number; skipped_ids: number[] }>(apiRequest('/products/bulk', json('POST', body))),
+  uploadMedia,
+  orderMedia: (id: number, ids: number[]) => run<ProductDetail>(apiRequest(`${path(id)}/media/order`, json('PUT', { ids }))),
+  removeMedia: (id: number, mediaId: number) => run<ProductDetail>(apiRequest(`${path(id)}/media/${encodeURIComponent(String(mediaId))}`, json('DELETE'))),
+  categories: () => run<{ categories: ProductCategory[]; total: number }>(apiRequest('/product-categories', { method: 'GET', skipCache: true } as RequestInit)),
+  createCategory: (name: string) => run<{ category: ProductCategory }>(apiRequest('/product-categories', json('POST', { name }))),
+  renameCategory: (id: number, name: string) => run<{ category: ProductCategory }>(apiRequest(`/product-categories/${id}`, json('PATCH', { name }))),
+  deleteCategory: (id: number) => run<{ deleted: boolean }>(apiRequest(`/product-categories/${id}`, json('DELETE'))),
+};
+
+/** Every active product (Add a Moment's Products tab), 200 a page, at most 15 pages. [] on any failure. */
+export async function loadProductsForPicker(): Promise<ProductSummary[]> {
+  const out: ProductSummary[] = [];
+  for (let page = 1; page <= 15; page += 1) {
+    const res = await productsAPI.list({ status: ['active'], sort: 'title', page, per_page: 200 }).catch(() => null);
+    if (!res || !res.ok || !res.data) break;
+    out.push(...res.data.items);
+    if (page >= (res.data.pagination?.last_page || 1)) break;
+  }
+  return out;
+}
