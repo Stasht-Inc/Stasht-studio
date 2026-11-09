@@ -224,7 +224,69 @@ try {
       await e.context.close();
     }
   }
-  // (Tasks 13–15 add their blocks here.)
+  if (run('grid')) {
+    for (const [width, height] of [[1280, 900], [390, 844]]) {
+      const tag = `grid-${width}`;
+      const w = world();
+      const { page, context } = await open(w, { width, height });
+      const cards = page.getByTestId('product-card');
+      await cards.first().waitFor({ timeout: 15000 });
+      expect(await cards.count() === 3, `${tag}: three product cards`);
+      const chair = cards.filter({ hasText: 'Walnut Chair' }).first();
+      expect(await chair.getByText('Active', { exact: true }).isVisible(), `${tag}: status badge Active`);
+      expect(await chair.getByText('Manual', { exact: true }).isVisible(), `${tag}: source badge Manual`);
+      expect(await chair.getByText('$500 CAD').evaluate((el) => getComputedStyle(el).textDecorationLine.includes('line-through')), `${tag}: the sale price is struck through`);
+      expect(await cards.filter({ hasText: 'Harbour Sofa' }).getByText('Website', { exact: true }).isVisible(), `${tag}: source badge Website`);
+      expect(await cards.filter({ hasText: 'Draft Stool' }).getByText('Draft', { exact: true }).isVisible(), `${tag}: status badge Draft`);
+      await page.screenshot({ path: `${OUT}/${tag}-01-grid.png`, fullPage: true });
+
+      await page.getByRole('searchbox', { name: 'Search products' }).fill('walnut');
+      await page.waitForTimeout(900);
+      expect(await cards.count() === 1, `${tag}: search "walnut" → one card`);
+      expect(w.calls.some((c) => c.p === '/products' && c.q.includes('q=walnut')), `${tag}: search reaches the API`);
+      await page.getByRole('searchbox', { name: 'Search products' }).fill('');
+      await page.waitForTimeout(900);
+
+      await page.getByRole('button', { name: /^Filters/ }).click();
+      await page.getByRole('checkbox', { name: 'Draft', exact: true }).check(); // exact: the cards' "Select Draft Stool" also matches
+      await page.getByRole('button', { name: 'Apply', exact: true }).click();
+      await page.waitForTimeout(700);
+      expect(await cards.count() === 1 && await cards.first().getByText('Draft Stool').isVisible(), `${tag}: filter Draft → Draft Stool`);
+      expect(await page.getByRole('button', { name: 'Filters (1)' }).isVisible(), `${tag}: the Filters button counts 1`);
+      await page.getByRole('button', { name: 'Filters (1)' }).click();
+      await page.getByRole('button', { name: 'Clear', exact: true }).click();
+      await page.waitForTimeout(700);
+
+      if (width < 768) await page.getByRole('button', { name: 'Categories' }).click();
+      await page.getByRole('navigation', { name: 'Product categories' }).getByRole('button', { name: /^Chairs/ }).filter({ visible: true }).first().click();
+      await page.waitForTimeout(700);
+      expect(await cards.count() === 1, `${tag}: category Chairs → one card`);
+      if (width < 768) await page.getByRole('button', { name: 'Categories' }).click();
+      await page.getByRole('navigation', { name: 'Product categories' }).getByRole('button', { name: /^All products/ }).filter({ visible: true }).first().click();
+      await page.waitForTimeout(700);
+
+      await cards.filter({ hasText: 'Walnut Chair' }).getByRole('checkbox').check();
+      await cards.filter({ hasText: 'Harbour Sofa' }).getByRole('checkbox').check();
+      const bar = page.getByTestId('product-bulk-bar');
+      expect(await bar.getByText('2 selected').isVisible(), `${tag}: the bulk bar says 2 selected`);
+      expect(await bar.getByRole('button', { name: 'Delete' }).isDisabled(), `${tag}: Delete is off while a website product is selected`);
+      await bar.getByRole('combobox', { name: 'Change status' }).selectOption('archived');
+      await page.waitForTimeout(800);
+      const bulk = w.calls.find((c) => c.p === '/products/bulk');
+      expect(bulk && bulk.body.action === 'status' && bulk.body.status === 'archived' && bulk.body.ids.length === 2, `${tag}: bulk archive sent (${JSON.stringify(bulk?.body)})`);
+      expect(await cards.filter({ hasText: 'Walnut Chair' }).getByText('Archived', { exact: true }).isVisible(), `${tag}: the grid shows Archived after it`);
+      await page.screenshot({ path: `${OUT}/${tag}-02-bulk.png` });
+      await context.close();
+
+      const empty = world({ products: [], categories: [] });
+      const e = await open(empty, { width, height });
+      expect(await e.page.getByRole('button', { name: 'Add a product' }).filter({ visible: true }).count() > 0, `${tag}: empty state offers Add a product`);
+      expect(await e.page.getByRole('button', { name: 'Import from your website' }).filter({ visible: true }).count() > 0, `${tag}: … and Import from your website`);
+      await e.page.screenshot({ path: `${OUT}/${tag}-03-empty.png` });
+      await e.context.close();
+    }
+  }
+  // (Tasks 14–15 add their blocks here.)
 } finally {
   await browser.close();
 }
