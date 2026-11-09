@@ -2,7 +2,10 @@
 
 import { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
-import { Plus, LayoutDashboard, BookOpen, FolderOpen, Users, Grid3x3, CheckCircle, Circle, ChevronRight, Upload, FileText, UserPlus, Share, PanelLeft, Plug, Target, UserCircle } from "lucide-react";
+import { Plus, LayoutDashboard, BookOpen, FolderOpen, Users, Grid3x3, CheckCircle, Circle, ChevronRight, Upload, FileText, UserPlus, Share, PanelLeft, Plug, Target, UserCircle, Package } from "lucide-react";
+import { useProductsStatus } from "../hooks/useProductsStatus";
+import { productsGate, showsProductsNav } from "../utils/products";
+import { inventoryViewPropertyId } from "../utils/inventoryView";
 import CreateMemory from "./CreateMemory";
 import { useMemoryLimit } from "../hooks/useMemoryLimit";
 import { dashboardAPI, isPartialAdmin, apiRequest } from "../utils/authUtils";
@@ -281,6 +284,13 @@ export default function Sidebar({
   const { viewType, currentProperty } = useProperty();
   const { isLimitExceeded, limitData, checkLimit } = useMemoryLimit();
   const { memoryCounts, refreshMemoryCounts } = useMemoryCounts();
+  const { status: productsStatus } = useProductsStatus();
+  const productsNavItem = {
+    id: 'products',
+    label: 'Products',
+    icon: <Package className="w-5 h-5" />,
+    count: productsGate(productsStatus) === 'ready' ? productsStatus?.counts.total ?? 0 : undefined,
+  };
   const { isUploading } = useUploadProgress();
   const { syncProgress, clearSync } = useSyncProgress();
   const [showCreateMemory, setShowCreateMemory] = useState(false);
@@ -475,6 +485,10 @@ export default function Sidebar({
           count: memoryCounts?.total_memory_images || 0
         }
       );
+      // A salesperson's own External view: the main account's products, read-only (spec "Salespeople").
+      if (showsProductsNav(productsStatus, 'property', inventoryViewPropertyId(viewType, currentProperty, user) !== null)) {
+        items.push(productsNavItem);
+      }
       if (canManagePropertyWidgets(currentProperty, user)) {
         items.push({
           id: 'marketplace',
@@ -519,6 +533,11 @@ export default function Sidebar({
         count: memoryCounts?.total_memory_images || 0
       }
     );
+
+    // Products: a new item after Media (spec "Where products appear"), only while the account's pilot switch is on.
+    if (showsProductsNav(productsStatus, 'personal', false)) {
+      items.push(productsNavItem);
+    }
 
     // Hide Library for partial admin. Hidden for everyone for now (Chris, ClickUp wdy2xh2b0d: "Don't delete it,
     // just hide it. It isn't useful right now"): set SHOW_LIBRARY_IN_MENU to true to bring it back.
@@ -575,6 +594,12 @@ export default function Sidebar({
           icon: <BookOpen className="w-5 h-5 text-white" />,
           title: 'Campaigns',
           subtitle: 'Manage Storeels'
+        };
+      case 'products':
+        return {
+          icon: <Package className="w-5 h-5 text-white" />,
+          title: 'Products',
+          subtitle: 'Add and Manage'
         };
       case 'media':
         return {

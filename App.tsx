@@ -57,7 +57,11 @@ import { maybeAskForDesktopAlerts } from './components/leads/desktopAlertsPrompt
 import { UploadProgressProvider } from './contexts/UploadProgressContext';
 import { SyncProgressProvider } from './contexts/SyncProgressContext';
 import { GoogleOAuthProvider } from '@react-oauth/google';
-import { LayoutDashboard, FolderOpen, Camera, Users, Grid3x3, Plus, BookOpen, ScanLine, X as XIcon, Clock, Target, MessageSquarePlus } from 'lucide-react';
+import { LayoutDashboard, FolderOpen, Camera, Users, Grid3x3, Plus, BookOpen, ScanLine, X as XIcon, Clock, Target, MessageSquarePlus, Package } from 'lucide-react';
+import ProductsPage from "./pages/ProductsPage";
+import { useProductsStatus } from './hooks/useProductsStatus';
+import { showsProductsNav } from './utils/products';
+import { inventoryViewPropertyId } from './utils/inventoryView';
 import { CameraInterface } from './components/CameraInterface';
 import { AddMomentModal } from './components/AddMomentModal';
 import exifr from 'exifr';
@@ -1173,6 +1177,10 @@ function MainApp() {
     toggleSubSidebarExpansion,
   } = useAppNavigation();
 
+  // Products shows only when /products/status says it is available for this account / view.
+  const { status: productsStatus } = useProductsStatus();
+  const productsNavShown = showsProductsNav(productsStatus, viewType, inventoryViewPropertyId(viewType, currentProperty, user) !== null);
+
   // Paid-plan-only features (Connectors) stay visible on the free plan; using one opens the
   // upgrade plans right where the user is (Chris, 2026-09-28). Asked for by the Connectors page
   // and by apiRequest whenever the API answers 403 plan_required.
@@ -1611,6 +1619,8 @@ function MainApp() {
     } else if (pathname === '/csv-upload') {
       console.log('🔍 Detected /csv-upload URL - setting currentPage to csv-upload');
       handleNavigation('csv-upload');
+    } else if (pathname === '/products' || pathname.startsWith('/products/')) {
+      handleNavigation('products');
     } else if (pathname === '/marketplace' || pathname.startsWith('/marketplace/')) {
       console.log('🔍 Detected /marketplace URL - setting currentPage to marketplace');
       handleNavigation('marketplace');
@@ -3726,6 +3736,7 @@ function MainApp() {
         currentPage !== 'memories' &&
         currentPage !== 'media' &&
         !(currentPage === 'marketplace' && canManagePropertyWidgets(currentProperty, user)) &&
+        !(currentPage === 'products' && inventoryViewPropertyId(viewType, currentProperty, user) !== null) &&
         // A salesperson's own External account has Leads too (utils/salespersonLanding).
         !(currentPage === 'leads' && propertyViewHasLeads(currentProperty, user))
       ) {
@@ -4075,6 +4086,10 @@ function MainApp() {
 
     if (currentPage === "billing") {
       return <BillingPage onNavigateToMemory={handleMemorySelect} />;
+    }
+
+    if (currentPage === "products") {
+      return <ProductsPage onNavigate={handleNavigation} />;
     }
 
     if (currentPage === "leads") {
@@ -4534,7 +4549,7 @@ function MainApp() {
 
         {/* Main Content */}
 <main className={`flex-1 min-w-0 bg-white min-h-[calc(100dvh-5rem)] relative mx-4 md:mx-0 ${
-          currentPage === "users" || currentPage === "leads" || currentPage === "apps" || currentPage === "library" || currentPage === "Media" || currentPage === "Dashboard" || currentPage === "memories" || currentPage === "marketplace" ? "" : "py-5 md:py-6"
+          currentPage === "users" || currentPage === "leads" || currentPage === "apps" || currentPage === "library" || currentPage === "Media" || currentPage === "Dashboard" || currentPage === "memories" || currentPage === "marketplace" || currentPage === "products" ? "" : "py-5 md:py-6"
         } ${shouldShowSubSidebar && !isViewingPublishedEntry
           ? (isSubSidebarExpanded
               ? (isSidebarMinimized ? 'md:ml-[23rem]' : 'md:ml-[39.5rem]')
@@ -4660,7 +4675,8 @@ function MainApp() {
               </button>
             </div>
 
-            <div className="flex items-center justify-around h-24">
+            {/* With Products the bar has one more item: tighter labels so "Dashboard" and "Campaigns" don't collide. Other accounts are unchanged. */}
+            <div className={`flex items-center justify-around h-24 ${productsNavShown ? '[&_span]:tracking-tighter [&_button]:px-0' : ''}`}>
               {/* Dashboard: every role but 3, and role 3 on a paid plan; never in a property view, as the sidebar (utils/planGate) */}
               {phoneBarShowsAccountTools(viewType, showsDashboardAndApps) && (
                 <button
@@ -4716,6 +4732,22 @@ function MainApp() {
                 <Camera className="w-7 h-7 mb-1" />
                 <span className="text-xs font-medium">Media</span>
               </button>
+
+              {productsNavShown && (
+                <button
+                  data-testid="phone-bar-products"
+                  onClick={() => {
+                    handleNavigation("products");
+                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                  }}
+                  className={`flex flex-col items-center justify-center flex-1 min-w-0 py-2 px-0.5 rounded-lg transition-colors ${
+                    currentPage === "products" ? "text-[#6C60FF] bg-[#6C60FF]/10" : "text-gray-500"
+                  }`}
+                >
+                  <Package className="w-7 h-7 mb-1" />
+                  <span className="text-xs font-medium">Products</span>
+                </button>
+              )}
 
               {/* Users tab - visible for all roles */}
               <button
