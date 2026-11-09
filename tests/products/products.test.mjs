@@ -264,3 +264,38 @@ test('option names must differ, ignoring case (the API\'s distinct rule)', () =>
   const form = { ...emptyProductForm('CAD'), title: 'Bench', options: [{ name: 'Colour', values: ['S'] }, { name: ' colour', values: ['Oak'] }, { name: 'Size', values: ['M'] }] };
   assert.deepEqual(validateProductForm(form, MANUAL_FIELDS), { 'options.0.name': 'Each option needs its own name.', 'options.1.name': 'Each option needs its own name.' });
 });
+
+test('swapped or rotated option names (paste / autofill) re-key every row at once: prices stay on their combinations', () => {
+  const rename = (s, i, name) => { const r = renameOption(s.options, s.variants, i, name); return settleOptions(r.options, r.variants); };
+  const blank = { sku: '', compare_at_price: '', stock_status: 'in_stock', quantity: '', image_id: null };
+  const priceOf = (s, combo) => s.variants.find((v) => variantRowKey(v.options) === variantRowKey(combo))?.price;
+
+  // Two-way swap, different value sets: each value keeps its price under its new option name.
+  const two = { options: [{ name: 'Size', values: ['S', 'L'] }, { name: 'Colour', values: ['Oak'] }], variants: [{ id: 9, options: { Size: 'S', Colour: 'Oak' }, ...blank, price: '40' }, { id: 10, options: { Size: 'L', Colour: 'Oak' }, ...blank, price: '50' }] };
+  let s = rename(rename(two, 0, 'Colour'), 1, 'Size');
+  assert.deepEqual(s.options, [{ name: 'Colour', values: ['S', 'L'] }, { name: 'Size', values: ['Oak'] }]);
+  assert.deepEqual(s.variants.map((v) => [v.id, v.options, v.price]), [[9, { Colour: 'S', Size: 'Oak' }, '40'], [10, { Colour: 'L', Size: 'Oak' }, '50']]);
+  assert.deepEqual(validateProductForm({ ...emptyProductForm('CAD'), title: 'X', ...s }, MANUAL_FIELDS), {});
+
+  // Two-way swap, identical value sets: Front=Yes/Back=No must stay the same row (now Back=Yes/Front=No by name).
+  const yes = { options: [{ name: 'Front', values: ['Yes', 'No'] }, { name: 'Back', values: ['Yes', 'No'] }], variants: [] };
+  yes.variants = mergeVariants([], yes.options).map((v, i) => ({ ...v, id: 20 + i, price: String(i) }));
+  const before = yes.variants.map((v) => [v.id, v.options.Front, v.options.Back, v.price]);
+  s = rename(rename(yes, 0, 'Back'), 1, 'Front');
+  assert.ok(s.options.every((o) => o.key === undefined));
+  // Option 0 (values Front had) is now called Back: each row's option-0 value moved to "Back".
+  assert.deepEqual(before.map(([id, f, b, price]) => [id, priceOf(s, { Back: f, Front: b }), price]), before.map(([id, , , price]) => [id, price, price]));
+  assert.equal(s.variants.length, 4);
+
+  // Three-way rotation A→B, B→C, C→A.
+  const three = { options: [{ name: 'A', values: ['a1'] }, { name: 'B', values: ['b1', 'b2'] }, { name: 'C', values: ['c1'] }], variants: [] };
+  three.variants = mergeVariants([], three.options).map((v, i) => ({ ...v, id: 30 + i, price: String(100 + i) }));
+  s = rename(rename(rename(three, 0, 'B'), 1, 'C'), 2, 'A');
+  assert.deepEqual(s.options.map((o) => [o.name, o.key]), [['B', undefined], ['C', undefined], ['A', undefined]]);
+  assert.deepEqual(s.variants.map((v) => [v.id, v.options, v.price]), [[30, { B: 'a1', C: 'b1', A: 'c1' }, '100'], [31, { B: 'a1', C: 'b2', A: 'c1' }, '101']]);
+});
+
+test('an option still keyed to another name never passes validation (safety net)', () => {
+  const form = { ...emptyProductForm('CAD'), title: 'X', options: [{ name: 'Colour', values: ['S'], key: 'Size' }, { name: 'Finish', values: ['Oak'] }] };
+  assert.equal(validateProductForm(form, MANUAL_FIELDS)['options.0.name'], 'Each option needs its own name.');
+});

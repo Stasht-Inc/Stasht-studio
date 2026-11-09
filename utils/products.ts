@@ -155,7 +155,22 @@ export function settleOptions(options: OptionDraft[], variants: VariantDraft[]):
     });
     if (!changed) break;
   }
-  return state;
+  return rekeyAll(state.options, state.variants);
+}
+
+/** Names swapped or rotated in one go (paste / autofill: Size→Colour while Colour→Size): no single rename can go first,
+ *  as each wants a name another option's rows still use. When every option's visible name is set and they are all
+ *  different, every row is re-keyed at once (old key → that option's name) and the keys are cleared. Otherwise the keys
+ *  stay (validateProductForm refuses them). */
+function rekeyAll(options: OptionDraft[], variants: VariantDraft[]): { options: OptionDraft[]; variants: VariantDraft[] } {
+  const pending = options.filter((o) => o.key !== undefined && o.key.trim() !== o.name.trim());
+  if (!pending.length || pending.some((o) => !o.name.trim())) return { options, variants };
+  const targets = options.map((o) => (o.key !== undefined ? o.name.trim() : optionKey(o)));
+  if (new Set(targets.map((t) => t.toLowerCase())).size !== targets.length) return { options, variants };
+  const map = new Map(options.map((o, j) => [optionKey(o), targets[j]]));
+  const nextOptions = options.map((o) => ({ name: o.name, values: o.values }));
+  const rekeyed = variants.map((v) => ({ ...v, options: Object.fromEntries(Object.entries(v.options).map(([k, val]) => [map.get(k) ?? k, val])) }));
+  return { options: nextOptions, variants: mergeVariants(rekeyed, nextOptions) };
 }
 
 /** A row's React key: its option values by the rows' option names (unique per combination, unlike the label). */
@@ -288,6 +303,8 @@ export function validateProductForm(form: ProductForm, editable: readonly string
       const name = o.name.trim().toLowerCase();
       if (!name && o.values.some((v) => v.trim())) e[`options.${i}.name`] = 'Give each option a name.';
       else if (name && form.options.some((x, j) => j !== i && x.name.trim().toLowerCase() === name)) e[`options.${i}.name`] = 'Each option needs its own name.';
+      // Safety net: rows still keyed to another name (settleOptions couldn't re-key them) would not match the options.
+      else if (o.key !== undefined && o.key.trim() !== o.name.trim()) e[`options.${i}.name`] = 'Each option needs its own name.';
     });
   }
   // Variant rows, keyed like the API's errors (variants.N.price …) so each shows under its own field.
