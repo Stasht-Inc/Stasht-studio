@@ -42,6 +42,7 @@ import MergeStoriesModal from "../components/MergeStoriesModal";
 import { UpgradePlanModal } from "../components/UpgradePlanModal";
 import { mapLimit } from "../utils/requestLimit";
 import { runWhenIdle } from "../utils/deferIdle";
+import { hiddenByCollapsedCategory } from "../utils/campaignGridFilter";
 import { useInventoryViewKey } from "../hooks/useInventoryViewKey";
 import NewslettersView from "../components/newsletters/NewslettersView";
 import SegmentedSwitch from "../components/newsletters/SegmentedSwitch";
@@ -894,6 +895,12 @@ function MemoriesPageContent({
     const localOnly = localItems.filter((c: any) => !seen.has((c?.name || '').toLowerCase().trim()));
     return [...serverItems, ...localOnly];
   }, [sidebarData?.categories?.items, categories]);
+
+  // The category rows the sidebar shows: only these can be collapsed to hide their campaigns from the grid.
+  const sidebarCategoryNames = useMemo(
+    () => mergedCategories.map((c: any) => c?.name).filter((n: any): n is string => typeof n === 'string' && n !== ''),
+    [mergedCategories],
+  );
 
   // Stable, ownership-normalized list for the CreateMemory modal. Memoized for the same reason
   // as mergedCategories — a fresh array each render makes the modal's category dropdown blink.
@@ -1796,15 +1803,15 @@ function MemoriesPageContent({
       if (memory.isCars || memory.category?.name === 'Cars') return true;
       // In property view show all memories
       if (viewType === 'property') return true;
-      // Then filter memories based on expanded categories in sidebar
-      if (expandedCategories.length === 0) return true;
-      return expandedCategories.includes(memory.category?.name || memory.property_category?.name || '');
+      // Then filter memories based on expanded categories in sidebar (a category with no sidebar row, e.g. a
+      // published campaign's "Published", can't be collapsed — utils/campaignGridFilter.ts)
+      return !hiddenByCollapsedCategory(memory, expandedCategories, sidebarCategoryNames);
     }).length;
     // Cars/Shopify/Website Catalogue cards aren't part of `memoriesToCount` (they're merged in
     // separately for rendering), so add them in here too — this label should match the
     // number of cards actually shown in the grid below.
     return realCount + carsCards.length + shopifyCards.length + catalogueCards.length;
-  }, [allMemories, latestMemories, propMemories, selectedCategory, expandedCategories, viewType, carsCards, shopifyCards, catalogueCards]);
+  }, [allMemories, latestMemories, propMemories, selectedCategory, expandedCategories, sidebarCategoryNames, viewType, carsCards, shopifyCards, catalogueCards]);
 
   // The Storeels count on the Newsletters | Storeels switch: the cards the Storeels grid shows with no filters (own,
   // shared with you, cars, Shopify, catalogue). No number while they load.
@@ -3022,12 +3029,10 @@ function MemoriesPageContent({
                           if (viewType === 'property') return true;
                           // Then filter memories based on expanded categories in sidebar
                           // If no categories are expanded, show all memories (unless filtered by selectedCategory)
-                          if (expandedCategories.length === 0) return true;
-                          // Show memory if its category is expanded in sidebar, or if it's shared and "Shared With" is expanded
-                          if (memory.isShared) {
-                            return expandedCategories.includes('Shared With');
-                          }
-                          return expandedCategories.includes(memory.category?.name || memory.property_category?.name || '');
+                          // Show memory if its category is expanded in sidebar, or if it's shared and "Shared With" is expanded.
+                          // A category with no sidebar row (e.g. a published campaign's "Published") can't be collapsed,
+                          // so it never hides a card (utils/campaignGridFilter.ts).
+                          return !hiddenByCollapsedCategory(memory, expandedCategories, sidebarCategoryNames);
                         }).filter(memory => {
                           if (!searchQuery.trim()) return true;
                           const q = searchQuery.toLowerCase();
