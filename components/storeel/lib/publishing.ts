@@ -1,6 +1,6 @@
 // Chris 8 Nov 2026 (b), point 2: on the campaign page "Publish" is replaced by "Send", which opens the Storeel stepper
 // (Edit Campaign) at its Send card; Edit still opens it at step 1. Every publish option moves into the stepper's
-// "Publishing" card (4, after Send) — nothing is removed: Publish as View Only / Public / Private (the access-token
+// "Publishing" section, at the top of the Send card (Deepak, 9 Nov 2026) — nothing is removed: Publish as View Only / Public / Private (the access-token
 // link), Unpublish, and the published link's tools. Same calls as before (the campaign page's handlePublish).
 // Pure, so `node --test` loads it.
 
@@ -28,11 +28,16 @@ export function publishStatus(published: unknown): { live: boolean; role: Publis
   return { live: false, role: null, label: null };
 }
 
-export const PUBLISHING_STEP_ID = 'st-step-publishing';
+/** The Publishing section at the top of the Send card (Deepak, 9 Nov 2026: "publish on Send", one card). */
+export const PUBLISHING_SECTION_ID = 'st-publishing';
 
-/** The card after 1 Campaign · 2 Moments · 3 Send (only on a saved campaign opened from its page). */
-export function publishingStepNumber(): number {
-  return 4;
+/** The section's line, as Save & Send behaves (StoreelSendConfirmDialog): unpublished → sending publishes it Public;
+ *  private → it can't be sent; public / view only → nothing to say. */
+export function publishingLine(published: unknown): string | null {
+  const role = publishedRole(published);
+  if (role === 0) return 'Not published. Save & Send publishes it as Public, or publish it now.';
+  if (role === 3) return "Private link only: it can't be sent. Unpublish, then publish it as Public or View Only to send it.";
+  return null;
 }
 
 export type StepperOpensAt = 'campaign' | 'send';
@@ -48,4 +53,4 @@ export function campaignCanOpenStepper(memoryId: unknown): boolean {
 }
 
 /** The send confirm on a private (access-token) campaign: publish it another way first — now in the Publishing card. */
-export const PRIVATE_LINK_SEND_LINE = 'This campaign is shared by private link only. Publish it as Public or View Only in Publishing (below), then send it.';
+export const PRIVATE_LINK_SEND_LINE = 'This campaign is shared by private link only. Publish it as Public or View Only at the top of the Send card, then send it.';
