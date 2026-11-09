@@ -1,4 +1,4 @@
-// The Storeel stepper's "Publishing" card body (Chris, 8 Nov 2026 (b), point 2): the campaign page's Publish button is
+// The Storeel stepper's "Publishing" section (top of the Send card, Deepak 9 Nov 2026) (Chris, 8 Nov 2026 (b), point 2): the campaign page's Publish button is
 // now Send, and every publish option is here instead — nothing removed. Not published: Publish as View Only / Public /
 // Private (the access-token link), the same three choices and descriptions as the old Publish menu. Published: the
 // campaign page's own published box (link, Copy, Share, QR, share message) and Unpublish. Every action is the campaign
@@ -7,7 +7,7 @@ import type { ReactNode } from 'react';
 import { Eye, Globe, Lock } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Progress } from '../ui/progress';
-import { PUBLISH_CHOICES, publishStatus, type PublishRole } from './lib/publishing';
+import { PUBLISH_CHOICES, publishStatus, publishingLine, type PublishRole } from './lib/publishing';
 
 const ICONS: Record<PublishRole, ReactNode> = {
   2: <Eye className="w-6 h-6 text-gray-600 flex-shrink-0 mt-0.5" aria-hidden="true" />,
@@ -32,9 +32,9 @@ export default function CampaignPublishing({ published, canPublish, isPublishing
   const status = publishStatus(published);
   return (
     <div className="space-y-3" data-testid="st-publishing">
-      <p className="text-sm text-gray-600">
-        {status.live ? <>Published · <span className="font-medium text-gray-900">{status.label}</span></> : 'Not published'}
-      </p>
+      {status.live ? <p className="text-sm text-gray-600">Published · <span className="font-medium text-gray-900">{status.label}</span></p> : null}
+      {/* As Save & Send behaves (Deepak, 9 Nov 2026): unpublished → sending publishes it Public; private → can't be sent. */}
+      {publishingLine(published) ? <p className="text-sm text-gray-600">{publishingLine(published)}</p> : null}
       {/* Everything else here waits for Save Changes; these don't (review fix, 8 Nov 2026 (b)). */}
       <p className="text-xs text-gray-500">Publish and Unpublish apply right away. They don't need Save Changes.</p>
 

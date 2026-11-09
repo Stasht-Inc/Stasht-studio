@@ -5,8 +5,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  PUBLISH_CHOICES, PUBLISHING_STEP_ID, publishingStepNumber, publishStatus, opensAtTarget, campaignCanOpenStepper, PRIVATE_LINK_SEND_LINE,
+  PUBLISH_CHOICES, PUBLISHING_SECTION_ID, publishStatus, opensAtTarget, campaignCanOpenStepper, PRIVATE_LINK_SEND_LINE, publishingLine,
 } from '../../components/storeel/lib/publishing.ts';
+import * as publishing from '../../components/storeel/lib/publishing.ts';
 import { FLOW_STEPS } from '../../components/storeel/lib/storeelFlow.ts';
 
 test('the three publish choices of today, in today\'s order and roles, with today\'s descriptions', () => {
@@ -26,10 +27,18 @@ test('publishStatus: 1 public, 2 view only, 3 private (access-token link); anyth
   for (const v of [0, null, undefined, '', '0', 4, 'yes']) assert.deepEqual(publishStatus(v), { live: false, role: null, label: null }, String(v));
 });
 
-test('Publishing is the card after Send (4), with its own id', () => {
-  assert.deepEqual(FLOW_STEPS, ['campaign', 'moments', 'send'], 'the flow itself keeps its three steps (Create has no Publishing)');
-  assert.equal(publishingStepNumber(), 4);
-  assert.equal(PUBLISHING_STEP_ID, 'st-step-publishing');
+test('Publishing is a section at the top of the Send card (Deepak, 9 Nov): no separate card 4', () => {
+  assert.deepEqual(FLOW_STEPS, ['campaign', 'moments', 'send'], 'still three cards');
+  assert.equal(PUBLISHING_SECTION_ID, 'st-publishing');
+  assert.equal('publishingStepNumber' in publishing, false);
+});
+
+test('the Send card\'s publishing line follows what Save & Send does', () => {
+  assert.equal(publishingLine(0), 'Not published. Save & Send publishes it as Public, or publish it now.');
+  assert.equal(publishingLine(null), 'Not published. Save & Send publishes it as Public, or publish it now.');
+  assert.equal(publishingLine(1), null);
+  assert.equal(publishingLine(2), null);
+  assert.equal(publishingLine(3), "Private link only: it can't be sent. Unpublish, then publish it as Public or View Only to send it.");
 });
 
 test('Send opens the stepper at the Send card; Edit (or nothing) at the top', () => {
@@ -44,10 +53,8 @@ test('the stepper opens only on a saved campaign id (else the old Publish contro
   for (const v of ['car:5', 'catalog_item:3', '', null, undefined, 'abc']) assert.equal(campaignCanOpenStepper(v), false, String(v));
 });
 
-test('a private campaign: the send confirm points at Publishing (no longer "on the campaign page")', () => {
-  assert.match(PRIVATE_LINK_SEND_LINE, /private link only/);
-  assert.match(PRIVATE_LINK_SEND_LINE, /in Publishing/);
-  assert.doesNotMatch(PRIVATE_LINK_SEND_LINE, /on the campaign page/);
+test('a private campaign: the send confirm points at the top of the Send card', () => {
+  assert.equal(PRIVATE_LINK_SEND_LINE, 'This campaign is shared by private link only. Publish it as Public or View Only at the top of the Send card, then send it.');
 });
 
 // Review fixes (8 Nov 2026 b): one published normaliser; the device location never replaces a saved campaign's.

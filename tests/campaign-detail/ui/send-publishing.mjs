@@ -119,7 +119,8 @@ async function openCampaign(page) {
 }
 
 const flow = (page) => page.getByRole('dialog', { name: 'Edit Campaign' });
-const pub = (page) => flow(page).locator('#st-step-publishing');
+// Deepak, 9 Nov 2026: "publish on Send" — the Publishing section is at the top of the Send card (no card 4).
+const pub = (page) => flow(page).locator('#st-step-send #st-publishing');
 const inViewport = async (page, loc) => {
   const box = await loc.boundingBox().catch(() => null);
   const vp = page.viewportSize();
@@ -168,13 +169,15 @@ try {
       await page.screenshot({ path: `${OUT}/${tag}-02-send-opens-at-send-step.png` });
 
       // Publishing card: 4, after Send, not published, three choices
-      expect(await pub(page).count() === 1, `${tag}: the Publishing card is in the stepper`);
+      expect(await pub(page).count() === 1, `${tag}: Publishing is a section inside the Send card`);
+      expect(!(await flow(page).locator('#st-step-publishing').count()), `${tag}: no separate Publishing card`);
+      expect(await inViewport(page, pub(page).getByText('Publishing', { exact: true })), `${tag}: Send opens with Publishing at the top of the Send card`);
       const ptext = (await pub(page).textContent()) ?? '';
-      expect(ptext.includes('Publishing') && ptext.includes('Not published'), `${tag}: Publishing says Not published`);
+      expect(ptext.includes('Not published. Save & Send publishes it as Public, or publish it now.'), `${tag}: Publishing says sending publishes it Public (as Save & Send does)`);
       expect(ptext.includes("Publish and Unpublish apply right away. They don't need Save Changes."), `${tag}: Publishing says its changes apply right away`);
       for (const t of ['Publish as View Only', 'Publish as Public', 'Publish as Private', 'Users can only view the campaign, no comments allowed', 'Anyone can view and leave comments', 'Only visible with a valid access token']) expect(ptext.includes(t), `${tag}: Publishing offers "${t}"`);
-      const order = await flow(page).evaluate((el) => ['#st-step-send', '#st-step-publishing', '#st-actions'].map((s) => el.querySelector(s)?.getBoundingClientRect().top ?? -1));
-      expect(order[0] < order[1] && order[1] < order[2], `${tag}: Send, then Publishing, then the actions (${order})`);
+      const order = await flow(page).evaluate((el) => ['#st-step-send', '#st-publishing', '#st-send-to-label', '#st-actions'].map((s) => el.querySelector(s)?.getBoundingClientRect().top ?? -1));
+      expect(order[0] < order[1] && order[1] < order[2] && order[2] < order[3], `${tag}: Send card: Publishing first, then Send to, then the actions (${order})`);
       await pub(page).scrollIntoViewIfNeeded();
       await page.screenshot({ path: `${OUT}/${tag}-03-publishing-not-published.png` });
 
@@ -242,6 +245,7 @@ try {
       await page.getByRole('button', { name: 'Done', exact: true }).filter({ visible: true }).last().click();
       await page.waitForTimeout(600);
       expect(state.publishes.at(-1)?.role === 3 && ((await pub(page).textContent()) ?? '').includes('Published · Private'), `${tag}: Publish as Private → role 3, Published · Private`);
+      expect(((await pub(page).textContent()) ?? '').includes("Private link only: it can't be sent. Unpublish, then publish it as Public or View Only to send it."), `${tag}: Private says it can't be sent`);
       expect(await pub(page).locator(`input[value="${LINK}?access_token=tok123"]`).count() === 1, `${tag}: the private (access-token) link is shown`);
       await pub(page).scrollIntoViewIfNeeded();
       await page.screenshot({ path: `${OUT}/${tag}-08-published-private.png` });
@@ -255,7 +259,7 @@ try {
       const confirm = page.getByRole('dialog', { name: 'Send this Storeel now?' });
       await confirm.waitFor({ timeout: 8000 }).catch(() => {});
       const ctext = (await confirm.textContent().catch(() => '')) ?? '';
-      expect(ctext.includes('Publish it as Public or View Only in Publishing (below), then send it.'), `${tag}: private campaign: the send confirm points at Publishing`);
+      expect(ctext.includes('Publish it as Public or View Only at the top of the Send card, then send it.'), `${tag}: private campaign: the send confirm points at the top of the Send card`);
       expect(await confirm.getByRole('button', { name: 'Send Now' }).isDisabled().catch(() => false), `${tag}: private campaign: Send Now is off`);
       await page.screenshot({ path: `${OUT}/${tag}-08b-private-send-confirm.png` });
       await confirm.getByRole('button', { name: /^(Cancel|Not now|Back)$/ }).first().click().catch(async () => { await page.keyboard.press('Escape'); });
@@ -291,7 +295,7 @@ try {
       await page.waitForTimeout(900);
       expect(await inViewport(page, flow(page).getByPlaceholder('Give your campaign a meaningful title')), `${tag}: Edit opens at step 1 (title in the viewport)`);
       expect((await flow(page).getByPlaceholder('Give your campaign a meaningful title').inputValue()) === 'Thomas Jeeps Inventory', `${tag}: step 1 prefilled`);
-      expect(await pub(page).count() === 1, `${tag}: Publishing is in the stepper from Edit too`);
+      expect(await pub(page).count() === 1, `${tag}: Publishing is in the Send card from Edit too`);
       await page.screenshot({ path: `${OUT}/${tag}-10-edit-opens-at-step-1.png` });
       await page.waitForTimeout(2000); // longer than the device-location answer
       expect((await flow(page).getByPlaceholder(/Enter location/).inputValue()) === 'Toronto, Canada', `${tag}: Edit keeps the saved Location (no device city)`);
