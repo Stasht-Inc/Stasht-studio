@@ -31,7 +31,7 @@ const pageErrors = [];
 const expect = (ok, label) => { if (!ok) failures.push(label); console.log(ok ? '  ok  ' : '  FAIL', label); };
 const browser = await chromium.launch({ headless: true, channel: 'chrome' });
 
-async function open({ width, height, planRequired = false }) {
+async function open({ width, height, planRequired = false, productsOn = false }) {
   const state = { puts: [], sends: [], counts: 0, title: CAMPAIGN.title, deleted: false, created: [], momentCalls: [], itemCalls: 0 };
   const context = await browser.newContext({ viewport: { width, height }, serviceWorkers: 'block', locale: 'en-US', hasTouch: width < 1024, isMobile: width < 1024 });
   await context.addInitScript(([user]) => {
@@ -87,6 +87,17 @@ async function open({ width, height, planRequired = false }) {
       return route.fulfill({ json: { success: true, data: { broadcast_id: 'b1', memory_id: 901, status: 'sent', channels: body.channels, replayed: false, published_now: false, texts_wait_until: null, counts: { recipients: 2, sent: 2, queued: 0, failed: 0, email: { sent: 1, queued: 0, failed: 0 }, sms: { sent: 1, queued: 0, failed: 0 }, skipped: { total: 0 } } } } });
     }
     // Chris, 7 Nov 2026 (point 7): the account's Website Catalogue products and vehicles, and adding them.
+    // Products plan 2026-11-09 Task 15: with the switch on, Products lists manual products too (from /products).
+    if (p === '/products/status') return route.fulfill(productsOn
+      ? { json: { success: true, data: { pilot: true, available: true, reason: null, can_create: true, counts: { total: 3, manual: 1, website: 2 }, default_currency: 'CAD' } } }
+      : { status: 404, json: { success: false, message: 'Not found' } });
+    if (p === '/products' && m === 'GET' && productsOn) {
+      const base = { read_only: false, status: 'active', stock_status: 'in_stock', badge: 'active', compare_at_label: '', price_on_request: false, show_price: true, categories: [], sku: null, brand: null, updated_at: null, user_id: 707 };
+      return route.fulfill({ json: { success: true, data: { items: [
+        { ...base, id: 71, origin: 'manual', title: 'Walnut chair', price_label: '$300', category: null, main_image: img(2), images_count: 1, url: null },
+        { ...base, id: 61, origin: 'website', title: 'Oak bench', price_label: '$450', category: 'Benches', main_image: img(1), images_count: 3, url: 'https://royalwood.example.ca/oak-bench' },
+      ], pagination: { current_page: 1, per_page: 200, total: 2, last_page: 1 } } } });
+    }
     if (p === '/website-catalogue') return route.fulfill({ json: { success: true, data: planRequired ? { available: false, reason: 'plan_required', item_count: 3 } : { available: true, reason: null, item_count: 2 } } });
     if (p === '/website-catalogue/items') {
       state.itemCalls++;
@@ -181,6 +192,20 @@ try {
     expect(t.state.itemCalls === 0, `${tag}: no Business-only items call`);
     await t.page.screenshot({ path: `${OUT}/${tag}-03-plan-gate.png` });
     await t.context.close();
+
+    // Products switch on: the manual product is listed and saved with the website one.
+    const pOn = await open({ width, height, productsOn: true });
+    await openCampaign(pOn.page);
+    await openAddMoment(pOn.page, width);
+    await pOn.page.getByRole('radiogroup', { name: 'Add from' }).getByRole('radio', { name: 'Products' }).click();
+    expect(await pOn.page.getByRole('checkbox', { name: /Walnut chair/ }).isVisible().catch(() => false), `${tag}: Products on → a manual product is listed`);
+    await pOn.page.getByRole('checkbox', { name: /Walnut chair/ }).click();
+    await pOn.page.getByRole('checkbox', { name: /Oak bench/ }).click();
+    await pOn.page.getByRole('button', { name: 'Add all (2)' }).click();
+    await pOn.page.waitForTimeout(1500);
+    const both = pOn.state.momentCalls.find((c) => c.kind === 'catalogue-items');
+    expect(both && JSON.stringify(both.body.catalog_item_ids) === '[71,61]', `${tag}: manual + website ids sent (${JSON.stringify(both?.body)})`);
+    await pOn.context.close();
   }
 } finally {
   await browser.close();

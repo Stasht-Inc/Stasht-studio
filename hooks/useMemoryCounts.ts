@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { dashboardAPI, isPartialAdmin } from '../utils/authUtils';
 import { useAuth } from '../contexts/AuthContext';
 import { catalogueAPI } from '../services/catalogueAPI';
+import { productsAPI } from '../services/productsAPI';
 import { useInventoryViewKey } from './useInventoryViewKey';
 import { inventoryViewRun } from '../utils/inventoryView';
 
@@ -128,6 +129,13 @@ const memoryCountsManager = {
     if (websiteCatalogueLoaded) return;
     websiteCatalogueLoaded = true; // set synchronously so parallel hook instances skip
     const asked = inventoryViewRun(); // as fetchCarsCatalogCount: another view's answer is dropped
+    // Products plan (2026-11-09): with the account's Products switch on, its products are counted on Products, not Campaigns.
+    const products = await productsAPI.getStatus().catch(() => null);
+    if (asked !== inventoryViewRun()) return;
+    if (products && products.ok && products.data?.pilot) {
+      if (globalWebsiteCatalogueCount !== 0) { globalWebsiteCatalogueCount = 0; memoryCountsManager.notify(); }
+      return;
+    }
     try {
       const status = await catalogueAPI.getStatus();
       if (asked !== inventoryViewRun()) return;

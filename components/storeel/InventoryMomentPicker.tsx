@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { Check, Loader2, Search } from 'lucide-react';
 import { catalogueAPI, loadCatalogueForBrowsing } from '../../services/catalogueAPI';
 import { dashboardAPI } from '../../utils/authUtils';
+import { loadProductsForPicker, productsAPI } from '../../services/productsAPI';
+import { productsGate } from '../../utils/products';
 import { useIsStarterPlan } from '../../hooks/usePlan';
 import { requestUpgrade } from '../../utils/planEvents';
 import { catalogGate, inventoryCacheable, type InventoryPick } from './lib/momentPicks';
@@ -71,10 +73,19 @@ export function useInventorySources(enabled: boolean): InventorySources {
     if (cache && cache.key === key && Date.now() - cache.at < CACHE_MS) { setState(cache.value); return undefined; }
     setState((s) => ({ ...s, loading: true }));
     (async () => {
-      const status = await catalogueAPI.getStatus().catch(() => null);
-      const gate = catalogGate(status && status.ok && status.data ? status.data : null, isStarter);
+      const [status, productsStatus] = await Promise.all([
+        catalogueAPI.getStatus().catch(() => null),
+        productsAPI.getStatus().catch(() => null),
+      ]);
+      const catalogueReady = catalogGate(status && status.ok && status.data ? status.data : null, isStarter) === 'ready';
+      // Products plan (2026-11-09): with Products on, the list is every active product — manual ones, plus website ones
+      // while the catalogue itself is available (the API refuses website items otherwise). Off: exactly as before.
+      const productsOn = productsGate(productsStatus && productsStatus.ok ? productsStatus.data : null) === 'ready';
+      const gate = productsOn ? 'ready' : catalogGate(status && status.ok && status.data ? status.data : null, isStarter);
       const [products, cars] = await Promise.all([
-        gate === 'ready' ? loadCatalogueForBrowsing() : Promise.resolve([]),
+        productsOn
+          ? loadProductsForPicker().then((list) => list.filter((p) => p.origin === 'manual' || catalogueReady))
+          : gate === 'ready' ? loadCatalogueForBrowsing() : Promise.resolve([]),
         dashboardAPI.carsGetCatalog().catch(() => null),
       ]);
       const raw = (cars as any)?.data?.data?.cars || (cars as any)?.data?.cars || [];
@@ -84,7 +95,7 @@ export function useInventorySources(enabled: boolean): InventorySources {
       const value: InventorySources = {
         loading: false,
         productGate: gate === 'ready' && products.length === 0 ? 'hidden' : gate,
-        products: products.map((p) => ({ id: p.id, title: p.title || 'Untitled product', main_image: p.main_image, price_label: p.price_label, url: p.url, images_count: p.images_count, category: p.category })),
+        products: products.map((p: any) => ({ id: p.id, title: p.title || 'Untitled product', main_image: p.main_image, price_label: p.price_label, url: p.url, images_count: p.images_count, category: p.categories?.[0]?.name ?? p.category })),
         vehicles,
       };
       // Only a load that fully answered is reused (re-review N3).

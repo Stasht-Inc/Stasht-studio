@@ -666,7 +666,29 @@ try {
       await x.context.close();
     }
   }
-  // (Task 15 adds its block here.)
+  if (run('campaigns')) {
+    for (const [width, height] of [[1280, 900], [390, 844]]) {
+      const tag = `campaigns-${width}`;
+      const on = world();
+      const a = await open(on, { width, height, path: '/memories' });
+      await a.page.waitForTimeout(3000);
+      expect(!(await a.page.getByText('Harbour Sofa', { exact: true }).filter({ visible: true }).count()), `${tag}: switch on → no website product card in Campaigns`);
+      if (width >= 768) {
+        expect(await a.page.getByRole('button', { name: /^Campaigns\s*4$/ }).filter({ visible: true }).count() > 0, `${tag}: sidebar Campaigns 4 (catalogue item not added)`);
+        expect(await a.page.getByRole('button', { name: /^Products\s*3$/ }).filter({ visible: true }).count() > 0, `${tag}: sidebar Products 3`);
+      }
+      await a.page.screenshot({ path: `${OUT}/${tag}-01-switch-on.png` });
+      await a.context.close();
+
+      const off = world({ pilot: false });
+      const b = await open(off, { width, height, path: '/memories' });
+      await b.page.getByText('Harbour Sofa', { exact: true }).filter({ visible: true }).first().waitFor({ timeout: 20000 }).catch(() => {});
+      expect(await b.page.getByText('Harbour Sofa', { exact: true }).filter({ visible: true }).count() > 0, `${tag}: switch off → the website product card is still in Campaigns`);
+      if (width >= 768) expect(await b.page.getByRole('button', { name: /^Campaigns\s*5$/ }).filter({ visible: true }).count() > 0, `${tag}: switch off → sidebar Campaigns 5 (as today)`);
+      await b.page.screenshot({ path: `${OUT}/${tag}-02-switch-off.png` });
+      await b.context.close();
+    }
+  }
 } finally {
   await browser.close();
 }
