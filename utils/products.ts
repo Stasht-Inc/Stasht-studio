@@ -98,9 +98,12 @@ export interface VariantDraft {
   image_id: number | null;
 }
 
+/** The name the variant rows use for an option: its key while one is set (a cleared or clashing name), else its name. */
+const optionKey = (o: OptionDraft): string => (o.key ?? o.name).trim();
+
 export function variantCombinations(options: OptionDraft[], cap = 100): Array<Record<string, string>> {
   const usable = options
-    .map((o) => ({ name: o.name.trim() || (o.key ?? '').trim(), values: [...new Set(o.values.map((v) => v.trim()).filter(Boolean))] }))
+    .map((o) => ({ name: optionKey(o), values: [...new Set(o.values.map((v) => v.trim()).filter(Boolean))] }))
     .filter((o) => o.name && o.values.length);
   if (!usable.length) return [];
   let combos: Array<Record<string, string>> = [{}];
@@ -121,8 +124,6 @@ export function mergeVariants(existing: VariantDraft[], options: OptionDraft[]):
     ?? { options: combo, sku: '', price: '', compare_at_price: '', stock_status: 'in_stock', quantity: '', image_id: null });
 }
 
-const optionKey = (o: OptionDraft): string => (o.key ?? o.name).trim();
-
 /** Option i gets a new name: the variant rows keep everything (ids, prices, SKUs, stock, photos) under the new name.
  *  While the name is empty, or the same as another option's, the rows keep the name they had (o.key). */
 export function renameOption(options: OptionDraft[], variants: VariantDraft[], i: number, name: string): { options: OptionDraft[]; variants: VariantDraft[] } {
@@ -139,6 +140,26 @@ export function renameOption(options: OptionDraft[], variants: VariantDraft[], i
     : v));
   return { options: nextOptions, variants: mergeVariants(renamed, nextOptions) };
 }
+
+/** After any options change: every option still holding an old key tries its visible name again, so a clash that has
+ *  cleared re-keys its rows and no stale key is left. Settles in at most one pass per option. */
+export function settleOptions(options: OptionDraft[], variants: VariantDraft[]): { options: OptionDraft[]; variants: VariantDraft[] } {
+  let state = { options, variants };
+  for (let pass = 0; pass < options.length; pass += 1) {
+    let changed = false;
+    state.options.forEach((o, j) => {
+      if (o.key === undefined) return;
+      const next = renameOption(state.options, state.variants, j, state.options[j].name);
+      if (optionKey(next.options[j]) !== optionKey(state.options[j]) || next.options[j].key !== state.options[j].key) changed = true;
+      state = next;
+    });
+    if (!changed) break;
+  }
+  return state;
+}
+
+/** A row's React key: its option values by the rows' option names (unique per combination, unlike the label). */
+export const variantRowKey = (options: Record<string, string>): string => Object.entries(options).map(([k, v]) => `${k}=${v}`).join('|');
 
 export const variantLabel = (options: Record<string, string>): string => Object.values(options).join(' / ');
 
@@ -264,7 +285,9 @@ export function validateProductForm(form: ProductForm, editable: readonly string
   if (can('currency') && form.currency.trim() && !/^[A-Za-z]{3}$/.test(form.currency.trim())) e.currency = 'Use a three-letter currency code, like CAD.';
   if (can('options')) {
     form.options.forEach((o, i) => {
-      if (!o.name.trim() && o.values.some((v) => v.trim())) e[`options.${i}.name`] = 'Give each option a name.';
+      const name = o.name.trim().toLowerCase();
+      if (!name && o.values.some((v) => v.trim())) e[`options.${i}.name`] = 'Give each option a name.';
+      else if (name && form.options.some((x, j) => j !== i && x.name.trim().toLowerCase() === name)) e[`options.${i}.name`] = 'Each option needs its own name.';
     });
   }
   // Variant rows, keyed like the API's errors (variants.N.price …) so each shows under its own field.

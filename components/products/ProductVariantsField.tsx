@@ -3,7 +3,7 @@
 // Errors use the API's keys: options / options.N.name / options.N.values…, variants / variants.N.<field>.
 import { Plus, X } from 'lucide-react';
 import type { ProductMediaItem } from '../../services/productsAPI';
-import { mergeVariants, renameOption, variantLabel, type OptionDraft, type VariantDraft } from '../../utils/products';
+import { mergeVariants, renameOption, settleOptions, variantLabel, variantRowKey, type OptionDraft, type VariantDraft } from '../../utils/products';
 import { BUTTON_SMALL, LINK_BUTTON, inputClass } from '../newsletters/lib/ui';
 import { ChipsInput } from './ProductSpecsField';
 
@@ -20,7 +20,8 @@ export default function ProductVariantsField({ options, variants, photos, disabl
   options: OptionDraft[]; variants: VariantDraft[]; photos: ProductMediaItem[]; disabled: boolean; errors: Record<string, string>;
   onChange(next: { options: OptionDraft[]; variants: VariantDraft[] }): void;
 }) {
-  const setOptions = (next: OptionDraft[]) => onChange({ options: next, variants: mergeVariants(variants, next) });
+  // Every options change (values, add, remove, rename) ends with settleOptions: a name clash that has cleared re-keys its rows.
+  const setOptions = (next: OptionDraft[]) => onChange(settleOptions(next, mergeVariants(variants, next)));
   const setVariant = (i: number, patch: Partial<VariantDraft>) => onChange({ options, variants: variants.map((v, j) => (j === i ? { ...v, ...patch } : v)) });
   const cell = 'px-1 py-1.5';
   const err = (i: number, field: string) => errors[`variants.${i}.${field}`];
@@ -36,7 +37,7 @@ export default function ProductVariantsField({ options, variants, photos, disabl
           <div className="order-1">
             <input aria-label={`Option ${i + 1} name`} placeholder="Size" maxLength={50} value={o.name} disabled={disabled} className={inputClass(Boolean(errors[`options.${i}.name`]))}
               {...invalidProps(`option-${i}-name-error`, errors[`options.${i}.name`])}
-              onChange={(e) => onChange(renameOption(options, variants, i, e.target.value))} />
+              onChange={(e) => { const r = renameOption(options, variants, i, e.target.value); onChange(settleOptions(r.options, r.variants)); }} />
             <ErrorText id={`option-${i}-name-error`} text={errors[`options.${i}.name`]} />
           </div>
           <div className="order-3 col-span-2 md:order-2 md:col-span-1">
@@ -64,7 +65,7 @@ export default function ProductVariantsField({ options, variants, photos, disabl
               {variants.map((v, i) => {
                 const name = variantLabel(v.options);
                 return (
-                  <tr key={name} className="border-t border-gray-100 align-top">
+                  <tr key={variantRowKey(v.options)} className="border-t border-gray-100 align-top">
                     <td className={`${cell} ${first} break-words pt-3 font-medium text-gray-900`}>{name}</td>
                     <td className={cell}><input aria-label={`${name} price`} inputMode="decimal" value={v.price} disabled={disabled} onChange={(e) => setVariant(i, { price: e.target.value })} className={inputClass(Boolean(err(i, 'price')))} {...invalidProps(eid(i, 'price'), err(i, 'price'))} /><ErrorText id={eid(i, 'price')} text={err(i, 'price')} /></td>
                     <td className={cell}><input aria-label={`${name} compare-at price`} inputMode="decimal" value={v.compare_at_price} disabled={disabled} onChange={(e) => setVariant(i, { compare_at_price: e.target.value })} className={inputClass(Boolean(err(i, 'compare_at_price')))} {...invalidProps(eid(i, 'compare_at_price'), err(i, 'compare_at_price'))} /><ErrorText id={eid(i, 'compare_at_price')} text={err(i, 'compare_at_price')} /></td>

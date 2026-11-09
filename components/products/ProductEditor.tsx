@@ -97,7 +97,8 @@ export default function ProductEditor({ productId, categories, defaultCurrency, 
     const before = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
     const active = document.activeElement;
-    if (active instanceof HTMLElement && !active.closest('[data-testid="product-editor"]')) opener = active;
+    // Not the page body (what has focus after the previous editor's button left with it, on a remount): keep the first opener.
+    if (active instanceof HTMLElement && active !== document.body && !active.closest('[data-testid="product-editor"]')) opener = active;
     return () => {
       document.body.style.overflow = before;
       window.setTimeout(() => {
@@ -214,7 +215,11 @@ export default function ProductEditor({ productId, categories, defaultCurrency, 
   // The browser's (and phone's) Back closes the editor, asking first when there are unsaved edits (as the composer does).
   const backRef = useRef<() => boolean>(() => true);
   backRef.current = () => {
-    if (confirm) return false; // a dialog is open: Back only keeps the editor
+    // A dialog is open (the editor's own or the photo-remove confirm): Back closes that dialog first, as Escape would.
+    if (confirm || document.querySelector('[role="alertdialog"]')) {
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+      return false;
+    }
     if (unsaved) { setConfirm({ kind: 'leave', then: onClose }); return false; }
     onClose();
     return true;
@@ -232,7 +237,8 @@ export default function ProductEditor({ productId, categories, defaultCurrency, 
   };
 
   const onKeyDown = (e: KeyboardEvent) => {
-    if (e.key === 'Escape' && !confirm) { e.stopPropagation(); close(); }
+    // Escape inside a dialog belongs to it (Radix marks it handled); only a bare Escape closes the editor.
+    if (e.key === 'Escape' && !confirm && !e.defaultPrevented && !document.querySelector('[role="alertdialog"]')) { e.stopPropagation(); close(); }
   };
 
   const bottomMessage = message && (message.kind === 'error' || !dirty) ? (

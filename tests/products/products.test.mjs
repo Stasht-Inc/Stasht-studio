@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import {
   BADGE_LABEL, sourceLabel, priceLine, productQueryString, productsGate, campaignGridHidesCatalogue, showsProductsNav,
   variantCombinations, mergeVariants, moveItem, emptyProductForm, formFromDetail, payloadFromForm, validateProductForm,
-  fieldErrorsFrom, slugFromTitle, bulkResultMessage, pageToClampTo, WEBSITE_DELETE_HINT, MANUAL_FIELDS, editableFor, renameOption,
+  fieldErrorsFrom, slugFromTitle, bulkResultMessage, pageToClampTo, WEBSITE_DELETE_HINT, MANUAL_FIELDS, editableFor, renameOption, settleOptions, variantRowKey,
 } from '../../utils/products.ts';
 
 const status = (over = {}) => ({ pilot: true, available: true, reason: null, can_create: true, counts: { total: 3, manual: 2, website: 1 }, default_currency: 'CAD', ...over });
@@ -233,4 +233,34 @@ test('renaming an option keeps every variant row (ids, prices, SKUs, stock, phot
 test('an option with values needs a name (the API\'s sentence)', () => {
   const form = { ...emptyProductForm('CAD'), title: 'Bench', options: [{ name: ' ', values: ['S'] }, { name: '', values: [] }] };
   assert.deepEqual(validateProductForm(form, MANUAL_FIELDS), { 'options.0.name': 'Give each option a name.' });
+});
+
+test('options edited during a name clash: rows keep their data and keys settle once the clash clears', () => {
+  const row = (size, colour, over) => ({ options: { Size: size, Colour: colour }, sku: '', price: '', compare_at_price: '', stock_status: 'in_stock', quantity: '', image_id: null, ...over });
+  const options = [{ name: 'Size', values: ['S', 'L'] }, { name: 'Colour', values: ['Oak'] }];
+  const variants = [row('S', 'Oak', { id: 9, price: '40' }), row('L', 'Oak', { id: 10, price: '50' })];
+  const clash = renameOption(options, variants, 0, 'Colour');
+
+  // B: rename Size → "Colour" (clash), then Colour → "Finish": both rows keep id and price; no key is left over.
+  let s = settleOptions(...Object.values(renameOption(clash.options, clash.variants, 1, 'Finish')));
+  assert.deepEqual(s.options.map((o) => [o.name, o.key]), [['Colour', undefined], ['Finish', undefined]]);
+  assert.deepEqual(s.variants.map((v) => [v.id, v.options, v.price]), [[9, { Colour: 'S', Finish: 'Oak' }, '40'], [10, { Colour: 'L', Finish: 'Oak' }, '50']]);
+
+  // A2: a value added during the clash: the old rows keep their data, one new row, every row key different.
+  const more = clash.options.map((o, i) => (i === 0 ? { ...o, values: [...o.values, 'XL'] } : o));
+  s = settleOptions(more, mergeVariants(clash.variants, more));
+  assert.deepEqual(s.variants.map((v) => [v.id, v.price]), [[9, '40'], [10, '50'], [undefined, '']]);
+  assert.equal(new Set(s.variants.map((v) => variantRowKey(v.options))).size, 3);
+  assert.equal(s.options[0].key, 'Size'); // still clashing: the rows keep "Size"
+
+  // C: the other option deleted during the clash: the clash is gone, so the key settles to the name.
+  const fewer = clash.options.filter((_, j) => j !== 1);
+  s = settleOptions(fewer, mergeVariants(clash.variants, fewer));
+  assert.deepEqual(s.options, [{ name: 'Colour', values: ['S', 'L'] }]);
+  assert.ok(s.variants.every((v) => Object.keys(v.options).join() === 'Colour'));
+});
+
+test('option names must differ, ignoring case (the API\'s distinct rule)', () => {
+  const form = { ...emptyProductForm('CAD'), title: 'Bench', options: [{ name: 'Colour', values: ['S'] }, { name: ' colour', values: ['Oak'] }, { name: 'Size', values: ['M'] }] };
+  assert.deepEqual(validateProductForm(form, MANUAL_FIELDS), { 'options.0.name': 'Each option needs its own name.', 'options.1.name': 'Each option needs its own name.' });
 });

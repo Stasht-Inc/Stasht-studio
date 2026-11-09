@@ -556,6 +556,13 @@ try {
       await editor.getByRole('button', { name: 'Remove Photo 1' }).click();
       const removeDialog = page.getByRole('alertdialog');
       expect(await removeDialog.getByText('Remove photo 1?').isVisible() && !w.calls.some((c) => c.m === 'DELETE' && c.p.includes('/media/')), `${tag}: removing a photo asks first`);
+      // Back while that dialog is open closes the dialog only.
+      await page.goBack();
+      await page.waitForTimeout(500);
+      expect(!(await removeDialog.count()) && await editor.isVisible() && !w.calls.some((c) => c.m === 'DELETE' && c.p.includes('/media/')), `${tag}: Back closes the remove dialog first, the editor stays`);
+      await editor.getByRole('img', { name: 'Photo 1' }).hover().catch(() => {});
+      await editor.getByRole('button', { name: 'Remove Photo 1' }).click();
+      await removeDialog.waitFor();
       await page.waitForTimeout(400); // the dialog's zoom-in
       await page.screenshot({ path: `${OUT}/${tag}-02b-remove-confirm.png` });
       await removeDialog.getByRole('button', { name: 'Remove' }).click();
@@ -611,6 +618,8 @@ try {
       await page.waitForTimeout(1000);
       expect(w.calls.some((c) => c.m === 'DELETE' && c.p === `/products/${copyId}`) && !(await editor.count()), `${tag}: … deletes it and closes the editor`);
       expect(!(await page.getByTestId('product-card').filter({ hasText: 'Pine Table (copy)' }).count()), `${tag}: … and the copy left the grid`);
+      // Opened from "Add a product", remounted on the new product and then on its copy: focus goes back to that button.
+      expect(await page.evaluate(() => (document.activeElement?.textContent || '').includes('Add a product')), `${tag}: after create, duplicate and delete, focus is back on Add a product (${await page.evaluate(() => document.activeElement?.tagName + ' ' + (document.activeElement?.textContent || '').slice(0, 30))})`);
 
       // Closing returns focus to the card that opened the editor; a clean editor closes on Back.
       const chairOpen = page.getByTestId('product-card').filter({ hasText: 'Walnut Chair' }).getByRole('button').first();
