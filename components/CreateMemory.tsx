@@ -56,7 +56,7 @@ import { addWidgetOptions, type AddWidgetKind, type AddWidgetOption } from './wi
 import { postIdsAfterCreate, saveWidgetIntent, widgetAnchorPostId, type PreviewWidget } from './storeel/lib/storeelWidgets';
 import { campaignPreviewMoments, linkedCampaignsMessage, type CampaignPick } from './storeel/lib/momentCampaigns';
 import { opensAtTarget, type StepperOpensAt } from './storeel/lib/publishing';
-import { EMPTY_LINKS, LINKS_FAILED, LINKS_SAVE_NOTE, editPickerCampaigns, linkChanges, savedLinkedCampaignIds, setLinks, tickedLinks, toggleLink, type LinkChanges } from './storeel/lib/editLinks';
+import { EMPTY_LINKS, LINKS_FAILED, LINKS_SAVE_NOTE, editPickerCampaigns, linkChanges, savedLinkedCampaignIds, selectVisible, deselectVisible, tickedLinks, toggleLink, type LinkChanges } from './storeel/lib/editLinks';
 import { detectsDeviceLocation, withDeviceLocation } from './storeel/lib/deviceLocation';
 import { ACTION_TOAST_MS } from './newsletters/lib/blocks';
 import { DOCUSIGN_ENABLED } from '../constants/features.ts';
@@ -1078,8 +1078,10 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
   const savedLinks = flowEditing ? savedLinkedCampaignIds(flowCampaign?.previewMoments) : [];
   const pickerIds = flowEditing ? tickedLinks(savedLinks, linkEdits) : selectedMemoryIds;
   const pickerToggle = (id: string) => { if (flowEditing) setLinkEdits((d) => toggleLink(savedLinks, d, id)); else toggleSelectedId(id); };
-  const pickerSelectAll = (ids: string[]) => { if (flowEditing) setLinkEdits(setLinks(savedLinks, ids)); else selectAllIds(ids); };
-  const pickerClear = () => { if (flowEditing) setLinkEdits(setLinks(savedLinks, [])); else { setSelectedMemoryIds([]); setCatalogNotice(''); } };
+  // Edit (review fix): Select All adds the campaigns shown now; Deselect All unticks only those — a saved link hidden by
+  // the search / category, or not in the list, is never unlinked by them. Create: as always (all of them / none).
+  const pickerSelectAll = (ids: string[]) => { if (flowEditing) setLinkEdits((d) => selectVisible(savedLinks, d, ids)); else selectAllIds(ids); };
+  const pickerClear = (visible: string[]) => { if (flowEditing) setLinkEdits((d) => deselectVisible(savedLinks, d, visible)); else { setSelectedMemoryIds([]); setCatalogNotice(''); } };
   const pickerCatalog = isCatalogCategory && !flowEditing;
   // Every opening starts from the saved links; an Edit whose campaign links campaigns opens the list (ticked).
   const linksShownForRef = useRef<number | null>(null);
@@ -3193,7 +3195,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
                             <span className="text-gray-300">|</span>
                             <button
                               type="button"
-                              onClick={pickerClear}
+                              onClick={() => pickerClear(filtered.map((m: any) => String(m.id)))}
                               className="text-gray-500 font-medium hover:underline"
                             >Deselect All</button>
                           </div>
