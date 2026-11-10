@@ -11,6 +11,7 @@ import { STATUS_STYLES, type LeadStatus } from '../LeadDetailsSidebar';
 import AssigneeControl, { AssigneeBadge } from './AssigneeControl';
 import RowActionButton from './RowActionButton';
 import CampaignDeletedTag from './CampaignDeletedTag';
+import LeadBusinessTag from './LeadBusinessTag';
 import {
   formatInboxDate, formatInboxDateMedium, formatInboxDateShort, inboxExcerpt, isUnread, leadEmail, leadPhone,
 } from '../../utils/leadInbox';
@@ -130,6 +131,7 @@ function MoreMenu({ lead, onSelect, onDelete, onMarkRead }: ActionProps) {
         <div className="px-2 pt-1 pb-2 space-y-0.5">
           <p className="text-sm font-semibold text-gray-900 truncate">{heading}</p>
           <p className="text-xs text-gray-600 truncate">{leadViaLabel(lead)}</p>
+          <LeadBusinessTag lead={lead} />
           {lead.campaign_deleted && <CampaignDeletedTag />}
           <p className="text-xs text-gray-600">First seen {formatInboxDateShort(lead.first_seen_at)}</p>
           <p className="text-xs text-gray-600 truncate">
@@ -276,7 +278,8 @@ export default function LeadsInboxTable(props: Props) {
                     </span>
                   </td>
                   <td className={`${CELL} truncate`}>
-                    {/* The Name column is too narrow for the tag; the excerpt truncates after it. */}
+                    {/* The Name column is too narrow for the tags; the excerpt truncates after them. */}
+                    <LeadBusinessTag lead={lead} className="mr-1.5 align-middle" />
                     {lead.campaign_deleted && <CampaignDeletedTag className="mr-1.5 align-middle" />}
                     {excerptOf(lead, unread)}
                   </td>
@@ -321,6 +324,8 @@ export default function LeadsInboxTable(props: Props) {
                 </span>
               </div>
               <p className={`mt-1 text-sm truncate ${unread ? 'font-medium' : ''}`}>{excerptOf(lead, unread)}</p>
+              {/* Another account's lead: its business on a line of its own (the actions leave no room beside it). */}
+              {lead.account && <div className="mt-1.5 flex min-w-0"><LeadBusinessTag lead={lead} className="max-w-full" /></div>}
               <div className="mt-1 flex items-center justify-between gap-2 min-w-0">
                 <span className="min-w-0 flex items-center gap-1.5">
                   <span className="min-w-0 truncate text-[13px] text-gray-500">{name ? contact : leadViaLabel(lead)}</span>

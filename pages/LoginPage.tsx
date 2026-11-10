@@ -20,6 +20,7 @@ import { getInviteParams, isEmail, isPhoneNumber, isCorrectCollaborator } from '
 import { parsePhonePrefill } from '../utils/phoneUtils';
 import { AccountChoiceModal, getAdminCollaborator, AdminCollaborator } from '../components/AccountChoiceModal';
 import { clearAccountState } from '../utils/accountState';
+import { isInstalledAppWindow } from '../utils/appLaunch';
 
 interface LoginPageProps {
   onLogin: (email: string, password: string, phone_number?: string) => Promise<boolean>;
@@ -28,6 +29,16 @@ interface LoginPageProps {
 }
 
 export default function LoginPage({ onLogin, onSwitchToSignup, onSocialLogin }: LoginPageProps) {
+  // Signed out in a browser tab that came from a lead link (/leads?lead=N; App.tsx keeps it as pending_lead_link).
+  // Not shown inside the installed app window itself — there the hint would point nowhere.
+  const [showOpenInAppHint] = useState(() => {
+    try {
+      const fromLink = /[?&]lead=\d/.test(window.location.search) || !!sessionStorage.getItem('pending_lead_link');
+      return fromLink && !isInstalledAppWindow();
+    } catch {
+      return false;
+    }
+  });
   // Track component renders
   console.log('🔄 ===== LoginPage: Component RENDER START =====');
   console.log('🔄 Render timestamp:', new Date().toISOString());
@@ -2116,7 +2127,15 @@ export default function LoginPage({ onLogin, onSwitchToSignup, onSocialLogin }: 
                       </button>
                     </p>
                   </div>
-                )}  
+                )}
+
+                {/* Opened a lead link (lead email "Open conversation") in a browser that isn't signed in, while the
+                    Stasht app may be open and signed in elsewhere. Sign-in still lands on the lead (App.tsx). */}
+                {showOpenInAppHint && (
+                  <p className="text-center text-xs text-gray-500 mt-4">
+                    Using the Stasht app? Open this link from the app, or turn on &lsquo;Open supported links&rsquo; for Stasht in your browser&apos;s app settings.
+                  </p>
+                )}
               </CardContent>
             </>
           ) : (

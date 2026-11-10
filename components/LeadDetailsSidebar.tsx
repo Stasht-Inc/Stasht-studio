@@ -6,6 +6,7 @@ import type { Lead } from '../services/leadsAPI';
 import AssigneeControl from './leads/AssigneeControl';
 import LeadNotesCard from './leads/LeadNotesCard';
 import CampaignDeletedTag from './leads/CampaignDeletedTag';
+import LeadBusinessTag from './leads/LeadBusinessTag';
 
 export type LeadStatus = 'hot' | 'warm' | 'cold' | 'visited' | 'sold';
 
@@ -83,6 +84,7 @@ export default function LeadDetailsSidebar({
           <div className="min-w-0">
             <p className="text-lg font-semibold text-gray-900 truncate">{leadName}</p>
             <p className="text-sm text-gray-600 truncate">{leadViaLabel(lead)}</p>
+            <LeadBusinessTag lead={lead} className="mt-1" />
             {lead.campaign_deleted && <CampaignDeletedTag className="mt-1" />}
           </div>
         </div>

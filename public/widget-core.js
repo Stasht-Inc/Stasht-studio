@@ -48,6 +48,21 @@ export function configUrl(api, widgetId, host) {
   return host ? `${base}?host=${encodeURIComponent(host)}` : base;
 }
 
+/**
+ * Who's online only (GET /widget-embed/{id}/team), refreshed every TEAM_REFRESH_MS while the page is visible so a
+ * team member who signs out drops off the faces promptly (Chris, 10 Nov 2026).
+ */
+export function teamUrl(api, widgetId) {
+  return `${api}/widget-embed/${encodeURIComponent(widgetId)}/team`;
+}
+export const TEAM_REFRESH_MS = 20000;
+
+/** The config with a fresh who's-online answer applied (anything malformed leaves it unchanged). */
+export function withTeamOnline(config, data) {
+  if (!config || !data || !Array.isArray(data.team_online)) return config;
+  return { ...config, team_online: data.team_online, assistant_online: data.assistant_online === true };
+}
+
 /** Same rule as the server's PhoneCanonicalizer::toE164 — early feedback only, the server is authoritative. */
 export function isPlausiblePhone(raw) {
   const value = String(raw || '').trim();
@@ -609,9 +624,14 @@ export function aiNoticeBefore(messages) {
   return ids;
 }
 
-/** The line drawn when a team member takes over from the AI (Chris, 2026-10-03). */
+/** The line drawn when a team member takes over from the AI (Chris, 2026-10-03), accepts the lead or is assigned it. */
 export function joinedText(name) {
-  return `${String(name || '').trim() || 'A team member'} has joined the conversation`;
+  return `${String(name || '').trim() || 'A team member'} has joined the chat`;
+}
+
+/** The line drawn when the lead is reassigned away from a team member (Chris, 10 Nov 2026: "the previous person LEAVES"). */
+export function leftText(name) {
+  return `${String(name || '').trim() || 'A team member'} has left the chat`;
 }
 
 /**
@@ -632,6 +652,11 @@ export function repJoinedBefore(messages) {
   let lastRep = null;
   for (const m of messages) {
     if (m.from !== 'team' || m.event === 'handback') continue;
+    // Someone left (the lead was reassigned): whoever comes next joins afresh.
+    if (m.event === 'left') {
+      lastRep = null;
+      continue;
+    }
     if (m.isAi) {
       aiEver = true;
       aiSinceRep = true;
@@ -652,8 +677,11 @@ export function repJoinedBefore(messages) {
 // last, behind them. A rep who took over the chat (Studio's "Take over", or simply replying) is in front.
 // The embed reads these through `import * as core` (see the cache note above PRODUCT_CARDS_MAX).
 
-/** The events a rep's "Take over" / "Hand back to Chip" leave in the conversation. */
-export const TAKEOVER_EVENTS = ['takeover', 'handback'];
+/**
+ * The events a rep's "Take over" / "Hand back to Chip" leave in the conversation, and since 10 Nov 2026 'left'
+ * (the lead was reassigned away from that person; whoever it went to then joins with a 'takeover').
+ */
+export const TAKEOVER_EVENTS = ['takeover', 'handback', 'left'];
 
 /** Most people in a face stack; the assistant comes on top of these. */
 export const STACK_PEOPLE_MAX = 4;
@@ -682,7 +710,7 @@ export function handlingRep(messages, now = Date.now()) {
   let handler = null;
   for (const m of Array.isArray(messages) ? messages : []) {
     if (!m || m.from !== 'team') continue;
-    if (m.isAi || m.event === 'handback') handler = null;
+    if (m.isAi || m.event === 'handback' || m.event === 'left') handler = null;
     else if (m.sender) handler = m;
   }
   if (!handler) return null;
@@ -695,11 +723,14 @@ const personKey = (p) => `${p.name}|${p.avatarUrl || ''}|${p.initials}`;
 /**
  * The faces to stack, front first: the rep handling the chat, then the online team (each person once),
  * at most `max` people, then the assistant last. Each is { person } or { assistant }.
+ * While someone handles the chat only they are shown (+ the assistant when its AI is on): Chris, 10 Nov 2026,
+ * "the widget header shows only the current person".
  */
 export function teamStack({ team = [], handler = null, assistant = null, max = STACK_PEOPLE_MAX } = {}) {
   const seen = new Set();
   const people = [];
-  for (const p of [handler, ...(Array.isArray(team) ? team : [])]) {
+  const candidates = handler && typeof handler.name === 'string' ? [handler] : (Array.isArray(team) ? team : []);
+  for (const p of candidates) {
     if (!p || typeof p.name !== 'string' || seen.has(personKey(p))) continue;
     seen.add(personKey(p));
     people.push(p);

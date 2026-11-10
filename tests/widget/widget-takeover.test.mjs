@@ -22,7 +22,8 @@ test('the new helpers are exported for the embed (read through `import * as core
   for (const name of ['assistantFrom', 'handlingRep', 'teamStack', 'headerTitle', 'headerStatusText', 'teaserOnlineText', 'stackPeopleMax']) {
     assert.equal(typeof core[name], 'function', name);
   }
-  assert.deepEqual(TAKEOVER_EVENTS, ['takeover', 'handback']);
+  assert.deepEqual(TAKEOVER_EVENTS, ['takeover', 'handback', 'left']);
+  assert.equal(typeof core.leftText, 'function', 'leftText');
   assert.equal(STACK_PEOPLE_MAX, 4);
   assert.equal(ONLINE_NOW, 'Online now');
   assert.equal(REPLY_SOON, "We'll reply soon");
@@ -102,10 +103,11 @@ test('teamStack: the handler in front, the team once each, at most 4 people, the
   assert.deepEqual(teamStack({ team: [chris] }), [{ person: chris }], 'AI off: people only');
   assert.deepEqual(teamStack({ team: [] }), [], 'nobody and no AI: nothing to stack');
 
+  // Chris 10 Nov 2026: while someone handles the chat, the header shows only them (+ the assistant when its AI is on).
   assert.deepEqual(teamStack({ team: [chris, sam], handler: sam, assistant: chip }).map((f) => f.person?.name ?? 'assistant'),
-    ['Sam', 'Chris', 'assistant'], 'the rep who took over moves to the front');
-  assert.deepEqual(teamStack({ team: [chris], handler: alex, assistant: chip }).map((f) => f.person?.name ?? 'assistant'),
-    ['Alex', 'Chris', 'assistant'], 'shown even when not in the online list');
+    ['Sam', 'assistant'], 'only the person handling the chat, then the assistant');
+  assert.deepEqual(teamStack({ team: [chris], handler: alex }).map((f) => f.person?.name ?? 'assistant'),
+    ['Alex'], 'shown even when not in the online list; AI off: no assistant');
   assert.deepEqual(teamStack({ team: [chris, sam, alex, jo, kim], assistant: chip }).map((f) => f.person?.name ?? 'assistant'),
     ['Chris', 'Sam', 'Alex', 'Jo', 'assistant'], 'four people, then the assistant');
   assert.equal(teamStack({ team: [chris, sam, alex], assistant: chip, max: 2 }).length, 3, 'a narrow panel: two people + the assistant');
@@ -143,4 +145,40 @@ test('stackPeopleMax: two people on a phone-width panel, else four', () => {
   assert.equal(stackPeopleMax(360), 4);
   assert.equal(stackPeopleMax(300), 2);
   assert.equal(stackPeopleMax(undefined), 4);
+});
+
+// ---- Team leads (Chris 10 Nov 2026): reassigning makes the previous person leave -------------------------------
+const left = (id, hours, name = 'Chris') => ({ ...rep(id, hours, name), event: 'left' });
+
+test('a left event is kept for the log, never a bubble, and drawn as "{name} has left the chat"', () => {
+  const m = chatMessageFrom({ id: 9, from: 'team', body: '', event: 'left', sender: { name: 'Brenna', initials: 'B', color: '#6C60FF' }, sent_at: '2026-11-10T10:00:00Z' });
+  assert.equal(m.event, 'left');
+  assert.equal(m.sender.name, 'Brenna');
+  assert.equal(core.leftText(' Brenna '), 'Brenna has left the chat');
+  assert.equal(core.leftText(''), 'A team member has left the chat');
+  assert.equal(core.joinedText('Lindsay'), 'Lindsay has joined the chat');
+  assert.equal(hasUnreadTeamMessage([visitor(1, 0), left(2, 1)], at(0.5).getTime()), false, 'no unread dot');
+});
+
+test('reassigned: Brenna leaves, Lindsay joins and handles the chat (and is the only face)', () => {
+  const now = at(1).getTime();
+  const list = [visitor(1, 0), takeover(2, 0.1, 'Brenna'), rep(3, 0.2, 'Brenna'), left(4, 0.5, 'Brenna'), takeover(5, 0.5, 'Lindsay')];
+  assert.equal(handlingRep(list, now).name, 'Lindsay');
+  assert.equal(handlingRep(list.slice(0, 4), now), null, 'left and nobody joined: nobody handles it');
+  assert.deepEqual([...repJoinedBefore(list)], [2, 5], 'a joined line for each person, in the events\' place');
+  const stack = teamStack({ team: [person('Chris'), person('Brenna')], handler: handlingRep(list, now) });
+  assert.deepEqual(stack.map((f) => f.person.name), ['Lindsay']);
+});
+
+// ---- Who's online refresh (Chris 10 Nov 2026: a team member who signs out drops off promptly) -------------------
+test('teamUrl / withTeamOnline: the faces refresh from the team endpoint, junk answers change nothing', () => {
+  assert.equal(core.teamUrl('https://studio.example/api/react', 'w_abc'), 'https://studio.example/api/react/widget-embed/w_abc/team');
+  assert.equal(core.TEAM_REFRESH_MS, 20000);
+  const cfg = { business_name: 'Royal Wood', team_online: [person('Brenna')], assistant_online: true };
+  const next = core.withTeamOnline(cfg, { team_online: [], assistant_online: true });
+  assert.deepEqual(next.team_online, [], 'Brenna signed out: gone');
+  assert.equal(next.business_name, 'Royal Wood', 'the rest of the config kept');
+  assert.equal(core.withTeamOnline(cfg, null), cfg);
+  assert.equal(core.withTeamOnline(cfg, { team_online: 'x' }), cfg);
+  assert.equal(core.withTeamOnline(null, { team_online: [] }), null);
 });

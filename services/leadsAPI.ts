@@ -79,6 +79,8 @@ export interface LeadMessage {
   attachments?: LeadMessageAttachment[];
   // The website widget's after-hours AI wrote it (a reply or its after-hours notice).
   is_ai?: boolean;
+  // Who on the team wrote an outbound reply (several people answer one lead), null for the AI / inbound.
+  sender_name?: string | null;
 }
 
 export interface Lead {
@@ -118,6 +120,9 @@ export interface Lead {
   // Switched in as an Admin / Partial Admin and the owner only holds this widget lead on arrival: it can be accepted.
   can_accept?: boolean;
   can_delete?: boolean;
+  // Another account's lead in your own Leads list (team leads, Chris 10 Nov 2026): the business it is for. Null for
+  // your own account's leads.
+  account?: { owner_id: number; name: string | null } | null;
   // Shared note (ClickUp wdy2xh13mn): readable by anyone who sees the lead.
   notes?: string | null;
   notes_updated_at?: string | null;
@@ -354,7 +359,7 @@ export const leadsAPI = {
   },
 
   acceptLead: async (leadId: number) => {
-    return apiRequest<{ lead_id: number; assignee: LeadAssignee | null; taken_by?: LeadAssignee; message?: string }>(
+    return apiRequest<{ lead_id: number; assignee: LeadAssignee | null; taken_by?: LeadAssignee; message?: string; can_assign?: boolean }>(
       `/leads/${leadId}/accept`, { method: 'POST' },
     );
   },
