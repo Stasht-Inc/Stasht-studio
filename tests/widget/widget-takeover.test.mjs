@@ -169,3 +169,16 @@ test('reassigned: Brenna leaves, Lindsay joins and handles the chat (and is the 
   const stack = teamStack({ team: [person('Chris'), person('Brenna')], handler: handlingRep(list, now) });
   assert.deepEqual(stack.map((f) => f.person.name), ['Lindsay']);
 });
+
+// ---- Who's online refresh (Chris 10 Nov 2026: a team member who signs out drops off promptly) -------------------
+test('teamUrl / withTeamOnline: the faces refresh from the team endpoint, junk answers change nothing', () => {
+  assert.equal(core.teamUrl('https://studio.example/api/react', 'w_abc'), 'https://studio.example/api/react/widget-embed/w_abc/team');
+  assert.equal(core.TEAM_REFRESH_MS, 20000);
+  const cfg = { business_name: 'Royal Wood', team_online: [person('Brenna')], assistant_online: true };
+  const next = core.withTeamOnline(cfg, { team_online: [], assistant_online: true });
+  assert.deepEqual(next.team_online, [], 'Brenna signed out: gone');
+  assert.equal(next.business_name, 'Royal Wood', 'the rest of the config kept');
+  assert.equal(core.withTeamOnline(cfg, null), cfg);
+  assert.equal(core.withTeamOnline(cfg, { team_online: 'x' }), cfg);
+  assert.equal(core.withTeamOnline(null, { team_online: [] }), null);
+});

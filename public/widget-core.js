@@ -48,6 +48,21 @@ export function configUrl(api, widgetId, host) {
   return host ? `${base}?host=${encodeURIComponent(host)}` : base;
 }
 
+/**
+ * Who's online only (GET /widget-embed/{id}/team), refreshed every TEAM_REFRESH_MS while the page is visible so a
+ * team member who signs out drops off the faces promptly (Chris, 10 Nov 2026).
+ */
+export function teamUrl(api, widgetId) {
+  return `${api}/widget-embed/${encodeURIComponent(widgetId)}/team`;
+}
+export const TEAM_REFRESH_MS = 20000;
+
+/** The config with a fresh who's-online answer applied (anything malformed leaves it unchanged). */
+export function withTeamOnline(config, data) {
+  if (!config || !data || !Array.isArray(data.team_online)) return config;
+  return { ...config, team_online: data.team_online, assistant_online: data.assistant_online === true };
+}
+
 /** Same rule as the server's PhoneCanonicalizer::toE164 — early feedback only, the server is authoritative. */
 export function isPlausiblePhone(raw) {
   const value = String(raw || '').trim();

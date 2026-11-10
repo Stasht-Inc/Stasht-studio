@@ -1211,6 +1211,29 @@ async function init() {
   if (typeof ResizeObserver !== 'undefined') new ResizeObserver(reportSize).observe(root);
   render();
   schedulePoll();
+  scheduleTeamRefresh();
+}
+
+// Who's online, refreshed while the page is visible (10 Nov 2026: someone who signs out drops off promptly). Through
+// `core`: a cached older widget-core.js lacks these helpers, and the faces then stay as loaded.
+function scheduleTeamRefresh() {
+  if (typeof core.teamUrl !== 'function' || typeof core.withTeamOnline !== 'function') return;
+  setTimeout(async () => {
+    if (document.visibilityState === 'visible') {
+      try {
+        const res = await fetch(core.teamUrl(API, widgetId), { headers: { Accept: 'application/json' } });
+        const body = res.ok ? await res.json() : null;
+        const next = core.withTeamOnline(state.config, body?.data);
+        const changed = next !== state.config && (JSON.stringify(next.team_online) !== JSON.stringify(state.config.team_online)
+          || next.assistant_online !== state.config.assistant_online);
+        if (changed) {
+          state.config = next;
+          render();
+        }
+      } catch { /* offline: keep the faces we have */ }
+    }
+    scheduleTeamRefresh();
+  }, core.TEAM_REFRESH_MS || 20000);
 }
 
 init();
