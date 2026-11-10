@@ -424,7 +424,21 @@ try {
     await page.waitForTimeout(400);
     box = await sheetBox(page);
     expect(box && box.height === 844, `${tag}: keyboard closed: full screen again (${box?.height})`);
+    // Re-review R1(a): a field focused in landscape, then rotated to portrait with the keyboard up — still followed.
     await setVV(page, null);
+    await page.setViewportSize({ width: 844, height: 390 });
+    await page.waitForTimeout(400);
+    await title.focus();
+    await page.waitForTimeout(200);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.waitForTimeout(300);
+    await setVV(page, 500);
+    await page.waitForTimeout(400);
+    box = await sheetBox(page);
+    expect(box && box.height === 500, `${tag}: focused in landscape, rotated to portrait with the keyboard up (500): the sheet follows it (${box?.height})`);
+    await title.evaluate((e) => e.blur());
+    await setVV(page, null);
+    await page.waitForTimeout(300);
     await page.close();
   }
 

@@ -1,5 +1,5 @@
 import { useEffect, type RefObject } from 'react';
-import { keyboardSheetBox, isKeyboardEditable, keyboardUp } from '../utils/visualViewport';
+import { keyboardSheetBox, isKeyboardEditable, keyboardUp, focusBaselineAfterResize } from '../utils/visualViewport';
 
 /**
  * Keeps a full-screen fixed sheet inside the visual viewport on phones WHILE THE KEYBOARD IS UP, so content pinned
@@ -23,6 +23,7 @@ export function useVisualViewportSheet(ref: RefObject<HTMLElement | null>, activ
     let frame = 0;
     // The visual viewport's height when a text field got focus (0 = none focused).
     let heightAtFocus = 0;
+    let lastWidth = window.innerWidth;
 
     const clear = () => {
       el.style.removeProperty('--vv-top');
@@ -49,18 +50,25 @@ export function useVisualViewportSheet(ref: RefObject<HTMLElement | null>, activ
       schedule();
     };
 
+    // Rotation while a field is focused: re-base on the new layout height (re-review R1(a)).
+    const onWindowResize = () => {
+      heightAtFocus = focusBaselineAfterResize(heightAtFocus, lastWidth, window.innerWidth, window.innerHeight, isKeyboardEditable(document.activeElement));
+      lastWidth = window.innerWidth;
+      schedule();
+    };
+
     if (isKeyboardEditable(document.activeElement)) heightAtFocus = vv?.height ?? 0;
     apply();
     vv?.addEventListener('resize', schedule);
     vv?.addEventListener('scroll', schedule);
-    window.addEventListener('resize', schedule);
+    window.addEventListener('resize', onWindowResize);
     document.addEventListener('focusin', onFocusIn);
     document.addEventListener('focusout', schedule);
     return () => {
       if (frame) window.cancelAnimationFrame(frame);
       vv?.removeEventListener('resize', schedule);
       vv?.removeEventListener('scroll', schedule);
-      window.removeEventListener('resize', schedule);
+      window.removeEventListener('resize', onWindowResize);
       document.removeEventListener('focusin', onFocusIn);
       document.removeEventListener('focusout', schedule);
       clear();

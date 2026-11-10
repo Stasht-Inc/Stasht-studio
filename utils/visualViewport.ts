@@ -93,3 +93,19 @@ export function keyboardUp(heightAtFocus: number, height: number, minDrop = 120)
 export function shouldNudge(scheduledScrollY: number, scrollY: number, coarsePointer: boolean): boolean {
   return coarsePointer && Math.abs(scrollY - scheduledScrollY) < 1;
 }
+
+/**
+ * Re-review R1(a): a rotation (the layout width changes) while a field is focused re-bases the focus-time height on
+ * the new layout height, so a keyboard that is up after the rotation still counts as a drop. Other resizes (the
+ * keyboard itself) keep the baseline.
+ */
+export function focusBaselineAfterResize(
+  heightAtFocus: number,
+  previousWidth: number,
+  width: number,
+  layoutHeight: number,
+  editing: boolean,
+): number {
+  if (!editing || width === previousWidth) return heightAtFocus;
+  return layoutHeight;
+}

@@ -86,3 +86,14 @@ test('shouldNudge: touch screens only, and not if the page moved meanwhile', () 
   assert.equal(shouldNudge(1200, 1260, true), false); // user is scrolling / flinging
   assert.equal(shouldNudge(1200, 1200, false), false); // mouse / desktop
 });
+
+// Re-review R1(a): rotating while a field is focused re-bases the focus-time height on the new layout height, so a
+// keyboard that is up after the rotation still counts as a drop.
+import { focusBaselineAfterResize } from '../../utils/visualViewport.ts';
+
+test('focusBaselineAfterResize: re-base on a width change while editing only', () => {
+  assert.equal(focusBaselineAfterResize(390, 844, 390, 844, true), 844); // landscape → portrait, field focused
+  assert.equal(focusBaselineAfterResize(390, 844, 844, 844, true), 390); // same width (keyboard resize): keep
+  assert.equal(focusBaselineAfterResize(0, 844, 390, 844, false), 0); // nothing focused: stays unset
+  assert.equal(keyboardUp(focusBaselineAfterResize(390, 844, 390, 844, true), 500), true);
+});
