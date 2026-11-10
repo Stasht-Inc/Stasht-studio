@@ -19,6 +19,7 @@ import { mockPosts } from "../data/mockPosts";
 import { getMemoryDetails } from "../data/memoryData";
 import { getCategoryColorHex, getCategoryIcon, formatDate, sanitizeAiCreatorText, isCarCampaign } from "../utils/memoryUtils";
 import { displayWebsite } from "../utils/displayUrl";
+import { pullTouchApplies } from "../utils/pullToRefresh";
 import { carOwnerAuthor, inventoryItemIsReadOnly, inventoryOwnerAuthor, isCarPhotoId, mediaItemIsReadOnly } from "../utils/salespersonLanding";
 import { getCategoryColor } from "../constants/mediaConstants";
 import { triggerMemoryCountsRefresh } from '../hooks/useMemoryCounts';
@@ -79,6 +80,8 @@ import CreateMemory from "../components/CreateMemory";
 import { seedFromMemory } from "../components/storeel/lib/storeelFlow";
 import PublishedLinkPanel from "../components/campaign/PublishedLinkPanel";
 import CampaignPublishing from "../components/storeel/CampaignPublishing";
+import { PublishChoiceProvider } from "../components/storeel/PublishChoice";
+import { switchNeedsRepublish } from "../components/storeel/lib/publishing";
 import { campaignCanOpenStepper, publishedRole, type StepperOpensAt } from "../components/storeel/lib/publishing";
 import { campaignPageInventory } from "../components/storeel/campaignPageInventory";
 import { campaignModerationOf, moderationTabVisible } from "../components/storeel/lib/moderation";
@@ -87,6 +90,7 @@ import { isInCardProductButton, productButtonsByPost } from "../utils/productCar
 import { AddWidgetMenu, ADD_WIDGET_PANEL, addWidgetOptions, type AddWidgetKind } from "../components/widgets/AddWidgetChooser";
 import { previewCardButtons, previewWidgetsFrom, takeWidgetIntent } from "../components/storeel/lib/storeelWidgets";
 import { isPinnedCta, isTimelineCta } from "../utils/timelineWidgets";
+import { addSlotAfter, collaboratorAddWidgetOptions } from "../utils/timelineAddSlots";
 const samanthaAvatar = 'https://images.unsplash.com/photo-1494790108755-2616b612b5bc?w=100&h=100&fit=crop';
 
 // Helper: convert S3 URL to proxied path so auth headers work and canvas doesn't get tainted
@@ -1000,6 +1004,9 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
   const [isMobileCoverPublishOpen, setIsMobileCoverPublishOpen] = useState(false);
   const [isHeaderShrunk, setIsHeaderShrunk] = useState(false);
   const [mobileHeaderMode, setMobileHeaderMode] = useState<'hidden' | 'expanded' | 'compact'>('hidden');
+  // Phone top bar (Back · Edit Cover · ⋯ · Send) pinned once the cover's top has scrolled past the top (Chris, 9 Nov 2026).
+  const [phoneBarPinned, setPhoneBarPinned] = useState(false);
+  const mobileScrollSyncRef = useRef<(() => void) | null>(null);
   const mobileCoverRef = useRef<HTMLDivElement>(null);
   const mobileInfoRef = useRef<HTMLDivElement>(null);
   // The published box's share menu, QR and share message live in components/campaign/PublishedLinkPanel.tsx.
@@ -1608,6 +1615,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
         const coverEl = mobileCoverRef.current;
         const infoEl = mobileInfoRef.current;
         if (coverEl) {
+          setPhoneBarPinned(coverEl.getBoundingClientRect().top < 0);
           const coverBottom = coverEl.getBoundingClientRect().bottom;
           if (coverBottom > 60) {
             setMobileHeaderMode('hidden');
@@ -1626,11 +1634,24 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
     };
 
     window.addEventListener('scroll', handleScroll);
+    // Also on resize / rotation and once mounted (a restored scroll position), not only on the next scroll (review M3).
+    window.addEventListener('resize', handleScroll);
+    window.addEventListener('orientationchange', handleScroll);
+    mobileScrollSyncRef.current = handleScroll;
+    handleScroll();
 
     return () => {
       window.removeEventListener('scroll', handleScroll);
+      window.removeEventListener('resize', handleScroll);
+      window.removeEventListener('orientationchange', handleScroll);
+      mobileScrollSyncRef.current = null;
     };
   }, []);
+  // The cover appears once the campaign has loaded (and again on the Timeline tab): re-read where it is.
+  useEffect(() => {
+    const id = window.requestAnimationFrame(() => mobileScrollSyncRef.current?.());
+    return () => window.cancelAnimationFrame(id);
+  }, [apiMemoryData, activeTab]);
 
   // Fetch existing memories when component mounts for "Add to Memory" modal
   useEffect(() => {
@@ -3536,12 +3557,15 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
     }
   }, [isGenerateQROpen, selectedRole, memoryId]);
 
-  // Pull-to-refresh handlers
+  // Pull-to-refresh handlers. Only touches on the page's own DOM at the very top count (Chris, 9 Nov 2026, point 7):
+  // the Edit Campaign sheet is a React portal, so its touches bubble here too, and the window scrolls (this root's
+  // own scrollTop is always 0) — both made every downward drag re-render the page mid-gesture.
+  const pullScrollTop = (e: React.TouchEvent) => Math.max((e.currentTarget as HTMLElement).scrollTop, window.scrollY || 0);
+  const pullFromOwnDom = (e: React.TouchEvent) => (e.currentTarget as HTMLElement).contains(e.target as Node);
   const handleTouchStart = (e: React.TouchEvent) => {
     if (isRefreshing) return;
 
-    const scrollTop = (e.currentTarget as HTMLElement).scrollTop;
-    if (scrollTop === 0) {
+    if (pullTouchApplies(pullFromOwnDom(e), pullScrollTop(e))) {
       setTouchStartY(e.touches[0].clientY);
     }
   };
@@ -3549,8 +3573,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
   const handleTouchMove = (e: React.TouchEvent) => {
     if (isRefreshing || touchStartY === 0) return;
 
-    const scrollTop = (e.currentTarget as HTMLElement).scrollTop;
-    if (scrollTop > 0) {
+    if (!pullTouchApplies(pullFromOwnDom(e), pullScrollTop(e))) {
       setIsPulling(false);
       setPullDistance(0);
       setTouchStartY(0);
@@ -5349,6 +5372,8 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
   /** Send (Chris, 8 Nov 2026 (b), point 2): replaces Publish — the same Storeel stepper, opened at its Send card; the
    *  publish options are its Publishing card. Only on a saved campaign (else the old Publish control stays). */
   const sendOpensStepper = campaignCanOpenStepper(memoryId);
+  // The cover's phone pill row (Back · Edit Cover · ⋯ · Send) is on screen — it's the pinned top bar (Chris, 9 Nov 2026).
+  const phonePillBarShown = activeTab === 'overview' && !isSuggestedCategory && !isCoverVideoPlaying;
   const handleSend = () => {
     if (!sendOpensStepper) return;
     setStoreelFlow('send');
@@ -5402,7 +5427,9 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
   };
 
   const PUBLISH_PROGRESS_TOAST = 'campaign-publish-progress';
-  const handlePublish = async (roleOverride?: number) => {
+  // switchRole (Chris 9 Nov 2026, the Publishing card's "Publish now"): publish with roleOverride, or switch a published
+  // campaign to it — never the old toggle's unpublish.
+  const handlePublish = async (roleOverride?: number, switchRole = false) => {
     // Check if memory is published (published can be 1, 2, or 3)
     // One normaliser for the published state (components/storeel/lib/publishing.ts), as the Publishing card and the box use.
     const isCurrentlyPublished = publishedRole(apiMemoryData?.published) !== 0;
@@ -5410,7 +5437,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
     setPublishProgress(0);
     
     try {
-      if (isCurrentlyPublished) {
+      if (isCurrentlyPublished && !switchRole) {
         // Unpublish the memory
         console.log(`=== UNPUBLISH MEMORY ===`);
         console.log(`Unpublishing memory ID: ${memoryId}`);
@@ -5476,8 +5503,14 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
 
         console.log(`Publishing with role: ${role} (selectedPublishOption: ${selectedPublishOption}, roleOverride: ${roleOverride})`);
 
-        const response = await dashboardAPI.publishMemory(memoryId, role);
+        let response = await dashboardAPI.publishMemory(memoryId, role, switchRole);
         console.log('Publish API Response:', response);
+        // Review I1: an API without switch_role toggled the published campaign OFF — publish it again in the chosen
+        // mode, once (the new API answers the chosen mode, so this never runs there).
+        if (response.success && switchNeedsRepublish({ switchRole, wasPublished: isCurrentlyPublished, role, reply: response.data })) {
+          response = await dashboardAPI.publishMemory(memoryId, role);
+          if (response.success && Number(response.data?.published) !== role) throw new Error('Failed to change the publish mode');
+        }
 
         if (response.success) {
           setPublishProgress(100);
@@ -5536,7 +5569,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
       toast.dismiss(PUBLISH_PROGRESS_TOAST);
       setIsPublishing(false);
       setPublishProgress(0);
-      toast.error(isCurrentlyPublished ? "Failed to unpublish campaign. Please try again." : "Failed to publish campaign. Please try again.");
+      toast.error(isCurrentlyPublished && !switchRole ? "Failed to unpublish campaign. Please try again." : "Failed to publish campaign. Please try again.");
     }
   };
 
@@ -7782,27 +7815,26 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
   const widgetEditorOpen = isAddHtmlModalOpen || isAddYoutubeModalOpen || isAddQuoteModalOpen || isAddAiCreatorModalOpen || isAddCtaModalOpen
     || isVoiceToTextOpen || isProductPickerOpen || showDocuSignSendModal;
 
-  // Plus Divider between post cards (mobile only)
-  // Reusable "+" Add-Widget divider used inside desktop sidebar timeline entries (incl. CTA)
-  const renderSidebarAddWidgetPlus = (afterPostId: string | null) => {
-    return (
-      <div className="relative mt-8">
-        <div className="border-b border-dashed border-[#6C60FF]/40 group-hover/border:border-[#6C60FF]/40" />
-        <div className={`absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 opacity-0 group-hover/border:opacity-100 transition-opacity duration-200 z-10 ${isInventoryDetail ? 'hidden' : ''}`}>
-          <Popover>
-            <PopoverTrigger asChild>
-              <div className="w-7 h-7 rounded-full border border-[#6C60FF] bg-white hover:bg-[#6C60FF]/10 flex items-center justify-center cursor-pointer transition-colors duration-200">
-                <Plus className="w-4 h-4 text-[#6C60FF]" />
-              </div>
-            </PopoverTrigger>
-            <PopoverContent side="right" align="center" className={ADD_WIDGET_PANEL} sideOffset={8}>
-              <AddWidgetMenu options={addWidgetOptions({ docuSign: DOCUSIGN_ENABLED && docuSignConnected })} onPick={(kind) => openAddWidget(kind, afterPostId)} />
-            </PopoverContent>
-          </Popover>
-        </div>
-      </div>
-    );
-  };
+  // Desktop "+" (Add Widget) in the RIGHT-hand timeline of cards — under the "Timeline • N moments" header (null = the
+  // top) and after every moment card. Chris, 9 Nov 2026 (point 5): moved here from the left timeline list, "in the same
+  // spot everywhere"; always visible, drawn like the phone's "+" divider; the same chooser and openAddWidget as before.
+  // No "+" on read-only inventory (cars, catalogue products). `options` = the collaborator view's narrower set.
+  // Shopify Product as in the phone "+" menu (Deepak, 10 Nov 2026), so the three "+" menus match.
+  const renderCardAddWidgetPlus = (afterPostId: string | null, options = addWidgetOptions({ docuSign: DOCUSIGN_ENABLED && docuSignConnected, shopifyProduct: true })) => isInventoryDetail ? null : (
+    <div className="relative flex items-center justify-center h-10" data-testid="timeline-add-plus" data-after-post-id={afterPostId ?? ''}>
+      <div className="absolute left-0 right-0 h-px bg-[#6C60FF]" />
+      <Popover>
+        <PopoverTrigger asChild>
+          <button type="button" aria-label="Add Widget" className="relative z-10 w-9 h-9 rounded-full bg-[#F3F4F6] border border-[#6C60FF] hover:bg-[#6C60FF]/10 flex items-center justify-center transition-colors duration-200">
+            <Plus className="w-4 h-4 text-[#6C60FF]" />
+          </button>
+        </PopoverTrigger>
+        <PopoverContent side="bottom" align="center" className={ADD_WIDGET_PANEL} sideOffset={8}>
+          <AddWidgetMenu options={options} onPick={(kind) => openAddWidget(kind, afterPostId)} />
+        </PopoverContent>
+      </Popover>
+    </div>
+  );
 
   // Reusable CTA sidebar timeline entry (icon node + title + edit/delete + "+" divider)
   const renderCtaSidebarEntry = (widget: CtaWidget) => {
@@ -7830,15 +7862,16 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
           </div>
           <p className="leading-snug hover:text-[#6C60FF] cursor-pointer text-[#101828] text-base line-clamp-2">{ctaSidebarTitle(widget)}</p>
           <div className="flex items-center gap-1.5 mt-1 text-gray-400 text-sm"><Pointer className="w-4 h-4" /><span className="line-clamp-1">{widget.buttonText || 'Button'}</span></div>
-          {renderSidebarAddWidgetPlus(widget.afterPostId)}
+          <div className="relative mt-8"><div className="border-b border-dashed border-[#6C60FF]/40" /></div>{/* its "+" is in the right-hand timeline now */}
         </div>
       </div>
     );
   };
 
+  // Plus Divider between post cards (mobile only)
   // No "add between posts" on read-only inventory (cars, catalogue products).
   const renderPlusDivider = (key: string, afterPostId?: string) => isInventoryDetail ? null : (
-    <div className="relative flex items-center justify-center h-10 md:hidden" style={{ zIndex: 10 }}>
+    <div className="relative flex items-center justify-center h-10 md:hidden" style={{ zIndex: activePlusDivider === key ? 60 : 10 }}>
       {/* Purple horizontal line */}
       <div className="absolute left-0 right-0 h-px bg-[#6C60FF]" />
       {/* Circle + button */}
@@ -9032,6 +9065,9 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
   // Admin role shows the full page with more controls
   // Also show collaborator view when forceSharedView=true (e.g. viewing from published author card)
   if (forceSharedView || currentUserRole === 'contributor' || currentUserRole === 'viewer' || currentUserRole === 'edit' || currentUserRole === 'view') {
+    // Timeline "+" only for people who can add — the same rule as this view's "+ Add a Moment" / camera button
+    // (contributor / edit). View-only people (viewer / view, or a published author card) get none. Deepak, 10 Nov 2026.
+    const sharedCanAdd = currentUserRole === 'contributor' || currentUserRole === 'edit';
     const sharedAllPosts = (rawApiPosts || []).filter((p: any) => !p.parent_id && p.parent_id !== 0);
     // Cover: the campaign's own, else the brand — the owner's avatar — never the first moment photo ("Brand everywhere", 4 Nov 2026).
     const sharedCover = campaignCover({ chosen: apiMemoryData?.last_update_img, brand: apiMemoryData?.user?.profile_image, ownerAvatar: apiMemoryData?.user?.profile_image });
@@ -9249,19 +9285,19 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
             {htmlWidgets.filter(w => w.afterPostId === null).map(widget => (
               <React.Fragment key={widget.id}>
                 <div className="rounded-2xl bg-white p-4 border border-gray-100"><div className="[&_h1]:text-2xl [&_h1]:font-bold [&_p]:my-2 [&_ul]:list-disc [&_ul]:pl-5 [&_a]:text-[#6C60FF] [&_a]:underline [&_strong]:font-bold" dangerouslySetInnerHTML={{ __html: widget.content }} /></div>
-                {renderPlusDivider(`shared-mobile-html-top-div-${widget.id}`)}
+                {sharedCanAdd && renderPlusDivider(`shared-mobile-html-top-div-${widget.id}`)}
               </React.Fragment>
             ))}
             {youtubeWidgets.filter(w => w.afterPostId === null).map(widget => (
               <React.Fragment key={widget.id}>
                 <div className="rounded-2xl bg-white p-4 border border-gray-100"><iframe width="100%" height="200" src={`https://www.youtube.com/embed/${widget.videoId}?autoplay=0`} allow="accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen className="rounded-lg" /></div>
-                {renderPlusDivider(`shared-mobile-yt-top-div-${widget.id}`)}
+                {sharedCanAdd && renderPlusDivider(`shared-mobile-yt-top-div-${widget.id}`)}
               </React.Fragment>
             ))}
             {quoteWidgets.filter(w => w.afterPostId === null).map(widget => (
               <React.Fragment key={widget.id}>
                 <div className="rounded-2xl bg-[#F0EEFF] p-5 border border-gray-100 border-l-4 border-l-[#6C60FF]"><p className="text-lg font-bold text-gray-800 text-center leading-relaxed break-words">{widget.text}</p>{widget.author && <p className="text-sm text-gray-500 text-center mt-2">— {widget.author}</p>}</div>
-                {renderPlusDivider(`shared-mobile-quote-top-div-${widget.id}`)}
+                {sharedCanAdd && renderPlusDivider(`shared-mobile-quote-top-div-${widget.id}`)}
               </React.Fragment>
             ))}
             {renderProductWidgets(null)}
@@ -9269,7 +9305,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
             {ctaWidgets.filter(w => w.afterPostId === null && isTimelineCta(w)).map(widget => (
               <React.Fragment key={widget.id}>
                 <CTAWidgetCard onRequestMoment={openSharedRequestMoment} widget={widget} memoryId={memoryId} />
-                {renderPlusDivider(`shared-mobile-cta-top-div-${widget.id}`)}
+                {sharedCanAdd && renderPlusDivider(`shared-mobile-cta-top-div-${widget.id}`)}
               </React.Fragment>
             ))}
             {sharedUnifiedItems.length > 0 ? sharedUnifiedItems.map((uItem: any) => {
@@ -9296,7 +9332,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                   <CTAWidgetCard onRequestMoment={openSharedRequestMoment} key={widget.id} widget={widget} memoryId={memoryId} />
                 ))}
                 {/* Plus divider between posts — same as personal memories */}
-                {index < sharedFilteredPosts.length - 1 && renderPlusDivider(`shared-mobile-${index}`, post.id?.toString())}
+                {sharedCanAdd && index < sharedFilteredPosts.length - 1 && renderPlusDivider(`shared-mobile-${index}`, post.id?.toString())}
               </React.Fragment>
             ); }) : <div className="text-center py-12 text-gray-500 bg-white rounded-xl"><p>No moments to display</p></div>}
             {/* Pinned "Share Request a Moment" buttons — always after the last item, however long the list grows */}
@@ -9439,14 +9475,6 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                           <div className="flex items-center gap-1.5 mt-1 text-gray-400 text-sm"><span>Now</span></div>
                           <div className="relative mt-8">
                             <div className="border-b border-dashed border-[#6C60FF]/40 group-hover/border:border-[#6C60FF]/40" />
-                            <div className={`absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 opacity-0 group-hover/border:opacity-100 transition-opacity duration-200 z-10 ${isInventoryDetail ? 'hidden' : ''}`}>
-                              <Popover><PopoverTrigger asChild><div className="w-7 h-7 rounded-full border border-[#6C60FF] bg-white hover:bg-[#6C60FF]/10 flex items-center justify-center cursor-pointer"><Plus className="w-4 h-4 text-[#6C60FF]" /></div></PopoverTrigger>
-                                <PopoverContent side="right" align="center" className="w-80 p-0 rounded-xl shadow-lg border border-gray-200 bg-white" sideOffset={8}>
-                                  <div className="p-4 pb-2"><h4 className="text-base font-semibold text-gray-900">Add Widget</h4><p className="text-sm text-gray-500">Choose a widget to add to your timeline</p></div>
-                                  <div className="max-h-[320px] overflow-y-auto">{[{ icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#F0FDFA" fillOpacity="0.4"/><circle cx="17.5" cy="17.5" r="6.5" stroke="#009689" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><polyline points="17.5 13.5 17.5 17.5 20.5 19" stroke="#009689" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/></svg>, label:'Moment',desc:'Add a moment'},{ icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#6C60FF" fillOpacity="0.1"/><polyline points="21 22 25 17.5 21 13" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><polyline points="14 13 10 17.5 14 22" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/></svg>, label:'HTML',desc:'Add custom HTML'},{ icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#FF4444" fillOpacity="0.1"/><path d="M22.5 13H12.5C11.67 13 11 13.67 11 14.5V20.5C11 21.33 11.67 22 12.5 22H22.5C23.33 22 24 21.33 24 20.5V14.5C24 13.67 23.33 13 22.5 13Z" stroke="#FF4444" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><path d="M16 19.5V15.5L20 17.5L16 19.5Z" stroke="#FF4444" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round" fill="none"/></svg>, label:'Youtube',desc:'Embed YouTube'},{ icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#F59E0B" fillOpacity="0.1"/><path d="M19.5 12C19.15 12 18.82 12.14 18.57 12.39C18.32 12.64 18.17 12.98 18.17 13.33V17.33C18.17 17.68 18.32 18.02 18.57 18.27C18.82 18.52 19.15 18.67 19.5 18.67C19.68 18.67 19.85 18.74 19.97 18.86C20.1 18.99 20.17 19.16 20.17 19.33V20C20.17 20.35 20.02 20.69 19.77 20.94C19.52 21.19 19.19 21.33 18.83 21.33C18.65 21.33 18.49 21.4 18.36 21.53C18.24 21.65 18.17 21.82 18.17 22V23.33C18.17 23.51 18.24 23.68 18.36 23.8C18.49 23.93 18.65 24 18.83 24C19.89 24 20.91 23.58 21.66 22.83C22.41 22.08 22.83 21.06 22.83 20V13.33C22.83 12.98 22.69 12.64 22.44 12.39C22.19 12.14 21.85 12 21.5 12H19.5Z" stroke="#F59E0B" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/><path d="M13.17 12C12.81 12 12.47 12.14 12.22 12.39C11.97 12.64 11.83 12.98 11.83 13.33V17.33C11.83 17.68 11.97 18.02 12.22 18.27C12.47 18.52 12.81 18.67 13.17 18.67C13.34 18.67 13.51 18.74 13.64 18.86C13.76 18.99 13.83 19.16 13.83 19.33V20C13.83 20.35 13.69 20.69 13.44 20.94C13.19 21.19 12.85 21.33 12.5 21.33C12.32 21.33 12.16 21.4 12.03 21.53C11.9 21.65 11.83 21.82 11.83 22V23.33C11.83 23.51 11.9 23.68 12.03 23.8C12.16 23.93 12.32 24 12.5 24C13.56 24 14.58 23.58 15.33 22.83C16.08 22.08 16.5 21.06 16.5 20V13.33C16.5 12.98 16.36 12.64 16.11 12.39C15.86 12.14 15.52 12 15.17 12H13.17Z" stroke="#F59E0B" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>, label:'Quote',desc:'Add a quote'},{ icon: <div className="w-full h-full rounded-[8px] bg-[#6C60FF]/10 flex items-center justify-center"><Pointer className="w-5 h-5 text-[#6C60FF]" /></div>, label:'Call to Action',desc:'Add a button with a link'},{ icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#6C60FF" fillOpacity="0.1"/><rect x="14" y="10" width="7" height="10" rx="3.5" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><path d="M11 20.5C11 23.538 13.91 26 17.5 26C21.09 26 24 23.538 24 20.5" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><line x1="17.5" y1="26" x2="17.5" y2="29" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round"/><line x1="14.5" y1="29" x2="20.5" y2="29" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round"/></svg>, label:'Voice to Text',desc:'Create captions'},...(DOCUSIGN_ENABLED && docuSignConnected ? [{ icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#1464A5" fillOpacity="0.1"/><rect x="12" y="10" width="11" height="14" rx="1.5" stroke="#1464A5" strokeWidth="1.45808"/><line x1="14.5" y1="14" x2="20.5" y2="14" stroke="#1464A5" strokeWidth="1.3" strokeLinecap="round"/><line x1="14.5" y1="17" x2="18.5" y2="17" stroke="#1464A5" strokeWidth="1.3" strokeLinecap="round"/></svg>, label:'DocuSign',desc:'Send for signature'}] : [])].map(item=>(<PopoverClose asChild key={item.label}><div className="flex items-center gap-4 px-5 py-4 hover:bg-gray-50 cursor-pointer" onClick={()=>{if(item.label==='Moment'){insertAfterPostIdRef.current=null;setInsertAfterPostId(null);setIsAddMomentModalOpen(true);}else if(item.label==='HTML'){setHtmlWidgetAfterPostId(null);setEditingHtmlWidgetId(null);setIsAddHtmlModalOpen(true);}else if(item.label==='Youtube'){setYoutubeWidgetAfterPostId(null);setIsAddYoutubeModalOpen(true);}else if(item.label==='Quote'){setQuoteWidgetAfterPostId(null);setIsAddQuoteModalOpen(true);}else if(item.label==='Call to Action'){setCtaWidgetAfterPostId(null);setEditingCtaWidgetId(null);setIsAddCtaModalOpen(true);}else if(item.label==='Voice to Text'){setVoiceToTextAfterPostId(null);setIsVoiceToTextOpen(true);}else if((item.label==='DocuSign'&&DOCUSIGN_ENABLED)){setDocuSignPostId(null);setShowDocuSignSendModal(true);}}}><div className="w-10 h-10 flex-shrink-0">{item.icon}</div><div><p className="text-sm font-medium text-gray-900">{item.label}</p><p className="text-xs text-gray-500">{item.desc}</p></div></div></PopoverClose>))}</div>
-                                </PopoverContent>
-                              </Popover>
-                            </div>
                           </div>
                         </div>
                       </div>
@@ -9520,14 +9548,6 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                 </div>
                                 <div className="relative mt-8">
                                   <div className="border-b border-dashed border-[#6C60FF]/40 group-hover/border:border-[#6C60FF]/40" />
-                                  <div className={`absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 opacity-0 group-hover/border:opacity-100 transition-opacity duration-200 z-10 ${isInventoryDetail ? 'hidden' : ''}`}>
-                                    <Popover><PopoverTrigger asChild><div className="w-7 h-7 rounded-full border border-[#6C60FF] bg-white hover:bg-[#6C60FF]/10 flex items-center justify-center cursor-pointer"><Plus className="w-4 h-4 text-[#6C60FF]" /></div></PopoverTrigger>
-                                      <PopoverContent side="right" align="center" className="w-80 p-0 rounded-xl shadow-lg border border-gray-200 bg-white" sideOffset={8}>
-                                        <div className="p-4 pb-2"><h4 className="text-base font-semibold text-gray-900">Add Widget</h4><p className="text-sm text-gray-500">Choose a widget to add to your timeline</p></div>
-                                        <div className="max-h-[320px] overflow-y-auto">{[{ icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#F0FDFA" fillOpacity="0.4"/><circle cx="17.5" cy="17.5" r="6.5" stroke="#009689" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><polyline points="17.5 13.5 17.5 17.5 20.5 19" stroke="#009689" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/></svg>, label:'Moment',desc:'Add a moment'},{ icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#6C60FF" fillOpacity="0.1"/><polyline points="21 22 25 17.5 21 13" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><polyline points="14 13 10 17.5 14 22" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/></svg>, label:'HTML',desc:'Add custom HTML'},{ icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#FF4444" fillOpacity="0.1"/><path d="M22.5 13H12.5C11.67 13 11 13.67 11 14.5V20.5C11 21.33 11.67 22 12.5 22H22.5C23.33 22 24 21.33 24 20.5V14.5C24 13.67 23.33 13 22.5 13Z" stroke="#FF4444" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><path d="M16 19.5V15.5L20 17.5L16 19.5Z" stroke="#FF4444" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round" fill="none"/></svg>, label:'Youtube',desc:'Embed YouTube'},{ icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#F59E0B" fillOpacity="0.1"/><path d="M19.5 12C19.15 12 18.82 12.14 18.57 12.39C18.32 12.64 18.17 12.98 18.17 13.33V17.33C18.17 17.68 18.32 18.02 18.57 18.27C18.82 18.52 19.15 18.67 19.5 18.67C19.68 18.67 19.85 18.74 19.97 18.86C20.1 18.99 20.17 19.16 20.17 19.33V20C20.17 20.35 20.02 20.69 19.77 20.94C19.52 21.19 19.19 21.33 18.83 21.33C18.65 21.33 18.49 21.4 18.36 21.53C18.24 21.65 18.17 21.82 18.17 22V23.33C18.17 23.51 18.24 23.68 18.36 23.8C18.49 23.93 18.65 24 18.83 24C19.89 24 20.91 23.58 21.66 22.83C22.41 22.08 22.83 21.06 22.83 20V13.33C22.83 12.98 22.69 12.64 22.44 12.39C22.19 12.14 21.85 12 21.5 12H19.5Z" stroke="#F59E0B" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/><path d="M13.17 12C12.81 12 12.47 12.14 12.22 12.39C11.97 12.64 11.83 12.98 11.83 13.33V17.33C11.83 17.68 11.97 18.02 12.22 18.27C12.47 18.52 12.81 18.67 13.17 18.67C13.34 18.67 13.51 18.74 13.64 18.86C13.76 18.99 13.83 19.16 13.83 19.33V20C13.83 20.35 13.69 20.69 13.44 20.94C13.19 21.19 12.85 21.33 12.5 21.33C12.32 21.33 12.16 21.4 12.03 21.53C11.9 21.65 11.83 21.82 11.83 22V23.33C11.83 23.51 11.9 23.68 12.03 23.8C12.16 23.93 12.32 24 12.5 24C13.56 24 14.58 23.58 15.33 22.83C16.08 22.08 16.5 21.06 16.5 20V13.33C16.5 12.98 16.36 12.64 16.11 12.39C15.86 12.14 15.52 12 15.17 12H13.17Z" stroke="#F59E0B" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>, label:'Quote',desc:'Add a quote'},{ icon: <div className="w-full h-full rounded-[8px] bg-[#6C60FF]/10 flex items-center justify-center"><Pointer className="w-5 h-5 text-[#6C60FF]" /></div>, label:'Call to Action',desc:'Add a button with a link'},{ icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#6C60FF" fillOpacity="0.1"/><rect x="14" y="10" width="7" height="10" rx="3.5" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><path d="M11 20.5C11 23.538 13.91 26 17.5 26C21.09 26 24 23.538 24 20.5" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><line x1="17.5" y1="26" x2="17.5" y2="29" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round"/><line x1="14.5" y1="29" x2="20.5" y2="29" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round"/></svg>, label:'Voice to Text',desc:'Create captions'},...(DOCUSIGN_ENABLED && docuSignConnected ? [{ icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#1464A5" fillOpacity="0.1"/><rect x="12" y="10" width="11" height="14" rx="1.5" stroke="#1464A5" strokeWidth="1.45808"/><line x1="14.5" y1="14" x2="20.5" y2="14" stroke="#1464A5" strokeWidth="1.3" strokeLinecap="round"/><line x1="14.5" y1="17" x2="18.5" y2="17" stroke="#1464A5" strokeWidth="1.3" strokeLinecap="round"/></svg>, label:'DocuSign',desc:'Send for signature'}] : [])].map(item=>(<PopoverClose asChild key={item.label}><div className="flex items-center gap-4 px-5 py-4 hover:bg-gray-50 cursor-pointer" onClick={()=>{if(item.label==='Moment'){insertAfterPostIdRef.current=post.id?.toString()||null;setInsertAfterPostId(post.id?.toString()||null);setIsAddMomentModalOpen(true);}else if(item.label==='HTML'){setHtmlWidgetAfterPostId(post.id?.toString());setEditingHtmlWidgetId(null);setIsAddHtmlModalOpen(true);}else if(item.label==='Youtube'){setYoutubeWidgetAfterPostId(post.id?.toString());setIsAddYoutubeModalOpen(true);}else if(item.label==='Quote'){setQuoteWidgetAfterPostId(post.id?.toString());setIsAddQuoteModalOpen(true);}else if(item.label==='Call to Action'){setCtaWidgetAfterPostId(post.id?.toString());setEditingCtaWidgetId(null);setIsAddCtaModalOpen(true);}else if(item.label==='Voice to Text'){setVoiceToTextAfterPostId(post.id?.toString()||null);setIsVoiceToTextOpen(true);}else if((item.label==='DocuSign'&&DOCUSIGN_ENABLED)){setDocuSignPostId(post.id?.toString()||null);setShowDocuSignSendModal(true);}}}><div className="w-10 h-10 flex-shrink-0">{item.icon}</div><div><p className="text-sm font-medium text-gray-900">{item.label}</p><p className="text-xs text-gray-500">{item.desc}</p></div></div></PopoverClose>))}</div>
-                                      </PopoverContent>
-                                    </Popover>
-                                  </div>
                                 </div>
                               </div>
                             </div>
@@ -9673,6 +9693,8 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                         <div className="text-white text-lg"><span className="font-semibold">Timeline</span><span className="mx-2 text-white">•</span><span className="text-white">{sharedTotalMomentsCount} moments</span></div>
                         <button className="px-4 py-2 bg-gray-100 text-gray-800 text-base font-medium rounded-lg hover:bg-gray-200" onClick={() => { const el = sharedDesktopCardRefs.current[0]; if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); }}>Continue</button>
                       </div>
+                      {/* "+" at the top and after every moment (Chris, 9 Nov 2026, point 5 — moved here from the left list) */}
+                      {sharedCanAdd && renderCardAddWidgetPlus(null, collaboratorAddWidgetOptions(addWidgetOptions({ docuSign: DOCUSIGN_ENABLED && docuSignConnected, shopifyProduct: true })))}
                       {htmlWidgets.filter(w => w.afterPostId === null).map(widget => (
                         <div key={widget.id} ref={(el) => { htmlWidgetCardRefs.current[widget.id] = el; }} data-widget-id={widget.id} className="rounded-2xl bg-white p-4 border border-gray-100"><div className="[&_h1]:text-2xl [&_h1]:font-bold [&_p]:my-2 [&_ul]:list-disc [&_ul]:pl-5 [&_a]:text-[#6C60FF] [&_a]:underline [&_strong]:font-bold" dangerouslySetInnerHTML={{ __html: widget.content }} /></div>
                       ))}
@@ -9710,6 +9732,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                           {ctaWidgets.filter(w => w.afterPostId === post.id?.toString() && !w.pinToBottom && !isCardCta(w)).map(widget => (
                             <CTAWidgetCard onRequestMoment={openSharedRequestMoment} key={widget.id} widget={widget} memoryId={memoryId} cardRef={(el) => { ctaWidgetCardRefs.current[widget.id] = el; }} isActive={activeCtaWidgetId === widget.id} />
                           ))}
+                          {sharedCanAdd && renderCardAddWidgetPlus(String(post.id), collaboratorAddWidgetOptions(addWidgetOptions({ docuSign: DOCUSIGN_ENABLED && docuSignConnected, shopifyProduct: true })))}
                         </React.Fragment>
                         );
                       }) : <div className="text-center py-12 text-gray-500 bg-white rounded-xl"><p>No moments to display</p></div>}
@@ -10392,6 +10415,74 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
     postDescription = postDescription + ' Capture, organize, and share your most precious memories with friends and family on Stasht.';
   }
 
+  // The scrolled phone header's info and controls (author, Add a Moment, title + location/date, Search). Shared by the
+  // old white header and the pinned top bar's info row (Chris, 9 Nov 2026 — nothing on it may disappear).
+  // The Search icon had no action on development either; kept exactly as it was (flagged to Chris).
+  const mobileHeaderAuthor = (
+    <div className="flex items-center gap-2">
+      <Avatar className="w-8 h-8 border border-gray-200">
+        <AvatarImage src={apiMemoryData?.user?.profile_image} />
+        <AvatarFallback className="bg-[#6C60FF] text-white text-xs">
+          {apiMemoryData?.user?.name?.charAt(0) || 'U'}
+        </AvatarFallback>
+      </Avatar>
+      <span className="text-sm font-semibold text-gray-900">{apiMemoryData?.user?.name || 'Unknown'}</span>
+    </div>
+  );
+  const mobileHeaderAddMoment = (
+    !isSuggestedCategory && currentUserRole !== 'viewer' && !isInventoryDetail && (
+      <Button
+        onClick={() => setIsAddMomentModalOpen(true)}
+        size="sm"
+        className="bg-[#6C60FF] hover:bg-[#5B4FE8] text-white rounded-lg px-4"
+      >
+        <Plus className="w-4 h-4 mr-1" />
+        Add a Moment
+      </Button>
+    )
+  );
+  const mobileHeaderTitle = (
+    <div className="min-w-0 flex-1">
+      <h2 className="text-xl font-bold text-gray-900 truncate leading-tight">{apiMemoryData?.title || 'Memory Title'}</h2>
+      <div className="flex items-center gap-3 text-sm text-gray-500 mt-1">
+        {uiMemory.location?.primary && (
+          <div className="flex items-center gap-1">
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5 flex-shrink-0">
+              <g clipPath="url(#clip0_loc_sticky)">
+                <path d="M11.6619 5.83095C11.6619 8.7423 8.43219 11.7744 7.34765 12.7108C7.24661 12.7868 7.12362 12.8278 6.99721 12.8278C6.8708 12.8278 6.74781 12.7868 6.64678 12.7108C5.56224 11.7744 2.33252 8.7423 2.33252 5.83095C2.33252 4.5938 2.82398 3.40732 3.69878 2.53252C4.57358 1.65772 5.76006 1.16626 6.99721 1.16626C8.23437 1.16626 9.42085 1.65772 10.2956 2.53252C11.1704 3.40732 11.6619 4.5938 11.6619 5.83095Z" stroke="#4A5565" strokeWidth="1.16617" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M6.99682 7.58006C7.96291 7.58006 8.74608 6.79689 8.74608 5.8308C8.74608 4.86471 7.96291 4.08154 6.99682 4.08154C6.03073 4.08154 5.24756 4.86471 5.24756 5.8308C5.24756 6.79689 6.03073 7.58006 6.99682 7.58006Z" stroke="#4A5565" strokeWidth="1.16617" strokeLinecap="round" strokeLinejoin="round"/>
+              </g>
+              <defs>
+                <clipPath id="clip0_loc_sticky">
+                  <rect width="13.9941" height="13.9941" fill="white"/>
+                </clipPath>
+              </defs>
+            </svg>
+            <span className="truncate max-w-[100px]">{uiMemory.location.primary}</span>
+          </div>
+        )}
+        {uiMemory.dateRange && !isCarCampaign(apiMemoryData) && !isInventoryDetail && (
+          <div className="flex items-center gap-1">
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5 flex-shrink-0">
+              <rect x="1.75" y="2.91675" width="10.5" height="9.33333" rx="1.16667" stroke="#4A5565" strokeWidth="1.16617" strokeLinecap="round" strokeLinejoin="round"/>
+              <line x1="1.75" y1="5.83325" x2="12.25" y2="5.83325" stroke="#4A5565" strokeWidth="1.16617"/>
+              <line x1="4.66675" y1="1.16675" x2="4.66675" y2="3.50008" stroke="#4A5565" strokeWidth="1.16617" strokeLinecap="round"/>
+              <line x1="9.33325" y1="1.16675" x2="9.33325" y2="3.50008" stroke="#4A5565" strokeWidth="1.16617" strokeLinecap="round"/>
+            </svg>
+            <span className="whitespace-nowrap">{uiMemory.dateRange}</span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+  const mobileHeaderSearch = (
+    <Button variant="ghost" size="sm" className="w-9 h-9 p-0 hover:bg-gray-100 rounded-full">
+      <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ width: '25px', height: '25px' }}>
+        <path d="M19.6 21L13.3 14.7C12.8 15.1 12.225 15.4167 11.575 15.65C10.925 15.8833 10.2333 16 9.5 16C7.68333 16 6.14583 15.3708 4.8875 14.1125C3.62917 12.8542 3 11.3167 3 9.5C3 7.68333 3.62917 6.14583 4.8875 4.8875C6.14583 3.62917 7.68333 3 9.5 3C11.3167 3 12.8542 3.62917 14.1125 4.8875C15.3708 6.14583 16 7.68333 16 9.5C16 10.2333 15.8833 10.925 15.65 11.575C15.4167 12.225 15.1 12.8 14.7 13.3L21 19.6L19.6 21ZM9.5 14C10.75 14 11.8125 13.5625 12.6875 12.6875C13.5625 11.8125 14 10.75 14 9.5C14 8.25 13.5625 7.1875 12.6875 6.3125C11.8125 5.4375 10.75 5 9.5 5C8.25 5 7.1875 5.4375 6.3125 6.3125C5.4375 7.1875 5 8.25 5 9.5C5 10.75 5.4375 11.8125 6.3125 12.6875C7.1875 13.5625 8.25 14 9.5 14Z" fill="#1F1F1F"/>
+      </svg>
+    </Button>
+  );
+
   return (
     <div
       className="relative h-full pb-20 lg:pb-0"
@@ -11024,7 +11115,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
       </Dialog>
 
       {/* Main Content */}
-      <div className="space-y-4 md:space-y-8 lg:pr-[28rem] bg-white lg:bg-transparent pb-24 md:pb-0" style={{ paddingTop: isPublishing ? '120px' : '0' }}>
+      <div className="space-y-4 md:space-y-8 lg:pr-80 2xl:pr-[28rem] bg-white lg:bg-transparent pb-24 md:pb-0" style={{ paddingTop: isPublishing ? '120px' : '0' }}>
         {/* Header */}
         <div className="sticky top-20 relative bg-gray-50 z-10">
           {/* Tab Toggle - Desktop only. Inventory pages (cars, catalogue products) are a timeline only:
@@ -11429,8 +11520,14 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                       )}
 
                       {/* Add Cover Photo Button - Hide for Suggested category */}
+                      {/* Phones (Chris, 9 Nov 2026): this row is THE pinned top bar — it sits on the cover, then stays at the top
+                          (fixed) once the cover scrolls up, turning white once the cover has gone by; the white header
+                          below stays off while it shows, so there's one bar. Tablet/desktop: unchanged (on the cover). */}
                       {!isSuggestedCategory && (
-                        <div className="absolute top-0 left-0 right-0 p-4 lg:p-8 z-10 pointer-events-none">
+                        <div
+                          data-campaign-phone-bar
+                          className={`${phonePillBarShown && phoneBarPinned ? 'fixed md:absolute md:z-10' : 'absolute md:z-10'} ${showEditCoverModal ? 'z-[60]' : phonePillBarShown && phoneBarPinned ? 'z-50' : 'z-10'} top-0 left-0 right-0 p-4 pt-[calc(1rem+env(safe-area-inset-top))] md:pt-4 lg:p-8 pointer-events-none transition-colors duration-200 ${phonePillBarShown && mobileHeaderMode !== 'hidden' ? 'bg-white border-b border-gray-100 shadow-sm md:bg-transparent md:border-0 md:shadow-none max-md:[&>div:first-child_.rounded-full]:bg-gray-900/85' : ''}`}
+                        >
                           <div className="flex items-start justify-between md:justify-end">
                             {/* Mobile - back button + edit cover (top-left), hidden when cover video is playing */}
                             {!isCoverVideoPlaying && (
@@ -11536,6 +11633,20 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                         <div className="flex flex-col">
                                           <span className="text-[14px] font-medium text-[#101828]">YouTube Video</span>
                                           <span className="text-[12px] text-[#6A7282]">Paste a YouTube video URL</span>
+                                        </div>
+                                      </button>
+                                      {/* Edit Campaign: was in the white scrolled header's ⋯, which the pinned bar replaces (Chris, 9 Nov 2026) */}
+                                      <button
+                                        type="button"
+                                        className="w-full flex items-center gap-3 px-4 py-[5px] active:bg-black/5 transition-colors text-left md:hidden"
+                                        onClick={() => { setShowEditCoverModal(false); setTimeout(() => handleEdit(), 100); }}
+                                      >
+                                        <div className="w-[32px] h-[32px] flex-shrink-0 rounded-[8.75px] bg-[#6C60FF]/10 flex items-center justify-center">
+                                          <Edit className="w-4 h-4 text-[#6C60FF]" />
+                                        </div>
+                                        <div className="flex flex-col">
+                                          <span className="text-[14px] font-medium text-[#101828]">Edit Campaign</span>
+                                          <span className="text-[12px] text-[#6A7282]">Title, moments and sending</span>
                                         </div>
                                       </button>
                                     </div>
@@ -11688,6 +11799,23 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                             </Popover>
                             )}
                           </div>
+                          {/* Once white (cover gone by): the old white header's info under the pills, same markup — author +
+                              Add a Moment just past the cover, then title + location/date + Search (Chris, 9 Nov 2026 review) */}
+                          {phonePillBarShown && mobileHeaderMode !== 'hidden' && (
+                            <div className="md:hidden pointer-events-auto mt-3 flex items-start justify-between gap-2">
+                              {mobileHeaderMode === 'expanded' ? (
+                                <>
+                                  {mobileHeaderAuthor}
+                                  {mobileHeaderAddMoment}
+                                </>
+                              ) : (
+                                <>
+                                  {mobileHeaderTitle}
+                                  <div className="flex items-center gap-1 flex-shrink-0">{mobileHeaderSearch}</div>
+                                </>
+                              )}
+                            </div>
+                          )}
                         </div>
                       )}
 
@@ -11893,8 +12021,8 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
               {/* MOBILE: ref for scroll detection */}
               <div className="md:hidden" ref={mobileInfoRef} />
 
-              {/* MOBILE: Sticky Header - appears after scrolling past cover */}
-              {mobileHeaderMode !== 'hidden' && (
+              {/* MOBILE: Sticky Header - appears after scrolling past cover; not while the pinned phone bar is shown (one bar) */}
+              {mobileHeaderMode !== 'hidden' && !phonePillBarShown && (
                 <div className="md:hidden fixed top-0 left-0 right-0 z-50 bg-white border-b border-gray-100 shadow-sm transition-all duration-200">
                   {mobileHeaderMode === 'expanded' ? (
                     /* Expanded header: X + Author + Add a Moment */
@@ -11908,26 +12036,9 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                         >
                           <X className="w-5 h-5 text-gray-700" />
                         </Button>
-                        <div className="flex items-center gap-2">
-                          <Avatar className="w-8 h-8 border border-gray-200">
-                            <AvatarImage src={apiMemoryData?.user?.profile_image} />
-                            <AvatarFallback className="bg-[#6C60FF] text-white text-xs">
-                              {apiMemoryData?.user?.name?.charAt(0) || 'U'}
-                            </AvatarFallback>
-                          </Avatar>
-                          <span className="text-sm font-semibold text-gray-900">{apiMemoryData?.user?.name || 'Unknown'}</span>
-                        </div>
+                        {mobileHeaderAuthor}
                       </div>
-                      {!isSuggestedCategory && currentUserRole !== 'viewer' && !isInventoryDetail && (
-                        <Button
-                          onClick={() => setIsAddMomentModalOpen(true)}
-                          size="sm"
-                          className="bg-[#6C60FF] hover:bg-[#5B4FE8] text-white rounded-lg px-4"
-                        >
-                          <Plus className="w-4 h-4 mr-1" />
-                          Add a Moment
-                        </Button>
-                      )}
+                      {mobileHeaderAddMoment}
                     </div>
                   ) : (
                     /* Compact header: X + Title/location + Search + Three-dot */
@@ -11946,45 +12057,10 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                               <path d="M5 5L15 15" stroke="currentColor" strokeWidth="1.33287" strokeLinecap="round" strokeLinejoin="round"/>
                             </svg>
                           </Button>
-                          <div className="min-w-0 flex-1">
-                            <h2 className="text-xl font-bold text-gray-900 truncate leading-tight">{apiMemoryData?.title || 'Memory Title'}</h2>
-                            <div className="flex items-center gap-3 text-sm text-gray-500 mt-1">
-                              {uiMemory.location?.primary && (
-                                <div className="flex items-center gap-1">
-                                  <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5 flex-shrink-0">
-                                    <g clipPath="url(#clip0_loc_sticky)">
-                                      <path d="M11.6619 5.83095C11.6619 8.7423 8.43219 11.7744 7.34765 12.7108C7.24661 12.7868 7.12362 12.8278 6.99721 12.8278C6.8708 12.8278 6.74781 12.7868 6.64678 12.7108C5.56224 11.7744 2.33252 8.7423 2.33252 5.83095C2.33252 4.5938 2.82398 3.40732 3.69878 2.53252C4.57358 1.65772 5.76006 1.16626 6.99721 1.16626C8.23437 1.16626 9.42085 1.65772 10.2956 2.53252C11.1704 3.40732 11.6619 4.5938 11.6619 5.83095Z" stroke="#4A5565" strokeWidth="1.16617" strokeLinecap="round" strokeLinejoin="round"/>
-                                      <path d="M6.99682 7.58006C7.96291 7.58006 8.74608 6.79689 8.74608 5.8308C8.74608 4.86471 7.96291 4.08154 6.99682 4.08154C6.03073 4.08154 5.24756 4.86471 5.24756 5.8308C5.24756 6.79689 6.03073 7.58006 6.99682 7.58006Z" stroke="#4A5565" strokeWidth="1.16617" strokeLinecap="round" strokeLinejoin="round"/>
-                                    </g>
-                                    <defs>
-                                      <clipPath id="clip0_loc_sticky">
-                                        <rect width="13.9941" height="13.9941" fill="white"/>
-                                      </clipPath>
-                                    </defs>
-                                  </svg>
-                                  <span className="truncate max-w-[100px]">{uiMemory.location.primary}</span>
-                                </div>
-                              )}
-                              {uiMemory.dateRange && !isCarCampaign(apiMemoryData) && !isInventoryDetail && (
-                                <div className="flex items-center gap-1">
-                                  <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5 flex-shrink-0">
-                                    <rect x="1.75" y="2.91675" width="10.5" height="9.33333" rx="1.16667" stroke="#4A5565" strokeWidth="1.16617" strokeLinecap="round" strokeLinejoin="round"/>
-                                    <line x1="1.75" y1="5.83325" x2="12.25" y2="5.83325" stroke="#4A5565" strokeWidth="1.16617"/>
-                                    <line x1="4.66675" y1="1.16675" x2="4.66675" y2="3.50008" stroke="#4A5565" strokeWidth="1.16617" strokeLinecap="round"/>
-                                    <line x1="9.33325" y1="1.16675" x2="9.33325" y2="3.50008" stroke="#4A5565" strokeWidth="1.16617" strokeLinecap="round"/>
-                                  </svg>
-                                  <span className="whitespace-nowrap">{uiMemory.dateRange}</span>
-                                </div>
-                              )}
-                            </div>
-                          </div>
+                          {mobileHeaderTitle}
                         </div>
                         <div className="flex items-center gap-1 flex-shrink-0" style={{ marginTop: '4px' }}>
-                          <Button variant="ghost" size="sm" className="w-9 h-9 p-0 hover:bg-gray-100 rounded-full">
-                            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ width: '25px', height: '25px' }}>
-                              <path d="M19.6 21L13.3 14.7C12.8 15.1 12.225 15.4167 11.575 15.65C10.925 15.8833 10.2333 16 9.5 16C7.68333 16 6.14583 15.3708 4.8875 14.1125C3.62917 12.8542 3 11.3167 3 9.5C3 7.68333 3.62917 6.14583 4.8875 4.8875C6.14583 3.62917 7.68333 3 9.5 3C11.3167 3 12.8542 3.62917 14.1125 4.8875C15.3708 6.14583 16 7.68333 16 9.5C16 10.2333 15.8833 10.925 15.65 11.575C15.4167 12.225 15.1 12.8 14.7 13.3L21 19.6L19.6 21ZM9.5 14C10.75 14 11.8125 13.5625 12.6875 12.6875C13.5625 11.8125 14 10.75 14 9.5C14 8.25 13.5625 7.1875 12.6875 6.3125C11.8125 5.4375 10.75 5 9.5 5C8.25 5 7.1875 5.4375 6.3125 6.3125C5.4375 7.1875 5 8.25 5 9.5C5 10.75 5.4375 11.8125 6.3125 12.6875C7.1875 13.5625 8.25 14 9.5 14Z" fill="#1F1F1F"/>
-                            </svg>
-                          </Button>
+                          {mobileHeaderSearch}
                         {/* Edit / Publish menu — none on read-only inventory (cars, catalogue products) */}
                         {!isInventoryDetail && (
                         <DropdownMenu>
@@ -12118,7 +12194,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
               {/* DESKTOP: Two-column layout - Left metadata+timeline, Center scrollable memory cards */}
               <div className="hidden lg:flex gap-2 h-[73vh] justify-start" data-timeline-list>
                 {/* LEFT PANEL - Metadata + Timeline List */}
-                <div className="w-[400px] flex-shrink-0 flex flex-col h-full overflow-hidden p-4">
+                <div className="flex-[0_1_400px] min-w-[240px] flex flex-col h-full overflow-hidden p-4">
                   {/* Tags Row */}
                   <div className="flex items-center gap-2 flex-wrap mb-2">
                     <Badge className="text-white border-0 px-3 py-1.5 text-sm rounded-2xl" style={{ backgroundColor: categoryColorHex || '#6C60FF' }}>
@@ -12453,74 +12529,6 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                         </div>
                         <div className="relative mt-8">
                           <div className="border-b border-dashed border-[#6C60FF]/40 group-hover/border:border-[#6C60FF]/40" />
-                          <div className={`absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 opacity-0 group-hover/border:opacity-100 transition-opacity duration-200 z-10 ${isInventoryDetail ? 'hidden' : ''}`}>
-                            <Popover>
-                              <PopoverTrigger asChild>
-                                <div className="w-7 h-7 rounded-full border border-[#6C60FF] bg-white hover:bg-[#6C60FF]/10 flex items-center justify-center cursor-pointer transition-colors duration-200">
-                                  <Plus className="w-4 h-4 text-[#6C60FF]" />
-                                </div>
-                              </PopoverTrigger>
-                              <PopoverContent side="right" align="center" className="w-80 p-0 rounded-xl shadow-lg border border-gray-200 bg-white" sideOffset={8}>
-                                <div className="p-4 pb-2">
-                                  <h4 className="text-lg font-semibold text-gray-900">Add Widget</h4>
-                                  <p className="text-sm text-gray-500">Choose a widget to add to your timeline</p>
-                                </div>
-                                <div className="max-h-[320px] overflow-y-auto">
-                                  {[
-                                    { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#F0FDFA" fillOpacity="0.4"/><circle cx="17.5" cy="17.5" r="6.5" stroke="#009689" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><polyline points="17.5 13.5 17.5 17.5 20.5 19" stroke="#009689" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/></svg>, label: 'Moment', desc: 'Add a special moment' }, { icon: <div className="w-full h-full rounded-[8px] bg-[#6C60FF]/10 flex items-center justify-center"><Pointer className="w-5 h-5 text-[#6C60FF]" /></div>, label: 'Call to Action', desc: 'Add a button with a link' }, { icon: <div className="w-full h-full rounded-[8px] bg-[#6C60FF]/10 flex items-center justify-center"><Upload className="w-5 h-5 text-[#6C60FF]" /></div>, label: 'Share Request a Moment', desc: 'Allow photos and caption contributions' },
-                                    { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#6C60FF" fillOpacity="0.1"/><rect x="14" y="10" width="7" height="10" rx="3.5" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><path d="M11 20.5C11 23.538 13.91 26 17.5 26C21.09 26 24 23.538 24 20.5" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><line x1="17.5" y1="26" x2="17.5" y2="29" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round"/><line x1="14.5" y1="29" x2="20.5" y2="29" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round"/></svg>, label: 'Voice to Text', desc: 'Create moment captions' },
-                                    { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#6C60FF" fillOpacity="0.1"/><polyline points="21 22 25 17.5 21 13" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><polyline points="14 13 10 17.5 14 22" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/></svg>, label: 'HTML', desc: 'Add custom HTML content' },
-                                    { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#FF4444" fillOpacity="0.1"/><path d="M22.5 13H12.5C11.67 13 11 13.67 11 14.5V20.5C11 21.33 11.67 22 12.5 22H22.5C23.33 22 24 21.33 24 20.5V14.5C24 13.67 23.33 13 22.5 13Z" stroke="#FF4444" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><path d="M16 19.5V15.5L20 17.5L16 19.5Z" stroke="#FF4444" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round" fill="none"/></svg>, label: 'Youtube', desc: 'Embed a YouTube link' },
-                                    { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#F59E0B" fillOpacity="0.1"/><path d="M19.5 12C19.15 12 18.82 12.14 18.57 12.39C18.32 12.64 18.17 12.98 18.17 13.33V17.33C18.17 17.68 18.32 18.02 18.57 18.27C18.82 18.52 19.15 18.67 19.5 18.67C19.68 18.67 19.85 18.74 19.97 18.86C20.1 18.99 20.17 19.16 20.17 19.33V20C20.17 20.35 20.02 20.69 19.77 20.94C19.52 21.19 19.19 21.33 18.83 21.33C18.65 21.33 18.49 21.4 18.36 21.53C18.24 21.65 18.17 21.82 18.17 22V23.33C18.17 23.51 18.24 23.68 18.36 23.8C18.49 23.93 18.65 24 18.83 24C19.89 24 20.91 23.58 21.66 22.83C22.41 22.08 22.83 21.06 22.83 20V13.33C22.83 12.98 22.69 12.64 22.44 12.39C22.19 12.14 21.85 12 21.5 12H19.5Z" stroke="#F59E0B" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/><path d="M13.17 12C12.81 12 12.47 12.14 12.22 12.39C11.97 12.64 11.83 12.98 11.83 13.33V17.33C11.83 17.68 11.97 18.02 12.22 18.27C12.47 18.52 12.81 18.67 13.17 18.67C13.34 18.67 13.51 18.74 13.64 18.86C13.76 18.99 13.83 19.16 13.83 19.33V20C13.83 20.35 13.69 20.69 13.44 20.94C13.19 21.19 12.85 21.33 12.5 21.33C12.32 21.33 12.16 21.4 12.03 21.53C11.9 21.65 11.83 21.82 11.83 22V23.33C11.83 23.51 11.9 23.68 12.03 23.8C12.16 23.93 12.32 24 12.5 24C13.56 24 14.58 23.58 15.33 22.83C16.08 22.08 16.5 21.06 16.5 20V13.33C16.5 12.98 16.36 12.64 16.11 12.39C15.86 12.14 15.52 12 15.17 12H13.17Z" stroke="#F59E0B" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>, label: 'Quote', desc: 'Add an inspirational quote' }, { icon: <div className="w-full h-full rounded-[8px] bg-[#6C60FF]/10 flex items-center justify-center"><Sparkles className="w-5 h-5 text-[#6C60FF]" /></div>, label: 'AI Creator', desc: 'Generate content with AI' }, ...(DOCUSIGN_ENABLED && docuSignConnected ? [{ icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#1464A5" fillOpacity="0.1"/><rect x="12" y="10" width="11" height="14" rx="1.5" stroke="#1464A5" strokeWidth="1.45808"/><line x1="14.5" y1="14" x2="20.5" y2="14" stroke="#1464A5" strokeWidth="1.3" strokeLinecap="round"/><line x1="14.5" y1="17" x2="18.5" y2="17" stroke="#1464A5" strokeWidth="1.3" strokeLinecap="round"/></svg>, label: 'DocuSign', desc: 'Send for signature' }] : []),
-                                  ].map((item) => (
-                                    <PopoverClose asChild key={item.label}>
-                                    <div
-                                      className="group/item flex items-center gap-4 px-5 py-4 hover:bg-gray-50 cursor-pointer transition-colors"
-                                      onClick={() => {
-                                        if (item.label === 'Moment') {
-                                          insertAfterPostIdRef.current = null; setInsertAfterPostId(null);
-                                          setIsAddMomentModalOpen(true);
-                                        } else if (item.label === 'HTML') {
-                                          setHtmlWidgetAfterPostId(null);
-                                          setEditingHtmlWidgetId(null);
-                                          setIsAddHtmlModalOpen(true);
-                                        } else if (item.label === 'Youtube') {
-                                          setYoutubeWidgetAfterPostId(null);
-                                          setIsAddYoutubeModalOpen(true);
-                                        } else if (item.label === 'Quote') {
-                                          setQuoteWidgetAfterPostId(null);
-                                          setIsAddQuoteModalOpen(true);
-                                        } else if (item.label === 'AI Creator') {
-                                          setAiCreatorWidgetAfterPostId(null);
-                                          setIsAddAiCreatorModalOpen(true);
-                                        } else if (item.label === 'Call to Action') {
-                                          setCtaWidgetAfterPostId(null);
-                                          setEditingCtaWidgetId(null);
-                                          setIsAddCtaModalOpen(true);
-                                        } else if (item.label === 'Share Request a Moment') {
-                                          openAddRequestMomentCta(null);
-                                        } else if (item.label === 'Voice to Text') {
-                                          setVoiceToTextAfterPostId(null);
-                                          setIsVoiceToTextOpen(true);
-                                        } else {
-                                          if (item.label === 'DocuSign' && DOCUSIGN_ENABLED) { setDocuSignPostId(null); setShowDocuSignSendModal(true); } else { toast.info(`${item.label} widget coming soon!`); }
-                                        }
-                                      }}
-                                    >
-                                      <div className="w-10 h-10 flex-shrink-0">
-                                        {item.icon}
-                                      </div>
-                                      <div>
-                                        <p className="text-base font-medium text-gray-900">{item.label}</p>
-                                        <p className="text-sm text-gray-500">{item.desc}</p>
-                                      </div>
-                                    </div>
-                                    </PopoverClose>
-                                  ))}
-                                </div>
-                              </PopoverContent>
-                            </Popover>
-                          </div>
                         </div>
                       </div>
                     </div>
@@ -12585,74 +12593,6 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                             </div>
                             <div className="relative mt-8">
                               <div className="border-b border-dashed border-[#6C60FF]/40 group-hover/border:border-[#6C60FF]/40" />
-                              <div className={`absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 opacity-0 group-hover/border:opacity-100 transition-opacity duration-200 z-10 ${isInventoryDetail ? 'hidden' : ''}`}>
-                                <Popover>
-                                  <PopoverTrigger asChild>
-                                    <div className="w-7 h-7 rounded-full border border-[#6C60FF] bg-white hover:bg-[#6C60FF]/10 flex items-center justify-center cursor-pointer transition-colors duration-200">
-                                      <Plus className="w-4 h-4 text-[#6C60FF]" />
-                                    </div>
-                                  </PopoverTrigger>
-                                  <PopoverContent side="right" align="center" className="w-80 p-0 rounded-xl shadow-lg border border-gray-200 bg-white" sideOffset={8}>
-                                    <div className="p-4 pb-2">
-                                      <h4 className="text-base font-semibold text-gray-900">Add Widget</h4>
-                                      <p className="text-sm text-gray-500">Choose a widget to add to your timeline</p>
-                                    </div>
-                                    <div className="max-h-[320px] overflow-y-auto">
-                                      {[
-                                        { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#F0FDFA" fillOpacity="0.4"/><circle cx="17.5" cy="17.5" r="6.5" stroke="#009689" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><polyline points="17.5 13.5 17.5 17.5 20.5 19" stroke="#009689" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/></svg>, label: 'Moment', desc: 'Add a special moment' }, { icon: <div className="w-full h-full rounded-[8px] bg-[#6C60FF]/10 flex items-center justify-center"><Pointer className="w-5 h-5 text-[#6C60FF]" /></div>, label: 'Call to Action', desc: 'Add a button with a link' }, { icon: <div className="w-full h-full rounded-[8px] bg-[#6C60FF]/10 flex items-center justify-center"><Upload className="w-5 h-5 text-[#6C60FF]" /></div>, label: 'Share Request a Moment', desc: 'Allow photos and caption contributions' },
-                                        { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#6C60FF" fillOpacity="0.1"/><rect x="14" y="10" width="7" height="10" rx="3.5" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><path d="M11 20.5C11 23.538 13.91 26 17.5 26C21.09 26 24 23.538 24 20.5" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><line x1="17.5" y1="26" x2="17.5" y2="29" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round"/><line x1="14.5" y1="29" x2="20.5" y2="29" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round"/></svg>, label: 'Voice to Text', desc: 'Create moment captions' },
-                                        { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#6C60FF" fillOpacity="0.1"/><polyline points="21 22 25 17.5 21 13" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><polyline points="14 13 10 17.5 14 22" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/></svg>, label: 'HTML', desc: 'Add custom HTML content' },
-                                        { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#FF4444" fillOpacity="0.1"/><path d="M22.5 13H12.5C11.67 13 11 13.67 11 14.5V20.5C11 21.33 11.67 22 12.5 22H22.5C23.33 22 24 21.33 24 20.5V14.5C24 13.67 23.33 13 22.5 13Z" stroke="#FF4444" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><path d="M16 19.5V15.5L20 17.5L16 19.5Z" stroke="#FF4444" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round" fill="none"/></svg>, label: 'Youtube', desc: 'Embed a YouTube link' },
-                                        { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#F59E0B" fillOpacity="0.1"/><path d="M19.5 12C19.15 12 18.82 12.14 18.57 12.39C18.32 12.64 18.17 12.98 18.17 13.33V17.33C18.17 17.68 18.32 18.02 18.57 18.27C18.82 18.52 19.15 18.67 19.5 18.67C19.68 18.67 19.85 18.74 19.97 18.86C20.1 18.99 20.17 19.16 20.17 19.33V20C20.17 20.35 20.02 20.69 19.77 20.94C19.52 21.19 19.19 21.33 18.83 21.33C18.65 21.33 18.49 21.4 18.36 21.53C18.24 21.65 18.17 21.82 18.17 22V23.33C18.17 23.51 18.24 23.68 18.36 23.8C18.49 23.93 18.65 24 18.83 24C19.89 24 20.91 23.58 21.66 22.83C22.41 22.08 22.83 21.06 22.83 20V13.33C22.83 12.98 22.69 12.64 22.44 12.39C22.19 12.14 21.85 12 21.5 12H19.5Z" stroke="#F59E0B" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/><path d="M13.17 12C12.81 12 12.47 12.14 12.22 12.39C11.97 12.64 11.83 12.98 11.83 13.33V17.33C11.83 17.68 11.97 18.02 12.22 18.27C12.47 18.52 12.81 18.67 13.17 18.67C13.34 18.67 13.51 18.74 13.64 18.86C13.76 18.99 13.83 19.16 13.83 19.33V20C13.83 20.35 13.69 20.69 13.44 20.94C13.19 21.19 12.85 21.33 12.5 21.33C12.32 21.33 12.16 21.4 12.03 21.53C11.9 21.65 11.83 21.82 11.83 22V23.33C11.83 23.51 11.9 23.68 12.03 23.8C12.16 23.93 12.32 24 12.5 24C13.56 24 14.58 23.58 15.33 22.83C16.08 22.08 16.5 21.06 16.5 20V13.33C16.5 12.98 16.36 12.64 16.11 12.39C15.86 12.14 15.52 12 15.17 12H13.17Z" stroke="#F59E0B" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>, label: 'Quote', desc: 'Add an inspirational quote' }, { icon: <div className="w-full h-full rounded-[8px] bg-[#6C60FF]/10 flex items-center justify-center"><Sparkles className="w-5 h-5 text-[#6C60FF]" /></div>, label: 'AI Creator', desc: 'Generate content with AI' }, ...(DOCUSIGN_ENABLED && docuSignConnected ? [{ icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#1464A5" fillOpacity="0.1"/><rect x="12" y="10" width="11" height="14" rx="1.5" stroke="#1464A5" strokeWidth="1.45808"/><line x1="14.5" y1="14" x2="20.5" y2="14" stroke="#1464A5" strokeWidth="1.3" strokeLinecap="round"/><line x1="14.5" y1="17" x2="18.5" y2="17" stroke="#1464A5" strokeWidth="1.3" strokeLinecap="round"/></svg>, label: 'DocuSign', desc: 'Send for signature' }] : []),
-                                      ].map((item) => (
-                                        <PopoverClose asChild key={item.label}>
-                                        <div
-                                          className="group/item flex items-center gap-4 px-5 py-4 hover:bg-gray-50 cursor-pointer transition-colors"
-                                          onClick={() => {
-                                            if (item.label === 'Moment') {
-                                              insertAfterPostIdRef.current = null; setInsertAfterPostId(null);
-                                              setIsAddMomentModalOpen(true);
-                                            } else if (item.label === 'HTML') {
-                                              setHtmlWidgetAfterPostId(null);
-                                              setEditingHtmlWidgetId(null);
-                                              setIsAddHtmlModalOpen(true);
-                                            } else if (item.label === 'Youtube') {
-                                              setYoutubeWidgetAfterPostId(null);
-                                              setIsAddYoutubeModalOpen(true);
-                                            } else if (item.label === 'Quote') {
-                                              setQuoteWidgetAfterPostId(null);
-                                              setIsAddQuoteModalOpen(true);
-                                            } else if (item.label === 'AI Creator') {
-                                              setAiCreatorWidgetAfterPostId(null);
-                                              setIsAddAiCreatorModalOpen(true);
-                                            } else if (item.label === 'Call to Action') {
-                                              setCtaWidgetAfterPostId(null);
-                                              setEditingCtaWidgetId(null);
-                                              setIsAddCtaModalOpen(true);
-                                            } else if (item.label === 'Share Request a Moment') {
-                                              openAddRequestMomentCta(null);
-                                            } else if (item.label === 'Voice to Text') {
-                                              setVoiceToTextAfterPostId(null);
-                                              setIsVoiceToTextOpen(true);
-                                            } else {
-                                              if (item.label === 'DocuSign' && DOCUSIGN_ENABLED) { setDocuSignPostId(null); setShowDocuSignSendModal(true); } else { toast.info(`${item.label} widget coming soon!`); }
-                                            }
-                                          }}
-                                        >
-                                          <div className="w-10 h-10 flex-shrink-0">
-                                            {item.icon}
-                                          </div>
-                                          <div>
-                                            <p className="text-sm font-medium text-gray-900">{item.label}</p>
-                                            <p className="text-xs text-gray-500">{item.desc}</p>
-                                          </div>
-                                        </div>
-                                        </PopoverClose>
-                                      ))}
-                                    </div>
-                                  </PopoverContent>
-                                </Popover>
-                              </div>
                             </div>
                           </div>
                         </div>
@@ -12755,75 +12695,6 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                             </div>
                             <div className="relative mt-8">
                               <div className="border-b border-dashed border-[#6C60FF]/40 group-hover/border:border-[#6C60FF]/40" />
-                              <div className={`absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 opacity-0 group-hover/border:opacity-100 transition-opacity duration-200 z-10 ${isInventoryDetail ? 'hidden' : ''}`}>
-                                <Popover>
-                                  <PopoverTrigger asChild>
-                                    <div className="w-7 h-7 rounded-full border border-[#6C60FF] bg-white hover:bg-[#6C60FF]/10 flex items-center justify-center cursor-pointer transition-colors duration-200">
-                                      <Plus className="w-4 h-4 text-[#6C60FF]" />
-                                    </div>
-                                  </PopoverTrigger>
-                                  <PopoverContent side="right" align="center" className="w-80 p-0 rounded-xl shadow-lg border border-gray-200 bg-white" sideOffset={8}>
-                                    <div className="p-4 pb-2">
-                                      <h4 className="text-base font-semibold text-gray-900">Add Widget</h4>
-                                      <p className="text-sm text-gray-500">Choose a widget to add to your timeline</p>
-                                    </div>
-                                    <div className="max-h-[320px] overflow-y-auto">
-                                      {[
-                                        { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#F0FDFA" fillOpacity="0.4"/><circle cx="17.5" cy="17.5" r="6.5" stroke="#009689" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><polyline points="17.5 13.5 17.5 17.5 20.5 19" stroke="#009689" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/></svg>, label: 'Moment', desc: 'Add a special moment' }, { icon: <div className="w-full h-full rounded-[8px] bg-[#6C60FF]/10 flex items-center justify-center"><Pointer className="w-5 h-5 text-[#6C60FF]" /></div>, label: 'Call to Action', desc: 'Add a button with a link' }, { icon: <div className="w-full h-full rounded-[8px] bg-[#6C60FF]/10 flex items-center justify-center"><Upload className="w-5 h-5 text-[#6C60FF]" /></div>, label: 'Share Request a Moment', desc: 'Allow photos and caption contributions' },
-                                        { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#6C60FF" fillOpacity="0.1"/><rect x="14" y="10" width="7" height="10" rx="3.5" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><path d="M11 20.5C11 23.538 13.91 26 17.5 26C21.09 26 24 23.538 24 20.5" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><line x1="17.5" y1="26" x2="17.5" y2="29" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round"/><line x1="14.5" y1="29" x2="20.5" y2="29" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round"/></svg>, label: 'Voice to Text', desc: 'Create moment captions' },
-                                        { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#6C60FF" fillOpacity="0.1"/><polyline points="21 22 25 17.5 21 13" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><polyline points="14 13 10 17.5 14 22" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/></svg>, label: 'HTML', desc: 'Add custom HTML content' },
-                                        { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#FF4444" fillOpacity="0.1"/><path d="M22.5 13H12.5C11.67 13 11 13.67 11 14.5V20.5C11 21.33 11.67 22 12.5 22H22.5C23.33 22 24 21.33 24 20.5V14.5C24 13.67 23.33 13 22.5 13Z" stroke="#FF4444" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><path d="M16 19.5V15.5L20 17.5L16 19.5Z" stroke="#FF4444" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round" fill="none"/></svg>, label: 'Youtube', desc: 'Embed a YouTube link' },
-                                        { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#F59E0B" fillOpacity="0.1"/><path d="M19.5 12C19.15 12 18.82 12.14 18.57 12.39C18.32 12.64 18.17 12.98 18.17 13.33V17.33C18.17 17.68 18.32 18.02 18.57 18.27C18.82 18.52 19.15 18.67 19.5 18.67C19.68 18.67 19.85 18.74 19.97 18.86C20.1 18.99 20.17 19.16 20.17 19.33V20C20.17 20.35 20.02 20.69 19.77 20.94C19.52 21.19 19.19 21.33 18.83 21.33C18.65 21.33 18.49 21.4 18.36 21.53C18.24 21.65 18.17 21.82 18.17 22V23.33C18.17 23.51 18.24 23.68 18.36 23.8C18.49 23.93 18.65 24 18.83 24C19.89 24 20.91 23.58 21.66 22.83C22.41 22.08 22.83 21.06 22.83 20V13.33C22.83 12.98 22.69 12.64 22.44 12.39C22.19 12.14 21.85 12 21.5 12H19.5Z" stroke="#F59E0B" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/><path d="M13.17 12C12.81 12 12.47 12.14 12.22 12.39C11.97 12.64 11.83 12.98 11.83 13.33V17.33C11.83 17.68 11.97 18.02 12.22 18.27C12.47 18.52 12.81 18.67 13.17 18.67C13.34 18.67 13.51 18.74 13.64 18.86C13.76 18.99 13.83 19.16 13.83 19.33V20C13.83 20.35 13.69 20.69 13.44 20.94C13.19 21.19 12.85 21.33 12.5 21.33C12.32 21.33 12.16 21.4 12.03 21.53C11.9 21.65 11.83 21.82 11.83 22V23.33C11.83 23.51 11.9 23.68 12.03 23.8C12.16 23.93 12.32 24 12.5 24C13.56 24 14.58 23.58 15.33 22.83C16.08 22.08 16.5 21.06 16.5 20V13.33C16.5 12.98 16.36 12.64 16.11 12.39C15.86 12.14 15.52 12 15.17 12H13.17Z" stroke="#F59E0B" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>, label: 'Quote', desc: 'Add an inspirational quote' }, { icon: <div className="w-full h-full rounded-[8px] bg-[#6C60FF]/10 flex items-center justify-center"><Sparkles className="w-5 h-5 text-[#6C60FF]" /></div>, label: 'AI Creator', desc: 'Generate content with AI' }, ...(DOCUSIGN_ENABLED && docuSignConnected ? [{ icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#1464A5" fillOpacity="0.1"/><rect x="12" y="10" width="11" height="14" rx="1.5" stroke="#1464A5" strokeWidth="1.45808"/><line x1="14.5" y1="14" x2="20.5" y2="14" stroke="#1464A5" strokeWidth="1.3" strokeLinecap="round"/><line x1="14.5" y1="17" x2="18.5" y2="17" stroke="#1464A5" strokeWidth="1.3" strokeLinecap="round"/></svg>, label: 'DocuSign', desc: 'Send for signature' }] : []),
-                                      ].map((item) => (
-                                        <PopoverClose asChild key={item.label}>
-                                        <div
-                                          className="group/item flex items-center gap-4 px-5 py-4 hover:bg-gray-50 cursor-pointer transition-colors"
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            if (item.label === 'Moment') {
-                                              insertAfterPostIdRef.current = widget.afterPostId || null; setInsertAfterPostId(widget.afterPostId || null);
-                                              setIsAddMomentModalOpen(true);
-                                            } else if (item.label === 'HTML') {
-                                              setHtmlWidgetAfterPostId(widget.afterPostId);
-                                              setEditingHtmlWidgetId(null);
-                                              setIsAddHtmlModalOpen(true);
-                                            } else if (item.label === 'Youtube') {
-                                              setYoutubeWidgetAfterPostId(widget.afterPostId);
-                                              setIsAddYoutubeModalOpen(true);
-                                            } else if (item.label === 'Quote') {
-                                              setQuoteWidgetAfterPostId(widget.afterPostId);
-                                              setIsAddQuoteModalOpen(true);
-                                            } else if (item.label === 'AI Creator') {
-                                              setAiCreatorWidgetAfterPostId(widget.afterPostId);
-                                              setIsAddAiCreatorModalOpen(true);
-                                            } else if (item.label === 'Call to Action') {
-                                              setCtaWidgetAfterPostId(widget.afterPostId);
-                                              setEditingCtaWidgetId(null);
-                                              setIsAddCtaModalOpen(true);
-                                            } else if (item.label === 'Share Request a Moment') {
-                                              openAddRequestMomentCta(widget.afterPostId);
-                                            } else if (item.label === 'Voice to Text') {
-                                              setVoiceToTextAfterPostId(widget.afterPostId || null);
-                                              setIsVoiceToTextOpen(true);
-                                            } else {
-                                              if (item.label === 'DocuSign' && DOCUSIGN_ENABLED) { setDocuSignPostId(widget.afterPostId || null); setShowDocuSignSendModal(true); } else { toast.info(`${item.label} widget coming soon!`); }
-                                            }
-                                          }}
-                                        >
-                                          <div className="w-10 h-10 flex-shrink-0">
-                                            {item.icon}
-                                          </div>
-                                          <div>
-                                            <p className="text-sm font-medium text-gray-900">{item.label}</p>
-                                            <p className="text-xs text-gray-500">{item.desc}</p>
-                                          </div>
-                                        </div>
-                                        </PopoverClose>
-                                      ))}
-                                    </div>
-                                  </PopoverContent>
-                                </Popover>
-                              </div>
                             </div>
                           </div>
                         </div>
@@ -12888,74 +12759,6 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                             </div>
                             <div className="relative mt-8">
                               <div className="border-b border-dashed border-[#6C60FF]/40 group-hover/border:border-[#6C60FF]/40" />
-                              <div className={`absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 opacity-0 group-hover/border:opacity-100 transition-opacity duration-200 z-10 ${isInventoryDetail ? 'hidden' : ''}`}>
-                                <Popover>
-                                  <PopoverTrigger asChild>
-                                    <div className="w-7 h-7 rounded-full border border-[#6C60FF] bg-white hover:bg-[#6C60FF]/10 flex items-center justify-center cursor-pointer transition-colors duration-200">
-                                      <Plus className="w-4 h-4 text-[#6C60FF]" />
-                                    </div>
-                                  </PopoverTrigger>
-                                  <PopoverContent side="right" align="center" className="w-80 p-0 rounded-xl shadow-lg border border-gray-200 bg-white" sideOffset={8}>
-                                    <div className="p-4 pb-2">
-                                      <h4 className="text-base font-semibold text-gray-900">Add Widget</h4>
-                                      <p className="text-sm text-gray-500">Choose a widget to add to your timeline</p>
-                                    </div>
-                                    <div className="max-h-[320px] overflow-y-auto">
-                                      {[
-                                        { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#F0FDFA" fillOpacity="0.4"/><circle cx="17.5" cy="17.5" r="6.5" stroke="#009689" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><polyline points="17.5 13.5 17.5 17.5 20.5 19" stroke="#009689" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/></svg>, label: 'Moment', desc: 'Add a special moment' }, { icon: <div className="w-full h-full rounded-[8px] bg-[#6C60FF]/10 flex items-center justify-center"><Pointer className="w-5 h-5 text-[#6C60FF]" /></div>, label: 'Call to Action', desc: 'Add a button with a link' }, { icon: <div className="w-full h-full rounded-[8px] bg-[#6C60FF]/10 flex items-center justify-center"><Upload className="w-5 h-5 text-[#6C60FF]" /></div>, label: 'Share Request a Moment', desc: 'Allow photos and caption contributions' },
-                                        { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#6C60FF" fillOpacity="0.1"/><rect x="14" y="10" width="7" height="10" rx="3.5" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><path d="M11 20.5C11 23.538 13.91 26 17.5 26C21.09 26 24 23.538 24 20.5" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><line x1="17.5" y1="26" x2="17.5" y2="29" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round"/><line x1="14.5" y1="29" x2="20.5" y2="29" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round"/></svg>, label: 'Voice to Text', desc: 'Create moment captions' },
-                                        { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#6C60FF" fillOpacity="0.1"/><polyline points="21 22 25 17.5 21 13" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><polyline points="14 13 10 17.5 14 22" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/></svg>, label: 'HTML', desc: 'Add custom HTML content' },
-                                        { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#FF4444" fillOpacity="0.1"/><path d="M22.5 13H12.5C11.67 13 11 13.67 11 14.5V20.5C11 21.33 11.67 22 12.5 22H22.5C23.33 22 24 21.33 24 20.5V14.5C24 13.67 23.33 13 22.5 13Z" stroke="#FF4444" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><path d="M16 19.5V15.5L20 17.5L16 19.5Z" stroke="#FF4444" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round" fill="none"/></svg>, label: 'Youtube', desc: 'Embed a YouTube link' },
-                                        { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#F59E0B" fillOpacity="0.1"/><path d="M19.5 12C19.15 12 18.82 12.14 18.57 12.39C18.32 12.64 18.17 12.98 18.17 13.33V17.33C18.17 17.68 18.32 18.02 18.57 18.27C18.82 18.52 19.15 18.67 19.5 18.67C19.68 18.67 19.85 18.74 19.97 18.86C20.1 18.99 20.17 19.16 20.17 19.33V20C20.17 20.35 20.02 20.69 19.77 20.94C19.52 21.19 19.19 21.33 18.83 21.33C18.65 21.33 18.49 21.4 18.36 21.53C18.24 21.65 18.17 21.82 18.17 22V23.33C18.17 23.51 18.24 23.68 18.36 23.8C18.49 23.93 18.65 24 18.83 24C19.89 24 20.91 23.58 21.66 22.83C22.41 22.08 22.83 21.06 22.83 20V13.33C22.83 12.98 22.69 12.64 22.44 12.39C22.19 12.14 21.85 12 21.5 12H19.5Z" stroke="#F59E0B" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/><path d="M13.17 12C12.81 12 12.47 12.14 12.22 12.39C11.97 12.64 11.83 12.98 11.83 13.33V17.33C11.83 17.68 11.97 18.02 12.22 18.27C12.47 18.52 12.81 18.67 13.17 18.67C13.34 18.67 13.51 18.74 13.64 18.86C13.76 18.99 13.83 19.16 13.83 19.33V20C13.83 20.35 13.69 20.69 13.44 20.94C13.19 21.19 12.85 21.33 12.5 21.33C12.32 21.33 12.16 21.4 12.03 21.53C11.9 21.65 11.83 21.82 11.83 22V23.33C11.83 23.51 11.9 23.68 12.03 23.8C12.16 23.93 12.32 24 12.5 24C13.56 24 14.58 23.58 15.33 22.83C16.08 22.08 16.5 21.06 16.5 20V13.33C16.5 12.98 16.36 12.64 16.11 12.39C15.86 12.14 15.52 12 15.17 12H13.17Z" stroke="#F59E0B" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>, label: 'Quote', desc: 'Add an inspirational quote' }, { icon: <div className="w-full h-full rounded-[8px] bg-[#6C60FF]/10 flex items-center justify-center"><Sparkles className="w-5 h-5 text-[#6C60FF]" /></div>, label: 'AI Creator', desc: 'Generate content with AI' }, ...(DOCUSIGN_ENABLED && docuSignConnected ? [{ icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#1464A5" fillOpacity="0.1"/><rect x="12" y="10" width="11" height="14" rx="1.5" stroke="#1464A5" strokeWidth="1.45808"/><line x1="14.5" y1="14" x2="20.5" y2="14" stroke="#1464A5" strokeWidth="1.3" strokeLinecap="round"/><line x1="14.5" y1="17" x2="18.5" y2="17" stroke="#1464A5" strokeWidth="1.3" strokeLinecap="round"/></svg>, label: 'DocuSign', desc: 'Send for signature' }] : []),
-                                      ].map((item) => (
-                                        <PopoverClose asChild key={item.label}>
-                                        <div
-                                          className="group/item flex items-center gap-4 px-5 py-4 hover:bg-gray-50 cursor-pointer transition-colors"
-                                          onClick={() => {
-                                            if (item.label === 'Moment') {
-                                              insertAfterPostIdRef.current = null; setInsertAfterPostId(null);
-                                              setIsAddMomentModalOpen(true);
-                                            } else if (item.label === 'HTML') {
-                                              setHtmlWidgetAfterPostId(null);
-                                              setEditingHtmlWidgetId(null);
-                                              setIsAddHtmlModalOpen(true);
-                                            } else if (item.label === 'Youtube') {
-                                              setYoutubeWidgetAfterPostId(null);
-                                              setIsAddYoutubeModalOpen(true);
-                                            } else if (item.label === 'Quote') {
-                                              setQuoteWidgetAfterPostId(null);
-                                              setIsAddQuoteModalOpen(true);
-                                            } else if (item.label === 'AI Creator') {
-                                              setAiCreatorWidgetAfterPostId(null);
-                                              setIsAddAiCreatorModalOpen(true);
-                                            } else if (item.label === 'Call to Action') {
-                                              setCtaWidgetAfterPostId(null);
-                                              setEditingCtaWidgetId(null);
-                                              setIsAddCtaModalOpen(true);
-                                            } else if (item.label === 'Share Request a Moment') {
-                                              openAddRequestMomentCta(null);
-                                            } else if (item.label === 'Voice to Text') {
-                                              setVoiceToTextAfterPostId(null);
-                                              setIsVoiceToTextOpen(true);
-                                            } else {
-                                              if (item.label === 'DocuSign' && DOCUSIGN_ENABLED) { setDocuSignPostId(null); setShowDocuSignSendModal(true); } else { toast.info(`${item.label} widget coming soon!`); }
-                                            }
-                                          }}
-                                        >
-                                          <div className="w-10 h-10 flex-shrink-0">
-                                            {item.icon}
-                                          </div>
-                                          <div>
-                                            <p className="text-sm font-medium text-gray-900">{item.label}</p>
-                                            <p className="text-xs text-gray-500">{item.desc}</p>
-                                          </div>
-                                        </div>
-                                        </PopoverClose>
-                                      ))}
-                                    </div>
-                                  </PopoverContent>
-                                </Popover>
-                              </div>
                             </div>
                           </div>
                         </div>
@@ -13128,75 +12931,6 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                             </div>
                             <div className="relative mt-8">
                               <div className="border-b border-dashed border-[#6C60FF]/40 group-hover/border:border-[#6C60FF]/40" />
-                              <div className={`absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 opacity-0 group-hover/border:opacity-100 transition-opacity duration-200 z-10 ${isInventoryDetail ? 'hidden' : ''}`}>
-                                <Popover>
-                                  <PopoverTrigger asChild>
-                                    <div className="w-7 h-7 rounded-full border border-[#6C60FF] bg-white hover:bg-[#6C60FF]/10 flex items-center justify-center cursor-pointer transition-colors duration-200">
-                                      <Plus className="w-4 h-4 text-[#6C60FF]" />
-                                    </div>
-                                  </PopoverTrigger>
-                                  <PopoverContent side="right" align="center" className="w-80 p-0 rounded-xl shadow-lg border border-gray-200 bg-white" sideOffset={8}>
-                                    <div className="p-4 pb-2">
-                                      <h4 className="text-base font-semibold text-gray-900">Add Widget</h4>
-                                      <p className="text-sm text-gray-500">Choose a widget to add to your timeline</p>
-                                    </div>
-                                    <div className="max-h-[320px] overflow-y-auto">
-                                      {[
-                                        { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#F0FDFA" fillOpacity="0.4"/><circle cx="17.5" cy="17.5" r="6.5" stroke="#009689" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><polyline points="17.5 13.5 17.5 17.5 20.5 19" stroke="#009689" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/></svg>, label: 'Moment', desc: 'Add a special moment' }, { icon: <div className="w-full h-full rounded-[8px] bg-[#6C60FF]/10 flex items-center justify-center"><Pointer className="w-5 h-5 text-[#6C60FF]" /></div>, label: 'Call to Action', desc: 'Add a button with a link' }, { icon: <div className="w-full h-full rounded-[8px] bg-[#6C60FF]/10 flex items-center justify-center"><Upload className="w-5 h-5 text-[#6C60FF]" /></div>, label: 'Share Request a Moment', desc: 'Allow photos and caption contributions' },
-                                        { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#6C60FF" fillOpacity="0.1"/><rect x="14" y="10" width="7" height="10" rx="3.5" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><path d="M11 20.5C11 23.538 13.91 26 17.5 26C21.09 26 24 23.538 24 20.5" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><line x1="17.5" y1="26" x2="17.5" y2="29" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round"/><line x1="14.5" y1="29" x2="20.5" y2="29" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round"/></svg>, label: 'Voice to Text', desc: 'Create moment captions' },
-                                        { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#6C60FF" fillOpacity="0.1"/><polyline points="21 22 25 17.5 21 13" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><polyline points="14 13 10 17.5 14 22" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/></svg>, label: 'HTML', desc: 'Add custom HTML content' },
-                                        { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#FF4444" fillOpacity="0.1"/><path d="M22.5 13H12.5C11.67 13 11 13.67 11 14.5V20.5C11 21.33 11.67 22 12.5 22H22.5C23.33 22 24 21.33 24 20.5V14.5C24 13.67 23.33 13 22.5 13Z" stroke="#FF4444" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><path d="M16 19.5V15.5L20 17.5L16 19.5Z" stroke="#FF4444" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round" fill="none"/></svg>, label: 'Youtube', desc: 'Embed a YouTube link' },
-                                        { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#F59E0B" fillOpacity="0.1"/><path d="M19.5 12C19.15 12 18.82 12.14 18.57 12.39C18.32 12.64 18.17 12.98 18.17 13.33V17.33C18.17 17.68 18.32 18.02 18.57 18.27C18.82 18.52 19.15 18.67 19.5 18.67C19.68 18.67 19.85 18.74 19.97 18.86C20.1 18.99 20.17 19.16 20.17 19.33V20C20.17 20.35 20.02 20.69 19.77 20.94C19.52 21.19 19.19 21.33 18.83 21.33C18.65 21.33 18.49 21.4 18.36 21.53C18.24 21.65 18.17 21.82 18.17 22V23.33C18.17 23.51 18.24 23.68 18.36 23.8C18.49 23.93 18.65 24 18.83 24C19.89 24 20.91 23.58 21.66 22.83C22.41 22.08 22.83 21.06 22.83 20V13.33C22.83 12.98 22.69 12.64 22.44 12.39C22.19 12.14 21.85 12 21.5 12H19.5Z" stroke="#F59E0B" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/><path d="M13.17 12C12.81 12 12.47 12.14 12.22 12.39C11.97 12.64 11.83 12.98 11.83 13.33V17.33C11.83 17.68 11.97 18.02 12.22 18.27C12.47 18.52 12.81 18.67 13.17 18.67C13.34 18.67 13.51 18.74 13.64 18.86C13.76 18.99 13.83 19.16 13.83 19.33V20C13.83 20.35 13.69 20.69 13.44 20.94C13.19 21.19 12.85 21.33 12.5 21.33C12.32 21.33 12.16 21.4 12.03 21.53C11.9 21.65 11.83 21.82 11.83 22V23.33C11.83 23.51 11.9 23.68 12.03 23.8C12.16 23.93 12.32 24 12.5 24C13.56 24 14.58 23.58 15.33 22.83C16.08 22.08 16.5 21.06 16.5 20V13.33C16.5 12.98 16.36 12.64 16.11 12.39C15.86 12.14 15.52 12 15.17 12H13.17Z" stroke="#F59E0B" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>, label: 'Quote', desc: 'Add an inspirational quote' }, { icon: <div className="w-full h-full rounded-[8px] bg-[#6C60FF]/10 flex items-center justify-center"><Sparkles className="w-5 h-5 text-[#6C60FF]" /></div>, label: 'AI Creator', desc: 'Generate content with AI' }, ...(DOCUSIGN_ENABLED && docuSignConnected ? [{ icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#1464A5" fillOpacity="0.1"/><rect x="12" y="10" width="11" height="14" rx="1.5" stroke="#1464A5" strokeWidth="1.45808"/><line x1="14.5" y1="14" x2="20.5" y2="14" stroke="#1464A5" strokeWidth="1.3" strokeLinecap="round"/><line x1="14.5" y1="17" x2="18.5" y2="17" stroke="#1464A5" strokeWidth="1.3" strokeLinecap="round"/></svg>, label: 'DocuSign', desc: 'Send for signature' }] : []),
-                                      ].map((item) => (
-                                        <PopoverClose asChild key={item.label}>
-                                        <div
-                                          className="group/item flex items-center gap-4 px-5 py-4 hover:bg-gray-50 cursor-pointer transition-colors"
-                                          onClick={() => {
-                                            if (item.label === 'Moment') {
-                                              const _afterId = post.id?.toString() || null;
-                                              insertAfterPostIdRef.current = _afterId; setInsertAfterPostId(_afterId);
-                                              setIsAddMomentModalOpen(true);
-                                            } else if (item.label === 'HTML') {
-                                              setHtmlWidgetAfterPostId(post.id?.toString());
-                                              setEditingHtmlWidgetId(null);
-                                              setIsAddHtmlModalOpen(true);
-                                            } else if (item.label === 'Youtube') {
-                                              setYoutubeWidgetAfterPostId(post.id?.toString());
-                                              setIsAddYoutubeModalOpen(true);
-                                            } else if (item.label === 'Quote') {
-                                              setQuoteWidgetAfterPostId(post.id?.toString());
-                                              setIsAddQuoteModalOpen(true);
-                                            } else if (item.label === 'AI Creator') {
-                                              setAiCreatorWidgetAfterPostId(post.id?.toString());
-                                              setIsAddAiCreatorModalOpen(true);
-                                            } else if (item.label === 'Call to Action') {
-                                              setCtaWidgetAfterPostId(post.id?.toString());
-                                              setEditingCtaWidgetId(null);
-                                              setIsAddCtaModalOpen(true);
-                                            } else if (item.label === 'Share Request a Moment') {
-                                              openAddRequestMomentCta(post.id?.toString());
-                                            } else if (item.label === 'Voice to Text') {
-                                              setVoiceToTextAfterPostId(post.id?.toString() || null);
-                                              setIsVoiceToTextOpen(true);
-                                            } else {
-                                              if (item.label === 'DocuSign' && DOCUSIGN_ENABLED) { setDocuSignPostId(post.id?.toString() || null); setShowDocuSignSendModal(true); } else { toast.info(`${item.label} widget coming soon!`); }
-                                            }
-                                          }}
-                                        >
-                                          <div className="w-10 h-10 flex-shrink-0">
-                                            {item.icon}
-                                          </div>
-                                          <div>
-                                            <p className="text-sm font-medium text-gray-900">{item.label}</p>
-                                            <p className="text-xs text-gray-500">{item.desc}</p>
-                                          </div>
-                                        </div>
-                                        </PopoverClose>
-                                      ))}
-                                    </div>
-                                  </PopoverContent>
-                                </Popover>
-                              </div>
                             </div>
                           </div>
                         </div>
@@ -13264,75 +12998,6 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                 </div>
                                 <div className="relative mt-8">
                                   <div className="border-b border-dashed border-[#6C60FF]/40 group-hover/border:border-[#6C60FF]/40" />
-                                  <div className={`absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 opacity-0 group-hover/border:opacity-100 transition-opacity duration-200 z-10 ${isInventoryDetail ? 'hidden' : ''}`}>
-                                    <Popover>
-                                      <PopoverTrigger asChild>
-                                        <div className="w-7 h-7 rounded-full border border-[#6C60FF] bg-white hover:bg-[#6C60FF]/10 flex items-center justify-center cursor-pointer transition-colors duration-200">
-                                          <Plus className="w-4 h-4 text-[#6C60FF]" />
-                                        </div>
-                                      </PopoverTrigger>
-                                      <PopoverContent side="right" align="center" className="w-80 p-0 rounded-xl shadow-lg border border-gray-200 bg-white" sideOffset={8}>
-                                        <div className="p-4 pb-2">
-                                          <h4 className="text-base font-semibold text-gray-900">Add Widget</h4>
-                                          <p className="text-sm text-gray-500">Choose a widget to add to your timeline</p>
-                                        </div>
-                                        <div className="max-h-[320px] overflow-y-auto">
-                                          {[
-                                            { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#F0FDFA" fillOpacity="0.4"/><circle cx="17.5" cy="17.5" r="6.5" stroke="#009689" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><polyline points="17.5 13.5 17.5 17.5 20.5 19" stroke="#009689" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/></svg>, label: 'Moment', desc: 'Add a special moment' }, { icon: <div className="w-full h-full rounded-[8px] bg-[#6C60FF]/10 flex items-center justify-center"><Pointer className="w-5 h-5 text-[#6C60FF]" /></div>, label: 'Call to Action', desc: 'Add a button with a link' }, { icon: <div className="w-full h-full rounded-[8px] bg-[#6C60FF]/10 flex items-center justify-center"><Upload className="w-5 h-5 text-[#6C60FF]" /></div>, label: 'Share Request a Moment', desc: 'Allow photos and caption contributions' },
-                                            { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#6C60FF" fillOpacity="0.1"/><rect x="14" y="10" width="7" height="10" rx="3.5" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><path d="M11 20.5C11 23.538 13.91 26 17.5 26C21.09 26 24 23.538 24 20.5" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><line x1="17.5" y1="26" x2="17.5" y2="29" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round"/><line x1="14.5" y1="29" x2="20.5" y2="29" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round"/></svg>, label: 'Voice to Text', desc: 'Create moment captions' },
-                                            { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#6C60FF" fillOpacity="0.1"/><polyline points="21 22 25 17.5 21 13" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><polyline points="14 13 10 17.5 14 22" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/></svg>, label: 'HTML', desc: 'Add custom HTML content' },
-                                            { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#FF4444" fillOpacity="0.1"/><path d="M22.5 13H12.5C11.67 13 11 13.67 11 14.5V20.5C11 21.33 11.67 22 12.5 22H22.5C23.33 22 24 21.33 24 20.5V14.5C24 13.67 23.33 13 22.5 13Z" stroke="#FF4444" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><path d="M16 19.5V15.5L20 17.5L16 19.5Z" stroke="#FF4444" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round" fill="none"/></svg>, label: 'Youtube', desc: 'Embed a YouTube link' },
-                                            { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#F59E0B" fillOpacity="0.1"/><path d="M19.5 12C19.15 12 18.82 12.14 18.57 12.39C18.32 12.64 18.17 12.98 18.17 13.33V17.33C18.17 17.68 18.32 18.02 18.57 18.27C18.82 18.52 19.15 18.67 19.5 18.67C19.68 18.67 19.85 18.74 19.97 18.86C20.1 18.99 20.17 19.16 20.17 19.33V20C20.17 20.35 20.02 20.69 19.77 20.94C19.52 21.19 19.19 21.33 18.83 21.33C18.65 21.33 18.49 21.4 18.36 21.53C18.24 21.65 18.17 21.82 18.17 22V23.33C18.17 23.51 18.24 23.68 18.36 23.8C18.49 23.93 18.65 24 18.83 24C19.89 24 20.91 23.58 21.66 22.83C22.41 22.08 22.83 21.06 22.83 20V13.33C22.83 12.98 22.69 12.64 22.44 12.39C22.19 12.14 21.85 12 21.5 12H19.5Z" stroke="#F59E0B" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/><path d="M13.17 12C12.81 12 12.47 12.14 12.22 12.39C11.97 12.64 11.83 12.98 11.83 13.33V17.33C11.83 17.68 11.97 18.02 12.22 18.27C12.47 18.52 12.81 18.67 13.17 18.67C13.34 18.67 13.51 18.74 13.64 18.86C13.76 18.99 13.83 19.16 13.83 19.33V20C13.83 20.35 13.69 20.69 13.44 20.94C13.19 21.19 12.85 21.33 12.5 21.33C12.32 21.33 12.16 21.4 12.03 21.53C11.9 21.65 11.83 21.82 11.83 22V23.33C11.83 23.51 11.9 23.68 12.03 23.8C12.16 23.93 12.32 24 12.5 24C13.56 24 14.58 23.58 15.33 22.83C16.08 22.08 16.5 21.06 16.5 20V13.33C16.5 12.98 16.36 12.64 16.11 12.39C15.86 12.14 15.52 12 15.17 12H13.17Z" stroke="#F59E0B" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>, label: 'Quote', desc: 'Add an inspirational quote' }, { icon: <div className="w-full h-full rounded-[8px] bg-[#6C60FF]/10 flex items-center justify-center"><Sparkles className="w-5 h-5 text-[#6C60FF]" /></div>, label: 'AI Creator', desc: 'Generate content with AI' }, ...(DOCUSIGN_ENABLED && docuSignConnected ? [{ icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#1464A5" fillOpacity="0.1"/><rect x="12" y="10" width="11" height="14" rx="1.5" stroke="#1464A5" strokeWidth="1.45808"/><line x1="14.5" y1="14" x2="20.5" y2="14" stroke="#1464A5" strokeWidth="1.3" strokeLinecap="round"/><line x1="14.5" y1="17" x2="18.5" y2="17" stroke="#1464A5" strokeWidth="1.3" strokeLinecap="round"/></svg>, label: 'DocuSign', desc: 'Send for signature' }] : []),
-                                          ].map((item) => (
-                                            <PopoverClose asChild key={item.label}>
-                                            <div
-                                              className="group/item flex items-center gap-4 px-5 py-4 hover:bg-gray-50 cursor-pointer transition-colors"
-                                              onClick={(e) => {
-                                                e.stopPropagation();
-                                                if (item.label === 'Moment') {
-                                                  insertAfterPostIdRef.current = widget.afterPostId || null; setInsertAfterPostId(widget.afterPostId || null);
-                                                  setIsAddMomentModalOpen(true);
-                                                } else if (item.label === 'HTML') {
-                                                  setHtmlWidgetAfterPostId(widget.afterPostId);
-                                                  setEditingHtmlWidgetId(null);
-                                                  setIsAddHtmlModalOpen(true);
-                                                } else if (item.label === 'Youtube') {
-                                                  setYoutubeWidgetAfterPostId(widget.afterPostId);
-                                                  setIsAddYoutubeModalOpen(true);
-                                                } else if (item.label === 'Quote') {
-                                                  setQuoteWidgetAfterPostId(widget.afterPostId);
-                                                  setIsAddQuoteModalOpen(true);
-                                                } else if (item.label === 'AI Creator') {
-                                                  setAiCreatorWidgetAfterPostId(widget.afterPostId);
-                                                  setIsAddAiCreatorModalOpen(true);
-                                                } else if (item.label === 'Call to Action') {
-                                                  setCtaWidgetAfterPostId(widget.afterPostId);
-                                                  setEditingCtaWidgetId(null);
-                                                  setIsAddCtaModalOpen(true);
-                                                } else if (item.label === 'Share Request a Moment') {
-                                                  openAddRequestMomentCta(widget.afterPostId);
-                                                } else if (item.label === 'Voice to Text') {
-                                                  setVoiceToTextAfterPostId(widget.afterPostId || null);
-                                                  setIsVoiceToTextOpen(true);
-                                                } else {
-                                                  if (item.label === 'DocuSign' && DOCUSIGN_ENABLED) { setDocuSignPostId(widget.afterPostId || null); setShowDocuSignSendModal(true); } else { toast.info(`${item.label} widget coming soon!`); }
-                                                }
-                                              }}
-                                            >
-                                              <div className="w-10 h-10 flex-shrink-0">
-                                                {item.icon}
-                                              </div>
-                                              <div>
-                                                <p className="text-sm font-medium text-gray-900">{item.label}</p>
-                                                <p className="text-xs text-gray-500">{item.desc}</p>
-                                              </div>
-                                            </div>
-                                            </PopoverClose>
-                                          ))}
-                                        </div>
-                                      </PopoverContent>
-                                    </Popover>
-                                  </div>
                                 </div>
                               </div>
                             </div>
@@ -13433,75 +13098,6 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                 </div>
                                 <div className="relative mt-8">
                                   <div className="border-b border-dashed border-[#6C60FF]/40 group-hover/border:border-[#6C60FF]/40" />
-                                  <div className={`absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 opacity-0 group-hover/border:opacity-100 transition-opacity duration-200 z-10 ${isInventoryDetail ? 'hidden' : ''}`}>
-                                    <Popover>
-                                      <PopoverTrigger asChild>
-                                        <div className="w-7 h-7 rounded-full border border-[#6C60FF] bg-white hover:bg-[#6C60FF]/10 flex items-center justify-center cursor-pointer transition-colors duration-200">
-                                          <Plus className="w-4 h-4 text-[#6C60FF]" />
-                                        </div>
-                                      </PopoverTrigger>
-                                      <PopoverContent side="right" align="center" className="w-80 p-0 rounded-xl shadow-lg border border-gray-200 bg-white" sideOffset={8}>
-                                        <div className="p-4 pb-2">
-                                          <h4 className="text-base font-semibold text-gray-900">Add Widget</h4>
-                                          <p className="text-sm text-gray-500">Choose a widget to add to your timeline</p>
-                                        </div>
-                                        <div className="max-h-[320px] overflow-y-auto">
-                                          {[
-                                            { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#F0FDFA" fillOpacity="0.4"/><circle cx="17.5" cy="17.5" r="6.5" stroke="#009689" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><polyline points="17.5 13.5 17.5 17.5 20.5 19" stroke="#009689" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/></svg>, label: 'Moment', desc: 'Add a special moment' }, { icon: <div className="w-full h-full rounded-[8px] bg-[#6C60FF]/10 flex items-center justify-center"><Pointer className="w-5 h-5 text-[#6C60FF]" /></div>, label: 'Call to Action', desc: 'Add a button with a link' }, { icon: <div className="w-full h-full rounded-[8px] bg-[#6C60FF]/10 flex items-center justify-center"><Upload className="w-5 h-5 text-[#6C60FF]" /></div>, label: 'Share Request a Moment', desc: 'Allow photos and caption contributions' },
-                                            { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#6C60FF" fillOpacity="0.1"/><rect x="14" y="10" width="7" height="10" rx="3.5" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><path d="M11 20.5C11 23.538 13.91 26 17.5 26C21.09 26 24 23.538 24 20.5" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><line x1="17.5" y1="26" x2="17.5" y2="29" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round"/><line x1="14.5" y1="29" x2="20.5" y2="29" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round"/></svg>, label: 'Voice to Text', desc: 'Create moment captions' },
-                                            { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#6C60FF" fillOpacity="0.1"/><polyline points="21 22 25 17.5 21 13" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><polyline points="14 13 10 17.5 14 22" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/></svg>, label: 'HTML', desc: 'Add custom HTML content' },
-                                            { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#FF4444" fillOpacity="0.1"/><path d="M22.5 13H12.5C11.67 13 11 13.67 11 14.5V20.5C11 21.33 11.67 22 12.5 22H22.5C23.33 22 24 21.33 24 20.5V14.5C24 13.67 23.33 13 22.5 13Z" stroke="#FF4444" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><path d="M16 19.5V15.5L20 17.5L16 19.5Z" stroke="#FF4444" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round" fill="none"/></svg>, label: 'Youtube', desc: 'Embed a YouTube link' },
-                                            { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#F59E0B" fillOpacity="0.1"/><path d="M19.5 12C19.15 12 18.82 12.14 18.57 12.39C18.32 12.64 18.17 12.98 18.17 13.33V17.33C18.17 17.68 18.32 18.02 18.57 18.27C18.82 18.52 19.15 18.67 19.5 18.67C19.68 18.67 19.85 18.74 19.97 18.86C20.1 18.99 20.17 19.16 20.17 19.33V20C20.17 20.35 20.02 20.69 19.77 20.94C19.52 21.19 19.19 21.33 18.83 21.33C18.65 21.33 18.49 21.4 18.36 21.53C18.24 21.65 18.17 21.82 18.17 22V23.33C18.17 23.51 18.24 23.68 18.36 23.8C18.49 23.93 18.65 24 18.83 24C19.89 24 20.91 23.58 21.66 22.83C22.41 22.08 22.83 21.06 22.83 20V13.33C22.83 12.98 22.69 12.64 22.44 12.39C22.19 12.14 21.85 12 21.5 12H19.5Z" stroke="#F59E0B" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/><path d="M13.17 12C12.81 12 12.47 12.14 12.22 12.39C11.97 12.64 11.83 12.98 11.83 13.33V17.33C11.83 17.68 11.97 18.02 12.22 18.27C12.47 18.52 12.81 18.67 13.17 18.67C13.34 18.67 13.51 18.74 13.64 18.86C13.76 18.99 13.83 19.16 13.83 19.33V20C13.83 20.35 13.69 20.69 13.44 20.94C13.19 21.19 12.85 21.33 12.5 21.33C12.32 21.33 12.16 21.4 12.03 21.53C11.9 21.65 11.83 21.82 11.83 22V23.33C11.83 23.51 11.9 23.68 12.03 23.8C12.16 23.93 12.32 24 12.5 24C13.56 24 14.58 23.58 15.33 22.83C16.08 22.08 16.5 21.06 16.5 20V13.33C16.5 12.98 16.36 12.64 16.11 12.39C15.86 12.14 15.52 12 15.17 12H13.17Z" stroke="#F59E0B" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>, label: 'Quote', desc: 'Add an inspirational quote' }, { icon: <div className="w-full h-full rounded-[8px] bg-[#6C60FF]/10 flex items-center justify-center"><Sparkles className="w-5 h-5 text-[#6C60FF]" /></div>, label: 'AI Creator', desc: 'Generate content with AI' }, ...(DOCUSIGN_ENABLED && docuSignConnected ? [{ icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#1464A5" fillOpacity="0.1"/><rect x="12" y="10" width="11" height="14" rx="1.5" stroke="#1464A5" strokeWidth="1.45808"/><line x1="14.5" y1="14" x2="20.5" y2="14" stroke="#1464A5" strokeWidth="1.3" strokeLinecap="round"/><line x1="14.5" y1="17" x2="18.5" y2="17" stroke="#1464A5" strokeWidth="1.3" strokeLinecap="round"/></svg>, label: 'DocuSign', desc: 'Send for signature' }] : []),
-                                          ].map((item) => (
-                                            <PopoverClose asChild key={item.label}>
-                                            <div
-                                              className="group/item flex items-center gap-4 px-5 py-4 hover:bg-gray-50 cursor-pointer transition-colors"
-                                              onClick={(e) => {
-                                                e.stopPropagation();
-                                                if (item.label === 'Moment') {
-                                                  insertAfterPostIdRef.current = widget.afterPostId || null; setInsertAfterPostId(widget.afterPostId || null);
-                                                  setIsAddMomentModalOpen(true);
-                                                } else if (item.label === 'HTML') {
-                                                  setHtmlWidgetAfterPostId(widget.afterPostId);
-                                                  setEditingHtmlWidgetId(null);
-                                                  setIsAddHtmlModalOpen(true);
-                                                } else if (item.label === 'Youtube') {
-                                                  setYoutubeWidgetAfterPostId(widget.afterPostId);
-                                                  setIsAddYoutubeModalOpen(true);
-                                                } else if (item.label === 'Quote') {
-                                                  setQuoteWidgetAfterPostId(widget.afterPostId);
-                                                  setIsAddQuoteModalOpen(true);
-                                                } else if (item.label === 'AI Creator') {
-                                                  setAiCreatorWidgetAfterPostId(widget.afterPostId);
-                                                  setIsAddAiCreatorModalOpen(true);
-                                                } else if (item.label === 'Call to Action') {
-                                                  setCtaWidgetAfterPostId(widget.afterPostId);
-                                                  setEditingCtaWidgetId(null);
-                                                  setIsAddCtaModalOpen(true);
-                                                } else if (item.label === 'Share Request a Moment') {
-                                                  openAddRequestMomentCta(widget.afterPostId);
-                                                } else if (item.label === 'Voice to Text') {
-                                                  setVoiceToTextAfterPostId(widget.afterPostId || null);
-                                                  setIsVoiceToTextOpen(true);
-                                                } else {
-                                                  if (item.label === 'DocuSign' && DOCUSIGN_ENABLED) { setDocuSignPostId(widget.afterPostId || null); setShowDocuSignSendModal(true); } else { toast.info(`${item.label} widget coming soon!`); }
-                                                }
-                                              }}
-                                            >
-                                              <div className="w-10 h-10 flex-shrink-0">
-                                                {item.icon}
-                                              </div>
-                                              <div>
-                                                <p className="text-sm font-medium text-gray-900">{item.label}</p>
-                                                <p className="text-xs text-gray-500">{item.desc}</p>
-                                              </div>
-                                            </div>
-                                            </PopoverClose>
-                                          ))}
-                                        </div>
-                                      </PopoverContent>
-                                    </Popover>
-                                  </div>
                                 </div>
                               </div>
                             </div>
@@ -13565,75 +13161,6 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                 </div>
                                 <div className="relative mt-8">
                                   <div className="border-b border-dashed border-[#6C60FF]/40 group-hover/border:border-[#6C60FF]/40" />
-                                  <div className={`absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 opacity-0 group-hover/border:opacity-100 transition-opacity duration-200 z-10 ${isInventoryDetail ? 'hidden' : ''}`}>
-                                    <Popover>
-                                      <PopoverTrigger asChild>
-                                        <div className="w-7 h-7 rounded-full border border-[#6C60FF] bg-white hover:bg-[#6C60FF]/10 flex items-center justify-center cursor-pointer transition-colors duration-200">
-                                          <Plus className="w-4 h-4 text-[#6C60FF]" />
-                                        </div>
-                                      </PopoverTrigger>
-                                      <PopoverContent side="right" align="center" className="w-80 p-0 rounded-xl shadow-lg border border-gray-200 bg-white" sideOffset={8}>
-                                        <div className="p-4 pb-2">
-                                          <h4 className="text-base font-semibold text-gray-900">Add Widget</h4>
-                                          <p className="text-sm text-gray-500">Choose a widget to add to your timeline</p>
-                                        </div>
-                                        <div className="max-h-[320px] overflow-y-auto">
-                                          {[
-                                            { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#F0FDFA" fillOpacity="0.4"/><circle cx="17.5" cy="17.5" r="6.5" stroke="#009689" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><polyline points="17.5 13.5 17.5 17.5 20.5 19" stroke="#009689" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/></svg>, label: 'Moment', desc: 'Add a special moment' }, { icon: <div className="w-full h-full rounded-[8px] bg-[#6C60FF]/10 flex items-center justify-center"><Pointer className="w-5 h-5 text-[#6C60FF]" /></div>, label: 'Call to Action', desc: 'Add a button with a link' }, { icon: <div className="w-full h-full rounded-[8px] bg-[#6C60FF]/10 flex items-center justify-center"><Upload className="w-5 h-5 text-[#6C60FF]" /></div>, label: 'Share Request a Moment', desc: 'Allow photos and caption contributions' },
-                                            { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#6C60FF" fillOpacity="0.1"/><rect x="14" y="10" width="7" height="10" rx="3.5" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><path d="M11 20.5C11 23.538 13.91 26 17.5 26C21.09 26 24 23.538 24 20.5" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><line x1="17.5" y1="26" x2="17.5" y2="29" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round"/><line x1="14.5" y1="29" x2="20.5" y2="29" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round"/></svg>, label: 'Voice to Text', desc: 'Create moment captions' },
-                                            { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#6C60FF" fillOpacity="0.1"/><polyline points="21 22 25 17.5 21 13" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><polyline points="14 13 10 17.5 14 22" stroke="#6C60FF" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/></svg>, label: 'HTML', desc: 'Add custom HTML content' },
-                                            { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#FF4444" fillOpacity="0.1"/><path d="M22.5 13H12.5C11.67 13 11 13.67 11 14.5V20.5C11 21.33 11.67 22 12.5 22H22.5C23.33 22 24 21.33 24 20.5V14.5C24 13.67 23.33 13 22.5 13Z" stroke="#FF4444" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round"/><path d="M16 19.5V15.5L20 17.5L16 19.5Z" stroke="#FF4444" strokeWidth="1.45808" strokeLinecap="round" strokeLinejoin="round" fill="none"/></svg>, label: 'Youtube', desc: 'Embed a YouTube link' },
-                                            { icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#F59E0B" fillOpacity="0.1"/><path d="M19.5 12C19.15 12 18.82 12.14 18.57 12.39C18.32 12.64 18.17 12.98 18.17 13.33V17.33C18.17 17.68 18.32 18.02 18.57 18.27C18.82 18.52 19.15 18.67 19.5 18.67C19.68 18.67 19.85 18.74 19.97 18.86C20.1 18.99 20.17 19.16 20.17 19.33V20C20.17 20.35 20.02 20.69 19.77 20.94C19.52 21.19 19.19 21.33 18.83 21.33C18.65 21.33 18.49 21.4 18.36 21.53C18.24 21.65 18.17 21.82 18.17 22V23.33C18.17 23.51 18.24 23.68 18.36 23.8C18.49 23.93 18.65 24 18.83 24C19.89 24 20.91 23.58 21.66 22.83C22.41 22.08 22.83 21.06 22.83 20V13.33C22.83 12.98 22.69 12.64 22.44 12.39C22.19 12.14 21.85 12 21.5 12H19.5Z" stroke="#F59E0B" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/><path d="M13.17 12C12.81 12 12.47 12.14 12.22 12.39C11.97 12.64 11.83 12.98 11.83 13.33V17.33C11.83 17.68 11.97 18.02 12.22 18.27C12.47 18.52 12.81 18.67 13.17 18.67C13.34 18.67 13.51 18.74 13.64 18.86C13.76 18.99 13.83 19.16 13.83 19.33V20C13.83 20.35 13.69 20.69 13.44 20.94C13.19 21.19 12.85 21.33 12.5 21.33C12.32 21.33 12.16 21.4 12.03 21.53C11.9 21.65 11.83 21.82 11.83 22V23.33C11.83 23.51 11.9 23.68 12.03 23.8C12.16 23.93 12.32 24 12.5 24C13.56 24 14.58 23.58 15.33 22.83C16.08 22.08 16.5 21.06 16.5 20V13.33C16.5 12.98 16.36 12.64 16.11 12.39C15.86 12.14 15.52 12 15.17 12H13.17Z" stroke="#F59E0B" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/></svg>, label: 'Quote', desc: 'Add an inspirational quote' }, { icon: <div className="w-full h-full rounded-[8px] bg-[#6C60FF]/10 flex items-center justify-center"><Sparkles className="w-5 h-5 text-[#6C60FF]" /></div>, label: 'AI Creator', desc: 'Generate content with AI' }, ...(DOCUSIGN_ENABLED && docuSignConnected ? [{ icon: <svg width="32" height="32" viewBox="0 0 35 35" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M0 8.75C0 3.91751 3.91751 0 8.75 0H26.2439C31.0764 0 34.9939 3.91751 34.9939 8.75V26.2439C34.9939 31.0764 31.0764 34.9939 26.2439 34.9939H8.75C3.91751 34.9939 0 31.0764 0 26.2439V8.75Z" fill="#1464A5" fillOpacity="0.1"/><rect x="12" y="10" width="11" height="14" rx="1.5" stroke="#1464A5" strokeWidth="1.45808"/><line x1="14.5" y1="14" x2="20.5" y2="14" stroke="#1464A5" strokeWidth="1.3" strokeLinecap="round"/><line x1="14.5" y1="17" x2="18.5" y2="17" stroke="#1464A5" strokeWidth="1.3" strokeLinecap="round"/></svg>, label: 'DocuSign', desc: 'Send for signature' }] : []),
-                                          ].map((item) => (
-                                            <PopoverClose asChild key={item.label}>
-                                            <div
-                                              className="group/item flex items-center gap-4 px-5 py-4 hover:bg-gray-50 cursor-pointer transition-colors"
-                                              onClick={(e) => {
-                                                e.stopPropagation();
-                                                if (item.label === 'Moment') {
-                                                  insertAfterPostIdRef.current = widget.afterPostId || null; setInsertAfterPostId(widget.afterPostId || null);
-                                                  setIsAddMomentModalOpen(true);
-                                                } else if (item.label === 'HTML') {
-                                                  setHtmlWidgetAfterPostId(widget.afterPostId);
-                                                  setEditingHtmlWidgetId(null);
-                                                  setIsAddHtmlModalOpen(true);
-                                                } else if (item.label === 'Youtube') {
-                                                  setYoutubeWidgetAfterPostId(widget.afterPostId);
-                                                  setIsAddYoutubeModalOpen(true);
-                                                } else if (item.label === 'Quote') {
-                                                  setQuoteWidgetAfterPostId(widget.afterPostId);
-                                                  setIsAddQuoteModalOpen(true);
-                                                } else if (item.label === 'AI Creator') {
-                                                  setAiCreatorWidgetAfterPostId(widget.afterPostId);
-                                                  setIsAddAiCreatorModalOpen(true);
-                                                } else if (item.label === 'Call to Action') {
-                                                  setCtaWidgetAfterPostId(widget.afterPostId);
-                                                  setEditingCtaWidgetId(null);
-                                                  setIsAddCtaModalOpen(true);
-                                                } else if (item.label === 'Share Request a Moment') {
-                                                  openAddRequestMomentCta(widget.afterPostId);
-                                                } else if (item.label === 'Voice to Text') {
-                                                  setVoiceToTextAfterPostId(widget.afterPostId || null);
-                                                  setIsVoiceToTextOpen(true);
-                                                } else {
-                                                  if (item.label === 'DocuSign' && DOCUSIGN_ENABLED) { setDocuSignPostId(widget.afterPostId || null); setShowDocuSignSendModal(true); } else { toast.info(`${item.label} widget coming soon!`); }
-                                                }
-                                              }}
-                                            >
-                                              <div className="w-10 h-10 flex-shrink-0">
-                                                {item.icon}
-                                              </div>
-                                              <div>
-                                                <p className="text-sm font-medium text-gray-900">{item.label}</p>
-                                                <p className="text-xs text-gray-500">{item.desc}</p>
-                                              </div>
-                                            </div>
-                                            </PopoverClose>
-                                          ))}
-                                        </div>
-                                      </PopoverContent>
-                                    </Popover>
-                                  </div>
                                 </div>
                               </div>
                             </div>
@@ -13699,7 +13226,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                 </div>
 
                 {/* CENTER PANEL - Header Image + Scrollable Memory Cards */}
-                <div className="w-[394px] flex-shrink-0 flex flex-col overflow-hidden bg-[#F8F8FA]">
+                <div className="flex-[0_1_394px] min-w-[300px] flex flex-col overflow-hidden bg-[#F8F8FA]">
                   <div className="flex-1 overflow-y-auto" ref={rightScrollContainerRef}>
                     <div className="relative">
                       {/* Header Image/Video */}
@@ -13895,6 +13422,8 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                             <span className="text-white">{totalMomentsCount} moments</span>
                           </div>
                         </div>
+                        {/* "+" at the top (Chris, 9 Nov 2026, point 5 — moved here from the left list's Introduction) */}
+                        {renderCardAddWidgetPlus(null)}
 
                         {/* HTML widgets added from intro + */}
                         {htmlWidgets.filter(w => w.afterPostId === null).map(widget => (
@@ -14033,6 +13562,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                               const postIndex = sortedTimelinePosts.findIndex((p: any) => String(p.id) === item.id);
                               if (postIndex === -1) return null;
                               const post = sortedTimelinePosts[postIndex];
+                              const plusAfterPostId = addSlotAfter(item); // the "+" under this card (Chris, 9 Nov 2026, point 5)
 
                               const memoryOwnerId = apiMemoryData?.user_id?.toString()
                                 || apiMemoryData?.user?.id?.toString()
@@ -14214,8 +13744,8 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                   {ctaWidgets.filter(w => w.afterPostId === post.id?.toString() && !w.pinToBottom && !isCardCta(w)).map(widget => (
                                     <CTAWidgetCard key={widget.id} widget={widget} memoryId={memoryId} cardRef={(el) => { ctaWidgetCardRefs.current[widget.id] = el; }} isActive={activeCtaWidgetId === widget.id} />
                                   ))}
-                                  {/* Plus Divider after each card - mobile only, not after last */}
-                                  {combinedIndex < totalItems - 1 && renderPlusDivider(`detail-${postIndex}`, post.id?.toString())}
+                                  {/* "+" after every moment card, the last one too (Chris, 9 Nov 2026, point 5) */}
+                                  {plusAfterPostId !== undefined && renderCardAddWidgetPlus(plusAfterPostId)}
                                 </React.Fragment>
                               );
                             }
@@ -16286,7 +15816,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
       </div>
 
       {/* Media Sidebar - Fixed Right Position */}
-      <aside className="hidden lg:block fixed right-0 top-20 bottom-0 w-[28rem] bg-white border-l border-gray-200 shadow-lg z-10 overflow-y-auto">
+      <aside className="hidden lg:block fixed right-0 top-20 bottom-0 w-80 2xl:w-[28rem] bg-white border-l border-gray-200 shadow-lg z-10 overflow-y-auto">
         <div className="flex flex-col h-full">
           {/* Sidebar Tab Toggle */}
           <div className="flex-shrink-0 border-b border-gray-200">
@@ -16721,12 +16251,12 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
           </>
           ) : (
           <>
-          {/* Library Header */}
+          {/* Library Header — wraps rather than clips in the 20rem sidebar below 1536px */}
           <div className="flex-shrink-0 p-4 border-b border-gray-100">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2 min-w-0">
                 <FileText className="w-5 h-5 text-[#6C60FF]" />
-                <span className="text-base font-semibold text-gray-900">
+                <span className="text-base font-semibold text-gray-900 whitespace-nowrap">
                   Library ({aiScanResults?.clusters?.faces?.length || 0} people)
                 </span>
               </div>
@@ -16745,7 +16275,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                   <button
                     disabled
                     type="button"
-                    className="h-8 rounded-md px-3 text-sm font-medium inline-flex items-center gap-1.5 bg-gray-200 text-gray-400 cursor-not-allowed border-0"
+                    className="h-8 rounded-md px-3 text-sm font-medium inline-flex items-center gap-1.5 whitespace-nowrap bg-gray-200 text-gray-400 cursor-not-allowed border-0"
                   >
                     <svg className="w-4 h-4" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
                       <rect x="1" y="1" width="5" height="5" rx="1" stroke="#9CA3AF" strokeWidth="1.5"/>
@@ -16767,7 +16297,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                       type="button"
                     >
                       <div
-                        className="h-full px-3 rounded-[5px] text-sm font-medium inline-flex items-center gap-1.5 transition-all duration-200"
+                        className="h-full px-3 rounded-[5px] text-sm font-medium inline-flex items-center gap-1.5 whitespace-nowrap transition-all duration-200"
                         style={{ background: 'white' }}
                       >
                         {isAiScanning ? (
@@ -17859,6 +17389,8 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
       {/* Edit = the Storeel flow on this campaign: step 1 prefilled (Save Changes = PUT /memories/{id}), then Send
           (optional) or Done back to this page. The preview shows this campaign's moments. */}
       {storeelFlow ? (
+        // The Send card's Publishing choice (Chris 9 Nov 2026), shared by its Publishing card and Save & Send.
+        <PublishChoiceProvider published={apiMemoryData?.published}>
         <CreateMemory
           open
           onOpenChange={(o) => { if (!o) setStoreelFlow(false); }}
@@ -17885,7 +17417,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
               canPublish={isOwner}
               isPublishing={isPublishing}
               publishProgress={publishProgress}
-              onPublish={(role) => { void handlePublish(role); }}
+              onPublish={(role) => { void handlePublish(role, true); }}
               onUnpublish={() => { void handlePublish(); }}
               linkPanel={(
                 <PublishedLinkPanel
@@ -17900,6 +17432,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
             />
           )}
         />
+        </PublishChoiceProvider>
       ) : null}
 
       <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
@@ -19061,7 +18594,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
         </div>
       )}
 
-      <nav className="fixed bottom-0 left-0 right-0 z-50 md:hidden" style={{ overflow: 'visible' }}>
+      <nav className="phone-bottom-bar-pin fixed bottom-0 left-0 right-0 z-50 md:hidden" style={{ overflow: 'visible' }}>
         <div className="relative bg-white border-t border-gray-200" style={{ height: '66px' }}>
 
           {/* Floating Center Camera Button (adds moments; none on read-only inventory) */}

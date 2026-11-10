@@ -25,7 +25,7 @@ export const storeelBroadcastAPI = {
     return res ? countFromResponse(res) : { ok: false, error: GENERIC_ERROR, fieldErrors: {} };
   },
 
-  async send(memoryId: number, body: { audience: AudienceItem[]; channels: NewsletterChannel[]; message: string; idempotency_key: string; subject?: string }): Promise<NlResult<StoreelSendSummary>> {
+  async send(memoryId: number, body: { audience: AudienceItem[]; channels: NewsletterChannel[]; message: string; idempotency_key: string; subject?: string; publish_role?: 1 | 2 | 3 }): Promise<NlResult<StoreelSendSummary>> {
     return toResult<StoreelSendSummary>(await raw(`${memory(memoryId)}/storeel-send`, { method: 'POST', body: JSON.stringify(body) }));
   },
 };

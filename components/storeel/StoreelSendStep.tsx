@@ -8,7 +8,8 @@ import { useAudienceCount } from '../newsletters/hooks/useAudienceCount';
 import { countableAudience } from '../newsletters/lib/person';
 import StoreelSendConfirmDialog from './StoreelSendConfirmDialog';
 import { stepNumber, type CampaignSeed } from './lib/storeelFlow';
-import { PUBLISHING_SECTION_ID } from './lib/publishing';
+import { PUBLISHING_SECTION_ID, choiceSendProblem, sendRoleFor } from './lib/publishing';
+import { usePublishChoice } from './PublishChoice';
 import { storeelSmsParts, storeelSmsPreview } from './lib/storeelSms';
 import { sendProblem, type SendFailure, type StoreelCount, type StoreelSendSummary } from './lib/storeelSend';
 
@@ -88,6 +89,8 @@ export default function StoreelSendStep(
   const audienceRef = useRef(audience);
   audienceRef.current = audience;
 
+  // The Publishing card's choice (Chris 9 Nov 2026), on the campaign page's stepper only: Save & Send applies it.
+  const publishChoice = usePublishChoice()?.role ?? null;
   const campaignId = campaign?.id ?? 0;
   const counted = useAudienceCount<Extra>(countableAudience(audience), channels, active && campaignId > 0 && canSend && !forbidden, async (aud, ch) => {
     const r = await storeelBroadcastAPI.audienceCount(campaignId, aud, ch);
@@ -101,7 +104,7 @@ export default function StoreelSendStep(
   const count = campaignId > 0 ? counted : { counts: null, loading: false, error: audience.length && channels.length ? COUNTED_ONCE_CREATED : null };
   const limit = count.extra?.limit ?? null;
   const allowance = count.extra?.allowance ?? null;
-  const parts = storeelSmsParts({ sender, message, slug: campaign?.slug ?? null, isCar: Boolean(campaign?.isCar), viewOnly: campaign?.published === 2 });
+  const parts = storeelSmsParts({ sender, message, slug: campaign?.slug ?? null, isCar: Boolean(campaign?.isCar), viewOnly: sendRoleFor(campaign?.published ?? 0, publishChoice) === 2 });
 
   const change = (patch: Patch | ((latest: { audience: AudienceItem[]; blocks: NewsletterBlock[] }) => Patch | null)) => {
     const p = typeof patch === 'function' ? patch({ audience: audienceRef.current, blocks: [] }) : patch;
@@ -120,7 +123,8 @@ export default function StoreelSendStep(
   };
 
   // What still stops a send: the bottom Save & Send button shows it (and stays off); the card marks it once tried.
-  const blocker = !canSend || forbidden ? CANT_SEND : sendProblem({ audience, channels, message, counts: count.counts, smsProblem: parts.problem, limit });
+  const blocker = !canSend || forbidden ? CANT_SEND
+    : choiceSendProblem(publishChoice) ?? sendProblem({ audience, channels, message, counts: count.counts, smsProblem: parts.problem, limit });
   const filled = countableAudience(audience).length > 0 || message.trim().length > 0;
   const onStatusRef = useRef(onStatus);
   onStatusRef.current = onStatus;
@@ -210,6 +214,7 @@ export default function StoreelSendStep(
         onOpenChange={setConfirmOpen}
         memoryId={campaign.id}
         published={campaign.published}
+        publishRole={publishChoice}
         audience={audience}
         channels={channels}
         message={message}

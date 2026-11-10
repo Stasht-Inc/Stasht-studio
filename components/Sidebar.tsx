@@ -983,6 +983,7 @@ export default function Sidebar({
                   console.log('✅ Before reload - sessionStorage has:', saved);
 
                   // Reload to refresh media data and show new photos
+                  sessionStorage.setItem('stasht_open_media_tab', '1'); // ...on the Media tab, not Camera Roll (utils/cameraRoll.ts OPEN_MEDIA_TAB_KEY)
                   window.location.reload();
                 }, 500);
               }}
