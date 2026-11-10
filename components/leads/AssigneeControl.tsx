@@ -80,10 +80,10 @@ export default function AssigneeControl({ lead, onChanged, size = 'sm', variant 
     try {
       const res: any = await leadsAPI.acceptLead(lead.id);
       if (res.success && res.data) {
-        onChanged({ assignee: res.data.assignee, can_message: true, is_rollup: false });
+        onChanged({ assignee: res.data.assignee, can_message: true, is_rollup: false, can_accept: false });
         toast.success('Lead accepted — it’s yours');
       } else if (res.conflict && res.taken_by) {
-        onChanged({ assignee: res.taken_by, can_message: false, is_rollup: true });
+        onChanged({ assignee: res.taken_by, can_message: false, is_rollup: true, can_accept: false });
         toast.error(`Already taken by ${res.taken_by.name ?? 'a teammate'}`);
       } else {
         toast.error(res.error || 'Could not accept this lead');
@@ -196,8 +196,11 @@ export default function AssigneeControl({ lead, onChanged, size = 'sm', variant 
     );
   }
 
+  // The owner's arrival hold on a widget lead isn't a teammate taking it (10 Nov 2026): offer Accept.
+  const taken = !!lead.assignee && !lead.can_accept;
+
   if (variant === 'icon') {
-    if (lead.assignee) return null;
+    if (taken) return null;
     return (
       <span onClick={stop} className="shrink-0">
         <RowActionButton label="Accept lead" icon={UserCheck} busy={busy} disabled={busy} onClick={accept} />
@@ -205,8 +208,8 @@ export default function AssigneeControl({ lead, onChanged, size = 'sm', variant 
     );
   }
 
-  if (lead.assignee) {
-    return <AssigneeBadge assignee={lead.assignee} size={size} />;
+  if (taken) {
+    return <AssigneeBadge assignee={lead.assignee!} size={size} />;
   }
 
   return (

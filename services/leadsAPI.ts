@@ -115,6 +115,8 @@ export interface Lead {
   last_activity_at?: string | null;
   can_message?: boolean;
   can_assign?: boolean;
+  // Switched in as an Admin / Partial Admin and the owner only holds this widget lead on arrival: it can be accepted.
+  can_accept?: boolean;
   can_delete?: boolean;
   // Shared note (ClickUp wdy2xh13mn): readable by anyone who sees the lead.
   notes?: string | null;
