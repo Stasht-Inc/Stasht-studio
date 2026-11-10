@@ -23,6 +23,13 @@ const ICONS: Record<PublishRole, ReactNode> = {
   3: <Lock className="w-6 h-6 text-orange-600 flex-shrink-0 mt-0.5" aria-hidden="true" />,
 };
 
+/** "Publish now" shows the chosen option's icon (review M5). */
+const BUTTON_ICONS: Record<PublishRole, ReactNode> = {
+  2: <Eye className="w-4 h-4 mr-2" aria-hidden="true" />,
+  1: <Globe className="w-4 h-4 mr-2" aria-hidden="true" />,
+  3: <Lock className="w-4 h-4 mr-2" aria-hidden="true" />,
+};
+
 export interface CampaignPublishingProps {
   /** memories.published: 0 / null not published, 1 public, 2 view only, 3 private. */
   published: unknown;
@@ -108,7 +115,7 @@ export default function CampaignPublishing({ published, canPublish, isPublishing
           disabled={disabled}
           className="hover:bg-[#6C60FF] hover:text-white border-[#6C60FF] text-[#6C60FF] disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          <Globe className="w-4 h-4 mr-2" aria-hidden="true" />
+          {BUTTON_ICONS[choice]}
           Publish now
         </Button>
       ) : null}

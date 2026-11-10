@@ -223,7 +223,7 @@ export default function StoreelSendStep(
         smsParts={parts.parts}
         limit={limit}
         allowance={allowance}
-        onSent={(s) => { setConfirmOpen(false); onSent({ ...s, published_role: sendRoleFor(campaign.published, publishChoice) }); }}
+        onSent={(s) => { setConfirmOpen(false); onSent(s); }}
         onFailed={failed}
         onSeePlans={() => { setConfirmOpen(false); onSeePlans(); }}
       /> : null}

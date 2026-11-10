@@ -109,8 +109,10 @@ export interface StoreelSendSummary {
   subject?: string;
   replayed: boolean;
   published_now: boolean;
-  /** The mode it was sent in (Chris 9 Nov 2026): added by the Send step from the Publishing choice; absent = Public. */
-  published_role?: 1 | 2 | 3;
+  /** The campaign's mode after the send, and whether the send changed an already-published one's mode (Chris 9 Nov
+   *  2026). Absent from older APIs: the toast then names no mode. */
+  published?: number;
+  publish_switched?: boolean;
   texts_wait_until: string | null;
   created_at?: string;
   finished_at?: string | null;
@@ -145,6 +147,8 @@ export function sentMessage(s: StoreelSendSummary, locale = 'en-US', timeZone?: 
     out.push(parts.length ? `Sent: ${joinAnd(parts)}.` : 'Nothing was sent.');
   }
   if (c.failed > 0) out.push(`${formatCount(c.failed, 'en-US')} couldn't be sent.`);
-  if (s.published_now) out.push(`Your campaign is now published (${s.published_role === 2 ? 'View Only' : 'Public'}).`);
+  const mode = s.published === 1 ? 'Public' : s.published === 2 ? 'View Only' : null;
+  if (s.published_now) out.push(mode ? `Your campaign is now published (${mode}).` : 'Your campaign is now published.');
+  else if (s.publish_switched && mode) out.push(`Your campaign is now ${mode}.`);
   return out.join(' ');
 }

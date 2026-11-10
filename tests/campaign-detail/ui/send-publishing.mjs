@@ -40,7 +40,7 @@ const expect = (ok, label) => { if (!ok) failures.push(label); console.log(ok ? 
 
 const browser = await chromium.launch({ headless: true, channel: 'chrome' });
 
-async function open({ width, height }, { published = 0, owner = true, role = 'admin' } = {}) {
+async function open({ width, height }, { published = 0, owner = true, role = 'admin', oldApi = false } = {}) {
   const state = { published, url: published ? LINK : null, publishes: [], unpublishes: 0, shareMessages: [], puts: [], sendBodies: [] };
   const context = await browser.newContext({ viewport: { width, height }, serviceWorkers: 'block', locale: 'en-US', hasTouch: width < 1024, isMobile: width < 1024 });
   await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: BASE });
@@ -89,10 +89,11 @@ async function open({ width, height }, { published = 0, owner = true, role = 'ad
     if (p === '/memories/901/publish' && m === 'POST') {
       state.publishes.push(body);
       // As the API: a published campaign is toggled OFF unless switch_role (Chris 9 Nov 2026) asks to switch its mode.
-      if (state.published && !body?.switch_role) { state.published = 0; state.url = null; return route.fulfill({ json: { success: true, data: { published: 0 } } }); }
+      // oldApi: an API from before switch_role, which ignores it (review I1).
+      if (state.published && (!body?.switch_role || oldApi)) { state.published = 0; state.url = null; return route.fulfill({ json: { status: 1, link: '', published: 0 } }); }
       state.published = Number(body?.role) || 1;
       state.url = state.published === 3 ? `${LINK}?access_token=tok123` : LINK;
-      return route.fulfill({ json: { success: true, link: state.url, data: { link: state.url } } });
+      return route.fulfill({ json: { status: 1, link: state.url, published: state.published } });
     }
     if (p === '/memories/memory-unpublished' && m === 'POST') { state.unpublishes++; state.published = 0; state.url = null; return route.fulfill({ json: { success: true } }); }
     if (p === '/memories/published/share-message' && m === 'POST') { state.shareMessages.push(body?.share_message); return route.fulfill({ json: { success: true } }); }
@@ -107,10 +108,11 @@ async function open({ width, height }, { published = 0, owner = true, role = 'ad
       const target = body?.publish_role ?? (state.published || 1);
       if (target === 3) return route.fulfill({ status: 422, json: { success: false, code: 'private_campaign', message: 'private' } });
       const publishedNow = !state.published;
+      const switched = Boolean(state.published) && state.published !== target;
       state.published = target;
       state.url = LINK;
       const ch = { sent: 1, queued: 0, failed: 0 };
-      return route.fulfill({ json: { success: true, data: { broadcast_id: `b-${state.sends}`, memory_id: 901, status: 'sent', channels: ['email'], subject: 'Thomas Jeeps Inventory', replayed: false, published_now: publishedNow, texts_wait_until: null, counts: { recipients: 1, sent: 1, queued: 0, failed: 0, email: ch, sms: { sent: 0, queued: 0, failed: 0 }, skipped: { total: 0 } } } } });
+      return route.fulfill({ json: { success: true, data: { broadcast_id: `b-${state.sends}`, memory_id: 901, status: 'sent', channels: ['email'], subject: 'Thomas Jeeps Inventory', replayed: false, published_now: publishedNow, published: target, publish_switched: switched, texts_wait_until: null, counts: { recipients: 1, sent: 1, queued: 0, failed: 0, email: ch, sms: { sent: 0, queued: 0, failed: 0 }, skipped: { total: 0 } } } } });
     }
     if (p === '/user/storage-overview') return route.fulfill({ json: { success: true, data: { storage_overview: { plan_name: 'Professional' } } } });
     if (p === '/user/check-memory-limit') return route.fulfill({ json: { success: true, data: { limit_status: { status: 'within_limit', current_memories: 1, memory_limit: 50 } } } });
@@ -204,6 +206,7 @@ try {
       expect(await choiceLooksSelected(page, 'Publish as Public') && !(await choiceLooksSelected(page, 'Publish as View Only')), `${tag}: Public has the Email-card selected look (purple border + tint), the others don't`);
       expect(await inViewport(page, radio(page, 'Publish as Public')), `${tag}: the pre-selected Public option is in the viewport`);
       expect(await pub(page).getByRole('button', { name: 'Publish now' }).isVisible(), `${tag}: Publish now (without sending) is offered`);
+      expect(await pub(page).getByRole('button', { name: 'Publish now' }).locator('svg.lucide-globe').count() === 1, `${tag}: Publish now shows the Public (globe) icon`);
       await pub(page).scrollIntoViewIfNeeded();
       await page.screenshot({ path: `${OUT}/${tag}-03-publishing-public-preselected.png` });
 
@@ -221,12 +224,14 @@ try {
       await page.keyboard.press('ArrowUp');
       await page.waitForTimeout(200);
       expect(await checkedChoice(page) === 'Publish as View Only' && state.publishes.length === 0, `${tag}: ArrowUp → View Only, still nothing published`);
+      expect(await pub(page).getByRole('button', { name: 'Publish now' }).locator('svg.lucide-eye').count() === 1, `${tag}: View Only chosen → Publish now shows the eye icon`);
       await page.screenshot({ path: `${OUT}/${tag}-03b-view-only-chosen.png` });
 
       // Private: can't be sent — the line under the options, and Save & Send off with the reason at the bottom
       await pub(page).getByText('Publish as Private').click();
       await page.waitForTimeout(400);
       expect(((await pub(page).textContent()) ?? '').includes(PRIVATE_NOTE), `${tag}: Private: the line under the options says it can't be sent`);
+      expect(await pub(page).getByRole('button', { name: 'Publish now' }).locator('svg.lucide-lock').count() === 1, `${tag}: Private chosen → Publish now shows the lock icon`);
       const sendCard = flow(page).locator('#st-step-send');
       await sendCard.getByLabel('Email address').fill('jordan@example.com');
       await sendCard.getByLabel(/^Message/).fill('New Jeeps in.');
@@ -368,6 +373,7 @@ try {
       await confirm.getByRole('button', { name: 'Send Now' }).click();
       await page.waitForTimeout(1500);
       expect(state.sendBodies.at(-1)?.publish_role === 1 && state.published === 1, `${tag}: Save & Send sends publish_role 1 (${JSON.stringify(state.sendBodies.at(-1))})`);
+      expect(await toast(page, 'Your campaign is now Public.'), `${tag}: the Sent toast says the send switched it to Public`);
 
       // Reopen; Unpublish; Publish now as View Only (publishing saves nothing else)
       await sendButton(page).click();
@@ -455,6 +461,25 @@ try {
         const discard = page.getByRole('button', { name: /^(Discard|Leave|Yes, discard|Discard changes)$/ }).filter({ visible: true });
         if (await discard.count()) { await discard.first().click(); await page.waitForTimeout(400); }
       }
+      await context.close();
+    }
+
+    // ── Review I1: Studio ahead of the API (no switch_role): Publish now on a published campaign still ends in the chosen mode ─
+    {
+      const { page, context, state } = await open({ width, height }, { published: 1, oldApi: true });
+      await openCampaign(page);
+      await sendButton(page).click();
+      await flow(page).locator('#st-step-send').waitFor({ timeout: 10000 }).catch(() => {});
+      await page.waitForTimeout(1200);
+      await pub(page).getByText('Publish as View Only').click();
+      await pub(page).getByRole('button', { name: 'Publish now' }).click();
+      await page.getByText('Public URL').first().waitFor({ timeout: 10000 }).catch(() => {});
+      await page.getByRole('button', { name: 'Done', exact: true }).filter({ visible: true }).last().click().catch(() => {});
+      await page.waitForTimeout(1200);
+      expect(JSON.stringify(state.publishes) === '[{"role":2,"switch_role":true},{"role":2}]', `${tag}: old API: the toggle-off is repaired with one more publish (${JSON.stringify(state.publishes)})`);
+      expect(state.published === 2 && ((await pub(page).textContent()) ?? '').includes('Published · View Only'), `${tag}: old API: the campaign ends published View Only (state ${state.published})`);
+      await pub(page).scrollIntoViewIfNeeded();
+      await page.screenshot({ path: `${OUT}/${tag}-14-old-api-switch-repaired.png` });
       await context.close();
     }
 

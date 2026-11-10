@@ -80,6 +80,7 @@ import { seedFromMemory } from "../components/storeel/lib/storeelFlow";
 import PublishedLinkPanel from "../components/campaign/PublishedLinkPanel";
 import CampaignPublishing from "../components/storeel/CampaignPublishing";
 import { PublishChoiceProvider } from "../components/storeel/PublishChoice";
+import { switchNeedsRepublish } from "../components/storeel/lib/publishing";
 import { campaignCanOpenStepper, publishedRole, type StepperOpensAt } from "../components/storeel/lib/publishing";
 import { campaignPageInventory } from "../components/storeel/campaignPageInventory";
 import { campaignModerationOf, moderationTabVisible } from "../components/storeel/lib/moderation";
@@ -5479,8 +5480,14 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
 
         console.log(`Publishing with role: ${role} (selectedPublishOption: ${selectedPublishOption}, roleOverride: ${roleOverride})`);
 
-        const response = await dashboardAPI.publishMemory(memoryId, role, switchRole);
+        let response = await dashboardAPI.publishMemory(memoryId, role, switchRole);
         console.log('Publish API Response:', response);
+        // Review I1: an API without switch_role toggled the published campaign OFF — publish it again in the chosen
+        // mode, once (the new API answers the chosen mode, so this never runs there).
+        if (response.success && switchNeedsRepublish({ switchRole, wasPublished: isCurrentlyPublished, role, reply: response.data })) {
+          response = await dashboardAPI.publishMemory(memoryId, role);
+          if (response.success && Number(response.data?.published) !== role) throw new Error('Failed to change the publish mode');
+        }
 
         if (response.success) {
           setPublishProgress(100);

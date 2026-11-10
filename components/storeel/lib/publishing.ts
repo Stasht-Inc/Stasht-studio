@@ -103,3 +103,13 @@ export function campaignCanOpenStepper(memoryId: unknown): boolean {
 
 /** The send confirm on a private (access-token) campaign: publish it another way first — now in the Publishing card. */
 export const PRIVATE_LINK_SEND_LINE = 'This campaign is shared by private link only. Publish it as Public or View Only at the top of the Send card, then send it.';
+
+/** Review I1: "Publish now" switched a published campaign (switch_role) but the answer says it ended in another mode —
+ *  an API without switch_role toggled it off. Studio then publishes it again in the chosen mode, once. Only when the
+ *  answer says its mode: a second call on the new API would toggle it off. */
+export function switchNeedsRepublish({ switchRole, wasPublished, role, reply }: {
+  switchRole: boolean; wasPublished: boolean; role: number; reply: unknown;
+}): boolean {
+  if (!switchRole || !wasPublished || !reply || typeof reply !== 'object' || !('published' in reply)) return false;
+  return Number((reply as { published: unknown }).published) !== role;
+}

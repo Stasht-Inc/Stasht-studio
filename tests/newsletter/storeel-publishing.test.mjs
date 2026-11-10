@@ -140,3 +140,17 @@ test('device location: fills only a truly empty field, read from the current for
   assert.equal(withDeviceLocation({ location: '   ' }, 'Mumbai', false).location, 'Mumbai', 'blank counts as empty');
   assert.equal(withDeviceLocation(empty, '', false), empty);
 });
+
+// Review I1: "Publish now" on a published campaign against an API without switch_role toggles it OFF (published 0):
+// Studio publishes it again in the chosen mode, once. Never on the new API (it answers the chosen mode) or when the
+// answer doesn't say (a second call would toggle it off).
+test('Publish now repairs a switch only when the answer says it ended in another mode', () => {
+  const r = publishing.switchNeedsRepublish;
+  assert.equal(r({ switchRole: true, wasPublished: true, role: 2, reply: { published: 0 } }), true, 'old API toggled it off');
+  assert.equal(r({ switchRole: true, wasPublished: true, role: 2, reply: { published: '0' } }), true);
+  assert.equal(r({ switchRole: true, wasPublished: true, role: 2, reply: { published: 2 } }), false, 'new API');
+  assert.equal(r({ switchRole: true, wasPublished: true, role: 2, reply: { link: 'x' } }), false, 'no mode in the answer');
+  assert.equal(r({ switchRole: true, wasPublished: true, role: 2, reply: null }), false);
+  assert.equal(r({ switchRole: true, wasPublished: false, role: 2, reply: { published: 0 } }), false, 'was unpublished: the toggle published it');
+  assert.equal(r({ switchRole: false, wasPublished: true, role: 2, reply: { published: 0 } }), false, 'Unpublish');
+});
