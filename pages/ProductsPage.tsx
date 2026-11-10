@@ -123,6 +123,7 @@ function ProductsReady({ onNavigate }: { onNavigate: (page: string) => void }) {
   useEffect(() => {
     if (keepSelection.current) { keepSelection.current = false; return; }
     setSelected([]);
+    setBulkNotice(null); // a bulk result is about the list it ran on: a new search, filter, sort or page clears it
   }, [viewKey, filters]);
 
   const changed = useCallback(async () => { await load(); await refresh(); announceProductsChanged(); }, [load, refresh]);

@@ -378,6 +378,38 @@ try {
       await s2.page.screenshot({ path: `${OUT}/${tag}-05-website-hint.png` });
       await s2.context.close();
 
+      // Task 16 (T13 minor): the bulk result is about the old list, so a new search or sort clears it.
+      const s3 = await open(world({ skip: [602] }), { width, height });
+      const c3 = s3.page.getByTestId('product-card');
+      await c3.first().waitFor({ timeout: 15000 });
+      const bar3 = s3.page.getByTestId('product-bulk-bar');
+      const notice3 = "1 deleted, 1 skipped (they're no longer available to you).";
+      const bulkDelete = async () => {
+        await c3.filter({ hasText: 'Walnut Chair' }).getByRole('checkbox').check();
+        await c3.filter({ hasText: 'Draft Stool' }).getByRole('checkbox').check();
+        await bar3.getByRole('button', { name: 'Delete' }).click();
+        await s3.page.getByRole('alertdialog').getByRole('button', { name: 'Delete' }).click();
+        await s3.page.waitForTimeout(800);
+      };
+      await bulkDelete();
+      expect(await s3.page.getByText(notice3).isVisible().catch(() => false), `${tag}: (setup) the bulk result shows`);
+      await s3.page.getByRole('searchbox', { name: 'Search products' }).fill('Sofa');
+      await s3.page.waitForTimeout(1000);
+      expect(!(await s3.page.getByText(notice3).filter({ visible: true }).count()), `${tag}: a new search clears the bulk result`);
+      await s3.page.getByRole('searchbox', { name: 'Search products' }).fill('');
+      await s3.page.waitForTimeout(1000);
+      // Again with Draft Stool alone (the API skips it), then a new sort.
+      await c3.filter({ hasText: 'Draft Stool' }).getByRole('checkbox').check();
+      await bar3.getByRole('button', { name: 'Delete' }).click();
+      await s3.page.getByRole('alertdialog').getByRole('button', { name: 'Delete' }).click();
+      await s3.page.waitForTimeout(800);
+      const notice4 = "0 deleted, 1 skipped (they're no longer available to you).";
+      expect(await s3.page.getByText(notice4).isVisible().catch(() => false), `${tag}: (setup) a second bulk result shows`);
+      await s3.page.getByLabel('Sort').selectOption('title');
+      await s3.page.waitForTimeout(800);
+      expect(!(await s3.page.getByText(notice4).filter({ visible: true }).count()), `${tag}: … and so does a new sort`);
+      await s3.context.close();
+
       // A salesperson's External view: the main account's products, read-only — no checkboxes, no bulk bar, no create.
       const EXT = { id: 31, name: 'Serpa Chrysler (External)', account_type: 'external', is_own_external_account: true, user_id: 959 };
       const owner = { id: 959, name: 'Serpa Chrysler', profile_image: null, profile_color: '#0062A8' };
