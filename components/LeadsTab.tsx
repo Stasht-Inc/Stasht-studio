@@ -11,6 +11,8 @@ import { Select, SelectContent, SelectItem, SelectSeparator, SelectTrigger, Sele
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger } from './ui/dropdown-menu';
 import { leadsAPI, Lead, LeadMessage, CommentaryTarget, LeadGroupSummary, LeadGroup, Conversation, messageChannelLabel } from '../services/leadsAPI';
 import { mapLimit } from '../utils/requestLimit';
+import { leadLinkAction, leadLinkUrl, NOT_AVAILABLE } from '../utils/leadLink';
+import { switchAccount, switchIntoAccountForLead } from './AccountChoiceModal';
 import LeadsInboxTable from './leads/LeadsInboxTable';
 import CampaignDeletedTag from './leads/CampaignDeletedTag';
 import LeadConfirmDialog, { type LeadConfirmKind } from './leads/LeadConfirmDialog';
@@ -251,6 +253,8 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
   const markLoaded = (key: 'leads' | 'groups' | 'conversations') => setCountsLoaded((c) => (c[key] ? c : { ...c, [key]: true }));
   // Lead the parent wants opened (see the openLeadId effect below); read by fetchLeads.
   const openLeadIdRef = useRef<number | null>(null);
+  // The lead link already being handled (see fetchLeads).
+  const handledLeadLink = useRef<number | null>(null);
   openLeadIdRef.current = openLeadId ?? null;
   const [timeFilter, setTimeFilter] = useState<'all' | 'daily' | 'weekly' | 'monthly' | 'annually'>('all');
   const [updatingId, setUpdatingId] = useState<number | null>(null);
@@ -597,7 +601,9 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
         }
         onLeadsRefreshed?.(freshLeads);
         const wanted = openLeadIdRef.current;
-        if (wanted) {
+        // Several list loads can finish while a lead link is being opened: only the first one handles it.
+        if (wanted && wanted !== handledLeadLink.current) {
+          handledLeadLink.current = wanted;
           const match = freshLeads.find((l) => l.id === wanted);
           if (match) {
             onLeadSelect(match);
@@ -612,9 +618,29 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
               onLeadSelect(found);
               toast.info('Opened the conversation. Your current filters hide it in the list.');
             } else {
-              toast.info(openLeadHint
-                ? `This lead was ${openLeadHint}.`
-                : 'This lead is no longer available — a teammate may have accepted it.');
+              // Not in this account: the lead link was opened in the person's own account (or another one they
+              // switched into). Ask where it lives and switch them into it when they are its Admin / Partial Admin.
+              const loc = await leadsAPI.locateLead(wanted)
+                .then((r) => (r.success ? r.data : null))
+                .catch(() => null);
+              const action = leadLinkAction(loc, openLeadHint);
+              if (action.kind === 'switch') {
+                toast.info(`Opening ${action.ownerName}…`);
+                const res = await switchIntoAccountForLead(action.ownerId, action.partial, action.ownerEmail);
+                if (res.ok) {
+                  window.location.assign(leadLinkUrl(wanted));
+                  return;
+                }
+                toast.error(res.error || 'Could not open that account.');
+              } else if (action.kind === 'personal') {
+                if (await switchAccount(null).catch(() => false)) {
+                  window.location.assign(leadLinkUrl(wanted));
+                  return;
+                }
+                toast.info(NOT_AVAILABLE);
+              } else {
+                toast.info(action.text);
+              }
             }
           }
           onOpenLeadHandled?.();
@@ -795,6 +821,7 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
   // a stale list never produces a false "not available".
   useEffect(() => {
     if (!openLeadId) return;
+    handledLeadLink.current = null;
     const match = leads.find((l) => l.id === openLeadId);
     if (match) {
       onLeadSelect(match);
