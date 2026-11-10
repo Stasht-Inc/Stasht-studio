@@ -75,3 +75,21 @@ export function keyboardClosedResize(previousHeight: number, height: number, min
   if (!(previousHeight > 0) || !(height > 0)) return false;
   return height - previousHeight >= minGrowth;
 }
+
+/**
+ * Review fix (I3): the keyboard is up only once the visual viewport has dropped `minDrop` px below its height when the
+ * field got focus. A focused field alone isn't enough — the title auto-focuses (and is re-focused after the device
+ * location) without the iOS keyboard, and with a stale viewport that used to size the sheet short.
+ */
+export function keyboardUp(heightAtFocus: number, height: number, minDrop = 120): boolean {
+  if (!(heightAtFocus > 0) || !(height > 0)) return false;
+  return heightAtFocus - height >= minDrop;
+}
+
+/**
+ * Review fix (M1): the bottom-bar nudge runs on touch screens only, and not if the page has moved since it was
+ * scheduled (the user is scrolling — a programmatic scroll would stop a fling).
+ */
+export function shouldNudge(scheduledScrollY: number, scrollY: number, coarsePointer: boolean): boolean {
+  return coarsePointer && Math.abs(scrollY - scheduledScrollY) < 1;
+}

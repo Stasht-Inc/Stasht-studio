@@ -1003,6 +1003,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
   const [mobileHeaderMode, setMobileHeaderMode] = useState<'hidden' | 'expanded' | 'compact'>('hidden');
   // Phone top bar (Back · Edit Cover · ⋯ · Send) pinned once the cover's top has scrolled past the top (Chris, 9 Nov 2026).
   const [phoneBarPinned, setPhoneBarPinned] = useState(false);
+  const mobileScrollSyncRef = useRef<(() => void) | null>(null);
   const mobileCoverRef = useRef<HTMLDivElement>(null);
   const mobileInfoRef = useRef<HTMLDivElement>(null);
   // The published box's share menu, QR and share message live in components/campaign/PublishedLinkPanel.tsx.
@@ -1630,11 +1631,24 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
     };
 
     window.addEventListener('scroll', handleScroll);
+    // Also on resize / rotation and once mounted (a restored scroll position), not only on the next scroll (review M3).
+    window.addEventListener('resize', handleScroll);
+    window.addEventListener('orientationchange', handleScroll);
+    mobileScrollSyncRef.current = handleScroll;
+    handleScroll();
 
     return () => {
       window.removeEventListener('scroll', handleScroll);
+      window.removeEventListener('resize', handleScroll);
+      window.removeEventListener('orientationchange', handleScroll);
+      mobileScrollSyncRef.current = null;
     };
   }, []);
+  // The cover appears once the campaign has loaded (and again on the Timeline tab): re-read where it is.
+  useEffect(() => {
+    const id = window.requestAnimationFrame(() => mobileScrollSyncRef.current?.());
+    return () => window.cancelAnimationFrame(id);
+  }, [apiMemoryData, activeTab]);
 
   // Fetch existing memories when component mounts for "Add to Memory" modal
   useEffect(() => {
@@ -7846,7 +7860,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
 
   // No "add between posts" on read-only inventory (cars, catalogue products).
   const renderPlusDivider = (key: string, afterPostId?: string) => isInventoryDetail ? null : (
-    <div className="relative flex items-center justify-center h-10 md:hidden" style={{ zIndex: 10 }}>
+    <div className="relative flex items-center justify-center h-10 md:hidden" style={{ zIndex: activePlusDivider === key ? 60 : 10 }}>
       {/* Purple horizontal line */}
       <div className="absolute left-0 right-0 h-px bg-[#6C60FF]" />
       {/* Circle + button */}
@@ -10400,6 +10414,74 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
     postDescription = postDescription + ' Capture, organize, and share your most precious memories with friends and family on Stasht.';
   }
 
+  // The scrolled phone header's info and controls (author, Add a Moment, title + location/date, Search). Shared by the
+  // old white header and the pinned top bar's info row (Chris, 9 Nov 2026 — nothing on it may disappear).
+  // The Search icon had no action on development either; kept exactly as it was (flagged to Chris).
+  const mobileHeaderAuthor = (
+    <div className="flex items-center gap-2">
+      <Avatar className="w-8 h-8 border border-gray-200">
+        <AvatarImage src={apiMemoryData?.user?.profile_image} />
+        <AvatarFallback className="bg-[#6C60FF] text-white text-xs">
+          {apiMemoryData?.user?.name?.charAt(0) || 'U'}
+        </AvatarFallback>
+      </Avatar>
+      <span className="text-sm font-semibold text-gray-900">{apiMemoryData?.user?.name || 'Unknown'}</span>
+    </div>
+  );
+  const mobileHeaderAddMoment = (
+    !isSuggestedCategory && currentUserRole !== 'viewer' && !isInventoryDetail && (
+      <Button
+        onClick={() => setIsAddMomentModalOpen(true)}
+        size="sm"
+        className="bg-[#6C60FF] hover:bg-[#5B4FE8] text-white rounded-lg px-4"
+      >
+        <Plus className="w-4 h-4 mr-1" />
+        Add a Moment
+      </Button>
+    )
+  );
+  const mobileHeaderTitle = (
+    <div className="min-w-0 flex-1">
+      <h2 className="text-xl font-bold text-gray-900 truncate leading-tight">{apiMemoryData?.title || 'Memory Title'}</h2>
+      <div className="flex items-center gap-3 text-sm text-gray-500 mt-1">
+        {uiMemory.location?.primary && (
+          <div className="flex items-center gap-1">
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5 flex-shrink-0">
+              <g clipPath="url(#clip0_loc_sticky)">
+                <path d="M11.6619 5.83095C11.6619 8.7423 8.43219 11.7744 7.34765 12.7108C7.24661 12.7868 7.12362 12.8278 6.99721 12.8278C6.8708 12.8278 6.74781 12.7868 6.64678 12.7108C5.56224 11.7744 2.33252 8.7423 2.33252 5.83095C2.33252 4.5938 2.82398 3.40732 3.69878 2.53252C4.57358 1.65772 5.76006 1.16626 6.99721 1.16626C8.23437 1.16626 9.42085 1.65772 10.2956 2.53252C11.1704 3.40732 11.6619 4.5938 11.6619 5.83095Z" stroke="#4A5565" strokeWidth="1.16617" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M6.99682 7.58006C7.96291 7.58006 8.74608 6.79689 8.74608 5.8308C8.74608 4.86471 7.96291 4.08154 6.99682 4.08154C6.03073 4.08154 5.24756 4.86471 5.24756 5.8308C5.24756 6.79689 6.03073 7.58006 6.99682 7.58006Z" stroke="#4A5565" strokeWidth="1.16617" strokeLinecap="round" strokeLinejoin="round"/>
+              </g>
+              <defs>
+                <clipPath id="clip0_loc_sticky">
+                  <rect width="13.9941" height="13.9941" fill="white"/>
+                </clipPath>
+              </defs>
+            </svg>
+            <span className="truncate max-w-[100px]">{uiMemory.location.primary}</span>
+          </div>
+        )}
+        {uiMemory.dateRange && !isCarCampaign(apiMemoryData) && !isInventoryDetail && (
+          <div className="flex items-center gap-1">
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5 flex-shrink-0">
+              <rect x="1.75" y="2.91675" width="10.5" height="9.33333" rx="1.16667" stroke="#4A5565" strokeWidth="1.16617" strokeLinecap="round" strokeLinejoin="round"/>
+              <line x1="1.75" y1="5.83325" x2="12.25" y2="5.83325" stroke="#4A5565" strokeWidth="1.16617"/>
+              <line x1="4.66675" y1="1.16675" x2="4.66675" y2="3.50008" stroke="#4A5565" strokeWidth="1.16617" strokeLinecap="round"/>
+              <line x1="9.33325" y1="1.16675" x2="9.33325" y2="3.50008" stroke="#4A5565" strokeWidth="1.16617" strokeLinecap="round"/>
+            </svg>
+            <span className="whitespace-nowrap">{uiMemory.dateRange}</span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+  const mobileHeaderSearch = (
+    <Button variant="ghost" size="sm" className="w-9 h-9 p-0 hover:bg-gray-100 rounded-full">
+      <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ width: '25px', height: '25px' }}>
+        <path d="M19.6 21L13.3 14.7C12.8 15.1 12.225 15.4167 11.575 15.65C10.925 15.8833 10.2333 16 9.5 16C7.68333 16 6.14583 15.3708 4.8875 14.1125C3.62917 12.8542 3 11.3167 3 9.5C3 7.68333 3.62917 6.14583 4.8875 4.8875C6.14583 3.62917 7.68333 3 9.5 3C11.3167 3 12.8542 3.62917 14.1125 4.8875C15.3708 6.14583 16 7.68333 16 9.5C16 10.2333 15.8833 10.925 15.65 11.575C15.4167 12.225 15.1 12.8 14.7 13.3L21 19.6L19.6 21ZM9.5 14C10.75 14 11.8125 13.5625 12.6875 12.6875C13.5625 11.8125 14 10.75 14 9.5C14 8.25 13.5625 7.1875 12.6875 6.3125C11.8125 5.4375 10.75 5 9.5 5C8.25 5 7.1875 5.4375 6.3125 6.3125C5.4375 7.1875 5 8.25 5 9.5C5 10.75 5.4375 11.8125 6.3125 12.6875C7.1875 13.5625 8.25 14 9.5 14Z" fill="#1F1F1F"/>
+      </svg>
+    </Button>
+  );
+
   return (
     <div
       className="relative h-full pb-20 lg:pb-0"
@@ -11443,7 +11525,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                       {!isSuggestedCategory && (
                         <div
                           data-campaign-phone-bar
-                          className={`${phonePillBarShown && phoneBarPinned ? 'fixed z-50 md:absolute md:z-10' : 'absolute z-10'} top-0 left-0 right-0 p-4 pt-[calc(1rem+env(safe-area-inset-top))] md:pt-4 lg:p-8 pointer-events-none transition-colors duration-200 ${phonePillBarShown && mobileHeaderMode !== 'hidden' ? 'bg-white border-b border-gray-100 shadow-sm md:bg-transparent md:border-0 md:shadow-none max-md:[&_.rounded-full]:bg-gray-900/85' : ''}`}
+                          className={`${phonePillBarShown && phoneBarPinned ? 'fixed md:absolute md:z-10' : 'absolute md:z-10'} ${showEditCoverModal ? 'z-[60]' : phonePillBarShown && phoneBarPinned ? 'z-50' : 'z-10'} top-0 left-0 right-0 p-4 pt-[calc(1rem+env(safe-area-inset-top))] md:pt-4 lg:p-8 pointer-events-none transition-colors duration-200 ${phonePillBarShown && mobileHeaderMode !== 'hidden' ? 'bg-white border-b border-gray-100 shadow-sm md:bg-transparent md:border-0 md:shadow-none max-md:[&>div:first-child_.rounded-full]:bg-gray-900/85' : ''}`}
                         >
                           <div className="flex items-start justify-between md:justify-end">
                             {/* Mobile - back button + edit cover (top-left), hidden when cover video is playing */}
@@ -11716,6 +11798,23 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                             </Popover>
                             )}
                           </div>
+                          {/* Once white (cover gone by): the old white header's info under the pills, same markup — author +
+                              Add a Moment just past the cover, then title + location/date + Search (Chris, 9 Nov 2026 review) */}
+                          {phonePillBarShown && mobileHeaderMode !== 'hidden' && (
+                            <div className="md:hidden pointer-events-auto mt-3 flex items-start justify-between gap-2">
+                              {mobileHeaderMode === 'expanded' ? (
+                                <>
+                                  {mobileHeaderAuthor}
+                                  {mobileHeaderAddMoment}
+                                </>
+                              ) : (
+                                <>
+                                  {mobileHeaderTitle}
+                                  <div className="flex items-center gap-1 flex-shrink-0">{mobileHeaderSearch}</div>
+                                </>
+                              )}
+                            </div>
+                          )}
                         </div>
                       )}
 
@@ -11936,26 +12035,9 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                         >
                           <X className="w-5 h-5 text-gray-700" />
                         </Button>
-                        <div className="flex items-center gap-2">
-                          <Avatar className="w-8 h-8 border border-gray-200">
-                            <AvatarImage src={apiMemoryData?.user?.profile_image} />
-                            <AvatarFallback className="bg-[#6C60FF] text-white text-xs">
-                              {apiMemoryData?.user?.name?.charAt(0) || 'U'}
-                            </AvatarFallback>
-                          </Avatar>
-                          <span className="text-sm font-semibold text-gray-900">{apiMemoryData?.user?.name || 'Unknown'}</span>
-                        </div>
+                        {mobileHeaderAuthor}
                       </div>
-                      {!isSuggestedCategory && currentUserRole !== 'viewer' && !isInventoryDetail && (
-                        <Button
-                          onClick={() => setIsAddMomentModalOpen(true)}
-                          size="sm"
-                          className="bg-[#6C60FF] hover:bg-[#5B4FE8] text-white rounded-lg px-4"
-                        >
-                          <Plus className="w-4 h-4 mr-1" />
-                          Add a Moment
-                        </Button>
-                      )}
+                      {mobileHeaderAddMoment}
                     </div>
                   ) : (
                     /* Compact header: X + Title/location + Search + Three-dot */
@@ -11974,45 +12056,10 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                               <path d="M5 5L15 15" stroke="currentColor" strokeWidth="1.33287" strokeLinecap="round" strokeLinejoin="round"/>
                             </svg>
                           </Button>
-                          <div className="min-w-0 flex-1">
-                            <h2 className="text-xl font-bold text-gray-900 truncate leading-tight">{apiMemoryData?.title || 'Memory Title'}</h2>
-                            <div className="flex items-center gap-3 text-sm text-gray-500 mt-1">
-                              {uiMemory.location?.primary && (
-                                <div className="flex items-center gap-1">
-                                  <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5 flex-shrink-0">
-                                    <g clipPath="url(#clip0_loc_sticky)">
-                                      <path d="M11.6619 5.83095C11.6619 8.7423 8.43219 11.7744 7.34765 12.7108C7.24661 12.7868 7.12362 12.8278 6.99721 12.8278C6.8708 12.8278 6.74781 12.7868 6.64678 12.7108C5.56224 11.7744 2.33252 8.7423 2.33252 5.83095C2.33252 4.5938 2.82398 3.40732 3.69878 2.53252C4.57358 1.65772 5.76006 1.16626 6.99721 1.16626C8.23437 1.16626 9.42085 1.65772 10.2956 2.53252C11.1704 3.40732 11.6619 4.5938 11.6619 5.83095Z" stroke="#4A5565" strokeWidth="1.16617" strokeLinecap="round" strokeLinejoin="round"/>
-                                      <path d="M6.99682 7.58006C7.96291 7.58006 8.74608 6.79689 8.74608 5.8308C8.74608 4.86471 7.96291 4.08154 6.99682 4.08154C6.03073 4.08154 5.24756 4.86471 5.24756 5.8308C5.24756 6.79689 6.03073 7.58006 6.99682 7.58006Z" stroke="#4A5565" strokeWidth="1.16617" strokeLinecap="round" strokeLinejoin="round"/>
-                                    </g>
-                                    <defs>
-                                      <clipPath id="clip0_loc_sticky">
-                                        <rect width="13.9941" height="13.9941" fill="white"/>
-                                      </clipPath>
-                                    </defs>
-                                  </svg>
-                                  <span className="truncate max-w-[100px]">{uiMemory.location.primary}</span>
-                                </div>
-                              )}
-                              {uiMemory.dateRange && !isCarCampaign(apiMemoryData) && !isInventoryDetail && (
-                                <div className="flex items-center gap-1">
-                                  <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5 flex-shrink-0">
-                                    <rect x="1.75" y="2.91675" width="10.5" height="9.33333" rx="1.16667" stroke="#4A5565" strokeWidth="1.16617" strokeLinecap="round" strokeLinejoin="round"/>
-                                    <line x1="1.75" y1="5.83325" x2="12.25" y2="5.83325" stroke="#4A5565" strokeWidth="1.16617"/>
-                                    <line x1="4.66675" y1="1.16675" x2="4.66675" y2="3.50008" stroke="#4A5565" strokeWidth="1.16617" strokeLinecap="round"/>
-                                    <line x1="9.33325" y1="1.16675" x2="9.33325" y2="3.50008" stroke="#4A5565" strokeWidth="1.16617" strokeLinecap="round"/>
-                                  </svg>
-                                  <span className="whitespace-nowrap">{uiMemory.dateRange}</span>
-                                </div>
-                              )}
-                            </div>
-                          </div>
+                          {mobileHeaderTitle}
                         </div>
                         <div className="flex items-center gap-1 flex-shrink-0" style={{ marginTop: '4px' }}>
-                          <Button variant="ghost" size="sm" className="w-9 h-9 p-0 hover:bg-gray-100 rounded-full">
-                            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ width: '25px', height: '25px' }}>
-                              <path d="M19.6 21L13.3 14.7C12.8 15.1 12.225 15.4167 11.575 15.65C10.925 15.8833 10.2333 16 9.5 16C7.68333 16 6.14583 15.3708 4.8875 14.1125C3.62917 12.8542 3 11.3167 3 9.5C3 7.68333 3.62917 6.14583 4.8875 4.8875C6.14583 3.62917 7.68333 3 9.5 3C11.3167 3 12.8542 3.62917 14.1125 4.8875C15.3708 6.14583 16 7.68333 16 9.5C16 10.2333 15.8833 10.925 15.65 11.575C15.4167 12.225 15.1 12.8 14.7 13.3L21 19.6L19.6 21ZM9.5 14C10.75 14 11.8125 13.5625 12.6875 12.6875C13.5625 11.8125 14 10.75 14 9.5C14 8.25 13.5625 7.1875 12.6875 6.3125C11.8125 5.4375 10.75 5 9.5 5C8.25 5 7.1875 5.4375 6.3125 6.3125C5.4375 7.1875 5 8.25 5 9.5C5 10.75 5.4375 11.8125 6.3125 12.6875C7.1875 13.5625 8.25 14 9.5 14Z" fill="#1F1F1F"/>
-                            </svg>
-                          </Button>
+                          {mobileHeaderSearch}
                         {/* Edit / Publish menu — none on read-only inventory (cars, catalogue products) */}
                         {!isInventoryDetail && (
                         <DropdownMenu>

@@ -39,7 +39,13 @@ const expect = (ok, label) => { if (!ok) failures.push(label); console.log(ok ? 
 
 const browser = await pw[ENGINE].launch(ENGINE === 'chromium' ? { headless: true, channel: 'chrome' } : { headless: true });
 
-async function open({ width, height }, path = '/memories') {
+const CAR = {
+  id: 5, title: '2024 Jeep Wrangler Sahara', price: '34995', category: 'new', images_count: 8, main_image: img(4),
+  location: { formatted: '1 Serpa Way, Toronto, ON' }, spec_summary: 'STK# S2300 / 45000 km', listing_url: null,
+};
+const CAR_DETAIL = { ...CAR, images: Array.from({ length: 8 }, (_, i) => ({ id: 70 + i, url: img(i + 1), sort_order: i, is_main: i === 0 })) };
+
+async function open({ width, height }, path = '/memories', { light = false, cars = false } = {}) {
   const state = { detailGets: 0, apiCalls: 0 };
   const phone = width < 768;
   const context = await browser.newContext({
@@ -74,6 +80,7 @@ async function open({ width, height }, path = '/memories') {
       if (url.hostname === 'apis.google.com' && url.pathname === '/js/api.js') return route.fulfill({ contentType: 'text/javascript', body: STUB_GAPI });
       return route.abort('blockedbyclient');
     }
+    if (url.pathname === '/cd-img/light.jpg') return route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" width="600" height="400"><rect width="600" height="400" fill="#F5F5F4"/></svg>' });
     if (url.pathname.startsWith('/cd-img/')) return route.fulfill({ contentType: 'image/svg+xml', body: svg(Number(url.pathname.match(/(\d+)/)?.[1] ?? 0)) });
     if (/^\/(sso-api|s3-proxy)(\/|$)/.test(url.pathname)) return route.abort('blockedbyclient');
     if (!url.pathname.startsWith('/api/')) return route.continue();
@@ -82,13 +89,15 @@ async function open({ width, height }, path = '/memories') {
     const m = req.method();
     let body = null;
     try { body = req.postData() ? JSON.parse(req.postData()) : null; } catch { body = null; }
+    if (cars && p === '/cars' && m === 'GET') return route.fulfill({ json: { success: true, status: 200, data: { cars: [CAR], pagination: { total: 1 }, filters: { categories: ['new'] } }, cars: [CAR] } });
+    if (cars && p === '/cars/5' && m === 'GET') return route.fulfill({ json: { success: true, status: 200, data: CAR_DETAIL } });
     if (p === '/memories' && m === 'GET') {
-      const all = [CAMPAIGN];
+      const all = [light ? { ...CAMPAIGN, last_update_img: `${BASE}/cd-img/light.jpg` } : CAMPAIGN];
       return route.fulfill({ json: { status: 'success', data: { all_memories: { data: all, total: all.length }, latest_memories: all, sidebar: { categories: { items: [{ id: 5, name: 'Personal', memory_count: 1 }] }, labels: { items: [] } } } } });
     }
     if (p === '/memories/901' && m === 'GET') {
       state.detailGets++;
-      return route.fulfill({ json: { status: 'success', data: { memory: { ...CAMPAIGN, posts: Array.from({ length: 8 }, (_, i) => post(11 + i, i + 1)), linked_memories: [], widgets: [], unified_order: null } } } });
+      return route.fulfill({ json: { status: 'success', data: { memory: { ...CAMPAIGN, ...(light ? { last_update_img: `${BASE}/cd-img/light.jpg` } : {}), posts: Array.from({ length: 8 }, (_, i) => post(11 + i, i + 1)), linked_memories: [], widgets: [], unified_order: null } } } });
     }
     if (p === '/memory-images' || p.startsWith('/memory-images?')) {
       return route.fulfill({ json: { categories_media: { Personal: [{ memory_id: 901, memory_title: 'Residential - New Build', memory_image: null, memory_size: null }, ...Array.from({ length: 16 }, (_, i) => ({ ...media(i), media_id: 500 + i, memory_id: 901, memory_title: 'Residential - New Build', media_url: img(i), media_size: '0.16 MB' }))] }, unassigned_media: [] } });
@@ -178,6 +187,13 @@ const drag = async (page, selector, fromY, toY) => {
     return true;
   }, [pt.x, fromY, toY]);
 };
+// The pinned bar's text, height and Search icon (review I1/I2).
+const barInfo = (page) => page.evaluate(() => {
+  const b = [...document.querySelectorAll('[data-campaign-phone-bar]')].find((e) => e.getBoundingClientRect().height > 0);
+  if (!b) return null;
+  const r = b.getBoundingClientRect();
+  return { text: b.innerText, top: Math.round(r.top), h: Math.round(r.height), search: Boolean(b.querySelector('path[d^="M19.6 21"]')), bg: getComputedStyle(b).backgroundColor };
+});
 const setVV = (page, h) => page.evaluate((v) => { window.__vvH = v; window.visualViewport?.dispatchEvent(new Event('resize')); }, h);
 const sheetBox = (page) => page.evaluate(() => {
   const d = document.querySelector('[role="dialog"][aria-labelledby="storeel-create-title"]');
@@ -209,6 +225,84 @@ try {
       const nav = await page.evaluate(() => { const n = [...document.querySelectorAll('nav.fixed.bottom-0')].find((e) => e.getBoundingClientRect().height > 0); return n ? Math.round(n.getBoundingClientRect().bottom) : null; });
       expect(nav === 844, `${tag}: scrollY ${y}: campaign bottom nav bottom edge at the viewport bottom (${nav})`);
     }
+    // I1/I2: once white, the bar carries the old white header's info — title, location/date and Search (compact), or
+    // the author + Add a Moment (expanded, just past the cover). Over the cover: just the pills.
+    await scrollTo(page, maxY);
+    let info = await barInfo(page);
+    expect(info && info.text.includes('Hyundai show room lights') && info.text.includes('Newmarket Hyundai') && info.text.includes('2026-11-09') && info.search,
+      `${tag}: scrolled: the pinned bar shows the title, location/date and the Search icon (${JSON.stringify(info?.text)} search=${info?.search})`);
+    expect(info && info.top === 0 && info.h <= 150, `${tag}: scrolled: still one compact bar at the top (top ${info?.top}, height ${info?.h})`);
+    await page.screenshot({ path: `${OUT}/${tag}-02b-scrolled-title-row.png` });
+    // On development the old header's "expanded" (author + Add a Moment) mode can't occur: the info ref sits right after
+    // the cover, so it always went straight to the compact title row. Same here: the title row shows as soon as the bar
+    // turns white.
+    let firstWhite = null;
+    for (let y = 600; y <= 1000 && !firstWhite; y += 10) {
+      await page.evaluate((top) => window.scrollTo(0, top), y);
+      await settle(page, 120);
+      const t = await barInfo(page);
+      if (t && t.bg !== 'rgba(0, 0, 0, 0)') firstWhite = t;
+    }
+    expect(firstWhite && firstWhite.text.includes('Hyundai show room lights') && firstWhite.search, `${tag}: as soon as the bar turns white it carries the title row (${JSON.stringify(firstWhite?.text)})`);
+    await scrollTo(page, 200);
+    info = await barInfo(page);
+    expect(info && !info.text.includes('Newmarket Hyundai') && !info.search, `${tag}: over the cover the bar is just the pills (${JSON.stringify(info?.text)})`);
+
+    // M3: the pinned/white state is recomputed on resize (rotation), not only on the next scroll.
+    await scrollTo(page, maxY);
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await settle(page, 400);
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await settle(page, 400);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await settle(page, 600);
+    info = await barInfo(page);
+    expect(info && info.bg === 'rgba(0, 0, 0, 0)' && !info.text.includes('Newmarket Hyundai'), `${tag}: after a resize back at the top the bar is transparent again without scrolling (${info?.bg})`);
+
+    // M6: with the Edit Cover menu open, a tap on the bottom nav only closes the menu (its backdrop is on top).
+    await scrollTo(page, maxY);
+    await bar.more(page).click();
+    await settle(page, 400);
+    const analytics = page.locator('nav.fixed.bottom-0 button').filter({ hasText: 'Analytics' }).first();
+    const ab = await analytics.boundingBox();
+    await page.mouse.click(ab.x + ab.width / 2, ab.y + ab.height / 2);
+    await settle(page, 500);
+    const menuOpen = await page.getByText('Record a Video', { exact: true }).filter({ visible: true }).count();
+    const analyticsActive = await analytics.evaluate((b) => Boolean(b.querySelector('.bg-\\[\\#FAF5FF\\]')));
+    expect(!menuOpen && !analyticsActive, `${tag}: tapping the bottom nav with the Edit Cover menu open just closes the menu (menu open ${menuOpen}, Analytics active ${analyticsActive})`);
+    if (analyticsActive) { await page.locator('nav.fixed.bottom-0 button').filter({ hasText: 'Timeline' }).first().click(); await settle(page, 800); }
+    // M6: a timeline "+" menu opened near the top draws above the pinned bar.
+    const plusTop = await page.evaluate(() => {
+      const ds = [...document.querySelectorAll('div.relative.flex.items-center.justify-center.h-10')].filter((d) => d.getBoundingClientRect().height > 0 && d.querySelector('button'));
+      const d = ds[1] || ds[0];
+      if (!d) return null;
+      window.scrollTo(0, window.scrollY + d.getBoundingClientRect().top - 230);
+      return true;
+    });
+    await settle(page, 400);
+    if (plusTop) {
+      await page.evaluate(() => {
+        const ds = [...document.querySelectorAll('div.relative.flex.items-center.justify-center.h-10')].filter((d) => d.getBoundingClientRect().height > 0 && d.querySelector('button'));
+        const d = ds.find((x) => Math.abs(x.getBoundingClientRect().top - 230) < 5);
+        d?.querySelector('button')?.click();
+      });
+      await settle(page, 500);
+      const onTop = await page.evaluate(() => {
+        const card = [...document.querySelectorAll('div.absolute.bottom-full')].find((c) => c.getBoundingClientRect().height > 100);
+        const barEl = document.querySelector('[data-campaign-phone-bar]');
+        if (!card || !barEl) return { err: 'no card/bar' };
+        const c = card.getBoundingClientRect(); const b = barEl.getBoundingClientRect();
+        const y = Math.max(c.top + 10, b.top + 10);
+        const overlaps = c.top < b.bottom;
+        const hit = document.elementFromPoint(c.left + c.width / 2, Math.min(y, b.bottom - 5));
+        return { overlaps, onTop: Boolean(hit && card.contains(hit)), cardTop: Math.round(c.top), barBottom: Math.round(b.bottom) };
+      });
+      expect(onTop.overlaps && onTop.onTop, `${tag}: a "+" menu opened near the top is drawn above the pinned bar (${JSON.stringify(onTop)})`);
+      await page.screenshot({ path: `${OUT}/${tag}-02d-plus-menu-over-bar.png` });
+      await page.mouse.click(10, 600); // the menu's backdrop (left edge, clear of the card)
+      await settle(page, 400);
+    } else expect(false, `${tag}: found a timeline "+" divider`);
+
     // Mid-page, a downward drag on the campaign page is a scroll, not a pull-to-refresh (the window scrolls).
     await scrollTo(page, 900);
     const getsMid = state.detailGets;
@@ -276,8 +370,10 @@ try {
     const email = flow(page).getByPlaceholder('name@example.com').first();
     if (await email.count()) {
       await email.scrollIntoViewIfNeeded();
+      await setVV(page, null); // a correct viewport (844) when the field is tapped…
       await email.focus();
-      await setVV(page, 500);
+      await page.waitForTimeout(150);
+      await setVV(page, 500); // …then the keyboard opens
       await page.waitForTimeout(400);
       box = await sheetBox(page);
       expect(box && box.height === 500, `${tag}: keyboard up (text field focused, 500px visual viewport): the sheet follows it (${box?.height})`);
@@ -292,6 +388,109 @@ try {
     }
     await page.screenshot({ path: `${OUT}/${tag}-07-send-sheet-after-keyboard.png` });
     await setVV(page, null);
+    await page.close();
+  }
+
+  // ── 390: I3 — Edit Campaign (title auto-focused, no keyboard) with a stale viewport opens full height ─────────────
+  {
+    const tag = `${ENGINE}-390-edit`;
+    const { page } = await open({ width: 390, height: 844 });
+    await openCampaign(page);
+    const maxY = await page.evaluate(() => document.documentElement.scrollHeight - window.innerHeight);
+    await scrollTo(page, maxY);
+    await setVV(page, 520);
+    await bar.more(page).click();
+    await settle(page, 400);
+    await page.getByText('Edit Campaign', { exact: true }).filter({ visible: true }).first().click();
+    await flow(page).waitFor({ timeout: 10000 }).catch(() => {});
+    await page.waitForTimeout(1500);
+    const focused = await page.evaluate(() => document.activeElement?.tagName);
+    let box = await sheetBox(page);
+    expect(box && box.top === 0 && box.bottom === 844 && box.covered, `${tag}: pinned ⋯ → Edit Campaign opens full screen with a stale 520 viewport (focus on ${focused}) (${JSON.stringify(box)})`);
+    await page.screenshot({ path: `${OUT}/${tag}-01-edit-full-stale-vv.png` });
+    // The keyboard really opening (the viewport drops 140px below its height at focus): the sheet follows it.
+    const title = flow(page).getByPlaceholder('Give your campaign a meaningful title');
+    await title.evaluate((e) => e.blur());
+    await page.waitForTimeout(100);
+    await title.focus();
+    await page.waitForTimeout(150);
+    await setVV(page, 380);
+    await page.waitForTimeout(400);
+    box = await sheetBox(page);
+    expect(box && box.height === 380, `${tag}: keyboard opens (viewport 520 → 380): the sheet follows it (${box?.height})`);
+    await title.evaluate((e) => e.blur());
+    await setVV(page, 520);
+    await page.waitForTimeout(400);
+    box = await sheetBox(page);
+    expect(box && box.height === 844, `${tag}: keyboard closed: full screen again (${box?.height})`);
+    await setVV(page, null);
+    await page.close();
+  }
+
+  // ── 390: I3 — Create Campaign from the bottom bar's + and from Scan Photo (camera), stale viewport ────────────────
+  {
+    const tag = `${ENGINE}-390-create`;
+    const createFlow = (page) => page.getByRole('dialog', { name: 'Create Campaign' });
+    const createBox = (page) => page.evaluate(() => {
+      const d = document.querySelector('[role="dialog"][aria-labelledby="storeel-create-title"]');
+      if (!d) return null;
+      const r = d.getBoundingClientRect();
+      const hit = document.elementFromPoint(195, window.innerHeight - 4);
+      return { top: Math.round(r.top), bottom: Math.round(r.bottom), covered: Boolean(hit && d.contains(hit)), focus: document.activeElement?.tagName };
+    });
+    for (const via of ['plus', 'scan']) {
+      const { page } = await open({ width: 390, height: 844 });
+      await page.locator('nav.fixed.bottom-0').filter({ visible: true }).first().waitFor({ timeout: 40000 });
+      await page.waitForTimeout(1200);
+      await setVV(page, 520);
+      if (via === 'plus') {
+        await page.locator('nav.fixed.bottom-0 .-top-20 button').first().click();
+        await settle(page, 400);
+        await page.getByText('Create a Campaign', { exact: true }).filter({ visible: true }).last().click();
+      } else {
+        await page.locator('input[type="file"][capture="environment"]').first().setInputFiles({ name: 'scan.png', mimeType: 'image/png', buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64') });
+      }
+      await createFlow(page).waitFor({ timeout: 10000 }).catch(() => {});
+      await page.waitForTimeout(1500);
+      const box = await createBox(page);
+      expect(box && box.top === 0 && box.bottom === 844 && (box.covered || via === 'scan'), `${tag}: Create Campaign (${via}) opens full screen with a stale 520 viewport (focus ${box?.focus}) (${JSON.stringify(box)})`);
+      await page.screenshot({ path: `${OUT}/${tag}-${via}.png` });
+      await page.close();
+    }
+  }
+
+  // ── 390: car page — the pinned bar is just Back; scrolled, it shows the car's title (I1) ───────────────────────
+  {
+    const tag = `${ENGINE}-390-car`;
+    const { page } = await open({ width: 390, height: 844 }, '/memories', { cars: true });
+    const card = page.getByText(/^2024 Jeep Wrangler Sahara/).filter({ visible: true }).first();
+    await card.waitFor({ timeout: 40000 }).catch(() => {});
+    await page.waitForTimeout(800);
+    await card.click().catch(() => {});
+    await page.waitForTimeout(2500);
+    const maxY = await page.evaluate(() => document.documentElement.scrollHeight - window.innerHeight);
+    await scrollTo(page, maxY);
+    const info = await barInfo(page);
+    expect(info && info.top === 0 && info.text.includes('2024 Jeep Wrangler Sahara') && info.text.includes('Back') && !info.text.includes('Send'),
+      `${tag}: scrolled car page: pinned bar = Back + the car's title (${JSON.stringify(info?.text)})`);
+    expect(info && info.search, `${tag}: scrolled car page: the Search icon is there as before`);
+    await page.screenshot({ path: `${OUT}/${tag}-01-car-scrolled.png` });
+    await page.close();
+  }
+
+  // ── 390: light cover — pills readable over it, white bar with the title row after it ───────────────────────────
+  {
+    const tag = `${ENGINE}-390-light`;
+    const { page } = await open({ width: 390, height: 844 }, '/memories', { light: true });
+    await openCampaign(page);
+    await page.screenshot({ path: `${OUT}/${tag}-01-top.png` });
+    await scrollTo(page, 400);
+    await page.screenshot({ path: `${OUT}/${tag}-02-400.png` });
+    const maxY = await page.evaluate(() => document.documentElement.scrollHeight - window.innerHeight);
+    await scrollTo(page, maxY);
+    const info = await barInfo(page);
+    expect(info && info.text.includes('Hyundai show room lights'), `${tag}: scrolled: title row in the bar`);
+    await page.screenshot({ path: `${OUT}/${tag}-03-scrolled.png` });
     await page.close();
   }
 

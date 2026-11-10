@@ -64,3 +64,25 @@ test('keyboardClosedResize: the visual viewport grew by a keyboard, not by a too
   assert.equal(keyboardClosedResize(844, 520), false); // keyboard opening
   assert.equal(keyboardClosedResize(0, 844), false); // first reading
 });
+
+// Review fix (I3): a focused field alone isn't "keyboard up" — the title auto-focuses without the iOS keyboard (and
+// with a stale viewport). The keyboard counts as up only once the visual viewport has dropped ~120px below its height
+// when the field got focus. M1: the bar nudge runs only on touch screens and only if the page hasn't moved since.
+import { keyboardUp, shouldNudge } from '../../utils/visualViewport.ts';
+
+test('keyboardUp: only after a real drop since focus', () => {
+  assert.equal(keyboardUp(520, 520), false); // stale viewport + autofocus, no keyboard
+  assert.equal(keyboardUp(844, 844), false); // hardware keyboard / no keyboard
+  assert.equal(keyboardUp(844, 760), false); // toolbar-sized change
+  assert.equal(keyboardUp(844, 500), true); // keyboard opened
+  assert.equal(keyboardUp(520, 380), true); // keyboard opened from a stale baseline
+  assert.equal(keyboardUp(0, 500), false); // no baseline recorded
+  assert.equal(keyboardUp(844, 0), false);
+});
+
+test('shouldNudge: touch screens only, and not if the page moved meanwhile', () => {
+  assert.equal(shouldNudge(1200, 1200, true), true);
+  assert.equal(shouldNudge(1200, 1200.4, true), true);
+  assert.equal(shouldNudge(1200, 1260, true), false); // user is scrolling / flinging
+  assert.equal(shouldNudge(1200, 1200, false), false); // mouse / desktop
+});
