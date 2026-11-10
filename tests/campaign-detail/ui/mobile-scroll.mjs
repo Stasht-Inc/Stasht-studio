@@ -237,11 +237,12 @@ try {
     // the cover, so it always went straight to the compact title row. Same here: the title row shows as soon as the bar
     // turns white.
     let firstWhite = null;
+    await scrollTo(page, 0); // start transparent (the bar's colour fades over 200ms)
     for (let y = 600; y <= 1000 && !firstWhite; y += 10) {
       await page.evaluate((top) => window.scrollTo(0, top), y);
-      await settle(page, 120);
+      await settle(page, 300);
       const t = await barInfo(page);
-      if (t && t.bg !== 'rgba(0, 0, 0, 0)') firstWhite = t;
+      if (t && t.bg === 'rgb(255, 255, 255)') firstWhite = t;
     }
     expect(firstWhite && firstWhite.text.includes('Hyundai show room lights') && firstWhite.search, `${tag}: as soon as the bar turns white it carries the title row (${JSON.stringify(firstWhite?.text)})`);
     await scrollTo(page, 200);
