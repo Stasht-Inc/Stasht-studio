@@ -2891,9 +2891,10 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
       role="dialog"
       aria-modal="true"
       aria-labelledby="storeel-create-title"
-      // Phones: top/height follow window.visualViewport (useVisualViewportSheet) so the
-      // footer stays above the iOS keyboard; wider screens fill the window.
-      className="fixed inset-x-0 top-[var(--vv-top,0px)] h-[var(--vv-height,100%)] md:inset-0 md:h-auto flex flex-col bg-[#F8F8FA]"
+      // Phones: full screen (at least 100dvh, so a stale/short viewport can't leave the page showing below — Chris,
+      // 9 Nov 2026); only while a text field is focused do top/height follow window.visualViewport
+      // (useVisualViewportSheet) so the footer stays above the iOS keyboard; wider screens fill the window.
+      className="fixed inset-x-0 top-[var(--vv-top,0px)] h-[var(--vv-height,100%)] min-h-[var(--vv-min-height,100dvh)] md:inset-0 md:h-auto md:min-h-0 flex flex-col bg-[#F8F8FA]"
       // While a campaign-page widget editor is open over it (Chris, 8 Nov 2026), it drops to the app's top bar's level:
       // above the bar (later in the page), under the editor and its dimming (portalled after it) — review M7.
       style={{ zIndex: widgetEditorOpen ? 50 : 99999 }}
@@ -2918,7 +2919,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
       </header>
 
       {/* Scrollable content: the form card, then (or beside it) the live preview */}
-      <div className="flex-1 overflow-y-auto overflow-x-hidden modal-scrollbar">
+      <div className="flex-1 overflow-y-auto overflow-x-hidden overscroll-contain modal-scrollbar">
         <div className="mx-auto grid max-w-[1040px] gap-6 px-4 py-6 md:px-6 lg:grid-cols-[minmax(0,1fr)_320px] lg:gap-8">
           <div className="min-w-0 space-y-4">
             {!flowCampaign && !flowEditing && (isLimitExceeded || serverLimitMessage) && (

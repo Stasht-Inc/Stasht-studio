@@ -19,6 +19,7 @@ import { mockPosts } from "../data/mockPosts";
 import { getMemoryDetails } from "../data/memoryData";
 import { getCategoryColorHex, getCategoryIcon, formatDate, sanitizeAiCreatorText, isCarCampaign } from "../utils/memoryUtils";
 import { displayWebsite } from "../utils/displayUrl";
+import { pullTouchApplies } from "../utils/pullToRefresh";
 import { carOwnerAuthor, inventoryItemIsReadOnly, inventoryOwnerAuthor, isCarPhotoId, mediaItemIsReadOnly } from "../utils/salespersonLanding";
 import { getCategoryColor } from "../constants/mediaConstants";
 import { triggerMemoryCountsRefresh } from '../hooks/useMemoryCounts';
@@ -1000,6 +1001,8 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
   const [isMobileCoverPublishOpen, setIsMobileCoverPublishOpen] = useState(false);
   const [isHeaderShrunk, setIsHeaderShrunk] = useState(false);
   const [mobileHeaderMode, setMobileHeaderMode] = useState<'hidden' | 'expanded' | 'compact'>('hidden');
+  // Phone top bar (Back · Edit Cover · ⋯ · Send) pinned once the cover's top has scrolled past the top (Chris, 9 Nov 2026).
+  const [phoneBarPinned, setPhoneBarPinned] = useState(false);
   const mobileCoverRef = useRef<HTMLDivElement>(null);
   const mobileInfoRef = useRef<HTMLDivElement>(null);
   // The published box's share menu, QR and share message live in components/campaign/PublishedLinkPanel.tsx.
@@ -1608,6 +1611,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
         const coverEl = mobileCoverRef.current;
         const infoEl = mobileInfoRef.current;
         if (coverEl) {
+          setPhoneBarPinned(coverEl.getBoundingClientRect().top < 0);
           const coverBottom = coverEl.getBoundingClientRect().bottom;
           if (coverBottom > 60) {
             setMobileHeaderMode('hidden');
@@ -3536,12 +3540,15 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
     }
   }, [isGenerateQROpen, selectedRole, memoryId]);
 
-  // Pull-to-refresh handlers
+  // Pull-to-refresh handlers. Only touches on the page's own DOM at the very top count (Chris, 9 Nov 2026, point 7):
+  // the Edit Campaign sheet is a React portal, so its touches bubble here too, and the window scrolls (this root's
+  // own scrollTop is always 0) — both made every downward drag re-render the page mid-gesture.
+  const pullScrollTop = (e: React.TouchEvent) => Math.max((e.currentTarget as HTMLElement).scrollTop, window.scrollY || 0);
+  const pullFromOwnDom = (e: React.TouchEvent) => (e.currentTarget as HTMLElement).contains(e.target as Node);
   const handleTouchStart = (e: React.TouchEvent) => {
     if (isRefreshing) return;
 
-    const scrollTop = (e.currentTarget as HTMLElement).scrollTop;
-    if (scrollTop === 0) {
+    if (pullTouchApplies(pullFromOwnDom(e), pullScrollTop(e))) {
       setTouchStartY(e.touches[0].clientY);
     }
   };
@@ -3549,8 +3556,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
   const handleTouchMove = (e: React.TouchEvent) => {
     if (isRefreshing || touchStartY === 0) return;
 
-    const scrollTop = (e.currentTarget as HTMLElement).scrollTop;
-    if (scrollTop > 0) {
+    if (!pullTouchApplies(pullFromOwnDom(e), pullScrollTop(e))) {
       setIsPulling(false);
       setPullDistance(0);
       setTouchStartY(0);
@@ -5349,6 +5355,8 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
   /** Send (Chris, 8 Nov 2026 (b), point 2): replaces Publish — the same Storeel stepper, opened at its Send card; the
    *  publish options are its Publishing card. Only on a saved campaign (else the old Publish control stays). */
   const sendOpensStepper = campaignCanOpenStepper(memoryId);
+  // The cover's phone pill row (Back · Edit Cover · ⋯ · Send) is on screen — it's the pinned top bar (Chris, 9 Nov 2026).
+  const phonePillBarShown = activeTab === 'overview' && !isSuggestedCategory && !isCoverVideoPlaying;
   const handleSend = () => {
     if (!sendOpensStepper) return;
     setStoreelFlow('send');
@@ -11429,8 +11437,14 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                       )}
 
                       {/* Add Cover Photo Button - Hide for Suggested category */}
+                      {/* Phones (Chris, 9 Nov 2026): this row is THE pinned top bar — it sits on the cover, then stays at the top
+                          (fixed) once the cover scrolls up, turning white once the cover has gone by; the white header
+                          below stays off while it shows, so there's one bar. Tablet/desktop: unchanged (on the cover). */}
                       {!isSuggestedCategory && (
-                        <div className="absolute top-0 left-0 right-0 p-4 lg:p-8 z-10 pointer-events-none">
+                        <div
+                          data-campaign-phone-bar
+                          className={`${phonePillBarShown && phoneBarPinned ? 'fixed z-50 md:absolute md:z-10' : 'absolute z-10'} top-0 left-0 right-0 p-4 pt-[calc(1rem+env(safe-area-inset-top))] md:pt-4 lg:p-8 pointer-events-none transition-colors duration-200 ${phonePillBarShown && mobileHeaderMode !== 'hidden' ? 'bg-white border-b border-gray-100 shadow-sm md:bg-transparent md:border-0 md:shadow-none max-md:[&_.rounded-full]:bg-gray-900/85' : ''}`}
+                        >
                           <div className="flex items-start justify-between md:justify-end">
                             {/* Mobile - back button + edit cover (top-left), hidden when cover video is playing */}
                             {!isCoverVideoPlaying && (
@@ -11536,6 +11550,20 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                         <div className="flex flex-col">
                                           <span className="text-[14px] font-medium text-[#101828]">YouTube Video</span>
                                           <span className="text-[12px] text-[#6A7282]">Paste a YouTube video URL</span>
+                                        </div>
+                                      </button>
+                                      {/* Edit Campaign: was in the white scrolled header's ⋯, which the pinned bar replaces (Chris, 9 Nov 2026) */}
+                                      <button
+                                        type="button"
+                                        className="w-full flex items-center gap-3 px-4 py-[5px] active:bg-black/5 transition-colors text-left md:hidden"
+                                        onClick={() => { setShowEditCoverModal(false); setTimeout(() => handleEdit(), 100); }}
+                                      >
+                                        <div className="w-[32px] h-[32px] flex-shrink-0 rounded-[8.75px] bg-[#6C60FF]/10 flex items-center justify-center">
+                                          <Edit className="w-4 h-4 text-[#6C60FF]" />
+                                        </div>
+                                        <div className="flex flex-col">
+                                          <span className="text-[14px] font-medium text-[#101828]">Edit Campaign</span>
+                                          <span className="text-[12px] text-[#6A7282]">Title, moments and sending</span>
                                         </div>
                                       </button>
                                     </div>
@@ -11893,8 +11921,8 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
               {/* MOBILE: ref for scroll detection */}
               <div className="md:hidden" ref={mobileInfoRef} />
 
-              {/* MOBILE: Sticky Header - appears after scrolling past cover */}
-              {mobileHeaderMode !== 'hidden' && (
+              {/* MOBILE: Sticky Header - appears after scrolling past cover; not while the pinned phone bar is shown (one bar) */}
+              {mobileHeaderMode !== 'hidden' && !phonePillBarShown && (
                 <div className="md:hidden fixed top-0 left-0 right-0 z-50 bg-white border-b border-gray-100 shadow-sm transition-all duration-200">
                   {mobileHeaderMode === 'expanded' ? (
                     /* Expanded header: X + Author + Add a Moment */
@@ -19061,7 +19089,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
         </div>
       )}
 
-      <nav className="fixed bottom-0 left-0 right-0 z-50 md:hidden" style={{ overflow: 'visible' }}>
+      <nav className="phone-bottom-bar-pin fixed bottom-0 left-0 right-0 z-50 md:hidden" style={{ overflow: 'visible' }}>
         <div className="relative bg-white border-t border-gray-200" style={{ height: '66px' }}>
 
           {/* Floating Center Camera Button (adds moments; none on read-only inventory) */}

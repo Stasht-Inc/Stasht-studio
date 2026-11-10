@@ -26,3 +26,52 @@ export function sheetBoxForVisualViewport(
   if (!(height > 0)) return null;
   return { top: Math.max(0, Math.round(vv.offsetTop)), height };
 }
+
+/**
+ * Chris, 9 Nov 2026 (point 7): iOS can leave `visualViewport` short after the keyboard closes (home-screen app,
+ * iOS 26) — a sheet sized from it then stops part-way down the screen with the page showing below. So the sheet
+ * follows the visual viewport only while the keyboard is actually up (a text field is focused); otherwise it gets
+ * no override and fills the screen.
+ */
+export function keyboardSheetBox(
+  vv: VisualViewportLike | null | undefined,
+  layoutWidth: number,
+  editing: boolean,
+  maxWidth = 768,
+): { top: number; height: number } | null {
+  if (!editing) return null;
+  return sheetBoxForVisualViewport(vv, layoutWidth, maxWidth);
+}
+
+interface EditableLike {
+  tagName?: string;
+  type?: string;
+  isContentEditable?: boolean;
+  readOnly?: boolean;
+  disabled?: boolean;
+}
+
+const NO_KEYBOARD_INPUT_TYPES = new Set([
+  'button', 'checkbox', 'color', 'file', 'hidden', 'image', 'radio', 'range', 'reset', 'submit',
+]);
+
+/** True for an element that brings up the on-screen keyboard when focused (text inputs, textareas, contenteditable). */
+export function isKeyboardEditable(el: EditableLike | Element | null | undefined): boolean {
+  if (!el) return false;
+  const e = el as EditableLike;
+  if (e.isContentEditable) return true;
+  const tag = (e.tagName || '').toUpperCase();
+  if (tag === 'TEXTAREA') return !e.readOnly && !e.disabled;
+  if (tag !== 'INPUT') return false;
+  if (e.readOnly || e.disabled) return false;
+  return !NO_KEYBOARD_INPUT_TYPES.has((e.type || 'text').toLowerCase());
+}
+
+/**
+ * The visual viewport grew by about a keyboard's height (the keyboard closed). A Safari toolbar collapsing changes it
+ * by far less, so that never counts.
+ */
+export function keyboardClosedResize(previousHeight: number, height: number, minGrowth = 200): boolean {
+  if (!(previousHeight > 0) || !(height > 0)) return false;
+  return height - previousHeight >= minGrowth;
+}
