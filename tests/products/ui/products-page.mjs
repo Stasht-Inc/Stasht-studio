@@ -1,5 +1,5 @@
 // tests/products/ui/products-page.mjs — Products M2 in the real app, every API call answered here (nothing leaves this
-// machine). Blocks: nav (Task 12), grid (13), editor (14), campaigns (15; Task 16 adds failed-status). Run one: PR_ONLY=nav node tests/products/ui/products-page.mjs
+// machine). Blocks: nav (Task 12), grid (13), editor (14), campaigns (15; Task 16 adds older-API, failed-status, Dashboard). Run one: PR_ONLY=nav node tests/products/ui/products-page.mjs
 // Needs the dev server: PR_BASE (default http://localhost:5341). Screenshots: PR_SHOTS.
 import { mkdirSync } from 'fs';
 import pw from '/Users/deepaksharma/.nvm/versions/node/v24.5.0/lib/node_modules/@executeautomation/playwright-mcp-server/node_modules/playwright-core/index.js';
@@ -102,8 +102,9 @@ async function open(w, { width, height, path = '/products', view = 'personal', p
     let body = null;
     try { body = req.postData() ? JSON.parse(req.postData()) : null; } catch { body = null; }
     w.calls.push({ m, p, q: url.search, body, view: req.headers()['x-stasht-property'] || null });
-    // w.statusMode (Task 16): 'fail' = the status route errors (500).
+    // w.statusMode (Task 16): 'fail' = the status route errors (500), 'old' = an API without Products (404).
     if (p === '/products/status' && w.statusMode === 'fail') return route.fulfill({ status: 500, json: { success: false, message: 'Server Error' } });
+    if (p === '/products/status' && w.statusMode === 'old') return route.fulfill({ status: 404, json: { message: 'Not Found' } });
     if (p === '/products/status') return route.fulfill({ json: { success: true, data: statusOf(w) } });
     if (p === '/products' && m === 'GET') {
       if (!w.pilot || w.reason) return route.fulfill({ status: 403, json: { success: false, code: w.reason || 'not_available', message: 'x' } });
@@ -184,6 +185,7 @@ async function open(w, { width, height, path = '/products', view = 'personal', p
     if (p === '/cars') return route.fulfill({ json: { success: true, data: { cars: [], pagination: { last_page: 1 }, filters: {} } } });
     if (p === '/user/storage-overview') return route.fulfill({ json: { success: true, data: { storage_overview: { plan_name: 'Professional' } } } });
     if (p === '/user/check-memory-limit') return route.fulfill({ json: { success: true, data: { limit_status: { status: 'within_limit', current_memories: 4, memory_limit: 50 } } } });
+    if (p === '/dashboard' && w.dashboard) return route.fulfill({ json: { success: true, data: { statistics: w.dashboard } } });
     if (p.startsWith('/dashboard')) return route.fulfill({ status: 404, json: { success: false, message: 'Not found' } });
     return route.fulfill({ json: { success: true, data: [] } });
   });
@@ -734,6 +736,19 @@ try {
       await b.page.screenshot({ path: `${OUT}/${tag}-02-switch-off.png` });
       await b.context.close();
 
+      // Task 16 (T15 minors): an older API (404 on /products/status) is the switch off, exactly as today.
+      const old = world({ statusMode: 'old' });
+      const o = await open(old, { width, height, path: '/memories' });
+      await o.page.getByText('Harbour Sofa', { exact: true }).filter({ visible: true }).first().waitFor({ timeout: 20000 }).catch(() => {});
+      expect(await o.page.getByText('Harbour Sofa', { exact: true }).filter({ visible: true }).count() > 0, `${tag}: older API (404) → the website product card is in Campaigns`);
+      if (width >= 768) {
+        expect(await o.page.getByRole('button', { name: /^Campaigns\s*5$/ }).filter({ visible: true }).count() > 0, `${tag}: older API (404) → sidebar Campaigns 5 (as today)`);
+        expect(!(await o.page.getByRole('button', { name: /^Products/ }).filter({ visible: true }).count()), `${tag}: older API (404) → no sidebar Products`);
+      }
+      expect(!old.calls.some((c) => c.m === 'GET' && c.p === '/products'), `${tag}: older API (404) → no /products list call`);
+      await o.page.screenshot({ path: `${OUT}/${tag}-03-older-api.png` });
+      await o.context.close();
+
       // The status route failing never counts the website products into Campaigns for a pilot account …
       const failOn = world({ statusMode: 'fail' });
       const f1 = await open(failOn, { width, height, path: '/memories' });
@@ -758,6 +773,33 @@ try {
         await f2.context.close();
       }
 
+      // Dashboard: a Total Products card only when the API sends total_products (Products on); 5 columns from 2xl.
+      const stats = (products) => ({
+        total_memories: { count: 4, period_count: 1, previous_period_count: 0, percentage: { value: 25, trend: 'up' } },
+        total_media: { count: 10, percentage: { value: 0, trend: 'neutral' } },
+        total_users: { count: 2, percentage: { value: 0, trend: 'neutral' } },
+        ...(products ? { total_products: { count: 3, period_count: 2, previous_period_count: 1, percentage: { value: 50, trend: 'up' } } } : {}),
+        storage: { used: 1, formatted: '1 MB', limit_formatted: '5 GB', available_formatted: '4.99 GB', percentage: { value: 0, trend: 'up' } },
+      });
+      for (const products of [true, false]) {
+        const dw = world({ pilot: products, dashboard: stats(products) });
+        const d = await open(dw, { width, height, path: '/' });
+        const campaignsCard = d.page.getByText('Total Campaigns', { exact: true }).filter({ visible: true }).first();
+        await campaignsCard.waitFor({ timeout: 20000 }).catch(() => {});
+        const productsCard = d.page.getByText('Total Products', { exact: true }).filter({ visible: true });
+        const grid = await campaignsCard.evaluate((el) => el.closest('.grid')?.className || '').catch(() => '');
+        if (products) {
+          expect(await productsCard.count() === 1, `${tag}: Dashboard shows a Total Products card`);
+          const card = d.page.locator('div', { has: d.page.getByText('Total Products', { exact: true }) }).filter({ hasText: '3' }).last();
+          expect(await card.isVisible().catch(() => false), `${tag}: … with the API's count (3)`);
+          expect(/\b2xl:grid-cols-5\b/.test(grid) && /\blg:grid-cols-4\b/.test(grid), `${tag}: … 4 columns at lg, 5 from 2xl (${grid})`);
+        } else {
+          expect(await productsCard.count() === 0, `${tag}: no total_products → no Total Products card`);
+          expect(!/2xl:grid-cols-5/.test(grid) && /\blg:grid-cols-4\b/.test(grid), `${tag}: … and the grid classes are as today (${grid})`);
+        }
+        await d.page.screenshot({ path: `${OUT}/${tag}-06-dashboard-${products ? 'products' : 'off'}.png`, fullPage: true });
+        await d.context.close();
+      }
     }
   }
 } finally {
