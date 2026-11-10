@@ -1,5 +1,6 @@
 ﻿import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { clearNewsletterBackups } from './utils/newsletterBackups';
+import { installLaunchConsumer } from './utils/appLaunch';
 import AppUpdatePrompt from './components/AppUpdatePrompt';
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import { useProperty } from "./contexts/PropertyContext";
@@ -1228,6 +1229,20 @@ function MainApp() {
     setPendingConversationLeadId(leadId);
     handleNavigation('leads');
   }, [handleNavigation]);
+  // A link opened into the already-open installed app (Chrome/Edge PWA, manifest launch_handler focus-existing):
+  // the window is not reloaded, so route to the lead here (utils/appLaunch). Signed out → kept for after sign-in.
+  const handleOpenLeadRef = useRef(handleOpenLead);
+  handleOpenLeadRef.current = handleOpenLead;
+  useEffect(() => {
+    installLaunchConsumer({
+      onLead: (leadId) => {
+        if (!localStorage.getItem('stasht_token')) sessionStorage.setItem('pending_lead_link', String(leadId));
+        handleOpenLeadRef.current(leadId);
+        window.history.replaceState({}, '', '/leads');
+      },
+      onUrl: (url) => window.location.assign(url),
+    });
+  }, []);
 
   // Storeel report target — set right before navigating to "storeel-report"
   // (mirrors pendingConversationLeadId above). Explicit property id/name from
