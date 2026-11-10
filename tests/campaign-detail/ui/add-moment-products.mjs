@@ -214,7 +214,19 @@ try {
     expect(both && JSON.stringify(both.body.catalog_item_ids) === '[71,61]', `${tag}: manual + website ids sent (${JSON.stringify(both?.body)})`);
     await pOn.context.close();
 
-    // Task 16 (T15 minor). A load that didn't fully answer is not reused: closing and reopening Add a Moment asks again.
+    // Task 16 (T15 minors). Products on but the catalogue unavailable (not on Business): manual products only.
+    const pNoCat = await open({ width, height, productsOn: true, planRequired: true });
+    await openCampaign(pNoCat.page);
+    await openAddMoment(pNoCat.page, width);
+    await pNoCat.page.getByRole('radiogroup', { name: 'Add from' }).getByRole('radio', { name: 'Products' }).click();
+    await pNoCat.page.waitForTimeout(500);
+    expect(await pNoCat.page.getByRole('checkbox', { name: /Walnut chair/ }).isVisible().catch(() => false), `${tag}: Products on, no catalogue → the manual product is listed`);
+    expect(!(await pNoCat.page.getByRole('checkbox', { name: /Oak bench/ }).count()), `${tag}: … and the website product is filtered out`);
+    expect(pNoCat.state.itemCalls === 0, `${tag}: … with no Business-only items call`);
+    await pNoCat.page.screenshot({ path: `${OUT}/${tag}-04-products-on-no-catalogue.png` });
+    await pNoCat.context.close();
+
+    // A load that didn't fully answer is not reused: closing and reopening Add a Moment asks again.
     const reopen = async (t) => {
       await t.page.getByRole('heading', { name: 'Add a Moment' }).locator('xpath=../..').getByRole('button').first().click(); // the header's X
       await t.page.getByRole('heading', { name: 'Add a Moment' }).waitFor({ state: 'detached', timeout: 5000 }).catch(() => {});
