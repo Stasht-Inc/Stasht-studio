@@ -13,6 +13,7 @@ import AssigneeControl from './leads/AssigneeControl';
 import LinkifiedText from './leads/LinkifiedText';
 import LeadDetailsSidebar, { StatusChip } from './LeadDetailsSidebar';
 import CampaignDeletedTag from './leads/CampaignDeletedTag';
+import LeadBusinessTag from './leads/LeadBusinessTag';
 
 // Built-in emoji grid — kept small/lightweight, no external dependency.
 const EMOJIS = [
@@ -837,15 +838,21 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
                   </span>
                 </>
               ) : (
-                <>
-                  <span className="text-base font-semibold text-gray-900">You</span>
-                  <Avatar className="h-8 w-8">
-                    <AvatarImage src={user?.avatar} alt={user?.name || 'You'} />
-                    <AvatarFallback className="bg-[#6C60FF] text-white text-sm font-bold">
-                      {getInitials(user?.name || 'You')}
-                    </AvatarFallback>
-                  </Avatar>
-                </>
+                // A teammate's reply shows their name (several people answer one lead, 10 Nov 2026); yours says "You".
+                (() => {
+                  const teammate = msg.sender_name && msg.sender_name.trim() !== '' && msg.sender_name !== user?.name ? msg.sender_name : null;
+                  return (
+                    <>
+                      <span className="text-base font-semibold text-gray-900">{teammate ?? 'You'}</span>
+                      <Avatar className="h-8 w-8">
+                        {!teammate && <AvatarImage src={user?.avatar} alt={user?.name || 'You'} />}
+                        <AvatarFallback className="bg-[#6C60FF] text-white text-sm font-bold">
+                          {getInitials(teammate ?? (user?.name || 'You'))}
+                        </AvatarFallback>
+                      </Avatar>
+                    </>
+                  );
+                })()
               )}
             </div>
             {msg.subject && msg.subject !== 'Following up' && (
@@ -975,6 +982,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
           </button>
           <span className="hidden sm:inline text-gray-400" aria-hidden="true">/</span>
           <h2 id="lead-drawer-title" className="text-lg font-semibold text-gray-900 truncate">{leadName}</h2>
+          <LeadBusinessTag lead={lead} className="hidden sm:inline-flex" />
           {!lead.user?.id && (
             <span className="flex items-center gap-1 px-2.5 h-7 rounded-md bg-blue-50 text-blue-500 border border-blue-200 text-sm font-medium shrink-0">
               <UserRound className="w-3.5 h-3.5" /> Guest

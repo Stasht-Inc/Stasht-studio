@@ -582,6 +582,8 @@ function logRows() {
   for (const m of state.messages) {
     if (notices.has(m.id)) rows.push(aiNoticeRow());
     if (joined.has(m.id)) rows.push(joinedRow(m.sender.name));
+    // Reassigned away from them (10 Nov 2026): "{name} has left the chat".
+    if (m.event === 'left' && m.sender) rows.push(leftRow(m.sender.name));
     // A "Take over" is only its joined line; a hand back shows nothing (wdy2xh2upu).
     if (m.event) continue;
     rows.push(messageRow(m));
@@ -635,6 +637,12 @@ function aiNoticeRow() {
 // A rep taking over from the AI (Chris, 2026-10-03). Drawn here, never stored.
 function joinedRow(name) {
   return h('div', { class: 'sys joined', role: 'note' }, joinedText(name));
+}
+
+// A rep the lead was reassigned away from (10 Nov 2026). leftText through `core`: a cached older widget-core.js lacks it.
+function leftRow(name) {
+  const text = typeof core.leftText === 'function' ? core.leftText(name) : `${String(name || '').trim() || 'A team member'} has left the chat`;
+  return h('div', { class: 'sys joined left', role: 'note' }, text);
 }
 
 // The vehicles the AI shared: a card under its reply, opening the campaign in a new tab. Products

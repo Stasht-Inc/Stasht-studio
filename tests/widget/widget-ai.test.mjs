@@ -118,9 +118,9 @@ test('autoReplyAnchor: an AI reply or the after-hours notice replaces the automa
 });
 
 test('joinedText', () => {
-  assert.equal(joinedText('Sam'), 'Sam has joined the conversation');
-  assert.equal(joinedText('  Sam '), 'Sam has joined the conversation');
-  assert.equal(joinedText(''), 'A team member has joined the conversation');
+  assert.equal(joinedText('Sam'), 'Sam has joined the chat');
+  assert.equal(joinedText('  Sam '), 'Sam has joined the chat');
+  assert.equal(joinedText(''), 'A team member has joined the chat');
 });
 
 test('repJoinedBefore: a rep taking over from the AI', () => {
@@ -155,5 +155,5 @@ test('repJoinedBefore works on messages straight from the API', () => {
   ].map(chatMessageFrom);
   const joined = repJoinedBefore(list);
   assert.deepEqual([...joined], [3]);
-  assert.equal(joinedText(list.find((m) => joined.has(m.id)).sender.name), 'Sam has joined the conversation');
+  assert.equal(joinedText(list.find((m) => joined.has(m.id)).sender.name), 'Sam has joined the chat');
 });
