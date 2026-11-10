@@ -18,7 +18,7 @@ import { GENERIC_ERROR, PLAN_REQUIRED_ERROR } from './lib/apiResult';
 import { formatCount } from './lib/audience';
 import { NEWSLETTER_FILTERS, NEWSLETTERS_CHANGED_EVENT, announceNewslettersChanged, withHighlightFirst, type NewsletterFilter } from './lib/campaignsView';
 import {
-  ACTION_LABEL, NEWSLETTERS_TABLE, actionsFor, failureText, isLive, listRateBase, newslettersLayout, opensRow, plural, primaryAction, rate, whenText, type NewsletterAction,
+  ACTION_LABEL, NEWSLETTERS_TABLE, actionsFor, deleteConfirmText, failureText, isLive, listRateBase, newslettersLayout, opensRow, plural, primaryAction, rate, whenText, type NewsletterAction,
 } from './lib/newsletterList';
 import { useElementWidth } from './hooks/useElementWidth';
 import { BUTTON_OUTLINE, BUTTON_PRIMARY } from './lib/ui';
@@ -112,7 +112,10 @@ export default function NewslettersView({ onCreate, onEdit, onToggleMobileSideba
   // The list's layout follows its own width (App's sidebars leave it about 650 px at a 1280 px window).
   const rootRef = useRef<HTMLDivElement>(null);
   const layout = newslettersLayout(useElementWidth(rootRef));
-  const [confirm, setConfirm] = useState<{ action: 'cancel' | 'delete' | 'editScheduled'; item: Pick<NewsletterSummary, 'id' | 'name'> } | null>(null);
+  const [confirm, setConfirm] = useState<{ action: 'cancel' | 'delete' | 'editScheduled'; item: Pick<NewsletterSummary, 'id' | 'name'> & Partial<Pick<NewsletterSummary, 'status'>> } | null>(null);
+  // Delete keeps its dialog open until the API answers; a refusal (e.g. sending right now) shows at its bottom.
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<number | null>(null);
 
   // Only the latest request may update the list (the filter can change while one is on its way).
@@ -188,18 +191,37 @@ export default function NewslettersView({ onCreate, onEdit, onToggleMobileSideba
     }
   };
 
+  const runDelete = async (item: Pick<NewsletterSummary, 'id'>) => {
+    setDeleting(true);
+    setDeleteError(null);
+    const res = await newslettersAPI.remove(item.id);
+    setDeleting(false);
+    if (res.ok) {
+      // A deleted newsletter's copies kept in this browser go with it.
+      clearNewsletterBackups(undefined, item.id);
+      setConfirm(null);
+      toast.success('Newsletter deleted.');
+      announceNewslettersChanged();
+      return;
+    }
+    setDeleteError(res.error ?? GENERIC_ERROR);
+    // 409: it started sending meanwhile; 404: deleted elsewhere. Show where it is now.
+    void load();
+  };
+
+  const closeConfirm = () => { if (deleting) return; setConfirm(null); setDeleteError(null); };
+
   const runConfirmed = async () => {
     if (!confirm) return;
     const { action, item } = confirm;
+    if (action === 'delete') { await runDelete(item); return; }
     setConfirm(null);
     if (action === 'editScheduled') { await editScheduled(item.id); return; }
     setBusyId(item.id);
-    const res = action === 'cancel' ? await newslettersAPI.cancel(item.id) : await newslettersAPI.remove(item.id);
+    const res = await newslettersAPI.cancel(item.id);
     setBusyId(null);
     if (res.ok) {
-      // A deleted newsletter's copies kept in this browser go with it.
-      if (action === 'delete') clearNewsletterBackups(undefined, item.id);
-      toast.success(action === 'cancel' ? 'Newsletter cancelled. Nothing more will be sent.' : 'Newsletter deleted.');
+      toast.success('Newsletter cancelled. Nothing more will be sent.');
       announceNewslettersChanged();
     } else {
       toast.error(res.error ?? GENERIC_ERROR);
@@ -373,21 +395,25 @@ export default function NewslettersView({ onCreate, onEdit, onToggleMobileSideba
           setConfirm({ action: 'editScheduled', item: items?.find((n) => n.id === id) ?? { id, name: null } });
         }} />
 
-      <AlertDialog open={confirm !== null} onOpenChange={(o) => { if (!o) setConfirm(null); }}>
+      <AlertDialog open={confirm !== null} onOpenChange={(o) => { if (!o) closeConfirm(); }}>
         <AlertDialogContent className="bg-white">
           <AlertDialogHeader>
             <AlertDialogTitle>{confirm?.action === 'delete' ? 'Delete this newsletter?' : confirm?.action === 'editScheduled' ? 'Edit this scheduled newsletter?' : 'Cancel this newsletter?'}</AlertDialogTitle>
             <AlertDialogDescription>
-              {confirm?.action === 'delete' ? "This can't be undone." : confirm?.action === 'editScheduled' ? EDIT_SCHEDULED_CONFIRM : 'Nothing more will be sent. People who already got it keep it.'}
+              {confirm?.action === 'delete' ? deleteConfirmText(confirm.item.status) : confirm?.action === 'editScheduled' ? EDIT_SCHEDULED_CONFIRM : 'Nothing more will be sent. People who already got it keep it.'}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>{confirm?.action === 'editScheduled' ? 'Not now' : 'Keep it'}</AlertDialogCancel>
-            <AlertDialogAction onClick={() => void runConfirmed()}
+            <AlertDialogCancel disabled={deleting}>{confirm?.action === 'editScheduled' ? 'Not now' : 'Keep it'}</AlertDialogCancel>
+            <AlertDialogAction disabled={deleting}
+              onClick={(e) => { if (confirm?.action === 'delete') e.preventDefault(); void runConfirmed(); }}
               className={confirm?.action === 'editScheduled' ? 'bg-[#6C60FF] text-white hover:bg-[#5B50E6]' : 'bg-red-600 text-white hover:bg-red-700'}>
-              {confirm?.action === 'delete' ? 'Yes, delete it' : confirm?.action === 'editScheduled' ? 'Edit it' : 'Yes, cancel it'}
+              {confirm?.action === 'delete' ? (deleting ? 'Deleting…' : 'Yes, delete it') : confirm?.action === 'editScheduled' ? 'Edit it' : 'Yes, cancel it'}
             </AlertDialogAction>
           </AlertDialogFooter>
+          {confirm?.action === 'delete' && deleteError ? (
+            <p role="alert" className="text-sm text-red-600">{deleteError}</p>
+          ) : null}
         </AlertDialogContent>
       </AlertDialog>
     </div>
