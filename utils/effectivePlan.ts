@@ -63,3 +63,21 @@ export function storageOverviewOf(response: any): any | null {
 export function skipsPlanPicker(storageOverview: any): boolean {
   return !!planCoveredBy(storageOverview);
 }
+
+/** Where an account that can't buy a bigger plan itself is sent (the same "Contact us" as UpgradePlanModal's Enterprise note). */
+export const CONTACT_SALES_URL = 'https://stasht.com/#contact';
+
+/**
+ * Whether the account can buy a bigger plan itself in Studio's Billing (Chris, 10 Nov 2026: Royal Wood, an Enterprise
+ * account, was told "Admin Limit Reached — Please upgrade your account"; "This should say contact sales. They already
+ * have an enterprise account and can't upgrade."). Only Starter and Teams have a bigger plan to buy. Business is the top
+ * plan; any other plan name is one set up for the account in the Admin Portal (Enterprise); an account covered by its
+ * main account's plan doesn't choose its plan. Those contact sales instead. Not known yet (no plan name): true, the
+ * prompt stays as it was.
+ */
+export function canSelfUpgrade(planName: unknown, coveredBy: PlanCoveredBy | null | undefined): boolean {
+  if (coveredBy) return false;
+  if (planName === null || planName === undefined || (typeof planName === 'string' && !planName.trim())) return true;
+  const key = planKey(planName);
+  return key === 'starter' || key === 'intermediate';
+}
