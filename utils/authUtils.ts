@@ -2252,13 +2252,14 @@ export const dashboardAPI = {
   },
 
   // Publish memory by ID
-  publishMemory: async (memoryId: string, role?: number): Promise<ApiResponse<any>> => {
+  /** switchRole (Chris 9 Nov 2026): a published campaign is switched to `role` instead of the toggle unpublishing it. */
+  publishMemory: async (memoryId: string, role?: number, switchRole = false): Promise<ApiResponse<any>> => {
     devLog(`dashboardAPI.publishMemory: Publishing memory ID ${memoryId} with role ${role}`);
     devLog(`API URL: /memories/${memoryId}/publish`);
 
     return await apiRequest(`/memories/${memoryId}/publish`, {
       method: 'POST',
-      body: role !== undefined ? JSON.stringify({ role }) : undefined,
+      body: role !== undefined ? JSON.stringify(switchRole ? { role, switch_role: true } : { role }) : undefined,
     });
   },
 

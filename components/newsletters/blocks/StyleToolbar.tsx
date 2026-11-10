@@ -217,8 +217,11 @@ export function AlignMenu({ value, onPick }: { value: SectionAlign; onPick(value
 }
 
 /** "A" with a bar in the words' colour: the swatches and Custom; Automatic goes back to the usual colour. */
-export function TextColorMenu({ idPrefix, value, shown, onPick, bg = null }: {
+export function TextColorMenu({ idPrefix, value, shown, onPick, bg = null, hint, onCloseAutoFocus }: {
   idPrefix: string;
+  /** A line under the choices (the Text section: what the colour applies to). */
+  hint?: string;
+  onCloseAutoFocus?(e: Event): void;
   /** The band's colour, to warn when the picked colour is hard to read on it. */
   bg?: string | null;
   /** The picked colour, or null (automatic). */
@@ -229,13 +232,14 @@ export function TextColorMenu({ idPrefix, value, shown, onPick, bg = null }: {
 }) {
   const [open, setOpen] = useState(false);
   return (
-    <ToolMenu label="Text colour" open={open} onOpenChange={setOpen} wide
+    <ToolMenu label="Text colour" open={open} onOpenChange={setOpen} onCloseAutoFocus={onCloseAutoFocus} wide
       trigger={<span aria-hidden="true" className="flex flex-col items-center leading-none"><span className="text-sm font-semibold">A</span><span className="mt-0.5 h-1 w-4 rounded-sm border border-gray-300" style={{ backgroundColor: shown }} /></span>}>
       <ColorSwatches label="Text colour" idPrefix={`${idPrefix}-ink`} value={value ?? ''} onChange={(c) => onPick(c)} />
       <div className="mt-3 flex items-center justify-between gap-2">
         <span className="text-xs text-gray-500">{value ? 'Your colour' : 'Automatic: reads on the background'}</span>
         {value ? <button type="button" onClick={() => onPick(null)} className={LINK_BUTTON}>Automatic</button> : null}
       </div>
+      {hint ? <p className="mt-2 text-xs leading-4 text-gray-500">{hint}</p> : null}
       {poorContrast(value, bg) ? <ContrastNote /> : null}
     </ToolMenu>
   );

@@ -433,6 +433,10 @@ export const newslettersAPI = {
   results: (id: number, q: ResultsQuery = {}) =>
     get<NewsletterResults>(`${nl(id)}/results${query({ channel: q.channel, status: q.status, page: q.page })}`),
   uploadImage,
+  // AI assist for an image section's "Describe the image" field (Chris, 10 Nov): 1 AI credit, like the moment AI suggest.
+  // 402 code no_credits when the account has none left.
+  imageAltText: (imageUrl: string) =>
+    write<{ alt: string; credits_remaining?: number | null }>('POST', '/newsletters/images/alt-text', { image_url: imageUrl }),
   // What a Campaigns section can show, 20 a page (shared contracts 2026-10-28 and 2026-10-29). kind defaults to
   // campaign on the API, so it is sent only for products and vehicles.
   campaignOptions: (q: CampaignOptionsQuery = {}) =>

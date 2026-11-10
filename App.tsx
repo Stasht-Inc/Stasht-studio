@@ -26,6 +26,7 @@ import AppsPage from "./pages/AppsPage";
 import MarketplacePage from "./pages/MarketplacePage";
 import CsvUploadPage from "./pages/CsvUploadPage";
 import { useAppNavigation } from "./hooks/useAppNavigation";
+import { useIosFixedBarRecovery } from "./hooks/useIosFixedBarRecovery";
 import { categoriesData, labelsData } from "./constants/appData";
 import { dashboardAPI, authAPI, userUtils, isPartialAdmin, getPartialAdminEmail } from './utils/authUtils';
 import { googleAuthAPI } from './utils/googleAuthAPI';
@@ -65,6 +66,7 @@ import { takeSwitchNotice } from './utils/accountSwitch';
 import { allPropertyRows, propertyViewHasLeads, resolvePendingPropertySwitch } from './utils/salespersonLanding';
 import { planKey, skipsPlanPicker, storageOverviewOf } from './utils/effectivePlan';
 import { usersTabForReport } from './utils/propertyRows';
+import { cameraRollSession } from './utils/cameraRoll';
 
 // CAPTURE EMAIL PARAMETER IMMEDIATELY (before React even starts)
 // This runs as soon as the file is loaded, before any component mounts
@@ -2536,6 +2538,7 @@ function MainApp() {
 
     if (successCount > 0) {
       toast.success(successCount > 1 ? `${successCount} photos saved to Media Library` : 'Photo saved to Media Library');
+      cameraRollSession.openMediaTabNext(); // open on the Media tab, where they are
       handleNavigationWithReset('media');
     }
     if (failCount > 0) {
@@ -4078,6 +4081,11 @@ function MainApp() {
           onToggleMobileSidebar={() => setShowMediaMobileSidebar(prev => !prev)}
           onNewMediaPending={(ids) => setPendingNewMediaIds(ids)}
           dismissedNewMediaIds={dismissedNewMediaIds}
+          // Camera Roll tab's Next (Chris, 9 Nov 2026): Create campaign with the picks, as Scan Photo does.
+          onCreateCampaignFromPhotos={(files) => {
+            handleNavigation("memories");
+            handleCreateMemoryRequest(undefined, files);
+          }}
         />
       );
     }
@@ -4662,7 +4670,7 @@ function MainApp() {
           {/* Fixed to the viewport, not sticky in the page flow: iOS Safari let the sticky bar ride up
               into the middle of the screen while scrolling (Chris, S4). It must stay a direct child of the
               app shell: a transform/filter on any ancestor would turn position:fixed into page-relative. */}
-          <nav className="md:hidden fixed bottom-0 inset-x-0 bg-white border-t border-gray-200 z-50 pb-[env(safe-area-inset-bottom)] overflow-visible">
+          <nav className="phone-bottom-bar-pin md:hidden fixed bottom-0 inset-x-0 bg-white border-t border-gray-200 z-50 pb-[env(safe-area-inset-bottom)] overflow-visible">
             {/* Center FAB — protrudes above the nav bar */}
             <div className="absolute left-1/2 -translate-x-1/2 -top-20 z-[10000]">
               <button
@@ -4895,6 +4903,8 @@ function MainApp() {
 
 // App wrapper (providers are now in main.tsx)
 export default function App() {
+  // Phone bottom bars: let iOS re-place fixed elements after the keyboard closes (Chris, 9 Nov 2026, point 2).
+  useIosFixedBarRecovery();
   // The update prompt sits outside the ErrorBoundary so a crash screen can still offer Refresh.
   return (
     <>

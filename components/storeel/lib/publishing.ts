@@ -31,13 +31,62 @@ export function publishStatus(published: unknown): { live: boolean; role: Publis
 /** The Publishing section at the top of the Send card (Deepak, 9 Nov 2026: "publish on Send", one card). */
 export const PUBLISHING_SECTION_ID = 'st-publishing';
 
-/** The section's line, as Save & Send behaves (StoreelSendConfirmDialog): unpublished → sending publishes it Public;
- *  private → it can't be sent; public / view only → nothing to say. */
+/** The section's line, as Save & Send behaves (Chris 9 Nov 2026, point 6: the options are one choice that Save & Send
+ *  applies): unpublished → sending publishes it with the chosen option; private → it can't be sent as it is;
+ *  public / view only → nothing to say. */
 export function publishingLine(published: unknown): string | null {
   const role = publishedRole(published);
-  if (role === 0) return 'Not published. Save & Send publishes it as Public, or publish it now.';
-  if (role === 3) return "Private link only: it can't be sent. Unpublish, then publish it as Public or View Only to send it.";
+  if (role === 0) return 'Not published yet. Save & Send publishes it with the option chosen below, or use Publish now to publish it without sending.';
+  if (role === 3) return "Private link only: it can't be sent. Choose Public or View Only to send it.";
   return null;
+}
+
+/** The option chosen when the card opens (Chris 9 Nov 2026: "Publish as Public should be selected already by
+ *  default"): Public when not published, else the mode it is in. */
+export function defaultPublishChoice(published: unknown): PublishRole {
+  return publishedRole(published) || 1;
+}
+
+/** "Publish now" (publish without sending): when not published, or when another mode is chosen on a published one. */
+export function canPublishNow(published: unknown, choice: PublishRole): boolean {
+  const role = publishedRole(published);
+  return role === 0 || role !== choice;
+}
+
+/** The line under the options: why Private can't be sent, or that another mode switches a published campaign. */
+export function publishChoiceNote(published: unknown, choice: PublishRole): string | null {
+  const role = publishedRole(published);
+  if (choice === role) return null;
+  if (choice === 3) return "A Private campaign can't be sent: only people with its private link can open it. Publish now makes that link.";
+  return role === 0 ? null : `Save & Send or Publish now changes it to ${LABELS[choice]}.`;
+}
+
+/** What happens at once, without Save Changes (everything else on the page waits for it). */
+export function rightAwayLine(published: unknown, choice: PublishRole): string {
+  const live = publishedRole(published) !== 0;
+  if (!live) return "Publish now applies right away. It doesn't need Save Changes.";
+  return canPublishNow(published, choice)
+    ? "Publish now and Unpublish apply right away. They don't need Save Changes."
+    : "Unpublish applies right away. It doesn't need Save Changes.";
+}
+
+/** The mode Save & Send sends in: the chosen one, else as the API does without one (unpublished → Public). */
+export function sendRoleFor(published: unknown, choice: PublishRole | null | undefined): PublishRole {
+  return choice ?? defaultPublishChoice(published);
+}
+
+/** Why Save & Send is off for the chosen option: a Private (access-token) campaign can't be sent. */
+export function choiceSendProblem(choice: PublishRole | null | undefined): string | null {
+  return choice === 3 ? "Choose Public or View Only in Publishing. A Private campaign can't be sent." : null;
+}
+
+/** The send confirm's line about the campaign: published now (in the chosen mode), or switched to another mode. */
+export function confirmPublishLine(published: unknown, choice: PublishRole | null | undefined): string | null {
+  const role = publishedRole(published);
+  const target = sendRoleFor(published, choice);
+  if (target === 3) return null;
+  if (role === 0) return `Sending publishes your campaign (${LABELS[target]}), so people can open it.`;
+  return target !== role ? `Sending changes your campaign to ${LABELS[target]}.` : null;
 }
 
 export type StepperOpensAt = 'campaign' | 'send';
@@ -54,3 +103,13 @@ export function campaignCanOpenStepper(memoryId: unknown): boolean {
 
 /** The send confirm on a private (access-token) campaign: publish it another way first — now in the Publishing card. */
 export const PRIVATE_LINK_SEND_LINE = 'This campaign is shared by private link only. Publish it as Public or View Only at the top of the Send card, then send it.';
+
+/** Review I1: "Publish now" switched a published campaign (switch_role) but the answer says it ended in another mode —
+ *  an API without switch_role toggled it off. Studio then publishes it again in the chosen mode, once. Only when the
+ *  answer says its mode: a second call on the new API would toggle it off. */
+export function switchNeedsRepublish({ switchRole, wasPublished, role, reply }: {
+  switchRole: boolean; wasPublished: boolean; role: number; reply: unknown;
+}): boolean {
+  if (!switchRole || !wasPublished || !reply || typeof reply !== 'object' || !('published' in reply)) return false;
+  return Number((reply as { published: unknown }).published) !== role;
+}

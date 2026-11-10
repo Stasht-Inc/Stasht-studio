@@ -149,5 +149,12 @@ test('the toast after Send now: what went, what is still going, held texts, a ca
   assert.equal(sentMessage(sent({ counts: { ...sent().counts, sent: 2, failed: 1, sms: { sent: 0, queued: 0, failed: 1 } } })), "Sent: 2 emails. 1 couldn't be sent.");
   const held = sentMessage(sent({ status: 'sending', texts_wait_until: '2026-11-05T13:00:00Z', counts: { ...sent().counts, sent: 2, queued: 1, sms: { sent: 0, queued: 1, failed: 0 } } }), 'en-US', 'America/Toronto');
   assert.equal(held, 'Sent: 2 emails. Texts go out at 8:00 AM (quiet hours).');
-  assert.equal(sentMessage(sent({ published_now: true })), 'Sent: 2 emails and 1 text. Your campaign is now published (Public).');
+  // Chris 9 Nov 2026 (point 6, review M2/M3): the mode the API says it went out in; none named when it doesn't say.
+  assert.equal(sentMessage(sent({ published_now: true })), 'Sent: 2 emails and 1 text. Your campaign is now published.');
+  assert.equal(sentMessage(sent({ published_now: true, published: 1 })), 'Sent: 2 emails and 1 text. Your campaign is now published (Public).');
+  assert.equal(sentMessage(sent({ published_now: true, published: 2 })), 'Sent: 2 emails and 1 text. Your campaign is now published (View Only).');
+  // A published campaign whose mode the send changed:
+  assert.equal(sentMessage(sent({ publish_switched: true, published: 1 })), 'Sent: 2 emails and 1 text. Your campaign is now Public.');
+  assert.equal(sentMessage(sent({ publish_switched: true, published: 2 })), 'Sent: 2 emails and 1 text. Your campaign is now View Only.');
+  assert.equal(sentMessage(sent({ publish_switched: false, published: 2 })), 'Sent: 2 emails and 1 text.');
 });
