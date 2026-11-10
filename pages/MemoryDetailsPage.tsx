@@ -16166,12 +16166,12 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
           </>
           ) : (
           <>
-          {/* Library Header */}
+          {/* Library Header — wraps rather than clips in the 20rem sidebar below 1536px */}
           <div className="flex-shrink-0 p-4 border-b border-gray-100">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2 min-w-0">
                 <FileText className="w-5 h-5 text-[#6C60FF]" />
-                <span className="text-base font-semibold text-gray-900">
+                <span className="text-base font-semibold text-gray-900 whitespace-nowrap">
                   Library ({aiScanResults?.clusters?.faces?.length || 0} people)
                 </span>
               </div>
@@ -16190,7 +16190,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                   <button
                     disabled
                     type="button"
-                    className="h-8 rounded-md px-3 text-sm font-medium inline-flex items-center gap-1.5 bg-gray-200 text-gray-400 cursor-not-allowed border-0"
+                    className="h-8 rounded-md px-3 text-sm font-medium inline-flex items-center gap-1.5 whitespace-nowrap bg-gray-200 text-gray-400 cursor-not-allowed border-0"
                   >
                     <svg className="w-4 h-4" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
                       <rect x="1" y="1" width="5" height="5" rx="1" stroke="#9CA3AF" strokeWidth="1.5"/>
@@ -16212,7 +16212,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                       type="button"
                     >
                       <div
-                        className="h-full px-3 rounded-[5px] text-sm font-medium inline-flex items-center gap-1.5 transition-all duration-200"
+                        className="h-full px-3 rounded-[5px] text-sm font-medium inline-flex items-center gap-1.5 whitespace-nowrap transition-all duration-200"
                         style={{ background: 'white' }}
                       >
                         {isAiScanning ? (

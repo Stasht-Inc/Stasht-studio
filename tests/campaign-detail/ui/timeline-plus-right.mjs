@@ -190,6 +190,30 @@ try {
     await btn13.click({ timeout: 5000 }).catch(() => {});
     expect(await chooser(page).isVisible({ timeout: 3000 }).catch(() => false), `${tag}: clicking the "+" after the last moment opens the chooser`);
     await page.screenshot({ path: `${OUT}/${tag}-03-after-last.png` });
+    await page.keyboard.press('Escape');
+    await chooser(page).waitFor({ state: 'hidden', timeout: 3000 }).catch(() => {});
+    // Re-review R1: the Media sidebar is 20rem below 1536px — its Media and Library tab headers must not clip text.
+    const aside = page.locator('aside.fixed.right-0').filter({ visible: true }).first();
+    const clipped = (root) => root.evaluate((el) => [...el.querySelectorAll('button, h3, span')].filter((b) => b.offsetParent && b.textContent.trim())
+      .filter((b) => { const r = b.getBoundingClientRect(); const lh = parseFloat(getComputedStyle(b).lineHeight) || 20;
+        return b.scrollWidth > b.clientWidth + 1 || (b.matches('button') && r.height > lh * 1.6 + 16) || r.right > el.getBoundingClientRect().right + 1; })
+      .map((b) => b.textContent.trim().slice(0, 30)));
+    const mediaHeader = aside.locator('div.flex-shrink-0').nth(1);
+    const mediaClipped = await clipped(mediaHeader).catch((e) => [String(e)]);
+    expect(mediaClipped.length === 0, `${tag}: Media tab header — nothing clipped or wrapped (got ${JSON.stringify(mediaClipped)})`);
+    await aside.getByRole('button', { name: /^Library$/ }).first().click();
+    await page.waitForTimeout(500);
+    const libHeader = aside.locator('div.flex-shrink-0.p-4.border-b').filter({ hasText: /Library \(/ }).first();
+    const libClipped = await clipped(libHeader).catch((e) => [String(e)]);
+    expect(libClipped.length === 0, `${tag}: Library tab header — nothing clipped or wrapped (got ${JSON.stringify(libClipped)})`);
+    const scanOneLine = await libHeader.getByRole('button', { name: /AI Scan|Scanned|Rescan/ }).first().evaluate((b) => {
+      const t = [...b.querySelectorAll('span')].pop() || b; const r = t.getBoundingClientRect(); const lh = parseFloat(getComputedStyle(t).lineHeight) || 20;
+      return { oneLine: r.height <= lh * 1.5, fits: b.scrollWidth <= b.clientWidth + 1 && t.getBoundingClientRect().bottom <= b.getBoundingClientRect().bottom + 1 };
+    }).catch(() => ({ oneLine: false, fits: false }));
+    expect(scanOneLine.oneLine && scanOneLine.fits, `${tag}: "AI Scan" on one line inside its button (${JSON.stringify(scanOneLine)})`);
+    const titleOneLine = await libHeader.getByText(/^Library \(/).first().evaluate((t) => t.getBoundingClientRect().height <= (parseFloat(getComputedStyle(t).lineHeight) || 24) * 1.5);
+    expect(titleOneLine, `${tag}: "Library (N people)" on one line`);
+    await page.screenshot({ path: `${OUT}/${tag}-04-library.png` });
     void right;
     await o.context.close();
   }
