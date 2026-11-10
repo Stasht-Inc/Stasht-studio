@@ -166,7 +166,10 @@ function rekeyAll(options: OptionDraft[], variants: VariantDraft[]): { options: 
   const pending = options.filter((o) => o.key !== undefined && o.key.trim() !== o.name.trim());
   if (!pending.length || pending.some((o) => !o.name.trim())) return { options, variants };
   const targets = options.map((o) => (o.key !== undefined ? o.name.trim() : optionKey(o)));
-  if (new Set(targets.map((t) => t.toLowerCase())).size !== targets.length) return { options, variants };
+  // A new option not named yet (keyless, blank) holds no rows, so it takes no part in the distinct-name rule:
+  // two or more of them must not stop a swap (Task 16, T14 minor). Keyed targets are never blank here (checked above).
+  const named = targets.filter((t, j) => options[j].key !== undefined || t !== '');
+  if (new Set(named.map((t) => t.toLowerCase())).size !== named.length) return { options, variants };
   const map = new Map(options.map((o, j) => [optionKey(o), targets[j]]));
   const nextOptions = options.map((o) => ({ name: o.name, values: o.values }));
   const rekeyed = variants.map((v) => ({ ...v, options: Object.fromEntries(Object.entries(v.options).map(([k, val]) => [map.get(k) ?? k, val])) }));

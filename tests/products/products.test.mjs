@@ -299,3 +299,19 @@ test('an option still keyed to another name never passes validation (safety net)
   const form = { ...emptyProductForm('CAD'), title: 'X', options: [{ name: 'Colour', values: ['S'], key: 'Size' }, { name: 'Finish', values: ['Oak'] }] };
   assert.equal(validateProductForm(form, MANUAL_FIELDS)['options.0.name'], 'Each option needs its own name.');
 });
+
+test('a swap still re-keys while two or more new options are blank (no name, no values yet)', () => {
+  // Task 16 (T14 minor): keyless empty options are left out of the distinct-name rule in rekeyAll.
+  const rename = (s, i, name) => { const r = renameOption(s.options, s.variants, i, name); return settleOptions(r.options, r.variants); };
+  const blank = { sku: '', compare_at_price: '', stock_status: 'in_stock', quantity: '', image_id: null };
+  const two = {
+    options: [{ name: 'Size', values: ['S', 'L'] }, { name: 'Colour', values: ['Oak'] }, { name: '', values: [] }, { name: '', values: [] }],
+    variants: [{ id: 9, options: { Size: 'S', Colour: 'Oak' }, ...blank, price: '40' }, { id: 10, options: { Size: 'L', Colour: 'Oak' }, ...blank, price: '50' }],
+  };
+  const s = rename(rename(two, 0, 'Colour'), 1, 'Size');
+  assert.deepEqual(s.options.map((o) => [o.name, o.key]), [['Colour', undefined], ['Size', undefined], ['', undefined], ['', undefined]]);
+  assert.deepEqual(s.variants.map((v) => [v.id, v.options, v.price]), [[9, { Colour: 'S', Size: 'Oak' }, '40'], [10, { Colour: 'L', Size: 'Oak' }, '50']]);
+  // A keyed option whose own name is blank still blocks (its rows have nowhere to go), as before.
+  const stuck = { options: [{ name: '', values: ['S'], key: 'Size' }, { name: 'Colour', values: ['Oak'] }], variants: [] };
+  assert.deepEqual(settleOptions(stuck.options, stuck.variants).options[0].key, 'Size');
+});
