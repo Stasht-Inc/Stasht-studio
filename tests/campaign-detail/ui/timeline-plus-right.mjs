@@ -170,6 +170,20 @@ try {
     expect(geo.rightR <= geo.asideL + 1, `${tag}: the right-hand column ends before the Media sidebar (${Math.round(geo.rightR)} ≤ ${Math.round(geo.asideL)})`);
     expect(geo.leftW >= 240 && geo.rightW >= 300, `${tag}: neither column is cramped (left ${Math.round(geo.leftW)}, right ${Math.round(geo.rightW)})`);
     expect(await inView(page, plusAt(page, '')), `${tag}: the top "+" is in the viewport`);
+    // Re-review R2: in the narrower right column (300–381px) nothing in a moment card overflows it — "AI suggest" wraps
+    // under "+ Add description", the like / comment / share counts wrap under the author, whose name stays readable.
+    const cards = await right.locator('[data-post-id]').evaluateAll((els) => els.map((card) => {
+      const cb = card.getBoundingClientRect();
+      const over = [...card.querySelectorAll('*')].filter((e) => e.offsetParent && e.getClientRects().length && e.textContent.trim() && !e.closest('img'))
+        .filter((e) => e.getBoundingClientRect().right > cb.right + 1 || e.scrollWidth > e.clientWidth + 1 && getComputedStyle(e).textOverflow !== 'ellipsis')
+        .map((e) => `${e.tagName}:${e.textContent.trim().slice(0, 20)}`);
+      const name = [...card.querySelectorAll('p.truncate')][0];
+      return { id: card.getAttribute('data-post-id'), cardOver: card.scrollWidth > card.clientWidth + 1, over: [...new Set(over)].slice(0, 4), nameW: name ? Math.round(name.getBoundingClientRect().width) : -1 };
+    }));
+    for (const c of cards) {
+      expect(!c.cardOver && c.over.length === 0, `${tag}: card ${c.id} — nothing overflows the card (got ${JSON.stringify(c.over)})`);
+      expect(c.nameW >= 70, `${tag}: card ${c.id} — the author name has room (${c.nameW}px)`);
+    }
     const btn = plusAt(page, '').getByRole('button', { name: 'Add Widget' });
     const hit = await btn.evaluate((el) => { const b = el.getBoundingClientRect(); const h = document.elementFromPoint(b.x + b.width / 2, b.y + b.height / 2); return Boolean(h && el.contains(h)); });
     expect(hit, `${tag}: nothing covers the top "+" (hit-test)`);
