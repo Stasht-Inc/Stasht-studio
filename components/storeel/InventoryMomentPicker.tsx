@@ -81,10 +81,16 @@ export function useInventorySources(enabled: boolean): InventorySources {
       // Products plan (2026-11-09): with Products on, the list is every active product — manual ones, plus website ones
       // while the catalogue itself is available (the API refuses website items otherwise). Off: exactly as before.
       const productsOn = productsGate(productsStatus && productsStatus.ok ? productsStatus.data : null) === 'ready';
+      // Answered: ok, or an API without Products (404). A failure falls back to the catalogue list but isn't reused.
+      const productsStatusOk = Boolean(productsStatus && (productsStatus.ok || productsStatus.status === 404));
+      let productsComplete = true;
       const gate = productsOn ? 'ready' : catalogGate(status && status.ok && status.data ? status.data : null, isStarter);
       const [products, cars] = await Promise.all([
         productsOn
-          ? loadProductsForPicker().then((list) => list.filter((p) => p.origin === 'manual' || catalogueReady))
+          ? loadProductsForPicker().then(({ items, complete }) => {
+            productsComplete = complete;
+            return items.filter((p) => p.origin === 'manual' || catalogueReady);
+          })
           : gate === 'ready' ? loadCatalogueForBrowsing() : Promise.resolve([]),
         dashboardAPI.carsGetCatalog().catch(() => null),
       ]);
@@ -100,7 +106,7 @@ export function useInventorySources(enabled: boolean): InventorySources {
       };
       // Only a load that fully answered is reused (re-review N3).
       const carsOk = (cars as any)?.success === true;
-      cache = inventoryCacheable({ statusOk: Boolean(status && status.ok), carsOk, gate, products: products.length }) ? { key, at: Date.now(), value } : null;
+      cache = inventoryCacheable({ statusOk: Boolean(status && status.ok), carsOk, gate, products: products.length, productsStatusOk, productsComplete }) ? { key, at: Date.now(), value } : null;
       if (!cancelled) setState(value);
     })();
     return () => { cancelled = true; };

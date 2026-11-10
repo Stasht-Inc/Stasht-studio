@@ -196,13 +196,14 @@ export const productsAPI = {
 };
 
 /** Every active product (Add a Moment's Products tab), 200 a page, at most 15 pages. [] on any failure. */
-export async function loadProductsForPicker(): Promise<ProductSummary[]> {
-  const out: ProductSummary[] = [];
+/** Every active product, page by page. `complete` is false when a page failed (the list is then partial: don't reuse it). */
+export async function loadProductsForPicker(): Promise<{ items: ProductSummary[]; complete: boolean }> {
+  const items: ProductSummary[] = [];
   for (let page = 1; page <= 15; page += 1) {
     const res = await productsAPI.list({ status: ['active'], sort: 'title', page, per_page: 200 }).catch(() => null);
-    if (!res || !res.ok || !res.data) break;
-    out.push(...res.data.items);
+    if (!res || !res.ok || !res.data) return { items, complete: false };
+    items.push(...res.data.items);
     if (page >= (res.data.pagination?.last_page || 1)) break;
   }
-  return out;
+  return { items, complete: true };
 }

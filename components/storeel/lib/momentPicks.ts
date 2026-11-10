@@ -94,6 +94,11 @@ export function addedMessage({ products, vehicles, already = 0 }: { products: nu
  * Whether Add a Moment's products / vehicles load may be reused for a while (re-review N3): only when every answer came
  * back — a failure (or a catalogue with items that listed none) is asked again the next time the window opens.
  */
-export function inventoryCacheable({ statusOk, carsOk, gate, products }: { statusOk: boolean; carsOk: boolean; gate: string; products: number }): boolean {
-  return statusOk && carsOk && !(gate === 'ready' && products === 0);
+export function inventoryCacheable({ statusOk, carsOk, gate, products, productsStatusOk = true, productsComplete = true }: {
+  statusOk: boolean; carsOk: boolean; gate: string; products: number;
+  // Products plan (Task 16): the /products/status answer (an older API's 404 counts as an answer) and every page of
+  // the products list. Either missing → a partial list, asked again next time.
+  productsStatusOk?: boolean; productsComplete?: boolean;
+}): boolean {
+  return statusOk && carsOk && productsStatusOk && productsComplete && !(gate === 'ready' && products === 0);
 }

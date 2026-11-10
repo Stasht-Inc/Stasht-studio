@@ -31,8 +31,9 @@ const pageErrors = [];
 const expect = (ok, label) => { if (!ok) failures.push(label); console.log(ok ? '  ok  ' : '  FAIL', label); };
 const browser = await chromium.launch({ headless: true, channel: 'chrome' });
 
-async function open({ width, height, planRequired = false, productsOn = false }) {
-  const state = { puts: [], sends: [], counts: 0, title: CAMPAIGN.title, deleted: false, created: [], momentCalls: [], itemCalls: 0 };
+// Task 16: productsStatusFail = /products/status answers 500; productsPage2Fail = /products has 2 pages, page 2 answers 500.
+async function open({ width, height, planRequired = false, productsOn = false, productsStatusFail = false, productsPage2Fail = false }) {
+  const state = { puts: [], sends: [], counts: 0, title: CAMPAIGN.title, deleted: false, created: [], momentCalls: [], itemCalls: 0, statusCalls: 0, page2Calls: 0 };
   const context = await browser.newContext({ viewport: { width, height }, serviceWorkers: 'block', locale: 'en-US', hasTouch: width < 1024, isMobile: width < 1024 });
   await context.addInitScript(([user]) => {
     if (sessionStorage.getItem('cd-seeded')) return;
@@ -88,6 +89,12 @@ async function open({ width, height, planRequired = false, productsOn = false })
     }
     // Chris, 7 Nov 2026 (point 7): the account's Website Catalogue products and vehicles, and adding them.
     // Products plan 2026-11-09 Task 15: with the switch on, Products lists manual products too (from /products).
+    if (p === '/products/status') state.statusCalls++;
+    if (p === '/products/status' && productsStatusFail) return route.fulfill({ status: 500, json: { success: false, message: 'Server Error' } });
+    if (p === '/products' && m === 'GET' && productsOn && productsPage2Fail && url.searchParams.get('page') === '2') {
+      state.page2Calls++;
+      return route.fulfill({ status: 500, json: { success: false, message: 'Server Error' } });
+    }
     if (p === '/products/status') return route.fulfill(productsOn
       ? { json: { success: true, data: { pilot: true, available: true, reason: null, can_create: true, counts: { total: 3, manual: 1, website: 2 }, default_currency: 'CAD' } } }
       : { status: 404, json: { success: false, message: 'Not found' } });
@@ -96,7 +103,7 @@ async function open({ width, height, planRequired = false, productsOn = false })
       return route.fulfill({ json: { success: true, data: { items: [
         { ...base, id: 71, origin: 'manual', title: 'Walnut chair', price_label: '$300', category: null, main_image: img(2), images_count: 1, url: null },
         { ...base, id: 61, origin: 'website', title: 'Oak bench', price_label: '$450', category: 'Benches', main_image: img(1), images_count: 3, url: 'https://royalwood.example.ca/oak-bench' },
-      ], pagination: { current_page: 1, per_page: 200, total: 2, last_page: 1 } } } });
+      ], pagination: { current_page: 1, per_page: 200, total: productsPage2Fail ? 3 : 2, last_page: productsPage2Fail ? 2 : 1 } } } });
     }
     if (p === '/website-catalogue') return route.fulfill({ json: { success: true, data: planRequired ? { available: false, reason: 'plan_required', item_count: 3 } : { available: true, reason: null, item_count: 2 } } });
     if (p === '/website-catalogue/items') {
@@ -206,6 +213,42 @@ try {
     const both = pOn.state.momentCalls.find((c) => c.kind === 'catalogue-items');
     expect(both && JSON.stringify(both.body.catalog_item_ids) === '[71,61]', `${tag}: manual + website ids sent (${JSON.stringify(both?.body)})`);
     await pOn.context.close();
+
+    // Task 16 (T15 minor). A load that didn't fully answer is not reused: closing and reopening Add a Moment asks again.
+    const reopen = async (t) => {
+      await t.page.getByRole('heading', { name: 'Add a Moment' }).locator('xpath=../..').getByRole('button').first().click(); // the header's X
+      await t.page.getByRole('heading', { name: 'Add a Moment' }).waitFor({ state: 'detached', timeout: 5000 }).catch(() => {});
+      await t.page.waitForTimeout(500);
+      await openAddMoment(t.page, width);
+    };
+    const sf = await open({ width, height, productsOn: true, productsStatusFail: true });
+    await openCampaign(sf.page);
+    await openAddMoment(sf.page, width);
+    let before = sf.state.statusCalls;
+    await reopen(sf);
+    expect(sf.state.statusCalls > before, `${tag}: products status failed → the list is not cached (asked again on reopen: ${before} → ${sf.state.statusCalls})`);
+    await sf.context.close();
+
+    const pf = await open({ width, height, productsOn: true, productsPage2Fail: true });
+    await openCampaign(pf.page);
+    await openAddMoment(pf.page, width);
+    await pf.page.getByRole('radiogroup', { name: 'Add from' }).getByRole('radio', { name: 'Products' }).click();
+    await pf.page.waitForTimeout(500);
+    before = pf.state.page2Calls;
+    expect(before >= 1, `${tag}: (setup) page 2 of the products was asked for`);
+    await reopen(pf);
+    expect(pf.state.page2Calls > before, `${tag}: a later products page failed → the partial list is not cached (${before} → ${pf.state.page2Calls})`);
+    await pf.context.close();
+
+    // Control: a load that fully answered is reused (no new status call on reopen).
+    const ok = await open({ width, height, productsOn: true });
+    await openCampaign(ok.page);
+    await openAddMoment(ok.page, width);
+    await ok.page.waitForTimeout(500);
+    before = ok.state.statusCalls;
+    await reopen(ok);
+    expect(ok.state.statusCalls === before, `${tag}: (control) a full answer is reused on reopen (${before} → ${ok.state.statusCalls})`);
+    await ok.context.close();
   }
 } finally {
   await browser.close();
