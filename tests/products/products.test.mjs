@@ -315,3 +315,52 @@ test('a swap still re-keys while two or more new options are blank (no name, no 
   const stuck = { options: [{ name: '', values: ['S'], key: 'Size' }, { name: 'Colour', values: ['Oak'] }], variants: [] };
   assert.deepEqual(settleOptions(stuck.options, stuck.variants).options[0].key, 'Size');
 });
+
+// Final review I2: adding or removing an OPTION must not wipe every row's price / SKU / stock / id.
+const row = (id, options, over = {}) => ({ ...(id ? { id } : {}), options, sku: '', price: '', compare_at_price: '', stock_status: 'in_stock', quantity: '', image_id: null, ...over });
+const sizes = () => [
+  row(1, { Size: 'S' }, { price: '10', sku: 'S-1', compare_at_price: '15', stock_status: 'out_of_stock', quantity: '3', image_id: 40 }),
+  row(2, { Size: 'M' }, { price: '12', sku: 'M-1', quantity: '5' }),
+];
+// What the editor does (ProductVariantsField setOptions): merge, then settle.
+const setOptions = (variants, options) => settleOptions(options, mergeVariants(variants, options));
+
+test('adding an option carries each row into the combinations that extend it (id on the first only)', () => {
+  const options = [{ name: 'Size', values: ['S', 'M'] }, { name: 'Colour', values: ['Red', 'Blue'] }];
+  const v = setOptions(sizes(), options).variants;
+  assert.deepEqual(v.map((x) => [x.id, x.options, x.price, x.sku, x.compare_at_price, x.stock_status, x.quantity, x.image_id]), [
+    [1, { Size: 'S', Colour: 'Red' }, '10', 'S-1', '15', 'out_of_stock', '3', 40],
+    [undefined, { Size: 'S', Colour: 'Blue' }, '10', 'S-1', '15', 'out_of_stock', '3', 40],
+    [2, { Size: 'M', Colour: 'Red' }, '12', 'M-1', '', 'in_stock', '5', null],
+    [undefined, { Size: 'M', Colour: 'Blue' }, '12', 'M-1', '', 'in_stock', '5', null],
+  ]);
+  assert.ok(!('id' in v[1]) && !('id' in v[3]), 'the copies have no id (the API creates new variants for them)');
+  // The repro from the review: one new value only.
+  const one = setOptions(sizes(), [{ name: 'Size', values: ['S', 'M'] }, { name: 'Colour', values: ['Red'] }]).variants;
+  assert.deepEqual(one.map((x) => [x.id, x.price]), [[1, '10'], [2, '12']]);
+  // A new option with a name but no values yet changes nothing.
+  assert.deepEqual(setOptions(sizes(), [{ name: 'Size', values: ['S', 'M'] }, { name: 'Colour', values: [] }]).variants, sizes());
+});
+
+test('removing an option keeps the first matching row per remaining combination (its id, price …)', () => {
+  const two = [
+    row(1, { Size: 'S', Colour: 'Red' }, { price: '10', sku: 'SR' }),
+    row(3, { Size: 'S', Colour: 'Blue' }, { price: '11', sku: 'SB' }),
+    row(2, { Size: 'M', Colour: 'Red' }, { price: '12', sku: 'MR' }),
+    row(4, { Size: 'M', Colour: 'Blue' }, { price: '13', sku: 'MB' }),
+  ];
+  const v = setOptions(two, [{ name: 'Size', values: ['S', 'M'] }]).variants;
+  assert.deepEqual(v.map((x) => [x.id, x.options, x.price, x.sku]), [[1, { Size: 'S' }, '10', 'SR'], [2, { Size: 'M' }, '12', 'MR']]);
+  // Removing the first option instead keeps the colours.
+  const c = setOptions(two, [{ name: 'Colour', values: ['Red', 'Blue'] }]).variants;
+  assert.deepEqual(c.map((x) => [x.id, x.options, x.price]), [[1, { Colour: 'Red' }, '10'], [3, { Colour: 'Blue' }, '11']]);
+});
+
+test('adding then removing an option gives every row back as it was', () => {
+  const added = setOptions(sizes(), [{ name: 'Size', values: ['S', 'M'] }, { name: 'Colour', values: ['Red', 'Blue'] }]);
+  const back = setOptions(added.variants, [{ name: 'Size', values: ['S', 'M'] }]).variants;
+  assert.deepEqual(back, sizes());
+  // A value added to an existing option still starts empty (nothing extends to it), as before.
+  const more = setOptions(sizes(), [{ name: 'Size', values: ['S', 'M', 'L'] }]).variants;
+  assert.deepEqual(more.map((x) => [x.id, x.options, x.price]), [[1, { Size: 'S' }, '10'], [2, { Size: 'M' }, '12'], [undefined, { Size: 'L' }, '']]);
+});

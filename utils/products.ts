@@ -119,9 +119,30 @@ const sameOptions = (a: Record<string, string>, b: Record<string, string>): bool
   return keys.length === Object.keys(b).length && keys.every((k) => a[k] === b[k]);
 };
 
+/** Every option of `small` is in `big` with the same value, and `big` has more options. */
+const extends_ = (big: Record<string, string>, small: Record<string, string>): boolean => {
+  const keys = Object.keys(small);
+  return keys.length > 0 && keys.length < Object.keys(big).length && keys.every((k) => big[k] === small[k]);
+};
+
+/** One row per combination. A combination keeps its own row; after an option is REMOVED it takes the first old row it
+ *  was part of (that row's id, price, SKU, stock …); after an option is ADDED every combination extending an old row
+ *  copies that row, and only the first copy keeps the row's id (the others are new variants). Final review I2. */
 export function mergeVariants(existing: VariantDraft[], options: OptionDraft[]): VariantDraft[] {
-  return variantCombinations(options).map((combo) => existing.find((v) => sameOptions(v.options, combo))
-    ?? { options: combo, sku: '', price: '', compare_at_price: '', stock_status: 'in_stock', quantity: '', image_id: null });
+  const taken = new Set<VariantDraft>(); // old rows whose id a combination already holds
+  return variantCombinations(options).map((combo): VariantDraft => {
+    const same = existing.find((v) => sameOptions(v.options, combo));
+    if (same) { taken.add(same); return same; }
+    const wider = existing.find((v) => !taken.has(v) && extends_(v.options, combo)); // an option was removed
+    if (wider) { taken.add(wider); return { ...wider, options: combo }; }
+    const narrower = existing.find((v) => extends_(combo, v.options)); // an option was added
+    if (narrower) {
+      if (!taken.has(narrower)) { taken.add(narrower); return { ...narrower, options: combo }; }
+      const { id: _id, ...copy } = narrower;
+      return { ...copy, options: combo };
+    }
+    return { options: combo, sku: '', price: '', compare_at_price: '', stock_status: 'in_stock', quantity: '', image_id: null };
+  });
 }
 
 /** Option i gets a new name: the variant rows keep everything (ids, prices, SKUs, stock, photos) under the new name.
