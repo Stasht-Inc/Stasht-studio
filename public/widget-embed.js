@@ -78,6 +78,7 @@ const state = {
   typing: false, // the "typing…" bubble while a send takes more than a moment
   provisional: false, // the form's first message shown as the chat before /submit answers
   autoReplyOff: false, // /submit came back with replies (the AI or its notice): no static auto-reply
+  confirmEnd: false, // ✕ with a conversation: "Would you like to end this chat?" shows over the panel
 };
 
 // The shown fields, in order (set once the config loads).
@@ -272,6 +273,67 @@ function closePanel() {
   if (usingKeyboard) focusId('w-launcher');
 }
 
+// The header's ✕ (and Escape): with a conversation, ask first; otherwise just close.
+function askToClose() {
+  const confirmable = core.shouldConfirmEnd
+    ? core.shouldConfirmEnd(state)
+    : state.phase === 'chat' && !!state.token && !state.provisional;
+  if (!confirmable) {
+    closePanel();
+    return;
+  }
+  state.confirmEnd = true;
+  render();
+  focusId('end-no');
+}
+
+// "Keep chatting": close the panel as before; the conversation stays (unread dot, checks for replies).
+function keepChatting() {
+  state.confirmEnd = false;
+  closePanel();
+}
+
+// "End chat": tell the server (best effort: an older API without /end just answers 404, and the
+// browser forgets the chat either way), then forget it here and close. The next open is a fresh form.
+function endChat() {
+  const token = state.token;
+  if (token) {
+    const url = core.endChatUrl ? core.endChatUrl(API, widgetId) : `${API}/widgets/${encodeURIComponent(widgetId)}/end`;
+    fetch(url, {
+      method: 'POST', keepalive: true, headers: { Accept: 'application/json', 'X-Widget-Chat-Token': token },
+    }).catch(() => { /* offline: the token still ages out after 30 days */ });
+  }
+  forgetChat();
+  state.open = false;
+  render();
+  if (usingKeyboard) focusId('w-launcher');
+}
+
+// Back to a fresh start: no token in this browser, no messages, an empty form.
+function forgetChat() {
+  clearChatToken(chatStore, widgetId);
+  clearTimeout(pollTimer);
+  pollTimer = null;
+  stopTyping();
+  state.files.forEach(releaseFile);
+  state.pending?.files?.forEach(releaseFile);
+  Object.assign(state, {
+    token: null, messages: [], submittedId: null, phase: 'form', draft: '', files: [], chatError: '', chatSending: false,
+    unread: false, pending: null, provisional: false, autoReplyOff: false, confirmEnd: false, lastActivity: 0,
+    sending: false, errors: {}, visitorName: '', values: { name: '', mobile: '', email: '', company: '', message: '' },
+  });
+}
+
+// Another tab of this browser ended the chat (or found it gone): this tab starts fresh too.
+window.addEventListener('storage', (ev) => {
+  const forgotten = core.chatForgottenElsewhere
+    ? core.chatForgottenElsewhere(ev, widgetId)
+    : ev.key === `stasht-widget-chat:${widgetId}` && ev.newValue === null;
+  if (!forgotten || !state.token) return;
+  forgetChat();
+  render();
+});
+
 function dismissCallout(ev) {
   ev.stopPropagation();
   state.calloutDismissed = true;
@@ -351,7 +413,17 @@ function agentPicture(className) {
 function panel() {
   const inChat = state.phase === 'chat';
   return h('div', { class: inChat ? 'panel chat' : 'panel', role: 'dialog', 'aria-labelledby': 'w-title' },
-    head(), inChat ? [chatLog(), composer()] : form(), poweredBy());
+    head(), inChat ? [chatLog(), composer()] : form(), poweredBy(), state.confirmEnd && endConfirm());
+}
+
+// ✕ with a conversation (Chris, 10 Nov 2026): "Would you like to end this chat?" over the panel.
+function endConfirm() {
+  return h('div', { class: 'endask' },
+    h('div', { class: 'endcard', role: 'alertdialog', 'aria-modal': 'true', 'aria-labelledby': 'end-q', 'aria-describedby': 'end-d' },
+      h('h3', { id: 'end-q' }, core.END_CHAT_QUESTION || 'Would you like to end this chat?'),
+      h('p', { id: 'end-d' }, core.END_CHAT_DETAIL || 'You can start a new chat any time.'),
+      h('button', { id: 'end-yes', class: 'send', type: 'button', onclick: endChat }, 'End chat'),
+      h('button', { id: 'end-no', class: 'keep', type: 'button', onclick: keepChatting }, 'Keep chatting')));
 }
 
 // Chris's header (wdy2xh2upu): the online team's faces stacked, each with a green dot, the assistant's
@@ -359,7 +431,7 @@ function panel() {
 // and "We'll reply soon", as before. An older cached widget-core.js keeps the old header.
 function head() {
   const cfg = state.config;
-  const close = h('button', { class: 'iconbtn close', type: 'button', 'aria-label': 'Close', onclick: closePanel }, closeIcon());
+  const close = h('button', { class: 'iconbtn close', type: 'button', 'aria-label': 'Close', onclick: askToClose }, closeIcon());
   const stack = stackFor(core.stackPeopleMax?.(panelWidth(Number(params.get('vw')))));
 
   if (!stack) {
@@ -784,7 +856,7 @@ function conversationGone() {
   state.files.forEach(releaseFile);
   Object.assign(state, {
     token: null, messages: [], submittedId: null, phase: 'form', draft: '', files: [], chatError: '', chatSending: false, unread: false,
-    pending: null, provisional: false, autoReplyOff: false,
+    pending: null, provisional: false, autoReplyOff: false, confirmEnd: false,
   });
   render();
 }
@@ -814,7 +886,9 @@ async function sendChat() {
   startTyping();
   let sent = false;
   try {
+    const sentToken = state.token;
     const res = await fetch(messagesUrl(API, widgetId), { method: 'POST', headers: chatHeaders(true), body });
+    if (state.token !== sentToken) return; // the visitor ended the chat meanwhile: nothing to show
     if (res.status === 404) {
       restorePending();
       conversationGone();
@@ -915,7 +989,9 @@ async function poll() {
   polling = true;
   try {
     for (;;) {
+      const polledToken = state.token;
       const res = await fetch(messagesUrl(API, widgetId, lastMessageId(state.messages)), { headers: chatHeaders() });
+      if (state.token !== polledToken) return; // ended meanwhile
       if (res.status === 404) {
         conversationGone();
         return;
@@ -1075,7 +1151,14 @@ async function submit(ev) {
 }
 
 document.addEventListener('keydown', (ev) => {
-  if (ev.key === 'Escape' && state.open) closePanel();
+  if (ev.key !== 'Escape' || !state.open) return;
+  if (state.confirmEnd) {
+    state.confirmEnd = false; // Escape on the question: back to the chat
+    render();
+    focusId('c-input');
+    return;
+  }
+  askToClose();
 });
 
 async function init() {
