@@ -4,7 +4,7 @@
 import { apiRequest, postFormData } from '../utils/authUtils';
 import type { ApiResponse } from '../utils/authUtils';
 import { requestUpgrade } from '../utils/planEvents';
-import { fieldErrorsFrom, productQueryString } from '../utils/products';
+import { collectPickerPages, fieldErrorsFrom, PICKER_FILTERS, productQueryString } from '../utils/products';
 
 export type ProductBadge = 'active' | 'draft' | 'out_of_stock' | 'archived';
 export type ProductStatus = 'draft' | 'active' | 'archived';
@@ -195,15 +195,11 @@ export const productsAPI = {
   deleteCategory: (id: number) => run<{ deleted: boolean }>(apiRequest(`/product-categories/${id}`, json('DELETE'))),
 };
 
-/** Every active product (Add a Moment's Products tab), 200 a page, at most 15 pages. [] on any failure. */
-/** Every active product, page by page. `complete` is false when a page failed (the list is then partial: don't reuse it). */
+/** Add a Moment's Products tab: every product selectItems takes (PICKER_FILTERS), page by page. `complete` is false
+ *  when a page failed or there were more pages than the cap (the list is then partial: don't reuse it). */
 export async function loadProductsForPicker(): Promise<{ items: ProductSummary[]; complete: boolean }> {
-  const items: ProductSummary[] = [];
-  for (let page = 1; page <= 15; page += 1) {
-    const res = await productsAPI.list({ status: ['active'], sort: 'title', page, per_page: 200 }).catch(() => null);
-    if (!res || !res.ok || !res.data) return { items, complete: false };
-    items.push(...res.data.items);
-    if (page >= (res.data.pagination?.last_page || 1)) break;
-  }
-  return { items, complete: true };
+  return collectPickerPages(async (page) => {
+    const res = await productsAPI.list({ ...PICKER_FILTERS, page });
+    return res.ok && res.data ? { items: res.data.items, last_page: res.data.pagination?.last_page || 1 } : null;
+  });
 }

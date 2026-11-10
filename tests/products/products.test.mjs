@@ -6,6 +6,7 @@ import {
   BADGE_LABEL, sourceLabel, priceLine, productQueryString, productsGate, campaignGridHidesCatalogue, showsProductsNav,
   variantCombinations, mergeVariants, moveItem, emptyProductForm, formFromDetail, payloadFromForm, validateProductForm,
   fieldErrorsFrom, slugFromTitle, bulkResultMessage, pageToClampTo, WEBSITE_DELETE_HINT, MANUAL_FIELDS, editableFor, renameOption, settleOptions, variantRowKey,
+  PICKER_FILTERS, collectPickerPages,
 } from '../../utils/products.ts';
 
 const status = (over = {}) => ({ pilot: true, available: true, reason: null, can_create: true, counts: { total: 3, manual: 2, website: 1 }, default_currency: 'CAD', ...over });
@@ -381,4 +382,23 @@ test('a number too big for JSON (1e999, Infinity) is refused under its field, ne
   }
   // Ordinary numbers still pass.
   assert.deepEqual(validateProductForm({ ...base, price: '49.99', compare_at_price: '1e3', weight: '0', dimensions: { length: '10', width: '2.5', height: '', unit: 'cm' } }, MANUAL_FIELDS), {});
+});
+
+test('Add a Moment asks for every product selectItems takes: active AND out of stock (final review I1)', () => {
+  // The API badge `active` is status active with stock not out, so ['active'] alone dropped out-of-stock website
+  // products, which development lists (every browsable item) and selectItems accepts.
+  assert.deepEqual(PICKER_FILTERS.status, ['active', 'out_of_stock']);
+  assert.equal(productQueryString({ ...PICKER_FILTERS, page: 1 }), 'status=active%2Cout_of_stock&sort=title&page=1&per_page=200');
+});
+
+test('picker pages: every page in order; a failed page or the page cap is not complete (final review M9)', async () => {
+  const pages = (last, failAt = 0) => async (page) => (page === failAt ? null : { items: [`p${page}`], last_page: last });
+  assert.deepEqual(await collectPickerPages(pages(3)), { items: ['p1', 'p2', 'p3'], complete: true });
+  assert.deepEqual(await collectPickerPages(pages(3, 2)), { items: ['p1'], complete: false });
+  assert.deepEqual(await collectPickerPages(async () => { throw new Error('offline'); }), { items: [], complete: false });
+  // More pages than the cap (15): what was read is kept, but it is a partial list and must not be reused.
+  const capped = await collectPickerPages(pages(20));
+  assert.equal(capped.items.length, 15);
+  assert.equal(capped.complete, false);
+  assert.deepEqual(await collectPickerPages(pages(15)), { items: Array.from({ length: 15 }, (_, i) => `p${i + 1}`), complete: true });
 });

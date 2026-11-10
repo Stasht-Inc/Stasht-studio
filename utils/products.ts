@@ -58,6 +58,28 @@ export function productQueryString(f: ProductFilters): string {
   return q.toString();
 }
 
+/**
+ * Add a Moment's Products tab with Products on: every product the API's selectItems takes — website items as the
+ * catalogue lists them today (in stock or not) and active manual ones. The badge `active` alone means "active and not
+ * out of stock" (ProductQuery::whereBadge), so out-of-stock products need their own badge (final review I1).
+ */
+export const PICKER_FILTERS: ProductFilters = { status: ['active', 'out_of_stock'], sort: 'title', per_page: 200 };
+export const PICKER_MAX_PAGES = 15;
+
+/** Pages 1..last_page (at most maxPages). `complete` is false when a page failed or the cap cut the list short. */
+export async function collectPickerPages<T>(
+  fetchPage: (page: number) => Promise<{ items: T[]; last_page: number } | null>, maxPages = PICKER_MAX_PAGES,
+): Promise<{ items: T[]; complete: boolean }> {
+  const items: T[] = [];
+  for (let page = 1; page <= maxPages; page += 1) {
+    const res = await fetchPage(page).catch(() => null);
+    if (!res) return { items, complete: false };
+    items.push(...res.items);
+    if (page >= (res.last_page || 1)) return { items, complete: true };
+  }
+  return { items, complete: false }; // more pages than the cap: a partial list
+}
+
 export function productsGate(s: ProductsStatus | null | undefined): 'hidden' | 'upgrade' | 'ready' {
   if (!s || !s.pilot) return 'hidden';
   if (s.available) return 'ready';

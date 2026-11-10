@@ -33,7 +33,7 @@ const browser = await chromium.launch({ headless: true, channel: 'chrome' });
 
 // Task 16: productsStatusFail = /products/status answers 500; productsPage2Fail = /products has 2 pages, page 2 answers 500.
 async function open({ width, height, planRequired = false, productsOn = false, productsStatusFail = false, productsPage2Fail = false }) {
-  const state = { puts: [], sends: [], counts: 0, title: CAMPAIGN.title, deleted: false, created: [], momentCalls: [], itemCalls: 0, statusCalls: 0, page2Calls: 0 };
+  const state = { puts: [], sends: [], counts: 0, title: CAMPAIGN.title, deleted: false, created: [], momentCalls: [], itemCalls: 0, statusCalls: 0, page2Calls: 0, productQueries: [] };
   const context = await browser.newContext({ viewport: { width, height }, serviceWorkers: 'block', locale: 'en-US', hasTouch: width < 1024, isMobile: width < 1024 });
   await context.addInitScript(([user]) => {
     if (sessionStorage.getItem('cd-seeded')) return;
@@ -100,10 +100,17 @@ async function open({ width, height, planRequired = false, productsOn = false, p
       : { status: 404, json: { success: false, message: 'Not found' } });
     if (p === '/products' && m === 'GET' && productsOn) {
       const base = { read_only: false, status: 'active', stock_status: 'in_stock', badge: 'active', compare_at_label: '', price_on_request: false, show_price: true, categories: [], sku: null, brand: null, updated_at: null, user_id: 707 };
-      return route.fulfill({ json: { success: true, data: { items: [
+      state.productQueries.push(url.search);
+      // Like ProductQuery: ?status= keeps only those badges (out_of_stock = active but out of stock; final review I1).
+      const wanted = (url.searchParams.get('status') || '').split(',').filter(Boolean);
+      const all = [
         { ...base, id: 71, origin: 'manual', title: 'Walnut chair', price_label: '$300', category: null, main_image: img(2), images_count: 1, url: null },
         { ...base, id: 61, origin: 'website', title: 'Oak bench', price_label: '$450', category: 'Benches', main_image: img(1), images_count: 3, url: 'https://royalwood.example.ca/oak-bench' },
-      ], pagination: { current_page: 1, per_page: 200, total: productsPage2Fail ? 3 : 2, last_page: productsPage2Fail ? 2 : 1 } } } });
+        { ...base, id: 63, origin: 'website', title: 'Cedar stool', stock_status: 'out_of_stock', badge: 'out_of_stock', price_label: '$90', category: 'Stools', main_image: img(3), images_count: 1, url: 'https://royalwood.example.ca/cedar-stool' },
+        { ...base, id: 72, origin: 'manual', title: 'Maple shelf', stock_status: 'out_of_stock', badge: 'out_of_stock', price_label: '$150', category: null, main_image: img(1), images_count: 1, url: null },
+      ];
+      const items = wanted.length ? all.filter((x) => wanted.includes(x.badge)) : all;
+      return route.fulfill({ json: { success: true, data: { items, pagination: { current_page: 1, per_page: 200, total: productsPage2Fail ? items.length + 1 : items.length, last_page: productsPage2Fail ? 2 : 1 } } } });
     }
     if (p === '/website-catalogue') return route.fulfill({ json: { success: true, data: planRequired ? { available: false, reason: 'plan_required', item_count: 3 } : { available: true, reason: null, item_count: 2 } } });
     if (p === '/website-catalogue/items') {
@@ -206,6 +213,12 @@ try {
     await openAddMoment(pOn.page, width);
     await pOn.page.getByRole('radiogroup', { name: 'Add from' }).getByRole('radio', { name: 'Products' }).click();
     expect(await pOn.page.getByRole('checkbox', { name: /Walnut chair/ }).isVisible().catch(() => false), `${tag}: Products on → a manual product is listed`);
+    // Final review I1: out-of-stock products stay pickable, as development lists every website item (in stock or not).
+    expect(await pOn.page.getByRole('checkbox', { name: /Cedar stool/ }).isVisible().catch(() => false), `${tag}: Products on → an out-of-stock website product is still listed`);
+    expect(await pOn.page.getByRole('checkbox', { name: /Maple shelf/ }).isVisible().catch(() => false), `${tag}: Products on → an out-of-stock manual product is listed`);
+    expect(pOn.state.productQueries.length > 0 && pOn.state.productQueries.every((q) => new URLSearchParams(q).get('status') === 'active,out_of_stock'),
+      `${tag}: … asked with status=active,out_of_stock (${pOn.state.productQueries.join(' ')})`);
+    await pOn.page.screenshot({ path: `${OUT}/${tag}-05-products-on-out-of-stock.png` });
     await pOn.page.getByRole('checkbox', { name: /Walnut chair/ }).click();
     await pOn.page.getByRole('checkbox', { name: /Oak bench/ }).click();
     await pOn.page.getByRole('button', { name: 'Add all (2)' }).click();
