@@ -1408,22 +1408,23 @@ export default function PostCard({ post, variant = 'thumbnail', onContentUpdate,
           ? 'space-y-3 p-[22px] lg:p-6' // Timeline view: 22px on mobile (matches SVG), lg:p-6
           : 'space-y-2 p-4' // Thumbnail view: Original padding
       }`}>
-        {/* User Info */}
-        <div className="flex items-center gap-3">
+        {/* User Info — on desktop the counts wrap under the author when the card is narrow (the campaign page's right
+            column is 300–381px below 1536px), so the name keeps a few characters (Chris 9 Nov, review R2). Phone: as before. */}
+        <div className="flex items-center gap-3 lg:flex-wrap lg:gap-y-2">
           <Avatar className="h-[30px] w-[30px]">
             <AvatarImage src={post.author.avatar} className="object-cover" />
             <AvatarFallback className="bg-gradient-to-br from-[#6C60FF] to-purple-600 text-white text-sm">
               {post.author.name.split(' ').map((n: string) => n[0]).join('')}
             </AvatarFallback>
           </Avatar>
-          <div className="flex-1 min-w-0">
+          <div className="flex-1 min-w-0 lg:min-w-[4.5rem]">
             <p className={`font-medium truncate ${variant === 'card' ? 'text-[#364153] text-lg md:text-base' : 'text-sm text-gray-900'}`}>{post.author.name}</p>
           </div>
           
           {/* Conditional: More button for thumbnail, Interaction icons + menu for card */}
           {variant === 'card' ? (
             // Heart, Comment, Share icons + three-dot menu for Timeline View
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 lg:ml-auto">
               {/* Heart Icon + Like Count */}
               <div
                 className="flex items-center gap-1 text-[15px] md:text-sm text-gray-600 cursor-pointer hover:text-red-500 transition-colors"
@@ -2126,7 +2127,8 @@ export default function PostCard({ post, variant = 'thumbnail', onContentUpdate,
               )
             ) : canAddDescription ? (
               // Show "Add description" and "AI suggest" buttons when content is empty and user has edit permission (memory owner or collaborator with edit/admin role)
-              <div className="flex items-center gap-4">
+              // They wrap onto two lines rather than run off a narrow card (review R2).
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
                 <Button
                   variant="ghost"
                   size="sm"
