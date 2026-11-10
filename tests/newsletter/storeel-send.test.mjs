@@ -150,4 +150,7 @@ test('the toast after Send now: what went, what is still going, held texts, a ca
   const held = sentMessage(sent({ status: 'sending', texts_wait_until: '2026-11-05T13:00:00Z', counts: { ...sent().counts, sent: 2, queued: 1, sms: { sent: 0, queued: 1, failed: 0 } } }), 'en-US', 'America/Toronto');
   assert.equal(held, 'Sent: 2 emails. Texts go out at 8:00 AM (quiet hours).');
   assert.equal(sentMessage(sent({ published_now: true })), 'Sent: 2 emails and 1 text. Your campaign is now published (Public).');
+  // Chris 9 Nov 2026 (point 6): published in the mode the Publishing card chose (the Send step adds it to the summary).
+  assert.equal(sentMessage(sent({ published_now: true, published_role: 2 })), 'Sent: 2 emails and 1 text. Your campaign is now published (View Only).');
+  assert.equal(sentMessage(sent({ published_now: true, published_role: 1 })), 'Sent: 2 emails and 1 text. Your campaign is now published (Public).');
 });

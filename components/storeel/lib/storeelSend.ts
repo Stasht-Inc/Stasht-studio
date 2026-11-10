@@ -109,6 +109,8 @@ export interface StoreelSendSummary {
   subject?: string;
   replayed: boolean;
   published_now: boolean;
+  /** The mode it was sent in (Chris 9 Nov 2026): added by the Send step from the Publishing choice; absent = Public. */
+  published_role?: 1 | 2 | 3;
   texts_wait_until: string | null;
   created_at?: string;
   finished_at?: string | null;
@@ -143,6 +145,6 @@ export function sentMessage(s: StoreelSendSummary, locale = 'en-US', timeZone?: 
     out.push(parts.length ? `Sent: ${joinAnd(parts)}.` : 'Nothing was sent.');
   }
   if (c.failed > 0) out.push(`${formatCount(c.failed, 'en-US')} couldn't be sent.`);
-  if (s.published_now) out.push('Your campaign is now published (Public).');
+  if (s.published_now) out.push(`Your campaign is now published (${s.published_role === 2 ? 'View Only' : 'Public'}).`);
   return out.join(' ');
 }
