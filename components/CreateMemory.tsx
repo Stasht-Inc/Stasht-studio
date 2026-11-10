@@ -60,6 +60,7 @@ import { EMPTY_LINKS, LINKS_FAILED, LINKS_SAVE_NOTE, editPickerCampaigns, linkCh
 import { detectsDeviceLocation, withDeviceLocation } from './storeel/lib/deviceLocation';
 import { ACTION_TOAST_MS } from './newsletters/lib/blocks';
 import { DOCUSIGN_ENABLED } from '../constants/features.ts';
+import { isAddablePhoto } from '../utils/cameraRoll';
 
 const CAMPAIGN_STEP_ID = 'st-step-campaign';
 
@@ -1417,9 +1418,10 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
     if (!open) { handledPhotosRef.current = null; return; }
     if (!initialPhotos?.length || handledPhotosRef.current === initialPhotos) return;
     handledPhotosRef.current = initialPhotos;
-    const valid = initialPhotos.filter((f) => ['image/jpeg', 'image/jpg', 'image/png'].includes(f.type.toLowerCase()));
+    // Any photo the upload takes (Camera Roll picks can be HEIC/WEBP from an iPhone; the server converts HEIC).
+    const valid = initialPhotos.filter(isAddablePhoto);
     if (!valid.length) {
-      toast.error('That photo type can’t be added here. Use a JPG or PNG photo.');
+      toast.error('That photo type can’t be added here. Use a JPG, PNG or HEIC photo.');
       return;
     }
     const dt = new DataTransfer();

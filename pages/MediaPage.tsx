@@ -1,6 +1,6 @@
 ﻿import React, { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import JSZip from "jszip";
-import { Upload, Grid, List, Search, SortAsc, SortDesc, Play, Image as ImageIcon, Download, Share, Trash2, FolderPlus, Move, MapPin, Calendar, HardDrive, FileText, FolderOpen, X, ArrowRight, Check, Folder, Users, Globe, Lock, ChevronDown, UserCheck, RefreshCw, Menu, MoreVertical, Unlink, Unplug } from "lucide-react";
+import { Upload, Grid, List, Search, SortAsc, SortDesc, Play, Images, Image as ImageIcon, Download, Share, Trash2, FolderPlus, Move, MapPin, Calendar, HardDrive, FileText, FolderOpen, X, ArrowRight, Check, Folder, Users, Globe, Lock, ChevronDown, UserCheck, RefreshCw, Menu, MoreVertical, Unlink, Unplug } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
@@ -10,6 +10,8 @@ import { ImageWithFallback } from "../components/figma/ImageWithFallback";
 import { ImageViewer } from "../components/ImageViewer";
 import { MediaGridItem } from "../components/media/MediaGridItem";
 import { MainUploadArea } from "../components/media/MainUploadArea";
+import { CameraRollPanel } from "../components/media/CameraRollPanel";
+import { cameraRollSession } from "../utils/cameraRoll";
 import BatchActions from "../components/BatchActions";
 import UploadProgress, { UploadProgressItem } from "../components/UploadProgress";
 import { SyncMediaDialog } from "../components/SyncMediaDialog";
@@ -128,7 +130,8 @@ export default function MediaPage({
   onUploadFilesProcessed,
   isPropertyOwner = true,
   onNewMediaPending,
-  dismissedNewMediaIds = new Set<string>()
+  dismissedNewMediaIds = new Set<string>(),
+  onCreateCampaignFromPhotos
 }: {
   categories: CategoryInfo[];
   expandedCategories?: string[];
@@ -177,8 +180,29 @@ export default function MediaPage({
   isPropertyOwner?: boolean;
   onNewMediaPending?: (ids: (string | number)[]) => void;
   dismissedNewMediaIds?: Set<string>;
+  /** Camera Roll tab's Next: open Create campaign with these photos in Add a Moment. */
+  onCreateCampaignFromPhotos?: (files: File[]) => void;
 }) {
   console.log('🎯 MediaPage rendered, pendingUploadFiles:', pendingUploadFiles?.length || 0);
+
+  // Tabs Camera Roll | Media (Chris, 9 Nov 2026): Camera Roll every time the page opens; Media is the page as it was.
+  const [mediaTab, setMediaTab] = useState<'camera-roll' | 'media'>('camera-roll');
+  const mediaTabRef = useRef(mediaTab);
+  mediaTabRef.current = mediaTab;
+  useEffect(() => {
+    // Photos just saved to Media (the + menu's Take a Photo): show them.
+    if (cameraRollSession.takeOpenMediaTab()) setMediaTab('media');
+    return cameraRollSession.onOpenMediaTab(() => setMediaTab('media'));
+  }, []);
+  // Picking a category in the Media sidebar, or a synced service (Dropbox's "view"), is about Media: show it.
+  const mediaFiltersRef = useRef({ selectedCategory, activeServiceTab });
+  useEffect(() => {
+    const prev = mediaFiltersRef.current;
+    mediaFiltersRef.current = { selectedCategory, activeServiceTab };
+    if ((selectedCategory && selectedCategory !== prev.selectedCategory) || (activeServiceTab && activeServiceTab !== 'all' && activeServiceTab !== prev.activeServiceTab)) {
+      setMediaTab('media');
+    }
+  }, [selectedCategory, activeServiceTab]);
 
   const { isLimitExceeded } = useMemoryLimit();
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
@@ -3317,6 +3341,7 @@ export default function MediaPage({
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (selectedItems.size === 0) return;
+      if (mediaTabRef.current !== 'media') return; // the selection isn't on screen
       
       // Only handle shortcuts when not typing in an input
       if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) {
@@ -3579,6 +3604,40 @@ export default function MediaPage({
         </div>
       )}
 
+      {/* Camera Roll | Media (same tab look as the service tabs below) */}
+      <div className="w-full border-b border-gray-200 bg-white mb-0" data-testid="media-tabs" style={{ maxWidth: '96vw' }}>
+        <div className="flex items-center gap-2 md:gap-3 px-3 md:px-0">
+          {([['camera-roll', 'Camera Roll'], ['media', 'Media']] as const).map(([tab, label]) => (
+            <button
+              key={tab}
+              type="button"
+              // aria-current, not aria-selected: globals.css paints every [aria-selected="true"] solid purple.
+              aria-current={mediaTab === tab ? 'page' : undefined}
+              onClick={() => setMediaTab(tab)}
+              className={`flex items-center gap-1.5 md:gap-2 px-2.5 md:px-4 py-2 md:py-3 whitespace-nowrap transition-all border-b-2 flex-shrink-0 font-semibold text-sm ${
+                mediaTab === tab
+                  ? 'border-[#6C60FF] text-[#6C60FF]'
+                  : 'border-transparent text-gray-600 hover:text-gray-900 hover:border-gray-300'
+              }`}
+            >
+              {tab === 'camera-roll' ? <Images className="w-4 h-4 flex-shrink-0" /> : <ImageIcon className="w-4 h-4 flex-shrink-0" />}
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {mediaTab === 'camera-roll' && (
+        <CameraRollPanel
+          onNext={(files) => {
+            cameraRollSession.startHandoff(files);
+            onCreateCampaignFromPhotos?.(files);
+          }}
+        />
+      )}
+
+      {/* The Media tab: the page as it was. Kept mounted while Camera Roll shows. */}
+      <div className={mediaTab === 'media' ? undefined : 'hidden'}>
       {/* Service Tabs - Moved to top */}
       {(connectedServices.length > 0 || isLoadingServices) && (
         <div className="w-full border-b border-gray-200 bg-white mb-0" style={{ maxWidth: '96vw', overflowX: 'clip' }}>
@@ -4565,6 +4624,7 @@ export default function MediaPage({
           )}
         </div>
       )}
+      </div>
       </div>
 
       {/* Mobile Sidebar Drawer */}

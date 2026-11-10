@@ -50,6 +50,7 @@ import { useNewsletterCount } from "../components/newsletters/hooks/useNewslette
 import { CAMPAIGNS_VIEW_OPTIONS, OPEN_NEWSLETTER_DRAFT_EVENT, OPEN_NEWSLETTER_RESULTS_EVENT, campaignsViewForPlan, readCampaignsView, takePendingNewsletterHighlight, takePendingNewsletterResults, writeCampaignsView, type CampaignsView } from "../components/newsletters/lib/campaignsView";
 import { campaignTypeForView, initialCampaignType, needsCategoryFirst, type CampaignType } from "../components/newsletters/lib/campaignType";
 import { useIsStarterPlan } from "../hooks/usePlan";
+import { cameraRollSession } from "../utils/cameraRoll";
 const imgSunnyBeach = 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=400&h=300&fit=crop';
 
 interface ApiMemory {
@@ -1180,6 +1181,8 @@ function MemoriesPageContent({
 
   const handleMemoryCreated = async () => {
     console.log('🎯 Memory created from memories page - triggering refresh');
+    // Made from the Media page's Camera Roll picks (Chris, 9 Nov 2026): they're done with.
+    if (cameraRollSession.isHandoff(photosForCreate)) cameraRollSession.clear();
     // A Storeel was created (Storeel flow v2): its Done lands on the Storeels list with the new campaign in it.
     setCampaignsView('storeels');
 
@@ -3491,7 +3494,12 @@ function MemoriesPageContent({
         open={showCreateMemory}
         onOpenChange={(open) => {
           if (open) setShowCreateMemory(true);
-          else closeCreateMemory();
+          else {
+            // Opened by the Media page's Camera Roll Next and closed without a campaign: back to the picks.
+            const backToCameraRoll = cameraRollSession.isHandoff(photosForCreate);
+            closeCreateMemory();
+            if (backToCameraRoll) { cameraRollSession.endHandoff(); onNavigate?.('media'); }
+          }
         }}
         newsletterId={editNewsletterId}
         initialPhotos={photosForCreate}
