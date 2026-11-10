@@ -26,6 +26,7 @@ import { dashboardAPI } from '../utils/authUtils';
 import { toast } from 'sonner';
 import { useAuth } from '../contexts/AuthContext';
 import { useMemoryLimit } from '../hooks/useMemoryLimit';
+import PartialAdminCampaignPicker, { fetchPickerCampaigns, fetchPickerCategories, PickerCampaign } from './PartialAdminCampaignPicker';
 
 interface Memory {
   id: string;
@@ -153,8 +154,12 @@ export default function InviteToMemoryModal({ isOpen, onClose, onInviteSuccess }
   const [isLoadingSuggestions, setIsLoadingSuggestions] = useState(false);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [selectedPartialMemories, setSelectedPartialMemories] = useState<Set<string>>(new Set());
-  const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set());
   const [availableCategories, setAvailableCategories] = useState<{ name: string; color: string }[]>([]);
+  // Every campaign of the account (GET /memories/campaign-picker) — the Partial Admin picker and the
+  // un-searched list both read it (Chris 10 Nov 2026: /existing-memories only gave the first 20).
+  const [pickerCampaigns, setPickerCampaigns] = useState<PickerCampaign[]>([]);
+  const [isLoadingPicker, setIsLoadingPicker] = useState(false);
+  const [listLimit, setListLimit] = useState(100);
 
   // Auto-switch from Admin/Partial Admin role if limit is exceeded
   useEffect(() => {
@@ -170,20 +175,9 @@ export default function InviteToMemoryModal({ isOpen, onClose, onInviteSuccess }
       fetchMemories(); // This will fetch all memories by default
       fetchRecentCollaborators();
       // Fetch categories
-      dashboardAPI.getUserCategories().then((res: any) => {
-        const responseData = res?.data?.data || res?.data;
-        const cats: any[] = responseData?.categories || responseData || [];
-        const items = (Array.isArray(cats) ? cats : [])
-          .filter((c: any) => {
-            const name = c.name || c;
-            return name && name !== 'Shared With' && name !== 'Published';
-          })
-          .map((c: any) => ({ name: c.name || c, color: c.color || '#6C60FF' }));
-        setAvailableCategories(items);
-      }).catch(() => {});
+      fetchPickerCategories().then(setAvailableCategories).catch(() => {});
     } else {
       setSelectedPartialMemories(new Set());
-      setExpandedCategories(new Set());
     }
   }, [isOpen]);
 
@@ -343,20 +337,26 @@ export default function InviteToMemoryModal({ isOpen, onClose, onInviteSuccess }
       image_count: memory.images_count || memory.image_count || memory.photos?.count || memory.images?.length || 0
     }));
 
-  // Fetch all memories using getExistingMemories (returns thumbnails via posts[0].image_link)
+  // Fetch ALL campaigns of the account (own + shared with it) for the list and the Partial Admin picker.
   const fetchMemories = useCallback(async () => {
     setIsSearching(true);
+    setIsLoadingPicker(true);
+    setListLimit(100);
     try {
-      const response = await dashboardAPI.getExistingMemories();
-      if (response.success && response.data) {
-        const raw = response.data.memories || response.data.data?.memories || response.data.data || response.data;
-        const memoriesData: any[] = Array.isArray(raw) ? raw : [];
-        setMemories(transformMemoriesData(memoriesData));
-      }
+      const all = await fetchPickerCampaigns();
+      setPickerCampaigns(all);
+      setMemories(all.map((m) => ({
+        id: m.id,
+        title: m.title,
+        category: m.category,
+        thumbnail: m.thumbnail || undefined,
+        image_count: m.imageCount,
+      })));
     } catch (error) {
       console.error('Error fetching memories:', error);
     } finally {
       setIsSearching(false);
+      setIsLoadingPicker(false);
     }
   }, []);
 
@@ -550,10 +550,6 @@ export default function InviteToMemoryModal({ isOpen, onClose, onInviteSuccess }
   };
 
   const handleSendInvite = async () => {
-    if (selectedRole === 'Partial Admin' && selectedPartialMemories.size === 0) {
-      toast.error('Please select at least one campaign');
-      return;
-    }
     if (selectedRole !== 'Admin' && selectedRole !== 'Partial Admin' && selectedMemories.length === 0) {
       toast.error('Please select at least one campaign');
       return;
@@ -648,7 +644,9 @@ export default function InviteToMemoryModal({ isOpen, onClose, onInviteSuccess }
         if (response.success) {
           const totalInvited = emails.length + phoneNumbers.length;
           toast.success(
-            `Successfully invited ${totalInvited} collaborator${totalInvited > 1 ? 's' : ''} with partial admin access to ${memoryIds.length} campaign${memoryIds.length > 1 ? 's' : ''}!`
+            memoryIds.length === 0
+              ? `Successfully invited ${totalInvited} collaborator${totalInvited > 1 ? 's' : ''} as Partial Admin (no campaigns yet)!`
+              : `Successfully invited ${totalInvited} collaborator${totalInvited > 1 ? 's' : ''} with partial admin access to ${memoryIds.length} campaign${memoryIds.length > 1 ? 's' : ''}!`
           );
           if (onInviteSuccess) onInviteSuccess();
           handleClose();
@@ -881,97 +879,17 @@ export default function InviteToMemoryModal({ isOpen, onClose, onInviteSuccess }
                   {selectedPartialMemories.size} selected
                 </span>
               </div>
-              {availableCategories.length === 0 ? (
-                <p className="text-xs text-gray-400">No categories available</p>
-              ) : (
-                <div className="space-y-2 max-h-[420px] overflow-y-auto pr-1">
-                  {availableCategories.map((cat) => {
-                    const catMemories = memories.filter(m => m.category === cat.name);
-                    const selectedInCat = catMemories.filter(m => selectedPartialMemories.has(m.id));
-                    const allSelected = catMemories.length > 0 && selectedInCat.length === catMemories.length;
-                    const someSelected = selectedInCat.length > 0 && !allSelected;
-                    const isExpanded = expandedCategories.has(cat.name);
-                    return (
-                      <div key={cat.name} className="border border-gray-200 rounded-lg overflow-hidden">
-                        {/* Category header row */}
-                        <div className={`flex items-center gap-2.5 px-3 py-2.5 transition-colors ${allSelected ? 'bg-[#6C60FF]/5' : someSelected ? 'bg-gray-50' : 'bg-white hover:bg-gray-50'}`}>
-                          {/* Expand/collapse chevron */}
-                          <button
-                            type="button"
-                            onClick={() => setExpandedCategories(prev => {
-                              const next = new Set(prev);
-                              if (next.has(cat.name)) next.delete(cat.name); else next.add(cat.name);
-                              return next;
-                            })}
-                            className="text-gray-400 hover:text-gray-600 flex-shrink-0"
-                          >
-                            {isExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
-                          </button>
-                          {/* Category checkbox */}
-                          <input
-                            type="checkbox"
-                            checked={allSelected}
-                            ref={(el) => { if (el) el.indeterminate = someSelected; }}
-                            onChange={() => {
-                              setSelectedPartialMemories(prev => {
-                                const next = new Set(prev);
-                                if (allSelected) {
-                                  catMemories.forEach(m => next.delete(m.id));
-                                } else {
-                                  catMemories.forEach(m => next.add(m.id));
-                                }
-                                return next;
-                              });
-                            }}
-                            className="w-4 h-4 rounded border-gray-300 accent-[#6C60FF] cursor-pointer flex-shrink-0"
-                          />
-                          <Folder className="w-4 h-4 flex-shrink-0" style={{ color: cat.color }} />
-                          <span className="text-sm font-medium text-gray-900 flex-1">{cat.name}</span>
-                          <span className="text-xs text-gray-500 flex-shrink-0">
-                            {selectedInCat.length}/{catMemories.length} {catMemories.length === 1 ? 'campaign' : 'campaigns'}
-                          </span>
-                        </div>
-                        {/* Memory list (expanded) */}
-                        {isExpanded && (
-                          <div className="border-t border-gray-100">
-                            {catMemories.length === 0 ? (
-                              <div className="px-10 py-3 text-xs text-gray-400 text-center">No campaigns in this category</div>
-                            ) : (
-                              <div className="divide-y divide-gray-50">
-                                {catMemories.map(memory => {
-                                  const isMemSelected = selectedPartialMemories.has(memory.id);
-                                  return (
-                                    <div
-                                      key={memory.id}
-                                      onClick={() => {
-                                        setSelectedPartialMemories(prev => {
-                                          const next = new Set(prev);
-                                          if (next.has(memory.id)) next.delete(memory.id); else next.add(memory.id);
-                                          return next;
-                                        });
-                                      }}
-                                      className={`flex items-center gap-3 pl-10 pr-3 py-2 cursor-pointer transition-colors ${isMemSelected ? 'bg-[#6C60FF]/5' : 'hover:bg-gray-50'}`}
-                                    >
-                                      <input
-                                        type="checkbox"
-                                        checked={isMemSelected}
-                                        onChange={() => {}}
-                                        className="w-4 h-4 rounded border-gray-300 accent-[#6C60FF] cursor-pointer flex-shrink-0 pointer-events-none"
-                                      />
-                                      <MemoryThumbnail thumbnail={memory.thumbnail} title={memory.title} profileImage={user?.profile_image} name={user?.name} size="sm" />
-                                      <span className="text-sm text-gray-800 flex-1 truncate">{memory.title}</span>
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
+              <PartialAdminCampaignPicker
+                campaigns={pickerCampaigns.filter(m => m.owned)}
+                categories={availableCategories}
+                selected={selectedPartialMemories}
+                onChange={setSelectedPartialMemories}
+                loading={isLoadingPicker}
+                maxHeightClass="max-h-[420px]"
+                renderThumb={(memory) => (
+                  <MemoryThumbnail thumbnail={memory.thumbnail || undefined} title={memory.title} profileImage={user?.profile_image} name={user?.name} size="sm" />
+                )}
+              />
             </div>
           )}
 
@@ -1050,7 +968,7 @@ export default function InviteToMemoryModal({ isOpen, onClose, onInviteSuccess }
                   </div>
                 </div>
               ) : (
-                filteredMemories.map((memory) => {
+                filteredMemories.slice(0, listLimit).map((memory) => {
                   const isSelected = selectedMemories.some(m => m.id === memory.id);
                   return (
                 <div
@@ -1084,6 +1002,15 @@ export default function InviteToMemoryModal({ isOpen, onClose, onInviteSuccess }
                 </div>
                   );
                 })
+              )}
+              {!isSearching && filteredMemories.length > listLimit && (
+                <button
+                  type="button"
+                  onClick={() => setListLimit(n => n + 100)}
+                  className="w-full py-2 text-xs font-medium text-[#6C60FF] hover:bg-gray-50 rounded-lg"
+                >
+                  Show {Math.min(100, filteredMemories.length - listLimit)} more of {filteredMemories.length - listLimit}
+                </button>
               )}
             </div>
           </div>
@@ -1384,7 +1311,6 @@ export default function InviteToMemoryModal({ isOpen, onClose, onInviteSuccess }
               onClick={handleSendInvite}
               disabled={
                 selectedCollaborators.length === 0 || isLoading ||
-                (selectedRole === 'Partial Admin' && selectedPartialMemories.size === 0) ||
                 (selectedRole !== 'Admin' && selectedRole !== 'Partial Admin' && selectedMemories.length === 0)
               }
               className="flex-1 h-10 bg-purple-600 hover:bg-purple-700 active:bg-purple-800 text-white text-sm font-medium shadow-sm hover:shadow-md transition-all disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-purple-300"

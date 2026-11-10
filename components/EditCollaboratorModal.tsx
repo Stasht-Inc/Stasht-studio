@@ -1,5 +1,6 @@
 ﻿import React, { useState, useEffect, useCallback } from 'react';
-import { X, User, Mail, Phone, Shield, Edit3, Eye, ChevronDown, ChevronRight, Folder } from 'lucide-react';
+import { createPortal } from 'react-dom';
+import { X, User, Mail, Phone, Shield, Edit3, Eye, Folder } from 'lucide-react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
@@ -10,6 +11,7 @@ import { Badge } from './ui/badge';
 import { toast } from 'sonner';
 import { dashboardAPI } from '../utils/authUtils';
 import { useAuth } from '../contexts/AuthContext';
+import PartialAdminCampaignPicker, { fetchPickerCampaigns, fetchPickerCategories, PickerCampaign, PickerCategory } from './PartialAdminCampaignPicker';
 
 // Thumbnail with profile-image fallback
 const MemoryThumb = ({ thumbnail, profileImage, title }: { thumbnail?: string | null; profileImage?: string | null; title: string }) => {
@@ -33,6 +35,7 @@ const MemoryThumb = ({ thumbnail, profileImage, title }: { thumbnail?: string | 
         src={src}
         alt={title}
         className="w-9 h-9 rounded-md object-cover flex-shrink-0 border border-gray-200"
+        loading="lazy"
         onError={handleError}
       />
     );
@@ -95,10 +98,10 @@ export default function EditCollaboratorModal({
   const [isLoading, setIsLoading] = useState(false);
   const [emailChanged, setEmailChanged] = useState(false);
   // Partial admin state
-  const [memories, setMemories] = useState<{ id: string; title: string; category: string; thumbnail?: string }[]>([]);
-  const [availableCategories, setAvailableCategories] = useState<{ name: string; color: string }[]>([]);
+  const [memories, setMemories] = useState<PickerCampaign[]>([]);
+  const [availableCategories, setAvailableCategories] = useState<PickerCategory[]>([]);
   const [selectedPartialMemories, setSelectedPartialMemories] = useState<Set<string>>(new Set());
-  const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set());
+  const [isLoadingCampaigns, setIsLoadingCampaigns] = useState(false);
 
   // Initialize form data when collaborator changes
   useEffect(() => {
@@ -111,7 +114,6 @@ export default function EditCollaboratorModal({
       setNotificationMessage('');
       setEmailChanged(false);
       setSelectedPartialMemories(new Set());
-      setExpandedCategories(new Set());
     }
   }, [collaborator]);
 
@@ -119,37 +121,19 @@ export default function EditCollaboratorModal({
   useEffect(() => {
     if (!isOpen) return;
 
-    // Fetch all memories
-    dashboardAPI.getExistingMemories().then((res: any) => {
-      const raw = res?.data?.memories || res?.data?.data?.memories || res?.data?.data || res?.data;
-      const list: any[] = Array.isArray(raw) ? raw : [];
-      setMemories(list.map((m: any) => ({
-        id: m.id?.toString() || m.memory_id?.toString(),
-        title: m.title || m.name || 'Untitled',
-        category: m.category?.name || m.category || 'Uncategorized',
-        thumbnail: m.last_update_img || m.cover_image || m.thumbnail || null,
-      })));
-    }).catch(() => {});
-
-    // Fetch categories
-    dashboardAPI.getUserCategories().then((res: any) => {
-      const responseData = res?.data?.data || res?.data;
-      const cats: any[] = responseData?.categories || responseData || [];
-      setAvailableCategories(
-        (Array.isArray(cats) ? cats : [])
-          .filter((c: any) => {
-            const name = c.name || c;
-            return name && name !== 'Shared With' && name !== 'Published';
-          })
-          .map((c: any) => ({ name: c.name || c, color: c.color || '#6C60FF' }))
-      );
-    }).catch(() => {});
+    // Every campaign of the account (only its own can be given to a Partial Admin) + its categories.
+    setIsLoadingCampaigns(true);
+    fetchPickerCampaigns()
+      .then((list) => setMemories(list.filter(m => m.owned)))
+      .catch(() => {})
+      .finally(() => setIsLoadingCampaigns(false));
+    fetchPickerCategories().then(setAvailableCategories).catch(() => {});
 
     // If user is already a partial admin, pre-select their assigned memories from the response
     const currentRole = (collaborator?.collaborator_role || collaborator?.role || '').toLowerCase();
     if (currentRole === 'partial_admin' && Array.isArray(collaborator?.memories) && collaborator.memories.length > 0) {
       const preSelected = new Set<string>(
-        collaborator.memories.map((m) => m.memory_id?.toString()).filter(Boolean)
+        collaborator.memories.map((m) => m.memory_id?.toString()).filter((id): id is string => !!id && id !== '0')
       );
       setSelectedPartialMemories(preSelected);
     }
@@ -223,8 +207,10 @@ export default function EditCollaboratorModal({
 
   if (!isOpen || !collaborator) return null;
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-gray-900 bg-opacity-50">
+  // Portalled to <body> at z-[55]: inside the page it sat under the phone bottom nav (z-50), which hid
+  // Save Changes at 390 px; the role list opens above it (z-[60]).
+  return createPortal(
+    <div className="fixed inset-0 z-[55] flex items-center justify-center p-4 bg-gray-900 bg-opacity-50">
       <div className="bg-white rounded-lg shadow-xl border border-gray-200 w-full max-w-md max-h-[90vh] overflow-y-auto">
         {/* Header */}
         <div className="flex items-center justify-between p-6 border-b border-gray-200 rounded-t-lg">
@@ -412,97 +398,16 @@ export default function EditCollaboratorModal({
                   {selectedPartialMemories.size} selected
                 </span>
               </div>
-              {availableCategories.length === 0 ? (
-                <p className="text-xs text-gray-400">No categories available</p>
-              ) : (
-                <div className="space-y-2 max-h-[280px] overflow-y-auto pr-1">
-                  {availableCategories.map((cat) => {
-                    const catMemories = memories.filter(m => m.category === cat.name);
-                    const selectedInCat = catMemories.filter(m => selectedPartialMemories.has(m.id));
-                    const allSelected = catMemories.length > 0 && selectedInCat.length === catMemories.length;
-                    const someSelected = selectedInCat.length > 0 && !allSelected;
-                    const isCatExpanded = expandedCategories.has(cat.name);
-                    return (
-                      <div key={cat.name} className="border border-gray-200 rounded-lg overflow-hidden">
-                        <div className={`flex items-center gap-2.5 px-3 py-2.5 transition-colors ${allSelected ? 'bg-[#6C60FF]/5' : someSelected ? 'bg-gray-50' : 'bg-white hover:bg-gray-50'}`}>
-                          <button
-                            type="button"
-                            onClick={() => setExpandedCategories(prev => {
-                              const next = new Set(prev);
-                              if (next.has(cat.name)) next.delete(cat.name); else next.add(cat.name);
-                              return next;
-                            })}
-                            className="text-gray-400 hover:text-gray-600 flex-shrink-0"
-                          >
-                            {isCatExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
-                          </button>
-                          <input
-                            type="checkbox"
-                            checked={allSelected}
-                            ref={(el) => { if (el) el.indeterminate = someSelected; }}
-                            onChange={() => {
-                              setSelectedPartialMemories(prev => {
-                                const next = new Set(prev);
-                                if (allSelected) {
-                                  catMemories.forEach(m => next.delete(m.id));
-                                } else {
-                                  catMemories.forEach(m => next.add(m.id));
-                                }
-                                return next;
-                              });
-                            }}
-                            className="w-4 h-4 rounded border-gray-300 accent-[#6C60FF] cursor-pointer flex-shrink-0"
-                          />
-                          <Folder className="w-4 h-4 flex-shrink-0" style={{ color: cat.color }} />
-                          <span className="text-sm font-medium text-gray-900 flex-1">{cat.name}</span>
-                          <span className="text-xs text-gray-500 flex-shrink-0">
-                            {selectedInCat.length}/{catMemories.length} {catMemories.length === 1 ? 'campaign' : 'campaigns'}
-                          </span>
-                        </div>
-                        {isCatExpanded && (
-                          <div className="border-t border-gray-100">
-                            {catMemories.length === 0 ? (
-                              <div className="px-10 py-3 text-xs text-gray-400 text-center">No campaigns in this category</div>
-                            ) : (
-                              <div className="divide-y divide-gray-50">
-                                {catMemories.map(memory => {
-                                  const isMemSelected = selectedPartialMemories.has(memory.id);
-                                  return (
-                                    <div
-                                      key={memory.id}
-                                      onClick={() => {
-                                        setSelectedPartialMemories(prev => {
-                                          const next = new Set(prev);
-                                          if (next.has(memory.id)) next.delete(memory.id); else next.add(memory.id);
-                                          return next;
-                                        });
-                                      }}
-                                      className={`flex items-center gap-3 pl-10 pr-3 py-2 cursor-pointer transition-colors ${isMemSelected ? 'bg-[#6C60FF]/5' : 'hover:bg-gray-50'}`}
-                                    >
-                                      <input
-                                        type="checkbox"
-                                        checked={isMemSelected}
-                                        onChange={() => {}}
-                                        className="w-4 h-4 rounded border-gray-300 accent-[#6C60FF] cursor-pointer flex-shrink-0 pointer-events-none"
-                                      />
-                                      <MemoryThumb
-                                        thumbnail={memory.thumbnail}
-                                        profileImage={user?.avatar}
-                                        title={memory.title}
-                                      />
-                                      <span className="text-sm text-gray-800 flex-1 truncate">{memory.title}</span>
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
+              <PartialAdminCampaignPicker
+                campaigns={memories}
+                categories={availableCategories}
+                selected={selectedPartialMemories}
+                onChange={setSelectedPartialMemories}
+                loading={isLoadingCampaigns}
+                renderThumb={(memory) => (
+                  <MemoryThumb thumbnail={memory.thumbnail} profileImage={user?.avatar} title={memory.title} />
+                )}
+              />
             </div>
           )}
 
@@ -538,7 +443,7 @@ export default function EditCollaboratorModal({
           </Button>
           <Button
             onClick={handleSave}
-            disabled={isLoading || !selectedRole || (selectedRole === 'partial_admin' && selectedPartialMemories.size === 0)}
+            disabled={isLoading || !selectedRole}
             className="bg-[#6C60FF] hover:bg-[#5A4FE5] text-white flex items-center gap-2"
           >
             {isLoading ? (
@@ -555,6 +460,7 @@ export default function EditCollaboratorModal({
           </Button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

@@ -2088,6 +2088,12 @@ export const dashboardAPI = {
     }
   },
 
+  // Every campaign of the account for the Users-tab pickers (Partial Admin / Invite to Campaign) —
+  // all categories incl. car/Shopify campaigns, published or not, not paged (Chris 10 Nov 2026).
+  getCampaignPicker: async (): Promise<ApiResponse<any>> => {
+    return await apiRequest('/memories/campaign-picker', { method: 'GET' });
+  },
+
   // Get transferable memories for property transfer
   getTransferableMemories: async (): Promise<ApiResponse<any>> => {
     devLog('🔄 DEBUG: Calling /memories/transferable API');
@@ -3438,7 +3444,8 @@ export const dashboardAPI = {
       role: role,
       collaborator_type: collaboratorType
     };
-    if (memoryIds && memoryIds.length > 0) {
+    // Partial Admin may have no campaigns (leads-only), so an empty list is sent as-is.
+    if (memoryIds) {
       body.memory_ids = memoryIds;
     }
     if (phoneNumber) {
