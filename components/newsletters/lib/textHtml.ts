@@ -23,7 +23,21 @@ export type TextNode =
   /** A font size and/or a font family (Chris, 6 Nov; no key: none). px: the size STYLE, named by its usual px (14 Small,
    *  16 Normal, 20 Large, 24 X-Large; null: none). Chris, 7 Nov: it is written <span data-size="large"> and drawn at the
    *  newsletter's own px for that style (lib/typeScale.ts). */
-  | { kind: 'size'; px: number | null; font?: FontKey; children: TextNode[] };
+  | { kind: 'size'; px: number | null; font?: FontKey; color?: string; children: TextNode[] };
+  // color (Chris, 10 Nov): a Text colour on the selected words only, '#RRGGBB' (written style="color:#RRGGBB").
+
+/**
+ * A style attribute's text colour when it is a plain hex colour (#RGB or #RRGGBB), as '#RRGGBB' upper case; else null
+ * (the API's NewsletterHtmlSanitizer::color). rgb() is not read: the browser copies the editor's own computed colour
+ * that way when it joins two paragraphs, which is not a colour the person picked (Studio's spans carry data-color).
+ */
+export function styleColor(style: string | null | undefined): string | null {
+  for (const declaration of String(style ?? '').split(';')) {
+    const m = /^\s*color\s*:\s*#([0-9a-f]{3}|[0-9a-f]{6})\s*$/i.exec(declaration);
+    if (m) return `#${m[1].length === 3 ? m[1].split('').map((c) => c + c).join('') : m[1]}`.toUpperCase();
+  }
+  return null;
+}
 
 /** The toolbar's font sizes in px (lib/sectionStyle.ts TEXT_SIZES; the API's NewsletterHtmlSanitizer::FONT_SIZES). */
 export const FONT_SIZE_PX: readonly number[] = [14, 16, 20, 24];
@@ -152,8 +166,10 @@ export function parseTextHtml(html: string | null | undefined): TextNode[] {
       const named = attrValue(attrs, 'data-size');
       const px = named !== null && (TYPE_STYLES as readonly string[]).includes(named) ? USUAL_SCALE[named as keyof typeof USUAL_SCALE] : styleFontSize(style);
       const font = styleFontFamily(style);
-      if (px !== null || font !== null) {
-        const node: Extract<TextNode, { kind: 'size' }> = { kind: 'size', px, ...(font ? { font } : {}), children: [] };
+      // The editor's own spans carry data-color (the browser rewrites their style colour as rgb()).
+      const color = styleColor(`color:${attrValue(attrs, 'data-color') ?? ''}`) ?? styleColor(style);
+      if (px !== null || font !== null || color !== null) {
+        const node: Extract<TextNode, { kind: 'size' }> = { kind: 'size', px, ...(font ? { font } : {}), ...(color ? { color } : {}), children: [] };
         top().push(node);
         stack.push({ tag: 'span', children: node.children });
       } else {
@@ -182,7 +198,7 @@ function serializeNode(n: TextNode): string {
   if (n.kind === 'a') return `<a href="${esc(n.href)}">${n.children.map(serializeNode).join('')}</a>`;
   if (n.kind === 'size') {
     const inner = n.children.map(serializeNode).join('');
-    const open = spanOpen(n.px, n.font ?? null);
+    const open = spanOpen(n.px, n.font ?? null, n.color ?? null);
     return inner === '' || !open ? inner : `${open}${inner}</span>`;
   }
   return `<${n.tag}>${n.children.map(serializeNode).join('')}</${n.tag}>`;
@@ -194,9 +210,10 @@ function serializeNode(n: TextNode): string {
  * usual px (review I3): an older reader (a stale first load after a deploy, the app's editor) still keeps the size;
  * what it draws comes from the newsletter's scale, and data-size wins when read back.
  */
-export function spanOpen(px: number | null, font: FontKey | null): string | null {
+export function spanOpen(px: number | null, font: FontKey | null, color: string | null = null): string | null {
   const size = styleOfPx(px);
-  const decl = [size ? `font-size:${USUAL_SCALE[size]}px` : null, font ? `font-family:${fontStack(font)}` : null].filter(Boolean);
+  const ink = styleColor(`color:${color ?? ''}`);
+  const decl = [size ? `font-size:${USUAL_SCALE[size]}px` : null, font ? `font-family:${fontStack(font)}` : null, ink ? `color:${ink}` : null].filter(Boolean);
   if (!decl.length) return null;
   return `<span${size ? ` data-size="${size}"` : ''} style="${decl.join(';')}">`;
 }
@@ -285,13 +302,14 @@ export function editorHtml(raw: string): string {
   return textHtmlIsEmpty(html) ? '' : html;
 }
 
-/** A run of words' size and font (null: none). */
-interface RunStyle { px: number | null; font: FontKey | null }
-const NO_STYLE: RunStyle = { px: null, font: null };
-const styleKey = (st: RunStyle): string => `${st.px ?? ''}|${st.font ?? ''}`;
+/** A run of words' size, font and colour (null: none). */
+interface RunStyle { px: number | null; font: FontKey | null; color: string | null }
+const NO_STYLE: RunStyle = { px: null, font: null, color: null };
+const styleKey = (st: RunStyle): string => `${st.px ?? ''}|${st.font ?? ''}|${st.color ?? ''}`;
 const NO_STYLE_KEY = styleKey(NO_STYLE);
-const styledText = (text: string, st: RunStyle): TextNode => (st.px === null && st.font === null ? { kind: 'text', text }
-  : { kind: 'size', px: st.px, ...(st.font ? { font: st.font } : {}), children: [{ kind: 'text', text }] });
+const sizeNode = (st: RunStyle, children: TextNode[]): TextNode => ({ kind: 'size', px: st.px, ...(st.font ? { font: st.font } : {}), ...(st.color ? { color: st.color } : {}), children });
+const styledText = (text: string, st: RunStyle): TextNode => (st.px === null && st.font === null && st.color === null ? { kind: 'text', text }
+  : sizeNode(st, [{ kind: 'text', text }]));
 
 /**
  * A font size or font family on the text model (review, 5 Nov: no execCommand / <font>, so nothing escapes the editor's
@@ -301,16 +319,17 @@ const styledText = (text: string, st: RunStyle): TextNode => (st.px === null && 
  * are then put back as few spans as possible, only ever around words and inline formatting, never around a paragraph,
  * list or item.
  */
-export function restyleTextNodes(nodes: TextNode[], patch: { px?: number | null; font?: FontKey | null }, range: { start: number; end: number } | null): TextNode[] {
+export function restyleTextNodes(nodes: TextNode[], patch: { px?: number | null; font?: FontKey | null; color?: string | null }, range: { start: number; end: number } | null): TextNode[] {
   const apply = (st: RunStyle): RunStyle => ({
     px: 'px' in patch ? (patch.px === 16 ? null : patch.px ?? null) : st.px,
     font: 'font' in patch ? patch.font ?? null : st.font,
+    color: 'color' in patch ? styleColor(`color:${patch.color ?? ''}`) : st.color,
   });
   const pos = { n: 0 };
   const flatten = (list: TextNode[], inherited: RunStyle): TextNode[] => list.flatMap((node): TextNode[] => {
     if (node.kind === 'br') return [node];
     if (node.kind === 'size') {
-      return flatten(node.children, { px: node.px === null ? inherited.px : node.px === 16 ? null : node.px, font: node.font ?? inherited.font });
+      return flatten(node.children, { px: node.px === null ? inherited.px : node.px === 16 ? null : node.px, font: node.font ?? inherited.font, color: node.color ?? inherited.color });
     }
     if (node.kind !== 'text') return [{ ...node, children: flatten(node.children, inherited) }];
     const start = pos.n;
@@ -339,23 +358,35 @@ export function fontTextNodes(nodes: TextNode[], font: FontKey | null, range: { 
   return restyleTextNodes(nodes, { font }, range);
 }
 
+/**
+ * A text colour (Chris, 10 Nov; null: Automatic, the section's colour) on the selected words only, inline like Bold.
+ * range null: every word (the toolbar uses the section's colour for that instead).
+ */
+export function colorTextNodes(nodes: TextNode[], color: string | null, range: { start: number; end: number } | null): TextNode[] {
+  return restyleTextNodes(nodes, { color }, range);
+}
+
+export function colorTextHtml(html: string, color: string | null, range: { start: number; end: number } | null): string {
+  return serializeTextNodes(colorTextNodes(parseTextHtml(html), color, range));
+}
+
 export function fontTextHtml(html: string, font: FontKey | null, range: { start: number; end: number } | null): string {
   return serializeTextNodes(fontTextNodes(parseTextHtml(html), font, range));
 }
 
-interface TextContext { px: number | null; font: FontKey | null; bold: boolean; italic: boolean; link: boolean; anchor: TextNode | null }
+interface TextContext { px: number | null; font: FontKey | null; color: string | null; bold: boolean; italic: boolean; link: boolean; anchor: TextNode | null }
 /** Every text node with its offset and what it sits in. */
 function eachText(nodes: TextNode[], visit: (text: string, from: number, ctx: TextContext) => void): void {
   let n = 0;
   const walk = (list: TextNode[], ctx: TextContext) => {
     for (const node of list) {
       if (node.kind === 'text') { visit(node.text, n, ctx); n += node.text.length; }
-      else if (node.kind === 'size') walk(node.children, { ...ctx, px: node.px ?? ctx.px, font: node.font ?? ctx.font });
+      else if (node.kind === 'size') walk(node.children, { ...ctx, px: node.px ?? ctx.px, font: node.font ?? ctx.font, color: node.color ?? ctx.color });
       else if (node.kind === 'a') walk(node.children, { ...ctx, link: true, anchor: node });
       else if (node.kind === 'el') walk(node.children, { ...ctx, bold: ctx.bold || node.tag === 'strong', italic: ctx.italic || node.tag === 'em' });
     }
   };
-  walk(nodes, { px: null, font: null, bold: false, italic: false, link: false, anchor: null });
+  walk(nodes, { px: null, font: null, color: null, bold: false, italic: false, link: false, anchor: null });
 }
 
 /** What the character at index `at` sits in, or null when there is none. */
@@ -382,6 +413,19 @@ export function sizeAtOffset(nodes: TextNode[], chars: number): number | null {
 /** The font where the caret (or a selection's start) is: what the Font button shows. */
 export function fontAt(nodes: TextNode[], chars: number): FontKey | null {
   return contextAt(nodes, chars)?.font ?? null;
+}
+
+/**
+ * The inline colour of the words [start, end) when they all have the same one, else null (Automatic, or mixed): what
+ * the Text colour button shows for a selection.
+ */
+export function colorAt(nodes: TextNode[], start: number, end: number): string | null {
+  let found: string | null | undefined;
+  eachText(nodes, (text, from, ctx) => {
+    if (!text || from + text.length <= start || from >= end) return;
+    found = found === undefined || found === ctx.color ? ctx.color : null;
+  });
+  return found ?? null;
 }
 
 /**
@@ -416,7 +460,7 @@ const isBlock = (n: TextNode) => n.kind === 'el' && (n.tag === 'p' || n.tag === 
 function uniformSize(n: TextNode): Uniform {
   if (n.kind === 'text') return NO_STYLE_KEY;
   if (n.kind === 'br') return 'any';
-  if (n.kind === 'size') return styleKey({ px: n.px, font: n.font ?? null });
+  if (n.kind === 'size') return styleKey({ px: n.px, font: n.font ?? null, color: n.color ?? null });
   const seen = new Set<string>();
   for (const c of n.children) {
     const u = uniformSize(c);
@@ -444,8 +488,8 @@ function mergeTexts(list: TextNode[]): TextNode[] {
 
 /** The style a key stands for (styleKey). */
 function styleOfKey(key: string): RunStyle {
-  const [px, font] = key.split('|');
-  return { px: px ? Number(px) : null, font: (font || null) as FontKey | null };
+  const [px, font, color] = key.split('|');
+  return { px: px ? Number(px) : null, font: (font || null) as FontKey | null, color: color || null };
 }
 
 /** Runs of neighbours with one size and font become one span around them; mixed inline elements are opened up. */
@@ -457,8 +501,7 @@ function groupSizes(list: TextNode[]): TextNode[] {
     if (!run.length) return;
     const flat = mergeTexts(run.flatMap(stripSizes));
     if (runPx !== undefined && runPx !== NO_STYLE_KEY) {
-      const st = styleOfKey(runPx);
-      out.push({ kind: 'size', px: st.px, ...(st.font ? { font: st.font } : {}), children: flat });
+      out.push(sizeNode(styleOfKey(runPx), flat));
     } else out.push(...flat);
     run = [];
     runPx = undefined;
