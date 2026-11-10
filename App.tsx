@@ -1524,6 +1524,17 @@ function MainApp() {
     const pathname = window.location.pathname;
     console.log('🔍 Initial URL pathname detection:', pathname);
 
+    // A lead link opened while signed out (the lead email's "Open conversation") was kept through sign-in (below):
+    // open that lead now, switching into its account when needed (LeadsTab, utils/leadLink).
+    const keptLeadLink = Number(sessionStorage.getItem('pending_lead_link'));
+    if (keptLeadLink > 0 && localStorage.getItem('stasht_token')) {
+      sessionStorage.removeItem('pending_lead_link');
+      handleNavigation('leads');
+      setPendingLeadId(keptLeadLink);
+      window.history.replaceState({}, '', '/leads');
+      return;
+    }
+
     // Only set initial page if we're on a recognized route
     // This runs ONCE on mount to sync URL with currentPage state
     if (pathname === '/media' || pathname.startsWith('/media/')) {
@@ -1602,6 +1613,8 @@ function MainApp() {
       const leadParam = Number(new URLSearchParams(window.location.search).get('lead'));
       handleNavigation('leads');
       if (leadParam > 0) {
+        // Signed out: keep it for after sign-in (the sign-in page reloads the app).
+        if (!localStorage.getItem('stasht_token')) sessionStorage.setItem('pending_lead_link', String(leadParam));
         setPendingLeadId(leadParam);
         window.history.replaceState({}, '', '/leads');
       }

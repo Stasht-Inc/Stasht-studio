@@ -1,4 +1,5 @@
 import { apiRequest, isPartialAdmin, getPartialAdminEmail } from '../utils/authUtils';
+import type { LeadLocation } from '../utils/leadLink';
 import { leadViaText } from '../utils/leadVia';
 
 // Fail closed: a session flagged as partial-admin with no email on record is
@@ -344,6 +345,12 @@ export const leadsAPI = {
 
   // Lead assignment (spec 2026-09-23). accept → 409 {message, taken_by} when
   // another teammate got there first; apiRequest surfaces that as success:false.
+  // Where a lead lives and whether the person signed in may switch into its account (web API 10 Nov 2026,
+  // utils/leadLink): used when a lead link opens a lead that isn't in this account's list.
+  locateLead: async (leadId: number) => {
+    return apiRequest<LeadLocation>(`/leads/${leadId}/locate`, { method: 'GET' });
+  },
+
   acceptLead: async (leadId: number) => {
     return apiRequest<{ lead_id: number; assignee: LeadAssignee | null; taken_by?: LeadAssignee; message?: string }>(
       `/leads/${leadId}/accept`, { method: 'POST' },
