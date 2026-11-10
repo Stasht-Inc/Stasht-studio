@@ -194,3 +194,21 @@ test('a sign-out / sign-in without a reload (ACCOUNT_STATE_CLEARED_EVENT) clears
   cameraRollSession.clear();
   assert.equal(told, 1, 'unsubscribed');
 });
+
+test('storage that throws (private mode, blocked site data) never breaks it: Take a Photo still works, nothing opens on Media', () => {
+  const saved = globalThis.sessionStorage;
+  const boom = () => { throw new Error('SecurityError'); };
+  globalThis.sessionStorage = { getItem: boom, setItem: boom, removeItem: boom, clear: boom };
+  try {
+    assert.doesNotThrow(() => cameraRollSession.openMediaTabNext());
+    assert.equal(cameraRollSession.peekOpenMediaTab(), false);
+    assert.equal(cameraRollSession.takeOpenMediaTab(), false);
+    let calls = 0;
+    const stop = cameraRollSession.onOpenMediaTab(() => { calls++; });
+    cameraRollSession.openMediaTabNext();
+    assert.equal(calls, 1, 'an open Media page still switches');
+    stop();
+  } finally {
+    globalThis.sessionStorage = saved;
+  }
+});

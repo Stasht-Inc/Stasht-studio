@@ -80,8 +80,15 @@ export const OPEN_MEDIA_TAB_KEY = 'stasht_open_media_tab';
 /** Set by every "service connected / photos imported" flow before it opens /media (read and removed by MediaPage). */
 const SERVICE_JUST_CONNECTED_KEY = 'service_just_connected';
 
-function tabStorage(): Pick<Storage, 'getItem' | 'setItem' | 'removeItem'> | null {
-  try { return typeof sessionStorage !== 'undefined' ? sessionStorage : null; } catch { return null; }
+// sessionStorage can be missing or throw (private mode, blocked site data): never let that break anything.
+function storageGet(key: string): string | null {
+  try { return typeof sessionStorage !== 'undefined' ? sessionStorage.getItem(key) : null; } catch { return null; }
+}
+function storageSet(key: string, value: string): void {
+  try { if (typeof sessionStorage !== 'undefined') sessionStorage.setItem(key, value); } catch { /* not kept */ }
+}
+function storageRemove(key: string): void {
+  try { if (typeof sessionStorage !== 'undefined') sessionStorage.removeItem(key); } catch { /* nothing to do */ }
 }
 
 // Kept outside the page so the picks survive opening Create campaign (the Media page closes while it's open) and
@@ -117,17 +124,14 @@ export const cameraRollSession = {
   /** Show the Media tab: an open Media page switches now; otherwise the next one opens on it (even after a reload). */
   openMediaTabNext: (): void => {
     if (openMediaTabListeners.size) openMediaTabListeners.forEach((fn) => fn());
-    else tabStorage()?.setItem(OPEN_MEDIA_TAB_KEY, '1');
+    else storageSet(OPEN_MEDIA_TAB_KEY, '1');
   },
   /** Should the Media page open on Media? Doesn't consume anything (safe in a state initializer). */
-  peekOpenMediaTab: (): boolean => {
-    const st = tabStorage();
-    return Boolean(st && (st.getItem(OPEN_MEDIA_TAB_KEY) === '1' || st.getItem(SERVICE_JUST_CONNECTED_KEY)));
-  },
+  peekOpenMediaTab: (): boolean => storageGet(OPEN_MEDIA_TAB_KEY) === '1' || Boolean(storageGet(SERVICE_JUST_CONNECTED_KEY)),
   /** As peek, and uses up the one-shot key (service_just_connected is left for MediaPage's OAuth-return handling). */
   takeOpenMediaTab: (): boolean => {
     const open = cameraRollSession.peekOpenMediaTab();
-    tabStorage()?.removeItem(OPEN_MEDIA_TAB_KEY);
+    storageRemove(OPEN_MEDIA_TAB_KEY);
     return open;
   },
   onOpenMediaTab: (fn: () => void): (() => void) => {

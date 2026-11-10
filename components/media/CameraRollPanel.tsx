@@ -2,7 +2,7 @@
 // phone's own photo picker (on a computer, the file chooser). The photos picked show here, selected, on this device
 // only: nothing is uploaded or saved. Tap a photo to (de)select it; the bar on top counts them and Next opens Create
 // campaign with them in Add a Moment, where they're uploaded.
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Images, Plus } from "lucide-react";
 import { Button } from "../ui/button";
 import {
@@ -52,13 +52,12 @@ export function CameraRollPanel({ account, onNext }: CameraRollPanelProps) {
     setBroken(new Set());
   }), []);
 
-  // Thumbnails: one object URL per photo, freed when it's removed or the tab closes. Made at once for picks already
-  // there (coming back from Create), so their names don't flash before the photos.
-  const urlsRef = useRef<Map<string, string> | null>(null);
-  if (urlsRef.current === null) urlsRef.current = new Map(picks.map((p) => [p.key, URL.createObjectURL(p.file)] as [string, string]));
-  const [urls, setUrls] = useState<Record<string, string>>(() => Object.fromEntries(urlsRef.current ?? []));
-  useEffect(() => {
-    const map = urlsRef.current ?? (urlsRef.current = new Map());
+  // Thumbnails: one object URL per photo, freed when it's removed or the tab closes. Made in a layout effect (never
+  // during render, so StrictMode can't leak any), which runs before the first paint: no file-name flash on return.
+  const urlsRef = useRef<Map<string, string>>(new Map());
+  const [urls, setUrls] = useState<Record<string, string>>({});
+  useLayoutEffect(() => {
+    const map = urlsRef.current;
     const keys = new Set(picks.map((p) => p.key));
     let changed = false;
     for (const p of picks) {
@@ -69,9 +68,9 @@ export function CameraRollPanel({ account, onNext }: CameraRollPanelProps) {
     }
     if (changed) setUrls(Object.fromEntries(map));
   }, [picks]);
-  useEffect(() => () => {
-    urlsRef.current?.forEach((url) => URL.revokeObjectURL(url));
-    urlsRef.current?.clear();
+  useLayoutEffect(() => () => {
+    urlsRef.current.forEach((url) => URL.revokeObjectURL(url));
+    urlsRef.current.clear();
   }, []);
 
   const openPicker = () => inputRef.current?.click();
