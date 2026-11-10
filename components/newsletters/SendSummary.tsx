@@ -1,6 +1,8 @@
 import type { AudienceCount, NewsletterChannel } from '../../services/newslettersAPI';
 import { peopleCount } from './lib/audience';
 import { LINK_BUTTON } from './lib/ui';
+import useCanSelfUpgrade from '../../hooks/useCanSelfUpgrade';
+import { CONTACT_SALES_URL } from '../../utils/effectivePlan';
 
 /** The confirm dialogs' "Email · N people" / "Text message · N people · P parts each" rows (newsletter Send and the
  *  Storeel flow's Send now). */
@@ -23,7 +25,8 @@ export function SendCountRows({ channels, counts, countsLoading = false, smsPart
 }
 
 /** Said right at the Send button: why it is off, or what won't go out. Amber (with See plans) when it is the plan's
- *  monthly allowance. */
+ *  monthly allowance. An account that can't buy a bigger plan itself (Enterprise, set in the Admin Portal) gets
+ *  "Contact sales" instead (Chris / Royal Wood, 10 Nov 2026). */
 export function SendNote({ id, text, alert, amber, onSeePlans }: {
   id: string;
   text: string;
@@ -31,11 +34,15 @@ export function SendNote({ id, text, alert, amber, onSeePlans }: {
   amber: boolean;
   onSeePlans?(): void;
 }) {
+  const canUpgrade = useCanSelfUpgrade();
   return (
     <div id={id} role={alert ? 'alert' : 'status'}
       className={`flex basis-full flex-wrap items-center justify-between gap-x-3 gap-y-1 rounded-lg px-3 py-2 text-sm ${amber ? 'bg-amber-50 text-amber-800' : 'bg-gray-50 text-gray-700'}`}>
       <p className="min-w-0 flex-1 basis-56">{text}</p>
-      {amber && onSeePlans ? <button type="button" onClick={onSeePlans} className={`${LINK_BUTTON} whitespace-nowrap`}>See plans</button> : null}
+      {amber && onSeePlans && canUpgrade ? <button type="button" onClick={onSeePlans} className={`${LINK_BUTTON} whitespace-nowrap`}>See plans</button> : null}
+      {amber && onSeePlans && !canUpgrade ? (
+        <a href={CONTACT_SALES_URL} target="_blank" rel="noopener noreferrer" className={`${LINK_BUTTON} whitespace-nowrap`} data-name="SendNoteContactSales">Contact sales</a>
+      ) : null}
     </div>
   );
 }
