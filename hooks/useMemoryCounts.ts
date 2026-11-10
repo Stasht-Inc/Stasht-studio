@@ -136,6 +136,10 @@ const memoryCountsManager = {
       if (globalWebsiteCatalogueCount !== 0) { globalWebsiteCatalogueCount = 0; memoryCountsManager.notify(); }
       return;
     }
+    // No answer (network or server error): whether the switch is on is unknown, so the website products are not counted
+    // yet (for a pilot account they would inflate Campaigns) and a later call tries again. Only an API without Products
+    // (404) counts them as before (Task 16, T15 review minor).
+    if (!products || (!products.ok && products.status !== 404)) { websiteCatalogueLoaded = false; return; }
     try {
       const status = await catalogueAPI.getStatus();
       if (asked !== inventoryViewRun()) return;

@@ -1,5 +1,5 @@
 // tests/products/ui/products-page.mjs — Products M2 in the real app, every API call answered here (nothing leaves this
-// machine). Blocks: nav (Task 12), grid (13), editor (14), campaigns (15). Run one: PR_ONLY=nav node tests/products/ui/products-page.mjs
+// machine). Blocks: nav (Task 12), grid (13), editor (14), campaigns (15; Task 16 adds failed-status). Run one: PR_ONLY=nav node tests/products/ui/products-page.mjs
 // Needs the dev server: PR_BASE (default http://localhost:5341). Screenshots: PR_SHOTS.
 import { mkdirSync } from 'fs';
 import pw from '/Users/deepaksharma/.nvm/versions/node/v24.5.0/lib/node_modules/@executeautomation/playwright-mcp-server/node_modules/playwright-core/index.js';
@@ -102,6 +102,8 @@ async function open(w, { width, height, path = '/products', view = 'personal', p
     let body = null;
     try { body = req.postData() ? JSON.parse(req.postData()) : null; } catch { body = null; }
     w.calls.push({ m, p, q: url.search, body, view: req.headers()['x-stasht-property'] || null });
+    // w.statusMode (Task 16): 'fail' = the status route errors (500).
+    if (p === '/products/status' && w.statusMode === 'fail') return route.fulfill({ status: 500, json: { success: false, message: 'Server Error' } });
     if (p === '/products/status') return route.fulfill({ json: { success: true, data: statusOf(w) } });
     if (p === '/products' && m === 'GET') {
       if (!w.pilot || w.reason) return route.fulfill({ status: 403, json: { success: false, code: w.reason || 'not_available', message: 'x' } });
@@ -731,6 +733,31 @@ try {
       if (width >= 768) expect(await b.page.getByRole('button', { name: /^Campaigns\s*5$/ }).filter({ visible: true }).count() > 0, `${tag}: switch off → sidebar Campaigns 5 (as today)`);
       await b.page.screenshot({ path: `${OUT}/${tag}-02-switch-off.png` });
       await b.context.close();
+
+      // The status route failing never counts the website products into Campaigns for a pilot account …
+      const failOn = world({ statusMode: 'fail' });
+      const f1 = await open(failOn, { width, height, path: '/memories' });
+      await f1.page.waitForTimeout(3000);
+      if (width >= 768) {
+        expect(await f1.page.getByRole('button', { name: /^Campaigns\s*4$/ }).filter({ visible: true }).count() > 0, `${tag}: status failed (pilot) → sidebar Campaigns 4, not inflated`);
+      }
+      await f1.page.screenshot({ path: `${OUT}/${tag}-04-status-failed-pilot.png` });
+      await f1.context.close();
+
+      // … and once it answers, a later count (another counter mounting: the Users page) is right again.
+      if (width >= 768) {
+        const failOff = world({ pilot: false, statusMode: 'fail' });
+        const f2 = await open(failOff, { width, height, path: '/memories' });
+        await f2.page.waitForTimeout(3000);
+        expect(await f2.page.getByRole('button', { name: /^Campaigns\s*4$/ }).filter({ visible: true }).count() > 0, `${tag}: status failed (switch off) → website products not counted yet`);
+        failOff.statusMode = null;
+        await f2.page.getByRole('button', { name: /^Users/ }).filter({ visible: true }).first().click();
+        await f2.page.waitForTimeout(3000);
+        expect(await f2.page.getByRole('button', { name: /^Campaigns\s*5$/ }).filter({ visible: true }).count() > 0, `${tag}: … the status answers later → Campaigns 5 (as today)`);
+        await f2.page.screenshot({ path: `${OUT}/${tag}-05-status-recovered.png` });
+        await f2.context.close();
+      }
+
     }
   }
 } finally {

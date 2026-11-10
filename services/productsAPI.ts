@@ -115,6 +115,7 @@ export interface ProductResult<T> {
   data?: T;
   error?: string;
   code?: string; // not_available, plan_required, read_only, imported_read_only, website_category
+  status?: number; // the HTTP status of a refusal (absent for a network error): 404 = an API without Products
   fieldErrors?: Record<string, string>;
   fields?: string[];
 }
@@ -135,6 +136,7 @@ async function run<T>(request: Promise<ApiResponse<any>>): Promise<ProductResult
         ok: false,
         error: res.message || res.error || GENERIC,
         code: typeof raw.code === 'string' ? raw.code : undefined,
+        status: typeof raw.statusCode === 'number' ? raw.statusCode : undefined,
         fieldErrors: fieldErrorsFrom(res.errors),
         fields: Array.isArray(raw.fields) ? raw.fields : undefined,
       };
