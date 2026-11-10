@@ -1,34 +1,18 @@
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { markIntroSeen } from '../../utils/alvinIntro';
 
 // The first-time explainer (ClickUp wdy2xh28hf, Chris): a small popover pointing at the Alvin AI
 // button the first time someone opens Studio with Alvin switched on. Shown once (remembered per
-// account in this browser) and never to people who have already used Alvin. It points at whichever
+// person in this browser, across sign-outs: utils/alvinIntro) and never to people who have already used Alvin. It points at whichever
 // Alvin AI button is showing: the top-bar button on desktop, the mascot button next to the avatar on
 // phones. Not in the Figma: built in the panel's style for Chris to review.
 
 const GRADIENT = 'linear-gradient(135deg, #ff60e0 0%, #6c60ff 100%)';
 const AVATAR = 'linear-gradient(160deg, #ff60e0 15.959%, #6c60ff 57.472%)';
 
-export function introSeenKey(userId: string | number | undefined) {
-  return `stasht_alvin_intro_seen_${userId ?? 'anon'}`;
-}
-
-export function introSeen(userId: string | number | undefined): boolean {
-  try {
-    return localStorage.getItem(introSeenKey(userId)) === '1';
-  } catch {
-    return true; // no storage: don't risk showing it on every visit
-  }
-}
-
-export function markSeen(userId: string | number | undefined) {
-  try {
-    localStorage.setItem(introSeenKey(userId), '1');
-  } catch {
-    // nothing to remember it in; it simply may show again
-  }
-}
+// Whether it was dismissed, remembered per person in this browser and kept across sign-outs: utils/alvinIntro.
+export { introSeen, markIntroSeen as markSeen } from '../../utils/alvinIntro';
 
 type Spot = { top: number; right: number; arrowRight: number };
 
@@ -58,7 +42,7 @@ function anchor(): Spot | null {
   return { top: header.getBoundingClientRect().bottom - 8, right: 12, arrowRight: 22 };
 }
 
-export default function AlvinIntroPopover({ userId, onTry, onDone }: { userId?: string | number; onTry: () => void; onDone: () => void }) {
+export default function AlvinIntroPopover({ user, onTry, onDone }: { user: unknown; onTry: () => void; onDone: () => void }) {
   const [spot, setSpot] = useState<Spot | null>(null);
 
   useEffect(() => {
@@ -81,11 +65,11 @@ export default function AlvinIntroPopover({ userId, onTry, onDone }: { userId?: 
   }, []);
 
   const close = () => {
-    markSeen(userId);
+    markIntroSeen(user);
     onDone();
   };
   const tryIt = () => {
-    markSeen(userId);
+    markIntroSeen(user);
     onTry();
   };
 

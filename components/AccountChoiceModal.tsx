@@ -8,6 +8,7 @@ import { useProperty } from '../contexts/PropertyContext';
 import { switchDataForPropertyAccount, switchDataIsStale } from '../utils/propertyAccountSwitch';
 import { findPropertyRow, needsFullPropertyRow, opensAsFullAccount, propertyRowActions } from '../utils/propertyRows';
 import { propertyAvatarImage } from '../utils/propertyImage';
+import { adminAccountsAfterChoice, sameOwner } from '../utils/adminSwitchAccounts';
 import { externalRowAvatar, groupPropertyAccounts, isOwnExternalProperty, propertyAccountGroups } from '../utils/salespersonLanding';
 
 // Collaborator type for admin access
@@ -170,7 +171,7 @@ export const switchAccount = async (owner_id?: string | null): Promise<boolean> 
   console.log('switchAccount: Switching to Admin account with owner_id:', owner_id);
 
   // Find the admin account in the array
-  const adminAccount = switchData.admin_accounts.find(acc => acc.owner_id === owner_id);
+  const adminAccount = switchData.admin_accounts.find(acc => sameOwner(acc.owner_id, owner_id));
 
   if (!adminAccount) {
     console.error('switchAccount: Admin account not found for owner_id:', owner_id);
@@ -228,7 +229,7 @@ export const switchAccount = async (owner_id?: string | null): Promise<boolean> 
         console.log('switchAccount: Admin user location:', adminUser.location);
 
         // If location is missing from API response, try to get it from cached admin account
-        const accountIndex = switchData.admin_accounts.findIndex(acc => acc.owner_id === owner_id);
+        const accountIndex = switchData.admin_accounts.findIndex(acc => sameOwner(acc.owner_id, owner_id));
         if (accountIndex !== -1) {
           const cachedUser = switchData.admin_accounts[accountIndex].user;
           console.log('switchAccount: Cached user data:', cachedUser);
@@ -318,6 +319,78 @@ export const switchIntoPropertyAccount = async (
   } catch (error: any) {
     console.error('switchIntoPropertyAccount failed:', error);
     return { ok: false, name: '', error: error?.message || 'Could not open this account.' };
+  }
+};
+
+// A lead email's "Open conversation" (/leads?lead=N) opened by an Admin or Partial Admin of the lead's account while
+// signed in as themselves (or switched into another account): switch them into the lead's account, as the chooser /
+// Profile menu would, keeping the way back. The switch endpoints check the person's OWN token, so the personal one
+// is used while switched elsewhere (10 Nov 2026, Chris: "Nobody is even seeing the leads").
+// One switch at a time: the Leads list loads several times while opening (each load asks for the linked lead), and
+// every /login-as-admin mints a new owner token and revokes the owner's earlier ones, so a second concurrent switch
+// would revoke the token the first one saved (the person then lands signed out).
+let leadSwitchInFlight: Promise<{ ok: boolean; error: string }> | null = null;
+
+export const switchIntoAccountForLead = (
+  ownerId: string,
+  partial: boolean,
+  ownerEmail: string,
+): Promise<{ ok: boolean; error: string }> => {
+  if (!leadSwitchInFlight) {
+    leadSwitchInFlight = doSwitchIntoAccountForLead(ownerId, partial, ownerEmail)
+      .finally(() => { leadSwitchInFlight = null; });
+  }
+  return leadSwitchInFlight;
+};
+
+const doSwitchIntoAccountForLead = async (
+  ownerId: string,
+  partial: boolean,
+  ownerEmail: string,
+): Promise<{ ok: boolean; error: string }> => {
+  const existing = getAdminSwitchData();
+  const currentToken = localStorage.getItem('stasht_token') || '';
+  const currentUserRaw = localStorage.getItem('stasht_user');
+  let currentUser: any = null;
+  try { currentUser = JSON.parse(currentUserRaw || 'null'); } catch { currentUser = null; }
+  const personal = existing?.current_mode === 'admin' && existing.personal_account?.token
+    ? existing.personal_account
+    : { user: currentUser, token: currentToken };
+  const restore = () => {
+    localStorage.setItem('stasht_token', currentToken);
+    if (currentUserRaw) localStorage.setItem('stasht_user', currentUserRaw);
+  };
+
+  try {
+    localStorage.setItem('stasht_token', personal.token);
+    const response = partial
+      ? await dashboardAPI.loginAsPartialAdmin(ownerId, ownerEmail)
+      : await dashboardAPI.loginAsAdmin(ownerId);
+    const data: any = (response.data as any)?.data || response.data;
+    if (!response.success || !data?.user || !data?.token) {
+      restore();
+      return { ok: false, error: response.error || (response as any).message || 'Could not open that account.' };
+    }
+
+    const base = switchDataForPropertyAccount(existing, personal, ownerId, data.token);
+    const accounts = (base.admin_accounts || []).filter((acc) => !(sameOwner(acc.owner_id, ownerId) && !!acc.isPartialAdmin === partial));
+    accounts.push({ owner_id: String(ownerId), user: data.user, token: data.token, isPartialAdmin: partial });
+    storeAdminSwitchData({ ...base, admin_accounts: accounts } as AdminSwitchData);
+    localStorage.setItem('stasht_user', JSON.stringify(data.user));
+    localStorage.setItem('stasht_token', data.token);
+    if (partial) {
+      localStorage.setItem('is_partial_admin', 'true');
+      localStorage.setItem('partial_admin_email', personal.user?.email || '');
+    } else {
+      clearPartialAdminFlags();
+    }
+    localStorage.setItem('view_type', 'personal');
+    localStorage.removeItem('selected_property');
+    localStorage.removeItem('pending_property_switch');
+    return { ok: true, error: '' };
+  } catch (error: any) {
+    restore();
+    return { ok: false, error: error?.message || 'Could not open that account.' };
   }
 };
 
@@ -682,7 +755,7 @@ export function AccountChoiceModal({
       const responseData = response.data?.data || response.data;
       console.log('AccountChoiceModal: responseData:', responseData);
 
-      if (response.success && responseData) {
+      if (response.success && responseData?.user && responseData?.token) {
         const adminUser = responseData.user;
         const adminToken = responseData.token;
 
@@ -691,7 +764,7 @@ export function AccountChoiceModal({
         console.log('AccountChoiceModal: adminToken:', adminToken ? 'exists' : 'missing');
 
         // Get location from current collaborator if API doesn't return it
-        const currentCollab = adminCollaborators.find(c => c.owner_id === ownerId);
+        const currentCollab = adminCollaborators.find(c => sameOwner(c.owner_id, ownerId));
         const currentCollabLocation = currentCollab?.owner?.location || currentCollab?.location || '';
 
         if (!adminUser.location && currentCollabLocation) {
@@ -699,31 +772,9 @@ export function AccountChoiceModal({
           adminUser.location = currentCollabLocation;
         }
 
-        // Store ALL admin accounts in admin_switch_data (not just the clicked one)
-        const adminAccountsArray = adminCollaborators.map(collab => {
-          const collabName = collab.owner?.name || collab.owner_name || '';
-          const collabEmail = collab.owner?.email || collab.owner_email || '';
-          const collabLocation = collab.owner?.location || collab.location || '';
-
-          console.log('AccountChoiceModal: Mapping collaborator:', {
-            owner_id: collab.owner_id,
-            name: collabName,
-            email: collabEmail,
-            location: collabLocation,
-            rawCollab: collab
-          });
-
-          return {
-            owner_id: collab.owner_id,
-            // For the clicked admin: store full user object and token
-            // For other admins: store basic info (name/email/location) for display purposes
-            user: collab.owner_id === ownerId
-              ? adminUser  // adminUser now has location merged in
-              : (collabName || collabEmail ? { name: collabName, email: collabEmail, location: collabLocation } : null),
-            token: collab.owner_id === ownerId ? adminToken : '',
-            isPartialAdmin: collab.isPartialAdmin || false
-          };
-        });
+        // Store ALL admin accounts in admin_switch_data (not just the clicked one): the clicked one with its user and
+        // token (owner ids compared as strings, utils/adminSwitchAccounts), the others with name/email/location.
+        const adminAccountsArray = adminAccountsAfterChoice(adminCollaborators, adminCollaborator, adminUser, adminToken);
 
         console.log('AccountChoiceModal: Final adminAccountsArray:', adminAccountsArray);
 

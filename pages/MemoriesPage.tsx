@@ -50,6 +50,8 @@ import { useNewsletterCount } from "../components/newsletters/hooks/useNewslette
 import { CAMPAIGNS_VIEW_OPTIONS, OPEN_NEWSLETTER_DRAFT_EVENT, OPEN_NEWSLETTER_RESULTS_EVENT, campaignsViewForPlan, readCampaignsView, takePendingNewsletterHighlight, takePendingNewsletterResults, writeCampaignsView, type CampaignsView } from "../components/newsletters/lib/campaignsView";
 import { campaignTypeForView, initialCampaignType, needsCategoryFirst, type CampaignType } from "../components/newsletters/lib/campaignType";
 import { useIsStarterPlan } from "../hooks/usePlan";
+import useCanSelfUpgrade from "../hooks/useCanSelfUpgrade";
+import { CONTACT_SALES_URL } from "../utils/effectivePlan";
 const imgSunnyBeach = 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=400&h=300&fit=crop';
 
 interface ApiMemory {
@@ -323,6 +325,8 @@ function MemoriesPageContent({
 }: MemoriesPageProps) {
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
   const { viewType, currentProperty, switchToProperty, cancelPendingPropertySwitch } = useProperty();
+  // An Enterprise / top-plan account can't buy more admin seats itself: it contacts sales (Chris, 10 Nov 2026).
+  const canSelfUpgradePlan = useCanSelfUpgrade();
   const { isLimitExceeded, isAdminLimitExceeded, isServiceSyncLimitExceeded, isAICreditsExceeded, limitData, adminLimitData, serviceSyncLimitData, pendingPropertiesCount, checkLimit } = useMemoryLimit();
   const triggerNotificationsRefresh = useNotificationsRefresh();
 
@@ -2338,12 +2342,22 @@ function MemoriesPageContent({
               </h3>
               <p className="text-sm text-yellow-700">
                 You have reached your admin limit {Math.min(adminLimitData?.current_admins || 0, adminLimitData?.max_allowed || 0)}/{adminLimitData?.max_allowed || 0} for this plan.
+                {canSelfUpgradePlan ? (
                 <button
                   onClick={() => { sessionStorage.setItem('billing_open_upgrade', 'true'); onNavigate?.('billing'); }}
                   className="font-medium text-yellow-800 hover:text-yellow-900 underline ml-1 cursor-pointer bg-transparent border-none p-0"
                 >
                   Please upgrade your account here
                 </button>
+                ) : (
+                <>
+                  {' '}To add more admins,{' '}
+                  <a href={CONTACT_SALES_URL} target="_blank" rel="noopener noreferrer" className="font-medium text-yellow-800 hover:text-yellow-900 underline">
+                    contact sales
+                  </a>
+                  .
+                </>
+                )}
               </p>
             </div>
           </div>
