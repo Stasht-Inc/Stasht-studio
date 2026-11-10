@@ -532,6 +532,9 @@ try {
     const tag = `${ENGINE}-390-media`;
     const { page } = await open({ width: 390, height: 844 }, '/media');
     await page.locator('nav.fixed.bottom-0').filter({ visible: true }).first().waitFor({ timeout: 40000 });
+    // Media opens on the Camera Roll tab since Chris 9 Nov points 1 + 3: the long list is on the Media tab.
+    const mediaTab = page.getByTestId('media-tabs').getByRole('button', { name: 'Media', exact: true });
+    if (await mediaTab.waitFor({ timeout: 10000 }).then(() => true, () => false)) await mediaTab.click();
     await page.getByText('IMG_4260.jpg').first().waitFor({ timeout: 20000 }).catch(() => {});
     await page.waitForTimeout(800);
     const navBottom = () => page.evaluate(() => { const n = [...document.querySelectorAll('nav.fixed.bottom-0')].find((e) => e.getBoundingClientRect().height > 0); return n ? Math.round(n.getBoundingClientRect().bottom) : null; });
