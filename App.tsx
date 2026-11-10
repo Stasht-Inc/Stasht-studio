@@ -65,6 +65,7 @@ import { takeSwitchNotice } from './utils/accountSwitch';
 import { allPropertyRows, propertyViewHasLeads, resolvePendingPropertySwitch } from './utils/salespersonLanding';
 import { planKey, skipsPlanPicker, storageOverviewOf } from './utils/effectivePlan';
 import { usersTabForReport } from './utils/propertyRows';
+import { cameraRollSession } from './utils/cameraRoll';
 
 // CAPTURE EMAIL PARAMETER IMMEDIATELY (before React even starts)
 // This runs as soon as the file is loaded, before any component mounts
@@ -2536,6 +2537,7 @@ function MainApp() {
 
     if (successCount > 0) {
       toast.success(successCount > 1 ? `${successCount} photos saved to Media Library` : 'Photo saved to Media Library');
+      cameraRollSession.openMediaTabNext(); // open on the Media tab, where they are
       handleNavigationWithReset('media');
     }
     if (failCount > 0) {
@@ -4078,6 +4080,11 @@ function MainApp() {
           onToggleMobileSidebar={() => setShowMediaMobileSidebar(prev => !prev)}
           onNewMediaPending={(ids) => setPendingNewMediaIds(ids)}
           dismissedNewMediaIds={dismissedNewMediaIds}
+          // Camera Roll tab's Next (Chris, 9 Nov 2026): Create campaign with the picks, as Scan Photo does.
+          onCreateCampaignFromPhotos={(files) => {
+            handleNavigation("memories");
+            handleCreateMemoryRequest(undefined, files);
+          }}
         />
       );
     }
