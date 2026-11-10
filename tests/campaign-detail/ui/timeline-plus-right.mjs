@@ -5,6 +5,9 @@
 //    Widget chooser with the left "+"'s options; picking one saves at that place (after_post_id); "+ Add a Moment" stays.
 //  - 1600, collaborator (shared view): the same, with the shared view's own options (no Share Request a Moment / AI Creator).
 //  - 390, owner: the phone keeps its own "+" between cards (unchanged); no desktop "+" shows.
+//  - Fix round (review I1 + Deepak 10 Nov): at 1280/1366/1440/1600 with the nav open nothing covers the "+" (hit-test +
+//    real click opens the chooser), no horizontal scroll; viewer / view see no "+" (desktop or phone), contributor /
+//    edit do (same rule as "+ Add a Moment"); Shopify Product is in the desktop chooser like the phone's.
 // node tests/campaign-detail/ui/timeline-plus-right.mjs  (CD_BASE = the dev server)
 import { mkdirSync } from 'fs';
 import pw from '/Users/deepaksharma/.nvm/versions/node/v24.5.0/lib/node_modules/@executeautomation/playwright-mcp-server/node_modules/playwright-core/index.js';
@@ -30,7 +33,8 @@ const CAMPAIGN = {
   min_uploaded_img_date: '2026-10-01', max_uploaded_img_date: '2026-10-01', last_update_img: null,
 };
 // The same campaign, owned by someone else, with Main Dealer as an accepted contributor → the shared (collaborator) view.
-const SHARED = { ...CAMPAIGN, user_id: 808, user: { id: 808, name: 'Other Owner' }, collaborator: [{ user_id: 707, status: 1, role: 'contributor', user: { email: 'main@dealer.test' } }] };
+const sharedAs = (role) => ({ ...CAMPAIGN, user_id: 808, user: { id: 808, name: 'Other Owner' }, collaborator: [{ user_id: 707, status: 1, role, user: { email: 'main@dealer.test' } }] });
+const SHARED = sharedAs('contributor');
 const OTHERS = [{ ...CAMPAIGN, id: 701, title: 'Open House Weekend', slug: 'open-house', last_update_img: img(2), posts_count: 4 }];
 const W = (id, type, after, order, data) => ({ id, widget_type: type, after_post_id: after, widget_order: order, widget_data: data, admin_approval: 1, is_visible: true, created_at: '2026-11-08 10:00:00' });
 const SEEDED = [
@@ -38,8 +42,9 @@ const SEEDED = [
   W(5004, 'cta', 12, 0, { title: '', buttonText: 'Share a Moment', mode: 'request_moment', pinToBottom: true }),
 ];
 // The left "+"'s options before 9 Nov (MemoryDetailsPage, development 2832857): owner view and collaborator view.
-const OWNER = ['Moment', 'Call to Action', 'Share Request a Moment', 'Voice to Text', 'HTML', 'Youtube', 'Quote', 'AI Creator', ...(DOCUSIGN_ENABLED ? ['DocuSign'] : [])];
-const COLLAB = ['Moment', 'Call to Action', 'Voice to Text', 'HTML', 'Youtube', 'Quote', ...(DOCUSIGN_ENABLED ? ['DocuSign'] : [])];
+// Deepak, 10 Nov 2026: + Shopify Product (the phone "+" menu always offers it), so all three "+" menus match.
+const OWNER = ['Moment', 'Call to Action', 'Share Request a Moment', 'Voice to Text', 'HTML', 'Youtube', 'Quote', 'AI Creator', 'Shopify Product', ...(DOCUSIGN_ENABLED ? ['DocuSign'] : [])];
+const COLLAB = ['Moment', 'Call to Action', 'Voice to Text', 'HTML', 'Youtube', 'Quote', 'Shopify Product', ...(DOCUSIGN_ENABLED ? ['DocuSign'] : [])];
 
 const failures = [];
 const pageErrors = [];
@@ -142,17 +147,50 @@ const bottom = (loc) => loc.boundingBox().then((b) => (b ? b.y + b.height : NaN)
 const cardY = (page, text) => page.locator(`[data-timeline-list] [data-post-id="${{ 'Moment 1': 11, 'Moment 2': 12, 'Moment 3': 13 }[text]}"]`).filter({ visible: true }).first();
 
 try {
-  // ── 1280: the "+" layout only. At 1280 the fixed Media sidebar (aside, w-[28rem]) covers most of the right-hand column
-  // — on development too, before this change — so the clicks run at 1600 (Chris's desktop width, images/4.jpg). ──────
-  {
-    const tag = '1280-owner';
-    const o = await open({ width: 1280, height: 900 });
+  // ── Laptop widths, app nav open (review I1): the fixed Media sidebar used to cover the right-hand column at 1280–1440,
+  // so the "+" couldn't be clicked. The page now leaves room for it: the "+" is hit-testable and opens the chooser,
+  // both columns sit left of the sidebar and the page has no horizontal scroll. ──────────────────────────────────
+  for (const [width, height] of [[1280, 800], [1366, 768], [1440, 900], [1600, 1000]]) {
+    const tag = `${width}-layout`;
+    const o = await open({ width, height });
     await openCampaign(o.page);
-    const left = desktop(o.page).locator(':scope > div').first();
+    const page = o.page;
+    const left = desktop(page).locator(':scope > div').first();
+    const right = desktop(page).locator(':scope > div').nth(1);
     expect(await left.locator('svg.lucide-plus').count() === 0, `${tag}: the left timeline list has no "+"`);
-    const afters = await pluses(o.page).evaluateAll((els) => els.map((e) => e.getAttribute('data-after-post-id')));
+    const afters = await pluses(page).evaluateAll((els) => els.map((e) => e.getAttribute('data-after-post-id')));
     expect(JSON.stringify(afters) === JSON.stringify(['', '11', '12', '13']), `${tag}: right timeline "+" at the top and after every moment (got ${afters})`);
-    await o.page.screenshot({ path: `${OUT}/${tag}-01-page.png` });
+    const geo = await page.evaluate(() => {
+      const list = [...document.querySelectorAll('[data-timeline-list]')].find((e) => e.offsetParent);
+      const [l, r] = [...list.children].map((c) => c.getBoundingClientRect());
+      const aside = document.querySelector('aside.fixed.right-0')?.getBoundingClientRect();
+      return { leftW: l.width, rightL: r.left, rightR: r.right, rightW: r.width, asideL: aside ? aside.left : innerWidth, scrollW: document.documentElement.scrollWidth, vw: innerWidth };
+    });
+    expect(geo.scrollW <= geo.vw, `${tag}: no horizontal scroll (${geo.scrollW} ≤ ${geo.vw})`);
+    expect(geo.rightR <= geo.asideL + 1, `${tag}: the right-hand column ends before the Media sidebar (${Math.round(geo.rightR)} ≤ ${Math.round(geo.asideL)})`);
+    expect(geo.leftW >= 240 && geo.rightW >= 300, `${tag}: neither column is cramped (left ${Math.round(geo.leftW)}, right ${Math.round(geo.rightW)})`);
+    expect(await inView(page, plusAt(page, '')), `${tag}: the top "+" is in the viewport`);
+    const btn = plusAt(page, '').getByRole('button', { name: 'Add Widget' });
+    const hit = await btn.evaluate((el) => { const b = el.getBoundingClientRect(); const h = document.elementFromPoint(b.x + b.width / 2, b.y + b.height / 2); return Boolean(h && el.contains(h)); });
+    expect(hit, `${tag}: nothing covers the top "+" (hit-test)`);
+    await page.screenshot({ path: `${OUT}/${tag}-01-page.png` });
+    await btn.click({ timeout: 5000 }).catch(() => {});
+    const opened = await chooser(page).isVisible({ timeout: 3000 }).catch(() => false);
+    expect(opened, `${tag}: clicking the top "+" opens the chooser`);
+    if (opened) expect(await chooser(page).evaluate((el) => { const b = el.getBoundingClientRect(); const h = document.elementFromPoint(b.x + b.width / 2, b.y + 40); return Boolean(h && el.contains(h)); }), `${tag}: the chooser is on top`);
+    await page.screenshot({ path: `${OUT}/${tag}-02-chooser.png` });
+    await page.keyboard.press('Escape');
+    await chooser(page).waitFor({ state: 'hidden', timeout: 3000 }).catch(() => {});
+    await page.waitForTimeout(300);
+    await plusAt(page, '13').scrollIntoViewIfNeeded();
+    await page.waitForTimeout(300);
+    const btn13 = plusAt(page, '13').getByRole('button', { name: 'Add Widget' });
+    const hit13 = await btn13.evaluate((el) => { const b = el.getBoundingClientRect(); const h = document.elementFromPoint(b.x + b.width / 2, b.y + b.height / 2); return Boolean(h && el.contains(h)); });
+    expect(hit13, `${tag}: nothing covers the "+" after the last moment (hit-test)`);
+    await btn13.click({ timeout: 5000 }).catch(() => {});
+    expect(await chooser(page).isVisible({ timeout: 3000 }).catch(() => false), `${tag}: clicking the "+" after the last moment opens the chooser`);
+    await page.screenshot({ path: `${OUT}/${tag}-03-after-last.png` });
+    void right;
     await o.context.close();
   }
 
@@ -253,13 +291,17 @@ try {
     expect(link && link.after_item_id === 11 && link.after_item_type === 'post', `${tag}: "+" after Moment 1 → Moment → linked after Moment 1 (got ${JSON.stringify(link)})`);
 
     // The other options open their editors.
-    for (const [label, text] of [['Share Request a Moment', null], ['Youtube', 'Embed YouTube Video'], ['AI Creator', 'AI Creator'], ['Voice to Text', 'Add Voice to Text Memo']]) {
+    for (const [label, text] of [['Share Request a Moment', null], ['Youtube', 'Embed YouTube Video'], ['AI Creator', 'AI Creator'], ['Voice to Text', 'Add Voice to Text Memo'], ['Shopify Product', 'Add Shopify Products']]) {
       await openPlus(page, '12');
       await pick(page, label);
       const el = (text ? page.getByText(text, { exact: true }) : page.getByPlaceholder('e.g. Book Now')).filter({ visible: true }).first();
       expect(await el.isVisible().catch(() => false), `${tag}: ${label} opens its editor`);
       await page.keyboard.press('Escape');
       await page.waitForTimeout(500);
+      if (label === 'Shopify Product' && await el.isVisible().catch(() => false)) {
+        await el.locator('xpath=../../..').locator(':scope > button').click(); // the picker's ✕
+        await page.waitForTimeout(500);
+      }
       if (await el.isVisible().catch(() => false)) {
         const close = page.getByRole('button', { name: /^(Cancel|Close)$/ }).filter({ visible: true }).last();
         if (await close.count()) await close.click(); else await page.locator('button:has(svg.lucide-x)').filter({ visible: true }).last().click();
@@ -274,7 +316,7 @@ try {
     await o.context.close();
   }
 
-  // ── 1280, collaborator (shared view) ────────────────────────────────────────────────────────────────────────────
+  // ── 1600, collaborator (shared view) ────────────────────────────────────────────────────────────────────────────
   {
     const tag = '1600-collaborator';
     const o = await open({ width: 1600, height: 1000, memory: SHARED });
@@ -298,6 +340,24 @@ try {
     const q = o.state.widgetPosts.find((b) => b.widget_type === 'quote');
     expect(q && String(q.after_post_id) === '12', `${tag}: Quote saved after Moment 2 (got ${JSON.stringify(q?.after_post_id)})`);
     await o.context.close();
+  }
+
+  // ── Deepak, 10 Nov 2026: view-only people get no "+"; contributor / edit (who get "+ Add a Moment") do ──────────
+  for (const [role, canAdd] of [['viewer', false], ['view', false], ['edit', true], ['contributor', true]]) {
+    for (const [width, height] of [[1600, 1000], [390, 844]]) {
+      const tag = `${width}-${role}`;
+      const o = await open({ width, height, memory: sharedAs(role) });
+      await openCampaign(o.page);
+      const page = o.page;
+      const desk = await pluses(page).count();
+      const phone = await page.locator('button:has(path[d="M12 5v14M5 12h14"])').filter({ visible: true }).count();
+      if (width >= 1024) expect(canAdd ? desk === 4 : desk === 0, `${tag}: ${canAdd ? 'sees' : 'no'} timeline "+" (got ${desk})`);
+      else expect(canAdd ? phone >= 2 : phone === 0, `${tag}: ${canAdd ? 'sees' : 'no'} phone "+" dividers (got ${phone})`);
+      const addMoment = await page.getByRole('button', { name: /Add a Moment/ }).filter({ visible: true }).count();
+      if (width >= 1024) expect((addMoment > 0) === canAdd, `${tag}: same rule as "+ Add a Moment" (shown: ${addMoment > 0})`);
+      if (role === 'viewer') await page.screenshot({ path: `${OUT}/${tag}-01-no-plus.png` });
+      await o.context.close();
+    }
   }
 
   // ── 390, owner: the phone keeps its own "+" between cards ───────────────────────────────────────────────────────

@@ -11,16 +11,6 @@ export function addSlotAfter(item: TimelineItem | { type: string; id: unknown } 
   return String(item.id);
 }
 
-/** Every "+" the right-hand timeline draws, in order: the top (null), then one after each moment. */
-export function timelineAddSlots(items: ReadonlyArray<TimelineItem> | null | undefined): Array<string | null> {
-  const slots: Array<string | null> = [null];
-  for (const item of items || []) {
-    const after = addSlotAfter(item);
-    if (after !== undefined) slots.push(after);
-  }
-  return slots;
-}
-
 // The collaborator (shared) view's left "+" offered Moment, Call to Action, Voice to Text, HTML, Youtube, Quote and
 // DocuSign — never Share Request a Moment (owner only) or AI Creator. Its right "+" offers exactly those.
 const NOT_FOR_COLLABORATORS: ReadonlyArray<AddWidgetKind> = ['request_moment', 'ai_creator'];

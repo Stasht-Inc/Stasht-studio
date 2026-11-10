@@ -7787,7 +7787,8 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
   // top) and after every moment card. Chris, 9 Nov 2026 (point 5): moved here from the left timeline list, "in the same
   // spot everywhere"; always visible, drawn like the phone's "+" divider; the same chooser and openAddWidget as before.
   // No "+" on read-only inventory (cars, catalogue products). `options` = the collaborator view's narrower set.
-  const renderCardAddWidgetPlus = (afterPostId: string | null, options = addWidgetOptions({ docuSign: DOCUSIGN_ENABLED && docuSignConnected })) => isInventoryDetail ? null : (
+  // Shopify Product as in the phone "+" menu (Deepak, 10 Nov 2026), so the three "+" menus match.
+  const renderCardAddWidgetPlus = (afterPostId: string | null, options = addWidgetOptions({ docuSign: DOCUSIGN_ENABLED && docuSignConnected, shopifyProduct: true })) => isInventoryDetail ? null : (
     <div className="relative flex items-center justify-center h-10" data-testid="timeline-add-plus" data-after-post-id={afterPostId ?? ''}>
       <div className="absolute left-0 right-0 h-px bg-[#6C60FF]" />
       <Popover>
@@ -7835,6 +7836,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
     );
   };
 
+  // Plus Divider between post cards (mobile only)
   // No "add between posts" on read-only inventory (cars, catalogue products).
   const renderPlusDivider = (key: string, afterPostId?: string) => isInventoryDetail ? null : (
     <div className="relative flex items-center justify-center h-10 md:hidden" style={{ zIndex: 10 }}>
@@ -9031,6 +9033,9 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
   // Admin role shows the full page with more controls
   // Also show collaborator view when forceSharedView=true (e.g. viewing from published author card)
   if (forceSharedView || currentUserRole === 'contributor' || currentUserRole === 'viewer' || currentUserRole === 'edit' || currentUserRole === 'view') {
+    // Timeline "+" only for people who can add — the same rule as this view's "+ Add a Moment" / camera button
+    // (contributor / edit). View-only people (viewer / view, or a published author card) get none. Deepak, 10 Nov 2026.
+    const sharedCanAdd = currentUserRole === 'contributor' || currentUserRole === 'edit';
     const sharedAllPosts = (rawApiPosts || []).filter((p: any) => !p.parent_id && p.parent_id !== 0);
     // Cover: the campaign's own, else the brand — the owner's avatar — never the first moment photo ("Brand everywhere", 4 Nov 2026).
     const sharedCover = campaignCover({ chosen: apiMemoryData?.last_update_img, brand: apiMemoryData?.user?.profile_image, ownerAvatar: apiMemoryData?.user?.profile_image });
@@ -9248,19 +9253,19 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
             {htmlWidgets.filter(w => w.afterPostId === null).map(widget => (
               <React.Fragment key={widget.id}>
                 <div className="rounded-2xl bg-white p-4 border border-gray-100"><div className="[&_h1]:text-2xl [&_h1]:font-bold [&_p]:my-2 [&_ul]:list-disc [&_ul]:pl-5 [&_a]:text-[#6C60FF] [&_a]:underline [&_strong]:font-bold" dangerouslySetInnerHTML={{ __html: widget.content }} /></div>
-                {renderPlusDivider(`shared-mobile-html-top-div-${widget.id}`)}
+                {sharedCanAdd && renderPlusDivider(`shared-mobile-html-top-div-${widget.id}`)}
               </React.Fragment>
             ))}
             {youtubeWidgets.filter(w => w.afterPostId === null).map(widget => (
               <React.Fragment key={widget.id}>
                 <div className="rounded-2xl bg-white p-4 border border-gray-100"><iframe width="100%" height="200" src={`https://www.youtube.com/embed/${widget.videoId}?autoplay=0`} allow="accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen className="rounded-lg" /></div>
-                {renderPlusDivider(`shared-mobile-yt-top-div-${widget.id}`)}
+                {sharedCanAdd && renderPlusDivider(`shared-mobile-yt-top-div-${widget.id}`)}
               </React.Fragment>
             ))}
             {quoteWidgets.filter(w => w.afterPostId === null).map(widget => (
               <React.Fragment key={widget.id}>
                 <div className="rounded-2xl bg-[#F0EEFF] p-5 border border-gray-100 border-l-4 border-l-[#6C60FF]"><p className="text-lg font-bold text-gray-800 text-center leading-relaxed break-words">{widget.text}</p>{widget.author && <p className="text-sm text-gray-500 text-center mt-2">— {widget.author}</p>}</div>
-                {renderPlusDivider(`shared-mobile-quote-top-div-${widget.id}`)}
+                {sharedCanAdd && renderPlusDivider(`shared-mobile-quote-top-div-${widget.id}`)}
               </React.Fragment>
             ))}
             {renderProductWidgets(null)}
@@ -9268,7 +9273,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
             {ctaWidgets.filter(w => w.afterPostId === null && isTimelineCta(w)).map(widget => (
               <React.Fragment key={widget.id}>
                 <CTAWidgetCard onRequestMoment={openSharedRequestMoment} widget={widget} memoryId={memoryId} />
-                {renderPlusDivider(`shared-mobile-cta-top-div-${widget.id}`)}
+                {sharedCanAdd && renderPlusDivider(`shared-mobile-cta-top-div-${widget.id}`)}
               </React.Fragment>
             ))}
             {sharedUnifiedItems.length > 0 ? sharedUnifiedItems.map((uItem: any) => {
@@ -9295,7 +9300,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                   <CTAWidgetCard onRequestMoment={openSharedRequestMoment} key={widget.id} widget={widget} memoryId={memoryId} />
                 ))}
                 {/* Plus divider between posts — same as personal memories */}
-                {index < sharedFilteredPosts.length - 1 && renderPlusDivider(`shared-mobile-${index}`, post.id?.toString())}
+                {sharedCanAdd && index < sharedFilteredPosts.length - 1 && renderPlusDivider(`shared-mobile-${index}`, post.id?.toString())}
               </React.Fragment>
             ); }) : <div className="text-center py-12 text-gray-500 bg-white rounded-xl"><p>No moments to display</p></div>}
             {/* Pinned "Share Request a Moment" buttons — always after the last item, however long the list grows */}
@@ -9657,7 +9662,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                         <button className="px-4 py-2 bg-gray-100 text-gray-800 text-base font-medium rounded-lg hover:bg-gray-200" onClick={() => { const el = sharedDesktopCardRefs.current[0]; if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); }}>Continue</button>
                       </div>
                       {/* "+" at the top and after every moment (Chris, 9 Nov 2026, point 5 — moved here from the left list) */}
-                      {renderCardAddWidgetPlus(null, collaboratorAddWidgetOptions(addWidgetOptions({ docuSign: DOCUSIGN_ENABLED && docuSignConnected })))}
+                      {sharedCanAdd && renderCardAddWidgetPlus(null, collaboratorAddWidgetOptions(addWidgetOptions({ docuSign: DOCUSIGN_ENABLED && docuSignConnected, shopifyProduct: true })))}
                       {htmlWidgets.filter(w => w.afterPostId === null).map(widget => (
                         <div key={widget.id} ref={(el) => { htmlWidgetCardRefs.current[widget.id] = el; }} data-widget-id={widget.id} className="rounded-2xl bg-white p-4 border border-gray-100"><div className="[&_h1]:text-2xl [&_h1]:font-bold [&_p]:my-2 [&_ul]:list-disc [&_ul]:pl-5 [&_a]:text-[#6C60FF] [&_a]:underline [&_strong]:font-bold" dangerouslySetInnerHTML={{ __html: widget.content }} /></div>
                       ))}
@@ -9695,7 +9700,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                           {ctaWidgets.filter(w => w.afterPostId === post.id?.toString() && !w.pinToBottom && !isCardCta(w)).map(widget => (
                             <CTAWidgetCard onRequestMoment={openSharedRequestMoment} key={widget.id} widget={widget} memoryId={memoryId} cardRef={(el) => { ctaWidgetCardRefs.current[widget.id] = el; }} isActive={activeCtaWidgetId === widget.id} />
                           ))}
-                          {renderCardAddWidgetPlus(String(post.id), collaboratorAddWidgetOptions(addWidgetOptions({ docuSign: DOCUSIGN_ENABLED && docuSignConnected })))}
+                          {sharedCanAdd && renderCardAddWidgetPlus(String(post.id), collaboratorAddWidgetOptions(addWidgetOptions({ docuSign: DOCUSIGN_ENABLED && docuSignConnected, shopifyProduct: true })))}
                         </React.Fragment>
                         );
                       }) : <div className="text-center py-12 text-gray-500 bg-white rounded-xl"><p>No moments to display</p></div>}
@@ -11010,7 +11015,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
       </Dialog>
 
       {/* Main Content */}
-      <div className="space-y-4 md:space-y-8 lg:pr-[28rem] bg-white lg:bg-transparent pb-24 md:pb-0" style={{ paddingTop: isPublishing ? '120px' : '0' }}>
+      <div className="space-y-4 md:space-y-8 lg:pr-80 2xl:pr-[28rem] bg-white lg:bg-transparent pb-24 md:pb-0" style={{ paddingTop: isPublishing ? '120px' : '0' }}>
         {/* Header */}
         <div className="sticky top-20 relative bg-gray-50 z-10">
           {/* Tab Toggle - Desktop only. Inventory pages (cars, catalogue products) are a timeline only:
@@ -12104,7 +12109,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
               {/* DESKTOP: Two-column layout - Left metadata+timeline, Center scrollable memory cards */}
               <div className="hidden lg:flex gap-2 h-[73vh] justify-start" data-timeline-list>
                 {/* LEFT PANEL - Metadata + Timeline List */}
-                <div className="w-[400px] flex-shrink-0 flex flex-col h-full overflow-hidden p-4">
+                <div className="flex-[0_1_400px] min-w-[240px] flex flex-col h-full overflow-hidden p-4">
                   {/* Tags Row */}
                   <div className="flex items-center gap-2 flex-wrap mb-2">
                     <Badge className="text-white border-0 px-3 py-1.5 text-sm rounded-2xl" style={{ backgroundColor: categoryColorHex || '#6C60FF' }}>
@@ -13136,7 +13141,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                 </div>
 
                 {/* CENTER PANEL - Header Image + Scrollable Memory Cards */}
-                <div className="w-[394px] flex-shrink-0 flex flex-col overflow-hidden bg-[#F8F8FA]">
+                <div className="flex-[0_1_394px] min-w-[300px] flex flex-col overflow-hidden bg-[#F8F8FA]">
                   <div className="flex-1 overflow-y-auto" ref={rightScrollContainerRef}>
                     <div className="relative">
                       {/* Header Image/Video */}
@@ -13472,6 +13477,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                               const postIndex = sortedTimelinePosts.findIndex((p: any) => String(p.id) === item.id);
                               if (postIndex === -1) return null;
                               const post = sortedTimelinePosts[postIndex];
+                              const plusAfterPostId = addSlotAfter(item); // the "+" under this card (Chris, 9 Nov 2026, point 5)
 
                               const memoryOwnerId = apiMemoryData?.user_id?.toString()
                                 || apiMemoryData?.user?.id?.toString()
@@ -13654,7 +13660,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                     <CTAWidgetCard key={widget.id} widget={widget} memoryId={memoryId} cardRef={(el) => { ctaWidgetCardRefs.current[widget.id] = el; }} isActive={activeCtaWidgetId === widget.id} />
                                   ))}
                                   {/* "+" after every moment card, the last one too (Chris, 9 Nov 2026, point 5) */}
-                                  {addSlotAfter(item) !== undefined && renderCardAddWidgetPlus(addSlotAfter(item)!)}
+                                  {plusAfterPostId !== undefined && renderCardAddWidgetPlus(plusAfterPostId)}
                                 </React.Fragment>
                               );
                             }
@@ -15725,7 +15731,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
       </div>
 
       {/* Media Sidebar - Fixed Right Position */}
-      <aside className="hidden lg:block fixed right-0 top-20 bottom-0 w-[28rem] bg-white border-l border-gray-200 shadow-lg z-10 overflow-y-auto">
+      <aside className="hidden lg:block fixed right-0 top-20 bottom-0 w-80 2xl:w-[28rem] bg-white border-l border-gray-200 shadow-lg z-10 overflow-y-auto">
         <div className="flex flex-col h-full">
           {/* Sidebar Tab Toggle */}
           <div className="flex-shrink-0 border-b border-gray-200">
