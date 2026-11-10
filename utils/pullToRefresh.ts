@@ -38,3 +38,9 @@ export function pullAxis(dx: number, dy: number, slop = 6): 'x' | 'y' | null {
   if (Math.max(Math.abs(dx), Math.abs(dy)) < slop) return null;
   return Math.abs(dy) > Math.abs(dx) ? 'y' : 'x';
 }
+
+// Chris, 9 Nov 2026 (point 7): a pull only starts on the page's own DOM (React portals — the Edit Campaign sheet —
+// bubble their touch events to the page) and only when the page is scrolled to the very top.
+export function pullTouchApplies(insideOwnDom: boolean, scrollTop: number): boolean {
+  return insideOwnDom && !(scrollTop > 0);
+}

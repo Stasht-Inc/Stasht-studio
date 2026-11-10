@@ -674,3 +674,19 @@ input[type="date"] ~ * [aria-selected="true"] {
   color: #15803d !important;
   font-weight: 500 !important;
 }
+
+/* Phone bottom bars in the home-screen app (Chris, 9 Nov 2026, point 2): pin the bar's bottom edge to the screen
+   height (100dvh from the top) instead of `bottom: 0`, so a viewport iOS left keyboard-sized after the keyboard
+   closed can't lift it into the middle of the screen. Same place as bottom: 0 otherwise; Safari tabs and wider
+   screens keep bottom: 0 (100dvh changes with Safari's toolbars there).
+   NB: the transform makes each nav the containing block for any position: fixed element inside it — keep fixed
+   popovers/sheets OUTSIDE the nav (today: FAB / camera button are absolute, the "+" popover is a sibling). */
+@media (display-mode: standalone) and (max-width: 767.98px) {
+  @supports (height: 100dvh) {
+    .phone-bottom-bar-pin {
+      top: 100dvh;
+      bottom: auto;
+      transform: translateY(-100%);
+    }
+  }
+}

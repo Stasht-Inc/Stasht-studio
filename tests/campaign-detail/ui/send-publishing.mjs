@@ -423,25 +423,28 @@ try {
       expect((await page.evaluate(() => window.__geoCalls)) === 0, `${tag}: Edit / Send never asked for the device location`);
       expect(state.publishes.length === publishesBefore && state.published === 2 && !state.sendBodies.slice(2).length, `${tag}: Save Changes with another option chosen publishes / sends nothing (still View Only)`);
 
-      // Phones: the scrolled (compact) header's ⋮ → Edit Campaign · Send (no publish items)
+      // Phones, scrolled: the pinned top bar (Chris, 9 Nov 2026 — it replaced the white compact header): its ⋯ has Edit
+      // Campaign (from the compact header's ⋮), and its Send still opens the stepper at the Send card.
       if (width < 1024) {
         await page.evaluate(() => window.scrollTo(0, 1600));
         await page.mouse.wheel(0, 400);
         await page.waitForTimeout(900);
-        const sticky = page.locator('div.fixed.top-0.md\\:hidden').filter({ visible: true }).first();
-        if (await sticky.count()) {
-          await sticky.locator('button').last().click();
+        const pinned = page.locator('[data-campaign-phone-bar]').filter({ visible: true }).first();
+        if (await pinned.count()) {
+          expect((await pinned.boundingBox())?.y === 0, `${tag}: the top bar is pinned at the top after scrolling`);
+          await pinned.locator('label:has-text("Edit Cover") + button').click();
           await page.waitForTimeout(400);
-          const items = await page.getByRole('menuitem').allTextContents();
-          expect(items.some((t) => t.includes('Edit Campaign')) && items.some((t) => t.trim() === 'Send') && !items.some((t) => /Publish/.test(t)), `${tag}: compact ⋮ = Edit Campaign · Send (${JSON.stringify(items)})`);
+          expect(await page.getByText('Edit Campaign', { exact: true }).filter({ visible: true }).count() > 0, `${tag}: pinned ⋯ offers Edit Campaign`);
           await page.screenshot({ path: `${OUT}/${tag}-11-compact-menu.png` });
-          await page.getByRole('menuitem', { name: 'Send' }).click();
+          await page.mouse.click(200, 700);
+          await page.waitForTimeout(300);
+          await pinned.getByRole('button', { name: 'Send', exact: true }).click();
           await flow(page).locator('#st-step-send').waitFor({ timeout: 10000 }).catch(() => {});
           await page.waitForTimeout(900);
-          expect(await inViewport(page, flow(page).locator('#st-step-send-title')), `${tag}: compact ⋮ Send opens at the Send card`);
+          expect(await inViewport(page, flow(page).locator('#st-step-send-title')), `${tag}: pinned Send opens at the Send card`);
           await flow(page).getByRole('button', { name: /^(Cancel|Close)$/ }).filter({ visible: true }).last().click();
           await page.waitForTimeout(500);
-        } else expect(false, `${tag}: the compact header appeared after scrolling`);
+        } else expect(false, `${tag}: the pinned top bar is there after scrolling`);
       }
 
       // Create Campaign keeps the device-city default, but only for an empty Location, read when the answer comes

@@ -52,3 +52,16 @@ test('axis: vertical only when vertical movement beats horizontal', () => {
   assert.equal(pullAxis(-10, 10), 'x'); // a tie is not a pull
   assert.equal(pullAxis(1, 3, 2), 'y');
 });
+
+// Chris, 9 Nov 2026 (point 7): the campaign page's pull-to-refresh only reacts to touches on its own page at the very
+// top — not to touches in the Edit Campaign sheet (a React portal, so its touch events bubble to the page), and not
+// mid-page (the window scrolls, so the page root's own scrollTop is always 0).
+import { pullTouchApplies } from '../../utils/pullToRefresh.ts';
+
+test('pullTouchApplies: own page at the top only', () => {
+  assert.equal(pullTouchApplies(true, 0), true);
+  assert.equal(pullTouchApplies(true, 1), false);
+  assert.equal(pullTouchApplies(true, 900), false);
+  assert.equal(pullTouchApplies(false, 0), false); // a touch in a portalled sheet
+  assert.equal(pullTouchApplies(false, 500), false);
+});
