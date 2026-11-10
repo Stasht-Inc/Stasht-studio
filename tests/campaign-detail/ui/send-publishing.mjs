@@ -5,6 +5,9 @@
 // "Published!" modal over the stepper, then the published box (link + Copy, Share menu, QR + Download, Share message
 // + Save) and Unpublish (POST /memories/memory-unpublished). Non-owners: Send disabled like Publish was; the
 // published box on the page still works for them. Contributors: the shared view, unchanged (never had Publish).
+// Chris 9 Nov 2026 (point 6): the three options are ONE CHOICE (radio cards, Send by Email look), Public pre-selected;
+// tapping publishes nothing; Save & Send applies it (storeel-send publish_role); "Publish now" publishes (or switches a
+// published campaign: publish switch_role) without sending; Private can't be sent (Save & Send off, reason at the bottom).
 // node tests/campaign-detail/ui/send-publishing.mjs   (needs the dev server: CD_BASE, default http://localhost:5351)
 // Every API call is answered here and every non-local request is aborted: nothing leaves this machine.
 import { mkdirSync } from 'fs';
@@ -37,8 +40,8 @@ const expect = (ok, label) => { if (!ok) failures.push(label); console.log(ok ? 
 
 const browser = await chromium.launch({ headless: true, channel: 'chrome' });
 
-async function open({ width, height }, { published = 0, owner = true, role = 'admin' } = {}) {
-  const state = { published, url: published ? LINK : null, publishes: [], unpublishes: 0, shareMessages: [], puts: [] };
+async function open({ width, height }, { published = 0, owner = true, role = 'admin', oldApi = false } = {}) {
+  const state = { published, url: published ? LINK : null, publishes: [], unpublishes: 0, shareMessages: [], puts: [], sendBodies: [] };
   const context = await browser.newContext({ viewport: { width, height }, serviceWorkers: 'block', locale: 'en-US', hasTouch: width < 1024, isMobile: width < 1024 });
   await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: BASE });
   // The device location (review I1): counted, answered after 1.2 s (Mumbai via the reverse-geocoder below).
@@ -85,9 +88,12 @@ async function open({ width, height }, { published = 0, owner = true, role = 'ad
     if (p === '/memories/901' && m === 'PUT') { state.puts.push(body); return route.fulfill({ json: { success: true, data: campaign() } }); }
     if (p === '/memories/901/publish' && m === 'POST') {
       state.publishes.push(body);
+      // As the API: a published campaign is toggled OFF unless switch_role (Chris 9 Nov 2026) asks to switch its mode.
+      // oldApi: an API from before switch_role, which ignores it (review I1).
+      if (state.published && (!body?.switch_role || oldApi)) { state.published = 0; state.url = null; return route.fulfill({ json: { status: 1, link: '', published: 0 } }); }
       state.published = Number(body?.role) || 1;
       state.url = state.published === 3 ? `${LINK}?access_token=tok123` : LINK;
-      return route.fulfill({ json: { success: true, link: state.url, data: { link: state.url } } });
+      return route.fulfill({ json: { status: 1, link: state.url, published: state.published } });
     }
     if (p === '/memories/memory-unpublished' && m === 'POST') { state.unpublishes++; state.published = 0; state.url = null; return route.fulfill({ json: { success: true } }); }
     if (p === '/memories/published/share-message' && m === 'POST') { state.shareMessages.push(body?.share_message); return route.fulfill({ json: { success: true } }); }
@@ -96,7 +102,18 @@ async function open({ width, height }, { published = 0, owner = true, role = 'ad
       const ch = body?.channels ?? [];
       return route.fulfill({ json: { success: true, data: { email: ch.includes('email') ? 1 : 0, sms: ch.includes('sms') ? 1 : 0, skipped: { no_email: 0, no_phone: 0, unsubscribed: 0, duplicate: 0 }, person: { email: null, sms: null, errors: {} } }, storeel: { max_messages: 1000, needed: ch.length, over_limit: false, sms: null, allowance: { plan: 'Professional', email_limit: 2500, sms_limit: 250, email_used: 0, sms_used: 0, email_pending: 0, sms_pending: 0, resets_at: '2026-12-01T05:00:00Z' } } } });
     }
-    if (p === '/memories/901/storeel-send') { state.sends = (state.sends ?? 0) + 1; return route.fulfill({ status: 422, json: { success: false, message: 'private' } }); }
+    if (p === '/memories/901/storeel-send') {
+      state.sends = (state.sends ?? 0) + 1;
+      state.sendBodies.push(body);
+      const target = body?.publish_role ?? (state.published || 1);
+      if (target === 3) return route.fulfill({ status: 422, json: { success: false, code: 'private_campaign', message: 'private' } });
+      const publishedNow = !state.published;
+      const switched = Boolean(state.published) && state.published !== target;
+      state.published = target;
+      state.url = LINK;
+      const ch = { sent: 1, queued: 0, failed: 0 };
+      return route.fulfill({ json: { success: true, data: { broadcast_id: `b-${state.sends}`, memory_id: 901, status: 'sent', channels: ['email'], subject: 'Thomas Jeeps Inventory', replayed: false, published_now: publishedNow, published: target, publish_switched: switched, texts_wait_until: null, counts: { recipients: 1, sent: 1, queued: 0, failed: 0, email: ch, sms: { sent: 0, queued: 0, failed: 0 }, skipped: { total: 0 } } } } });
+    }
     if (p === '/user/storage-overview') return route.fulfill({ json: { success: true, data: { storage_overview: { plan_name: 'Professional' } } } });
     if (p === '/user/check-memory-limit') return route.fulfill({ json: { success: true, data: { limit_status: { status: 'within_limit', current_memories: 1, memory_limit: 50 } } } });
     if (p === '/lead-groups') return route.fulfill({ json: { groups: [] } });
@@ -126,6 +143,12 @@ const inViewport = async (page, loc) => {
   const vp = page.viewportSize();
   return Boolean(box && box.y >= -1 && box.x >= -1 && box.y + Math.min(box.height, 40) <= vp.height && box.x + box.width <= vp.width + 1);
 };
+const NOT_YET = 'Not published yet. Save & Send publishes it with the option chosen below, or use Publish now to publish it without sending.';
+const PRIVATE_NOTE = "A Private campaign can't be sent: only people with its private link can open it. Publish now makes that link.";
+const PRIVATE_SEND_REASON = "Choose Public or View Only in Publishing. A Private campaign can't be sent";
+const radio = (page, title) => pub(page).locator('label', { hasText: title }).locator('input[type="radio"]');
+const checkedChoice = (page) => pub(page).locator('label:has(input[type="radio"]:checked)').evaluate((l) => l.querySelector('.font-semibold')?.textContent ?? '').catch(() => null);
+const choiceLooksSelected = (page, title) => pub(page).locator('label', { hasText: title }).evaluate((l) => { const cs = getComputedStyle(l); return cs.borderTopColor === 'rgb(108, 96, 255)' && cs.borderTopWidth === '2px' && cs.backgroundColor !== 'rgb(255, 255, 255)'; }).catch(() => false);
 const sendButton = (page) => page.getByRole('button', { name: 'Send', exact: true }).filter({ visible: true }).first();
 const toast = async (page, text) => { await page.getByText(text).first().waitFor({ timeout: 6000 }).catch(() => {}); return page.getByText(text).first().isVisible().catch(() => false); };
 
@@ -168,30 +191,116 @@ try {
       expect((await flow(page).getByPlaceholder(/Enter location/).inputValue()) === 'Toronto, Canada', `${tag}: the saved Location is kept`);
       await page.screenshot({ path: `${OUT}/${tag}-02-send-opens-at-send-step.png` });
 
-      // Publishing card: 4, after Send, not published, three choices
+      // Publishing: a section at the top of the Send card; ONE choice, Public pre-selected (Chris 9 Nov 2026, point 6)
       expect(await pub(page).count() === 1, `${tag}: Publishing is a section inside the Send card`);
       expect(!(await flow(page).locator('#st-step-publishing').count()), `${tag}: no separate Publishing card`);
       expect(await inViewport(page, pub(page).getByText('Publishing', { exact: true })), `${tag}: Send opens with Publishing at the top of the Send card`);
       const ptext = (await pub(page).textContent()) ?? '';
-      expect(ptext.includes('Not published. Save & Send publishes it as Public, or publish it now.'), `${tag}: Publishing says sending publishes it Public (as Save & Send does)`);
-      expect(ptext.includes("Publish and Unpublish apply right away. They don't need Save Changes."), `${tag}: Publishing says its changes apply right away`);
+      expect(ptext.includes(NOT_YET), `${tag}: Publishing says Save & Send publishes it with the option chosen (or Publish now)`);
+      expect(ptext.includes("Publish now applies right away. It doesn't need Save Changes."), `${tag}: Publishing says Publish now applies right away`);
       for (const t of ['Publish as View Only', 'Publish as Public', 'Publish as Private', 'Users can only view the campaign, no comments allowed', 'Anyone can view and leave comments', 'Only visible with a valid access token']) expect(ptext.includes(t), `${tag}: Publishing offers "${t}"`);
       const order = await flow(page).evaluate((el) => ['#st-step-send', '#st-publishing', '#st-send-to-label', '#st-actions'].map((s) => el.querySelector(s)?.getBoundingClientRect().top ?? -1));
       expect(order[0] < order[1] && order[1] < order[2] && order[2] < order[3], `${tag}: Send card: Publishing first, then Send to, then the actions (${order})`);
+      expect(await pub(page).getByRole('radiogroup').count() === 1, `${tag}: the options are a radiogroup`);
+      expect(await checkedChoice(page) === 'Publish as Public', `${tag}: Public is pre-selected (${await checkedChoice(page)})`);
+      expect(await choiceLooksSelected(page, 'Publish as Public') && !(await choiceLooksSelected(page, 'Publish as View Only')), `${tag}: Public has the Email-card selected look (purple border + tint), the others don't`);
+      expect(await inViewport(page, radio(page, 'Publish as Public')), `${tag}: the pre-selected Public option is in the viewport`);
+      expect(await pub(page).getByRole('button', { name: 'Publish now' }).isVisible(), `${tag}: Publish now (without sending) is offered`);
+      expect(await pub(page).getByRole('button', { name: 'Publish now' }).locator('svg.lucide-globe').count() === 1, `${tag}: Publish now shows the Public (globe) icon`);
       await pub(page).scrollIntoViewIfNeeded();
-      await page.screenshot({ path: `${OUT}/${tag}-03-publishing-not-published.png` });
+      await page.screenshot({ path: `${OUT}/${tag}-03-publishing-public-preselected.png` });
 
-      // Publish as Public → same call → "Published!" modal over the stepper → Done → the published box + Unpublish
-      await pub(page).getByRole('button', { name: /Publish as Public/ }).click();
+      // Tapping an option only selects it: nothing is published
+      await pub(page).getByText('Publish as View Only').click();
+      await page.waitForTimeout(500);
+      expect(await checkedChoice(page) === 'Publish as View Only' && await choiceLooksSelected(page, 'Publish as View Only'), `${tag}: tap View Only → it is the selected option`);
+      expect(state.publishes.length === 0 && state.puts.length === 0 && state.unpublishes === 0, `${tag}: tapping an option publishes / saves nothing (${JSON.stringify(state.publishes)})`);
+      expect(!(await page.getByText('Public URL').filter({ visible: true }).count()), `${tag}: no "Published!" modal on tap`);
+      // Keyboard: arrows move the choice (native radios)
+      await radio(page, 'Publish as View Only').focus();
+      await page.keyboard.press('ArrowDown');
+      await page.waitForTimeout(200);
+      expect(await checkedChoice(page) === 'Publish as Public', `${tag}: ArrowDown from View Only → Public`);
+      await page.keyboard.press('ArrowUp');
+      await page.waitForTimeout(200);
+      expect(await checkedChoice(page) === 'Publish as View Only' && state.publishes.length === 0, `${tag}: ArrowUp → View Only, still nothing published`);
+      expect(await pub(page).getByRole('button', { name: 'Publish now' }).locator('svg.lucide-eye').count() === 1, `${tag}: View Only chosen → Publish now shows the eye icon`);
+      await page.screenshot({ path: `${OUT}/${tag}-03b-view-only-chosen.png` });
+
+      // Private: can't be sent — the line under the options, and Save & Send off with the reason at the bottom
+      await pub(page).getByText('Publish as Private').click();
+      await page.waitForTimeout(400);
+      expect(((await pub(page).textContent()) ?? '').includes(PRIVATE_NOTE), `${tag}: Private: the line under the options says it can't be sent`);
+      expect(await pub(page).getByRole('button', { name: 'Publish now' }).locator('svg.lucide-lock').count() === 1, `${tag}: Private chosen → Publish now shows the lock icon`);
+      const sendCard = flow(page).locator('#st-step-send');
+      await sendCard.getByLabel('Email address').fill('jordan@example.com');
+      await sendCard.getByLabel(/^Message/).fill('New Jeeps in.');
+      await page.waitForTimeout(1200);
+      const saveSend = flow(page).getByRole('button', { name: 'Save & Send', exact: true }).filter({ visible: true }).last();
+      expect(await saveSend.isDisabled(), `${tag}: Private chosen → Save & Send is off`);
+      const reason = flow(page).locator('#st-send-reason');
+      expect(((await reason.textContent().catch(() => '')) ?? '').includes(PRIVATE_SEND_REASON), `${tag}: the reason is at the bottom, by the buttons (${await reason.textContent().catch(() => '')})`);
+      await saveSend.scrollIntoViewIfNeeded();
+      expect(await inViewport(page, reason), `${tag}: the Private reason is in the viewport next to Save & Send`);
+      await page.screenshot({ path: `${OUT}/${tag}-03c-private-blocks-send.png` });
+      expect(state.publishes.length === 0 && !state.sends, `${tag}: still nothing published or sent`);
+
+      // View Only → Save & Send: the confirm says it publishes View Only; Back sends / publishes nothing
+      await pub(page).getByText('Publish as View Only').click();
+      await page.waitForTimeout(800);
+      expect(!(await saveSend.isDisabled()), `${tag}: View Only → Save & Send is on again`);
+      await saveSend.click();
+      const confirm = page.getByRole('dialog', { name: 'Send this Storeel now?' });
+      await confirm.waitFor({ timeout: 8000 }).catch(() => {});
+      const ctext = (await confirm.textContent().catch(() => '')) ?? '';
+      expect(ctext.includes('Sending publishes your campaign (View Only), so people can open it.'), `${tag}: confirm: "Sending publishes your campaign (View Only)"`);
+      await page.screenshot({ path: `${OUT}/${tag}-04a-confirm-view-only.png` });
+      await confirm.getByRole('button', { name: 'Back', exact: true }).click();
+      await page.waitForTimeout(500);
+      expect(!state.sends && state.published === 0 && state.publishes.length === 0, `${tag}: Back → nothing sent, still not published`);
+      expect(await checkedChoice(page) === 'Publish as View Only', `${tag}: Back keeps the chosen option`);
+      // Send Now → storeel-send publish_role 2 (the API publishes it View Only in the send)
+      await saveSend.click();
+      await confirm.waitFor({ timeout: 8000 }).catch(() => {});
+      await confirm.getByRole('button', { name: 'Send Now' }).click();
+      await page.waitForTimeout(1500);
+      expect(state.sendBodies.at(-1)?.publish_role === 2, `${tag}: Save & Send sends publish_role 2 (${JSON.stringify(state.sendBodies.at(-1))})`);
+      expect(state.publishes.length === 0, `${tag}: no separate publish call (the send publishes it)`);
+      expect(state.puts.at(-1)?.location === 'Toronto, Canada', `${tag}: Send → Save & Send PUT keeps the saved Location (${state.puts.at(-1)?.location})`);
+      expect(!(await flow(page).count()), `${tag}: sent → the stepper closes`);
+      expect(await toast(page, 'Your campaign is now published (View Only).'), `${tag}: the Sent toast names the mode it was published in (View Only)`);
+      await page.screenshot({ path: `${OUT}/${tag}-04b-sent-view-only.png` });
+
+      // Reopen Send: Published · View Only, View Only selected, no Publish now (same mode)
+      await sendButton(page).click();
+      await flow(page).locator('#st-step-send').waitFor({ timeout: 10000 }).catch(() => {});
+      await page.waitForTimeout(1200);
+      const p1 = (await pub(page).textContent()) ?? '';
+      expect(p1.includes('Published · View Only') && await checkedChoice(page) === 'Publish as View Only', `${tag}: published → its mode (View Only) is selected`);
+      expect(!(await pub(page).getByRole('button', { name: 'Publish now' }).count()), `${tag}: same mode → no Publish now`);
+      expect(p1.includes("Unpublish applies right away. It doesn't need Save Changes."), `${tag}: published: Unpublish applies right away`);
+
+      // Unpublish → not published, Public pre-selected again
+      await pub(page).getByRole('button', { name: 'Unpublish', exact: true }).click();
+      expect(await toast(page, 'Campaign unpublished successfully!'), `${tag}: Unpublish → toast`);
+      await page.waitForTimeout(500);
+      expect(state.unpublishes === 1, `${tag}: POST /memories/memory-unpublished`);
+      expect(((await pub(page).textContent()) ?? '').includes(NOT_YET) && await checkedChoice(page) === 'Publish as Public', `${tag}: unpublished → Public pre-selected again`);
+
+      // Publish now (Public) → same call (+ switch_role) → "Published!" modal over the stepper → Done → the published box
+      const putsBeforePublish = state.puts.length;
+      await pub(page).getByRole('button', { name: 'Publish now' }).click();
       await page.getByText('Public URL').first().waitFor({ timeout: 10000 }).catch(() => {});
-      expect(JSON.stringify(state.publishes) === '[{"role":1}]', `${tag}: POST /memories/901/publish role 1 (${JSON.stringify(state.publishes)})`);
+      expect(JSON.stringify(state.publishes) === '[{"role":1,"switch_role":true}]', `${tag}: Publish now → POST /memories/901/publish role 1 (${JSON.stringify(state.publishes)})`);
       const done = page.getByRole('button', { name: 'Done', exact: true }).filter({ visible: true }).last();
       const top = await done.evaluate((b) => { const r = b.getBoundingClientRect(); const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return Boolean(hit && b.contains(hit)); }).catch(() => false);
       expect(top, `${tag}: the "Published!" modal is on top of the stepper (Done is clickable)`);
       expect(await page.getByText(LINK).first().isVisible().catch(() => false) || (await page.locator(`input[value="${LINK}"]`).filter({ visible: true }).count()) > 0, `${tag}: the modal shows the link`);
       await page.waitForTimeout(700);
-      const toastsOverModal = await page.locator('[data-sonner-toast]').filter({ visible: true }).count();
-      expect(toastsOverModal === 0, `${tag}: no toasts over the "Published!" modal (${toastsOverModal})`);
+      // Publishing's own toasts (progress / published) never sit over the modal. (The earlier Send's "Sent" and the
+      // Unpublish toast may still be showing in this run: they are not about this publish.)
+      const toastTexts = await page.locator('[data-sonner-toast]').filter({ visible: true }).allTextContents();
+      expect(!toastTexts.some((t) => /Preparing campaign|Uploading to server|Setting up sharing|published/i.test(t) && !/unpublished|^Sent:/i.test(t)), `${tag}: no publishing toasts over the "Published!" modal (${JSON.stringify(toastTexts)})`);
       await page.screenshot({ path: `${OUT}/${tag}-04-published-modal-over-stepper.png` });
       await done.click();
       await page.waitForTimeout(700);
@@ -199,7 +308,7 @@ try {
       const p2 = (await pub(page).textContent()) ?? '';
       expect(p2.includes('Published · Public') && p2.includes('Published Campaign') && p2.includes('Live'), `${tag}: Publishing shows Published · Public with the published box`);
       expect(await pub(page).locator(`input[value="${LINK}"]`).count() === 1, `${tag}: the link is in the Publishing card`);
-      expect(!p2.includes('Publish as Public'), `${tag}: no Publish choices while published (as before: Unpublish first)`);
+      expect(await checkedChoice(page) === 'Publish as Public', `${tag}: published → Public selected`);
       await pub(page).scrollIntoViewIfNeeded();
       await page.screenshot({ path: `${OUT}/${tag}-05-publishing-published.png` });
 
@@ -232,49 +341,54 @@ try {
       expect(await toast(page, 'Share message saved'), `${tag}: Share message saved`);
       expect(state.shareMessages.at(-1) === 'Fresh Jeeps this week' && state.shareMessages.length === 1, `${tag}: POST share-message once (${JSON.stringify(state.shareMessages)})`);
 
-      // Unpublish
-      await pub(page).getByRole('button', { name: 'Unpublish', exact: true }).click();
-      expect(await toast(page, 'Campaign unpublished successfully!'), `${tag}: Unpublish → toast`);
-      await page.waitForTimeout(500);
-      expect(state.unpublishes === 1, `${tag}: POST /memories/memory-unpublished`);
-      expect(((await pub(page).textContent()) ?? '').includes('Not published') && await pub(page).getByRole('button', { name: /Publish as Private/ }).isVisible(), `${tag}: back to the three Publish choices`);
-
-      // Private (the access-token link), then View Only
-      await pub(page).getByRole('button', { name: /Publish as Private/ }).click();
+      // Switch a published campaign: Private chosen → note + Publish now → switch_role (never unpublished)
+      await pub(page).getByText('Publish as Private').click();
+      await page.waitForTimeout(400);
+      expect(((await pub(page).textContent()) ?? '').includes(PRIVATE_NOTE) && state.publishes.length === 1, `${tag}: published Public, Private chosen → the note; nothing published yet`);
+      expect(((await pub(page).textContent()) ?? '').includes("Publish now and Unpublish apply right away. They don't need Save Changes."), `${tag}: another mode chosen → Publish now and Unpublish apply right away`);
+      await pub(page).getByRole('button', { name: 'Publish now' }).click();
       await page.getByText('Public URL').first().waitFor({ timeout: 10000 }).catch(() => {});
       await page.getByRole('button', { name: 'Done', exact: true }).filter({ visible: true }).last().click();
       await page.waitForTimeout(600);
-      expect(state.publishes.at(-1)?.role === 3 && ((await pub(page).textContent()) ?? '').includes('Published · Private'), `${tag}: Publish as Private → role 3, Published · Private`);
-      expect(((await pub(page).textContent()) ?? '').includes("Private link only: it can't be sent. Unpublish, then publish it as Public or View Only to send it."), `${tag}: Private says it can't be sent`);
+      expect(JSON.stringify(state.publishes.at(-1)) === '{"role":3,"switch_role":true}' && state.unpublishes === 1, `${tag}: Publish now switches Public → Private in one call (${JSON.stringify(state.publishes.at(-1))})`);
+      const p3 = (await pub(page).textContent()) ?? '';
+      expect(p3.includes('Published · Private') && p3.includes("Private link only: it can't be sent. Choose Public or View Only to send it."), `${tag}: Published · Private, and it says it can't be sent`);
       expect(await pub(page).locator(`input[value="${LINK}?access_token=tok123"]`).count() === 1, `${tag}: the private (access-token) link is shown`);
       await pub(page).scrollIntoViewIfNeeded();
       await page.screenshot({ path: `${OUT}/${tag}-08-published-private.png` });
-      // The Send card follows the Publishing card: a private (access-token) campaign can't be sent, and the confirm says
-      // to publish it another way in Publishing (it used to say "on the campaign page").
-      const sendCard = flow(page).locator('#st-step-send');
+      expect(await saveSend.isDisabled().catch(() => false), `${tag}: private campaign: Save & Send is off`);
+
+      // Private → choose Public → Save & Send switches it in the send (publish_role 1)
+      await pub(page).getByText('Publish as Public').click();
+      await page.waitForTimeout(400);
+      expect(((await pub(page).textContent()) ?? '').includes('Save & Send or Publish now changes it to Public.'), `${tag}: Private campaign, Public chosen → "changes it to Public"`);
+      await page.screenshot({ path: `${OUT}/${tag}-08b-private-to-public.png` });
       await sendCard.getByLabel('Email address').fill('jordan@example.com');
       await sendCard.getByLabel(/^Message/).fill('New Jeeps in.');
       await page.waitForTimeout(1200);
-      await flow(page).getByRole('button', { name: 'Save & Send', exact: true }).filter({ visible: true }).last().click();
-      const confirm = page.getByRole('dialog', { name: 'Send this Storeel now?' });
+      await saveSend.click();
       await confirm.waitFor({ timeout: 8000 }).catch(() => {});
-      const ctext = (await confirm.textContent().catch(() => '')) ?? '';
-      expect(ctext.includes('Publish it as Public or View Only at the top of the Send card, then send it.'), `${tag}: private campaign: the send confirm points at the top of the Send card`);
-      expect(await confirm.getByRole('button', { name: 'Send Now' }).isDisabled().catch(() => false), `${tag}: private campaign: Send Now is off`);
-      await page.screenshot({ path: `${OUT}/${tag}-08b-private-send-confirm.png` });
-      await confirm.getByRole('button', { name: /^(Cancel|Not now|Back)$/ }).first().click().catch(async () => { await page.keyboard.press('Escape'); });
-      await page.waitForTimeout(500);
-      if (await confirm.isVisible().catch(() => false)) { await page.keyboard.press('Escape'); await page.waitForTimeout(400); }
-      expect(!state.sends, `${tag}: nothing sent`);
-      expect(state.puts.at(-1)?.location === 'Toronto, Canada', `${tag}: Send → Save & Send PUT keeps the saved Location (${state.puts.at(-1)?.location})`);
+      expect(((await confirm.textContent().catch(() => '')) ?? '').includes('Sending changes your campaign to Public.'), `${tag}: confirm: "Sending changes your campaign to Public."`);
+      await page.screenshot({ path: `${OUT}/${tag}-08c-confirm-switch.png` });
+      await confirm.getByRole('button', { name: 'Send Now' }).click();
+      await page.waitForTimeout(1500);
+      expect(state.sendBodies.at(-1)?.publish_role === 1 && state.published === 1, `${tag}: Save & Send sends publish_role 1 (${JSON.stringify(state.sendBodies.at(-1))})`);
+      expect(await toast(page, 'Your campaign is now Public.'), `${tag}: the Sent toast says the send switched it to Public`);
+
+      // Reopen; Unpublish; Publish now as View Only (publishing saves nothing else)
+      await sendButton(page).click();
+      await flow(page).locator('#st-step-send').waitFor({ timeout: 10000 }).catch(() => {});
+      await page.waitForTimeout(1200);
       await pub(page).getByRole('button', { name: 'Unpublish', exact: true }).click();
       await page.waitForTimeout(800);
-      await pub(page).getByRole('button', { name: /Publish as View Only/ }).click();
+      await pub(page).getByText('Publish as View Only').click();
+      const putsMid = state.puts.length;
+      await pub(page).getByRole('button', { name: 'Publish now' }).click();
       await page.getByText('Public URL').first().waitFor({ timeout: 10000 }).catch(() => {});
       await page.getByRole('button', { name: 'Done', exact: true }).filter({ visible: true }).last().click();
       await page.waitForTimeout(600);
-      expect(state.publishes.at(-1)?.role === 2 && ((await pub(page).textContent()) ?? '').includes('Published · View Only'), `${tag}: Publish as View Only → role 2, Published · View Only`);
-      expect(state.puts.length === 1, `${tag}: publishing saved nothing else (the one PUT is Save & Send's)`);
+      expect(state.publishes.at(-1)?.role === 2 && ((await pub(page).textContent()) ?? '').includes('Published · View Only'), `${tag}: Publish now as View Only → role 2, Published · View Only`);
+      expect(state.puts.length === putsMid && putsBeforePublish <= state.puts.length, `${tag}: Publish now saves nothing else (no PUT)`);
 
       // A share message typed in the card but not Saved: leaving the stepper saves it (review M2)
       await pub(page).getByPlaceholder('View this published storeel on stasht.').fill('Typed, not saved');
@@ -300,11 +414,14 @@ try {
       await page.waitForTimeout(2000); // longer than the device-location answer
       expect((await flow(page).getByPlaceholder(/Enter location/).inputValue()) === 'Toronto, Canada', `${tag}: Edit keeps the saved Location (no device city)`);
       const putsBefore = state.puts.length;
+      const publishesBefore = state.publishes.length;
+      await pub(page).getByText('Publish as Public').click(); // chosen, not applied: Save Changes doesn't publish
       await flow(page).getByRole('button', { name: 'Save Changes', exact: true }).filter({ visible: true }).last().click();
       await page.getByText('Changes saved').first().waitFor({ timeout: 8000 }).catch(() => {});
       await page.waitForTimeout(800);
       expect(state.puts.length === putsBefore + 1 && state.puts.at(-1)?.location === 'Toronto, Canada', `${tag}: Edit → Save Changes PUT keeps the saved Location (${state.puts.at(-1)?.location})`);
       expect((await page.evaluate(() => window.__geoCalls)) === 0, `${tag}: Edit / Send never asked for the device location`);
+      expect(state.publishes.length === publishesBefore && state.published === 2 && !state.sendBodies.slice(2).length, `${tag}: Save Changes with another option chosen publishes / sends nothing (still View Only)`);
 
       // Phones: the scrolled (compact) header's ⋮ → Edit Campaign · Send (no publish items)
       if (width < 1024) {
@@ -344,6 +461,25 @@ try {
         const discard = page.getByRole('button', { name: /^(Discard|Leave|Yes, discard|Discard changes)$/ }).filter({ visible: true });
         if (await discard.count()) { await discard.first().click(); await page.waitForTimeout(400); }
       }
+      await context.close();
+    }
+
+    // ── Review I1: Studio ahead of the API (no switch_role): Publish now on a published campaign still ends in the chosen mode ─
+    {
+      const { page, context, state } = await open({ width, height }, { published: 1, oldApi: true });
+      await openCampaign(page);
+      await sendButton(page).click();
+      await flow(page).locator('#st-step-send').waitFor({ timeout: 10000 }).catch(() => {});
+      await page.waitForTimeout(1200);
+      await pub(page).getByText('Publish as View Only').click();
+      await pub(page).getByRole('button', { name: 'Publish now' }).click();
+      await page.getByText('Public URL').first().waitFor({ timeout: 10000 }).catch(() => {});
+      await page.getByRole('button', { name: 'Done', exact: true }).filter({ visible: true }).last().click().catch(() => {});
+      await page.waitForTimeout(1200);
+      expect(JSON.stringify(state.publishes) === '[{"role":2,"switch_role":true},{"role":2}]', `${tag}: old API: the toggle-off is repaired with one more publish (${JSON.stringify(state.publishes)})`);
+      expect(state.published === 2 && ((await pub(page).textContent()) ?? '').includes('Published · View Only'), `${tag}: old API: the campaign ends published View Only (state ${state.published})`);
+      await pub(page).scrollIntoViewIfNeeded();
+      await page.screenshot({ path: `${OUT}/${tag}-14-old-api-switch-repaired.png` });
       await context.close();
     }
 

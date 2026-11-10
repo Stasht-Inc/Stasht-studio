@@ -79,6 +79,8 @@ import CreateMemory from "../components/CreateMemory";
 import { seedFromMemory } from "../components/storeel/lib/storeelFlow";
 import PublishedLinkPanel from "../components/campaign/PublishedLinkPanel";
 import CampaignPublishing from "../components/storeel/CampaignPublishing";
+import { PublishChoiceProvider } from "../components/storeel/PublishChoice";
+import { switchNeedsRepublish } from "../components/storeel/lib/publishing";
 import { campaignCanOpenStepper, publishedRole, type StepperOpensAt } from "../components/storeel/lib/publishing";
 import { campaignPageInventory } from "../components/storeel/campaignPageInventory";
 import { campaignModerationOf, moderationTabVisible } from "../components/storeel/lib/moderation";
@@ -5402,7 +5404,9 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
   };
 
   const PUBLISH_PROGRESS_TOAST = 'campaign-publish-progress';
-  const handlePublish = async (roleOverride?: number) => {
+  // switchRole (Chris 9 Nov 2026, the Publishing card's "Publish now"): publish with roleOverride, or switch a published
+  // campaign to it — never the old toggle's unpublish.
+  const handlePublish = async (roleOverride?: number, switchRole = false) => {
     // Check if memory is published (published can be 1, 2, or 3)
     // One normaliser for the published state (components/storeel/lib/publishing.ts), as the Publishing card and the box use.
     const isCurrentlyPublished = publishedRole(apiMemoryData?.published) !== 0;
@@ -5410,7 +5414,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
     setPublishProgress(0);
     
     try {
-      if (isCurrentlyPublished) {
+      if (isCurrentlyPublished && !switchRole) {
         // Unpublish the memory
         console.log(`=== UNPUBLISH MEMORY ===`);
         console.log(`Unpublishing memory ID: ${memoryId}`);
@@ -5476,8 +5480,14 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
 
         console.log(`Publishing with role: ${role} (selectedPublishOption: ${selectedPublishOption}, roleOverride: ${roleOverride})`);
 
-        const response = await dashboardAPI.publishMemory(memoryId, role);
+        let response = await dashboardAPI.publishMemory(memoryId, role, switchRole);
         console.log('Publish API Response:', response);
+        // Review I1: an API without switch_role toggled the published campaign OFF — publish it again in the chosen
+        // mode, once (the new API answers the chosen mode, so this never runs there).
+        if (response.success && switchNeedsRepublish({ switchRole, wasPublished: isCurrentlyPublished, role, reply: response.data })) {
+          response = await dashboardAPI.publishMemory(memoryId, role);
+          if (response.success && Number(response.data?.published) !== role) throw new Error('Failed to change the publish mode');
+        }
 
         if (response.success) {
           setPublishProgress(100);
@@ -5536,7 +5546,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
       toast.dismiss(PUBLISH_PROGRESS_TOAST);
       setIsPublishing(false);
       setPublishProgress(0);
-      toast.error(isCurrentlyPublished ? "Failed to unpublish campaign. Please try again." : "Failed to publish campaign. Please try again.");
+      toast.error(isCurrentlyPublished && !switchRole ? "Failed to unpublish campaign. Please try again." : "Failed to publish campaign. Please try again.");
     }
   };
 
@@ -17859,6 +17869,8 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
       {/* Edit = the Storeel flow on this campaign: step 1 prefilled (Save Changes = PUT /memories/{id}), then Send
           (optional) or Done back to this page. The preview shows this campaign's moments. */}
       {storeelFlow ? (
+        // The Send card's Publishing choice (Chris 9 Nov 2026), shared by its Publishing card and Save & Send.
+        <PublishChoiceProvider published={apiMemoryData?.published}>
         <CreateMemory
           open
           onOpenChange={(o) => { if (!o) setStoreelFlow(false); }}
@@ -17885,7 +17897,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
               canPublish={isOwner}
               isPublishing={isPublishing}
               publishProgress={publishProgress}
-              onPublish={(role) => { void handlePublish(role); }}
+              onPublish={(role) => { void handlePublish(role, true); }}
               onUnpublish={() => { void handlePublish(); }}
               linkPanel={(
                 <PublishedLinkPanel
@@ -17900,6 +17912,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
             />
           )}
         />
+        </PublishChoiceProvider>
       ) : null}
 
       <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
