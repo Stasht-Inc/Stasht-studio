@@ -153,7 +153,8 @@ async function uploadMedia(id: number, file: File): Promise<ProductResult<Produc
   form.append('file', file);
   let response: Response | null;
   try {
-    response = await postFormData(`/products/${encodeURIComponent(String(id))}/media`, form);
+    // Never retried on a network error: the first attempt may have stored the file (Task 16, T11 review minor).
+    response = await postFormData(`/products/${encodeURIComponent(String(id))}/media`, form, { networkRetries: 0 });
   } catch {
     return { ok: false, error: 'The file could not be uploaded. Check your connection and try again.' };
   }

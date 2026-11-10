@@ -137,6 +137,7 @@ async function open(w, { width, height, path = '/products', view = 'personal', p
       if (!found) return route.fulfill({ status: 404, json: { success: false, message: 'Product not found.' } });
       let list = detailOf(found).media;
       if (m === 'POST' && !media[2]) {
+        if (w.mediaNetFail) return route.abort('failed'); // a dropped connection (Task 16: never retried, an upload may have landed)
         if (w.mediaReject) { const msg = w.mediaReject; w.mediaReject = null; return route.fulfill({ status: 422, json: { success: false, message: msg, errors: { file: [msg] } } }); }
         const raw = req.postDataBuffer()?.toString('latin1') || '';
         const id = w.nextId++;
@@ -550,6 +551,17 @@ try {
       await editor.locator('input[type=file]').setInputFiles([tiny('c.jpg')]);
       await page.waitForTimeout(800);
       expect(await editor.getByText('c.jpg: A product can have up to 20 photos.').isVisible(), `${tag}: the API's upload limit message shows in the Media card`);
+      // Task 16 (T11 minor): a network error on the upload is not retried, so one file can never land twice.
+      const attemptsBefore = w.calls.filter((c) => c.m === 'POST' && c.p === `/products/${id}/media`).length;
+      const photosBefore = await editor.getByRole('img', { name: /^Photo \d/ }).count();
+      w.mediaNetFail = true;
+      await editor.locator('input[type=file]').setInputFiles([tiny('d.jpg')]);
+      await page.waitForTimeout(5000); // longer than the 1s + 3s network-retry backoff
+      w.mediaNetFail = false;
+      const attempts = w.calls.filter((c) => c.m === 'POST' && c.p === `/products/${id}/media`).length - attemptsBefore;
+      expect(attempts === 1, `${tag}: a dropped upload is sent once, never retried (${attempts})`);
+      expect(await editor.getByText('d.jpg: The file could not be uploaded. Check your connection and try again.').isVisible(), `${tag}: … and the Media card says to check the connection`);
+      expect(await editor.getByRole('img', { name: /^Photo \d/ }).count() === photosBefore, `${tag}: … and no photo is added`);
       await editor.getByRole('heading', { name: 'Media', exact: true }).scrollIntoViewIfNeeded();
       await page.screenshot({ path: `${OUT}/${tag}-02a-upload-limit.png` });
       await editor.getByRole('img', { name: 'Photo 1' }).hover().catch(() => {});
