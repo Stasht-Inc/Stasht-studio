@@ -5,9 +5,17 @@
 // Create campaign, and the picks survive a trip to Create and back.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import {
+// sessionStorage (the one-shot "open on the Media tab" signal survives a reload) — a stand-in for Node.
+const store = new Map();
+globalThis.sessionStorage = { getItem: (k) => (store.has(k) ? store.get(k) : null), setItem: (k, v) => store.set(k, String(v)), removeItem: (k) => store.delete(k), clear: () => store.clear() };
+// window events: ACCOUNT_STATE_CLEARED_EVENT (a sign-out / sign-in without a reload).
+globalThis.window = globalThis.window ?? new EventTarget();
+const {
   isAddablePhoto, pickKey, addPicks, togglePick, selectedPickFiles, selectionLabel, skippedMessage, cameraRollSession,
-} from '../../utils/cameraRoll.ts';
+  accountKeyOf, OPEN_MEDIA_TAB_KEY,
+} = await import('../../utils/cameraRoll.ts');
+const { ACCOUNT_STATE_CLEARED_EVENT } = await import('../../utils/accountState.ts');
+const A = accountKeyOf({ userId: 70, viewType: 'personal', propertyId: null });
 
 const file = (name, { type = 'image/jpeg', size = 100, lastModified = 1 } = {}) => new File([new Uint8Array(size)], name, { type, lastModified });
 
@@ -19,6 +27,12 @@ test('photos the upload accepts are addable, including iPhone HEIC/HEIF and WEBP
 
 test('HEIC with an empty type (some browsers) is still addable by its extension', () => {
   assert.equal(isAddablePhoto(file('IMG_1.HEIC', { type: '' })), true);
+});
+
+test('HEIC/HEIF reported as application/octet-stream (some desktops) is addable by its extension', () => {
+  assert.equal(isAddablePhoto(file('IMG_1.heic', { type: 'application/octet-stream' })), true);
+  assert.equal(isAddablePhoto(file('IMG_1.HEIF', { type: 'application/octet-stream' })), true);
+  assert.equal(isAddablePhoto(file('notes.bin', { type: 'application/octet-stream' })), false);
 });
 
 test('videos, PDFs and unknown files are not addable', () => {
@@ -88,8 +102,8 @@ test('skippedMessage', () => {
 test('session keeps picks across unmounts; a handoff is recognised by its exact files', () => {
   cameraRollSession.clear();
   const picks = addPicks([], [file('a.jpg')]).picks;
-  cameraRollSession.setPicks(picks);
-  assert.equal(cameraRollSession.getPicks(), picks);
+  cameraRollSession.setPicks(picks, A);
+  assert.equal(cameraRollSession.getPicks(A), picks);
   const files = selectedPickFiles(picks);
   cameraRollSession.startHandoff(files);
   assert.equal(cameraRollSession.isHandoff(files), true);
@@ -97,28 +111,51 @@ test('session keeps picks across unmounts; a handoff is recognised by its exact 
   assert.equal(cameraRollSession.isHandoff(null), false);
   cameraRollSession.endHandoff();
   assert.equal(cameraRollSession.isHandoff(files), false);
-  assert.equal(cameraRollSession.getPicks(), picks, 'ending the handoff keeps the picks (Create was closed)');
+  assert.equal(cameraRollSession.getPicks(A), picks, 'ending the handoff keeps the picks (Create was closed)');
 });
 
 test('session.clear forgets picks and any handoff (campaign created)', () => {
   const picks = addPicks([], [file('a.jpg')]).picks;
-  cameraRollSession.setPicks(picks);
+  cameraRollSession.setPicks(picks, A);
   cameraRollSession.startHandoff(selectedPickFiles(picks));
   cameraRollSession.clear();
-  assert.deepEqual(cameraRollSession.getPicks(), []);
+  assert.deepEqual(cameraRollSession.getPicks(A), []);
   assert.equal(cameraRollSession.isHandoff(selectedPickFiles(picks)), false);
 });
 
-test('session: open the Media tab once (after "Take a Photo" saved to Media)', () => {
+test('session: open the Media tab once (after "Take a Photo" saved to Media), kept in sessionStorage so a reload keeps it', () => {
+  store.clear();
   assert.equal(cameraRollSession.takeOpenMediaTab(), false);
   cameraRollSession.openMediaTabNext();
+  assert.equal(store.get(OPEN_MEDIA_TAB_KEY), '1');
+  assert.equal(cameraRollSession.peekOpenMediaTab(), true, 'peek does not consume');
+  assert.equal(cameraRollSession.peekOpenMediaTab(), true);
   assert.equal(cameraRollSession.takeOpenMediaTab(), true);
-  assert.equal(cameraRollSession.takeOpenMediaTab(), false);
+  assert.equal(cameraRollSession.takeOpenMediaTab(), false, 'consumed on read');
+  assert.equal(store.has(OPEN_MEDIA_TAB_KEY), false);
+});
+
+test('Sidebar "View Media" writes the key literally before its reload: the next Media page opens on Media', () => {
+  store.clear();
+  sessionStorage.setItem('stasht_open_media_tab', '1'); // components/Sidebar.tsx
+  assert.equal(OPEN_MEDIA_TAB_KEY, 'stasht_open_media_tab');
+  assert.equal(cameraRollSession.peekOpenMediaTab(), true);
+  assert.equal(cameraRollSession.takeOpenMediaTab(), true);
+});
+
+test('a service just connected / imported (service_just_connected) opens on Media too, without consuming that flag', () => {
+  store.clear();
+  sessionStorage.setItem('service_just_connected', 'true'); // OAuth / Facebook return, Google Photos import
+  assert.equal(cameraRollSession.peekOpenMediaTab(), true);
+  assert.equal(cameraRollSession.takeOpenMediaTab(), true);
+  assert.equal(store.get('service_just_connected'), 'true', 'MediaPage.checkOAuthReturn still sees it');
+  store.clear();
 });
 
 test('session: a Media page already open switches to its Media tab at once (no flag left for the next visit)', () => {
   let calls = 0;
   const stop = cameraRollSession.onOpenMediaTab(() => { calls++; });
+  store.clear();
   cameraRollSession.openMediaTabNext();
   assert.equal(calls, 1);
   assert.equal(cameraRollSession.takeOpenMediaTab(), false);
@@ -126,4 +163,34 @@ test('session: a Media page already open switches to its Media tab at once (no f
   cameraRollSession.openMediaTabNext();
   assert.equal(calls, 1);
   assert.equal(cameraRollSession.takeOpenMediaTab(), true);
+});
+
+test('accountKeyOf: user + view + property', () => {
+  assert.equal(accountKeyOf({ userId: 70, viewType: 'personal', propertyId: null }), '70|personal|');
+  assert.equal(accountKeyOf({ userId: 70, viewType: 'property', propertyId: 12 }), '70|property|12');
+  assert.equal(accountKeyOf({ userId: undefined, viewType: 'personal' }), '|personal|');
+});
+
+test('picks belong to the account they were picked in: another account (business switch, other user) gets none, and they are gone', () => {
+  cameraRollSession.clear();
+  const B = accountKeyOf({ userId: 70, viewType: 'property', propertyId: 12 });
+  const picks = addPicks([], [file('a.jpg')]).picks;
+  cameraRollSession.setPicks(picks, A);
+  cameraRollSession.startHandoff(selectedPickFiles(picks));
+  assert.deepEqual(cameraRollSession.getPicks(B), []);
+  assert.deepEqual(cameraRollSession.getPicks(A), [], 'switching back does not bring them back');
+  assert.equal(cameraRollSession.isHandoff(selectedPickFiles(picks)), false);
+});
+
+test('a sign-out / sign-in without a reload (ACCOUNT_STATE_CLEARED_EVENT) clears the picks and tells an open tab', () => {
+  const picks = addPicks([], [file('a.jpg')]).picks;
+  cameraRollSession.setPicks(picks, A);
+  let told = 0;
+  const stop = cameraRollSession.onClear(() => { told++; });
+  window.dispatchEvent(new Event(ACCOUNT_STATE_CLEARED_EVENT));
+  assert.deepEqual(cameraRollSession.getPicks(A), []);
+  assert.equal(told, 1);
+  stop();
+  cameraRollSession.clear();
+  assert.equal(told, 1, 'unsubscribed');
 });

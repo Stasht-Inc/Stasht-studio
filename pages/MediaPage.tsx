@@ -11,7 +11,9 @@ import { ImageViewer } from "../components/ImageViewer";
 import { MediaGridItem } from "../components/media/MediaGridItem";
 import { MainUploadArea } from "../components/media/MainUploadArea";
 import { CameraRollPanel } from "../components/media/CameraRollPanel";
-import { cameraRollSession } from "../utils/cameraRoll";
+import { cameraRollSession, accountKeyOf } from "../utils/cameraRoll";
+import { useAuth } from "../contexts/AuthContext";
+import { useProperty } from "../contexts/PropertyContext";
 import BatchActions from "../components/BatchActions";
 import UploadProgress, { UploadProgressItem } from "../components/UploadProgress";
 import { SyncMediaDialog } from "../components/SyncMediaDialog";
@@ -186,7 +188,13 @@ export default function MediaPage({
   console.log('🎯 MediaPage rendered, pendingUploadFiles:', pendingUploadFiles?.length || 0);
 
   // Tabs Camera Roll | Media (Chris, 9 Nov 2026): Camera Roll every time the page opens; Media is the page as it was.
-  const [mediaTab, setMediaTab] = useState<'camera-roll' | 'media'>('camera-roll');
+  // Flows that send the user to look at their media (Take a Photo, Sync Complete's View Media, a service just connected
+  // or photos just imported, also across their reload) open on Media.
+  const [mediaTab, setMediaTab] = useState<'camera-roll' | 'media'>(() => (cameraRollSession.peekOpenMediaTab() ? 'media' : 'camera-roll'));
+  // The Camera Roll picks belong to this account / business: another one starts with none (panel remounts).
+  const { user: cameraRollUser } = useAuth();
+  const { viewType: cameraRollView, currentProperty: cameraRollProperty } = useProperty();
+  const cameraRollAccount = accountKeyOf({ userId: cameraRollUser?.id, viewType: cameraRollView, propertyId: cameraRollProperty?.id });
   const mediaTabRef = useRef(mediaTab);
   mediaTabRef.current = mediaTab;
   useEffect(() => {
@@ -194,15 +202,23 @@ export default function MediaPage({
     if (cameraRollSession.takeOpenMediaTab()) setMediaTab('media');
     return cameraRollSession.onOpenMediaTab(() => setMediaTab('media'));
   }, []);
-  // Picking a category in the Media sidebar, or a synced service (Dropbox's "view"), is about Media: show it.
-  const mediaFiltersRef = useRef({ selectedCategory, activeServiceTab });
+  // The Media sidebar acts on the Media tab (category, All Categories, Unassigned, its checkboxes, Select Files / drop
+  // upload), as does a synced service (Dropbox's "view"): using one while Camera Roll shows switches to Media.
+  const mediaSelectionCount = selectedMediaItems.length;
+  const mediaFiltersRef = useRef({ selectedCategory, activeServiceTab, showUnassignedImages, mediaSelectionCount, isUploadingMedia });
   useEffect(() => {
     const prev = mediaFiltersRef.current;
-    mediaFiltersRef.current = { selectedCategory, activeServiceTab };
-    if ((selectedCategory && selectedCategory !== prev.selectedCategory) || (activeServiceTab && activeServiceTab !== 'all' && activeServiceTab !== prev.activeServiceTab)) {
+    mediaFiltersRef.current = { selectedCategory, activeServiceTab, showUnassignedImages, mediaSelectionCount, isUploadingMedia };
+    if (
+      selectedCategory !== prev.selectedCategory
+      || (activeServiceTab && activeServiceTab !== 'all' && activeServiceTab !== prev.activeServiceTab)
+      || showUnassignedImages !== prev.showUnassignedImages
+      || (mediaSelectionCount > 0 && prev.mediaSelectionCount === 0)
+      || (isUploadingMedia && !prev.isUploadingMedia)
+    ) {
       setMediaTab('media');
     }
-  }, [selectedCategory, activeServiceTab]);
+  }, [selectedCategory, activeServiceTab, showUnassignedImages, mediaSelectionCount, isUploadingMedia]);
 
   const { isLimitExceeded } = useMemoryLimit();
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
@@ -3629,6 +3645,8 @@ export default function MediaPage({
 
       {mediaTab === 'camera-roll' && (
         <CameraRollPanel
+          key={cameraRollAccount}
+          account={cameraRollAccount}
           onNext={(files) => {
             cameraRollSession.startHandoff(files);
             onCreateCampaignFromPhotos?.(files);

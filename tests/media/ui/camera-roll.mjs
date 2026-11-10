@@ -45,14 +45,16 @@ const expect = (ok, label) => { if (!ok) failures.push(label); console.log(ok ? 
 
 const browser = await chromium.launch({ headless: true, channel: 'chrome' });
 
-async function open({ width, height }) {
+const PROP = { id: 12, name: 'Serpa Downtown', unique_id: 'SD-12', user_id: 707, is_creator: true, user_role: 'owner', property_type: 'internal', account_type: 'internal', account_created_for_property: false, can_manage: true, is_own_external_account: false, location: 'Toronto, ON', memories_count: 0, users_count: 1, invited_users: [], labels: [], created_at: '2026-10-01T10:00:00Z', is_active: true, status: 1 };
+
+async function open({ width, height }, { local = {}, session = {} } = {}) {
   const state = { uploads: [], creates: [] };
   const context = await browser.newContext({ viewport: { width, height }, serviceWorkers: 'block', locale: 'en-US', hasTouch: width < 1024, isMobile: width < 1024 });
   await context.addInitScript(() => {
     const geo = { getCurrentPosition: (_ok, err) => err && err({ code: 1, message: 'denied' }), watchPosition: () => 0, clearWatch: () => {} };
     try { Object.defineProperty(navigator, 'geolocation', { configurable: true, get: () => geo }); } catch { /* ignore */ }
   });
-  await context.addInitScript(([user]) => {
+  await context.addInitScript(([user, local, session]) => {
     if (sessionStorage.getItem('cr-seeded')) return;
     sessionStorage.setItem('cr-seeded', '1');
     localStorage.clear();
@@ -60,7 +62,9 @@ async function open({ width, height }) {
     localStorage.setItem('stasht_user', JSON.stringify(user));
     localStorage.setItem('view_type', 'personal');
     localStorage.setItem('stasht_campaigns_view', 'storeels');
-  }, [MAIN]);
+    for (const [k, v] of Object.entries(local)) localStorage.setItem(k, typeof v === 'string' ? v : JSON.stringify(v));
+    for (const [k, v] of Object.entries(session)) sessionStorage.setItem(k, v);
+  }, [MAIN, local, session]);
   await context.route('**/*', async (route) => {
     const req = route.request();
     const url = new URL(req.url());
@@ -74,6 +78,8 @@ async function open({ width, height }) {
     if (!url.pathname.startsWith('/api/')) return route.continue();
     const p = url.pathname.replace(/^\/api\/react/, '');
     const m = req.method();
+    if (p === '/properties' && m === 'GET') return route.fulfill({ json: { success: true, data: { properties: [PROP], owned_properties: [PROP], shared_properties: [], owned_count: 1, shared_count: 0, total_count: 1 } } });
+    if (/^\/properties\/\d+\/memories$/.test(p)) return route.fulfill({ json: { status: 'success', data: { property: PROP, user_role: 'owner', viewing_invited_content: false, inviter: null, memories: { data: [], total: 0 }, sidebar: { categories: { items: [] }, labels: { items: [] } } } } });
     if (p === '/memory-images' && m === 'GET') return route.fulfill({ json: { success: true, all_media: MEDIA, categories_media: {}, unassigned_media: [] } });
     if (p === '/user/upload-image-with-metadata') {
       const n = state.uploads.length + 1;
@@ -280,7 +286,8 @@ try {
       await page.waitForTimeout(1200);
       expect(!new URL(page.url()).pathname.startsWith('/media'), `${tag}: after a campaign is made, closing stays on Campaigns (${page.url()})`);
       // In-app back to Media (a reload would forget the picks anyway): Camera Roll is empty again.
-      await page.getByRole('button', { name: /^Media( \d+)?$/ }).filter({ visible: true }).first().click();
+      await page.getByRole('button', { name: /^Media( \d+)?$/ }).filter({ visible: true }).first().click({ timeout: 10000 })
+        .catch(async (e) => { await page.screenshot({ path: `${OUT}/${tag}-12-nav-to-media-fail.png` }); throw e; });
       await tab(page, 'Camera Roll').waitFor({ state: 'visible', timeout: 10000 }).catch(() => {});
       await page.waitForTimeout(600);
       expect(await isTab(page, 'Camera Roll') && await page.getByRole('button', { name: 'Choose from Camera Roll' }).isVisible().catch(() => false), `${tag}: campaign made → the picks are cleared (Camera Roll empty)`);
@@ -289,6 +296,107 @@ try {
     }
     await page.screenshot({ path: `${OUT}/${tag}-12-after-create.png` });
     await context.close();
+
+    // ── Fix round I-1: flows that send the user to their media open on the Media tab ─────────────────────────────
+    {
+      // A service just connected / photos just imported (OAuth, Facebook, Google Photos import: set, then /media)
+      const { page: p2, context: c2 } = await open({ width, height }, { session: { service_just_connected: 'true', activeServiceTab: 'all' } });
+      await tab(p2, 'Media').waitFor({ state: 'visible', timeout: 30000 });
+      await p2.waitForTimeout(1500);
+      expect(await isTab(p2, 'Media'), `${tag}: service_just_connected → opens on the Media tab`);
+      await p2.screenshot({ path: `${OUT}/${tag}-13-service-connected-opens-media.png` });
+      await c2.close();
+    }
+    {
+      // Sidebar "Sync Complete → View Media" (writes stasht_open_media_tab, reloads) / Take a Photo
+      const { page: p3, context: c3 } = await open({ width, height }, { session: { stasht_open_media_tab: '1' } });
+      await tab(p3, 'Media').waitFor({ state: 'visible', timeout: 30000 });
+      await p3.waitForTimeout(1200);
+      expect(await isTab(p3, 'Media'), `${tag}: stasht_open_media_tab → opens on the Media tab`);
+      expect((await p3.evaluate(() => sessionStorage.getItem('stasht_open_media_tab'))) === null, `${tag}: …and the one-shot key is used up`);
+      // Away and back in-app: Camera Roll again (default)
+      await p3.getByRole('button', { name: /^Dashboard( \d+)?$/ }).filter({ visible: true }).first().click();
+      await p3.waitForTimeout(1200);
+      await p3.getByRole('button', { name: /^Media( \d+)?$/ }).filter({ visible: true }).first().click();
+      await tab(p3, 'Camera Roll').waitFor({ state: 'visible', timeout: 10000 }).catch(() => {});
+      await p3.waitForTimeout(600);
+      expect(await isTab(p3, 'Camera Roll'), `${tag}: next visit opens on Camera Roll again`);
+      await c3.close();
+    }
+
+    // ── Fix round I-2: picks belong to the account / business they were picked in ────────────────────────────────
+    {
+      const { page: p4, context: c4 } = await open({ width, height }, { local: { view_type: 'property', selected_property: PROP } });
+      await tab(p4, 'Camera Roll').waitFor({ state: 'visible', timeout: 30000 });
+      await p4.waitForTimeout(1500);
+      await input(p4).setInputFiles([photo(0), photo(1)]);
+      await p4.waitForTimeout(400);
+      expect(await tiles(p4).count() === 2, `${tag}: 2 picks in the business (property) view`);
+      // Profile menu: desktop ProfileDdwn; phone the header avatar (InteractiveNav MobileProfileAvatar).
+      if (width >= 1024) await p4.locator('[data-name="Dropdown"]').filter({ visible: true }).first().locator('*').first().click().catch(() => {});
+      else await p4.locator('div.rounded-full.cursor-pointer').filter({ visible: true }).first().click().catch(() => {});
+      await p4.waitForTimeout(800);
+      const back = p4.getByText(/^Back to /).filter({ visible: true }).first();
+      const canSwitch = await back.isVisible().catch(() => false);
+      expect(canSwitch, `${tag}: the profile menu offers "Back to …" (switch to the personal account, no reload)`);
+      if (canSwitch) {
+        await back.click();
+        await p4.waitForTimeout(1500);
+        if (!(await tab(p4, 'Camera Roll').isVisible().catch(() => false))) await p4.getByRole('button', { name: /^Media( \d+)?$/ }).filter({ visible: true }).first().click();
+        await tab(p4, 'Camera Roll').waitFor({ state: 'visible', timeout: 10000 }).catch(() => {});
+        await p4.waitForTimeout(500);
+        expect((await p4.evaluate(() => localStorage.getItem('view_type'))) === 'personal', `${tag}: now in the personal view`);
+        expect(await tiles(p4).count() === 0 && await p4.getByRole('button', { name: 'Choose from Camera Roll' }).isVisible().catch(() => false), `${tag}: after the business switch Camera Roll is empty (${await tiles(p4).count()} tiles)`);
+        await p4.screenshot({ path: `${OUT}/${tag}-14-after-account-switch-empty.png` });
+      }
+      // Signed out / in without a reload (ACCOUNT_STATE_CLEARED_EVENT) while the tab shows picks
+      await input(p4).setInputFiles([photo(2)]);
+      await p4.waitForTimeout(300);
+      expect(await tiles(p4).count() === 1, `${tag}: picked 1 in the personal view`);
+      await p4.evaluate(() => window.dispatchEvent(new Event('stasht-account-state-cleared')));
+      await p4.waitForTimeout(400);
+      expect(await tiles(p4).count() === 0, `${tag}: account state cleared → Camera Roll empty at once`);
+      await c4.close();
+    }
+
+    // ── Fix round M-1: the desktop Media sidebar switches to the Media tab; drop on Camera Roll adds picks ───────
+    if (width >= 1024) {
+      const { page: p5, context: c5 } = await open({ width, height });
+      await tab(p5, 'Camera Roll').waitFor({ state: 'visible', timeout: 30000 });
+      await p5.waitForTimeout(1500);
+      // Sidebar checkbox on an Unassigned item
+      await p5.locator('input[type="checkbox"]').filter({ visible: true }).first().check().catch(() => {});
+      await p5.waitForTimeout(500);
+      expect(await isTab(p5, 'Media'), `${tag}: ticking a Media sidebar item switches to the Media tab`);
+      expect(await p5.getByText(/1 items? selected/).filter({ visible: true }).count() > 0, `${tag}: …where its BatchActions bar shows`);
+      await p5.screenshot({ path: `${OUT}/${tag}-15-sidebar-checkbox-switches-to-media.png` });
+      await tab(p5, 'Camera Roll').click();
+      await p5.waitForTimeout(300);
+      // Category Filter → a category
+      const catFilter = p5.locator('button, [role="combobox"]').filter({ hasText: 'All Categories' }).filter({ visible: true }).first();
+      if (await catFilter.isVisible().catch(() => false)) {
+        await catFilter.click();
+        await p5.waitForTimeout(400);
+        await p5.getByRole('option', { name: /Personal/ }).first().click().catch(() => {});
+        await p5.waitForTimeout(600);
+        expect(await isTab(p5, 'Media'), `${tag}: the sidebar Category Filter switches to the Media tab`);
+        await tab(p5, 'Camera Roll').click();
+        await p5.waitForTimeout(300);
+      } else expect(false, `${tag}: sidebar Category Filter found`);
+      // Photos dragged from the computer onto Camera Roll are added as picks (nothing uploaded)
+      await p5.evaluate(async () => {
+        const blob = await (await fetch('/pwa-icon-192.png')).blob();
+        const dt = new DataTransfer();
+        dt.items.add(new File([blob], 'dropped.png', { type: 'image/png' }));
+        const el = document.querySelector('[data-testid="camera-roll-drop"]');
+        el.dispatchEvent(new DragEvent('dragover', { dataTransfer: dt, bubbles: true, cancelable: true }));
+        el.dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true }));
+      });
+      await p5.waitForTimeout(500);
+      expect(await isTab(p5, 'Camera Roll') && await tiles(p5).count() === 1, `${tag}: a photo dropped on Camera Roll is added as a pick (${await tiles(p5).count()})`);
+      await p5.screenshot({ path: `${OUT}/${tag}-16-dropped-photo-added.png` });
+      await c5.close();
+    }
   }
 } finally {
   await browser.close();

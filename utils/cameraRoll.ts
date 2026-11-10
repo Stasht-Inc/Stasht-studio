@@ -1,3 +1,5 @@
+import { ACCOUNT_STATE_CLEARED_EVENT } from './accountState.ts';
+
 // Media page "Camera Roll" tab (Chris, 9 Nov 2026). A web page can't list the phone's camera roll, so the tab opens
 // the phone's own photo picker; the photos picked are kept here, on this device only (nothing is uploaded), shown
 // selected, and Next hands the selected ones to Create campaign, which uploads them in its Add a Moment.
@@ -12,7 +14,8 @@ type FileLike = { name: string; type: string };
 export function isAddablePhoto(file: FileLike): boolean {
   const type = (file.type || '').toLowerCase();
   if (PHOTO_TYPES.includes(type)) return true;
-  if (type && !type.startsWith('image/')) return false;
+  // A video, PDF… is out; an unknown type (some desktops call HEIC application/octet-stream) goes by its extension.
+  if (type && !type.startsWith('image/') && type !== 'application/octet-stream') return false;
   const dot = file.name.lastIndexOf('.');
   return dot > 0 && PHOTO_EXTENSIONS.includes(file.name.slice(dot + 1).toLowerCase());
 }
@@ -66,31 +69,74 @@ export function skippedMessage(skipped: number): string {
     : `${skipped} files weren’t added. Only photos (JPG, PNG, HEIC, WEBP or GIF) can be used here.`;
 }
 
+/** The account the picks belong to: who is signed in, and which view (their own, or a business/property). */
+export function accountKeyOf({ userId, viewType, propertyId }: { userId?: string | number | null; viewType?: string | null; propertyId?: string | number | null }): string {
+  return `${userId ?? ''}|${viewType ?? ''}|${propertyId ?? ''}`;
+}
+
+/** One-shot "open the Media page on its Media tab" (sessionStorage, so it survives a reload). Sidebar's "View Media"
+ *  writes this literal key before its reload. */
+export const OPEN_MEDIA_TAB_KEY = 'stasht_open_media_tab';
+/** Set by every "service connected / photos imported" flow before it opens /media (read and removed by MediaPage). */
+const SERVICE_JUST_CONNECTED_KEY = 'service_just_connected';
+
+function tabStorage(): Pick<Storage, 'getItem' | 'setItem' | 'removeItem'> | null {
+  try { return typeof sessionStorage !== 'undefined' ? sessionStorage : null; } catch { return null; }
+}
+
 // Kept outside the page so the picks survive opening Create campaign (the Media page closes while it's open) and
-// are there again when Create is closed without making a campaign.
+// are there again when Create is closed without making a campaign. Only for the account they were picked in.
 let sessionPicks: CameraRollPick[] = [];
+let sessionAccount: string | null = null;
 let handoffFiles: File[] | null = null;
-let openMediaTab = false;
 const openMediaTabListeners = new Set<() => void>();
+const clearListeners = new Set<() => void>();
 
 export const cameraRollSession = {
-  getPicks: (): CameraRollPick[] => sessionPicks,
-  setPicks: (picks: CameraRollPick[]): void => { sessionPicks = picks; },
+  /** The picks, if they were made in this account; another account (a business switch, another user) gets none and
+   *  they are forgotten, so they can never be sent into the wrong account. */
+  getPicks: (account: string): CameraRollPick[] => {
+    if (sessionAccount !== account) { sessionPicks = []; handoffFiles = null; sessionAccount = account; }
+    return sessionPicks;
+  },
+  setPicks: (picks: CameraRollPick[], account: string): void => { sessionPicks = picks; sessionAccount = account; },
   /** Next: these exact files went to Create campaign. */
   startHandoff: (files: File[]): void => { handoffFiles = files; },
   /** Was Create campaign opened with these files from the Camera Roll tab? (Scan Photo's files are another array.) */
   isHandoff: (files: File[] | null | undefined): boolean => Boolean(files && handoffFiles && files === handoffFiles),
   endHandoff: (): void => { handoffFiles = null; },
-  /** A campaign was made from the picks: start again with none. */
-  clear: (): void => { sessionPicks = []; handoffFiles = null; },
-  /** The next Media page opens on its Media tab once (e.g. after "Take a Photo" saved photos to Media). */
-  openMediaTabNext: (): void => {
-    if (openMediaTabListeners.size) openMediaTabListeners.forEach((fn) => fn()); // a Media page is open: switch now
-    else openMediaTab = true;
+  /** A campaign was made from the picks, or the account changed: start again with none (an open tab empties too). */
+  clear: (): void => {
+    sessionPicks = []; handoffFiles = null;
+    clearListeners.forEach((fn) => fn());
   },
-  takeOpenMediaTab: (): boolean => { const v = openMediaTab; openMediaTab = false; return v; },
+  onClear: (fn: () => void): (() => void) => {
+    clearListeners.add(fn);
+    return () => { clearListeners.delete(fn); };
+  },
+  /** Show the Media tab: an open Media page switches now; otherwise the next one opens on it (even after a reload). */
+  openMediaTabNext: (): void => {
+    if (openMediaTabListeners.size) openMediaTabListeners.forEach((fn) => fn());
+    else tabStorage()?.setItem(OPEN_MEDIA_TAB_KEY, '1');
+  },
+  /** Should the Media page open on Media? Doesn't consume anything (safe in a state initializer). */
+  peekOpenMediaTab: (): boolean => {
+    const st = tabStorage();
+    return Boolean(st && (st.getItem(OPEN_MEDIA_TAB_KEY) === '1' || st.getItem(SERVICE_JUST_CONNECTED_KEY)));
+  },
+  /** As peek, and uses up the one-shot key (service_just_connected is left for MediaPage's OAuth-return handling). */
+  takeOpenMediaTab: (): boolean => {
+    const open = cameraRollSession.peekOpenMediaTab();
+    tabStorage()?.removeItem(OPEN_MEDIA_TAB_KEY);
+    return open;
+  },
   onOpenMediaTab: (fn: () => void): (() => void) => {
     openMediaTabListeners.add(fn);
     return () => { openMediaTabListeners.delete(fn); };
   },
 };
+
+// A sign-out / sign-in that doesn't reload the page (utils/accountState): the previous person's picks go.
+if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+  window.addEventListener(ACCOUNT_STATE_CLEARED_EVENT, () => cameraRollSession.clear());
+}

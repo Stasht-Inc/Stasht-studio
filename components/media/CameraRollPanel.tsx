@@ -10,6 +10,8 @@ import {
 } from "../../utils/cameraRoll";
 
 interface CameraRollPanelProps {
+  /** The account the picks belong to (accountKeyOf). The page remounts this panel with a new key when it changes. */
+  account: string;
   /** Next: the selected photos, in grid order. */
   onNext: (files: File[]) => void;
 }
@@ -30,23 +32,33 @@ function PickCheckbox({ checked }: { checked: boolean }) {
   );
 }
 
-export function CameraRollPanel({ onNext }: CameraRollPanelProps) {
-  // Kept outside the page: still here after Create campaign is closed without making a campaign.
-  const [picks, setPicksState] = useState<CameraRollPick[]>(() => cameraRollSession.getPicks());
+export function CameraRollPanel({ account, onNext }: CameraRollPanelProps) {
+  // Kept outside the page: still here after Create campaign is closed without making a campaign (same account only).
+  const [picks, setPicksState] = useState<CameraRollPick[]>(() => cameraRollSession.getPicks(account));
   const [notice, setNotice] = useState('');
   const [broken, setBroken] = useState<Set<string>>(() => new Set());
+  const [dragging, setDragging] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const setPicks = (next: CameraRollPick[]) => {
-    cameraRollSession.setPicks(next);
+    cameraRollSession.setPicks(next, account);
     setPicksState(next);
   };
 
-  // Thumbnails: one object URL per photo, freed when it's removed or the tab closes.
-  const urlsRef = useRef<Map<string, string>>(new Map());
-  const [urls, setUrls] = useState<Record<string, string>>({});
+  // Signed out / in without a reload: the picks were cleared; empty this tab too (its thumbnails are freed below).
+  useEffect(() => cameraRollSession.onClear(() => {
+    setPicksState([]);
+    setNotice('');
+    setBroken(new Set());
+  }), []);
+
+  // Thumbnails: one object URL per photo, freed when it's removed or the tab closes. Made at once for picks already
+  // there (coming back from Create), so their names don't flash before the photos.
+  const urlsRef = useRef<Map<string, string> | null>(null);
+  if (urlsRef.current === null) urlsRef.current = new Map(picks.map((p) => [p.key, URL.createObjectURL(p.file)] as [string, string]));
+  const [urls, setUrls] = useState<Record<string, string>>(() => Object.fromEntries(urlsRef.current ?? []));
   useEffect(() => {
-    const map = urlsRef.current;
+    const map = urlsRef.current ?? (urlsRef.current = new Map());
     const keys = new Set(picks.map((p) => p.key));
     let changed = false;
     for (const p of picks) {
@@ -58,24 +70,48 @@ export function CameraRollPanel({ onNext }: CameraRollPanelProps) {
     if (changed) setUrls(Object.fromEntries(map));
   }, [picks]);
   useEffect(() => () => {
-    urlsRef.current.forEach((url) => URL.revokeObjectURL(url));
-    urlsRef.current.clear();
+    urlsRef.current?.forEach((url) => URL.revokeObjectURL(url));
+    urlsRef.current?.clear();
   }, []);
 
   const openPicker = () => inputRef.current?.click();
 
-  const handlePicked = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files || []);
-    e.target.value = ''; // the same photos can be picked again
+  const addFiles = (files: File[]) => {
     if (!files.length) return;
     const { picks: next, skipped } = addPicks(picks, files);
     setPicks(next);
     setNotice(skippedMessage(skipped));
   };
 
+  const handlePicked = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    e.target.value = ''; // the same photos can be picked again
+    addFiles(files);
+  };
+
+  // A computer: photos dragged onto this tab are added like picked ones (nothing uploaded), not opened by the browser.
+  const dropProps = {
+    onDragOver: (e: React.DragEvent) => {
+      if (!Array.from(e.dataTransfer?.types || []).includes('Files')) return;
+      e.preventDefault();
+      setDragging(true);
+    },
+    onDragLeave: (e: React.DragEvent) => {
+      if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDragging(false);
+    },
+    onDrop: (e: React.DragEvent) => {
+      if (!e.dataTransfer?.files?.length) return;
+      e.preventDefault();
+      setDragging(false);
+      addFiles(Array.from(e.dataTransfer.files));
+    },
+  };
+  const dropRing = dragging ? ' ring-2 ring-[#6C60FF] ring-offset-2' : '';
+
   const clearAll = () => {
     setPicks([]);
     setNotice('');
+    setBroken(new Set());
   };
 
   const selected = picks.filter((p) => p.selected).length;
@@ -94,7 +130,7 @@ export function CameraRollPanel({ onNext }: CameraRollPanelProps) {
 
   if (picks.length === 0) {
     return (
-      <div className="mt-3 p-6 sm:p-10 bg-white rounded-lg border border-gray-200 text-center">
+      <div className={`mt-3 p-6 sm:p-10 bg-white rounded-lg border border-gray-200 text-center${dropRing}`} data-testid="camera-roll-drop" {...dropProps}>
         {input}
         <div className="w-12 h-12 mx-auto mb-3 rounded-full bg-[#6C60FF]/10 flex items-center justify-center">
           <Images className="w-6 h-6 text-[#6C60FF]" />
@@ -109,7 +145,7 @@ export function CameraRollPanel({ onNext }: CameraRollPanelProps) {
   }
 
   return (
-    <div className="mt-3">
+    <div className="mt-3" data-testid="camera-roll-drop" {...dropProps}>
       {input}
       {/* The selection bar: counter left, Next right. */}
       <div className="sticky top-20 z-30 bg-gray-50 pb-2" data-testid="camera-roll-bar">
@@ -131,7 +167,7 @@ export function CameraRollPanel({ onNext }: CameraRollPanelProps) {
         </div>
       </div>
 
-      <div className="p-2 sm:p-3 bg-white rounded-lg border border-gray-200">
+      <div className={`p-2 sm:p-3 bg-white rounded-lg border border-gray-200${dropRing}`}>
         <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-6 gap-1.5 sm:gap-2">
           {picks.map((p) => (
             <button
@@ -146,6 +182,8 @@ export function CameraRollPanel({ onNext }: CameraRollPanelProps) {
                 <img
                   src={urls[p.key]}
                   alt=""
+                  loading="lazy"
+                  decoding="async"
                   className="w-full h-full object-cover"
                   onError={() => setBroken((prev) => new Set(prev).add(p.key))}
                 />
