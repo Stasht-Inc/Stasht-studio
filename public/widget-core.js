@@ -311,6 +311,27 @@ export function messagesUrl(api, widgetId, afterId = 0) {
   return afterId > 0 ? `${base}?after=${afterId}` : base;
 }
 
+/** POST: the visitor ended the chat (✕ → "End chat", Chris 10 Nov 2026). The server stops the token. */
+export function endChatUrl(api, widgetId) {
+  return `${api}/widgets/${encodeURIComponent(widgetId)}/end`;
+}
+
+/** ✕ asks "Would you like to end this chat?" only once there is a conversation; before that it just closes. */
+export function shouldConfirmEnd({ phase, token, provisional = false } = {}) {
+  return phase === 'chat' && typeof token === 'string' && token !== '' && !provisional;
+}
+
+/**
+ * A `storage` event from another tab of this browser saying the conversation was forgotten there
+ * (ended, or the server no longer knows it): this tab drops its copy of the chat too.
+ */
+export function chatForgottenElsewhere(ev, widgetId) {
+  return !!ev && ev.key === chatStorageKey(widgetId) && ev.newValue === null;
+}
+
+export const END_CHAT_QUESTION = 'Would you like to end this chat?';
+export const END_CHAT_DETAIL = 'This conversation will be cleared from this browser. You can start a new chat any time.';
+
 /**
  * The X-Widget-Chat-Open header value: '1' while the panel is open, '0' while closed. Lets the
  * server tell a GET made with the panel actually visible (part 2 marks outbound messages seen
