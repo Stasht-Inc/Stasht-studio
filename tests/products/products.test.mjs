@@ -364,3 +364,21 @@ test('adding then removing an option gives every row back as it was', () => {
   const more = setOptions(sizes(), [{ name: 'Size', values: ['S', 'M', 'L'] }]).variants;
   assert.deepEqual(more.map((x) => [x.id, x.options, x.price]), [[1, { Size: 'S' }, '10'], [2, { Size: 'M' }, '12'], [undefined, { Size: 'L' }, '']]);
 });
+
+test('a number too big for JSON (1e999, Infinity) is refused under its field, never sent as null', () => {
+  // Final review M2: Number('1e999') is Infinity, which passed >= 0 and went out as JSON null (clearing the price).
+  const base = { ...emptyProductForm('CAD'), title: 'X' };
+  for (const bad of ['1e999', 'Infinity', '-1e999']) {
+    const e = validateProductForm({ ...base, price: bad, compare_at_price: bad, weight: bad }, MANUAL_FIELDS);
+    assert.equal(e.price, 'Enter a number, like 49.99.', bad);
+    assert.equal(e.compare_at_price, 'Enter a number, like 49.99.', bad);
+    assert.equal(e.weight, 'Enter a number, like 49.99.', bad);
+    const d = validateProductForm({ ...base, dimensions: { length: bad, width: '2', height: '', unit: 'cm' } }, MANUAL_FIELDS);
+    assert.deepEqual(d, { 'dimensions.length': 'Enter a number, like 49.99.' }, bad);
+    const v = validateProductForm({ ...base, options: [{ name: 'Size', values: ['S'] }], variants: [{ options: { Size: 'S' }, sku: '', price: bad, compare_at_price: bad, stock_status: 'in_stock', quantity: '', image_id: null }] }, MANUAL_FIELDS);
+    assert.equal(v['variants.0.price'], 'Enter a number, like 49.99.', bad);
+    assert.equal(v['variants.0.compare_at_price'], 'Enter a number, like 49.99.', bad);
+  }
+  // Ordinary numbers still pass.
+  assert.deepEqual(validateProductForm({ ...base, price: '49.99', compare_at_price: '1e3', weight: '0', dimensions: { length: '10', width: '2.5', height: '', unit: 'cm' } }, MANUAL_FIELDS), {});
+});

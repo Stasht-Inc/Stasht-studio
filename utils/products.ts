@@ -306,13 +306,19 @@ export function payloadFromForm(form: ProductForm, editable: readonly string[]):
   return Object.fromEntries(Object.entries(all).filter(([key]) => editable.includes(key)));
 }
 
+/** A price-like number: finite (1e999 is Infinity, which JSON sends as null) and not negative. Final review M2. */
+const isAmount = (s: string): boolean => { const n = Number(s.trim()); return Number.isFinite(n) && n >= 0; };
+
 /** Same sentences as the API (ProductRules / ProductWriter), shown under each field. */
 export function validateProductForm(form: ProductForm, editable: readonly string[]): Record<string, string> {
   const e: Record<string, string> = {};
   const can = (k: string) => editable.includes(k);
   if (can('title') && !form.title.trim()) e.title = 'Give the product a title.';
   for (const k of ['price', 'compare_at_price', 'weight'] as const) {
-    if (can(k) && form[k].trim() && !(Number(form[k]) >= 0)) e[k] = 'Enter a number, like 49.99.';
+    if (can(k) && form[k].trim() && !isAmount(form[k])) e[k] = 'Enter a number, like 49.99.';
+  }
+  for (const d of ['length', 'width', 'height'] as const) {
+    if (can('dimensions') && form.dimensions[d].trim() && !isAmount(form.dimensions[d])) e[`dimensions.${d}`] = 'Enter a number, like 49.99.';
   }
   if (can('quantity') && form.quantity.trim() && !/^\d+$/.test(form.quantity.trim())) e.quantity = 'Enter a whole number.';
   if (can('compare_at_price') && !e.price && !e.compare_at_price && form.price.trim() && form.compare_at_price.trim()
@@ -335,7 +341,7 @@ export function validateProductForm(form: ProductForm, editable: readonly string
   if (can('variants')) {
     form.variants.forEach((v, i) => {
       for (const k of ['price', 'compare_at_price'] as const) {
-        if (v[k].trim() && !(Number(v[k]) >= 0)) e[`variants.${i}.${k}`] = 'Enter a number, like 49.99.';
+        if (v[k].trim() && !isAmount(v[k])) e[`variants.${i}.${k}`] = 'Enter a number, like 49.99.';
       }
       if (v.quantity.trim() && !/^\d+$/.test(v.quantity.trim())) e[`variants.${i}.quantity`] = 'Enter a whole number.';
       if (!e[`variants.${i}.price`] && !e[`variants.${i}.compare_at_price`] && v.price.trim() && v.compare_at_price.trim()
