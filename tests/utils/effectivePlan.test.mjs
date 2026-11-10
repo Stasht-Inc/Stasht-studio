@@ -7,7 +7,7 @@
 // plan_name and plan_covered_by {id, name} on GET /user/storage-overview and GET /user/profile.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { planKey, planLabel, planCoveredBy, coveredByNote, offersUpgrade } from '../../utils/effectivePlan.ts';
+import { planKey, planLabel, planCoveredBy, coveredByNote, offersUpgrade, canSelfUpgrade } from '../../utils/effectivePlan.ts';
 
 test('plan names map to the plans Studio sells: Starter, Teams (intermediate), Business (professional)', () => {
   assert.equal(planKey('Starter'), 'starter');
@@ -63,4 +63,19 @@ test('a covered account skips the new-account plan picker; everyone else still g
   assert.equal(skipsPlanPicker(storageOverviewOf(covered)), true);
   assert.equal(skipsPlanPicker(storageOverviewOf(own)), false);
   assert.equal(skipsPlanPicker(null), false, 'unknown (the check failed): the picker shows, as before');
+});
+
+// Chris, 10 Nov 2026: Royal Wood (Enterprise) was told "Admin Limit Reached — Please upgrade your account"; accounts that
+// can't buy a bigger plan themselves are sent to sales instead.
+test('canSelfUpgrade: only Starter and Teams can buy a bigger plan; Business, Enterprise and covered accounts contact sales', () => {
+  assert.equal(canSelfUpgrade('starter', null), true);
+  assert.equal(canSelfUpgrade('Teams', null), true);
+  assert.equal(canSelfUpgrade('Intermediate', null), true);
+  assert.equal(canSelfUpgrade('Business', null), false, 'top plan');
+  assert.equal(canSelfUpgrade('professional', null), false, 'top plan');
+  assert.equal(canSelfUpgrade('Enterprise', null), false, 'Admin Portal plan');
+  assert.equal(canSelfUpgrade('enterprises', null), false, 'Admin Portal plan');
+  assert.equal(canSelfUpgrade('Teams', { id: 1, name: 'Serpa' }), false, 'covered by its main account');
+  assert.equal(canSelfUpgrade(undefined, null), true, 'not known yet: prompt unchanged');
+  assert.equal(canSelfUpgrade('', null), true);
 });

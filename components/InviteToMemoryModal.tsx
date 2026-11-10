@@ -26,6 +26,8 @@ import { dashboardAPI } from '../utils/authUtils';
 import { toast } from 'sonner';
 import { useAuth } from '../contexts/AuthContext';
 import { useMemoryLimit } from '../hooks/useMemoryLimit';
+import useCanSelfUpgrade from '../hooks/useCanSelfUpgrade';
+import { CONTACT_SALES_URL } from '../utils/effectivePlan';
 
 interface Memory {
   id: string;
@@ -133,6 +135,8 @@ const getRoleColor = (role: string) => {
 export default function InviteToMemoryModal({ isOpen, onClose, onInviteSuccess }: InviteToMemoryModalProps) {
   const { user } = useAuth();
   const { adminLimitData, isAdminLimitExceeded } = useMemoryLimit();
+  // An Enterprise / top-plan account can't buy more admin seats itself: it contacts sales (Chris, 10 Nov 2026).
+  const canUpgrade = useCanSelfUpgrade();
   const [memories, setMemories] = useState<Memory[]>([]);
   const [selectedMemories, setSelectedMemories] = useState<Memory[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -769,6 +773,7 @@ export default function InviteToMemoryModal({ isOpen, onClose, onInviteSuccess }
               <svg className="w-4 h-4 text-yellow-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 15.5c-.77.833.192 2.5 1.732 2.5z" />
               </svg>
+              {canUpgrade ? (
               <p className="text-sm text-yellow-800">
                 <span className="font-semibold">Admin Limit Reached</span> — To add admin{' '}
                 <button
@@ -778,6 +783,20 @@ export default function InviteToMemoryModal({ isOpen, onClose, onInviteSuccess }
                   Please upgrade your account
                 </button>
               </p>
+              ) : (
+              <p className="text-sm text-yellow-800" data-name="AdminLimitContactSales">
+                <span className="font-semibold">Admin limit reached</span> —{' '}
+                <a
+                  href={CONTACT_SALES_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="font-semibold underline text-yellow-800 hover:text-yellow-900"
+                >
+                  contact sales
+                </a>{' '}
+                to add more admins
+              </p>
+              )}
             </div>
           )}
 
