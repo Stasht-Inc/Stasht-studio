@@ -12,7 +12,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel,
 import { leadsAPI, Lead, LeadMessage, CommentaryTarget, LeadGroupSummary, LeadGroup, Conversation, messageChannelLabel } from '../services/leadsAPI';
 import { mapLimit } from '../utils/requestLimit';
 import { leadLinkAction, leadLinkUrl, NOT_AVAILABLE } from '../utils/leadLink';
-import { switchAccount, switchIntoAccountForLead } from './AccountChoiceModal';
+import { switchAccount } from './AccountChoiceModal';
 import LeadsInboxTable from './leads/LeadsInboxTable';
 import CampaignDeletedTag from './leads/CampaignDeletedTag';
 import LeadConfirmDialog, { type LeadConfirmKind } from './leads/LeadConfirmDialog';
@@ -618,21 +618,13 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
               onLeadSelect(found);
               toast.info('Opened the conversation. Your current filters hide it in the list.');
             } else {
-              // Not in this account: the lead link was opened in the person's own account (or another one they
-              // switched into). Ask where it lives and switch them into it when they are its Admin / Partial Admin.
+              // Not in this list. Team leads open in the person's own account (Chris 10 Nov 2026), so a lead link
+              // never switches into the business; switched elsewhere, it goes back to their own account.
               const loc = await leadsAPI.locateLead(wanted)
                 .then((r) => (r.success ? r.data : null))
                 .catch(() => null);
               const action = leadLinkAction(loc, openLeadHint);
-              if (action.kind === 'switch') {
-                toast.info(`Opening ${action.ownerName}…`);
-                const res = await switchIntoAccountForLead(action.ownerId, action.partial, action.ownerEmail);
-                if (res.ok) {
-                  window.location.assign(leadLinkUrl(wanted));
-                  return;
-                }
-                toast.error(res.error || 'Could not open that account.');
-              } else if (action.kind === 'personal') {
+              if (action.kind === 'personal') {
                 if (await switchAccount(null).catch(() => false)) {
                   window.location.assign(leadLinkUrl(wanted));
                   return;

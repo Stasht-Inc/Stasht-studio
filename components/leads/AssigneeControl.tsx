@@ -9,11 +9,12 @@ import { initialsOf } from '../../utils/leadInbox';
 import RowActionButton from './RowActionButton';
 
 // Who owns a lead, and the controls to change it (spec 2026-09-23 §2/§5):
-//  - admins (can_assign) get a picker of the dealer team, incl. "Unassigned";
+//  - admins (can_assign) get a picker of the dealer team, incl. "Unassigned" — for a lead without a dealer, the
+//    account's owner, Admins and Partial Admins (team leads, 10 Nov 2026; the assignee may pass it on too);
 //  - anyone else sees the assignee, or an "Accept" button when nobody has it.
 // Parents apply `onChanged` as a patch to their copy of the lead.
 
-const ROLE_LABEL: Record<string, string> = { owner: 'Owner', admin: 'Admin', rep: 'Rep' };
+const ROLE_LABEL: Record<string, string> = { owner: 'Owner', admin: 'Admin', rep: 'Rep', partial_admin: 'Partial Admin' };
 
 export function avatarColor(color: string | null | undefined): string {
   if (!color) return '#6C60FF';
@@ -80,7 +81,8 @@ export default function AssigneeControl({ lead, onChanged, size = 'sm', variant 
     try {
       const res: any = await leadsAPI.acceptLead(lead.id);
       if (res.success && res.data) {
-        onChanged({ assignee: res.data.assignee, can_message: true, is_rollup: false, can_accept: false });
+        // can_assign (team leads, 10 Nov 2026): the new assignee of a lead without a dealer may pass it on.
+        onChanged({ assignee: res.data.assignee, can_message: true, is_rollup: false, can_accept: false, ...(typeof res.data.can_assign === 'boolean' ? { can_assign: res.data.can_assign } : {}) });
         toast.success('Lead accepted — it’s yours');
       } else if (res.conflict && res.taken_by) {
         onChanged({ assignee: res.taken_by, can_message: false, is_rollup: true, can_accept: false });
