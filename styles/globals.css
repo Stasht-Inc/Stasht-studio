@@ -690,3 +690,15 @@ input[type="date"] ~ * [aria-selected="true"] {
     }
   }
 }
+
+/* Leads filter dropdowns (All Status / All Time; Chris 11 Nov 2026 (d)): selected, hover and active = Studio's darker
+   gray, never the global purple [aria-selected="true"] above (Radix marks the focused selected option with it). */
+.leads-filter-menu [role="option"]:focus,
+.leads-filter-menu [role="option"][data-highlighted],
+.leads-filter-menu [role="option"][aria-selected="true"] {
+  background-color: #f3f4f6 !important;
+  color: #111827 !important;
+}
+.leads-filter-menu [role="option"][data-state="checked"] {
+  font-weight: 500;
+}

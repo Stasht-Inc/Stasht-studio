@@ -17,7 +17,8 @@ import LeadsInboxTable from './leads/LeadsInboxTable';
 import CampaignDeletedTag from './leads/CampaignDeletedTag';
 import LeadConfirmDialog, { type LeadConfirmKind } from './leads/LeadConfirmDialog';
 import LeadsFilterSheet from './leads/LeadsFilterSheet';
-import { assignedParams, leadingAssignedOptions } from '../utils/leadsAssignedFilter';
+import { assignedParams } from '../utils/leadsAssignedFilter';
+import AssignedFilterMenu from './leads/AssignedFilterMenu';
 import PullToRefreshIndicator from './PullToRefreshIndicator';
 import { usePullToRefresh } from '../hooks/usePullToRefresh';
 import { useIsMobile } from './ui/use-mobile';
@@ -248,7 +249,7 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
   // Inbox (spec 2026-09-23): Open / Closed tabs (Closed = archived) and "Assigned to".
   const [showClosed, setShowClosed] = useState(false);
   const [assignedFilter, setAssignedFilter] = useState<string>('all');
-  // Staff in their own account (Chris 11 Nov 2026): 'all' then means "Me + open"; full Admins also get TEAM_ALL.
+  // Staff in their own account (Chris 11 Nov 2026 (d)): 'all' (the default) then means "Me + Open"; see utils/leadsAssignedFilter.
   const [teamLeads, setTeamLeads] = useState<LeadsResponse['team_leads']>(null);
   const teamLeadsRef = useRef<LeadsResponse['team_leads']>(null);
   teamLeadsRef.current = teamLeads;
@@ -586,7 +587,7 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
         page: effectivePage,
         per_page: perPage,
         archived: closed ?? showClosed,
-        // "Assigned to" (Chris 11 Nov 2026): default = Anyone (assigned only) for owners, "Me + open" for staff.
+        // "Assigned to" (Chris 11 Nov 2026 (d)): default = Anyone + Open for owners / switched in, Me + Open for staff.
         ...assignedParams(effectiveAssigned, teamLeadsRef.current),
       });
       if (res.success && res.data) {
@@ -1136,7 +1137,7 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
 
           {/* Status filter */}
           <Select value={statusFilter} onValueChange={handleStatusFilterChange}>
-            <SelectTrigger className="hidden md:flex w-32 bg-white border-gray-200 h-9 text-sm shrink-0 !ring-0 !outline-none !shadow-none focus:!ring-0 focus-visible:!ring-2 focus-visible:!ring-[#6C60FF] focus-visible:!ring-offset-1">
+            <SelectTrigger className="hidden md:flex w-32 bg-white border-gray-200 h-9 text-sm shrink-0 !ring-0 !outline-none !shadow-none focus:!ring-0 focus-visible:!ring-2 focus-visible:!ring-gray-400 focus-visible:!ring-offset-1">
               {statusFilter === 'hot' && <span className="flex items-center gap-1.5"><img src="/hot-icon.svg" className="w-3 h-3.5" />Hot</span>}
               {statusFilter === 'warm' && <span className="flex items-center gap-1.5"><img src="/warm-icon.svg" className="w-2 h-3.5" />Warm</span>}
               {statusFilter === 'cold' && <span className="flex items-center gap-1.5"><img src="/cold-icon.svg" className="w-3.5 h-3.5" />Cold</span>}
@@ -1144,7 +1145,7 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
               {statusFilter === 'sold' && <span className="flex items-center gap-1.5"><CheckCircle2 className="w-3.5 h-3.5" />Sold</span>}
               {statusFilter === 'all' && <SelectValue placeholder="Status" />}
             </SelectTrigger>
-            <SelectContent>
+            <SelectContent className="leads-filter-menu">
               <SelectItem value="all">All Status</SelectItem>
               <SelectItem value="hot"><span className="flex items-center gap-1.5"><img src="/hot-icon.svg" className="w-3 h-3.5" />Hot</span></SelectItem>
               <SelectItem value="warm"><span className="flex items-center gap-1.5"><img src="/warm-icon.svg" className="w-2 h-3.5" />Warm</span></SelectItem>
@@ -1154,31 +1155,16 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
             </SelectContent>
           </Select>
 
-          {/* Assigned to — Me / Unassigned for everyone; admins also get each
+          {/* Assigned to — a checkbox per choice, unioned (Chris 11 Nov 2026 (d)); admins also get each
               teammate seen in the list. */}
-          <Select value={assignedFilter} onValueChange={handleAssignedChange}>
-            <SelectTrigger aria-label="Assigned to" className="hidden md:flex w-auto min-w-[11rem] gap-2 whitespace-nowrap bg-white border-gray-200 h-9 text-sm shrink-0 !ring-0 !outline-none !shadow-none focus:!ring-0 focus-visible:!ring-2 focus-visible:!ring-[#6C60FF] focus-visible:!ring-offset-1">
-              <SelectValue placeholder="Assigned to" />
-            </SelectTrigger>
-            <SelectContent>
-              {leadingAssignedOptions(teamLeads).map((o) => (
-                <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
-              ))}
-              <SelectItem value="me">Assigned to me</SelectItem>
-              <SelectItem value="unassigned">Unassigned</SelectItem>
-              {assigneeOptions.length > 0 && <SelectSeparator className="bg-gray-200" />}
-              {assigneeOptions.map((a) => (
-                <SelectItem key={a.id} value={String(a.id)}>{a.name ?? `Teammate #${a.id}`}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <AssignedFilterMenu value={assignedFilter} onChange={handleAssignedChange} teamLeads={teamLeads} teammates={assigneeOptions} />
 
           {/* Time filter — leads by first-seen period */}
           <Select value={timeFilter} onValueChange={(v) => setTimeFilter(v as typeof timeFilter)}>
-            <SelectTrigger className="hidden md:flex w-32 bg-white border-gray-200 h-9 text-sm shrink-0 !ring-0 !outline-none !shadow-none focus:!ring-0 focus-visible:!ring-2 focus-visible:!ring-[#6C60FF] focus-visible:!ring-offset-1">
+            <SelectTrigger className="hidden md:flex w-32 bg-white border-gray-200 h-9 text-sm shrink-0 !ring-0 !outline-none !shadow-none focus:!ring-0 focus-visible:!ring-2 focus-visible:!ring-gray-400 focus-visible:!ring-offset-1">
               <SelectValue placeholder="All Time" />
             </SelectTrigger>
-            <SelectContent>
+            <SelectContent className="leads-filter-menu">
               <SelectItem value="all">All Time</SelectItem>
               <SelectItem value="daily">Daily</SelectItem>
               <SelectItem value="weekly">Weekly</SelectItem>

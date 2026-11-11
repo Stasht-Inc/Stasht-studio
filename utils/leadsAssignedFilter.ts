@@ -1,43 +1,81 @@
-// Leads "Assigned to" filter (Chris 11 Nov 2026): what each option is called and what it asks the web API for.
+// Leads "Assigned to" filter (Chris 11 Nov 2026 (d)): a MULTI-SELECT. Each choice is a checkbox and the server returns
+// the union of the ticked ones. The filter value LeadsTab keeps is one string:
 //
-// - 'all' (the default) → assigned=default. Owner: "Anyone" = only leads with a REAL assignee (the owner's arrival
-//   hold is "Open", not assigned — Chris 11 Nov (c)). Staff in their own account: "Me + open".
-// - OPEN → "Open": leads waiting to be accepted (the owner's arrival hold, or unassigned; never quiet imports).
-// - TEAM_ALL (full Admins only) → "Anyone": team=all + assigned=any — oversight of every assigned lead.
-// - ALL_LEADS → "All leads": every lead (the old "Anyone"). Owners, and staff who may see all (team=all).
-// - 'me' / 'unassigned' (no assignee at all, e.g. imported list leads) / a teammate id → unchanged.
+// - DEFAULT ('all') → assigned=default (the server's default, which the unread badge also follows). Shown ticked as
+//   Anyone + Open for the owner and anyone switched into the account; Me + Open for staff in their own account.
+// - ALL_LEADS → "All leads": every lead (ticks everything). Owners, and full Admins (team=all). Never a Partial Admin.
+// - otherwise a comma list of tokens: ANY ("Anyone" = a real assignee), OPEN (waiting to be accepted), 'me',
+//   'unassigned' (no assignee at all, imports included), or a teammate's id.
 
 export type TeamLeads = { staff: boolean; can_see_all: boolean; scope?: string } | null | undefined;
+export type AssignedOption = { value: string; label: string };
+export type Teammate = { id: number; name: string | null };
 
-/** A full Admin's "Anyone" (team=all, assigned leads only). */
-export const TEAM_ALL = 'team-all';
+export const DEFAULT = 'all';
 /** "All leads": everything, assigned or not. */
 export const ALL_LEADS = 'all-leads';
+/** "Anyone": leads someone has really taken. */
+export const ANY = 'any';
 /** "Open": waiting to be accepted. */
 export const OPEN = 'open';
 
-export type AssignedParams = { assigned?: 'me' | 'unassigned' | 'any' | 'open' | 'default' | number; team?: 'all' };
+export type AssignedParams = { assigned?: string; team?: 'all' };
 
-export function assignedParams(value: string, teamLeads: TeamLeads): AssignedParams {
-  if (value === 'all') return { assigned: 'default' };
-  if (value === TEAM_ALL) return { team: 'all', assigned: 'any' };
-  if (value === ALL_LEADS) return teamLeads?.can_see_all ? { team: 'all' } : {};
-  if (value === OPEN) return teamLeads?.can_see_all ? { team: 'all', assigned: 'open' } : { assigned: 'open' };
-  if (value === 'me' || value === 'unassigned') return { assigned: value };
-  const id = Number(value);
-  return Number.isFinite(id) && id > 0 ? { assigned: id } : { assigned: 'default' };
+const isPartial = (t: TeamLeads) => !!t?.staff && !t.can_see_all;
+
+/** "All leads" is offered to owners (and anyone switched in) and full Admins; a Partial Admin keeps their own reach. */
+export const offersAllLeads = (t: TeamLeads) => !isPartial(t);
+
+/** The ticked choices of the default view. */
+export function defaultTicks(t: TeamLeads): string[] {
+  return t?.staff ? ['me', OPEN] : [ANY, OPEN];
 }
 
-/** The options before "Me" / "Unassigned" / teammates, in order. `short` drops the "Assigned to: " prefix (phone chips). */
-export function leadingAssignedOptions(teamLeads: TeamLeads, short = false): { value: string; label: string }[] {
-  const p = short ? '' : 'Assigned to: ';
-  const open = { value: OPEN, label: 'Open' };
-  if (teamLeads?.staff) {
-    return [
-      { value: 'all', label: `${p}Me + open` },
-      open,
-      ...(teamLeads.can_see_all ? [{ value: TEAM_ALL, label: `${p}Anyone` }, { value: ALL_LEADS, label: 'All leads' }] : []),
-    ];
-  }
-  return [{ value: 'all', label: `${p}Anyone` }, open, { value: ALL_LEADS, label: 'All leads' }];
+/** The checkbox choices, in order (without "All leads"). Partial Admins get no "Anyone". */
+export function assignedOptions(t: TeamLeads, teammates: Teammate[] = []): AssignedOption[] {
+  return [
+    ...(isPartial(t) ? [] : [{ value: ANY, label: 'Anyone' }]),
+    { value: OPEN, label: 'Open' },
+    { value: 'me', label: 'Me' },
+    { value: 'unassigned', label: 'Unassigned' },
+    ...teammates.map((a) => ({ value: String(a.id), label: a.name ?? `Teammate #${a.id}` })),
+  ];
+}
+
+/** Which choices show ticked for a filter value. */
+export function ticksOf(value: string, t: TeamLeads, options: AssignedOption[]): string[] {
+  if (value === DEFAULT) return defaultTicks(t);
+  if (value === ALL_LEADS) return options.map((o) => o.value);
+  return value.split(',').filter(Boolean);
+}
+
+/** The new filter value after ticking/unticking `token` (or "All leads"). Never leaves nothing ticked. */
+export function toggleAssigned(value: string, token: string, t: TeamLeads, options: AssignedOption[]): string {
+  if (token === ALL_LEADS) return value === ALL_LEADS ? DEFAULT : ALL_LEADS;
+  const ticks = new Set(ticksOf(value, t, options));
+  if (ticks.has(token)) ticks.delete(token); else ticks.add(token);
+  if (ticks.size === 0) return value;
+  const order = options.map((o) => o.value);
+  const next = [...ticks].sort((a, b) => order.indexOf(a) - order.indexOf(b));
+  const same = (a: string[], b: string[]) => a.length === b.length && a.every((v) => b.includes(v));
+  if (same(next, defaultTicks(t))) return DEFAULT;
+  if (offersAllLeads(t) && same(next, order)) return ALL_LEADS;
+  return next.join(',');
+}
+
+/** The trigger's text: "Anyone, Open", "Me, Open", "All leads", "3 selected". */
+export function assignedLabel(value: string, t: TeamLeads, options: AssignedOption[]): string {
+  if (value === ALL_LEADS) return 'All leads';
+  const ticks = ticksOf(value, t, options);
+  if (ticks.length > 2) return `${ticks.length} selected`;
+  return ticks.map((v) => options.find((o) => o.value === v)?.label ?? (Number(v) > 0 ? 'Teammate' : v)).join(', ');
+}
+
+export function assignedParams(value: string, t: TeamLeads): AssignedParams {
+  if (value === DEFAULT) return { assigned: 'default' };
+  // A full Admin looks across the accounts they help run (team=all); the server never widens a Partial Admin.
+  const team: AssignedParams = t?.can_see_all ? { team: 'all' } : {};
+  if (value === ALL_LEADS) return isPartial(t) ? { assigned: 'default' } : team;
+  const tokens = value.split(',').filter((v) => v === ANY || v === OPEN || v === 'me' || v === 'unassigned' || Number(v) > 0);
+  return tokens.length ? { ...team, assigned: tokens.join(',') } : { assigned: 'default' };
 }
