@@ -162,7 +162,7 @@ export default function AssigneeControl({ lead, onChanged, size = 'sm', variant 
             </button>
             )}
           </DropdownMenuTrigger>
-          <DropdownMenuContent align={variant === 'icon' ? 'end' : 'start'} sideOffset={6} className="w-72 p-1.5 bg-white border border-gray-200 shadow-lg rounded-xl">
+          <DropdownMenuContent align={variant === 'icon' ? 'end' : 'start'} sideOffset={6} className="z-[10003] w-72 p-1.5 bg-white border border-gray-200 shadow-lg rounded-xl">
             <DropdownMenuLabel className="px-2.5 pt-1.5 pb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">Assign lead to</DropdownMenuLabel>
             {loadingTeam && !team && (
               <div className="px-2.5 py-2 text-sm text-gray-500 flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" />Loading team…</div>

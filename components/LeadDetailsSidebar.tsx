@@ -60,12 +60,14 @@ interface LeadDetailsSidebarProps {
   // Closed (archived) leads are view-only, like the composer.
   isArchived?: boolean;
   onNotesSaved?: () => void;
+  // The phone details sheet shows its own "Contact Details" title bar.
+  showTitle?: boolean;
 }
 
 // Right-hand column of the lead detail view: Contact Details + Engagement.
 // Presentational only — all state/handlers live in LeadDetailDrawer.
 export default function LeadDetailsSidebar({
-  lead, leadName, initials, lastEngaged, daysAsLead, currentStatus, isUpdatingStatus, onStatusChange, onAssigneeChanged, isArchived = false, onNotesSaved,
+  lead, leadName, initials, lastEngaged, daysAsLead, currentStatus, isUpdatingStatus, onStatusChange, onAssigneeChanged, isArchived = false, onNotesSaved, showTitle = true,
 }: LeadDetailsSidebarProps) {
   const email = lead.user?.email;
   const phone = lead.user?.phone_number || lead.user?.phone;
@@ -74,9 +76,9 @@ export default function LeadDetailsSidebar({
   return (
     <div>
       <section className="p-5 xl:p-6">
-        <h3 className="text-lg font-bold text-gray-900">Contact Details</h3>
+        {showTitle && <h3 className="text-lg font-bold text-gray-900 mb-4">Contact Details</h3>}
 
-        <div className="mt-4 flex items-center gap-3.5">
+        <div className="flex items-center gap-3.5">
           <Avatar className="h-14 w-14 shrink-0">
             <AvatarImage src={lead.user?.profile_image} alt={leadName} />
             <AvatarFallback className="bg-[#6C60FF] text-white text-lg font-semibold">{initials}</AvatarFallback>
@@ -119,7 +121,7 @@ export default function LeadDetailsSidebar({
               >
                 {currentStatus ? <StatusLabel status={currentStatus} /> : <SelectValue />}
               </SelectTrigger>
-              <SelectContent>
+              <SelectContent className="z-[10003]">
                 <SelectItem value="none">Set status</SelectItem>
                 <SelectItem value="hot"><span className="flex items-center gap-1.5"><img src="/hot-icon.svg" alt="" className="w-3 h-3.5" />Hot</span></SelectItem>
                 <SelectItem value="warm"><span className="flex items-center gap-1.5"><img src="/warm-icon.svg" alt="" className="w-2 h-3.5" />Warm</span></SelectItem>

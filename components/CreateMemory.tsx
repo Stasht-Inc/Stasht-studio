@@ -30,6 +30,7 @@ import { initialCampaignType, type CampaignType } from './newsletters/lib/campai
 import { announceNewslettersChanged, writeCampaignsView } from './newsletters/lib/campaignsView';
 import { requestUpgrade } from '../utils/planEvents';
 import StoreelLivePreview, { type PreviewControls } from './storeel/StoreelLivePreview';
+import { useIsMobile } from './ui/use-mobile';
 import ComposerDialog from './newsletters/ComposerDialog';
 import { apiDefaultOrder, focusAfterRemove, insertKeysAfter, isOrderable, momentMenu, moveKey, needsServerOrder, orderMoments, savedOrderPayload, savedRef, sentPostKeys, serverOrderAfterCreate } from './storeel/lib/momentOrder';
 import { addedMessage, pickPayload, pickedPreviewMoments, type InventoryPick } from './storeel/lib/momentPicks';
@@ -1442,6 +1443,9 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
   }, [open, Boolean(widgetOptions)]);
   const editorWasOpenRef = useRef(false);
   const refreshSavedRef = useRef<((id: number) => void) | null>(null);
+  // Phones (< md) get no PREVIEW section (Chris, 11 Nov 2026: "We don't need the preview on mobile"). Its cover
+  // buttons are the stepper's Cover Photo / Intro Video fields; moment edit/move/delete and "+" are on the campaign page.
+  const isPhone = useIsMobile();
   useEffect(() => {
     if (editorWasOpenRef.current && !widgetEditorOpen && flowCampaignRef.current) refreshSavedRef.current?.(flowCampaignRef.current.id);
     editorWasOpenRef.current = widgetEditorOpen;
@@ -3823,7 +3827,8 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
             </div>
           </div>
 
-          <aside aria-label="Storeel preview" className="min-w-0 self-start pb-[max(1rem,env(safe-area-inset-bottom))] lg:sticky lg:top-0">
+          {isPhone ? null : (
+          <aside aria-label="Storeel preview" className="hidden md:block min-w-0 self-start pb-[max(1rem,env(safe-area-inset-bottom))] lg:sticky lg:top-0">
             <StoreelLivePreview
               input={{
                 title: formData.title, moments: previewMoments,
@@ -3842,6 +3847,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
               cardButtons={savedMomentsList ? previewCardButtons : undefined}
             />
           </aside>
+          )}
           {/* See plans (review I2): the plans open under this page, so leaving it is asked first. */}
           <ComposerDialog
             open={plansAsk !== null}
