@@ -25,6 +25,14 @@ export function toggleAudienceItem(audience: AudienceItem[], item: AudienceItem)
   return hasAudienceItem(audience, item) ? audience.filter((a) => audienceKey(a) !== key) : [...audience, item];
 }
 
+/**
+ * "Send by" for a new send (Chris, 11 Nov 2026): only ONE channel ticked — Email for a newsletter, Text message (SMS)
+ * for a Storeel. Both cards still show; ticking the other sends both. Saved drafts keep the channels they stored.
+ */
+export function defaultChannels(kind: 'newsletter' | 'storeel'): NewsletterChannel[] {
+  return kind === 'storeel' ? ['sms'] : ['email'];
+}
+
 export function toggleChannel(channels: NewsletterChannel[], channel: NewsletterChannel): NewsletterChannel[] {
   const next = channels.includes(channel) ? channels.filter((c) => c !== channel) : [...channels, channel];
   return (['email', 'sms'] as NewsletterChannel[]).filter((c) => next.includes(c));
