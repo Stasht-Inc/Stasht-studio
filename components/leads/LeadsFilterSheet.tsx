@@ -1,6 +1,7 @@
 import { useId } from 'react';
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 import { CheckCircle2, MapPin, MessageSquare, Search, X } from 'lucide-react';
+import { leadingAssignedOptions } from '../../utils/leadsAssignedFilter';
 
 // Phone-only bottom sheet for the Leads list (Chris: "far too busy"): the Status,
 // Assigned to and Time filters that sit in the md+ filter bar, plus the two group
@@ -20,7 +21,7 @@ interface Props {
   assignedFilter: string;
   onAssignedChange: (value: string) => void;
   assigneeOptions: { id: number; name: string | null }[];
-  // Staff in their own account (Chris 11 Nov 2026): "all" is "Me + new"; a full Admin also gets "Anyone" (TEAM_ALL).
+  // "all" is the default: "Anyone" (assigned only) for owners, "Me + new" for staff; see utils/leadsAssignedFilter.
   teamLeads?: { staff: boolean; can_see_all: boolean } | null;
   timeFilter: TimeFilter;
   onTimeChange: (value: TimeFilter) => void;
@@ -87,8 +88,7 @@ function ToolRow({ icon, title, subtitle, onClick }: { icon: React.ReactNode; ti
   );
 }
 
-/** The "Assigned to" value for a full Admin's "Anyone" (team=all): every lead of the accounts they help run. */
-export const TEAM_ALL = 'team-all';
+export { TEAM_ALL } from '../../utils/leadsAssignedFilter';
 
 export default function LeadsFilterSheet(props: Props) {
   const {
@@ -123,8 +123,9 @@ export default function LeadsFilterSheet(props: Props) {
             </Section>
 
             <Section title="Assigned to">
-              <Chip selected={assignedFilter === 'all'} onClick={() => onAssignedChange('all')}>{teamLeads?.staff ? 'Me + new' : 'Anyone'}</Chip>
-              {teamLeads?.can_see_all && <Chip selected={assignedFilter === TEAM_ALL} onClick={() => onAssignedChange(TEAM_ALL)}>Anyone</Chip>}
+              {leadingAssignedOptions(teamLeads, true).map((o) => (
+                <Chip key={o.value} selected={assignedFilter === o.value} onClick={() => onAssignedChange(o.value)}>{o.label}</Chip>
+              ))}
               <Chip selected={assignedFilter === 'me'} onClick={() => onAssignedChange('me')}>Me</Chip>
               <Chip selected={assignedFilter === 'unassigned'} onClick={() => onAssignedChange('unassigned')}>Unassigned</Chip>
               {assigneeOptions.map((a) => (
