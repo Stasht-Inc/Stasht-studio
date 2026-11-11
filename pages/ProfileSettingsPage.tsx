@@ -10,7 +10,7 @@ import { parsePhonePrefill } from "../utils/phoneUtils";
 import PasswordStrengthIndicator from "../components/PasswordStrengthIndicator";
 import { savePasswordSecurity, getPasswordSecurity } from "../utils/passwordSecurityStorage";
 import UpgradePlanModal from "../components/UpgradePlanModal";
-import { coveredByNote, MANAGED_BY_STASHT, offersUpgrade, packageName, planCoveredBy, planKey, planLabel } from "../utils/effectivePlan";
+import { billedByStasht, coveredByNote, MANAGED_BY_STASHT, offersUpgrade, packageName, planCoveredBy, planKey, planLabel } from "../utils/effectivePlan";
 import { Switch } from "../components/ui/switch";
 import DesktopAlertsSetting from "../components/leads/DesktopAlertsSetting";
 import { getCategoryColor } from "../constants/mediaConstants";
@@ -1632,7 +1632,7 @@ function StorageManagement({ sectionRef }: { sectionRef: React.RefObject<HTMLDiv
           memoryImagesStorageSize = overview.memory_images_storage_mb || 0;
           
           planId = overview.plan_id;
-          setPlanInfo({ name: overview.plan_name || '', coveredBy: planCoveredBy(overview), pkg: packageName(overview) });
+          setPlanInfo({ name: overview.plan_name || '', coveredBy: planCoveredBy(overview), pkg: billedByStasht(overview) ? (packageName(overview) || 'stasht') : null });
         }
 
         setStorageData({

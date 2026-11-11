@@ -97,6 +97,14 @@ export function offersUpgrade(planName: unknown, coveredBy: PlanCoveredBy | null
   return !(coveredBy && planKey(planName) === 'professional');
 }
 
+/**
+ * Stasht bills this account (an Enterprise package, or its Enterprise billing still running / ending — e.g. moved to
+ * Starter for an overdue invoice): the API's billed_by_stasht, or a package name. Studio then offers no self-serve plan.
+ */
+export function billedByStasht(source: any): boolean {
+  return source?.billed_by_stasht === true || !!packageName(source);
+}
+
 /** What an account on an Enterprise package sees instead of "Upgrade Plan". */
 export const MANAGED_BY_STASHT = 'Your plan is managed by Stasht — contact sales to change it.';
 

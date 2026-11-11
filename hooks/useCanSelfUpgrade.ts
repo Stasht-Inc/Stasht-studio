@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { dashboardAPI } from '../utils/authUtils';
-import { canSelfUpgrade, planCoveredBy, storageOverviewOf } from '../utils/effectivePlan';
+import { billedByStasht, canSelfUpgrade, planCoveredBy, storageOverviewOf } from '../utils/effectivePlan';
 
 /**
  * Whether the signed-in account can buy a bigger plan itself (utils/effectivePlan canSelfUpgrade), from its effective
@@ -14,7 +14,7 @@ export default function useCanSelfUpgrade(): boolean {
       .getStorageOverview()
       .then((res: any) => {
         const overview = storageOverviewOf(res);
-        if (live && res?.success && overview) setCan(canSelfUpgrade(overview.plan_name, planCoveredBy(overview)));
+        if (live && res?.success && overview) setCan(!billedByStasht(overview) && canSelfUpgrade(overview.plan_name, planCoveredBy(overview)));
       })
       .catch(() => {});
     return () => {

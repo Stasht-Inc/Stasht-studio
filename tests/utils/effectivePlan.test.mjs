@@ -130,11 +130,18 @@ test('the Enterprise package name is shown when the API sends one, never invente
   assert.equal(featurePlanKey('Enterprise'), 'professional', 'gates still read plan_name');
 });
 
-import { MANAGED_BY_STASHT } from '../../utils/effectivePlan.ts';
+import { MANAGED_BY_STASHT, billedByStasht } from '../../utils/effectivePlan.ts';
 
 test('an account on an Enterprise package is never offered a self-serve upgrade', () => {
   assert.equal(offersUpgrade('Enterprise', null, 'Royal Wood Enterprise'), false);
   assert.equal(offersUpgrade('Enterprise', null, null), true, 'no package: unchanged');
   assert.equal(offersUpgrade('Starter', null), true);
   assert.match(MANAGED_BY_STASHT, /managed by Stasht/);
+});
+
+test('billing run by Stasht blocks self-serve purchase even after a move to Starter', () => {
+  assert.equal(billedByStasht({ plan_name: 'Starter', package_name: null, billed_by_stasht: true }), true);
+  assert.equal(billedByStasht({ plan_name: 'Enterprise', package_name: 'Royal Wood Enterprise' }), true);
+  assert.equal(billedByStasht({ plan_name: 'Starter', billed_by_stasht: false }), false);
+  assert.equal(billedByStasht(null), false);
 });
