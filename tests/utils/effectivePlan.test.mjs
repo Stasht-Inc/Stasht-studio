@@ -79,3 +79,69 @@ test('canSelfUpgrade: only Starter and Teams can buy a bigger plan; Business, En
   assert.equal(canSelfUpgrade(undefined, null), true, 'not known yet: prompt unchanged');
   assert.equal(canSelfUpgrade('', null), true);
 });
+
+// Deepak, 11 Nov 2026: Enterprise = Business baseline. Enterprise and other Admin Portal plans work as Business for
+// features and limits (the APIs' BusinessBaseline set), but still can't self-upgrade (contact sales).
+import { featurePlanKey, isBusinessBaselinePlan, adminSeatLimit } from '../../utils/effectivePlan.ts';
+import { newAccountPlanPicker } from '../../utils/planGate.ts';
+
+test('Enterprise and other Admin Portal plans bucket as Business for features, Family & Friends does not', () => {
+  for (const name of ['Enterprise', 'enterprise', 'Royal Enterprise']) {
+    assert.equal(isBusinessBaselinePlan(name), true, name);
+    assert.equal(featurePlanKey(name), 'professional', name);
+  }
+  // Review of 11 Nov 2026: ONLY plans named Enterprise.
+  for (const name of ['Starter', 'Teams', 'Intermediate', 'Business', 'Professional', 'Family & Friends', 'Royal Custom', 'Free', 'Trial', 'Basic', '', null, undefined]) {
+    assert.equal(isBusinessBaselinePlan(name), false, String(name));
+  }
+  assert.equal(featurePlanKey('Teams'), 'intermediate');
+  assert.equal(featurePlanKey('Starter'), 'starter');
+  assert.equal(featurePlanKey('Family & Friends'), null);
+  assert.equal(planKey('Enterprise'), null, 'labels unchanged');
+  assert.equal(canSelfUpgrade('Enterprise', null), false, 'Enterprise still contacts sales');
+});
+
+test('admin seats: the server number (override) wins, unlimited is null, else Enterprise = Business 5', () => {
+  assert.equal(adminSeatLimit('enterprise', null), 5);
+  assert.equal(adminSeatLimit('enterprise', { status: 'within_limit', max_allowed: 10 }), 10);
+  assert.equal(adminSeatLimit('enterprise', { status: 'unlimited' }), null);
+  assert.equal(adminSeatLimit('professional', null), 5);
+  assert.equal(adminSeatLimit('business', null), 5);
+  assert.equal(adminSeatLimit('intermediate', null), 3);
+  assert.equal(adminSeatLimit('starter', null), 1);
+  assert.equal(adminSeatLimit('starter', { status: 'within_limit', max_allowed: 0 }), 0);
+});
+
+test('the new-account plan picker is never shown to an Enterprise account', () => {
+  assert.equal(newAccountPlanPicker({ flagged: true, viewType: 'personal', storageOverview: { plan_name: 'Enterprise' } }), 'clear');
+  assert.equal(newAccountPlanPicker({ flagged: true, viewType: 'personal', storageOverview: { plan_name: 'Starter' } }), 'show');
+  assert.equal(newAccountPlanPicker({ flagged: true, viewType: 'personal', storageOverview: { plan_name: 'Family & Friends' } }), 'show');
+});
+
+// Chris via Deepak, 11 Nov 2026: an Enterprise package (Admin Portal) shows its own name as the plan; display only.
+import { packageName } from '../../utils/effectivePlan.ts';
+
+test('the Enterprise package name is shown when the API sends one, never invented', () => {
+  assert.equal(packageName({ plan_name: 'Enterprise', package_name: 'Royal Wood Enterprise' }), 'Royal Wood Enterprise');
+  assert.equal(packageName({ plan_name: 'Enterprise', package_name: '  ' }), null);
+  assert.equal(packageName({ plan_name: 'Enterprise', package_name: null }), null);
+  assert.equal(packageName({ plan_name: 'Starter' }), null);
+  assert.equal(packageName(null), null);
+  assert.equal(featurePlanKey('Enterprise'), 'professional', 'gates still read plan_name');
+});
+
+import { MANAGED_BY_STASHT, billedByStasht } from '../../utils/effectivePlan.ts';
+
+test('an account on an Enterprise package is never offered a self-serve upgrade', () => {
+  assert.equal(offersUpgrade('Enterprise', null, 'Royal Wood Enterprise'), false);
+  assert.equal(offersUpgrade('Enterprise', null, null), true, 'no package: unchanged');
+  assert.equal(offersUpgrade('Starter', null), true);
+  assert.match(MANAGED_BY_STASHT, /managed by Stasht/);
+});
+
+test('billing run by Stasht blocks self-serve purchase even after a move to Starter', () => {
+  assert.equal(billedByStasht({ plan_name: 'Starter', package_name: null, billed_by_stasht: true }), true);
+  assert.equal(billedByStasht({ plan_name: 'Enterprise', package_name: 'Royal Wood Enterprise' }), true);
+  assert.equal(billedByStasht({ plan_name: 'Starter', billed_by_stasht: false }), false);
+  assert.equal(billedByStasht(null), false);
+});

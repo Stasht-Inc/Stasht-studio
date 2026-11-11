@@ -10,7 +10,7 @@ import { parsePhonePrefill } from "../utils/phoneUtils";
 import PasswordStrengthIndicator from "../components/PasswordStrengthIndicator";
 import { savePasswordSecurity, getPasswordSecurity } from "../utils/passwordSecurityStorage";
 import UpgradePlanModal from "../components/UpgradePlanModal";
-import { coveredByNote, offersUpgrade, planCoveredBy, planKey, planLabel } from "../utils/effectivePlan";
+import { billedByStasht, coveredByNote, MANAGED_BY_STASHT, offersUpgrade, packageName, planCoveredBy, planKey, planLabel } from "../utils/effectivePlan";
 import { Switch } from "../components/ui/switch";
 import DesktopAlertsSetting from "../components/leads/DesktopAlertsSetting";
 import { getCategoryColor } from "../constants/mediaConstants";
@@ -892,13 +892,15 @@ function PersonalInformation({ user, profileData, isLoadingProfile, sectionRef, 
                     // covers it, never its own Starter (utils/effectivePlan; Deepak, 1 Nov 2026).
                     const planName = profileData?.plan_name || user?.plan_name || '';
                     const key = planKey(planName);
-                    if (!key) return null;
-                    const tone = key === 'professional' ? 'bg-purple-100 text-purple-700' : key === 'intermediate' ? 'bg-pink-100 text-pink-700' : 'bg-blue-100 text-blue-700';
+                    // An Enterprise package shows its own name (Admin Portal packages, 11 Nov 2026).
+                    const pkg = packageName(profileData);
+                    if (!key && !pkg) return null;
+                    const tone = pkg || key === 'professional' ? 'bg-purple-100 text-purple-700' : key === 'intermediate' ? 'bg-pink-100 text-pink-700' : 'bg-blue-100 text-blue-700';
                     const note = coveredByNote(planCoveredBy(profileData));
                     return (
                       <>
                         <span className={`inline-block px-2.5 py-1 rounded-full text-xs font-semibold ${tone}`} data-testid="profile-plan-badge">
-                          {planLabel(planName)}
+                          {pkg || planLabel(planName)}
                         </span>
                         {note && <span className="text-xs text-gray-500" data-testid="profile-plan-covered">{note}</span>}
                       </>
@@ -1588,7 +1590,7 @@ function StorageManagement({ sectionRef }: { sectionRef: React.RefObject<HTMLDiv
   const [isUpgradeModalOpen, setIsUpgradeModalOpen] = useState(false);
   // The effective plan and who covers it (storage-overview): no "Need More Storage? Upgrade Plan" when the main account
   // already covers the top plan (utils/effectivePlan).
-  const [planInfo, setPlanInfo] = useState<{ name: string; coveredBy: ReturnType<typeof planCoveredBy> }>({ name: '', coveredBy: null });
+  const [planInfo, setPlanInfo] = useState<{ name: string; coveredBy: ReturnType<typeof planCoveredBy>; pkg?: string | null }>({ name: '', coveredBy: null });
 
   const handleUpgrade = (planId: string, isYearly: boolean) => {
     console.log('Upgrading to plan:', planId, 'Yearly:', isYearly);
@@ -1630,7 +1632,7 @@ function StorageManagement({ sectionRef }: { sectionRef: React.RefObject<HTMLDiv
           memoryImagesStorageSize = overview.memory_images_storage_mb || 0;
           
           planId = overview.plan_id;
-          setPlanInfo({ name: overview.plan_name || '', coveredBy: planCoveredBy(overview) });
+          setPlanInfo({ name: overview.plan_name || '', coveredBy: planCoveredBy(overview), pkg: billedByStasht(overview) ? (packageName(overview) || 'stasht') : null });
         }
 
         setStorageData({
@@ -1782,7 +1784,10 @@ function StorageManagement({ sectionRef }: { sectionRef: React.RefObject<HTMLDiv
           </div>
         </div>
 
-        {offersUpgrade(planInfo.name, planInfo.coveredBy) && (
+        {planInfo.pkg && (
+          <p className="text-sm text-gray-600" data-testid="storage-managed-by-stasht">{MANAGED_BY_STASHT}</p>
+        )}
+        {offersUpgrade(planInfo.name, planInfo.coveredBy, planInfo.pkg) && (
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
           <div className="flex items-start gap-3">
             <svg className="w-5 h-5 text-blue-600 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
