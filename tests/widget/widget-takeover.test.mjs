@@ -133,6 +133,10 @@ test('header title and status, and the teaser line', () => {
   assert.equal(headerStatusText([person('Chris')], null), 'Online now');
   assert.equal(headerStatusText([], chip), 'Online now', 'the assistant always answers');
   assert.equal(headerStatusText([], null), "We'll reply soon");
+  // Outside business hours (Chris 11 Nov 2026): never "Online now" for the team, the time Chip gives instead.
+  assert.equal(headerStatusText([], chip, '7:00 AM EST today'), 'Team back at 7:00 AM EST today');
+  assert.equal(headerStatusText([person('Chris')], chip, '7:00 AM EST today'), 'Online now', 'someone really online wins');
+  assert.equal(headerStatusText([], chip, null), 'Online now');
 
   assert.equal(teaserOnlineText([person('Chris')], chip), '1 online', 'people are counted, not the assistant');
   assert.equal(teaserOnlineText([person('Chris'), person('Sam'), person('Alex')], chip), '3 online');

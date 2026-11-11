@@ -444,7 +444,7 @@ function head() {
       close);
   }
 
-  const status = core.headerStatusText(stack.team, stack.assistant);
+  const status = core.headerStatusText(stack.team, stack.assistant, cfg.team_back_at);
   const faces = stack.faces.length > 0
     ? h('span', { class: 'hfaces', 'aria-hidden': 'true' }, stack.faces.map((f, i, all) => stacked(
       h('span', { class: f.assistant ? 'hface ai' : 'hface' }, f.assistant ? assistantInner(f.assistant) : personInner(f.person), h('span', { class: 'dot' })),

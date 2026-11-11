@@ -123,6 +123,10 @@ export interface Lead {
   // Another account's lead in your own Leads list (team leads, Chris 10 Nov 2026): the business it is for. Null for
   // your own account's leads.
   account?: { owner_id: number; name: string | null } | null;
+  // Another account's lead nobody has taken yet (Chris 11 Nov 2026): shown as "Waiting to be accepted", not as the
+  // owner's. released_from: the person it was released from when they were offline and the visitor wrote again.
+  waiting?: boolean;
+  released_from?: { id: number; name: string | null } | null;
   // Shared note (ClickUp wdy2xh13mn): readable by anyone who sees the lead.
   notes?: string | null;
   notes_updated_at?: string | null;
@@ -208,6 +212,9 @@ export interface LeadsResponse {
   messages_total?: number;
   // Open / Closed (archived) counts for the same filters — drives the tab labels.
   tab_counts?: { open: number; closed: number };
+  // Signed in as yourself and on another account's team (Chris 11 Nov 2026): the list shows your leads + new ones;
+  // can_see_all (a full Admin) adds "Assigned to: Anyone" (team=all). Null otherwise.
+  team_leads?: { staff: boolean; can_see_all: boolean; scope: 'mine_and_new' | 'all' } | null;
   leads: Lead[];
   meta?: LeadsMeta;
 }
@@ -328,6 +335,8 @@ export const leadsAPI = {
     // Closed tab (archived leads). The legacy status==='archived' still works.
     archived?: boolean;
     assigned?: 'me' | 'unassigned' | number;
+    // A full Admin's "Assigned to: Anyone": every lead of the accounts they help run.
+    team?: 'all';
     // One lead by id, ignoring the list filters (still only leads this user may see).
     leadId?: number;
   }) => {
@@ -341,6 +350,7 @@ export const leadsAPI = {
       query.append('status', params.status);
     }
     if (params?.assigned != null) query.append('assigned', String(params.assigned));
+    if (params?.team === 'all') query.append('team', 'all');
     if (params?.sort) query.append('sort', params.sort);
     if (params?.direction) query.append('direction', params.direction);
     if (params?.page != null) query.append('page', String(params.page));

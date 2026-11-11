@@ -60,7 +60,7 @@ export const TEAM_REFRESH_MS = 20000;
 /** The config with a fresh who's-online answer applied (anything malformed leaves it unchanged). */
 export function withTeamOnline(config, data) {
   if (!config || !data || !Array.isArray(data.team_online)) return config;
-  return { ...config, team_online: data.team_online, assistant_online: data.assistant_online === true };
+  return { ...config, team_online: data.team_online, assistant_online: data.assistant_online === true, team_back_at: data.team_back_at ?? null };
 }
 
 /** Same rule as the server's PhoneCanonicalizer::toE164 — early feedback only, the server is authoritative. */
@@ -748,9 +748,16 @@ export function headerTitle(config) {
   return 'Chat with us';
 }
 
-/** "Online now" with anyone online, the assistant included (it always answers); else "We'll reply soon". */
-export function headerStatusText(team, assistant) {
-  return (team || []).length > 0 || assistant ? ONLINE_NOW : REPLY_SOON;
+/**
+ * "Online now" with anyone online, the assistant included (it always answers); else "We'll reply soon".
+ * Outside business hours (config.team_back_at, Chris 11 Nov 2026) with nobody online: "Team back at 7:00 AM EST
+ * today" — the same time the assistant gives — so the header never claims the team is in.
+ */
+export function headerStatusText(team, assistant, backAt = null) {
+  const people = (team || []).length > 0;
+  const back = typeof backAt === 'string' ? backAt.trim().slice(0, 60) : '';
+  if (!people && back) return `Team back at ${back}`;
+  return people || assistant ? ONLINE_NOW : REPLY_SOON;
 }
 
 /** The teaser's line beside the faces: "2 online" (people only), "Online now" for the assistant alone, else ''. */
