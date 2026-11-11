@@ -114,7 +114,7 @@ export type ShownPathResult = { path: string; error?: undefined } | { path?: und
  * "example.com/contact"); a link must be on one of `domains` (the form's current allowed domains,
  * already normalized; none = any website). Query string, hash and a trailing slash are dropped.
  */
-export function shownPathFromInput(raw: string, domains: string[]): ShownPathResult {
+export function shownPathFromInput(raw: string, domains: string[], opts: { allowHome?: boolean } = {}): ShownPathResult {
   const entry = raw.trim();
   if (entry.length > SHOWN_PATH_INPUT_MAX) return { error: 'That link is too long.' };
 
@@ -137,7 +137,7 @@ export function shownPathFromInput(raw: string, domains: string[]): ShownPathRes
   path = path.replace(/[?#][\s\S]*$/, '');
   if (path.length > 1) path = path.replace(/\/+$/, '') || '/';
 
-  if (HOME_PAGE.test(path)) return { error: 'The widget always shows on your home page, so there is no need to add it.' };
+  if (!opts.allowHome && HOME_PAGE.test(path)) return { error: 'The widget always shows on your home page, so there is no need to add it.' };
   if (path.length > SHOWN_PATH_LENGTH_MAX) return { error: `Each page address can be ${SHOWN_PATH_LENGTH_MAX} characters at most.` };
   if (/\s/.test(path)) return { error: 'Enter the page address without spaces.' };
   return { path };
@@ -151,6 +151,14 @@ export function withShownPath(current: string[], path: string): string[] {
 /** Why the list can't be saved, or null. Entries are already checked one by one as they are added. */
 export function shownPathsProblem(paths: string[]): string | null {
   return paths.length > SHOWN_PATHS_MAX ? `You can list up to ${SHOWN_PATHS_MAX} pages.` : null;
+}
+
+// --- "Hide on these pages" (Chris 11 Nov 2026; theme.hide_paths, matched by widgetShownOn() in public/widget-core.js) ---
+// Same entries and limits as "Also show on these pages"; a match wins, even on the home page.
+
+/** One typed or pasted entry -> the page address to hide the widget on, or why it can't be added. */
+export function hidePathFromInput(raw: string, domains: string[]): ShownPathResult {
+  return shownPathFromInput(raw, domains, { allowHome: true });
 }
 
 /** Days without a page load after which an install is shown as possibly removed. */

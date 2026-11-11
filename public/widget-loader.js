@@ -7,8 +7,10 @@
 
   // Front end only (Chris, 2026-10-06): a site whose admin pages share the template the snippet was
   // pasted into must not get the widget there. Checked before anything else: no frame, no request.
-  // Which other pages show it (the home page, plus the widget's "Also show on these pages") is
-  // checked by the embed, which has the config: it gets this page's path as ?path= below.
+  // Which other pages show it (the home page, plus the widget's "Also show on these pages", minus its
+  // "Hide on these pages") is checked by the embed, which has the config: it gets this page's path as
+  // ?path= below, and every later path on a single-page site (reportPath). The frame stays hidden and
+  // zero-sized until the embed says the page shows the widget, so a hidden page never shows any of it.
   // <admin-skip> Copied verbatim from widget-core.js (tests/widget/widget-paths.test.mjs checks they match).
   var ADMIN_PATH_SEGMENTS = ['admin', 'wp-admin', 'administrator', 'wp-login.php'];
 
@@ -116,14 +118,56 @@
   }
   // </hit-area>
 
+  // Single-page sites (Chris 11 Nov 2026): a page change through history.pushState/replaceState or the
+  // back button doesn't reload this script, so tell the embed the new path; it answers with a 'hide'
+  // (soft) or a 'resize'. Messages posted before the embed page has loaded would be lost, so nothing
+  // is sent until it has said something, and then the path it doesn't know yet is sent at once.
+  var embedPath = window.location.pathname;
+  var embedReady = false;
+
+  function reportPath() {
+    if (!embedReady || !frame.isConnected || !frame.contentWindow) return;
+    var path = window.location.pathname;
+    if (path === embedPath) return;
+    embedPath = path;
+    frame.contentWindow.postMessage({ source: 'stasht-widget-host', id: widgetId, type: 'path', path: path }, base);
+  }
+
+  function onNavigate() { setTimeout(reportPath, 0); }
+
+  try {
+    ['pushState', 'replaceState'].forEach(function (name) {
+      var original = window.history[name];
+      if (typeof original !== 'function') return;
+      window.history[name] = function () {
+        var result = original.apply(this, arguments);
+        onNavigate();
+        return result;
+      };
+    });
+  } catch (e) { /* history locked down: pages that reload still get the right answer */ }
+  window.addEventListener('popstate', onNavigate);
+
   window.addEventListener('message', function (event) {
     // Only accept messages from our own iframe.
     if (event.origin !== base || event.source !== frame.contentWindow) return;
     var msg = event.data;
     if (!msg || msg.source !== 'stasht-widget' || msg.id !== widgetId) return;
 
+    if (!embedReady) {
+      embedReady = true;
+      onNavigate();
+    }
+
     if (msg.type === 'hide') {
-      frame.remove();
+      // Not on this page (soft): keep the frame for a later page of a single-page site. Anything
+      // else (paused, unknown widget, an older embed): remove it, as before.
+      // Back to the frame's starting state (hidden, zero-sized), which the embed measures from.
+      if (msg.soft) {
+        setStyles({ 'width': '0', 'height': '0', 'visibility': 'hidden' });
+      } else {
+        frame.remove();
+      }
       return;
     }
 

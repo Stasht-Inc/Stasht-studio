@@ -84,6 +84,8 @@ export interface ContactWidget {
   // "Also show on these pages" besides the home page: "/contact", "/inventory/*" (owner decision
   // 2026-10-15). Absent from older API builds, where the widget then shows on the home page only.
   shown_paths?: string[];
+  // "Hide on these pages" (Chris 11 Nov 2026): "/catalogue", "/products/*". Absent from older API builds (= none).
+  hide_paths?: string[];
   // "Who gets this widget's leads"; absent from the list endpoint and from older API builds.
   lead_recipients?: LeadRecipient[];
 }
@@ -162,6 +164,7 @@ export interface ContactWidgetInput {
   ai_enabled?: boolean;
   chat_timeout_minutes?: number;
   shown_paths?: string[];
+  hide_paths?: string[];
   // Keys of unticked, unlocked lead_recipients rows. [] = everyone ticked; omit = no change.
   excluded_recipients?: string[];
 }

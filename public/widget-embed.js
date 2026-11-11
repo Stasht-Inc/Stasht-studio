@@ -164,6 +164,9 @@ const chevronIcon = () => icon(['m9 18 6-6-6-6']);
 // Measured synchronously: the iframe starts hidden/0x0 and browsers may defer
 // requestAnimationFrame there, which would mean the first resize is never sent.
 let lastReport = '';
+// Whether the widget shows on the host page now, and whether it has started (start()) yet.
+let hostShown = true;
+let started = false;
 
 // The visible parts and their corner radii (as in widget-embed.html). Everything else that shows
 // (the dismiss ×, the callout's pointer, the unread dot, focus rings) sits inside one of these
@@ -184,6 +187,8 @@ function hitRects() {
 }
 
 function reportSize() {
+  // Hidden on this page of the host site ("Hide on these pages" / SPA navigation): a resize would show the frame.
+  if (!hostShown) return;
   const rect = root.getBoundingClientRect();
   const width = Math.ceil(rect.width);
   const height = Math.ceil(rect.height);
@@ -1221,10 +1226,49 @@ async function init() {
     return tell('hide');
   }
 
-  // Home page plus "Also show on these pages" (owner decision 2026-10-15): the loader passes the host
-  // page's path; anywhere else the loader removes the frame. The frame is still hidden and
-  // zero-sized here, so nothing flashes. An API that predates shown_paths sends none: home page only.
-  if (!pathShown(params.get('path'), state.config.shown_paths)) return tell('hide');
+  // Home page plus "Also show on these pages" (owner decision 2026-10-15), minus "Hide on these pages"
+  // (Chris 11 Nov 2026): the loader passes the host page's path; anywhere else the loader hides the
+  // frame. The frame is still hidden and zero-sized here, so nothing flashes. An API that predates
+  // shown_paths sends none: home page only. Single-page sites: the loader reports each new path
+  // (onHostPath), and the widget starts, hides or shows again to match. 'soft' keeps the frame for
+  // that; an older loader ignores it and removes the frame, as before.
+  window.addEventListener('message', onHostPath);
+  hostShown = shownOnPath(params.get('path'));
+  if (!hostShown) return tell('hide', { soft: true });
+  await start();
+}
+
+// "Hide on these pages" is newer than this file's named imports: read through `core` (a cached older
+// widget-core.js lacks it, and then only the home page / shown_paths rule applies, as before).
+function shownOnPath(path) {
+  return typeof core.widgetShownOn === 'function'
+    ? core.widgetShownOn(path, state.config)
+    : pathShown(path, state.config.shown_paths);
+}
+
+// The loader's report of a new host-page path (history.pushState / popstate on a single-page site).
+function onHostPath(event) {
+  if (event.source !== window.parent) return;
+  const msg = event.data;
+  if (!msg || msg.source !== 'stasht-widget-host' || msg.id !== widgetId || msg.type !== 'path') return;
+  if (typeof msg.path !== 'string' || !state.config) return;
+  const shown = shownOnPath(msg.path);
+  if (shown === hostShown) return;
+  hostShown = shown;
+  if (!shown) {
+    tell('hide', { soft: true });
+  } else if (!started) {
+    start();
+  } else {
+    lastReport = '';
+    reportSize();
+  }
+}
+
+// Everything after the config and the page check: runs once, on the first page the widget shows on.
+async function start() {
+  if (started) return;
+  started = true;
 
   const style = document.documentElement.style;
   style.setProperty('--brand', safeColor(state.config.theme?.primary_color));

@@ -22,7 +22,7 @@ import {
   DEFAULT_BRAND, DEFAULT_CALLOUT, DEFAULT_WELCOME, DEFAULT_FORM_FIELD_SETTINGS, FORM_FIELD_KEYS, FORM_FIELD_LABEL_MAX, FORM_FIELD_NAMES, WELCOME_MAX, copyText,
   formCanReply, installSnippet, isContactChoice, withFormFieldChange, CONTACT_CHOICE_NOTE, isHexColor, isPlausibleDomain, normalizeDomain, resolveFormFields, safeColor,
   safeHttpsUrl, squareAvatarDataUrl,
-  AI_NOTES_MAX, DEFAULT_WEEK_HOURS, weekFromApi, weekProblem, weekToApi, shownPathFromInput, shownPathsProblem, withShownPath, SHOWN_PATHS_MAX,
+  AI_NOTES_MAX, DEFAULT_WEEK_HOURS, weekFromApi, weekProblem, weekToApi, shownPathFromInput, shownPathsProblem, withShownPath, SHOWN_PATHS_MAX, hidePathFromInput,
 } from './widgetHelpers';
 
 const BRAND = '#6C60FF';
@@ -63,6 +63,8 @@ interface FormState extends AfterHoursValue {
   // "Also show on these pages" (owner decision 2026-10-15): page addresses ("/contact",
   // "/inventory/*") besides the home page, where the widget always shows.
   shownPaths: string[];
+  // "Hide on these pages" (Chris 11 Nov 2026): page addresses where the widget never shows.
+  hidePaths: string[];
   status: WidgetStatus;
   formFields: FormFieldSettings;
   propertyId: number | null; // the dealership whose team takes over leads; null = only the owner
@@ -82,6 +84,7 @@ const emptyForm: FormState = {
   position: 'bottom-right',
   domains: [],
   shownPaths: [],
+  hidePaths: [],
   status: 'draft',
   formFields: resolveFormFields(null),
   propertyId: null,
@@ -113,6 +116,7 @@ function formFromWidget(w: ContactWidget): FormState {
     position: w.theme?.bubble_position === 'bottom-left' ? 'bottom-left' : 'bottom-right',
     domains: [...(w.allowed_domains || [])],
     shownPaths: [...(w.shown_paths || [])],
+    hidePaths: [...(w.hide_paths || [])],
     status: w.status || 'draft',
     formFields: resolveFormFields(w.form_fields),
     propertyId: w.property_id ?? null,
@@ -130,7 +134,7 @@ function formFromWidget(w: ContactWidget): FormState {
 // withRecipients: true only once lead_recipients has actually been loaded for this widget (the
 // widget list/index response doesn't include it). Absent data must never be sent as "everyone
 // ticked" — that would silently clear whatever the owner had already unticked.
-function inputFromForm(f: FormState, domains: string[], shownPaths: string[], withTeam: boolean, withRecipients: boolean): ContactWidgetInput {
+function inputFromForm(f: FormState, domains: string[], shownPaths: string[], hidePaths: string[], withTeam: boolean, withRecipients: boolean): ContactWidgetInput {
   return {
     ...(withTeam ? { property_id: f.propertyId } : {}),
     ...(withRecipients ? { excluded_recipients: f.excludedRecipients } : {}),
@@ -146,6 +150,7 @@ function inputFromForm(f: FormState, domains: string[], shownPaths: string[], wi
     },
     allowed_domains: domains,
     shown_paths: shownPaths,
+    hide_paths: hidePaths,
     form_fields: Object.fromEntries(FORM_FIELD_KEYS.map((k) => [k, { ...f.formFields[k], label: f.formFields[k].label.trim() }])),
     // AI assistant + business hours (spec 2026-09-29 part 2 §2). The AI answers at any hour; hours only tell visitors when the team is in.
     business_hours: f.hoursOn ? weekToApi(f.hours) : null,
@@ -262,6 +267,8 @@ function WidgetBuilder({
   const [domainError, setDomainError] = useState('');
   const [pageInput, setPageInput] = useState('');
   const [pageError, setPageError] = useState('');
+  const [hideInput, setHideInput] = useState('');
+  const [hideError, setHideError] = useState('');
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
@@ -319,8 +326,8 @@ function WidgetBuilder({
   }, [user, form.logoUrl]);
 
   const dirty = useMemo(
-    () => JSON.stringify(form) !== JSON.stringify(baseline) || domainInput.trim() !== '' || pageInput.trim() !== '',
-    [form, baseline, domainInput, pageInput],
+    () => JSON.stringify(form) !== JSON.stringify(baseline) || domainInput.trim() !== '' || pageInput.trim() !== '' || hideInput.trim() !== '',
+    [form, baseline, domainInput, pageInput, hideInput],
   );
   useEffect(() => { onDirtyChange(dirty); }, [dirty, onDirtyChange]);
   useEffect(() => () => onDirtyChange(false), [onDirtyChange]);
@@ -331,7 +338,7 @@ function WidgetBuilder({
       const map: Record<string, string> = {
         name: 'name', agentName: 'agent_name', calloutText: 'callout_text', welcomeSubtext: 'welcome_subtext',
         primaryColor: 'theme.primary_color', logoUrl: 'theme.logo_url', position: 'theme.bubble_position',
-        domains: 'allowed_domains', shownPaths: 'shown_paths', status: 'status', formFields: 'form_fields', propertyId: 'property_id',
+        domains: 'allowed_domains', shownPaths: 'shown_paths', hidePaths: 'hide_paths', status: 'status', formFields: 'form_fields', propertyId: 'property_id',
         excludedRecipients: 'excluded_recipients', chatTimeout: 'chat_timeout_minutes',
         hoursOn: 'business_hours', hours: 'business_hours', timezone: 'timezone', aiEnabled: 'ai_enabled', aiNotes: 'faq_notes',
       };
@@ -412,6 +419,30 @@ function WidgetBuilder({
     setPageInput('');
   };
 
+  // Same as addPage, for "Hide on these pages" (the home page may be listed here).
+  const addHide = (raw: string, current: string[], domains: string[]): string[] | null => {
+    if (!raw.trim()) return current;
+    const result = hidePathFromInput(raw, domains);
+    if (result.error !== undefined) {
+      setHideError(result.error);
+      return null;
+    }
+    const next = withShownPath(current, result.path);
+    if (next.length > SHOWN_PATHS_MAX) {
+      setHideError(`You can list up to ${SHOWN_PATHS_MAX} pages.`);
+      return null;
+    }
+    setHideError('');
+    return next;
+  };
+
+  const commitHide = () => {
+    const next = addHide(hideInput, form.hidePaths, domainsForPages());
+    if (next === null) return;
+    set('hidePaths', next);
+    setHideInput('');
+  };
+
   const validate = (shownPaths: string[]): Record<string, string> => {
     const e: Record<string, string> = {};
     if (!form.name.trim()) e.name = 'Give the widget a name.';
@@ -442,6 +473,8 @@ function WidgetBuilder({
     if (domains === null) return;
     const shownPaths = addPage(pageInput, form.shownPaths, domains);
     if (shownPaths === null) return;
+    const hidePaths = addHide(hideInput, form.hidePaths, domains);
+    if (hidePaths === null) return;
     const clientErrors = validate(shownPaths);
     setErrors(clientErrors);
     if (Object.keys(clientErrors).length) {
@@ -450,7 +483,7 @@ function WidgetBuilder({
     }
 
     setSaving(true);
-    const payload = inputFromForm(form, domains, shownPaths, propertyId != null || teamOptions.length > 0, !!saved?.lead_recipients);
+    const payload = inputFromForm(form, domains, shownPaths, hidePaths, propertyId != null || teamOptions.length > 0, !!saved?.lead_recipients);
     const res = saved ? await widgetsAPI.update(saved.id, payload) : await widgetsAPI.create(payload);
     setSaving(false);
 
@@ -469,6 +502,8 @@ function WidgetBuilder({
     setDomainError('');
     setPageInput('');
     setPageError('');
+    setHideInput('');
+    setHideError('');
     setErrors({});
     // Any successful save sends the manager back to the list (this builder unmounts). A new widget
     // gets its own toast there; an update keeps this one.
@@ -506,6 +541,15 @@ function WidgetBuilder({
       commitPage();
     } else if (e.key === 'Backspace' && !pageInput && form.shownPaths.length) {
       set('shownPaths', form.shownPaths.slice(0, -1));
+    }
+  };
+
+  const onHideKey = (e: ReactKeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      commitHide();
+    } else if (e.key === 'Backspace' && !hideInput && form.hidePaths.length) {
+      set('hidePaths', form.hidePaths.slice(0, -1));
     }
   };
 
@@ -964,6 +1008,59 @@ function WidgetBuilder({
                 The widget shows on your home page. Add any other pages where it should also appear, e.g. example.com/contact, or example.com/inventory/* for a whole section. Press Enter to add each one. It never shows on admin pages.
               </p>
               <FieldError id={id('page-err')} message={pageError || errors.shown_paths} />
+            </div>
+
+            <div>
+              <label htmlFor={id('hide')} className="block text-sm font-medium text-gray-800 mb-1.5">Hide on these pages</label>
+              {form.hidePaths.length > 0 && (
+                <ul className="flex flex-wrap gap-2 mb-2" aria-label="Hide on these pages">
+                  {form.hidePaths.map((p) => (
+                    <li key={p} className="inline-flex items-center gap-1.5 max-w-full bg-gray-100 text-gray-700 rounded-full pl-3 pr-1.5 py-1 text-sm font-medium">
+                      <span className="min-w-0 break-all">{p}</span>
+                      <button
+                        type="button"
+                        aria-label={`Remove ${p}`}
+                        onClick={() => set('hidePaths', form.hidePaths.filter((x) => x !== p))}
+                        className="w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 hover:bg-gray-200"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <div className="flex gap-2">
+                <input
+                  id={id('hide')}
+                  type="text"
+                  inputMode="url"
+                  value={hideInput}
+                  onChange={(e) => { setHideInput(e.target.value); if (hideError) setHideError(''); }}
+                  onKeyDown={onHideKey}
+                  onBlur={() => { if (hideInput.trim()) commitHide(); }}
+                  placeholder="/catalogue"
+                  autoCapitalize="none"
+                  spellCheck={false}
+                  aria-invalid={!!(hideError || errors.hide_paths)}
+                  aria-describedby={id('hide-help') + ((hideError || errors.hide_paths) ? ' ' + id('hide-err') : '')}
+                  className={inputClass + ((hideError || errors.hide_paths) ? errorInputClass : '')}
+                />
+                <button
+                  type="button"
+                  onClick={commitHide}
+                  className={`inline-flex items-center gap-1.5 px-4 rounded-xl border text-sm font-medium flex-shrink-0 transition-colors ${
+                    hideInput.trim()
+                      ? 'border-transparent bg-[#6C60FF] text-white hover:bg-[#5A4FE5]'
+                      : 'border-gray-200 text-gray-700 hover:bg-gray-50'
+                  }`}
+                >
+                  <Plus className="w-4 h-4" /> Add
+                </button>
+              </div>
+              <p id={id('hide-help')} className="text-xs text-gray-400 mt-1">
+                Paths where the chat won't show, e.g. /catalogue or /products/*
+              </p>
+              <FieldError id={id('hide-err')} message={hideError || errors.hide_paths} />
             </div>
 
             {propertyId != null ? (
