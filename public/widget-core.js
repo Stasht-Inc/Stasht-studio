@@ -344,6 +344,36 @@ export function chatForgottenElsewhere(ev, widgetId) {
   return !!ev && ev.key === chatStorageKey(widgetId) && ev.newValue === null;
 }
 
+// --- Idle chats end (Chris, 11 Nov 2026) -----------------------------------------------------
+// After the widget's timeout with no message either way, the server ends the chat (its token stops
+// working). The embed then never shows that old thread again: a closed panel opens on a fresh start,
+// and an open one says "This chat has ended." with a button to start a new one.
+
+export const CHAT_TIMEOUT_DEFAULT_MINUTES = 30;
+export const CHAT_TIMEOUT_OPTIONS = [15, 30, 60, 240, 1440];
+export const CHAT_ENDED_TEXT = 'This chat has ended.';
+export const START_NEW_CHAT = 'Start a new one';
+
+/** The widget's inactivity timeout in ms (config.chat_timeout_minutes; an older API sends none: 30 minutes). */
+export function chatTimeoutMs(config) {
+  const minutes = Number(config?.chat_timeout_minutes);
+  return (CHAT_TIMEOUT_OPTIONS.includes(minutes) ? minutes : CHAT_TIMEOUT_DEFAULT_MINUTES) * 60 * 1000;
+}
+
+/** True once the conversation has been quiet for longer than the timeout (no activity known: not expired). */
+export function chatIdleExpired({ lastActivityAt, timeoutMs, now = Date.now() } = {}) {
+  return Number(lastActivityAt) > 0 && Number(timeoutMs) > 0 && now - lastActivityAt > timeoutMs;
+}
+
+/**
+ * The server no longer knows the conversation (ended for inactivity, ended elsewhere, too old, a newer form).
+ * With the chat open in front of the visitor: 'ended' (the line + "Start a new one"); otherwise 'fresh'
+ * (straight back to the form, so the old thread is never shown again).
+ */
+export function goneOutcome({ open, phase, messageCount = 0 } = {}) {
+  return open && phase === 'chat' && messageCount > 0 ? 'ended' : 'fresh';
+}
+
 export const END_CHAT_QUESTION = 'Would you like to end this chat?';
 export const END_CHAT_DETAIL = 'This conversation will be cleared from this browser. You can start a new chat any time.';
 

@@ -31,6 +31,16 @@ const CALLOUT_MAX = 60;
 const AGENT_MAX = 40;
 const NAME_MAX = 80;
 
+// "End the chat after" (Chris 11 Nov 2026): no message either way for this long and the chat ends.
+const CHAT_TIMEOUT_OPTIONS: { minutes: number; label: string }[] = [
+  { minutes: 15, label: '15 minutes' },
+  { minutes: 30, label: '30 minutes' },
+  { minutes: 60, label: '1 hour' },
+  { minutes: 240, label: '4 hours' },
+  { minutes: 1440, label: '24 hours' },
+];
+const DEFAULT_CHAT_TIMEOUT = 30;
+
 const STATUS_META: Record<WidgetStatus, { label: string; dot: string; text: string }> = {
   live: { label: 'Live', dot: 'bg-green-500', text: 'text-green-700' },
   draft: { label: 'Draft', dot: 'bg-gray-400', text: 'text-gray-600' },
@@ -56,6 +66,7 @@ interface FormState extends AfterHoursValue {
   status: WidgetStatus;
   formFields: FormFieldSettings;
   propertyId: number | null; // the dealership whose team takes over leads; null = only the owner
+  chatTimeout: number; // minutes with no message either way before the chat ends (Chris 11 Nov 2026)
   // Keys of unticked, unlocked "who gets this widget's leads" rows (spec 2026-09-30). Starts from
   // the widget's last-saved lead_recipients and is edited only by the panel's checkboxes.
   excludedRecipients: string[];
@@ -74,6 +85,7 @@ const emptyForm: FormState = {
   status: 'draft',
   formFields: resolveFormFields(null),
   propertyId: null,
+  chatTimeout: DEFAULT_CHAT_TIMEOUT,
   excludedRecipients: [],
   hoursOn: false,
   hours: DEFAULT_WEEK_HOURS,
@@ -104,6 +116,7 @@ function formFromWidget(w: ContactWidget): FormState {
     status: w.status || 'draft',
     formFields: resolveFormFields(w.form_fields),
     propertyId: w.property_id ?? null,
+    chatTimeout: CHAT_TIMEOUT_OPTIONS.some((o) => o.minutes === w.chat_timeout_minutes) ? (w.chat_timeout_minutes as number) : DEFAULT_CHAT_TIMEOUT,
     excludedRecipients: excludedKeysFrom(w.lead_recipients),
     hoursOn: week !== null,
     hours: week ?? DEFAULT_WEEK_HOURS,
@@ -139,6 +152,7 @@ function inputFromForm(f: FormState, domains: string[], shownPaths: string[], wi
     timezone: f.timezone || null,
     faq_notes: f.aiNotes.trim() || null,
     ai_enabled: f.aiEnabled,
+    chat_timeout_minutes: f.chatTimeout,
   };
 }
 
@@ -318,7 +332,7 @@ function WidgetBuilder({
         name: 'name', agentName: 'agent_name', calloutText: 'callout_text', welcomeSubtext: 'welcome_subtext',
         primaryColor: 'theme.primary_color', logoUrl: 'theme.logo_url', position: 'theme.bubble_position',
         domains: 'allowed_domains', shownPaths: 'shown_paths', status: 'status', formFields: 'form_fields', propertyId: 'property_id',
-        excludedRecipients: 'excluded_recipients',
+        excludedRecipients: 'excluded_recipients', chatTimeout: 'chat_timeout_minutes',
         hoursOn: 'business_hours', hours: 'business_hours', timezone: 'timezone', aiEnabled: 'ai_enabled', aiNotes: 'faq_notes',
       };
       if (!e[map[key]]) return e;
@@ -997,6 +1011,23 @@ function WidgetBuilder({
                 <p className="text-xs text-amber-700 mt-1">Tip: add your website's domain above so we can flag messages sent from other sites.</p>
               )}
               <FieldError id={id('status-err')} message={errors.status} />
+            </div>
+
+            <div>
+              <label htmlFor={id('chat-timeout')} className="block text-sm font-medium text-gray-800 mb-1.5">End the chat after</label>
+              <SelectField
+                id={id('chat-timeout')}
+                value={form.chatTimeout}
+                onChange={(e) => set('chatTimeout', Number(e.target.value))}
+                aria-describedby={id('chat-timeout-help')}
+                wrapperClassName="sm:max-w-xs"
+              >
+                {CHAT_TIMEOUT_OPTIONS.map((o) => <option key={o.minutes} value={o.minutes}>{o.label} with no messages</option>)}
+              </SelectField>
+              <p id={id('chat-timeout-help')} className="text-xs text-gray-400 mt-1">
+                The visitor starts a new chat next time and won't see the old one. You keep the whole conversation in Leads.
+              </p>
+              <FieldError id={id('chat-timeout-err')} message={errors.chat_timeout_minutes} />
             </div>
 
             <AfterHoursSettings
