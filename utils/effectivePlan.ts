@@ -25,6 +25,39 @@ export function planKey(name: unknown): PlanKey | null {
   return null;
 }
 
+/**
+ * Enterprise = Business baseline (Deepak, 11 Nov 2026): a paid plan named none of the three (set up for the account in the
+ * Admin Portal — Enterprise) works as Business for every feature and limit. The web API and mobile API decide the same
+ * way (BusinessBaseline): not Starter, not Teams, not Business, and not "Family & Friends".
+ */
+export function isBusinessBaselinePlan(name: unknown): boolean {
+  const text = typeof name === 'string' ? name.trim().toLowerCase() : '';
+  return !!text && planKey(text) === null && !text.includes('family');
+}
+
+/**
+ * The plan Studio's feature and limit checks go by: planKey, with Enterprise and other Admin Portal plans as Business
+ * ('professional'). Labels, badges and canSelfUpgrade keep planKey, so Enterprise still contacts sales.
+ */
+export function featurePlanKey(name: unknown): PlanKey | null {
+  return planKey(name) ?? (isBusinessBaselinePlan(name) ? 'professional' : null);
+}
+
+/** Admin seats per plan when the server's number isn't known: Business 5, Teams 3, Starter 1 (the APIs' role map). */
+const SEATS_BY_PLAN: Record<PlanKey, number> = { professional: 5, intermediate: 3, starter: 1 };
+
+/**
+ * The admin-seat limit to show (Users page "Admins x/y"): the server's number from check-memory-limit's
+ * admin_limit_status (it includes the account's Admin Portal override) when known, null for unlimited, else the plan's
+ * seats (Enterprise as Business: 5).
+ */
+export function adminSeatLimit(planName: unknown, adminLimit: { status?: unknown; max_allowed?: unknown } | null | undefined): number | null {
+  if (adminLimit?.status === 'unlimited') return null;
+  const max = Number(adminLimit?.max_allowed);
+  if (adminLimit && adminLimit.max_allowed !== undefined && adminLimit.max_allowed !== null && Number.isFinite(max) && max >= 0) return max;
+  return SEATS_BY_PLAN[featurePlanKey(planName) ?? 'starter'];
+}
+
 /** "Starter", "Teams" or "Business" for a plan name, or null. */
 export function planLabel(name: unknown): 'Starter' | 'Teams' | 'Business' | null {
   const key = planKey(name);

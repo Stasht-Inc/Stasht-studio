@@ -65,7 +65,7 @@ import { AddMomentModal } from './components/AddMomentModal';
 import exifr from 'exifr';
 import { takeSwitchNotice } from './utils/accountSwitch';
 import { allPropertyRows, propertyViewHasLeads, resolvePendingPropertySwitch } from './utils/salespersonLanding';
-import { planKey, skipsPlanPicker, storageOverviewOf } from './utils/effectivePlan';
+import { featurePlanKey, skipsPlanPicker, storageOverviewOf } from './utils/effectivePlan';
 import { usersTabForReport } from './utils/propertyRows';
 import { cameraRollSession } from './utils/cameraRoll';
 
@@ -1188,7 +1188,7 @@ function MainApp() {
       toast(message || 'Connectors are available on the Teams and Business plans.', { id: 'plan-required' });
       setPlanUpgradeOpen(true);
       dashboardAPI.getStorageOverview()
-        .then((res: any) => setPlanUpgradeFrom(planKey(storageOverviewOf(res)?.plan_name) ?? 'starter'))
+        .then((res: any) => setPlanUpgradeFrom(featurePlanKey(storageOverviewOf(res)?.plan_name) ?? 'starter'))
         .catch(() => {});
     };
     window.addEventListener(UPGRADE_REQUIRED_EVENT, onUpgradeRequired);
