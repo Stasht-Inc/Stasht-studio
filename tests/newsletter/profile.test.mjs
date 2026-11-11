@@ -43,3 +43,13 @@ test('initialsFrom', () => {
   assert.equal(initialsFrom('serpa'), 'S');
   assert.equal(initialsFrom('  '), 'S');
 });
+
+test('ecardEmail: the newsletter Reply-to email overrides the profile email on the e-card; blank or partial keeps the profile email', async () => {
+  const { ecardEmail } = await import('../../components/newsletters/lib/profile.ts');
+  assert.equal(ecardEmail('bgerrits@royalwoodshop.com', 'info@royalwoodshop.com'), 'info@royalwoodshop.com');
+  assert.equal(ecardEmail('bgerrits@royalwoodshop.com', '  info@royalwoodshop.com '), 'info@royalwoodshop.com');
+  assert.equal(ecardEmail('bgerrits@royalwoodshop.com', ''), 'bgerrits@royalwoodshop.com');
+  assert.equal(ecardEmail('bgerrits@royalwoodshop.com', null), 'bgerrits@royalwoodshop.com');
+  assert.equal(ecardEmail('bgerrits@royalwoodshop.com', 'info@'), 'bgerrits@royalwoodshop.com');
+  assert.equal(ecardEmail(null, undefined), null);
+});

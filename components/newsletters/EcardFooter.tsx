@@ -3,7 +3,7 @@ import { Mail, Phone } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { displayWebsite } from '../../utils/displayUrl';
 import type { SenderProfile } from './lib/profile';
-import { initialsFrom } from './lib/profile';
+import { ecardEmail, initialsFrom } from './lib/profile';
 import { BUTTON_SMALL, LINK_BUTTON, inputClass } from './lib/ui';
 
 /**
@@ -11,9 +11,11 @@ import { BUTTON_SMALL, LINK_BUTTON, inputClass } from './lib/ui';
  * the Storeel e-card (PublishedMemoryPage), then the lines from emails/newsletter/footer.blade.php: why they
  * get it with Unsubscribe, the business address and "Powered by Stasht". Preview only: the server adds the links.
  */
-export default function EcardFooter({ profile, fromName, businessAddress, onSaveAddress, readOnly, addressError, padClass = 'px-10' }: {
+export default function EcardFooter({ profile, fromName, replyTo, businessAddress, onSaveAddress, readOnly, addressError, padClass = 'px-10' }: {
   profile: SenderProfile | null;
   fromName: string;
+  /** This newsletter's Reply-to email: shown on the card instead of the profile email when set. */
+  replyTo?: string | null;
   businessAddress: string | null;
   onSaveAddress(address: string): Promise<boolean>;
   readOnly: boolean;
@@ -25,6 +27,7 @@ export default function EcardFooter({ profile, fromName, businessAddress, onSave
   const [saving, setSaving] = useState(false);
   const showForm = !readOnly && (editing || !businessAddress);
   const sender = fromName.trim() || profile?.name || 'this business';
+  const email = ecardEmail(profile?.email ?? null, replyTo);
 
   const save = async () => {
     if (!value.trim()) return;
@@ -46,7 +49,7 @@ export default function EcardFooter({ profile, fromName, businessAddress, onSave
           </Avatar>
           <p className="text-base font-bold text-gray-900">{profile.name}</p>
           <div className="mb-1 flex flex-wrap items-center justify-center gap-2 text-sm text-gray-500">
-            {profile.email ? <span className="flex min-w-0 items-center gap-1 break-all"><Mail className="h-3 w-3 flex-shrink-0" aria-hidden="true" />{profile.email}</span> : null}
+            {email ? <span data-testid="ecard-email" className="flex min-w-0 items-center gap-1 break-all"><Mail className="h-3 w-3 flex-shrink-0" aria-hidden="true" />{email}</span> : null}
             {profile.phone ? <span className="flex items-center gap-1"><Phone className="h-3 w-3 flex-shrink-0" aria-hidden="true" />{profile.phone}</span> : null}
           </div>
           {profile.website ? <span className="mb-3 break-all text-sm text-[#6C60FF]">{displayWebsite(profile.website.text)}</span> : null}

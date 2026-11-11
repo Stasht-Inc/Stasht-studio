@@ -346,7 +346,7 @@ export default function NewsletterEditor({
                 </Fragment>
               ))}
             </div>
-            <EcardFooter profile={profile} fromName={draft.from_name} businessAddress={businessAddress} onSaveAddress={onSaveAddress} readOnly={readOnly}
+            <EcardFooter profile={profile} fromName={draft.from_name} replyTo={draft.reply_to_email} businessAddress={businessAddress} onSaveAddress={onSaveAddress} readOnly={readOnly}
               addressError={fieldErrors.business_address ?? null} padClass={padClass} />
           </div>
         </div>
