@@ -20,6 +20,8 @@ interface Props {
   assignedFilter: string;
   onAssignedChange: (value: string) => void;
   assigneeOptions: { id: number; name: string | null }[];
+  // Staff in their own account (Chris 11 Nov 2026): "all" is "Me + new"; a full Admin also gets "Anyone" (TEAM_ALL).
+  teamLeads?: { staff: boolean; can_see_all: boolean } | null;
   timeFilter: TimeFilter;
   onTimeChange: (value: TimeFilter) => void;
   // Only the sheet's own filters (status / assigned / first seen) — not the search box.
@@ -85,9 +87,12 @@ function ToolRow({ icon, title, subtitle, onClick }: { icon: React.ReactNode; ti
   );
 }
 
+/** The "Assigned to" value for a full Admin's "Anyone" (team=all): every lead of the accounts they help run. */
+export const TEAM_ALL = 'team-all';
+
 export default function LeadsFilterSheet(props: Props) {
   const {
-    open, onOpenChange, statusFilter, onStatusChange, assignedFilter, onAssignedChange, assigneeOptions,
+    open, onOpenChange, statusFilter, onStatusChange, assignedFilter, onAssignedChange, assigneeOptions, teamLeads,
     timeFilter, onTimeChange, canClear, onClear, onMessageGroup, onSearchGroup, onCloseAutoFocus,
   } = props;
 
@@ -118,7 +123,8 @@ export default function LeadsFilterSheet(props: Props) {
             </Section>
 
             <Section title="Assigned to">
-              <Chip selected={assignedFilter === 'all'} onClick={() => onAssignedChange('all')}>Anyone</Chip>
+              <Chip selected={assignedFilter === 'all'} onClick={() => onAssignedChange('all')}>{teamLeads?.staff ? 'Me + new' : 'Anyone'}</Chip>
+              {teamLeads?.can_see_all && <Chip selected={assignedFilter === TEAM_ALL} onClick={() => onAssignedChange(TEAM_ALL)}>Anyone</Chip>}
               <Chip selected={assignedFilter === 'me'} onClick={() => onAssignedChange('me')}>Me</Chip>
               <Chip selected={assignedFilter === 'unassigned'} onClick={() => onAssignedChange('unassigned')}>Unassigned</Chip>
               {assigneeOptions.map((a) => (
