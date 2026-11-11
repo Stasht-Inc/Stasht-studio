@@ -79,6 +79,7 @@ const state = {
   provisional: false, // the form's first message shown as the chat before /submit answers
   autoReplyOff: false, // /submit came back with replies (the AI or its notice): no static auto-reply
   confirmEnd: false, // ✕ with a conversation: "Would you like to end this chat?" shows over the panel
+  ended: false, // the chat ended (inactivity, Chris 11 Nov 2026) while open: "This chat has ended." + Start a new one
 };
 
 // The shown fields, in order (set once the config loads).
@@ -255,6 +256,9 @@ document.addEventListener('pointerdown', () => { usingKeyboard = false; }, true)
 
 function openPanel() {
   state.open = true;
+  // Quiet past the widget's timeout (Chris 11 Nov 2026): the server has ended it (or will on the next check), so
+  // the visitor gets a fresh start instead of the old thread. An ended chat left showing also starts fresh.
+  if (state.phase === 'chat' && (state.ended || chatExpired())) forgetChat();
   if (state.phase === 'chat') {
     state.unread = false;
     stick = true;
@@ -268,6 +272,7 @@ function openPanel() {
 
 function closePanel() {
   state.open = false;
+  if (state.ended) forgetChat(); // the next open is a fresh start, never the old thread
   render();
   schedulePoll(); // closed: every 15 s for up to an hour after the last message
   if (usingKeyboard) focusId('w-launcher');
@@ -319,9 +324,15 @@ function forgetChat() {
   state.pending?.files?.forEach(releaseFile);
   Object.assign(state, {
     token: null, messages: [], submittedId: null, phase: 'form', draft: '', files: [], chatError: '', chatSending: false,
-    unread: false, pending: null, provisional: false, autoReplyOff: false, confirmEnd: false, lastActivity: 0,
+    unread: false, pending: null, provisional: false, autoReplyOff: false, confirmEnd: false, lastActivity: 0, ended: false,
     sending: false, errors: {}, visitorName: '', values: { name: '', mobile: '', email: '', company: '', message: '' },
   });
+}
+
+// The stored conversation has been quiet longer than this widget's inactivity timeout.
+function chatExpired() {
+  if (!state.token || state.provisional || typeof core.chatIdleExpired !== 'function') return false;
+  return core.chatIdleExpired({ lastActivityAt: state.lastActivity, timeoutMs: core.chatTimeoutMs(state.config) });
 }
 
 // Another tab of this browser ended the chat (or found it gone): this tab starts fresh too.
@@ -733,7 +744,24 @@ function keepAtBottom() {
   if (log && stick) log.scrollTop = log.scrollHeight;
 }
 
+// "This chat has ended." + "Start a new one" in place of the typing box (Chris 11 Nov 2026).
+function endedBar() {
+  return h('div', { class: 'composer ended', role: 'status' },
+    h('p', { class: 'endedtext' }, core.CHAT_ENDED_TEXT || 'This chat has ended.'),
+    h('button', { id: 'c-new', class: 'send', type: 'button', onclick: startNewChat }, core.START_NEW_CHAT || 'Start a new one'));
+}
+
+// A fresh form, keeping whatever the visitor had typed as its message.
+function startNewChat() {
+  const draft = state.draft.trim();
+  forgetChat();
+  if (draft) state.values.message = draft.slice(0, MESSAGE_MAX);
+  render();
+  focusId(firstFieldId());
+}
+
 function composer() {
+  if (state.ended) return endedBar();
   return h('div', { class: 'composer' },
     state.files.length > 0 && h('div', { class: 'queue' }, state.files.map(chip)),
     h('div', { class: 'bar' },
@@ -860,11 +888,22 @@ function conversationGone() {
   clearTimeout(pollTimer);
   pollTimer = null;
   stopTyping();
+  // Open in front of the visitor (Chris 11 Nov 2026): say so under the thread, with a button for a new chat. The
+  // token is gone already, so nothing more is fetched or sent; closing or "Start a new one" gives the fresh form.
+  const outcome = core.goneOutcome
+    ? core.goneOutcome({ open: state.open, phase: state.phase, messageCount: state.messages.length })
+    : 'fresh';
+  if (outcome === 'ended') {
+    Object.assign(state, { token: null, ended: true, chatSending: false, chatError: '', pending: null, confirmEnd: false, unread: false });
+    render();
+    focusId('c-new');
+    return;
+  }
   if (state.draft.trim()) state.values.message = state.draft.trim().slice(0, MESSAGE_MAX);
   state.files.forEach(releaseFile);
   Object.assign(state, {
     token: null, messages: [], submittedId: null, phase: 'form', draft: '', files: [], chatError: '', chatSending: false, unread: false,
-    pending: null, provisional: false, autoReplyOff: false, confirmEnd: false,
+    pending: null, provisional: false, autoReplyOff: false, confirmEnd: false, ended: false,
   });
   render();
 }

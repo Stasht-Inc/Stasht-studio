@@ -151,6 +151,9 @@
       .sendbtn[disabled], .clip[disabled] { opacity: .45; cursor: default; }
       .clip svg, .sendbtn svg { width: 22px; height: 22px; }
       .composer .err { margin: 8px 4px 0; }
+      .composer.ended { display: flex; flex-direction: column; gap: 8px; align-items: stretch; text-align: center; }
+      .endedtext { margin: 0; color: #4b5563; font-size: 14px; }
+      .composer.ended .send { height: 40px; font-size: 15px; }
 
       /* "Powered by Stasht" foot of the open panel (Chris, 2026-10-02) */
       .powered { flex: none; display: flex; align-items: center; justify-content: center; gap: 5px; padding: 2px 0 13px;
