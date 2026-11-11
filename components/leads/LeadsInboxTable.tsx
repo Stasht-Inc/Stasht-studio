@@ -12,6 +12,7 @@ import AssigneeControl, { AssigneeBadge } from './AssigneeControl';
 import RowActionButton from './RowActionButton';
 import CampaignDeletedTag from './CampaignDeletedTag';
 import LeadBusinessTag from './LeadBusinessTag';
+import OpenBadge, { openTitle } from './OpenBadge';
 import {
   formatInboxDate, formatInboxDateMedium, formatInboxDateShort, inboxExcerpt, isUnread, leadEmail, leadPhone,
 } from '../../utils/leadInbox';
@@ -81,21 +82,6 @@ function StatusIndicator({ status }: { status: Lead['status'] }) {
   );
 }
 
-// Another account's lead nobody has taken yet (Chris 11 Nov 2026): "waiting", not the owner's. When it was released
-// from someone who went offline while the visitor wrote again, say so.
-function waitingText(lead: Lead): string {
-  const first = lead.released_from?.name?.trim().split(/\s+/)[0];
-  return first ? `Waiting — ${first} is offline` : 'Waiting to be accepted';
-}
-
-function WaitingTag({ lead }: { lead: Lead }) {
-  return (
-    <span className="inline-flex max-w-[10rem] md:max-w-full items-center rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-800 ring-1 ring-inset ring-amber-200 truncate" title={waitingText(lead)}>
-      <span className="truncate">{waitingText(lead)}</span>
-    </span>
-  );
-}
-
 // Open lead: purple. New (unread): soft yellow, Chris's "this is new" cue. Else plain.
 function rowBackground(selected: boolean, unread: boolean): string {
   if (selected) return 'bg-purple-50';
@@ -150,7 +136,7 @@ function MoreMenu({ lead, onSelect, onDelete, onMarkRead }: ActionProps) {
           {lead.campaign_deleted && <CampaignDeletedTag />}
           <p className="text-xs text-gray-600">First seen {formatInboxDateShort(lead.first_seen_at)}</p>
           <p className="text-xs text-gray-600 truncate">
-            {lead.waiting ? waitingText(lead) : lead.assignee ? `Assigned to ${lead.assignee.name ?? 'a teammate'}` : 'Unassigned'}
+            {lead.waiting ? <span title={openTitle(lead)}>Open</span> : lead.assignee ? `Assigned to ${lead.assignee.name ?? 'a teammate'}` : 'Unassigned'}
           </p>
           {lead.is_rollup && <p className="text-xs text-gray-500">Accept this lead to reply or close it</p>}
         </div>
@@ -302,7 +288,8 @@ export default function LeadsInboxTable(props: Props) {
                     <div className="flex items-center justify-between gap-3 min-w-0">
                       <span className="min-w-0 flex items-center">
                         {lead.waiting
-                          ? <WaitingTag lead={lead} />
+                          // Steps aside for the row's actions on hover, like the assignee's name.
+                          ? <OpenBadge lead={lead} className="group-hover:hidden group-focus-within:hidden group-has-[[data-state=open]]:hidden" />
                           : lead.assignee
                           ? <AssigneeBadge assignee={lead.assignee} size="sm" nameClassName={HIDE_WHEN_ROW_ACTIVE} />
                           : <span className="text-gray-400">—</span>}
@@ -350,7 +337,7 @@ export default function LeadsInboxTable(props: Props) {
                 </span>
                 <div className="flex items-center gap-1 shrink-0 -mr-2.5">
                   {lead.waiting
-                    ? <WaitingTag lead={lead} />
+                    ? <OpenBadge lead={lead} />
                     : lead.assignee && <AssigneeBadge assignee={lead.assignee} size="sm" nameClassName="hidden" />}
                   {/* 40px tap targets on phones; the icons stay the same size. */}
                   <RowActions {...props} lead={lead} className="flex !gap-0 [&_button]:h-10 [&_button]:w-10" />

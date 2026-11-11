@@ -1377,7 +1377,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
           // Read-only for this user. An unclaimed lead can be accepted right here;
           // one owned by a teammate just says so (spec 2026-09-23).
           <div className="border-t border-gray-200 px-4 py-3 bg-gray-50 flex items-center justify-center gap-3 text-sm text-gray-700">
-            {lead.assignee ? (
+            {lead.assignee && !lead.waiting ? (
               <span>This lead is assigned to {lead.assignee.name ?? 'a teammate'}.</span>
             ) : (
               <>

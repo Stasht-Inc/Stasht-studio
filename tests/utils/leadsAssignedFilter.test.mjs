@@ -4,13 +4,13 @@
 // Chris 11 Nov 2026: "Assigned to: Anyone" = only assigned leads, "Unassigned" = the rest, new "All leads" = everything.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { assignedParams, leadingAssignedOptions, TEAM_ALL, ALL_LEADS } from '../../utils/leadsAssignedFilter.ts';
+import { assignedParams, leadingAssignedOptions, TEAM_ALL, ALL_LEADS, OPEN } from '../../utils/leadsAssignedFilter.ts';
 
 const owner = null;
 const fullAdmin = { staff: true, can_see_all: true, scope: 'mine_and_new' };
 const partial = { staff: true, can_see_all: false, scope: 'mine_and_new' };
 
-test('default asks the server for its default (Anyone for owners, Me + new for staff)', () => {
+test('default asks the server for its default (Anyone for owners, Me + open for staff)', () => {
   for (const t of [owner, fullAdmin, partial]) assert.deepEqual(assignedParams('all', t), { assigned: 'default' });
 });
 
@@ -30,9 +30,15 @@ test('me / unassigned / teammate unchanged', () => {
   assert.deepEqual(assignedParams('42', owner), { assigned: 42 });
 });
 
-test('options: owner Anyone + All leads; full Admin Me + new, Anyone, All leads; Partial Admin Me + new only', () => {
-  assert.deepEqual(leadingAssignedOptions(owner).map((o) => o.label), ['Assigned to: Anyone', 'All leads']);
-  assert.deepEqual(leadingAssignedOptions(fullAdmin).map((o) => o.label), ['Assigned to: Me + new', 'Assigned to: Anyone', 'All leads']);
-  assert.deepEqual(leadingAssignedOptions(partial, true).map((o) => o.label), ['Me + new']);
-  assert.deepEqual(leadingAssignedOptions(owner, true).map((o) => o.value), ['all', ALL_LEADS]);
+test('options: owner Anyone + All leads; full Admin Me + open, Anyone, All leads; Partial Admin Me + open only', () => {
+  assert.deepEqual(leadingAssignedOptions(owner).map((o) => o.label), ['Assigned to: Anyone', 'Open', 'All leads']);
+  assert.deepEqual(leadingAssignedOptions(fullAdmin).map((o) => o.label), ['Assigned to: Me + open', 'Open', 'Assigned to: Anyone', 'All leads']);
+  assert.deepEqual(leadingAssignedOptions(partial, true).map((o) => o.label), ['Me + open', 'Open']);
+  assert.deepEqual(leadingAssignedOptions(owner, true).map((o) => o.value), ['all', OPEN, ALL_LEADS]);
+});
+
+test('Open = waiting to be accepted; team=all only for staff who may see all', () => {
+  assert.deepEqual(assignedParams(OPEN, owner), { assigned: 'open' });
+  assert.deepEqual(assignedParams(OPEN, fullAdmin), { team: 'all', assigned: 'open' });
+  assert.deepEqual(assignedParams(OPEN, partial), { assigned: 'open' });
 });

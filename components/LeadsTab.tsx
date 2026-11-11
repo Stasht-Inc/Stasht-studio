@@ -248,7 +248,7 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
   // Inbox (spec 2026-09-23): Open / Closed tabs (Closed = archived) and "Assigned to".
   const [showClosed, setShowClosed] = useState(false);
   const [assignedFilter, setAssignedFilter] = useState<string>('all');
-  // Staff in their own account (Chris 11 Nov 2026): 'all' then means "Me + new"; full Admins also get TEAM_ALL.
+  // Staff in their own account (Chris 11 Nov 2026): 'all' then means "Me + open"; full Admins also get TEAM_ALL.
   const [teamLeads, setTeamLeads] = useState<LeadsResponse['team_leads']>(null);
   const teamLeadsRef = useRef<LeadsResponse['team_leads']>(null);
   teamLeadsRef.current = teamLeads;
@@ -586,7 +586,7 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
         page: effectivePage,
         per_page: perPage,
         archived: closed ?? showClosed,
-        // "Assigned to" (Chris 11 Nov 2026): default = Anyone (assigned only) for owners, "Me + new" for staff.
+        // "Assigned to" (Chris 11 Nov 2026): default = Anyone (assigned only) for owners, "Me + open" for staff.
         ...assignedParams(effectiveAssigned, teamLeadsRef.current),
       });
       if (res.success && res.data) {
