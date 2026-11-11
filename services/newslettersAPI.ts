@@ -307,6 +307,18 @@ export interface NewMemberInput extends MemberInput { consent_type: ConsentType;
  *  can also answer 409 "Someone changed this list at the same time. Please try again." (shown as the API words it). */
 export interface MergeResult { added: number; updated: number; skipped: number; unchanged?: number; list: ContactList }
 export interface ExportFile { blob: Blob; filename: string }
+/** A list's website signup form (Royal Wood task 11). available: false until the API's SQL has run (section hidden).
+ *  key: null until the form is first switched on. Turning it off keeps the key; Regenerate replaces it. */
+export interface ListSignupForm {
+  available: boolean;
+  list_id: number;
+  enabled: boolean;
+  key: string | null;
+  double_opt_in: boolean;
+  allowed_redirect_domains: string[];
+  endpoint_url: string;
+}
+export interface ListSignupFormInput { enabled?: boolean; double_opt_in?: boolean; allowed_redirect_domains?: string[] }
 
 // Lists and drafts must never be stale right after a write, so reads skip apiRequest's 15 s GET cache.
 const FRESH = { method: 'GET', skipCache: true } as RequestInit;
@@ -476,4 +488,8 @@ export const newslettersAPI = {
   // 409 while a scheduled or sending newsletter uses the list ("Cancel it first").
   deleteList: (id: number) => write<Record<string, never>>('DELETE', list(id)),
   renameList: (id: number, name: string) => write<ContactList>('PATCH', list(id), { name }),
+  // Website signup form (Royal Wood task 11). 404 from an older API: the section stays hidden.
+  signupForm: (id: number) => get<ListSignupForm>(`${list(id)}/signup-form`),
+  updateSignupForm: (id: number, input: ListSignupFormInput) => write<ListSignupForm>('PUT', `${list(id)}/signup-form`, input),
+  regenerateSignupKey: (id: number) => write<ListSignupForm>('POST', `${list(id)}/signup-form/regenerate`),
 };

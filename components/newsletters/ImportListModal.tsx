@@ -219,6 +219,7 @@ export default function ImportListModal({ open, onOpenChange, groups, onCreated,
                 <p className="text-sm text-gray-900" aria-live="polite">
                   {ready ? `${formatCount(ready)} ${ready === 1 ? 'contact' : 'contacts'} ready to import.` : 'No contacts with an email address or mobile number yet.'}
                   {preview?.invalid ? ` ${formatCount(preview.invalid)} rows have no email address or mobile number we can use, so they will be skipped.` : ''}
+                  {preview?.optedOut ? ` ${formatCount(preview.optedOut)} ${preview.optedOut === 1 ? 'person' : 'people'} unsubscribed or were removed in the file (for example Mailchimp’s unsubscribed or cleaned contacts), so they will be skipped.` : ''}
                 </p>
                 {preview?.needsDateOrder || (dateOrder && map.consentAt !== null) ? (
                   <fieldset className="rounded-lg border border-gray-200 p-3">
