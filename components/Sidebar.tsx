@@ -354,7 +354,7 @@ export default function Sidebar({
 
   const fetchLeadsUnreadCount = () => {
     if (!isAuthenticated) return;
-    apiRequest('/leads/unread-count', { method: 'GET' }).then((data) => {
+    leadsAPI.getUnreadCount().then((data) => {
       const unread = data?.data?.total_unread ?? data?.total_unread ?? 0;
       setLeadsUnreadCount(typeof unread === 'number' ? unread : 0);
     }).catch(() => {});
@@ -381,7 +381,8 @@ export default function Sidebar({
     if (!isAuthenticated) return;
     let cancelled = false;
     const cancelIdle = runWhenIdle(() => { if (!cancelled) fetchLeadsCount(); });
-    const interval = setInterval(fetchLeadsCount, 60000);
+    // The unread badge refreshes with the counter, so a new message shows up together with its row (Chris 11 Nov 2026).
+    const interval = setInterval(() => { fetchLeadsCount(); fetchLeadsUnreadCount(); }, 60000);
     window.addEventListener('leads-unread-count-refresh', fetchLeadsCount);
     return () => {
       cancelled = true;
