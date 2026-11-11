@@ -36,6 +36,8 @@ import {
 import { canEditProperty, deletePropertyMessage, deletePropertyToast, propertyRowActions, propertyStatusBadge, propertyTypeLabel, rowsForPropertyTab, type BadgeTone } from '../utils/propertyRows';
 import { propertyImageErrorMessage, propertyRowAvatar } from '../utils/propertyImage';
 import { countLabel } from '../utils/countLabel';
+import { adminSeatLimit, featurePlanKey } from '../utils/effectivePlan';
+import { useMemoryLimit } from '../hooks/useMemoryLimit';
 import { usersTabCounts } from '../utils/usersTabCounts.ts';
 import { toast } from 'sonner';
 
@@ -235,8 +237,10 @@ export default function UsersPage({ onNavigate, onViewStoreelReport }: UsersPage
 
   const [planName, setPlanName] = useState<string>('starter');
   // Whether the External / Properties tab buttons below are shown.
-  const showExternalTab = planName !== 'starter' && (hasPropertyTableRole || planName === 'intermediate' || planName === 'professional' || !!currentUser?.is_internal);
-  const showPropertiesTab = planName !== 'starter' && (hasPropertyTableRole || planName === 'intermediate' || planName === 'professional' || !!currentUser?.is_internal);
+  // Enterprise / other Admin Portal plans count as Business (featurePlanKey; Deepak, 11 Nov 2026).
+  const planFeatureKey = featurePlanKey(planName);
+  const showExternalTab = planName !== 'starter' && (hasPropertyTableRole || planName === 'intermediate' || planName === 'professional' || planFeatureKey === 'professional' || !!currentUser?.is_internal);
+  const showPropertiesTab = planName !== 'starter' && (hasPropertyTableRole || planName === 'intermediate' || planName === 'professional' || planFeatureKey === 'professional' || !!currentUser?.is_internal);
 
   // Tab counts (All Users | Shared with | External | Properties), as on the Leads page tabs: which lists have loaded
   // at least once. Until then that tab shows no number (never a "0" that then jumps); a later reload keeps the last one.
@@ -1160,7 +1164,10 @@ export default function UsersPage({ onNavigate, onViewStoreelReport }: UsersPage
   const pendingInvites = users.filter(user => getDisplayStatus(user.status) === 'pending').length;
   const collaborators = users.filter(user => user.is_user_collaborator).length;
   const adminCount = users.filter(user => ['admin', 'partial_admin'].includes(user.collaborator_role || user.role || '')).length;
-  const adminLimit = planName === 'professional' ? 5 : planName === 'intermediate' ? 3 : 1;
+  // The server's seat number (with the account's Admin Portal override) when known; else the plan's, Enterprise as
+  // Business (utils/effectivePlan adminSeatLimit; Deepak, 11 Nov 2026). null = unlimited.
+  const { adminLimitData } = useMemoryLimit();
+  const adminLimit = adminSeatLimit(planName, adminLimitData);
   
   // Use the same memory count source as sidebar + add shared memories count
   // Total memories = sidebar total_memories + shared memories count
@@ -1496,7 +1503,7 @@ export default function UsersPage({ onNavigate, onViewStoreelReport }: UsersPage
             </div>
             <div className="bg-white rounded-md sm:rounded-lg p-2.5 sm:p-3 md:p-4 border border-gray-200 shadow-sm">
               <div className="text-[12px] sm:text-xs text-gray-600 mb-0.5 sm:mb-1">Admins</div>
-              <div className={`text-lg sm:text-xl md:text-2xl font-semibold ${adminCount >= adminLimit ? 'text-red-600' : 'text-green-600'}`}>{adminCount}/{adminLimit}</div>
+              <div className={`text-lg sm:text-xl md:text-2xl font-semibold ${adminLimit !== null && adminCount >= adminLimit ? 'text-red-600' : 'text-green-600'}`}>{adminCount}/{adminLimit ?? '∞'}</div>
               <div className="text-[12px] sm:text-xs text-gray-500 mt-0.5 sm:mt-1 md:mt-2">By plan limit</div>
             </div>
           </div>

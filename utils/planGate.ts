@@ -11,7 +11,7 @@
 // Dashboard and Apps were hidden for role 3 (every self sign-up) whatever the plan, so TheBodyPolitik, upgraded to
 // Teams, never got them. Role 3 now gets them on a paid plan (the effective plan_name of /user/storage-overview).
 
-import { planCoveredBy, planKey } from './effectivePlan.ts';
+import { featurePlanKey, planCoveredBy, planKey } from './effectivePlan.ts';
 
 /** 'show' the picker; 'none' (not a new account); 'clear' the flag (already has a plan); 'later' (property view). */
 export type PlanPickerDecision = 'show' | 'none' | 'clear' | 'later';
@@ -23,7 +23,8 @@ export function newAccountPlanPicker({ flagged, viewType, storageOverview }: {
 }): PlanPickerDecision {
   if (!flagged) return 'none';
   if (storageOverview && planCoveredBy(storageOverview)) return 'clear';
-  const key = planKey(storageOverview?.plan_name);
+  // Enterprise / other Admin Portal plans count as Business (featurePlanKey; Deepak, 11 Nov 2026).
+  const key = featurePlanKey(storageOverview?.plan_name);
   if (key === 'intermediate' || key === 'professional') return 'clear';
   if (viewType === 'property') return 'later';
   // Starter, or no answer (as before: unknown keeps the picker).

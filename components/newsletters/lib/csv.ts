@@ -273,18 +273,53 @@ export function consentDateCells(table: string[][], map: ColumnMap): string[] {
   return (map.hasHeader ? table.slice(1) : table).map((r) => (r[map.consentAt as number] ?? '').trim());
 }
 
-export function buildImportRows(table: string[][], map: ColumnMap, dateOrder: DateOrder | null = null, now: Date = new Date()): { rows: ImportRow[]; invalid: number; total: number; unreadableDates: number; needsDateOrder: boolean } {
+// Royal Wood go-live tasks 12/13 (11 Nov): Mailchimp audience exports and Toolbx "Accounts" exports.
+// A Mailchimp status column ("Status", "Email Marketing", "Member Status"…) saying unsubscribed / cleaned /
+// non-subscribed, or a filled UNSUB_TIME / CLEAN_TIME (Mailchimp's unsubscribed and cleaned export files have no
+// status column), means the row is NOT imported: they never become active again by an import.
+const STATUS_HEADERS = ['status', 'emailmarketing', 'emailmarketingstatus', 'memberstatus', 'subscriptionstatus', 'subscriberstatus', 'emailstatus', 'emailsubscriptionstatus'];
+const OPTED_OUT = ['unsubscribed', 'unsubscribe', 'cleaned', 'nonsubscribed', 'notsubscribed', 'transactional', 'bounced', 'complained', 'optedout', 'optout'];
+/** Only on a header that is clearly about email marketing (a plain "Status" on an accounts file may say Pending). */
+const NOT_CONFIRMED = ['pending', 'archived'];
+const OPT_OUT_TIME_HEADERS = ['unsubtime', 'cleantime'];
+// A business name: the row's name when the file has no person's name (a Toolbx "Accounts" export).
+const COMPANY_HEADERS = ['company', 'companyname', 'business', 'businessname', 'organization', 'organisation', 'organizationname', 'organisationname', 'accountname'];
+
+const headerKey = (cell: string) => (cell ?? '').toLowerCase().replace(/[^a-z]/g, '');
+
+/** Columns of a header row that only matter for skipping opted-out people and naming businesses. */
+function extraColumns(header: string[]): { status: number[]; strictStatus: number[]; optOutTime: number[]; company: number | null } {
+  const keys = header.map(headerKey);
+  const indexes = (match: (k: string) => boolean) => keys.flatMap((k, i) => (match(k) ? [i] : []));
+  const company = keys.findIndex((k) => COMPANY_HEADERS.includes(k));
+  return {
+    status: indexes((k) => STATUS_HEADERS.includes(k)),
+    strictStatus: indexes((k) => STATUS_HEADERS.includes(k) && k !== 'status'),
+    optOutTime: indexes((k) => OPT_OUT_TIME_HEADERS.includes(k)),
+    company: company >= 0 ? company : null,
+  };
+}
+
+export function buildImportRows(table: string[][], map: ColumnMap, dateOrder: DateOrder | null = null, now: Date = new Date()): { rows: ImportRow[]; invalid: number; total: number; unreadableDates: number; needsDateOrder: boolean; optedOut: number } {
   const body = map.hasHeader ? table.slice(1) : table;
   const rows: ImportRow[] = [];
   let invalid = 0;
+  let optedOut = 0;
+  const extra = map.hasHeader ? extraColumns(table[0] ?? []) : { status: [], strictStatus: [], optOutTime: [], company: null };
   let unreadableDates = 0;
   const dates = map.consentAt === null ? null : readConsentDates(consentDateCells(table, map), dateOrder, now);
   for (const [index, r] of body.entries()) {
     const cell = (i: number | null): string => (i === null ? '' : (r[i] ?? '').trim());
+    if (extra.status.some((i) => OPTED_OUT.includes(headerKey(cell(i))))
+      || extra.strictStatus.some((i) => NOT_CONFIRMED.includes(headerKey(cell(i))))
+      || extra.optOutTime.some((i) => cell(i) !== '')) {
+      optedOut++;
+      continue;
+    }
     const rawEmail = cell(map.email).toLowerCase();
     const email = isPlausibleEmail(rawEmail) ? rawEmail : '';
     const phone = cleanPhone(cell(map.phone)) ?? '';
-    const name = (cell(map.name) || [cell(map.firstName), cell(map.lastName)].filter(Boolean).join(' ')).slice(0, 120);
+    const name = (cell(map.name) || [cell(map.firstName), cell(map.lastName)].filter(Boolean).join(' ') || cell(extra.company)).slice(0, 120);
     if (!email && !phone) {
       invalid++;
       continue;
@@ -298,7 +333,7 @@ export function buildImportRows(table: string[][], map: ColumnMap, dateOrder: Da
     if (consentAt) row.consent_at = consentAt;
     rows.push(row);
   }
-  return { rows, invalid, total: body.length, unreadableDates, needsDateOrder: dates?.needsOrder ?? false };
+  return { rows, invalid, total: body.length, unreadableDates, needsDateOrder: dates?.needsOrder ?? false, optedOut };
 }
 
 export function columnLabels(table: string[][], hasHeader: boolean): string[] {

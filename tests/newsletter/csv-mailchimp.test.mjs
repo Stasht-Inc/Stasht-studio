@@ -81,3 +81,53 @@ test('isDateTimeHeader: last word only; phone, mobile, cell and tel headers are 
   assert.equal(detectColumns([['Name', 'Email', 'Cell (Daytime)'], ['Ava', 'a@x.ca', '416 555 0101']]).phone, 2);
   assert.equal(detectColumns([['Name', 'Email', 'Phone (Daytime)'], ['Ava', 'a@x.ca', '416 555 0101']]).phone, 2);
 });
+
+// Royal Wood go-live tasks 12/13 (11 Nov): opted-out Mailchimp rows are never imported as active; Toolbx accounts.
+test('Mailchimp: a status column skips unsubscribed / cleaned / non-subscribed rows; "Subscribed" rows import', () => {
+  const table = parseCsv([
+    'Email Address,First Name,Last Name,Phone Number,Email Marketing',
+    'sub@example.com,Sub,One,,Subscribed',
+    'uns@example.com,Uns,Two,,Unsubscribed',
+    'cln@example.com,Cln,Three,,Cleaned',
+    'non@example.com,Non,Four,,Non-Subscribed',
+    'pen@example.com,Pen,Five,,Pending',
+  ].join('\n'));
+  const out = buildImportRows(table, detectColumns(table));
+  assert.deepEqual(out.rows.map((r) => r.email), ['sub@example.com']);
+  assert.equal(out.optedOut, 4);
+  assert.equal(out.invalid, 0);
+});
+
+test("Mailchimp's unsubscribed and cleaned export files (UNSUB_TIME / CLEAN_TIME, no status column) import nobody", () => {
+  for (const extra of ['UNSUB_TIME,UNSUB_CAMPAIGN_TITLE,UNSUB_CAMPAIGN_ID,UNSUB_REASON', 'CLEAN_TIME,CLEAN_CAMPAIGN_TITLE,CLEAN_CAMPAIGN_ID']) {
+    const cols = extra.split(',').length;
+    const table = parseCsv([
+      `${MAILCHIMP_HEADER},${extra}`,
+      ...MAILCHIMP_ROWS.map((r) => `${r},2025-01-0${cols} 10:00:00${',x'.repeat(cols - 1)}`),
+    ].join('\n'));
+    const out = buildImportRows(table, detectColumns(table));
+    assert.deepEqual(out.rows, [], extra);
+    assert.equal(out.optedOut, 3);
+  }
+});
+
+test('a plain "Status" column (an accounts file) skips only clear opt-outs, never Active / Inactive / Pending accounts', () => {
+  const table = parseCsv(['Email,Name,Status', 'a@example.com,A,Active', 'b@example.com,B,Inactive', 'c@example.com,C,Pending', 'd@example.com,D,Unsubscribed'].join('\n'));
+  const out = buildImportRows(table, detectColumns(table));
+  assert.deepEqual(out.rows.map((r) => r.email), ['a@example.com', 'b@example.com', 'c@example.com']);
+  assert.equal(out.optedOut, 1);
+});
+
+test('a Toolbx-style "Accounts" export: email, phone, first / last name auto-matched; the company names a row with no person', () => {
+  const table = parseCsv([
+    'Account Name,Account Number,First Name,Last Name,Email,Phone,Address,City,Province,Created Date',
+    'Maple Builders Inc,10023,Pat,Lee,pat@maplebuilders.ca,(905) 555-0101,1 Main St,Newmarket,ON,2025-02-03',
+    'Oak Reno Ltd,10024,,,orders@oakreno.ca,416-555-0102,2 Side St,Aurora,ON,2025-03-04',
+  ].join('\n'));
+  const m = detectColumns(table);
+  assert.deepEqual([m.email, m.phone, m.firstName, m.lastName, m.consentAt], [4, 5, 2, 3, null]);
+  assert.deepEqual(buildImportRows(table, m).rows, [
+    { name: 'Pat Lee', email: 'pat@maplebuilders.ca', phone: '9055550101' },
+    { name: 'Oak Reno Ltd', email: 'orders@oakreno.ca', phone: '4165550102' },
+  ]);
+});

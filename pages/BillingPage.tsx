@@ -1,7 +1,7 @@
 ﻿import { useState, useEffect } from 'react';
 import { CreditCard, Download, Plus, Info, Check, Crown, TrendingUp, Calendar, DollarSign, Loader2, AlertTriangle, Clock, X, Zap, ChevronLeft, ChevronRight } from 'lucide-react';
 import UpgradePlanModal, { plans as allPlans } from '../components/UpgradePlanModal';
-import { coveredByNote, offersUpgrade, planCoveredBy, planKey, planLabel } from '../utils/effectivePlan';
+import { billedByStasht, coveredByNote, featurePlanKey, MANAGED_BY_STASHT, offersUpgrade, packageName, planCoveredBy, planKey, planLabel } from '../utils/effectivePlan';
 import { creditsLeftLabel } from '../utils/planPicker';
 import AddPaymentMethodModal from '../components/AddPaymentMethodModal';
 import { clearPaymentMethodsCache } from '../utils/paymentMethodsCache';
@@ -319,6 +319,11 @@ export default function BillingPage({ onNavigateToMemory }: BillingPageProps = {
   const formatPlanDisplay = (planName: string, paymentDate: string) => {
     // The name Studio sells it under (Starter / Teams / Business), else the name capitalised.
     const formattedPlan = capitalizePlan(planName);
+    if (/^enterprise package/i.test(planName || '')) {
+      // Enterprise package invoices (Admin Portal): "Enterprise package - November 2026".
+      const d = new Date(paymentDate);
+      return `Enterprise package - ${d.toLocaleDateString('en-US', { month: 'long' })} ${d.getFullYear()}`;
+    }
 
     // Get month and year from payment date
     const date = new Date(paymentDate);
@@ -515,7 +520,10 @@ export default function BillingPage({ onNavigateToMemory }: BillingPageProps = {
             {/* Not when the main account already covers Business (utils/effectivePlan). */}
             {/* Only once the plan is known (no flash before storage-overview answers), and not when the main account
                 already covers Business (utils/effectivePlan). */}
-            {!isLoadingStorage && offersUpgrade(storageData?.plan_name, planCoveredBy(storageData)) && (
+            {!isLoadingStorage && billedByStasht(storageData) && (
+              <span className="text-sm text-gray-600 self-center" data-testid="billing-managed-by-stasht">{MANAGED_BY_STASHT}</span>
+            )}
+            {!isLoadingStorage && offersUpgrade(storageData?.plan_name, planCoveredBy(storageData), billedByStasht(storageData) ? 'stasht' : null) && (
             <button
               onClick={() => setShowUpgradeModal(true)}
               className="bg-[#f6339A] hover:bg-[#d42982] text-white px-4 sm:px-6 py-2.5 rounded-lg font-medium transition-colors flex items-center justify-center gap-2"
@@ -552,13 +560,14 @@ export default function BillingPage({ onNavigateToMemory }: BillingPageProps = {
                             <span className="text-xs text-gray-500" data-testid="billing-plan-covered">{coveredByNote(planCoveredBy(storageData))}</span>
                           )}
                           <span data-testid="billing-plan-badge" className={`px-2 sm:px-3 py-1 rounded-full text-xs sm:text-sm font-medium ${
-                            planKey(storageData?.plan_name) === 'professional'
+                            packageName(storageData) || planKey(storageData?.plan_name) === 'professional'
                               ? 'bg-purple-100 text-purple-700'
                               : planKey(storageData?.plan_name) === 'intermediate'
                               ? 'bg-pink-100 text-pink-700'
                               : 'bg-blue-100 text-blue-700'
                           }`}>
-                            {planLabel(storageData?.plan_name) || (storageData?.plan_name ? capitalizePlan(storageData.plan_name) : 'Starter')}
+                            {/* An Enterprise package shows its own name (Admin Portal packages, 11 Nov 2026). */}
+                            {packageName(storageData) || planLabel(storageData?.plan_name) || (storageData?.plan_name ? capitalizePlan(storageData.plan_name) : 'Starter')}
                           </span>
                         </div>
                       </div>
@@ -711,7 +720,8 @@ export default function BillingPage({ onNavigateToMemory }: BillingPageProps = {
                   {/* Plan Includes - dynamic from plans data */}
                   {(() => {
                     // As UpgradePlanModal's ids: a plans row named "Business" is professional (utils/effectivePlan).
-                    const activePlanName = planKey(currentSubscription?.plan_name || storageData?.plan_name) || 'starter';
+                    // An Enterprise package lists Business's features (featurePlanKey), never Starter's.
+                    const activePlanName = planKey(currentSubscription?.plan_name) || featurePlanKey(storageData?.plan_name) || 'starter';
                     const currentPlanData = allPlans.find(p => p.id === activePlanName) || allPlans[0];
                     const currentPlanIndex = allPlans.findIndex(p => p.id === activePlanName);
                     const nextPlanData = currentPlanIndex < allPlans.length - 1 ? allPlans[currentPlanIndex + 1] : null;
