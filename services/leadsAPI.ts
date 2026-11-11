@@ -659,4 +659,10 @@ export const leadsAPI = {
       body: JSON.stringify({ image_id: imageId, comment, parent_id: parentId, ...partialAdminBody() }),
     });
   },
+
+  // GET /leads/unread-count — the Sidebar's Leads badge and the Leads page cards. Scoped like getLeads (a switched-in
+  // Partial Admin sends partial_admin_email), so the badge never counts a lead their list can't show (Chris 11 Nov 2026).
+  getUnreadCount: async () => {
+    return apiRequest<any>(`/leads/unread-count${partialAdminQuery('?')}`, { method: 'GET' });
+  },
 };

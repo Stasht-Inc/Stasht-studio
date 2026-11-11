@@ -6,7 +6,6 @@ import ConversationDrawer from '../components/ConversationDrawer';
 import SendMessageDialog from '../components/leads/SendMessageDialog';
 import { Plus } from 'lucide-react';
 import { Lead, CommentaryTarget, Conversation, leadsAPI } from '../services/leadsAPI';
-import { apiRequest } from '../utils/authUtils';
 import { useAuth } from '../contexts/AuthContext';
 
 interface LeadsPageProps {
@@ -65,7 +64,7 @@ export default function LeadsPage({ openConversationLeadId, onConversationOpened
   // stay in sync when leads are read.
   const fetchLeadsUnreadCount = () => {
     if (!isAuthenticated) return;
-    apiRequest('/leads/unread-count', { method: 'GET' }).then((data: any) => {
+    leadsAPI.getUnreadCount().then((data: any) => {
       const payload = data?.data ?? data ?? {};
       const unread = payload?.total_unread ?? 0;
       setLeadsUnreadBreakdown({
