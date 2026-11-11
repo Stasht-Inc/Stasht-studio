@@ -334,7 +334,8 @@ export const leadsAPI = {
     per_page?: number;
     // Closed tab (archived leads). The legacy status==='archived' still works.
     archived?: boolean;
-    assigned?: 'me' | 'unassigned' | number;
+    // any = has an assignee; default = Anyone for owners / "Me + new" for staff (Chris 11 Nov 2026). Omitted = every lead.
+    assigned?: 'me' | 'unassigned' | 'any' | 'default' | number;
     // A full Admin's "Assigned to: Anyone": every lead of the accounts they help run.
     team?: 'all';
     // One lead by id, ignoring the list filters (still only leads this user may see).

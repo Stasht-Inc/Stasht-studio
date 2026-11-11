@@ -365,7 +365,7 @@ export default function Sidebar({
   // for ONE row via page/per_page — without `page` the endpoint returns the whole list.
   const fetchLeadsCount = () => {
     if (!isAuthenticated) return;
-    leadsAPI.getLeads({ page: 1, per_page: 1 }).then((res) => {
+    leadsAPI.getLeads({ page: 1, per_page: 1, assigned: 'default' }).then((res) => {
       const total = res?.success ? res.data?.total : undefined;
       if (typeof total === 'number') setLeadsCount(total);
     }).catch(() => {});

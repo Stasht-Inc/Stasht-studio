@@ -16,7 +16,8 @@ import { switchAccount } from './AccountChoiceModal';
 import LeadsInboxTable from './leads/LeadsInboxTable';
 import CampaignDeletedTag from './leads/CampaignDeletedTag';
 import LeadConfirmDialog, { type LeadConfirmKind } from './leads/LeadConfirmDialog';
-import LeadsFilterSheet, { TEAM_ALL } from './leads/LeadsFilterSheet';
+import LeadsFilterSheet from './leads/LeadsFilterSheet';
+import { assignedParams, leadingAssignedOptions } from '../utils/leadsAssignedFilter';
 import PullToRefreshIndicator from './PullToRefreshIndicator';
 import { usePullToRefresh } from '../hooks/usePullToRefresh';
 import { useIsMobile } from './ui/use-mobile';
@@ -249,6 +250,8 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
   const [assignedFilter, setAssignedFilter] = useState<string>('all');
   // Staff in their own account (Chris 11 Nov 2026): 'all' then means "Me + new"; full Admins also get TEAM_ALL.
   const [teamLeads, setTeamLeads] = useState<LeadsResponse['team_leads']>(null);
+  const teamLeadsRef = useRef<LeadsResponse['team_leads']>(null);
+  teamLeadsRef.current = teamLeads;
   const [tabCounts, setTabCounts] = useState<{ open: number; closed: number }>({ open: 0, closed: 0 });
   // Which tab counts have loaded at least once: until then the tab shows no number (never a "0" that then jumps).
   const [countsLoaded, setCountsLoaded] = useState({ leads: false, groups: false, conversations: false });
@@ -583,10 +586,8 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
         page: effectivePage,
         per_page: perPage,
         archived: closed ?? showClosed,
-        ...(effectiveAssigned === TEAM_ALL ? { team: 'all' as const } : {}),
-        ...(effectiveAssigned !== 'all' && effectiveAssigned !== TEAM_ALL
-          ? { assigned: effectiveAssigned === 'me' || effectiveAssigned === 'unassigned' ? effectiveAssigned : Number(effectiveAssigned) }
-          : {}),
+        // "Assigned to" (Chris 11 Nov 2026): default = Anyone (assigned only) for owners, "Me + new" for staff.
+        ...assignedParams(effectiveAssigned, teamLeadsRef.current),
       });
       if (res.success && res.data) {
         // Guest leads (no account) and rollup leads are rendered, not dropped —
@@ -1160,8 +1161,9 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
               <SelectValue placeholder="Assigned to" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">{teamLeads?.staff ? 'Assigned to: Me + new' : 'Assigned to: Anyone'}</SelectItem>
-              {teamLeads?.can_see_all && <SelectItem value={TEAM_ALL}>Assigned to: Anyone</SelectItem>}
+              {leadingAssignedOptions(teamLeads).map((o) => (
+                <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+              ))}
               <SelectItem value="me">Assigned to me</SelectItem>
               <SelectItem value="unassigned">Unassigned</SelectItem>
               {assigneeOptions.length > 0 && <SelectSeparator className="bg-gray-200" />}
