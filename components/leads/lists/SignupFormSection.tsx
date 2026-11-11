@@ -7,7 +7,7 @@ import SegmentedSwitch from '../../newsletters/SegmentedSwitch';
 import { GENERIC_ERROR } from '../../newsletters/lib/apiResult';
 import { BUTTON_SECONDARY, BUTTON_SMALL, BUTTON_SMALL_PRIMARY, LABEL, inputClass, textareaClass } from '../../newsletters/lib/ui';
 import { ConfirmDialog, ErrorNote } from './ListDialogs';
-import { fetchSnippet, htmlFormSnippet, parseDomains } from './signupSnippets';
+import { SINGLE_OPT_IN_WARNING, fetchSnippet, htmlFormSnippet, parseDomains } from './signupSnippets';
 
 type Example = 'html' | 'fetch';
 
@@ -139,6 +139,7 @@ export default function SignupFormSection({ listId, listName }: { listId: number
             <div className="min-w-0">
               <p className="text-sm font-medium text-gray-900">Ask people to confirm by email</p>
               <p className="mt-0.5 text-sm text-gray-600">Recommended. New people get an email from you and join only after they click the link in it.</p>
+              {!form.double_opt_in ? <p role="note" className="mt-2 rounded-md bg-amber-50 px-2 py-1.5 text-sm text-amber-800">{SINGLE_OPT_IN_WARNING}</p> : null}
             </div>
             <div className="flex flex-shrink-0 items-center gap-2 pt-0.5">
               {busy === 'double_opt_in' ? <Loader2 className="h-4 w-4 animate-spin text-[#6C60FF]" aria-hidden="true" /> : null}

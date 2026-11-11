@@ -44,3 +44,6 @@ export function parseDomains(text: string): string[] {
   return text.split(/[\n,]+/).map((line) => line.trim()).filter(Boolean);
 }
 
+
+/** Shown under "Ask people to confirm by email" while it is off (security review M2). */
+export const SINGLE_OPT_IN_WARNING = 'With this off, anyone can add any email address to this list from your website, and those people never confirmed. They are recorded as implied consent.';

@@ -28,3 +28,12 @@ test('values are escaped in the HTML example', () => {
 test('redirect domains: one per line or comma separated, blanks dropped', () => {
   assert.deepEqual(parseDomains(' royalwoodshop.com \n\n www.royalwoodshop.com, shop.example.org '), ['royalwoodshop.com', 'www.royalwoodshop.com', 'shop.example.org']);
 });
+
+test('review M2: a warning explains what turning confirm-by-email off means', async () => {
+  const { SINGLE_OPT_IN_WARNING } = await import('../../components/leads/lists/signupSnippets.ts');
+  assert.match(SINGLE_OPT_IN_WARNING, /anyone can add any email address/i);
+});
+
+test('review I1: the examples never ask for a phone number', () => {
+  assert.ok(!/phone/i.test(htmlFormSnippet(URL, KEY)) && !/phone/i.test(fetchSnippet(URL, KEY)));
+});
