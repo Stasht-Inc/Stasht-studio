@@ -1108,7 +1108,7 @@ export default function PublishedMemoryPage() {
             setTokenError('');
             // Track view count — fire and forget, don't block rendering
             if (memory.id) {
-              dashboardAPI.trackMemoryView(memory.id, qr, tokenToUse).catch(() => {});
+              dashboardAPI.trackMemoryView(memory.id, qr, tokenToUse, !!storeelSendToken).catch(() => {});
             }
           } else {
             console.error('Memory not found in response');
