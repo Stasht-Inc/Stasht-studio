@@ -52,9 +52,10 @@ for (const [name, impl] of impls) {
   });
 }
 
-test('the embed decides with pathShown and the config\'s shown_paths, not hidden_paths', () => {
+test('the embed decides with the config\'s shown_paths (and hide_paths, 11 Nov 2026), not hidden_paths', () => {
   const embedSrc = readFileSync(new URL('../../public/widget-embed.js', import.meta.url), 'utf8');
-  assert.match(embedSrc, /if \(!pathShown\(params\.get\('path'\), state\.config\.shown_paths\)\) return tell\('hide'\);/);
+  assert.match(embedSrc, /hostShown = shownOnPath\(params\.get\('path'\)\);\n\s*if \(!hostShown\) return tell\('hide', \{ soft: true \}\);/);
+  assert.match(embedSrc, /: pathShown\(path, state\.config\.shown_paths\);/);
   assert.doesNotMatch(embedSrc, /hidden_paths|pathHidden/);
   assert.equal(core.pathHidden, undefined);
 });

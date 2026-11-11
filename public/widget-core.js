@@ -1044,3 +1044,17 @@ export function pathShown(path, patterns) {
   if (isHomePath(path)) return true;
   return pathMatchesAny(path, patterns);
 }
+
+// 3. "Hide on these pages" (Chris 11 Nov 2026: no chat on a shop's catalogue page). config.hide_paths
+//    uses the same page addresses and matching as shown_paths, and wins over everything: a listed page
+//    never shows the widget, even the home page. An API without the setting sends none: nothing hidden.
+
+/**
+ * Should the widget show on this host page (location.pathname) with this config? The home page and
+ * shown_paths say where it may show (pathShown); hide_paths then removes pages. No usable path: as
+ * pathShown (shown). The loader reports SPA navigation, so the embed calls this again on each new path.
+ */
+export function widgetShownOn(path, config) {
+  if (!pathShown(path, config?.shown_paths)) return false;
+  return !pathMatchesAny(path, config?.hide_paths);
+}
