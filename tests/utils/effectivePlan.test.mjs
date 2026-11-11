@@ -86,11 +86,12 @@ import { featurePlanKey, isBusinessBaselinePlan, adminSeatLimit } from '../../ut
 import { newAccountPlanPicker } from '../../utils/planGate.ts';
 
 test('Enterprise and other Admin Portal plans bucket as Business for features, Family & Friends does not', () => {
-  for (const name of ['Enterprise', 'enterprise', 'Royal Custom']) {
+  for (const name of ['Enterprise', 'enterprise', 'Royal Enterprise']) {
     assert.equal(isBusinessBaselinePlan(name), true, name);
     assert.equal(featurePlanKey(name), 'professional', name);
   }
-  for (const name of ['Starter', 'Teams', 'Intermediate', 'Business', 'Professional', 'Family & Friends', '', null, undefined]) {
+  // Review of 11 Nov 2026: ONLY plans named Enterprise.
+  for (const name of ['Starter', 'Teams', 'Intermediate', 'Business', 'Professional', 'Family & Friends', 'Royal Custom', 'Free', 'Trial', 'Basic', '', null, undefined]) {
     assert.equal(isBusinessBaselinePlan(name), false, String(name));
   }
   assert.equal(featurePlanKey('Teams'), 'intermediate');
@@ -127,4 +128,13 @@ test('the Enterprise package name is shown when the API sends one, never invente
   assert.equal(packageName({ plan_name: 'Starter' }), null);
   assert.equal(packageName(null), null);
   assert.equal(featurePlanKey('Enterprise'), 'professional', 'gates still read plan_name');
+});
+
+import { MANAGED_BY_STASHT } from '../../utils/effectivePlan.ts';
+
+test('an account on an Enterprise package is never offered a self-serve upgrade', () => {
+  assert.equal(offersUpgrade('Enterprise', null, 'Royal Wood Enterprise'), false);
+  assert.equal(offersUpgrade('Enterprise', null, null), true, 'no package: unchanged');
+  assert.equal(offersUpgrade('Starter', null), true);
+  assert.match(MANAGED_BY_STASHT, /managed by Stasht/);
 });

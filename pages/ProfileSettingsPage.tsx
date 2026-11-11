@@ -10,7 +10,7 @@ import { parsePhonePrefill } from "../utils/phoneUtils";
 import PasswordStrengthIndicator from "../components/PasswordStrengthIndicator";
 import { savePasswordSecurity, getPasswordSecurity } from "../utils/passwordSecurityStorage";
 import UpgradePlanModal from "../components/UpgradePlanModal";
-import { coveredByNote, offersUpgrade, packageName, planCoveredBy, planKey, planLabel } from "../utils/effectivePlan";
+import { coveredByNote, MANAGED_BY_STASHT, offersUpgrade, packageName, planCoveredBy, planKey, planLabel } from "../utils/effectivePlan";
 import { Switch } from "../components/ui/switch";
 import DesktopAlertsSetting from "../components/leads/DesktopAlertsSetting";
 import { getCategoryColor } from "../constants/mediaConstants";
@@ -1590,7 +1590,7 @@ function StorageManagement({ sectionRef }: { sectionRef: React.RefObject<HTMLDiv
   const [isUpgradeModalOpen, setIsUpgradeModalOpen] = useState(false);
   // The effective plan and who covers it (storage-overview): no "Need More Storage? Upgrade Plan" when the main account
   // already covers the top plan (utils/effectivePlan).
-  const [planInfo, setPlanInfo] = useState<{ name: string; coveredBy: ReturnType<typeof planCoveredBy> }>({ name: '', coveredBy: null });
+  const [planInfo, setPlanInfo] = useState<{ name: string; coveredBy: ReturnType<typeof planCoveredBy>; pkg?: string | null }>({ name: '', coveredBy: null });
 
   const handleUpgrade = (planId: string, isYearly: boolean) => {
     console.log('Upgrading to plan:', planId, 'Yearly:', isYearly);
@@ -1632,7 +1632,7 @@ function StorageManagement({ sectionRef }: { sectionRef: React.RefObject<HTMLDiv
           memoryImagesStorageSize = overview.memory_images_storage_mb || 0;
           
           planId = overview.plan_id;
-          setPlanInfo({ name: overview.plan_name || '', coveredBy: planCoveredBy(overview) });
+          setPlanInfo({ name: overview.plan_name || '', coveredBy: planCoveredBy(overview), pkg: packageName(overview) });
         }
 
         setStorageData({
@@ -1784,7 +1784,10 @@ function StorageManagement({ sectionRef }: { sectionRef: React.RefObject<HTMLDiv
           </div>
         </div>
 
-        {offersUpgrade(planInfo.name, planInfo.coveredBy) && (
+        {planInfo.pkg && (
+          <p className="text-sm text-gray-600" data-testid="storage-managed-by-stasht">{MANAGED_BY_STASHT}</p>
+        )}
+        {offersUpgrade(planInfo.name, planInfo.coveredBy, planInfo.pkg) && (
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
           <div className="flex items-start gap-3">
             <svg className="w-5 h-5 text-blue-600 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

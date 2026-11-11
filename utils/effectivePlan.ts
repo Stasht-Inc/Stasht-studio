@@ -31,8 +31,9 @@ export function planKey(name: unknown): PlanKey | null {
  * way (BusinessBaseline): not Starter, not Teams, not Business, and not "Family & Friends".
  */
 export function isBusinessBaselinePlan(name: unknown): boolean {
+  // Review of 11 Nov 2026: ONLY plans named Enterprise; other custom paid plans keep today's behaviour.
   const text = typeof name === 'string' ? name.trim().toLowerCase() : '';
-  return !!text && planKey(text) === null && !text.includes('family');
+  return !!text && planKey(text) !== 'starter' && text.includes('enterprise');
 }
 
 /**
@@ -90,9 +91,14 @@ export function coveredByNote(coveredBy: PlanCoveredBy | null | undefined): stri
 }
 
 /** Whether to offer "Upgrade Plan": not when the main account already covers the top plan (Business). */
-export function offersUpgrade(planName: unknown, coveredBy: PlanCoveredBy | null | undefined): boolean {
+export function offersUpgrade(planName: unknown, coveredBy: PlanCoveredBy | null | undefined, pkg?: string | null): boolean {
+  // An Enterprise package is billed by Stasht: never offer a self-serve plan on top (review of 11 Nov 2026).
+  if (pkg) return false;
   return !(coveredBy && planKey(planName) === 'professional');
 }
+
+/** What an account on an Enterprise package sees instead of "Upgrade Plan". */
+export const MANAGED_BY_STASHT = 'Your plan is managed by Stasht — contact sales to change it.';
 
 /** storage_overview out of a dashboardAPI.getStorageOverview() answer (either nesting), or null. */
 export function storageOverviewOf(response: any): any | null {
