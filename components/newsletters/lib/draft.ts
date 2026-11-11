@@ -7,6 +7,7 @@ import { blocksToInput, campaignSelections, normaliseBlocks, overLimitTextIds } 
 import { campaignIdsOf, overridesForInput, pruneOverrides } from './campaignsBlock.ts';
 import { spacingOf } from './sectionSpacing.ts';
 import { personEntryProblem } from './person.ts';
+import { defaultChannels } from './audience.ts';
 
 /** What the composer edits. Text fields are never null here ('' instead). */
 export interface NewsletterDraft {
@@ -39,7 +40,7 @@ export function emptyDraft(header?: Partial<NewsletterHeader> | null): Newslette
   return {
     name: '', subject: '', preview_text: '', from_name: '', reply_to_email: '',
     // Single person, nobody picked yet (Chris, 3 Nov 2026: most newsletters go to one prospective buyer).
-    channels: ['email'], sms_text: '', template: 'basic', header: headerFrom(header), blocks: [], audience: [],
+    channels: defaultChannels('newsletter'), sms_text: '', template: 'basic', header: headerFrom(header), blocks: [], audience: [],
     planned_send_at: null, type_scale: null,
   };
 }
@@ -51,7 +52,7 @@ export function draftFromNewsletter(n: Newsletter): NewsletterDraft {
     preview_text: n.preview_text ?? '',
     from_name: n.from_name ?? '',
     reply_to_email: n.reply_to_email ?? '',
-    channels: Array.isArray(n.channels) ? [...n.channels] : ['email'],
+    channels: Array.isArray(n.channels) ? [...n.channels] : defaultChannels('newsletter'),
     sms_text: n.sms_text ?? '',
     template: 'basic',
     header: headerFrom(n.header),

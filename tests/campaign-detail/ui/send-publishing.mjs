@@ -191,6 +191,25 @@ try {
       expect((await flow(page).getByPlaceholder(/Enter location/).inputValue()) === 'Toronto, Canada', `${tag}: the saved Location is kept`);
       await page.screenshot({ path: `${OUT}/${tag}-02-send-opens-at-send-step.png` });
 
+      // Send by (Chris, 11 Nov 2026 b, point 1): a Storeel starts with Text message (SMS) ticked and Email not; both cards show.
+      {
+        const sc = flow(page).locator('#st-step-send');
+        const em = sc.getByRole('checkbox', { name: 'Email', exact: true });
+        const tx = sc.getByRole('checkbox', { name: 'Text message (SMS)', exact: true });
+        expect(await em.isVisible() && await tx.isVisible(), `${tag}: Send by shows both Email and Text message`);
+        expect(await tx.isChecked() && !(await em.isChecked()), `${tag}: Storeel Send by → Text message ticked, Email not`);
+        expect(await sc.getByLabel('Email address').count() === 0 && await sc.getByLabel(/^Phone/).count() > 0, `${tag}: Single person shows the phone box only`);
+        await sc.getByLabel(/^Phone/).first().fill('4165550123');
+        await page.waitForTimeout(1500);
+        const est = (await sc.getByText('Estimated recipients').locator('xpath=../..').textContent()) ?? '';
+        expect(/text/i.test(est) && !/email/i.test(est), `${tag}: Estimated recipients counts texts only (${est})`);
+        await tx.scrollIntoViewIfNeeded();
+        await page.screenshot({ path: `${OUT}/${tag}-02b-send-by-sms-default.png` });
+        await sc.getByLabel(/^Phone/).first().fill('');
+        await sc.evaluate((el) => el.scrollIntoView({ block: 'start' }));
+        await page.waitForTimeout(600);
+      }
+
       // Publishing: a section at the top of the Send card; ONE choice, Public pre-selected (Chris 9 Nov 2026, point 6)
       expect(await pub(page).count() === 1, `${tag}: Publishing is a section inside the Send card`);
       expect(!(await flow(page).locator('#st-step-publishing').count()), `${tag}: no separate Publishing card`);
@@ -233,6 +252,8 @@ try {
       expect(((await pub(page).textContent()) ?? '').includes(PRIVATE_NOTE), `${tag}: Private: the line under the options says it can't be sent`);
       expect(await pub(page).getByRole('button', { name: 'Publish now' }).locator('svg.lucide-lock').count() === 1, `${tag}: Private chosen → Publish now shows the lock icon`);
       const sendCard = flow(page).locator('#st-step-send');
+      // Storeel Send by starts Text message only (Chris, 11 Nov 2026): tick Email to send by email.
+      await sendCard.getByRole('checkbox', { name: 'Email', exact: true }).check();
       await sendCard.getByLabel('Email address').fill('jordan@example.com');
       await sendCard.getByLabel(/^Message/).fill('New Jeeps in.');
       await page.waitForTimeout(1200);
@@ -363,6 +384,8 @@ try {
       await page.waitForTimeout(400);
       expect(((await pub(page).textContent()) ?? '').includes('Save & Send or Publish now changes it to Public.'), `${tag}: Private campaign, Public chosen → "changes it to Public"`);
       await page.screenshot({ path: `${OUT}/${tag}-08b-private-to-public.png` });
+      // Storeel Send by starts Text message only (Chris, 11 Nov 2026): tick Email to send by email.
+      await sendCard.getByRole('checkbox', { name: 'Email', exact: true }).check();
       await sendCard.getByLabel('Email address').fill('jordan@example.com');
       await sendCard.getByLabel(/^Message/).fill('New Jeeps in.');
       await page.waitForTimeout(1200);
