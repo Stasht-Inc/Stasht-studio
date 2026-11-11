@@ -14,6 +14,7 @@ import LinkifiedText from './leads/LinkifiedText';
 import LeadDetailsSidebar, { StatusChip } from './LeadDetailsSidebar';
 import CampaignDeletedTag from './leads/CampaignDeletedTag';
 import LeadBusinessTag from './leads/LeadBusinessTag';
+import LeadDetailsSheet from './leads/LeadDetailsSheet';
 
 // Built-in emoji grid — kept small/lightweight, no external dependency.
 const EMOJIS = [
@@ -298,6 +299,10 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
     onClose,
     labelledBy: 'lead-drawer-title',
   });
+
+  // Phones (< md): no Contact Details column — tapping the name opens it as a sheet.
+  const [showDetailsSheet, setShowDetailsSheet] = useState(false);
+  useEffect(() => { setShowDetailsSheet(false); }, [lead?.id]);
 
   useEffect(() => {
     if (open && lead) {
@@ -981,7 +986,21 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
             <span className="hidden sm:inline">Leads</span>
           </button>
           <span className="hidden sm:inline text-gray-400" aria-hidden="true">/</span>
-          <h2 id="lead-drawer-title" className="text-lg font-semibold text-gray-900 truncate">{leadName}</h2>
+          <h2 id="lead-drawer-title" className="text-lg font-semibold text-gray-900 truncate min-w-0">
+            <span className="hidden md:inline">{leadName}</span>
+            {/* Phones: the name opens the Contact Details sheet (that column is hidden < md). */}
+            <button
+              type="button"
+              onClick={() => setShowDetailsSheet(true)}
+              aria-haspopup="dialog"
+              title="Show contact details"
+              data-testid="lead-name-details-trigger"
+              className="md:hidden flex max-w-full items-center gap-0.5 text-left rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#6C60FF]"
+            >
+              <span className="truncate">{leadName}</span>
+              <ChevronDown className="w-4 h-4 shrink-0 text-gray-400" aria-hidden="true" />
+            </button>
+          </h2>
           <LeadBusinessTag lead={lead} className="hidden sm:inline-flex" />
           {!lead.user?.id && (
             <span className="flex items-center gap-1 px-2.5 h-7 rounded-md bg-blue-50 text-blue-500 border border-blue-200 text-sm font-medium shrink-0">
@@ -1574,7 +1593,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
         </div>
         </div>
 
-        <aside className="order-1 lg:order-2 shrink-0 lg:w-[280px] xl:w-[380px] max-h-[26vh] lg:max-h-none overflow-y-auto border-b lg:border-b-0 lg:border-l border-gray-200">
+        <aside className="hidden md:block order-1 lg:order-2 shrink-0 lg:w-[280px] xl:w-[380px] max-h-[26vh] lg:max-h-none overflow-y-auto border-b lg:border-b-0 lg:border-l border-gray-200">
           <LeadDetailsSidebar
             lead={lead}
             leadName={leadName}
@@ -1590,6 +1609,22 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
           />
         </aside>
       </div>
+
+        <LeadDetailsSheet
+          open={showDetailsSheet}
+          onOpenChange={setShowDetailsSheet}
+          lead={lead}
+          leadName={leadName}
+          initials={getInitials(leadName)}
+          lastEngaged={getTimeAgo(lead.last_engaged_at)}
+          daysAsLead={daysAsLead}
+          currentStatus={currentStatus}
+          isUpdatingStatus={isUpdatingStatus}
+          onStatusChange={handleStatusChange}
+          onAssigneeChanged={() => { onRefreshLead?.(); }}
+          isArchived={isArchived}
+          onNotesSaved={() => { onRefreshLead?.(); }}
+        />
 
         <ShareCarsDialog
           open={showShareCars}
