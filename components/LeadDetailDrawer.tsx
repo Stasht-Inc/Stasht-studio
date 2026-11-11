@@ -995,9 +995,10 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
               aria-haspopup="dialog"
               title="Show contact details"
               data-testid="lead-name-details-trigger"
-              className="md:hidden block max-w-full truncate text-left rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#6C60FF]"
+              className="md:hidden flex max-w-full items-center gap-0.5 text-left rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#6C60FF]"
             >
-              {leadName}
+              <span className="truncate">{leadName}</span>
+              <ChevronDown className="w-4 h-4 shrink-0 text-gray-400" aria-hidden="true" />
             </button>
           </h2>
           <LeadBusinessTag lead={lead} className="hidden sm:inline-flex" />

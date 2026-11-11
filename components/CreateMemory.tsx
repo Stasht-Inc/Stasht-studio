@@ -2875,6 +2875,17 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
       onRemove: () => removeMoment(m),
     };
   });
+  // Phones have no preview (Chris, 11 Nov 2026): its Move up / Move down go on step 2's rows — same rules and handler.
+  const momentRowsWithOrder: MomentRow[] = momentRows.map((row, index) => {
+    const can = momentMenu(previewMoments, index, { saved: savedMoments });
+    const key = row.moment.key;
+    return {
+      ...row,
+      onMoveUp: can.up ? () => { void moveMoment(key, 'up'); } : undefined,
+      onMoveDown: can.down ? () => { void moveMoment(key, 'down'); } : undefined,
+      moveBusy: momentBusy || isSubmitting,
+    };
+  });
 
   /** Sent: say what went (and where the Storeel's stats are), and close. */
   const onStoreelSent = (summary: StoreelSendSummary) => {
@@ -3763,7 +3774,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
             )}
 
             <StoreelMomentsCard
-              rows={momentRows}
+              rows={momentRowsWithOrder}
               note={view.momentsNote}
               busy={isSubmitting}
               onAddMoment={() => openAddMoment(undefined)}
