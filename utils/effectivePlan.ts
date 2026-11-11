@@ -64,6 +64,17 @@ export function planLabel(name: unknown): 'Starter' | 'Teams' | 'Business' | nul
   return key ? LABELS[key] : null;
 }
 
+/**
+ * The Enterprise package's name from a storage-overview / profile payload (package_name), or null. Packages are set up
+ * and assigned in the Admin Portal (Chris via Deepak, 11 Nov 2026) and Studio shows the package's name as the plan.
+ * Display only: plan_name (and every gate above) is unchanged, and the APIs send it only while the account is on its
+ * package (null once moved to Starter for an overdue invoice).
+ */
+export function packageName(source: any): string | null {
+  const name = typeof source?.package_name === 'string' ? source.package_name.trim() : '';
+  return name || null;
+}
+
 /** plan_covered_by of a storage-overview / profile payload: the main account whose plan this is, or null. */
 export function planCoveredBy(source: any): PlanCoveredBy | null {
   const covered = source?.plan_covered_by;

@@ -116,3 +116,15 @@ test('the new-account plan picker is never shown to an Enterprise account', () =
   assert.equal(newAccountPlanPicker({ flagged: true, viewType: 'personal', storageOverview: { plan_name: 'Starter' } }), 'show');
   assert.equal(newAccountPlanPicker({ flagged: true, viewType: 'personal', storageOverview: { plan_name: 'Family & Friends' } }), 'show');
 });
+
+// Chris via Deepak, 11 Nov 2026: an Enterprise package (Admin Portal) shows its own name as the plan; display only.
+import { packageName } from '../../utils/effectivePlan.ts';
+
+test('the Enterprise package name is shown when the API sends one, never invented', () => {
+  assert.equal(packageName({ plan_name: 'Enterprise', package_name: 'Royal Wood Enterprise' }), 'Royal Wood Enterprise');
+  assert.equal(packageName({ plan_name: 'Enterprise', package_name: '  ' }), null);
+  assert.equal(packageName({ plan_name: 'Enterprise', package_name: null }), null);
+  assert.equal(packageName({ plan_name: 'Starter' }), null);
+  assert.equal(packageName(null), null);
+  assert.equal(featurePlanKey('Enterprise'), 'professional', 'gates still read plan_name');
+});

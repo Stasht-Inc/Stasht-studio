@@ -10,7 +10,7 @@ import { parsePhonePrefill } from "../utils/phoneUtils";
 import PasswordStrengthIndicator from "../components/PasswordStrengthIndicator";
 import { savePasswordSecurity, getPasswordSecurity } from "../utils/passwordSecurityStorage";
 import UpgradePlanModal from "../components/UpgradePlanModal";
-import { coveredByNote, offersUpgrade, planCoveredBy, planKey, planLabel } from "../utils/effectivePlan";
+import { coveredByNote, offersUpgrade, packageName, planCoveredBy, planKey, planLabel } from "../utils/effectivePlan";
 import { Switch } from "../components/ui/switch";
 import DesktopAlertsSetting from "../components/leads/DesktopAlertsSetting";
 import { getCategoryColor } from "../constants/mediaConstants";
@@ -892,13 +892,15 @@ function PersonalInformation({ user, profileData, isLoadingProfile, sectionRef, 
                     // covers it, never its own Starter (utils/effectivePlan; Deepak, 1 Nov 2026).
                     const planName = profileData?.plan_name || user?.plan_name || '';
                     const key = planKey(planName);
-                    if (!key) return null;
-                    const tone = key === 'professional' ? 'bg-purple-100 text-purple-700' : key === 'intermediate' ? 'bg-pink-100 text-pink-700' : 'bg-blue-100 text-blue-700';
+                    // An Enterprise package shows its own name (Admin Portal packages, 11 Nov 2026).
+                    const pkg = packageName(profileData);
+                    if (!key && !pkg) return null;
+                    const tone = pkg || key === 'professional' ? 'bg-purple-100 text-purple-700' : key === 'intermediate' ? 'bg-pink-100 text-pink-700' : 'bg-blue-100 text-blue-700';
                     const note = coveredByNote(planCoveredBy(profileData));
                     return (
                       <>
                         <span className={`inline-block px-2.5 py-1 rounded-full text-xs font-semibold ${tone}`} data-testid="profile-plan-badge">
-                          {planLabel(planName)}
+                          {pkg || planLabel(planName)}
                         </span>
                         {note && <span className="text-xs text-gray-500" data-testid="profile-plan-covered">{note}</span>}
                       </>

@@ -1,7 +1,7 @@
 ﻿import { useState, useEffect } from 'react';
 import { CreditCard, Download, Plus, Info, Check, Crown, TrendingUp, Calendar, DollarSign, Loader2, AlertTriangle, Clock, X, Zap, ChevronLeft, ChevronRight } from 'lucide-react';
 import UpgradePlanModal, { plans as allPlans } from '../components/UpgradePlanModal';
-import { coveredByNote, offersUpgrade, planCoveredBy, planKey, planLabel } from '../utils/effectivePlan';
+import { coveredByNote, offersUpgrade, packageName, planCoveredBy, planKey, planLabel } from '../utils/effectivePlan';
 import { creditsLeftLabel } from '../utils/planPicker';
 import AddPaymentMethodModal from '../components/AddPaymentMethodModal';
 import { clearPaymentMethodsCache } from '../utils/paymentMethodsCache';
@@ -552,13 +552,14 @@ export default function BillingPage({ onNavigateToMemory }: BillingPageProps = {
                             <span className="text-xs text-gray-500" data-testid="billing-plan-covered">{coveredByNote(planCoveredBy(storageData))}</span>
                           )}
                           <span data-testid="billing-plan-badge" className={`px-2 sm:px-3 py-1 rounded-full text-xs sm:text-sm font-medium ${
-                            planKey(storageData?.plan_name) === 'professional'
+                            packageName(storageData) || planKey(storageData?.plan_name) === 'professional'
                               ? 'bg-purple-100 text-purple-700'
                               : planKey(storageData?.plan_name) === 'intermediate'
                               ? 'bg-pink-100 text-pink-700'
                               : 'bg-blue-100 text-blue-700'
                           }`}>
-                            {planLabel(storageData?.plan_name) || (storageData?.plan_name ? capitalizePlan(storageData.plan_name) : 'Starter')}
+                            {/* An Enterprise package shows its own name (Admin Portal packages, 11 Nov 2026). */}
+                            {packageName(storageData) || planLabel(storageData?.plan_name) || (storageData?.plan_name ? capitalizePlan(storageData.plan_name) : 'Starter')}
                           </span>
                         </div>
                       </div>
