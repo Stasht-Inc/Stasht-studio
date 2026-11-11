@@ -7,6 +7,7 @@ import {
 import { leadsAPI, type AssignableUser, type Lead, type LeadAssignee } from '../../services/leadsAPI';
 import { initialsOf } from '../../utils/leadInbox';
 import RowActionButton from './RowActionButton';
+import OpenBadge from './OpenBadge';
 
 // Who owns a lead, and the controls to change it (spec 2026-09-23 §2/§5):
 //  - admins (can_assign) get a picker of the dealer team, incl. "Unassigned" — for a lead without a dealer, the
@@ -82,10 +83,10 @@ export default function AssigneeControl({ lead, onChanged, size = 'sm', variant 
       const res: any = await leadsAPI.acceptLead(lead.id);
       if (res.success && res.data) {
         // can_assign (team leads, 10 Nov 2026): the new assignee of a lead without a dealer may pass it on.
-        onChanged({ assignee: res.data.assignee, can_message: true, is_rollup: false, can_accept: false, ...(typeof res.data.can_assign === 'boolean' ? { can_assign: res.data.can_assign } : {}) });
+        onChanged({ assignee: res.data.assignee, can_message: true, is_rollup: false, can_accept: false, waiting: false, released_from: null, ...(typeof res.data.can_assign === 'boolean' ? { can_assign: res.data.can_assign } : {}) });
         toast.success('Lead accepted — it’s yours');
       } else if (res.conflict && res.taken_by) {
-        onChanged({ assignee: res.taken_by, can_message: false, is_rollup: true, can_accept: false });
+        onChanged({ assignee: res.taken_by, can_message: false, is_rollup: true, can_accept: false, waiting: false, released_from: null });
         toast.error(`Already taken by ${res.taken_by.name ?? 'a teammate'}`);
       } else {
         toast.error(res.error || 'Could not accept this lead');
@@ -116,7 +117,8 @@ export default function AssigneeControl({ lead, onChanged, size = 'sm', variant 
     try {
       const res = await leadsAPI.assignLead(lead.id, userId);
       if (res.success && res.data) {
-        onChanged({ assignee: res.data.assignee });
+        // Given to someone: no longer Open. Unassigned: the next list load says whether it is Open.
+        onChanged({ assignee: res.data.assignee, ...(res.data.assignee ? { waiting: false, released_from: null, can_accept: false } : {}) });
         toast.success(res.data.assignee ? `Assigned to ${res.data.assignee.name ?? 'teammate'}` : 'Lead unassigned');
       } else {
         toast.error(res.error || 'Could not assign this lead');
@@ -139,8 +141,13 @@ export default function AssigneeControl({ lead, onChanged, size = 'sm', variant 
       ...(lead.assignee && !team?.some((u) => u.id === lead.assignee!.id) ? [{ ...lead.assignee, role: '' }] : []),
       ...(team ?? []),
     ];
+    // The owner on an Open lead (Chris 11 Nov 2026): Accept beside the picker — taking it makes it really theirs.
+    const acceptToo = !!lead.can_accept;
     return (
-      <div onClick={stop} className={variant === 'icon' ? 'shrink-0' : 'min-w-0'}>
+      <div onClick={stop} className={variant === 'icon' ? 'shrink-0 flex items-center gap-0.5' : 'min-w-0 flex items-center gap-2'}>
+        {acceptToo && (variant === 'icon'
+          ? <RowActionButton label="Accept lead" icon={UserCheck} busy={busy} disabled={busy} onClick={accept} />
+          : <AcceptButton size={size} busy={busy} onClick={accept} />)}
         <DropdownMenu onOpenChange={(open) => { if (open) loadTeam(); }}>
           <DropdownMenuTrigger asChild disabled={busy}>
             {variant === 'icon' ? (
@@ -153,6 +160,8 @@ export default function AssigneeControl({ lead, onChanged, size = 'sm', variant 
             >
               {busy ? (
                 <span className="flex items-center gap-2 text-gray-500"><Loader2 className="w-4 h-4 animate-spin" />Saving…</span>
+              ) : lead.waiting ? (
+                <OpenBadge lead={lead} />
               ) : lead.assignee ? (
                 <AssigneeBadge assignee={lead.assignee} size="sm" />
               ) : (
@@ -211,15 +220,25 @@ export default function AssigneeControl({ lead, onChanged, size = 'sm', variant 
   }
 
   if (taken) {
-    return <AssigneeBadge assignee={lead.assignee!} size={size} />;
+    return lead.waiting ? <OpenBadge lead={lead} /> : <AssigneeBadge assignee={lead.assignee!} size={size} />;
   }
 
+  // Open (waiting to be accepted): the same "Open" chip as everywhere, with Accept beside it.
+  return (
+    <span onClick={stop} className="inline-flex items-center gap-2">
+      {lead.waiting && <OpenBadge lead={lead} />}
+      <AcceptButton size={size} busy={busy} onClick={accept} />
+    </span>
+  );
+}
+
+function AcceptButton({ size, busy, onClick }: { size: 'sm' | 'md'; busy: boolean; onClick: () => void }) {
   return (
     <button
       type="button"
-      onClick={(e) => { stop(e); accept(); }}
+      onClick={(e) => { e.stopPropagation(); onClick(); }}
       disabled={busy}
-      className={`inline-flex items-center gap-1.5 rounded-lg bg-[#6C60FF] hover:bg-[#5A4FE5] text-white font-semibold disabled:opacity-60 ${size === 'sm' ? 'h-8 px-3 text-sm' : 'h-10 px-4 text-base'}`}
+      className={`shrink-0 inline-flex items-center gap-1.5 rounded-lg bg-[#6C60FF] hover:bg-[#5A4FE5] text-white font-semibold disabled:opacity-60 ${size === 'sm' ? 'h-8 px-3 text-sm' : 'h-10 px-4 text-base'}`}
     >
       {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <UserCheck className="w-4 h-4" />}
       Accept

@@ -21,7 +21,7 @@ interface Props {
   assignedFilter: string;
   onAssignedChange: (value: string) => void;
   assigneeOptions: { id: number; name: string | null }[];
-  // "all" is the default: "Anyone" (assigned only) for owners, "Me + new" for staff; see utils/leadsAssignedFilter.
+  // "all" is the default: "Anyone" (assigned only) for owners, "Me + open" for staff; see utils/leadsAssignedFilter.
   teamLeads?: { staff: boolean; can_see_all: boolean } | null;
   timeFilter: TimeFilter;
   onTimeChange: (value: TimeFilter) => void;

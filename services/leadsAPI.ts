@@ -117,14 +117,15 @@ export interface Lead {
   last_activity_at?: string | null;
   can_message?: boolean;
   can_assign?: boolean;
-  // Switched in as an Admin / Partial Admin and the owner only holds this widget lead on arrival: it can be accepted.
+  // Switched in as an Admin / Partial Admin and the owner only holds this widget lead on arrival, or the owner looking at
+  // an Open lead (Chris 11 Nov 2026): it can be accepted.
   can_accept?: boolean;
   can_delete?: boolean;
   // Another account's lead in your own Leads list (team leads, Chris 10 Nov 2026): the business it is for. Null for
   // your own account's leads.
   account?: { owner_id: number; name: string | null } | null;
-  // Another account's lead nobody has taken yet (Chris 11 Nov 2026): shown as "Waiting to be accepted", not as the
-  // owner's. released_from: the person it was released from when they were offline and the visitor wrote again.
+  // Nobody has taken it yet (the owner's arrival hold, or unassigned; Chris 11 Nov 2026): shown as "Open" in every
+  // view, not as the owner's. released_from: the person it was released from when they were offline and the visitor wrote again.
   waiting?: boolean;
   released_from?: { id: number; name: string | null } | null;
   // Shared note (ClickUp wdy2xh13mn): readable by anyone who sees the lead.
@@ -335,7 +336,7 @@ export const leadsAPI = {
     // Closed tab (archived leads). The legacy status==='archived' still works.
     archived?: boolean;
     // any = has an assignee; default = Anyone for owners / "Me + new" for staff (Chris 11 Nov 2026). Omitted = every lead.
-    assigned?: 'me' | 'unassigned' | 'any' | 'default' | number;
+    assigned?: 'me' | 'unassigned' | 'any' | 'open' | 'default' | number;
     // A full Admin's "Assigned to: Anyone": every lead of the accounts they help run.
     team?: 'all';
     // One lead by id, ignoring the list filters (still only leads this user may see).
