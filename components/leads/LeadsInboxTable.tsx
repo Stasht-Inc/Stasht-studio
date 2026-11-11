@@ -279,8 +279,7 @@ export default function LeadsInboxTable(props: Props) {
                     </span>
                   </td>
                   <td className={`${CELL} truncate`}>
-                    {/* The Name column is too narrow for the tags; the excerpt truncates after them. */}
-                    <LeadBusinessTag lead={lead} className="mr-1.5 align-middle" />
+                    {/* No business tag here (Chris 11 Nov 2026 (d): just the excerpt) — it stays in More, the header and details. */}
                     {lead.campaign_deleted && <CampaignDeletedTag className="mr-1.5 align-middle" />}
                     {excerptOf(lead, unread)}
                   </td>
@@ -328,8 +327,6 @@ export default function LeadsInboxTable(props: Props) {
                 </span>
               </div>
               <p className={`mt-1 text-sm truncate ${unread ? 'font-medium' : ''}`}>{excerptOf(lead, unread)}</p>
-              {/* Another account's lead: its business on a line of its own (the actions leave no room beside it). */}
-              {lead.account && <div className="mt-1.5 flex min-w-0"><LeadBusinessTag lead={lead} className="max-w-full" /></div>}
               <div className="mt-1 flex items-center justify-between gap-2 min-w-0">
                 <span className="min-w-0 flex items-center gap-1.5">
                   <span className="min-w-0 truncate text-[13px] text-gray-500">{name ? contact : leadViaLabel(lead)}</span>
