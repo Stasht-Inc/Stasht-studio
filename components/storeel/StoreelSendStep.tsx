@@ -6,6 +6,7 @@ import AudiencePicker from '../newsletters/AudiencePicker';
 import StepCard from '../newsletters/StepCard';
 import { useAudienceCount } from '../newsletters/hooks/useAudienceCount';
 import { countableAudience } from '../newsletters/lib/person';
+import { defaultChannels } from '../newsletters/lib/audience';
 import StoreelSendConfirmDialog from './StoreelSendConfirmDialog';
 import { stepNumber, type CampaignSeed } from './lib/storeelFlow';
 import { PUBLISHING_SECTION_ID, choiceSendProblem, sendRoleFor } from './lib/publishing';
@@ -74,9 +75,9 @@ function PublishingSection({ children }: { children: ReactNode }) {
 export default function StoreelSendStep(
   { campaign, optionalLine, sendRequest, onStatus, sender, paid, canSend, active, onSent, onSeePlans, onForbidden, publishing = null }: StoreelSendStepProps,
 ) {
-  // Single person first (as newsletters), sent by email and text (Deepak, 4 Nov).
+  // Single person first (as newsletters). Send by: Text message (SMS) ticked, Email not (Chris, 11 Nov 2026); tick Email to send both.
   const [audience, setAudience] = useState<AudienceItem[]>([]);
-  const [channels, setChannels] = useState<NewsletterChannel[]>(['email', 'sms']);
+  const [channels, setChannels] = useState<NewsletterChannel[]>(() => defaultChannels('storeel'));
   const [message, setMessage] = useState('');
   const [serverErrors, setServerErrors] = useState<Record<string, string>>({});
   const [serverStepError, setServerStepError] = useState<string | null>(null);
