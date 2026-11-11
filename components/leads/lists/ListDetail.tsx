@@ -19,6 +19,7 @@ import { formatSentTo } from '../../newsletters/lib/phoneDisplay';
 import { BUTTON_PRIMARY, BUTTON_SECONDARY, LINK_BUTTON } from '../../newsletters/lib/ui';
 import { ConfirmDialog, CopyToListDialog, ErrorNote } from './ListDialogs';
 import MemberDialog from './MemberDialog';
+import SignupFormSection from './SignupFormSection';
 
 export type ListAction = 'open' | 'rename' | 'duplicate' | 'export' | 'delete';
 
@@ -372,6 +373,8 @@ export default function ListDetail({ list, otherLists, onBack, onAction, onListC
           </div>
         ) : null}
       </div>
+
+      <SignupFormSection listId={list.id} listName={list.name} />
 
       <MemberDialog
         open={memberDialog !== null}
