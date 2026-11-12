@@ -122,8 +122,9 @@ async function openCampaign(page) {
 }
 
 const chooser = (page) => page.getByTestId('add-widget-chooser');
-const pluses = (page) => page.getByTestId('timeline-add-plus').filter({ visible: true });
-const plusAt = (page, after) => page.locator(`[data-testid="timeline-add-plus"][data-after-post-id="${after}"]`).filter({ visible: true }).first();
+// The moment / header "+" (since Chris 12 Nov a widget card has its own "+" too: plus-after-every-item.mjs).
+const pluses = (page) => page.locator('[data-testid="timeline-add-plus"][data-after-widget-id=""]').filter({ visible: true });
+const plusAt = (page, after) => page.locator(`[data-testid="timeline-add-plus"][data-after-post-id="${after}"][data-after-widget-id=""]`).filter({ visible: true }).first();
 /** The desktop timeline (left list + right cards): [data-timeline-list] of the visible layout. */
 const desktop = (page) => page.locator('[data-timeline-list]').filter({ visible: true }).first();
 async function inView(page, locator) {
@@ -246,7 +247,7 @@ try {
     const afters = await pluses(page).evaluateAll((els) => els.map((e) => e.getAttribute('data-after-post-id')));
     expect(JSON.stringify(afters) === JSON.stringify(['', '11', '12', '13']), `${tag}: right timeline "+" at the top and after every moment, the last too (got ${afters})`);
     const right = list.locator(':scope > div').nth(1);
-    expect(await right.getByTestId('timeline-add-plus').count() === 4, `${tag}: …all in the right-hand column`);
+    expect(await right.locator('[data-testid="timeline-add-plus"][data-after-widget-id=""]').count() === 4, `${tag}: …all in the right-hand column`);
     const opacities = await pluses(page).evaluateAll((els) => els.map((e) => getComputedStyle(e.querySelector('button')).opacity));
     expect(opacities.every((x) => x === '1'), `${tag}: always visible, not hover-only (opacity ${opacities})`);
     expect(await inView(page, plusAt(page, '')), `${tag}: the top "+" is in the viewport on load`);
@@ -256,10 +257,13 @@ try {
     // Positions: top "+" above Moment 1; "+" after 11 below Moment 1's HTML widget and above Moment 2; after 13 below Moment 3 and above the pinned button.
     await plusAt(page, '11').scrollIntoViewIfNeeded();
     await page.waitForTimeout(300);
-    const yHtml = await bottom(right.getByText('Open daily').first());
+    // Since Chris 12 Nov the moment's "+" sits right under its card (first in its slot) and its widget has its own "+".
+    const yHtml = await top(right.getByText('Open daily').first());
     const y11 = await top(plusAt(page, '11'));
+    const yM1 = await bottom(cardY(page, 'Moment 1'));
+    const yW = await top(right.locator('[data-testid="timeline-add-plus"][data-after-widget-id="5003"]').first());
     const yM2 = await top(cardY(page, 'Moment 2'));
-    expect(yHtml < y11 && y11 < yM2, `${tag}: "+" after Moment 1 sits below its widget and above Moment 2 (${yHtml} < ${y11} < ${yM2})`);
+    expect(yM1 <= y11 && y11 < yHtml && yHtml < yW && yW < yM2, `${tag}: "+" right under Moment 1, then its widget, then the widget's "+", then Moment 2 (${yM1} ≤ ${y11} < ${yHtml} < ${yW} < ${yM2})`);
     await page.screenshot({ path: `${OUT}/${tag}-02-between.png` });
     await plusAt(page, '13').scrollIntoViewIfNeeded();
     await page.waitForTimeout(300);

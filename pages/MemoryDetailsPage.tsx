@@ -90,7 +90,7 @@ import { isInCardProductButton, productButtonsByPost } from "../utils/productCar
 import { AddWidgetMenu, ADD_WIDGET_PANEL, addWidgetOptions, type AddWidgetKind } from "../components/widgets/AddWidgetChooser";
 import { previewCardButtons, previewWidgetsFrom, takeWidgetIntent } from "../components/storeel/lib/storeelWidgets";
 import { isPinnedCta, isTimelineCta } from "../utils/timelineWidgets";
-import { addSlotAfter, collaboratorAddWidgetOptions } from "../utils/timelineAddSlots";
+import { addSlotAfter, applyInsertPlace, collaboratorAddWidgetOptions, slotWidgetRanks, type InsertPlace, type SlotWidget } from "../utils/timelineAddSlots";
 const samanthaAvatar = 'https://images.unsplash.com/photo-1494790108755-2616b612b5bc?w=100&h=100&fit=crop';
 
 // Helper: convert S3 URL to proxied path so auth headers work and canvas doesn't get tainted
@@ -4281,6 +4281,9 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
   // A widget picked on the Storeel page before the Storeel existed (Chris, 8 Nov 2026): Save as Draft ran, then this page
   // opened — open Edit Storeel with that widget's editor, at the same place. Once. (Above the early returns: a hook.)
   const openAddWidgetRef = useRef<((kind: AddWidgetKind, afterPostId: string | null) => void) | null>(null);
+  // Where the "+" just used inserts (Chris, 12 Nov 2026): first in its slot, or right after a widget. Read once by the
+  // next widget create (postNewWidget); null = the old place (the end of the slot).
+  const insertPlaceRef = useRef<InsertPlace | null>(null);
   useEffect(() => {
     if (!memoryId || !apiMemoryData || !isOwner || !openAddWidgetRef.current) return;
     const intent = takeWidgetIntent(Number(memoryId));
@@ -6405,6 +6408,9 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
     const afterPostId = productWidgetAfterPostId;
     const sameGroup = [...htmlWidgets, ...youtubeWidgets, ...quoteWidgets, ...ctaWidgets, ...productWidgets].filter(w => w.afterPostId === afterPostId);
     let order = sameGroup.length > 0 ? Math.max(...sameGroup.map(w => w.widget_order)) + 1 : 0;
+    // From the "+" after a widget (Chris, 12 Nov 2026): the first product goes right after it, each next one after the last.
+    let place = insertPlaceRef.current;
+    insertPlaceRef.current = null;
     let added = 0, pending = 0;
     for (const p of products) {
       const widget_data = {
@@ -6421,12 +6427,14 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
         vendor: p.vendor || '',
       };
       try {
+        const sent = applyInsertPlace({ widget_type: 'product', after_post_id: afterPostId, widget_order: order++, widget_data }, place, timelineSlotWidgets()).body;
         const res = await apiRequest(`/memories/${memoryId}/widgets`, {
           method: 'POST',
-          body: JSON.stringify({ widget_type: 'product', after_post_id: afterPostId, widget_order: order++, widget_data }),
+          body: JSON.stringify(sent),
         });
         if (res.success) {
           const raw = res.data?.data || res.data;
+          if (place && 'afterWidgetId' in place && raw?.id) place = { afterWidgetId: String(raw.id), afterPostId };
           if (res.pending_approval === true || raw?.admin_approval === 0 || raw?.admin_approval === '0') pending++; else added++;
         }
       } catch { /* skip this product */ }
@@ -6450,15 +6458,15 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
 
   // Render the product cards anchored after a given post (null = top of timeline).
   // The remove control shows only for the memory owner.
-  const renderProductWidgets = (afterPostId: string | null) =>
-    productWidgets.filter((w: any) => w.afterPostId === afterPostId).map((w: any) => (
+  const renderProductWidgets = (afterPostId: string | null, plus?: (w: any) => React.ReactNode, gap?: string) =>
+    productWidgets.filter((w: any) => w.afterPostId === afterPostId).map((w: any) => slotItem(w, (
       <ProductWidgetCard
         key={w.id}
         widget={w}
         memoryId={memoryId}
         onDelete={isOwner ? () => deleteProductWidget(w) : undefined}
       />
-    ));
+    ), plus?.(w), gap));
 
   const deleteAiCreatorWidget = (w: any) => {
     if (!memoryId || !w?.id) return;
@@ -6469,8 +6477,8 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
 
   // Render the AI Creator cards anchored after a given post (null = top of timeline).
   // The remove control shows only for the memory owner.
-  const renderAiCreatorWidgets = (afterPostId: string | null) =>
-    aiCreatorWidgets.filter((w: any) => w.afterPostId === afterPostId).map((w: any) => (
+  const renderAiCreatorWidgets = (afterPostId: string | null, plus?: (w: any) => React.ReactNode, gap?: string) =>
+    aiCreatorWidgets.filter((w: any) => w.afterPostId === afterPostId).map((w: any) => slotItem(w, (
       <div
         key={w.id}
         ref={(el) => { aiCreatorWidgetCardRefs.current[w.id] = el; }}
@@ -6491,7 +6499,36 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
           dangerouslySetInnerHTML={{ __html: sanitizeAiCreatorText(w.text) }}
         />
       </div>
-    ));
+    ), plus?.(w), gap));
+
+  // ── A "+" after every timeline item (Chris, 12 Nov 2026) ──
+  // Every widget the timeline draws, for its place inside its slot (widget_order, across types) and for inserts.
+  const timelineSlotWidgets = (): SlotWidget[] => [
+    ...htmlWidgets.map((w) => ({ id: w.id, type: 'html', afterPostId: w.afterPostId, widget_order: w.widget_order })),
+    ...youtubeWidgets.map((w) => ({ id: w.id, type: 'youtube', afterPostId: w.afterPostId, widget_order: w.widget_order })),
+    ...quoteWidgets.map((w) => ({ id: w.id, type: 'quote', afterPostId: w.afterPostId, widget_order: w.widget_order })),
+    ...productWidgets.map((w: any) => ({ id: w.id, type: 'product', afterPostId: w.afterPostId ?? null, widget_order: w.widget_order })),
+    ...aiCreatorWidgets.map((w) => ({ id: w.id, type: 'ai_creator', afterPostId: w.afterPostId, widget_order: w.widget_order })),
+    ...ctaWidgets.filter((w) => !w.pinToBottom).map((w) => ({ id: w.id, type: 'cta', afterPostId: w.afterPostId, widget_order: w.widget_order })),
+  ];
+  const slotRanks = slotWidgetRanks(timelineSlotWidgets());
+  // A widget card and the "+" after it, drawn at the widget's place in its slot (CSS order inside the slot's column).
+  const slotItem = (w: { id: string }, card: React.ReactNode, plus: React.ReactNode, gap = 'gap-6') => (
+    <div key={`slot-${w.id}`} style={{ order: slotRanks.get(String(w.id)) ?? 0 }} className={`flex flex-col ${gap}`} data-slot-widget-id={w.id}>
+      {card}
+      {plus}
+    </div>
+  );
+  // Create a widget at the place of the "+" it came from (after_widget_id / first in the slot), then reload the widgets
+  // so the new one shows where the API put it. Without a place: exactly the old request.
+  const postNewWidget = async (body: { widget_type: string; after_post_id: string | null; widget_order: number; widget_data?: unknown }) => {
+    const place = insertPlaceRef.current;
+    insertPlaceRef.current = null;
+    const { body: sent, placed } = applyInsertPlace(body, place, timelineSlotWidgets());
+    const res = await apiRequest(`/memories/${memoryId}/widgets`, { method: 'POST', body: JSON.stringify(sent) });
+    if (placed && res.success) void fetchWidgets();
+    return res;
+  };
 
   const handleAddCollaborator = async (newCollaborator: Collaborator) => {
     try {
@@ -7794,7 +7831,8 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
 
   // Open one Add Widget option at a place (after this moment; null = the top). The campaign page's sidebar "+" and the
   // Storeel page's "+" (Chris, 8 Nov 2026, point 1) both come here, so each option opens its existing editor.
-  const openAddWidget = (kind: AddWidgetKind, afterPostId: string | null) => {
+  const openAddWidget = (kind: AddWidgetKind, afterPostId: string | null, place?: { atStart: true } | { afterWidgetId: string }) => {
+    insertPlaceRef.current = place ? { ...place, afterPostId } : null;
     if (kind === 'moment') { insertAfterPostIdRef.current = afterPostId; setInsertAfterPostId(afterPostId); setIsAddMomentModalOpen(true); }
     else if (kind === 'html') { setHtmlWidgetAfterPostId(afterPostId); setEditingHtmlWidgetId(null); setIsAddHtmlModalOpen(true); }
     else if (kind === 'youtube') { setYoutubeWidgetAfterPostId(afterPostId); setIsAddYoutubeModalOpen(true); }
@@ -7820,8 +7858,10 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
   // spot everywhere"; always visible, drawn like the phone's "+" divider; the same chooser and openAddWidget as before.
   // No "+" on read-only inventory (cars, catalogue products). `options` = the collaborator view's narrower set.
   // Shopify Product as in the phone "+" menu (Deepak, 10 Nov 2026), so the three "+" menus match.
-  const renderCardAddWidgetPlus = (afterPostId: string | null, options = addWidgetOptions({ docuSign: DOCUSIGN_ENABLED && docuSignConnected, shopifyProduct: true })) => isInventoryDetail ? null : (
-    <div className="relative flex items-center justify-center h-10" data-testid="timeline-add-plus" data-after-post-id={afterPostId ?? ''}>
+  // Chris, 12 Nov 2026: also after every widget card (`place` afterWidgetId: right after it); under a moment card or the
+  // header, `place` atStart: first in that slot.
+  const renderCardAddWidgetPlus = (afterPostId: string | null, options = addWidgetOptions({ docuSign: DOCUSIGN_ENABLED && docuSignConnected, shopifyProduct: true }), place?: { atStart: true } | { afterWidgetId: string }) => isInventoryDetail ? null : (
+    <div className="relative flex items-center justify-center h-10" data-testid="timeline-add-plus" data-after-post-id={afterPostId ?? ''} data-after-widget-id={place && 'afterWidgetId' in place ? place.afterWidgetId : ''}>
       <div className="absolute left-0 right-0 h-px bg-[#6C60FF]" />
       <Popover>
         <PopoverTrigger asChild>
@@ -7830,7 +7870,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
           </button>
         </PopoverTrigger>
         <PopoverContent side="bottom" align="center" className={ADD_WIDGET_PANEL} sideOffset={8}>
-          <AddWidgetMenu options={options} onPick={(kind) => openAddWidget(kind, afterPostId)} />
+          <AddWidgetMenu options={options} onPick={(kind) => openAddWidget(kind, afterPostId, place)} />
         </PopoverContent>
       </Popover>
     </div>
@@ -7870,8 +7910,10 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
 
   // Plus Divider between post cards (mobile only)
   // No "add between posts" on read-only inventory (cars, catalogue products).
-  const renderPlusDivider = (key: string, afterPostId?: string) => isInventoryDetail ? null : (
-    <div className="relative flex items-center justify-center h-10 md:hidden" style={{ zIndex: activePlusDivider === key ? 60 : 10 }}>
+  // Chris, 12 Nov 2026: `place` as on the desktop "+" (after a widget, or first in the slot); `openBelow` for the "+" at
+  // the top of the timeline, whose menu would open under the cover's header.
+  const renderPlusDivider = (key: string, afterPostId?: string, place?: { atStart: true } | { afterWidgetId: string }, openBelow = false) => isInventoryDetail ? null : (
+    <div className="relative flex items-center justify-center h-10 md:hidden" style={{ zIndex: activePlusDivider === key ? 60 : 10 }} data-testid="phone-add-plus" data-after-post-id={afterPostId ?? ''} data-after-widget-id={place && 'afterWidgetId' in place ? place.afterWidgetId : ''}>
       {/* Purple horizontal line */}
       <div className="absolute left-0 right-0 h-px bg-[#6C60FF]" />
       {/* Circle + button */}
@@ -7879,6 +7921,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
         type="button"
         onClick={(e) => {
           e.stopPropagation();
+          insertPlaceRef.current = place ? { ...place, afterPostId: afterPostId ?? null } : null;
           setActivePlusDivider(prev => prev === key ? null : key);
         }}
         className="relative z-10 w-9 h-9 rounded-full bg-[#F3F4F6] border border-[#6C60FF] flex items-center justify-center active:scale-95 transition-transform"
@@ -7894,7 +7937,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
           <div className="fixed inset-0 z-40" onClick={() => setActivePlusDivider(null)} />
           {/* Card – frosted glass, large radius, double drop-shadow matching original mobile UI */}
           <div
-            className="absolute py-3 bottom-full mb-3 left-1/2 -translate-x-1/2 z-50 w-[252px] overflow-hidden"
+            className={`absolute py-3 ${openBelow ? 'top-full mt-3' : 'bottom-full mb-3'} left-1/2 -translate-x-1/2 z-50 w-[252px] overflow-hidden`}
             style={{
               background: 'rgba(255,255,255,0.75)',
               backdropFilter: 'blur(16px)',
@@ -8165,15 +8208,12 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                   try {
                     const sameGroup = [...htmlWidgets, ...youtubeWidgets, ...quoteWidgets, ...ctaWidgets].filter(w => w.afterPostId === htmlWidgetAfterPostId);
                     const widget_order = sameGroup.length > 0 ? Math.max(...sameGroup.map(w => w.widget_order)) + 1 : 0;
-                    const res = await apiRequest(`/memories/${memoryId}/widgets`, {
-                      method: 'POST',
-                      body: JSON.stringify({
+                    const res = await postNewWidget({
                         widget_type: 'html',
                         after_post_id: htmlWidgetAfterPostId,
                         widget_order,
                         widget_data: { title: addHtmlTitle, content: addHtmlContent },
-                      }),
-                    });
+                      });
                     if (!res.success) { toast.error("Failed to add HTML block"); return; }
                     const htmlRaw = res.data?.data || res.data;
                     // Collaborator adds on a shared memory come back pending admin approval
@@ -8306,15 +8346,12 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                   try {
                     const sameGroup = [...htmlWidgets, ...youtubeWidgets, ...quoteWidgets, ...ctaWidgets].filter(w => w.afterPostId === youtubeWidgetAfterPostId);
                     const widget_order = sameGroup.length > 0 ? Math.max(...sameGroup.map(w => w.widget_order)) + 1 : 0;
-                    const res = await apiRequest(`/memories/${memoryId}/widgets`, {
-                      method: 'POST',
-                      body: JSON.stringify({
+                    const res = await postNewWidget({
                         widget_type: 'youtube',
                         after_post_id: youtubeWidgetAfterPostId,
                         widget_order,
                         widget_data: { title: youtubeTitle, url: youtubeUrl, videoId },
-                      }),
-                    });
+                      });
                     if (!res.success) { toast.error('Failed to add YouTube video'); return; }
                     const ytRaw = res.data?.data || res.data;
                     if (res.pending_approval === true || ytRaw?.admin_approval === 0 || ytRaw?.admin_approval === '0') {
@@ -8422,15 +8459,12 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                   try {
                     const sameGroup = [...htmlWidgets, ...youtubeWidgets, ...quoteWidgets, ...ctaWidgets].filter(w => w.afterPostId === quoteWidgetAfterPostId);
                     const widget_order = sameGroup.length > 0 ? Math.max(...sameGroup.map(w => w.widget_order)) + 1 : 0;
-                    const res = await apiRequest(`/memories/${memoryId}/widgets`, {
-                      method: 'POST',
-                      body: JSON.stringify({
+                    const res = await postNewWidget({
                         widget_type: 'quote',
                         after_post_id: quoteWidgetAfterPostId,
                         widget_order,
                         widget_data: { text: quoteText, author: quoteAuthor },
-                      }),
-                    });
+                      });
                     if (!res.success) { toast.error('Failed to add quote'); return; }
                     const qRaw = res.data?.data || res.data;
                     if (res.pending_approval === true || qRaw?.admin_approval === 0 || qRaw?.admin_approval === '0') {
@@ -8710,14 +8744,11 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                     is_dark: aiCreatorGeneratedPreview.isDark,
                     pin_to_bottom: aiCreatorPinToBottom,
                   };
-                  const res = await apiRequest(`/memories/${memoryId}/widgets`, {
-                    method: 'POST',
-                    body: JSON.stringify({
+                  const res = await postNewWidget({
                       widget_type: 'ai_creator',
                       after_post_id: aiCreatorWidgetAfterPostId,
                       widget_order,
                       widget_data,
-                    }),
                   });
                   if (!res.success) { toast.error('Failed to add AI Creator content'); return; }
                   const raw = res.data?.data || res.data;
@@ -9018,15 +9049,12 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                   try {
                     const sameGroup = [...htmlWidgets, ...youtubeWidgets, ...quoteWidgets, ...ctaWidgets].filter(w => w.afterPostId === ctaWidgetAfterPostId);
                     const widget_order = sameGroup.length > 0 ? Math.max(...sameGroup.map(w => w.widget_order)) + 1 : 0;
-                    const res = await apiRequest(`/memories/${memoryId}/widgets`, {
-                      method: 'POST',
-                      body: JSON.stringify({
+                    const res = await postNewWidget({
                         widget_type: 'cta',
                         after_post_id: ctaWidgetAfterPostId,
                         widget_order,
                         widget_data,
-                      }),
-                    });
+                      });
                     if (!res.success) { toast.error('Failed to add call to action'); return; }
                     const cRaw = res.data?.data || res.data;
                     if (res.pending_approval === true || cRaw?.admin_approval === 0 || cRaw?.admin_approval === '0') {
@@ -9282,32 +9310,31 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
               <div className="text-white text-lg"><span className="font-semibold">Timeline</span><span className="mx-2 text-white/70">•</span><span className="text-white/80">{sharedTotalMomentsCount} moments</span></div>
               <button className="px-5 py-2 bg-white text-gray-800 text-base font-medium rounded-lg shadow-sm flex-shrink-0" onClick={() => { const el = sharedMobileCardRefs.current[0]; if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); }}>Continue</button>
             </div>
-            {htmlWidgets.filter(w => w.afterPostId === null).map(widget => (
+            {sharedCanAdd && renderPlusDivider('shared-mobile-top', undefined, { atStart: true }, true)}{/* Chris, 12 Nov 2026: a "+" after every item */}
+            <div className="flex flex-col gap-4 empty:hidden" data-testid="timeline-slot">
+            {htmlWidgets.filter(w => w.afterPostId === null).map(widget => slotItem(widget, (
               <React.Fragment key={widget.id}>
                 <div className="rounded-2xl bg-white p-4 border border-gray-100"><div className="[&_h1]:text-2xl [&_h1]:font-bold [&_p]:my-2 [&_ul]:list-disc [&_ul]:pl-5 [&_a]:text-[#6C60FF] [&_a]:underline [&_strong]:font-bold" dangerouslySetInnerHTML={{ __html: widget.content }} /></div>
-                {sharedCanAdd && renderPlusDivider(`shared-mobile-html-top-div-${widget.id}`)}
               </React.Fragment>
-            ))}
-            {youtubeWidgets.filter(w => w.afterPostId === null).map(widget => (
+            ), sharedCanAdd && renderPlusDivider(`shared-mobile-plus-${widget.id}`, widget.afterPostId ?? undefined, { afterWidgetId: widget.id }), 'gap-4'))}
+            {youtubeWidgets.filter(w => w.afterPostId === null).map(widget => slotItem(widget, (
               <React.Fragment key={widget.id}>
                 <div className="rounded-2xl bg-white p-4 border border-gray-100"><iframe width="100%" height="200" src={`https://www.youtube.com/embed/${widget.videoId}?autoplay=0`} allow="accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen className="rounded-lg" /></div>
-                {sharedCanAdd && renderPlusDivider(`shared-mobile-yt-top-div-${widget.id}`)}
               </React.Fragment>
-            ))}
-            {quoteWidgets.filter(w => w.afterPostId === null).map(widget => (
+            ), sharedCanAdd && renderPlusDivider(`shared-mobile-plus-${widget.id}`, widget.afterPostId ?? undefined, { afterWidgetId: widget.id }), 'gap-4'))}
+            {quoteWidgets.filter(w => w.afterPostId === null).map(widget => slotItem(widget, (
               <React.Fragment key={widget.id}>
                 <div className="rounded-2xl bg-[#F0EEFF] p-5 border border-gray-100 border-l-4 border-l-[#6C60FF]"><p className="text-lg font-bold text-gray-800 text-center leading-relaxed break-words">{widget.text}</p>{widget.author && <p className="text-sm text-gray-500 text-center mt-2">— {widget.author}</p>}</div>
-                {sharedCanAdd && renderPlusDivider(`shared-mobile-quote-top-div-${widget.id}`)}
               </React.Fragment>
-            ))}
-            {renderProductWidgets(null)}
-            {renderAiCreatorWidgets(null)}
-            {ctaWidgets.filter(w => w.afterPostId === null && isTimelineCta(w)).map(widget => (
+            ), sharedCanAdd && renderPlusDivider(`shared-mobile-plus-${widget.id}`, widget.afterPostId ?? undefined, { afterWidgetId: widget.id }), 'gap-4'))}
+            {renderProductWidgets(null, (w) => sharedCanAdd && renderPlusDivider(`shared-mobile-plus-${w.id}`, w.afterPostId ?? undefined, { afterWidgetId: w.id }), 'gap-4')}
+            {renderAiCreatorWidgets(null, (w) => sharedCanAdd && renderPlusDivider(`shared-mobile-plus-${w.id}`, w.afterPostId ?? undefined, { afterWidgetId: w.id }), 'gap-4')}
+            {ctaWidgets.filter(w => w.afterPostId === null && isTimelineCta(w)).map(widget => slotItem(widget, (
               <React.Fragment key={widget.id}>
                 <CTAWidgetCard onRequestMoment={openSharedRequestMoment} widget={widget} memoryId={memoryId} />
-                {sharedCanAdd && renderPlusDivider(`shared-mobile-cta-top-div-${widget.id}`)}
               </React.Fragment>
-            ))}
+            ), sharedCanAdd && renderPlusDivider(`shared-mobile-plus-${widget.id}`, widget.afterPostId ?? undefined, { afterWidgetId: widget.id }), 'gap-4'))}
+            </div>
             {sharedUnifiedItems.length > 0 ? sharedUnifiedItems.map((uItem: any) => {
               if (uItem.type === 'linked') return renderSharedLinkedCard(uItem.data, 'shared-mobile');
               const post = uItem.data;
@@ -9317,22 +9344,23 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                 <div ref={(el) => { sharedMobileCardRefs.current[index] = el; }} data-mobile-index={index} className={`bg-white rounded-2xl shadow-sm overflow-hidden transition-all duration-200 ${sharedMobileActiveIdx === index && sharedIsHeaderScrolled ? 'border-2 border-[#6C60FF]' : 'border border-gray-100'}`}>
                   <SharedPostCard post={post} index={index} memoryData={apiMemoryData} onImageClick={sharedHandleImageClick} onCommentClick={sharedHandleImageClick} onUpdateItem={handleUpdateItem} onDeletePost={handlePostDelete} onRefresh={() => fetchMemoryDetails()} cardButton={renderProductCardButton(post.id?.toString(), { anchor: false, className: 'mt-3' })} />
                 </div>
-                {htmlWidgets.filter(w => w.afterPostId === post.id?.toString()).map(widget => (
+                {sharedCanAdd && renderPlusDivider(`shared-mobile-after-${post.id}`, post.id?.toString(), { atStart: true })}
+                <div className="flex flex-col gap-4 empty:hidden" data-testid="timeline-slot">
+                {htmlWidgets.filter(w => w.afterPostId === post.id?.toString()).map(widget => slotItem(widget, (
                   <div key={widget.id} className="rounded-2xl bg-white p-4 border border-gray-100"><div className="[&_h1]:text-2xl [&_h1]:font-bold [&_p]:my-2 [&_ul]:list-disc [&_ul]:pl-5 [&_a]:text-[#6C60FF] [&_a]:underline [&_strong]:font-bold" dangerouslySetInnerHTML={{ __html: widget.content }} /></div>
-                ))}
-                {youtubeWidgets.filter(w => w.afterPostId === post.id?.toString()).map(widget => (
+                ), sharedCanAdd && renderPlusDivider(`shared-mobile-plus-${widget.id}`, widget.afterPostId ?? undefined, { afterWidgetId: widget.id }), 'gap-4'))}
+                {youtubeWidgets.filter(w => w.afterPostId === post.id?.toString()).map(widget => slotItem(widget, (
                   <div key={widget.id} className="rounded-2xl bg-white p-4 border border-gray-100"><iframe width="100%" height="200" src={`https://www.youtube.com/embed/${widget.videoId}?autoplay=0`} allow="accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen className="rounded-lg" /></div>
-                ))}
-                {quoteWidgets.filter(w => w.afterPostId === post.id?.toString()).map(widget => (
+                ), sharedCanAdd && renderPlusDivider(`shared-mobile-plus-${widget.id}`, widget.afterPostId ?? undefined, { afterWidgetId: widget.id }), 'gap-4'))}
+                {quoteWidgets.filter(w => w.afterPostId === post.id?.toString()).map(widget => slotItem(widget, (
                   <div key={widget.id} className="rounded-2xl bg-[#F0EEFF] p-5 border border-gray-100 border-l-4 border-l-[#6C60FF]"><p className="text-lg font-bold text-gray-800 text-center leading-relaxed break-words">{widget.text}</p>{widget.author && <p className="text-sm text-gray-500 text-center mt-2">— {widget.author}</p>}</div>
-                ))}
-                {renderProductWidgets(post.id?.toString())}
-                {renderAiCreatorWidgets(post.id?.toString())}
-                {ctaWidgets.filter(w => w.afterPostId === post.id?.toString() && !w.pinToBottom && !isCardCta(w)).map(widget => (
+                ), sharedCanAdd && renderPlusDivider(`shared-mobile-plus-${widget.id}`, widget.afterPostId ?? undefined, { afterWidgetId: widget.id }), 'gap-4'))}
+                {renderProductWidgets(post.id?.toString(), (w) => sharedCanAdd && renderPlusDivider(`shared-mobile-plus-${w.id}`, w.afterPostId ?? undefined, { afterWidgetId: w.id }), 'gap-4')}
+                {renderAiCreatorWidgets(post.id?.toString(), (w) => sharedCanAdd && renderPlusDivider(`shared-mobile-plus-${w.id}`, w.afterPostId ?? undefined, { afterWidgetId: w.id }), 'gap-4')}
+                {ctaWidgets.filter(w => w.afterPostId === post.id?.toString() && !w.pinToBottom && !isCardCta(w)).map(widget => slotItem(widget, (
                   <CTAWidgetCard onRequestMoment={openSharedRequestMoment} key={widget.id} widget={widget} memoryId={memoryId} />
-                ))}
-                {/* Plus divider between posts — same as personal memories */}
-                {sharedCanAdd && index < sharedFilteredPosts.length - 1 && renderPlusDivider(`shared-mobile-${index}`, post.id?.toString())}
+                ), sharedCanAdd && renderPlusDivider(`shared-mobile-plus-${widget.id}`, widget.afterPostId ?? undefined, { afterWidgetId: widget.id }), 'gap-4'))}
+                </div>
               </React.Fragment>
             ); }) : <div className="text-center py-12 text-gray-500 bg-white rounded-xl"><p>No moments to display</p></div>}
             {/* Pinned "Share Request a Moment" buttons — always after the last item, however long the list grows */}
@@ -9694,21 +9722,23 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                         <button className="px-4 py-2 bg-gray-100 text-gray-800 text-base font-medium rounded-lg hover:bg-gray-200" onClick={() => { const el = sharedDesktopCardRefs.current[0]; if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); }}>Continue</button>
                       </div>
                       {/* "+" at the top and after every moment (Chris, 9 Nov 2026, point 5 — moved here from the left list) */}
-                      {sharedCanAdd && renderCardAddWidgetPlus(null, collaboratorAddWidgetOptions(addWidgetOptions({ docuSign: DOCUSIGN_ENABLED && docuSignConnected, shopifyProduct: true })))}
-                      {htmlWidgets.filter(w => w.afterPostId === null).map(widget => (
+                      {sharedCanAdd && renderCardAddWidgetPlus(null, collaboratorAddWidgetOptions(addWidgetOptions({ docuSign: DOCUSIGN_ENABLED && docuSignConnected, shopifyProduct: true })), { atStart: true })}
+                      <div className="flex flex-col gap-6 empty:hidden" data-testid="timeline-slot">
+                      {htmlWidgets.filter(w => w.afterPostId === null).map(widget => slotItem(widget, (
                         <div key={widget.id} ref={(el) => { htmlWidgetCardRefs.current[widget.id] = el; }} data-widget-id={widget.id} className="rounded-2xl bg-white p-4 border border-gray-100"><div className="[&_h1]:text-2xl [&_h1]:font-bold [&_p]:my-2 [&_ul]:list-disc [&_ul]:pl-5 [&_a]:text-[#6C60FF] [&_a]:underline [&_strong]:font-bold" dangerouslySetInnerHTML={{ __html: widget.content }} /></div>
-                      ))}
-                      {youtubeWidgets.filter(w => w.afterPostId === null).map(widget => (
+                      ), sharedCanAdd && renderCardAddWidgetPlus(widget.afterPostId, collaboratorAddWidgetOptions(addWidgetOptions({ docuSign: DOCUSIGN_ENABLED && docuSignConnected, shopifyProduct: true })), { afterWidgetId: widget.id })))}
+                      {youtubeWidgets.filter(w => w.afterPostId === null).map(widget => slotItem(widget, (
                         <div key={widget.id} ref={(el) => { youtubeWidgetCardRefs.current[widget.id] = el; }} className="rounded-2xl bg-white p-4 border border-gray-100"><iframe width="100%" height="240" src={`https://www.youtube.com/embed/${widget.videoId}?autoplay=0`} allow="accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen className="rounded-lg" /></div>
-                      ))}
-                      {quoteWidgets.filter(w => w.afterPostId === null).map(widget => (
+                      ), sharedCanAdd && renderCardAddWidgetPlus(widget.afterPostId, collaboratorAddWidgetOptions(addWidgetOptions({ docuSign: DOCUSIGN_ENABLED && docuSignConnected, shopifyProduct: true })), { afterWidgetId: widget.id })))}
+                      {quoteWidgets.filter(w => w.afterPostId === null).map(widget => slotItem(widget, (
                         <div key={widget.id} ref={(el) => { quoteWidgetCardRefs.current[widget.id] = el; }} className="rounded-2xl bg-[#F0EEFF] p-6 relative border border-gray-100 border-l-4 border-l-[#6C60FF]"><p className="text-xl font-bold text-gray-800 text-center leading-relaxed mt-4 break-words">{widget.text}</p>{widget.author && <p className="text-sm text-gray-500 text-center mt-3">— {widget.author}</p>}</div>
-                      ))}
-                      {renderProductWidgets(null)}
-                      {renderAiCreatorWidgets(null)}
-                      {ctaWidgets.filter(w => w.afterPostId === null && isTimelineCta(w)).map(widget => (
+                      ), sharedCanAdd && renderCardAddWidgetPlus(widget.afterPostId, collaboratorAddWidgetOptions(addWidgetOptions({ docuSign: DOCUSIGN_ENABLED && docuSignConnected, shopifyProduct: true })), { afterWidgetId: widget.id })))}
+                      {renderProductWidgets(null, (w) => sharedCanAdd && renderCardAddWidgetPlus(w.afterPostId, collaboratorAddWidgetOptions(addWidgetOptions({ docuSign: DOCUSIGN_ENABLED && docuSignConnected, shopifyProduct: true })), { afterWidgetId: w.id }))}
+                      {renderAiCreatorWidgets(null, (w) => sharedCanAdd && renderCardAddWidgetPlus(w.afterPostId, collaboratorAddWidgetOptions(addWidgetOptions({ docuSign: DOCUSIGN_ENABLED && docuSignConnected, shopifyProduct: true })), { afterWidgetId: w.id }))}
+                      {ctaWidgets.filter(w => w.afterPostId === null && isTimelineCta(w)).map(widget => slotItem(widget, (
                         <CTAWidgetCard onRequestMoment={openSharedRequestMoment} key={widget.id} widget={widget} memoryId={memoryId} cardRef={(el) => { ctaWidgetCardRefs.current[widget.id] = el; }} isActive={activeCtaWidgetId === widget.id} />
-                      ))}
+                      ), sharedCanAdd && renderCardAddWidgetPlus(widget.afterPostId, collaboratorAddWidgetOptions(addWidgetOptions({ docuSign: DOCUSIGN_ENABLED && docuSignConnected, shopifyProduct: true })), { afterWidgetId: widget.id })))}
+                      </div>
                       {sharedUnifiedItems.length > 0 ? sharedUnifiedItems.map((uItem: any) => {
                         if (uItem.type === 'linked') return renderSharedLinkedCard(uItem.data, 'shared-desktop');
                         const post = uItem.data;
@@ -9718,21 +9748,23 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                           <div ref={(el) => { sharedDesktopCardRefs.current[index] = el; }} data-index={index} className={`bg-white rounded-2xl shadow-sm overflow-hidden transition-all duration-200 ${activeMemoryIndex === index && sharedIsHeaderScrolled ? 'border-2 border-[#6C60FF]' : 'border border-gray-100'}`}>
                             <SharedPostCard post={post} index={index} memoryData={apiMemoryData} onImageClick={sharedHandleImageClick} onCommentClick={sharedHandleImageClick} onUpdateItem={handleUpdateItem} onDeletePost={handlePostDelete} onRefresh={() => fetchMemoryDetails()} cardButton={renderProductCardButton(post.id?.toString(), { anchor: true, className: 'mt-3' })} />
                           </div>
-                          {htmlWidgets.filter(w => w.afterPostId === post.id?.toString()).map(widget => (
+                          {sharedCanAdd && renderCardAddWidgetPlus(String(post.id), collaboratorAddWidgetOptions(addWidgetOptions({ docuSign: DOCUSIGN_ENABLED && docuSignConnected, shopifyProduct: true })), { atStart: true })}
+                          <div className="flex flex-col gap-6 empty:hidden" data-testid="timeline-slot">
+                          {htmlWidgets.filter(w => w.afterPostId === post.id?.toString()).map(widget => slotItem(widget, (
                             <div key={widget.id} ref={(el) => { htmlWidgetCardRefs.current[widget.id] = el; }} data-widget-id={widget.id} className="rounded-2xl bg-white p-4 border border-gray-100"><div className="[&_h1]:text-2xl [&_h1]:font-bold [&_p]:my-2 [&_ul]:list-disc [&_ul]:pl-5 [&_a]:text-[#6C60FF] [&_a]:underline [&_strong]:font-bold" dangerouslySetInnerHTML={{ __html: widget.content }} /></div>
-                          ))}
-                          {youtubeWidgets.filter(w => w.afterPostId === post.id?.toString()).map(widget => (
+                          ), sharedCanAdd && renderCardAddWidgetPlus(widget.afterPostId, collaboratorAddWidgetOptions(addWidgetOptions({ docuSign: DOCUSIGN_ENABLED && docuSignConnected, shopifyProduct: true })), { afterWidgetId: widget.id })))}
+                          {youtubeWidgets.filter(w => w.afterPostId === post.id?.toString()).map(widget => slotItem(widget, (
                             <div key={widget.id} ref={(el) => { youtubeWidgetCardRefs.current[widget.id] = el; }} className="rounded-2xl bg-white p-4 border border-gray-100"><iframe width="100%" height="240" src={`https://www.youtube.com/embed/${widget.videoId}?autoplay=0`} allow="accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen className="rounded-lg" /></div>
-                          ))}
-                          {quoteWidgets.filter(w => w.afterPostId === post.id?.toString()).map(widget => (
+                          ), sharedCanAdd && renderCardAddWidgetPlus(widget.afterPostId, collaboratorAddWidgetOptions(addWidgetOptions({ docuSign: DOCUSIGN_ENABLED && docuSignConnected, shopifyProduct: true })), { afterWidgetId: widget.id })))}
+                          {quoteWidgets.filter(w => w.afterPostId === post.id?.toString()).map(widget => slotItem(widget, (
                             <div key={widget.id} ref={(el) => { quoteWidgetCardRefs.current[widget.id] = el; }} className="rounded-2xl bg-[#F0EEFF] p-6 relative border border-gray-100 border-l-4 border-l-[#6C60FF]"><p className="text-xl font-bold text-gray-800 text-center leading-relaxed mt-4 break-words">{widget.text}</p>{widget.author && <p className="text-sm text-gray-500 text-center mt-3">— {widget.author}</p>}</div>
-                          ))}
-                          {renderProductWidgets(post.id?.toString())}
-                          {renderAiCreatorWidgets(post.id?.toString())}
-                          {ctaWidgets.filter(w => w.afterPostId === post.id?.toString() && !w.pinToBottom && !isCardCta(w)).map(widget => (
+                          ), sharedCanAdd && renderCardAddWidgetPlus(widget.afterPostId, collaboratorAddWidgetOptions(addWidgetOptions({ docuSign: DOCUSIGN_ENABLED && docuSignConnected, shopifyProduct: true })), { afterWidgetId: widget.id })))}
+                          {renderProductWidgets(post.id?.toString(), (w) => sharedCanAdd && renderCardAddWidgetPlus(w.afterPostId, collaboratorAddWidgetOptions(addWidgetOptions({ docuSign: DOCUSIGN_ENABLED && docuSignConnected, shopifyProduct: true })), { afterWidgetId: w.id }))}
+                          {renderAiCreatorWidgets(post.id?.toString(), (w) => sharedCanAdd && renderCardAddWidgetPlus(w.afterPostId, collaboratorAddWidgetOptions(addWidgetOptions({ docuSign: DOCUSIGN_ENABLED && docuSignConnected, shopifyProduct: true })), { afterWidgetId: w.id }))}
+                          {ctaWidgets.filter(w => w.afterPostId === post.id?.toString() && !w.pinToBottom && !isCardCta(w)).map(widget => slotItem(widget, (
                             <CTAWidgetCard onRequestMoment={openSharedRequestMoment} key={widget.id} widget={widget} memoryId={memoryId} cardRef={(el) => { ctaWidgetCardRefs.current[widget.id] = el; }} isActive={activeCtaWidgetId === widget.id} />
-                          ))}
-                          {sharedCanAdd && renderCardAddWidgetPlus(String(post.id), collaboratorAddWidgetOptions(addWidgetOptions({ docuSign: DOCUSIGN_ENABLED && docuSignConnected, shopifyProduct: true })))}
+                          ), sharedCanAdd && renderCardAddWidgetPlus(widget.afterPostId, collaboratorAddWidgetOptions(addWidgetOptions({ docuSign: DOCUSIGN_ENABLED && docuSignConnected, shopifyProduct: true })), { afterWidgetId: widget.id })))}
+                          </div>
                         </React.Fragment>
                         );
                       }) : <div className="text-center py-12 text-gray-500 bg-white rounded-xl"><p>No moments to display</p></div>}
@@ -13423,10 +13455,11 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                           </div>
                         </div>
                         {/* "+" at the top (Chris, 9 Nov 2026, point 5 — moved here from the left list's Introduction) */}
-                        {renderCardAddWidgetPlus(null)}
+                        {renderCardAddWidgetPlus(null, undefined, { atStart: true })}
 
                         {/* HTML widgets added from intro + */}
-                        {htmlWidgets.filter(w => w.afterPostId === null).map(widget => (
+                        <div className="flex flex-col gap-6 empty:hidden" data-testid="timeline-slot">{/* the top slot: widgets in widget_order, a "+" after each (Chris, 12 Nov 2026) */}
+                        {htmlWidgets.filter(w => w.afterPostId === null).map(widget => slotItem(widget, (
                           <div
                             key={widget.id}
                             ref={(el) => { htmlWidgetCardRefs.current[widget.id] = el; }}
@@ -13437,10 +13470,10 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                           >
                             <div className="[&_h1]:text-2xl [&_h1]:font-bold [&_h2]:text-xl [&_h2]:font-bold [&_h3]:text-lg [&_h3]:font-semibold [&_h4]:text-base [&_h4]:font-semibold [&_p]:my-2 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:my-1 [&_a]:text-[#6C60FF] [&_a]:underline [&_strong]:font-bold [&_em]:italic [&_blockquote]:border-l-4 [&_blockquote]:border-gray-300 [&_blockquote]:pl-4 [&_blockquote]:italic" dangerouslySetInnerHTML={{ __html: widget.content }} />
                           </div>
-                        ))}
+                        ), renderCardAddWidgetPlus(widget.afterPostId, undefined, { afterWidgetId: widget.id })))}
 
                         {/* YouTube widgets added from intro + */}
-                        {youtubeWidgets.filter(w => w.afterPostId === null).map(widget => (
+                        {youtubeWidgets.filter(w => w.afterPostId === null).map(widget => slotItem(widget, (
                           <div
                             key={widget.id}
                             ref={(el) => { youtubeWidgetCardRefs.current[widget.id] = el; }}
@@ -13458,10 +13491,10 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                               className="rounded-lg"
                             />
                           </div>
-                        ))}
+                        ), renderCardAddWidgetPlus(widget.afterPostId, undefined, { afterWidgetId: widget.id })))}
 
                         {/* Quote widgets added from intro + */}
-                        {quoteWidgets.filter(w => w.afterPostId === null).map(widget => (
+                        {quoteWidgets.filter(w => w.afterPostId === null).map(widget => slotItem(widget, (
                           <div
                             key={widget.id}
                             ref={(el) => { quoteWidgetCardRefs.current[widget.id] = el; }}
@@ -13475,12 +13508,13 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                             {widget.author && <p className="text-sm text-gray-500 text-center mt-3">{"\u2014"} {widget.author}</p>}
                             <svg width="24" height="24" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" className="absolute bottom-4 right-4 text-[#6C60FF]/30 rotate-180"><path d="M10.6668 2C10.3132 2 9.97407 2.14048 9.72402 2.39052C9.47397 2.64057 9.3335 2.97971 9.3335 3.33333V7.33333C9.3335 7.68696 9.47397 8.02609 9.72402 8.27614C9.97407 8.52619 10.3132 8.66667 10.6668 8.66667C10.8436 8.66667 11.0132 8.7369 11.1382 8.86193C11.2633 8.98695 11.3335 9.15652 11.3335 9.33333V10C11.3335 10.3536 11.193 10.6928 10.943 10.9428C10.6929 11.1929 10.3538 11.3333 10.0002 11.3333C9.82335 11.3333 9.65378 11.4036 9.52876 11.5286C9.40373 11.6536 9.3335 11.8232 9.3335 12V13.3333C9.3335 13.5101 9.40373 13.6797 9.52876 13.8047C9.65378 13.9298 9.82335 14 10.0002 14C11.061 14 12.0784 13.5786 12.8286 12.8284C13.5787 12.0783 14.0002 11.0609 14.0002 10V3.33333C14.0002 2.97971 13.8597 2.64057 13.6096 2.39052C13.3596 2.14048 13.0205 2 12.6668 2H10.6668Z" fill="currentColor"/><path d="M3.33333 2C2.97971 2 2.64057 2.14048 2.39052 2.39052C2.14048 2.64057 2 2.97971 2 3.33333V7.33333C2 7.68696 2.14048 8.02609 2.39052 8.27614C2.64057 8.52619 2.97971 8.66667 3.33333 8.66667C3.51014 8.66667 3.67971 8.7369 3.80474 8.86193C3.92976 8.98695 4 9.15652 4 9.33333V10C4 10.3536 3.85952 10.6928 3.60948 10.9428C3.35943 11.1929 3.02029 11.3333 2.66667 11.3333C2.48986 11.3333 2.32029 11.4036 2.19526 11.5286C2.07024 11.6536 2 11.8232 2 12V13.3333C2 13.5101 2.07024 13.6797 2.19526 13.8047C2.32029 13.9298 2.48986 14 2.66667 14C3.72753 14 4.74495 13.5786 5.49509 12.8284C6.24524 12.0783 6.66667 11.0609 6.66667 10V3.33333C6.66667 2.97971 6.52619 2.64057 6.27614 2.39052C6.02609 2.14048 5.68696 2 5.33333 2H3.33333Z" fill="currentColor"/></svg>
                           </div>
-                        ))}
-                        {renderProductWidgets(null)}
-                        {renderAiCreatorWidgets(null)}
-                        {ctaWidgets.filter(w => w.afterPostId === null && isTimelineCta(w)).map(widget => (
+                        ), renderCardAddWidgetPlus(widget.afterPostId, undefined, { afterWidgetId: widget.id })))}
+                        {renderProductWidgets(null, (w) => renderCardAddWidgetPlus(w.afterPostId, undefined, { afterWidgetId: w.id }))}
+                        {renderAiCreatorWidgets(null, (w) => renderCardAddWidgetPlus(w.afterPostId, undefined, { afterWidgetId: w.id }))}
+                        {ctaWidgets.filter(w => w.afterPostId === null && isTimelineCta(w)).map(widget => slotItem(widget, (
                           <CTAWidgetCard key={widget.id} widget={widget} memoryId={memoryId} cardRef={(el) => { ctaWidgetCardRefs.current[widget.id] = el; }} isActive={activeCtaWidgetId === widget.id} />
-                        ))}
+                        ), renderCardAddWidgetPlus(widget.afterPostId, undefined, { afterWidgetId: widget.id })))}
+                        </div>
 
                         {isLoadingMemory ? (
                           <div className="text-center py-12 bg-white rounded-xl">
@@ -13595,7 +13629,6 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                 is_featured: p.is_featured || 0
                               }));
 
-                              const widgetsAfterThis = htmlWidgets.filter(w => w.afterPostId === post.id?.toString());
 
                               return (
                                 <React.Fragment key={post.id}>
@@ -13691,7 +13724,10 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                   })()}
 
                                   {/* HTML widgets inserted after this post card */}
-                                  {widgetsAfterThis.map(widget => (
+                                  {/* "+" right under every moment card (first in its slot), and after each of its widgets (Chris, 9 + 12 Nov 2026) */}
+                                  {plusAfterPostId !== undefined && renderCardAddWidgetPlus(plusAfterPostId, undefined, { atStart: true })}
+                                  <div className="flex flex-col gap-6 empty:hidden" data-testid="timeline-slot">
+                                  {htmlWidgets.filter(w => w.afterPostId === post.id?.toString()).map(widget => slotItem(widget, (
                                     <div
                                       key={widget.id}
                                       ref={(el) => { htmlWidgetCardRefs.current[widget.id] = el; }}
@@ -13702,9 +13738,9 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                     >
                                       <div className="[&_h1]:text-2xl [&_h1]:font-bold [&_h2]:text-xl [&_h2]:font-bold [&_h3]:text-lg [&_h3]:font-semibold [&_h4]:text-base [&_h4]:font-semibold [&_p]:my-2 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:my-1 [&_a]:text-[#6C60FF] [&_a]:underline [&_strong]:font-bold [&_em]:italic [&_blockquote]:border-l-4 [&_blockquote]:border-gray-300 [&_blockquote]:pl-4 [&_blockquote]:italic" dangerouslySetInnerHTML={{ __html: widget.content }} />
                                     </div>
-                                  ))}
+                                  ), renderCardAddWidgetPlus(widget.afterPostId, undefined, { afterWidgetId: widget.id })))}
                                   {/* YouTube widgets inserted after this post card */}
-                                  {youtubeWidgets.filter(w => w.afterPostId === post.id?.toString()).map(widget => (
+                                  {youtubeWidgets.filter(w => w.afterPostId === post.id?.toString()).map(widget => slotItem(widget, (
                                     <div
                                       key={widget.id}
                                       ref={(el) => { youtubeWidgetCardRefs.current[widget.id] = el; }}
@@ -13722,9 +13758,9 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                         className="rounded-lg"
                                       />
                                     </div>
-                                  ))}
+                                  ), renderCardAddWidgetPlus(widget.afterPostId, undefined, { afterWidgetId: widget.id })))}
                                   {/* Quote widgets inserted after this post card */}
-                                  {quoteWidgets.filter(w => w.afterPostId === post.id?.toString()).map(widget => (
+                                  {quoteWidgets.filter(w => w.afterPostId === post.id?.toString()).map(widget => slotItem(widget, (
                                     <div
                                       key={widget.id}
                                       ref={(el) => { quoteWidgetCardRefs.current[widget.id] = el; }}
@@ -13738,14 +13774,13 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                       {widget.author && <p className="text-sm text-gray-500 text-center mt-3">{"—"} {widget.author}</p>}
                                       <svg width="24" height="24" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" className="absolute bottom-4 right-4 text-[#6C60FF]/30 rotate-180"><path d="M10.6668 2C10.3132 2 9.97407 2.14048 9.72402 2.39052C9.47397 2.64057 9.3335 2.97971 9.3335 3.33333V7.33333C9.3335 7.68696 9.47407 8.02609 9.72402 8.27614C9.97407 8.52619 10.3132 8.66667 10.6668 8.66667C10.8436 8.66667 11.0132 8.7369 11.1382 8.86193C11.2633 8.98695 11.3335 9.15652 11.3335 9.33333V10C11.3335 10.3536 11.193 10.6928 10.943 10.9428C10.6929 11.1929 10.3538 11.3333 10.0002 11.3333C9.82335 11.3333 9.65378 11.4036 9.52876 11.5286C9.40373 11.6536 9.3335 11.8232 9.3335 12V13.3333C9.3335 13.5101 9.40373 13.6797 9.52876 13.8047C9.65378 13.9298 9.82335 14 10.0002 14C11.061 14 12.0784 13.5786 12.8286 12.8284C13.5787 12.0783 14.0002 11.0609 14.0002 10V3.33333C14.0002 2.97971 13.8597 2.64057 13.6096 2.39052C13.3596 2.14048 13.0205 2 12.6668 2H10.6668Z" fill="currentColor"/><path d="M3.33333 2C2.97971 2 2.64057 2.14048 2.39052 2.39052C2.14048 2.64057 2 2.97971 2 3.33333V7.33333C2 7.68696 2.14048 8.02609 2.39052 8.27614C2.64057 8.52619 2.97971 8.66667 3.33333 8.66667C3.51014 8.66667 3.67971 8.7369 3.80474 8.86193C3.92976 8.98695 4 9.15652 4 9.33333V10C4 10.3536 3.85952 10.6928 3.60948 10.9428C3.35943 11.1929 3.02029 11.3333 2.66667 11.3333C2.48986 11.3333 2.32029 11.4036 2.19526 11.5286C2.07024 11.6536 2 11.8232 2 12V13.3333C2 13.5101 2.07024 13.6797 2.19526 13.8047C2.32029 13.9298 2.48986 14 2.66667 14C3.72753 14 4.74495 13.5786 5.49509 12.8284C6.24524 12.0783 6.66667 11.0609 6.66667 10V3.33333C6.66667 2.97971 6.52619 2.64057 6.27614 2.39052C6.02609 2.14048 5.68696 2 5.33333 2H3.33333Z" fill="currentColor"/></svg>
                                     </div>
-                                  ))}
-                                  {renderProductWidgets(post.id?.toString())}
-                                  {renderAiCreatorWidgets(post.id?.toString())}
-                                  {ctaWidgets.filter(w => w.afterPostId === post.id?.toString() && !w.pinToBottom && !isCardCta(w)).map(widget => (
+                                  ), renderCardAddWidgetPlus(widget.afterPostId, undefined, { afterWidgetId: widget.id })))}
+                                  {renderProductWidgets(post.id?.toString(), (w) => renderCardAddWidgetPlus(w.afterPostId, undefined, { afterWidgetId: w.id }))}
+                                  {renderAiCreatorWidgets(post.id?.toString(), (w) => renderCardAddWidgetPlus(w.afterPostId, undefined, { afterWidgetId: w.id }))}
+                                  {ctaWidgets.filter(w => w.afterPostId === post.id?.toString() && !w.pinToBottom && !isCardCta(w)).map(widget => slotItem(widget, (
                                     <CTAWidgetCard key={widget.id} widget={widget} memoryId={memoryId} cardRef={(el) => { ctaWidgetCardRefs.current[widget.id] = el; }} isActive={activeCtaWidgetId === widget.id} />
-                                  ))}
-                                  {/* "+" after every moment card, the last one too (Chris, 9 Nov 2026, point 5) */}
-                                  {plusAfterPostId !== undefined && renderCardAddWidgetPlus(plusAfterPostId)}
+                                  ), renderCardAddWidgetPlus(widget.afterPostId, undefined, { afterWidgetId: widget.id })))}
+                                  </div>
                                 </React.Fragment>
                               );
                             }
@@ -13946,10 +13981,13 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                       <div className="w-6 h-6 border-2 border-[#6C60FF] border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
                       <p className="text-gray-500 text-sm">Loading timeline...</p>
                     </div>
-                  ) : ((combinedTimeline || []).length > 0 || sortedTimelinePosts.length > 0) ? (
+                  ) : (
                     <>
                       {/* HTML widgets before posts (afterPostId === null) */}
-                      {htmlWidgets.filter(w => w.afterPostId === null).map(widget => (
+                      {/* "+" under the top (first in the top slot), after every widget and every moment card (Chris, 12 Nov 2026). The top widgets show with no moments too. */}
+                      {renderPlusDivider('mobile-top', undefined, { atStart: true }, true)}
+                      <div className="flex flex-col gap-4 empty:hidden" data-testid="timeline-slot">
+                      {htmlWidgets.filter(w => w.afterPostId === null).map(widget => slotItem(widget, (
                         <React.Fragment key={`mobile-html-top-${widget.id}`}>
                         <div
                           className={`rounded-2xl overflow-hidden bg-white p-4 mx-4 transition-all duration-200 relative ${
@@ -13996,12 +14034,11 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                           </div>
                           <div className="[&_h1]:text-2xl [&_h1]:font-bold [&_h2]:text-xl [&_h2]:font-bold [&_h3]:text-lg [&_h3]:font-semibold [&_h4]:text-base [&_h4]:font-semibold [&_p]:my-2 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:my-1 [&_a]:text-[#6C60FF] [&_a]:underline [&_strong]:font-bold [&_em]:italic [&_blockquote]:border-l-4 [&_blockquote]:border-gray-300 [&_blockquote]:pl-4 [&_blockquote]:italic" dangerouslySetInnerHTML={{ __html: widget.content }} />
                         </div>
-                          {renderPlusDivider(`mobile-html-top-div-${widget.id}`)}
                         </React.Fragment>
-                      ))}
+                      ), renderPlusDivider(`mobile-plus-${widget.id}`, widget.afterPostId ?? undefined, { afterWidgetId: widget.id }), 'gap-4'))}
 
                       {/* YouTube widgets before posts (afterPostId === null) */}
-                      {youtubeWidgets.filter(w => w.afterPostId === null).map(widget => (
+                      {youtubeWidgets.filter(w => w.afterPostId === null).map(widget => slotItem(widget, (
                         <React.Fragment key={`mobile-yt-top-${widget.id}`}>
                         <div
                           className={`rounded-2xl overflow-hidden bg-white p-4 mx-4 transition-all duration-200 relative ${
@@ -14054,12 +14091,11 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                             className="rounded-lg"
                           />
                         </div>
-                          {renderPlusDivider(`mobile-yt-top-div-${widget.id}`)}
                         </React.Fragment>
-                      ))}
+                      ), renderPlusDivider(`mobile-plus-${widget.id}`, widget.afterPostId ?? undefined, { afterWidgetId: widget.id }), 'gap-4'))}
 
                       {/* Quote widgets before posts (afterPostId === null) */}
-                      {quoteWidgets.filter(w => w.afterPostId === null).map(widget => (
+                      {quoteWidgets.filter(w => w.afterPostId === null).map(widget => slotItem(widget, (
                         <React.Fragment key={`mobile-quote-top-${widget.id}`}>
                         <div
                           className={`rounded-2xl overflow-hidden bg-[#F0EEFF] p-5 mx-4 transition-all duration-200 relative border-l-4 border-l-[#6C60FF] ${
@@ -14107,20 +14143,20 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                           <p className="text-lg font-bold text-gray-800 text-center leading-relaxed">{widget.text}</p>
                           {widget.author && <p className="text-sm text-gray-500 text-center mt-2">{"\u2014"} {widget.author}</p>}
                         </div>
-                          {renderPlusDivider(`mobile-quote-top-div-${widget.id}`)}
                         </React.Fragment>
-                      ))}
-                      {renderProductWidgets(null)}
-                      {renderAiCreatorWidgets(null)}
-                      {ctaWidgets.filter(w => w.afterPostId === null && isTimelineCta(w)).map(widget => (
+                      ), renderPlusDivider(`mobile-plus-${widget.id}`, widget.afterPostId ?? undefined, { afterWidgetId: widget.id }), 'gap-4'))}
+                      {renderProductWidgets(null, (w) => renderPlusDivider(`mobile-plus-${w.id}`, w.afterPostId ?? undefined, { afterWidgetId: w.id }), 'gap-4')}
+                      {renderAiCreatorWidgets(null, (w) => renderPlusDivider(`mobile-plus-${w.id}`, w.afterPostId ?? undefined, { afterWidgetId: w.id }), 'gap-4')}
+                      {ctaWidgets.filter(w => w.afterPostId === null && isTimelineCta(w)).map(widget => slotItem(widget, (
                         <React.Fragment key={`mobile-cta-top-${widget.id}`}>
                         <div className="mx-4">
                           <CTAWidgetCard widget={widget} memoryId={memoryId} isActive={activeCtaWidgetId === widget.id} onEdit={() => openEditCta(widget)} onDelete={() => deleteCta(widget)} />
                         </div>
-                          {renderPlusDivider(`mobile-cta-top-div-${widget.id}`)}
                         </React.Fragment>
-                      ))}
+                      ), renderPlusDivider(`mobile-plus-${widget.id}`, widget.afterPostId ?? undefined, { afterWidgetId: widget.id }), 'gap-4'))}
+                      </div>
 
+                      {((combinedTimeline || []).length > 0 || sortedTimelinePosts.length > 0) ? (<>
                       {(combinedTimeline || []).map((item, combinedIndex) => {
                         const totalItems = (combinedTimeline || []).length;
                         if (item.type === 'linked') {
@@ -14312,9 +14348,10 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                             })()}
 
                             {/* HTML widgets after this post */}
-                            {htmlWidgets.filter(w => w.afterPostId === post.id?.toString()).map(widget => (
+                            {renderPlusDivider(`mobile-after-${post.id}`, post.id?.toString(), { atStart: true })}
+                            <div className="flex flex-col gap-4 empty:hidden" data-testid="timeline-slot">
+                            {htmlWidgets.filter(w => w.afterPostId === post.id?.toString()).map(widget => slotItem(widget, (
                               <React.Fragment key={`mobile-html-${widget.id}`}>
-                                {renderPlusDivider(`mobile-html-div-${widget.id}`, post.id?.toString())}
                               <div
                                 className={`rounded-2xl overflow-hidden bg-white p-4 mx-4 transition-all duration-200 relative ${
                                   activeHtmlWidgetId === widget.id ? 'border-2 border-[#6C60FF]' : 'border border-gray-100'
@@ -14361,11 +14398,10 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                 <div className="[&_h1]:text-2xl [&_h1]:font-bold [&_h2]:text-xl [&_h2]:font-bold [&_h3]:text-lg [&_h3]:font-semibold [&_h4]:text-base [&_h4]:font-semibold [&_p]:my-2 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:my-1 [&_a]:text-[#6C60FF] [&_a]:underline [&_strong]:font-bold [&_em]:italic [&_blockquote]:border-l-4 [&_blockquote]:border-gray-300 [&_blockquote]:pl-4 [&_blockquote]:italic" dangerouslySetInnerHTML={{ __html: widget.content }} />
                               </div>
                               </React.Fragment>
-                            ))}
+                            ), renderPlusDivider(`mobile-plus-${widget.id}`, widget.afterPostId ?? undefined, { afterWidgetId: widget.id }), 'gap-4'))}
                             {/* YouTube widgets after this post */}
-                            {youtubeWidgets.filter(w => w.afterPostId === post.id?.toString()).map(widget => (
+                            {youtubeWidgets.filter(w => w.afterPostId === post.id?.toString()).map(widget => slotItem(widget, (
                               <React.Fragment key={`mobile-yt-${widget.id}`}>
-                                {renderPlusDivider(`mobile-yt-div-${widget.id}`, post.id?.toString())}
                               <div
                                 className={`rounded-2xl overflow-hidden bg-white p-4 mx-4 transition-all duration-200 relative ${
                                   activeYoutubeWidgetId === widget.id ? 'border-2 border-[#6C60FF]' : 'border border-gray-100'
@@ -14418,11 +14454,10 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                 />
                               </div>
                               </React.Fragment>
-                            ))}
+                            ), renderPlusDivider(`mobile-plus-${widget.id}`, widget.afterPostId ?? undefined, { afterWidgetId: widget.id }), 'gap-4'))}
                             {/* Quote widgets after this post */}
-                            {quoteWidgets.filter(w => w.afterPostId === post.id?.toString()).map(widget => (
+                            {quoteWidgets.filter(w => w.afterPostId === post.id?.toString()).map(widget => slotItem(widget, (
                               <React.Fragment key={`mobile-quote-${widget.id}`}>
-                                {renderPlusDivider(`mobile-quote-div-${widget.id}`, post.id?.toString())}
                               <div
                                 className={`rounded-2xl overflow-hidden bg-[#F0EEFF] p-5 mx-4 transition-all duration-200 relative border-l-4 border-l-[#6C60FF] ${
                                   activeQuoteWidgetId === widget.id ? 'border-2 border-[#6C60FF]' : 'border border-gray-100 border-l-4 border-l-[#6C60FF]'
@@ -14470,19 +14505,17 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                                 {widget.author && <p className="text-sm text-gray-500 text-center mt-2">{"\u2014"} {widget.author}</p>}
                               </div>
                               </React.Fragment>
-                            ))}
-                            {renderProductWidgets(post.id?.toString())}
-                            {renderAiCreatorWidgets(post.id?.toString())}
-                            {ctaWidgets.filter(w => w.afterPostId === post.id?.toString() && !w.pinToBottom && !isCardCta(w)).map(widget => (
+                            ), renderPlusDivider(`mobile-plus-${widget.id}`, widget.afterPostId ?? undefined, { afterWidgetId: widget.id }), 'gap-4'))}
+                            {renderProductWidgets(post.id?.toString(), (w) => renderPlusDivider(`mobile-plus-${w.id}`, w.afterPostId ?? undefined, { afterWidgetId: w.id }), 'gap-4')}
+                            {renderAiCreatorWidgets(post.id?.toString(), (w) => renderPlusDivider(`mobile-plus-${w.id}`, w.afterPostId ?? undefined, { afterWidgetId: w.id }), 'gap-4')}
+                            {ctaWidgets.filter(w => w.afterPostId === post.id?.toString() && !w.pinToBottom && !isCardCta(w)).map(widget => slotItem(widget, (
                               <React.Fragment key={`mobile-cta-${widget.id}`}>
-                                {renderPlusDivider(`mobile-cta-div-${widget.id}`, post.id?.toString())}
                               <div className="mx-4">
                                 <CTAWidgetCard widget={widget} memoryId={memoryId} isActive={activeCtaWidgetId === widget.id} onEdit={() => openEditCta(widget)} onDelete={() => deleteCta(widget)} />
                               </div>
                               </React.Fragment>
-                            ))}
-                            {/* Plus Divider after each card, not after last */}
-                            {combinedIndex < totalItems - 1 && renderPlusDivider(`mobile-${postIndex}`, post.id?.toString())}
+                            ), renderPlusDivider(`mobile-plus-${widget.id}`, widget.afterPostId ?? undefined, { afterWidgetId: widget.id }), 'gap-4'))}
+                            </div>
                           </React.Fragment>
                         );
                         }
@@ -14523,9 +14556,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                           </div>
                         </div>
                       )}
-                    </>
-                  ) : (
-                    <>
+                    </>) : (<>
                       <div className="text-center py-12">
                         <Activity className="w-12 h-12 text-gray-400 mx-auto mb-4" />
                         <h3 className="text-base font-medium text-gray-900 mb-2">No moments yet</h3>
@@ -14573,6 +14604,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                           </div>
                         </div>
                       )}
+                    </>)}
                     </>
                   )}
                 </div>
