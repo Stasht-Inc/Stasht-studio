@@ -149,6 +149,9 @@ export interface NewsletterCounts {
   skipped: number;
 }
 
+/** Who set a locked header: { by: 'Serpa Chrysler', message: 'Header set by Serpa Chrysler' }. */
+export interface HeaderLock { by: string; message: string }
+
 export interface Newsletter {
   id: number;
   name: string | null;
@@ -172,6 +175,8 @@ export interface Newsletter {
   public_url: string | null;
   /** The newsletter's text sizes (Chris, 7 Nov): px for each style; absent = the usual 14 / 16 / 20 / 24. */
   type_scale?: TypeScale | null;
+  /** A property account's draft (Chris, 12 Nov): the main account's header, not editable here. Absent: editable. */
+  header_locked?: HeaderLock | null;
   counts: NewsletterCounts;
   created_at: string;
   updated_at: string;
@@ -243,7 +248,9 @@ export interface LeadOptionsQuery { search?: string; page?: number; lead_id?: nu
 /** recent_colors (Chris, 6 Nov): the account's colours picked with Custom, newest first, at most 8. */
 export interface NewsletterBrand { header: NewsletterHeader; business_address: string | null; default_message?: string | null; recent_colors?: string[];
   /** The account's default text sizes ("Use as my default", Chris 7 Nov); absent: none saved. */
-  type_scale?: TypeScale | null }
+  type_scale?: TypeScale | null;
+  /** In a property account (Chris, 12 Nov): header is the main account's and can't be changed. */
+  header_locked?: HeaderLock | null }
 export interface NewsletterAllowance {
   plan: string;
   email_limit: number;

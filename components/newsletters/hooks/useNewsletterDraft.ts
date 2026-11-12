@@ -187,6 +187,11 @@ export function useNewsletterDraft(newsletterId: number | null, enabled: boolean
       next[key] = (saved as unknown as Record<string, unknown>)[key];
       held.push(key as keyof NewsletterDraft);
     };
+    // A property account's header is the main account's (Chris, 12 Nov): never sent (the API refuses it).
+    if (newsletterRef.current?.header_locked && 'header' in body) {
+      delete body.header;
+      next.header = saved.header;
+    }
     const rejected = rejectedRef.current;
     for (const [key, r] of [...rejected]) {
       if (!(key in body)) rejected.delete(key); // back to the saved value
