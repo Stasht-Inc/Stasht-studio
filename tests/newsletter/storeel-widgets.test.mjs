@@ -59,8 +59,8 @@ test("the preview groups a moment's widgets like the campaign page; top ones fir
   ];
   const by = widgetsByAnchor(moments, widgets);
   assert.deepEqual(by.get(WIDGET_TOP).map((w) => w.id), ['b']);
-  // Added CTA, then Quote, then HTML: the campaign page shows HTML, Quote, CTA.
-  assert.deepEqual(by.get('post-2').map((w) => w.id), ['e', 'a', 'c']);
+  // Added CTA, then Quote, then HTML: shown in their widget_order, as the campaign page does since Chris 12 Nov.
+  assert.deepEqual(by.get('post-2').map((w) => w.id), ['c', 'a', 'e']);
   assert.deepEqual(by.get(WIDGET_END).map((w) => w.id), ['d']);
   assert.deepEqual(by.get(WIDGET_PINNED).map((w) => w.id), ['f']);
   assert.equal(by.get('post-1'), undefined);
