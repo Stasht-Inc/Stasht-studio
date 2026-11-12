@@ -23,7 +23,7 @@ const LOGO_MAX_WIDTH = 518;
  * (48 px, as before), medium or large. It is part of the draft; the newsletter PUT also
  * saves it as the account's brand header, which pre-fills the next newsletter (contract note 8).
  */
-export default function HeaderEditor({ header, onChange, selected, onSelect, onDone, readOnly, padClass = 'px-10' }: {
+export default function HeaderEditor({ header, onChange, selected, onSelect, onDone, readOnly: readOnlyProp, padClass = 'px-10', lockedNote = null }: {
   header: NewsletterHeader;
   /** The new header, or (for uploads, which finish later) a function of the latest one. */
   onChange(header: NewsletterHeader | ((latest: NewsletterHeader) => NewsletterHeader)): void;
@@ -34,7 +34,11 @@ export default function HeaderEditor({ header, onChange, selected, onSelect, onD
   readOnly: boolean;
   /** Side padding of the email column (40 px wide, 20 px on phones). */
   padClass?: string;
+  /** A property account (Chris, 12 Nov): the main account's header, shown but not editable, with this line under it. */
+  lockedNote?: string | null;
 }) {
+  const locked = !!lockedNote;
+  const readOnly = readOnlyProp || locked;
   const color = safeHexColor(header.background_color, PURPLE);
   const banner = httpsUrl(header.banner_url);
   const logo = httpsUrl(header.logo_url);
@@ -77,7 +81,8 @@ export default function HeaderEditor({ header, onChange, selected, onSelect, onD
     // A tab stop of its own (Enter or Space selects it), so the header can be edited without a mouse.
     <div role="group" aria-label="Header" data-nl-header="" data-nl-selected={selected && !readOnly ? 'true' : undefined} tabIndex={readOnly ? -1 : 0} onClick={onSelect} onFocusCapture={onSelect}
       onKeyDown={(e) => { if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); onSelect(); } }}
-      className={`relative outline outline-2 -outline-offset-2 transition-[outline-color] focus-visible:outline-[#6C60FF]/60 ${selected ? 'outline-[#6C60FF]' : 'outline-transparent hover:outline-[#6C60FF]/30'}`}>
+      data-nl-header-locked={locked ? '' : undefined}
+      className={`relative outline outline-2 -outline-offset-2 transition-[outline-color] focus-visible:outline-[#6C60FF]/60 ${selected && !locked ? 'outline-[#6C60FF]' : locked ? 'outline-transparent' : 'outline-transparent hover:outline-[#6C60FF]/30'}`}>
       <div style={{ backgroundColor: color }}>
         {banner ? <img src={banner} alt={title} className="block h-auto w-full" /> : null}
         {title || logo || placeholder || picture ? (
@@ -96,6 +101,7 @@ export default function HeaderEditor({ header, onChange, selected, onSelect, onD
           </div>
         ) : null}
       </div>
+      {locked ? <p data-nl-header-note="" className={`${padClass} pt-2 text-center text-xs text-gray-500`}>{lockedNote}</p> : null}
       {logoUpload.input}
       {pictureUpload.input}
       {selected && !readOnly ? (

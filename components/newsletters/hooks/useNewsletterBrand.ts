@@ -26,6 +26,8 @@ const normalise = (b: NewsletterBrand): NewsletterBrand => ({
   // Chris, 6 Nov: the colours picked with Custom (RecentColors). Left out when the API has none to give.
   ...(Array.isArray(b.recent_colors) ? { recent_colors: recentColorsFrom(b.recent_colors) } : {}),
   type_scale: storedScale(b.type_scale),
+  // A property account (Chris, 12 Nov): the header is the main account's, locked.
+  ...(b.header_locked && typeof b.header_locked.message === 'string' ? { header_locked: b.header_locked } : {}),
 });
 
 export const DEFAULT_MESSAGE_ERROR = "Your default message couldn't be saved. Try again.";

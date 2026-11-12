@@ -37,6 +37,8 @@ export interface NewsletterEditorProps {
   savedBlocks?: NewsletterBlock[];
   /** False while the composer is hidden (the Storeel tab shows): Escape is not this editor's then. */
   active?: boolean;
+  /** A property account (Chris, 12 Nov): the header is the main account's; this line says so and the header can't be edited. */
+  headerLockedNote?: string | null;
 }
 
 const HEADER_ID = '__header__';
@@ -108,7 +110,7 @@ const BlockRow = memo(function BlockRow({ block, index, count, canUp, canDown, s
  * shown.
  */
 export default function NewsletterEditor({
-  draft, readOnly, device, profile, businessAddress, showProblems, fieldErrors, onChange, onHeaderChange, onSaveAddress, savedBlocks, active = true,
+  draft, readOnly, device, profile, businessAddress, showProblems, fieldErrors, onChange, onHeaderChange, onSaveAddress, savedBlocks, active = true, headerLockedNote = null,
 }: NewsletterEditorProps) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -330,7 +332,8 @@ export default function NewsletterEditor({
           <p className="mb-3 text-center text-xs text-gray-500"><span className="underline">View in browser</span></p>
           <div className="mx-auto w-full max-w-[600px] overflow-hidden rounded-2xl border border-[#ECEDF3] bg-white">
             <HeaderEditor header={draft.header} onChange={onHeaderChange} selected={selectedId === HEADER_ID}
-              onSelect={() => { if (!readOnly) select(HEADER_ID); }} onDone={() => deselect(true)} readOnly={readOnly} padClass={padClass} />
+              onSelect={() => { if (!readOnly && !headerLockedNote) select(HEADER_ID); }} onDone={() => deselect(true)} readOnly={readOnly} padClass={padClass}
+              lockedNote={headerLockedNote} />
             {/* No room under a full-bleed picture that ends the email: the e-card follows it directly, as in the email. */}
             <div className={`pt-3 ${lastBleed ? '' : 'pb-3'}`}>
               {/* The Message section is always first under the header: no + above it. */}
