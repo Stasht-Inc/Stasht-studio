@@ -884,6 +884,26 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
     }
   };
 
+  // "Join" a lead someone else on the team claimed (Chris 13 Nov 2026 evening): it opens for them to read and reply as
+  // themselves. The claimer keeps it (the row stays "Claimed"); the list reloads to show its messages and unread.
+  const handleJoin = async (lead: Lead) => {
+    try {
+      const res = await leadsAPI.joinLead(lead.id);
+      if (res.success) {
+        toast.dismiss(); // the "Claimed by …" toast the Join may have come from
+        const joined: Lead = { ...lead, joined: true, can_join: false, can_open: true, can_message: true, is_rollup: false, can_mark_unread: true };
+        patchLead(lead.id, joined);
+        onLeadSelect(joined);
+        fetchLeads(undefined, undefined, undefined, undefined, undefined, undefined, undefined, { silent: true });
+        window.dispatchEvent(new CustomEvent('leads-unread-count-refresh'));
+        return;
+      }
+      toast.error("Couldn't join it");
+    } catch {
+      toast.error("Couldn't join it");
+    }
+  };
+
   // Delete and Close ask first (LeadConfirmDialog); Reopen is harmless and runs straight away.
   const [confirming, setConfirming] = useState<{ kind: LeadConfirmKind; lead: Lead } | null>(null);
   const runConfirmed = async (): Promise<boolean> => {
@@ -1625,6 +1645,7 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
           onMarkRead={handleMarkRead}
           onLeadPatched={patchLead}
           onRemove={handleRemoveFromList}
+          onJoin={handleJoin}
         />
 
         {/* Pagination footer */}

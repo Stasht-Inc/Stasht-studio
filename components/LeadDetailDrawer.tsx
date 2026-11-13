@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
-import { Mail, Phone, MessageSquare, X, Paperclip, Send, ChevronDown, Smile, RefreshCw, Eye, Sparkles, Search, Heart, Gift, Calendar, MessageCircle, ThumbsUp, TrendingUp, Lightbulb, FileText, UserRound, Plus, ChevronLeft } from 'lucide-react';
+import { Mail, Phone, MessageSquare, X, Paperclip, Send, ChevronDown, Smile, RefreshCw, Eye, Sparkles, Search, Heart, Gift, Calendar, MessageCircle, ThumbsUp, TrendingUp, Lightbulb, FileText, UserRound, Plus, ChevronLeft, Check, UserPlus } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from './ui/avatar';
-import { Lead, LeadMessage, LeadMessageAttachment, leadsAPI, CommentaryTarget, messageChannelLabel, WidgetAiState } from '../services/leadsAPI';
+import { Lead, LeadMessage, LeadMessageAttachment, LeadThreadEvent, leadsAPI, CommentaryTarget, messageChannelLabel, WidgetAiState } from '../services/leadsAPI';
 import { listAddedAt } from '../utils/leadVia';
 import { useAuth } from '../contexts/AuthContext';
 import { useMemoryLimit, recheckMemoryLimit } from '../hooks/useMemoryLimit';
@@ -77,6 +77,11 @@ function getTimeAgo(dateString: string): string {
 function getDaysAsLead(firstSeen: string): number {
   if (!firstSeen) return 0;
   return Math.floor((Date.now() - new Date(firstSeen).getTime()) / (1000 * 60 * 60 * 24));
+}
+
+// The 5 s refresh only re-renders the "joined" lines when they changed.
+function sameEvents(a: LeadThreadEvent[], b: LeadThreadEvent[]): boolean {
+  return a.length === b.length && a.every((e, i) => e.user_id === b[i].user_id && e.at === b[i].at);
 }
 
 function formatShortDate(dateString: string): string {
@@ -203,6 +208,9 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
   const [currentStatus, setCurrentStatus] = useState<'hot' | 'warm' | 'cold' | 'visited' | 'sold' | null>(null);
   const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
   const [messages, setMessages] = useState<LeadMessage[]>([]);
+  // "Linda joined" lines (Chris 13 Nov 2026 evening), and the header's "Read" button while its request runs.
+  const [threadEvents, setThreadEvents] = useState<LeadThreadEvent[]>([]);
+  const [markingUnread, setMarkingUnread] = useState(false);
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
   const [message, setMessage] = useState('');
   const [subject, setSubject] = useState('');
@@ -328,6 +336,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
       replyIdemKeysRef.current = {};
       setVisitorOnline(false);
       setChatNotice(null);
+      setThreadEvents([]);
       setWidgetAiState(null);
       autoChatBlockedRef.current = false;
       if (scrollBodyRef.current) scrollBodyRef.current.scrollTop = 0;
@@ -385,6 +394,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
         if (cancelled || !res.success || !res.data?.messages) return;
         setVisitorOnline(!!res.data.visitor_online);
         setWidgetAi(res.data.widget_ai);
+        setThreadEvents((prev) => (sameEvents(prev, res.data?.events ?? []) ? prev : (res.data?.events ?? [])));
         const next = res.data.messages;
         const prev = messagesRef.current;
         const unchanged = next.length === prev.length
@@ -440,9 +450,11 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
       const res = await leadsAPI.getMessages(leadId, true);
       if (res.success && res.data?.messages) {
         setMessages(res.data.messages);
+        setThreadEvents(res.data.events ?? []);
         setVisitorOnline(!!res.data.visitor_online);
         setWidgetAi(res.data.widget_ai);
       }
+      // mark-read also takes away this person's "marked unread" (theirs only, 13 Nov 2026 evening);
       // mark-read also clears this user's bell notifications for the lead.
       leadsAPI.markRead(leadId).then(() => window.dispatchEvent(new CustomEvent('notifications-count-refresh')));
       leadsAPI.markCommentsRead(leadId);
@@ -452,6 +464,26 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
     } finally {
       messagesFetched.current = true;
       setIsLoadingMessages(false);
+    }
+  };
+
+  // The header's "Read" button (Chris 13 Nov 2026 evening): unread for everyone on the team until each of them opens it.
+  // The conversation closes, as in an email inbox, so the list shows it unread; staying open would read it again.
+  const handleMarkUnread = async () => {
+    if (!lead || markingUnread) return;
+    setMarkingUnread(true);
+    try {
+      const res = await leadsAPI.markUnread(lead.id);
+      if (res.success) {
+        toast.success('Marked unread');
+        onClose();
+        return;
+      }
+      toast.error("Couldn't mark it unread");
+    } catch {
+      toast.error("Couldn't mark it unread");
+    } finally {
+      setMarkingUnread(false);
     }
   };
 
@@ -1154,6 +1186,21 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
                 Correspondence
               </p>
               <div className="flex items-center gap-1.5">
+                {lead.can_mark_unread && (
+                  // Chris 13 Nov 2026: "Add ✓ Read button to the left of search. When you tap it, it goes to unread" — for
+                  // everyone on the team, until each of them opens it.
+                  <button
+                    onClick={handleMarkUnread}
+                    disabled={markingUnread}
+                    aria-label="Read. Mark as unread for everyone"
+                    title="Mark unread for everyone"
+                    data-testid="lead-read-toggle"
+                    className="h-10 px-3 flex items-center gap-1.5 rounded-md border border-gray-200 text-sm font-medium text-gray-500 hover:text-gray-900 hover:border-gray-400 hover:bg-gray-100 disabled:opacity-40 transition-colors"
+                  >
+                    <Check className="w-4 h-4" />
+                    Read
+                  </button>
+                )}
                 <button
                   onClick={() => {
                     setShowSearch((v) => !v);
@@ -1212,7 +1259,8 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
               const topLevelMessageItems = topLevelMessages
                 .filter((m) => !q || m.body?.toLowerCase().includes(q) || m.subject?.toLowerCase().includes(q))
                 .map((m) => ({ _type: 'message' as const, _date: new Date(m.sent_at).getTime(), data: m }));
-              const topLevel = [...commentItems, ...topLevelMessageItems].sort((a, b) => a._date - b._date);
+              const eventItems = q ? [] : threadEvents.map((e) => ({ _type: 'event' as const, _date: new Date(e.at).getTime(), data: e }));
+              const topLevel = [...commentItems, ...topLevelMessageItems, ...eventItems].sort((a, b) => a._date - b._date);
 
               return (
                 <div>
@@ -1245,6 +1293,18 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
                   )}
 
                   {topLevel.map((item) => {
+                      if (item._type === 'event') {
+                        const e = item.data;
+                        return (
+                          <div key={`event-${e.type}-${e.user_id}-${e.at}`} className="flex items-center gap-2 py-2.5" data-testid="thread-event">
+                            <div className="h-8 w-8 rounded-full bg-gray-100 flex items-center justify-center shrink-0">
+                              <UserPlus className="w-4 h-4 text-gray-400" />
+                            </div>
+                            <span className="text-sm text-gray-600 flex-1">{e.body}</span>
+                            <span className="text-sm text-gray-600 shrink-0">{formatShortDate(e.at)}</span>
+                          </div>
+                        );
+                      }
                       if (item._type === 'comment') {
                         const c = item.data;
                         const childComments = comments.filter((ch) => ch.parent_id === c.id);

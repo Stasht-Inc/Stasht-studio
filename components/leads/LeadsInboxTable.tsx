@@ -1,6 +1,6 @@
 import { toast } from 'sonner';
 import {
-  ArchiveRestore, Check, CheckCheck, Copy, ExternalLink, Eye, EyeOff, MessageSquare, MoreHorizontal, Trash2,
+  ArchiveRestore, Check, CheckCheck, Copy, ExternalLink, Eye, EyeOff, MessageSquare, MoreHorizontal, Trash2, UserPlus,
 } from 'lucide-react';
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
@@ -41,12 +41,15 @@ interface Props {
   onLeadPatched: (leadId: number, patch: Partial<Lead>) => void;
   // "Remove" on a lead someone else claimed: off this person's list only (Chris 13 Nov 2026).
   onRemove?: (lead: Lead) => void;
+  // "Join" a lead someone else claimed: read and reply as yourself (Chris 13 Nov 2026 evening).
+  onJoin?: (lead: Lead) => void;
 }
 
-// A claimed lead this person may no longer open (a Partial Admin's, a salesperson's): its row says who has it instead.
-function openOrSayClaimed(lead: Lead, onSelect: (lead: Lead) => void) {
+// A claimed lead this person may no longer open (a Partial Admin's, a salesperson's): its row says who has it instead,
+// with Join when they may join it.
+function openOrSayClaimed(lead: Lead, onSelect: (lead: Lead) => void, onJoin?: (lead: Lead) => void) {
   if (lead.can_open === false) {
-    toast(claimedTitle(lead));
+    toast(claimedTitle(lead), lead.can_join && onJoin ? { action: { label: 'Join', onClick: () => onJoin(lead) } } : undefined);
     return;
   }
   onSelect(lead);
@@ -112,7 +115,7 @@ function phoneCardClass(selected: boolean, unread: boolean): string {
   return `${tone} ${unread ? 'border-l-[3px] border-l-[#6C60FF] pl-[calc(0.875rem-2px)]' : ''}`;
 }
 
-type ActionProps = Pick<Props, 'isClosedTab' | 'onSelect' | 'onArchive' | 'onDelete' | 'onMarkRead' | 'onLeadPatched' | 'onRemove'> & { lead: Lead };
+type ActionProps = Pick<Props, 'isClosedTab' | 'onSelect' | 'onArchive' | 'onDelete' | 'onMarkRead' | 'onLeadPatched' | 'onRemove' | 'onJoin'> & { lead: Lead };
 
 // "(…)": a little more about the lead, plus the less-used actions.
 function MoreMenu({ lead, onSelect, onDelete, onMarkRead }: ActionProps) {
@@ -189,10 +192,27 @@ function RemoveButton({ lead, onRemove }: Pick<ActionProps, 'lead' | 'onRemove'>
   return <RowActionButton label="Remove" icon={EyeOff} tone="neutral" onClick={() => onRemove(lead)} data-testid="lead-remove" />;
 }
 
+// Always visible next to the "Claimed" chip (not a hover action), gray like the chip (Chris: active states gray).
+function JoinPill({ lead, onJoin, className = '' }: Pick<ActionProps, 'lead' | 'onJoin'> & { className?: string }) {
+  if (!lead.can_join || !onJoin) return null;
+  return (
+    <button
+      type="button"
+      onClick={(e) => { e.stopPropagation(); onJoin(lead); }}
+      title="Join to read and reply"
+      data-testid="lead-join"
+      className={`shrink-0 inline-flex items-center gap-1 rounded-full border border-gray-300 bg-white font-medium text-gray-700 hover:bg-gray-200 hover:text-gray-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 transition-colors ${className}`}
+    >
+      <UserPlus className="w-3.5 h-3.5" />
+      Join
+    </button>
+  );
+}
+
 function RowActions(props: ActionProps & { className: string }) {
   const { lead, isClosedTab, onSelect, onArchive, onLeadPatched, onRemove, className } = props;
   const readOnly = !!lead.is_rollup;
-  // Claimed by someone else and no longer theirs to open: only Remove.
+  // Claimed by someone else and no longer theirs to open: only Remove (Join sits by the chip).
   if (lead.can_open === false) {
     return (
       <div className={`items-center gap-0.5 shrink-0 ${className}`} onClick={(e) => e.stopPropagation()}>
@@ -222,7 +242,7 @@ function RowActions(props: ActionProps & { className: string }) {
 }
 
 export default function LeadsInboxTable(props: Props) {
-  const { leads, isLoading, error, emptyState, selectedLeadId, onSelect } = props;
+  const { leads, isLoading, error, emptyState, selectedLeadId, onSelect, onJoin } = props;
 
   const status = isLoading ? (
     <div className="flex items-center justify-center gap-2 py-12">
@@ -276,11 +296,11 @@ export default function LeadsInboxTable(props: Props) {
                 <tr
                   key={lead.id}
                   tabIndex={0}
-                  onClick={() => openOrSayClaimed(lead, onSelect)}
+                  onClick={() => openOrSayClaimed(lead, onSelect, onJoin)}
                   onKeyDown={(e) => {
                     if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) {
                       e.preventDefault();
-                      openOrSayClaimed(lead, onSelect);
+                      openOrSayClaimed(lead, onSelect, onJoin);
                     }
                   }}
                   className={`group cursor-pointer transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#6C60FF] ${rowBackground(selected, unread)} ${unread ? 'font-semibold' : ''}`}
@@ -311,9 +331,9 @@ export default function LeadsInboxTable(props: Props) {
                   </td>
                   <td className={`${CELL} font-normal`}>
                     <div className="flex items-center justify-between gap-3 min-w-0">
-                      <span className="min-w-0 flex items-center">
+                      <span className="min-w-0 flex items-center gap-1.5">
                         {lead.claimed
-                          ? <ClaimedBadge lead={lead} className="group-hover:hidden group-focus-within:hidden group-has-[[data-state=open]]:hidden" />
+                          ? <><ClaimedBadge lead={lead} className="group-hover:hidden group-focus-within:hidden group-has-[[data-state=open]]:hidden" /><JoinPill lead={lead} onJoin={onJoin} className="h-6 px-2 text-[12px]" /></>
                           : lead.waiting
                           // Steps aside for the row's actions on hover, like the assignee's name.
                           ? <OpenBadge lead={lead} className="group-hover:hidden group-focus-within:hidden group-has-[[data-state=open]]:hidden" />
@@ -341,7 +361,7 @@ export default function LeadsInboxTable(props: Props) {
           return (
             <div
               key={lead.id}
-              onClick={() => openOrSayClaimed(lead, onSelect)}
+              onClick={() => openOrSayClaimed(lead, onSelect, onJoin)}
               className={`rounded-xl border px-3.5 pt-3 pb-1.5 cursor-pointer transition-colors min-w-0 ${phoneCardClass(selected, unread)}`}
             >
               <div className="flex items-center justify-between gap-2 min-w-0">
@@ -362,7 +382,7 @@ export default function LeadsInboxTable(props: Props) {
                 </span>
                 <div className="flex items-center gap-1 shrink-0 -mr-2.5">
                   {lead.claimed
-                    ? <ClaimedBadge lead={lead} />
+                    ? <><ClaimedBadge lead={lead} /><JoinPill lead={lead} onJoin={onJoin} className="h-8 px-3 text-[13px] mr-1" /></>
                     : lead.waiting
                     ? <OpenBadge lead={lead} />
                     : lead.assignee && <AssigneeBadge assignee={lead.assignee} size="sm" nameClassName="hidden" />}
