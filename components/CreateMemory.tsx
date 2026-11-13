@@ -2152,7 +2152,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
   const previewMoments = savedMomentsList ? orderMoments(flowCampaign?.previewMoments ?? [], []) : orderMoments(createMoments, momentOrder);
   const shownPlacedKeys = previewMoments.filter(isOrderable).map((m) => m.key);
 
-  /** The Moderation switch's value: the person's choice, else the campaign's, else the account's (on by default). */
+  /** The Moderation switch's value: the person's choice, else the campaign's, else off (13 Nov). */
   const moderationOn = shownModeration({ choice: moderationChoice, campaign: flowCampaign?.moderation ?? null, account: accountModeration });
 
   /** Just created: give its moments the shown order (GET it, match its moments to the form's, PUT the order). */

@@ -2470,7 +2470,7 @@ function NotificationPreferences({ sectionRef, isEditing, onEditToggle }: {
                 <div className="flex items-center justify-between">
                   <div>
                     <span className="text-gray-700">Enable Moderation Tab</span>
-                    <p className="text-sm text-gray-500 mt-1">Show or hide the moderation tab in your campaigns</p>
+                    <p className="text-sm text-gray-500 mt-1">Moderation is now set per campaign — use the Moderation switch on its QR code or campaign page.</p>
                   </div>
                   <button
                     onClick={() => setModerationEnabled(prev => !prev)}
@@ -2604,7 +2604,7 @@ function NotificationPreferences({ sectionRef, isEditing, onEditToggle }: {
               <div className="flex justify-between items-center">
                 <div>
                   <span className="text-gray-700">Enable Moderation Tab:</span>
-                  <p className="text-xs text-gray-500 mt-1">Show or hide the moderation tab in your campaigns</p>
+                  <p className="text-xs text-gray-500 mt-1">Moderation is now set per campaign — use the Moderation switch on its QR code or campaign page.</p>
                 </div>
                 <button
                   onClick={() => setModerationEnabled(prev => !prev)}

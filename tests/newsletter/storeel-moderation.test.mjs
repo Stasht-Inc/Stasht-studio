@@ -18,7 +18,8 @@ test('what the switch shows: the person’s choice, else the campaign’s, else 
   assert.equal(shownModeration({ choice: false, campaign: true, account: true }), false);
   assert.equal(shownModeration({ choice: null, campaign: false, account: true }), false);
   assert.equal(shownModeration({ choice: null, campaign: null, account: false }), false);
-  assert.equal(shownModeration({ choice: null, campaign: null, account: null }), true);
+  assert.equal(shownModeration({ choice: null, campaign: null, account: null }), false, '13 Nov: no value = off');
+  assert.equal(shownModeration({ choice: null, campaign: null, account: true }), false, '13 Nov: the account setting no longer turns it on');
 });
 
 test("Edit: the campaign's effective value from GET /memories/{id} (moderation_effective, else its own value)", () => {
@@ -32,7 +33,7 @@ test("Edit: the campaign's effective value from GET /memories/{id} (moderation_e
 test("the campaign page's Moderation tab follows the campaign's effective value (role 2), as before otherwise", () => {
   assert.equal(moderationTabVisible({ role: '2', isOwner: true, loaded: true, campaign: false, account: true }), false);
   assert.equal(moderationTabVisible({ role: '2', isOwner: true, loaded: true, campaign: true, account: false }), true);
-  assert.equal(moderationTabVisible({ role: '2', isOwner: true, loaded: true, campaign: null, account: true }), true);
+  assert.equal(moderationTabVisible({ role: '2', isOwner: true, loaded: true, campaign: null, account: true }), false, '13 Nov: no value = off');
   assert.equal(moderationTabVisible({ role: '2', isOwner: true, loaded: false, campaign: true, account: true }), false, 'waits for the account answer');
   assert.equal(moderationTabVisible({ role: '2', isOwner: false, loaded: true, campaign: true, account: true }), false);
   assert.equal(moderationTabVisible({ role: '1', isOwner: true, loaded: true, campaign: false, account: false }), true);

@@ -1,5 +1,6 @@
-// Chris, 7 Nov 2026 (point 12): Moderation per campaign. memories.moderation_enabled NULL = follow the account's
-// setting (notification_preferences.moderation_enabled); 1 / 0 = the campaign's own choice. Pure, so `node --test` loads it.
+// Chris, 7 Nov 2026 (point 12): Moderation per campaign. memories.moderation_enabled 1 = on; 0 or NULL = off (Chris /
+// Deepak 13 Nov: the account's notification_preferences.moderation_enabled no longer moderates campaigns). Pure, so
+// `node --test` loads it.
 
 /** GET /user/notification-preferences: the account's moderation setting — on unless it says off (as the campaign page assumes). */
 export function accountModerationFrom(res: unknown): boolean {
@@ -9,9 +10,9 @@ export function accountModerationFrom(res: unknown): boolean {
   return v === false || v === 0 || v === '0' ? false : true;
 }
 
-/** What the Storeel page's switch shows: the person's choice, else the campaign's value, else the account's, else on. */
-export function shownModeration({ choice, campaign, account }: { choice: boolean | null; campaign: boolean | null; account: boolean | null }): boolean {
-  return choice ?? campaign ?? account ?? true;
+/** What the Storeel page's switch shows: the person's choice, else the campaign's value, else off (13 Nov; `account` is ignored). */
+export function shownModeration({ choice, campaign }: { choice: boolean | null; campaign: boolean | null; account?: boolean | null }): boolean {
+  return choice ?? campaign ?? false;
 }
 
 /** A campaign's moderation from GET /memories/{id}: moderation_effective, else its own value, else unknown (null). */
@@ -25,7 +26,7 @@ export function campaignModerationOf(memory: Record<string, any> | null | undefi
 
 /**
  * The campaign page's Moderation tab. Role 3 / 4: never. Role 2: the owner, once the account's setting has loaded, when
- * the campaign's effective value is on (its own value, else the account's) — or while items still wait for approval,
+ * the campaign's effective value is on (its own value; none = off since 13 Nov) — or while items still wait for approval,
  * so turning moderation off never strands them (review M1). Other roles: the owner (as before).
  */
 export function moderationTabVisible({ role, isOwner, loaded, campaign, account, pending = 0 }: {
@@ -33,7 +34,8 @@ export function moderationTabVisible({ role, isOwner, loaded, campaign, account,
 }): boolean {
   const r = String(role ?? '');
   if (r === '3' || r === '4') return false;
-  if (r === '2') return loaded && isOwner && ((campaign ?? account) || pending > 0);
+  void account; // kept in the signature; no longer decides (13 Nov)
+  if (r === '2') return loaded && isOwner && ((campaign ?? false) || pending > 0);
   return isOwner;
 }
 
