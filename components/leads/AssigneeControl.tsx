@@ -15,7 +15,7 @@ import OpenBadge from './OpenBadge';
 //  - anyone else sees the assignee, or an "Accept" button when nobody has it.
 // Parents apply `onChanged` as a patch to their copy of the lead.
 
-const ROLE_LABEL: Record<string, string> = { owner: 'Owner', admin: 'Admin', rep: 'Rep', partial_admin: 'Partial Admin' };
+const ROLE_LABEL: Record<string, string> = { owner: 'Owner', admin: 'Admin', rep: 'Rep', partial_admin: 'Partial Admin', external: 'External' };
 
 export function avatarColor(color: string | null | undefined): string {
   if (!color) return '#6C60FF';

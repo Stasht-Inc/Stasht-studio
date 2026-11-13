@@ -1,6 +1,6 @@
 import { toast } from 'sonner';
 import {
-  ArchiveRestore, Check, CheckCheck, Copy, ExternalLink, Eye, MessageSquare, MoreHorizontal, Trash2,
+  ArchiveRestore, Check, CheckCheck, Copy, ExternalLink, Eye, EyeOff, MessageSquare, MoreHorizontal, Trash2,
 } from 'lucide-react';
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
@@ -13,6 +13,7 @@ import RowActionButton from './RowActionButton';
 import CampaignDeletedTag from './CampaignDeletedTag';
 import LeadBusinessTag from './LeadBusinessTag';
 import OpenBadge, { openTitle } from './OpenBadge';
+import ClaimedBadge, { claimedTitle } from './ClaimedBadge';
 import {
   formatInboxDate, formatInboxDateMedium, formatInboxDateShort, inboxExcerpt, isUnread, leadEmail, leadPhone,
 } from '../../utils/leadInbox';
@@ -38,6 +39,17 @@ interface Props {
   onDelete: (lead: Lead) => void;
   onMarkRead: (lead: Lead) => void;
   onLeadPatched: (leadId: number, patch: Partial<Lead>) => void;
+  // "Remove" on a lead someone else claimed: off this person's list only (Chris 13 Nov 2026).
+  onRemove?: (lead: Lead) => void;
+}
+
+// A claimed lead this person may no longer open (a Partial Admin's, a salesperson's): its row says who has it instead.
+function openOrSayClaimed(lead: Lead, onSelect: (lead: Lead) => void) {
+  if (lead.can_open === false) {
+    toast(claimedTitle(lead));
+    return;
+  }
+  onSelect(lead);
 }
 
 // Hover actions show while the row is hovered, has focus, or one of its menus
@@ -100,7 +112,7 @@ function phoneCardClass(selected: boolean, unread: boolean): string {
   return `${tone} ${unread ? 'border-l-[3px] border-l-[#6C60FF] pl-[calc(0.875rem-2px)]' : ''}`;
 }
 
-type ActionProps = Pick<Props, 'isClosedTab' | 'onSelect' | 'onArchive' | 'onDelete' | 'onMarkRead' | 'onLeadPatched'> & { lead: Lead };
+type ActionProps = Pick<Props, 'isClosedTab' | 'onSelect' | 'onArchive' | 'onDelete' | 'onMarkRead' | 'onLeadPatched' | 'onRemove'> & { lead: Lead };
 
 // "(…)": a little more about the lead, plus the less-used actions.
 function MoreMenu({ lead, onSelect, onDelete, onMarkRead }: ActionProps) {
@@ -136,7 +148,7 @@ function MoreMenu({ lead, onSelect, onDelete, onMarkRead }: ActionProps) {
           {lead.campaign_deleted && <CampaignDeletedTag />}
           <p className="text-xs text-gray-600">First seen {formatInboxDateShort(lead.first_seen_at)}</p>
           <p className="text-xs text-gray-600 truncate">
-            {lead.waiting ? <span title={openTitle(lead)}>Open</span> : lead.assignee ? `Assigned to ${lead.assignee.name ?? 'a teammate'}` : 'Unassigned'}
+            {lead.claimed ? claimedTitle(lead) : lead.waiting ? <span title={openTitle(lead)}>Open</span> : lead.assignee ? `Assigned to ${lead.assignee.name ?? 'a teammate'}` : 'Unassigned'}
           </p>
           {lead.is_rollup && <p className="text-xs text-gray-500">Accept this lead to reply or close it</p>}
         </div>
@@ -172,11 +184,25 @@ function MoreMenu({ lead, onSelect, onDelete, onMarkRead }: ActionProps) {
   );
 }
 
+function RemoveButton({ lead, onRemove }: Pick<ActionProps, 'lead' | 'onRemove'>) {
+  if (!lead.claimed || !lead.can_remove || !onRemove) return null;
+  return <RowActionButton label="Remove" icon={EyeOff} tone="neutral" onClick={() => onRemove(lead)} data-testid="lead-remove" />;
+}
+
 function RowActions(props: ActionProps & { className: string }) {
-  const { lead, isClosedTab, onSelect, onArchive, onLeadPatched, className } = props;
+  const { lead, isClosedTab, onSelect, onArchive, onLeadPatched, onRemove, className } = props;
   const readOnly = !!lead.is_rollup;
+  // Claimed by someone else and no longer theirs to open: only Remove.
+  if (lead.can_open === false) {
+    return (
+      <div className={`items-center gap-0.5 shrink-0 ${className}`} onClick={(e) => e.stopPropagation()}>
+        <RemoveButton lead={lead} onRemove={onRemove} />
+      </div>
+    );
+  }
   return (
     <div className={`items-center gap-0.5 shrink-0 ${className}`} onClick={(e) => e.stopPropagation()}>
+      <RemoveButton lead={lead} onRemove={onRemove} />
       {!readOnly && (
         <RowActionButton
           label={isClosedTab ? 'Reopen lead' : 'Close lead'}
@@ -250,11 +276,11 @@ export default function LeadsInboxTable(props: Props) {
                 <tr
                   key={lead.id}
                   tabIndex={0}
-                  onClick={() => onSelect(lead)}
+                  onClick={() => openOrSayClaimed(lead, onSelect)}
                   onKeyDown={(e) => {
                     if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) {
                       e.preventDefault();
-                      onSelect(lead);
+                      openOrSayClaimed(lead, onSelect);
                     }
                   }}
                   className={`group cursor-pointer transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#6C60FF] ${rowBackground(selected, unread)} ${unread ? 'font-semibold' : ''}`}
@@ -286,7 +312,9 @@ export default function LeadsInboxTable(props: Props) {
                   <td className={`${CELL} font-normal`}>
                     <div className="flex items-center justify-between gap-3 min-w-0">
                       <span className="min-w-0 flex items-center">
-                        {lead.waiting
+                        {lead.claimed
+                          ? <ClaimedBadge lead={lead} className="group-hover:hidden group-focus-within:hidden group-has-[[data-state=open]]:hidden" />
+                          : lead.waiting
                           // Steps aside for the row's actions on hover, like the assignee's name.
                           ? <OpenBadge lead={lead} className="group-hover:hidden group-focus-within:hidden group-has-[[data-state=open]]:hidden" />
                           : lead.assignee
@@ -313,7 +341,7 @@ export default function LeadsInboxTable(props: Props) {
           return (
             <div
               key={lead.id}
-              onClick={() => onSelect(lead)}
+              onClick={() => openOrSayClaimed(lead, onSelect)}
               className={`rounded-xl border px-3.5 pt-3 pb-1.5 cursor-pointer transition-colors min-w-0 ${phoneCardClass(selected, unread)}`}
             >
               <div className="flex items-center justify-between gap-2 min-w-0">
@@ -333,7 +361,9 @@ export default function LeadsInboxTable(props: Props) {
                   {lead.campaign_deleted && <CampaignDeletedTag />}
                 </span>
                 <div className="flex items-center gap-1 shrink-0 -mr-2.5">
-                  {lead.waiting
+                  {lead.claimed
+                    ? <ClaimedBadge lead={lead} />
+                    : lead.waiting
                     ? <OpenBadge lead={lead} />
                     : lead.assignee && <AssigneeBadge assignee={lead.assignee} size="sm" nameClassName="hidden" />}
                   {/* 40px tap targets on phones; the icons stay the same size. */}

@@ -128,6 +128,11 @@ export interface Lead {
   // view, not as the owner's. released_from: the person it was released from when they were offline and the visitor wrote again.
   waiting?: boolean;
   released_from?: { id: number; name: string | null } | null;
+  // Someone else on the team has it (Chris 13 Nov 2026): shown "Claimed" (who: assignee). can_open false: this person
+  // may no longer open it (no message text is sent). can_remove: "Remove" hides it from their own list only.
+  claimed?: boolean;
+  can_open?: boolean;
+  can_remove?: boolean;
   // Shared note (ClickUp wdy2xh13mn): readable by anyone who sees the lead.
   notes?: string | null;
   notes_updated_at?: string | null;
@@ -375,6 +380,11 @@ export const leadsAPI = {
     return apiRequest<{ lead_id: number; assignee: LeadAssignee | null; taken_by?: LeadAssignee; message?: string; can_assign?: boolean }>(
       `/leads/${leadId}/accept`, { method: 'POST' },
     );
+  },
+
+  // A lead someone else on the team claimed: hide it from MY list only (Chris 13 Nov 2026). Nothing is deleted.
+  removeFromMyList: async (leadId: number) => {
+    return apiRequest<{ lead_id: number; removed: boolean }>(`/leads/${leadId}/remove-from-my-list`, { method: 'POST' });
   },
 
   assignLead: async (leadId: number, userId: number | null) => {

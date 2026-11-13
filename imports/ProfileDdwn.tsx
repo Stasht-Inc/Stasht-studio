@@ -13,7 +13,7 @@ import { useProperty } from "../contexts/PropertyContext";
 import useAlvinEnabled from "../components/alvin/useAlvinEnabled";
 import { Camera } from "lucide-react";
 import { PROPERTY_IMAGE_ACCEPT, canChangePropertyImage, propertyAvatarImage, propertyImageErrorMessage, propertyImageFileError } from "../utils/propertyImage";
-import { externalRowAvatar, groupPropertyAccounts, groupedPropertyCounts, isOwnExternalProperty, propertyAccountGroups, signedInUserOr } from "../utils/salespersonLanding";
+import { externalRowAvatar, groupPropertyAccounts, groupedPropertyCounts, isExternalOnlyRow, isOwnExternalProperty, propertyAccountGroups, signedInUserOr } from "../utils/salespersonLanding";
 import { planKey } from "../utils/effectivePlan";
 
 // __APP_BUILD_TIME__ is injected at build time (see vite.config.ts's `define`)
@@ -879,8 +879,9 @@ export function ProfileDropdownMenu({ isOpen, onClose, user, onShowProfileSettin
           Alvin AI
         </button>}
 
-        {/* Back to Primary Account - Only show when viewing property */}
-        {viewType === 'property' && switchToPersonal ? (
+        {/* Back to Primary Account - Only show when viewing property. Never for an external-only account (13 Nov 2026):
+            its External view is its account, so it gets the account's own menu (Billing, Settings) instead. */}
+        {viewType === 'property' && switchToPersonal && !isExternalOnlyRow(currentProperty, signedInUserOr(authUser ?? user)) ? (
           <button
             onClick={() => {
               switchToPersonal();

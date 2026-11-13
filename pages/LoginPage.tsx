@@ -20,6 +20,7 @@ import { getInviteParams, isEmail, isPhoneNumber, isCorrectCollaborator } from '
 import { parsePhonePrefill } from '../utils/phoneUtils';
 import { AccountChoiceModal, getAdminCollaborator, AdminCollaborator } from '../components/AccountChoiceModal';
 import { clearAccountState } from '../utils/accountState';
+import { landsStraightInExternal } from '../utils/salespersonLanding';
 import { isInstalledAppWindow } from '../utils/appLaunch';
 
 interface LoginPageProps {
@@ -604,7 +605,9 @@ export default function LoginPage({ onLogin, onSwitchToSignup, onSocialLogin }: 
         // 4. Check if user should see account choice modal
         const hasAdminCollaborators = allAdminCollaborators.length > 0;
         const hasProperties = ownedProperties.length > 0 || sharedProperties.length > 0;
-        const shouldShowAccountChoice = hasAdminCollaborators || hasProperties;
+        // An external-only account (13 Nov 2026) with nothing else to choose opens its External view straight away.
+        const externalOnlyId = landsStraightInExternal([...ownedProperties, ...sharedProperties], allAdminCollaborators.length, response.user);
+        const shouldShowAccountChoice = (hasAdminCollaborators || hasProperties) && !externalOnlyId;
 
         console.log('🔐 LoginPage: Account choice check:', { hasAdminCollaborators, hasProperties, shouldShowAccountChoice });
 
@@ -630,6 +633,7 @@ export default function LoginPage({ onLogin, onSwitchToSignup, onSocialLogin }: 
         // Store auth data directly (same as AuthContext does). A direct sign-in has no account to switch back to.
         localStorage.removeItem('admin_switch_data');
         clearAccountState(); // nothing of a previous sign-in (property view, plan picker flag) carries over
+        if (externalOnlyId) localStorage.setItem('pending_property_switch', externalOnlyId);
         localStorage.setItem('stasht_user', JSON.stringify(response.user));
         localStorage.setItem('stasht_token', response.token);
 
@@ -909,7 +913,9 @@ export default function LoginPage({ onLogin, onSwitchToSignup, onSocialLogin }: 
     // 3. Check if should show account choice — same condition as normal login
     const hasAdminCollaboratorsDV = allAdminCollaboratorsDV.length > 0;
     const hasPropertiesDV = dvOwnedProperties.length > 0 || dvSharedProperties.length > 0;
-    const shouldShowAccountChoiceDV = hasAdminCollaboratorsDV || hasPropertiesDV;
+    // An external-only account (13 Nov 2026) with nothing else to choose opens its External view straight away.
+    const externalOnlyIdDV = landsStraightInExternal([...dvOwnedProperties, ...dvSharedProperties], allAdminCollaboratorsDV.length, user);
+    const shouldShowAccountChoiceDV = (hasAdminCollaboratorsDV || hasPropertiesDV) && !externalOnlyIdDV;
 
     console.log('🔐 LoginPage: Device verification account choice check:', { hasAdminCollaboratorsDV, hasPropertiesDV, shouldShowAccountChoiceDV });
 
@@ -925,6 +931,7 @@ export default function LoginPage({ onLogin, onSwitchToSignup, onSocialLogin }: 
 
     // No admin accounts - safe to store auth data now (won't trigger redirect before modal)
     clearAccountState(); // nothing of a previous sign-in (property view, plan picker flag) carries over
+    if (externalOnlyIdDV) localStorage.setItem('pending_property_switch', externalOnlyIdDV);
     localStorage.setItem('stasht_user', JSON.stringify(user));
     localStorage.setItem('stasht_token', token);
 

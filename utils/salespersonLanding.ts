@@ -16,6 +16,7 @@
 // inventoryItemIsReadOnly hides edit/delete on rows that are not theirs.
 
 import { propertyAvatarImage, propertyRowAvatar } from './propertyImage.ts';
+import { propertyIsActive } from './propertyRows.ts';
 
 type Row = Record<string, any> | null | undefined;
 
@@ -69,6 +70,37 @@ export function isOwnExternalProperty(row: Row, user: unknown): boolean {
   if (flag(row.is_own_account) === true) return true;
   if (flag(row.account_created_for_property) !== true) return false;
   return present(row.user_id) && String(row.user_id).trim() === me;
+}
+
+/**
+ * External-only (Chris/Deepak 13 Nov 2026): the signed-in account was CREATED for this external property
+ * (account_created_for_property true — the API only marks is_own_external_account for those) and it is active. Such an
+ * account has no Personal account: it lands straight in this External view, and Studio never offers "Personal" or
+ * "Back to …" to it. Joined / linked accounts (created_for false) keep their Personal account (the takeover rule).
+ */
+export function isExternalOnlyRow(row: Row, user: unknown): boolean {
+  if (!row || !isOwnExternalProperty(row, user)) return false;
+  // is_own_external_account alone is the API's word that it was created for them; otherwise the explicit flag.
+  if (flag(row.is_own_external_account) !== true && flag(row.account_created_for_property) !== true) return false;
+  return propertyIsActive(row as any);
+}
+
+/** The signed-in account's external-only property among these rows (owned / shared / any list), else null. */
+export function externalOnlyPropertyRow<T = any>(rows: unknown, user: unknown): T | null {
+  const list = Array.isArray(rows) ? rows : [];
+  return (list.find((row) => isExternalOnlyRow(row as Row, user)) as T | undefined) ?? null;
+}
+
+/**
+ * At sign-in: an external-only account with nothing else to choose (no admin / partial-admin accounts, no other
+ * property) skips the account chooser and opens its External view. Returns that property's id, else null.
+ */
+export function landsStraightInExternal(rows: unknown, adminAccountCount: number, user: unknown): string | null {
+  const list = (Array.isArray(rows) ? rows : []).filter((row) => row !== null && row !== undefined);
+  const own = externalOnlyPropertyRow<any>(list, user);
+  if (!own || adminAccountCount > 0) return null;
+  const others = list.filter((row: any) => row !== own && String(row?.id) !== String(own.id));
+  return others.length === 0 && own.id !== undefined && own.id !== null ? String(own.id) : null;
 }
 
 /** The property view of this row offers Leads: only the signed-in salesperson's own External account (their own
