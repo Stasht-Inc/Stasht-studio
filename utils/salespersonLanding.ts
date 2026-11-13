@@ -85,6 +85,14 @@ export function isExternalOnlyRow(row: Row, user: unknown): boolean {
   return propertyIsActive(row as any);
 }
 
+/** These rows without the one for the account currently open (same property id); the same array when it isn't there. */
+export function withoutCurrentAccountRow<T = any>(rows: T[], current: unknown): T[] {
+  const id = (current as Row | null | undefined)?.id;
+  if (!Array.isArray(rows) || id == null || String(id) === '') return rows;
+  const kept = rows.filter((row) => String((row as Row)?.id) !== String(id));
+  return kept.length === rows.length ? rows : kept;
+}
+
 /** The signed-in account's external-only property among these rows (owned / shared / any list), else null. */
 export function externalOnlyPropertyRow<T = any>(rows: unknown, user: unknown): T | null {
   const list = Array.isArray(rows) ? rows : [];

@@ -11,6 +11,8 @@ import { Select, SelectContent, SelectItem, SelectSeparator, SelectTrigger, Sele
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger } from './ui/dropdown-menu';
 import { leadsAPI, Lead, LeadsResponse, LeadMessage, CommentaryTarget, LeadGroupSummary, LeadGroup, Conversation, messageChannelLabel } from '../services/leadsAPI';
 import { mapLimit } from '../utils/requestLimit';
+import { createLivePoller, reconcileList, sameValue, type LivePoller } from '../utils/livePoll';
+import { clearApiCache } from '../utils/authUtils';
 import { leadLinkAction, leadLinkUrl, NOT_AVAILABLE } from '../utils/leadLink';
 import { switchAccount } from './AccountChoiceModal';
 import LeadsInboxTable from './leads/LeadsInboxTable';
@@ -560,6 +562,13 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
   };
 
   const [silentLeadsFetch, setSilentLeadsFetch] = useState(false);
+  // Live refresh bookkeeping: request counter (newest wins), fetch running, the list on screen, last extras seen.
+  const leadsReqSeq = useRef(0);
+  const leadsFetchInFlight = useRef(false);
+  const leadsRef = useRef<Lead[]>([]);
+  leadsRef.current = leads;
+  const lastLeadsExtras = useRef<unknown>(null);
+  const livePollerRef = useRef<LivePoller | null>(null);
   const fetchLeads = async (
     search?: string,
     status?: string,
@@ -568,13 +577,22 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
     pageNum?: number,
     closed?: boolean,
     assigned?: string,
-    opts?: { silent?: boolean },
-  ) => {
-    // A phone pull refresh keeps the list on screen; any other fetch (e.g. a filter
-    // changed mid-refresh) clears the flag so its loading state shows as usual.
-    setSilentLeadsFetch(!!opts?.silent);
-    setIsLoading(true);
-    setError(null);
+    opts?: { silent?: boolean; background?: boolean; signal?: AbortSignal },
+  ): Promise<boolean> => {
+    // Live refresh (utils/livePoll): a background check never shows a spinner or an error, never overlaps a fetch
+    // already running, and its answer is dropped if anything newer was asked for meanwhile.
+    const background = !!opts?.background;
+    if (background && leadsFetchInFlight.current) return true;
+    const seq = ++leadsReqSeq.current;
+    if (!background) livePollerRef.current?.abort();
+    leadsFetchInFlight.current = true;
+    if (!background) {
+      // A phone pull refresh keeps the list on screen; any other fetch (e.g. a filter
+      // changed mid-refresh) clears the flag so its loading state shows as usual.
+      setSilentLeadsFetch(!!opts?.silent);
+      setIsLoading(true);
+      setError(null);
+    }
     try {
       const effectiveSort = sort !== undefined ? sort : sortField;
       const effectiveDirection = direction ?? sortDirection;
@@ -589,12 +607,36 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
         archived: closed ?? showClosed,
         // "Assigned to" (Chris 11 Nov 2026 (d)): default = Anyone + Open for owners / switched in, Me + Open for staff.
         ...assignedParams(effectiveAssigned, teamLeadsRef.current),
-      });
+      }, background ? { signal: opts?.signal, skipCache: true } : undefined);
+      // Something newer was asked for (filter, tab, page, search) — this answer is stale.
+      if (seq !== leadsReqSeq.current) return true;
+      if (background) {
+        if (!res.success || !res.data) return false;
+        const freshLeads = (res.data.leads ?? []).filter((l) => l != null);
+        const prevLeads = leadsRef.current;
+        const merged = reconcileList(prevLeads, freshLeads, (l) => l.id);
+        const d = res.data;
+        const extrasChanged = !sameValue(lastLeadsExtras.current, [d.total, d.tab_counts, d.messages_total, d.status_counts, d.team_leads]);
+        if (merged === prevLeads && !extrasChanged) return true;
+        lastLeadsExtras.current = [d.total, d.tab_counts, d.messages_total, d.status_counts, d.team_leads];
+        if (merged !== prevLeads) { setLeads(merged); onLeadsRefreshed?.(merged); }
+        setTeamLeads((t) => (sameValue(t, d.team_leads ?? null) ? t : (d.team_leads ?? null)));
+        setTotal(d.total ?? 0);
+        setStatusCounts((c) => (sameValue(c, d.status_counts ?? {}) ? c : (d.status_counts ?? {})));
+        setMessagesTotal(d.messages_total ?? 0);
+        setTotalPages(d.meta?.total_pages ?? 1);
+        if (d.tab_counts) { const tc = d.tab_counts; setTabCounts((c) => (sameValue(c, tc) ? c : tc)); }
+        // The Sidebar's Leads badge and the unread cards follow straight away (fresh, not from the 15 s GET cache).
+        clearApiCache();
+        window.dispatchEvent(new CustomEvent('leads-unread-count-refresh'));
+        return true;
+      }
       if (res.success && res.data) {
         // Guest leads (no account) and rollup leads are rendered, not dropped —
         // only guard against genuinely malformed rows (null/undefined entries).
         const rawLeads = res.data.leads ?? [];
         const freshLeads = rawLeads.filter((l) => l != null);
+        lastLeadsExtras.current = [res.data.total, res.data.tab_counts, res.data.messages_total, res.data.status_counts, res.data.team_leads];
         setLeads(freshLeads);
         setTeamLeads(res.data.team_leads ?? null);
         setTotal(res.data.total ?? 0);
@@ -633,7 +675,7 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
               if (action.kind === 'personal') {
                 if (await switchAccount(null).catch(() => false)) {
                   window.location.assign(leadLinkUrl(wanted));
-                  return;
+                  return true;
                 }
                 toast.info(NOT_AVAILABLE);
               } else {
@@ -646,10 +688,16 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
       } else {
         setError(res.error || 'Failed to load leads');
       }
+      return !!res.success;
     } catch {
-      setError('An error occurred while fetching leads');
+      if (seq !== leadsReqSeq.current) return true;
+      if (!background) setError('An error occurred while fetching leads');
+      return false;
     } finally {
-      setIsLoading(false);
+      if (seq === leadsReqSeq.current) {
+        leadsFetchInFlight.current = false;
+        if (!background) setIsLoading(false);
+      }
     }
   };
 
@@ -682,6 +730,15 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
       setIsLoadingConversations(false);
     }
   };
+  // Live refresh of My Conversations: no spinner, rows kept unless they changed.
+  const pollMyConversations = async (signal: AbortSignal): Promise<boolean> => {
+    const res = await leadsAPI.getMyConversations({ signal, skipCache: true });
+    if (signal.aborted) return true;
+    if (!res.success || !res.data) return false;
+    const fresh = res.data.conversations ?? [];
+    setConversations((prev) => reconcileList(prev, fresh, (c) => c.lead_id));
+    return true;
+  };
 
   useEffect(() => {
     const onRefresh = () => fetchMyConversations();
@@ -711,6 +768,17 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
     }
   };
 
+  // Live refresh of Groups: same, quietly.
+  const pollLeadGroups = async (signal: AbortSignal): Promise<boolean> => {
+    const res = await leadsAPI.getLeadGroups({ signal, skipCache: true });
+    if (signal.aborted) return true;
+    if (!res.success || !res.data) return false;
+    const data = res.data as LeadGroupSummary[] | { groups: LeadGroupSummary[] };
+    const fresh = Array.isArray(data) ? data : (data.groups ?? []);
+    setLeadGroups((prev) => reconcileList(prev, fresh, (g) => g.id));
+    return true;
+  };
+
   useEffect(() => { fetchLeads(); fetchLeadGroups(); fetchMyConversations(); }, []);
   useEffect(() => { if (refreshTrigger > 0) fetchLeads(); }, [refreshTrigger]);
 
@@ -719,21 +787,29 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
     fetchArgsRef.current = { search: searchQuery, status: statusFilter, sort: sortField, direction: sortDirection, page, closed: showClosed, assigned: assignedFilter };
   });
 
+  // Live list (Deepak 13 Nov 2026, option A): while the Leads page is showing, the sub-tab on screen is quietly asked
+  // for again every ~10 s, and at once when the browser tab or window comes back (utils/livePoll: paused while hidden,
+  // backs off on errors, never overlaps). Reads fetchArgsRef so the current page/sort/search/status/tab/"Assigned to"
+  // are kept. Lists (newsletter contact lists) aren't live data and keep their Refresh button. While a lead is open in
+  // full view the list is hidden and the conversation polls itself (LeadDetailDrawer), so the list waits; closing the
+  // lead reloads it.
+  const liveRunRef = useRef<(signal: AbortSignal) => Promise<boolean>>(async () => true);
+  liveRunRef.current = async (signal) => {
+    if (leadsView === 'leads') {
+      const { search, status, sort, direction, page: currentPage, closed, assigned } = fetchArgsRef.current;
+      return fetchLeads(search, status, sort, direction, currentPage, closed, assigned, { background: true, signal });
+    }
+    if (leadsView === 'conversations') return pollMyConversations(signal);
+    if (leadsView === 'groups') return pollLeadGroups(signal);
+    return true;
+  };
+  const livePollPaused = !!selectedLead;
   useEffect(() => {
-    // Reads fetchArgsRef instead of closing over searchQuery/statusFilter/
-    // sortField/sortDirection/page directly — this effect only registers once
-    // ([] deps), so a direct closure would freeze at mount-time defaults and
-    // a tab refocus would silently discard the user's current page/sort/
-    // search/status. See task-M2-report.md fix addendum.
-    const onVisible = () => {
-      if (document.visibilityState === 'visible') {
-        const { search, status, sort, direction, page: currentPage, closed, assigned } = fetchArgsRef.current;
-        fetchLeads(search, status, sort, direction, currentPage, closed, assigned);
-      }
-    };
-    document.addEventListener('visibilitychange', onVisible);
-    return () => document.removeEventListener('visibilitychange', onVisible);
-  }, []);
+    if (livePollPaused) return;
+    const poller = createLivePoller((signal) => liveRunRef.current(signal));
+    livePollerRef.current = poller;
+    return () => { poller.stop(); if (livePollerRef.current === poller) livePollerRef.current = null; };
+  }, [livePollPaused]);
 
   const handleSearchChange = (value: string) => {
     setSearchQuery(value);
