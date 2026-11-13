@@ -9,6 +9,8 @@ import { useAuth } from '../../contexts/AuthContext';
 import ShareCarsDialog, { type PickKind } from '../ShareCarsDialog';
 import CountrySelect from '../CountrySelect';
 import { isPlausibleSplitPhone, splitTypedPhone, toE164 } from '../../utils/phoneUtils';
+import { useProperty } from '../../contexts/PropertyContext';
+import { actingPerson, messageSignoff } from '../../utils/messageSignoff';
 
 // "+ Send Message" (spec 2026-09-23 §5, Chris's "Start A New Message" reference):
 // text or email anyone. The backend reuses the contact's existing lead on this
@@ -28,20 +30,20 @@ function itemWords(count: number, kind: PickKind): string {
   return count === 1 ? `a ${noun}` : `${count} ${noun}s`;
 }
 
-function suggestedBody(carCount: number, senderName: string, dealerName: string, kind: PickKind = 'vehicle'): string {
+// `who` is the sign-off from utils/messageSignoff: "Brenna at TheRoyalWoodShop", or the business alone.
+function suggestedBody(carCount: number, who: string, kind: PickKind = 'vehicle'): string {
   if (carCount > 0) {
     return `I picked out ${itemWords(carCount, kind)} I think you'll like — take a look:`;
   }
-  const who = [senderName, dealerName].filter(Boolean).join(' at ');
   return `Just checking in to see if you have any questions. I'm happy to help${who ? ` — ${who}` : ''}.`;
 }
 
-function suggestedSubject(carCount: number, dealerName: string, kind: PickKind = 'vehicle'): string {
+function suggestedSubject(carCount: number, business: string, kind: PickKind = 'vehicle'): string {
   if (carCount > 0) {
     const words = itemWords(carCount, kind);
     return `${words.charAt(0).toUpperCase()}${words.slice(1)} picked for you`;
   }
-  return dealerName ? `Checking in from ${dealerName}` : 'Checking in';
+  return business ? `Checking in from ${business}` : 'Checking in';
 }
 
 interface Props {
@@ -50,10 +52,20 @@ interface Props {
   onSent: (leadId: number) => void;
 }
 
-interface Option { id: string; name: string }
+// account_type etc. come from GET /properties (my-properties sends id + name only): a property's name is used in the
+// sign-off only when that row says it is internal (utils/messageSignoff).
+interface Option { id: string; name: string; row?: Record<string, any> }
+
+function readSwitchData(): any {
+  try { return JSON.parse(localStorage.getItem('admin_switch_data') || 'null'); } catch { return null; }
+}
+function readToken(): string | null {
+  try { return localStorage.getItem('stasht_token'); } catch { return null; }
+}
 
 export default function SendMessageDialog({ open, onOpenChange, onSent }: Props) {
   const { user } = useAuth();
+  const { viewType, currentProperty } = useProperty();
   const [channel, setChannel] = useState<'sms' | 'email'>('sms');
   const [name, setName] = useState('');
   // Split like every other phone field (Profile, invites, add collaborator):
@@ -77,21 +89,33 @@ export default function SendMessageDialog({ open, onOpenChange, onSent }: Props)
     setChannel('sms'); setName(''); setPhoneCountry('+1'); setPhone(''); setEmail(''); setSubjectOverride(null); setBodyOverride(null);
     setPicked(null); setShowPicker(false); setError(null);
 
-    dashboardAPI.getStoreelMyProperties().then((res: any) => {
+    let cancelled = false;
+    const fullRows = dashboardAPI.getProperties()
+      .then((res: any) => (Array.isArray(res?.data?.properties) ? res.data.properties : []) as any[])
+      .catch(() => [] as any[]);
+    dashboardAPI.getStoreelMyProperties().then(async (res: any) => {
       const list: any[] = res?.properties || res?.data?.properties || [];
-      const opts = list.map((p) => ({ id: String(p.id), name: p.name }));
+      const rows = await fullRows;
+      if (cancelled) return;
+      const opts = list.map((p) => ({ id: String(p.id), name: p.name, row: rows.find((r) => String(r?.id) === String(p.id)) }));
       setProperties(opts);
       setPropertyId(opts.length === 1 ? opts[0].id : '');
-    }).catch(() => setProperties([]));
+    }).catch(() => { if (!cancelled) setProperties([]); });
+    return () => { cancelled = true; };
   }, [open]);
 
   const carCount = picked?.ids.length ?? 0;
   const pickedKind: PickKind = picked?.kind ?? 'vehicle';
-  const senderName = user?.name?.trim().split(/\s+/)[0] ?? '';
-  const dealerName = properties.find((p) => p.id === propertyId)?.name ?? '';
-  const bodySuggestion = suggestedBody(carCount, senderName, dealerName, pickedKind);
+  const pickedProperty = properties.find((p) => p.id === propertyId);
+  const signoff = messageSignoff({
+    account: user as any,
+    acting: actingPerson(readSwitchData(), user as any, readToken()),
+    property: pickedProperty ? { ...(pickedProperty.row || {}), name: pickedProperty.name } : null,
+    viewProperty: viewType === 'property' ? (currentProperty as any) : null,
+  });
+  const bodySuggestion = suggestedBody(carCount, signoff.who, pickedKind);
   const body = bodyOverride ?? bodySuggestion;
-  const subject = subjectOverride ?? suggestedSubject(carCount, dealerName, pickedKind);
+  const subject = subjectOverride ?? suggestedSubject(carCount, signoff.business, pickedKind);
   // Mirrors the server's opener (LeadDeliveryService buildSmsBody / buildEmailHtml).
   const contactFirst = name.trim().split(/\s+/)[0];
   const greeting = contactFirst ? `Hi ${contactFirst},` : channel === 'email' ? 'Hi there,' : 'Hi,';
