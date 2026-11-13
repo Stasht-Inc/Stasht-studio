@@ -41,9 +41,9 @@ interface ShareCarsDialogProps {
   leadId?: number;
   // Called after a successful share so the caller can refresh the thread.
   onShared?: () => void;
-  // Pick mode ("+ Send Message"): hand the choice back instead of sending. Pick mode also
-  // offers the account's Website Catalogue products (Chris, 13 Nov 2026: Royal Wood sells
-  // products, not vehicles, so a cars-only list was empty there).
+  // Pick mode ("+ Send Message"): hand the choice back instead of sending. Both modes offer
+  // what the account has (Deepak, 13 Nov 2026): Website Catalogue products when a catalogue is
+  // connected, vehicles when it has a car inventory, a Vehicles / Products switch for both.
   onPick?: (ids: number[], campaignName: string, kind: PickKind) => void;
   initialSelection?: number[];
   initialCampaignName?: string;
@@ -87,6 +87,9 @@ export default function ShareCarsDialog({ open, onClose, leadId, leadName, onSha
   // Pick mode only: the catalogue's products, and which list is showing.
   const [products, setProducts] = useState<CatalogueItemSummary[]>([]);
   const [productsLoading, setProductsLoading] = useState(false);
+  // What this account offers (GET /leads/campaign-sources): Products = a Website Catalogue connected,
+  // Vehicles = a car inventory; the switch only when it has both. null while loading.
+  const [sources, setSources] = useState<{ vehicles: boolean; products: boolean } | null>(null);
   const [kind, setKind] = useState<PickKind>(initialKind ?? 'vehicle');
 
   // Loads the inventory. `cat` is only passed when re-querying the server for one
@@ -131,26 +134,35 @@ export default function ShareCarsDialog({ open, onClose, leadId, leadName, onSha
     setIsComplete(true);
     setKind(initialKind ?? 'vehicle');
     setProducts([]);
-    loadCars(undefined, true);
+    setCars([]);
+    setLoadError(null);
+    setSources(null);
     let cancelled = false;
-    if (onPick) {
-      // Asks GET /website-catalogue first, so an account without the catalogue gets [] (no upgrade popup).
-      setProductsLoading(true);
-      loadCatalogueForBrowsing()
-        .then((list) => { if (!cancelled) setProducts(list); })
-        .finally(() => { if (!cancelled) setProductsLoading(false); });
-    }
+    leadsAPI.getCampaignSources()
+      .then((res: any) => {
+        const d = res?.data?.data ?? res?.data;
+        // An API without the endpoint: vehicles only, as before.
+        return res?.success && d && typeof d.vehicles === 'boolean' ? { vehicles: d.vehicles, products: Boolean(d.products) } : { vehicles: true, products: false };
+      })
+      .catch(() => ({ vehicles: true, products: false }))
+      .then((s) => {
+        if (cancelled) return;
+        setSources(s);
+        // Royal Wood (catalogue, no cars) opens straight on Products.
+        setKind(initialKind ?? (!s.vehicles && s.products ? 'product' : 'vehicle'));
+        if (s.vehicles) loadCars(undefined, true);
+        if (s.products) {
+          // Asks GET /website-catalogue first, so it never opens the upgrade popup.
+          setProductsLoading(true);
+          loadCatalogueForBrowsing()
+            .then((list) => { if (!cancelled) setProducts(list); })
+            .finally(() => { if (!cancelled) setProductsLoading(false); });
+        }
+      });
     return () => { loadSeq.current++; cancelled = true; };
   }, [open]);
 
-  // No vehicles but products (e.g. Royal Wood): open on Products.
-  const hasVehicles = cars.length > 0 || category !== ALL_CATEGORIES;
-  const hasProducts = products.length > 0;
-  useEffect(() => {
-    if (!open || initialKind || isLoading || productsLoading) return;
-    if (!hasVehicles && hasProducts) setKind('product');
-  }, [open, isLoading, productsLoading, hasVehicles, hasProducts]);
-  const showKindSwitch = Boolean(onPick) && hasVehicles && hasProducts;
+  const showKindSwitch = Boolean(sources?.vehicles && sources?.products);
   const isProducts = kind === 'product';
 
   const switchKind = (next: PickKind) => {
@@ -232,7 +244,7 @@ export default function ShareCarsDialog({ open, onClose, leadId, leadName, onSha
     try {
       // Always send a name: the server's own fallback is still car-worded.
       const name = campaignName.trim() || DEFAULT_CAMPAIGN_NAME;
-      const res = await leadsAPI.shareCars(leadId, Array.from(selected), name);
+      const res = await leadsAPI.shareCars(leadId, Array.from(selected), name, kind);
       if (res.success) {
         const shared = typeof res.data?.cars_total === 'number' ? res.data.cars_total : selected.size;
         const itemWord = shared === 1 ? 'item' : 'items';
@@ -362,7 +374,7 @@ export default function ShareCarsDialog({ open, onClose, leadId, leadName, onSha
         </div>
 
         <div className="flex-1 min-h-0 overflow-y-auto px-6 pb-2">
-          {(isProducts ? productsLoading : isLoading || (!hasVehicles && productsLoading)) ? (
+          {(sources === null || (isProducts ? productsLoading : isLoading)) ? (
             <div className="flex justify-center py-14" role="status" aria-label="Loading your inventory">
               <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-[#6C60FF]" />
             </div>

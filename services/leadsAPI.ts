@@ -604,7 +604,14 @@ export const leadsAPI = {
   // You") and sends the lead that campaign's own link. Never appends to the
   // lead's existing campaign (Chris, 2026-09-20). Same endpoint the mobile app's
   // Share New Cars sheet uses.
-  shareCars: async (leadId: number, carIds: number[], title?: string) => {
+  // GET /leads/campaign-sources: what "+ Campaign" offers this account — Products when a Website Catalogue is
+  // connected, Vehicles when it has a car inventory (Deepak, 13 Nov 2026).
+  getCampaignSources: async () => {
+    return apiRequest<any>('/leads/campaign-sources', { method: 'GET' });
+  },
+
+  // ids are vehicle ids, or Website Catalogue product ids when kind is 'product' (one kind per share).
+  shareCars: async (leadId: number, carIds: number[], title?: string, kind: 'vehicle' | 'product' = 'vehicle') => {
     return apiRequest<{
       message: string;
       cars_added: number;
@@ -615,7 +622,7 @@ export const leadsAPI = {
       `/leads/${leadId}/share-cars`,
       {
         method: 'POST',
-        body: JSON.stringify({ car_ids: carIds, ...(title ? { title } : {}), ...partialAdminBody() }),
+        body: JSON.stringify({ ...(kind === 'product' ? { catalog_item_ids: carIds } : { car_ids: carIds }), ...(title ? { title } : {}), ...partialAdminBody() }),
       },
     );
   },
