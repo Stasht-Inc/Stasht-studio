@@ -10,10 +10,17 @@ type Props = React.ButtonHTMLAttributes<HTMLButtonElement> & {
   label: string;
   icon: ComponentType<{ className?: string }>;
   busy?: boolean;
+  // neutral: darker gray on hover / open instead of the brand purple (Chris: active states gray, 13 Nov 2026).
+  tone?: 'brand' | 'neutral';
+};
+
+const TONE = {
+  brand: 'hover:bg-[#6C60FF] hover:text-white focus-visible:ring-[#6C60FF] data-[state=open]:bg-[#6C60FF] data-[state=open]:text-white',
+  neutral: 'hover:bg-gray-200 hover:text-gray-900 focus-visible:ring-gray-400 data-[state=open]:bg-gray-200 data-[state=open]:text-gray-900',
 };
 
 const RowActionButton = forwardRef<HTMLButtonElement, Props>(function RowActionButton(
-  { label, icon: Icon, busy = false, className = '', ...rest },
+  { label, icon: Icon, busy = false, tone = 'brand', className = '', ...rest },
   ref,
 ) {
   return (
@@ -24,7 +31,7 @@ const RowActionButton = forwardRef<HTMLButtonElement, Props>(function RowActionB
           type="button"
           aria-label={label}
           {...rest}
-          className={`h-7 w-7 shrink-0 inline-flex items-center justify-center rounded-full text-gray-500 transition-colors hover:bg-[#6C60FF] hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-[#6C60FF] focus-visible:ring-offset-1 data-[state=open]:bg-[#6C60FF] data-[state=open]:text-white disabled:opacity-50 disabled:hover:bg-transparent disabled:hover:text-gray-500 ${className}`}
+          className={`h-7 w-7 shrink-0 inline-flex items-center justify-center rounded-full text-gray-500 transition-colors ${TONE[tone]} focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-1 disabled:opacity-50 disabled:hover:bg-transparent disabled:hover:text-gray-500 ${className}`}
         >
           {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Icon className="w-4 h-4" />}
         </button>

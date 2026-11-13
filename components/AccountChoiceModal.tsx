@@ -9,7 +9,7 @@ import { switchDataForPropertyAccount, switchDataIsStale } from '../utils/proper
 import { findPropertyRow, needsFullPropertyRow, opensAsFullAccount, propertyRowActions } from '../utils/propertyRows';
 import { propertyAvatarImage } from '../utils/propertyImage';
 import { adminAccountsAfterChoice, sameOwner } from '../utils/adminSwitchAccounts';
-import { externalRowAvatar, groupPropertyAccounts, isOwnExternalProperty, propertyAccountGroups } from '../utils/salespersonLanding';
+import { externalOnlyPropertyRow, externalRowAvatar, groupPropertyAccounts, isOwnExternalProperty, propertyAccountGroups } from '../utils/salespersonLanding';
 
 // Collaborator type for admin access
 export interface AdminCollaborator {
@@ -410,7 +410,8 @@ export function AccountChoiceModal({
   const [selectedAdminOwnerId, setSelectedAdminOwnerId] = useState<string | null>(null);
   const [isAdminSectionExpanded, setIsAdminSectionExpanded] = useState(false);
   const [isPropertiesSectionExpanded, setIsPropertiesSectionExpanded] = useState(false);
-  const [isExternalSectionExpanded, setIsExternalSectionExpanded] = useState(false);
+  // Open from the start for an external-only account: its External account is its main choice.
+  const [isExternalSectionExpanded, setIsExternalSectionExpanded] = useState(() => !!externalOnlyPropertyRow([...ownedProperties, ...sharedProperties], personalUser));
   const [searchQuery, setSearchQuery] = useState('');
   // One property-account switch at a time (a second click before the first answers would race it).
   const propertySwitchInFlight = useRef(false);
@@ -971,6 +972,9 @@ export function AccountChoiceModal({
   };
 
   const personalDisplayName = personalUser?.name || personalUser?.email || 'Personal Account';
+  // An account created for an external property has no Personal account (Chris/Deepak 13 Nov 2026): its External
+  // account is its own, listed under External; no Personal row.
+  const externalOnly = !!externalOnlyPropertyRow([...ownedProperties, ...sharedProperties], personalUser);
 
   return (
     <>
@@ -1016,8 +1020,8 @@ export function AccountChoiceModal({
 
             {/* Account Options */}
             <div className="space-y-3 mb-6">
-              {/* Personal Account Option - Always shown first */}
-              <button
+              {/* Personal Account Option - shown first, except to an external-only account */}
+              {!externalOnly && <button
                 onClick={handleLoginAsPersonal}
                 disabled={isLoading}
                 className="w-full p-4 border-2 border-gray-200 rounded-xl hover:border-[#FF51E2] hover:bg-pink-50 transition-all duration-200 text-left disabled:opacity-50 disabled:cursor-not-allowed group"
@@ -1056,7 +1060,7 @@ export function AccountChoiceModal({
                     <Loader2 className="w-5 h-5 text-[#FF51E2] animate-spin flex-shrink-0" />
                   )}
                 </div>
-              </button>
+              </button>}
 
               {/* Admin Accounts Section - Collapsible */}
               {adminAccounts.length > 0 && (

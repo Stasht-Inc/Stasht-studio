@@ -864,6 +864,26 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
     return false;
   };
 
+  // "Remove" a lead someone else on the team claimed: off this person's list only (Chris 13 Nov 2026). Nothing is
+  // deleted; it comes back if it is released to Open.
+  const handleRemoveFromList = async (lead: Lead) => {
+    try {
+      const res = await leadsAPI.removeFromMyList(lead.id);
+      if (res.success) {
+        setLeads(prev => prev.filter(l => l.id !== lead.id));
+        setTotal((t) => Math.max(0, t - 1));
+        setTabCounts((c) => (showClosed ? { ...c, closed: Math.max(0, c.closed - 1) } : { ...c, open: Math.max(0, c.open - 1) }));
+        if (selectedLead?.id === lead.id) onLeadSelect(null);
+        window.dispatchEvent(new CustomEvent('leads-unread-count-refresh'));
+        toast.success('Removed');
+        return;
+      }
+      toast.error("Couldn't remove it");
+    } catch {
+      toast.error("Couldn't remove it");
+    }
+  };
+
   // Delete and Close ask first (LeadConfirmDialog); Reopen is harmless and runs straight away.
   const [confirming, setConfirming] = useState<{ kind: LeadConfirmKind; lead: Lead } | null>(null);
   const runConfirmed = async (): Promise<boolean> => {
@@ -1604,6 +1624,7 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
           onDelete={(lead) => setConfirming({ kind: 'delete', lead })}
           onMarkRead={handleMarkRead}
           onLeadPatched={patchLead}
+          onRemove={handleRemoveFromList}
         />
 
         {/* Pagination footer */}

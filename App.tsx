@@ -64,7 +64,7 @@ import { CameraInterface } from './components/CameraInterface';
 import { AddMomentModal } from './components/AddMomentModal';
 import exifr from 'exifr';
 import { takeSwitchNotice } from './utils/accountSwitch';
-import { allPropertyRows, propertyViewHasLeads, resolvePendingPropertySwitch } from './utils/salespersonLanding';
+import { allPropertyRows, externalOnlyPropertyRow, propertyViewHasLeads, resolvePendingPropertySwitch } from './utils/salespersonLanding';
 import { featurePlanKey, skipsPlanPicker, storageOverviewOf } from './utils/effectivePlan';
 import { usersTabForReport } from './utils/propertyRows';
 import { cameraRollSession } from './utils/cameraRoll';
@@ -385,6 +385,24 @@ function MainApp() {
       cancelled = true;
     };
   }, [isAuthenticated, user?.id, viewType, currentProperty?.id, isPendingPropertySwitch]);
+
+  // An account created for an external property has no Personal account (Chris/Deepak 13 Nov 2026): whenever it is in
+  // the account (personal) view — a sign-in that didn't open the External view, a stale stored view, an old tab — it
+  // goes to its External view. Joined / linked accounts are never external-only and keep their Personal account.
+  useEffect(() => {
+    if (!isAuthenticated || viewType !== 'personal' || isPendingPropertySwitch) return undefined;
+    let cancelled = false;
+    dashboardAPI.getProperties()
+      .then((response) => {
+        if (cancelled || !response?.success) return;
+        const own = externalOnlyPropertyRow(allPropertyRows(response), user);
+        if (own) switchToPropertyCtx(own);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [isAuthenticated, user?.id, viewType, isPendingPropertySwitch]);
 
   // Handle pending property switch immediately when authenticated — prevents personal account flash
   useEffect(() => {
