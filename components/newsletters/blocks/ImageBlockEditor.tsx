@@ -8,12 +8,17 @@ import { BUTTON_SMALL, LABEL, LINK_BUTTON, inputClass } from '../lib/ui';
 import type { BlockEditorProps } from './types';
 import { useUrlField } from './useUrlField';
 import { smallImageWidth } from '../lib/imageWidth';
+import ImageGeneratePanel from './ImageGeneratePanel';
 
 const ALT_MAX = 200; // NewsletterContent::ALT_MAX
 
 /** padClass: the email column's side padding. With a picture the section is full-bleed (BlockFrame bleed), so only the
  *  controls under the picture take it. */
-export default function ImageBlockEditor({ blockId, data, selected, readOnly, onChange, padClass = '' }: BlockEditorProps<ImageBlockData> & { padClass?: string }) {
+export default function ImageBlockEditor({ blockId, data, selected, readOnly, onChange, padClass = '', promptSeed }: BlockEditorProps<ImageBlockData> & {
+  padClass?: string;
+  /** "Generate image": the prompt to start from (the newsletter's subject and nearby text), read when the panel opens. */
+  promptSeed?: () => string;
+}) {
   // A picture chosen here (uploaded or pasted) is measured once it loads: narrower than the card, it keeps its own width
   // (lib/imageWidth.ts). A new picture drops the old one's width until then. Pictures saved before are never measured
   // (opening a draft changes nothing), so they stay full-bleed.
@@ -25,6 +30,19 @@ export default function ImageBlockEditor({ blockId, data, selected, readOnly, on
   const src = httpsUrl(data.url);
   const pasteInvalid = pasteDraft.trim() !== '' && toHttpsUrl(pasteDraft) === null;
   const alt = useAiAltText(src, (text) => onChange({ alt: text }));
+  // "Generate image" (Chris, 13 Nov): the open panel's starting prompt, or null when closed.
+  const [genSeed, setGenSeed] = useState<string | null>(null);
+  useEffect(() => { if (!selected || readOnly) setGenSeed(null); }, [selected, readOnly]);
+  const openGenerate = () => setGenSeed(promptSeed?.() ?? '');
+  const generateButton = (
+    <button type="button" onClick={openGenerate} disabled={uploading || genSeed !== null} data-testid={`${blockId}-gen-open`} className={BUTTON_SMALL}>
+      <Sparkles className="h-3.5 w-3.5 text-[#6C60FF]" aria-hidden="true" />Generate image
+    </button>
+  );
+  const generatePanel = genSeed !== null ? (
+    <ImageGeneratePanel blockId={blockId} seed={genSeed} onClose={() => setGenSeed(null)}
+      onUse={(url) => { setGenSeed(null); choosePicture(url); }} />
+  ) : null;
 
   const applyPasted = () => {
     const value = toHttpsUrl(pasteDraft);
@@ -68,9 +86,19 @@ export default function ImageBlockEditor({ blockId, data, selected, readOnly, on
         <div className={src ? padClass : undefined}>
         <div className="mt-3 grid gap-3 rounded-lg border border-gray-200 bg-gray-50 p-3">
           {src ? (
-            <div><button type="button" onClick={choose} disabled={uploading} className={BUTTON_SMALL}>{uploading ? 'Uploading…' : 'Replace image'}</button></div>
+            <div className="grid gap-3">
+              <div className="flex flex-wrap gap-2">
+                <button type="button" onClick={choose} disabled={uploading} className={BUTTON_SMALL}>{uploading ? 'Uploading…' : 'Replace image'}</button>
+                {generateButton}
+              </div>
+              {generatePanel}
+            </div>
           ) : (
             <div>
+              <div className="mb-3 grid gap-3">
+                <div>{generateButton}</div>
+                {generatePanel}
+              </div>
               <label htmlFor={`${blockId}-paste`} className={LABEL}>Or paste an image link</label>
               <div className="flex gap-2">
                 <input id={`${blockId}-paste`} type="text" inputMode="url" value={pasteDraft} placeholder="https://…" aria-invalid={pasteInvalid}

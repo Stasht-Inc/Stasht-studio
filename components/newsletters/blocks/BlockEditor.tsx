@@ -14,7 +14,7 @@ export const BLOCK_LABEL: Record<BlockType, string> = {
   image: 'Image', title: 'Title', text: 'Text', youtube: 'YouTube', button: 'Button', divider: 'Divider', campaigns: 'Campaigns',
 };
 
-function BlockEditor({ block, selected, readOnly, onChange, onUpdate, serverItems, accent, onPick, phone = false, padClass }: {
+function BlockEditor({ block, selected, readOnly, onChange, onUpdate, serverItems, accent, onPick, phone = false, padClass, imagePrompt }: {
   block: NewsletterBlock;
   selected: boolean;
   readOnly: boolean;
@@ -29,10 +29,12 @@ function BlockEditor({ block, selected, readOnly, onChange, onUpdate, serverItem
   phone?: boolean;
   /** Image: the email column's side padding, for its controls under a full-bleed picture (Chris, 6 Nov). */
   padClass?: string;
+  /** Image: "Generate image"'s starting prompt (Chris, 13 Nov). */
+  imagePrompt?: () => string;
 }) {
   const common = { blockId: block.id, selected, readOnly, onChange };
   switch (block.type) {
-    case 'image': return <ImageBlockEditor {...common} data={block.data} padClass={padClass} />;
+    case 'image': return <ImageBlockEditor {...common} data={block.data} padClass={padClass} promptSeed={imagePrompt} />;
     case 'title': return <TitleBlockEditor {...common} data={block.data} />;
     // The Message section is kept in step with the Message box, so it is shown, not edited, here.
     case 'text': return isMessageBlock(block) ? <MessageBlockView data={block.data} selected={selected} readOnly={readOnly} />

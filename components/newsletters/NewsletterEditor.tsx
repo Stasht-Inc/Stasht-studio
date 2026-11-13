@@ -11,6 +11,7 @@ import { paddingPx, spacingOf } from './lib/sectionSpacing';
 import { isMessageBlock } from './lib/messageBlock';
 import { canDuplicateBlock, duplicateBlock, type DuplicateOutcome } from './lib/duplicateBlock';
 import { httpsUrl } from './lib/urls';
+import { imagePromptSeed } from './lib/imagePrompt';
 import InboxRow from './InboxRow';
 import HeaderEditor from './HeaderEditor';
 import EcardFooter from './EcardFooter';
@@ -64,6 +65,8 @@ interface BlockHandlers {
   onUpdate(fn: (latest: Record<string, unknown>) => Record<string, unknown> | null): void;
   /** Campaigns: open the picker. */
   onPick(): void;
+  /** Image: "Generate image"'s starting prompt from the latest draft (Chris, 13 Nov). */
+  imagePrompt(): string;
 }
 
 /** One section with its frame. Memoised: typing in one section doesn't re-render the others. */
@@ -98,7 +101,8 @@ const BlockRow = memo(function BlockRow({ block, index, count, canUp, canDown, s
       onDuplicate={canDuplicateBlock(block) ? handlers.onDuplicate : undefined} duplicateBlocked={full ? `You can add up to ${LIMITS.blocks} sections.` : null}
       onEdit={campaigns ? handlers.onPick : undefined} editLabel={campaigns ? EDIT_ITEMS_LABEL : undefined}>
       <BlockEditor block={block} selected={selected} readOnly={readOnly} onChange={handlers.onChange} onUpdate={campaigns ? handlers.onUpdate : undefined}
-        serverItems={campaigns ? serverItems : undefined} accent={campaigns ? accent : undefined} onPick={campaigns ? handlers.onPick : undefined} phone={phone} padClass={padClass} />
+        serverItems={campaigns ? serverItems : undefined} accent={campaigns ? accent : undefined} onPick={campaigns ? handlers.onPick : undefined} phone={phone} padClass={padClass}
+        imagePrompt={block.type === 'image' ? handlers.imagePrompt : undefined} />
     </BlockFrame>
   );
 });
@@ -180,6 +184,8 @@ export default function NewsletterEditor({
   // after its section was deleted finds no section and changes nothing.
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
+  const draftRef = useRef(draft);
+  draftRef.current = draft;
   const handlersRef = useRef(new Map<string, BlockHandlers>());
   const handlersFor = useCallback((id: string): BlockHandlers => {
     const known = handlersRef.current.get(id);
@@ -245,6 +251,7 @@ export default function NewsletterEditor({
         return patch ? updateBlockData(list, id, patch) : list;
       }),
       onPick: () => { setSelectedId(id); setPickerFor(id); },
+      imagePrompt: () => imagePromptSeed(draftRef.current.subject, draftRef.current.blocks, id),
     };
     handlersRef.current.set(id, made);
     return made;

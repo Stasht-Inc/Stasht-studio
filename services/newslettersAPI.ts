@@ -456,6 +456,11 @@ export const newslettersAPI = {
   // 402 code no_credits when the account has none left.
   imageAltText: (imageUrl: string) =>
     write<{ alt: string; credits_remaining?: number | null }>('POST', '/newsletters/images/alt-text', { image_url: imageUrl }),
+  // "Generate image" in an Image section (Chris, 13 Nov): OpenAI picture kept in our S3, 5 AI credits. 402 no_credits,
+  // 422 content_policy. Its 429 is a deliberate per-account limit, so apiRequest doesn't retry it.
+  generateImage: (prompt: string) =>
+    call<{ url: string; credits_remaining?: number | null }>('/newsletters/images/generate',
+      { method: 'POST', body: JSON.stringify({ prompt }), noRateLimitRetry: true } as RequestInit),
   // What a Campaigns section can show, 20 a page (shared contracts 2026-10-28 and 2026-10-29). kind defaults to
   // campaign on the API, so it is sent only for products and vehicles.
   campaignOptions: (q: CampaignOptionsQuery = {}) =>
