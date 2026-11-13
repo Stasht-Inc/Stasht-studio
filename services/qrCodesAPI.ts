@@ -102,6 +102,10 @@ export const qrCodesAPI = {
     }
   },
 
+  /** The live campaign's Moderation switch (Chris 13 Nov): the campaign's own save, PUT /memories/{id}, with only moderation_enabled. */
+  setModeration: async (memoryId: number, on: boolean): Promise<QrResult<boolean>> =>
+    result(await apiRequest(`/memories/${memoryId}`, json('PUT', { moderation_enabled: on })), () => on),
+
   /** Campaigns of this view for the Live campaign dropdown, any published state (20 a page). */
   campaignOptions: async (propertyId: PropertyId, search: string, page: number): Promise<QrResult<QrOptionsPage>> =>
     result(

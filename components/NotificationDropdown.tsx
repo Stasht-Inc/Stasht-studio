@@ -10,6 +10,7 @@ import { notificationStore } from '../utils/notificationStore';
 import { useAuth } from '../contexts/AuthContext';
 import { toast } from 'sonner';
 import { mapLimit } from '../utils/requestLimit';
+import { isPendingMoment, momentActionError, momentActionOk } from '../utils/momentApproval';
 
 export interface NotificationItem {
   id: string | number;
@@ -51,6 +52,9 @@ interface NotificationDropdownProps {
 export function NotificationDropdown({ isOpen, onClose, anchorRef, onNotificationCountChange, onMemorySelect, onOpenConversation, onOpenLead, onMarkAllAsReadRef }: NotificationDropdownProps) {
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  /** Approve / Reject on a pending moment (Chris 13 Nov): the item in flight, and an error per item (under its buttons). */
+  const [momentBusy, setMomentBusy] = useState<Record<string, 'approve' | 'reject'>>({});
+  const [momentError, setMomentError] = useState<Record<string, string>>({});
   const dropdownRef = useRef<HTMLDivElement>(null);
   const { logout } = useAuth();
 
@@ -303,6 +307,45 @@ export function NotificationDropdown({ isOpen, onClose, anchorRef, onNotificatio
     } finally {
       setIsLoading(false);
     }
+  };
+
+  /**
+   * Approve / Reject a pending moment right here (Chris 13 Nov) — the Moderation tab's own endpoints. The item stays,
+   * marked Approved / Rejected; a failure keeps the buttons and says why under them.
+   */
+  const handleMomentDecision = async (notification: NotificationItem, action: 'approve' | 'reject') => {
+    const key = String(notification.id);
+    if (momentBusy[key]) return;
+    setMomentBusy((b) => ({ ...b, [key]: action }));
+    setMomentError((e) => { const next = { ...e }; delete next[key]; return next; });
+    let ok = false;
+    let body: any = null;
+    try {
+      const base = import.meta.env.VITE_API_BASE_URL || (import.meta.env.DEV ? '/api/react' : `${window.location.origin}/api/react`);
+      const res = await fetch(`${base}/memory-images/${action === 'approve' ? 'approve' : 'deny'}-image`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json', Authorization: `Bearer ${localStorage.getItem('stasht_token')}` },
+        body: JSON.stringify({ image_id: (notification as any).image_id }),
+      });
+      body = await res.json().catch(() => null);
+      ok = momentActionOk(res.ok, body);
+    } catch {
+      ok = false;
+    }
+    setMomentBusy((b) => { const next = { ...b }; delete next[key]; return next; });
+    if (!ok) {
+      setMomentError((e) => ({ ...e, [key]: momentActionError(body, action) }));
+      return;
+    }
+    setNotifications((prev) => {
+      const updated = prev.map((n) => (String(n.id) === key
+        ? { ...n, pending_approval: false, moderation_result: action === 'approve' ? 'approved' : 'rejected', actioned: true, is_read: true, read: true } as any
+        : n));
+      const unread = updated.filter((n: any) => n.is_read === false || n.is_read === 0 || n.is_read === undefined || n.is_read === null).length;
+      onNotificationCountChange?.(unread);
+      return updated;
+    });
+    if (action === 'approve') triggerMemoriesRefresh();
   };
 
   const handleNotificationAction = async (notificationId: string, action: 'accept' | 'deny', notification?: NotificationItem) => {
@@ -952,7 +995,10 @@ export function NotificationDropdown({ isOpen, onClose, anchorRef, onNotificatio
     // 3. Not already actioned AND
     // 4. Not already handled by API
     const isClaimRequestType = notification.type === 'claim_request' || description.includes('claim') || description.includes('ownership');
-    const needsActionButtons = (isInvitationType || isMomentType || isClaimRequestType) &&
+    // A moment waiting for this owner's approval gets Approve / Reject (Chris 13 Nov) instead of the old buttons.
+    const pendingMoment = isPendingMoment(notification as any) && !(notification as any).moderation_result;
+    const momentResult = (notification as any).moderation_result as 'approved' | 'rejected' | undefined;
+    const needsActionButtons = !pendingMoment && !momentResult && (isInvitationType || isMomentType || isClaimRequestType) &&
                                !isCommentType &&
                                !isMentionType &&
                                !isLikeType &&
@@ -1134,6 +1180,42 @@ export function NotificationDropdown({ isOpen, onClose, anchorRef, onNotificatio
             )}
           </div>
           
+          {/* Pending moment: Approve / Reject right here (Chris 13 Nov) */}
+          {pendingMoment ? (
+            <div className="mt-3" data-moment-approval={String(notification.id)}>
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  disabled={Boolean(momentBusy[String(notification.id)])}
+                  onClick={(e) => { e.stopPropagation(); void handleMomentDecision(notification, 'approve'); }}
+                  className="bg-[#6C60FF] hover:bg-[#5A52E6] text-white text-xs px-3 py-1 h-7"
+                >
+                  <Check className="w-3 h-3 mr-1" />
+                  {momentBusy[String(notification.id)] === 'approve' ? 'Approving…' : 'Approve'}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={Boolean(momentBusy[String(notification.id)])}
+                  onClick={(e) => { e.stopPropagation(); void handleMomentDecision(notification, 'reject'); }}
+                  className="text-gray-600 border-gray-300 hover:bg-gray-50 text-xs px-3 py-1 h-7"
+                >
+                  <X className="w-3 h-3 mr-1" />
+                  {momentBusy[String(notification.id)] === 'reject' ? 'Rejecting…' : 'Reject'}
+                </Button>
+              </div>
+              {momentError[String(notification.id)] ? (
+                <p role="alert" className="mt-1.5 text-xs text-red-600">{momentError[String(notification.id)]}</p>
+              ) : null}
+            </div>
+          ) : null}
+          {momentResult ? (
+            <p className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-gray-600" data-moment-result={momentResult}>
+              {momentResult === 'approved' ? <Check className="w-3 h-3" aria-hidden="true" /> : <X className="w-3 h-3" aria-hidden="true" />}
+              {momentResult === 'approved' ? 'Approved' : 'Rejected'}
+            </p>
+          ) : null}
+
           {/* Action buttons for invitations and share notifications */}
           {needsActionButtons && (
             <div className="flex gap-2 mt-3">
