@@ -30,8 +30,17 @@ const MAX_PRODUCTS = 50;
 // Dropdown value for "no category filter".
 const ALL_CATEGORIES = 'all';
 
-// Shown pre-filled in the name field and used by the server when the name is left blank.
+// Shown pre-filled in the name field for vehicles, and sent when that name is left blank.
 const DEFAULT_CAMPAIGN_NAME = 'Your Campaign';
+
+// Products (Chris, 13 Nov 2026): the field starts empty and a blank name is named by the server like this — the
+// product's own name for one product, "Products for {first name}" for several ("Products for you" without a name).
+export function productCampaignDefault(titles: string[], leadName: string): string {
+  if (titles.length === 1 && titles[0].trim()) return titles[0].trim().slice(0, 120);
+  const first = leadName.trim().split(/\s+/)[0] || '';
+  const isName = !/^this contact$/i.test(leadName.trim()) && /\p{L}/u.test(first) && !/[\d@]/.test(first);
+  return `Products for ${isName ? first.slice(0, 40) : 'you'}`;
+}
 
 interface ShareCarsDialogProps {
   open: boolean;
@@ -44,7 +53,8 @@ interface ShareCarsDialogProps {
   // Pick mode ("+ Send Message"): hand the choice back instead of sending. Both modes offer
   // what the account has (Deepak, 13 Nov 2026): Website Catalogue products when a catalogue is
   // connected, vehicles when it has a car inventory, a Vehicles / Products switch for both.
-  onPick?: (ids: number[], campaignName: string, kind: PickKind) => void;
+  // campaignName is '' for products left unnamed (the server names them); defaultName is that name, for display.
+  onPick?: (ids: number[], campaignName: string, kind: PickKind, defaultName?: string) => void;
   initialSelection?: number[];
   initialCampaignName?: string;
   initialKind?: PickKind;
@@ -128,7 +138,7 @@ export default function ShareCarsDialog({ open, onClose, leadId, leadName, onSha
     if (!open) return;
     setSelected(new Set(initialSelection ?? []));
     setSearch('');
-    setCampaignName(initialCampaignName || DEFAULT_CAMPAIGN_NAME);
+    setCampaignName(initialCampaignName || ((initialKind ?? 'vehicle') === 'product' ? '' : DEFAULT_CAMPAIGN_NAME));
     setCategory(ALL_CATEGORIES);
     setCategories([]);
     setIsComplete(true);
@@ -165,6 +175,11 @@ export default function ShareCarsDialog({ open, onClose, leadId, leadName, onSha
   const showKindSwitch = Boolean(sources?.vehicles && sources?.products);
   const isProducts = kind === 'product';
 
+  // Switching to Products clears the untouched vehicle default (and back), so the field shows the right default.
+  useEffect(() => {
+    setCampaignName((prev) => (prev.trim() === '' || prev === DEFAULT_CAMPAIGN_NAME ? (kind === 'product' ? '' : DEFAULT_CAMPAIGN_NAME) : prev));
+  }, [kind]);
+
   const switchKind = (next: PickKind) => {
     if (next === kind) return;
     setKind(next);
@@ -200,6 +215,13 @@ export default function ShareCarsDialog({ open, onClose, leadId, leadName, onSha
     products.forEach((p) => { const c = (p.category || '').trim(); if (c) m[c] = (m[c] || 0) + 1; });
     return m;
   }, [products]);
+  // What a product campaign left unnamed will be called (the field's placeholder).
+  const productDefaultName = useMemo(
+    () => productCampaignDefault(products.filter((p) => selected.has(p.id)).map((p) => p.title || ''), leadName),
+    [products, selected, leadName],
+  );
+  const nameDefault = isProducts ? productDefaultName : DEFAULT_CAMPAIGN_NAME;
+
   const filteredProducts = useMemo(() => {
     const q = search.trim().toLowerCase();
     return products.filter((p) => {
@@ -235,15 +257,15 @@ export default function ShareCarsDialog({ open, onClose, leadId, leadName, onSha
   const handleShare = async () => {
     if (selected.size === 0 || isSharing) return;
     if (onPick) {
-      onPick(Array.from(selected), campaignName.trim() || DEFAULT_CAMPAIGN_NAME, kind);
+      onPick(Array.from(selected), campaignName.trim() || (isProducts ? '' : DEFAULT_CAMPAIGN_NAME), kind, isProducts ? productDefaultName : undefined);
       onClose();
       return;
     }
     if (leadId == null) return;
     setIsSharing(true);
     try {
-      // Always send a name: the server's own fallback is still car-worded.
-      const name = campaignName.trim() || DEFAULT_CAMPAIGN_NAME;
+      // Vehicles always send a name (the server's own fallback is car-worded); unnamed products are named by the server.
+      const name = campaignName.trim() || (isProducts ? '' : DEFAULT_CAMPAIGN_NAME);
       const res = await leadsAPI.shareCars(leadId, Array.from(selected), name, kind);
       if (res.success) {
         const shared = typeof res.data?.cars_total === 'number' ? res.data.cars_total : selected.size;
@@ -290,7 +312,7 @@ export default function ShareCarsDialog({ open, onClose, leadId, leadName, onSha
             onChange={(e) => setCampaignName(e.target.value)}
             onFocus={(e) => e.currentTarget.select()}
             maxLength={120}
-            placeholder={DEFAULT_CAMPAIGN_NAME}
+            placeholder={nameDefault}
             className="w-full h-10 px-3 rounded-lg bg-white text-sm text-gray-900 placeholder:text-gray-500 border border-gray-200 outline-none focus-visible:ring-2 focus-visible:ring-[#6C60FF]"
           />
         </div>

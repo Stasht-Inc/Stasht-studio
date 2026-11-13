@@ -18,7 +18,7 @@ import { isPlausibleSplitPhone, splitTypedPhone, toE164 } from '../../utils/phon
 const SMS_LIMIT = 320;
 
 // ids are vehicle ids (car_ids) or Website Catalogue product ids (catalog_item_ids).
-interface PickedCampaign { ids: number[]; name: string; kind: PickKind }
+interface PickedCampaign { ids: number[]; name: string; kind: PickKind; defaultName?: string }
 
 // Pre-written text (Chris: "so they don't have to do anything"). No greeting —
 // the server already opens emails and first texts with "Hi {name},". With cars,
@@ -239,7 +239,7 @@ export default function SendMessageDialog({ open, onOpenChange, onSent }: Props)
                   {picked.kind === 'product' ? <Package className="w-4 h-4 text-[#5A4FE5]" /> : <Car className="w-4 h-4 text-[#5A4FE5]" />}
                 </span>
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate text-sm font-medium text-gray-900">{picked.name}</span>
+                  <span className="block truncate text-sm font-medium text-gray-900">{picked.name || picked.defaultName}</span>
                   <span className="block text-xs text-gray-600">{carCount} {carCount === 1 ? 'item' : 'items'} · new campaign</span>
                 </span>
                 <button
@@ -314,7 +314,7 @@ export default function SendMessageDialog({ open, onOpenChange, onSent }: Props)
           initialSelection={picked?.ids}
           initialCampaignName={picked?.name}
           initialKind={picked?.kind}
-          onPick={(ids, campaignName, kind) => setPicked({ ids, name: campaignName, kind })}
+          onPick={(ids, campaignName, kind, defaultName) => setPicked({ ids, name: campaignName, kind, defaultName })}
         />
 
         <div className="border-t border-gray-100 px-6 py-4 flex gap-3">
