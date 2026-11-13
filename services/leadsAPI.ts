@@ -83,6 +83,14 @@ export interface LeadMessage {
   sender_name?: string | null;
 }
 
+// A line in the thread that isn't a message: "Linda joined" (Chris 13 Nov 2026 evening).
+export interface LeadThreadEvent {
+  type: 'joined';
+  user_id: number;
+  body: string;
+  at: string;
+}
+
 export interface Lead {
   id: number;
   // null when there's no viewer account AND no guest details on the lead row
@@ -133,6 +141,14 @@ export interface Lead {
   claimed?: boolean;
   can_open?: boolean;
   can_remove?: boolean;
+  // Join (Chris 13 Nov 2026 evening): can_join — offered "Join" on a lead someone else claimed; joined — they did, so
+  // they read and reply to it as themselves (the claimer stays the assignee; the row stays "Claimed").
+  joined?: boolean;
+  can_join?: boolean;
+  // The conversation header's "Read" button (mark unread for everyone): marked_unread — marked and not opened by
+  // this person since (unread_count is then at least 1); can_mark_unread — the button is offered.
+  marked_unread?: boolean;
+  can_mark_unread?: boolean;
   // Shared note (ClickUp wdy2xh13mn): readable by anyone who sees the lead.
   notes?: string | null;
   notes_updated_at?: string | null;
@@ -389,6 +405,16 @@ export const leadsAPI = {
     return apiRequest<{ lead_id: number; removed: boolean }>(`/leads/${leadId}/remove-from-my-list`, { method: 'POST' });
   },
 
+  // Join a lead someone else on the team claimed: read and reply to it as yourself (Chris 13 Nov 2026 evening).
+  joinLead: async (leadId: number) => {
+    return apiRequest<{ lead_id: number; joined: boolean }>(`/leads/${leadId}/join`, { method: 'POST' });
+  },
+
+  // The conversation header's "Read" button: unread for everyone on the team until each of them opens it.
+  markUnread: async (leadId: number) => {
+    return apiRequest<{ lead_id: number; marked_unread: boolean }>(`/leads/${leadId}/messages/mark-unread`, { method: 'POST' });
+  },
+
   assignLead: async (leadId: number, userId: number | null) => {
     return apiRequest<{ lead_id: number; assignee: LeadAssignee | null }>(`/leads/${leadId}/assign`, {
       method: 'POST',
@@ -428,7 +454,7 @@ export const leadsAPI = {
   // visitor_online: a Contact Us widget lead whose widget checked in within the last 20 s
   // ("On your website now"; false for every other lead).
   getMessages: async (leadId: number, fresh = false) => {
-    return apiRequest<{ messages: LeadMessage[]; visitor_online?: boolean; widget_ai?: WidgetAiState | null }>(
+    return apiRequest<{ messages: LeadMessage[]; events?: LeadThreadEvent[]; visitor_online?: boolean; widget_ai?: WidgetAiState | null }>(
       `/leads/${leadId}/messages${partialAdminQuery('?')}`,
       { method: 'GET', ...(fresh ? { skipCache: true } : {}) } as RequestInit,
     );
