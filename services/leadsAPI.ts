@@ -348,6 +348,10 @@ export interface ConversationMessage {
   sent_at: string;
 }
 
+// The Leads page's background refresh (utils/livePoll): skipCache bypasses apiRequest's 15 s GET cache, signal lets
+// a filter change or unmount cancel it.
+export type LiveRequestInit = { signal?: AbortSignal; skipCache?: boolean };
+
 export const leadsAPI = {
   getLeads: async (params?: {
     search?: string;
@@ -365,7 +369,7 @@ export const leadsAPI = {
     team?: 'all';
     // One lead by id, ignoring the list filters (still only leads this user may see).
     leadId?: number;
-  }) => {
+  }, init?: LiveRequestInit) => {
     const query = new URLSearchParams();
     if (params?.leadId != null) query.append('lead_id', String(params.leadId));
     if (params?.search?.trim()) query.append('search', params.search.trim());
@@ -383,7 +387,7 @@ export const leadsAPI = {
     if (params?.per_page != null) query.append('per_page', String(params.per_page));
     if (isPartialAdmin()) query.append('partial_admin_email', getPartialAdminEmail());
     const url = `/leads${query.toString() ? `?${query.toString()}` : ''}`;
-    return apiRequest<LeadsResponse>(url, { method: 'GET' });
+    return apiRequest<LeadsResponse>(url, { method: 'GET', ...init });
   },
 
   // Lead assignment (spec 2026-09-23). accept → 409 {message, taken_by} when
@@ -491,8 +495,8 @@ export const leadsAPI = {
   },
 
   // GET /api/react/lead-groups — list of groups (summary, no members).
-  getLeadGroups: async () => {
-    return apiRequest<LeadGroupSummary[] | { groups: LeadGroupSummary[] }>(`/lead-groups${partialAdminQuery('?')}`, { method: 'GET' });
+  getLeadGroups: async (init?: LiveRequestInit) => {
+    return apiRequest<LeadGroupSummary[] | { groups: LeadGroupSummary[] }>(`/lead-groups${partialAdminQuery('?')}`, { method: 'GET', ...init });
   },
 
   // GET /api/react/lead-groups/{id} — one group with its members.
@@ -501,8 +505,8 @@ export const leadsAPI = {
   },
 
   // GET /api/react/my-conversations — conversations where I'm the viewer.
-  getMyConversations: async () => {
-    return apiRequest<{ total: number; conversations: Conversation[] }>(`/my-conversations${partialAdminQuery('?')}`, { method: 'GET' });
+  getMyConversations: async (init?: LiveRequestInit) => {
+    return apiRequest<{ total: number; conversations: Conversation[] }>(`/my-conversations${partialAdminQuery('?')}`, { method: 'GET', ...init });
   },
 
   // GET /api/react/my-conversations/{lead_id}/messages — thread (auto-marks read).
