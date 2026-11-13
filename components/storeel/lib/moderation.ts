@@ -10,9 +10,12 @@ export function accountModerationFrom(res: unknown): boolean {
   return v === false || v === 0 || v === '0' ? false : true;
 }
 
-/** What the Storeel page's switch shows: the person's choice, else the campaign's value, else off (13 Nov; `account` is ignored). */
-export function shownModeration({ choice, campaign }: { choice: boolean | null; campaign: boolean | null; account?: boolean | null }): boolean {
-  return choice ?? campaign ?? false;
+/**
+ * What the Storeel page's switch shows: the person's choice, else the campaign's value, else (a new campaign) the
+ * account's setting — the default the API writes on create (Deepak 13 Nov) — else off.
+ */
+export function shownModeration({ choice, campaign, account }: { choice: boolean | null; campaign: boolean | null; account?: boolean | null }): boolean {
+  return choice ?? campaign ?? account ?? false;
 }
 
 /** A campaign's moderation from GET /memories/{id}: moderation_effective, else its own value, else unknown (null). */
