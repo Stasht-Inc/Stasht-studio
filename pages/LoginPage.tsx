@@ -2117,7 +2117,8 @@ export default function LoginPage({ onLogin, onSwitchToSignup, onSocialLogin }: 
                 {/* Signup Link */}
                 {onSwitchToSignup && (
                   <div className="text-center mt-6">
-                    <p className="text-gray-600">
+                    {/* Chris 13 Nov: the card's small secondary size (desktop + phone), not the body size */}
+                    <p className="text-gray-600 text-sm" data-auth-footer="signup">
                       Don't have an account?{' '}
                       <button
                         onClick={onSwitchToSignup}
