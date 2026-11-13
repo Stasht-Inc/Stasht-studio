@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Car, Check, Search } from 'lucide-react';
+import { Car, Check, Package, Search } from 'lucide-react';
 import { toast } from 'sonner';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from './ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
@@ -7,6 +7,7 @@ import { dashboardAPI } from '../utils/authUtils';
 import { formatCarCategory } from '../utils/carCategories';
 import { describeCarSearch, matchesCarSearch, parseCarSearch } from '../utils/carSearch';
 import { leadsAPI } from '../services/leadsAPI';
+import { loadCatalogueForBrowsing, type CatalogueItemSummary } from '../services/catalogueAPI';
 
 // One listing from GET /cars — only the fields this picker renders.
 interface CarListing {
@@ -19,6 +20,12 @@ interface CarListing {
   main_image?: string | null;
   category?: string | null; // "preowned" | "hybrid" — what the category dropdown groups by
 }
+
+// What a pick holds: dealer vehicles (GET /cars) or Website Catalogue products. One kind per campaign.
+export type PickKind = 'vehicle' | 'product';
+
+// The web API's per-campaign product limit (config catalog.max_items_per_campaign).
+const MAX_PRODUCTS = 50;
 
 // Dropdown value for "no category filter".
 const ALL_CATEGORIES = 'all';
@@ -34,10 +41,13 @@ interface ShareCarsDialogProps {
   leadId?: number;
   // Called after a successful share so the caller can refresh the thread.
   onShared?: () => void;
-  // Pick mode ("+ Send Message"): hand the choice back instead of sending.
-  onPick?: (carIds: number[], campaignName: string) => void;
+  // Pick mode ("+ Send Message"): hand the choice back instead of sending. Pick mode also
+  // offers the account's Website Catalogue products (Chris, 13 Nov 2026: Royal Wood sells
+  // products, not vehicles, so a cars-only list was empty there).
+  onPick?: (ids: number[], campaignName: string, kind: PickKind) => void;
   initialSelection?: number[];
   initialCampaignName?: string;
+  initialKind?: PickKind;
 }
 
 function carSubtitle(c: CarListing): string {
@@ -59,7 +69,7 @@ function carSubtitle(c: CarListing): string {
 // share gets its own campaign and link — never added to the lead's old one.
 // A category dropdown (the categories the dealer's inventory actually has, e.g.
 // "Preowned (26)", "Hybrid (21)") narrows the list; selections survive switching.
-export default function ShareCarsDialog({ open, onClose, leadId, leadName, onShared, onPick, initialSelection, initialCampaignName }: ShareCarsDialogProps) {
+export default function ShareCarsDialog({ open, onClose, leadId, leadName, onShared, onPick, initialSelection, initialCampaignName, initialKind }: ShareCarsDialogProps) {
   const [cars, setCars] = useState<CarListing[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -74,6 +84,10 @@ export default function ShareCarsDialog({ open, onClose, leadId, leadName, onSha
   // re-queries the server so cars beyond the first 100 are still reachable.
   const [isComplete, setIsComplete] = useState(true);
   const loadSeq = useRef(0);
+  // Pick mode only: the catalogue's products, and which list is showing.
+  const [products, setProducts] = useState<CatalogueItemSummary[]>([]);
+  const [productsLoading, setProductsLoading] = useState(false);
+  const [kind, setKind] = useState<PickKind>(initialKind ?? 'vehicle');
 
   // Loads the inventory. `cat` is only passed when re-querying the server for one
   // category (inventory > 100 cars); the first load also learns which categories exist.
@@ -115,13 +129,41 @@ export default function ShareCarsDialog({ open, onClose, leadId, leadName, onSha
     setCategory(ALL_CATEGORIES);
     setCategories([]);
     setIsComplete(true);
+    setKind(initialKind ?? 'vehicle');
+    setProducts([]);
     loadCars(undefined, true);
-    return () => { loadSeq.current++; };
+    let cancelled = false;
+    if (onPick) {
+      // Asks GET /website-catalogue first, so an account without the catalogue gets [] (no upgrade popup).
+      setProductsLoading(true);
+      loadCatalogueForBrowsing()
+        .then((list) => { if (!cancelled) setProducts(list); })
+        .finally(() => { if (!cancelled) setProductsLoading(false); });
+    }
+    return () => { loadSeq.current++; cancelled = true; };
   }, [open]);
+
+  // No vehicles but products (e.g. Royal Wood): open on Products.
+  const hasVehicles = cars.length > 0 || category !== ALL_CATEGORIES;
+  const hasProducts = products.length > 0;
+  useEffect(() => {
+    if (!open || initialKind || isLoading || productsLoading) return;
+    if (!hasVehicles && hasProducts) setKind('product');
+  }, [open, isLoading, productsLoading, hasVehicles, hasProducts]);
+  const showKindSwitch = Boolean(onPick) && hasVehicles && hasProducts;
+  const isProducts = kind === 'product';
+
+  const switchKind = (next: PickKind) => {
+    if (next === kind) return;
+    setKind(next);
+    setSelected(new Set());
+    setSearch('');
+    setCategory(ALL_CATEGORIES);
+  };
 
   const handleCategoryChange = (next: string) => {
     setCategory(next);
-    if (!isComplete) loadCars(next === ALL_CATEGORIES ? undefined : next);
+    if (!isProducts && !isComplete) loadCars(next === ALL_CATEGORIES ? undefined : next);
   };
 
   // Per-category counts, only when the list is the whole inventory (otherwise they'd lie).
@@ -137,6 +179,23 @@ export default function ShareCarsDialog({ open, onClose, leadId, leadName, onSha
   const parsedSearch = useMemo(() => parseCarSearch(search), [search]);
   const searchNotes = useMemo(() => describeCarSearch(parsedSearch), [parsedSearch]);
 
+  const productCategories = useMemo(
+    () => [...new Set(products.map((p) => (p.category || '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b)),
+    [products],
+  );
+  const productCounts = useMemo(() => {
+    const m: Record<string, number> = {};
+    products.forEach((p) => { const c = (p.category || '').trim(); if (c) m[c] = (m[c] || 0) + 1; });
+    return m;
+  }, [products]);
+  const filteredProducts = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return products.filter((p) => {
+      if (category !== ALL_CATEGORIES && (p.category || '').trim() !== category) return false;
+      return !q || `${p.title || ''} ${p.category || ''}`.toLowerCase().includes(q);
+    });
+  }, [products, search, category]);
+
   const filtered = useMemo(() => {
     return cars.filter((c) => {
       if (category !== ALL_CATEGORIES && c.category !== category) return false;
@@ -145,7 +204,7 @@ export default function ShareCarsDialog({ open, onClose, leadId, leadName, onSha
   }, [cars, parsedSearch, category]);
 
   const emptyText =
-    cars.length === 0 && category === ALL_CATEGORIES
+    (isProducts ? products.length === 0 : cars.length === 0) && category === ALL_CATEGORIES
       ? 'Nothing in your inventory yet!'
       : category !== ALL_CATEGORIES && !search.trim()
         ? 'Nothing in this category.'
@@ -155,6 +214,7 @@ export default function ShareCarsDialog({ open, onClose, leadId, leadName, onSha
     setSelected((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
+      else if (isProducts && next.size >= MAX_PRODUCTS) return prev;
       else next.add(id);
       return next;
     });
@@ -163,7 +223,7 @@ export default function ShareCarsDialog({ open, onClose, leadId, leadName, onSha
   const handleShare = async () => {
     if (selected.size === 0 || isSharing) return;
     if (onPick) {
-      onPick(Array.from(selected), campaignName.trim() || DEFAULT_CAMPAIGN_NAME);
+      onPick(Array.from(selected), campaignName.trim() || DEFAULT_CAMPAIGN_NAME, kind);
       onClose();
       return;
     }
@@ -223,7 +283,43 @@ export default function ShareCarsDialog({ open, onClose, leadId, leadName, onSha
           />
         </div>
 
-        {categories.length > 1 && (
+        {showKindSwitch && (
+          // Same pill toggle as Send Message's Text / Email tabs.
+          <div className="px-6 pb-3">
+            <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-1" role="group" aria-label="What to pick">
+              {(['vehicle', 'product'] as const).map((k) => (
+                <button
+                  key={k}
+                  type="button"
+                  aria-pressed={kind === k}
+                  onClick={() => switchKind(k)}
+                  className={`flex-1 h-9 inline-flex items-center justify-center gap-2 rounded-md text-sm font-medium transition-colors ${kind === k ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-800'}`}
+                >
+                  {k === 'vehicle' ? <><Car className="w-4 h-4" />Vehicles</> : <><Package className="w-4 h-4" />Products</>}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {isProducts ? (productCategories.length > 1 && (
+          <div className="px-6 pb-3">
+            <label id="share-cars-category-label" className="block text-xs font-medium text-gray-700 mb-1">
+              Category
+            </label>
+            <Select value={category} onValueChange={handleCategoryChange}>
+              <SelectTrigger aria-labelledby="share-cars-category-label" className="h-10 w-full bg-white border-gray-200 text-sm">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={ALL_CATEGORIES}>All categories ({products.length})</SelectItem>
+                {productCategories.map((c) => (
+                  <SelectItem key={c} value={c}>{c} ({productCounts[c] ?? 0})</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )) : categories.length > 1 && (
           <div className="px-6 pb-3">
             <label id="share-cars-category-label" className="block text-xs font-medium text-gray-700 mb-1">
               Category
@@ -253,12 +349,12 @@ export default function ShareCarsDialog({ open, onClose, leadId, leadName, onSha
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search inventory, price or year"
-              aria-label="Search inventory, price or year"
+              placeholder={isProducts ? 'Search products' : 'Search inventory, price or year'}
+              aria-label={isProducts ? 'Search products' : 'Search inventory, price or year'}
               className="w-full h-10 pl-9 pr-3 rounded-lg bg-gray-100 text-sm text-gray-700 placeholder:text-gray-500 border-none outline-none focus-visible:ring-2 focus-visible:ring-[#6C60FF]"
             />
           </div>
-          {searchNotes.length > 0 && (
+          {!isProducts && searchNotes.length > 0 && (
             <p className="mt-1.5 text-xs text-[#5A4FE5]" aria-live="polite">
               Showing: {searchNotes.join(' · ')}
             </p>
@@ -266,21 +362,24 @@ export default function ShareCarsDialog({ open, onClose, leadId, leadName, onSha
         </div>
 
         <div className="flex-1 min-h-0 overflow-y-auto px-6 pb-2">
-          {isLoading ? (
+          {(isProducts ? productsLoading : isLoading || (!hasVehicles && productsLoading)) ? (
             <div className="flex justify-center py-14" role="status" aria-label="Loading your inventory">
               <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-[#6C60FF]" />
             </div>
-          ) : loadError ? (
+          ) : !isProducts && loadError ? (
             <p className="text-center text-sm text-gray-600 py-10">{loadError}</p>
-          ) : filtered.length === 0 ? (
+          ) : (isProducts ? filteredProducts.length === 0 : filtered.length === 0) ? (
             <p className="text-center text-sm text-gray-600 py-10">
               {emptyText}
             </p>
           ) : (
             <ul className="space-y-1.5">
-              {filtered.map((c) => {
+              {(isProducts
+                ? filteredProducts.map((p) => ({ id: p.id, title: p.title, main_image: p.main_image, subtitle: [p.price_label, p.category].filter(Boolean).join(' · ') }))
+                : filtered.map((c) => ({ id: c.id, title: c.title, main_image: c.main_image, subtitle: carSubtitle(c) }))
+              ).map((c) => {
                 const isSel = selected.has(c.id);
-                const subtitle = carSubtitle(c);
+                const subtitle = c.subtitle;
                 return (
                   <li key={c.id}>
                     <button
@@ -304,7 +403,7 @@ export default function ShareCarsDialog({ open, onClose, leadId, leadName, onSha
                         <img src={c.main_image} alt="" className="w-11 h-11 rounded-md object-cover shrink-0" />
                       ) : (
                         <span aria-hidden="true" className="w-11 h-11 rounded-md bg-gray-100 flex items-center justify-center shrink-0">
-                          <Car className="w-5 h-5 text-gray-400" />
+                          {isProducts ? <Package className="w-5 h-5 text-gray-400" /> : <Car className="w-5 h-5 text-gray-400" />}
                         </span>
                       )}
                       <span className="min-w-0 flex-1">
@@ -320,6 +419,9 @@ export default function ShareCarsDialog({ open, onClose, leadId, leadName, onSha
         </div>
 
         <div className="border-t border-gray-100 px-6 py-4">
+          {isProducts && selected.size >= MAX_PRODUCTS && (
+            <p className="mb-2 text-xs text-gray-600" aria-live="polite">Up to {MAX_PRODUCTS} products.</p>
+          )}
           <button
             type="button"
             onClick={handleShare}

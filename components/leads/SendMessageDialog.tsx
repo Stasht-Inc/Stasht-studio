@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
-import { Car, Loader2, Mail, MessageSquare, Plus, X } from 'lucide-react';
+import { Car, Loader2, Mail, MessageSquare, Package, Plus, X } from 'lucide-react';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { leadsAPI } from '../../services/leadsAPI';
 import { dashboardAPI } from '../../utils/authUtils';
 import { useAuth } from '../../contexts/AuthContext';
-import ShareCarsDialog from '../ShareCarsDialog';
+import ShareCarsDialog, { type PickKind } from '../ShareCarsDialog';
 import CountrySelect from '../CountrySelect';
 import { isPlausibleSplitPhone, splitTypedPhone, toE164 } from '../../utils/phoneUtils';
 
@@ -17,21 +17,30 @@ import { isPlausibleSplitPhone, splitTypedPhone, toE164 } from '../../utils/phon
 
 const SMS_LIMIT = 320;
 
-interface PickedCampaign { carIds: number[]; name: string }
+// ids are vehicle ids (car_ids) or Website Catalogue product ids (catalog_item_ids).
+interface PickedCampaign { ids: number[]; name: string; kind: PickKind }
 
 // Pre-written text (Chris: "so they don't have to do anything"). No greeting —
 // the server already opens emails and first texts with "Hi {name},". With cars,
 // the campaign link is appended on its own line after the colon.
-function suggestedBody(carCount: number, senderName: string, dealerName: string): string {
+function itemWords(count: number, kind: PickKind): string {
+  const noun = kind === 'product' ? 'product' : 'vehicle';
+  return count === 1 ? `a ${noun}` : `${count} ${noun}s`;
+}
+
+function suggestedBody(carCount: number, senderName: string, dealerName: string, kind: PickKind = 'vehicle'): string {
   if (carCount > 0) {
-    return `I picked out ${carCount === 1 ? 'a vehicle' : `${carCount} vehicles`} I think you'll like — take a look:`;
+    return `I picked out ${itemWords(carCount, kind)} I think you'll like — take a look:`;
   }
   const who = [senderName, dealerName].filter(Boolean).join(' at ');
   return `Just checking in to see if you have any questions. I'm happy to help${who ? ` — ${who}` : ''}.`;
 }
 
-function suggestedSubject(carCount: number, dealerName: string): string {
-  if (carCount > 0) return `${carCount === 1 ? 'A vehicle' : `${carCount} vehicles`} picked for you`;
+function suggestedSubject(carCount: number, dealerName: string, kind: PickKind = 'vehicle'): string {
+  if (carCount > 0) {
+    const words = itemWords(carCount, kind);
+    return `${words.charAt(0).toUpperCase()}${words.slice(1)} picked for you`;
+  }
   return dealerName ? `Checking in from ${dealerName}` : 'Checking in';
 }
 
@@ -76,12 +85,13 @@ export default function SendMessageDialog({ open, onOpenChange, onSent }: Props)
     }).catch(() => setProperties([]));
   }, [open]);
 
-  const carCount = picked?.carIds.length ?? 0;
+  const carCount = picked?.ids.length ?? 0;
+  const pickedKind: PickKind = picked?.kind ?? 'vehicle';
   const senderName = user?.name?.trim().split(/\s+/)[0] ?? '';
   const dealerName = properties.find((p) => p.id === propertyId)?.name ?? '';
-  const bodySuggestion = suggestedBody(carCount, senderName, dealerName);
+  const bodySuggestion = suggestedBody(carCount, senderName, dealerName, pickedKind);
   const body = bodyOverride ?? bodySuggestion;
-  const subject = subjectOverride ?? suggestedSubject(carCount, dealerName);
+  const subject = subjectOverride ?? suggestedSubject(carCount, dealerName, pickedKind);
   // Mirrors the server's opener (LeadDeliveryService buildSmsBody / buildEmailHtml).
   const contactFirst = name.trim().split(/\s+/)[0];
   const greeting = contactFirst ? `Hi ${contactFirst},` : channel === 'email' ? 'Hi there,' : 'Hi,';
@@ -109,7 +119,7 @@ export default function SendMessageDialog({ open, onOpenChange, onSent }: Props)
         ...(name.trim() ? { name: name.trim() } : {}),
         body: body.trim(),
         ...(propertyId ? { property_id: propertyId } : {}),
-        ...(picked ? { car_ids: picked.carIds, campaign_title: picked.name } : {}),
+        ...(picked ? { ...(picked.kind === 'product' ? { catalog_item_ids: picked.ids } : { car_ids: picked.ids }), campaign_title: picked.name } : {}),
       });
       if (res.success && res.data) {
         const what = picked ? `Message sent with a new campaign, "${picked.name}"` : 'Message sent';
@@ -226,7 +236,7 @@ export default function SendMessageDialog({ open, onOpenChange, onSent }: Props)
             {picked ? (
               <div className="flex items-center gap-3 rounded-lg border border-[#6C60FF] bg-[#F5F2FF] px-3 py-2">
                 <span aria-hidden="true" className="w-8 h-8 shrink-0 rounded-md bg-white flex items-center justify-center">
-                  <Car className="w-4 h-4 text-[#5A4FE5]" />
+                  {picked.kind === 'product' ? <Package className="w-4 h-4 text-[#5A4FE5]" /> : <Car className="w-4 h-4 text-[#5A4FE5]" />}
                 </span>
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-sm font-medium text-gray-900">{picked.name}</span>
@@ -301,9 +311,10 @@ export default function SendMessageDialog({ open, onOpenChange, onSent }: Props)
           open={showPicker}
           onClose={() => setShowPicker(false)}
           leadName={name.trim() || 'this contact'}
-          initialSelection={picked?.carIds}
+          initialSelection={picked?.ids}
           initialCampaignName={picked?.name}
-          onPick={(carIds, campaignName) => setPicked({ carIds, name: campaignName })}
+          initialKind={picked?.kind}
+          onPick={(ids, campaignName, kind) => setPicked({ ids, name: campaignName, kind })}
         />
 
         <div className="border-t border-gray-100 px-6 py-4 flex gap-3">

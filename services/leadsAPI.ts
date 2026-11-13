@@ -192,6 +192,8 @@ export interface StartConversationPayload {
   memory_id?: number | string;
   // "+ Campaign": cars for a NEW campaign whose link goes out with the message.
   car_ids?: number[];
+  // ...or Website Catalogue products (one kind per send).
+  catalog_item_ids?: number[];
   campaign_title?: string;
 }
 
