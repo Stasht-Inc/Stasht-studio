@@ -12,6 +12,7 @@ import AssigneeControl, { AssigneeBadge } from './AssigneeControl';
 import RowActionButton from './RowActionButton';
 import CampaignDeletedTag from './CampaignDeletedTag';
 import LeadBusinessTag from './LeadBusinessTag';
+import WantsMoreTag from './WantsMoreTag';
 import OpenBadge, { openTitle } from './OpenBadge';
 import ClaimedBadge, { claimedTitle } from './ClaimedBadge';
 import {
@@ -321,6 +322,7 @@ export default function LeadsInboxTable(props: Props) {
                     <span className="flex items-center gap-1.5 min-w-0">
                       <span className="truncate">{leadName(lead)}</span>
                       <StatusIndicator status={lead.status} />
+                      <WantsMoreTag lead={lead} />
                       {unread && <UnreadDot />}
                     </span>
                   </td>
@@ -378,6 +380,7 @@ export default function LeadsInboxTable(props: Props) {
               <div className="mt-1 flex items-center justify-between gap-2 min-w-0">
                 <span className="min-w-0 flex items-center gap-1.5">
                   <span className="min-w-0 truncate text-[13px] text-gray-500">{name ? contact : leadViaLabel(lead)}</span>
+                  <WantsMoreTag lead={lead} />
                   {lead.campaign_deleted && <CampaignDeletedTag />}
                 </span>
                 <div className="flex items-center gap-1 shrink-0 -mr-2.5">
