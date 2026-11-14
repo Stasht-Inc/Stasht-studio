@@ -13,7 +13,7 @@ export default function LeadBusinessTag({ lead, className = '' }: { lead: Pick<L
     <span
       title={`Lead for ${name || 'another business'}`}
       data-lead-business
-      className={`shrink-0 inline-flex items-center gap-1 h-5 max-w-[12rem] px-1.5 rounded border border-[#6C60FF]/20 bg-[#6C60FF]/10 text-[12px] font-medium text-[#4a40d4] whitespace-nowrap ${className}`}
+      className={`shrink-0 inline-flex items-center gap-1 h-5 max-w-[12rem] px-1.5 rounded border border-gray-200 bg-[#F3F4F6] text-[12px] font-medium text-[#4A5565] whitespace-nowrap ${className}`}
     >
       <Building2 className="w-3 h-3 shrink-0" aria-hidden />
       <span className="truncate">{name || 'Another business'}</span>

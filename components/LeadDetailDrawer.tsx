@@ -156,6 +156,8 @@ interface Props {
   highlightTarget?: CommentaryTarget | null;
   onTargetHandled?: () => void;
   onNavigate?: (page: string) => void;
+  // A field changed here (the name, Chris 14 Nov 2026): the page updates its copy at once, then refreshes the list.
+  onLeadPatched?: (patch: Partial<Lead>) => void;
 }
 
 // The website chat's AI bar (ClickUp wdy2xh2upu): "Chip is answering this chat · Take over", then
@@ -168,13 +170,13 @@ export function WidgetAiBar({ state, assistantName, busy, onTakeOver, onHandBack
   onHandBack: () => void;
 }) {
   const handler = state.handled_by;
-  const button = 'shrink-0 h-9 px-3.5 rounded-lg text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#6C60FF] focus-visible:ring-offset-1 disabled:opacity-50 disabled:cursor-default';
+  const button = 'shrink-0 h-9 px-3.5 rounded-lg text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 focus-visible:ring-offset-1 disabled:opacity-50 disabled:cursor-default';
   return (
     <div
-      className={`mb-3 flex items-center gap-3 rounded-xl border px-3.5 py-2 ${handler ? 'border-gray-200 bg-gray-50' : 'border-[#6C60FF]/25 bg-[#6C60FF]/[0.06]'}`}
+      className={`mb-3 flex items-center gap-3 rounded-xl border px-3.5 py-2 border-gray-200 bg-gray-50`}
       data-testid="widget-ai-bar"
     >
-      <span className={`flex items-center justify-center w-8 h-8 rounded-full shrink-0 ${handler ? 'bg-white text-gray-600 border border-gray-200' : 'bg-[#6C60FF] text-white'}`} aria-hidden="true">
+      <span className={`flex items-center justify-center w-8 h-8 rounded-full shrink-0 bg-white text-gray-600 border border-gray-200`} aria-hidden="true">
         {handler ? <UserRound className="w-4 h-4" /> : <Sparkles className="w-4 h-4" />}
       </span>
       <p className="flex-1 min-w-0 text-sm text-gray-700" role="status">
@@ -187,11 +189,11 @@ export function WidgetAiBar({ state, assistantName, busy, onTakeOver, onHandBack
         )}
       </p>
       {!handler ? (
-        <button type="button" onClick={onTakeOver} disabled={busy} className={`${button} bg-[#6C60FF] text-white hover:bg-[#5b50e6]`}>
+        <button type="button" onClick={onTakeOver} disabled={busy} className={`${button} bg-[#202224] text-white hover:bg-[#0A0A0A]`}>
           {busy ? 'Taking over…' : 'Take over'}
         </button>
       ) : handler.is_me ? (
-        <button type="button" onClick={onHandBack} disabled={busy} className={`${button} bg-white text-[#6C60FF] border border-[#6C60FF]/40 hover:bg-[#6C60FF]/[0.06]`}>
+        <button type="button" onClick={onHandBack} disabled={busy} className={`${button} bg-white text-[#202224] border border-gray-300 hover:bg-gray-100`}>
           {busy ? 'Handing back…' : `Hand back to ${assistantName}`}
         </button>
       ) : null}
@@ -199,7 +201,7 @@ export function WidgetAiBar({ state, assistantName, busy, onTakeOver, onHandBack
   );
 }
 
-export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, isArchived = false, highlightTarget, onTargetHandled, onNavigate }: Props) {
+export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, isArchived = false, highlightTarget, onTargetHandled, onNavigate, onLeadPatched }: Props) {
   const { user } = useAuth();
   const { limitData } = useMemoryLimit();
   const [aiCredits, setAiCredits] = useState<number>(limitData.ai_connects ?? 0);
@@ -786,9 +788,15 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
   const daysAsLead = getDaysAsLead(lead.first_seen_at);
   const unreadCount = lead.unread_count ?? 0;
 
+  // Header, avatar and list row follow the new name straight away; the list then reloads (writes clear the GET cache).
+  const handleNameSaved = (name: string) => {
+    onLeadPatched?.({ user: { ...(lead.user ?? {}), name } as Lead['user'] });
+    onRefreshLead?.();
+  };
+
   const rowHl = (key: string) =>
     highlightedKey === key
-      ? 'rounded-xl ring-2 ring-[#6C60FF] bg-purple-50 transition-all duration-500 -mx-2 px-2'
+      ? 'rounded-xl ring-2 ring-gray-400 bg-gray-100 transition-all duration-500 -mx-2 px-2'
       : '';
 
   const renderMessage = (msg: LeadMessage, isChild = false): React.ReactNode => {
@@ -867,10 +875,10 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
                 // after-hours notices carry the badge. A rep's reply takes over from it.
                 <>
                   <span className="text-base font-semibold text-gray-900">AI assistant</span>
-                  <span data-ai-badge className="inline-flex items-center rounded-md bg-[#6C60FF]/10 px-1.5 py-0.5 text-xs font-bold tracking-wide text-[#4a40d4]">
+                  <span data-ai-badge className="inline-flex items-center rounded-md bg-[#F3F4F6] px-1.5 py-0.5 text-xs font-bold tracking-wide text-[#4A5565]">
                     AI
                   </span>
-                  <span className="h-8 w-8 rounded-full bg-[#6C60FF]/10 text-[#6C60FF] flex items-center justify-center" aria-hidden="true">
+                  <span className="h-8 w-8 rounded-full bg-[#F3F4F6] text-[#4A5565] flex items-center justify-center" aria-hidden="true">
                     <Sparkles className="w-4 h-4" />
                   </span>
                 </>
@@ -883,7 +891,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
                       <span className="text-base font-semibold text-gray-900">{teammate ?? 'You'}</span>
                       <Avatar className="h-8 w-8">
                         {!teammate && <AvatarImage src={user?.avatar} alt={user?.name || 'You'} />}
-                        <AvatarFallback className="bg-[#6C60FF] text-white text-sm font-bold">
+                        <AvatarFallback className="bg-[#E5E7EB] text-[#202224] text-sm font-bold">
                           {getInitials(teammate ?? (user?.name || 'You'))}
                         </AvatarFallback>
                       </Avatar>
@@ -893,11 +901,13 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
               )}
             </div>
             {msg.subject && msg.subject !== 'Following up' && (
-              <p className="text-sm font-semibold text-[#6C60FF] mb-1">{msg.subject}</p>
+              <p className="text-sm font-semibold text-gray-900 mb-1">{msg.subject}</p>
             )}
             {msg.body && (
-              <div className="max-w-[560px] bg-[#6C60FF] text-white rounded-2xl rounded-tr-sm px-5 py-3">
-                <p className="text-base leading-relaxed whitespace-pre-line [overflow-wrap:anywhere]"><LinkifiedText text={msg.body} linkClassName="text-white" /></p>
+              // Chris 14 Nov 2026 (less purple): the AI assistant's replies are light gray with dark text and links;
+              // a person's replies are dark gray.
+              <div data-outbound-bubble className={`max-w-[560px] rounded-2xl rounded-tr-sm px-5 py-3 ${msg.is_ai ? 'bg-[#F3F4F6] text-[#0A0A0A]' : 'bg-[#202224] text-white'}`}>
+                <p className="text-base leading-relaxed whitespace-pre-line [overflow-wrap:anywhere]"><LinkifiedText text={msg.body} linkClassName={msg.is_ai ? 'text-[#0A0A0A]' : 'text-white'} /></p>
               </div>
             )}
             {msg.attachments && msg.attachments.length > 0 && (
@@ -920,7 +930,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
           <div className="relative shrink-0 mt-0.5">
             <Avatar className="h-10 w-10">
               <AvatarImage src={lead.user?.profile_image} alt={leadName} />
-              <AvatarFallback className="bg-[#6C60FF] text-white text-sm font-semibold">
+              <AvatarFallback className="bg-[#E5E7EB] text-[#202224] text-sm font-semibold">
                 {getInitials(leadName)}
               </AvatarFallback>
             </Avatar>
@@ -959,7 +969,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
                   setReplyText('');
                   setTimeout(() => replyInputRef.current?.focus(), 50);
                 }}
-                className="mt-2 text-sm text-[#6C60FF] hover:underline font-medium"
+                className="mt-2 text-sm text-gray-700 hover:text-gray-900 hover:underline font-medium"
               >
                 Reply
               </button>
@@ -975,7 +985,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
                   onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleReplySubmit(); } }}
                   placeholder={`Reply to ${firstName}...`}
                   rows={2}
-                  className="w-full text-sm text-gray-700 placeholder:text-gray-400 resize-none border-none outline-none bg-transparent px-3 pt-2.5 pb-1 leading-relaxed focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#6C60FF]"
+                  className="w-full text-sm text-gray-700 placeholder:text-gray-400 resize-none border-none outline-none bg-transparent px-3 pt-2.5 pb-1 leading-relaxed focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-gray-400"
                 />
                 <div className="flex items-center justify-end gap-2 px-3 pb-2">
                   <button
@@ -987,7 +997,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
                   <button
                     onClick={handleReplySubmit}
                     disabled={!replyText.trim() || isSendingReply}
-                    className="flex items-center gap-1.5 h-9 px-4 rounded-lg bg-[#6C60FF] hover:bg-[#5A4FE5] text-white text-sm font-medium disabled:opacity-40 transition-colors"
+                    className="flex items-center gap-1.5 h-9 px-4 rounded-lg bg-[#202224] hover:bg-[#0A0A0A] text-white text-sm font-medium disabled:opacity-40 transition-colors"
                   >
                     <Send className="w-3 h-3" />
                     {isSendingReply ? 'Sending...' : 'Send'}
@@ -1018,7 +1028,8 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
             <span className="hidden sm:inline">Leads</span>
           </button>
           <span className="hidden sm:inline text-gray-400" aria-hidden="true">/</span>
-          <h2 id="lead-drawer-title" className="text-lg font-semibold text-gray-900 truncate min-w-0">
+          {/* Phones keep at least a short name visible (the tap target for Contact Details) beside the chips — 14 Nov 2026. */}
+          <h2 id="lead-drawer-title" className="text-lg font-semibold text-gray-900 truncate min-w-[5.5rem]">
             <span className="hidden md:inline">{leadName}</span>
             {/* Phones: the name opens the Contact Details sheet (that column is hidden < md). */}
             <button
@@ -1040,9 +1051,9 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
             </span>
           )}
           {isWidgetLead && visitorOnline && (
-            <span className="flex items-center gap-1.5 px-2.5 h-7 rounded-md bg-green-50 text-green-700 border border-green-200 text-sm font-medium shrink-0">
+            <span title="On your website now" className="flex items-center gap-1.5 px-2.5 h-7 rounded-md bg-green-50 text-green-700 border border-green-200 text-sm font-medium shrink-0">
               <span className="w-2 h-2 rounded-full bg-green-500" aria-hidden="true" />
-              On your website now
+              <span className="sr-only min-[480px]:not-sr-only">On your website now</span>
             </span>
           )}
           {currentStatus && <span className="hidden sm:inline-flex"><StatusChip status={currentStatus} /></span>}
@@ -1086,7 +1097,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
                             <p className="text-xs text-gray-600 truncate">Smart tools for {firstName}</p>
                           </div>
                           {aiCredits > 0 && (
-                            <span className="flex items-center gap-1 px-2 h-6 rounded-full bg-purple-100 text-[#6C60FF] text-[12px] font-semibold shrink-0">
+                            <span className="flex items-center gap-1 px-2 h-6 rounded-full bg-gray-100 text-gray-700 text-[12px] font-semibold shrink-0">
                               <Sparkles className="w-3 h-3" /> 1 credit
                             </span>
                           )}
@@ -1116,7 +1127,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
                           {/* Suggested Actions */}
                           <div className="px-4 pb-3">
                             <div className="flex items-center gap-1.5 mb-2">
-                              <Lightbulb className="w-3.5 h-3.5 text-[#6C60FF]" />
+                              <Lightbulb className="w-3.5 h-3.5 text-gray-500" />
                               <p className="text-[12px] font-semibold text-gray-600 uppercase tracking-wider">Suggested Actions</p>
                             </div>
                             <div className="space-y-2">
@@ -1128,10 +1139,10 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
                                     key={a.key}
                                     onClick={() => handleAiAction(a.key)}
                                     disabled={generatingAction !== null}
-                                    className="w-full text-left flex items-start gap-3 px-3 py-2.5 rounded-lg border border-gray-200 hover:border-[#6C60FF] hover:bg-purple-50/40 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                                    className="w-full text-left flex items-start gap-3 px-3 py-2.5 rounded-lg border border-gray-200 hover:border-gray-400 hover:bg-gray-50 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
                                   >
                                     {isGenerating ? (
-                                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-[#6C60FF] shrink-0 mt-0.5" />
+                                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-600 shrink-0 mt-0.5" />
                                     ) : (
                                       <Icon className="w-4 h-4 text-gray-500 shrink-0 mt-0.5" />
                                     )}
@@ -1208,7 +1219,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
                     setTimeout(() => searchInputRef.current?.focus(), 50);
                   }}
                   aria-label="Search messages"
-                  className={`h-10 w-10 flex items-center justify-center rounded-md border transition-colors ${showSearch ? 'border-[#6C60FF] text-[#6C60FF] bg-purple-50' : 'border-gray-200 text-gray-400 hover:text-[#6C60FF] hover:border-[#6C60FF]'}`}
+                  className={`h-10 w-10 flex items-center justify-center rounded-md border transition-colors ${showSearch ? 'border-gray-400 text-gray-900 bg-gray-100' : 'border-gray-200 text-gray-400 hover:text-gray-900 hover:border-gray-400'}`}
                 >
                   <Search className="w-5 h-5" />
                 </button>
@@ -1217,7 +1228,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
                   disabled={isLoadingMessages}
                   aria-label="Refresh messages"
                   title="Refresh"
-                  className="h-10 w-10 flex items-center justify-center rounded-md border border-gray-200 text-gray-400 hover:text-[#6C60FF] hover:border-[#6C60FF] disabled:opacity-40 transition-colors"
+                  className="h-10 w-10 flex items-center justify-center rounded-md border border-gray-200 text-gray-400 hover:text-gray-900 hover:border-gray-400 disabled:opacity-40 transition-colors"
                 >
                   <RefreshCw className={`w-5 h-5 ${isLoadingMessages ? 'animate-spin' : ''}`} />
                 </button>
@@ -1231,7 +1242,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
                   value={chatSearch}
                   onChange={(e) => setChatSearch(e.target.value)}
                   placeholder="Search messages..."
-                  className="w-full h-11 pl-10 pr-3 text-base border border-gray-200 rounded-lg bg-white outline-none focus:border-[#6C60FF] transition-colors placeholder:text-gray-400"
+                  className="w-full h-11 pl-10 pr-3 text-base border border-gray-200 rounded-lg bg-white outline-none focus:border-gray-400 transition-colors placeholder:text-gray-400"
                 />
                 {chatSearch && (
                   <button onClick={() => setChatSearch('')} aria-label="Clear search" className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
@@ -1319,7 +1330,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
                               <div className="relative shrink-0 mt-0.5">
                                 <Avatar className="h-10 w-10">
                                   <AvatarImage src={c.user?.profile_image} alt={c.user?.name} />
-                                  <AvatarFallback className="bg-[#6C60FF] text-white text-sm font-semibold">
+                                  <AvatarFallback className="bg-[#E5E7EB] text-[#202224] text-sm font-semibold">
                                     {getInitials(c.user?.name || firstName)}
                                   </AvatarFallback>
                                 </Avatar>
@@ -1345,7 +1356,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
                                       setReplyText('');
                                       setTimeout(() => replyInputRef.current?.focus(), 50);
                                     }}
-                                    className="mt-1.5 text-sm text-[#6C60FF] hover:underline font-medium"
+                                    className="mt-1.5 text-sm text-gray-700 hover:text-gray-900 hover:underline font-medium"
                                   >
                                     Reply
                                   </button>
@@ -1356,7 +1367,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
                                   <div className="mt-2 flex items-start gap-2">
                                     <Avatar className="h-9 w-9 shrink-0 mt-1">
                                       <AvatarImage src={user?.avatar} alt={user?.name || 'You'} />
-                                      <AvatarFallback className="bg-[#6C60FF] text-white text-sm font-bold">
+                                      <AvatarFallback className="bg-[#E5E7EB] text-[#202224] text-sm font-bold">
                                         {getInitials(user?.name || 'You')}
                                       </AvatarFallback>
                                     </Avatar>
@@ -1368,7 +1379,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
                                         onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleCommentReplySubmit(c); } }}
                                         placeholder={`Reply to ${firstName}...`}
                                         rows={2}
-                                        className="w-full text-sm text-gray-700 placeholder:text-gray-400 resize-none border-none outline-none bg-transparent px-3 pt-2.5 pb-1 leading-relaxed focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#6C60FF]"
+                                        className="w-full text-sm text-gray-700 placeholder:text-gray-400 resize-none border-none outline-none bg-transparent px-3 pt-2.5 pb-1 leading-relaxed focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-gray-400"
                                       />
                                       <div className="flex items-center justify-end gap-2 px-3 pb-2">
                                         <button
@@ -1380,7 +1391,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
                                         <button
                                           onClick={() => handleCommentReplySubmit(c)}
                                           disabled={!replyText.trim() || isSendingReply}
-                                          className="flex items-center gap-1.5 h-9 px-4 rounded-lg bg-[#6C60FF] hover:bg-[#5A4FE5] text-white text-sm font-medium disabled:opacity-40 transition-colors"
+                                          className="flex items-center gap-1.5 h-9 px-4 rounded-lg bg-[#202224] hover:bg-[#0A0A0A] text-white text-sm font-medium disabled:opacity-40 transition-colors"
                                         >
                                           <Send className="w-3 h-3" />
                                           {isSendingReply ? 'Sending...' : 'Send'}
@@ -1399,7 +1410,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
                               <div key={`comment-${child.id}`} className="ml-14 mt-3 flex items-start gap-2.5">
                                 <Avatar className="h-9 w-9 shrink-0 mt-0.5">
                                   <AvatarImage src={child.user?.profile_image} alt={child.user?.name} />
-                                  <AvatarFallback className="bg-[#6C60FF] text-white text-sm font-semibold">
+                                  <AvatarFallback className="bg-[#E5E7EB] text-[#202224] text-sm font-semibold">
                                     {getInitials(child.user?.name || firstName)}
                                   </AvatarFallback>
                                 </Avatar>
@@ -1411,7 +1422,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
                                     </span>
                                     <span className="text-sm text-gray-600 shrink-0">{formatShortDate(child.created_at)}</span>
                                   </div>
-                                  <div className={`inline-block rounded-2xl rounded-tl-sm px-4 py-2.5 mt-1 max-w-[90%] ${isMyReply ? 'bg-[#6C60FF]' : 'bg-gray-100'}`}>
+                                  <div className={`inline-block rounded-2xl rounded-tl-sm px-4 py-2.5 mt-1 max-w-[90%] ${isMyReply ? 'bg-[#202224]' : 'bg-gray-100'}`}>
                                     <p className={`text-base leading-relaxed [overflow-wrap:anywhere] ${isMyReply ? 'text-white' : 'text-gray-700'}`}>{child.description}</p>
                                   </div>
                                 </div>
@@ -1666,6 +1677,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
             onAssigneeChanged={() => { onRefreshLead?.(); }}
             isArchived={isArchived}
             onNotesSaved={() => { onRefreshLead?.(); }}
+            onNameSaved={handleNameSaved}
           />
         </aside>
       </div>
@@ -1684,6 +1696,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
           onAssigneeChanged={() => { onRefreshLead?.(); }}
           isArchived={isArchived}
           onNotesSaved={() => { onRefreshLead?.(); }}
+          onNameSaved={handleNameSaved}
         />
 
         <ShareCarsDialog

@@ -190,6 +190,7 @@ export default function LeadsPage({ openConversationLeadId, onConversationOpened
               onRefreshLead={async () => {
                 setLeadsRefreshTrigger((t) => t + 1);
               }}
+              onLeadPatched={(patch) => setSelectedLead((prev) => (prev ? { ...prev, ...patch } : prev))}
               isArchived={leadsStatusFilter === 'archived'}
             />
           ) : selectedGroupId ? (

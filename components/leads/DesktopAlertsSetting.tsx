@@ -53,7 +53,7 @@ export default function DesktopAlertsSetting({ variant }: { variant: 'pill' | 's
         aria-checked={on}
         aria-label="Desktop alerts"
         onClick={toggle}
-        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${on ? 'bg-[#6C60FF]' : 'bg-gray-200'}`}
+        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${on ? 'bg-[#202224]' : 'bg-gray-200'}`}
       >
         <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${on ? 'translate-x-6' : 'translate-x-1'}`} />
       </button>

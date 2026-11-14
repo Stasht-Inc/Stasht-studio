@@ -15,7 +15,8 @@ type Props = React.ButtonHTMLAttributes<HTMLButtonElement> & {
 };
 
 const TONE = {
-  brand: 'hover:bg-[#6C60FF] hover:text-white focus-visible:ring-[#6C60FF] data-[state=open]:bg-[#6C60FF] data-[state=open]:text-white',
+  // Chris 14 Nov 2026 (less purple): the row actions fill with Gray 800, not the brand purple.
+  brand: 'hover:bg-[#202224] hover:text-white focus-visible:ring-gray-400 data-[state=open]:bg-[#202224] data-[state=open]:text-white',
   neutral: 'hover:bg-gray-200 hover:text-gray-900 focus-visible:ring-gray-400 data-[state=open]:bg-gray-200 data-[state=open]:text-gray-900',
 };
 
