@@ -691,6 +691,16 @@ input[type="date"] ~ * [aria-selected="true"] {
   }
 }
 
+/* Phone bottom bars, Chris 14 Nov 2026 (point 2, "still"): hooks/usePhoneBottomBarPin measures the bar after layout and
+   sets --phone-bar-shift when iOS has drawn it above the real bottom of the screen (stale viewport, WebKit bug 297779).
+   `translate` composes with the transform above / Tailwind's, so nothing else moves. The "+" popover follows the bar. */
+@media (max-width: 767.98px) {
+  .phone-bottom-bar-pin,
+  .phone-bar-follow {
+    translate: 0 var(--phone-bar-shift, 0px);
+  }
+}
+
 /* Leads filter dropdowns (All Status / All Time; Chris 11 Nov 2026 (d)): selected, hover and active = Studio's darker
    gray, never the global purple [aria-selected="true"] above (Radix marks the focused selected option with it). */
 .leads-filter-menu [role="option"]:focus,

@@ -28,6 +28,7 @@ import MarketplacePage from "./pages/MarketplacePage";
 import CsvUploadPage from "./pages/CsvUploadPage";
 import { useAppNavigation } from "./hooks/useAppNavigation";
 import { useIosFixedBarRecovery } from "./hooks/useIosFixedBarRecovery";
+import { usePhoneBottomBarPin } from './hooks/usePhoneBottomBarPin';
 import { categoriesData, labelsData } from "./constants/appData";
 import { dashboardAPI, authAPI, userUtils, isPartialAdmin, getPartialAdminEmail } from './utils/authUtils';
 import { googleAuthAPI } from './utils/googleAuthAPI';
@@ -4630,7 +4631,7 @@ function MainApp() {
 
           {/* Plus Popover Card */}
           {showPlusPopover && (
-            <div className="md:hidden fixed bottom-[calc(163px+env(safe-area-inset-bottom))] left-1/2 -translate-x-1/2 z-[9999] bg-gray-100/75 backdrop-blur-2xl rounded-3xl shadow-2xl border border-white/60 w-72 overflow-hidden">
+            <div className="phone-bar-follow md:hidden fixed bottom-[calc(163px+env(safe-area-inset-bottom))] left-1/2 -translate-x-1/2 z-[9999] bg-gray-100/75 backdrop-blur-2xl rounded-3xl shadow-2xl border border-white/60 w-72 overflow-hidden">
               {/* Send Message — moved here from the Leads header on phones (Chris) */}
               <button
                 className="flex items-center gap-4 w-full px-4 py-4 hover:bg-white/40 active:bg-white/60 transition-colors"
@@ -4938,6 +4939,8 @@ function MainApp() {
 export default function App() {
   // Phone bottom bars: let iOS re-place fixed elements after the keyboard closes (Chris, 9 Nov 2026, point 2).
   useIosFixedBarRecovery();
+  // ...and keep them on the screen's real bottom edge when iOS draws them mid-screen (Chris, 14 Nov 2026, point 2).
+  usePhoneBottomBarPin();
   // The update prompt sits outside the ErrorBoundary so a crash screen can still offer Refresh.
   return (
     <>
