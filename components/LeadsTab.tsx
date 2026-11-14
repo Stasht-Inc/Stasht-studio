@@ -19,6 +19,7 @@ import LeadsInboxTable from './leads/LeadsInboxTable';
 import CampaignDeletedTag from './leads/CampaignDeletedTag';
 import LeadConfirmDialog, { type LeadConfirmKind } from './leads/LeadConfirmDialog';
 import LeadsFilterSheet from './leads/LeadsFilterSheet';
+import LeadsQuickSwitch from './leads/LeadsQuickSwitch';
 import { assignedParams } from '../utils/leadsAssignedFilter';
 import AssignedFilterMenu from './leads/AssignedFilterMenu';
 import PullToRefreshIndicator from './PullToRefreshIndicator';
@@ -1681,6 +1682,10 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
             {label} <span className="ml-1 text-gray-500 font-medium">({count})</span>
           </button>
         ))}
+        {/* Leads quick switch (14 Nov 2026): the Admin / Partial Admin accounts, or the way back to personal. */}
+        <div className="ml-auto flex items-center">
+          <LeadsQuickSwitch />
+        </div>
       </div>
 
       <LeadsFilterSheet
