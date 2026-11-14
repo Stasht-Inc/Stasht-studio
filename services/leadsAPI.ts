@@ -745,4 +745,13 @@ export const leadsAPI = {
   getUnreadCount: async () => {
     return apiRequest<any>(`/leads/unread-count${partialAdminQuery('?')}`, { method: 'GET' });
   },
+
+  // GET /leads/admin-accounts-unread — the Leads quick switch (14 Nov 2026): the signed-in person's own Admin / Partial
+  // Admin accounts with each one's unread count as its Leads view would show them (utils/leadsQuickSwitch.ts).
+  getAdminAccountsUnread: async (fresh = false) => {
+    return apiRequest<{ accounts: Array<{ owner_id: number; name: string; email: string; profile_image: string | null; profile_color: string | null; role: 'admin' | 'partial_admin'; unread: number | null }> }>(
+      '/leads/admin-accounts-unread',
+      { method: 'GET', ...(fresh ? { skipCache: true } : {}) } as RequestInit,
+    );
+  },
 };
