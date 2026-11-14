@@ -102,9 +102,11 @@ async function open(w, { width, height, path = '/products', view = 'personal', p
     let body = null;
     try { body = req.postData() ? JSON.parse(req.postData()) : null; } catch { body = null; }
     w.calls.push({ m, p, q: url.search, body, view: req.headers()['x-stasht-property'] || null });
-    // w.statusMode (Task 16): 'fail' = the status route errors (500), 'old' = an API without Products (404).
+    // w.statusMode (Task 16): 'fail' = the status route errors (500), 'old' = an API without Products (404). The real
+    // API renders an unmatched route as Laravel's HTML 404 page (Studio sends no Accept: application/json), so 'old'
+    // answers HTML, which apiRequest can't parse and returns without a status code (final review C1).
     if (p === '/products/status' && w.statusMode === 'fail') return route.fulfill({ status: 500, json: { success: false, message: 'Server Error' } });
-    if (p === '/products/status' && w.statusMode === 'old') return route.fulfill({ status: 404, json: { message: 'Not Found' } });
+    if (p === '/products/status' && w.statusMode === 'old') return route.fulfill({ status: 404, contentType: 'text/html; charset=UTF-8', body: '<!DOCTYPE html><html lang="en"><head><title>Not Found</title></head><body><div>404 | Not Found</div></body></html>' });
     if (p === '/products/status') return route.fulfill({ json: { success: true, data: statusOf(w) } });
     if (p === '/products' && m === 'GET') {
       if (!w.pilot || w.reason) return route.fulfill({ status: 403, json: { success: false, code: w.reason || 'not_available', message: 'x' } });
@@ -736,39 +738,54 @@ try {
       await b.page.screenshot({ path: `${OUT}/${tag}-02-switch-off.png` });
       await b.context.close();
 
-      // Task 16 (T15 minors): an older API (404 on /products/status) is the switch off, exactly as today.
+      // Task 16 (T15 minors): an older API (404 on /products/status, as Laravel's HTML page) is the switch off, exactly as today.
       const old = world({ statusMode: 'old' });
       const o = await open(old, { width, height, path: '/memories' });
       await o.page.getByText('Harbour Sofa', { exact: true }).filter({ visible: true }).first().waitFor({ timeout: 20000 }).catch(() => {});
-      expect(await o.page.getByText('Harbour Sofa', { exact: true }).filter({ visible: true }).count() > 0, `${tag}: older API (404) → the website product card is in Campaigns`);
+      expect(await o.page.getByText('Harbour Sofa', { exact: true }).filter({ visible: true }).count() > 0, `${tag}: older API (HTML 404) → the website product card is in Campaigns`);
       if (width >= 768) {
-        expect(await o.page.getByRole('button', { name: /^Campaigns\s*5$/ }).filter({ visible: true }).count() > 0, `${tag}: older API (404) → sidebar Campaigns 5 (as today)`);
-        expect(!(await o.page.getByRole('button', { name: /^Products/ }).filter({ visible: true }).count()), `${tag}: older API (404) → no sidebar Products`);
+        expect(await o.page.getByRole('button', { name: /^Campaigns\s*5$/ }).filter({ visible: true }).count() > 0, `${tag}: older API (HTML 404) → sidebar Campaigns 5 (as today)`);
+        expect(!(await o.page.getByRole('button', { name: /^Products/ }).filter({ visible: true }).count()), `${tag}: older API (HTML 404) → no sidebar Products`);
       }
-      expect(!old.calls.some((c) => c.m === 'GET' && c.p === '/products'), `${tag}: older API (404) → no /products list call`);
+      expect(!old.calls.some((c) => c.m === 'GET' && c.p === '/products'), `${tag}: older API (HTML 404) → no /products list call`);
       await o.page.screenshot({ path: `${OUT}/${tag}-03-older-api.png` });
       await o.context.close();
 
-      // The status route failing never counts the website products into Campaigns for a pilot account …
+      // Final review C1: the status route failing fails OPEN, like development and like the grid: the website product
+      // card stays in Campaigns and is counted (grid and count agree) …
       const failOn = world({ statusMode: 'fail' });
       const f1 = await open(failOn, { width, height, path: '/memories' });
-      await f1.page.waitForTimeout(3000);
+      await f1.page.getByText('Harbour Sofa', { exact: true }).filter({ visible: true }).first().waitFor({ timeout: 20000 }).catch(() => {});
+      expect(await f1.page.getByText('Harbour Sofa', { exact: true }).filter({ visible: true }).count() > 0, `${tag}: status failed (pilot) → the website product card is in Campaigns (fail open)`);
       if (width >= 768) {
-        expect(await f1.page.getByRole('button', { name: /^Campaigns\s*4$/ }).filter({ visible: true }).count() > 0, `${tag}: status failed (pilot) → sidebar Campaigns 4, not inflated`);
+        expect(await f1.page.getByRole('button', { name: /^Campaigns\s*5$/ }).filter({ visible: true }).count() > 0, `${tag}: status failed (pilot) → sidebar Campaigns 5, matching the grid`);
       }
       await f1.page.screenshot({ path: `${OUT}/${tag}-04-status-failed-pilot.png` });
+      // … and once the status answers pilot (another counter mounting: the Users page), the count and the grid drop it.
+      if (width >= 768) {
+        failOn.statusMode = null;
+        await f1.page.getByRole('button', { name: /^Users/ }).filter({ visible: true }).first().click();
+        await f1.page.getByRole('button', { name: /^Campaigns\s*4$/ }).filter({ visible: true }).first().waitFor({ timeout: 15000 }).catch(() => {});
+        expect(await f1.page.getByRole('button', { name: /^Campaigns\s*4$/ }).filter({ visible: true }).count() > 0, `${tag}: … the status answers pilot → sidebar Campaigns 4`);
+        await f1.page.getByRole('button', { name: /^Campaigns\s*4$/ }).filter({ visible: true }).first().click();
+        await f1.page.waitForTimeout(2500);
+        expect(!(await f1.page.getByText('Harbour Sofa', { exact: true }).filter({ visible: true }).count()), `${tag}: … and the grid no longer shows the website product card`);
+        await f1.page.screenshot({ path: `${OUT}/${tag}-04b-status-answered-pilot.png` });
+      }
       await f1.context.close();
 
-      // … and once it answers, a later count (another counter mounting: the Users page) is right again.
+      // Switch off: a failed status counts the website products as today, and the later answer keeps them.
       if (width >= 768) {
         const failOff = world({ pilot: false, statusMode: 'fail' });
         const f2 = await open(failOff, { width, height, path: '/memories' });
         await f2.page.waitForTimeout(3000);
-        expect(await f2.page.getByRole('button', { name: /^Campaigns\s*4$/ }).filter({ visible: true }).count() > 0, `${tag}: status failed (switch off) → website products not counted yet`);
+        expect(await f2.page.getByRole('button', { name: /^Campaigns\s*5$/ }).filter({ visible: true }).count() > 0, `${tag}: status failed (switch off) → sidebar Campaigns 5 (as today)`);
         failOff.statusMode = null;
         await f2.page.getByRole('button', { name: /^Users/ }).filter({ visible: true }).first().click();
         await f2.page.waitForTimeout(3000);
-        expect(await f2.page.getByRole('button', { name: /^Campaigns\s*5$/ }).filter({ visible: true }).count() > 0, `${tag}: … the status answers later → Campaigns 5 (as today)`);
+        expect(await f2.page.getByRole('button', { name: /^Campaigns\s*5$/ }).filter({ visible: true }).count() > 0, `${tag}: … the status answers later → still Campaigns 5`);
+        const countCalls = failOff.calls.filter((c) => c.p === '/website-catalogue/items' && new URLSearchParams(c.q).get('per_page') === '1').length;
+        expect(countCalls === 1, `${tag}: … without counting the website items again (${countCalls} count calls)`);
         await f2.page.screenshot({ path: `${OUT}/${tag}-05-status-recovered.png` });
         await f2.context.close();
       }

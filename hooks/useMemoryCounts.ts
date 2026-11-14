@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { dashboardAPI, isPartialAdmin } from '../utils/authUtils';
 import { useAuth } from '../contexts/AuthContext';
 import { catalogueAPI } from '../services/catalogueAPI';
-import { productsAPI } from '../services/productsAPI';
+import { loadProductsStatus, peekProductsStatus, productsStatusKey, subscribeProductsStatus } from './useProductsStatus';
 import { useInventoryViewKey } from './useInventoryViewKey';
 import { inventoryViewRun } from '../utils/inventoryView';
 
@@ -47,6 +47,9 @@ let globalWebsiteCatalogueCount = 0;
 // reset on logout so the next user refetches.
 let carsCatalogLoaded = false;
 let websiteCatalogueLoaded = false;
+// What globalWebsiteCatalogueCount holds for the current view (Products plan): 'counted' = the website items, as
+// development counts them; 'pilot' = 0, because the account's Products switch is on (they are counted on Products).
+let websiteCountedAs: 'none' | 'counted' | 'pilot' = 'none';
 // The inventory view the two counts above were fetched for (useInventoryViewKey): a salesperson's personal view counts
 // only their own cars and items, the External view the main account's too, so a switch fetches them again.
 let countedInventoryView: string | null = null;
@@ -125,37 +128,59 @@ const memoryCountsManager = {
   // Fetch the Website Catalogue product count once on login (one product = one campaign card).
   // The items route is Business-only and a 403 there opens the upgrade modal, so ask the
   // ungated status route first, exactly like loadCatalogueForBrowsing does.
-  fetchWebsiteCatalogueCount: async (): Promise<void> => {
+  // Products plan (2026-11-09): only a definite pilot:true (the account's Products switch on) leaves the website products
+  // out — they are counted on Products. Anything else (switch off, an older API's 404 in JSON or HTML, an error, no
+  // answer) counts them exactly as development does: fail open, like the Campaigns grid. While the switch is unknown,
+  // the next call looks at it again, and subscribeProductsStatus (in the hook) zeroes the count once it answers pilot.
+  fetchWebsiteCatalogueCount: async (statusKey: string): Promise<void> => {
     if (websiteCatalogueLoaded) return;
     websiteCatalogueLoaded = true; // set synchronously so parallel hook instances skip
     const asked = inventoryViewRun(); // as fetchCarsCatalogCount: another view's answer is dropped
-    // Products plan (2026-11-09): with the account's Products switch on, its products are counted on Products, not Campaigns.
-    const products = await productsAPI.getStatus().catch(() => null);
+    const products = await loadProductsStatus(statusKey).catch(() => null);
     if (asked !== inventoryViewRun()) return;
-    if (products && products.ok && products.data?.pilot) {
-      if (globalWebsiteCatalogueCount !== 0) { globalWebsiteCatalogueCount = 0; memoryCountsManager.notify(); }
-      return;
-    }
-    // No answer (network or server error): whether the switch is on is unknown, so the website products are not counted
-    // yet (for a pilot account they would inflate Campaigns) and a later call tries again. Only an API without Products
-    // (404) counts them as before (Task 16, T15 review minor).
-    if (!products || (!products.ok && products.status !== 404)) { websiteCatalogueLoaded = false; return; }
+    if (products?.pilot) { memoryCountsManager.setWebsiteCountForPilot(); return; }
+    const known = products !== null;
     try {
+      if (websiteCountedAs === 'counted') return; // already counted for this view: only the switch needed a look
       const status = await catalogueAPI.getStatus();
       if (asked !== inventoryViewRun()) return;
       if (!status.ok) { websiteCatalogueLoaded = false; return; } // allow a later attempt
-      if (!status.data?.available || !status.data.item_count) return;
+      // The switch answered pilot while this count was on its way: it stays 0.
+      if (peekProductsStatus(statusKey)?.pilot) return;
+      if (!status.data?.available || !status.data.item_count) { websiteCountedAs = 'counted'; return; }
       const res = await catalogueAPI.getItems({ perPage: 1 });
       if (asked !== inventoryViewRun()) return;
       const total = Number(res.data?.pagination?.total);
       if (!res.ok || !Number.isFinite(total)) { websiteCatalogueLoaded = false; return; }
+      if (peekProductsStatus(statusKey)?.pilot) return;
+      websiteCountedAs = 'counted';
       if (globalWebsiteCatalogueCount !== total) {
         globalWebsiteCatalogueCount = total;
         memoryCountsManager.notify();
       }
     } catch {
       if (asked === inventoryViewRun()) websiteCatalogueLoaded = false; // allow a later attempt if this one failed
+    } finally {
+      if (!known && asked === inventoryViewRun()) websiteCatalogueLoaded = false; // the switch is still unknown: look again next time
     }
+  },
+
+  // The account's Products switch is on: its website products are not Campaigns (they are on Products).
+  setWebsiteCountForPilot: () => {
+    websiteCountedAs = 'pilot';
+    websiteCatalogueLoaded = true;
+    if (globalWebsiteCatalogueCount !== 0) { globalWebsiteCatalogueCount = 0; memoryCountsManager.notify(); }
+  },
+
+  // The shared Products status answered (useProductsStatus's store): a count made while it was unknown, or for the
+  // other answer, is put right — pilot → 0 at once; no longer pilot → counted again.
+  productsStatusChanged: (statusKey: string) => {
+    const s = peekProductsStatus(statusKey);
+    if (!s || Boolean(s.pilot) === (websiteCountedAs === 'pilot')) return;
+    if (s.pilot) { memoryCountsManager.setWebsiteCountForPilot(); return; }
+    websiteCountedAs = 'none';
+    websiteCatalogueLoaded = false;
+    void memoryCountsManager.fetchWebsiteCatalogueCount(statusKey);
   },
 
   // Fetch memory counts from API
@@ -216,8 +241,9 @@ const memoryCountsManager = {
 
 // Hook for components to use memory counts
 export const useMemoryCounts = (): UseMemoryCountsReturn => {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, user } = useAuth();
   const inventoryViewKey = useInventoryViewKey();
+  const statusKey = productsStatusKey(isAuthenticated, user?.id, inventoryViewKey);
   const [, forceUpdate] = useState({});
 
   // Force component re-render when global state changes
@@ -239,6 +265,7 @@ export const useMemoryCounts = (): UseMemoryCountsReturn => {
       carsCatalogLoaded = false; // next login refetches the cars catalog
       websiteCatalogueLoaded = false; // …and the Website Catalogue count
       globalWebsiteCatalogueCount = 0; // the next account may have no catalogue at all
+      websiteCountedAs = 'none';
       return;
     }
     if (!globalMemoryCounts && !globalIsLoading) {
@@ -248,12 +275,19 @@ export const useMemoryCounts = (): UseMemoryCountsReturn => {
       carsCatalogLoaded = false;
       websiteCatalogueLoaded = false;
       globalWebsiteCatalogueCount = 0; // the other view may have no catalogue items at all
+      websiteCountedAs = 'none';
       memoryCountsManager.notify();
     }
     countedInventoryView = inventoryViewKey;
     memoryCountsManager.fetchCarsCatalogCount();
-    memoryCountsManager.fetchWebsiteCatalogueCount();
-  }, [isAuthenticated, inventoryViewKey]);
+    memoryCountsManager.fetchWebsiteCatalogueCount(statusKey);
+  }, [isAuthenticated, inventoryViewKey, statusKey]);
+
+  // The Products status answering later (another component asked, or a change event) corrects the count.
+  useEffect(() => {
+    if (!isAuthenticated) return undefined;
+    return subscribeProductsStatus(() => memoryCountsManager.productsStatusChanged(statusKey));
+  }, [isAuthenticated, statusKey]);
 
   // Set up periodic refresh of memory counts (every 30 seconds when authenticated)
   useEffect(() => {
