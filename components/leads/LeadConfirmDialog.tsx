@@ -55,7 +55,7 @@ export default function LeadConfirmDialog({ kind, leadName, onCancel, onConfirm 
         {copy && (
           <>
             <AlertDialogHeader className="items-center sm:items-start">
-              <span className={`mb-1 inline-flex h-12 w-12 items-center justify-center rounded-full ${isDelete ? 'bg-red-50 text-red-600' : 'bg-purple-50 text-[#6C60FF]'}`}>
+              <span className={`mb-1 inline-flex h-12 w-12 items-center justify-center rounded-full ${isDelete ? 'bg-red-50 text-red-600' : 'bg-gray-100 text-gray-700'}`}>
                 {isDelete ? <Trash2 className="h-6 w-6" /> : <Archive className="h-6 w-6" />}
               </span>
               <AlertDialogTitle className="text-xl text-gray-900">{copy.title}</AlertDialogTitle>
@@ -67,7 +67,7 @@ export default function LeadConfirmDialog({ kind, leadName, onCancel, onConfirm 
                   <ul className="space-y-1.5 text-sm">
                     {copy.points.map((p) => (
                       <li key={p} className="flex items-start gap-2">
-                        <span className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${isDelete ? 'bg-red-500' : 'bg-[#6C60FF]'}`} />
+                        <span className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${isDelete ? 'bg-red-500' : 'bg-gray-400'}`} />
                         {p}
                       </li>
                     ))}

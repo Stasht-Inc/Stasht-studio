@@ -437,6 +437,13 @@ export const leadsAPI = {
     );
   },
 
+  // Rename a lead from Contact Details (Chris 14 Nov 2026). Only this lead; guests only (a Stasht user keeps their own name).
+  updateName: async (leadId: number, name: string) => {
+    return apiRequest<{ id: number; name: string }>(
+      `/leads/${leadId}/name`, { method: 'PATCH', body: JSON.stringify({ name, ...partialAdminBody() }) },
+    );
+  },
+
   // "+ Send Message": new SMS/email conversation; reuses the contact's lead if one exists.
   startConversation: async (payload: StartConversationPayload) => {
     return apiRequest<{ lead_id: number; created: boolean; message_id: number }>('/leads/start-conversation', {

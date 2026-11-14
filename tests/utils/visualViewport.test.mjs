@@ -97,3 +97,32 @@ test('focusBaselineAfterResize: re-base on a width change while editing only', (
   assert.equal(focusBaselineAfterResize(0, 844, 390, 844, false), 0); // nothing focused: stays unset
   assert.equal(keyboardUp(focusBaselineAfterResize(390, 844, 390, 844, true), 500), true);
 });
+
+// Chris 14 Nov 2026 (point 2): the phone bottom bar is moved down onto the real bottom of the screen.
+import { phoneBarShift } from '../../utils/visualViewport.ts';
+const bar = (o) => phoneBarShift({ currentShift: 0, innerHeight: 844, vv: { height: 844, offsetTop: 0 }, layoutWidth: 390, editing: false, ...o });
+
+test('bar shift: none when the bar already sits on the bottom edge', () => {
+  assert.equal(bar({ barBottom: 844 }), 0);
+  assert.equal(bar({ barBottom: 843 }), 0); // sub-2px jitter
+});
+
+test('bar shift: iOS drew it a keyboard high (stale dvh / fixed placement) → moved down by the gap', () => {
+  assert.equal(bar({ barBottom: 508 }), 336);
+  // already shifted: measured bottom includes the shift, the result stays the same (no feedback loop)
+  assert.equal(bar({ barBottom: 844, currentShift: 336 }), 336);
+});
+
+test('bar shift: visualViewport.offsetTop stuck after the keyboard → the visual bottom counts', () => {
+  assert.equal(bar({ barBottom: 844, vv: { height: 844, offsetTop: 300 } }), 300);
+  // a short, stale visual viewport never pulls the bar up
+  assert.equal(bar({ barBottom: 844, vv: { height: 508, offsetTop: 0 } }), 0);
+});
+
+test('bar shift: never upwards, never while typing, never on wide screens', () => {
+  assert.equal(bar({ barBottom: 900 }), 0);
+  assert.equal(bar({ barBottom: 508, editing: true }), 0);
+  assert.equal(bar({ barBottom: 508, layoutWidth: 1280 }), 0);
+  assert.equal(bar({ barBottom: 508, vv: null }), 336);
+  assert.equal(bar({ barBottom: NaN }), 0);
+});

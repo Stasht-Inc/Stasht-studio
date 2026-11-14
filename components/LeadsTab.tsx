@@ -148,10 +148,10 @@ function SortableTh({
       <button
         type="button"
         onClick={() => onSort(field)}
-        className="flex items-center gap-1 hover:text-[#6C60FF] transition-colors"
+        className="flex items-center gap-1 hover:text-gray-900 transition-colors"
       >
         {label}
-        <span className={`text-[12px] ${isActive ? 'text-[#6C60FF]' : 'text-gray-300'}`}>
+        <span className={`text-[12px] ${isActive ? 'text-gray-900' : 'text-gray-300'}`}>
           {isActive ? (direction === 'asc' ? '▲' : '▼') : '▲'}
         </span>
       </button>
@@ -1197,7 +1197,7 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
         type="button"
         onClick={() => { refreshCurrentView(); }}
         disabled={isLoading || isLoadingConversations || listsRefreshing}
-        className="h-9 px-3.5 inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 hover:text-[#6C60FF] transition-colors shrink-0 disabled:opacity-50"
+        className="h-9 px-3.5 inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 hover:text-gray-900 transition-colors shrink-0 disabled:opacity-50"
       >
         <RefreshCw className={`w-4 h-4 ${isLoading || isLoadingConversations || listsRefreshing ? 'animate-spin' : ''}`} />
         Refresh
@@ -1240,12 +1240,12 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
             type="button"
             onClick={() => setShowFilterSheet(true)}
             aria-label={activeSheetFilterCount > 0 ? `Filters, ${activeSheetFilterCount} on` : 'Filters'}
-            className={`md:hidden relative h-10 px-3 inline-flex items-center gap-1.5 rounded-md border text-sm font-medium shrink-0 transition-colors ${activeSheetFilterCount > 0 ? 'border-[#6C60FF] text-[#6C60FF] bg-purple-50' : 'border-gray-200 text-gray-700 bg-white active:bg-gray-50'}`}
+            className={`md:hidden relative h-10 px-3 inline-flex items-center gap-1.5 rounded-md border text-sm font-medium shrink-0 transition-colors ${activeSheetFilterCount > 0 ? 'border-gray-400 text-gray-900 bg-gray-100' : 'border-gray-200 text-gray-700 bg-white active:bg-gray-50'}`}
           >
             <SlidersHorizontal className="w-4 h-4" />
             Filters
             {activeSheetFilterCount > 0 && (
-              <span className="flex items-center justify-center min-w-[20px] h-5 px-1 rounded-full bg-[#6C60FF] text-white text-xs font-bold">
+              <span className="flex items-center justify-center min-w-[20px] h-5 px-1 rounded-full bg-[#202224] text-white text-xs font-bold">
                 {activeSheetFilterCount}
               </span>
             )}
@@ -1302,7 +1302,7 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
           <Button
             variant="outline"
             onClick={() => (showSearchGroup ? setShowSearchGroup(false) : openSearchGroup())}
-            className={`hidden md:inline-flex h-9 px-4 text-sm shrink-0 gap-1.5 border-[#6C60FF] text-[#6C60FF] hover:bg-purple-50 hover:text-[#6C60FF] ${showSearchGroup ? 'bg-purple-50' : ''}`}
+            className={`hidden md:inline-flex h-9 px-4 text-sm shrink-0 gap-1.5 border-gray-300 text-gray-800 hover:bg-gray-100 hover:text-gray-900 ${showSearchGroup ? 'bg-gray-100 border-gray-400' : ''}`}
           >
             <Search className="w-4 h-4" />
             <span className="hidden sm:inline">Search Group</span>
@@ -1329,8 +1329,8 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
               >
                 {/* Header */}
                 <div className="flex items-start gap-3 px-4 pt-4 pb-3">
-                  <div className="h-9 w-9 rounded-full bg-purple-100 flex items-center justify-center shrink-0">
-                    <Search className="w-4 h-4 text-[#6C60FF]" />
+                  <div className="h-9 w-9 rounded-full bg-gray-100 flex items-center justify-center shrink-0">
+                    <Search className="w-4 h-4 text-gray-700" />
                   </div>
                   <div className="min-w-0">
                     <p id="search-group-title" className="text-sm font-bold text-gray-900">Search Group Commentary</p>
@@ -1347,7 +1347,7 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
                       value={groupQuery}
                       onChange={(e) => setGroupQuery(e.target.value)}
                       placeholder="Search..."
-                      className="w-full h-10 pl-9 pr-9 text-sm border-2 border-[#6C60FF] rounded-lg outline-none bg-white text-gray-700 placeholder:text-gray-400"
+                      className="w-full h-10 pl-9 pr-9 text-sm border-2 border-gray-300 focus:border-gray-500 rounded-lg outline-none bg-white text-gray-700 placeholder:text-gray-400"
                     />
                     {groupQuery && (
                       <button
@@ -1365,7 +1365,7 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
                 <div className="max-h-[320px] overflow-y-auto border-t border-gray-100">
                   {isBuildingIndex ? (
                     <div className="flex items-center justify-center gap-2 py-10">
-                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-[#6C60FF]" />
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-600" />
                       <span className="text-sm text-gray-600">Loading messages...</span>
                     </div>
                   ) : !groupQ ? (
@@ -1385,7 +1385,7 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
                       >
                         <Avatar className="h-9 w-9 shrink-0">
                           <AvatarImage src={r.lead.user?.profile_image} alt={leadDisplayName(r.lead)} />
-                          <AvatarFallback className="bg-[#6C60FF] text-white text-xs font-medium">
+                          <AvatarFallback className="bg-[#E5E7EB] text-[#202224] text-xs font-medium">
                             {getInitials(leadDisplayName(r.lead))}
                           </AvatarFallback>
                         </Avatar>
@@ -1425,8 +1425,8 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
               >
                 {/* Header */}
                 <div className="flex items-start gap-3 px-4 pt-4 pb-3">
-                  <div className="h-9 w-9 rounded-lg bg-purple-100 flex items-center justify-center shrink-0">
-                    <MessageSquare className="w-4 h-4 text-[#6C60FF]" />
+                  <div className="h-9 w-9 rounded-lg bg-gray-100 flex items-center justify-center shrink-0">
+                    <MessageSquare className="w-4 h-4 text-gray-700" />
                   </div>
                   <div className="min-w-0">
                     <p id="message-group-title" className="text-sm font-bold text-gray-900">Message Group</p>
@@ -1442,7 +1442,7 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
                       value={mgSearch}
                       onChange={(e) => setMgSearch(e.target.value)}
                       placeholder="Search leads..."
-                      className="w-full h-10 pl-9 pr-3 text-sm border border-gray-200 rounded-lg outline-none bg-gray-50 text-gray-700 placeholder:text-gray-400 focus:border-[#6C60FF]"
+                      className="w-full h-10 pl-9 pr-3 text-sm border border-gray-200 rounded-lg outline-none bg-gray-50 text-gray-700 placeholder:text-gray-400 focus:border-gray-400"
                     />
                   </div>
                 </div>
@@ -1454,7 +1454,7 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
                     value={mgGroupName}
                     onChange={(e) => setMgGroupName(e.target.value)}
                     placeholder="Enter group name..."
-                    className="w-full h-10 px-3 text-sm border border-gray-200 rounded-lg outline-none bg-white text-gray-700 placeholder:text-gray-400 focus:border-[#6C60FF]"
+                    className="w-full h-10 px-3 text-sm border border-gray-200 rounded-lg outline-none bg-white text-gray-700 placeholder:text-gray-400 focus:border-gray-400"
                   />
                 </div>
 
@@ -1465,7 +1465,7 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
                     disabled={mgFiltered.length === 0}
                     className="flex-1 min-w-0 flex items-center gap-1.5 px-2 py-2 rounded-lg border border-gray-200 bg-gray-50 text-xs font-medium text-gray-700 hover:bg-gray-100 disabled:opacity-50 transition-colors"
                   >
-                    <span className={`h-4 w-4 rounded border flex items-center justify-center shrink-0 ${allFilteredSelected ? 'bg-[#6C60FF] border-[#6C60FF]' : 'border-gray-300 bg-white'}`}>
+                    <span className={`h-4 w-4 rounded border flex items-center justify-center shrink-0 ${allFilteredSelected ? 'bg-[#202224] border-[#202224]' : 'border-gray-300 bg-white'}`}>
                       {allFilteredSelected && <Check className="w-3 h-3 text-white" />}
                     </span>
                     <span className="truncate">Select All ({mgSelected.size})</span>

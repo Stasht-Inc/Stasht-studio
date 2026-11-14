@@ -97,22 +97,28 @@ function StatusIndicator({ status }: { status: Lead['status'] }) {
   );
 }
 
-// Open lead: purple. New (unread): soft yellow, Chris's "this is new" cue. Else plain.
+// Open lead: gray (Chris 14 Nov 2026: selected = darker gray, not purple). New (unread): soft yellow, Chris's
+// "this is new" cue. Else plain.
 function rowBackground(selected: boolean, unread: boolean): string {
-  if (selected) return 'bg-purple-50';
+  if (selected) return 'bg-gray-100';
   if (unread) return 'bg-amber-50 hover:bg-amber-100 focus-visible:bg-amber-100';
   return 'hover:bg-gray-50 focus-visible:bg-gray-50';
 }
 
-// Red on the desktop table; purple on the phone cards (Chris's cleanup, 2026-10-27).
+// Red, on the desktop table and the phone cards (yellow unread cards, Chris 14 Nov 2026).
 function UnreadDot({ className = 'bg-red-500' }: { className?: string }) {
   return <span role="img" className={`shrink-0 h-2 w-2 rounded-full ${className}`} aria-label="Unread" />;
 }
 
-// Phone card: white with a light border; unread gets a purple left accent, the open lead a purple tint.
-function phoneCardClass(selected: boolean, unread: boolean): string {
-  const tone = selected ? 'bg-purple-50 border-purple-200' : 'bg-white border-gray-200 active:bg-gray-50';
-  return `${tone} ${unread ? 'border-l-[3px] border-l-[#6C60FF] pl-[calc(0.875rem-2px)]' : ''}`;
+// Phone card: white with a light border. Unread = the desktop rows' yellow (Chris 14 Nov 2026: "This needs yellow
+// background, it doesn't stand out enough") with a darker yellow left edge; the open lead is gray.
+export function phoneCardClass(selected: boolean, unread: boolean): string {
+  const tone = selected
+    ? 'bg-gray-100 border-gray-300'
+    : unread
+      ? 'bg-amber-50 border-amber-200 active:bg-amber-100'
+      : 'bg-white border-gray-200 active:bg-gray-50';
+  return `${tone} ${unread ? 'border-l-[3px] border-l-amber-400 pl-[calc(0.875rem-2px)]' : ''}`;
 }
 
 type ActionProps = Pick<Props, 'isClosedTab' | 'onSelect' | 'onArchive' | 'onDelete' | 'onMarkRead' | 'onLeadPatched' | 'onRemove' | 'onJoin'> & { lead: Lead };
@@ -246,7 +252,7 @@ export default function LeadsInboxTable(props: Props) {
 
   const status = isLoading ? (
     <div className="flex items-center justify-center gap-2 py-12">
-      <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-[#6C60FF]" />
+      <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-gray-600" />
       <span className="text-sm text-gray-600">Loading leads...</span>
     </div>
   ) : error ? (
@@ -303,8 +309,8 @@ export default function LeadsInboxTable(props: Props) {
                       openOrSayClaimed(lead, onSelect, onJoin);
                     }
                   }}
-                  className={`group cursor-pointer transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#6C60FF] ${rowBackground(selected, unread)} ${unread ? 'font-semibold' : ''}`}
-                  style={selected ? { boxShadow: 'inset 3px 0 0 #6C60FF' } : undefined}
+                  className={`group cursor-pointer transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-gray-400 ${rowBackground(selected, unread)} ${unread ? 'font-semibold' : ''}`}
+                  style={selected ? { boxShadow: 'inset 3px 0 0 #202224' } : undefined}
                 >
                   <td className={`${CELL} text-gray-800 whitespace-nowrap overflow-hidden`}>
                     <span className="[@container(min-width:70rem)]:hidden">{formatInboxDateMedium(when)}</span>
@@ -366,11 +372,11 @@ export default function LeadsInboxTable(props: Props) {
             >
               <div className="flex items-center justify-between gap-2 min-w-0">
                 <div className={`flex items-center gap-1.5 min-w-0 text-[15px] text-gray-900 ${unread ? 'font-bold' : 'font-medium'}`}>
-                  {unread && <UnreadDot className="bg-[#6C60FF]" />}
+                  {unread && <UnreadDot />}
                   <span className="truncate">{name || contact}</span>
                   <StatusIndicator status={lead.status} />
                 </div>
-                <span className={`shrink-0 text-xs whitespace-nowrap ${unread ? 'text-[#6C60FF] font-semibold' : 'text-gray-500'}`}>
+                <span className={`shrink-0 text-xs whitespace-nowrap ${unread ? 'text-gray-900 font-semibold' : 'text-gray-500'}`}>
                   {formatInboxDateShort(lead.last_activity_at || lead.last_engaged_at)}
                 </span>
               </div>

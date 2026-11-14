@@ -18,7 +18,7 @@ import OpenBadge from './OpenBadge';
 const ROLE_LABEL: Record<string, string> = { owner: 'Owner', admin: 'Admin', rep: 'Rep', partial_admin: 'Partial Admin', external: 'External' };
 
 export function avatarColor(color: string | null | undefined): string {
-  if (!color) return '#6C60FF';
+  if (!color) return '#E5E7EB'; // kit avatar gray (dark initials) when no profile colour
   return color.startsWith('#') ? color : `#${color}`;
 }
 
@@ -156,7 +156,7 @@ export default function AssigneeControl({ lead, onChanged, size = 'sm', variant 
             <button
               type="button"
               aria-label="Assigned to"
-              className={`${size === 'sm' ? 'h-9 text-sm' : 'h-10 text-base'} w-full max-w-[15rem] inline-flex items-center justify-between gap-2 rounded-lg border border-gray-200 bg-white px-2.5 text-left hover:border-gray-300 hover:bg-gray-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#6C60FF] disabled:opacity-60`}
+              className={`${size === 'sm' ? 'h-9 text-sm' : 'h-10 text-base'} w-full max-w-[15rem] inline-flex items-center justify-between gap-2 rounded-lg border border-gray-200 bg-white px-2.5 text-left hover:border-gray-300 hover:bg-gray-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 disabled:opacity-60`}
             >
               {busy ? (
                 <span className="flex items-center gap-2 text-gray-500"><Loader2 className="w-4 h-4 animate-spin" />Saving…</span>
@@ -182,24 +182,24 @@ export default function AssigneeControl({ lead, onChanged, size = 'sm', variant 
                 <DropdownMenuItem
                   key={u.id}
                   onSelect={() => assign(u.id)}
-                  className={`cursor-pointer rounded-lg px-2.5 py-2 flex items-center gap-2.5 outline-none focus:outline-none focus-visible:outline-none text-gray-900 focus:!bg-gray-100 focus:!text-gray-900 ${isCurrent ? 'bg-purple-50 focus:!bg-purple-100' : ''}`}
+                  className={`cursor-pointer rounded-lg px-2.5 py-2 flex items-center gap-2.5 outline-none focus:outline-none focus-visible:outline-none text-gray-900 focus:!bg-gray-100 focus:!text-gray-900 ${isCurrent ? 'bg-gray-100 focus:!bg-gray-200' : ''}`}
                 >
                   <span className="min-w-0 flex-1"><AssigneeBadge assignee={u} size="md" /></span>
                   {u.role && ROLE_LABEL[u.role] && (
                     <span className="shrink-0 rounded-full border border-gray-200 bg-white px-2 py-0.5 text-xs font-medium text-gray-700">{ROLE_LABEL[u.role]}</span>
                   )}
-                  <Check className={`w-4 h-4 shrink-0 text-[#6C60FF] ${isCurrent ? 'visible' : 'invisible'}`} aria-hidden />
+                  <Check className={`w-4 h-4 shrink-0 text-gray-900 ${isCurrent ? 'visible' : 'invisible'}`} aria-hidden />
                 </DropdownMenuItem>
               );
             })}
             <DropdownMenuSeparator className="my-1.5 bg-gray-100" />
             <DropdownMenuItem
               onSelect={() => assign(null)}
-              className={`cursor-pointer rounded-lg px-2.5 py-2 flex items-center gap-2.5 outline-none focus:outline-none focus-visible:outline-none text-gray-800 focus:!bg-gray-100 focus:!text-gray-900 ${currentId === null ? 'bg-purple-50 focus:!bg-purple-100' : ''}`}
+              className={`cursor-pointer rounded-lg px-2.5 py-2 flex items-center gap-2.5 outline-none focus:outline-none focus-visible:outline-none text-gray-800 focus:!bg-gray-100 focus:!text-gray-900 ${currentId === null ? 'bg-gray-100 focus:!bg-gray-200' : ''}`}
             >
               <span className="h-8 w-8 shrink-0 rounded-full border border-dashed border-gray-300 inline-flex items-center justify-center text-gray-400"><UserX className="w-4 h-4" /></span>
               <span className="flex-1">Unassigned <span className="block text-xs text-gray-500">Team can accept it</span></span>
-              <Check className={`w-4 h-4 shrink-0 text-[#6C60FF] ${currentId === null ? 'visible' : 'invisible'}`} aria-hidden />
+              <Check className={`w-4 h-4 shrink-0 text-gray-900 ${currentId === null ? 'visible' : 'invisible'}`} aria-hidden />
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -238,7 +238,7 @@ function AcceptButton({ size, busy, onClick }: { size: 'sm' | 'md'; busy: boolea
       type="button"
       onClick={(e) => { e.stopPropagation(); onClick(); }}
       disabled={busy}
-      className={`shrink-0 inline-flex items-center gap-1.5 rounded-lg bg-[#6C60FF] hover:bg-[#5A4FE5] text-white font-semibold disabled:opacity-60 ${size === 'sm' ? 'h-8 px-3 text-sm' : 'h-10 px-4 text-base'}`}
+      className={`shrink-0 inline-flex items-center gap-1.5 rounded-lg bg-[#202224] hover:bg-[#0A0A0A] text-white font-semibold disabled:opacity-60 ${size === 'sm' ? 'h-8 px-3 text-sm' : 'h-10 px-4 text-base'}`}
     >
       {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <UserCheck className="w-4 h-4" />}
       Accept

@@ -109,3 +109,35 @@ export function focusBaselineAfterResize(
   if (!editing || width === previousWidth) return heightAtFocus;
   return layoutHeight;
 }
+
+/**
+ * Chris, 14 Nov 2026 (point 2, "still"): on iPhone the phone bottom bar can sit in the middle of the screen with the
+ * page scrolled to its end beneath it. iOS 26 can leave `position: fixed` placed against a stale viewport (after the
+ * keyboard, or with `100dvh` / `visualViewport.offsetTop` not reset — WebKit bug 297779), so neither `bottom: 0` nor
+ * the 9 Nov `top: 100dvh` pin is reliable. The bar is therefore measured after layout and moved down by however far
+ * its bottom edge sits above the real bottom of the screen.
+ *
+ * Returns the translateY (px, ≥ 0) to apply: `screenBottom − (barBottom − currentShift)`, where the screen bottom is
+ * the larger of the layout viewport (`innerHeight`) and the visual viewport's bottom (`offsetTop + height`) — the
+ * two disagree only in the stuck state, and the larger one is where the screen really ends. Never moves the bar up,
+ * ignores sub-2px jitter, and does nothing while the keyboard is up (a text field is focused: there the bar
+ * belongs behind the keyboard, as before) or on wide screens.
+ */
+export function phoneBarShift(input: {
+  barBottom: number;
+  currentShift: number;
+  innerHeight: number;
+  vv: VisualViewportLike | null | undefined;
+  layoutWidth: number;
+  editing: boolean;
+  maxWidth?: number;
+}): number {
+  const { barBottom, currentShift, innerHeight, vv, layoutWidth, editing, maxWidth = 768 } = input;
+  if (editing || layoutWidth >= maxWidth) return 0;
+  if (!Number.isFinite(barBottom) || !(innerHeight > 0)) return 0;
+  const visualBottom = vv && vv.height > 0 ? vv.offsetTop + vv.height : 0;
+  const screenBottom = Math.max(innerHeight, visualBottom);
+  const naturalBottom = barBottom - (Number.isFinite(currentShift) ? currentShift : 0);
+  const gap = screenBottom - naturalBottom;
+  return gap >= 2 ? Math.round(gap) : 0;
+}

@@ -81,7 +81,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 function ToolRow({ icon, title, subtitle, onClick }: { icon: React.ReactNode; title: string; subtitle: string; onClick: () => void }) {
   return (
     <button type="button" onClick={onClick} className="w-full flex items-center gap-3 px-3 py-3 rounded-xl border border-gray-200 bg-white text-left active:bg-gray-50">
-      <span className="h-9 w-9 rounded-lg bg-purple-100 text-[#6C60FF] flex items-center justify-center shrink-0">{icon}</span>
+      <span className="h-9 w-9 rounded-lg bg-gray-100 text-gray-700 flex items-center justify-center shrink-0">{icon}</span>
       <span className="min-w-0">
         <span className="block text-sm font-semibold text-gray-900">{title}</span>
         <span className="block text-xs text-gray-600">{subtitle}</span>
