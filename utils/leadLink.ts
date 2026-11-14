@@ -6,6 +6,9 @@
 // there"): an Admin / Partial Admin signed in as themselves now finds the account's leads in their OWN Leads list, so a
 // lead link never switches into the business any more (the Profile menu's "Switch to …" stays for campaigns etc.).
 // Switched into some account, they are taken back to their own account when the lead is listed there.
+//
+// Chris 14 Nov 2026: Admins and Partial Admins no longer have the business's leads in their personal account — a lead
+// link switches them into the business again (salespeople still find theirs in their own account: visible_here).
 
 export type LeadLocation = {
   lead_id?: number;
@@ -20,6 +23,7 @@ export type LeadLocation = {
 };
 
 export type LeadLinkAction =
+  | { kind: 'switch'; ownerId: string; partial: boolean; ownerEmail: string; ownerName: string }
   | { kind: 'personal' }
   | { kind: 'message'; text: string };
 
@@ -34,6 +38,17 @@ export function leadLinkAction(loc: LeadLocation | null | undefined, hint?: stri
   if (loc.access === 'admin' || loc.access === 'partial_admin') {
     // Switched into another account: their own account lists it. Otherwise it is hidden from them (taken / closed).
     if (loc.switched_in && loc.visible_in_own_account) return { kind: 'personal' };
+    // Not here and not in their own account: it lives in the business — switch into it (14 Nov 2026).
+    const ownerId = String(loc.owner?.external_user_id ?? '').trim();
+    if (ownerId) {
+      return {
+        kind: 'switch',
+        ownerId,
+        partial: loc.access === 'partial_admin',
+        ownerEmail: String(loc.owner?.email ?? ''),
+        ownerName: String(loc.owner?.name || 'that account'),
+      };
+    }
     return { kind: 'message', text: hint ? `This lead was ${hint}.` : NOT_AVAILABLE };
   }
   return { kind: 'message', text: NO_ACCESS };

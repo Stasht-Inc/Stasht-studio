@@ -66,6 +66,11 @@ export interface LeadMessageAttachment {
   size: number;
 }
 
+// "+ Campaign" picked into the message box (Chris 14 Nov 2026): sent with the message; the server creates the campaign
+// on Send and swaps "[campaign link]" in the text for its link.
+export interface ComposerCampaignPick { kind: 'vehicle' | 'product'; ids: number[]; title?: string }
+export interface SentCampaign { campaign?: { id: number; title: string; url: string; items?: number } }
+
 export interface LeadMessage {
   id: number;
   parent_message_id: number | null;
@@ -149,6 +154,8 @@ export interface Lead {
   // this person since (unread_count is then at least 1); can_mark_unread — the button is offered.
   marked_unread?: boolean;
   can_mark_unread?: boolean;
+  // Answered YES to "Want to see more like this?" (Chris 14 Nov 2026): the "Wants more" tag.
+  wants_more?: boolean;
   // Shared note (ClickUp wdy2xh13mn): readable by anyone who sees the lead.
   notes?: string | null;
   notes_updated_at?: string | null;
@@ -576,12 +583,14 @@ export const leadsAPI = {
     body: string,
     idempotencyKey?: string,
     attachments?: { filename: string; data: string }[],
+    campaign?: ComposerCampaignPick,
   ) => {
-    return apiRequest<LeadMessage>(`/leads/${leadId}/messages/sms`, {
+    return apiRequest<LeadMessage & SentCampaign>(`/leads/${leadId}/messages/sms`, {
       method: 'POST',
       body: JSON.stringify({
         body,
         ...(attachments && attachments.length ? { attachments } : {}),
+        ...(campaign ? { campaign } : {}),
         ...partialAdminBody(),
         ...(idempotencyKey ? { idempotency_key: idempotencyKey } : {}),
       }),
@@ -595,13 +604,15 @@ export const leadsAPI = {
     body: string,
     attachments?: { filename: string; data: string }[],
     idempotencyKey?: string,
+    campaign?: ComposerCampaignPick,
   ) => {
-    return apiRequest<LeadMessage>(`/leads/${leadId}/messages/email`, {
+    return apiRequest<LeadMessage & SentCampaign>(`/leads/${leadId}/messages/email`, {
       method: 'POST',
       body: JSON.stringify({
         subject,
         body,
         ...(attachments && attachments.length ? { attachments } : {}),
+        ...(campaign ? { campaign } : {}),
         ...partialAdminBody(),
         ...(idempotencyKey ? { idempotency_key: idempotencyKey } : {}),
       }),
@@ -617,12 +628,14 @@ export const leadsAPI = {
     body: string,
     idempotencyKey?: string,
     attachments?: { filename: string; data: string }[],
+    campaign?: ComposerCampaignPick,
   ) => {
-    return apiRequest<LeadMessage>(`/leads/${leadId}/messages/chat`, {
+    return apiRequest<LeadMessage & SentCampaign>(`/leads/${leadId}/messages/chat`, {
       method: 'POST',
       body: JSON.stringify({
         body,
         ...(attachments && attachments.length ? { attachments } : {}),
+        ...(campaign ? { campaign } : {}),
         ...partialAdminBody(),
         ...(idempotencyKey ? { idempotency_key: idempotencyKey } : {}),
       }),
@@ -653,6 +666,15 @@ export const leadsAPI = {
   // Share New Cars sheet uses.
   // GET /leads/campaign-sources: what "+ Campaign" offers this account — Products when a Website Catalogue is
   // connected, Vehicles when it has a car inventory (Deepak, 13 Nov 2026).
+  // "+ Campaign" into the message box (Chris 14 Nov 2026): the wording for the picked items, with `placeholder`
+  // ("[campaign link]") where the link goes. Creates nothing — the campaign is made when the message is sent.
+  campaignDraft: async (kind: 'vehicle' | 'product', ids: number[]) => {
+    return apiRequest<{ body: string; count: number; placeholder: string }>('/leads/campaign-draft', {
+      method: 'POST',
+      body: JSON.stringify({ kind, ids }),
+    });
+  },
+
   getCampaignSources: async () => {
     return apiRequest<any>('/leads/campaign-sources', { method: 'GET' });
   },

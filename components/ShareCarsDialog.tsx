@@ -296,7 +296,7 @@ export default function ShareCarsDialog({ open, onClose, leadId, leadName, onSha
           <DialogTitle>Share Campaign</DialogTitle>
           <DialogDescription>
             {onPick
-              ? `Creates a new campaign with the items you pick. Its link goes out with your message to ${leadName}.`
+              ? `Adds the items to your message to ${leadName}. The campaign is created when you send it.`
               : `Creates a new campaign with the items you pick and sends ${leadName} its own link.`}
           </DialogDescription>
         </DialogHeader>
@@ -313,7 +313,7 @@ export default function ShareCarsDialog({ open, onClose, leadId, leadName, onSha
             onFocus={(e) => e.currentTarget.select()}
             maxLength={120}
             placeholder={nameDefault}
-            className="w-full h-10 px-3 rounded-lg bg-white text-sm text-gray-900 placeholder:text-gray-500 border border-gray-200 outline-none focus-visible:ring-2 focus-visible:ring-[#6C60FF]"
+            className="w-full h-10 px-3 rounded-lg bg-white text-sm text-gray-900 placeholder:text-gray-500 border border-gray-200 outline-none focus-visible:ring-2 focus-visible:ring-gray-400"
           />
         </div>
 
@@ -385,11 +385,11 @@ export default function ShareCarsDialog({ open, onClose, leadId, leadName, onSha
               onChange={(e) => setSearch(e.target.value)}
               placeholder={isProducts ? 'Search products' : 'Search inventory, price or year'}
               aria-label={isProducts ? 'Search products' : 'Search inventory, price or year'}
-              className="w-full h-10 pl-9 pr-3 rounded-lg bg-gray-100 text-sm text-gray-700 placeholder:text-gray-500 border-none outline-none focus-visible:ring-2 focus-visible:ring-[#6C60FF]"
+              className="w-full h-10 pl-9 pr-3 rounded-lg bg-gray-100 text-sm text-gray-700 placeholder:text-gray-500 border-none outline-none focus-visible:ring-2 focus-visible:ring-gray-400"
             />
           </div>
           {!isProducts && searchNotes.length > 0 && (
-            <p className="mt-1.5 text-xs text-[#5A4FE5]" aria-live="polite">
+            <p className="mt-1.5 text-xs text-[#4A5565]" aria-live="polite">
               Showing: {searchNotes.join(' · ')}
             </p>
           )}
@@ -398,7 +398,7 @@ export default function ShareCarsDialog({ open, onClose, leadId, leadName, onSha
         <div className="flex-1 min-h-0 overflow-y-auto px-6 pb-2">
           {(sources === null || (isProducts ? productsLoading : isLoading)) ? (
             <div className="flex justify-center py-14" role="status" aria-label="Loading your inventory">
-              <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-[#6C60FF]" />
+              <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-[#4A5565]" />
             </div>
           ) : !isProducts && loadError ? (
             <p className="text-center text-sm text-gray-600 py-10">{loadError}</p>
@@ -421,14 +421,14 @@ export default function ShareCarsDialog({ open, onClose, leadId, leadName, onSha
                       role="checkbox"
                       aria-checked={isSel}
                       onClick={() => toggle(c.id)}
-                      className={`w-full flex items-center gap-3 p-2 rounded-lg text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#6C60FF] ${
-                        isSel ? 'bg-[#F5F2FF] border-[1.5px] border-[#6C60FF]' : 'bg-white border border-gray-200 hover:bg-gray-50'
+                      className={`w-full flex items-center gap-3 p-2 rounded-lg text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 ${
+                        isSel ? 'bg-[#F3F4F6] border-[1.5px] border-[#202224]' : 'bg-white border border-gray-200 hover:bg-gray-50'
                       }`}
                     >
                       <span
                         aria-hidden="true"
                         className={`flex items-center justify-center w-5 h-5 shrink-0 rounded border ${
-                          isSel ? 'bg-[#6C60FF] border-[#6C60FF] text-white' : 'bg-white border-gray-300'
+                          isSel ? 'bg-[#202224] border-[#202224] text-white' : 'bg-white border-gray-300'
                         }`}
                       >
                         {isSel && <Check className="w-3.5 h-3.5" />}
@@ -462,11 +462,10 @@ export default function ShareCarsDialog({ open, onClose, leadId, leadName, onSha
             disabled={selected.size === 0 || isSharing}
             className="w-full h-11 rounded-xl bg-[#6C60FF] hover:bg-[#5A4FE5] text-white text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#6C60FF] focus-visible:ring-offset-2"
           >
+            {/* Short labels (Chris: 1–2 words). Pick mode never sends — Send in the message box does. */}
             {isSharing
-              ? 'Sharing...'
-              : selected.size === 0
-                ? 'Select items to share'
-                : `${onPick ? 'Add' : 'Share'} ${selected.size} ${selected.size === 1 ? 'Item' : 'Items'}`}
+              ? 'Sharing…'
+              : `${onPick ? 'Add' : 'Share'}${selected.size > 0 ? ` (${selected.size})` : ''}`}
           </button>
         </div>
       </DialogContent>

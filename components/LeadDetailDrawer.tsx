@@ -8,7 +8,8 @@ import { useMemoryLimit, recheckMemoryLimit } from '../hooks/useMemoryLimit';
 import { useDialogBehavior } from '../hooks/useDialogBehavior';
 import { toast } from 'sonner';
 import { smsSegmentInfo, SMS_MAX_BODY } from '../utils/smsSegments';
-import ShareCarsDialog from './ShareCarsDialog';
+import ShareCarsDialog, { type PickKind } from './ShareCarsDialog';
+import { fallbackDraft, itemCount, removeDraft, replaceDraft, type PickedCampaign } from '../utils/composerCampaign';
 import AssigneeControl from './leads/AssigneeControl';
 import LinkifiedText from './leads/LinkifiedText';
 import LeadDetailsSidebar, { StatusChip } from './LeadDetailsSidebar';
@@ -239,6 +240,8 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
   const [showViaDropdown, setShowViaDropdown] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [showShareCars, setShowShareCars] = useState(false);
+  // "+ Campaign" picked into the message box (Chris 14 Nov 2026): created and sent only with Send.
+  const [pickedCampaign, setPickedCampaign] = useState<PickedCampaign | null>(null);
   const [attachments, setAttachments] = useState<File[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const composeInputRef = useRef<HTMLTextAreaElement>(null);
@@ -318,6 +321,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
     if (open && lead) {
       setCurrentStatus(lead.status ?? null);
       setMessage('');
+      setPickedCampaign(null);
       setSubject('');
       setReplyingToMsgId(null);
       setReplyText('');
@@ -570,11 +574,15 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
       const encoded = await Promise.all(
         attachments.map(async (f) => ({ filename: f.name, data: await fileToDataUrl(f) })),
       );
+      // The picked items go with the message: the server creates their campaign now and swaps [campaign link] for it.
+      const campaign = pickedCampaign
+        ? { kind: pickedCampaign.kind, ids: pickedCampaign.ids, ...(pickedCampaign.name ? { title: pickedCampaign.name } : {}) }
+        : undefined;
       const res = via === 'chat'
-        ? await leadsAPI.sendChat(lead!.id, message.trim(), key, encoded)
+        ? await leadsAPI.sendChat(lead!.id, message.trim(), key, encoded, campaign)
         : via === 'sms'
-          ? await leadsAPI.sendSMS(lead!.id, message.trim(), key, encoded)
-          : await leadsAPI.sendEmail(lead!.id, subject.trim() || 'Following up', message.trim(), encoded, key);
+          ? await leadsAPI.sendSMS(lead!.id, message.trim(), key, encoded, campaign)
+          : await leadsAPI.sendEmail(lead!.id, subject.trim() || (pickedCampaign ? (pickedCampaign.kind === 'product' ? 'Products picked for you' : 'New cars just added') : 'Following up'), message.trim(), encoded, key, campaign);
       if (res.success) {
         // confirmed success → fresh key for the next compose on THIS channel only
         if (via === 'sms') smsIdemKeyRef.current = crypto.randomUUID();
@@ -583,10 +591,14 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
         setMessage('');
         setSubject('');
         setAttachments([]);
+        setPickedCampaign(null);
         setShowEmojiPicker(false);
         setLastAiAction(null);
         setChatNotice(null);
-        toast.success(via === 'chat' ? 'Sent to their website chat.' : `${via === 'email' ? 'Email' : 'SMS'} sent successfully.`);
+        const made = (res.data as any)?.campaign;
+        toast.success(made
+          ? `Sent with a new campaign, "${made.title}".`
+          : via === 'chat' ? 'Sent to their website chat.' : `${via === 'email' ? 'Email' : 'SMS'} sent successfully.`);
         await refreshAll();
       } else if (via === 'chat' && (res as any)?.code === 'visitor_offline') {
         // They left just as the rep hit Send: nothing went out — keep the draft, move to text/email.
@@ -620,6 +632,41 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
     } else {
       setMessage((m) => m + emoji);
     }
+  };
+
+  // "+ Campaign" → Add: the items' wording goes into the box at the cursor (or replaces the previous pick's), with
+  // [campaign link] where the link goes. Nothing is created or sent here (Chris 14 Nov 2026).
+  const handleCampaignPick = async (ids: number[], campaignName: string, kind: PickKind, defaultName?: string) => {
+    let draft = fallbackDraft(ids.length, kind);
+    try {
+      const res = await leadsAPI.campaignDraft(kind, ids);
+      const body = (res.data as any)?.body ?? (res.data as any)?.data?.body;
+      if (res.success && typeof body === 'string' && body.trim()) draft = body;
+      else if (!res.success) {
+        toast.error((res as any)?.message || res.error || 'Could not add those items.');
+        return;
+      }
+    } catch {
+      // keep the fallback wording; Send still makes the campaign
+    }
+    const el = composeInputRef.current;
+    const start = el?.selectionStart ?? message.length;
+    const end = el?.selectionEnd ?? message.length;
+    const next = replaceDraft(message, pickedCampaign?.draft, draft, start, end);
+    setMessage(next.text);
+    setPickedCampaign({ ids, name: campaignName, kind, defaultName, draft });
+    requestAnimationFrame(() => {
+      if (!el) return;
+      el.focus();
+      el.setSelectionRange(next.cursor, next.cursor);
+    });
+  };
+
+  // × on the chip: a plain message again — its wording comes out and no [campaign link] is left.
+  const removePickedCampaign = () => {
+    if (!pickedCampaign) return;
+    setMessage((m) => removeDraft(m, pickedCampaign.draft));
+    setPickedCampaign(null);
   };
 
   // Validate picked files (images/PDF, ≤2 MB each; texts: JPG/PNG/GIF/PDF and
@@ -1477,6 +1524,32 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
             />
           )}
           <div className="border border-gray-200 rounded-2xl bg-white px-5 pt-4 pb-4 shadow-sm">
+            {pickedCampaign && (
+              // The picked items, kept until Send (or ×): "2 products · More MDF". Tap to change the pick.
+              <div className="flex items-center gap-1 mb-2 max-w-full">
+                <button
+                  type="button"
+                  onClick={() => setShowShareCars(true)}
+                  title="Change items"
+                  className="inline-flex items-center gap-1.5 min-w-0 h-8 pl-2.5 pr-2 rounded-lg bg-[#F3F4F6] hover:bg-[#E5E7EB] text-sm text-[#202224] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400"
+                >
+                  <Plus className="w-3.5 h-3.5 shrink-0 text-[#4A5565]" aria-hidden="true" />
+                  <span className="font-medium shrink-0">{itemCount(pickedCampaign.ids.length, pickedCampaign.kind)}</span>
+                  {(pickedCampaign.name || pickedCampaign.defaultName) && (
+                    <span className="truncate text-[#4A5565]">· {pickedCampaign.name || pickedCampaign.defaultName}</span>
+                  )}
+                </button>
+                <button
+                  type="button"
+                  onClick={removePickedCampaign}
+                  aria-label="Remove campaign"
+                  title="Remove campaign"
+                  className="h-8 w-8 shrink-0 inline-flex items-center justify-center rounded-lg text-[#4A5565] hover:bg-[#F3F4F6] hover:text-[#202224] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            )}
             <textarea
               ref={composeInputRef}
               value={message}
@@ -1485,7 +1558,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
               placeholder={`Type a message to ${firstName}...`}
               rows={3}
               maxLength={via === 'sms' ? SMS_MAX_BODY : via === 'chat' ? CHAT_MAX_BODY : undefined}
-              className="w-full max-sm:h-16 text-base text-gray-700 placeholder:text-gray-400 resize-none rounded-xl bg-gray-50 border border-gray-200 px-4 py-3 leading-relaxed outline-none transition-colors focus:bg-white focus:border-[#6C60FF]/60 focus:ring-4 focus:ring-[#6C60FF]/15"
+              className="w-full max-sm:h-16 text-base text-gray-700 placeholder:text-gray-400 resize-none rounded-xl bg-gray-50 border border-gray-200 px-4 py-3 leading-relaxed outline-none transition-colors focus:bg-white focus:border-gray-400 focus:ring-4 focus:ring-gray-200"
             />
 
             {/* SMS character counter — only when via === 'sms' */}
@@ -1555,9 +1628,9 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
                   intermediate menu. Same action the mobile app's "+" reaches on SMS threads. */}
               <button
                 onClick={() => setShowShareCars(true)}
-                title="Share a campaign"
-                aria-label="Share a campaign"
-                className="flex items-center gap-1.5 h-10 px-4 rounded-lg bg-purple-50 hover:bg-purple-100 text-[#5A4FE5] text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#6C60FF]"
+                title="Add a campaign to your message"
+                aria-label="Add a campaign to your message"
+                className="flex items-center gap-1.5 h-10 px-4 rounded-lg bg-white border border-gray-200 hover:bg-[#F3F4F6] text-[#202224] text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400"
               >
                 <Plus className="w-4 h-4" aria-hidden="true" />
                 Campaign
@@ -1566,7 +1639,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
               <div className="relative">
                 <button
                   onClick={() => setShowEmojiPicker((v) => !v)}
-                  className={`p-1.5 transition-colors ${showEmojiPicker ? 'text-[#6C60FF]' : 'text-gray-400 hover:text-gray-600'}`}
+                  className={`p-1.5 transition-colors ${showEmojiPicker ? 'text-[#202224]' : 'text-gray-400 hover:text-gray-600'}`}
                   title="Insert emoji"
                   aria-label="Insert emoji"
                 >
@@ -1621,7 +1694,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
                             setChatNotice(null);
                             setShowViaDropdown(false);
                           }}
-                          className={`w-full text-left px-3 py-2 text-sm ${isDisabled ? `cursor-not-allowed text-gray-400 ${option === 'chat' ? '' : 'opacity-40'}` : via === option ? 'text-[#6C60FF] font-medium hover:bg-gray-50' : 'text-gray-700 hover:bg-gray-50'}`}
+                          className={`w-full text-left px-3 py-2 text-sm ${isDisabled ? `cursor-not-allowed text-gray-400 ${option === 'chat' ? '' : 'opacity-40'}` : via === option ? 'bg-[#F3F4F6] text-[#202224] font-semibold' : 'text-gray-700 hover:bg-gray-50'}`}
                         >
                           {VIA_LABELS[option]}
                           {option === 'chat' && isDisabled && (
@@ -1640,10 +1713,10 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
                   onClick={() => handleAiAction(lastAiAction, true)}
                   disabled={generatingAction !== null}
                   title="Regenerate (free)"
-                  className="ml-auto flex items-center gap-1.5 h-10 px-4 rounded-lg border border-[#6C60FF] text-[#6C60FF] bg-purple-50 hover:bg-purple-100 text-sm font-medium disabled:opacity-50 transition-colors"
+                  className="ml-auto flex items-center gap-1.5 h-10 px-4 rounded-lg border border-gray-300 text-[#202224] bg-white hover:bg-[#F3F4F6] text-sm font-medium disabled:opacity-50 transition-colors"
                 >
                   {generatingAction ? (
-                    <div className="animate-spin rounded-full h-3.5 w-3.5 border-b-2 border-[#6C60FF]" />
+                    <div className="animate-spin rounded-full h-3.5 w-3.5 border-b-2 border-[#4A5565]" />
                   ) : (
                     <RefreshCw className="w-3.5 h-3.5" />
                   )}
@@ -1702,9 +1775,11 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
         <ShareCarsDialog
           open={showShareCars}
           onClose={() => setShowShareCars(false)}
-          leadId={lead.id}
           leadName={leadName}
-          onShared={() => { refreshAll(); }}
+          initialSelection={pickedCampaign?.ids}
+          initialCampaignName={pickedCampaign?.name}
+          initialKind={pickedCampaign?.kind}
+          onPick={handleCampaignPick}
         />
     </div>
   );

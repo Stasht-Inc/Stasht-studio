@@ -14,7 +14,7 @@ import { mapLimit } from '../utils/requestLimit';
 import { createLivePoller, reconcileList, sameValue, type LivePoller } from '../utils/livePoll';
 import { clearApiCache } from '../utils/authUtils';
 import { leadLinkAction, leadLinkUrl, NOT_AVAILABLE } from '../utils/leadLink';
-import { switchAccount } from './AccountChoiceModal';
+import { switchAccount, switchIntoAccountForLead } from './AccountChoiceModal';
 import LeadsInboxTable from './leads/LeadsInboxTable';
 import CampaignDeletedTag from './leads/CampaignDeletedTag';
 import LeadConfirmDialog, { type LeadConfirmKind } from './leads/LeadConfirmDialog';
@@ -672,7 +672,16 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
                 .then((r) => (r.success ? r.data : null))
                 .catch(() => null);
               const action = leadLinkAction(loc, openLeadHint);
-              if (action.kind === 'personal') {
+              if (action.kind === 'switch') {
+                // An Admin / Partial Admin: the business's leads are worked from inside it (Chris 14 Nov 2026).
+                toast.info(`Opening ${action.ownerName}…`);
+                const sw = await switchIntoAccountForLead(action.ownerId, action.partial, action.ownerEmail);
+                if (sw.ok) {
+                  window.location.assign(leadLinkUrl(wanted));
+                  return true;
+                }
+                toast.error(sw.error || 'Could not open that account.');
+              } else if (action.kind === 'personal') {
                 if (await switchAccount(null).catch(() => false)) {
                   window.location.assign(leadLinkUrl(wanted));
                   return true;

@@ -5,15 +5,20 @@ import { leadLinkAction, NO_ACCESS, NOT_AVAILABLE } from '../../utils/leadLink.t
 
 const owner = { external_user_id: 959, name: 'TheRoyalWoodShop', email: 'owner@royal.test' };
 
-// Team leads in your own account (Chris 10 Nov 2026): a lead link never switches into the business any more.
-test('an admin or partial admin in their own account is never switched in: the lead is hidden from them (taken)', () => {
-  assert.deepEqual(leadLinkAction({ access: 'admin', is_here: false, switched_in: false, visible_in_own_account: false, owner }), { kind: 'message', text: NOT_AVAILABLE });
-  assert.deepEqual(leadLinkAction({ access: 'partial_admin', is_here: false, owner }, 'accepted by Lindsay'), { kind: 'message', text: 'This lead was accepted by Lindsay.' });
+// Chris 14 Nov 2026: Admins / Partial Admins work the business's leads from inside it, so a lead link switches them in.
+test('an admin or partial admin in their own account is switched into the business', () => {
+  assert.deepEqual(leadLinkAction({ access: 'admin', is_here: false, switched_in: false, visible_in_own_account: false, owner }),
+    { kind: 'switch', ownerId: '959', partial: false, ownerEmail: 'owner@royal.test', ownerName: 'TheRoyalWoodShop' });
+  assert.deepEqual(leadLinkAction({ access: 'partial_admin', is_here: false, owner }, 'accepted by Lindsay'),
+    { kind: 'switch', ownerId: '959', partial: true, ownerEmail: 'owner@royal.test', ownerName: 'TheRoyalWoodShop' });
+  // No owner details: nothing to switch to.
+  assert.deepEqual(leadLinkAction({ access: 'admin', is_here: false }, 'accepted by Lindsay'), { kind: 'message', text: 'This lead was accepted by Lindsay.' });
 });
 
 test('switched into some account, they go back to their own account when the lead is listed there', () => {
   assert.deepEqual(leadLinkAction({ access: 'partial_admin', is_here: false, switched_in: true, visible_in_own_account: true, owner }), { kind: 'personal' });
-  assert.deepEqual(leadLinkAction({ access: 'admin', is_here: false, switched_in: true, visible_in_own_account: false, owner }), { kind: 'message', text: NOT_AVAILABLE });
+  // Switched into ANOTHER business: into the lead's business instead.
+  assert.equal(leadLinkAction({ access: 'admin', is_here: false, switched_in: true, visible_in_own_account: false, owner }).kind, 'switch');
 });
 
 test('the owner switched into another account goes back to their own', () => {
