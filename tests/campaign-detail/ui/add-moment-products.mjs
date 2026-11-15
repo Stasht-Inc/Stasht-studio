@@ -308,10 +308,11 @@ try {
     expect(ok.state.productQueries.length > lists, `${tag}: a products change → the list is asked again on reopen (${lists} → ${ok.state.productQueries.length})`);
     await ok.context.close();
 
-    // Pre-merge D3: the Refresh banner words website items exactly as before, and manual products as products.
+    // Pre-merge D3: the Refresh banner words website items as "on your website", and manual products as products.
+    // Post-live P3 (15 Nov): the website button no longer says "catalogue" (was "Refresh from catalogue").
     const cases = [
-      ['website', { linked: 2, changed: 2, retired: 0, can_refresh: true }, '2 items changed on your website since this campaign was made', 'Refresh from catalogue'],
-      ['website-older-api', { linked: 1, changed: 1, retired: 0, can_refresh: true, manual_pending: 0 }, '1 item changed on your website since this campaign was made', 'Refresh from catalogue'],
+      ['website', { linked: 2, changed: 2, retired: 0, can_refresh: true }, '2 items changed on your website since this campaign was made', 'Refresh'],
+      ['website-older-api', { linked: 1, changed: 1, retired: 0, can_refresh: true, manual_pending: 0 }, '1 item changed on your website since this campaign was made', 'Refresh'],
       ['manual', { linked: 1, changed: 1, retired: 0, can_refresh: true, manual_pending: 1 }, '1 product changed since this campaign was made', 'Refresh'],
       ['mixed', { linked: 3, changed: 2, retired: 1, can_refresh: true, manual_pending: 1 }, '3 items changed since this campaign was made', 'Refresh'],
     ];
@@ -324,6 +325,7 @@ try {
       expect(text.includes(line), `${tag}: banner (${name}) says "${line}" (got "${text}")`);
       expect(await banner.getByRole('button', { name: button, exact: true }).isVisible().catch(() => false), `${tag}: banner (${name}) button is "${button}"`);
       if (name === 'manual') expect(!/website/.test(text), `${tag}: banner (manual) never says "website"`);
+      expect(!/catalog/i.test(text), `${tag}: banner (${name}) never says "catalogue"`);
       await banner.scrollIntoViewIfNeeded().catch(() => {});
       await b.page.screenshot({ path: `${OUT}/${tag}-banner-${name}.png` });
       if (name === 'manual') {
@@ -333,6 +335,13 @@ try {
         const dt = (await dlg.textContent().catch(() => '')) || '';
         expect(dt.includes('Refresh products?') && !/website/.test(dt), `${tag}: the manual dialog asks "Refresh products?" with no website wording (got "${dt}")`);
         await b.page.screenshot({ path: `${OUT}/${tag}-banner-manual-dialog.png` });
+      }
+      if (name === 'website') {
+        await banner.getByRole('button', { name: button, exact: true }).click({ timeout: 5000 }).catch(() => {});
+        const dlg = b.page.getByRole('alertdialog');
+        await dlg.waitFor({ timeout: 5000 }).catch(() => {});
+        const dt = (await dlg.textContent().catch(() => '')) || '';
+        expect(dt.includes('Refresh from your website?') && !/catalog/i.test(dt), `${tag}: the website dialog asks "Refresh from your website?" with no "catalogue" (got "${dt.slice(0, 120)}")`);
       }
       await b.context.close();
     }

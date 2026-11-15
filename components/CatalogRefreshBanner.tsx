@@ -48,7 +48,7 @@ export default function CatalogRefreshBanner({ memoryId, onRefreshed }: CatalogR
     setRefreshing(false);
     setConfirmOpen(false);
     if (!res.ok || !res.data) {
-      toast.error(res.error || 'Could not refresh from your catalogue. Please try again.');
+      toast.error(res.error || 'Could not refresh your products. Please try again.');
       return;
     }
     const updated = res.data.refreshed + res.data.retired;

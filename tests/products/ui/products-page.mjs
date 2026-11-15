@@ -1112,6 +1112,17 @@ try {
       await b.page.getByText('Harbour Sofa', { exact: true }).filter({ visible: true }).first().waitFor({ timeout: 20000 }).catch(() => {});
       expect(await b.page.getByText('Harbour Sofa', { exact: true }).filter({ visible: true }).count() > 0, `${tag}: switch off → the website product card is still in Campaigns`);
       if (width >= 768) expect(await b.page.getByRole('button', { name: /^Campaigns\s*5$/ }).filter({ visible: true }).count() > 0, `${tag}: switch off → sidebar Campaigns 5 (as today)`);
+      if (width >= 768) {
+        // Post-live P2: the Campaigns panel's catalogue box says "Products" (same items, same count, same search).
+        const box = b.page.getByRole('button', { name: /^Products\s*1$/ }).filter({ visible: true }).first();
+        expect(await box.count() > 0 && !(await b.page.getByText(/Website Catalogue/).filter({ visible: true }).count()), `${tag}: the Campaigns panel box reads "Products (1)", no "Website Catalogue"`);
+        // The panel still settles after the first paint (the AI-credits notice above it): click again if the first
+        // click landed before that (the box itself is unchanged apart from its label).
+        await box.click().catch(() => {});
+        await b.page.waitForTimeout(600);
+        if (await box.getAttribute('aria-expanded').catch(() => null) !== 'true') { await box.click().catch(() => {}); await b.page.waitForTimeout(600); }
+        expect(await b.page.getByPlaceholder('Search products').filter({ visible: true }).count() > 0 && await b.page.getByRole('button', { name: 'Expand Sofas' }).filter({ visible: true }).count() > 0, `${tag}: … opening it shows its search and the same items (Sofas group)`);
+      }
       await b.page.screenshot({ path: `${OUT}/${tag}-02-switch-off.png` });
       await b.context.close();
 
@@ -1122,7 +1133,8 @@ try {
       expect(await o.page.getByText('Harbour Sofa', { exact: true }).filter({ visible: true }).count() > 0, `${tag}: older API (HTML 404) → the website product card is in Campaigns`);
       if (width >= 768) {
         expect(await o.page.getByRole('button', { name: /^Campaigns\s*5$/ }).filter({ visible: true }).count() > 0, `${tag}: older API (HTML 404) → sidebar Campaigns 5 (as today)`);
-        expect(!(await o.page.getByRole('button', { name: /^Products/ }).filter({ visible: true }).count()), `${tag}: older API (HTML 404) → no sidebar Products`);
+        // (/^Products(?!\s*1$)/: not the Campaigns panel's catalogue box, which says "Products 1" since post-live P2.)
+        expect(!(await o.page.getByRole('button', { name: /^Products(?!\s*1$)/ }).filter({ visible: true }).count()), `${tag}: older API (HTML 404) → no sidebar Products`);
       }
       expect(!old.calls.some((c) => c.m === 'GET' && c.p === '/products'), `${tag}: older API (HTML 404) → no /products list call`);
       await o.page.screenshot({ path: `${OUT}/${tag}-03-older-api.png` });

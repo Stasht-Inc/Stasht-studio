@@ -23,7 +23,7 @@ export function campaignPageInventory({ memoryId, afterPostId, onAdded, linkedVe
   return {
     alreadyAdded: { vehicles: linkedVehicleIds, campaigns: linkedCampaignIds },
     campaigns: { exclude: memoryId },
-    onSeePlans: () => requestUpgrade('Adding Website Catalogue products is available on the Business plan.'),
+    onSeePlans: () => requestUpgrade('Adding products is available on the Business plan.'),
     onAdd: async ({ products, vehicles, campaigns = [] }) => {
       const after = afterPostId();
       const added = { products: 0, vehicles: 0, already: 0 };

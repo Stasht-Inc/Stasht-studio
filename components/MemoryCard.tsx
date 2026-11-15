@@ -6,6 +6,7 @@ import { getCategoryColor } from "../constants/mediaConstants";
 import { useAuth } from "../contexts/AuthContext";
 import { userDisplayUtils } from "../utils/authUtils";
 import CampaignCover from "./ui/CampaignCover";
+import { categoryDisplayName } from "../utils/products";
 
 const isVideoUrl = (url?: string): boolean => {
   if (!url) return false;
@@ -498,7 +499,7 @@ export default function MemoryCard({
         lineHeight: '20px'
       }}
     >
-      {category}
+      {categoryDisplayName(category)}
     </div>
   ) : null;
   // Label Badge (yellow - e.g. Keepsakes)

@@ -979,7 +979,7 @@ export default function Sidebar({
               </div>
             </div>
 
-            {/* View Media Button (a Website Catalogue import: View catalogue, which opens Campaigns, where the catalogue is browsed) */}
+            {/* View Media Button (a Website Catalogue import: View products, which opens Campaigns, where its Products box is browsed) */}
             <button
               onClick={() => {
                 if (syncProgress.serviceType === 'catalogue') {
@@ -1015,7 +1015,7 @@ export default function Sidebar({
               }}
               className="w-full py-2.5 px-4 rounded-lg font-medium text-sm bg-[#6C60FF] hover:bg-[#5A4FE5] text-white shadow-md hover:shadow-lg transition-all duration-200 flex items-center justify-center gap-2"
             >
-              {syncProgress.serviceType === 'catalogue' ? 'View catalogue' : 'View Media'}
+              {syncProgress.serviceType === 'catalogue' ? 'View products' : 'View Media'}
               <ChevronRight className="w-4 h-4" />
             </button>
           </div>

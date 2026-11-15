@@ -25,6 +25,7 @@ import { dashboardAPI, userDisplayUtils } from "../utils/authUtils";
 import { useAuth } from "../contexts/AuthContext";
 import { toast } from "sonner";
 import { updateCategoryColor } from "../utils/categoryColorManager";
+import { categoryDisplayName } from "../utils/products";
 import { triggerMemoryCountsRefresh } from '../hooks/useMemoryCounts';
 
 // ── Video / YouTube thumbnail helpers ─────────────────────────────────────────
@@ -263,7 +264,7 @@ function CategoryCard({ name, count, isActive = false, onClick, hasMemories = fa
             ) : (
               <Folder className="w-4 h-4 text-muted-foreground" />
             )}
-            <span className={`text-sm ${isActive ? 'font-bold' : 'font-medium'} text-foreground`}>{name}</span>
+            <span className={`text-sm ${isActive ? 'font-bold' : 'font-medium'} text-foreground`}>{categoryDisplayName(name)}</span>
             {/* Edit button for user-created categories only - visible on hover only */}
             {onEdit && name !== 'Published' && name !== 'Shared With' && (
               <button
@@ -523,7 +524,7 @@ function EditableCategoryCard({
                 }}
               />
             ) : (
-              <span className={`text-sm ${isActive ? 'font-bold' : 'font-medium'} text-foreground`}>{name}</span>
+              <span className={`text-sm ${isActive ? 'font-bold' : 'font-medium'} text-foreground`}>{categoryDisplayName(name)}</span>
             )}
             {/* Edit button for user-created categories only - visible on hover only, not for suggested categories */}
             {/* Hidden when the category is locked (not owner / cannot add story) */}
@@ -2616,7 +2617,7 @@ export default function CategoryNav({
                         }
                       }}
                       onClick={() => handleCategoryClick(category.name)}
-                      title={`${category.name} (${categoryMemories.length} items}`}
+                      title={`${categoryDisplayName(category.name)} (${categoryMemories.length} items}`}
                     >
                       <div 
                         className="w-8 h-8 rounded-md flex items-center justify-center transition-all duration-200"
@@ -2920,7 +2921,7 @@ export default function CategoryNav({
                     )}
                     {categories.map((category) => (
                       <SelectItem key={category.name} value={category.name} className="cursor-pointer hover:bg-gray-100 focus:bg-gray-100 focus:text-gray-900 focus:outline-none">
-                        {category.name}
+                        {categoryDisplayName(category.name)}
                       </SelectItem>
                     ))}
                   </SelectContent>

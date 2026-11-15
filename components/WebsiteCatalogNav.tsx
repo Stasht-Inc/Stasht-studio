@@ -205,7 +205,7 @@ export default function WebsiteCatalogNav({ onMemorySelect }: { onMemorySelect?:
           {boxExpanded
             ? <FolderOpen className="w-4 h-4" style={{ color: WEBSITE_CATALOG_COLOR }} />
             : <Folder className="w-4 h-4 text-muted-foreground" />}
-          <span className={`text-sm ${boxExpanded ? "font-bold" : "font-medium"} text-foreground truncate`}>Website Catalogue</span>
+          <span className={`text-sm ${boxExpanded ? "font-bold" : "font-medium"} text-foreground truncate`}>Products</span>
         </span>
         <span
           className="text-xs px-2 py-1 rounded-full transition-all duration-200 text-black flex-shrink-0"
@@ -218,13 +218,13 @@ export default function WebsiteCatalogNav({ onMemorySelect }: { onMemorySelect?:
       {boxExpanded && (
         <div className="px-3 pb-3 pt-1">
           <label className="relative block mb-2">
-            <span className="sr-only">Search your Website Catalogue</span>
+            <span className="sr-only">Search your products</span>
             <Search className="w-4 h-4 text-gray-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" aria-hidden="true" />
             <input
               type="search"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search items"
+              placeholder="Search products"
               className="w-full h-9 pl-8 pr-2 rounded-md bg-white text-sm text-gray-700 placeholder:text-gray-500 border border-gray-200 outline-none focus-visible:ring-2 focus-visible:ring-[#6C60FF]"
             />
           </label>

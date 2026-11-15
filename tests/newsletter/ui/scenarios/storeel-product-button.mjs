@@ -18,7 +18,7 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
     await page.waitForTimeout(900);
     await page.getByPlaceholder(STOREEL_TITLE).fill(`Hinges ${tag}`);
     await step(page, 'st-step-campaign').getByRole('combobox').first().click();
-    await page.getByRole('option', { name: 'Website Catalogue' }).click();
+    await page.getByRole('option', { name: 'Products', exact: true }).click(); // post-live P2 (was "Website Catalogue")
     await page.waitForTimeout(500);
     await page.getByText('Oak bench', { exact: true }).first().click();
     await page.waitForTimeout(600);

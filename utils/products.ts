@@ -413,8 +413,8 @@ export function refreshBannerCopy(s: { changed: number; retired: number; manual_
   if (manual === 0) {
     return {
       line: `${n} ${n === 1 ? 'item' : 'items'} changed on your website since this campaign was made`,
-      button: 'Refresh from catalogue',
-      title: 'Refresh from catalogue?',
+      button: 'Refresh', // post-live P3: was "Refresh from catalogue"
+      title: 'Refresh from your website?',
       body: `${moments(n)} will be updated with the latest photos, price and details from your website. ${overwrite} ${websiteGone}`,
       toast: (u) => `Updated ${moments(u)} from your website`,
     };
@@ -438,7 +438,7 @@ export function refreshBannerCopy(s: { changed: number; retired: number; manual_
   };
 }
 
-// ── Post-live P1 (15 Nov): the read-only product details view. ──
+// ── Post-live (15 Nov): the read-only product details view and "Products" in place of "Website Catalogue". ──
 
 /** The details view's line for a website product (it has no Edit). */
 export const WEBSITE_SYNC_NOTE = 'This product comes from your website and updates each time it syncs.';
@@ -474,4 +474,12 @@ export function detailFacts(d: Pick<ProductDetail, 'sku' | 'brand' | 'product_ty
     add('Dimensions', `${[dim.length, dim.width, dim.height].map((x) => (x == null ? '–' : String(x))).join(' × ')} ${dim.unit || ''}`);
   }
   return out;
+}
+
+/** The account's real campaign category for catalogue campaigns is stored as this name (web API config catalog.category_name). */
+export const CATALOGUE_CATEGORY_NAME = 'Website Catalogue';
+/** Shown wherever that category's name is shown (P2/P3). Display only: the stored name, lookups and filters are unchanged. */
+export const PRODUCTS_LABEL = 'Products';
+export function categoryDisplayName<T>(name: T): T | string {
+  return typeof name === 'string' && name.trim().toLowerCase() === CATALOGUE_CATEGORY_NAME.toLowerCase() ? PRODUCTS_LABEL : name;
 }

@@ -7,7 +7,7 @@ import { asErrorLine, actionLines } from '../../components/storeel/lib/actionLin
 test('an asterisk first, no full stop at the end', () => {
   assert.equal(asErrorLine('Add a campaign title.'), '*Add a campaign title');
   assert.equal(asErrorLine('  Pick a category.  '), '*Pick a category');
-  assert.equal(asErrorLine('Pick at least one item from your Website Catalogue.'), '*Pick at least one item from your Website Catalogue');
+  assert.equal(asErrorLine('Pick at least one product.'), '*Pick at least one product');
   // Only the last full stop goes; a question or a sentence inside stays.
   assert.equal(asErrorLine("Your changes couldn't be saved. Check your connection and try again."), "*Your changes couldn't be saved. Check your connection and try again");
   assert.equal(asErrorLine('Is this right?'), '*Is this right?');
@@ -34,8 +34,8 @@ test('why only Save & Send is off', () => {
 });
 
 test('a refused save (or the server) is said first, as an alert, in the same style', () => {
-  assert.deepEqual(actionLines({ actionError: 'Pick at least one item from your Website Catalogue.', saveReason: null, sendReason: 'Choose email, text or both.' }), [
-    { id: 'st-action-error', text: '*Pick at least one item from your Website Catalogue', alert: true },
+  assert.deepEqual(actionLines({ actionError: 'Pick at least one product.', saveReason: null, sendReason: 'Choose email, text or both.' }), [
+    { id: 'st-action-error', text: '*Pick at least one product', alert: true },
     { id: 'st-send-reason', text: '*To send now: Choose email, text or both', alert: false },
   ]);
 });

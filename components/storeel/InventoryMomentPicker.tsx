@@ -33,7 +33,7 @@ export interface MomentInventory {
 /** At most this many products per Add all (the web API's per-request limit). */
 export const MAX_PRODUCTS_PER_ADD = 50;
 const BUSINESS_PLAN_LINE = 'Available on the Business plan.';
-const PLAN_MESSAGE = 'Adding Website Catalogue products is available on the Business plan.';
+const PLAN_MESSAGE = 'Adding products is available on the Business plan.';
 
 export interface InventorySources {
   loading: boolean;
