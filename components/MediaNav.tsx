@@ -21,7 +21,7 @@ import { recheckMemoryLimit } from "../hooks/useMemoryLimit";
 import { updateCategoryColor } from "../utils/categoryColorManager";
 import AddMediaToMemoryModal from "./AddMediaToMemoryModal";
 import { mapLimit, uploadLimit } from "../utils/requestLimit";
-import { categoryDisplayName } from "../utils/products";
+import { campaignsWillAppear, categoryDisplayName, noCampaignsTitle } from "../utils/products";
 
 interface MediaImage {
   id: string;
@@ -2870,10 +2870,10 @@ export default function MediaNav({
                         </div>
                         <div>
                           <h3 className="text-xs font-medium text-gray-700">
-                            No {String(categoryDisplayName(category.name)).toLowerCase()} campaigns
+                            {noCampaignsTitle(category.name)}
                           </h3>
                           <p className="text-[12px] text-gray-500 mt-1">
-                            Your {String(categoryDisplayName(category.name)).toLowerCase()} campaigns will appear here.
+                            {campaignsWillAppear(category.name, 'your')}
                           </p>
                         </div>
                       </div>
@@ -3519,10 +3519,10 @@ export default function MediaNav({
                                 </div>
                                 <div>
                                   <h3 className="text-sm font-medium text-gray-700 mb-1">
-                                    No {String(categoryDisplayName(category.name)).toLowerCase()} campaigns
+                                    {noCampaignsTitle(category.name)}
                                   </h3>
                                   <p className="text-xs text-gray-500 leading-relaxed">
-                                    Your {String(categoryDisplayName(category.name)).toLowerCase()} campaigns will appear here.
+                                    {campaignsWillAppear(category.name, 'your')}
                                   </p>
                                 </div>
                                 {/* Add Media button - exclude Shared With, Published, Suggested */}

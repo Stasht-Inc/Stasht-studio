@@ -486,3 +486,15 @@ export const CATALOGUE_CATEGORY_LABEL = 'Product campaigns';
 export function categoryDisplayName<T>(name: T): T | string {
   return typeof name === 'string' && name.trim().toLowerCase() === CATALOGUE_CATEGORY_NAME.toLowerCase() ? CATALOGUE_CATEGORY_LABEL : name;
 }
+
+/** Empty-state copy for a category ("No personal campaigns"), never "No product campaigns campaigns" (display only). */
+const endsWithCampaigns = (label: string) => /campaigns$/i.test(label.trim());
+export function noCampaignsTitle(name: unknown): string {
+  const label = String(categoryDisplayName(name) ?? '');
+  return endsWithCampaigns(label) ? `No ${label.toLowerCase()} yet` : `No ${label.toLowerCase()} campaigns`;
+}
+export function campaignsWillAppear(name: unknown, form: 'in' | 'your'): string {
+  const label = String(categoryDisplayName(name) ?? '');
+  if (endsWithCampaigns(label)) return form === 'your' ? `Your ${label.toLowerCase()} will appear here.` : `${label} will appear here.`;
+  return form === 'your' ? `Your ${label.toLowerCase()} campaigns will appear here.` : `Campaigns in ${label} category will appear here.`;
+}

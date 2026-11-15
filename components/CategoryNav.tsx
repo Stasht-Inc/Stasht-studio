@@ -25,7 +25,7 @@ import { dashboardAPI, userDisplayUtils } from "../utils/authUtils";
 import { useAuth } from "../contexts/AuthContext";
 import { toast } from "sonner";
 import { updateCategoryColor } from "../utils/categoryColorManager";
-import { categoryDisplayName } from "../utils/products";
+import { campaignsWillAppear, categoryDisplayName, noCampaignsTitle } from "../utils/products";
 import { triggerMemoryCountsRefresh } from '../hooks/useMemoryCounts';
 
 // ── Video / YouTube thumbnail helpers ─────────────────────────────────────────
@@ -1371,13 +1371,13 @@ function MemoryTreeView({
           </svg>
         </div>
         <h4 className="text-sm font-medium text-gray-900 mb-1">
-          No {String(categoryDisplayName(categoryName)).toLowerCase()} campaigns
+          {noCampaignsTitle(categoryName)}
         </h4>
         <p className="text-xs text-gray-500 leading-relaxed">
           {categoryName === 'Published' ? 'Campaigns you\'ve published publicly will appear here.' :
            categoryName === 'Personal' ? 'Your private campaigns will appear here.' :
            categoryName === 'Shared With' ? 'Campaigns shared with you will appear here.' :
-           `Campaigns in ${categoryDisplayName(categoryName)} category will appear here.`}
+           campaignsWillAppear(categoryName, 'in')}
         </p>
       </div>
     );
@@ -2705,13 +2705,13 @@ export default function CategoryNav({
                               </svg>
                             </div>
                             <h4 className="text-sm font-medium text-gray-900 mb-1">
-                              No {String(categoryDisplayName(category.name)).toLowerCase()} campaigns
+                              {noCampaignsTitle(category.name)}
                             </h4>
                             <p className="text-xs text-gray-500 leading-relaxed">
                               {category.name === 'Published' ? 'Campaigns you\'ve published publicly will appear here.' :
                                category.name === 'Personal' ? 'Your private campaigns will appear here.' :
                                category.name === 'Shared With' ? 'Campaigns shared with you will appear here.' :
-                               `Campaigns in ${categoryDisplayName(category.name)} category will appear here.`}
+                               campaignsWillAppear(category.name, 'in')}
                             </p>
                           </div>
                         )}
