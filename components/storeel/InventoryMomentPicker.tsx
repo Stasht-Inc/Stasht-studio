@@ -1,11 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Check, Loader2, Search } from 'lucide-react';
-import { catalogueAPI, loadCatalogueForBrowsing } from '../../services/catalogueAPI';
+import { catalogueAPI, loadCatalogueForBrowsing, type CatalogueItemSummary } from '../../services/catalogueAPI';
 import { dashboardAPI } from '../../utils/authUtils';
+import { loadProductsForPicker, productsAPI, type ProductSummary } from '../../services/productsAPI';
+import { productsGate } from '../../utils/products';
 import { useIsStarterPlan } from '../../hooks/usePlan';
 import { requestUpgrade } from '../../utils/planEvents';
 import { catalogGate, inventoryCacheable, type InventoryPick } from './lib/momentPicks';
 import { CATALOGUE_SYNC_FINISHED_EVENT, CATALOGUE_SYNC_STARTED_EVENT } from '../connectors/websiteCatalogue';
+import { PRODUCTS_CHANGED_EVENT } from '../../hooks/useProductsStatus';
 import { vehiclePrice, vehicleTags } from './lib/previewMoments';
 import type { CampaignPick } from './lib/momentCampaigns';
 
@@ -47,11 +50,12 @@ export interface InventorySources {
 /** The last answer, reused for a short while (review minor 10: a 400+ item catalogue on every Add a Moment). Per account. */
 const CACHE_MS = 2 * 60 * 1000;
 let cache: { key: string; at: number; value: InventorySources } | null = null;
-/** Forget the last answer (a catalogue import started or finished: the products changed). */
+/** Forget the last answer (a catalogue import started or finished, or a product was saved on Products: the products changed). */
 export function clearInventoryCache(): void { cache = null; }
 if (typeof window !== 'undefined') {
   window.addEventListener(CATALOGUE_SYNC_STARTED_EVENT, clearInventoryCache);
   window.addEventListener(CATALOGUE_SYNC_FINISHED_EVENT, clearInventoryCache);
+  window.addEventListener(PRODUCTS_CHANGED_EVENT, clearInventoryCache); // final review I6: a just-created product shows at once
 }
 function cacheKey(isStarter: boolean): string {
   try {
@@ -71,10 +75,25 @@ export function useInventorySources(enabled: boolean): InventorySources {
     if (cache && cache.key === key && Date.now() - cache.at < CACHE_MS) { setState(cache.value); return undefined; }
     setState((s) => ({ ...s, loading: true }));
     (async () => {
-      const status = await catalogueAPI.getStatus().catch(() => null);
-      const gate = catalogGate(status && status.ok && status.data ? status.data : null, isStarter);
+      const [status, productsStatus] = await Promise.all([
+        catalogueAPI.getStatus().catch(() => null),
+        productsAPI.getStatus().catch(() => null),
+      ]);
+      const catalogueReady = catalogGate(status && status.ok && status.data ? status.data : null, isStarter) === 'ready';
+      // Products plan (2026-11-09): with Products on, the list is every active product — manual ones, plus website ones
+      // while the catalogue itself is available (the API refuses website items otherwise). Off: exactly as before.
+      const productsOn = productsGate(productsStatus && productsStatus.ok ? productsStatus.data : null) === 'ready';
+      // Answered: ok, or an API without Products (404). A failure falls back to the catalogue list but isn't reused.
+      const productsStatusOk = Boolean(productsStatus && (productsStatus.ok || productsStatus.status === 404));
+      let productsComplete = true;
+      const gate = productsOn ? 'ready' : catalogGate(status && status.ok && status.data ? status.data : null, isStarter);
       const [products, cars] = await Promise.all([
-        gate === 'ready' ? loadCatalogueForBrowsing() : Promise.resolve([]),
+        productsOn
+          ? loadProductsForPicker().then(({ items, complete }) => {
+            productsComplete = complete;
+            return items.filter((p) => p.origin === 'manual' || catalogueReady);
+          })
+          : gate === 'ready' ? loadCatalogueForBrowsing() : Promise.resolve([]),
         dashboardAPI.carsGetCatalog().catch(() => null),
       ]);
       const raw = (cars as any)?.data?.data?.cars || (cars as any)?.data?.cars || [];
@@ -84,12 +103,12 @@ export function useInventorySources(enabled: boolean): InventorySources {
       const value: InventorySources = {
         loading: false,
         productGate: gate === 'ready' && products.length === 0 ? 'hidden' : gate,
-        products: products.map((p) => ({ id: p.id, title: p.title || 'Untitled product', main_image: p.main_image, price_label: p.price_label, url: p.url, images_count: p.images_count, category: p.category })),
+        products: (products as Array<ProductSummary | CatalogueItemSummary>).map((p) => ({ id: p.id, title: p.title || 'Untitled product', main_image: p.main_image, price_label: p.price_label, url: p.url, images_count: p.images_count, category: ('categories' in p ? p.categories[0]?.name : undefined) ?? p.category })),
         vehicles,
       };
       // Only a load that fully answered is reused (re-review N3).
       const carsOk = (cars as any)?.success === true;
-      cache = inventoryCacheable({ statusOk: Boolean(status && status.ok), carsOk, gate, products: products.length }) ? { key, at: Date.now(), value } : null;
+      cache = inventoryCacheable({ statusOk: Boolean(status && status.ok), carsOk, gate, products: products.length, productsStatusOk, productsComplete }) ? { key, at: Date.now(), value } : null;
       if (!cancelled) setState(value);
     })();
     return () => { cancelled = true; };

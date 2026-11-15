@@ -1,0 +1,404 @@
+// tests/products/products.test.mjs
+// Products M2 pure helpers (plan docs/superpowers/plans/2026-11-09-products-m1-m2.md, web API repo). Node >= 22.18.
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import {
+  BADGE_LABEL, sourceLabel, priceLine, productQueryString, productsGate, campaignGridHidesCatalogue, showsProductsNav,
+  variantCombinations, mergeVariants, moveItem, emptyProductForm, formFromDetail, payloadFromForm, validateProductForm,
+  fieldErrorsFrom, slugFromTitle, bulkResultMessage, pageToClampTo, WEBSITE_DELETE_HINT, MANUAL_FIELDS, editableFor, renameOption, settleOptions, variantRowKey,
+  PICKER_FILTERS, collectPickerPages,
+} from '../../utils/products.ts';
+
+const status = (over = {}) => ({ pilot: true, available: true, reason: null, can_create: true, counts: { total: 3, manual: 2, website: 1 }, default_currency: 'CAD', ...over });
+
+test('badge and source copy is the spec\'s', () => {
+  assert.deepEqual(BADGE_LABEL, { active: 'Active', draft: 'Draft', out_of_stock: 'Out of stock', archived: 'Archived' });
+  assert.equal(sourceLabel({ origin: 'website' }), 'Website');
+  assert.equal(sourceLabel({ origin: 'manual' }), 'Manual');
+});
+
+test('price line: sale price struck through, price on request, hidden price', () => {
+  assert.deepEqual(priceLine({ price_label: '$450 CAD', compare_at_label: '$500 CAD', price_on_request: false, show_price: true }), { main: '$450 CAD', was: '$500 CAD' });
+  assert.deepEqual(priceLine({ price_label: '$450 CAD', compare_at_label: '', price_on_request: true, show_price: true }), { main: 'Price on request', was: '' });
+  assert.deepEqual(priceLine({ price_label: '$450 CAD', compare_at_label: '', price_on_request: false, show_price: false }), { main: 'Price hidden', was: '' });
+  assert.deepEqual(priceLine({ price_label: '', compare_at_label: '', price_on_request: false, show_price: true }), { main: '', was: '' });
+});
+
+test('query string skips empty filters and joins statuses', () => {
+  assert.equal(productQueryString({}), 'page=1&per_page=48');
+  assert.equal(
+    productQueryString({ q: ' oak ', category_id: 7, status: ['active', 'draft'], source: 'manual', price_min: '10', price_max: '', in_stock: true, sort: 'title', page: 2 }),
+    'q=oak&category_id=7&status=active%2Cdraft&source=manual&price_min=10&in_stock=1&sort=title&page=2&per_page=48',
+  );
+});
+
+test('gates: hidden off the pilot, upgrade on a free plan, ready otherwise; nav only in the personal and own External view', () => {
+  assert.equal(productsGate(null), 'hidden');
+  assert.equal(productsGate(status({ pilot: false, available: false, reason: 'not_available' })), 'hidden');
+  assert.equal(productsGate(status({ available: false, reason: 'plan_required' })), 'upgrade');
+  assert.equal(productsGate(status()), 'ready');
+  assert.equal(campaignGridHidesCatalogue(status({ available: false, reason: 'plan_required' })), true);
+  assert.equal(campaignGridHidesCatalogue(status({ pilot: false })), false);
+  assert.equal(campaignGridHidesCatalogue(null), false);
+  assert.equal(showsProductsNav(status(), 'personal', false), true);
+  assert.equal(showsProductsNav(status(), 'property', false), false);
+  assert.equal(showsProductsNav(status(), 'property', true), true);
+  assert.equal(showsProductsNav(status({ pilot: false }), 'personal', false), false);
+});
+
+test('variant combinations and merging keep edited rows', () => {
+  const options = [{ name: 'Size', values: ['S', 'L', ' '] }, { name: 'Colour', values: ['Oak'] }, { name: '', values: ['x'] }];
+  assert.deepEqual(variantCombinations(options), [{ Size: 'S', Colour: 'Oak' }, { Size: 'L', Colour: 'Oak' }]);
+  const existing = [{ id: 9, options: { Size: 'S', Colour: 'Oak' }, sku: 'S-OAK', price: '40', compare_at_price: '', stock_status: 'in_stock', quantity: '', image_id: null }];
+  const merged = mergeVariants(existing, options);
+  assert.equal(merged.length, 2);
+  assert.equal(merged[0].id, 9);
+  assert.equal(merged[0].sku, 'S-OAK');
+  assert.deepEqual(merged[1].options, { Size: 'L', Colour: 'Oak' });
+  assert.equal(merged[1].sku, '');
+  assert.deepEqual(variantCombinations([]), []);
+});
+
+test('moveItem', () => {
+  assert.deepEqual(moveItem(['a', 'b', 'c'], 2, 0), ['c', 'a', 'b']);
+  assert.deepEqual(moveItem(['a', 'b'], 0, 5), ['a', 'b']);
+});
+
+test('form round trip and payload only carries editable fields', () => {
+  const detail = {
+    id: 1, origin: 'manual', title: 'Walnut Chair', short_description: 'Hand-made', description_html: '<p>x</p>', brand: null, product_type: null,
+    price: '450.00', compare_at_price: null, currency: 'CAD', price_on_request: false, sku: 'WC', barcode: null, stock_status: 'in_stock', quantity: 4,
+    options: [{ name: 'Size', values: ['S'] }], variants: [{ id: 3, options: { Size: 'S' }, sku: null, price: '420.00', compare_at_price: null, stock_status: 'in_stock', quantity: null, image_id: null }],
+    attributes: [{ label: 'Wood', value: 'Walnut' }], weight: null, weight_unit: null, dimensions: null, categories: [{ id: 5, name: 'Featured' }], tags: ['new'], collections: [],
+    status: 'active', show_enquire: true, show_price: true, seo: { slug: 'walnut-chair', title: null, description: null, share_image: null }, buy_url: null, internal_notes: 'n',
+  };
+  const form = formFromDetail(detail);
+  assert.equal(form.price, '450.00');
+  assert.equal(form.quantity, '4');
+  assert.deepEqual(form.category_ids, [5]);
+  assert.equal(form.slug, 'walnut-chair');
+  assert.equal(form.variants[0].price, '420.00');
+  const payload = payloadFromForm({ ...form, price: '99', quantity: '' }, ['title', 'price', 'quantity', 'variants']);
+  assert.deepEqual(Object.keys(payload).sort(), ['price', 'quantity', 'title', 'variants']);
+  assert.equal(payload.price, 99);
+  assert.equal(payload.quantity, null);
+  assert.deepEqual(payload.variants, [{ id: 3, options: { Size: 'S' }, sku: null, price: 420, compare_at_price: null, stock_status: 'in_stock', quantity: null, image_id: null }]);
+  const website = payloadFromForm(form, ['status', 'tags', 'collections', 'internal_notes', 'show_price', 'show_enquire', 'category_ids']);
+  assert.deepEqual(Object.keys(website).sort(), ['category_ids', 'collections', 'internal_notes', 'show_enquire', 'show_price', 'status', 'tags']);
+  assert.equal(emptyProductForm('INR').currency, 'INR');
+  assert.equal(emptyProductForm('INR').status, 'active');
+});
+
+test('validation messages match the API\'s', () => {
+  const all = ['title', 'price', 'compare_at_price', 'quantity', 'slug', 'buy_url', 'share_image', 'currency', 'weight'];
+  const f = { ...emptyProductForm('CAD'), title: ' ', price: '100', compare_at_price: '90', quantity: '1.5', slug: 'Not OK', buy_url: 'javascript:x', currency: 'CA' };
+  assert.deepEqual(validateProductForm(f, all), {
+    title: 'Give the product a title.',
+    compare_at_price: 'The compare-at price should be higher than the price.',
+    quantity: 'Enter a whole number.',
+    slug: 'Use lower-case letters, numbers and dashes only.',
+    buy_url: 'Use a web address starting with https://',
+    currency: 'Use a three-letter currency code, like CAD.',
+  });
+  assert.deepEqual(validateProductForm({ ...f, title: 'Ok' }, ['status']), {}); // a website product checks only what it edits
+});
+
+test('field errors and slugs', () => {
+  assert.deepEqual(fieldErrorsFrom({ title: ['Give the product a title.', 'x'], 'variants.0.price': ['Bad'] }), { title: 'Give the product a title.', 'variants.0.price': 'Bad' });
+  assert.deepEqual(fieldErrorsFrom(null), {});
+  assert.equal(slugFromTitle('  Café Chair — Walnut & Oak!  '), 'cafe-chair-walnut-oak');
+});
+
+import { createKeyedStore } from '../../utils/keyedStore.ts';
+
+const deferred = () => { let resolve; const promise = new Promise((r) => { resolve = r; }); return { promise, resolve }; };
+
+test('keyed store: per-key cache, a slow old key never overwrites the current one', async () => {
+  const store = createKeyedStore();
+  const slow = deferred();
+  const a = store.load('A', false, () => slow.promise);
+  assert.equal(await store.load('B', false, async () => 'b'), 'b');
+  slow.resolve('a');
+  await a;
+  assert.equal(store.peek('A'), 'a');
+  assert.equal(store.peek('B'), 'b');
+  assert.equal(await store.load('A', false, async () => 'zzz'), 'a'); // cached, no second fetch
+});
+
+test('keyed store: concurrent fresh loads share one request; failures are not cached', async () => {
+  const store = createKeyedStore();
+  let calls = 0;
+  const d = deferred();
+  const fetcher = () => { calls += 1; return d.promise; };
+  const loads = [store.load('K', true, fetcher), store.load('K', true, fetcher), store.load('K', true, fetcher)];
+  d.resolve(null);
+  assert.deepEqual(await Promise.all(loads), [null, null, null]);
+  assert.equal(calls, 1);
+  assert.equal(store.peek('K'), undefined);
+  assert.equal(await store.load('K', false, async () => 'ok'), 'ok'); // retried after the failure
+  assert.equal(await store.load('K', false, async () => { throw new Error('x'); }), 'ok');
+  assert.equal(await store.load('Z', false, async () => { throw new Error('x'); }), null);
+});
+
+test('keyed store: a stale non-fresh response does not overwrite a later fresh one', async () => {
+  const store = createKeyedStore();
+  const old = deferred();
+  const first = store.load('K', false, () => old.promise);
+  assert.equal(await store.load('K', true, async () => 'new'), 'new');
+  old.resolve('old');
+  await first;
+  assert.equal(store.peek('K'), 'new');
+});
+
+test('number-format errors, weight and dimensions payload', () => {
+  const f = { ...emptyProductForm('CAD'), title: 'T', price: 'abc', weight: '-1', compare_at_price: '' };
+  const errs = validateProductForm(f, ['title', 'price', 'weight', 'compare_at_price']);
+  assert.equal(errs.price, 'Enter a number, like 49.99.');
+  assert.equal(errs.weight, 'Enter a number, like 49.99.');
+  const g = { ...emptyProductForm('CAD'), weight: '2.5', weight_unit: 'lb', dimensions: { length: '10', width: '', height: '3', unit: 'in' } };
+  const p = payloadFromForm(g, ['weight', 'weight_unit', 'dimensions']);
+  assert.equal(p.weight, 2.5);
+  assert.equal(p.weight_unit, 'lb');
+  assert.deepEqual(p.dimensions, { length: 10, width: null, height: 3, unit: 'in' });
+  assert.equal(payloadFromForm({ ...g, weight: '' }, ['weight', 'weight_unit']).weight_unit, null);
+});
+
+test('bulk result message: counts, skipped ids and why', () => {
+  assert.equal(bulkResultMessage('status', { updated: 3, deleted: 0, skipped_ids: [] }), '3 updated.');
+  assert.equal(bulkResultMessage('category', { updated: 1, deleted: 0, skipped_ids: [9] }), "1 updated, 1 skipped (they're no longer available to you).");
+  assert.equal(bulkResultMessage('delete', { updated: 0, deleted: 3, skipped_ids: [4] }, [4, 7]), "3 deleted, 1 skipped (website products can't be deleted).");
+  assert.equal(bulkResultMessage('delete', { updated: 0, deleted: 1, skipped_ids: [4, 5] }, [4]), "1 deleted, 2 skipped (they're no longer available to you).");
+  assert.equal(bulkResultMessage('delete', { updated: 0, deleted: 2, skipped_ids: [] }), '2 deleted.');
+  assert.equal(WEBSITE_DELETE_HINT, "Products from your website can't be deleted. Archive them instead.");
+});
+
+test('page clamp: an empty page past the last one goes back to the last page', () => {
+  const pg = (current_page, last_page) => ({ current_page, per_page: 48, total: 0, last_page });
+  assert.equal(pageToClampTo(3, pg(3, 2), 0), 2);
+  assert.equal(pageToClampTo(2, pg(2, 1), 0), 1);
+  assert.equal(pageToClampTo(2, pg(2, 0), 0), 1); // nothing left at all → page 1
+  assert.equal(pageToClampTo(1, pg(1, 1), 0), null); // page 1 empty: the real empty state
+  assert.equal(pageToClampTo(2, pg(2, 2), 0), null); // within range: show what came back
+  assert.equal(pageToClampTo(3, pg(3, 2), 5), null); // items came back: nothing to fix
+});
+
+test('a new product edits every manual field; a loaded one what the API says', () => {
+  assert.ok(MANUAL_FIELDS.includes('variants') && MANUAL_FIELDS.includes('slug') && !MANUAL_FIELDS.includes('media'));
+  assert.deepEqual(editableFor(null), MANUAL_FIELDS);
+  assert.deepEqual(editableFor({ editable_fields: ['status', 'tags'] }), ['status', 'tags']);
+});
+
+test('variant rows: number format and compare-at above the price, under each row\'s field (API keys variants.N.*)', () => {
+  const v = (over) => ({ options: { Size: 'S' }, sku: '', price: '', compare_at_price: '', stock_status: 'in_stock', quantity: '', image_id: null, ...over });
+  const form = { ...emptyProductForm('CAD'), title: 'Bench', variants: [v({ price: '10', compare_at_price: '8' }), v({ price: 'abc', quantity: '1.5' }), v({ price: '10', compare_at_price: '12' })] };
+  const e = validateProductForm(form, MANUAL_FIELDS);
+  assert.equal(e['variants.0.compare_at_price'], 'The compare-at price should be higher than the price.');
+  assert.equal(e['variants.1.price'], 'Enter a number, like 49.99.');
+  assert.equal(e['variants.1.quantity'], 'Enter a whole number.');
+  assert.ok(!Object.keys(e).some((k) => k.startsWith('variants.2')));
+  assert.deepEqual(validateProductForm(form, ['status']), {}); // a website product never checks rows it can't change
+});
+
+test('renaming an option keeps every variant row (ids, prices, SKUs, stock, photos); a cleared name drops nothing', () => {
+  const row = (size, colour, over) => ({ options: { Size: size, Colour: colour }, sku: '', price: '', compare_at_price: '', stock_status: 'in_stock', quantity: '', image_id: null, ...over });
+  const options = [{ name: 'Size', values: ['S', 'L'] }, { name: 'Colour', values: ['Oak'] }];
+  const variants = [row('S', 'Oak', { id: 9, price: '40', sku: 'S-OAK', stock_status: 'out_of_stock', image_id: 31 }), row('L', 'Oak', { id: 10, price: '50' })];
+
+  const renamed = renameOption(options, variants, 0, 'Width');
+  assert.equal(renamed.options[0].name, 'Width');
+  assert.deepEqual(renamed.variants.map((v) => [v.id, v.options, v.price]), [[9, { Width: 'S', Colour: 'Oak' }, '40'], [10, { Width: 'L', Colour: 'Oak' }, '50']]);
+  assert.deepEqual(Object.keys(renamed.variants[0].options), ['Width', 'Colour']); // order kept
+  assert.equal(renamed.variants[0].sku, 'S-OAK');
+  assert.equal(renamed.variants[0].stock_status, 'out_of_stock');
+  assert.equal(renamed.variants[0].image_id, 31);
+
+  // Cleared while typing a new name: the rows stay; the new name then takes them over.
+  const cleared = renameOption(renamed.options, renamed.variants, 0, '');
+  assert.equal(cleared.variants.length, 2);
+  assert.equal(cleared.variants[0].id, 9);
+  const retyped = renameOption(cleared.options, cleared.variants, 0, 'Length');
+  assert.deepEqual(retyped.variants.map((v) => [v.id, v.options.Length, v.price]), [[9, 'S', '40'], [10, 'L', '50']]);
+
+  // A cleared name, then a new value: the rows still keep their data.
+  const more = { options: cleared.options.map((o, i) => (i === 0 ? { ...o, values: [...o.values, 'XL'] } : o)) };
+  const merged = mergeVariants(cleared.variants, more.options);
+  assert.equal(merged.length, 3);
+  assert.equal(merged[0].id, 9);
+
+  // A name another option already has: nothing is renamed (the API would refuse it), and nothing is lost.
+  const clash = renameOption(options, variants, 0, 'colour');
+  assert.deepEqual(clash.variants.map((v) => v.id), [9, 10]);
+  assert.deepEqual(clash.variants[0].options, { Size: 'S', Colour: 'Oak' });
+});
+
+test('an option with values needs a name (the API\'s sentence)', () => {
+  const form = { ...emptyProductForm('CAD'), title: 'Bench', options: [{ name: ' ', values: ['S'] }, { name: '', values: [] }] };
+  assert.deepEqual(validateProductForm(form, MANUAL_FIELDS), { 'options.0.name': 'Give each option a name.' });
+});
+
+test('options edited during a name clash: rows keep their data and keys settle once the clash clears', () => {
+  const row = (size, colour, over) => ({ options: { Size: size, Colour: colour }, sku: '', price: '', compare_at_price: '', stock_status: 'in_stock', quantity: '', image_id: null, ...over });
+  const options = [{ name: 'Size', values: ['S', 'L'] }, { name: 'Colour', values: ['Oak'] }];
+  const variants = [row('S', 'Oak', { id: 9, price: '40' }), row('L', 'Oak', { id: 10, price: '50' })];
+  const clash = renameOption(options, variants, 0, 'Colour');
+
+  // B: rename Size → "Colour" (clash), then Colour → "Finish": both rows keep id and price; no key is left over.
+  let s = settleOptions(...Object.values(renameOption(clash.options, clash.variants, 1, 'Finish')));
+  assert.deepEqual(s.options.map((o) => [o.name, o.key]), [['Colour', undefined], ['Finish', undefined]]);
+  assert.deepEqual(s.variants.map((v) => [v.id, v.options, v.price]), [[9, { Colour: 'S', Finish: 'Oak' }, '40'], [10, { Colour: 'L', Finish: 'Oak' }, '50']]);
+
+  // A2: a value added during the clash: the old rows keep their data, one new row, every row key different.
+  const more = clash.options.map((o, i) => (i === 0 ? { ...o, values: [...o.values, 'XL'] } : o));
+  s = settleOptions(more, mergeVariants(clash.variants, more));
+  assert.deepEqual(s.variants.map((v) => [v.id, v.price]), [[9, '40'], [10, '50'], [undefined, '']]);
+  assert.equal(new Set(s.variants.map((v) => variantRowKey(v.options))).size, 3);
+  assert.equal(s.options[0].key, 'Size'); // still clashing: the rows keep "Size"
+
+  // C: the other option deleted during the clash: the clash is gone, so the key settles to the name.
+  const fewer = clash.options.filter((_, j) => j !== 1);
+  s = settleOptions(fewer, mergeVariants(clash.variants, fewer));
+  assert.deepEqual(s.options, [{ name: 'Colour', values: ['S', 'L'] }]);
+  assert.ok(s.variants.every((v) => Object.keys(v.options).join() === 'Colour'));
+});
+
+test('option names must differ, ignoring case (the API\'s distinct rule)', () => {
+  const form = { ...emptyProductForm('CAD'), title: 'Bench', options: [{ name: 'Colour', values: ['S'] }, { name: ' colour', values: ['Oak'] }, { name: 'Size', values: ['M'] }] };
+  assert.deepEqual(validateProductForm(form, MANUAL_FIELDS), { 'options.0.name': 'Each option needs its own name.', 'options.1.name': 'Each option needs its own name.' });
+});
+
+test('swapped or rotated option names (paste / autofill) re-key every row at once: prices stay on their combinations', () => {
+  const rename = (s, i, name) => { const r = renameOption(s.options, s.variants, i, name); return settleOptions(r.options, r.variants); };
+  const blank = { sku: '', compare_at_price: '', stock_status: 'in_stock', quantity: '', image_id: null };
+  const priceOf = (s, combo) => s.variants.find((v) => variantRowKey(v.options) === variantRowKey(combo))?.price;
+
+  // Two-way swap, different value sets: each value keeps its price under its new option name.
+  const two = { options: [{ name: 'Size', values: ['S', 'L'] }, { name: 'Colour', values: ['Oak'] }], variants: [{ id: 9, options: { Size: 'S', Colour: 'Oak' }, ...blank, price: '40' }, { id: 10, options: { Size: 'L', Colour: 'Oak' }, ...blank, price: '50' }] };
+  let s = rename(rename(two, 0, 'Colour'), 1, 'Size');
+  assert.deepEqual(s.options, [{ name: 'Colour', values: ['S', 'L'] }, { name: 'Size', values: ['Oak'] }]);
+  assert.deepEqual(s.variants.map((v) => [v.id, v.options, v.price]), [[9, { Colour: 'S', Size: 'Oak' }, '40'], [10, { Colour: 'L', Size: 'Oak' }, '50']]);
+  assert.deepEqual(validateProductForm({ ...emptyProductForm('CAD'), title: 'X', ...s }, MANUAL_FIELDS), {});
+
+  // Two-way swap, identical value sets: Front=Yes/Back=No must stay the same row (now Back=Yes/Front=No by name).
+  const yes = { options: [{ name: 'Front', values: ['Yes', 'No'] }, { name: 'Back', values: ['Yes', 'No'] }], variants: [] };
+  yes.variants = mergeVariants([], yes.options).map((v, i) => ({ ...v, id: 20 + i, price: String(i) }));
+  const before = yes.variants.map((v) => [v.id, v.options.Front, v.options.Back, v.price]);
+  s = rename(rename(yes, 0, 'Back'), 1, 'Front');
+  assert.ok(s.options.every((o) => o.key === undefined));
+  // Option 0 (values Front had) is now called Back: each row's option-0 value moved to "Back".
+  assert.deepEqual(before.map(([id, f, b, price]) => [id, priceOf(s, { Back: f, Front: b }), price]), before.map(([id, , , price]) => [id, price, price]));
+  assert.equal(s.variants.length, 4);
+
+  // Three-way rotation A→B, B→C, C→A.
+  const three = { options: [{ name: 'A', values: ['a1'] }, { name: 'B', values: ['b1', 'b2'] }, { name: 'C', values: ['c1'] }], variants: [] };
+  three.variants = mergeVariants([], three.options).map((v, i) => ({ ...v, id: 30 + i, price: String(100 + i) }));
+  s = rename(rename(rename(three, 0, 'B'), 1, 'C'), 2, 'A');
+  assert.deepEqual(s.options.map((o) => [o.name, o.key]), [['B', undefined], ['C', undefined], ['A', undefined]]);
+  assert.deepEqual(s.variants.map((v) => [v.id, v.options, v.price]), [[30, { B: 'a1', C: 'b1', A: 'c1' }, '100'], [31, { B: 'a1', C: 'b2', A: 'c1' }, '101']]);
+});
+
+test('an option still keyed to another name never passes validation (safety net)', () => {
+  const form = { ...emptyProductForm('CAD'), title: 'X', options: [{ name: 'Colour', values: ['S'], key: 'Size' }, { name: 'Finish', values: ['Oak'] }] };
+  assert.equal(validateProductForm(form, MANUAL_FIELDS)['options.0.name'], 'Each option needs its own name.');
+});
+
+test('a swap still re-keys while two or more new options are blank (no name, no values yet)', () => {
+  // Task 16 (T14 minor): keyless empty options are left out of the distinct-name rule in rekeyAll.
+  const rename = (s, i, name) => { const r = renameOption(s.options, s.variants, i, name); return settleOptions(r.options, r.variants); };
+  const blank = { sku: '', compare_at_price: '', stock_status: 'in_stock', quantity: '', image_id: null };
+  const two = {
+    options: [{ name: 'Size', values: ['S', 'L'] }, { name: 'Colour', values: ['Oak'] }, { name: '', values: [] }, { name: '', values: [] }],
+    variants: [{ id: 9, options: { Size: 'S', Colour: 'Oak' }, ...blank, price: '40' }, { id: 10, options: { Size: 'L', Colour: 'Oak' }, ...blank, price: '50' }],
+  };
+  const s = rename(rename(two, 0, 'Colour'), 1, 'Size');
+  assert.deepEqual(s.options.map((o) => [o.name, o.key]), [['Colour', undefined], ['Size', undefined], ['', undefined], ['', undefined]]);
+  assert.deepEqual(s.variants.map((v) => [v.id, v.options, v.price]), [[9, { Colour: 'S', Size: 'Oak' }, '40'], [10, { Colour: 'L', Size: 'Oak' }, '50']]);
+  // A keyed option whose own name is blank still blocks (its rows have nowhere to go), as before.
+  const stuck = { options: [{ name: '', values: ['S'], key: 'Size' }, { name: 'Colour', values: ['Oak'] }], variants: [] };
+  assert.deepEqual(settleOptions(stuck.options, stuck.variants).options[0].key, 'Size');
+});
+
+// Final review I2: adding or removing an OPTION must not wipe every row's price / SKU / stock / id.
+const row = (id, options, over = {}) => ({ ...(id ? { id } : {}), options, sku: '', price: '', compare_at_price: '', stock_status: 'in_stock', quantity: '', image_id: null, ...over });
+const sizes = () => [
+  row(1, { Size: 'S' }, { price: '10', sku: 'S-1', compare_at_price: '15', stock_status: 'out_of_stock', quantity: '3', image_id: 40 }),
+  row(2, { Size: 'M' }, { price: '12', sku: 'M-1', quantity: '5' }),
+];
+// What the editor does (ProductVariantsField setOptions): merge, then settle.
+const setOptions = (variants, options) => settleOptions(options, mergeVariants(variants, options));
+
+test('adding an option carries each row into the combinations that extend it (id on the first only)', () => {
+  const options = [{ name: 'Size', values: ['S', 'M'] }, { name: 'Colour', values: ['Red', 'Blue'] }];
+  const v = setOptions(sizes(), options).variants;
+  assert.deepEqual(v.map((x) => [x.id, x.options, x.price, x.sku, x.compare_at_price, x.stock_status, x.quantity, x.image_id]), [
+    [1, { Size: 'S', Colour: 'Red' }, '10', 'S-1', '15', 'out_of_stock', '3', 40],
+    [undefined, { Size: 'S', Colour: 'Blue' }, '10', 'S-1', '15', 'out_of_stock', '3', 40],
+    [2, { Size: 'M', Colour: 'Red' }, '12', 'M-1', '', 'in_stock', '5', null],
+    [undefined, { Size: 'M', Colour: 'Blue' }, '12', 'M-1', '', 'in_stock', '5', null],
+  ]);
+  assert.ok(!('id' in v[1]) && !('id' in v[3]), 'the copies have no id (the API creates new variants for them)');
+  // The repro from the review: one new value only.
+  const one = setOptions(sizes(), [{ name: 'Size', values: ['S', 'M'] }, { name: 'Colour', values: ['Red'] }]).variants;
+  assert.deepEqual(one.map((x) => [x.id, x.price]), [[1, '10'], [2, '12']]);
+  // A new option with a name but no values yet changes nothing.
+  assert.deepEqual(setOptions(sizes(), [{ name: 'Size', values: ['S', 'M'] }, { name: 'Colour', values: [] }]).variants, sizes());
+});
+
+test('removing an option keeps the first matching row per remaining combination (its id, price …)', () => {
+  const two = [
+    row(1, { Size: 'S', Colour: 'Red' }, { price: '10', sku: 'SR' }),
+    row(3, { Size: 'S', Colour: 'Blue' }, { price: '11', sku: 'SB' }),
+    row(2, { Size: 'M', Colour: 'Red' }, { price: '12', sku: 'MR' }),
+    row(4, { Size: 'M', Colour: 'Blue' }, { price: '13', sku: 'MB' }),
+  ];
+  const v = setOptions(two, [{ name: 'Size', values: ['S', 'M'] }]).variants;
+  assert.deepEqual(v.map((x) => [x.id, x.options, x.price, x.sku]), [[1, { Size: 'S' }, '10', 'SR'], [2, { Size: 'M' }, '12', 'MR']]);
+  // Removing the first option instead keeps the colours.
+  const c = setOptions(two, [{ name: 'Colour', values: ['Red', 'Blue'] }]).variants;
+  assert.deepEqual(c.map((x) => [x.id, x.options, x.price]), [[1, { Colour: 'Red' }, '10'], [3, { Colour: 'Blue' }, '11']]);
+});
+
+test('adding then removing an option gives every row back as it was', () => {
+  const added = setOptions(sizes(), [{ name: 'Size', values: ['S', 'M'] }, { name: 'Colour', values: ['Red', 'Blue'] }]);
+  const back = setOptions(added.variants, [{ name: 'Size', values: ['S', 'M'] }]).variants;
+  assert.deepEqual(back, sizes());
+  // A value added to an existing option still starts empty (nothing extends to it), as before.
+  const more = setOptions(sizes(), [{ name: 'Size', values: ['S', 'M', 'L'] }]).variants;
+  assert.deepEqual(more.map((x) => [x.id, x.options, x.price]), [[1, { Size: 'S' }, '10'], [2, { Size: 'M' }, '12'], [undefined, { Size: 'L' }, '']]);
+});
+
+test('a number too big for JSON (1e999, Infinity) is refused under its field, never sent as null', () => {
+  // Final review M2: Number('1e999') is Infinity, which passed >= 0 and went out as JSON null (clearing the price).
+  const base = { ...emptyProductForm('CAD'), title: 'X' };
+  for (const bad of ['1e999', 'Infinity', '-1e999']) {
+    const e = validateProductForm({ ...base, price: bad, compare_at_price: bad, weight: bad }, MANUAL_FIELDS);
+    assert.equal(e.price, 'Enter a number, like 49.99.', bad);
+    assert.equal(e.compare_at_price, 'Enter a number, like 49.99.', bad);
+    assert.equal(e.weight, 'Enter a number, like 49.99.', bad);
+    const d = validateProductForm({ ...base, dimensions: { length: bad, width: '2', height: '', unit: 'cm' } }, MANUAL_FIELDS);
+    assert.deepEqual(d, { 'dimensions.length': 'Enter a number, like 49.99.' }, bad);
+    const v = validateProductForm({ ...base, options: [{ name: 'Size', values: ['S'] }], variants: [{ options: { Size: 'S' }, sku: '', price: bad, compare_at_price: bad, stock_status: 'in_stock', quantity: '', image_id: null }] }, MANUAL_FIELDS);
+    assert.equal(v['variants.0.price'], 'Enter a number, like 49.99.', bad);
+    assert.equal(v['variants.0.compare_at_price'], 'Enter a number, like 49.99.', bad);
+  }
+  // Ordinary numbers still pass.
+  assert.deepEqual(validateProductForm({ ...base, price: '49.99', compare_at_price: '1e3', weight: '0', dimensions: { length: '10', width: '2.5', height: '', unit: 'cm' } }, MANUAL_FIELDS), {});
+});
+
+test('Add a Moment asks for every product selectItems takes: active AND out of stock (final review I1)', () => {
+  // The API badge `active` is status active with stock not out, so ['active'] alone dropped out-of-stock website
+  // products, which development lists (every browsable item) and selectItems accepts.
+  assert.deepEqual(PICKER_FILTERS.status, ['active', 'out_of_stock']);
+  assert.equal(productQueryString({ ...PICKER_FILTERS, page: 1 }), 'status=active%2Cout_of_stock&sort=title&page=1&per_page=200');
+});
+
+test('picker pages: every page in order; a failed page or the page cap is not complete (final review M9)', async () => {
+  const pages = (last, failAt = 0) => async (page) => (page === failAt ? null : { items: [`p${page}`], last_page: last });
+  assert.deepEqual(await collectPickerPages(pages(3)), { items: ['p1', 'p2', 'p3'], complete: true });
+  assert.deepEqual(await collectPickerPages(pages(3, 2)), { items: ['p1'], complete: false });
+  assert.deepEqual(await collectPickerPages(async () => { throw new Error('offline'); }), { items: [], complete: false });
+  // More pages than the cap (15): what was read is kept, but it is a partial list and must not be reused.
+  const capped = await collectPickerPages(pages(20));
+  assert.equal(capped.items.length, 15);
+  assert.equal(capped.complete, false);
+  assert.deepEqual(await collectPickerPages(pages(15)), { items: Array.from({ length: 15 }, (_, i) => `p${i + 1}`), complete: true });
+});

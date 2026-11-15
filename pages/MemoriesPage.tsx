@@ -44,6 +44,8 @@ import { mapLimit } from "../utils/requestLimit";
 import { runWhenIdle } from "../utils/deferIdle";
 import { hiddenByCollapsedCategory } from "../utils/campaignGridFilter";
 import { useInventoryViewKey } from "../hooks/useInventoryViewKey";
+import { useProductsStatus } from '../hooks/useProductsStatus';
+import { campaignGridHidesCatalogue } from '../utils/products';
 import NewslettersView from "../components/newsletters/NewslettersView";
 import SegmentedSwitch from "../components/newsletters/SegmentedSwitch";
 import { useNewsletterCount } from "../components/newsletters/hooks/useNewsletterCount";
@@ -832,21 +834,27 @@ function MemoriesPageContent({
   // product, opening a page built from the item (MemoryDetailsPage, marker `catalog_item:<id>`).
   // Same idle-time, fail-silent fetch as /cars; loadCatalogueForBrowsing asks the ungated status
   // route first, so accounts without the catalogue never hit the Business-only items route.
+  // Products plan (2026-11-09): while the account's Products pilot switch is on, website products live on the Products
+  // page and leave this grid. Off (every other account), exactly as before. Only `catalog:` cards — never Shopify's.
+  const { status: productsStatus, loading: productsStatusLoading } = useProductsStatus();
+  const hideCatalogueCards = campaignGridHidesCatalogue(productsStatus);
   const [catalogueList, setCatalogueList] = useState<CatalogueItemSummary[]>([]);
   useEffect(() => {
     let cancelled = false;
     setCatalogueList((prev) => (prev.length ? [] : prev)); // as the cars above: again on a view switch
+    if (productsStatusLoading || hideCatalogueCards) return () => { cancelled = true; };
     const cancelIdle = runWhenIdle(() => {
       loadCatalogueForBrowsing().then((list) => {
         if (!cancelled) setCatalogueList(list);
       });
     });
     return () => { cancelled = true; cancelIdle(); };
-  }, [inventoryViewKey]);
+  }, [inventoryViewKey, productsStatusLoading, hideCatalogueCards]);
 
   // `isCatalogItem` gets every read-only treatment `isCars` gets below (no dates, edit mode or
   // add-media; always shown regardless of the sidebar's expanded categories).
   const catalogueCards = useMemo(() => {
+    if (hideCatalogueCards) return [];
     return catalogueList.map((item) => {
       const owner = inventoryOwnerAuthor(item);
       return {
@@ -868,7 +876,7 @@ function MemoriesPageContent({
       ...(owner ? { author: owner, authorIsSomeoneElse: true } : {}),
       };
     });
-  }, [catalogueList]);
+  }, [catalogueList, hideCatalogueCards]);
 
   // Shopify cards aren't real memory records, so the backend memory-counts total never
   // includes them. Report how many are on screen so the sidebar total can add them in.

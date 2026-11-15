@@ -1,5 +1,5 @@
 ﻿import { useState, useEffect } from 'react';
-import { TrendingUp, TrendingDown, Database, Users, Image, Activity } from 'lucide-react';
+import { TrendingUp, TrendingDown, Database, Users, Image, Activity, Package } from 'lucide-react';
 import { dashboardAPI } from '../utils/authUtils';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -232,6 +232,7 @@ export default function Frame192({ timePeriod = 'weekly' }: { timePeriod?: strin
           memories: card(apiData.total_memories),
           media: card(apiData.total_media),
           users: card(apiData.total_users),
+          products: apiData.total_products ? card(apiData.total_products) : null,
           dataUsage: {
             periodFormatted: apiData.storage?.period_formatted as string | undefined,
             current: apiData.storage.formatted || Math.round(apiData.storage.used), // Show formatted value (like '37.72 B')
@@ -296,7 +297,7 @@ export default function Frame192({ timePeriod = 'weekly' }: { timePeriod?: strin
   // Show loading state while fetching initial data
   if (isLoading || !stats) {
     return (
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6 w-full">
+      <div className={`grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4${stats?.products ? ' 2xl:grid-cols-5' : ''} gap-4 md:gap-6 w-full`}>
         {[1, 2, 3, 4].map((i) => (
           <div key={i} className="bg-white rounded-xl border border-gray-100 p-4 md:p-6 shadow-sm animate-pulse">
             <div className="flex items-start justify-between mb-3 md:mb-4">
@@ -314,7 +315,7 @@ export default function Frame192({ timePeriod = 'weekly' }: { timePeriod?: strin
   }
 
   return (
-    <div className={`relative grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6 w-full transition-opacity duration-300 px-0 md:px-4 ${
+    <div className={`relative grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4${stats?.products ? ' 2xl:grid-cols-5' : ''} gap-4 md:gap-6 w-full transition-opacity duration-300 px-0 md:px-4 ${
       isUpdating ? 'opacity-75' : 'opacity-100'
     }`}>
       <StatCard
@@ -355,6 +356,21 @@ export default function Frame192({ timePeriod = 'weekly' }: { timePeriod?: strin
         periodAdded={stats.users.periodCount !== undefined ? formatNumber(stats.users.periodCount) : undefined}
         previousCount={stats.users.previousCount}
       />
+
+      {stats.products && (
+        <StatCard
+          title="Total Products"
+          value={formatNumber(stats.products.current)}
+          change={stats.products.change}
+          trend={stats.products.trend}
+          icon={<Package />}
+          iconColor="text-teal-700"
+          iconBg="bg-teal-50"
+          timePeriod={timePeriod}
+          periodAdded={stats.products.periodCount !== undefined ? formatNumber(stats.products.periodCount) : undefined}
+          previousCount={stats.products.previousCount}
+        />
+      )}
 
       <StatCard
         title="Storage"

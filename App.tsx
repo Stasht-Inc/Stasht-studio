@@ -60,7 +60,11 @@ import { maybeAskForDesktopAlerts } from './components/leads/desktopAlertsPrompt
 import { UploadProgressProvider } from './contexts/UploadProgressContext';
 import { SyncProgressProvider } from './contexts/SyncProgressContext';
 import { GoogleOAuthProvider } from '@react-oauth/google';
-import { LayoutDashboard, FolderOpen, Camera, Users, Grid3x3, Plus, BookOpen, ScanLine, X as XIcon, Clock, Target, MessageSquarePlus } from 'lucide-react';
+import { LayoutDashboard, FolderOpen, Camera, Users, Grid3x3, Plus, BookOpen, ScanLine, X as XIcon, Clock, Target, MessageSquarePlus, Package } from 'lucide-react';
+import ProductsPage from "./pages/ProductsPage";
+import { useProductsStatus } from './hooks/useProductsStatus';
+import { showsProductsNav } from './utils/products';
+import { inventoryViewPropertyId } from './utils/inventoryView';
 import { CameraInterface } from './components/CameraInterface';
 import { AddMomentModal } from './components/AddMomentModal';
 import exifr from 'exifr';
@@ -1195,6 +1199,13 @@ function MainApp() {
     toggleSubSidebarExpansion,
   } = useAppNavigation();
 
+  // Products shows only when /products/status says it is available for this account / view.
+  const { status: productsStatus } = useProductsStatus();
+  const productsNavShown = showsProductsNav(productsStatus, viewType, inventoryViewPropertyId(viewType, currentProperty, user) !== null);
+  // With Products the phone bar has a 7th item: smaller labels so none clips or collides at 320-390px. Other accounts keep text-xs.
+  const phoneItemClass = productsNavShown ? 'flex-auto min-w-0 py-2 px-0' : 'flex-1 min-w-0 py-2 px-0.5';
+  const phoneLabelClass = productsNavShown ? 'text-[10px] min-[360px]:text-[11px] font-medium tracking-tighter whitespace-nowrap' : 'text-xs font-medium';
+
   // Paid-plan-only features (Connectors) stay visible on the free plan; using one opens the
   // upgrade plans right where the user is (Chris, 2026-09-28). Asked for by the Connectors page
   // and by apiRequest whenever the API answers 403 plan_required.
@@ -1660,6 +1671,8 @@ function MainApp() {
     } else if (pathname === '/csv-upload') {
       console.log('🔍 Detected /csv-upload URL - setting currentPage to csv-upload');
       handleNavigation('csv-upload');
+    } else if (pathname === '/products' || pathname.startsWith('/products/')) {
+      handleNavigation('products');
     } else if (pathname === '/marketplace' || pathname.startsWith('/marketplace/')) {
       console.log('🔍 Detected /marketplace URL - setting currentPage to marketplace');
       handleNavigation('marketplace');
@@ -3776,6 +3789,7 @@ function MainApp() {
         currentPage !== 'memories' &&
         currentPage !== 'media' &&
         !(currentPage === 'marketplace' && canManagePropertyWidgets(currentProperty, user)) &&
+        !(currentPage === 'products' && inventoryViewPropertyId(viewType, currentProperty, user) !== null) &&
         // A salesperson's own External account has Leads too (utils/salespersonLanding).
         !(currentPage === 'leads' && propertyViewHasLeads(currentProperty, user))
       ) {
@@ -4130,6 +4144,10 @@ function MainApp() {
 
     if (currentPage === "billing") {
       return <BillingPage onNavigateToMemory={handleMemorySelect} />;
+    }
+
+    if (currentPage === "products") {
+      return <ProductsPage onNavigate={handleNavigation} />;
     }
 
     if (currentPage === "leads") {
@@ -4589,7 +4607,7 @@ function MainApp() {
 
         {/* Main Content */}
 <main className={`flex-1 min-w-0 bg-white min-h-[calc(100dvh-5rem)] relative mx-4 md:mx-0 ${
-          currentPage === "users" || currentPage === "leads" || currentPage === "apps" || currentPage === "library" || currentPage === "Media" || currentPage === "Dashboard" || currentPage === "memories" || currentPage === "marketplace" ? "" : "py-5 md:py-6"
+          currentPage === "users" || currentPage === "leads" || currentPage === "apps" || currentPage === "library" || currentPage === "Media" || currentPage === "Dashboard" || currentPage === "memories" || currentPage === "marketplace" || currentPage === "products" ? "" : "py-5 md:py-6"
         } ${shouldShowSubSidebar && !isViewingPublishedEntry
           ? (isSubSidebarExpanded
               ? (isSidebarMinimized ? 'md:ml-[23rem]' : 'md:ml-[39.5rem]')
@@ -4715,7 +4733,7 @@ function MainApp() {
               </button>
             </div>
 
-            <div className="flex items-center justify-around h-24">
+                        <div className={`flex items-center justify-around h-24`}>
               {/* Dashboard: every role but 3, and role 3 on a paid plan; never in a property view, as the sidebar (utils/planGate) */}
               {phoneBarShowsAccountTools(viewType, showsDashboardAndApps) && (
                 <button
@@ -4723,12 +4741,12 @@ function MainApp() {
                     handleNavigation("dashboard");
                     window.scrollTo({ top: 0, behavior: 'smooth' });
                   }}
-                  className={`flex flex-col items-center justify-center flex-1 min-w-0 py-2 px-0.5 rounded-lg transition-colors ${
+                  className={`flex flex-col items-center justify-center ${phoneItemClass} rounded-lg transition-colors ${
                     currentPage === "dashboard" ? "text-[#6C60FF] bg-[#6C60FF]/10" : "text-gray-500"
                   }`}
                 >
                   <LayoutDashboard className="w-7 h-7 mb-1" />
-                  <span className="text-xs font-medium">Dashboard</span>
+                  <span className={phoneLabelClass}>Dashboard</span>
                 </button>
               )}
 
@@ -4737,12 +4755,12 @@ function MainApp() {
                   handleNavigation("memories");
                   window.scrollTo({ top: 0, behavior: 'smooth' });
                 }}
-                className={`flex flex-col items-center justify-center flex-1 min-w-0 py-2 px-0.5 rounded-lg transition-colors ${
+                className={`flex flex-col items-center justify-center ${phoneItemClass} rounded-lg transition-colors ${
                   currentPage === "memories" ? "text-[#6C60FF] bg-[#6C60FF]/10" : "text-gray-500"
                 }`}
               >
                 <FolderOpen className="w-7 h-7 mb-1" />
-                <span className="text-xs font-medium">Campaigns</span>
+                <span className={phoneLabelClass}>Campaigns</span>
               </button>
 
               {/* Leads tab - visible for all roles (was reachable through Users on mobile) */}
@@ -4751,12 +4769,12 @@ function MainApp() {
                   handleNavigation("leads");
                   window.scrollTo({ top: 0, behavior: 'smooth' });
                 }}
-                className={`flex flex-col items-center justify-center flex-1 min-w-0 py-2 px-0.5 rounded-lg transition-colors ${
+                className={`flex flex-col items-center justify-center ${phoneItemClass} rounded-lg transition-colors ${
                   currentPage === "leads" ? "text-[#6C60FF] bg-[#6C60FF]/10" : "text-gray-500"
                 }`}
               >
                 <Target className="w-7 h-7 mb-1" />
-                <span className="text-xs font-medium">Leads</span>
+                <span className={phoneLabelClass}>Leads</span>
               </button>
 
               <button
@@ -4764,13 +4782,29 @@ function MainApp() {
                   handleNavigationWithReset("media");
                   window.scrollTo({ top: 0, behavior: 'smooth' });
                 }}
-                className={`flex flex-col items-center justify-center flex-1 min-w-0 py-2 px-0.5 rounded-lg transition-colors ${
+                className={`flex flex-col items-center justify-center ${phoneItemClass} rounded-lg transition-colors ${
                   currentPage === "media" ? "text-[#6C60FF] bg-[#6C60FF]/10" : "text-gray-500"
                 }`}
               >
                 <Camera className="w-7 h-7 mb-1" />
-                <span className="text-xs font-medium">Media</span>
+                <span className={phoneLabelClass}>Media</span>
               </button>
+
+              {productsNavShown && (
+                <button
+                  data-testid="phone-bar-products"
+                  onClick={() => {
+                    handleNavigation("products");
+                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                  }}
+                  className={`flex flex-col items-center justify-center ${phoneItemClass} rounded-lg transition-colors ${
+                    currentPage === "products" ? "text-[#6C60FF] bg-[#6C60FF]/10" : "text-gray-500"
+                  }`}
+                >
+                  <Package className="w-7 h-7 mb-1" />
+                  <span className={phoneLabelClass}>Products</span>
+                </button>
+              )}
 
               {/* Users tab - visible for all roles */}
               <button
@@ -4778,12 +4812,12 @@ function MainApp() {
                   handleNavigation("users");
                   window.scrollTo({ top: 0, behavior: 'smooth' });
                 }}
-                className={`flex flex-col items-center justify-center flex-1 min-w-0 py-2 px-0.5 rounded-lg transition-colors ${
+                className={`flex flex-col items-center justify-center ${phoneItemClass} rounded-lg transition-colors ${
                   currentPage === "users" ? "text-[#6C60FF] bg-[#6C60FF]/10" : "text-gray-500"
                 }`}
               >
                 <Users className="w-7 h-7 mb-1" />
-                <span className="text-xs font-medium">Users</span>
+                <span className={phoneLabelClass}>Users</span>
               </button>
 
               {/* Apps: same rule as Dashboard (utils/planGate) */}
@@ -4793,12 +4827,12 @@ function MainApp() {
                     handleNavigation("apps");
                     window.scrollTo({ top: 0, behavior: 'smooth' });
                   }}
-                  className={`flex flex-col items-center justify-center flex-1 min-w-0 py-2 px-0.5 rounded-lg transition-colors ${
+                  className={`flex flex-col items-center justify-center ${phoneItemClass} rounded-lg transition-colors ${
                     currentPage === "apps" ? "text-[#6C60FF] bg-[#6C60FF]/10" : "text-gray-500"
                   }`}
                 >
                   <Grid3x3 className="w-7 h-7 mb-1" />
-                  <span className="text-xs font-medium">Apps</span>
+                  <span className={phoneLabelClass}>Apps</span>
                 </button>
               )}
             </div>

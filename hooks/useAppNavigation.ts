@@ -39,6 +39,7 @@ export function useAppNavigation() {
       'dashboard': '/',
       'memories': '/stories',
       'media': '/media',
+      'products': '/products',
       'profile': '/profile',
       'leads': '/leads',
       'users': '/users',
@@ -163,7 +164,7 @@ export function useAppNavigation() {
 
 
   // Determine if sub-sidebar should be shown
-  const shouldShowSubSidebar = currentPage !== "dashboard" && currentPage !== "users" && currentPage !== "leads" && currentPage !== "apps" && currentPage !== "library" && currentPage !== "marketplace" && currentPage !== "storeel-report" && !selectedMemoryId;
+  const shouldShowSubSidebar = currentPage !== "dashboard" && currentPage !== "users" && currentPage !== "leads" && currentPage !== "apps" && currentPage !== "library" && currentPage !== "marketplace" && currentPage !== "storeel-report" && currentPage !== "products" && !selectedMemoryId;
   
   console.log('🧭 useAppNavigation - currentPage:', currentPage, 'shouldShowSubSidebar:', shouldShowSubSidebar);
 

@@ -160,3 +160,12 @@ test('re-review N3: only a load that fully answered is kept for reuse (a failure
   assert.equal(inventoryCacheable({ statusOk: true, carsOk: false, gate: 'ready', products: 40 }), false);
   assert.equal(inventoryCacheable({ statusOk: true, carsOk: true, gate: 'ready', products: 0 }), false, 'a catalogue with items that listed none failed');
 });
+
+test('Task 16 (T15 minor): a failed products status or a partial products list is never kept for reuse', async () => {
+  const { inventoryCacheable } = await import('../../components/storeel/lib/momentPicks.ts');
+  const full = { statusOk: true, carsOk: true, gate: 'ready', products: 40 };
+  assert.equal(inventoryCacheable({ ...full, productsStatusOk: true, productsComplete: true }), true);
+  assert.equal(inventoryCacheable({ ...full, productsStatusOk: false, productsComplete: true }), false, 'the products status did not answer');
+  assert.equal(inventoryCacheable({ ...full, productsStatusOk: true, productsComplete: false }), false, 'a later products page failed');
+  assert.equal(inventoryCacheable(full), true, 'callers without Products are unchanged');
+});

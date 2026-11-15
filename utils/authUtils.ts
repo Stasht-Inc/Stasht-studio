@@ -228,17 +228,19 @@ const isRetryableNetworkError = (error: unknown): boolean => {
 export const fetchWithRateLimitRetry = async (
   url: string,
   init: RequestInit,
-  maxRateLimitRetries: number = MAX_RATE_LIMIT_RETRIES
+  maxRateLimitRetries: number = MAX_RATE_LIMIT_RETRIES,
+  // A non-idempotent POST (e.g. a file upload) passes 0: a dropped connection may still have reached the server.
+  maxNetworkRetries: number = MAX_NETWORK_RETRIES
 ): Promise<Response> => {
   let response: Response;
   for (let attempt = 0; ; attempt++) {
     try {
       response = await fetch(url, init);
     } catch (error) {
-      if (!isRetryableNetworkError(error) || attempt >= MAX_NETWORK_RETRIES) throw error;
+      if (!isRetryableNetworkError(error) || attempt >= maxNetworkRetries) throw error;
 
       const waitMs = NETWORK_RETRY_BACKOFF_MS[attempt] ?? NETWORK_RETRY_BACKOFF_MS[NETWORK_RETRY_BACKOFF_MS.length - 1];
-      console.warn(`⚠️ Network error on ${url} (${(error as Error).message}) — retrying in ${waitMs}ms (attempt ${attempt + 1}/${MAX_NETWORK_RETRIES})`);
+      console.warn(`⚠️ Network error on ${url} (${(error as Error).message}) — retrying in ${waitMs}ms (attempt ${attempt + 1}/${maxNetworkRetries})`);
       await new Promise((resolve) => setTimeout(resolve, waitMs));
       continue;
     }
@@ -350,6 +352,32 @@ export const apiRequest = async <T = any>(
 
   inFlightGets.set(key, promise);
   return cloneResponse(await promise) as ApiResponse<T>;
+};
+
+/**
+ * Multipart POST with the same session handling as apiRequest (expired-token check, auth + property-view headers,
+ * 429/network retry, 401 clears the session and returns to login). Returns null when the session is already
+ * expired; the caller shows its own message. `networkRetries: 0` for an upload: a retry after a dropped connection
+ * could store the same file twice (the 429 retry stays: a 429 never reached the controller).
+ */
+export const postFormData = async (endpoint: string, body: FormData, opts: { networkRetries?: number } = {}): Promise<Response | null> => {
+  const token = tokenUtils.getToken();
+  if (token && tokenUtils.isTokenExpired(token)) {
+    userUtils.clearAuthData();
+    return null;
+  }
+  const { 'Content-Type': _json, ...headers } = getAuthHeaders(); // the browser sets the multipart boundary
+  const response = await fetchWithRateLimitRetry(`${API_BASE_URL}${endpoint}`, {
+    method: 'POST',
+    headers: { Accept: 'application/json', ...headers },
+    body,
+    credentials: 'same-origin',
+  }, MAX_RATE_LIMIT_RETRIES, opts.networkRetries ?? MAX_NETWORK_RETRIES);
+  if (response.status === 401) {
+    userUtils.clearAuthData();
+    setTimeout(() => { window.location.href = '/login'; }, 100);
+  }
+  return response;
 };
 
 const performApiRequest = async <T = any>(

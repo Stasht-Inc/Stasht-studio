@@ -31,8 +31,12 @@ const pageErrors = [];
 const expect = (ok, label) => { if (!ok) failures.push(label); console.log(ok ? '  ok  ' : '  FAIL', label); };
 const browser = await chromium.launch({ headless: true, channel: 'chrome' });
 
-async function open({ width, height, planRequired = false }) {
-  const state = { puts: [], sends: [], counts: 0, title: CAMPAIGN.title, deleted: false, created: [], momentCalls: [], itemCalls: 0 };
+// Task 16: productsStatusFail = /products/status answers 500; productsPage2Fail = /products has 2 pages, page 2 answers 500.
+// Final review C1: productsStatusHtml = /products/status answers Laravel's HTML 404 page (the real older API: Studio sends
+// no Accept: application/json, so an unmatched route renders HTML, which apiRequest can't parse).
+// Pre-merge D3: catalogueStatus = what GET /memories/901/catalogue-status answers (the Refresh banner).
+async function open({ width, height, planRequired = false, productsOn = false, productsStatusFail = false, productsPage2Fail = false, productsStatusHtml = false, catalogueStatus = null }) {
+  const state = { puts: [], sends: [], counts: 0, title: CAMPAIGN.title, deleted: false, created: [], momentCalls: [], itemCalls: 0, statusCalls: 0, page2Calls: 0, productQueries: [], productListCalls: 0 };
   const context = await browser.newContext({ viewport: { width, height }, serviceWorkers: 'block', locale: 'en-US', hasTouch: width < 1024, isMobile: width < 1024 });
   await context.addInitScript(([user]) => {
     if (sessionStorage.getItem('cd-seeded')) return;
@@ -76,6 +80,7 @@ async function open({ width, height, planRequired = false }) {
       return route.fulfill({ json: { success: true, message: 'Memory updated successfully.', data: campaign() } });
     }
     if (p === '/memories/901' && m === 'DELETE') { state.deleted = true; return route.fulfill({ json: { success: true } }); }
+    if (p === '/memories/901/catalogue-status' && catalogueStatus) return route.fulfill({ json: { success: true, data: catalogueStatus } });
     if (p === '/memories/categories-labels') return route.fulfill({ json: { success: true, data: { categories: [{ id: 5, name: 'Campaigns', is_owner: true, can_add_story: true }], labels: [] } } });
     if (p === '/memories/901/storeel-audience-count') {
       state.counts++;
@@ -87,6 +92,32 @@ async function open({ width, height, planRequired = false }) {
       return route.fulfill({ json: { success: true, data: { broadcast_id: 'b1', memory_id: 901, status: 'sent', channels: body.channels, replayed: false, published_now: false, texts_wait_until: null, counts: { recipients: 2, sent: 2, queued: 0, failed: 0, email: { sent: 1, queued: 0, failed: 0 }, sms: { sent: 1, queued: 0, failed: 0 }, skipped: { total: 0 } } } } });
     }
     // Chris, 7 Nov 2026 (point 7): the account's Website Catalogue products and vehicles, and adding them.
+    // Products plan 2026-11-09 Task 15: with the switch on, Products lists manual products too (from /products).
+    if (p === '/products/status') state.statusCalls++;
+    if (p === '/products/status' && productsStatusFail) return route.fulfill({ status: 500, json: { success: false, message: 'Server Error' } });
+    if (p === '/products/status' && productsStatusHtml) return route.fulfill({ status: 404, contentType: 'text/html; charset=UTF-8', body: '<!DOCTYPE html><html lang="en"><head><title>Not Found</title></head><body><div>404 | Not Found</div></body></html>' });
+    if (p === '/products' && m === 'GET') state.productListCalls++;
+    if (p === '/products' && m === 'GET' && productsOn && productsPage2Fail && url.searchParams.get('page') === '2') {
+      state.page2Calls++;
+      return route.fulfill({ status: 500, json: { success: false, message: 'Server Error' } });
+    }
+    if (p === '/products/status') return route.fulfill(productsOn
+      ? { json: { success: true, data: { pilot: true, available: true, reason: null, can_create: true, counts: { total: 3, manual: 1, website: 2 }, default_currency: 'CAD' } } }
+      : { status: 404, json: { success: false, message: 'Not found' } });
+    if (p === '/products' && m === 'GET' && productsOn) {
+      const base = { read_only: false, status: 'active', stock_status: 'in_stock', badge: 'active', compare_at_label: '', price_on_request: false, show_price: true, categories: [], sku: null, brand: null, updated_at: null, user_id: 707 };
+      state.productQueries.push(url.search);
+      // Like ProductQuery: ?status= keeps only those badges (out_of_stock = active but out of stock; final review I1).
+      const wanted = (url.searchParams.get('status') || '').split(',').filter(Boolean);
+      const all = [
+        { ...base, id: 71, origin: 'manual', title: 'Walnut chair', price_label: '$300', category: null, main_image: img(2), images_count: 1, url: null },
+        { ...base, id: 61, origin: 'website', title: 'Oak bench', price_label: '$450', category: 'Benches', main_image: img(1), images_count: 3, url: 'https://royalwood.example.ca/oak-bench' },
+        { ...base, id: 63, origin: 'website', title: 'Cedar stool', stock_status: 'out_of_stock', badge: 'out_of_stock', price_label: '$90', category: 'Stools', main_image: img(3), images_count: 1, url: 'https://royalwood.example.ca/cedar-stool' },
+        { ...base, id: 72, origin: 'manual', title: 'Maple shelf', stock_status: 'out_of_stock', badge: 'out_of_stock', price_label: '$150', category: null, main_image: img(1), images_count: 1, url: null },
+      ];
+      const items = wanted.length ? all.filter((x) => wanted.includes(x.badge)) : all;
+      return route.fulfill({ json: { success: true, data: { items, pagination: { current_page: 1, per_page: 200, total: productsPage2Fail ? items.length + 1 : items.length, last_page: productsPage2Fail ? 2 : 1 } } } });
+    }
     if (p === '/website-catalogue') return route.fulfill({ json: { success: true, data: planRequired ? { available: false, reason: 'plan_required', item_count: 3 } : { available: true, reason: null, item_count: 2 } } });
     if (p === '/website-catalogue/items') {
       state.itemCalls++;
@@ -129,7 +160,9 @@ async function openAddMoment(page, width) {
   if (width >= 768) {
     await page.getByRole('button', { name: /Add a Moment/ }).filter({ visible: true }).first().click();
   } else {
-    const divider = page.locator('button:has(path[d="M12 5v14M5 12h14"])').filter({ visible: true }).nth(1);
+    // By its place, not its position: development added more phone "+" (one after every item, 12 Nov), so the 2nd
+    // visible "+" is no longer the one under Moment 2 (id 12).
+    const divider = page.locator('[data-testid="phone-add-plus"][data-after-post-id="12"][data-after-widget-id=""] button:has(path[d="M12 5v14M5 12h14"])').filter({ visible: true }).first();
     await divider.scrollIntoViewIfNeeded();
     await divider.click();
     await page.waitForTimeout(300);
@@ -181,6 +214,128 @@ try {
     expect(t.state.itemCalls === 0, `${tag}: no Business-only items call`);
     await t.page.screenshot({ path: `${OUT}/${tag}-03-plan-gate.png` });
     await t.context.close();
+
+    // Products switch on: the manual product is listed and saved with the website one.
+    const pOn = await open({ width, height, productsOn: true });
+    await openCampaign(pOn.page);
+    await openAddMoment(pOn.page, width);
+    await pOn.page.getByRole('radiogroup', { name: 'Add from' }).getByRole('radio', { name: 'Products' }).click();
+    expect(await pOn.page.getByRole('checkbox', { name: /Walnut chair/ }).isVisible().catch(() => false), `${tag}: Products on → a manual product is listed`);
+    // Final review I1: out-of-stock products stay pickable, as development lists every website item (in stock or not).
+    expect(await pOn.page.getByRole('checkbox', { name: /Cedar stool/ }).isVisible().catch(() => false), `${tag}: Products on → an out-of-stock website product is still listed`);
+    expect(await pOn.page.getByRole('checkbox', { name: /Maple shelf/ }).isVisible().catch(() => false), `${tag}: Products on → an out-of-stock manual product is listed`);
+    expect(pOn.state.productQueries.length > 0 && pOn.state.productQueries.every((q) => new URLSearchParams(q).get('status') === 'active,out_of_stock'),
+      `${tag}: … asked with status=active,out_of_stock (${pOn.state.productQueries.join(' ')})`);
+    await pOn.page.screenshot({ path: `${OUT}/${tag}-05-products-on-out-of-stock.png` });
+    await pOn.page.getByRole('checkbox', { name: /Walnut chair/ }).click();
+    await pOn.page.getByRole('checkbox', { name: /Oak bench/ }).click();
+    await pOn.page.getByRole('button', { name: 'Add all (2)' }).click();
+    await pOn.page.waitForTimeout(1500);
+    const both = pOn.state.momentCalls.find((c) => c.kind === 'catalogue-items');
+    expect(both && JSON.stringify(both.body.catalog_item_ids) === '[71,61]', `${tag}: manual + website ids sent (${JSON.stringify(both?.body)})`);
+    await pOn.context.close();
+
+    // Task 16 (T15 minors). Products on but the catalogue unavailable (not on Business): manual products only.
+    const pNoCat = await open({ width, height, productsOn: true, planRequired: true });
+    await openCampaign(pNoCat.page);
+    await openAddMoment(pNoCat.page, width);
+    await pNoCat.page.getByRole('radiogroup', { name: 'Add from' }).getByRole('radio', { name: 'Products' }).click();
+    await pNoCat.page.waitForTimeout(500);
+    expect(await pNoCat.page.getByRole('checkbox', { name: /Walnut chair/ }).isVisible().catch(() => false), `${tag}: Products on, no catalogue → the manual product is listed`);
+    expect(!(await pNoCat.page.getByRole('checkbox', { name: /Oak bench/ }).count()), `${tag}: … and the website product is filtered out`);
+    expect(pNoCat.state.itemCalls === 0, `${tag}: … with no Business-only items call`);
+    await pNoCat.page.screenshot({ path: `${OUT}/${tag}-04-products-on-no-catalogue.png` });
+    await pNoCat.context.close();
+
+    // A load that didn't fully answer is not reused: closing and reopening Add a Moment asks again.
+    const reopen = async (t) => {
+      await t.page.getByRole('heading', { name: 'Add a Moment' }).locator('xpath=../..').getByRole('button').first().click(); // the header's X
+      await t.page.getByRole('heading', { name: 'Add a Moment' }).waitFor({ state: 'detached', timeout: 5000 }).catch(() => {});
+      await t.page.waitForTimeout(500);
+      await openAddMoment(t.page, width);
+    };
+    const sf = await open({ width, height, productsOn: true, productsStatusFail: true });
+    await openCampaign(sf.page);
+    await openAddMoment(sf.page, width);
+    // … and lists exactly what development lists: the Website Catalogue's items, never /products (fail open, final review C1).
+    await sf.page.getByRole('radiogroup', { name: 'Add from' }).getByRole('radio', { name: 'Products' }).click();
+    await sf.page.waitForTimeout(500);
+    expect(await sf.page.getByRole('checkbox', { name: /Pine shelf/ }).isVisible().catch(() => false) && await sf.page.getByRole('checkbox', { name: /Oak bench/ }).isVisible().catch(() => false),
+      `${tag}: products status failed → the Website Catalogue items are listed, as development`);
+    expect(!(await sf.page.getByRole('checkbox', { name: /Walnut chair/ }).count()) && sf.state.productListCalls === 0, `${tag}: … no /products list (${sf.state.productListCalls} calls)`);
+    await sf.page.screenshot({ path: `${OUT}/${tag}-06-products-status-failed.png` });
+    let before = sf.state.statusCalls;
+    await reopen(sf);
+    expect(sf.state.statusCalls > before, `${tag}: products status failed → the list is not cached (asked again on reopen: ${before} → ${sf.state.statusCalls})`);
+    await sf.context.close();
+
+    // An older API (Laravel's HTML 404 on /products/status): exactly as development.
+    const h4 = await open({ width, height, productsOn: true, productsStatusHtml: true });
+    await openCampaign(h4.page);
+    await openAddMoment(h4.page, width);
+    await h4.page.getByRole('radiogroup', { name: 'Add from' }).getByRole('radio', { name: 'Products' }).click();
+    await h4.page.waitForTimeout(500);
+    expect(await h4.page.getByRole('checkbox', { name: /Pine shelf/ }).isVisible().catch(() => false) && await h4.page.getByRole('checkbox', { name: /Oak bench/ }).isVisible().catch(() => false),
+      `${tag}: older API (HTML 404 status) → the Website Catalogue items are listed, as development`);
+    expect(!(await h4.page.getByRole('checkbox', { name: /Walnut chair/ }).count()) && h4.state.productListCalls === 0, `${tag}: … no /products list (${h4.state.productListCalls} calls)`);
+    await h4.page.screenshot({ path: `${OUT}/${tag}-07-older-api-html-404.png` });
+    await h4.context.close();
+
+    const pf = await open({ width, height, productsOn: true, productsPage2Fail: true });
+    await openCampaign(pf.page);
+    await openAddMoment(pf.page, width);
+    await pf.page.getByRole('radiogroup', { name: 'Add from' }).getByRole('radio', { name: 'Products' }).click();
+    await pf.page.waitForTimeout(500);
+    before = pf.state.page2Calls;
+    expect(before >= 1, `${tag}: (setup) page 2 of the products was asked for`);
+    await reopen(pf);
+    expect(pf.state.page2Calls > before, `${tag}: a later products page failed → the partial list is not cached (${before} → ${pf.state.page2Calls})`);
+    await pf.context.close();
+
+    // Control: a load that fully answered is reused (no new status call on reopen).
+    const ok = await open({ width, height, productsOn: true });
+    await openCampaign(ok.page);
+    await openAddMoment(ok.page, width);
+    await ok.page.waitForTimeout(500);
+    before = ok.state.statusCalls;
+    await reopen(ok);
+    expect(ok.state.statusCalls === before, `${tag}: (control) a full answer is reused on reopen (${before} → ${ok.state.statusCalls})`);
+    // Final review I6: a product saved on Products (PRODUCTS_CHANGED_EVENT) drops the reused list, so it shows at once.
+    const lists = ok.state.productQueries.length;
+    await ok.page.evaluate(() => window.dispatchEvent(new Event('stasht-products-changed')));
+    await reopen(ok);
+    await ok.page.waitForTimeout(500);
+    expect(ok.state.productQueries.length > lists, `${tag}: a products change → the list is asked again on reopen (${lists} → ${ok.state.productQueries.length})`);
+    await ok.context.close();
+
+    // Pre-merge D3: the Refresh banner words website items exactly as before, and manual products as products.
+    const cases = [
+      ['website', { linked: 2, changed: 2, retired: 0, can_refresh: true }, '2 items changed on your website since this campaign was made', 'Refresh from catalogue'],
+      ['website-older-api', { linked: 1, changed: 1, retired: 0, can_refresh: true, manual_pending: 0 }, '1 item changed on your website since this campaign was made', 'Refresh from catalogue'],
+      ['manual', { linked: 1, changed: 1, retired: 0, can_refresh: true, manual_pending: 1 }, '1 product changed since this campaign was made', 'Refresh'],
+      ['mixed', { linked: 3, changed: 2, retired: 1, can_refresh: true, manual_pending: 1 }, '3 items changed since this campaign was made', 'Refresh'],
+    ];
+    for (const [name, cs, line, button] of cases) {
+      const b = await open({ width, height, productsOn: true, catalogueStatus: cs });
+      await openCampaign(b.page);
+      const banner = b.page.getByRole('status').filter({ hasText: 'since this campaign was made' }).filter({ visible: true }).first();
+      await banner.waitFor({ timeout: 10000 }).catch(() => {});
+      const text = (await banner.textContent().catch(() => '')) || '';
+      expect(text.includes(line), `${tag}: banner (${name}) says "${line}" (got "${text}")`);
+      expect(await banner.getByRole('button', { name: button, exact: true }).isVisible().catch(() => false), `${tag}: banner (${name}) button is "${button}"`);
+      if (name === 'manual') expect(!/website/.test(text), `${tag}: banner (manual) never says "website"`);
+      await banner.scrollIntoViewIfNeeded().catch(() => {});
+      await b.page.screenshot({ path: `${OUT}/${tag}-banner-${name}.png` });
+      if (name === 'manual') {
+        await banner.getByRole('button', { name: button, exact: true }).click({ timeout: 5000 }).catch(() => {});
+        const dlg = b.page.getByRole('alertdialog');
+        await dlg.waitFor({ timeout: 5000 }).catch(() => {});
+        const dt = (await dlg.textContent().catch(() => '')) || '';
+        expect(dt.includes('Refresh products?') && !/website/.test(dt), `${tag}: the manual dialog asks "Refresh products?" with no website wording (got "${dt}")`);
+        await b.page.screenshot({ path: `${OUT}/${tag}-banner-manual-dialog.png` });
+      }
+      await b.context.close();
+    }
   }
 } finally {
   await browser.close();
