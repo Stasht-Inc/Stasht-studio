@@ -154,7 +154,8 @@ function ProductsReady({ onNavigate }: { onNavigate: (page: string) => void }) {
       <section className="min-w-0 flex-1 pb-8 md:px-6">
         <div className="flex flex-wrap items-center justify-between gap-3 py-4">
           <p className="text-sm text-gray-600">{pagination ? `${pagination.total} ${pagination.total === 1 ? 'product' : 'products'}` : ' '}</p>
-          {(total > 0 || filtered) && createButtons('')}
+          {/* Final review M3: the list's own total too, so a failed /product-categories never hides Add / Import. */}
+          {(total > 0 || (pagination?.total ?? 0) > 0 || filtered) && createButtons('')}
         </div>
         {/* Toolbar laid out like the Campaigns search + filters row: search full width on a phone, controls below it. */}
         <div className="mb-4 flex flex-wrap items-center gap-2">
