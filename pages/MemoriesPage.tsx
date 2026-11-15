@@ -55,6 +55,7 @@ import { useIsStarterPlan } from "../hooks/usePlan";
 import useCanSelfUpgrade from "../hooks/useCanSelfUpgrade";
 import { CONTACT_SALES_URL } from "../utils/effectivePlan";
 import { cameraRollSession } from "../utils/cameraRoll";
+import { categoryDisplayName } from "../utils/products";
 const imgSunnyBeach = 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=400&h=300&fit=crop';
 
 interface ApiMemory {
@@ -2847,7 +2848,7 @@ function MemoriesPageContent({
                           value={categoryName}
                           className="cursor-pointer hover:bg-gray-100 focus:bg-gray-100 focus:text-gray-900 focus:outline-none"
                         >
-                          {categoryName}
+                          {categoryDisplayName(categoryName)}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -3268,7 +3269,7 @@ function MemoriesPageContent({
                                     <div className="space-y-1.5">
                                       <div className="flex items-center gap-2 text-xs">
                                         <span className="text-gray-500 w-16">Category:</span>
-                                        <span className="text-gray-900">{memory.category}</span>
+                                        <span className="text-gray-900">{categoryDisplayName(memory.category)}</span>
                                       </div>
                                       <div className="flex items-center gap-2 text-xs">
                                         <span className="text-gray-500 w-16">Author:</span>
@@ -3361,7 +3362,7 @@ function MemoriesPageContent({
                                   className="data-[state=checked]:bg-[#6C60FF] data-[state=checked]:border-[#6C60FF]"
                                 />
                               </div>
-                              <div className="text-gray-900 truncate">{memory.category}</div>
+                              <div className="text-gray-900 truncate">{categoryDisplayName(memory.category)}</div>
                               <div className="text-gray-900 truncate">{memory.author}</div>
                               <div>
                                 <Badge

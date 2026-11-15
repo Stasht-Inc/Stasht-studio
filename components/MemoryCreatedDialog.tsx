@@ -1,6 +1,7 @@
 ﻿import React, { useEffect, useState } from 'react';
 import { Check, X, Folder, MapPin } from 'lucide-react';
 import { triggerMemoriesRefresh } from '../hooks/useMemoriesRefresh';
+import { categoryDisplayName } from '../utils/products';
 
 interface MemoryCreatedDialogProps {
   isOpen: boolean;
@@ -112,7 +113,7 @@ export function MemoryCreatedDialog({
                 "{memoryTitle}"
               </div>
               <div className="text-sm text-gray-600">
-                has been added to your <span className="text-green-600 font-medium">{categoryName}</span> campaigns.
+                has been added to your <span className="text-green-600 font-medium">{categoryDisplayName(categoryName)}</span> campaigns.
               </div>
             </div>
 
@@ -120,7 +121,7 @@ export function MemoryCreatedDialog({
             <div className="flex items-center justify-center gap-4 text-xs pt-2">
               <div className="flex items-center gap-1.5 text-gray-600">
                 <Folder className="w-3.5 h-3.5 text-gray-400" />
-                <span>{categoryName}</span>
+                <span>{categoryDisplayName(categoryName)}</span>
               </div>
               {location && (
                 <div className="flex items-center gap-1.5 text-gray-600">

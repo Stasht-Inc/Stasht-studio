@@ -478,8 +478,11 @@ export function detailFacts(d: Pick<ProductDetail, 'sku' | 'brand' | 'product_ty
 
 /** The account's real campaign category for catalogue campaigns is stored as this name (web API config catalog.category_name). */
 export const CATALOGUE_CATEGORY_NAME = 'Website Catalogue';
-/** Shown wherever that category's name is shown (P2/P3). Display only: the stored name, lookups and filters are unchanged. */
+/** Text that means the products themselves (the Campaigns panel's items box, a picker item's fallback line). */
 export const PRODUCTS_LABEL = 'Products';
+/** Deepak, 16 Nov (review I2, option A): the stored category is shown as "Product campaigns" wherever a category name
+ *  shows, so it never reads like the "Products" items box beside it. Display only: stored name, lookups, filters unchanged. */
+export const CATALOGUE_CATEGORY_LABEL = 'Product campaigns';
 export function categoryDisplayName<T>(name: T): T | string {
-  return typeof name === 'string' && name.trim().toLowerCase() === CATALOGUE_CATEGORY_NAME.toLowerCase() ? PRODUCTS_LABEL : name;
+  return typeof name === 'string' && name.trim().toLowerCase() === CATALOGUE_CATEGORY_NAME.toLowerCase() ? CATALOGUE_CATEGORY_LABEL : name;
 }

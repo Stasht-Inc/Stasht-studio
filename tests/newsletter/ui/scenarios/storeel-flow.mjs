@@ -104,7 +104,7 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
     expect(await button(page, 'Save as Draft').isDisabled() && await inView(page, page.getByText('*Add a campaign title', { exact: true })), `${tag}: Save as Draft off, "*Add a campaign title" above the actions`);
 
     await page.getByPlaceholder(STOREEL_TITLE).fill(`Great Products ${tag}`);
-    await chooseCategory(page, 'Products'); // post-live P2: the stored "Website Catalogue" category is shown as Products
+    await chooseCategory(page, 'Product campaigns'); // post-live: the stored "Website Catalogue" category is shown as Product campaigns
     // Pressed with no catalogue item: the picker is scrolled into view, and the error shows above the actions too.
     await page.locator('#st-actions').scrollIntoViewIfNeeded();
     await button(page, 'Save as Draft').click();
@@ -393,7 +393,7 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
       3105: { ...SAVED, id: 3105, title: 'No dates', min_uploaded_img_date: null, max_uploaded_img_date: null },
     };
     const kindApi = createMockApi({ memories: kinds, catalogue: true, cars: true });
-    for (const [id, want] of [[3101, 'Shopify'], [3102, 'Cars'], [3103, 'Current category'], [3104, 'Products'], [3105, 'Service']]) {
+    for (const [id, want] of [[3101, 'Shopify'], [3102, 'Cars'], [3103, 'Current category'], [3104, 'Product campaigns'], [3105, 'Service']]) {
       const k = await open({ width, height, api: kindApi, query: `&campaignId=${id}` });
       const ktitle = k.page.getByPlaceholder(STOREEL_TITLE);
       await ktitle.waitFor();

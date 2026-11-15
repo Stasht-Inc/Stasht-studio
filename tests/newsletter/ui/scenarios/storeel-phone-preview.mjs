@@ -113,7 +113,7 @@ export async function run({ open, shot, expect, hasOverflow }) {
     // A refused save (no catalogue item picked) and the Send reason, in the same style.
     await page.getByPlaceholder(STOREEL_TITLE).fill(`Great Products ${tag}`);
     await page.locator('#st-step-campaign').getByRole('combobox').first().click();
-    await page.getByRole('option', { name: 'Products', exact: true }).click(); // post-live P2 (was "Website Catalogue")
+    await page.getByRole('option', { name: 'Product campaigns', exact: true }).click(); // post-live (stored "Website Catalogue")
     await page.waitForTimeout(500);
     await page.locator('#st-actions').scrollIntoViewIfNeeded();
     await checkLine(page, expect, 'st-send-reason', '*To send now: Choose who gets this Storeel', `${tag}: Send reason`);
@@ -142,7 +142,7 @@ export async function run({ open, shot, expect, hasOverflow }) {
     await page.locator('#st-step-campaign input[type="date"]').nth(1).fill(`${start.slice(0, 4)}-12-31`);
     await page.waitForTimeout(300);
     const coverText = (await page.getByTestId('storeel-preview-cover').textContent()) ?? '';
-    expect(coverText.includes('Products') && coverText.includes(start.slice(0, 4)) && coverText.includes(`Dec 31, ${start.slice(0, 4)}`) && coverText.includes(' – '),
+    expect(coverText.includes('Product campaigns') && coverText.includes(start.slice(0, 4)) && coverText.includes(`Dec 31, ${start.slice(0, 4)}`) && coverText.includes(' – '),
       `${tag}: the cover shows the category, the year and start – end (got "${coverText.slice(0, 160)}")`);
     // Review: a long category ends in "…" inside its pill.
     const ell = await page.getByTestId('storeel-preview-category').evaluate((pill) => {

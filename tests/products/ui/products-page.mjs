@@ -186,6 +186,15 @@ async function open(w, { width, height, path = '/products', view = 'personal', p
     // App drops a stored property view that isn't among the account's properties (utils/accountState), so a world that
     // opens in a property view lists that property here.
     if (p === '/properties' && m === 'GET') return route.fulfill({ json: { success: true, data: { owned_properties: w.properties || [], shared_properties: [] } } });
+    // w.catalogueCampaign (post-live review I1): the account has a campaign filed under its real "Website Catalogue" category.
+    if (p === '/memories' && m === 'GET' && w.catalogueCampaign) {
+      const cat = { id: 12, name: 'Website Catalogue', color: '#0F766E', memory_count: 1, admin_id: null };
+      const mem = { id: 880, title: 'Bench sale', category: { id: 12, name: 'Website Catalogue' }, tags: [], labels: [], author: { name: 'The Royal Wood Shop' }, photos: { count: 2 }, dates: { start_date: '2026-11-01', end_date: '2026-11-30', formatted_range: 'Nov 1 – 30, 2026' }, location: { formatted: 'Toronto, ON' }, last_update_img: img(880) };
+      // The desktop list view renders the raw rows' category / author / photos as text (pre-existing: API-shaped objects
+      // there crash it, found 16 Nov, not this change), so w.flatRows gives it strings as that table expects.
+      if (w.flatRows) Object.assign(mem, { category: 'Website Catalogue', author: 'The Royal Wood Shop', photos: 2 });
+      return route.fulfill({ json: { success: true, data: { latest_memories: [mem], sharedWith: [], published: [], shopify: { count: 0, collections: [] }, all_memories: { data: [mem], pagination: { current_page: 1, per_page: 50, total: 1, last_page: 1 } }, sidebar: { categories: { title: 'Categories', count: 2, items: [{ id: 5, name: 'Campaigns', color: '#6366F1', memory_count: 0, admin_id: null, memories: [] }, { ...cat, memories: [mem] }] }, labels: { title: 'Labels', count: 0, items: [] } }, filters: { authors: [] } } } });
+    }
     if (p === '/memories' && m === 'GET') return route.fulfill({ json: { success: true, data: { latest_memories: [], sharedWith: [], published: [], shopify: { count: 0, collections: [] }, all_memories: { data: [], pagination: { current_page: 1, per_page: 50, total: 0, last_page: 1 } }, sidebar: { categories: { title: 'Categories', count: 1, items: [{ id: 5, name: 'Campaigns', color: '#6366F1', memory_count: 0, admin_id: null, memories: [] }] }, labels: { title: 'Labels', count: 0, items: [] } }, filters: { authors: [] } } } });
     if (p === '/user/memory-counts') return route.fulfill({ json: { success: true, data: { memory_counts: { total_memories: 4, total_memory_images: 10, published_memories: 0 } } } });
     if (p === '/website-catalogue') return route.fulfill({ json: { success: true, data: { available: true, reason: null, item_count: 1, source: null, scan: null, limits: { item_limit: 500, sync_now_minutes: 15 } } } });
@@ -724,10 +733,35 @@ try {
       expect(await leave.getByText('Leave without saving?').isVisible(), `${tag}: Cancel with unsaved edits asks first`);
       await leave.getByRole('button', { name: 'Leave' }).click();
       await details.waitFor({ timeout: 10000 });
+      await details.getByRole('heading', { name: 'Walnut Chair Deluxe' }).waitFor({ timeout: 10000 }).catch(() => {}); // it reloads ("Loading…" first)
       expect(!(await editor.count()) && await details.getByRole('heading', { name: 'Walnut Chair Deluxe' }).isVisible() && w.calls.filter((c) => c.m === 'PATCH').length === patches, `${tag}: … Leave → back to the details view, nothing saved`);
       await details.getByRole('button', { name: 'Products', exact: true }).click();
       await page.waitForTimeout(600);
       expect(await cards.filter({ hasText: 'Walnut Chair Deluxe' }).count() === 1, `${tag}: the grid shows the saved title`);
+      await context.close();
+    }
+  }
+  if (run('labels')) {
+    // Post-live review I1 + I2 (option A): the stored "Website Catalogue" category is shown as "Product campaigns" in the Campaigns list view and
+    // on the Media page (display only: the category still filters by its stored name).
+    for (const [width, height] of [[1280, 900], [390, 844]]) {
+      const tag = `labels-${width}`;
+      const w = world({ pilot: false, catalogueCampaign: true, flatRows: width >= 768 });
+      const { page, context } = await open(w, { width, height, path: '/memories' });
+      await page.getByText('Bench sale').filter({ visible: true }).first().waitFor({ timeout: 20000 }).catch(() => {});
+      await page.locator('button:has(svg.lucide-list)').filter({ visible: true }).first().click().catch(() => {});
+      await page.waitForTimeout(1200);
+      const listText = await page.evaluate(() => document.body.innerText);
+      expect(/Bench sale/.test(listText) && /Product campaigns/.test(listText), `${tag}: Campaigns list view shows the campaign with its category as "Product campaigns"`);
+      expect(!/Website Catalogue/.test(listText), `${tag}: … and no "Website Catalogue" anywhere on the Campaigns page`);
+      await page.screenshot({ path: `${OUT}/${tag}-01-list.png` });
+      if (width < 768) { await context.close(); continue; } // the phone Media page opens on Camera Roll, without the category column
+      w.flatRows = false; // the Media page reads the API's category objects
+      await page.goto(`${BASE}/media`);
+      await page.waitForTimeout(3500);
+      const mediaText = await page.evaluate(() => document.body.innerText);
+      expect(/Product campaigns/.test(mediaText) && !/Website Catalogue/.test(mediaText), `${tag}: Media page shows the category as "Product campaigns", never "Website Catalogue"`);
+      await page.screenshot({ path: `${OUT}/${tag}-02-media.png` });
       await context.close();
     }
   }

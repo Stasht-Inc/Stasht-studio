@@ -3,11 +3,11 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { categoryDisplayName, CATALOGUE_CATEGORY_NAME, refreshBannerCopy } from '../../utils/products.ts';
 
-test('P2/P3: the stored "Website Catalogue" category is shown as Products; every other name is unchanged', () => {
+test('P2/P3 + review I2 (option A): the stored "Website Catalogue" category is shown as "Product campaigns"; every other name is unchanged', () => {
   assert.equal(CATALOGUE_CATEGORY_NAME, 'Website Catalogue');
-  assert.equal(categoryDisplayName('Website Catalogue'), 'Products');
-  assert.equal(categoryDisplayName(' website catalogue '), 'Products');
-  for (const n of ['Cars', 'Shopify', 'Personal', 'Website', 'Catalogue', '']) assert.equal(categoryDisplayName(n), n);
+  assert.equal(categoryDisplayName('Website Catalogue'), 'Product campaigns');
+  assert.equal(categoryDisplayName(' website catalogue '), 'Product campaigns');
+  for (const n of ['Cars', 'Shopify', 'Personal', 'Website', 'Catalogue', 'Products', '']) assert.equal(categoryDisplayName(n), n);
   assert.equal(categoryDisplayName(undefined), undefined);
 });
 

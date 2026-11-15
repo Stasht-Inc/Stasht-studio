@@ -11,6 +11,7 @@ import { toast } from "sonner";
 import { dashboardAPI } from "../utils/authUtils";
 import { useAuth } from "../contexts/AuthContext";
 import { mapLimit } from "../utils/requestLimit";
+import { categoryDisplayName } from "../utils/products";
 
 // Default editable body of the personalized invite message (author-name prefix is fixed/non-editable)
 const DEFAULT_INVITE_MESSAGE = "wants to share this with you!";
@@ -1284,7 +1285,7 @@ export default function AddCollaboratorDialog({
                             }}
                             className="w-4 h-4 rounded border-gray-300 accent-[#6C60FF] cursor-pointer"
                           />
-                          <span className="text-sm text-gray-800 group-hover:text-gray-900">{cat.name}</span>
+                          <span className="text-sm text-gray-800 group-hover:text-gray-900">{categoryDisplayName(cat.name)}</span>
                         </label>
                       ))}
                   </div>

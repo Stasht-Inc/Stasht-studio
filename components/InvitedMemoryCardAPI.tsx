@@ -3,6 +3,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "./ui/avatar";
 import { MapPin, Check, X, Calendar, Image } from "lucide-react";
 import { Button } from "./ui/button";
 import { Invite, InvitesAPI } from "../services/invitesAPI";
+import { categoryDisplayName } from "../utils/products";
 
 interface InvitedMemoryCardAPIProps {
   invite: Invite;
@@ -209,7 +210,7 @@ export default function InvitedMemoryCardAPI({
                         color: invite.memory.category?.badge_style?.text || '#92400E'
                       }}
                     >
-                      {invite.memory.sub_category?.name || invite.memory.category?.name || 'Uncategorized'}
+                      {invite.memory.sub_category?.name || categoryDisplayName(invite.memory.category?.name) || 'Uncategorized'}
                     </div>
                   </div>
                 </div>
