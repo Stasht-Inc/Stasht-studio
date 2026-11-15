@@ -37,6 +37,7 @@ import { formatFileSize, generateFileId } from "../utils/fileProcessing";
 import { getFacebookAuthUrl } from "../utils/facebookAuthAPI";
 import { openGooglePhotosPicker } from "../utils/googlePhotosPickerUtils";
 import { mapLimit, uploadLimit } from "../utils/requestLimit";
+import { categoryDisplayName } from "../utils/products";
 
 // Helper function to format relative time like "Just now", "5 minutes ago", etc.
 const formatRelativeTime = (dateString?: string): string => {
@@ -2366,7 +2367,7 @@ export default function MediaPage({
 
   const getDisplaySubtitle = () => {
     if (selectedCategory) {
-      return `Showing media from ${selectedCategory} category only`;
+      return `Showing media from ${categoryDisplayName(selectedCategory)} category only`;
     } else if (expandedCategoryNames.length === 0) {
       return 'No categories expanded. Expand categories in the sidebar to view media.';
     } else if (expandedCategoryNames.length < 4) {

@@ -11,6 +11,7 @@ import { Dialog, DialogContent, DialogTitle } from "../components/ui/dialog";
 import { Popover, PopoverTrigger, PopoverContent, PopoverClose } from "../components/ui/popover";
 import { ImageWithFallback } from "../components/figma/ImageWithFallback";
 import CampaignCover from "../components/ui/CampaignCover";
+import { categoryDisplayName } from "../utils/products";
 import { campaignCover } from "../utils/campaignCover";
 import { PdfThumbnail } from "../components/PdfThumbnail";
 import MemoryCard from "../components/MemoryCard";
@@ -2114,7 +2115,7 @@ export default function PublishedMemoryPage() {
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2">
                 <Badge className="bg-[#6C60FF] text-white border-0 px-3 py-1.5 text-base">
-                  {memoryData.category?.name || 'Personal'}
+                  {categoryDisplayName(memoryData.category?.name || 'Personal')}
                 </Badge>
                 {memoryData.sub_category?.name && (
                   <Badge className="bg-[#FEC53D] text-[#364153] border-0 px-3 py-1.5 text-base">
@@ -2499,7 +2500,7 @@ export default function PublishedMemoryPage() {
                   <div className="flex items-center gap-4">
                     {/* Category Badge */}
                     <Badge className="bg-[#6C60FF] text-white border-0 px-3 py-1.5 text-sm rounded-2xl">
-                      {memoryData.category?.name}
+                      {categoryDisplayName(memoryData.category?.name)}
                     </Badge>
                     {/* Year Badge */}
                     {(memoryData.sub_category?.name) && (

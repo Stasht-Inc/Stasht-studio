@@ -21,6 +21,7 @@ import { recheckMemoryLimit } from "../hooks/useMemoryLimit";
 import { updateCategoryColor } from "../utils/categoryColorManager";
 import AddMediaToMemoryModal from "./AddMediaToMemoryModal";
 import { mapLimit, uploadLimit } from "../utils/requestLimit";
+import { campaignsWillAppear, categoryDisplayName, noCampaignsTitle } from "../utils/products";
 
 interface MediaImage {
   id: string;
@@ -1197,14 +1198,14 @@ function CategoryCard({
                 }}
               />
             ) : (
-              <span className={`text-sm ${isActive ? 'font-bold' : 'font-medium'} text-foreground`}>{name}</span>
+              <span className={`text-sm ${isActive ? 'font-bold' : 'font-medium'} text-foreground`}>{categoryDisplayName(name)}</span>
             )}
             {/* Edit button for user-created categories only - visible on hover only */}
             {onEdit && !isEditing && name !== 'Published' && name !== 'Shared With' && name !== 'Unassigned' && (
               <button
                 onClick={handleEditClick}
                 className="ml-1 p-1 rounded hover:bg-gray-200 transition-all opacity-0 group-hover:opacity-100"
-                title={`Edit ${name}`}
+                title={`Edit ${categoryDisplayName(name)}`}
               >
                 <Pencil className="w-3 h-3 text-gray-500 hover:text-gray-700" />
               </button>
@@ -2776,7 +2777,7 @@ export default function MediaNav({
                     }
                   }}
                   onClick={() => handleCategoryToggle(category.name)}
-                  title={`${category.name} (${category.count} items)`}
+                  title={`${categoryDisplayName(category.name)} (${category.count} items)`}
                 >
                   <div 
                     className="w-8 h-8 rounded-md flex items-center justify-center transition-all duration-200 relative"
@@ -2806,7 +2807,7 @@ export default function MediaNav({
                       alert(`Edit functionality for "${category.name}" - Coming soon!`);
                     }}
                     className="absolute top-1 right-1 p-0.5 rounded hover:bg-gray-200/70 transition-all opacity-0 group-hover:opacity-100"
-                    title={`Edit ${category.name}`}
+                    title={`Edit ${categoryDisplayName(category.name)}`}
                   >
                     <Pencil className="w-3 h-3 text-gray-500 hover:text-gray-700" />
                   </button>
@@ -2869,10 +2870,10 @@ export default function MediaNav({
                         </div>
                         <div>
                           <h3 className="text-xs font-medium text-gray-700">
-                            No {category.name.toLowerCase()} campaigns
+                            {noCampaignsTitle(category.name)}
                           </h3>
                           <p className="text-[12px] text-gray-500 mt-1">
-                            Your {category.name.toLowerCase()} campaigns will appear here.
+                            {campaignsWillAppear(category.name, 'your')}
                           </p>
                         </div>
                       </div>
@@ -3007,7 +3008,7 @@ export default function MediaNav({
                     }
                   }}
                   onClick={() => handleCategoryToggle(category.name)}
-                  title={`${category.name} (${category.count} items)`}
+                  title={`${categoryDisplayName(category.name)} (${category.count} items)`}
                 >
                   <div 
                     className="w-8 h-8 rounded-md flex items-center justify-center transition-all duration-200 relative"
@@ -3047,7 +3048,7 @@ export default function MediaNav({
                       alert(`Edit functionality for "${category.name}" - Coming soon!`);
                     }}
                     className="absolute top-1 right-1 p-0.5 rounded hover:bg-gray-200/70 transition-all opacity-0 group-hover:opacity-100"
-                    title={`Edit ${category.name}`}
+                    title={`Edit ${categoryDisplayName(category.name)}`}
                   >
                     <Pencil className="w-3 h-3 text-gray-500 hover:text-gray-700" />
                   </button>
@@ -3331,7 +3332,7 @@ export default function MediaNav({
                     .filter(category => category.name !== 'Uncategorized')
                     .map((category) => (
                     <SelectItem key={category.name} value={category.name} className="cursor-pointer hover:bg-gray-100 focus:bg-gray-100 focus:text-gray-900 focus:outline-none">
-                      {category.name}
+                      {categoryDisplayName(category.name)}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -3518,10 +3519,10 @@ export default function MediaNav({
                                 </div>
                                 <div>
                                   <h3 className="text-sm font-medium text-gray-700 mb-1">
-                                    No {category.name.toLowerCase()} campaigns
+                                    {noCampaignsTitle(category.name)}
                                   </h3>
                                   <p className="text-xs text-gray-500 leading-relaxed">
-                                    Your {category.name.toLowerCase()} campaigns will appear here.
+                                    {campaignsWillAppear(category.name, 'your')}
                                   </p>
                                 </div>
                                 {/* Add Media button - exclude Shared With, Published, Suggested */}

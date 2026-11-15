@@ -104,13 +104,13 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
     expect(await button(page, 'Save as Draft').isDisabled() && await inView(page, page.getByText('*Add a campaign title', { exact: true })), `${tag}: Save as Draft off, "*Add a campaign title" above the actions`);
 
     await page.getByPlaceholder(STOREEL_TITLE).fill(`Great Products ${tag}`);
-    await chooseCategory(page, 'Website Catalogue');
+    await chooseCategory(page, 'Product campaigns'); // post-live: the stored "Website Catalogue" category is shown as Product campaigns
     // Pressed with no catalogue item: the picker is scrolled into view, and the error shows above the actions too.
     await page.locator('#st-actions').scrollIntoViewIfNeeded();
     await button(page, 'Save as Draft').click();
     await page.waitForTimeout(900);
     expect(await inView(page, page.locator('#st-pick-items')), `${tag}: no item picked → the picker is brought into view`);
-    expect((await page.locator('#st-actions').getByRole('alert').textContent()) === '*Pick at least one item from your Website Catalogue', `${tag}: …and said above the actions (Chris 6 Nov: "*…", no full stop)`);
+    expect((await page.locator('#st-actions').getByRole('alert').textContent()) === '*Pick at least one product', `${tag}: …and said above the actions (Chris 6 Nov: "*…", no full stop)`);
     expect(createPosts(api).length === 0, `${tag}: refused before any POST`);
     await shot(page, `${tag}-01b-no-item-picked`);
     await page.getByText('Oak bench', { exact: true }).first().click();
@@ -264,7 +264,7 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
     expect((await title.inputValue()) === 'Spring Open House', `${tag}: title prefilled`);
     // Deepak, 9 Nov 2026: Edit has Create's "Select from Existing Campaigns" again (linked campaigns, saved with their own
     // calls by Save Changes) — but no other pickers (the items picker / vehicles: Add a Moment on a saved campaign).
-    expect((await e.page.getByText('Select from Existing Campaigns').count()) === 1 && !(await e.page.getByText('Pick items from your Website Catalogue').count()), `${tag}: Edit: Select from Existing Campaigns only (no items picker)`);
+    expect((await e.page.getByText('Select from Existing Campaigns').count()) === 1 && !(await e.page.getByText('Pick from your products').count()), `${tag}: Edit: Select from Existing Campaigns only (no items picker)`);
     expect((await rows(e.page).count()) === 3 && ((await step(e.page, 'st-step-moments').textContent()) ?? '').includes('Fresh paint and new railings.'), `${tag}: step 2 lists the campaign's 3 moments`);
     expect(((await e.page.getByTestId('storeel-preview').textContent()) ?? '').includes('3 moments'), `${tag}: preview 3 moments`);
     await expectVisible(button(e.page, 'Save Changes'), `${tag}: Save Changes`);
@@ -393,7 +393,7 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
       3105: { ...SAVED, id: 3105, title: 'No dates', min_uploaded_img_date: null, max_uploaded_img_date: null },
     };
     const kindApi = createMockApi({ memories: kinds, catalogue: true, cars: true });
-    for (const [id, want] of [[3101, 'Shopify'], [3102, 'Cars'], [3103, 'Current category'], [3104, 'Website Catalogue'], [3105, 'Service']]) {
+    for (const [id, want] of [[3101, 'Shopify'], [3102, 'Cars'], [3103, 'Current category'], [3104, 'Product campaigns'], [3105, 'Service']]) {
       const k = await open({ width, height, api: kindApi, query: `&campaignId=${id}` });
       const ktitle = k.page.getByPlaceholder(STOREEL_TITLE);
       await ktitle.waitFor();

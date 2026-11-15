@@ -15,6 +15,7 @@ import { loadCatalogueForBrowsing } from '../services/catalogueAPI';
 import exifr from 'exifr';
 import { getCategoryColor } from '../constants/mediaConstants';
 import { SHOPIFY_COLOR } from '../utils/categoryColorManager';
+import { categoryDisplayName, PRODUCTS_LABEL } from '../utils/products';
 import { useAuth } from '../contexts/AuthContext';
 import { useProperty } from '../contexts/PropertyContext';
 import { useMemoryLimit, recheckMemoryLimit } from '../hooks/useMemoryLimit';
@@ -763,7 +764,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
       setCatalogForPicker(list.map((item) => ({
         id: item.id,
         title: item.title || 'Untitled item',
-        location: [item.price_label, item.category].filter(Boolean).join(' · ') || CATALOG_CATEGORY_NAME,
+        location: [item.price_label, item.category].filter(Boolean).join(' · ') || PRODUCTS_LABEL,
         category: { name: CATALOG_CATEGORY_NAME },
         last_update_img: item.main_image || '',
         posts_count: item.images_count || 0,
@@ -2214,8 +2215,8 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
     // A Website Catalogue campaign is built from the picked items, so it needs at least one.
     if (isCatalogCategory && selectedMemoryIds.length === 0) {
       setSelectFromExisting(true);
-      setCatalogNotice('Pick at least one item from your Website Catalogue.');
-      showActionError('Pick at least one item from your Website Catalogue.', 'st-pick-items');
+      setCatalogNotice('Pick at least one product.');
+      showActionError('Pick at least one product.', 'st-pick-items');
       return;
     }
 
@@ -2608,7 +2609,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
     // Media's "Campaigns (optional)" (Chris, 8 Nov 2026, point 2): never the campaign itself.
     campaigns: { exclude: flowCampaign?.id ?? campaignId ?? null },
     // The plans open under this page: ask before leaving it (review I2).
-    onSeePlans: () => setPlansAsk('Adding Website Catalogue products is available on the Business plan.'),
+    onSeePlans: () => setPlansAsk('Adding products is available on the Business plan.'),
     onAdd: async ({ products, vehicles, campaigns = [] }) => {
       const anchor = addAnchorRef.current;
       const c = flowCampaignRef.current;
@@ -3048,7 +3049,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
                             className="w-3 h-3 rounded-full"
                             style={{ backgroundColor: category.__isShopify ? SHOPIFY_COLOR : getCategoryColor(category.name) }}
                           />
-                          {category.name}
+                          {categoryDisplayName(category.name)}
                         </div>
                       </SelectItem>
                     ))
@@ -3078,7 +3079,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
                   }}
                   className="w-5 h-5 md:w-4 md:h-4 bg-gray-100 border-gray-300 rounded focus:ring-2 focus:ring-[#6C60FF] accent-[#6C60FF]"
                 />
-                <span className="text-base md:text-sm font-medium text-gray-700">{pickerCatalog ? 'Pick items from your Website Catalogue' : 'Select from Existing Campaigns'}</span>
+                <span className="text-base md:text-sm font-medium text-gray-700">{pickerCatalog ? 'Pick from your products' : 'Select from Existing Campaigns'}</span>
               </label>
 
               {selectFromExisting && (
@@ -3165,7 +3166,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
                             <SelectItem key={c.id || c.name} value={c.name}>
                               <div className="flex items-center gap-2">
                                 <div className="w-3 h-3 rounded-full" style={{ backgroundColor: getCategoryColor(c.name) }} />
-                                {c.name}
+                                {categoryDisplayName(c.name)}
                               </div>
                             </SelectItem>
                           ))}

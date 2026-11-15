@@ -4,6 +4,7 @@ import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Checkbox } from './ui/checkbox';
 import { userDisplayUtils } from '../utils/authUtils';
+import { categoryDisplayName } from '../utils/products';
 
 interface Memory {
   id: number;
@@ -504,7 +505,7 @@ export default function PublishMemoriesModal({
                           onClick={() => { setSelectedCategory(cat.name === 'All Categories' ? 'all' : cat.name); setIsCategoryOpen(false); }}
                           className="flex items-center justify-between px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 cursor-pointer"
                         >
-                          {cat.name}
+                          {categoryDisplayName(cat.name)}
                           {(selectedCategory === 'all' ? cat.name === 'All Categories' : selectedCategory === cat.name) && (
                             <svg className="w-4 h-4 text-gray-700 ml-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />

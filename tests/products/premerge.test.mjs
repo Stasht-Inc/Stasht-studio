@@ -5,11 +5,11 @@ import { refreshBannerCopy, filterStatusesFor } from '../../utils/products.ts';
 
 const WEBSITE_ONE = {
   line: '1 item changed on your website since this campaign was made',
-  button: 'Refresh from catalogue',
-  title: 'Refresh from catalogue?',
+  button: 'Refresh', // post-live P3 (15 Nov): "catalogue" no longer appears here (was "Refresh from catalogue")
+  title: 'Refresh from your website?',
 };
 
-test('D3: website items keep today\'s wording exactly (and an API without manual_pending is website-only)', () => {
+test('D3: website items are worded as "on your website" (post-live P3 wording; an API without manual_pending is website-only)', () => {
   for (const s of [{ changed: 1, retired: 0 }, { changed: 1, retired: 0, manual_pending: 0 }]) {
     const c = refreshBannerCopy(s);
     assert.equal(c.line, WEBSITE_ONE.line);

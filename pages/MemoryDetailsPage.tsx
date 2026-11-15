@@ -91,6 +91,7 @@ import { AddWidgetMenu, ADD_WIDGET_PANEL, addWidgetOptions, type AddWidgetKind }
 import { previewCardButtons, previewWidgetsFrom, takeWidgetIntent } from "../components/storeel/lib/storeelWidgets";
 import { isPinnedCta, isTimelineCta } from "../utils/timelineWidgets";
 import { addSlotAfter, applyInsertPlace, collaboratorAddWidgetOptions, slotWidgetRanks, type InsertPlace, type SlotWidget } from "../utils/timelineAddSlots";
+import { categoryDisplayName } from "../utils/products";
 const samanthaAvatar = 'https://images.unsplash.com/photo-1494790108755-2616b612b5bc?w=100&h=100&fit=crop';
 
 // Helper: convert S3 URL to proxied path so auth headers work and canvas doesn't get tainted
@@ -9272,7 +9273,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
             </div>
             <div className="absolute bottom-[18rem] left-0 right-0 px-4 z-10">
               <div className="flex items-center justify-between mb-3">
-                <Badge className={`${isSharedMemory ? 'bg-red-500' : 'bg-[#6C60FF]'} text-white border-0 px-3 py-1.5 text-sm`}>{isSharedMemory ? 'Shared with' : (apiMemoryData?.category?.name || 'Personal')}</Badge>
+                <Badge className={`${isSharedMemory ? 'bg-red-500' : 'bg-[#6C60FF]'} text-white border-0 px-3 py-1.5 text-sm`}>{isSharedMemory ? 'Shared with' : categoryDisplayName(apiMemoryData?.category?.name || 'Personal')}</Badge>
                 <div className="flex items-center gap-4 text-white text-base">
                   <div className="flex items-center gap-1.5"><Heart className="w-5 h-5" /><span>{apiMemoryData?.likes_count || 0}</span></div>
                   <div className="flex items-center gap-1.5"><MessageSquare className="w-5 h-5" /><span>{apiMemoryData?.comments_count || 0}</span></div>
@@ -9431,7 +9432,7 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
                   </div>
                   <div className="flex items-center justify-between mb-4">
                     <div className="flex items-center gap-4">
-                      <Badge className={`${isSharedMemory ? 'bg-red-500' : 'bg-[#6C60FF]'} text-white border-0 px-3 py-1.5 text-sm rounded-2xl`}>{isSharedMemory ? 'Shared with' : (apiMemoryData?.category?.name || 'Personal')}</Badge>
+                      <Badge className={`${isSharedMemory ? 'bg-red-500' : 'bg-[#6C60FF]'} text-white border-0 px-3 py-1.5 text-sm rounded-2xl`}>{isSharedMemory ? 'Shared with' : categoryDisplayName(apiMemoryData?.category?.name || 'Personal')}</Badge>
                       {apiMemoryData?.sub_category?.name && <Badge className="bg-[#FEC53D] text-[#364153] border-0 px-3 py-1.5 text-sm rounded-2xl">{apiMemoryData.sub_category.name}</Badge>}
                     </div>
                     <div className="flex items-center gap-3 text-gray-500 text-base">

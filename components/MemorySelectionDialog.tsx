@@ -11,6 +11,7 @@ import { ImageWithFallback } from './figma/ImageWithFallback';
 import { getCategoryColor } from '../constants/mediaConstants';
 import { dashboardAPI, userDisplayUtils } from '../utils/authUtils';
 import { useAuth } from '../contexts/AuthContext';
+import { categoryDisplayName } from '../utils/products';
 
 type ActiveTab = 'existing' | 'new' | 'library';
 
@@ -542,7 +543,7 @@ export default function MemorySelectionDialog({
                         <SelectItem key={category.name} value={category.name}>
                           <div className="flex items-center gap-2">
                             <div className="w-3 h-3 rounded-full" style={{ backgroundColor: category.color }} />
-                            {category.name}
+                            {categoryDisplayName(category.name)}
                             {category.count > 0 && (
                               <span className="text-xs text-gray-500 ml-1">({category.count})</span>
                             )}
@@ -721,7 +722,7 @@ export default function MemorySelectionDialog({
                               className="w-3 h-3 rounded-full"
                               style={{ backgroundColor: category.color }}
                             />
-                            {category.name}
+                            {categoryDisplayName(category.name)}
                           </div>
                         </SelectItem>
                       ))

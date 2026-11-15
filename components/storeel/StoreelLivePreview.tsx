@@ -11,6 +11,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
 import { AddWidgetMenu, ADD_WIDGET_PANEL, type AddWidgetKind, type AddWidgetOption } from '../widgets/AddWidgetChooser';
 import { WIDGET_END, WIDGET_PINNED, WIDGET_TOP, widgetsByAnchor, type PreviewWidget } from './lib/storeelWidgets';
 import PreviewWidgetCard from './PreviewWidgetCard';
+import { categoryDisplayName } from '../../utils/products';
 
 /**
  * [wdy2xh2t3z] The Storeel tab's PREVIEW: the Storeel as it will look, following the form. Display only.
@@ -296,7 +297,7 @@ function Cover({ m, width, height, color, avatarUrl, initialCover, controls, onC
       </div>
       <div className="absolute inset-x-0 bottom-0 px-4 text-white" style={{ paddingBottom: CARD_OVERLAP + 18 }}>
         <div className="flex h-[35px] items-center gap-[5px]">
-          {m.category ? <span data-testid="storeel-preview-category" className="flex h-full min-w-0 max-w-[60%] items-center rounded-lg bg-[#6C60FF] px-[9px] text-[12.5px] text-white"><span className="truncate">{m.category}</span></span> : null}
+          {m.category ? <span data-testid="storeel-preview-category" className="flex h-full min-w-0 max-w-[60%] items-center rounded-lg bg-[#6C60FF] px-[9px] text-[12.5px] text-white"><span className="truncate">{categoryDisplayName(m.category)}</span></span> : null}
           {m.year ? <span className="flex h-full items-center rounded-lg bg-[#FEC53D] px-[10px] text-[12.5px] font-medium text-gray-900">{m.year}</span> : null}
           <span aria-hidden="true" className="ml-auto flex flex-shrink-0 items-center gap-3 text-[13px]">
             <span className="flex items-center gap-1"><Heart className="h-[18px] w-[18px]" aria-hidden="true" />0</span>

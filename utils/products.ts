@@ -413,8 +413,8 @@ export function refreshBannerCopy(s: { changed: number; retired: number; manual_
   if (manual === 0) {
     return {
       line: `${n} ${n === 1 ? 'item' : 'items'} changed on your website since this campaign was made`,
-      button: 'Refresh from catalogue',
-      title: 'Refresh from catalogue?',
+      button: 'Refresh', // post-live P3: was "Refresh from catalogue"
+      title: 'Refresh from your website?',
       body: `${moments(n)} will be updated with the latest photos, price and details from your website. ${overwrite} ${websiteGone}`,
       toast: (u) => `Updated ${moments(u)} from your website`,
     };
@@ -436,4 +436,76 @@ export function refreshBannerCopy(s: { changed: number; retired: number; manual_
     body: `${moments(n)} will be updated with the latest photos, price and details from your website and products. ${overwrite} ${websiteGone} ${productsGone}`,
     toast: (u) => `Updated ${moments(u)} from your website and products`,
   };
+}
+
+// ── Post-live (15 Nov): the read-only product details view and "Products" in place of "Website Catalogue". ──
+
+/** The details view's line for a website product (it has no Edit). */
+export const WEBSITE_SYNC_NOTE = 'This product comes from your website and updates each time it syncs.';
+
+/**
+ * What the details view's header offers (P1). Manual: Edit + ⋯ (Duplicate, Archive / Unarchive, Delete). Website: no
+ * Edit; ⋯ keeps today's Duplicate and Archive / Unarchive, plus "Edit settings" (today's editor, where only its status,
+ * categories, tags, notes and visibility can change — NEVER-REMOVE). A salesperson's External view: nothing.
+ */
+export function detailActions(d: Pick<ProductDetail, 'read_only' | 'origin' | 'editable_fields' | 'status'>): {
+  edit: boolean; settings: boolean; duplicate: boolean; archive: 'archive' | 'unarchive' | null; remove: boolean; menu: boolean;
+} {
+  if (d.read_only) return { edit: false, settings: false, duplicate: false, archive: null, remove: false, menu: false };
+  const manual = d.origin === 'manual';
+  const canStatus = d.editable_fields.includes('status');
+  const archive = canStatus ? (d.status === 'archived' ? 'unarchive' : 'archive') : null;
+  const settings = !manual && d.editable_fields.some((f) => f !== 'media');
+  return { edit: manual, settings, duplicate: true, archive, remove: manual, menu: true };
+}
+
+/** The details view's facts list: only what the product has. */
+export function detailFacts(d: Pick<ProductDetail, 'sku' | 'brand' | 'product_type' | 'barcode' | 'quantity' | 'weight' | 'weight_unit' | 'dimensions'>): Array<{ label: string; value: string }> {
+  const out: Array<{ label: string; value: string }> = [];
+  const add = (label: string, value: unknown) => { const v = value == null ? '' : String(value).trim(); if (v) out.push({ label, value: v }); };
+  add('SKU', d.sku);
+  add('Brand', d.brand);
+  add('Product type', d.product_type);
+  add('Barcode / UPC', d.barcode);
+  add('Quantity', d.quantity);
+  if (d.weight != null && String(d.weight).trim()) add('Weight', `${d.weight} ${d.weight_unit || ''}`);
+  const dim = d.dimensions;
+  if (dim && (dim.length != null || dim.width != null || dim.height != null)) {
+    add('Dimensions', `${[dim.length, dim.width, dim.height].map((x) => (x == null ? '–' : String(x))).join(' × ')} ${dim.unit || ''}`);
+  }
+  return out;
+}
+
+/** The account's real campaign category for catalogue campaigns is stored as this name (web API config catalog.category_name). */
+export const CATALOGUE_CATEGORY_NAME = 'Website Catalogue';
+/** Text that means the products themselves (the Campaigns panel's items box, a picker item's fallback line). */
+export const PRODUCTS_LABEL = 'Products';
+/** Deepak, 16 Nov (review I2, option A): the stored category is shown as "Product campaigns" wherever a category name
+ *  shows, so it never reads like the "Products" items box beside it. Display only: stored name, lookups, filters unchanged. */
+export const CATALOGUE_CATEGORY_LABEL = 'Product campaigns';
+export function categoryDisplayName<T>(name: T): T | string {
+  return typeof name === 'string' && name.trim().toLowerCase() === CATALOGUE_CATEGORY_NAME.toLowerCase() ? CATALOGUE_CATEGORY_LABEL : name;
+}
+
+/**
+ * "{category} campaigns", read naturally (re-review, 16 Nov): "Cars campaigns" for every other category, exactly as
+ * before, but just "Product campaigns" for the stored "Website Catalogue" category (never "Product campaigns
+ * campaigns"). Display only. `lower` lower-cases the category part ("No personal campaigns").
+ */
+export function categoryCampaignsPhrase(name: unknown, lower = false): string {
+  const shown = String(categoryDisplayName(name) ?? '');
+  const label = lower ? shown.toLowerCase() : shown;
+  return /campaigns$/i.test(shown.trim()) ? label : `${label} campaigns`;
+}
+const isCampaignsLabel = (name: unknown) => categoryCampaignsPhrase(name) === String(categoryDisplayName(name) ?? '');
+
+/** Empty-state copy for a category ("No personal campaigns"); "No product campaigns yet" for the stored category. */
+export function noCampaignsTitle(name: unknown): string {
+  const phrase = categoryCampaignsPhrase(name, true);
+  return isCampaignsLabel(name) ? `No ${phrase} yet` : `No ${phrase}`;
+}
+export function campaignsWillAppear(name: unknown, form: 'in' | 'your'): string {
+  if (form === 'your') return `Your ${categoryCampaignsPhrase(name, true)} will appear here.`;
+  const label = String(categoryDisplayName(name) ?? '');
+  return isCampaignsLabel(name) ? `${label} will appear here.` : `Campaigns in ${label} category will appear here.`;
 }

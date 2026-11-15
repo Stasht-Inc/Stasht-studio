@@ -8,6 +8,7 @@ import { ImageWithFallback } from './figma/ImageWithFallback';
 import { dashboardAPI } from '../utils/authUtils';
 import { Badge } from './ui/badge';
 import { mediaAPI } from '../services/mediaAPI';
+import { categoryDisplayName } from '../utils/products';
 
 interface MediaLibraryItem {
   id: string;
@@ -251,7 +252,7 @@ export default function MediaLibrarySelectionModal({
               <SelectItem value="all">All Categories</SelectItem>
               {categories.filter(cat => cat !== 'All Categories').map(category => (
                 <SelectItem key={category} value={category}>
-                  {category}
+                  {categoryDisplayName(category)}
                 </SelectItem>
               ))}
             </SelectContent>

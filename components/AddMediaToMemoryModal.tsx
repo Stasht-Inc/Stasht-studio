@@ -1,5 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { X, Upload, Image as ImageIcon, CheckCircle2 } from 'lucide-react';
+import { categoryDisplayName } from '../utils/products';
 
 interface Memory {
   id: string;
@@ -82,7 +83,7 @@ export default function AddMediaToMemoryModal({
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 bg-[#6C60FF]">
           <div className="flex-1 min-w-0">
-            <h3 className="text-sm font-semibold text-white truncate">Add to {categoryName}</h3>
+            <h3 className="text-sm font-semibold text-white truncate">Add to {categoryDisplayName(categoryName)}</h3>
             <p className="text-[12px] text-white/90 mt-0.5">Upload & select campaign</p>
           </div>
           <button

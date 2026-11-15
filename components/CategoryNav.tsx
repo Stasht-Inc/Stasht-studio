@@ -25,6 +25,7 @@ import { dashboardAPI, userDisplayUtils } from "../utils/authUtils";
 import { useAuth } from "../contexts/AuthContext";
 import { toast } from "sonner";
 import { updateCategoryColor } from "../utils/categoryColorManager";
+import { campaignsWillAppear, categoryDisplayName, noCampaignsTitle } from "../utils/products";
 import { triggerMemoryCountsRefresh } from '../hooks/useMemoryCounts';
 
 // ── Video / YouTube thumbnail helpers ─────────────────────────────────────────
@@ -263,7 +264,7 @@ function CategoryCard({ name, count, isActive = false, onClick, hasMemories = fa
             ) : (
               <Folder className="w-4 h-4 text-muted-foreground" />
             )}
-            <span className={`text-sm ${isActive ? 'font-bold' : 'font-medium'} text-foreground`}>{name}</span>
+            <span className={`text-sm ${isActive ? 'font-bold' : 'font-medium'} text-foreground`}>{categoryDisplayName(name)}</span>
             {/* Edit button for user-created categories only - visible on hover only */}
             {onEdit && name !== 'Published' && name !== 'Shared With' && (
               <button
@@ -273,7 +274,7 @@ function CategoryCard({ name, count, isActive = false, onClick, hasMemories = fa
                   onEdit && onEdit(name);
                 }}
                 className="ml-1 p-1 rounded hover:bg-gray-200 transition-all opacity-0 group-hover:opacity-100"
-                title={`Edit ${name}`}
+                title={`Edit ${categoryDisplayName(name)}`}
               >
                 <Pencil className="w-3 h-3 text-gray-500 hover:text-gray-700" />
               </button>
@@ -523,7 +524,7 @@ function EditableCategoryCard({
                 }}
               />
             ) : (
-              <span className={`text-sm ${isActive ? 'font-bold' : 'font-medium'} text-foreground`}>{name}</span>
+              <span className={`text-sm ${isActive ? 'font-bold' : 'font-medium'} text-foreground`}>{categoryDisplayName(name)}</span>
             )}
             {/* Edit button for user-created categories only - visible on hover only, not for suggested categories */}
             {/* Hidden when the category is locked (not owner / cannot add story) */}
@@ -531,7 +532,7 @@ function EditableCategoryCard({
               <button
                 onClick={handleEditClick}
                 className="ml-1 p-1 rounded hover:bg-gray-200 transition-all opacity-0 group-hover:opacity-100"
-                title={`Edit ${name}`}
+                title={`Edit ${categoryDisplayName(name)}`}
               >
                 <Pencil className="w-3 h-3 text-gray-500 hover:text-gray-700" />
               </button>
@@ -1370,13 +1371,13 @@ function MemoryTreeView({
           </svg>
         </div>
         <h4 className="text-sm font-medium text-gray-900 mb-1">
-          No {categoryName.toLowerCase()} campaigns
+          {noCampaignsTitle(categoryName)}
         </h4>
         <p className="text-xs text-gray-500 leading-relaxed">
           {categoryName === 'Published' ? 'Campaigns you\'ve published publicly will appear here.' :
            categoryName === 'Personal' ? 'Your private campaigns will appear here.' :
            categoryName === 'Shared With' ? 'Campaigns shared with you will appear here.' :
-           `Campaigns in ${categoryName} category will appear here.`}
+           campaignsWillAppear(categoryName, 'in')}
         </p>
       </div>
     );
@@ -2616,7 +2617,7 @@ export default function CategoryNav({
                         }
                       }}
                       onClick={() => handleCategoryClick(category.name)}
-                      title={`${category.name} (${categoryMemories.length} items}`}
+                      title={`${categoryDisplayName(category.name)} (${categoryMemories.length} items}`}
                     >
                       <div 
                         className="w-8 h-8 rounded-md flex items-center justify-center transition-all duration-200"
@@ -2649,7 +2650,7 @@ export default function CategoryNav({
                             handleEditCategoryClick(category.name);
                           }}
                           className="absolute top-1 right-1 p-0.5 rounded hover:bg-gray-200/70 transition-colors opacity-0 group-hover:opacity-100"
-                          title={`Edit ${category.name}`}
+                          title={`Edit ${categoryDisplayName(category.name)}`}
                           style={{
                             opacity: isExpanded ? 1 : undefined
                           }}
@@ -2704,13 +2705,13 @@ export default function CategoryNav({
                               </svg>
                             </div>
                             <h4 className="text-sm font-medium text-gray-900 mb-1">
-                              No {category.name.toLowerCase()} campaigns
+                              {noCampaignsTitle(category.name)}
                             </h4>
                             <p className="text-xs text-gray-500 leading-relaxed">
                               {category.name === 'Published' ? 'Campaigns you\'ve published publicly will appear here.' :
                                category.name === 'Personal' ? 'Your private campaigns will appear here.' :
                                category.name === 'Shared With' ? 'Campaigns shared with you will appear here.' :
-                               `Campaigns in ${category.name} category will appear here.`}
+                               campaignsWillAppear(category.name, 'in')}
                             </p>
                           </div>
                         )}
@@ -2920,7 +2921,7 @@ export default function CategoryNav({
                     )}
                     {categories.map((category) => (
                       <SelectItem key={category.name} value={category.name} className="cursor-pointer hover:bg-gray-100 focus:bg-gray-100 focus:text-gray-900 focus:outline-none">
-                        {category.name}
+                        {categoryDisplayName(category.name)}
                       </SelectItem>
                     ))}
                   </SelectContent>

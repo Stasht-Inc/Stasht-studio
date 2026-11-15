@@ -2,6 +2,7 @@
 import { X, ArrowRight, Image as ImageIcon, MapPin, Calendar, Loader2, Search } from 'lucide-react';
 import { dashboardAPI } from '../utils/authUtils';
 import { toast } from 'sonner';
+import { categoryDisplayName } from '../utils/products';
 
 interface Memory {
   id: number;
@@ -376,7 +377,7 @@ export default function TransferMemoryDialog({
                                           color: memory.category?.badge_style?.hex_color || '#6b7280'
                                         }}
                                       >
-                                        {memory.category.name}
+                                        {categoryDisplayName(memory.category.name)}
                                       </span>
                                     </div>
                                   )}
@@ -436,7 +437,7 @@ export default function TransferMemoryDialog({
                       <div className="flex-1 min-w-0">
                         <p className="font-medium text-gray-900 truncate">{memory.title || 'Untitled Campaign'}</p>
                         {memory.category?.name && (
-                          <p className="text-xs text-gray-500 mt-0.5">{memory.category.name}</p>
+                          <p className="text-xs text-gray-500 mt-0.5">{categoryDisplayName(memory.category.name)}</p>
                         )}
                       </div>
 

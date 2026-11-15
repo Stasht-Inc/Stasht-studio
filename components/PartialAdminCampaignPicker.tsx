@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { ChevronDown, ChevronRight, Folder, Search } from 'lucide-react';
 import { dashboardAPI } from '../utils/authUtils';
+import { categoryDisplayName } from '../utils/products';
 
 /**
  * The Partial Admin "Select Campaigns" picker shared by Edit Role (Users tab) and Invite to Campaign.
@@ -131,7 +132,7 @@ export default function PartialAdminCampaignPicker({ campaigns, categories, sele
                 <div className={`flex items-center gap-2.5 px-3 py-2.5 transition-colors ${allSelected ? 'bg-[#6C60FF]/5' : someSelected ? 'bg-gray-50' : 'bg-white hover:bg-gray-50'}`}>
                   <button
                     type="button"
-                    aria-label={`${isOpen ? 'Collapse' : 'Expand'} ${cat.name}`}
+                    aria-label={`${isOpen ? 'Collapse' : 'Expand'} ${categoryDisplayName(cat.name)}`}
                     onClick={() => setExpanded(prev => {
                       const next = new Set(prev);
                       if (next.has(cat.name)) next.delete(cat.name); else next.add(cat.name);
@@ -143,7 +144,7 @@ export default function PartialAdminCampaignPicker({ campaigns, categories, sele
                   </button>
                   <input
                     type="checkbox"
-                    aria-label={`Select all in ${cat.name}`}
+                    aria-label={`Select all in ${categoryDisplayName(cat.name)}`}
                     checked={allSelected}
                     disabled={items.length === 0}
                     ref={(el) => { if (el) el.indeterminate = someSelected; }}
@@ -151,7 +152,7 @@ export default function PartialAdminCampaignPicker({ campaigns, categories, sele
                     className="w-4 h-4 rounded border-gray-300 accent-[#6C60FF] cursor-pointer flex-shrink-0"
                   />
                   <Folder className="w-4 h-4 flex-shrink-0" style={{ color: cat.color }} />
-                  <span className="text-sm font-medium text-gray-900 flex-1 min-w-0 truncate">{cat.name}</span>
+                  <span className="text-sm font-medium text-gray-900 flex-1 min-w-0 truncate">{categoryDisplayName(cat.name)}</span>
                   <span className="text-xs text-gray-500 flex-shrink-0">
                     {selectedCount}/{items.length} {items.length === 1 ? 'campaign' : 'campaigns'}
                   </span>
