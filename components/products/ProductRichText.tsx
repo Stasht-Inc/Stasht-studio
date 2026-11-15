@@ -20,8 +20,10 @@ function domNodes(nodes: TextNode[]): Node[] {
   });
 }
 
-export default function ProductRichText({ label, value, resetKey, disabled, onChange }: {
-  label: string; value: string; resetKey: string | number; disabled: boolean; onChange(html: string): void;
+export default function ProductRichText({ label, value, resetKey, disabled, busy = false, onChange }: {
+  label: string; value: string; resetKey: string | number; disabled: boolean;
+  /** A save is on its way: not editable for the moment, but it looks the same (no toolbar jump). */
+  busy?: boolean; onChange(html: string): void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const initial = useMemo(() => renderTextNodes(parseTextHtml(value)), [resetKey]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -58,8 +60,8 @@ export default function ProductRichText({ label, value, resetKey, disabled, onCh
   return (
     <div className={`rounded-lg border border-gray-200 ${disabled ? 'bg-gray-50' : 'bg-white focus-within:border-[#6C60FF] focus-within:ring-2 focus-within:ring-[#6C60FF]/20'}`}>
       {!disabled && <div role="toolbar" aria-label="Text style" className="flex gap-1 border-b border-gray-100 p-1">{tool('bold', 'Bold', Bold)}{tool('italic', 'Italic', Italic)}{tool('insertUnorderedList', 'Bulleted list', List)}</div>}
-      <div key={resetKey} ref={ref} role="textbox" aria-multiline="true" aria-label={label} aria-readonly={disabled || undefined} contentEditable={!disabled} suppressContentEditableWarning
-        onInput={emit} onPaste={disabled ? undefined : onPaste} className={`${TEXT_CLASS} min-h-[8rem] px-3 py-2 outline-none ${disabled ? 'text-gray-500' : ''}`}>{initial}</div>
+      <div key={resetKey} ref={ref} role="textbox" aria-multiline="true" aria-label={label} aria-readonly={disabled || busy || undefined} contentEditable={!disabled && !busy} suppressContentEditableWarning
+        onInput={emit} onPaste={disabled || busy ? undefined : onPaste} className={`${TEXT_CLASS} min-h-[8rem] px-3 py-2 outline-none ${disabled ? 'text-gray-500' : ''}`}>{initial}</div>
     </div>
   );
 }

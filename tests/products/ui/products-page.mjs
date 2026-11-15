@@ -108,6 +108,9 @@ async function open(w, { width, height, path = '/products', view = 'personal', p
     if (p === '/products/status' && w.statusMode === 'fail') return route.fulfill({ status: 500, json: { success: false, message: 'Server Error' } });
     if (p === '/products/status' && w.statusMode === 'old') return route.fulfill({ status: 404, contentType: 'text/html; charset=UTF-8', body: '<!DOCTYPE html><html lang="en"><head><title>Not Found</title></head><body><div>404 | Not Found</div></body></html>' });
     if (p === '/products/status') return route.fulfill({ json: { success: true, data: statusOf(w) } });
+    // w.slowListMs / w.slowSaveMs (final review I3/I4): the list / a product save answers that much later.
+    if (p === '/products' && m === 'GET' && w.slowListMs) await new Promise((r) => setTimeout(r, w.slowListMs));
+    if (/^\/products(\/\d+)?$/.test(p) && (m === 'POST' || m === 'PATCH') && w.slowSaveMs) await new Promise((r) => setTimeout(r, w.slowSaveMs));
     if (p === '/products' && m === 'GET') {
       if (!w.pilot || w.reason) return route.fulfill({ status: 403, json: { success: false, code: w.reason || 'not_available', message: 'x' } });
       const s = url.searchParams;
@@ -488,6 +491,49 @@ try {
       const patch = w.calls.filter((c) => c.m === 'PATCH').pop();
       expect(patch && Object.keys(patch.body).every((k) => ['status', 'tags', 'collections', 'internal_notes', 'show_price', 'show_enquire', 'category_ids'].includes(k)) && patch.body.status === 'archived', `${tag}: PATCH carries Studio-only fields only (${JSON.stringify(patch?.body)})`);
       await shootEditor(page, `${OUT}/${tag}-02-website.png`);
+      await context.close();
+    }
+  }
+  if (run('save')) {
+    // Final review I3 + I4: a second Save while the new product's list refreshes never POSTs again; while a save is on
+    // its way the fields are locked (nothing typed then is replaced by the server's copy).
+    for (const [width, height] of [[1280, 900], [390, 844]]) {
+      const tag = `save-${width}`;
+      const w = world();
+      const { page, context } = await open(w, { width, height });
+      await page.getByTestId('product-card').first().waitFor({ timeout: 15000 });
+      await page.getByRole('button', { name: 'Add a product' }).filter({ visible: true }).first().click();
+      const editor = page.getByTestId('product-editor');
+      await editor.waitFor({ timeout: 10000 });
+      await editor.getByLabel('Title', { exact: true }).fill('Ash Stool');
+      w.slowListMs = 2500;
+      const save = editor.getByRole('button', { name: /^(Save|Saving…)$/ }).last();
+      await save.click();
+      await page.waitForTimeout(700); // POST answered; the list refresh (onChanged) is still on its way
+      expect(w.calls.filter((c) => c.p === '/products' && c.m === 'POST').length === 1, `${tag}: (setup) the product was created`);
+      expect(await save.isDisabled(), `${tag}: Save stays disabled while the list refreshes after a create`);
+      await save.click({ force: true }).catch(() => {});
+      await save.dispatchEvent('click').catch(() => {});
+      await page.waitForTimeout(3500);
+      const posts = w.calls.filter((c) => c.p === '/products' && c.m === 'POST').length;
+      expect(posts === 1, `${tag}: … a second click never POSTs a second copy (${posts} POSTs)`);
+      expect(await editor.getByRole('button', { name: /Add photos or a video/ }).isVisible().catch(() => false), `${tag}: … and the new product is open`);
+      w.slowListMs = 0;
+
+      // An existing product: the fields are locked while its save is on its way.
+      await editor.getByLabel('Title', { exact: true }).fill('Ash Stool II');
+      w.slowSaveMs = 1500;
+      await editor.getByRole('button', { name: 'Save' }).last().click();
+      await page.waitForTimeout(400);
+      const title = editor.getByLabel('Title', { exact: true });
+      expect(await title.isDisabled(), `${tag}: while saving, the title is locked`);
+      expect(await editor.getByRole('textbox', { name: 'Full description' }).getAttribute('contenteditable') === 'false', `${tag}: … and the description too`);
+      expect(await editor.getByRole('heading', { name: 'Basics', exact: true }).isVisible(), `${tag}: … the form stays on screen`);
+      await page.screenshot({ path: `${OUT}/${tag}-01-saving-locked.png` });
+      await page.waitForTimeout(2000);
+      expect(!(await title.isDisabled()) && (await title.inputValue()) === 'Ash Stool II', `${tag}: after the save the title is editable again and saved`);
+      expect(w.calls.filter((c) => c.m === 'PATCH').pop()?.body?.title === 'Ash Stool II', `${tag}: … PATCHed`);
+      w.slowSaveMs = 0;
       await context.close();
     }
   }

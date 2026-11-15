@@ -130,18 +130,25 @@ export default function ProductEditor({ productId, categories, defaultCurrency, 
   const photos = (detail?.media || []).filter((m) => m.type === 'photo');
   const canSave = !readOnly && !failed;
 
+  // Final review I3: a save stays "saving" until the new product has opened, and a product this editor already created is
+  // saved with PATCH, so a second click while the list refreshes never POSTs a second copy.
+  const savingRef = useRef(false);
+  const createdId = useRef<number | null>(null);
   const save = async (patch?: Partial<ProductForm>) => {
-    if (saving) return;
+    if (saving || savingRef.current) return;
     const next = { ...form, ...patch };
     const errs = validateProductForm(next, editable);
     setErrors(errs);
     if (Object.keys(errs).length) { setMessage({ kind: 'error', text: CHECK_FIELDS }); return; }
+    savingRef.current = true;
     setSaving(true);
     setMessage(null);
     const body = payloadFromForm(next, editable);
-    const r = productId ? await productsAPI.update(productId, body) : await productsAPI.create(body);
-    setSaving(false);
+    const id = productId ?? createdId.current;
+    const r = id ? await productsAPI.update(id, body) : await productsAPI.create(body);
     if (!r.ok || !r.data) {
+      savingRef.current = false;
+      setSaving(false);
       const fieldErrors = r.fieldErrors || {};
       setErrors(fieldErrors);
       const keys = Object.keys(fieldErrors);
@@ -158,9 +165,15 @@ export default function ProductEditor({ productId, categories, defaultCurrency, 
     setSaved(JSON.stringify(f));
     setErrors({});
     setMessage({ kind: 'ok', text: 'Saved.' });
-    if (!productId) justCreated = r.data.id;
-    await onChanged();
-    if (!productId) onOpen(r.data.id); // stays open on the new product, so photos can be added
+    const isNew = !productId;
+    if (!isNew) { savingRef.current = false; setSaving(false); } // the form already holds the saved copy
+    else { justCreated = r.data.id; createdId.current = r.data.id; }
+    try {
+      await onChanged();
+      if (isNew) onOpen(r.data.id); // stays open on the new product, so photos can be added
+    } finally {
+      if (isNew) { savingRef.current = false; setSaving(false); }
+    }
   };
   const duplicate = async () => {
     if (!productId) return;
@@ -286,6 +299,9 @@ export default function ProductEditor({ productId, categories, defaultCurrency, 
           )}
           {readOnly && <p className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700">Shared by {detail?.owner?.name || 'your main account'}. You can view it here.</p>}
 
+          {/* Final review I4: while a save is on its way the fields are locked, so nothing typed then is replaced by the
+              server's copy and marked saved. */}
+          <fieldset disabled={saving} aria-busy={saving || undefined} className="m-0 min-w-0 border-0 p-0">
           <div className="grid gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
             <div className="min-w-0 space-y-4">
               <Section title="Basics">
@@ -293,7 +309,7 @@ export default function ProductEditor({ productId, categories, defaultCurrency, 
                 <Field id="p-short" label="Short description" error={errors.short_description}><textarea id="p-short" rows={2} maxLength={500} value={form.short_description} disabled={!can('short_description')} onChange={(e) => set('short_description', e.target.value)} className={textareaClass(Boolean(errors.short_description))} /></Field>
                 <div>
                   <span className={LABEL}>Full description</span>
-                  <ProductRichText label="Full description" value={form.description_html} resetKey={`${productId ?? 'new'}-${detail?.updated_at ?? ''}`} disabled={!can('description_html')} onChange={(html) => set('description_html', html)} />
+                  <ProductRichText label="Full description" value={form.description_html} resetKey={`${productId ?? 'new'}-${detail?.updated_at ?? ''}`} disabled={!can('description_html')} busy={saving} onChange={(html) => set('description_html', html)} />
                   <ErrorText text={errors.description_html} />
                 </div>
                 <div className="grid gap-4 sm:grid-cols-2">
@@ -382,6 +398,7 @@ export default function ProductEditor({ productId, categories, defaultCurrency, 
               )}
             </div>
           </div>
+          </fieldset>
 
           {/* Chris's rule: the card's messages sit at its bottom, next to Save. */}
           {canSave && (
