@@ -437,3 +437,41 @@ export function refreshBannerCopy(s: { changed: number; retired: number; manual_
     toast: (u) => `Updated ${moments(u)} from your website and products`,
   };
 }
+
+// ── Post-live P1 (15 Nov): the read-only product details view. ──
+
+/** The details view's line for a website product (it has no Edit). */
+export const WEBSITE_SYNC_NOTE = 'This product comes from your website and updates each time it syncs.';
+
+/**
+ * What the details view's header offers (P1). Manual: Edit + ⋯ (Duplicate, Archive / Unarchive, Delete). Website: no
+ * Edit; ⋯ keeps today's Duplicate and Archive / Unarchive, plus "Edit settings" (today's editor, where only its status,
+ * categories, tags, notes and visibility can change — NEVER-REMOVE). A salesperson's External view: nothing.
+ */
+export function detailActions(d: Pick<ProductDetail, 'read_only' | 'origin' | 'editable_fields' | 'status'>): {
+  edit: boolean; settings: boolean; duplicate: boolean; archive: 'archive' | 'unarchive' | null; remove: boolean; menu: boolean;
+} {
+  if (d.read_only) return { edit: false, settings: false, duplicate: false, archive: null, remove: false, menu: false };
+  const manual = d.origin === 'manual';
+  const canStatus = d.editable_fields.includes('status');
+  const archive = canStatus ? (d.status === 'archived' ? 'unarchive' : 'archive') : null;
+  const settings = !manual && d.editable_fields.some((f) => f !== 'media');
+  return { edit: manual, settings, duplicate: true, archive, remove: manual, menu: true };
+}
+
+/** The details view's facts list: only what the product has. */
+export function detailFacts(d: Pick<ProductDetail, 'sku' | 'brand' | 'product_type' | 'barcode' | 'quantity' | 'weight' | 'weight_unit' | 'dimensions'>): Array<{ label: string; value: string }> {
+  const out: Array<{ label: string; value: string }> = [];
+  const add = (label: string, value: unknown) => { const v = value == null ? '' : String(value).trim(); if (v) out.push({ label, value: v }); };
+  add('SKU', d.sku);
+  add('Brand', d.brand);
+  add('Product type', d.product_type);
+  add('Barcode / UPC', d.barcode);
+  add('Quantity', d.quantity);
+  if (d.weight != null && String(d.weight).trim()) add('Weight', `${d.weight} ${d.weight_unit || ''}`);
+  const dim = d.dimensions;
+  if (dim && (dim.length != null || dim.width != null || dim.height != null)) {
+    add('Dimensions', `${[dim.length, dim.width, dim.height].map((x) => (x == null ? '–' : String(x))).join(' × ')} ${dim.unit || ''}`);
+  }
+  return out;
+}

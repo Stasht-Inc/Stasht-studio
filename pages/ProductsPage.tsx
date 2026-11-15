@@ -1,13 +1,14 @@
 // pages/ProductsPage.tsx — Products (spec "Products page in Studio"; plan 2026-11-09-products-m1-m2 Tasks 12–14).
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Folder, Globe, Package, Plus, Search } from 'lucide-react';
-import { productsAPI, type ProductCategory, type ProductFilters as Filters, type ProductsPage as PageData, type ProductSort, type ProductSummary } from '../services/productsAPI';
+import { productsAPI, type ProductCategory, type ProductDetail, type ProductFilters as Filters, type ProductsPage as PageData, type ProductSort, type ProductSummary } from '../services/productsAPI';
 import { useInventoryViewKey } from '../hooks/useInventoryViewKey';
 import ProductCard from '../components/products/ProductCard';
 import ProductCategoryNav from '../components/products/ProductCategoryNav';
 import ProductFilters from '../components/products/ProductFilters';
 import ProductBulkBar from '../components/products/ProductBulkBar';
 import ProductEditor from '../components/products/ProductEditor';
+import ProductDetails from '../components/products/ProductDetails';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '../components/ui/sheet';
 import { useProperty } from '../contexts/PropertyContext';
 import { announceProductsChanged, PRODUCTS_CHANGED_EVENT, useProductsStatus } from '../hooks/useProductsStatus';
@@ -53,6 +54,11 @@ const FIELD = 'h-10 rounded-lg border border-gray-200 bg-gray-50 text-sm text-gr
 
 const DEFAULT_FILTERS: Filters = { status: [], sort: 'updated', page: 1 };
 
+/** Post-live P1: a card opens the read-only details view; Edit (and Add a product) the editor. The two swap. */
+type Layer =
+  | { kind: 'details'; id: number; initial?: ProductDetail; notice?: string }
+  | { kind: 'edit'; id: number | null };
+
 const SORTS: Array<[ProductSort, string]> = [['updated', 'Recently updated'], ['newest', 'Newest'], ['title', 'Title A–Z'], ['price_asc', 'Price: low to high'], ['price_desc', 'Price: high to low']];
 
 function ProductsReady({ onNavigate }: { onNavigate: (page: string) => void }) {
@@ -68,7 +74,7 @@ function ProductsReady({ onNavigate }: { onNavigate: (page: string) => void }) {
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<number[]>([]);
   const [bulkNotice, setBulkNotice] = useState<string | null>(null);
-  const [editor, setEditor] = useState<{ id: number | null } | null>(null);
+  const [layer, setLayer] = useState<Layer | null>(null);
   const [categorySheet, setCategorySheet] = useState(false);
   const ticket = useRef(0);
   const categoryTicket = useRef(0);
@@ -151,7 +157,7 @@ function ProductsReady({ onNavigate }: { onNavigate: (page: string) => void }) {
   const createButtons = (align: string) => canCreate && (
     <div className={`flex w-full flex-wrap gap-2 sm:w-auto ${align}`}>
       <button type="button" className={`${BUTTON_SECONDARY} flex-auto whitespace-nowrap sm:flex-none`} onClick={() => onNavigate('marketplace')}><Globe className="h-4 w-4" aria-hidden="true" />Import from your website</button>
-      <button type="button" className={`${BUTTON_PRIMARY} flex-auto whitespace-nowrap sm:flex-none`} onClick={() => setEditor({ id: null })}><Plus className="h-4 w-4" aria-hidden="true" />Add a product</button>
+      <button type="button" className={`${BUTTON_PRIMARY} flex-auto whitespace-nowrap sm:flex-none`} onClick={() => setLayer({ kind: 'edit', id: null })}><Plus className="h-4 w-4" aria-hidden="true" />Add a product</button>
     </div>
   );
 
@@ -205,7 +211,7 @@ function ProductsReady({ onNavigate }: { onNavigate: (page: string) => void }) {
         ) : (
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:gap-4 xl:grid-cols-4">
             {items.map((p) => (
-              <ProductCard key={p.id} product={p} selectable={!p.read_only} selected={selected.includes(p.id)} onToggle={() => toggle(p)} onOpen={() => setEditor({ id: p.id })} />
+              <ProductCard key={p.id} product={p} selectable={!p.read_only} selected={selected.includes(p.id)} onToggle={() => toggle(p)} onOpen={() => setLayer({ kind: 'details', id: p.id })} />
             ))}
           </div>
         )}
@@ -225,9 +231,16 @@ function ProductsReady({ onNavigate }: { onNavigate: (page: string) => void }) {
           <div className="p-2 pt-4">{nav}</div>
         </SheetContent>
       </Sheet>
-      {editor && (
-        <ProductEditor key={editor.id ?? 'new'} productId={editor.id} categories={ownCategories} defaultCurrency={status?.default_currency || 'CAD'}
-          onClose={() => setEditor(null)} onChanged={changed} onOpen={(id) => setEditor({ id })} />
+      {/* The search, filters, page and selection behind these layers stay as they were: closing comes back to them. */}
+      {layer?.kind === 'details' && (
+        <ProductDetails key={`details-${layer.id}`} productId={layer.id} initial={layer.initial} notice={layer.notice}
+          onClose={() => setLayer(null)} onEdit={(id) => setLayer({ kind: 'edit', id })} onDuplicated={(id) => setLayer({ kind: 'edit', id })} onChanged={changed} />
+      )}
+      {layer?.kind === 'edit' && (
+        <ProductEditor key={layer.id ?? 'new'} productId={layer.id} categories={ownCategories} defaultCurrency={status?.default_currency || 'CAD'}
+          onClose={() => setLayer(layer.id ? { kind: 'details', id: layer.id } : null)} onChanged={changed}
+          onOpen={(id) => setLayer({ kind: 'details', id, notice: 'Saved. Use Edit to add photos.' })}
+          onSaved={(d) => setLayer({ kind: 'details', id: d.id, initial: d, notice: 'Saved.' })} />
       )}
     </div>
   );

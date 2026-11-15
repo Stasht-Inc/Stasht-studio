@@ -1,17 +1,19 @@
 // components/products/ProductEditor.tsx — the full product editor (spec "Product editor"). Manual products: every group.
 // Website products: read-only except Studio-only fields (status, categories, tags, collections, notes, visibility).
-// A salesperson's view of the main account's product: read-only. Actions in M2: Duplicate, Archive, Delete (manual).
-// Preview / Copy link (M3), Share / newsletter / QR (M4) and Analytics (M5) come with their milestones (conflict C6).
+// A salesperson's view of the main account's product: read-only. Post-live P1 (15 Nov): the editor opens from the
+// product details view (ProductDetails), whose header now holds Duplicate, Archive and Delete; Save and Cancel go back
+// to that view. Preview / Copy link (M3), Share / newsletter / QR (M4) and Analytics (M5) come with their milestones.
 import { cloneElement, isValidElement, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactElement, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { FocusScope } from '@radix-ui/react-focus-scope';
-import { ArrowLeft, Copy, Archive, ArchiveRestore, Trash2, ExternalLink } from 'lucide-react';
-import { productsAPI, type ProductCategory, type ProductDetail, type ProductStatus } from '../../services/productsAPI';
+import { ArrowLeft, ExternalLink } from 'lucide-react';
+import { productsAPI, type ProductCategory, type ProductDetail } from '../../services/productsAPI';
+import { captureOpener, releaseOpener } from './layerFocus';
 import { useBackToClose } from '../newsletters/hooks/useBackToClose';
 import {
   WEBSITE_READ_ONLY_NOTE, editableFor, emptyProductForm, formFromDetail, payloadFromForm, validateProductForm, slugFromTitle, type ProductForm,
 } from '../../utils/products';
-import { BUTTON_PRIMARY, BUTTON_SECONDARY, LABEL, LINK_BUTTON, inputClass, textareaClass } from '../newsletters/lib/ui';
+import { BUTTON_PRIMARY, LABEL, LINK_BUTTON, inputClass, textareaClass } from '../newsletters/lib/ui';
 import { Switch } from '../ui/switch';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '../ui/alert-dialog';
 import ProductMediaField from './ProductMediaField';
@@ -23,12 +25,6 @@ const CHECK_FIELDS = 'Check the highlighted fields.';
 
 /** Error keys the editor shows under a field; anything else (an unexpected API key) is listed at the bottom of the card. */
 const PLACED = /^(title|short_description|description_html|brand|product_type|price|compare_at_price|currency|sku|barcode|quantity|weight|weight_unit|dimensions(\.(length|width|height|unit))?|slug|seo_title|seo_description|share_image|buy_url|internal_notes|status|category_ids(\.\d+)?|tags(\.\d+)?|collections(\.\d+)?|attributes(\.\d+\.(label|value))?|options(\.\d+\.(name|values(\.\d+)?))?|variants(\.\d+\.(price|compare_at_price|sku|quantity|image_id))?)$/;
-
-/** Set when Save creates a product: the editor remounts on the new id (ProductsPage's key) and still says "Saved." */
-let justCreated: number | null = null;
-/** What had focus when the editor opened (a product card, Add a product). Kept across the remount after a create or a
- *  duplicate, and focused again when the editor finally closes. */
-let opener: HTMLElement | null = null;
 
 const under = (errors: Record<string, string>, key: string): string | undefined =>
   errors[key] ?? Object.entries(errors).find(([k]) => k.startsWith(`${key}.`))?.[1];
@@ -60,10 +56,14 @@ function Field({ id, label, error, hint, children }: { id: string; label: string
 
 const ErrorText = ({ id, text }: { id?: string; text?: string }) => (text ? <p id={id} className="mt-1 text-xs text-red-600">{text}</p> : null);
 
-type Confirm = { kind: 'delete' } | { kind: 'leave'; then(): void };
+type Confirm = { kind: 'leave'; then(): void };
 
-export default function ProductEditor({ productId, categories, defaultCurrency, onClose, onChanged, onOpen }: {
-  productId: number | null; categories: ProductCategory[]; defaultCurrency: string; onClose(): void; onChanged(): Promise<void>; onOpen(id: number): void;
+export default function ProductEditor({ productId, categories, defaultCurrency, onClose, onChanged, onOpen, onSaved }: {
+  productId: number | null; categories: ProductCategory[]; defaultCurrency: string; onClose(): void; onChanged(): Promise<void>;
+  /** After the first save of a new product: show that product (its details view). */
+  onOpen(id: number): void;
+  /** After a save of an existing product: back to its details view, with the saved copy. */
+  onSaved?(detail: ProductDetail): void;
 }) {
   const [detail, setDetail] = useState<ProductDetail | null>(null);
   const [form, setForm] = useState<ProductForm>(() => emptyProductForm(defaultCurrency));
@@ -85,27 +85,20 @@ export default function ProductEditor({ productId, categories, defaultCurrency, 
       if (r.ok && r.data) {
         const f = formFromDetail(r.data);
         setDetail(r.data); setForm(f); setSaved(JSON.stringify(f));
-        if (justCreated === productId) { justCreated = null; setMessage({ kind: 'ok', text: 'Saved. You can add photos now.' }); }
       } else setMessage({ kind: 'error', text: r.error || 'This product could not be opened. Please try again.' });
     });
     return () => { cancelled = true; };
   }, [productId]);
 
   // A full-screen layer: the page behind it doesn't scroll. Focus is trapped inside (FocusScope below) and goes back to
-  // what opened it when it finally closes (not when it only remounts on a new id after a create or a duplicate).
+  // what opened it when the last product layer closes (not when it swaps to the details view: layerFocus.ts).
   useEffect(() => {
     const before = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
-    const active = document.activeElement;
-    // Not the page body (what has focus after the previous editor's button left with it, on a remount): keep the first opener.
-    if (active instanceof HTMLElement && active !== document.body && !active.closest('[data-testid="product-editor"]')) opener = active;
+    captureOpener();
     return () => {
       document.body.style.overflow = before;
-      window.setTimeout(() => {
-        if (document.querySelector('[data-testid="product-editor"]')) return; // remounted on another product
-        if (opener?.isConnected) opener.focus({ preventScroll: true });
-        opener = null;
-      }, 0);
+      releaseOpener();
     };
   }, []);
 
@@ -167,54 +160,21 @@ export default function ProductEditor({ productId, categories, defaultCurrency, 
     setMessage({ kind: 'ok', text: 'Saved.' });
     const isNew = !productId;
     if (!isNew) { savingRef.current = false; setSaving(false); } // the form already holds the saved copy
-    else { justCreated = r.data.id; createdId.current = r.data.id; }
+    else createdId.current = r.data.id;
+    const savedDetail = r.data;
     try {
       await onChanged();
-      if (isNew) onOpen(r.data.id); // stays open on the new product, so photos can be added
+      // Post-live P1: a new product opens on its details view (still "saving" until then: I3, no second POST); an
+      // existing one goes back to its details view, showing what was saved.
+      if (isNew) onOpen(savedDetail.id);
+      else onSaved?.(savedDetail);
     } finally {
       if (isNew) { savingRef.current = false; setSaving(false); }
     }
   };
-  const duplicate = async () => {
-    if (!productId) return;
-    const r = await productsAPI.duplicate(productId);
-    if (!r.ok || !r.data) { setMessage({ kind: 'error', text: r.error || 'The product could not be duplicated. Please try again.' }); return; }
-    await onChanged();
-    onOpen(r.data.id);
-  };
-  const remove = async () => {
-    if (!productId) return;
-    const r = await productsAPI.remove(productId);
-    if (!r.ok) { setMessage({ kind: 'error', text: r.error || 'The product could not be deleted. Please try again.' }); return; }
-    await onChanged();
-    onClose();
-  };
-  // Unsaved edits ask first, whether the editor closes or another product (a duplicate) opens.
+  // Unsaved edits ask first before the editor closes.
   const guarded = (then: () => void) => (dirty && canSave ? setConfirm({ kind: 'leave', then }) : then());
   const close = () => guarded(onClose);
-  const archived = detail?.status === 'archived'; // the saved status: the Status menu may hold an unsaved choice
-
-  // Archive / Unarchive change the status only, on the server and in the form; any other edits stay unsaved.
-  const setStatus = async (status: ProductStatus) => {
-    if (!productId || saving) return;
-    setSaving(true);
-    setMessage(null);
-    const r = await productsAPI.update(productId, { status });
-    setSaving(false);
-    if (!r.ok || !r.data) {
-      const why = r.fieldErrors?.status;
-      if (why) setErrors((e) => ({ ...e, status: why }));
-      setMessage({ kind: 'error', text: why ? CHECK_FIELDS : r.error || 'The status could not be changed. Please try again.' });
-      return;
-    }
-    const now = r.data.status;
-    setDetail(r.data);
-    setForm((f) => ({ ...f, status: now }));
-    setSaved((s) => JSON.stringify({ ...(JSON.parse(s) as ProductForm), status: now }));
-    clearErrors('status');
-    setMessage({ kind: 'ok', text: now === 'archived' ? 'Archived.' : 'Unarchived.' });
-    await onChanged();
-  };
 
   // Closing or reloading the tab with unsaved edits: the browser asks first.
   const unsaved = dirty && canSave;
@@ -269,19 +229,11 @@ export default function ProductEditor({ productId, categories, defaultCurrency, 
     <div ref={root} tabIndex={-1} onKeyDown={onKeyDown} data-testid="product-editor" role="dialog" aria-modal="true" aria-label={productId ? form.title || 'Product' : 'New product'}
       className="fixed inset-0 z-50 overflow-y-auto overscroll-contain bg-gray-50 outline-none">
       <header className="sticky top-0 z-10 flex flex-wrap items-center gap-2 border-b border-gray-200 bg-white px-4 py-3 md:px-6">
-        <button type="button" aria-label="Close" className={`${LINK_BUTTON} h-10`} onClick={close}><ArrowLeft className="h-4 w-4" aria-hidden="true" />Products</button>
+        {/* A new product closes to the list ("Products"); an existing one goes back to its details view ("Cancel"). */}
+        {productId
+          ? <button type="button" className={`${LINK_BUTTON} h-10`} onClick={close}><ArrowLeft className="h-4 w-4" aria-hidden="true" />Cancel</button>
+          : <button type="button" aria-label="Close" className={`${LINK_BUTTON} h-10`} onClick={close}><ArrowLeft className="h-4 w-4" aria-hidden="true" />Products</button>}
         <h1 className="min-w-0 flex-1 truncate text-lg font-semibold text-gray-900">{productId ? form.title || 'Product' : 'New product'}</h1>
-        {productId && detail && !readOnly && (
-          <div className="order-last flex w-full flex-wrap gap-2 sm:order-none sm:w-auto">
-            <button type="button" className={`${BUTTON_SECONDARY} flex-1 !px-3 sm:flex-none`} onClick={() => guarded(() => void duplicate())}><Copy className="h-4 w-4" aria-hidden="true" />Duplicate</button>
-            {can('status') && (
-              <button type="button" className={`${BUTTON_SECONDARY} flex-1 !px-3 sm:flex-none`} disabled={saving} onClick={() => void setStatus(archived ? 'active' : 'archived')}>
-                {archived ? <ArchiveRestore className="h-4 w-4" aria-hidden="true" /> : <Archive className="h-4 w-4" aria-hidden="true" />}{archived ? 'Unarchive' : 'Archive'}
-              </button>
-            )}
-            {detail.origin === 'manual' && <button type="button" className={`${BUTTON_SECONDARY} flex-1 !px-3 text-red-600 sm:flex-none`} onClick={() => setConfirm({ kind: 'delete' })}><Trash2 className="h-4 w-4" aria-hidden="true" />Delete</button>}
-          </div>
-        )}
         {canSave && <button type="button" className={BUTTON_PRIMARY} disabled={saving || loading} onClick={() => void save()}>{saving ? 'Saving…' : 'Save'}</button>}
       </header>
 
@@ -414,14 +366,14 @@ export default function ProductEditor({ productId, categories, defaultCurrency, 
       <AlertDialog open={confirm !== null} onOpenChange={(o) => { if (!o) setConfirm(null); }}>
         <AlertDialogContent className="bg-white">
           <AlertDialogHeader>
-            <AlertDialogTitle>{confirm?.kind === 'delete' ? 'Delete this product?' : 'Leave without saving?'}</AlertDialogTitle>
-            <AlertDialogDescription>{confirm?.kind === 'delete' ? "Campaigns that already show it keep their moments. This can't be undone." : 'Your changes will be lost.'}</AlertDialogDescription>
+            <AlertDialogTitle>Leave without saving?</AlertDialogTitle>
+            <AlertDialogDescription>Your changes will be lost.</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>{confirm?.kind === 'delete' ? 'Cancel' : 'Keep editing'}</AlertDialogCancel>
-            <AlertDialogAction className={confirm?.kind === 'delete' ? 'bg-red-600 text-white hover:bg-red-700' : 'bg-[#6C60FF] text-white hover:bg-[#5B50E6]'}
-              onClick={() => { const c = confirm; setConfirm(null); if (c?.kind === 'delete') void remove(); else c?.then(); }}>
-              {confirm?.kind === 'delete' ? 'Delete' : 'Leave'}
+            <AlertDialogCancel>Keep editing</AlertDialogCancel>
+            <AlertDialogAction className="bg-[#6C60FF] text-white hover:bg-[#5B50E6]"
+              onClick={() => { const c = confirm; setConfirm(null); c?.then(); }}>
+              Leave
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
