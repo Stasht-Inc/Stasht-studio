@@ -477,7 +477,24 @@ try {
       expect(await xc.first().getByText('Shared by Serpa Chrysler').isVisible().catch(() => false), `${tag}: cards say who shared them`);
       expect(xw.calls.some((c) => c.p === '/products' && c.view === '31'), `${tag}: the list is asked with the property header`);
       await x.page.screenshot({ path: `${OUT}/${tag}-06-external.png` });
+      // Pre-merge D1: the External view lists active products only, so its Filters offer no Draft / Archived.
+      await x.page.getByRole('button', { name: /^Filters/ }).filter({ visible: true }).first().click();
+      const xStatus = x.page.getByRole('group', { name: 'Status' });
+      await xStatus.waitFor({ timeout: 5000 }).catch(() => {});
+      const xLabels = (await xStatus.getByRole('checkbox').evaluateAll((els) => els.map((e) => e.parentElement.textContent.trim()))).join(',');
+      expect(xLabels === 'Active,Out of stock', `${tag}: External view status filter is Active + Out of stock only (got ${xLabels})`);
+      expect(await x.page.getByRole('group', { name: 'Source' }).isVisible().catch(() => false), `${tag}: … the other filters stay (Source)`);
+      await x.page.screenshot({ path: `${OUT}/${tag}-07-external-filters.png` });
       await x.context.close();
+      // … and the account's own Products page keeps every status.
+      const ow = await open(world(), { width, height });
+      await ow.page.getByTestId('product-card').first().waitFor({ timeout: 15000 }).catch(() => {});
+      await ow.page.getByRole('button', { name: /^Filters/ }).filter({ visible: true }).first().click();
+      const oStatus = ow.page.getByRole('group', { name: 'Status' });
+      await oStatus.waitFor({ timeout: 5000 }).catch(() => {});
+      const oLabels = (await oStatus.getByRole('checkbox').evaluateAll((els) => els.map((e) => e.parentElement.textContent.trim()))).join(',');
+      expect(oLabels === 'Active,Draft,Out of stock,Archived', `${tag}: the account's own status filter keeps all four (got ${oLabels})`);
+      await ow.context.close();
     }
   }
   if (run('pager')) {

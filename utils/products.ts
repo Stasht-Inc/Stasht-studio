@@ -388,3 +388,11 @@ export function slugFromTitle(title: string): string {
   return title.normalize('NFKD').replace(/[̀-ͯ]/g, '').toLowerCase()
     .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 110).replace(/-+$/g, '');
 }
+
+/**
+ * The Products page's status filter (pre-merge D1, 15 Nov): a salesperson's External view (can_create false) lists only
+ * the main account's ACTIVE products, so Draft and Archived could never match there. Out of stock is still active.
+ */
+export function filterStatusesFor(canCreate: boolean): ProductBadge[] {
+  return canCreate ? ['active', 'draft', 'out_of_stock', 'archived'] : ['active', 'out_of_stock'];
+}

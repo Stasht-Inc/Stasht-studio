@@ -8,7 +8,8 @@ import { BUTTON_PRIMARY, BUTTON_SECONDARY, LABEL, inputClass } from '../newslett
 
 const BADGES: ProductBadge[] = ['active', 'draft', 'out_of_stock', 'archived'];
 
-export default function ProductFilters({ value, onChange }: { value: Filters; onChange(patch: Partial<Filters>): void }) {
+/** `statuses`: the status choices to offer (a salesperson's External view lists active products only: utils/products filterStatusesFor). */
+export default function ProductFilters({ value, onChange, statuses = BADGES }: { value: Filters; onChange(patch: Partial<Filters>): void; statuses?: ProductBadge[] }) {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState<Filters>(value);
   useEffect(() => { if (open) setDraft(value); }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -25,7 +26,7 @@ export default function ProductFilters({ value, onChange }: { value: Filters; on
         <Popover.Content align="end" sideOffset={6} collisionPadding={16} className="z-50 max-h-[var(--radix-popover-content-available-height)] w-[min(18rem,calc(100vw-2rem))] space-y-4 overflow-y-auto rounded-xl border border-gray-200 bg-white p-4 shadow-lg">
           <fieldset>
             <legend className={LABEL}>Status</legend>
-            {BADGES.map((b) => (
+            {statuses.map((b) => (
               <label key={b} className="flex items-center gap-2 py-1 text-sm text-gray-800">
                 <input type="checkbox" checked={Boolean(draft.status?.includes(b))} onChange={() => toggle(b)} className="h-4 w-4 accent-[#6C60FF]" />{BADGE_LABEL[b]}
               </label>

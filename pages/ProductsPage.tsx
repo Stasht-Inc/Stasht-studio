@@ -11,7 +11,7 @@ import ProductEditor from '../components/products/ProductEditor';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '../components/ui/sheet';
 import { useProperty } from '../contexts/PropertyContext';
 import { announceProductsChanged, PRODUCTS_CHANGED_EVENT, useProductsStatus } from '../hooks/useProductsStatus';
-import { pageToClampTo, productsGate, UPGRADE_LINE } from '../utils/products';
+import { filterStatusesFor, pageToClampTo, productsGate, UPGRADE_LINE } from '../utils/products';
 import { requestUpgrade } from '../utils/planEvents';
 import { BUTTON_PRIMARY, BUTTON_SECONDARY } from '../components/newsletters/lib/ui';
 
@@ -175,7 +175,7 @@ function ProductsReady({ onNavigate }: { onNavigate: (page: string) => void }) {
             <input type="search" aria-label="Search products" placeholder="Search by title, SKU or brand" value={search} onChange={(e) => setSearch(e.target.value)} className={`${FIELD} w-full pl-10 pr-3 placeholder:text-gray-400`} />
           </label>
           <button type="button" className={`${BUTTON_SECONDARY} flex-1 sm:flex-none md:hidden`} onClick={() => setCategorySheet(true)}><Folder className="h-4 w-4" aria-hidden="true" />Categories</button>
-          <div className="flex-1 sm:flex-none [&>button]:w-full"><ProductFilters value={filters} onChange={(patch) => setFilters((f) => ({ ...f, ...patch }))} /></div>
+          <div className="flex-1 sm:flex-none [&>button]:w-full"><ProductFilters value={filters} statuses={filterStatusesFor(canCreate)} onChange={(patch) => setFilters((f) => ({ ...f, ...patch }))} /></div>
           <select aria-label="Sort" value={filters.sort || 'updated'} onChange={(e) => setFilters((f) => ({ ...f, sort: e.target.value as ProductSort, page: 1 }))} className={`${FIELD} w-full px-3 sm:w-48`}>
             {SORTS.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
           </select>
