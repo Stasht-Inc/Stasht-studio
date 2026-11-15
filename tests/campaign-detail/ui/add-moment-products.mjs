@@ -32,8 +32,10 @@ const expect = (ok, label) => { if (!ok) failures.push(label); console.log(ok ? 
 const browser = await chromium.launch({ headless: true, channel: 'chrome' });
 
 // Task 16: productsStatusFail = /products/status answers 500; productsPage2Fail = /products has 2 pages, page 2 answers 500.
-async function open({ width, height, planRequired = false, productsOn = false, productsStatusFail = false, productsPage2Fail = false }) {
-  const state = { puts: [], sends: [], counts: 0, title: CAMPAIGN.title, deleted: false, created: [], momentCalls: [], itemCalls: 0, statusCalls: 0, page2Calls: 0, productQueries: [] };
+// Final review C1: productsStatusHtml = /products/status answers Laravel's HTML 404 page (the real older API: Studio sends
+// no Accept: application/json, so an unmatched route renders HTML, which apiRequest can't parse).
+async function open({ width, height, planRequired = false, productsOn = false, productsStatusFail = false, productsPage2Fail = false, productsStatusHtml = false }) {
+  const state = { puts: [], sends: [], counts: 0, title: CAMPAIGN.title, deleted: false, created: [], momentCalls: [], itemCalls: 0, statusCalls: 0, page2Calls: 0, productQueries: [], productListCalls: 0 };
   const context = await browser.newContext({ viewport: { width, height }, serviceWorkers: 'block', locale: 'en-US', hasTouch: width < 1024, isMobile: width < 1024 });
   await context.addInitScript(([user]) => {
     if (sessionStorage.getItem('cd-seeded')) return;
@@ -91,6 +93,8 @@ async function open({ width, height, planRequired = false, productsOn = false, p
     // Products plan 2026-11-09 Task 15: with the switch on, Products lists manual products too (from /products).
     if (p === '/products/status') state.statusCalls++;
     if (p === '/products/status' && productsStatusFail) return route.fulfill({ status: 500, json: { success: false, message: 'Server Error' } });
+    if (p === '/products/status' && productsStatusHtml) return route.fulfill({ status: 404, contentType: 'text/html; charset=UTF-8', body: '<!DOCTYPE html><html lang="en"><head><title>Not Found</title></head><body><div>404 | Not Found</div></body></html>' });
+    if (p === '/products' && m === 'GET') state.productListCalls++;
     if (p === '/products' && m === 'GET' && productsOn && productsPage2Fail && url.searchParams.get('page') === '2') {
       state.page2Calls++;
       return route.fulfill({ status: 500, json: { success: false, message: 'Server Error' } });
@@ -249,10 +253,29 @@ try {
     const sf = await open({ width, height, productsOn: true, productsStatusFail: true });
     await openCampaign(sf.page);
     await openAddMoment(sf.page, width);
+    // … and lists exactly what development lists: the Website Catalogue's items, never /products (fail open, final review C1).
+    await sf.page.getByRole('radiogroup', { name: 'Add from' }).getByRole('radio', { name: 'Products' }).click();
+    await sf.page.waitForTimeout(500);
+    expect(await sf.page.getByRole('checkbox', { name: /Pine shelf/ }).isVisible().catch(() => false) && await sf.page.getByRole('checkbox', { name: /Oak bench/ }).isVisible().catch(() => false),
+      `${tag}: products status failed → the Website Catalogue items are listed, as development`);
+    expect(!(await sf.page.getByRole('checkbox', { name: /Walnut chair/ }).count()) && sf.state.productListCalls === 0, `${tag}: … no /products list (${sf.state.productListCalls} calls)`);
+    await sf.page.screenshot({ path: `${OUT}/${tag}-06-products-status-failed.png` });
     let before = sf.state.statusCalls;
     await reopen(sf);
     expect(sf.state.statusCalls > before, `${tag}: products status failed → the list is not cached (asked again on reopen: ${before} → ${sf.state.statusCalls})`);
     await sf.context.close();
+
+    // An older API (Laravel's HTML 404 on /products/status): exactly as development.
+    const h4 = await open({ width, height, productsOn: true, productsStatusHtml: true });
+    await openCampaign(h4.page);
+    await openAddMoment(h4.page, width);
+    await h4.page.getByRole('radiogroup', { name: 'Add from' }).getByRole('radio', { name: 'Products' }).click();
+    await h4.page.waitForTimeout(500);
+    expect(await h4.page.getByRole('checkbox', { name: /Pine shelf/ }).isVisible().catch(() => false) && await h4.page.getByRole('checkbox', { name: /Oak bench/ }).isVisible().catch(() => false),
+      `${tag}: older API (HTML 404 status) → the Website Catalogue items are listed, as development`);
+    expect(!(await h4.page.getByRole('checkbox', { name: /Walnut chair/ }).count()) && h4.state.productListCalls === 0, `${tag}: … no /products list (${h4.state.productListCalls} calls)`);
+    await h4.page.screenshot({ path: `${OUT}/${tag}-07-older-api-html-404.png` });
+    await h4.context.close();
 
     const pf = await open({ width, height, productsOn: true, productsPage2Fail: true });
     await openCampaign(pf.page);
