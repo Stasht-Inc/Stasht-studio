@@ -205,6 +205,24 @@ async function open(w, { width, height, path = '/products', view = 'personal', p
 
 const run = (name) => !ONLY || ONLY === name;
 
+// Re-review I5-N1: watch the bulk dialog every frame while it closes (its fade-out is 200 ms); true if it ever showed
+// the Delete wording ("Delete N products?" / a Delete button) after a status or category choice.
+async function closeShowsDelete(page, click) {
+  await page.evaluate(() => {
+    window.__sawDelete = false;
+    const until = performance.now() + 900;
+    const tick = () => {
+      const d = document.querySelector('[role="alertdialog"]');
+      if (d && (/Delete \d+ products?\?/.test(d.textContent || '') || [...d.querySelectorAll('button')].some((x) => x.textContent.trim() === 'Delete'))) window.__sawDelete = true;
+      if (performance.now() < until) requestAnimationFrame(tick);
+    };
+    tick();
+  });
+  await click();
+  await page.waitForTimeout(1000);
+  return page.evaluate(() => window.__sawDelete);
+}
+
 // The product editor is a fixed layer that scrolls itself: grow the viewport to its full height for one shot.
 async function shootEditor(page, path) {
   const size = page.viewportSize();
@@ -352,20 +370,23 @@ try {
       expect(await ask.getByText('Set 2 products to Archived?').isVisible().catch(() => false), `${tag}: Change status asks "Set 2 products to Archived?"`);
       expect(!w.calls.some((c) => c.p === '/products/bulk'), `${tag}: … and sends nothing yet`);
       await page.screenshot({ path: `${OUT}/${tag}-02a-bulk-confirm.png` });
-      await ask.getByRole('button', { name: 'Cancel' }).click();
-      await page.waitForTimeout(300);
+      expect(!(await closeShowsDelete(page, () => ask.getByRole('button', { name: 'Cancel' }).click())), `${tag}: the closing status dialog never shows the Delete wording (Cancel)`);
       expect(!w.calls.some((c) => c.p === '/products/bulk') && await bar.getByText('2 selected').isVisible(), `${tag}: Cancel sends nothing and keeps the selection`);
       expect(await bar.getByRole('combobox', { name: 'Change status' }).inputValue() === '', `${tag}: … and the select is back on "Change status"`);
       await bar.getByRole('combobox', { name: 'Add to category' }).selectOption({ label: 'Chairs' });
       await page.waitForTimeout(300);
       expect(await ask.getByText('Add 2 products to Chairs?').isVisible().catch(() => false), `${tag}: Add to category asks "Add 2 products to Chairs?"`);
-      await ask.getByRole('button', { name: 'Cancel' }).click();
-      await page.waitForTimeout(300);
+      expect(!(await closeShowsDelete(page, () => ask.getByRole('button', { name: 'Cancel' }).click())), `${tag}: the closing category dialog never shows the Delete wording (Cancel)`);
       expect(!w.calls.some((c) => c.p === '/products/bulk'), `${tag}: … Cancel sends nothing`);
+      // Category Confirm (the stub keeps the selection: it skips nothing, but the page keeps the bar with its result).
+      await bar.getByRole('combobox', { name: 'Add to category' }).selectOption({ label: 'Chairs' });
+      expect(!(await closeShowsDelete(page, () => page.getByRole('alertdialog').getByRole('button', { name: 'Confirm' }).click())), `${tag}: the closing category dialog never shows the Delete wording (Confirm)`);
+      expect(w.calls.some((c) => c.p === '/products/bulk' && c.body.action === 'category' && c.body.category_id === 1), `${tag}: … Add to category Confirm sends it`);
+      await cards.filter({ hasText: 'Walnut Chair' }).getByRole('checkbox').check();
+      await cards.filter({ hasText: 'Harbour Sofa' }).getByRole('checkbox').check();
       await bar.getByRole('combobox', { name: 'Change status' }).selectOption('archived');
-      await page.getByRole('alertdialog').getByRole('button', { name: 'Confirm' }).click();
-      await page.waitForTimeout(800);
-      const bulk = w.calls.find((c) => c.p === '/products/bulk');
+      expect(!(await closeShowsDelete(page, () => page.getByRole('alertdialog').getByRole('button', { name: 'Confirm' }).click())), `${tag}: the closing status dialog never shows the Delete wording (Confirm)`);
+      const bulk = w.calls.find((c) => c.p === '/products/bulk' && c.body.action === 'status');
       expect(bulk && bulk.body.action === 'status' && bulk.body.status === 'archived' && bulk.body.ids.length === 2, `${tag}: bulk archive sent (${JSON.stringify(bulk?.body)})`);
       expect(await cards.filter({ hasText: 'Walnut Chair' }).getByText('Archived', { exact: true }).isVisible(), `${tag}: the grid shows Archived after it`);
       await page.screenshot({ path: `${OUT}/${tag}-02-bulk.png` });
