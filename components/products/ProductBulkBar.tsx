@@ -14,6 +14,9 @@ export interface BulkOutcome {
   keepIds: number[]; // what the API skipped: stays selected
 }
 
+type Pending = { action: 'delete' } | { action: 'status'; status: ProductStatus } | { action: 'category'; category_id: number; name: string };
+const STATUS_LABEL: Record<string, string> = { active: 'Active', draft: 'Draft', archived: 'Archived' };
+
 export default function ProductBulkBar({ selected, categories, notice, onDone, onClear }: {
   selected: ProductSummary[];
   categories: ProductCategory[];
@@ -23,11 +26,14 @@ export default function ProductBulkBar({ selected, categories, notice, onDone, o
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [confirm, setConfirm] = useState(false);
+  // Final review I5: every bulk action asks first, in the same dialog as Delete (a single keypress on a closed select
+  // fires its change on Windows / Linux).
+  const [confirm, setConfirm] = useState<Pending | null>(null);
   const hintId = useId();
   const ids = selected.map((p) => p.id);
   const hasWebsite = selected.some((p) => p.origin !== 'manual');
   const canDelete = selected.length > 0 && !hasWebsite && !busy;
+  const count = `${selected.length} ${selected.length === 1 ? 'product' : 'products'}`;
 
   const apply = async (body: { action: 'status' | 'category' | 'delete'; status?: ProductStatus; category_id?: number; mode?: 'add' }) => {
     setBusy(true);
@@ -45,7 +51,7 @@ export default function ProductBulkBar({ selected, categories, notice, onDone, o
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-sm font-medium text-gray-900">{selected.length} selected</span>
           <select aria-label="Change status" value="" disabled={busy} className={`${inputClass()} sm:w-auto`}
-            onChange={(e) => { if (e.target.value) void apply({ action: 'status', status: e.target.value as ProductStatus }); }}>
+            onChange={(e) => { if (e.target.value) setConfirm({ action: 'status', status: e.target.value as ProductStatus }); }}>
             <option value="">Change status</option>
             <option value="active">Active</option>
             <option value="draft">Draft</option>
@@ -53,7 +59,10 @@ export default function ProductBulkBar({ selected, categories, notice, onDone, o
           </select>
           {categories.length > 0 && (
             <select aria-label="Add to category" value="" disabled={busy} className={`${inputClass()} sm:w-auto`}
-              onChange={(e) => { if (e.target.value) void apply({ action: 'category', category_id: Number(e.target.value), mode: 'add' }); }}>
+              onChange={(e) => {
+                const c = categories.find((x) => String(x.id) === e.target.value);
+                if (c) setConfirm({ action: 'category', category_id: c.id, name: c.name });
+              }}>
               <option value="">Add to category</option>
               {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
@@ -61,7 +70,7 @@ export default function ProductBulkBar({ selected, categories, notice, onDone, o
           {/* aria-disabled (not disabled) so it stays focusable and screen readers read the hint below. */}
           <button type="button" className={`${BUTTON_SMALL} aria-disabled:cursor-not-allowed aria-disabled:opacity-50`}
             aria-disabled={!canDelete} aria-describedby={hasWebsite ? hintId : undefined}
-            onClick={() => { if (canDelete) setConfirm(true); }}>
+            onClick={() => { if (canDelete) setConfirm({ action: 'delete' }); }}>
             <Trash2 className="h-4 w-4" aria-hidden="true" />Delete
           </button>
           <button type="button" className={`${LINK_BUTTON} ml-auto`} onClick={onClear}>Clear selection</button>
@@ -76,15 +85,27 @@ export default function ProductBulkBar({ selected, categories, notice, onDone, o
       {hasWebsite && <p id={hintId} className="mt-2 text-xs text-gray-600">{WEBSITE_DELETE_HINT}</p>}
       {notice && selected.length > 0 && <p role="status" className="mt-2 text-sm text-gray-800">{notice}</p>}
       {error && <p role="alert" className="mt-2 text-sm text-red-600">{error}</p>}
-      <AlertDialog open={confirm} onOpenChange={setConfirm}>
-        <AlertDialogContent className="bg-white">
+      <AlertDialog open={confirm !== null} onOpenChange={(o) => { if (!o) setConfirm(null); }}>
+        {/* Only Delete has a description; the others say it all in the title. */}
+        <AlertDialogContent className="bg-white" {...(confirm?.action === 'delete' ? {} : { 'aria-describedby': undefined })}>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete {selected.length} {selected.length === 1 ? 'product' : 'products'}?</AlertDialogTitle>
-            <AlertDialogDescription>Campaigns that already show them keep their moments. This can't be undone.</AlertDialogDescription>
+            <AlertDialogTitle>
+              {confirm?.action === 'status' ? `Set ${count} to ${STATUS_LABEL[confirm.status] ?? confirm.status}?`
+                : confirm?.action === 'category' ? `Add ${count} to ${confirm.name}?`
+                  : `Delete ${count}?`}
+            </AlertDialogTitle>
+            {confirm?.action === 'delete' && <AlertDialogDescription>Campaigns that already show them keep their moments. This can't be undone.</AlertDialogDescription>}
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction className="bg-red-600 text-white hover:bg-red-700" onClick={() => void apply({ action: 'delete' })}>Delete</AlertDialogAction>
+            {confirm?.action === 'delete' ? (
+              <AlertDialogAction className="bg-red-600 text-white hover:bg-red-700" onClick={() => void apply({ action: 'delete' })}>Delete</AlertDialogAction>
+            ) : (
+              <AlertDialogAction className="bg-[#6C60FF] text-white hover:bg-[#5B50E6]" onClick={() => {
+                if (confirm?.action === 'status') void apply({ action: 'status', status: confirm.status });
+                else if (confirm?.action === 'category') void apply({ action: 'category', category_id: confirm.category_id, mode: 'add' });
+              }}>Confirm</AlertDialogAction>
+            )}
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

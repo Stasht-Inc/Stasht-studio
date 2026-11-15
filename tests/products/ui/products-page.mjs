@@ -343,7 +343,25 @@ try {
       const bar = page.getByTestId('product-bulk-bar');
       expect(await bar.getByText('2 selected').isVisible(), `${tag}: the bulk bar says 2 selected`);
       expect(await bar.getByRole('button', { name: 'Delete' }).isDisabled(), `${tag}: Delete is off while a website product is selected`);
+      // Final review I5: choosing in a bulk select only asks (a single keypress fires change); Cancel sends nothing.
       await bar.getByRole('combobox', { name: 'Change status' }).selectOption('archived');
+      await page.waitForTimeout(300);
+      const ask = page.getByRole('alertdialog');
+      expect(await ask.getByText('Set 2 products to Archived?').isVisible().catch(() => false), `${tag}: Change status asks "Set 2 products to Archived?"`);
+      expect(!w.calls.some((c) => c.p === '/products/bulk'), `${tag}: … and sends nothing yet`);
+      await page.screenshot({ path: `${OUT}/${tag}-02a-bulk-confirm.png` });
+      await ask.getByRole('button', { name: 'Cancel' }).click();
+      await page.waitForTimeout(300);
+      expect(!w.calls.some((c) => c.p === '/products/bulk') && await bar.getByText('2 selected').isVisible(), `${tag}: Cancel sends nothing and keeps the selection`);
+      expect(await bar.getByRole('combobox', { name: 'Change status' }).inputValue() === '', `${tag}: … and the select is back on "Change status"`);
+      await bar.getByRole('combobox', { name: 'Add to category' }).selectOption({ label: 'Chairs' });
+      await page.waitForTimeout(300);
+      expect(await ask.getByText('Add 2 products to Chairs?').isVisible().catch(() => false), `${tag}: Add to category asks "Add 2 products to Chairs?"`);
+      await ask.getByRole('button', { name: 'Cancel' }).click();
+      await page.waitForTimeout(300);
+      expect(!w.calls.some((c) => c.p === '/products/bulk'), `${tag}: … Cancel sends nothing`);
+      await bar.getByRole('combobox', { name: 'Change status' }).selectOption('archived');
+      await page.getByRole('alertdialog').getByRole('button', { name: 'Confirm' }).click();
       await page.waitForTimeout(800);
       const bulk = w.calls.find((c) => c.p === '/products/bulk');
       expect(bulk && bulk.body.action === 'status' && bulk.body.status === 'archived' && bulk.body.ids.length === 2, `${tag}: bulk archive sent (${JSON.stringify(bulk?.body)})`);
