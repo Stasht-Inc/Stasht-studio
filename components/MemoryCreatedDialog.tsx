@@ -1,7 +1,7 @@
 ﻿import React, { useEffect, useState } from 'react';
 import { Check, X, Folder, MapPin } from 'lucide-react';
 import { triggerMemoriesRefresh } from '../hooks/useMemoriesRefresh';
-import { categoryDisplayName } from '../utils/products';
+import { categoryCampaignsPhrase, categoryDisplayName } from '../utils/products';
 
 interface MemoryCreatedDialogProps {
   isOpen: boolean;
@@ -113,7 +113,8 @@ export function MemoryCreatedDialog({
                 "{memoryTitle}"
               </div>
               <div className="text-sm text-gray-600">
-                has been added to your <span className="text-green-600 font-medium">{categoryDisplayName(categoryName)}</span> campaigns.
+                {/* "your Cars campaigns." as before; "your Product campaigns." for the stored catalogue category (no "campaigns campaigns"). */}
+                has been added to your <span className="text-green-600 font-medium">{categoryDisplayName(categoryName)}</span>{categoryCampaignsPhrase(categoryName).slice(String(categoryDisplayName(categoryName) ?? '').length)}.
               </div>
             </div>
 

@@ -487,14 +487,25 @@ export function categoryDisplayName<T>(name: T): T | string {
   return typeof name === 'string' && name.trim().toLowerCase() === CATALOGUE_CATEGORY_NAME.toLowerCase() ? CATALOGUE_CATEGORY_LABEL : name;
 }
 
-/** Empty-state copy for a category ("No personal campaigns"), never "No product campaigns campaigns" (display only). */
-const endsWithCampaigns = (label: string) => /campaigns$/i.test(label.trim());
+/**
+ * "{category} campaigns", read naturally (re-review, 16 Nov): "Cars campaigns" for every other category, exactly as
+ * before, but just "Product campaigns" for the stored "Website Catalogue" category (never "Product campaigns
+ * campaigns"). Display only. `lower` lower-cases the category part ("No personal campaigns").
+ */
+export function categoryCampaignsPhrase(name: unknown, lower = false): string {
+  const shown = String(categoryDisplayName(name) ?? '');
+  const label = lower ? shown.toLowerCase() : shown;
+  return /campaigns$/i.test(shown.trim()) ? label : `${label} campaigns`;
+}
+const isCampaignsLabel = (name: unknown) => categoryCampaignsPhrase(name) === String(categoryDisplayName(name) ?? '');
+
+/** Empty-state copy for a category ("No personal campaigns"); "No product campaigns yet" for the stored category. */
 export function noCampaignsTitle(name: unknown): string {
-  const label = String(categoryDisplayName(name) ?? '');
-  return endsWithCampaigns(label) ? `No ${label.toLowerCase()} yet` : `No ${label.toLowerCase()} campaigns`;
+  const phrase = categoryCampaignsPhrase(name, true);
+  return isCampaignsLabel(name) ? `No ${phrase} yet` : `No ${phrase}`;
 }
 export function campaignsWillAppear(name: unknown, form: 'in' | 'your'): string {
+  if (form === 'your') return `Your ${categoryCampaignsPhrase(name, true)} will appear here.`;
   const label = String(categoryDisplayName(name) ?? '');
-  if (endsWithCampaigns(label)) return form === 'your' ? `Your ${label.toLowerCase()} will appear here.` : `${label} will appear here.`;
-  return form === 'your' ? `Your ${label.toLowerCase()} campaigns will appear here.` : `Campaigns in ${label} category will appear here.`;
+  return isCampaignsLabel(name) ? `${label} will appear here.` : `Campaigns in ${label} category will appear here.`;
 }

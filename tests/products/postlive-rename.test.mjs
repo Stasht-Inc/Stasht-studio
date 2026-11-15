@@ -1,7 +1,7 @@
 // tests/products/postlive-rename.test.mjs — post-live P2+P3 (15 Nov): "Products" in place of "Website Catalogue".
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { campaignsWillAppear, categoryDisplayName, CATALOGUE_CATEGORY_NAME, noCampaignsTitle, refreshBannerCopy } from '../../utils/products.ts';
+import { campaignsWillAppear, categoryCampaignsPhrase, categoryDisplayName, CATALOGUE_CATEGORY_NAME, noCampaignsTitle, refreshBannerCopy } from '../../utils/products.ts';
 
 test('P2/P3 + review I2 (option A): the stored "Website Catalogue" category is shown as "Product campaigns"; every other name is unchanged', () => {
   assert.equal(CATALOGUE_CATEGORY_NAME, 'Website Catalogue');
@@ -25,4 +25,12 @@ test('Empty states read naturally for the stored category, unchanged for every o
   assert.equal(noCampaignsTitle('Personal'), 'No personal campaigns');
   assert.equal(campaignsWillAppear('Cars', 'in'), 'Campaigns in Cars category will appear here.');
   assert.equal(campaignsWillAppear('Cars', 'your'), 'Your cars campaigns will appear here.');
+});
+
+test('categoryCampaignsPhrase: "Product campaigns" for the stored category, "{name} campaigns" exactly as before for any other', () => {
+  assert.equal(categoryCampaignsPhrase('Website Catalogue'), 'Product campaigns');
+  assert.equal(categoryCampaignsPhrase('Website Catalogue', true), 'product campaigns');
+  assert.equal(categoryCampaignsPhrase('Cars'), 'Cars campaigns');
+  assert.equal(categoryCampaignsPhrase('Personal', true), 'personal campaigns');
+  assert.equal(categoryCampaignsPhrase('Products'), 'Products campaigns');
 });

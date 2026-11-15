@@ -29,6 +29,7 @@ import { useMemoryLimit } from '../hooks/useMemoryLimit';
 import PartialAdminCampaignPicker, { fetchPickerCampaigns, fetchPickerCategories, PickerCampaign } from './PartialAdminCampaignPicker';
 import useCanSelfUpgrade from '../hooks/useCanSelfUpgrade';
 import { CONTACT_SALES_URL } from '../utils/effectivePlan';
+import { categoryDisplayName } from '../utils/products';
 
 interface Memory {
   id: string;
@@ -1014,7 +1015,7 @@ export default function InviteToMemoryModal({ isOpen, onClose, onInviteSuccess }
                     <div className="flex-1 min-w-0">
                       <h4 className="font-medium text-gray-900 text-sm truncate">{memory.title}</h4>
                       <p className="text-xs text-gray-500">
-                        {memory.category} • {memory.image_count || 0} images
+                        {categoryDisplayName(memory.category)} • {memory.image_count || 0} images
                       </p>
                     </div>
                   </div>
