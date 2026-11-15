@@ -160,7 +160,9 @@ function ProductsReady({ onNavigate }: { onNavigate: (page: string) => void }) {
       <aside className="hidden w-64 shrink-0 border-r border-gray-100 bg-white md:block">
         <div className="sticky top-20 max-h-[calc(100vh-5rem)] overflow-y-auto p-3">{nav}</div>
       </aside>
-      <section className="min-w-0 flex-1 pb-8 md:px-6">
+      {/* Phone: pb-24 keeps the pager and any error clear of the floating "+" (App.tsx: 6rem round, 5rem above the
+          bar the shell already leaves room for), as MemoryDetailsPage does (pb-24 md:pb-0). */}
+      <section className="min-w-0 flex-1 pb-24 md:px-6 md:pb-8">
         <div className="flex flex-wrap items-center justify-between gap-3 py-4">
           <p className="text-sm text-gray-600">{pagination ? `${pagination.total} ${pagination.total === 1 ? 'product' : 'products'}` : ' '}</p>
           {/* Final review M3: the list's own total too, so a failed /product-categories never hides Add / Import. */}

@@ -119,7 +119,8 @@ async function open(w, { width, height, path = '/products', view = 'personal', p
       if (s.get('status')) list = list.filter((x) => s.get('status').split(',').includes(x.badge));
       if (s.get('source')) list = list.filter((x) => x.origin === s.get('source'));
       if (s.get('category_id')) list = list.filter((x) => x.categories.some((c) => String(c.id) === s.get('category_id')));
-      return route.fulfill({ json: { success: true, data: { items: list, pagination: { current_page: 1, per_page: 48, total: list.length, last_page: 1 } } } });
+      // w.lastPage (pre-merge D2): the list says it has that many pages, so the pager shows.
+      return route.fulfill({ json: { success: true, data: { items: list, pagination: { current_page: Number(s.get('page') || 1), per_page: 48, total: w.lastPage ? list.length + 48 * (w.lastPage - 1) : list.length, last_page: w.lastPage || 1 } } } });
     }
     // w.reject = {field: [message]}: the next save answers 422 with those errors (like ProductRules / ProductWriter).
     const reject422 = () => { const errors = w.reject; w.reject = null; return route.fulfill({ status: 422, json: { success: false, message: Object.values(errors)[0][0], errors } }); };
@@ -477,6 +478,42 @@ try {
       expect(xw.calls.some((c) => c.p === '/products' && c.view === '31'), `${tag}: the list is asked with the property header`);
       await x.page.screenshot({ path: `${OUT}/${tag}-06-external.png` });
       await x.context.close();
+    }
+  }
+  if (run('pager')) {
+    // Pre-merge D2: on a phone the floating "+" (App.tsx, 6rem round, 5rem above the bar) must not cover the pager.
+    for (const [width, height] of [[390, 844], [320, 640], [1280, 900]]) {
+      const tag = `pager-${width}`;
+      const w = world({ lastPage: 2 });
+      const { page, context } = await open(w, { width, height });
+      await page.getByTestId('product-card').first().waitFor({ timeout: 15000 }).catch(() => {});
+      const label = page.getByText('Page 1 of 2', { exact: true });
+      await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+      await page.waitForTimeout(600);
+      const rects = await page.evaluate(() => {
+        const r = (el) => { if (!el) return null; const b = el.getBoundingClientRect(); return { top: b.top, bottom: b.bottom, left: b.left, right: b.right }; };
+        const span = [...document.querySelectorAll('span')].find((e) => e.textContent.trim() === 'Page 1 of 2');
+        const row = span?.parentElement;
+        const btns = row ? [...row.querySelectorAll('button')] : [];
+        const fab = [...document.querySelectorAll('nav.phone-bottom-bar-pin button')].find((b) => b.querySelector('svg') && b.className.includes('rounded-full'));
+        const nav = document.querySelector('nav.phone-bottom-bar-pin');
+        const fabShown = fab && getComputedStyle(nav).display !== 'none';
+        return { row: r(row), label: r(span), buttons: btns.map(r), fab: fabShown ? r(fab) : null, nav: fabShown ? r(nav) : null, vh: window.innerHeight };
+      });
+      expect(Boolean(rects.row) && await label.isVisible(), `${tag}: the pager shows (Page 1 of 2)`);
+      const clear = (a) => !rects.fab || a.bottom <= rects.fab.top || a.right <= rects.fab.left || a.left >= rects.fab.right;
+      const inView = (a) => a.top >= 0 && a.bottom <= (rects.nav ? rects.nav.top : rects.vh);
+      expect(rects.row && [rects.label, ...rects.buttons].every((a) => clear(a) && inView(a)), `${tag}: Previous, "Page 1 of 2" and Next are fully visible, not under the "+" (${JSON.stringify(rects)})`);
+      if (width < 768) expect(Boolean(rects.fab), `${tag}: (setup) the phone "+" is on screen`);
+      // Usable: Next is the element at its own centre (nothing on top of it) and moves to page 2.
+      const next = page.getByRole('button', { name: 'Next' });
+      const hit = await next.evaluate((b) => { const r = b.getBoundingClientRect(); const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return top === b || b.contains(top); });
+      expect(hit, `${tag}: Next is not covered (it gets the tap)`);
+      await page.screenshot({ path: `${OUT}/${tag}-01-pager-bottom.png` });
+      await next.click();
+      await page.waitForTimeout(800);
+      expect(w.calls.some((c) => c.p === '/products' && /page=2/.test(c.q)), `${tag}: Next asks for page 2`);
+      await context.close();
     }
   }
   if (run('editor')) {
