@@ -13,7 +13,7 @@ import { useProperty } from "../contexts/PropertyContext";
 import useAlvinEnabled from "../components/alvin/useAlvinEnabled";
 import { Camera } from "lucide-react";
 import { PROPERTY_IMAGE_ACCEPT, canChangePropertyImage, propertyAvatarImage, propertyImageErrorMessage, propertyImageFileError } from "../utils/propertyImage";
-import { externalRowAvatar, groupPropertyAccounts, groupedPropertyCounts, isOwnExternalProperty, propertyAccountGroups, signedInUserOr } from "../utils/salespersonLanding";
+import { externalRowAvatar, groupPropertyAccounts, groupedPropertyCounts, isExternalOnlyRow, isOwnExternalProperty, propertyAccountGroups, signedInUserOr, withoutCurrentAccountRow } from "../utils/salespersonLanding";
 import { planKey } from "../utils/effectivePlan";
 
 // __APP_BUILD_TIME__ is injected at build time (see vite.config.ts's `define`)
@@ -370,7 +370,12 @@ export function ProfileDropdownMenu({ isOpen, onClose, user, onShowProfileSettin
     return (p.name || '').toLowerCase().includes(q) || (p.location || '').toLowerCase().includes(q);
   });
 
-  const filteredSharedProperties = sharedProperties.filter(p => {
+  // External-only account (13 Nov 2026): it is always in its own External view, with no "Back to …". Its own row in
+  // "External (N)" would only switch into the account it is already in, so it is left out (and the section with it
+  // when that was the only row).
+  const viewingExternalOnly = viewType === 'property' && isExternalOnlyRow(currentProperty, signedInUserOr(authUser ?? user));
+  const menuSharedProperties = viewingExternalOnly ? withoutCurrentAccountRow(sharedProperties, currentProperty) : sharedProperties;
+  const filteredSharedProperties = menuSharedProperties.filter(p => {
     if (!externalSearchQuery.trim()) return true;
     const q = externalSearchQuery.toLowerCase();
     return (p.name || '').toLowerCase().includes(q) || (p.location || '').toLowerCase().includes(q);
@@ -711,7 +716,10 @@ export function ProfileDropdownMenu({ isOpen, onClose, user, onShowProfileSettin
     );
   };
 
-  const propertyGroups = propertyAccountGroups({ owned: ownedProperties, shared: sharedProperties });
+  const propertyGroups = propertyAccountGroups({ owned: ownedProperties, shared: menuSharedProperties });
+  // "Back to …" is offered in a property view unless the account is external-only (or there is no way back). Sign Out
+  // shows whenever "Back to …" doesn't, so every account can always sign out.
+  const showBackTo = viewType === 'property' && !!switchToPersonal && !viewingExternalOnly;
 
   const displayName = user?.name || 'User';
   const displayEmail = user?.email || user?.phone_number || 'No contact info';
@@ -879,8 +887,9 @@ export function ProfileDropdownMenu({ isOpen, onClose, user, onShowProfileSettin
           Alvin AI
         </button>}
 
-        {/* Back to Primary Account - Only show when viewing property */}
-        {viewType === 'property' && switchToPersonal ? (
+        {/* Back to Primary Account - Only show when viewing property. Never for an external-only account (13 Nov 2026):
+            its External view is its account, so it gets the account's own menu (Billing, Settings) instead. */}
+        {showBackTo && switchToPersonal ? (
           <button
             onClick={() => {
               switchToPersonal();
@@ -1149,8 +1158,9 @@ export function ProfileDropdownMenu({ isOpen, onClose, user, onShowProfileSettin
           </>
         )}
 
-        {/* Separator and Sign Out - Only show when NOT viewing property */}
-        {viewType !== 'property' && (
+        {/* Separator and Sign Out - whenever "Back to …" isn't offered (not in a property view, an external-only
+            account, or no way back) */}
+        {!showBackTo && (
           <>
             {/* Separator */}
             <div className="border-t border-gray-100 my-1 mx-4"></div>

@@ -1,5 +1,6 @@
 ﻿import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { clearNewsletterBackups } from './utils/newsletterBackups';
+import { installLaunchConsumer } from './utils/appLaunch';
 import AppUpdatePrompt from './components/AppUpdatePrompt';
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import { useProperty } from "./contexts/PropertyContext";
@@ -26,6 +27,8 @@ import AppsPage from "./pages/AppsPage";
 import MarketplacePage from "./pages/MarketplacePage";
 import CsvUploadPage from "./pages/CsvUploadPage";
 import { useAppNavigation } from "./hooks/useAppNavigation";
+import { useIosFixedBarRecovery } from "./hooks/useIosFixedBarRecovery";
+import { usePhoneBottomBarPin } from './hooks/usePhoneBottomBarPin';
 import { categoriesData, labelsData } from "./constants/appData";
 import { dashboardAPI, authAPI, userUtils, isPartialAdmin, getPartialAdminEmail } from './utils/authUtils';
 import { googleAuthAPI } from './utils/googleAuthAPI';
@@ -66,9 +69,10 @@ import { CameraInterface } from './components/CameraInterface';
 import { AddMomentModal } from './components/AddMomentModal';
 import exifr from 'exifr';
 import { takeSwitchNotice } from './utils/accountSwitch';
-import { allPropertyRows, propertyViewHasLeads, resolvePendingPropertySwitch } from './utils/salespersonLanding';
-import { planKey, skipsPlanPicker, storageOverviewOf } from './utils/effectivePlan';
+import { allPropertyRows, externalOnlyPropertyRow, propertyViewHasLeads, resolvePendingPropertySwitch } from './utils/salespersonLanding';
+import { featurePlanKey, skipsPlanPicker, storageOverviewOf } from './utils/effectivePlan';
 import { usersTabForReport } from './utils/propertyRows';
+import { cameraRollSession } from './utils/cameraRoll';
 
 // CAPTURE EMAIL PARAMETER IMMEDIATELY (before React even starts)
 // This runs as soon as the file is loaded, before any component mounts
@@ -386,6 +390,24 @@ function MainApp() {
       cancelled = true;
     };
   }, [isAuthenticated, user?.id, viewType, currentProperty?.id, isPendingPropertySwitch]);
+
+  // An account created for an external property has no Personal account (Chris/Deepak 13 Nov 2026): whenever it is in
+  // the account (personal) view — a sign-in that didn't open the External view, a stale stored view, an old tab — it
+  // goes to its External view. Joined / linked accounts are never external-only and keep their Personal account.
+  useEffect(() => {
+    if (!isAuthenticated || viewType !== 'personal' || isPendingPropertySwitch) return undefined;
+    let cancelled = false;
+    dashboardAPI.getProperties()
+      .then((response) => {
+        if (cancelled || !response?.success) return;
+        const own = externalOnlyPropertyRow(allPropertyRows(response), user);
+        if (own) switchToPropertyCtx(own);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [isAuthenticated, user?.id, viewType, isPendingPropertySwitch]);
 
   // Handle pending property switch immediately when authenticated — prevents personal account flash
   useEffect(() => {
@@ -1196,7 +1218,7 @@ function MainApp() {
       toast(message || 'Connectors are available on the Teams and Business plans.', { id: 'plan-required' });
       setPlanUpgradeOpen(true);
       dashboardAPI.getStorageOverview()
-        .then((res: any) => setPlanUpgradeFrom(planKey(storageOverviewOf(res)?.plan_name) ?? 'starter'))
+        .then((res: any) => setPlanUpgradeFrom(featurePlanKey(storageOverviewOf(res)?.plan_name) ?? 'starter'))
         .catch(() => {});
     };
     window.addEventListener(UPGRADE_REQUIRED_EVENT, onUpgradeRequired);
@@ -1237,6 +1259,20 @@ function MainApp() {
     setPendingConversationLeadId(leadId);
     handleNavigation('leads');
   }, [handleNavigation]);
+  // A link opened into the already-open installed app (Chrome/Edge PWA, manifest launch_handler focus-existing):
+  // the window is not reloaded, so route to the lead here (utils/appLaunch). Signed out → kept for after sign-in.
+  const handleOpenLeadRef = useRef(handleOpenLead);
+  handleOpenLeadRef.current = handleOpenLead;
+  useEffect(() => {
+    installLaunchConsumer({
+      onLead: (leadId) => {
+        if (!localStorage.getItem('stasht_token')) sessionStorage.setItem('pending_lead_link', String(leadId));
+        handleOpenLeadRef.current(leadId);
+        window.history.replaceState({}, '', '/leads');
+      },
+      onUrl: (url) => window.location.assign(url),
+    });
+  }, []);
 
   // Storeel report target — set right before navigating to "storeel-report"
   // (mirrors pendingConversationLeadId above). Explicit property id/name from
@@ -1535,6 +1571,17 @@ function MainApp() {
     const pathname = window.location.pathname;
     console.log('🔍 Initial URL pathname detection:', pathname);
 
+    // A lead link opened while signed out (the lead email's "Open conversation") was kept through sign-in (below):
+    // open that lead now, switching into its account when needed (LeadsTab, utils/leadLink).
+    const keptLeadLink = Number(sessionStorage.getItem('pending_lead_link'));
+    if (keptLeadLink > 0 && localStorage.getItem('stasht_token')) {
+      sessionStorage.removeItem('pending_lead_link');
+      handleNavigation('leads');
+      setPendingLeadId(keptLeadLink);
+      window.history.replaceState({}, '', '/leads');
+      return;
+    }
+
     // Only set initial page if we're on a recognized route
     // This runs ONCE on mount to sync URL with currentPage state
     if (pathname === '/media' || pathname.startsWith('/media/')) {
@@ -1613,6 +1660,8 @@ function MainApp() {
       const leadParam = Number(new URLSearchParams(window.location.search).get('lead'));
       handleNavigation('leads');
       if (leadParam > 0) {
+        // Signed out: keep it for after sign-in (the sign-in page reloads the app).
+        if (!localStorage.getItem('stasht_token')) sessionStorage.setItem('pending_lead_link', String(leadParam));
         setPendingLeadId(leadParam);
         window.history.replaceState({}, '', '/leads');
       }
@@ -2536,6 +2585,7 @@ function MainApp() {
 
     if (successCount > 0) {
       toast.success(successCount > 1 ? `${successCount} photos saved to Media Library` : 'Photo saved to Media Library');
+      cameraRollSession.openMediaTabNext(); // open on the Media tab, where they are
       handleNavigationWithReset('media');
     }
     if (failCount > 0) {
@@ -4079,6 +4129,11 @@ function MainApp() {
           onToggleMobileSidebar={() => setShowMediaMobileSidebar(prev => !prev)}
           onNewMediaPending={(ids) => setPendingNewMediaIds(ids)}
           dismissedNewMediaIds={dismissedNewMediaIds}
+          // Camera Roll tab's Next (Chris, 9 Nov 2026): Create campaign with the picks, as Scan Photo does.
+          onCreateCampaignFromPhotos={(files) => {
+            handleNavigation("memories");
+            handleCreateMemoryRequest(undefined, files);
+          }}
         />
       );
     }
@@ -4594,7 +4649,7 @@ function MainApp() {
 
           {/* Plus Popover Card */}
           {showPlusPopover && (
-            <div className="md:hidden fixed bottom-[calc(163px+env(safe-area-inset-bottom))] left-1/2 -translate-x-1/2 z-[9999] bg-gray-100/75 backdrop-blur-2xl rounded-3xl shadow-2xl border border-white/60 w-72 overflow-hidden">
+            <div className="phone-bar-follow md:hidden fixed bottom-[calc(163px+env(safe-area-inset-bottom))] left-1/2 -translate-x-1/2 z-[9999] bg-gray-100/75 backdrop-blur-2xl rounded-3xl shadow-2xl border border-white/60 w-72 overflow-hidden">
               {/* Send Message — moved here from the Leads header on phones (Chris) */}
               <button
                 className="flex items-center gap-4 w-full px-4 py-4 hover:bg-white/40 active:bg-white/60 transition-colors"
@@ -4667,7 +4722,7 @@ function MainApp() {
           {/* Fixed to the viewport, not sticky in the page flow: iOS Safari let the sticky bar ride up
               into the middle of the screen while scrolling (Chris, S4). It must stay a direct child of the
               app shell: a transform/filter on any ancestor would turn position:fixed into page-relative. */}
-          <nav className="md:hidden fixed bottom-0 inset-x-0 bg-white border-t border-gray-200 z-50 pb-[env(safe-area-inset-bottom)] overflow-visible">
+          <nav className="phone-bottom-bar-pin md:hidden fixed bottom-0 inset-x-0 bg-white border-t border-gray-200 z-50 pb-[env(safe-area-inset-bottom)] overflow-visible">
             {/* Center FAB — protrudes above the nav bar */}
             <div className="absolute left-1/2 -translate-x-1/2 -top-20 z-[10000]">
               <button
@@ -4916,6 +4971,10 @@ function MainApp() {
 
 // App wrapper (providers are now in main.tsx)
 export default function App() {
+  // Phone bottom bars: let iOS re-place fixed elements after the keyboard closes (Chris, 9 Nov 2026, point 2).
+  useIosFixedBarRecovery();
+  // ...and keep them on the screen's real bottom edge when iOS draws them mid-screen (Chris, 14 Nov 2026, point 2).
+  usePhoneBottomBarPin();
   // The update prompt sits outside the ErrorBoundary so a crash screen can still offer Refresh.
   return (
     <>

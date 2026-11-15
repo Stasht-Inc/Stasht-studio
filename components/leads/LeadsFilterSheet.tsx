@@ -1,6 +1,8 @@
 import { useId } from 'react';
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 import { CheckCircle2, MapPin, MessageSquare, Search, X } from 'lucide-react';
+import { ALL_LEADS, assignedOptions, offersAllLeads, ticksOf, toggleAssigned } from '../../utils/leadsAssignedFilter';
+import { FilterCheckbox } from './AssignedFilterMenu';
 
 // Phone-only bottom sheet for the Leads list (Chris: "far too busy"): the Status,
 // Assigned to and Time filters that sit in the md+ filter bar, plus the two group
@@ -20,6 +22,8 @@ interface Props {
   assignedFilter: string;
   onAssignedChange: (value: string) => void;
   assigneeOptions: { id: number; name: string | null }[];
+  // "all" is the default: Anyone + Open for owners / switched in, Me + Open for staff; see utils/leadsAssignedFilter.
+  teamLeads?: { staff: boolean; can_see_all: boolean } | null;
   timeFilter: TimeFilter;
   onTimeChange: (value: TimeFilter) => void;
   // Only the sheet's own filters (status / assigned / first seen) — not the search box.
@@ -55,7 +59,8 @@ function Chip({ selected, onClick, children }: { selected: boolean; onClick: () 
       type="button"
       aria-pressed={selected}
       onClick={onClick}
-      className={`h-9 px-3.5 inline-flex items-center gap-1.5 rounded-full border text-sm font-medium transition-colors max-w-full ${selected ? 'border-[#6C60FF] bg-[#6C60FF] text-white' : 'border-gray-200 bg-white text-gray-700 active:bg-gray-50'}`}
+      // Selected = Studio's darker gray, never purple (Chris 11 Nov 2026 (d)).
+      className={`h-9 px-3.5 inline-flex items-center gap-1.5 rounded-full border text-sm font-medium transition-colors max-w-full ${selected ? 'border-gray-700 bg-gray-100 text-gray-900' : 'border-gray-200 bg-white text-gray-700 active:bg-gray-100'}`}
     >
       {children}
     </button>
@@ -76,7 +81,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 function ToolRow({ icon, title, subtitle, onClick }: { icon: React.ReactNode; title: string; subtitle: string; onClick: () => void }) {
   return (
     <button type="button" onClick={onClick} className="w-full flex items-center gap-3 px-3 py-3 rounded-xl border border-gray-200 bg-white text-left active:bg-gray-50">
-      <span className="h-9 w-9 rounded-lg bg-purple-100 text-[#6C60FF] flex items-center justify-center shrink-0">{icon}</span>
+      <span className="h-9 w-9 rounded-lg bg-gray-100 text-gray-700 flex items-center justify-center shrink-0">{icon}</span>
       <span className="min-w-0">
         <span className="block text-sm font-semibold text-gray-900">{title}</span>
         <span className="block text-xs text-gray-600">{subtitle}</span>
@@ -87,9 +92,11 @@ function ToolRow({ icon, title, subtitle, onClick }: { icon: React.ReactNode; ti
 
 export default function LeadsFilterSheet(props: Props) {
   const {
-    open, onOpenChange, statusFilter, onStatusChange, assignedFilter, onAssignedChange, assigneeOptions,
+    open, onOpenChange, statusFilter, onStatusChange, assignedFilter, onAssignedChange, assigneeOptions, teamLeads,
     timeFilter, onTimeChange, canClear, onClear, onMessageGroup, onSearchGroup, onCloseAutoFocus,
   } = props;
+  const options = assignedOptions(teamLeads, assigneeOptions);
+  const ticks = new Set(ticksOf(assignedFilter, teamLeads, options));
 
   return (
     <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
@@ -117,13 +124,16 @@ export default function LeadsFilterSheet(props: Props) {
               ))}
             </Section>
 
+            {/* A checkbox per choice, unioned (Chris 11 Nov 2026 (d)), as the desktop menu. */}
             <Section title="Assigned to">
-              <Chip selected={assignedFilter === 'all'} onClick={() => onAssignedChange('all')}>Anyone</Chip>
-              <Chip selected={assignedFilter === 'me'} onClick={() => onAssignedChange('me')}>Me</Chip>
-              <Chip selected={assignedFilter === 'unassigned'} onClick={() => onAssignedChange('unassigned')}>Unassigned</Chip>
-              {assigneeOptions.map((a) => (
-                <Chip key={a.id} selected={assignedFilter === String(a.id)} onClick={() => onAssignedChange(String(a.id))}>
-                  <span className="truncate">{a.name ?? `Teammate #${a.id}`}</span>
+              {offersAllLeads(teamLeads) && (
+                <Chip selected={assignedFilter === ALL_LEADS} onClick={() => onAssignedChange(toggleAssigned(assignedFilter, ALL_LEADS, teamLeads, options))}>
+                  <FilterCheckbox checked={assignedFilter === ALL_LEADS} />All leads
+                </Chip>
+              )}
+              {options.map((o) => (
+                <Chip key={o.value} selected={ticks.has(o.value)} onClick={() => onAssignedChange(toggleAssigned(assignedFilter, o.value, teamLeads, options))}>
+                  <FilterCheckbox checked={ticks.has(o.value)} /><span className="truncate">{o.label}</span>
                 </Chip>
               ))}
             </Section>

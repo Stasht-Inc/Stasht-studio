@@ -39,7 +39,9 @@ function PeriodLine({
 }) {
   const words = periodWords(timePeriod);
   const isZero = parseFloat(added) === 0;
-  const showChange = (previous ?? 0) > 0 && trend !== 'neutral';
+  // Nothing added this period: "+0 this week" says it all — "-100% vs last week" next to it read as the total
+  // collapsing (Chris, 11 Nov 2026), so the % only shows when something was added.
+  const showChange = !isZero && (previous ?? 0) > 0 && trend !== 'neutral';
 
   return (
     <div className="flex flex-wrap items-center gap-x-2 gap-y-1 min-w-0">

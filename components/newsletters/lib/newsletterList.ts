@@ -30,16 +30,24 @@ export const ACTION_LABEL: Record<NewsletterAction, string> = {
   edit: 'Edit', editScheduled: 'Edit', results: 'View results', duplicate: 'Duplicate', cancel: 'Cancel sending', delete: 'Delete',
 };
 
-// §8: only drafts can be edited; drafts and cancelled can be deleted; scheduled and sending can be cancelled
-// (NewsletterSendController::cancel stops a sending one before its next batch).
+// §8: only drafts can be edited; scheduled and sending can be cancelled (NewsletterSendController::cancel stops a
+// sending one before its next batch). Everything but a sending one can be deleted (Chris, 10 Nov: tests): a scheduled
+// one is cancelled and deleted together; a sending one only once it has finished (the API refuses it meanwhile).
 const ACTIONS: Record<NewsletterStatus, NewsletterAction[]> = {
   draft: ['edit', 'duplicate', 'delete'],
-  scheduled: ['editScheduled', 'results', 'duplicate', 'cancel'],
+  scheduled: ['editScheduled', 'results', 'duplicate', 'cancel', 'delete'],
   sending: ['results', 'duplicate', 'cancel'],
-  sent: ['results', 'duplicate'],
-  failed: ['results', 'duplicate'],
+  sent: ['results', 'duplicate', 'delete'],
+  failed: ['results', 'duplicate', 'delete'],
   cancelled: ['results', 'duplicate', 'delete'],
 };
+
+/** The delete confirm's line: drafts have no results; a scheduled one won't go out. */
+export function deleteConfirmText(status: NewsletterStatus | undefined): string {
+  if (status === 'draft') return "This can't be undone.";
+  if (status === 'scheduled') return "It won't be sent. This can't be undone.";
+  return "Its results will be deleted too. This can't be undone.";
+}
 
 export function actionsFor(status: NewsletterStatus): NewsletterAction[] {
   return ACTIONS[status] ?? ['results', 'duplicate'];

@@ -82,7 +82,7 @@ export function postIdsAfterCreate(sentKeys: ReadonlyArray<string>, fresh: Reado
 
 /**
  * The preview's widgets grouped by where they show: WIDGET_TOP, a moment's key, WIDGET_END or WIDGET_PINNED; each
- * group in the campaign page's order (utils/timelineWidgets: by type, then each type's own order).
+ * group in the campaign page's order (utils/timelineWidgets: widget_order; Chris, 12 Nov 2026).
  */
 export function widgetsByAnchor(moments: ReadonlyArray<PreviewMoment>, widgets: ReadonlyArray<PreviewWidget>): Map<string, PreviewWidget[]> {
   const keyOfPost = new Map<string, string>();

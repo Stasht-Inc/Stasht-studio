@@ -18,9 +18,21 @@ const ROW = {
 
 test('a code reads as the popover needs it', () => {
   assert.deepEqual(normalizeQrCode(ROW), {
-    id: 7, publicCode: 'K7PQ2MZX', name: 'Front window', memoryId: 801, campaignTitle: 'Fall Promo',
+    id: 7, publicCode: 'K7PQ2MZX', name: 'Front window', memoryId: 801, campaignTitle: 'Fall Promo', campaignModeration: false, moderationEditable: false,
     shortUrl: 'https://studio.stasht.com/q/K7PQ2MZX', logoMode: 'default', logoUrl: null, logoDefaultUrl: null, color: null,
   });
+});
+
+test('the live campaign\'s Moderation (13 Nov): off unless the API says on; the switch only where editable', () => {
+  const on = normalizeQrCode({ ...ROW, campaign: { ...CAMPAIGN, moderation: true, moderation_editable: true } });
+  assert.equal(on.campaignModeration, true);
+  assert.equal(on.moderationEditable, true);
+  const older = normalizeQrCode(ROW);
+  assert.equal(older.campaignModeration, false, 'an older API answer: off');
+  assert.equal(older.moderationEditable, false, 'an older API answer: no switch');
+  const none = normalizeQrCode({ ...ROW, campaign: null });
+  assert.equal(none.campaignModeration, null);
+  assert.equal(none.moderationEditable, false);
 });
 
 test('branded codes: logo {mode, url} and color (null = auto); older answers draw the default avatar', () => {

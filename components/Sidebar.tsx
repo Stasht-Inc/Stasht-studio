@@ -364,7 +364,7 @@ export default function Sidebar({
 
   const fetchLeadsUnreadCount = () => {
     if (!isAuthenticated) return;
-    apiRequest('/leads/unread-count', { method: 'GET' }).then((data) => {
+    leadsAPI.getUnreadCount().then((data) => {
       const unread = data?.data?.total_unread ?? data?.total_unread ?? 0;
       setLeadsUnreadCount(typeof unread === 'number' ? unread : 0);
     }).catch(() => {});
@@ -375,7 +375,7 @@ export default function Sidebar({
   // for ONE row via page/per_page — without `page` the endpoint returns the whole list.
   const fetchLeadsCount = () => {
     if (!isAuthenticated) return;
-    leadsAPI.getLeads({ page: 1, per_page: 1 }).then((res) => {
+    leadsAPI.getLeads({ page: 1, per_page: 1, assigned: 'default' }).then((res) => {
       const total = res?.success ? res.data?.total : undefined;
       if (typeof total === 'number') setLeadsCount(total);
     }).catch(() => {});
@@ -391,7 +391,8 @@ export default function Sidebar({
     if (!isAuthenticated) return;
     let cancelled = false;
     const cancelIdle = runWhenIdle(() => { if (!cancelled) fetchLeadsCount(); });
-    const interval = setInterval(fetchLeadsCount, 60000);
+    // The unread badge refreshes with the counter, so a new message shows up together with its row (Chris 11 Nov 2026).
+    const interval = setInterval(() => { fetchLeadsCount(); fetchLeadsUnreadCount(); }, 60000);
     window.addEventListener('leads-unread-count-refresh', fetchLeadsCount);
     return () => {
       cancelled = true;
@@ -1008,6 +1009,7 @@ export default function Sidebar({
                   console.log('✅ Before reload - sessionStorage has:', saved);
 
                   // Reload to refresh media data and show new photos
+                  sessionStorage.setItem('stasht_open_media_tab', '1'); // ...on the Media tab, not Camera Roll (utils/cameraRoll.ts OPEN_MEDIA_TAB_KEY)
                   window.location.reload();
                 }, 500);
               }}

@@ -20,6 +20,8 @@ import { getInviteParams, isEmail, isPhoneNumber, isCorrectCollaborator } from '
 import { parsePhonePrefill } from '../utils/phoneUtils';
 import { AccountChoiceModal, getAdminCollaborator, AdminCollaborator } from '../components/AccountChoiceModal';
 import { clearAccountState } from '../utils/accountState';
+import { landsStraightInExternal } from '../utils/salespersonLanding';
+import { isInstalledAppWindow } from '../utils/appLaunch';
 
 interface LoginPageProps {
   onLogin: (email: string, password: string, phone_number?: string) => Promise<boolean>;
@@ -28,6 +30,16 @@ interface LoginPageProps {
 }
 
 export default function LoginPage({ onLogin, onSwitchToSignup, onSocialLogin }: LoginPageProps) {
+  // Signed out in a browser tab that came from a lead link (/leads?lead=N; App.tsx keeps it as pending_lead_link).
+  // Not shown inside the installed app window itself — there the hint would point nowhere.
+  const [showOpenInAppHint] = useState(() => {
+    try {
+      const fromLink = /[?&]lead=\d/.test(window.location.search) || !!sessionStorage.getItem('pending_lead_link');
+      return fromLink && !isInstalledAppWindow();
+    } catch {
+      return false;
+    }
+  });
   // Track component renders
   console.log('🔄 ===== LoginPage: Component RENDER START =====');
   console.log('🔄 Render timestamp:', new Date().toISOString());
@@ -593,7 +605,9 @@ export default function LoginPage({ onLogin, onSwitchToSignup, onSocialLogin }: 
         // 4. Check if user should see account choice modal
         const hasAdminCollaborators = allAdminCollaborators.length > 0;
         const hasProperties = ownedProperties.length > 0 || sharedProperties.length > 0;
-        const shouldShowAccountChoice = hasAdminCollaborators || hasProperties;
+        // An external-only account (13 Nov 2026) with nothing else to choose opens its External view straight away.
+        const externalOnlyId = landsStraightInExternal([...ownedProperties, ...sharedProperties], allAdminCollaborators.length, response.user);
+        const shouldShowAccountChoice = (hasAdminCollaborators || hasProperties) && !externalOnlyId;
 
         console.log('🔐 LoginPage: Account choice check:', { hasAdminCollaborators, hasProperties, shouldShowAccountChoice });
 
@@ -619,6 +633,7 @@ export default function LoginPage({ onLogin, onSwitchToSignup, onSocialLogin }: 
         // Store auth data directly (same as AuthContext does). A direct sign-in has no account to switch back to.
         localStorage.removeItem('admin_switch_data');
         clearAccountState(); // nothing of a previous sign-in (property view, plan picker flag) carries over
+        if (externalOnlyId) localStorage.setItem('pending_property_switch', externalOnlyId);
         localStorage.setItem('stasht_user', JSON.stringify(response.user));
         localStorage.setItem('stasht_token', response.token);
 
@@ -898,7 +913,9 @@ export default function LoginPage({ onLogin, onSwitchToSignup, onSocialLogin }: 
     // 3. Check if should show account choice — same condition as normal login
     const hasAdminCollaboratorsDV = allAdminCollaboratorsDV.length > 0;
     const hasPropertiesDV = dvOwnedProperties.length > 0 || dvSharedProperties.length > 0;
-    const shouldShowAccountChoiceDV = hasAdminCollaboratorsDV || hasPropertiesDV;
+    // An external-only account (13 Nov 2026) with nothing else to choose opens its External view straight away.
+    const externalOnlyIdDV = landsStraightInExternal([...dvOwnedProperties, ...dvSharedProperties], allAdminCollaboratorsDV.length, user);
+    const shouldShowAccountChoiceDV = (hasAdminCollaboratorsDV || hasPropertiesDV) && !externalOnlyIdDV;
 
     console.log('🔐 LoginPage: Device verification account choice check:', { hasAdminCollaboratorsDV, hasPropertiesDV, shouldShowAccountChoiceDV });
 
@@ -914,6 +931,7 @@ export default function LoginPage({ onLogin, onSwitchToSignup, onSocialLogin }: 
 
     // No admin accounts - safe to store auth data now (won't trigger redirect before modal)
     clearAccountState(); // nothing of a previous sign-in (property view, plan picker flag) carries over
+    if (externalOnlyIdDV) localStorage.setItem('pending_property_switch', externalOnlyIdDV);
     localStorage.setItem('stasht_user', JSON.stringify(user));
     localStorage.setItem('stasht_token', token);
 
@@ -2106,7 +2124,8 @@ export default function LoginPage({ onLogin, onSwitchToSignup, onSocialLogin }: 
                 {/* Signup Link */}
                 {onSwitchToSignup && (
                   <div className="text-center mt-6">
-                    <p className="text-gray-600">
+                    {/* Chris 13 Nov: the card's small secondary size (desktop + phone), not the body size */}
+                    <p className="text-gray-600 text-sm" data-auth-footer="signup">
                       Don't have an account?{' '}
                       <button
                         onClick={onSwitchToSignup}
@@ -2116,7 +2135,15 @@ export default function LoginPage({ onLogin, onSwitchToSignup, onSocialLogin }: 
                       </button>
                     </p>
                   </div>
-                )}  
+                )}
+
+                {/* Opened a lead link (lead email "Open conversation") in a browser that isn't signed in, while the
+                    Stasht app may be open and signed in elsewhere. Sign-in still lands on the lead (App.tsx). */}
+                {showOpenInAppHint && (
+                  <p className="text-center text-xs text-gray-500 mt-4">
+                    Using the Stasht app? Open this link from the app, or turn on &lsquo;Open supported links&rsquo; for Stasht in your browser&apos;s app settings.
+                  </p>
+                )}
               </CardContent>
             </>
           ) : (

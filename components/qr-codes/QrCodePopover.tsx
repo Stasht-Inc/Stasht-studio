@@ -9,6 +9,7 @@ import { qrCodesAPI, QR_GENERIC_ERROR } from '../../services/qrCodesAPI';
 import { liveCampaignRows, type QrCampaignOption, type QrCode } from '../../utils/qrCodes';
 import { BUTTON_PRIMARY, BUTTON_SMALL, LINK_BUTTON } from '../newsletters/lib/ui';
 import { BrandedQr, QrDownloadMenu, QrStyleControls } from './BrandedQr';
+import { Switch } from '../ui/switch';
 
 // QR codes v2 (Chris, 3 Nov 2026 evening): "keep it simple. a popover with a dropdown and the Live Campaign selected,
 // with edit link". ONE code per view (the account's, or this property's), made by the API on first open. A popover
@@ -119,6 +120,9 @@ function QrCodePanel({ propertyId, onEdit, onCreate, floatLayer, escapeRef }: {
   const [error, setError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
   const [saving, setSaving] = useState(false);
+  /** The Moderation switch's save in flight, and its error (shown under it). */
+  const [moderationSaving, setModerationSaving] = useState(false);
+  const [moderationError, setModerationError] = useState<string | null>(null);
   const [styleOpen, setStyleOpen] = useState(false);
   /** Whether this person may pick the live campaign (false: e.g. another admin's own campaign — no Edit). */
   const [liveAccess, setLiveAccess] = useState<{ id: number; ok: boolean } | null>(null);
@@ -150,6 +154,23 @@ function QrCodePanel({ propertyId, onEdit, onCreate, floatLayer, escapeRef }: {
     setSaving(false);
     if (res.ok && res.data) setCode(res.data);
     else toast.error(res.error ?? QR_GENERIC_ERROR);
+    setModerationError(null);
+  };
+
+  /** Moderation on / off for the live campaign (Chris / Deepak 13 Nov): the campaign's own setting, off by default. */
+  const setModeration = async (on: boolean) => {
+    if (!code || code.memoryId === null || moderationSaving) return;
+    const memoryId = code.memoryId;
+    const before = code.campaignModeration;
+    setModerationError(null);
+    setModerationSaving(true);
+    setCode((c) => (c && c.memoryId === memoryId ? { ...c, campaignModeration: on } : c));
+    const res = await qrCodesAPI.setModeration(memoryId, on);
+    setModerationSaving(false);
+    if (!res.ok) {
+      setCode((c) => (c && c.memoryId === memoryId ? { ...c, campaignModeration: before } : c));
+      setModerationError(res.error ?? QR_GENERIC_ERROR);
+    }
   };
 
   if (error) {
@@ -179,6 +200,20 @@ function QrCodePanel({ propertyId, onEdit, onCreate, floatLayer, escapeRef }: {
       </div>
       <LiveCampaignSelect propertyId={propertyId} live={live} saving={saving} onPick={makeLive} onCreate={onCreate} escapeRef={escapeRef}
         onLiveAccess={(id, ok) => setLiveAccess({ id, ok })} />
+
+      {live && code.moderationEditable ? (
+        <div className="mt-4" data-qr-moderation>
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <label htmlFor="qr-moderation-switch" className="block text-sm font-medium text-gray-900">Moderation</label>
+              <p id="qr-moderation-help" className="text-xs text-gray-500">New photos need your approval</p>
+            </div>
+            <Switch id="qr-moderation-switch" checked={code.campaignModeration === true} disabled={moderationSaving || saving}
+              onCheckedChange={(v) => void setModeration(Boolean(v))} aria-describedby="qr-moderation-help" />
+          </div>
+          {moderationError ? <p role="alert" className="mt-1.5 text-xs text-red-600">{moderationError}</p> : null}
+        </div>
+      ) : null}
 
       <QrDownloadMenu code={code} contentClassName={floatLayer}>
         <button type="button" className={`${BUTTON_PRIMARY} mt-4 w-full`}>

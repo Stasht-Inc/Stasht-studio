@@ -30,6 +30,7 @@ import { initialCampaignType, type CampaignType } from './newsletters/lib/campai
 import { announceNewslettersChanged, writeCampaignsView } from './newsletters/lib/campaignsView';
 import { requestUpgrade } from '../utils/planEvents';
 import StoreelLivePreview, { type PreviewControls } from './storeel/StoreelLivePreview';
+import { useIsMobile } from './ui/use-mobile';
 import ComposerDialog from './newsletters/ComposerDialog';
 import { apiDefaultOrder, focusAfterRemove, insertKeysAfter, isOrderable, momentMenu, moveKey, needsServerOrder, orderMoments, savedOrderPayload, savedRef, sentPostKeys, serverOrderAfterCreate } from './storeel/lib/momentOrder';
 import { addedMessage, pickPayload, pickedPreviewMoments, type InventoryPick } from './storeel/lib/momentPicks';
@@ -60,6 +61,7 @@ import { EMPTY_LINKS, LINKS_FAILED, LINKS_SAVE_NOTE, editPickerCampaigns, linkCh
 import { detectsDeviceLocation, withDeviceLocation } from './storeel/lib/deviceLocation';
 import { ACTION_TOAST_MS } from './newsletters/lib/blocks';
 import { DOCUSIGN_ENABLED } from '../constants/features.ts';
+import { isAddablePhoto } from '../utils/cameraRoll';
 
 const CAMPAIGN_STEP_ID = 'st-step-campaign';
 
@@ -1417,9 +1419,10 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
     if (!open) { handledPhotosRef.current = null; return; }
     if (!initialPhotos?.length || handledPhotosRef.current === initialPhotos) return;
     handledPhotosRef.current = initialPhotos;
-    const valid = initialPhotos.filter((f) => ['image/jpeg', 'image/jpg', 'image/png'].includes(f.type.toLowerCase()));
+    // Any photo the upload takes (Camera Roll picks can be HEIC/WEBP from an iPhone; the server converts HEIC).
+    const valid = initialPhotos.filter(isAddablePhoto);
     if (!valid.length) {
-      toast.error('That photo type can’t be added here. Use a JPG or PNG photo.');
+      toast.error('That photo type can’t be added here. Use a JPG, PNG or HEIC photo.');
       return;
     }
     const dt = new DataTransfer();
@@ -1440,6 +1443,9 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
   }, [open, Boolean(widgetOptions)]);
   const editorWasOpenRef = useRef(false);
   const refreshSavedRef = useRef<((id: number) => void) | null>(null);
+  // Phones (< md) get no PREVIEW section (Chris, 11 Nov 2026: "We don't need the preview on mobile"). Its cover
+  // buttons are the stepper's Cover Photo / Intro Video fields; moment edit/move/delete and "+" are on the campaign page.
+  const isPhone = useIsMobile();
   useEffect(() => {
     if (editorWasOpenRef.current && !widgetEditorOpen && flowCampaignRef.current) refreshSavedRef.current?.(flowCampaignRef.current.id);
     editorWasOpenRef.current = widgetEditorOpen;
@@ -2146,7 +2152,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
   const previewMoments = savedMomentsList ? orderMoments(flowCampaign?.previewMoments ?? [], []) : orderMoments(createMoments, momentOrder);
   const shownPlacedKeys = previewMoments.filter(isOrderable).map((m) => m.key);
 
-  /** The Moderation switch's value: the person's choice, else the campaign's, else the account's (on by default). */
+  /** The Moderation switch's value: the person's choice, else the campaign's, else (new) the account default (13 Nov). */
   const moderationOn = shownModeration({ choice: moderationChoice, campaign: flowCampaign?.moderation ?? null, account: accountModeration });
 
   /** Just created: give its moments the shown order (GET it, match its moments to the form's, PUT the order). */
@@ -2290,8 +2296,8 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
         photos_count: photosArray.length,
         photos: photosArray,
         ...coverChoicePayload(coverChoice),
-        // Moderation per campaign (Chris, 7 Nov 2026): only when the switch was touched (review I1); untouched, the
-        // campaign follows the account's setting (NULL).
+        // Moderation per campaign (Chris, 7 Nov 2026): only when the switch was touched (review I1); untouched, the API
+        // writes the account's setting as the new campaign's value (Deepak 13 Nov).
         ...moderationPayload(moderationChoice),
       };
 
@@ -2869,6 +2875,17 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
       onRemove: () => removeMoment(m),
     };
   });
+  // Phones have no preview (Chris, 11 Nov 2026): its Move up / Move down go on step 2's rows — same rules and handler.
+  const momentRowsWithOrder: MomentRow[] = momentRows.map((row, index) => {
+    const can = momentMenu(previewMoments, index, { saved: savedMoments });
+    const key = row.moment.key;
+    return {
+      ...row,
+      onMoveUp: can.up ? () => { void moveMoment(key, 'up'); } : undefined,
+      onMoveDown: can.down ? () => { void moveMoment(key, 'down'); } : undefined,
+      moveBusy: momentBusy || isSubmitting,
+    };
+  });
 
   /** Sent: say what went (and where the Storeel's stats are), and close. */
   const onStoreelSent = (summary: StoreelSendSummary) => {
@@ -2891,9 +2908,10 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
       role="dialog"
       aria-modal="true"
       aria-labelledby="storeel-create-title"
-      // Phones: top/height follow window.visualViewport (useVisualViewportSheet) so the
-      // footer stays above the iOS keyboard; wider screens fill the window.
-      className="fixed inset-x-0 top-[var(--vv-top,0px)] h-[var(--vv-height,100%)] md:inset-0 md:h-auto flex flex-col bg-[#F8F8FA]"
+      // Phones: full screen (at least 100dvh, so a stale/short viewport can't leave the page showing below — Chris,
+      // 9 Nov 2026); only while a text field is focused do top/height follow window.visualViewport
+      // (useVisualViewportSheet) so the footer stays above the iOS keyboard; wider screens fill the window.
+      className="fixed inset-x-0 top-[var(--vv-top,0px)] h-[var(--vv-height,100%)] min-h-[var(--vv-min-height,100dvh)] md:inset-0 md:h-auto md:min-h-0 flex flex-col bg-[#F8F8FA]"
       // While a campaign-page widget editor is open over it (Chris, 8 Nov 2026), it drops to the app's top bar's level:
       // above the bar (later in the page), under the editor and its dimming (portalled after it) — review M7.
       style={{ zIndex: widgetEditorOpen ? 50 : 99999 }}
@@ -2918,7 +2936,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
       </header>
 
       {/* Scrollable content: the form card, then (or beside it) the live preview */}
-      <div className="flex-1 overflow-y-auto overflow-x-hidden modal-scrollbar">
+      <div className="flex-1 overflow-y-auto overflow-x-hidden overscroll-contain modal-scrollbar">
         <div className="mx-auto grid max-w-[1040px] gap-6 px-4 py-6 md:px-6 lg:grid-cols-[minmax(0,1fr)_320px] lg:gap-8">
           <div className="min-w-0 space-y-4">
             {!flowCampaign && !flowEditing && (isLimitExceeded || serverLimitMessage) && (
@@ -3756,7 +3774,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
             )}
 
             <StoreelMomentsCard
-              rows={momentRows}
+              rows={momentRowsWithOrder}
               note={view.momentsNote}
               busy={isSubmitting}
               onAddMoment={() => openAddMoment(undefined)}
@@ -3820,7 +3838,8 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
             </div>
           </div>
 
-          <aside aria-label="Storeel preview" className="min-w-0 self-start pb-[max(1rem,env(safe-area-inset-bottom))] lg:sticky lg:top-0">
+          {isPhone ? null : (
+          <aside aria-label="Storeel preview" className="hidden md:block min-w-0 self-start pb-[max(1rem,env(safe-area-inset-bottom))] lg:sticky lg:top-0">
             <StoreelLivePreview
               input={{
                 title: formData.title, moments: previewMoments,
@@ -3839,6 +3858,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
               cardButtons={savedMomentsList ? previewCardButtons : undefined}
             />
           </aside>
+          )}
           {/* See plans (review I2): the plans open under this page, so leaving it is asked first. */}
           <ComposerDialog
             open={plansAsk !== null}

@@ -268,15 +268,18 @@ export interface SendInput {
   message: string;
   /** One fresh key per Send press, reused when that press is retried (the API then replays, never resends). */
   idempotencyKey: string;
+  /** The Publishing card's choice (Chris 9 Nov 2026): POST /memories/{id}/publish's role, 1 public / 2 view only. */
+  publishRole?: 1 | 2 | 3 | null;
 }
 
 /** POST /memories/{id}/storeel-send. The campaign link is never in the message: the API adds each person's own. */
-export function sendPayload({ audience, channels, message, idempotencyKey }: SendInput) {
+export function sendPayload({ audience, channels, message, idempotencyKey, publishRole = null }: SendInput) {
   return {
     audience: audience.map((a) => ({ ...a })),
     channels: (['email', 'sms'] as NewsletterChannel[]).filter((c) => channels.includes(c)),
     message: message.trim(),
     idempotency_key: idempotencyKey,
+    ...(publishRole ? { publish_role: publishRole } : {}),
   };
 }
 

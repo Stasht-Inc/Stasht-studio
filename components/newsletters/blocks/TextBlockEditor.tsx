@@ -3,7 +3,7 @@ import * as Popover from '@radix-ui/react-popover';
 import { Bold, Italic, Link as LinkIcon } from 'lucide-react';
 import { composerToast } from '../ComposerToaster';
 import type { FontKey, TextBlockData } from '../../../services/newslettersAPI';
-import { editorHtml, fontAt, fontTextNodes, formatAt, parseTextHtml, pastedTextNodes, resizeTextNodes, safeLinkHref, serializeTextNodes, sizeAtOffset, type TextNode } from '../lib/textHtml';
+import { colorAt, colorTextNodes, editorHtml, fontAt, fontTextNodes, formatAt, parseTextHtml, pastedTextNodes, resizeTextNodes, safeLinkHref, serializeTextNodes, sizeAtOffset, type TextNode } from '../lib/textHtml';
 import { fontStack } from '../lib/fonts';
 import { createHistory, recordHistory, redoHistory, undoHistory } from '../lib/textHistory';
 import { TEXT_INK, TEXT_SIZES, sectionLook, sectionStyleOf, stylePatch, textLinkColor, textSizeOf, type TextSize } from '../lib/sectionStyle';
@@ -27,7 +27,7 @@ export function renderTextNodes(nodes: TextNode[], prefix = 'n'): ReactNode[] {
     if (node.kind === 'text') return node.text;
     if (node.kind === 'br') return <br key={key} />;
     if (node.kind === 'a') return <a key={key} href={node.href}>{renderTextNodes(node.children, key)}</a>;
-    if (node.kind === 'size') return <span key={key} data-size={styleOfPx(node.px) ?? undefined} style={sizeStyle(node.px, node.font)}>{renderTextNodes(node.children, key)}</span>;
+    if (node.kind === 'size') return <span key={key} data-size={styleOfPx(node.px) ?? undefined} data-color={node.color} style={sizeStyle(node.px, node.font, node.color)}>{renderTextNodes(node.children, key)}</span>;
     const Tag = node.tag;
     return <Tag key={key}>{renderTextNodes(node.children, key)}</Tag>;
   });
@@ -35,12 +35,14 @@ export function renderTextNodes(nodes: TextNode[], prefix = 'n'): ReactNode[] {
 
 /** A size style and/or font as the email draws them (NewsletterRenderer::styleText): the style's px and line height in
  *  this newsletter's scale (CSS variables, Chris 7 Nov: a change to the scale shows at once), the font's stack. */
-function sizeStyle(px: number | null, font?: FontKey): CSSProperties {
+function sizeStyle(px: number | null, font?: FontKey, color?: string): CSSProperties {
   const size = styleOfPx(px);
   return {
     // The line height follows the section's line spacing (Chris, 7 Nov; lib/sectionSpacing.ts): normal unless it is set.
     ...(size ? { fontSize: sizeVar(size), lineHeight: spanLineHeight(sizeVar(size), lineHeightVar(size)) } : {}),
     ...(font ? { fontFamily: fontStack(font) } : {}),
+    // Chris (10 Nov): a Text colour on the selected words only.
+    ...(color ? { color } : {}),
   };
 }
 
@@ -57,7 +59,9 @@ function domNodes(nodes: TextNode[]): Node[] {
     if (node.kind === 'size') {
       const size = styleOfPx(node.px);
       if (size) el.setAttribute('data-size', size);
-      Object.assign(el.style, sizeStyle(node.px, node.font));
+      // The browser writes a style colour back as rgb(); data-color keeps the picked hex (lib/textHtml.ts).
+      if (node.color) el.setAttribute('data-color', node.color);
+      Object.assign(el.style, sizeStyle(node.px, node.font, node.color));
     }
     for (const child of domNodes(node.children)) el.appendChild(child);
     return el;
@@ -293,11 +297,14 @@ export default function TextBlockEditor({ blockId, data, selected, readOnly, onC
   // on the button.
   const [caretSize, setCaretSize] = useState<TextSize>('normal');
   // Chris (6 Nov): what the B / I / link buttons show as pressed, and the font the Font button names, at the caret.
-  const [caret, setCaret] = useState<{ bold: boolean; italic: boolean; link: boolean; font: FontKey | null }>({ bold: false, italic: false, link: false, font: null });
+  const [caret, setCaret] = useState<{ bold: boolean; italic: boolean; link: boolean; font: FontKey | null; selection: boolean; color: string | null }>({ bold: false, italic: false, link: false, font: null, selection: false, color: null });
   const readCaret = () => {
     const el = ref.current;
     const range = rangeInEditor();
     if (!el || !range) return;
+    // The colour panel redraws the words while it has focus, which leaves a collapsed selection in them: not the
+    // person's caret (the words they picked are kept in lastRange and put back when the panel closes).
+    if (range.collapsed && document.activeElement !== el) return;
     const nodes = parseTextHtml(el.innerHTML);
     const start = offsetOf(el, range.startContainer, range.startOffset);
     const end = range.collapsed ? start : offsetOf(el, range.endContainer, range.endOffset);
@@ -307,11 +314,14 @@ export default function TextBlockEditor({ blockId, data, selected, readOnly, onC
       try { return document.queryCommandState(command); } catch { return fallback; }
     };
     const at = range.collapsed ? start : start + 1;
-    const next = { bold: state('bold', model.bold), italic: state('italic', model.italic), link: model.link, font: fontAt(nodes, at) };
+    const next = { bold: state('bold', model.bold), italic: state('italic', model.italic), link: model.link, font: fontAt(nodes, at),
+      // Chris (10 Nov): with words selected, the Text colour button shows (and Automatic clears) their own colour.
+      selection: !range.collapsed, color: range.collapsed ? null : colorAt(nodes, start, end) };
     // The size from the text too (Chris, 6 Nov): after a whole-section change the caret sits after the last word,
     // between nodes, where the elements around it said Normal.
     setCaretSize(textSizeOf(sizeAtOffset(nodes, at) ?? 16)?.value ?? 'normal');
-    setCaret((prev) => (prev.bold === next.bold && prev.italic === next.italic && prev.link === next.link && prev.font === next.font ? prev : next));
+    setCaret((prev) => (prev.bold === next.bold && prev.italic === next.italic && prev.link === next.link && prev.font === next.font
+      && prev.selection === next.selection && prev.color === next.color ? prev : next));
   };
   const readCaretRef = useRef(readCaret);
   readCaretRef.current = readCaret;
@@ -358,6 +368,34 @@ export default function TextBlockEditor({ blockId, data, selected, readOnly, onC
     readCaret();
   };
 
+  // Text colour (Chris, 10 Nov: "It changes the whole row text"): with words selected, on just those words (an inline
+  // colour, like Bold); with only a caret, the whole section as before (the section's colour). null: Automatic, which
+  // takes the words' own colour away. The words are redrawn without moving focus, so the colour panel (and its Custom
+  // picker, which calls this as it is dragged) stays open; the selection is put back when the panel closes.
+  const applyColor = (color: string | null) => {
+    const el = ref.current;
+    if (!el) return;
+    // The panel has focus by now: the words' selection is the one they had when it opened.
+    const picked = document.activeElement === el ? rangeInEditor() : lastRange.current ?? rangeInEditor();
+    if (!picked || picked.collapsed || !el.contains(picked.startContainer) || !el.contains(picked.endContainer)) {
+      onChange(stylePatch({ color }));
+      return;
+    }
+    const sel = { start: offsetOf(el, picked.startContainer, picked.startOffset), end: offsetOf(el, picked.endContainer, picked.endOffset) };
+    const html = editorHtml(serializeTextNodes(colorTextNodes(parseTextHtml(el.innerHTML), color, sel)));
+    el.replaceChildren(...domNodes(parseTextHtml(html)));
+    const range = document.createRange();
+    const [sn, so] = pointAt(el, sel.start, true);
+    const [en, eo] = pointAt(el, sel.end);
+    range.setStart(sn, so);
+    range.setEnd(en, eo);
+    lastRange.current = range.cloneRange();
+    formatting.current = true;
+    try { emit('format'); } finally { formatting.current = false; }
+    setCaret((prev) => ({ ...prev, selection: true, color: color ? colorAt(parseTextHtml(html), sel.start, sel.end) : null }));
+  };
+  const selectionColor = caret.selection;
+
   return (
     <div className="relative">
       {selected && !readOnly ? (
@@ -402,7 +440,9 @@ export default function TextBlockEditor({ blockId, data, selected, readOnly, onC
             // Back to the words, still selected, so the change can be seen (Radix would focus the button).
             onCloseAutoFocus={(e) => { e.preventDefault(); ref.current?.focus(); select(lastRange.current); }} />
           <AlignMenu value={look.align} onPick={(align) => onChange(stylePatch({ align }))} />
-          <TextColorMenu idPrefix={blockId} value={style.color ?? null} shown={look.ink} bg={look.bg} onPick={(color) => onChange(stylePatch({ color }))} />
+          <TextColorMenu idPrefix={blockId} value={selectionColor ? caret.color : style.color ?? null} shown={(selectionColor ? caret.color : null) ?? look.ink} bg={look.bg} onPick={applyColor}
+            hint={selectionColor ? 'On the selected words. Select nothing to colour the whole section.' : 'On the whole section. Select words to colour just them.'}
+            onCloseAutoFocus={(e) => { e.preventDefault(); ref.current?.focus(); select(lastRange.current); }} />
           <BackgroundMenu idPrefix={blockId} allowImage={false} color={style.background_color ?? null} image={null} textColor={style.color ?? null}
             onColor={(c) => onChange(stylePatch({ background_color: c }))} onImage={() => {}} />
           <SpacingMenu lineSpacing={spacing.line_spacing ?? 'normal'} padding={spacing.padding ?? 'normal'}

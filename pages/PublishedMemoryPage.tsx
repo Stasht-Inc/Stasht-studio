@@ -649,6 +649,7 @@ export default function PublishedMemoryPage() {
         setMemoryData({
           ...newMemory,
           qr_access: (newMemory?.qr_access ?? rawData?.qr_access) === true,
+          guest_moments: (newMemory?.guest_moments ?? rawData?.guest_moments) === true,
           linked_memories: newMemory?.linked_memories ?? rawData?.linked_memories ?? [],
           unified_order: newMemory?.unified_order ?? rawData?.unified_order ?? null,
           widgets: newMemory?.widgets ?? rawData?.widgets ?? [],
@@ -1098,6 +1099,8 @@ export default function PublishedMemoryPage() {
               ...memory,
               // Opened through a printed QR code that points here: visitors may add moments, published or not.
               qr_access: (memory?.qr_access ?? actualData?.qr_access ?? response.data?.qr_access) === true,
+              // The owner added "Share Request a Moment" (+ chooser): the "Add a moment" bar shows (Chris, 13 Nov 2026).
+              guest_moments: (memory?.guest_moments ?? actualData?.guest_moments) === true,
               docusign_documents: memory?.docusign_documents ?? actualData?.docusign_documents,
               linked_memories: memory?.linked_memories ?? actualData?.linked_memories ?? [],
               unified_order: memory?.unified_order ?? actualData?.unified_order ?? null,
@@ -1108,7 +1111,7 @@ export default function PublishedMemoryPage() {
             setTokenError('');
             // Track view count — fire and forget, don't block rendering
             if (memory.id) {
-              dashboardAPI.trackMemoryView(memory.id, qr, tokenToUse).catch(() => {});
+              dashboardAPI.trackMemoryView(memory.id, qr, tokenToUse, !!storeelSendToken).catch(() => {});
             }
           } else {
             console.error('Memory not found in response');
@@ -1560,12 +1563,17 @@ export default function PublishedMemoryPage() {
   // in widget_order. Widgets with a null/empty after_post_id render at the top.
   // Whether the fixed "Add a moment" bar shows (details where it's drawn, below).
   const publishedValue = memoryData?.published;
-  // Opened from a printed QR code that points here (the API's qr_access): visitors may add moments, published or not.
-  const acceptsGuestMoments = memoryData?.qr_access === true || publishedValue === undefined || publishedValue === null || [1, 2, 3].includes(Number(publishedValue));
+  const isRequestMomentCta = (w: any) => w?.widget_type === 'cta' && w?.widget_data?.mode === 'request_moment';
+  // Visitors may add moments only where the owner added "Share Request a Moment" with the + chooser (Chris, 13 Nov
+  // 2026: the bar used to show on every Storeel) — the API's guest_moments, or the widget itself for an older API —
+  // or when a printed QR code that points here opened it (the API's qr_access), published or not.
+  const offersGuestMoments = memoryData?.guest_moments === true
+    || (memoryData?.widgets || []).some((w: any) => w && w.is_visible !== false && w.admin_approval !== 0 && isRequestMomentCta(w));
+  const publishedForGuests = publishedValue === undefined || publishedValue === null || [1, 2, 3].includes(Number(publishedValue));
+  const acceptsGuestMoments = memoryData?.qr_access === true || (offersGuestMoments && publishedForGuests);
   const addMomentBarOn = !viewOnly && !isEmbedded && acceptsGuestMoments && !!memoryData?.id;
   // While that bar shows, an owner's "Share a Moment" button (a CTA saved as request_moment) would be a second
   // copy of it (Chris, 31 Oct): leave those out. They still show where the bar doesn't (view-only, iframes).
-  const isRequestMomentCta = (w: any) => w?.widget_type === 'cta' && w?.widget_data?.mode === 'request_moment';
   const publishedWidgets = (memoryData?.widgets || [])
     .filter((w: any) => w && w.is_visible !== false && w.admin_approval !== 0)
     .filter((w: any) => !(addMomentBarOn && isRequestMomentCta(w)))
@@ -1618,8 +1626,8 @@ export default function PublishedMemoryPage() {
     setShowRequestMomentModal(true);
   };
 
-  // "Add a moment" bar, fixed to the bottom of the screen: any visitor can send a moment for review on every
-  // published campaign, added at the end of the timeline (after the last post shown) (the API takes guest moments when published is 1, 2 or 3). Off for view-only links, inside
+  // "Add a moment" bar, fixed to the bottom of the screen: where the owner added "Share Request a Moment" (or a QR
+  // code opened the campaign), any visitor can send a moment for review, added at the end of the timeline (after the last post shown) (the API takes guest moments when published is 1, 2 or 3). Off for view-only links, inside
   // an iframe, and while the image viewer, the comments sheet, the author card, the car viewer or the form is open.
   // The loading, error and access-token screens return earlier, so it never shows there.
   // Hidden (not unmounted) while something covers the page, so closing the form puts focus back on the button.

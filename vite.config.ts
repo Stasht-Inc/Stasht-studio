@@ -40,6 +40,10 @@ export default defineConfig(({ mode }) => {
         scope: '/',
         start_url: '/',
         id: '/',
+        // Links to Studio (e.g. the lead email's "Open conversation" → /leads?lead=N) open in the installed app
+        // (Chrome/Edge desktop) and reuse its open window without reloading it — utils/appLaunch.ts routes to the lead.
+        launch_handler: { client_mode: ['focus-existing', 'auto'] },
+        handle_links: 'preferred',
         icons: [
           {
             src: 'pwa-icon-192.png',

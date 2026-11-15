@@ -417,7 +417,6 @@ export default function InteractiveNav({
   const alvinEnabled = alvinStatus.enabled;
   // A question to ask as Alvin opens (e.g. from the Get Started checklist).
   const [alvinAsk, setAlvinAsk] = useState<string | null>(null);
-  const alvinUserId = user?.external_user_id ?? user?.id;
   const [introDone, setIntroDone] = useState(false);
   // Not before a new account has chosen its plan (Chris, 5 Nov 2026: "Meet Alvin" showed on top of the plan picker):
   // is_new_user is set until the plan picker is done (App).
@@ -433,14 +432,14 @@ export default function InteractiveNav({
       window.removeEventListener(ACCOUNT_STATE_CLEARED_EVENT, done);
     };
   }, []);
-  const showIntro = alvinEnabled && !alvinStatus.hasUsed && !introDone && !alvinOpen && !awaitingPlan && !introSeen(alvinUserId);
+  const showIntro = alvinEnabled && !alvinStatus.hasUsed && !introDone && !alvinOpen && !awaitingPlan && !introSeen(user);
   // Opening Alvin any way counts as having seen the explainer.
   useEffect(() => {
     if (alvinOpen && !introDone) {
-      markSeen(alvinUserId);
+      markSeen(user);
       setIntroDone(true);
     }
-  }, [alvinOpen, introDone, alvinUserId]);
+  }, [alvinOpen, introDone, user]);
 
   // Opened with ?alvin=1 (the app's "Ask Alvin"): open Alvin once its status is known. Ignored when Alvin
   // is off for the account or for partial admins (their status is always off); the parameter goes either way.
@@ -587,7 +586,7 @@ export default function InteractiveNav({
 
       {showIntro && (
         <AlvinIntroPopover
-          userId={alvinUserId}
+          user={user}
           onTry={() => {
             setIntroDone(true);
             setAlvinOpen(true);

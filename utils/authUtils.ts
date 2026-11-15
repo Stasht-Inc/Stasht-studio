@@ -2052,8 +2052,9 @@ export const dashboardAPI = {
   },
 
   // User engagement data
-  getUserEngagement: async (type = 'weekly', offset = 0): Promise<ApiResponse<any>> => {
-    return await apiRequest(`/dashboard/user-engagement?type=${type}&offset=${offset}`, {
+  // metric: 'campaigns' (all campaign views, default) / 'newsletters' (opens) / 'storeels' (Storeel views).
+  getUserEngagement: async (type = 'weekly', offset = 0, metric: 'campaigns' | 'newsletters' | 'storeels' = 'campaigns'): Promise<ApiResponse<any>> => {
+    return await apiRequest(`/dashboard/user-engagement?type=${type}&offset=${offset}&metric=${metric}`, {
       method: 'GET',
     });
   },
@@ -2114,6 +2115,12 @@ export const dashboardAPI = {
       console.error('❌❌❌ Error calling /existing-memories:', error);
       throw error;
     }
+  },
+
+  // Every campaign of the account for the Users-tab pickers (Partial Admin / Invite to Campaign) —
+  // all categories incl. car/Shopify campaigns, published or not, not paged (Chris 10 Nov 2026).
+  getCampaignPicker: async (): Promise<ApiResponse<any>> => {
+    return await apiRequest('/memories/campaign-picker', { method: 'GET' });
   },
 
   // Get transferable memories for property transfer
@@ -2274,13 +2281,14 @@ export const dashboardAPI = {
   },
 
   // Publish memory by ID
-  publishMemory: async (memoryId: string, role?: number): Promise<ApiResponse<any>> => {
+  /** switchRole (Chris 9 Nov 2026): a published campaign is switched to `role` instead of the toggle unpublishing it. */
+  publishMemory: async (memoryId: string, role?: number, switchRole = false): Promise<ApiResponse<any>> => {
     devLog(`dashboardAPI.publishMemory: Publishing memory ID ${memoryId} with role ${role}`);
     devLog(`API URL: /memories/${memoryId}/publish`);
 
     return await apiRequest(`/memories/${memoryId}/publish`, {
       method: 'POST',
-      body: role !== undefined ? JSON.stringify({ role }) : undefined,
+      body: role !== undefined ? JSON.stringify(switchRole ? { role, switch_role: true } : { role }) : undefined,
     });
   },
 
@@ -3466,7 +3474,8 @@ export const dashboardAPI = {
       role: role,
       collaborator_type: collaboratorType
     };
-    if (memoryIds && memoryIds.length > 0) {
+    // Partial Admin may have no campaigns (leads-only), so an empty list is sent as-is.
+    if (memoryIds) {
       body.memory_ids = memoryIds;
     }
     if (phoneNumber) {
@@ -3547,8 +3556,11 @@ export const dashboardAPI = {
   // Track a view when someone opens a published memory from a shared link
   // The API records a view only when the campaign is open to the caller: qr (the printed QR code the public page was
   // opened from) and accessToken (a Private campaign's token, URL or typed) go in the body when present.
-  trackMemoryView: async (memoryId: string | number, qr?: string | null, accessToken?: string | null): Promise<ApiResponse<any>> => {
-    const body = campaignAccessBody(qr, accessToken);
+  // storeel: this visit came from a Storeel send, whose open the API already counts (storeel.opened) — the view is
+  // still counted on the campaign, just not logged twice for the Dashboard chart.
+  trackMemoryView: async (memoryId: string | number, qr?: string | null, accessToken?: string | null, storeel = false): Promise<ApiResponse<any>> => {
+    const access = campaignAccessBody(qr, accessToken);
+    const body = storeel ? { ...(access || {}), storeel: true } : access;
     return await apiRequest(`/memories/${memoryId}/track-view`, {
       method: 'POST',
       ...(body ? { body: JSON.stringify(body) } : {}),

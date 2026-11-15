@@ -1,18 +1,21 @@
 import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
-import { Mail, Phone, MessageSquare, X, Paperclip, Send, ChevronDown, Smile, RefreshCw, Eye, Sparkles, Search, Heart, Gift, Calendar, MessageCircle, ThumbsUp, TrendingUp, Lightbulb, FileText, UserRound, Plus, ChevronLeft } from 'lucide-react';
+import { Mail, Phone, MessageSquare, X, Paperclip, Send, ChevronDown, Smile, RefreshCw, Eye, Sparkles, Search, Heart, Gift, Calendar, MessageCircle, ThumbsUp, TrendingUp, Lightbulb, FileText, UserRound, Plus, ChevronLeft, Check, UserPlus } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from './ui/avatar';
-import { Lead, LeadMessage, LeadMessageAttachment, leadsAPI, CommentaryTarget, messageChannelLabel, WidgetAiState } from '../services/leadsAPI';
+import { Lead, LeadMessage, LeadMessageAttachment, LeadThreadEvent, leadsAPI, CommentaryTarget, messageChannelLabel, WidgetAiState } from '../services/leadsAPI';
 import { listAddedAt } from '../utils/leadVia';
 import { useAuth } from '../contexts/AuthContext';
 import { useMemoryLimit, recheckMemoryLimit } from '../hooks/useMemoryLimit';
 import { useDialogBehavior } from '../hooks/useDialogBehavior';
 import { toast } from 'sonner';
 import { smsSegmentInfo, SMS_MAX_BODY } from '../utils/smsSegments';
-import ShareCarsDialog from './ShareCarsDialog';
+import ShareCarsDialog, { type PickKind } from './ShareCarsDialog';
+import { fallbackDraft, itemCount, removeDraft, replaceDraft, type PickedCampaign } from '../utils/composerCampaign';
 import AssigneeControl from './leads/AssigneeControl';
 import LinkifiedText from './leads/LinkifiedText';
 import LeadDetailsSidebar, { StatusChip } from './LeadDetailsSidebar';
 import CampaignDeletedTag from './leads/CampaignDeletedTag';
+import LeadBusinessTag from './leads/LeadBusinessTag';
+import LeadDetailsSheet from './leads/LeadDetailsSheet';
 
 // Built-in emoji grid — kept small/lightweight, no external dependency.
 const EMOJIS = [
@@ -75,6 +78,11 @@ function getTimeAgo(dateString: string): string {
 function getDaysAsLead(firstSeen: string): number {
   if (!firstSeen) return 0;
   return Math.floor((Date.now() - new Date(firstSeen).getTime()) / (1000 * 60 * 60 * 24));
+}
+
+// The 5 s refresh only re-renders the "joined" lines when they changed.
+function sameEvents(a: LeadThreadEvent[], b: LeadThreadEvent[]): boolean {
+  return a.length === b.length && a.every((e, i) => e.user_id === b[i].user_id && e.at === b[i].at);
 }
 
 function formatShortDate(dateString: string): string {
@@ -149,6 +157,8 @@ interface Props {
   highlightTarget?: CommentaryTarget | null;
   onTargetHandled?: () => void;
   onNavigate?: (page: string) => void;
+  // A field changed here (the name, Chris 14 Nov 2026): the page updates its copy at once, then refreshes the list.
+  onLeadPatched?: (patch: Partial<Lead>) => void;
 }
 
 // The website chat's AI bar (ClickUp wdy2xh2upu): "Chip is answering this chat · Take over", then
@@ -161,13 +171,13 @@ export function WidgetAiBar({ state, assistantName, busy, onTakeOver, onHandBack
   onHandBack: () => void;
 }) {
   const handler = state.handled_by;
-  const button = 'shrink-0 h-9 px-3.5 rounded-lg text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#6C60FF] focus-visible:ring-offset-1 disabled:opacity-50 disabled:cursor-default';
+  const button = 'shrink-0 h-9 px-3.5 rounded-lg text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 focus-visible:ring-offset-1 disabled:opacity-50 disabled:cursor-default';
   return (
     <div
-      className={`mb-3 flex items-center gap-3 rounded-xl border px-3.5 py-2 ${handler ? 'border-gray-200 bg-gray-50' : 'border-[#6C60FF]/25 bg-[#6C60FF]/[0.06]'}`}
+      className={`mb-3 flex items-center gap-3 rounded-xl border px-3.5 py-2 border-gray-200 bg-gray-50`}
       data-testid="widget-ai-bar"
     >
-      <span className={`flex items-center justify-center w-8 h-8 rounded-full shrink-0 ${handler ? 'bg-white text-gray-600 border border-gray-200' : 'bg-[#6C60FF] text-white'}`} aria-hidden="true">
+      <span className={`flex items-center justify-center w-8 h-8 rounded-full shrink-0 bg-white text-gray-600 border border-gray-200`} aria-hidden="true">
         {handler ? <UserRound className="w-4 h-4" /> : <Sparkles className="w-4 h-4" />}
       </span>
       <p className="flex-1 min-w-0 text-sm text-gray-700" role="status">
@@ -180,11 +190,11 @@ export function WidgetAiBar({ state, assistantName, busy, onTakeOver, onHandBack
         )}
       </p>
       {!handler ? (
-        <button type="button" onClick={onTakeOver} disabled={busy} className={`${button} bg-[#6C60FF] text-white hover:bg-[#5b50e6]`}>
+        <button type="button" onClick={onTakeOver} disabled={busy} className={`${button} bg-[#202224] text-white hover:bg-[#0A0A0A]`}>
           {busy ? 'Taking over…' : 'Take over'}
         </button>
       ) : handler.is_me ? (
-        <button type="button" onClick={onHandBack} disabled={busy} className={`${button} bg-white text-[#6C60FF] border border-[#6C60FF]/40 hover:bg-[#6C60FF]/[0.06]`}>
+        <button type="button" onClick={onHandBack} disabled={busy} className={`${button} bg-white text-[#202224] border border-gray-300 hover:bg-gray-100`}>
           {busy ? 'Handing back…' : `Hand back to ${assistantName}`}
         </button>
       ) : null}
@@ -192,7 +202,7 @@ export function WidgetAiBar({ state, assistantName, busy, onTakeOver, onHandBack
   );
 }
 
-export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, isArchived = false, highlightTarget, onTargetHandled, onNavigate }: Props) {
+export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, isArchived = false, highlightTarget, onTargetHandled, onNavigate, onLeadPatched }: Props) {
   const { user } = useAuth();
   const { limitData } = useMemoryLimit();
   const [aiCredits, setAiCredits] = useState<number>(limitData.ai_connects ?? 0);
@@ -201,6 +211,9 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
   const [currentStatus, setCurrentStatus] = useState<'hot' | 'warm' | 'cold' | 'visited' | 'sold' | null>(null);
   const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
   const [messages, setMessages] = useState<LeadMessage[]>([]);
+  // "Linda joined" lines (Chris 13 Nov 2026 evening), and the header's "Read" button while its request runs.
+  const [threadEvents, setThreadEvents] = useState<LeadThreadEvent[]>([]);
+  const [markingUnread, setMarkingUnread] = useState(false);
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
   const [message, setMessage] = useState('');
   const [subject, setSubject] = useState('');
@@ -227,6 +240,8 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
   const [showViaDropdown, setShowViaDropdown] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [showShareCars, setShowShareCars] = useState(false);
+  // "+ Campaign" picked into the message box (Chris 14 Nov 2026): created and sent only with Send.
+  const [pickedCampaign, setPickedCampaign] = useState<PickedCampaign | null>(null);
   const [attachments, setAttachments] = useState<File[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const composeInputRef = useRef<HTMLTextAreaElement>(null);
@@ -298,10 +313,15 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
     labelledBy: 'lead-drawer-title',
   });
 
+  // Phones (< md): no Contact Details column — tapping the name opens it as a sheet.
+  const [showDetailsSheet, setShowDetailsSheet] = useState(false);
+  useEffect(() => { setShowDetailsSheet(false); }, [lead?.id]);
+
   useEffect(() => {
     if (open && lead) {
       setCurrentStatus(lead.status ?? null);
       setMessage('');
+      setPickedCampaign(null);
       setSubject('');
       setReplyingToMsgId(null);
       setReplyText('');
@@ -322,6 +342,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
       replyIdemKeysRef.current = {};
       setVisitorOnline(false);
       setChatNotice(null);
+      setThreadEvents([]);
       setWidgetAiState(null);
       autoChatBlockedRef.current = false;
       if (scrollBodyRef.current) scrollBodyRef.current.scrollTop = 0;
@@ -379,6 +400,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
         if (cancelled || !res.success || !res.data?.messages) return;
         setVisitorOnline(!!res.data.visitor_online);
         setWidgetAi(res.data.widget_ai);
+        setThreadEvents((prev) => (sameEvents(prev, res.data?.events ?? []) ? prev : (res.data?.events ?? [])));
         const next = res.data.messages;
         const prev = messagesRef.current;
         const unchanged = next.length === prev.length
@@ -434,9 +456,11 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
       const res = await leadsAPI.getMessages(leadId, true);
       if (res.success && res.data?.messages) {
         setMessages(res.data.messages);
+        setThreadEvents(res.data.events ?? []);
         setVisitorOnline(!!res.data.visitor_online);
         setWidgetAi(res.data.widget_ai);
       }
+      // mark-read also takes away this person's "marked unread" (theirs only, 13 Nov 2026 evening);
       // mark-read also clears this user's bell notifications for the lead.
       leadsAPI.markRead(leadId).then(() => window.dispatchEvent(new CustomEvent('notifications-count-refresh')));
       leadsAPI.markCommentsRead(leadId);
@@ -446,6 +470,26 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
     } finally {
       messagesFetched.current = true;
       setIsLoadingMessages(false);
+    }
+  };
+
+  // The header's "Read" button (Chris 13 Nov 2026 evening): unread for everyone on the team until each of them opens it.
+  // The conversation closes, as in an email inbox, so the list shows it unread; staying open would read it again.
+  const handleMarkUnread = async () => {
+    if (!lead || markingUnread) return;
+    setMarkingUnread(true);
+    try {
+      const res = await leadsAPI.markUnread(lead.id);
+      if (res.success) {
+        toast.success('Marked unread');
+        onClose();
+        return;
+      }
+      toast.error("Couldn't mark it unread");
+    } catch {
+      toast.error("Couldn't mark it unread");
+    } finally {
+      setMarkingUnread(false);
     }
   };
 
@@ -530,11 +574,15 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
       const encoded = await Promise.all(
         attachments.map(async (f) => ({ filename: f.name, data: await fileToDataUrl(f) })),
       );
+      // The picked items go with the message: the server creates their campaign now and swaps [campaign link] for it.
+      const campaign = pickedCampaign
+        ? { kind: pickedCampaign.kind, ids: pickedCampaign.ids, ...(pickedCampaign.name ? { title: pickedCampaign.name } : {}) }
+        : undefined;
       const res = via === 'chat'
-        ? await leadsAPI.sendChat(lead!.id, message.trim(), key, encoded)
+        ? await leadsAPI.sendChat(lead!.id, message.trim(), key, encoded, campaign)
         : via === 'sms'
-          ? await leadsAPI.sendSMS(lead!.id, message.trim(), key, encoded)
-          : await leadsAPI.sendEmail(lead!.id, subject.trim() || 'Following up', message.trim(), encoded, key);
+          ? await leadsAPI.sendSMS(lead!.id, message.trim(), key, encoded, campaign)
+          : await leadsAPI.sendEmail(lead!.id, subject.trim() || (pickedCampaign ? (pickedCampaign.kind === 'product' ? 'Products picked for you' : 'New cars just added') : 'Following up'), message.trim(), encoded, key, campaign);
       if (res.success) {
         // confirmed success → fresh key for the next compose on THIS channel only
         if (via === 'sms') smsIdemKeyRef.current = crypto.randomUUID();
@@ -543,10 +591,14 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
         setMessage('');
         setSubject('');
         setAttachments([]);
+        setPickedCampaign(null);
         setShowEmojiPicker(false);
         setLastAiAction(null);
         setChatNotice(null);
-        toast.success(via === 'chat' ? 'Sent to their website chat.' : `${via === 'email' ? 'Email' : 'SMS'} sent successfully.`);
+        const made = (res.data as any)?.campaign;
+        toast.success(made
+          ? `Sent with a new campaign, "${made.title}".`
+          : via === 'chat' ? 'Sent to their website chat.' : `${via === 'email' ? 'Email' : 'SMS'} sent successfully.`);
         await refreshAll();
       } else if (via === 'chat' && (res as any)?.code === 'visitor_offline') {
         // They left just as the rep hit Send: nothing went out — keep the draft, move to text/email.
@@ -580,6 +632,41 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
     } else {
       setMessage((m) => m + emoji);
     }
+  };
+
+  // "+ Campaign" → Add: the items' wording goes into the box at the cursor (or replaces the previous pick's), with
+  // [campaign link] where the link goes. Nothing is created or sent here (Chris 14 Nov 2026).
+  const handleCampaignPick = async (ids: number[], campaignName: string, kind: PickKind, defaultName?: string) => {
+    let draft = fallbackDraft(ids.length, kind);
+    try {
+      const res = await leadsAPI.campaignDraft(kind, ids);
+      const body = (res.data as any)?.body ?? (res.data as any)?.data?.body;
+      if (res.success && typeof body === 'string' && body.trim()) draft = body;
+      else if (!res.success) {
+        toast.error((res as any)?.message || res.error || 'Could not add those items.');
+        return;
+      }
+    } catch {
+      // keep the fallback wording; Send still makes the campaign
+    }
+    const el = composeInputRef.current;
+    const start = el?.selectionStart ?? message.length;
+    const end = el?.selectionEnd ?? message.length;
+    const next = replaceDraft(message, pickedCampaign?.draft, draft, start, end);
+    setMessage(next.text);
+    setPickedCampaign({ ids, name: campaignName, kind, defaultName, draft });
+    requestAnimationFrame(() => {
+      if (!el) return;
+      el.focus();
+      el.setSelectionRange(next.cursor, next.cursor);
+    });
+  };
+
+  // × on the chip: a plain message again — its wording comes out and no [campaign link] is left.
+  const removePickedCampaign = () => {
+    if (!pickedCampaign) return;
+    setMessage((m) => removeDraft(m, pickedCampaign.draft));
+    setPickedCampaign(null);
   };
 
   // Validate picked files (images/PDF, ≤2 MB each; texts: JPG/PNG/GIF/PDF and
@@ -748,9 +835,15 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
   const daysAsLead = getDaysAsLead(lead.first_seen_at);
   const unreadCount = lead.unread_count ?? 0;
 
+  // Header, avatar and list row follow the new name straight away; the list then reloads (writes clear the GET cache).
+  const handleNameSaved = (name: string) => {
+    onLeadPatched?.({ user: { ...(lead.user ?? {}), name } as Lead['user'] });
+    onRefreshLead?.();
+  };
+
   const rowHl = (key: string) =>
     highlightedKey === key
-      ? 'rounded-xl ring-2 ring-[#6C60FF] bg-purple-50 transition-all duration-500 -mx-2 px-2'
+      ? 'rounded-xl ring-2 ring-gray-400 bg-gray-100 transition-all duration-500 -mx-2 px-2'
       : '';
 
   const renderMessage = (msg: LeadMessage, isChild = false): React.ReactNode => {
@@ -829,31 +922,39 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
                 // after-hours notices carry the badge. A rep's reply takes over from it.
                 <>
                   <span className="text-base font-semibold text-gray-900">AI assistant</span>
-                  <span data-ai-badge className="inline-flex items-center rounded-md bg-[#6C60FF]/10 px-1.5 py-0.5 text-xs font-bold tracking-wide text-[#4a40d4]">
+                  <span data-ai-badge className="inline-flex items-center rounded-md bg-[#F3F4F6] px-1.5 py-0.5 text-xs font-bold tracking-wide text-[#4A5565]">
                     AI
                   </span>
-                  <span className="h-8 w-8 rounded-full bg-[#6C60FF]/10 text-[#6C60FF] flex items-center justify-center" aria-hidden="true">
+                  <span className="h-8 w-8 rounded-full bg-[#F3F4F6] text-[#4A5565] flex items-center justify-center" aria-hidden="true">
                     <Sparkles className="w-4 h-4" />
                   </span>
                 </>
               ) : (
-                <>
-                  <span className="text-base font-semibold text-gray-900">You</span>
-                  <Avatar className="h-8 w-8">
-                    <AvatarImage src={user?.avatar} alt={user?.name || 'You'} />
-                    <AvatarFallback className="bg-[#6C60FF] text-white text-sm font-bold">
-                      {getInitials(user?.name || 'You')}
-                    </AvatarFallback>
-                  </Avatar>
-                </>
+                // A teammate's reply shows their name (several people answer one lead, 10 Nov 2026); yours says "You".
+                (() => {
+                  const teammate = msg.sender_name && msg.sender_name.trim() !== '' && msg.sender_name !== user?.name ? msg.sender_name : null;
+                  return (
+                    <>
+                      <span className="text-base font-semibold text-gray-900">{teammate ?? 'You'}</span>
+                      <Avatar className="h-8 w-8">
+                        {!teammate && <AvatarImage src={user?.avatar} alt={user?.name || 'You'} />}
+                        <AvatarFallback className="bg-[#E5E7EB] text-[#202224] text-sm font-bold">
+                          {getInitials(teammate ?? (user?.name || 'You'))}
+                        </AvatarFallback>
+                      </Avatar>
+                    </>
+                  );
+                })()
               )}
             </div>
             {msg.subject && msg.subject !== 'Following up' && (
-              <p className="text-sm font-semibold text-[#6C60FF] mb-1">{msg.subject}</p>
+              <p className="text-sm font-semibold text-gray-900 mb-1">{msg.subject}</p>
             )}
             {msg.body && (
-              <div className="max-w-[560px] bg-[#6C60FF] text-white rounded-2xl rounded-tr-sm px-5 py-3">
-                <p className="text-base leading-relaxed whitespace-pre-line [overflow-wrap:anywhere]"><LinkifiedText text={msg.body} linkClassName="text-white" /></p>
+              // Chris 14 Nov 2026 (less purple): the AI assistant's replies are light gray with dark text and links;
+              // a person's replies are dark gray.
+              <div data-outbound-bubble className={`max-w-[560px] rounded-2xl rounded-tr-sm px-5 py-3 ${msg.is_ai ? 'bg-[#F3F4F6] text-[#0A0A0A]' : 'bg-[#202224] text-white'}`}>
+                <p className="text-base leading-relaxed whitespace-pre-line [overflow-wrap:anywhere]"><LinkifiedText text={msg.body} linkClassName={msg.is_ai ? 'text-[#0A0A0A]' : 'text-white'} /></p>
               </div>
             )}
             {msg.attachments && msg.attachments.length > 0 && (
@@ -876,7 +977,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
           <div className="relative shrink-0 mt-0.5">
             <Avatar className="h-10 w-10">
               <AvatarImage src={lead.user?.profile_image} alt={leadName} />
-              <AvatarFallback className="bg-[#6C60FF] text-white text-sm font-semibold">
+              <AvatarFallback className="bg-[#E5E7EB] text-[#202224] text-sm font-semibold">
                 {getInitials(leadName)}
               </AvatarFallback>
             </Avatar>
@@ -915,7 +1016,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
                   setReplyText('');
                   setTimeout(() => replyInputRef.current?.focus(), 50);
                 }}
-                className="mt-2 text-sm text-[#6C60FF] hover:underline font-medium"
+                className="mt-2 text-sm text-gray-700 hover:text-gray-900 hover:underline font-medium"
               >
                 Reply
               </button>
@@ -931,7 +1032,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
                   onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleReplySubmit(); } }}
                   placeholder={`Reply to ${firstName}...`}
                   rows={2}
-                  className="w-full text-sm text-gray-700 placeholder:text-gray-400 resize-none border-none outline-none bg-transparent px-3 pt-2.5 pb-1 leading-relaxed focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#6C60FF]"
+                  className="w-full text-sm text-gray-700 placeholder:text-gray-400 resize-none border-none outline-none bg-transparent px-3 pt-2.5 pb-1 leading-relaxed focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-gray-400"
                 />
                 <div className="flex items-center justify-end gap-2 px-3 pb-2">
                   <button
@@ -943,7 +1044,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
                   <button
                     onClick={handleReplySubmit}
                     disabled={!replyText.trim() || isSendingReply}
-                    className="flex items-center gap-1.5 h-9 px-4 rounded-lg bg-[#6C60FF] hover:bg-[#5A4FE5] text-white text-sm font-medium disabled:opacity-40 transition-colors"
+                    className="flex items-center gap-1.5 h-9 px-4 rounded-lg bg-[#202224] hover:bg-[#0A0A0A] text-white text-sm font-medium disabled:opacity-40 transition-colors"
                   >
                     <Send className="w-3 h-3" />
                     {isSendingReply ? 'Sending...' : 'Send'}
@@ -974,16 +1075,32 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
             <span className="hidden sm:inline">Leads</span>
           </button>
           <span className="hidden sm:inline text-gray-400" aria-hidden="true">/</span>
-          <h2 id="lead-drawer-title" className="text-lg font-semibold text-gray-900 truncate">{leadName}</h2>
+          {/* Phones keep at least a short name visible (the tap target for Contact Details) beside the chips — 14 Nov 2026. */}
+          <h2 id="lead-drawer-title" className="text-lg font-semibold text-gray-900 truncate min-w-[5.5rem]">
+            <span className="hidden md:inline">{leadName}</span>
+            {/* Phones: the name opens the Contact Details sheet (that column is hidden < md). */}
+            <button
+              type="button"
+              onClick={() => setShowDetailsSheet(true)}
+              aria-haspopup="dialog"
+              title="Show contact details"
+              data-testid="lead-name-details-trigger"
+              className="md:hidden flex max-w-full items-center gap-0.5 text-left rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#6C60FF]"
+            >
+              <span className="truncate">{leadName}</span>
+              <ChevronDown className="w-4 h-4 shrink-0 text-gray-400" aria-hidden="true" />
+            </button>
+          </h2>
+          <LeadBusinessTag lead={lead} className="hidden sm:inline-flex" />
           {!lead.user?.id && (
             <span className="flex items-center gap-1 px-2.5 h-7 rounded-md bg-blue-50 text-blue-500 border border-blue-200 text-sm font-medium shrink-0">
               <UserRound className="w-3.5 h-3.5" /> Guest
             </span>
           )}
           {isWidgetLead && visitorOnline && (
-            <span className="flex items-center gap-1.5 px-2.5 h-7 rounded-md bg-green-50 text-green-700 border border-green-200 text-sm font-medium shrink-0">
+            <span title="On your website now" className="flex items-center gap-1.5 px-2.5 h-7 rounded-md bg-green-50 text-green-700 border border-green-200 text-sm font-medium shrink-0">
               <span className="w-2 h-2 rounded-full bg-green-500" aria-hidden="true" />
-              On your website now
+              <span className="sr-only min-[480px]:not-sr-only">On your website now</span>
             </span>
           )}
           {currentStatus && <span className="hidden sm:inline-flex"><StatusChip status={currentStatus} /></span>}
@@ -1027,7 +1144,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
                             <p className="text-xs text-gray-600 truncate">Smart tools for {firstName}</p>
                           </div>
                           {aiCredits > 0 && (
-                            <span className="flex items-center gap-1 px-2 h-6 rounded-full bg-purple-100 text-[#6C60FF] text-[12px] font-semibold shrink-0">
+                            <span className="flex items-center gap-1 px-2 h-6 rounded-full bg-gray-100 text-gray-700 text-[12px] font-semibold shrink-0">
                               <Sparkles className="w-3 h-3" /> 1 credit
                             </span>
                           )}
@@ -1057,7 +1174,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
                           {/* Suggested Actions */}
                           <div className="px-4 pb-3">
                             <div className="flex items-center gap-1.5 mb-2">
-                              <Lightbulb className="w-3.5 h-3.5 text-[#6C60FF]" />
+                              <Lightbulb className="w-3.5 h-3.5 text-gray-500" />
                               <p className="text-[12px] font-semibold text-gray-600 uppercase tracking-wider">Suggested Actions</p>
                             </div>
                             <div className="space-y-2">
@@ -1069,10 +1186,10 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
                                     key={a.key}
                                     onClick={() => handleAiAction(a.key)}
                                     disabled={generatingAction !== null}
-                                    className="w-full text-left flex items-start gap-3 px-3 py-2.5 rounded-lg border border-gray-200 hover:border-[#6C60FF] hover:bg-purple-50/40 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                                    className="w-full text-left flex items-start gap-3 px-3 py-2.5 rounded-lg border border-gray-200 hover:border-gray-400 hover:bg-gray-50 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
                                   >
                                     {isGenerating ? (
-                                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-[#6C60FF] shrink-0 mt-0.5" />
+                                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-600 shrink-0 mt-0.5" />
                                     ) : (
                                       <Icon className="w-4 h-4 text-gray-500 shrink-0 mt-0.5" />
                                     )}
@@ -1127,6 +1244,21 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
                 Correspondence
               </p>
               <div className="flex items-center gap-1.5">
+                {lead.can_mark_unread && (
+                  // Chris 13 Nov 2026: "Add ✓ Read button to the left of search. When you tap it, it goes to unread" — for
+                  // everyone on the team, until each of them opens it.
+                  <button
+                    onClick={handleMarkUnread}
+                    disabled={markingUnread}
+                    aria-label="Read. Mark as unread for everyone"
+                    title="Mark unread for everyone"
+                    data-testid="lead-read-toggle"
+                    className="h-10 px-3 flex items-center gap-1.5 rounded-md border border-gray-200 text-sm font-medium text-gray-500 hover:text-gray-900 hover:border-gray-400 hover:bg-gray-100 disabled:opacity-40 transition-colors"
+                  >
+                    <Check className="w-4 h-4" />
+                    Read
+                  </button>
+                )}
                 <button
                   onClick={() => {
                     setShowSearch((v) => !v);
@@ -1134,7 +1266,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
                     setTimeout(() => searchInputRef.current?.focus(), 50);
                   }}
                   aria-label="Search messages"
-                  className={`h-10 w-10 flex items-center justify-center rounded-md border transition-colors ${showSearch ? 'border-[#6C60FF] text-[#6C60FF] bg-purple-50' : 'border-gray-200 text-gray-400 hover:text-[#6C60FF] hover:border-[#6C60FF]'}`}
+                  className={`h-10 w-10 flex items-center justify-center rounded-md border transition-colors ${showSearch ? 'border-gray-400 text-gray-900 bg-gray-100' : 'border-gray-200 text-gray-400 hover:text-gray-900 hover:border-gray-400'}`}
                 >
                   <Search className="w-5 h-5" />
                 </button>
@@ -1143,7 +1275,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
                   disabled={isLoadingMessages}
                   aria-label="Refresh messages"
                   title="Refresh"
-                  className="h-10 w-10 flex items-center justify-center rounded-md border border-gray-200 text-gray-400 hover:text-[#6C60FF] hover:border-[#6C60FF] disabled:opacity-40 transition-colors"
+                  className="h-10 w-10 flex items-center justify-center rounded-md border border-gray-200 text-gray-400 hover:text-gray-900 hover:border-gray-400 disabled:opacity-40 transition-colors"
                 >
                   <RefreshCw className={`w-5 h-5 ${isLoadingMessages ? 'animate-spin' : ''}`} />
                 </button>
@@ -1157,7 +1289,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
                   value={chatSearch}
                   onChange={(e) => setChatSearch(e.target.value)}
                   placeholder="Search messages..."
-                  className="w-full h-11 pl-10 pr-3 text-base border border-gray-200 rounded-lg bg-white outline-none focus:border-[#6C60FF] transition-colors placeholder:text-gray-400"
+                  className="w-full h-11 pl-10 pr-3 text-base border border-gray-200 rounded-lg bg-white outline-none focus:border-gray-400 transition-colors placeholder:text-gray-400"
                 />
                 {chatSearch && (
                   <button onClick={() => setChatSearch('')} aria-label="Clear search" className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
@@ -1185,7 +1317,8 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
               const topLevelMessageItems = topLevelMessages
                 .filter((m) => !q || m.body?.toLowerCase().includes(q) || m.subject?.toLowerCase().includes(q))
                 .map((m) => ({ _type: 'message' as const, _date: new Date(m.sent_at).getTime(), data: m }));
-              const topLevel = [...commentItems, ...topLevelMessageItems].sort((a, b) => a._date - b._date);
+              const eventItems = q ? [] : threadEvents.map((e) => ({ _type: 'event' as const, _date: new Date(e.at).getTime(), data: e }));
+              const topLevel = [...commentItems, ...topLevelMessageItems, ...eventItems].sort((a, b) => a._date - b._date);
 
               return (
                 <div>
@@ -1218,6 +1351,18 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
                   )}
 
                   {topLevel.map((item) => {
+                      if (item._type === 'event') {
+                        const e = item.data;
+                        return (
+                          <div key={`event-${e.type}-${e.user_id}-${e.at}`} className="flex items-center gap-2 py-2.5" data-testid="thread-event">
+                            <div className="h-8 w-8 rounded-full bg-gray-100 flex items-center justify-center shrink-0">
+                              <UserPlus className="w-4 h-4 text-gray-400" />
+                            </div>
+                            <span className="text-sm text-gray-600 flex-1">{e.body}</span>
+                            <span className="text-sm text-gray-600 shrink-0">{formatShortDate(e.at)}</span>
+                          </div>
+                        );
+                      }
                       if (item._type === 'comment') {
                         const c = item.data;
                         const childComments = comments.filter((ch) => ch.parent_id === c.id);
@@ -1232,7 +1377,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
                               <div className="relative shrink-0 mt-0.5">
                                 <Avatar className="h-10 w-10">
                                   <AvatarImage src={c.user?.profile_image} alt={c.user?.name} />
-                                  <AvatarFallback className="bg-[#6C60FF] text-white text-sm font-semibold">
+                                  <AvatarFallback className="bg-[#E5E7EB] text-[#202224] text-sm font-semibold">
                                     {getInitials(c.user?.name || firstName)}
                                   </AvatarFallback>
                                 </Avatar>
@@ -1258,7 +1403,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
                                       setReplyText('');
                                       setTimeout(() => replyInputRef.current?.focus(), 50);
                                     }}
-                                    className="mt-1.5 text-sm text-[#6C60FF] hover:underline font-medium"
+                                    className="mt-1.5 text-sm text-gray-700 hover:text-gray-900 hover:underline font-medium"
                                   >
                                     Reply
                                   </button>
@@ -1269,7 +1414,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
                                   <div className="mt-2 flex items-start gap-2">
                                     <Avatar className="h-9 w-9 shrink-0 mt-1">
                                       <AvatarImage src={user?.avatar} alt={user?.name || 'You'} />
-                                      <AvatarFallback className="bg-[#6C60FF] text-white text-sm font-bold">
+                                      <AvatarFallback className="bg-[#E5E7EB] text-[#202224] text-sm font-bold">
                                         {getInitials(user?.name || 'You')}
                                       </AvatarFallback>
                                     </Avatar>
@@ -1281,7 +1426,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
                                         onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleCommentReplySubmit(c); } }}
                                         placeholder={`Reply to ${firstName}...`}
                                         rows={2}
-                                        className="w-full text-sm text-gray-700 placeholder:text-gray-400 resize-none border-none outline-none bg-transparent px-3 pt-2.5 pb-1 leading-relaxed focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#6C60FF]"
+                                        className="w-full text-sm text-gray-700 placeholder:text-gray-400 resize-none border-none outline-none bg-transparent px-3 pt-2.5 pb-1 leading-relaxed focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-gray-400"
                                       />
                                       <div className="flex items-center justify-end gap-2 px-3 pb-2">
                                         <button
@@ -1293,7 +1438,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
                                         <button
                                           onClick={() => handleCommentReplySubmit(c)}
                                           disabled={!replyText.trim() || isSendingReply}
-                                          className="flex items-center gap-1.5 h-9 px-4 rounded-lg bg-[#6C60FF] hover:bg-[#5A4FE5] text-white text-sm font-medium disabled:opacity-40 transition-colors"
+                                          className="flex items-center gap-1.5 h-9 px-4 rounded-lg bg-[#202224] hover:bg-[#0A0A0A] text-white text-sm font-medium disabled:opacity-40 transition-colors"
                                         >
                                           <Send className="w-3 h-3" />
                                           {isSendingReply ? 'Sending...' : 'Send'}
@@ -1312,7 +1457,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
                               <div key={`comment-${child.id}`} className="ml-14 mt-3 flex items-start gap-2.5">
                                 <Avatar className="h-9 w-9 shrink-0 mt-0.5">
                                   <AvatarImage src={child.user?.profile_image} alt={child.user?.name} />
-                                  <AvatarFallback className="bg-[#6C60FF] text-white text-sm font-semibold">
+                                  <AvatarFallback className="bg-[#E5E7EB] text-[#202224] text-sm font-semibold">
                                     {getInitials(child.user?.name || firstName)}
                                   </AvatarFallback>
                                 </Avatar>
@@ -1324,7 +1469,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
                                     </span>
                                     <span className="text-sm text-gray-600 shrink-0">{formatShortDate(child.created_at)}</span>
                                   </div>
-                                  <div className={`inline-block rounded-2xl rounded-tl-sm px-4 py-2.5 mt-1 max-w-[90%] ${isMyReply ? 'bg-[#6C60FF]' : 'bg-gray-100'}`}>
+                                  <div className={`inline-block rounded-2xl rounded-tl-sm px-4 py-2.5 mt-1 max-w-[90%] ${isMyReply ? 'bg-[#202224]' : 'bg-gray-100'}`}>
                                     <p className={`text-base leading-relaxed [overflow-wrap:anywhere] ${isMyReply ? 'text-white' : 'text-gray-700'}`}>{child.description}</p>
                                   </div>
                                 </div>
@@ -1350,7 +1495,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
           // Read-only for this user. An unclaimed lead can be accepted right here;
           // one owned by a teammate just says so (spec 2026-09-23).
           <div className="border-t border-gray-200 px-4 py-3 bg-gray-50 flex items-center justify-center gap-3 text-sm text-gray-700">
-            {lead.assignee ? (
+            {lead.assignee && !lead.waiting ? (
               <span>This lead is assigned to {lead.assignee.name ?? 'a teammate'}.</span>
             ) : (
               <>
@@ -1379,6 +1524,32 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
             />
           )}
           <div className="border border-gray-200 rounded-2xl bg-white px-5 pt-4 pb-4 shadow-sm">
+            {pickedCampaign && (
+              // The picked items, kept until Send (or ×): "2 products · More MDF". Tap to change the pick.
+              <div className="flex items-center gap-1 mb-2 max-w-full">
+                <button
+                  type="button"
+                  onClick={() => setShowShareCars(true)}
+                  title="Change items"
+                  className="inline-flex items-center gap-1.5 min-w-0 h-8 pl-2.5 pr-2 rounded-lg bg-[#F3F4F6] hover:bg-[#E5E7EB] text-sm text-[#202224] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400"
+                >
+                  <Plus className="w-3.5 h-3.5 shrink-0 text-[#4A5565]" aria-hidden="true" />
+                  <span className="font-medium shrink-0">{itemCount(pickedCampaign.ids.length, pickedCampaign.kind)}</span>
+                  {(pickedCampaign.name || pickedCampaign.defaultName) && (
+                    <span className="truncate text-[#4A5565]">· {pickedCampaign.name || pickedCampaign.defaultName}</span>
+                  )}
+                </button>
+                <button
+                  type="button"
+                  onClick={removePickedCampaign}
+                  aria-label="Remove campaign"
+                  title="Remove campaign"
+                  className="h-8 w-8 shrink-0 inline-flex items-center justify-center rounded-lg text-[#4A5565] hover:bg-[#F3F4F6] hover:text-[#202224] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            )}
             <textarea
               ref={composeInputRef}
               value={message}
@@ -1387,7 +1558,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
               placeholder={`Type a message to ${firstName}...`}
               rows={3}
               maxLength={via === 'sms' ? SMS_MAX_BODY : via === 'chat' ? CHAT_MAX_BODY : undefined}
-              className="w-full max-sm:h-16 text-base text-gray-700 placeholder:text-gray-400 resize-none rounded-xl bg-gray-50 border border-gray-200 px-4 py-3 leading-relaxed outline-none transition-colors focus:bg-white focus:border-[#6C60FF]/60 focus:ring-4 focus:ring-[#6C60FF]/15"
+              className="w-full max-sm:h-16 text-base text-gray-700 placeholder:text-gray-400 resize-none rounded-xl bg-gray-50 border border-gray-200 px-4 py-3 leading-relaxed outline-none transition-colors focus:bg-white focus:border-gray-400 focus:ring-4 focus:ring-gray-200"
             />
 
             {/* SMS character counter — only when via === 'sms' */}
@@ -1457,9 +1628,9 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
                   intermediate menu. Same action the mobile app's "+" reaches on SMS threads. */}
               <button
                 onClick={() => setShowShareCars(true)}
-                title="Share a campaign"
-                aria-label="Share a campaign"
-                className="flex items-center gap-1.5 h-10 px-4 rounded-lg bg-purple-50 hover:bg-purple-100 text-[#5A4FE5] text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#6C60FF]"
+                title="Add a campaign to your message"
+                aria-label="Add a campaign to your message"
+                className="flex items-center gap-1.5 h-10 px-4 rounded-lg bg-white border border-gray-200 hover:bg-[#F3F4F6] text-[#202224] text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400"
               >
                 <Plus className="w-4 h-4" aria-hidden="true" />
                 Campaign
@@ -1468,7 +1639,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
               <div className="relative">
                 <button
                   onClick={() => setShowEmojiPicker((v) => !v)}
-                  className={`p-1.5 transition-colors ${showEmojiPicker ? 'text-[#6C60FF]' : 'text-gray-400 hover:text-gray-600'}`}
+                  className={`p-1.5 transition-colors ${showEmojiPicker ? 'text-[#202224]' : 'text-gray-400 hover:text-gray-600'}`}
                   title="Insert emoji"
                   aria-label="Insert emoji"
                 >
@@ -1523,7 +1694,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
                             setChatNotice(null);
                             setShowViaDropdown(false);
                           }}
-                          className={`w-full text-left px-3 py-2 text-sm ${isDisabled ? `cursor-not-allowed text-gray-400 ${option === 'chat' ? '' : 'opacity-40'}` : via === option ? 'text-[#6C60FF] font-medium hover:bg-gray-50' : 'text-gray-700 hover:bg-gray-50'}`}
+                          className={`w-full text-left px-3 py-2 text-sm ${isDisabled ? `cursor-not-allowed text-gray-400 ${option === 'chat' ? '' : 'opacity-40'}` : via === option ? 'bg-[#F3F4F6] text-[#202224] font-semibold' : 'text-gray-700 hover:bg-gray-50'}`}
                         >
                           {VIA_LABELS[option]}
                           {option === 'chat' && isDisabled && (
@@ -1542,10 +1713,10 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
                   onClick={() => handleAiAction(lastAiAction, true)}
                   disabled={generatingAction !== null}
                   title="Regenerate (free)"
-                  className="ml-auto flex items-center gap-1.5 h-10 px-4 rounded-lg border border-[#6C60FF] text-[#6C60FF] bg-purple-50 hover:bg-purple-100 text-sm font-medium disabled:opacity-50 transition-colors"
+                  className="ml-auto flex items-center gap-1.5 h-10 px-4 rounded-lg border border-gray-300 text-[#202224] bg-white hover:bg-[#F3F4F6] text-sm font-medium disabled:opacity-50 transition-colors"
                 >
                   {generatingAction ? (
-                    <div className="animate-spin rounded-full h-3.5 w-3.5 border-b-2 border-[#6C60FF]" />
+                    <div className="animate-spin rounded-full h-3.5 w-3.5 border-b-2 border-[#4A5565]" />
                   ) : (
                     <RefreshCw className="w-3.5 h-3.5" />
                   )}
@@ -1566,7 +1737,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
         </div>
         </div>
 
-        <aside className="order-1 lg:order-2 shrink-0 lg:w-[280px] xl:w-[380px] max-h-[26vh] lg:max-h-none overflow-y-auto border-b lg:border-b-0 lg:border-l border-gray-200">
+        <aside className="hidden md:block order-1 lg:order-2 shrink-0 lg:w-[280px] xl:w-[380px] max-h-[26vh] lg:max-h-none overflow-y-auto border-b lg:border-b-0 lg:border-l border-gray-200">
           <LeadDetailsSidebar
             lead={lead}
             leadName={leadName}
@@ -1579,16 +1750,36 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
             onAssigneeChanged={() => { onRefreshLead?.(); }}
             isArchived={isArchived}
             onNotesSaved={() => { onRefreshLead?.(); }}
+            onNameSaved={handleNameSaved}
           />
         </aside>
       </div>
 
+        <LeadDetailsSheet
+          open={showDetailsSheet}
+          onOpenChange={setShowDetailsSheet}
+          lead={lead}
+          leadName={leadName}
+          initials={getInitials(leadName)}
+          lastEngaged={getTimeAgo(lead.last_engaged_at)}
+          daysAsLead={daysAsLead}
+          currentStatus={currentStatus}
+          isUpdatingStatus={isUpdatingStatus}
+          onStatusChange={handleStatusChange}
+          onAssigneeChanged={() => { onRefreshLead?.(); }}
+          isArchived={isArchived}
+          onNotesSaved={() => { onRefreshLead?.(); }}
+          onNameSaved={handleNameSaved}
+        />
+
         <ShareCarsDialog
           open={showShareCars}
           onClose={() => setShowShareCars(false)}
-          leadId={lead.id}
           leadName={leadName}
-          onShared={() => { refreshAll(); }}
+          initialSelection={pickedCampaign?.ids}
+          initialCampaignName={pickedCampaign?.name}
+          initialKind={pickedCampaign?.kind}
+          onPick={handleCampaignPick}
         />
     </div>
   );

@@ -4,16 +4,17 @@ import { TrendingUp, ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
 import { dashboardAPI } from '../utils/authUtils';
 import { useAuth } from '../contexts/AuthContext';
+import { ENGAGEMENT_METRICS, EngagementMetric, emptyEngagementSeries, engagementMetricInfo } from '../utils/engagementMetric';
 
 // Custom tooltip component for the chart
-function CustomTooltip({ active, payload, label }: any) {
+function CustomTooltip({ active, payload, label, unit = 'Views' }: any) {
   if (active && payload && payload.length) {
     return (
       <div className="bg-white p-3 rounded-lg shadow-lg border border-gray-200 transform-none transition-none">
         <p className="text-sm font-medium text-gray-900">{`${payload[0].payload.day}`}</p>
         <p className="text-sm text-gray-600">
           <span className="inline-block w-3 h-3 bg-[#54CC8B] rounded-full mr-2"></span>
-          Views: {payload[0].value}
+          {unit}: {payload[0].value}
         </p>
       </div>
     );
@@ -29,102 +30,17 @@ export default function WeeklyEngCard({ globalTimePeriod = "weekly" }: WeeklyEng
   const { isAuthenticated, isLoading: authLoading } = useAuth();
   const [localTimePeriod, setLocalTimePeriod] = useState<string | null>(null);
   const [currentPeriodIndex, setCurrentPeriodIndex] = useState(0); // 0 = current period, 1 = one period back, etc.
-  const [chartData, setChartData] = useState([
-    { day: 'Sun', views: 12, date: 'Dec 1' },
-    { day: 'Mon', views: 19, date: 'Dec 2' },
-    { day: 'Tue', views: 15, date: 'Dec 3' },
-    { day: 'Wed', views: 25, date: 'Dec 4' },
-    { day: 'Thu', views: 22, date: 'Dec 5' },
-    { day: 'Fri', views: 35, date: 'Dec 6' },
-    { day: 'Sat', views: 28, date: 'Dec 7' }
-  ]);
+  const [chartData, setChartData] = useState(() => emptyEngagementSeries(globalTimePeriod));
+  // All campaigns (default) / Newsletters / Storeels (Chris, 11 Nov 2026).
+  const [metric, setMetric] = useState<EngagementMetric>('campaigns');
+  const metricInfo = engagementMetricInfo(metric);
   const [isLoading, setIsLoading] = useState(false);
   const [apiData, setApiData] = useState<any>(null);
   const [periodHeading, setPeriodHeading] = useState<string>('');
 
-  // Generate realistic engagement data based on time period and offset
-  const generateEngagementData = (period: string, periodOffset: number = 0) => {
-    switch (period) {
-      case 'daily':
-        // 24 hours
-        const hours = Array.from({ length: 24 }, (_, i) => {
-          const hour = i.toString().padStart(2, '0');
-          return `${hour}:00`;
-        });
-        return hours.map((hour, index) => {
-          // Peak hours typically 9-17
-          const isPeakHour = index >= 9 && index <= 17;
-          const baseValue = isPeakHour ? 30 : 15;
-          const periodAdjustment = Math.max(0, 1 - (periodOffset * 0.1));
-          const variation = Math.floor(Math.random() * 15) - 7;
-          return {
-            day: hour,
-            views: Math.max(5, Math.round((baseValue + variation) * periodAdjustment)),
-            date: hour
-          };
-        });
-      
-      case 'weekly':
-        const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-        const baseDate = new Date();
-        baseDate.setDate(baseDate.getDate() - (periodOffset * 7)); // Go back by weeks
-        
-        return days.map((day, index) => {
-          const currentDate = new Date(baseDate);
-          currentDate.setDate(currentDate.getDate() - (6 - index)); // Adjust for each day
-          const dateStr = `${currentDate.toLocaleDateString('en-US', { month: 'short' })} ${currentDate.getDate()}`;
-          
-          const baseValue = day === 'Sun' || day === 'Sat' ? 15 : 25;
-          // Add some consistent variation based on the offset (older data tends to be lower)
-          const periodAdjustment = Math.max(0, 1 - (periodOffset * 0.1));
-          const variation = Math.floor(Math.random() * 20) - 10;
-          return {
-            day,
-            views: Math.max(5, Math.round((baseValue + variation) * periodAdjustment)),
-            date: dateStr
-          };
-        });
-      
-      case 'monthly':
-        // 30 days
-        const monthDays = Array.from({ length: 30 }, (_, i) => i + 1);
-        const baseMonthDate = new Date();
-        baseMonthDate.setMonth(baseMonthDate.getMonth() - periodOffset);
-        const monthName = baseMonthDate.toLocaleDateString('en-US', { month: 'short' });
-        
-        return monthDays.map((dayNum) => {
-          const baseValue = 25;
-          const periodAdjustment = Math.max(0, 1 - (periodOffset * 0.1));
-          const variation = Math.floor(Math.random() * 30) - 15;
-          return {
-            day: dayNum.toString(),
-            views: Math.max(5, Math.round((baseValue + variation) * periodAdjustment)),
-            date: `${monthName} ${dayNum}`
-          };
-        });
-      
-      case 'annually':
-        // 12 months
-        const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-        const baseYear = new Date().getFullYear() - periodOffset;
-        
-        return months.map((month, index) => {
-          // Summer months typically higher
-          const isSummer = index >= 5 && index <= 8;
-          const baseValue = isSummer ? 45 : 30;
-          const periodAdjustment = Math.max(0, 1 - (periodOffset * 0.1));
-          const variation = Math.floor(Math.random() * 25) - 12;
-          return {
-            day: month,
-            views: Math.max(10, Math.round((baseValue + variation) * periodAdjustment)),
-            date: `${month} ${baseYear}`
-          };
-        });
-      
-      default:
-        return [];
-    }
-  };
+  // No data yet / the request failed: an empty (zero) chart — never made-up numbers (the old fallback drew random
+  // views, which read as real engagement).
+  const generateEngagementData = (period: string, _periodOffset: number = 0) => emptyEngagementSeries(period);
 
   // Get the effective time period (local override or global)
   const effectiveTimePeriod = localTimePeriod || globalTimePeriod;
@@ -169,9 +85,9 @@ export default function WeeklyEngCard({ globalTimePeriod = "weekly" }: WeeklyEng
       const effectivePeriod = localTimePeriod || globalTimePeriod;
       console.log('=== USER ENGAGEMENT API CALL ===');
       console.log('Period Type:', effectivePeriod);
-      console.log('API URL:', `/dashboard/user-engagement?type=${effectivePeriod}&offset=${currentPeriodIndex}`);
       
-      const response = await dashboardAPI.getUserEngagement(effectivePeriod, currentPeriodIndex);
+      
+      const response = await dashboardAPI.getUserEngagement(effectivePeriod, currentPeriodIndex, metric);
       console.log('Raw API Response:', response);
       
       if (response.success && response.data) {
@@ -240,7 +156,7 @@ export default function WeeklyEngCard({ globalTimePeriod = "weekly" }: WeeklyEng
         }
       } else {
         console.log('API call failed - Response:', response);
-        console.log('Using fallback generated data for failed API call');
+        setApiData(null);
         const fallbackData = generateEngagementData(localTimePeriod || globalTimePeriod, Math.abs(currentPeriodIndex));
         console.log('Fallback Chart Data:', fallbackData);
         setChartData(fallbackData);
@@ -248,7 +164,7 @@ export default function WeeklyEngCard({ globalTimePeriod = "weekly" }: WeeklyEng
       }
     } catch (error) {
       console.error('Error fetching user engagement:', error);
-      console.log('Using fallback generated data due to error');
+      setApiData(null);
       const fallbackData = generateEngagementData(localTimePeriod || globalTimePeriod, Math.abs(currentPeriodIndex));
       console.log('Error Fallback Chart Data:', fallbackData);
       setChartData(fallbackData);
@@ -264,7 +180,7 @@ export default function WeeklyEngCard({ globalTimePeriod = "weekly" }: WeeklyEng
     if (isAuthenticated && !authLoading) {
       fetchUserEngagement();
     }
-  }, [globalTimePeriod, localTimePeriod, currentPeriodIndex, isAuthenticated, authLoading]);
+  }, [globalTimePeriod, localTimePeriod, currentPeriodIndex, metric, isAuthenticated, authLoading]);
 
   // Reset local override when global period changes
   useEffect(() => {
@@ -326,17 +242,17 @@ export default function WeeklyEngCard({ globalTimePeriod = "weekly" }: WeeklyEng
 
       <div className="p-6 h-full flex flex-col">
         {/* Header */}
-        <div className="flex items-center justify-between mb-4">
+        <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
           <div className="flex items-center gap-4">
             <h3 className="text-lg font-semibold text-gray-900">{getChartTitle(effectiveTimePeriod)}</h3>
             <span className="text-sm text-gray-500 text-[14px]">
               {periodHeading || getPeriodLabel(effectiveTimePeriod, currentPeriodIndex)}
             </span>
           </div>
-          <div className="flex items-center gap-6">
+          <div className="flex flex-wrap items-center gap-3">
             <div className="flex items-center gap-1 text-sm text-gray-600">
               <div className="w-2 h-2 bg-[#54CC8B] rounded-full"></div>
-              <span>Story Views</span>
+              <span data-testid="engagement-legend">{apiData?.metric_label || metricInfo.legend}</span>
             </div>
             {localTimePeriod && (
               <button
@@ -347,17 +263,37 @@ export default function WeeklyEngCard({ globalTimePeriod = "weekly" }: WeeklyEng
                 Reset to Global
               </button>
             )}
+            <Select value={metric} onValueChange={(v) => setMetric(v as EngagementMetric)}>
+              <SelectTrigger
+                aria-label="Show engagement for"
+                data-testid="engagement-metric"
+                className="w-36 h-8 text-sm bg-transparent border border-gray-200 text-gray-600 hover:border-gray-300 focus:border-gray-400 focus:ring-0 rounded-md transition-all duration-200 font-medium"
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent className="bg-white border border-gray-200 shadow-xl rounded-lg p-0 min-w-[140px]">
+                {ENGAGEMENT_METRICS.map((m) => (
+                  <SelectItem
+                    key={m.value}
+                    value={m.value}
+                    className="text-sm py-2 px-3 rounded-none hover:bg-gray-50 focus:bg-gray-100 focus:text-gray-900 data-[state=checked]:!bg-gray-100 data-[state=checked]:!text-gray-900 cursor-pointer border-b border-gray-100 last:border-0"
+                  >
+                    {m.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             <Select value={effectiveTimePeriod} onValueChange={handleTimePeriodChange}>
               <SelectTrigger className={`w-32 h-8 text-sm bg-transparent border hover:border-gray-300 focus:border-gray-400 focus:ring-0 rounded-md transition-all duration-200 font-medium ${
-                localTimePeriod ? 'border-[#6C60FF] text-[#6C60FF] bg-[#6C60FF]/5' : 'border-gray-200 text-gray-600'
+                localTimePeriod ? 'border-gray-400 text-gray-900 bg-gray-100' : 'border-gray-200 text-gray-600'
               }`}>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent className="bg-white border border-gray-200 shadow-xl rounded-lg p-0 min-w-[120px] animate-in slide-in-from-top-2 duration-200">
-                <SelectItem value="daily" className="text-sm py-2 px-3 rounded-none hover:bg-gray-50 focus:bg-[#6C60FF]/10 focus:text-[#6C60FF] cursor-pointer border-b border-gray-100 last:border-0">Daily</SelectItem>
-                <SelectItem value="weekly" className="text-sm py-2 px-3 rounded-none hover:bg-gray-50 focus:bg-[#6C60FF]/10 focus:text-[#6C60FF] cursor-pointer border-b border-gray-100 last:border-0">Weekly</SelectItem>
-                <SelectItem value="monthly" className="text-sm py-2 px-3 rounded-none hover:bg-gray-50 focus:bg-[#6C60FF]/10 focus:text-[#6C60FF] cursor-pointer border-b border-gray-100 last:border-0">Monthly</SelectItem>
-                <SelectItem value="annually" className="text-sm py-2 px-3 rounded-none hover:bg-gray-50 focus:bg-[#6C60FF]/10 focus:text-[#6C60FF] cursor-pointer">Annual</SelectItem>
+                <SelectItem value="daily" className="text-sm py-2 px-3 rounded-none hover:bg-gray-50 focus:bg-gray-100 focus:text-gray-900 data-[state=checked]:!bg-gray-100 data-[state=checked]:!text-gray-900 cursor-pointer border-b border-gray-100 last:border-0">Daily</SelectItem>
+                <SelectItem value="weekly" className="text-sm py-2 px-3 rounded-none hover:bg-gray-50 focus:bg-gray-100 focus:text-gray-900 data-[state=checked]:!bg-gray-100 data-[state=checked]:!text-gray-900 cursor-pointer border-b border-gray-100 last:border-0">Weekly</SelectItem>
+                <SelectItem value="monthly" className="text-sm py-2 px-3 rounded-none hover:bg-gray-50 focus:bg-gray-100 focus:text-gray-900 data-[state=checked]:!bg-gray-100 data-[state=checked]:!text-gray-900 cursor-pointer border-b border-gray-100 last:border-0">Monthly</SelectItem>
+                <SelectItem value="annually" className="text-sm py-2 px-3 rounded-none hover:bg-gray-50 focus:bg-gray-100 focus:text-gray-900 data-[state=checked]:!bg-gray-100 data-[state=checked]:!text-gray-900 cursor-pointer">Annual</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -366,8 +302,13 @@ export default function WeeklyEngCard({ globalTimePeriod = "weekly" }: WeeklyEng
         {/* Stats Cards */}
         <div className="grid grid-cols-3 gap-4 mb-4">
           <div className="bg-gray-50 rounded-lg p-3">
-            <div className="text-xs text-gray-500 mb-1 text-[12px]">Total Views</div>
-            <div className="text-lg font-semibold text-gray-900">{totalViews}</div>
+            <div className="text-xs text-gray-500 mb-1 text-[12px]">{metricInfo.total}</div>
+            <div className="text-lg font-semibold text-gray-900" data-testid="engagement-total">
+              {totalViews}
+              {typeof apiData?.total_clicks === 'number' && (
+                <span className="ml-2 text-xs font-normal text-gray-500" data-testid="engagement-clicks">{apiData.total_clicks} clicks</span>
+              )}
+            </div>
           </div>
           <div className="bg-gray-50 rounded-lg p-3">
             <div className="text-xs text-gray-500 mb-1 text-[12px]">{effectiveTimePeriod === 'daily' ? 'Peak Hour' : effectiveTimePeriod === 'annually' ? 'Peak Month' : 'Peak Day'}</div>
@@ -408,7 +349,7 @@ export default function WeeklyEngCard({ globalTimePeriod = "weekly" }: WeeklyEng
                 width={30}
               />
               <Tooltip 
-                content={<CustomTooltip />} 
+                content={<CustomTooltip unit={metric === 'newsletters' ? 'Opens' : 'Views'} />} 
                 animationDuration={0}
                 animationEasing="linear"
               />

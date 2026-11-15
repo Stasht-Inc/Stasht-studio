@@ -70,3 +70,15 @@ export function initialsFrom(name: string): string {
   if (!parts.length) return 'S';
   return (parts[0][0] + (parts.length > 1 ? parts[parts.length - 1][0] : '')).toUpperCase();
 }
+
+const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/**
+ * The email the newsletter's e-card shows: this newsletter's Reply-to email when it is a complete address
+ * (Chris 11 Nov: changing Reply-to overrides the e-card email), else the profile email. Mirrors the server's
+ * NewsletterFooter::live(). The profile itself is never changed.
+ */
+export function ecardEmail(profileEmail: string | null, replyTo: string | null | undefined): string | null {
+  const reply = (replyTo ?? '').trim();
+  return EMAIL.test(reply) ? reply : profileEmail;
+}

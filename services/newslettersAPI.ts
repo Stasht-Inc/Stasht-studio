@@ -149,6 +149,9 @@ export interface NewsletterCounts {
   skipped: number;
 }
 
+/** Who set a locked header: { by: 'Serpa Chrysler', message: 'Header set by Serpa Chrysler' }. */
+export interface HeaderLock { by: string; message: string }
+
 export interface Newsletter {
   id: number;
   name: string | null;
@@ -172,6 +175,8 @@ export interface Newsletter {
   public_url: string | null;
   /** The newsletter's text sizes (Chris, 7 Nov): px for each style; absent = the usual 14 / 16 / 20 / 24. */
   type_scale?: TypeScale | null;
+  /** A property account's draft (Chris, 12 Nov): the main account's header, not editable here. Absent: editable. */
+  header_locked?: HeaderLock | null;
   counts: NewsletterCounts;
   created_at: string;
   updated_at: string;
@@ -243,7 +248,9 @@ export interface LeadOptionsQuery { search?: string; page?: number; lead_id?: nu
 /** recent_colors (Chris, 6 Nov): the account's colours picked with Custom, newest first, at most 8. */
 export interface NewsletterBrand { header: NewsletterHeader; business_address: string | null; default_message?: string | null; recent_colors?: string[];
   /** The account's default text sizes ("Use as my default", Chris 7 Nov); absent: none saved. */
-  type_scale?: TypeScale | null }
+  type_scale?: TypeScale | null;
+  /** In a property account (Chris, 12 Nov): header is the main account's and can't be changed. */
+  header_locked?: HeaderLock | null }
 export interface NewsletterAllowance {
   plan: string;
   email_limit: number;
@@ -307,6 +314,18 @@ export interface NewMemberInput extends MemberInput { consent_type: ConsentType;
  *  can also answer 409 "Someone changed this list at the same time. Please try again." (shown as the API words it). */
 export interface MergeResult { added: number; updated: number; skipped: number; unchanged?: number; list: ContactList }
 export interface ExportFile { blob: Blob; filename: string }
+/** A list's website signup form (Royal Wood task 11). available: false until the API's SQL has run (section hidden).
+ *  key: null until the form is first switched on. Turning it off keeps the key; Regenerate replaces it. */
+export interface ListSignupForm {
+  available: boolean;
+  list_id: number;
+  enabled: boolean;
+  key: string | null;
+  double_opt_in: boolean;
+  allowed_redirect_domains: string[];
+  endpoint_url: string;
+}
+export interface ListSignupFormInput { enabled?: boolean; double_opt_in?: boolean; allowed_redirect_domains?: string[] }
 
 // Lists and drafts must never be stale right after a write, so reads skip apiRequest's 15 s GET cache.
 const FRESH = { method: 'GET', skipCache: true } as RequestInit;
@@ -433,6 +452,15 @@ export const newslettersAPI = {
   results: (id: number, q: ResultsQuery = {}) =>
     get<NewsletterResults>(`${nl(id)}/results${query({ channel: q.channel, status: q.status, page: q.page })}`),
   uploadImage,
+  // AI assist for an image section's "Describe the image" field (Chris, 10 Nov): 1 AI credit, like the moment AI suggest.
+  // 402 code no_credits when the account has none left.
+  imageAltText: (imageUrl: string) =>
+    write<{ alt: string; credits_remaining?: number | null }>('POST', '/newsletters/images/alt-text', { image_url: imageUrl }),
+  // "Generate image" in an Image section (Chris, 13 Nov): OpenAI picture kept in our S3, 5 AI credits. 402 no_credits,
+  // 422 content_policy. Its 429 is a deliberate per-account limit, so apiRequest doesn't retry it.
+  generateImage: (prompt: string) =>
+    call<{ url: string; credits_remaining?: number | null }>('/newsletters/images/generate',
+      { method: 'POST', body: JSON.stringify({ prompt }), noRateLimitRetry: true } as RequestInit),
   // What a Campaigns section can show, 20 a page (shared contracts 2026-10-28 and 2026-10-29). kind defaults to
   // campaign on the API, so it is sent only for products and vehicles.
   campaignOptions: (q: CampaignOptionsQuery = {}) =>
@@ -472,4 +500,8 @@ export const newslettersAPI = {
   // 409 while a scheduled or sending newsletter uses the list ("Cancel it first").
   deleteList: (id: number) => write<Record<string, never>>('DELETE', list(id)),
   renameList: (id: number, name: string) => write<ContactList>('PATCH', list(id), { name }),
+  // Website signup form (Royal Wood task 11). 404 from an older API: the section stays hidden.
+  signupForm: (id: number) => get<ListSignupForm>(`${list(id)}/signup-form`),
+  updateSignupForm: (id: number, input: ListSignupFormInput) => write<ListSignupForm>('PUT', `${list(id)}/signup-form`, input),
+  regenerateSignupKey: (id: number) => write<ListSignupForm>('POST', `${list(id)}/signup-form/regenerate`),
 };

@@ -31,6 +31,10 @@ export interface QrCode {
   /** The live campaign: the one a scan opens now; null: none. */
   memoryId: number | null;
   campaignTitle: string | null;
+  /** The live campaign's Moderation (Chris 13 Nov: off unless the campaign turns it on); null: no live campaign. */
+  campaignModeration: boolean | null;
+  /** Whether this person can change it here (the campaign's business owner); false hides the switch. */
+  moderationEditable: boolean;
   /** What the printed code encodes. */
   shortUrl: string;
   logoMode: QrLogoMode;
@@ -104,6 +108,8 @@ export function normalizeQrCode(raw: unknown): QrCode | null {
     // No campaign (deleted, or none yet): no live campaign, whatever memory_id still says.
     memoryId: campaign ? num(campaign.id) ?? num(raw.memory_id) : null,
     campaignTitle,
+    campaignModeration: campaign ? campaign.moderation === true : null,
+    moderationEditable: Boolean(campaign && campaign.moderation_editable === true),
     shortUrl: text(raw.short_url) ?? `${SHORT_URL_BASE}${publicCode}`,
     logoMode,
     logoUrl,

@@ -9,7 +9,7 @@ import { allowanceLine, sendAllowance, sendBlockedReason } from '../newsletters/
 import { BUTTON_OUTLINE, BUTTON_PRIMARY } from '../newsletters/lib/ui';
 import { newIdempotencyKey, sendPayload } from './lib/storeelFlow';
 import { sendFailure, type SendFailure, type StoreelLimit, type StoreelSendSummary } from './lib/storeelSend';
-import { PRIVATE_LINK_SEND_LINE } from './lib/publishing';
+import { PRIVATE_LINK_SEND_LINE, confirmPublishLine, sendRoleFor, type PublishRole } from './lib/publishing';
 
 export interface StoreelSendConfirmDialogProps {
   open: boolean;
@@ -17,6 +17,8 @@ export interface StoreelSendConfirmDialogProps {
   memoryId: number;
   /** memories.published: 0 → sending publishes it (Public); 3 (private link) → the API refuses. */
   published: number;
+  /** The Publishing card's choice (Chris 9 Nov 2026), sent as publish_role; null outside the campaign page's stepper. */
+  publishRole?: PublishRole | null;
   audience: AudienceItem[];
   channels: NewsletterChannel[];
   message: string;
@@ -35,7 +37,7 @@ export interface StoreelSendConfirmDialogProps {
 /** "Send this Storeel now?" — who gets it, the plan's allowance (shared with newsletters), the per-send cap, and that
  *  sending publishes an unpublished campaign. One idempotency key per press of Send now, reused if it is retried. */
 export default function StoreelSendConfirmDialog({
-  open, onOpenChange, memoryId, published, audience, channels, message, counts, countsLoading, smsParts, limit, allowance, onSent, onFailed, onSeePlans,
+  open, onOpenChange, memoryId, published, publishRole = null, audience, channels, message, counts, countsLoading, smsParts, limit, allowance, onSent, onFailed, onSeePlans,
 }: StoreelSendConfirmDialogProps) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -51,7 +53,8 @@ export default function StoreelSendConfirmDialog({
 
   const check = sendAllowance(allowance, counts, channels, smsParts);
   // The publish options are in the stepper's Publishing card now (Chris, 8 Nov 2026 (b), point 2).
-  const privateLink = published === 3 ? PRIVATE_LINK_SEND_LINE : null;
+  const privateLink = sendRoleFor(published, publishRole) === 3 ? PRIVATE_LINK_SEND_LINE : null;
+  const publishLine = confirmPublishLine(published, publishRole);
   const problem = allowanceError ?? check.problem ?? privateLink;
   const skipNote = allowanceError ? null : check.note;
   const blockedReason = sendBlockedReason({ busy, countsLoading, problem, saved: true });
@@ -63,7 +66,7 @@ export default function StoreelSendConfirmDialog({
   const confirm = async () => {
     setError(null);
     setBusy(true);
-    const res = await storeelBroadcastAPI.send(memoryId, sendPayload({ audience, channels, message, idempotencyKey: keyRef.current }));
+    const res = await storeelBroadcastAPI.send(memoryId, sendPayload({ audience, channels, message, idempotencyKey: keyRef.current, publishRole }));
     setBusy(false);
     if (res.ok && res.data) { onSent(res.data); return; }
     const f = sendFailure(res);
@@ -98,7 +101,7 @@ export default function StoreelSendConfirmDialog({
       {messages !== null && limit ? (
         <p className="mt-3 text-sm text-gray-600">{`${formatCount(messages)} ${messages === 1 ? 'message' : 'messages'} (up to ${formatCount(limit.max_messages)} per send).`}</p>
       ) : null}
-      {published === 0 ? <p className="mt-3 text-sm text-gray-600">Sending publishes your campaign (Public), so people can open it.</p> : null}
+      {publishLine ? <p className="mt-3 text-sm text-gray-600">{publishLine}</p> : null}
       {error ? <p role="alert" className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p> : null}
     </ComposerDialog>
   );

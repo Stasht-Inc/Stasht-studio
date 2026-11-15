@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Pencil, Plus, X } from 'lucide-react';
+import { ChevronDown, ChevronUp, Pencil, Plus, X } from 'lucide-react';
 import StepCard from '../newsletters/StepCard';
 import { BUTTON_SECONDARY, LINK_BUTTON } from '../newsletters/lib/ui';
 import { Textarea } from '../ui/textarea';
@@ -19,6 +19,13 @@ export interface MomentRow {
   /** Open the original Add a Moment UI on it (title, caption, place, date, tags). */
   onEdit?(): void;
   onRemove?(): void;
+  /**
+   * Phones only (< md; Chris, 11 Nov 2026): the preview's Move up / Move down, since phones have no preview.
+   * Same handler as the preview's moment menu (CreateMemory's moveMoment).
+   */
+  onMoveUp?(): void;
+  onMoveDown?(): void;
+  moveBusy?: boolean;
   /** Why it can't be edited here (a picked product's caption comes from the website). */
   note?: string;
 }
@@ -123,6 +130,16 @@ function MomentRowItem({ row, captionRequest = 0 }: { row: MomentRow; captionReq
             {moment.title ? <p className="truncate text-sm font-medium text-gray-900">{moment.title}</p> : null}
             {meta ? <p className="truncate text-sm text-gray-500">{meta}</p> : null}
           </div>
+          {row.onMoveUp || row.onMoveDown ? (
+            <div className="flex flex-shrink-0 items-center md:hidden" data-testid="storeel-moment-reorder">
+              <button type="button" onClick={row.onMoveUp} disabled={!row.onMoveUp || row.moveBusy} aria-label={`Move ${label} up`} className="rounded-md p-1 text-gray-500 hover:bg-gray-100 hover:text-[#6C60FF] disabled:opacity-30">
+                <ChevronUp className="h-4 w-4" aria-hidden="true" />
+              </button>
+              <button type="button" onClick={row.onMoveDown} disabled={!row.onMoveDown || row.moveBusy} aria-label={`Move ${label} down`} className="rounded-md p-1 text-gray-500 hover:bg-gray-100 hover:text-[#6C60FF] disabled:opacity-30">
+                <ChevronDown className="h-4 w-4" aria-hidden="true" />
+              </button>
+            </div>
+          ) : null}
           {row.onEdit ? (
             <button type="button" onClick={row.onEdit} aria-label={`Edit ${label}`} className="flex-shrink-0 rounded-md p-1 text-gray-500 hover:bg-gray-100 hover:text-[#6C60FF]">
               <Pencil className="h-4 w-4" aria-hidden="true" />

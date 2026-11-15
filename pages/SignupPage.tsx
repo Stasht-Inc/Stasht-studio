@@ -1732,7 +1732,7 @@ export default function SignupPage({ onSignup, onSwitchToLogin }: SignupPageProp
 
           {/* Login Link */}
           <div className="mt-6 text-center">
-            <p className="text-gray-600 text-sm">
+            <p className="text-gray-600 text-sm" data-auth-footer="signin">
               Already have an account?{' '}
               <button
                 onClick={onSwitchToLogin}

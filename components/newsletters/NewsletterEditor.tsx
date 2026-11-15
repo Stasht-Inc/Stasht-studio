@@ -11,6 +11,7 @@ import { paddingPx, spacingOf } from './lib/sectionSpacing';
 import { isMessageBlock } from './lib/messageBlock';
 import { canDuplicateBlock, duplicateBlock, type DuplicateOutcome } from './lib/duplicateBlock';
 import { httpsUrl } from './lib/urls';
+import { imagePromptSeed } from './lib/imagePrompt';
 import InboxRow from './InboxRow';
 import HeaderEditor from './HeaderEditor';
 import EcardFooter from './EcardFooter';
@@ -37,6 +38,8 @@ export interface NewsletterEditorProps {
   savedBlocks?: NewsletterBlock[];
   /** False while the composer is hidden (the Storeel tab shows): Escape is not this editor's then. */
   active?: boolean;
+  /** A property account (Chris, 12 Nov): the header is the main account's; this line says so and the header can't be edited. */
+  headerLockedNote?: string | null;
 }
 
 const HEADER_ID = '__header__';
@@ -62,6 +65,8 @@ interface BlockHandlers {
   onUpdate(fn: (latest: Record<string, unknown>) => Record<string, unknown> | null): void;
   /** Campaigns: open the picker. */
   onPick(): void;
+  /** Image: "Generate image"'s starting prompt from the latest draft (Chris, 13 Nov). */
+  imagePrompt(): string;
 }
 
 /** One section with its frame. Memoised: typing in one section doesn't re-render the others. */
@@ -96,7 +101,8 @@ const BlockRow = memo(function BlockRow({ block, index, count, canUp, canDown, s
       onDuplicate={canDuplicateBlock(block) ? handlers.onDuplicate : undefined} duplicateBlocked={full ? `You can add up to ${LIMITS.blocks} sections.` : null}
       onEdit={campaigns ? handlers.onPick : undefined} editLabel={campaigns ? EDIT_ITEMS_LABEL : undefined}>
       <BlockEditor block={block} selected={selected} readOnly={readOnly} onChange={handlers.onChange} onUpdate={campaigns ? handlers.onUpdate : undefined}
-        serverItems={campaigns ? serverItems : undefined} accent={campaigns ? accent : undefined} onPick={campaigns ? handlers.onPick : undefined} phone={phone} padClass={padClass} />
+        serverItems={campaigns ? serverItems : undefined} accent={campaigns ? accent : undefined} onPick={campaigns ? handlers.onPick : undefined} phone={phone} padClass={padClass}
+        imagePrompt={block.type === 'image' ? handlers.imagePrompt : undefined} />
     </BlockFrame>
   );
 });
@@ -108,7 +114,7 @@ const BlockRow = memo(function BlockRow({ block, index, count, canUp, canDown, s
  * shown.
  */
 export default function NewsletterEditor({
-  draft, readOnly, device, profile, businessAddress, showProblems, fieldErrors, onChange, onHeaderChange, onSaveAddress, savedBlocks, active = true,
+  draft, readOnly, device, profile, businessAddress, showProblems, fieldErrors, onChange, onHeaderChange, onSaveAddress, savedBlocks, active = true, headerLockedNote = null,
 }: NewsletterEditorProps) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -178,6 +184,8 @@ export default function NewsletterEditor({
   // after its section was deleted finds no section and changes nothing.
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
+  const draftRef = useRef(draft);
+  draftRef.current = draft;
   const handlersRef = useRef(new Map<string, BlockHandlers>());
   const handlersFor = useCallback((id: string): BlockHandlers => {
     const known = handlersRef.current.get(id);
@@ -243,6 +251,7 @@ export default function NewsletterEditor({
         return patch ? updateBlockData(list, id, patch) : list;
       }),
       onPick: () => { setSelectedId(id); setPickerFor(id); },
+      imagePrompt: () => imagePromptSeed(draftRef.current.subject, draftRef.current.blocks, id),
     };
     handlersRef.current.set(id, made);
     return made;
@@ -330,7 +339,8 @@ export default function NewsletterEditor({
           <p className="mb-3 text-center text-xs text-gray-500"><span className="underline">View in browser</span></p>
           <div className="mx-auto w-full max-w-[600px] overflow-hidden rounded-2xl border border-[#ECEDF3] bg-white">
             <HeaderEditor header={draft.header} onChange={onHeaderChange} selected={selectedId === HEADER_ID}
-              onSelect={() => { if (!readOnly) select(HEADER_ID); }} onDone={() => deselect(true)} readOnly={readOnly} padClass={padClass} />
+              onSelect={() => { if (!readOnly && !headerLockedNote) select(HEADER_ID); }} onDone={() => deselect(true)} readOnly={readOnly} padClass={padClass}
+              lockedNote={headerLockedNote} />
             {/* No room under a full-bleed picture that ends the email: the e-card follows it directly, as in the email. */}
             <div className={`pt-3 ${lastBleed ? '' : 'pb-3'}`}>
               {/* The Message section is always first under the header: no + above it. */}
@@ -346,7 +356,7 @@ export default function NewsletterEditor({
                 </Fragment>
               ))}
             </div>
-            <EcardFooter profile={profile} fromName={draft.from_name} businessAddress={businessAddress} onSaveAddress={onSaveAddress} readOnly={readOnly}
+            <EcardFooter profile={profile} fromName={draft.from_name} replyTo={draft.reply_to_email} businessAddress={businessAddress} onSaveAddress={onSaveAddress} readOnly={readOnly}
               addressError={fieldErrors.business_address ?? null} padClass={padClass} />
           </div>
         </div>

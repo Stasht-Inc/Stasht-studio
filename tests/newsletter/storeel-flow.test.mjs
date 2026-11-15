@@ -213,4 +213,8 @@ test('Send now: the audience, channels, the message as typed (trimmed) and one i
   });
   assert.deepEqual(sendPayload({ audience: [{ type: 'person', email: 'a@b.com', phone: '+14165550100' }], channels: ['email'], message: 'Hi', idempotencyKey: 'k-2' }).audience,
     [{ type: 'person', email: 'a@b.com', phone: '+14165550100' }]);
+  // Chris 9 Nov 2026 (point 6): the Publishing choice goes as publish_role (the publish endpoint's 1 / 2 / 3); none: left out.
+  assert.equal(sendPayload({ audience: [], channels: ['email'], message: 'Hi', idempotencyKey: 'k-3', publishRole: 2 }).publish_role, 2);
+  assert.equal('publish_role' in sendPayload({ audience: [], channels: ['email'], message: 'Hi', idempotencyKey: 'k-4' }), false);
+  assert.equal('publish_role' in sendPayload({ audience: [], channels: ['email'], message: 'Hi', idempotencyKey: 'k-5', publishRole: null }), false);
 });

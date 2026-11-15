@@ -5,6 +5,7 @@ import { toast } from 'sonner';
 import ComposerToaster, { composerToast } from './ComposerToaster';
 import { useIsStarterPlan } from '../../hooks/usePlan';
 import { requestUpgrade } from '../../utils/planEvents';
+import { headerLockOf } from './lib/headerLock';
 import { useNewsletterBrand } from './hooks/useNewsletterBrand';
 import { useNewsletterDraft } from './hooks/useNewsletterDraft';
 import { useSenderProfile } from './hooks/useSenderProfile';
@@ -112,6 +113,9 @@ const NewsletterComposer = forwardRef<NewsletterComposerHandle, NewsletterCompos
   const retryPlan = () => { setPlanSlow(false); plan.retry(); };
   const brand = useNewsletterBrand(enabled);
   const state = useNewsletterDraft(newsletterId, enabled, brand.brand?.header ?? null, brand.brand?.default_message ?? null, brand.brand?.type_scale ?? null);
+  // A property account (Chris, 12 Nov): the main account's header, locked. The draft's own answer once it exists,
+  // else the brand's (a new draft not saved yet).
+  const headerLock = headerLockOf(state.newsletter, brand.brand);
   const profile = useSenderProfile(enabled);
   const { draft, update, readOnly } = state;
   // Opening a draft tidies its sections once, through update() so autosave saves it (never a scheduled, sending or
@@ -567,7 +571,8 @@ const NewsletterComposer = forwardRef<NewsletterComposerHandle, NewsletterCompos
                 showProblems={attempted}
                 fieldErrors={state.fieldErrors}
                 onChange={update}
-                onHeaderChange={(next) => update((d) => ({ header: typeof next === 'function' ? next(d.header) : next }))}
+                onHeaderChange={(next) => { if (!headerLock) update((d) => ({ header: typeof next === 'function' ? next(d.header) : next })); }}
+                headerLockedNote={headerLock?.message ?? null}
                 onSaveAddress={saveAddress}
                 savedBlocks={savedBlocks}
                 active={!hidden}

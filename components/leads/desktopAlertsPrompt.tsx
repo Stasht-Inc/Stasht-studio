@@ -47,7 +47,7 @@ export async function maybeAskForDesktopAlerts(notifications: any[]): Promise<vo
   toast.custom((id) => (
     <div className="w-[360px] max-w-[calc(100vw-2rem)] bg-white rounded-2xl shadow-xl border border-gray-100 p-4">
       <div className="flex items-start gap-3">
-        <span className="shrink-0 inline-flex h-10 w-10 items-center justify-center rounded-full bg-purple-50 text-[#6C60FF]">
+        <span className="shrink-0 inline-flex h-10 w-10 items-center justify-center rounded-full bg-gray-100 text-gray-700">
           <BellRing className="h-5 w-5" />
         </span>
         <div className="min-w-0">

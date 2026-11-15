@@ -78,6 +78,8 @@ const state = {
   typing: false, // the "typing…" bubble while a send takes more than a moment
   provisional: false, // the form's first message shown as the chat before /submit answers
   autoReplyOff: false, // /submit came back with replies (the AI or its notice): no static auto-reply
+  confirmEnd: false, // ✕ with a conversation: "Would you like to end this chat?" shows over the panel
+  ended: false, // the chat ended (inactivity, Chris 11 Nov 2026) while open: "This chat has ended." + Start a new one
 };
 
 // The shown fields, in order (set once the config loads).
@@ -162,6 +164,9 @@ const chevronIcon = () => icon(['m9 18 6-6-6-6']);
 // Measured synchronously: the iframe starts hidden/0x0 and browsers may defer
 // requestAnimationFrame there, which would mean the first resize is never sent.
 let lastReport = '';
+// Whether the widget shows on the host page now, and whether it has started (start()) yet.
+let hostShown = true;
+let started = false;
 
 // The visible parts and their corner radii (as in widget-embed.html). Everything else that shows
 // (the dismiss ×, the callout's pointer, the unread dot, focus rings) sits inside one of these
@@ -182,6 +187,8 @@ function hitRects() {
 }
 
 function reportSize() {
+  // Hidden on this page of the host site ("Hide on these pages" / SPA navigation): a resize would show the frame.
+  if (!hostShown) return;
   const rect = root.getBoundingClientRect();
   const width = Math.ceil(rect.width);
   const height = Math.ceil(rect.height);
@@ -254,6 +261,9 @@ document.addEventListener('pointerdown', () => { usingKeyboard = false; }, true)
 
 function openPanel() {
   state.open = true;
+  // Quiet past the widget's timeout (Chris 11 Nov 2026): the server has ended it (or will on the next check), so
+  // the visitor gets a fresh start instead of the old thread. An ended chat left showing also starts fresh.
+  if (state.phase === 'chat' && (state.ended || chatExpired())) forgetChat();
   if (state.phase === 'chat') {
     state.unread = false;
     stick = true;
@@ -267,10 +277,78 @@ function openPanel() {
 
 function closePanel() {
   state.open = false;
+  if (state.ended) forgetChat(); // the next open is a fresh start, never the old thread
   render();
   schedulePoll(); // closed: every 15 s for up to an hour after the last message
   if (usingKeyboard) focusId('w-launcher');
 }
+
+// The header's ✕ (and Escape): with a conversation, ask first; otherwise just close.
+function askToClose() {
+  const confirmable = core.shouldConfirmEnd
+    ? core.shouldConfirmEnd(state)
+    : state.phase === 'chat' && !!state.token && !state.provisional;
+  if (!confirmable) {
+    closePanel();
+    return;
+  }
+  state.confirmEnd = true;
+  render();
+  focusId('end-no');
+}
+
+// "Keep chatting": close the panel as before; the conversation stays (unread dot, checks for replies).
+function keepChatting() {
+  state.confirmEnd = false;
+  closePanel();
+}
+
+// "End chat": tell the server (best effort: an older API without /end just answers 404, and the
+// browser forgets the chat either way), then forget it here and close. The next open is a fresh form.
+function endChat() {
+  const token = state.token;
+  if (token) {
+    const url = core.endChatUrl ? core.endChatUrl(API, widgetId) : `${API}/widgets/${encodeURIComponent(widgetId)}/end`;
+    fetch(url, {
+      method: 'POST', keepalive: true, headers: { Accept: 'application/json', 'X-Widget-Chat-Token': token },
+    }).catch(() => { /* offline: the token still ages out after 30 days */ });
+  }
+  forgetChat();
+  state.open = false;
+  render();
+  if (usingKeyboard) focusId('w-launcher');
+}
+
+// Back to a fresh start: no token in this browser, no messages, an empty form.
+function forgetChat() {
+  clearChatToken(chatStore, widgetId);
+  clearTimeout(pollTimer);
+  pollTimer = null;
+  stopTyping();
+  state.files.forEach(releaseFile);
+  state.pending?.files?.forEach(releaseFile);
+  Object.assign(state, {
+    token: null, messages: [], submittedId: null, phase: 'form', draft: '', files: [], chatError: '', chatSending: false,
+    unread: false, pending: null, provisional: false, autoReplyOff: false, confirmEnd: false, lastActivity: 0, ended: false,
+    sending: false, errors: {}, visitorName: '', values: { name: '', mobile: '', email: '', company: '', message: '' },
+  });
+}
+
+// The stored conversation has been quiet longer than this widget's inactivity timeout.
+function chatExpired() {
+  if (!state.token || state.provisional || typeof core.chatIdleExpired !== 'function') return false;
+  return core.chatIdleExpired({ lastActivityAt: state.lastActivity, timeoutMs: core.chatTimeoutMs(state.config) });
+}
+
+// Another tab of this browser ended the chat (or found it gone): this tab starts fresh too.
+window.addEventListener('storage', (ev) => {
+  const forgotten = core.chatForgottenElsewhere
+    ? core.chatForgottenElsewhere(ev, widgetId)
+    : ev.key === `stasht-widget-chat:${widgetId}` && ev.newValue === null;
+  if (!forgotten || !state.token) return;
+  forgetChat();
+  render();
+});
 
 function dismissCallout(ev) {
   ev.stopPropagation();
@@ -351,7 +429,17 @@ function agentPicture(className) {
 function panel() {
   const inChat = state.phase === 'chat';
   return h('div', { class: inChat ? 'panel chat' : 'panel', role: 'dialog', 'aria-labelledby': 'w-title' },
-    head(), inChat ? [chatLog(), composer()] : form(), poweredBy());
+    head(), inChat ? [chatLog(), composer()] : form(), poweredBy(), state.confirmEnd && endConfirm());
+}
+
+// ✕ with a conversation (Chris, 10 Nov 2026): "Would you like to end this chat?" over the panel.
+function endConfirm() {
+  return h('div', { class: 'endask' },
+    h('div', { class: 'endcard', role: 'alertdialog', 'aria-modal': 'true', 'aria-labelledby': 'end-q', 'aria-describedby': 'end-d' },
+      h('h3', { id: 'end-q' }, core.END_CHAT_QUESTION || 'Would you like to end this chat?'),
+      h('p', { id: 'end-d' }, core.END_CHAT_DETAIL || 'You can start a new chat any time.'),
+      h('button', { id: 'end-yes', class: 'send', type: 'button', onclick: endChat }, 'End chat'),
+      h('button', { id: 'end-no', class: 'keep', type: 'button', onclick: keepChatting }, 'Keep chatting')));
 }
 
 // Chris's header (wdy2xh2upu): the online team's faces stacked, each with a green dot, the assistant's
@@ -359,7 +447,7 @@ function panel() {
 // and "We'll reply soon", as before. An older cached widget-core.js keeps the old header.
 function head() {
   const cfg = state.config;
-  const close = h('button', { class: 'iconbtn close', type: 'button', 'aria-label': 'Close', onclick: closePanel }, closeIcon());
+  const close = h('button', { class: 'iconbtn close', type: 'button', 'aria-label': 'Close', onclick: askToClose }, closeIcon());
   const stack = stackFor(core.stackPeopleMax?.(panelWidth(Number(params.get('vw')))));
 
   if (!stack) {
@@ -372,7 +460,7 @@ function head() {
       close);
   }
 
-  const status = core.headerStatusText(stack.team, stack.assistant);
+  const status = core.headerStatusText(stack.team, stack.assistant, cfg.team_back_at);
   const faces = stack.faces.length > 0
     ? h('span', { class: 'hfaces', 'aria-hidden': 'true' }, stack.faces.map((f, i, all) => stacked(
       h('span', { class: f.assistant ? 'hface ai' : 'hface' }, f.assistant ? assistantInner(f.assistant) : personInner(f.person), h('span', { class: 'dot' })),
@@ -510,6 +598,8 @@ function logRows() {
   for (const m of state.messages) {
     if (notices.has(m.id)) rows.push(aiNoticeRow());
     if (joined.has(m.id)) rows.push(joinedRow(m.sender.name));
+    // Reassigned away from them (10 Nov 2026): "{name} has left the chat".
+    if (m.event === 'left' && m.sender) rows.push(leftRow(m.sender.name));
     // A "Take over" is only its joined line; a hand back shows nothing (wdy2xh2upu).
     if (m.event) continue;
     rows.push(messageRow(m));
@@ -563,6 +653,12 @@ function aiNoticeRow() {
 // A rep taking over from the AI (Chris, 2026-10-03). Drawn here, never stored.
 function joinedRow(name) {
   return h('div', { class: 'sys joined', role: 'note' }, joinedText(name));
+}
+
+// A rep the lead was reassigned away from (10 Nov 2026). leftText through `core`: a cached older widget-core.js lacks it.
+function leftRow(name) {
+  const text = typeof core.leftText === 'function' ? core.leftText(name) : `${String(name || '').trim() || 'A team member'} has left the chat`;
+  return h('div', { class: 'sys joined left', role: 'note' }, text);
 }
 
 // The vehicles the AI shared: a card under its reply, opening the campaign in a new tab. Products
@@ -653,7 +749,24 @@ function keepAtBottom() {
   if (log && stick) log.scrollTop = log.scrollHeight;
 }
 
+// "This chat has ended." + "Start a new one" in place of the typing box (Chris 11 Nov 2026).
+function endedBar() {
+  return h('div', { class: 'composer ended', role: 'status' },
+    h('p', { class: 'endedtext' }, core.CHAT_ENDED_TEXT || 'This chat has ended.'),
+    h('button', { id: 'c-new', class: 'send', type: 'button', onclick: startNewChat }, core.START_NEW_CHAT || 'Start a new one'));
+}
+
+// A fresh form, keeping whatever the visitor had typed as its message.
+function startNewChat() {
+  const draft = state.draft.trim();
+  forgetChat();
+  if (draft) state.values.message = draft.slice(0, MESSAGE_MAX);
+  render();
+  focusId(firstFieldId());
+}
+
 function composer() {
+  if (state.ended) return endedBar();
   return h('div', { class: 'composer' },
     state.files.length > 0 && h('div', { class: 'queue' }, state.files.map(chip)),
     h('div', { class: 'bar' },
@@ -780,11 +893,22 @@ function conversationGone() {
   clearTimeout(pollTimer);
   pollTimer = null;
   stopTyping();
+  // Open in front of the visitor (Chris 11 Nov 2026): say so under the thread, with a button for a new chat. The
+  // token is gone already, so nothing more is fetched or sent; closing or "Start a new one" gives the fresh form.
+  const outcome = core.goneOutcome
+    ? core.goneOutcome({ open: state.open, phase: state.phase, messageCount: state.messages.length })
+    : 'fresh';
+  if (outcome === 'ended') {
+    Object.assign(state, { token: null, ended: true, chatSending: false, chatError: '', pending: null, confirmEnd: false, unread: false });
+    render();
+    focusId('c-new');
+    return;
+  }
   if (state.draft.trim()) state.values.message = state.draft.trim().slice(0, MESSAGE_MAX);
   state.files.forEach(releaseFile);
   Object.assign(state, {
     token: null, messages: [], submittedId: null, phase: 'form', draft: '', files: [], chatError: '', chatSending: false, unread: false,
-    pending: null, provisional: false, autoReplyOff: false,
+    pending: null, provisional: false, autoReplyOff: false, confirmEnd: false, ended: false,
   });
   render();
 }
@@ -814,7 +938,9 @@ async function sendChat() {
   startTyping();
   let sent = false;
   try {
+    const sentToken = state.token;
     const res = await fetch(messagesUrl(API, widgetId), { method: 'POST', headers: chatHeaders(true), body });
+    if (state.token !== sentToken) return; // the visitor ended the chat meanwhile: nothing to show
     if (res.status === 404) {
       restorePending();
       conversationGone();
@@ -915,7 +1041,9 @@ async function poll() {
   polling = true;
   try {
     for (;;) {
+      const polledToken = state.token;
       const res = await fetch(messagesUrl(API, widgetId, lastMessageId(state.messages)), { headers: chatHeaders() });
+      if (state.token !== polledToken) return; // ended meanwhile
       if (res.status === 404) {
         conversationGone();
         return;
@@ -1075,7 +1203,14 @@ async function submit(ev) {
 }
 
 document.addEventListener('keydown', (ev) => {
-  if (ev.key === 'Escape' && state.open) closePanel();
+  if (ev.key !== 'Escape' || !state.open) return;
+  if (state.confirmEnd) {
+    state.confirmEnd = false; // Escape on the question: back to the chat
+    render();
+    focusId('c-input');
+    return;
+  }
+  askToClose();
 });
 
 async function init() {
@@ -1091,10 +1226,49 @@ async function init() {
     return tell('hide');
   }
 
-  // Home page plus "Also show on these pages" (owner decision 2026-10-15): the loader passes the host
-  // page's path; anywhere else the loader removes the frame. The frame is still hidden and
-  // zero-sized here, so nothing flashes. An API that predates shown_paths sends none: home page only.
-  if (!pathShown(params.get('path'), state.config.shown_paths)) return tell('hide');
+  // Home page plus "Also show on these pages" (owner decision 2026-10-15), minus "Hide on these pages"
+  // (Chris 11 Nov 2026): the loader passes the host page's path; anywhere else the loader hides the
+  // frame. The frame is still hidden and zero-sized here, so nothing flashes. An API that predates
+  // shown_paths sends none: home page only. Single-page sites: the loader reports each new path
+  // (onHostPath), and the widget starts, hides or shows again to match. 'soft' keeps the frame for
+  // that; an older loader ignores it and removes the frame, as before.
+  window.addEventListener('message', onHostPath);
+  hostShown = shownOnPath(params.get('path'));
+  if (!hostShown) return tell('hide', { soft: true });
+  await start();
+}
+
+// "Hide on these pages" is newer than this file's named imports: read through `core` (a cached older
+// widget-core.js lacks it, and then only the home page / shown_paths rule applies, as before).
+function shownOnPath(path) {
+  return typeof core.widgetShownOn === 'function'
+    ? core.widgetShownOn(path, state.config)
+    : pathShown(path, state.config.shown_paths);
+}
+
+// The loader's report of a new host-page path (history.pushState / popstate on a single-page site).
+function onHostPath(event) {
+  if (event.source !== window.parent) return;
+  const msg = event.data;
+  if (!msg || msg.source !== 'stasht-widget-host' || msg.id !== widgetId || msg.type !== 'path') return;
+  if (typeof msg.path !== 'string' || !state.config) return;
+  const shown = shownOnPath(msg.path);
+  if (shown === hostShown) return;
+  hostShown = shown;
+  if (!shown) {
+    tell('hide', { soft: true });
+  } else if (!started) {
+    start();
+  } else {
+    lastReport = '';
+    reportSize();
+  }
+}
+
+// Everything after the config and the page check: runs once, on the first page the widget shows on.
+async function start() {
+  if (started) return;
+  started = true;
 
   const style = document.documentElement.style;
   style.setProperty('--brand', safeColor(state.config.theme?.primary_color));
@@ -1120,6 +1294,29 @@ async function init() {
   if (typeof ResizeObserver !== 'undefined') new ResizeObserver(reportSize).observe(root);
   render();
   schedulePoll();
+  scheduleTeamRefresh();
+}
+
+// Who's online, refreshed while the page is visible (10 Nov 2026: someone who signs out drops off promptly). Through
+// `core`: a cached older widget-core.js lacks these helpers, and the faces then stay as loaded.
+function scheduleTeamRefresh() {
+  if (typeof core.teamUrl !== 'function' || typeof core.withTeamOnline !== 'function') return;
+  setTimeout(async () => {
+    if (document.visibilityState === 'visible') {
+      try {
+        const res = await fetch(core.teamUrl(API, widgetId), { headers: { Accept: 'application/json' } });
+        const body = res.ok ? await res.json() : null;
+        const next = core.withTeamOnline(state.config, body?.data);
+        const changed = next !== state.config && (JSON.stringify(next.team_online) !== JSON.stringify(state.config.team_online)
+          || next.assistant_online !== state.config.assistant_online);
+        if (changed) {
+          state.config = next;
+          render();
+        }
+      } catch { /* offline: keep the faces we have */ }
+    }
+    scheduleTeamRefresh();
+  }, core.TEAM_REFRESH_MS || 20000);
 }
 
 init();

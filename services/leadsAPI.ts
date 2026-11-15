@@ -1,4 +1,5 @@
 import { apiRequest, isPartialAdmin, getPartialAdminEmail } from '../utils/authUtils';
+import type { LeadLocation } from '../utils/leadLink';
 import { leadViaText } from '../utils/leadVia';
 
 // Fail closed: a session flagged as partial-admin with no email on record is
@@ -65,6 +66,11 @@ export interface LeadMessageAttachment {
   size: number;
 }
 
+// "+ Campaign" picked into the message box (Chris 14 Nov 2026): sent with the message; the server creates the campaign
+// on Send and swaps "[campaign link]" in the text for its link.
+export interface ComposerCampaignPick { kind: 'vehicle' | 'product'; ids: number[]; title?: string }
+export interface SentCampaign { campaign?: { id: number; title: string; url: string; items?: number } }
+
 export interface LeadMessage {
   id: number;
   parent_message_id: number | null;
@@ -78,6 +84,16 @@ export interface LeadMessage {
   attachments?: LeadMessageAttachment[];
   // The website widget's after-hours AI wrote it (a reply or its after-hours notice).
   is_ai?: boolean;
+  // Who on the team wrote an outbound reply (several people answer one lead), null for the AI / inbound.
+  sender_name?: string | null;
+}
+
+// A line in the thread that isn't a message: "Linda joined" (Chris 13 Nov 2026 evening).
+export interface LeadThreadEvent {
+  type: 'joined';
+  user_id: number;
+  body: string;
+  at: string;
 }
 
 export interface Lead {
@@ -114,7 +130,32 @@ export interface Lead {
   last_activity_at?: string | null;
   can_message?: boolean;
   can_assign?: boolean;
+  // Switched in as an Admin / Partial Admin and the owner only holds this widget lead on arrival, or the owner looking at
+  // an Open lead (Chris 11 Nov 2026): it can be accepted.
+  can_accept?: boolean;
   can_delete?: boolean;
+  // Another account's lead in your own Leads list (team leads, Chris 10 Nov 2026): the business it is for. Null for
+  // your own account's leads.
+  account?: { owner_id: number; name: string | null } | null;
+  // Nobody has taken it yet (the owner's arrival hold, or unassigned; Chris 11 Nov 2026): shown as "Open" in every
+  // view, not as the owner's. released_from: the person it was released from when they were offline and the visitor wrote again.
+  waiting?: boolean;
+  released_from?: { id: number; name: string | null } | null;
+  // Someone else on the team has it (Chris 13 Nov 2026): shown "Claimed" (who: assignee). can_open false: this person
+  // may no longer open it (no message text is sent). can_remove: "Remove" hides it from their own list only.
+  claimed?: boolean;
+  can_open?: boolean;
+  can_remove?: boolean;
+  // Join (Chris 13 Nov 2026 evening): can_join — offered "Join" on a lead someone else claimed; joined — they did, so
+  // they read and reply to it as themselves (the claimer stays the assignee; the row stays "Claimed").
+  joined?: boolean;
+  can_join?: boolean;
+  // The conversation header's "Read" button (mark unread for everyone): marked_unread — marked and not opened by
+  // this person since (unread_count is then at least 1); can_mark_unread — the button is offered.
+  marked_unread?: boolean;
+  can_mark_unread?: boolean;
+  // Answered YES to "Want to see more like this?" (Chris 14 Nov 2026): the "Wants more" tag.
+  wants_more?: boolean;
   // Shared note (ClickUp wdy2xh13mn): readable by anyone who sees the lead.
   notes?: string | null;
   notes_updated_at?: string | null;
@@ -179,6 +220,8 @@ export interface StartConversationPayload {
   memory_id?: number | string;
   // "+ Campaign": cars for a NEW campaign whose link goes out with the message.
   car_ids?: number[];
+  // ...or Website Catalogue products (one kind per send).
+  catalog_item_ids?: number[];
   campaign_title?: string;
 }
 
@@ -200,6 +243,9 @@ export interface LeadsResponse {
   messages_total?: number;
   // Open / Closed (archived) counts for the same filters — drives the tab labels.
   tab_counts?: { open: number; closed: number };
+  // Signed in as yourself and on another account's team (Chris 11 Nov 2026): the list shows your leads + new ones;
+  // can_see_all (a full Admin) adds "Assigned to: Anyone" (team=all). Null otherwise.
+  team_leads?: { staff: boolean; can_see_all: boolean; scope: 'mine_and_new' | 'all' } | null;
   leads: Lead[];
   meta?: LeadsMeta;
 }
@@ -309,6 +355,10 @@ export interface ConversationMessage {
   sent_at: string;
 }
 
+// The Leads page's background refresh (utils/livePoll): skipCache bypasses apiRequest's 15 s GET cache, signal lets
+// a filter change or unmount cancel it.
+export type LiveRequestInit = { signal?: AbortSignal; skipCache?: boolean };
+
 export const leadsAPI = {
   getLeads: async (params?: {
     search?: string;
@@ -319,10 +369,14 @@ export const leadsAPI = {
     per_page?: number;
     // Closed tab (archived leads). The legacy status==='archived' still works.
     archived?: boolean;
-    assigned?: 'me' | 'unassigned' | number;
+    // any = has an assignee; default = Anyone for owners / "Me + new" for staff (Chris 11 Nov 2026). Omitted = every lead.
+    // One choice or several, comma-separated (unioned): 'any,open', 'me,open', '42,unassigned'…
+    assigned?: string | number;
+    // A full Admin's "Assigned to: Anyone": every lead of the accounts they help run.
+    team?: 'all';
     // One lead by id, ignoring the list filters (still only leads this user may see).
     leadId?: number;
-  }) => {
+  }, init?: LiveRequestInit) => {
     const query = new URLSearchParams();
     if (params?.leadId != null) query.append('lead_id', String(params.leadId));
     if (params?.search?.trim()) query.append('search', params.search.trim());
@@ -333,21 +387,43 @@ export const leadsAPI = {
       query.append('status', params.status);
     }
     if (params?.assigned != null) query.append('assigned', String(params.assigned));
+    if (params?.team === 'all') query.append('team', 'all');
     if (params?.sort) query.append('sort', params.sort);
     if (params?.direction) query.append('direction', params.direction);
     if (params?.page != null) query.append('page', String(params.page));
     if (params?.per_page != null) query.append('per_page', String(params.per_page));
     if (isPartialAdmin()) query.append('partial_admin_email', getPartialAdminEmail());
     const url = `/leads${query.toString() ? `?${query.toString()}` : ''}`;
-    return apiRequest<LeadsResponse>(url, { method: 'GET' });
+    return apiRequest<LeadsResponse>(url, { method: 'GET', ...init });
   },
 
   // Lead assignment (spec 2026-09-23). accept → 409 {message, taken_by} when
   // another teammate got there first; apiRequest surfaces that as success:false.
+  // Where a lead lives and whether the person signed in may switch into its account (web API 10 Nov 2026,
+  // utils/leadLink): used when a lead link opens a lead that isn't in this account's list.
+  locateLead: async (leadId: number) => {
+    return apiRequest<LeadLocation>(`/leads/${leadId}/locate`, { method: 'GET' });
+  },
+
   acceptLead: async (leadId: number) => {
-    return apiRequest<{ lead_id: number; assignee: LeadAssignee | null; taken_by?: LeadAssignee; message?: string }>(
+    return apiRequest<{ lead_id: number; assignee: LeadAssignee | null; taken_by?: LeadAssignee; message?: string; can_assign?: boolean }>(
       `/leads/${leadId}/accept`, { method: 'POST' },
     );
+  },
+
+  // A lead someone else on the team claimed: hide it from MY list only (Chris 13 Nov 2026). Nothing is deleted.
+  removeFromMyList: async (leadId: number) => {
+    return apiRequest<{ lead_id: number; removed: boolean }>(`/leads/${leadId}/remove-from-my-list`, { method: 'POST' });
+  },
+
+  // Join a lead someone else on the team claimed: read and reply to it as yourself (Chris 13 Nov 2026 evening).
+  joinLead: async (leadId: number) => {
+    return apiRequest<{ lead_id: number; joined: boolean }>(`/leads/${leadId}/join`, { method: 'POST' });
+  },
+
+  // The conversation header's "Read" button: unread for everyone on the team until each of them opens it.
+  markUnread: async (leadId: number) => {
+    return apiRequest<{ lead_id: number; marked_unread: boolean }>(`/leads/${leadId}/messages/mark-unread`, { method: 'POST' });
   },
 
   assignLead: async (leadId: number, userId: number | null) => {
@@ -365,6 +441,13 @@ export const leadsAPI = {
   updateNotes: async (leadId: number, notes: string) => {
     return apiRequest<{ notes: string | null; notes_updated_at: string; notes_updated_by: { id: number; name: string | null } }>(
       `/leads/${leadId}/notes`, { method: 'PATCH', body: JSON.stringify({ notes }) },
+    );
+  },
+
+  // Rename a lead from Contact Details (Chris 14 Nov 2026). Only this lead; guests only (a Stasht user keeps their own name).
+  updateName: async (leadId: number, name: string) => {
+    return apiRequest<{ id: number; name: string }>(
+      `/leads/${leadId}/name`, { method: 'PATCH', body: JSON.stringify({ name, ...partialAdminBody() }) },
     );
   },
 
@@ -389,7 +472,7 @@ export const leadsAPI = {
   // visitor_online: a Contact Us widget lead whose widget checked in within the last 20 s
   // ("On your website now"; false for every other lead).
   getMessages: async (leadId: number, fresh = false) => {
-    return apiRequest<{ messages: LeadMessage[]; visitor_online?: boolean; widget_ai?: WidgetAiState | null }>(
+    return apiRequest<{ messages: LeadMessage[]; events?: LeadThreadEvent[]; visitor_online?: boolean; widget_ai?: WidgetAiState | null }>(
       `/leads/${leadId}/messages${partialAdminQuery('?')}`,
       { method: 'GET', ...(fresh ? { skipCache: true } : {}) } as RequestInit,
     );
@@ -426,8 +509,8 @@ export const leadsAPI = {
   },
 
   // GET /api/react/lead-groups — list of groups (summary, no members).
-  getLeadGroups: async () => {
-    return apiRequest<LeadGroupSummary[] | { groups: LeadGroupSummary[] }>(`/lead-groups${partialAdminQuery('?')}`, { method: 'GET' });
+  getLeadGroups: async (init?: LiveRequestInit) => {
+    return apiRequest<LeadGroupSummary[] | { groups: LeadGroupSummary[] }>(`/lead-groups${partialAdminQuery('?')}`, { method: 'GET', ...init });
   },
 
   // GET /api/react/lead-groups/{id} — one group with its members.
@@ -436,8 +519,8 @@ export const leadsAPI = {
   },
 
   // GET /api/react/my-conversations — conversations where I'm the viewer.
-  getMyConversations: async () => {
-    return apiRequest<{ total: number; conversations: Conversation[] }>(`/my-conversations${partialAdminQuery('?')}`, { method: 'GET' });
+  getMyConversations: async (init?: LiveRequestInit) => {
+    return apiRequest<{ total: number; conversations: Conversation[] }>(`/my-conversations${partialAdminQuery('?')}`, { method: 'GET', ...init });
   },
 
   // GET /api/react/my-conversations/{lead_id}/messages — thread (auto-marks read).
@@ -500,12 +583,14 @@ export const leadsAPI = {
     body: string,
     idempotencyKey?: string,
     attachments?: { filename: string; data: string }[],
+    campaign?: ComposerCampaignPick,
   ) => {
-    return apiRequest<LeadMessage>(`/leads/${leadId}/messages/sms`, {
+    return apiRequest<LeadMessage & SentCampaign>(`/leads/${leadId}/messages/sms`, {
       method: 'POST',
       body: JSON.stringify({
         body,
         ...(attachments && attachments.length ? { attachments } : {}),
+        ...(campaign ? { campaign } : {}),
         ...partialAdminBody(),
         ...(idempotencyKey ? { idempotency_key: idempotencyKey } : {}),
       }),
@@ -519,13 +604,15 @@ export const leadsAPI = {
     body: string,
     attachments?: { filename: string; data: string }[],
     idempotencyKey?: string,
+    campaign?: ComposerCampaignPick,
   ) => {
-    return apiRequest<LeadMessage>(`/leads/${leadId}/messages/email`, {
+    return apiRequest<LeadMessage & SentCampaign>(`/leads/${leadId}/messages/email`, {
       method: 'POST',
       body: JSON.stringify({
         subject,
         body,
         ...(attachments && attachments.length ? { attachments } : {}),
+        ...(campaign ? { campaign } : {}),
         ...partialAdminBody(),
         ...(idempotencyKey ? { idempotency_key: idempotencyKey } : {}),
       }),
@@ -541,12 +628,14 @@ export const leadsAPI = {
     body: string,
     idempotencyKey?: string,
     attachments?: { filename: string; data: string }[],
+    campaign?: ComposerCampaignPick,
   ) => {
-    return apiRequest<LeadMessage>(`/leads/${leadId}/messages/chat`, {
+    return apiRequest<LeadMessage & SentCampaign>(`/leads/${leadId}/messages/chat`, {
       method: 'POST',
       body: JSON.stringify({
         body,
         ...(attachments && attachments.length ? { attachments } : {}),
+        ...(campaign ? { campaign } : {}),
         ...partialAdminBody(),
         ...(idempotencyKey ? { idempotency_key: idempotencyKey } : {}),
       }),
@@ -575,7 +664,23 @@ export const leadsAPI = {
   // You") and sends the lead that campaign's own link. Never appends to the
   // lead's existing campaign (Chris, 2026-09-20). Same endpoint the mobile app's
   // Share New Cars sheet uses.
-  shareCars: async (leadId: number, carIds: number[], title?: string) => {
+  // GET /leads/campaign-sources: what "+ Campaign" offers this account — Products when a Website Catalogue is
+  // connected, Vehicles when it has a car inventory (Deepak, 13 Nov 2026).
+  // "+ Campaign" into the message box (Chris 14 Nov 2026): the wording for the picked items, with `placeholder`
+  // ("[campaign link]") where the link goes. Creates nothing — the campaign is made when the message is sent.
+  campaignDraft: async (kind: 'vehicle' | 'product', ids: number[]) => {
+    return apiRequest<{ body: string; count: number; placeholder: string }>('/leads/campaign-draft', {
+      method: 'POST',
+      body: JSON.stringify({ kind, ids }),
+    });
+  },
+
+  getCampaignSources: async () => {
+    return apiRequest<any>('/leads/campaign-sources', { method: 'GET' });
+  },
+
+  // ids are vehicle ids, or Website Catalogue product ids when kind is 'product' (one kind per share).
+  shareCars: async (leadId: number, carIds: number[], title?: string, kind: 'vehicle' | 'product' = 'vehicle') => {
     return apiRequest<{
       message: string;
       cars_added: number;
@@ -586,7 +691,7 @@ export const leadsAPI = {
       `/leads/${leadId}/share-cars`,
       {
         method: 'POST',
-        body: JSON.stringify({ car_ids: carIds, ...(title ? { title } : {}), ...partialAdminBody() }),
+        body: JSON.stringify({ ...(kind === 'product' ? { catalog_item_ids: carIds } : { car_ids: carIds }), ...(title ? { title } : {}), ...partialAdminBody() }),
       },
     );
   },
@@ -633,5 +738,20 @@ export const leadsAPI = {
       method: 'POST',
       body: JSON.stringify({ image_id: imageId, comment, parent_id: parentId, ...partialAdminBody() }),
     });
+  },
+
+  // GET /leads/unread-count — the Sidebar's Leads badge and the Leads page cards. Scoped like getLeads (a switched-in
+  // Partial Admin sends partial_admin_email), so the badge never counts a lead their list can't show (Chris 11 Nov 2026).
+  getUnreadCount: async () => {
+    return apiRequest<any>(`/leads/unread-count${partialAdminQuery('?')}`, { method: 'GET' });
+  },
+
+  // GET /leads/admin-accounts-unread — the Leads quick switch (14 Nov 2026): the signed-in person's own Admin / Partial
+  // Admin accounts with each one's unread count as its Leads view would show them (utils/leadsQuickSwitch.ts).
+  getAdminAccountsUnread: async (fresh = false) => {
+    return apiRequest<{ accounts: Array<{ owner_id: number; name: string; email: string; profile_image: string | null; profile_color: string | null; role: 'admin' | 'partial_admin'; unread: number | null }> }>(
+      '/leads/admin-accounts-unread',
+      { method: 'GET', ...(fresh ? { skipCache: true } : {}) } as RequestInit,
+    );
   },
 };

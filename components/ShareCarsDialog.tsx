@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Car, Check, Search } from 'lucide-react';
+import { Car, Check, Package, Search } from 'lucide-react';
 import { toast } from 'sonner';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from './ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
@@ -7,6 +7,7 @@ import { dashboardAPI } from '../utils/authUtils';
 import { formatCarCategory } from '../utils/carCategories';
 import { describeCarSearch, matchesCarSearch, parseCarSearch } from '../utils/carSearch';
 import { leadsAPI } from '../services/leadsAPI';
+import { loadCatalogueForBrowsing, type CatalogueItemSummary } from '../services/catalogueAPI';
 
 // One listing from GET /cars — only the fields this picker renders.
 interface CarListing {
@@ -20,11 +21,26 @@ interface CarListing {
   category?: string | null; // "preowned" | "hybrid" — what the category dropdown groups by
 }
 
+// What a pick holds: dealer vehicles (GET /cars) or Website Catalogue products. One kind per campaign.
+export type PickKind = 'vehicle' | 'product';
+
+// The web API's per-campaign product limit (config catalog.max_items_per_campaign).
+const MAX_PRODUCTS = 50;
+
 // Dropdown value for "no category filter".
 const ALL_CATEGORIES = 'all';
 
-// Shown pre-filled in the name field and used by the server when the name is left blank.
+// Shown pre-filled in the name field for vehicles, and sent when that name is left blank.
 const DEFAULT_CAMPAIGN_NAME = 'Your Campaign';
+
+// Products (Chris, 13 Nov 2026): the field starts empty and a blank name is named by the server like this — the
+// product's own name for one product, "Products for {first name}" for several ("Products for you" without a name).
+export function productCampaignDefault(titles: string[], leadName: string): string {
+  if (titles.length === 1 && titles[0].trim()) return titles[0].trim().slice(0, 120);
+  const first = leadName.trim().split(/\s+/)[0] || '';
+  const isName = !/^this contact$/i.test(leadName.trim()) && /\p{L}/u.test(first) && !/[\d@]/.test(first);
+  return `Products for ${isName ? first.slice(0, 40) : 'you'}`;
+}
 
 interface ShareCarsDialogProps {
   open: boolean;
@@ -34,10 +50,14 @@ interface ShareCarsDialogProps {
   leadId?: number;
   // Called after a successful share so the caller can refresh the thread.
   onShared?: () => void;
-  // Pick mode ("+ Send Message"): hand the choice back instead of sending.
-  onPick?: (carIds: number[], campaignName: string) => void;
+  // Pick mode ("+ Send Message"): hand the choice back instead of sending. Both modes offer
+  // what the account has (Deepak, 13 Nov 2026): Website Catalogue products when a catalogue is
+  // connected, vehicles when it has a car inventory, a Vehicles / Products switch for both.
+  // campaignName is '' for products left unnamed (the server names them); defaultName is that name, for display.
+  onPick?: (ids: number[], campaignName: string, kind: PickKind, defaultName?: string) => void;
   initialSelection?: number[];
   initialCampaignName?: string;
+  initialKind?: PickKind;
 }
 
 function carSubtitle(c: CarListing): string {
@@ -59,7 +79,7 @@ function carSubtitle(c: CarListing): string {
 // share gets its own campaign and link — never added to the lead's old one.
 // A category dropdown (the categories the dealer's inventory actually has, e.g.
 // "Preowned (26)", "Hybrid (21)") narrows the list; selections survive switching.
-export default function ShareCarsDialog({ open, onClose, leadId, leadName, onShared, onPick, initialSelection, initialCampaignName }: ShareCarsDialogProps) {
+export default function ShareCarsDialog({ open, onClose, leadId, leadName, onShared, onPick, initialSelection, initialCampaignName, initialKind }: ShareCarsDialogProps) {
   const [cars, setCars] = useState<CarListing[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -74,6 +94,13 @@ export default function ShareCarsDialog({ open, onClose, leadId, leadName, onSha
   // re-queries the server so cars beyond the first 100 are still reachable.
   const [isComplete, setIsComplete] = useState(true);
   const loadSeq = useRef(0);
+  // Pick mode only: the catalogue's products, and which list is showing.
+  const [products, setProducts] = useState<CatalogueItemSummary[]>([]);
+  const [productsLoading, setProductsLoading] = useState(false);
+  // What this account offers (GET /leads/campaign-sources): Products = a Website Catalogue connected,
+  // Vehicles = a car inventory; the switch only when it has both. null while loading.
+  const [sources, setSources] = useState<{ vehicles: boolean; products: boolean } | null>(null);
+  const [kind, setKind] = useState<PickKind>(initialKind ?? 'vehicle');
 
   // Loads the inventory. `cat` is only passed when re-querying the server for one
   // category (inventory > 100 cars); the first load also learns which categories exist.
@@ -111,17 +138,59 @@ export default function ShareCarsDialog({ open, onClose, leadId, leadName, onSha
     if (!open) return;
     setSelected(new Set(initialSelection ?? []));
     setSearch('');
-    setCampaignName(initialCampaignName || DEFAULT_CAMPAIGN_NAME);
+    setCampaignName(initialCampaignName || ((initialKind ?? 'vehicle') === 'product' ? '' : DEFAULT_CAMPAIGN_NAME));
     setCategory(ALL_CATEGORIES);
     setCategories([]);
     setIsComplete(true);
-    loadCars(undefined, true);
-    return () => { loadSeq.current++; };
+    setKind(initialKind ?? 'vehicle');
+    setProducts([]);
+    setCars([]);
+    setLoadError(null);
+    setSources(null);
+    let cancelled = false;
+    leadsAPI.getCampaignSources()
+      .then((res: any) => {
+        const d = res?.data?.data ?? res?.data;
+        // An API without the endpoint: vehicles only, as before.
+        return res?.success && d && typeof d.vehicles === 'boolean' ? { vehicles: d.vehicles, products: Boolean(d.products) } : { vehicles: true, products: false };
+      })
+      .catch(() => ({ vehicles: true, products: false }))
+      .then((s) => {
+        if (cancelled) return;
+        setSources(s);
+        // Royal Wood (catalogue, no cars) opens straight on Products.
+        setKind(initialKind ?? (!s.vehicles && s.products ? 'product' : 'vehicle'));
+        if (s.vehicles) loadCars(undefined, true);
+        if (s.products) {
+          // Asks GET /website-catalogue first, so it never opens the upgrade popup.
+          setProductsLoading(true);
+          loadCatalogueForBrowsing()
+            .then((list) => { if (!cancelled) setProducts(list); })
+            .finally(() => { if (!cancelled) setProductsLoading(false); });
+        }
+      });
+    return () => { loadSeq.current++; cancelled = true; };
   }, [open]);
+
+  const showKindSwitch = Boolean(sources?.vehicles && sources?.products);
+  const isProducts = kind === 'product';
+
+  // Switching to Products clears the untouched vehicle default (and back), so the field shows the right default.
+  useEffect(() => {
+    setCampaignName((prev) => (prev.trim() === '' || prev === DEFAULT_CAMPAIGN_NAME ? (kind === 'product' ? '' : DEFAULT_CAMPAIGN_NAME) : prev));
+  }, [kind]);
+
+  const switchKind = (next: PickKind) => {
+    if (next === kind) return;
+    setKind(next);
+    setSelected(new Set());
+    setSearch('');
+    setCategory(ALL_CATEGORIES);
+  };
 
   const handleCategoryChange = (next: string) => {
     setCategory(next);
-    if (!isComplete) loadCars(next === ALL_CATEGORIES ? undefined : next);
+    if (!isProducts && !isComplete) loadCars(next === ALL_CATEGORIES ? undefined : next);
   };
 
   // Per-category counts, only when the list is the whole inventory (otherwise they'd lie).
@@ -137,6 +206,30 @@ export default function ShareCarsDialog({ open, onClose, leadId, leadName, onSha
   const parsedSearch = useMemo(() => parseCarSearch(search), [search]);
   const searchNotes = useMemo(() => describeCarSearch(parsedSearch), [parsedSearch]);
 
+  const productCategories = useMemo(
+    () => [...new Set(products.map((p) => (p.category || '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b)),
+    [products],
+  );
+  const productCounts = useMemo(() => {
+    const m: Record<string, number> = {};
+    products.forEach((p) => { const c = (p.category || '').trim(); if (c) m[c] = (m[c] || 0) + 1; });
+    return m;
+  }, [products]);
+  // What a product campaign left unnamed will be called (the field's placeholder).
+  const productDefaultName = useMemo(
+    () => productCampaignDefault(products.filter((p) => selected.has(p.id)).map((p) => p.title || ''), leadName),
+    [products, selected, leadName],
+  );
+  const nameDefault = isProducts ? productDefaultName : DEFAULT_CAMPAIGN_NAME;
+
+  const filteredProducts = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return products.filter((p) => {
+      if (category !== ALL_CATEGORIES && (p.category || '').trim() !== category) return false;
+      return !q || `${p.title || ''} ${p.category || ''}`.toLowerCase().includes(q);
+    });
+  }, [products, search, category]);
+
   const filtered = useMemo(() => {
     return cars.filter((c) => {
       if (category !== ALL_CATEGORIES && c.category !== category) return false;
@@ -145,7 +238,7 @@ export default function ShareCarsDialog({ open, onClose, leadId, leadName, onSha
   }, [cars, parsedSearch, category]);
 
   const emptyText =
-    cars.length === 0 && category === ALL_CATEGORIES
+    (isProducts ? products.length === 0 : cars.length === 0) && category === ALL_CATEGORIES
       ? 'Nothing in your inventory yet!'
       : category !== ALL_CATEGORIES && !search.trim()
         ? 'Nothing in this category.'
@@ -155,6 +248,7 @@ export default function ShareCarsDialog({ open, onClose, leadId, leadName, onSha
     setSelected((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
+      else if (isProducts && next.size >= MAX_PRODUCTS) return prev;
       else next.add(id);
       return next;
     });
@@ -163,16 +257,16 @@ export default function ShareCarsDialog({ open, onClose, leadId, leadName, onSha
   const handleShare = async () => {
     if (selected.size === 0 || isSharing) return;
     if (onPick) {
-      onPick(Array.from(selected), campaignName.trim() || DEFAULT_CAMPAIGN_NAME);
+      onPick(Array.from(selected), campaignName.trim() || (isProducts ? '' : DEFAULT_CAMPAIGN_NAME), kind, isProducts ? productDefaultName : undefined);
       onClose();
       return;
     }
     if (leadId == null) return;
     setIsSharing(true);
     try {
-      // Always send a name: the server's own fallback is still car-worded.
-      const name = campaignName.trim() || DEFAULT_CAMPAIGN_NAME;
-      const res = await leadsAPI.shareCars(leadId, Array.from(selected), name);
+      // Vehicles always send a name (the server's own fallback is car-worded); unnamed products are named by the server.
+      const name = campaignName.trim() || (isProducts ? '' : DEFAULT_CAMPAIGN_NAME);
+      const res = await leadsAPI.shareCars(leadId, Array.from(selected), name, kind);
       if (res.success) {
         const shared = typeof res.data?.cars_total === 'number' ? res.data.cars_total : selected.size;
         const itemWord = shared === 1 ? 'item' : 'items';
@@ -202,7 +296,7 @@ export default function ShareCarsDialog({ open, onClose, leadId, leadName, onSha
           <DialogTitle>Share Campaign</DialogTitle>
           <DialogDescription>
             {onPick
-              ? `Creates a new campaign with the items you pick. Its link goes out with your message to ${leadName}.`
+              ? `Adds the items to your message to ${leadName}. The campaign is created when you send it.`
               : `Creates a new campaign with the items you pick and sends ${leadName} its own link.`}
           </DialogDescription>
         </DialogHeader>
@@ -218,12 +312,48 @@ export default function ShareCarsDialog({ open, onClose, leadId, leadName, onSha
             onChange={(e) => setCampaignName(e.target.value)}
             onFocus={(e) => e.currentTarget.select()}
             maxLength={120}
-            placeholder={DEFAULT_CAMPAIGN_NAME}
-            className="w-full h-10 px-3 rounded-lg bg-white text-sm text-gray-900 placeholder:text-gray-500 border border-gray-200 outline-none focus-visible:ring-2 focus-visible:ring-[#6C60FF]"
+            placeholder={nameDefault}
+            className="w-full h-10 px-3 rounded-lg bg-white text-sm text-gray-900 placeholder:text-gray-500 border border-gray-200 outline-none focus-visible:ring-2 focus-visible:ring-gray-400"
           />
         </div>
 
-        {categories.length > 1 && (
+        {showKindSwitch && (
+          // Same pill toggle as Send Message's Text / Email tabs.
+          <div className="px-6 pb-3">
+            <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-1" role="group" aria-label="What to pick">
+              {(['vehicle', 'product'] as const).map((k) => (
+                <button
+                  key={k}
+                  type="button"
+                  aria-pressed={kind === k}
+                  onClick={() => switchKind(k)}
+                  className={`flex-1 h-9 inline-flex items-center justify-center gap-2 rounded-md text-sm font-medium transition-colors ${kind === k ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-800'}`}
+                >
+                  {k === 'vehicle' ? <><Car className="w-4 h-4" />Vehicles</> : <><Package className="w-4 h-4" />Products</>}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {isProducts ? (productCategories.length > 1 && (
+          <div className="px-6 pb-3">
+            <label id="share-cars-category-label" className="block text-xs font-medium text-gray-700 mb-1">
+              Category
+            </label>
+            <Select value={category} onValueChange={handleCategoryChange}>
+              <SelectTrigger aria-labelledby="share-cars-category-label" className="h-10 w-full bg-white border-gray-200 text-sm">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={ALL_CATEGORIES}>All categories ({products.length})</SelectItem>
+                {productCategories.map((c) => (
+                  <SelectItem key={c} value={c}>{c} ({productCounts[c] ?? 0})</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )) : categories.length > 1 && (
           <div className="px-6 pb-3">
             <label id="share-cars-category-label" className="block text-xs font-medium text-gray-700 mb-1">
               Category
@@ -253,34 +383,37 @@ export default function ShareCarsDialog({ open, onClose, leadId, leadName, onSha
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search inventory, price or year"
-              aria-label="Search inventory, price or year"
-              className="w-full h-10 pl-9 pr-3 rounded-lg bg-gray-100 text-sm text-gray-700 placeholder:text-gray-500 border-none outline-none focus-visible:ring-2 focus-visible:ring-[#6C60FF]"
+              placeholder={isProducts ? 'Search products' : 'Search inventory, price or year'}
+              aria-label={isProducts ? 'Search products' : 'Search inventory, price or year'}
+              className="w-full h-10 pl-9 pr-3 rounded-lg bg-gray-100 text-sm text-gray-700 placeholder:text-gray-500 border-none outline-none focus-visible:ring-2 focus-visible:ring-gray-400"
             />
           </div>
-          {searchNotes.length > 0 && (
-            <p className="mt-1.5 text-xs text-[#5A4FE5]" aria-live="polite">
+          {!isProducts && searchNotes.length > 0 && (
+            <p className="mt-1.5 text-xs text-[#4A5565]" aria-live="polite">
               Showing: {searchNotes.join(' · ')}
             </p>
           )}
         </div>
 
         <div className="flex-1 min-h-0 overflow-y-auto px-6 pb-2">
-          {isLoading ? (
+          {(sources === null || (isProducts ? productsLoading : isLoading)) ? (
             <div className="flex justify-center py-14" role="status" aria-label="Loading your inventory">
-              <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-[#6C60FF]" />
+              <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-[#4A5565]" />
             </div>
-          ) : loadError ? (
+          ) : !isProducts && loadError ? (
             <p className="text-center text-sm text-gray-600 py-10">{loadError}</p>
-          ) : filtered.length === 0 ? (
+          ) : (isProducts ? filteredProducts.length === 0 : filtered.length === 0) ? (
             <p className="text-center text-sm text-gray-600 py-10">
               {emptyText}
             </p>
           ) : (
             <ul className="space-y-1.5">
-              {filtered.map((c) => {
+              {(isProducts
+                ? filteredProducts.map((p) => ({ id: p.id, title: p.title, main_image: p.main_image, subtitle: [p.price_label, p.category].filter(Boolean).join(' · ') }))
+                : filtered.map((c) => ({ id: c.id, title: c.title, main_image: c.main_image, subtitle: carSubtitle(c) }))
+              ).map((c) => {
                 const isSel = selected.has(c.id);
-                const subtitle = carSubtitle(c);
+                const subtitle = c.subtitle;
                 return (
                   <li key={c.id}>
                     <button
@@ -288,14 +421,14 @@ export default function ShareCarsDialog({ open, onClose, leadId, leadName, onSha
                       role="checkbox"
                       aria-checked={isSel}
                       onClick={() => toggle(c.id)}
-                      className={`w-full flex items-center gap-3 p-2 rounded-lg text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#6C60FF] ${
-                        isSel ? 'bg-[#F5F2FF] border-[1.5px] border-[#6C60FF]' : 'bg-white border border-gray-200 hover:bg-gray-50'
+                      className={`w-full flex items-center gap-3 p-2 rounded-lg text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 ${
+                        isSel ? 'bg-[#F3F4F6] border-[1.5px] border-[#202224]' : 'bg-white border border-gray-200 hover:bg-gray-50'
                       }`}
                     >
                       <span
                         aria-hidden="true"
                         className={`flex items-center justify-center w-5 h-5 shrink-0 rounded border ${
-                          isSel ? 'bg-[#6C60FF] border-[#6C60FF] text-white' : 'bg-white border-gray-300'
+                          isSel ? 'bg-[#202224] border-[#202224] text-white' : 'bg-white border-gray-300'
                         }`}
                       >
                         {isSel && <Check className="w-3.5 h-3.5" />}
@@ -304,7 +437,7 @@ export default function ShareCarsDialog({ open, onClose, leadId, leadName, onSha
                         <img src={c.main_image} alt="" className="w-11 h-11 rounded-md object-cover shrink-0" />
                       ) : (
                         <span aria-hidden="true" className="w-11 h-11 rounded-md bg-gray-100 flex items-center justify-center shrink-0">
-                          <Car className="w-5 h-5 text-gray-400" />
+                          {isProducts ? <Package className="w-5 h-5 text-gray-400" /> : <Car className="w-5 h-5 text-gray-400" />}
                         </span>
                       )}
                       <span className="min-w-0 flex-1">
@@ -320,17 +453,19 @@ export default function ShareCarsDialog({ open, onClose, leadId, leadName, onSha
         </div>
 
         <div className="border-t border-gray-100 px-6 py-4">
+          {isProducts && selected.size >= MAX_PRODUCTS && (
+            <p className="mb-2 text-xs text-gray-600" aria-live="polite">Up to {MAX_PRODUCTS} products.</p>
+          )}
           <button
             type="button"
             onClick={handleShare}
             disabled={selected.size === 0 || isSharing}
             className="w-full h-11 rounded-xl bg-[#6C60FF] hover:bg-[#5A4FE5] text-white text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#6C60FF] focus-visible:ring-offset-2"
           >
+            {/* Short labels (Chris: 1–2 words). Pick mode never sends — Send in the message box does. */}
             {isSharing
-              ? 'Sharing...'
-              : selected.size === 0
-                ? 'Select items to share'
-                : `${onPick ? 'Add' : 'Share'} ${selected.size} ${selected.size === 1 ? 'Item' : 'Items'}`}
+              ? 'Sharing…'
+              : `${onPick ? 'Add' : 'Share'}${selected.size > 0 ? ` (${selected.size})` : ''}`}
           </button>
         </div>
       </DialogContent>

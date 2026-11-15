@@ -9,12 +9,19 @@ import { Button } from './ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from './ui/avatar';
 import { Select, SelectContent, SelectItem, SelectSeparator, SelectTrigger, SelectValue } from './ui/select';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger } from './ui/dropdown-menu';
-import { leadsAPI, Lead, LeadMessage, CommentaryTarget, LeadGroupSummary, LeadGroup, Conversation, messageChannelLabel } from '../services/leadsAPI';
+import { leadsAPI, Lead, LeadsResponse, LeadMessage, CommentaryTarget, LeadGroupSummary, LeadGroup, Conversation, messageChannelLabel } from '../services/leadsAPI';
 import { mapLimit } from '../utils/requestLimit';
+import { createLivePoller, reconcileList, sameValue, type LivePoller } from '../utils/livePoll';
+import { clearApiCache } from '../utils/authUtils';
+import { leadLinkAction, leadLinkUrl, NOT_AVAILABLE } from '../utils/leadLink';
+import { switchAccount, switchIntoAccountForLead } from './AccountChoiceModal';
 import LeadsInboxTable from './leads/LeadsInboxTable';
 import CampaignDeletedTag from './leads/CampaignDeletedTag';
 import LeadConfirmDialog, { type LeadConfirmKind } from './leads/LeadConfirmDialog';
 import LeadsFilterSheet from './leads/LeadsFilterSheet';
+import LeadsQuickSwitch from './leads/LeadsQuickSwitch';
+import { assignedParams } from '../utils/leadsAssignedFilter';
+import AssignedFilterMenu from './leads/AssignedFilterMenu';
 import PullToRefreshIndicator from './PullToRefreshIndicator';
 import { usePullToRefresh } from '../hooks/usePullToRefresh';
 import { useIsMobile } from './ui/use-mobile';
@@ -142,10 +149,10 @@ function SortableTh({
       <button
         type="button"
         onClick={() => onSort(field)}
-        className="flex items-center gap-1 hover:text-[#6C60FF] transition-colors"
+        className="flex items-center gap-1 hover:text-gray-900 transition-colors"
       >
         {label}
-        <span className={`text-[12px] ${isActive ? 'text-[#6C60FF]' : 'text-gray-300'}`}>
+        <span className={`text-[12px] ${isActive ? 'text-gray-900' : 'text-gray-300'}`}>
           {isActive ? (direction === 'asc' ? '▲' : '▼') : '▲'}
         </span>
       </button>
@@ -245,12 +252,18 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
   // Inbox (spec 2026-09-23): Open / Closed tabs (Closed = archived) and "Assigned to".
   const [showClosed, setShowClosed] = useState(false);
   const [assignedFilter, setAssignedFilter] = useState<string>('all');
+  // Staff in their own account (Chris 11 Nov 2026 (d)): 'all' (the default) then means "Me + Open"; see utils/leadsAssignedFilter.
+  const [teamLeads, setTeamLeads] = useState<LeadsResponse['team_leads']>(null);
+  const teamLeadsRef = useRef<LeadsResponse['team_leads']>(null);
+  teamLeadsRef.current = teamLeads;
   const [tabCounts, setTabCounts] = useState<{ open: number; closed: number }>({ open: 0, closed: 0 });
   // Which tab counts have loaded at least once: until then the tab shows no number (never a "0" that then jumps).
   const [countsLoaded, setCountsLoaded] = useState({ leads: false, groups: false, conversations: false });
   const markLoaded = (key: 'leads' | 'groups' | 'conversations') => setCountsLoaded((c) => (c[key] ? c : { ...c, [key]: true }));
   // Lead the parent wants opened (see the openLeadId effect below); read by fetchLeads.
   const openLeadIdRef = useRef<number | null>(null);
+  // The lead link already being handled (see fetchLeads).
+  const handledLeadLink = useRef<number | null>(null);
   openLeadIdRef.current = openLeadId ?? null;
   const [timeFilter, setTimeFilter] = useState<'all' | 'daily' | 'weekly' | 'monthly' | 'annually'>('all');
   const [updatingId, setUpdatingId] = useState<number | null>(null);
@@ -550,6 +563,13 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
   };
 
   const [silentLeadsFetch, setSilentLeadsFetch] = useState(false);
+  // Live refresh bookkeeping: request counter (newest wins), fetch running, the list on screen, last extras seen.
+  const leadsReqSeq = useRef(0);
+  const leadsFetchInFlight = useRef(false);
+  const leadsRef = useRef<Lead[]>([]);
+  leadsRef.current = leads;
+  const lastLeadsExtras = useRef<unknown>(null);
+  const livePollerRef = useRef<LivePoller | null>(null);
   const fetchLeads = async (
     search?: string,
     status?: string,
@@ -558,13 +578,22 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
     pageNum?: number,
     closed?: boolean,
     assigned?: string,
-    opts?: { silent?: boolean },
-  ) => {
-    // A phone pull refresh keeps the list on screen; any other fetch (e.g. a filter
-    // changed mid-refresh) clears the flag so its loading state shows as usual.
-    setSilentLeadsFetch(!!opts?.silent);
-    setIsLoading(true);
-    setError(null);
+    opts?: { silent?: boolean; background?: boolean; signal?: AbortSignal },
+  ): Promise<boolean> => {
+    // Live refresh (utils/livePoll): a background check never shows a spinner or an error, never overlaps a fetch
+    // already running, and its answer is dropped if anything newer was asked for meanwhile.
+    const background = !!opts?.background;
+    if (background && leadsFetchInFlight.current) return true;
+    const seq = ++leadsReqSeq.current;
+    if (!background) livePollerRef.current?.abort();
+    leadsFetchInFlight.current = true;
+    if (!background) {
+      // A phone pull refresh keeps the list on screen; any other fetch (e.g. a filter
+      // changed mid-refresh) clears the flag so its loading state shows as usual.
+      setSilentLeadsFetch(!!opts?.silent);
+      setIsLoading(true);
+      setError(null);
+    }
     try {
       const effectiveSort = sort !== undefined ? sort : sortField;
       const effectiveDirection = direction ?? sortDirection;
@@ -577,16 +606,40 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
         page: effectivePage,
         per_page: perPage,
         archived: closed ?? showClosed,
-        ...(effectiveAssigned !== 'all'
-          ? { assigned: effectiveAssigned === 'me' || effectiveAssigned === 'unassigned' ? effectiveAssigned : Number(effectiveAssigned) }
-          : {}),
-      });
+        // "Assigned to" (Chris 11 Nov 2026 (d)): default = Anyone + Open for owners / switched in, Me + Open for staff.
+        ...assignedParams(effectiveAssigned, teamLeadsRef.current),
+      }, background ? { signal: opts?.signal, skipCache: true } : undefined);
+      // Something newer was asked for (filter, tab, page, search) — this answer is stale.
+      if (seq !== leadsReqSeq.current) return true;
+      if (background) {
+        if (!res.success || !res.data) return false;
+        const freshLeads = (res.data.leads ?? []).filter((l) => l != null);
+        const prevLeads = leadsRef.current;
+        const merged = reconcileList(prevLeads, freshLeads, (l) => l.id);
+        const d = res.data;
+        const extrasChanged = !sameValue(lastLeadsExtras.current, [d.total, d.tab_counts, d.messages_total, d.status_counts, d.team_leads]);
+        if (merged === prevLeads && !extrasChanged) return true;
+        lastLeadsExtras.current = [d.total, d.tab_counts, d.messages_total, d.status_counts, d.team_leads];
+        if (merged !== prevLeads) { setLeads(merged); onLeadsRefreshed?.(merged); }
+        setTeamLeads((t) => (sameValue(t, d.team_leads ?? null) ? t : (d.team_leads ?? null)));
+        setTotal(d.total ?? 0);
+        setStatusCounts((c) => (sameValue(c, d.status_counts ?? {}) ? c : (d.status_counts ?? {})));
+        setMessagesTotal(d.messages_total ?? 0);
+        setTotalPages(d.meta?.total_pages ?? 1);
+        if (d.tab_counts) { const tc = d.tab_counts; setTabCounts((c) => (sameValue(c, tc) ? c : tc)); }
+        // The Sidebar's Leads badge and the unread cards follow straight away (fresh, not from the 15 s GET cache).
+        clearApiCache();
+        window.dispatchEvent(new CustomEvent('leads-unread-count-refresh'));
+        return true;
+      }
       if (res.success && res.data) {
         // Guest leads (no account) and rollup leads are rendered, not dropped —
         // only guard against genuinely malformed rows (null/undefined entries).
         const rawLeads = res.data.leads ?? [];
         const freshLeads = rawLeads.filter((l) => l != null);
+        lastLeadsExtras.current = [res.data.total, res.data.tab_counts, res.data.messages_total, res.data.status_counts, res.data.team_leads];
         setLeads(freshLeads);
+        setTeamLeads(res.data.team_leads ?? null);
         setTotal(res.data.total ?? 0);
         setStatusCounts(res.data.status_counts ?? {});
         setMessagesTotal(res.data.messages_total ?? 0);
@@ -597,7 +650,9 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
         }
         onLeadsRefreshed?.(freshLeads);
         const wanted = openLeadIdRef.current;
-        if (wanted) {
+        // Several list loads can finish while a lead link is being opened: only the first one handles it.
+        if (wanted && wanted !== handledLeadLink.current) {
+          handledLeadLink.current = wanted;
           const match = freshLeads.find((l) => l.id === wanted);
           if (match) {
             onLeadSelect(match);
@@ -612,9 +667,30 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
               onLeadSelect(found);
               toast.info('Opened the conversation. Your current filters hide it in the list.');
             } else {
-              toast.info(openLeadHint
-                ? `This lead was ${openLeadHint}.`
-                : 'This lead is no longer available — a teammate may have accepted it.');
+              // Not in this list. Team leads open in the person's own account (Chris 10 Nov 2026), so a lead link
+              // never switches into the business; switched elsewhere, it goes back to their own account.
+              const loc = await leadsAPI.locateLead(wanted)
+                .then((r) => (r.success ? r.data : null))
+                .catch(() => null);
+              const action = leadLinkAction(loc, openLeadHint);
+              if (action.kind === 'switch') {
+                // An Admin / Partial Admin: the business's leads are worked from inside it (Chris 14 Nov 2026).
+                toast.info(`Opening ${action.ownerName}…`);
+                const sw = await switchIntoAccountForLead(action.ownerId, action.partial, action.ownerEmail);
+                if (sw.ok) {
+                  window.location.assign(leadLinkUrl(wanted));
+                  return true;
+                }
+                toast.error(sw.error || 'Could not open that account.');
+              } else if (action.kind === 'personal') {
+                if (await switchAccount(null).catch(() => false)) {
+                  window.location.assign(leadLinkUrl(wanted));
+                  return true;
+                }
+                toast.info(NOT_AVAILABLE);
+              } else {
+                toast.info(action.text);
+              }
             }
           }
           onOpenLeadHandled?.();
@@ -622,10 +698,16 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
       } else {
         setError(res.error || 'Failed to load leads');
       }
+      return !!res.success;
     } catch {
-      setError('An error occurred while fetching leads');
+      if (seq !== leadsReqSeq.current) return true;
+      if (!background) setError('An error occurred while fetching leads');
+      return false;
     } finally {
-      setIsLoading(false);
+      if (seq === leadsReqSeq.current) {
+        leadsFetchInFlight.current = false;
+        if (!background) setIsLoading(false);
+      }
     }
   };
 
@@ -658,6 +740,15 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
       setIsLoadingConversations(false);
     }
   };
+  // Live refresh of My Conversations: no spinner, rows kept unless they changed.
+  const pollMyConversations = async (signal: AbortSignal): Promise<boolean> => {
+    const res = await leadsAPI.getMyConversations({ signal, skipCache: true });
+    if (signal.aborted) return true;
+    if (!res.success || !res.data) return false;
+    const fresh = res.data.conversations ?? [];
+    setConversations((prev) => reconcileList(prev, fresh, (c) => c.lead_id));
+    return true;
+  };
 
   useEffect(() => {
     const onRefresh = () => fetchMyConversations();
@@ -687,6 +778,17 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
     }
   };
 
+  // Live refresh of Groups: same, quietly.
+  const pollLeadGroups = async (signal: AbortSignal): Promise<boolean> => {
+    const res = await leadsAPI.getLeadGroups({ signal, skipCache: true });
+    if (signal.aborted) return true;
+    if (!res.success || !res.data) return false;
+    const data = res.data as LeadGroupSummary[] | { groups: LeadGroupSummary[] };
+    const fresh = Array.isArray(data) ? data : (data.groups ?? []);
+    setLeadGroups((prev) => reconcileList(prev, fresh, (g) => g.id));
+    return true;
+  };
+
   useEffect(() => { fetchLeads(); fetchLeadGroups(); fetchMyConversations(); }, []);
   useEffect(() => { if (refreshTrigger > 0) fetchLeads(); }, [refreshTrigger]);
 
@@ -695,21 +797,29 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
     fetchArgsRef.current = { search: searchQuery, status: statusFilter, sort: sortField, direction: sortDirection, page, closed: showClosed, assigned: assignedFilter };
   });
 
+  // Live list (Deepak 13 Nov 2026, option A): while the Leads page is showing, the sub-tab on screen is quietly asked
+  // for again every ~10 s, and at once when the browser tab or window comes back (utils/livePoll: paused while hidden,
+  // backs off on errors, never overlaps). Reads fetchArgsRef so the current page/sort/search/status/tab/"Assigned to"
+  // are kept. Lists (newsletter contact lists) aren't live data and keep their Refresh button. While a lead is open in
+  // full view the list is hidden and the conversation polls itself (LeadDetailDrawer), so the list waits; closing the
+  // lead reloads it.
+  const liveRunRef = useRef<(signal: AbortSignal) => Promise<boolean>>(async () => true);
+  liveRunRef.current = async (signal) => {
+    if (leadsView === 'leads') {
+      const { search, status, sort, direction, page: currentPage, closed, assigned } = fetchArgsRef.current;
+      return fetchLeads(search, status, sort, direction, currentPage, closed, assigned, { background: true, signal });
+    }
+    if (leadsView === 'conversations') return pollMyConversations(signal);
+    if (leadsView === 'groups') return pollLeadGroups(signal);
+    return true;
+  };
+  const livePollPaused = !!selectedLead;
   useEffect(() => {
-    // Reads fetchArgsRef instead of closing over searchQuery/statusFilter/
-    // sortField/sortDirection/page directly — this effect only registers once
-    // ([] deps), so a direct closure would freeze at mount-time defaults and
-    // a tab refocus would silently discard the user's current page/sort/
-    // search/status. See task-M2-report.md fix addendum.
-    const onVisible = () => {
-      if (document.visibilityState === 'visible') {
-        const { search, status, sort, direction, page: currentPage, closed, assigned } = fetchArgsRef.current;
-        fetchLeads(search, status, sort, direction, currentPage, closed, assigned);
-      }
-    };
-    document.addEventListener('visibilitychange', onVisible);
-    return () => document.removeEventListener('visibilitychange', onVisible);
-  }, []);
+    if (livePollPaused) return;
+    const poller = createLivePoller((signal) => liveRunRef.current(signal));
+    livePollerRef.current = poller;
+    return () => { poller.stop(); if (livePollerRef.current === poller) livePollerRef.current = null; };
+  }, [livePollPaused]);
 
   const handleSearchChange = (value: string) => {
     setSearchQuery(value);
@@ -795,6 +905,7 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
   // a stale list never produces a false "not available".
   useEffect(() => {
     if (!openLeadId) return;
+    handledLeadLink.current = null;
     const match = leads.find((l) => l.id === openLeadId);
     if (match) {
       onLeadSelect(match);
@@ -837,6 +948,46 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
       toast.error(showClosed ? 'Failed to reopen lead' : 'Failed to close lead');
     }
     return false;
+  };
+
+  // "Remove" a lead someone else on the team claimed: off this person's list only (Chris 13 Nov 2026). Nothing is
+  // deleted; it comes back if it is released to Open.
+  const handleRemoveFromList = async (lead: Lead) => {
+    try {
+      const res = await leadsAPI.removeFromMyList(lead.id);
+      if (res.success) {
+        setLeads(prev => prev.filter(l => l.id !== lead.id));
+        setTotal((t) => Math.max(0, t - 1));
+        setTabCounts((c) => (showClosed ? { ...c, closed: Math.max(0, c.closed - 1) } : { ...c, open: Math.max(0, c.open - 1) }));
+        if (selectedLead?.id === lead.id) onLeadSelect(null);
+        window.dispatchEvent(new CustomEvent('leads-unread-count-refresh'));
+        toast.success('Removed');
+        return;
+      }
+      toast.error("Couldn't remove it");
+    } catch {
+      toast.error("Couldn't remove it");
+    }
+  };
+
+  // "Join" a lead someone else on the team claimed (Chris 13 Nov 2026 evening): it opens for them to read and reply as
+  // themselves. The claimer keeps it (the row stays "Claimed"); the list reloads to show its messages and unread.
+  const handleJoin = async (lead: Lead) => {
+    try {
+      const res = await leadsAPI.joinLead(lead.id);
+      if (res.success) {
+        toast.dismiss(); // the "Claimed by …" toast the Join may have come from
+        const joined: Lead = { ...lead, joined: true, can_join: false, can_open: true, can_message: true, is_rollup: false, can_mark_unread: true };
+        patchLead(lead.id, joined);
+        onLeadSelect(joined);
+        fetchLeads(undefined, undefined, undefined, undefined, undefined, undefined, undefined, { silent: true });
+        window.dispatchEvent(new CustomEvent('leads-unread-count-refresh'));
+        return;
+      }
+      toast.error("Couldn't join it");
+    } catch {
+      toast.error("Couldn't join it");
+    }
   };
 
   // Delete and Close ask first (LeadConfirmDialog); Reopen is harmless and runs straight away.
@@ -1056,7 +1207,7 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
         type="button"
         onClick={() => { refreshCurrentView(); }}
         disabled={isLoading || isLoadingConversations || listsRefreshing}
-        className="h-9 px-3.5 inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 hover:text-[#6C60FF] transition-colors shrink-0 disabled:opacity-50"
+        className="h-9 px-3.5 inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 hover:text-gray-900 transition-colors shrink-0 disabled:opacity-50"
       >
         <RefreshCw className={`w-4 h-4 ${isLoading || isLoadingConversations || listsRefreshing ? 'animate-spin' : ''}`} />
         Refresh
@@ -1099,12 +1250,12 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
             type="button"
             onClick={() => setShowFilterSheet(true)}
             aria-label={activeSheetFilterCount > 0 ? `Filters, ${activeSheetFilterCount} on` : 'Filters'}
-            className={`md:hidden relative h-10 px-3 inline-flex items-center gap-1.5 rounded-md border text-sm font-medium shrink-0 transition-colors ${activeSheetFilterCount > 0 ? 'border-[#6C60FF] text-[#6C60FF] bg-purple-50' : 'border-gray-200 text-gray-700 bg-white active:bg-gray-50'}`}
+            className={`md:hidden relative h-10 px-3 inline-flex items-center gap-1.5 rounded-md border text-sm font-medium shrink-0 transition-colors ${activeSheetFilterCount > 0 ? 'border-gray-400 text-gray-900 bg-gray-100' : 'border-gray-200 text-gray-700 bg-white active:bg-gray-50'}`}
           >
             <SlidersHorizontal className="w-4 h-4" />
             Filters
             {activeSheetFilterCount > 0 && (
-              <span className="flex items-center justify-center min-w-[20px] h-5 px-1 rounded-full bg-[#6C60FF] text-white text-xs font-bold">
+              <span className="flex items-center justify-center min-w-[20px] h-5 px-1 rounded-full bg-[#202224] text-white text-xs font-bold">
                 {activeSheetFilterCount}
               </span>
             )}
@@ -1112,7 +1263,7 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
 
           {/* Status filter */}
           <Select value={statusFilter} onValueChange={handleStatusFilterChange}>
-            <SelectTrigger className="hidden md:flex w-32 bg-white border-gray-200 h-9 text-sm shrink-0 !ring-0 !outline-none !shadow-none focus:!ring-0 focus-visible:!ring-2 focus-visible:!ring-[#6C60FF] focus-visible:!ring-offset-1">
+            <SelectTrigger className="hidden md:flex w-32 bg-white border-gray-200 h-9 text-sm shrink-0 !ring-0 !outline-none !shadow-none focus:!ring-0 focus-visible:!ring-2 focus-visible:!ring-gray-400 focus-visible:!ring-offset-1">
               {statusFilter === 'hot' && <span className="flex items-center gap-1.5"><img src="/hot-icon.svg" className="w-3 h-3.5" />Hot</span>}
               {statusFilter === 'warm' && <span className="flex items-center gap-1.5"><img src="/warm-icon.svg" className="w-2 h-3.5" />Warm</span>}
               {statusFilter === 'cold' && <span className="flex items-center gap-1.5"><img src="/cold-icon.svg" className="w-3.5 h-3.5" />Cold</span>}
@@ -1120,7 +1271,7 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
               {statusFilter === 'sold' && <span className="flex items-center gap-1.5"><CheckCircle2 className="w-3.5 h-3.5" />Sold</span>}
               {statusFilter === 'all' && <SelectValue placeholder="Status" />}
             </SelectTrigger>
-            <SelectContent>
+            <SelectContent className="leads-filter-menu">
               <SelectItem value="all">All Status</SelectItem>
               <SelectItem value="hot"><span className="flex items-center gap-1.5"><img src="/hot-icon.svg" className="w-3 h-3.5" />Hot</span></SelectItem>
               <SelectItem value="warm"><span className="flex items-center gap-1.5"><img src="/warm-icon.svg" className="w-2 h-3.5" />Warm</span></SelectItem>
@@ -1130,29 +1281,16 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
             </SelectContent>
           </Select>
 
-          {/* Assigned to — Me / Unassigned for everyone; admins also get each
+          {/* Assigned to — a checkbox per choice, unioned (Chris 11 Nov 2026 (d)); admins also get each
               teammate seen in the list. */}
-          <Select value={assignedFilter} onValueChange={handleAssignedChange}>
-            <SelectTrigger aria-label="Assigned to" className="hidden md:flex w-auto min-w-[11rem] gap-2 whitespace-nowrap bg-white border-gray-200 h-9 text-sm shrink-0 !ring-0 !outline-none !shadow-none focus:!ring-0 focus-visible:!ring-2 focus-visible:!ring-[#6C60FF] focus-visible:!ring-offset-1">
-              <SelectValue placeholder="Assigned to" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Assigned to: Anyone</SelectItem>
-              <SelectItem value="me">Assigned to me</SelectItem>
-              <SelectItem value="unassigned">Unassigned</SelectItem>
-              {assigneeOptions.length > 0 && <SelectSeparator className="bg-gray-200" />}
-              {assigneeOptions.map((a) => (
-                <SelectItem key={a.id} value={String(a.id)}>{a.name ?? `Teammate #${a.id}`}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <AssignedFilterMenu value={assignedFilter} onChange={handleAssignedChange} teamLeads={teamLeads} teammates={assigneeOptions} />
 
           {/* Time filter — leads by first-seen period */}
           <Select value={timeFilter} onValueChange={(v) => setTimeFilter(v as typeof timeFilter)}>
-            <SelectTrigger className="hidden md:flex w-32 bg-white border-gray-200 h-9 text-sm shrink-0 !ring-0 !outline-none !shadow-none focus:!ring-0 focus-visible:!ring-2 focus-visible:!ring-[#6C60FF] focus-visible:!ring-offset-1">
+            <SelectTrigger className="hidden md:flex w-32 bg-white border-gray-200 h-9 text-sm shrink-0 !ring-0 !outline-none !shadow-none focus:!ring-0 focus-visible:!ring-2 focus-visible:!ring-gray-400 focus-visible:!ring-offset-1">
               <SelectValue placeholder="All Time" />
             </SelectTrigger>
-            <SelectContent>
+            <SelectContent className="leads-filter-menu">
               <SelectItem value="all">All Time</SelectItem>
               <SelectItem value="daily">Daily</SelectItem>
               <SelectItem value="weekly">Weekly</SelectItem>
@@ -1174,7 +1312,7 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
           <Button
             variant="outline"
             onClick={() => (showSearchGroup ? setShowSearchGroup(false) : openSearchGroup())}
-            className={`hidden md:inline-flex h-9 px-4 text-sm shrink-0 gap-1.5 border-[#6C60FF] text-[#6C60FF] hover:bg-purple-50 hover:text-[#6C60FF] ${showSearchGroup ? 'bg-purple-50' : ''}`}
+            className={`hidden md:inline-flex h-9 px-4 text-sm shrink-0 gap-1.5 border-gray-300 text-gray-800 hover:bg-gray-100 hover:text-gray-900 ${showSearchGroup ? 'bg-gray-100 border-gray-400' : ''}`}
           >
             <Search className="w-4 h-4" />
             <span className="hidden sm:inline">Search Group</span>
@@ -1201,8 +1339,8 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
               >
                 {/* Header */}
                 <div className="flex items-start gap-3 px-4 pt-4 pb-3">
-                  <div className="h-9 w-9 rounded-full bg-purple-100 flex items-center justify-center shrink-0">
-                    <Search className="w-4 h-4 text-[#6C60FF]" />
+                  <div className="h-9 w-9 rounded-full bg-gray-100 flex items-center justify-center shrink-0">
+                    <Search className="w-4 h-4 text-gray-700" />
                   </div>
                   <div className="min-w-0">
                     <p id="search-group-title" className="text-sm font-bold text-gray-900">Search Group Commentary</p>
@@ -1219,7 +1357,7 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
                       value={groupQuery}
                       onChange={(e) => setGroupQuery(e.target.value)}
                       placeholder="Search..."
-                      className="w-full h-10 pl-9 pr-9 text-sm border-2 border-[#6C60FF] rounded-lg outline-none bg-white text-gray-700 placeholder:text-gray-400"
+                      className="w-full h-10 pl-9 pr-9 text-sm border-2 border-gray-300 focus:border-gray-500 rounded-lg outline-none bg-white text-gray-700 placeholder:text-gray-400"
                     />
                     {groupQuery && (
                       <button
@@ -1237,7 +1375,7 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
                 <div className="max-h-[320px] overflow-y-auto border-t border-gray-100">
                   {isBuildingIndex ? (
                     <div className="flex items-center justify-center gap-2 py-10">
-                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-[#6C60FF]" />
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-600" />
                       <span className="text-sm text-gray-600">Loading messages...</span>
                     </div>
                   ) : !groupQ ? (
@@ -1257,7 +1395,7 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
                       >
                         <Avatar className="h-9 w-9 shrink-0">
                           <AvatarImage src={r.lead.user?.profile_image} alt={leadDisplayName(r.lead)} />
-                          <AvatarFallback className="bg-[#6C60FF] text-white text-xs font-medium">
+                          <AvatarFallback className="bg-[#E5E7EB] text-[#202224] text-xs font-medium">
                             {getInitials(leadDisplayName(r.lead))}
                           </AvatarFallback>
                         </Avatar>
@@ -1297,8 +1435,8 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
               >
                 {/* Header */}
                 <div className="flex items-start gap-3 px-4 pt-4 pb-3">
-                  <div className="h-9 w-9 rounded-lg bg-purple-100 flex items-center justify-center shrink-0">
-                    <MessageSquare className="w-4 h-4 text-[#6C60FF]" />
+                  <div className="h-9 w-9 rounded-lg bg-gray-100 flex items-center justify-center shrink-0">
+                    <MessageSquare className="w-4 h-4 text-gray-700" />
                   </div>
                   <div className="min-w-0">
                     <p id="message-group-title" className="text-sm font-bold text-gray-900">Message Group</p>
@@ -1314,7 +1452,7 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
                       value={mgSearch}
                       onChange={(e) => setMgSearch(e.target.value)}
                       placeholder="Search leads..."
-                      className="w-full h-10 pl-9 pr-3 text-sm border border-gray-200 rounded-lg outline-none bg-gray-50 text-gray-700 placeholder:text-gray-400 focus:border-[#6C60FF]"
+                      className="w-full h-10 pl-9 pr-3 text-sm border border-gray-200 rounded-lg outline-none bg-gray-50 text-gray-700 placeholder:text-gray-400 focus:border-gray-400"
                     />
                   </div>
                 </div>
@@ -1326,7 +1464,7 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
                     value={mgGroupName}
                     onChange={(e) => setMgGroupName(e.target.value)}
                     placeholder="Enter group name..."
-                    className="w-full h-10 px-3 text-sm border border-gray-200 rounded-lg outline-none bg-white text-gray-700 placeholder:text-gray-400 focus:border-[#6C60FF]"
+                    className="w-full h-10 px-3 text-sm border border-gray-200 rounded-lg outline-none bg-white text-gray-700 placeholder:text-gray-400 focus:border-gray-400"
                   />
                 </div>
 
@@ -1337,7 +1475,7 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
                     disabled={mgFiltered.length === 0}
                     className="flex-1 min-w-0 flex items-center gap-1.5 px-2 py-2 rounded-lg border border-gray-200 bg-gray-50 text-xs font-medium text-gray-700 hover:bg-gray-100 disabled:opacity-50 transition-colors"
                   >
-                    <span className={`h-4 w-4 rounded border flex items-center justify-center shrink-0 ${allFilteredSelected ? 'bg-[#6C60FF] border-[#6C60FF]' : 'border-gray-300 bg-white'}`}>
+                    <span className={`h-4 w-4 rounded border flex items-center justify-center shrink-0 ${allFilteredSelected ? 'bg-[#202224] border-[#202224]' : 'border-gray-300 bg-white'}`}>
                       {allFilteredSelected && <Check className="w-3 h-3 text-white" />}
                     </span>
                     <span className="truncate">Select All ({mgSelected.size})</span>
@@ -1544,6 +1682,10 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
             {label} <span className="ml-1 text-gray-500 font-medium">({count})</span>
           </button>
         ))}
+        {/* Leads quick switch (14 Nov 2026): the Admin / Partial Admin accounts, or the way back to personal. */}
+        <div className="ml-auto flex items-center">
+          <LeadsQuickSwitch />
+        </div>
       </div>
 
       <LeadsFilterSheet
@@ -1553,6 +1695,7 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
         onStatusChange={handleStatusFilterChange}
         assignedFilter={assignedFilter}
         onAssignedChange={handleAssignedChange}
+        teamLeads={teamLeads}
         assigneeOptions={assigneeOptions}
         timeFilter={timeFilter}
         onTimeChange={setTimeFilter}
@@ -1591,6 +1734,8 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
           onDelete={(lead) => setConfirming({ kind: 'delete', lead })}
           onMarkRead={handleMarkRead}
           onLeadPatched={patchLead}
+          onRemove={handleRemoveFromList}
+          onJoin={handleJoin}
         />
 
         {/* Pagination footer */}

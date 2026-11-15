@@ -7,16 +7,18 @@ import {
 import { leadsAPI, type AssignableUser, type Lead, type LeadAssignee } from '../../services/leadsAPI';
 import { initialsOf } from '../../utils/leadInbox';
 import RowActionButton from './RowActionButton';
+import OpenBadge from './OpenBadge';
 
 // Who owns a lead, and the controls to change it (spec 2026-09-23 §2/§5):
-//  - admins (can_assign) get a picker of the dealer team, incl. "Unassigned";
+//  - admins (can_assign) get a picker of the dealer team, incl. "Unassigned" — for a lead without a dealer, the
+//    account's owner, Admins and Partial Admins (team leads, 10 Nov 2026; the assignee may pass it on too);
 //  - anyone else sees the assignee, or an "Accept" button when nobody has it.
 // Parents apply `onChanged` as a patch to their copy of the lead.
 
-const ROLE_LABEL: Record<string, string> = { owner: 'Owner', admin: 'Admin', rep: 'Rep' };
+const ROLE_LABEL: Record<string, string> = { owner: 'Owner', admin: 'Admin', rep: 'Rep', partial_admin: 'Partial Admin', external: 'External' };
 
 export function avatarColor(color: string | null | undefined): string {
-  if (!color) return '#6C60FF';
+  if (!color) return '#E5E7EB'; // kit avatar gray (dark initials) when no profile colour
   return color.startsWith('#') ? color : `#${color}`;
 }
 
@@ -80,10 +82,11 @@ export default function AssigneeControl({ lead, onChanged, size = 'sm', variant 
     try {
       const res: any = await leadsAPI.acceptLead(lead.id);
       if (res.success && res.data) {
-        onChanged({ assignee: res.data.assignee, can_message: true, is_rollup: false });
+        // can_assign (team leads, 10 Nov 2026): the new assignee of a lead without a dealer may pass it on.
+        onChanged({ assignee: res.data.assignee, can_message: true, is_rollup: false, can_accept: false, waiting: false, released_from: null, ...(typeof res.data.can_assign === 'boolean' ? { can_assign: res.data.can_assign } : {}) });
         toast.success('Lead accepted — it’s yours');
       } else if (res.conflict && res.taken_by) {
-        onChanged({ assignee: res.taken_by, can_message: false, is_rollup: true });
+        onChanged({ assignee: res.taken_by, can_message: false, is_rollup: true, can_accept: false, waiting: false, released_from: null });
         toast.error(`Already taken by ${res.taken_by.name ?? 'a teammate'}`);
       } else {
         toast.error(res.error || 'Could not accept this lead');
@@ -114,7 +117,8 @@ export default function AssigneeControl({ lead, onChanged, size = 'sm', variant 
     try {
       const res = await leadsAPI.assignLead(lead.id, userId);
       if (res.success && res.data) {
-        onChanged({ assignee: res.data.assignee });
+        // Given to someone: no longer Open. Unassigned: the next list load says whether it is Open.
+        onChanged({ assignee: res.data.assignee, ...(res.data.assignee ? { waiting: false, released_from: null, can_accept: false } : {}) });
         toast.success(res.data.assignee ? `Assigned to ${res.data.assignee.name ?? 'teammate'}` : 'Lead unassigned');
       } else {
         toast.error(res.error || 'Could not assign this lead');
@@ -137,8 +141,13 @@ export default function AssigneeControl({ lead, onChanged, size = 'sm', variant 
       ...(lead.assignee && !team?.some((u) => u.id === lead.assignee!.id) ? [{ ...lead.assignee, role: '' }] : []),
       ...(team ?? []),
     ];
+    // The owner on an Open lead (Chris 11 Nov 2026): Accept beside the picker — taking it makes it really theirs.
+    const acceptToo = !!lead.can_accept;
     return (
-      <div onClick={stop} className={variant === 'icon' ? 'shrink-0' : 'min-w-0'}>
+      <div onClick={stop} className={variant === 'icon' ? 'shrink-0 flex items-center gap-0.5' : 'min-w-0 flex items-center gap-2'}>
+        {acceptToo && (variant === 'icon'
+          ? <RowActionButton label="Accept lead" icon={UserCheck} busy={busy} disabled={busy} onClick={accept} />
+          : <AcceptButton size={size} busy={busy} onClick={accept} />)}
         <DropdownMenu onOpenChange={(open) => { if (open) loadTeam(); }}>
           <DropdownMenuTrigger asChild disabled={busy}>
             {variant === 'icon' ? (
@@ -147,10 +156,12 @@ export default function AssigneeControl({ lead, onChanged, size = 'sm', variant 
             <button
               type="button"
               aria-label="Assigned to"
-              className={`${size === 'sm' ? 'h-9 text-sm' : 'h-10 text-base'} w-full max-w-[15rem] inline-flex items-center justify-between gap-2 rounded-lg border border-gray-200 bg-white px-2.5 text-left hover:border-gray-300 hover:bg-gray-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#6C60FF] disabled:opacity-60`}
+              className={`${size === 'sm' ? 'h-9 text-sm' : 'h-10 text-base'} w-full max-w-[15rem] inline-flex items-center justify-between gap-2 rounded-lg border border-gray-200 bg-white px-2.5 text-left hover:border-gray-300 hover:bg-gray-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 disabled:opacity-60`}
             >
               {busy ? (
                 <span className="flex items-center gap-2 text-gray-500"><Loader2 className="w-4 h-4 animate-spin" />Saving…</span>
+              ) : lead.waiting ? (
+                <OpenBadge lead={lead} />
               ) : lead.assignee ? (
                 <AssigneeBadge assignee={lead.assignee} size="sm" />
               ) : (
@@ -160,7 +171,7 @@ export default function AssigneeControl({ lead, onChanged, size = 'sm', variant 
             </button>
             )}
           </DropdownMenuTrigger>
-          <DropdownMenuContent align={variant === 'icon' ? 'end' : 'start'} sideOffset={6} className="w-72 p-1.5 bg-white border border-gray-200 shadow-lg rounded-xl">
+          <DropdownMenuContent align={variant === 'icon' ? 'end' : 'start'} sideOffset={6} className="z-[10003] w-72 p-1.5 bg-white border border-gray-200 shadow-lg rounded-xl">
             <DropdownMenuLabel className="px-2.5 pt-1.5 pb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">Assign lead to</DropdownMenuLabel>
             {loadingTeam && !team && (
               <div className="px-2.5 py-2 text-sm text-gray-500 flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" />Loading team…</div>
@@ -171,24 +182,24 @@ export default function AssigneeControl({ lead, onChanged, size = 'sm', variant 
                 <DropdownMenuItem
                   key={u.id}
                   onSelect={() => assign(u.id)}
-                  className={`cursor-pointer rounded-lg px-2.5 py-2 flex items-center gap-2.5 outline-none focus:outline-none focus-visible:outline-none text-gray-900 focus:!bg-gray-100 focus:!text-gray-900 ${isCurrent ? 'bg-purple-50 focus:!bg-purple-100' : ''}`}
+                  className={`cursor-pointer rounded-lg px-2.5 py-2 flex items-center gap-2.5 outline-none focus:outline-none focus-visible:outline-none text-gray-900 focus:!bg-gray-100 focus:!text-gray-900 ${isCurrent ? 'bg-gray-100 focus:!bg-gray-200' : ''}`}
                 >
                   <span className="min-w-0 flex-1"><AssigneeBadge assignee={u} size="md" /></span>
                   {u.role && ROLE_LABEL[u.role] && (
                     <span className="shrink-0 rounded-full border border-gray-200 bg-white px-2 py-0.5 text-xs font-medium text-gray-700">{ROLE_LABEL[u.role]}</span>
                   )}
-                  <Check className={`w-4 h-4 shrink-0 text-[#6C60FF] ${isCurrent ? 'visible' : 'invisible'}`} aria-hidden />
+                  <Check className={`w-4 h-4 shrink-0 text-gray-900 ${isCurrent ? 'visible' : 'invisible'}`} aria-hidden />
                 </DropdownMenuItem>
               );
             })}
             <DropdownMenuSeparator className="my-1.5 bg-gray-100" />
             <DropdownMenuItem
               onSelect={() => assign(null)}
-              className={`cursor-pointer rounded-lg px-2.5 py-2 flex items-center gap-2.5 outline-none focus:outline-none focus-visible:outline-none text-gray-800 focus:!bg-gray-100 focus:!text-gray-900 ${currentId === null ? 'bg-purple-50 focus:!bg-purple-100' : ''}`}
+              className={`cursor-pointer rounded-lg px-2.5 py-2 flex items-center gap-2.5 outline-none focus:outline-none focus-visible:outline-none text-gray-800 focus:!bg-gray-100 focus:!text-gray-900 ${currentId === null ? 'bg-gray-100 focus:!bg-gray-200' : ''}`}
             >
               <span className="h-8 w-8 shrink-0 rounded-full border border-dashed border-gray-300 inline-flex items-center justify-center text-gray-400"><UserX className="w-4 h-4" /></span>
               <span className="flex-1">Unassigned <span className="block text-xs text-gray-500">Team can accept it</span></span>
-              <Check className={`w-4 h-4 shrink-0 text-[#6C60FF] ${currentId === null ? 'visible' : 'invisible'}`} aria-hidden />
+              <Check className={`w-4 h-4 shrink-0 text-gray-900 ${currentId === null ? 'visible' : 'invisible'}`} aria-hidden />
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -196,8 +207,11 @@ export default function AssigneeControl({ lead, onChanged, size = 'sm', variant 
     );
   }
 
+  // The owner's arrival hold on a widget lead isn't a teammate taking it (10 Nov 2026): offer Accept.
+  const taken = !!lead.assignee && !lead.can_accept;
+
   if (variant === 'icon') {
-    if (lead.assignee) return null;
+    if (taken) return null;
     return (
       <span onClick={stop} className="shrink-0">
         <RowActionButton label="Accept lead" icon={UserCheck} busy={busy} disabled={busy} onClick={accept} />
@@ -205,16 +219,26 @@ export default function AssigneeControl({ lead, onChanged, size = 'sm', variant 
     );
   }
 
-  if (lead.assignee) {
-    return <AssigneeBadge assignee={lead.assignee} size={size} />;
+  if (taken) {
+    return lead.waiting ? <OpenBadge lead={lead} /> : <AssigneeBadge assignee={lead.assignee!} size={size} />;
   }
 
+  // Open (waiting to be accepted): the same "Open" chip as everywhere, with Accept beside it.
+  return (
+    <span onClick={stop} className="inline-flex items-center gap-2">
+      {lead.waiting && <OpenBadge lead={lead} />}
+      <AcceptButton size={size} busy={busy} onClick={accept} />
+    </span>
+  );
+}
+
+function AcceptButton({ size, busy, onClick }: { size: 'sm' | 'md'; busy: boolean; onClick: () => void }) {
   return (
     <button
       type="button"
-      onClick={(e) => { stop(e); accept(); }}
+      onClick={(e) => { e.stopPropagation(); onClick(); }}
       disabled={busy}
-      className={`inline-flex items-center gap-1.5 rounded-lg bg-[#6C60FF] hover:bg-[#5A4FE5] text-white font-semibold disabled:opacity-60 ${size === 'sm' ? 'h-8 px-3 text-sm' : 'h-10 px-4 text-base'}`}
+      className={`shrink-0 inline-flex items-center gap-1.5 rounded-lg bg-[#202224] hover:bg-[#0A0A0A] text-white font-semibold disabled:opacity-60 ${size === 'sm' ? 'h-8 px-3 text-sm' : 'h-10 px-4 text-base'}`}
     >
       {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <UserCheck className="w-4 h-4" />}
       Accept

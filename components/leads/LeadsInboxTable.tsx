@@ -1,6 +1,6 @@
 import { toast } from 'sonner';
 import {
-  ArchiveRestore, Check, CheckCheck, Copy, ExternalLink, Eye, MessageSquare, MoreHorizontal, Trash2,
+  ArchiveRestore, Check, CheckCheck, Copy, ExternalLink, Eye, EyeOff, MessageSquare, MoreHorizontal, Trash2, UserPlus,
 } from 'lucide-react';
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
@@ -11,6 +11,10 @@ import { STATUS_STYLES, type LeadStatus } from '../LeadDetailsSidebar';
 import AssigneeControl, { AssigneeBadge } from './AssigneeControl';
 import RowActionButton from './RowActionButton';
 import CampaignDeletedTag from './CampaignDeletedTag';
+import LeadBusinessTag from './LeadBusinessTag';
+import WantsMoreTag from './WantsMoreTag';
+import OpenBadge, { openTitle } from './OpenBadge';
+import ClaimedBadge, { claimedTitle } from './ClaimedBadge';
 import {
   formatInboxDate, formatInboxDateMedium, formatInboxDateShort, inboxExcerpt, isUnread, leadEmail, leadPhone,
 } from '../../utils/leadInbox';
@@ -36,6 +40,20 @@ interface Props {
   onDelete: (lead: Lead) => void;
   onMarkRead: (lead: Lead) => void;
   onLeadPatched: (leadId: number, patch: Partial<Lead>) => void;
+  // "Remove" on a lead someone else claimed: off this person's list only (Chris 13 Nov 2026).
+  onRemove?: (lead: Lead) => void;
+  // "Join" a lead someone else claimed: read and reply as yourself (Chris 13 Nov 2026 evening).
+  onJoin?: (lead: Lead) => void;
+}
+
+// A claimed lead this person may no longer open (a Partial Admin's, a salesperson's): its row says who has it instead,
+// with Join when they may join it.
+function openOrSayClaimed(lead: Lead, onSelect: (lead: Lead) => void, onJoin?: (lead: Lead) => void) {
+  if (lead.can_open === false) {
+    toast(claimedTitle(lead), lead.can_join && onJoin ? { action: { label: 'Join', onClick: () => onJoin(lead) } } : undefined);
+    return;
+  }
+  onSelect(lead);
 }
 
 // Hover actions show while the row is hovered, has focus, or one of its menus
@@ -80,25 +98,31 @@ function StatusIndicator({ status }: { status: Lead['status'] }) {
   );
 }
 
-// Open lead: purple. New (unread): soft yellow, Chris's "this is new" cue. Else plain.
+// Open lead: gray (Chris 14 Nov 2026: selected = darker gray, not purple). New (unread): soft yellow, Chris's
+// "this is new" cue. Else plain.
 function rowBackground(selected: boolean, unread: boolean): string {
-  if (selected) return 'bg-purple-50';
+  if (selected) return 'bg-gray-100';
   if (unread) return 'bg-amber-50 hover:bg-amber-100 focus-visible:bg-amber-100';
   return 'hover:bg-gray-50 focus-visible:bg-gray-50';
 }
 
-// Red on the desktop table; purple on the phone cards (Chris's cleanup, 2026-10-27).
+// Red, on the desktop table and the phone cards (yellow unread cards, Chris 14 Nov 2026).
 function UnreadDot({ className = 'bg-red-500' }: { className?: string }) {
   return <span role="img" className={`shrink-0 h-2 w-2 rounded-full ${className}`} aria-label="Unread" />;
 }
 
-// Phone card: white with a light border; unread gets a purple left accent, the open lead a purple tint.
-function phoneCardClass(selected: boolean, unread: boolean): string {
-  const tone = selected ? 'bg-purple-50 border-purple-200' : 'bg-white border-gray-200 active:bg-gray-50';
-  return `${tone} ${unread ? 'border-l-[3px] border-l-[#6C60FF] pl-[calc(0.875rem-2px)]' : ''}`;
+// Phone card: white with a light border. Unread = the desktop rows' yellow (Chris 14 Nov 2026: "This needs yellow
+// background, it doesn't stand out enough") with a darker yellow left edge; the open lead is gray.
+export function phoneCardClass(selected: boolean, unread: boolean): string {
+  const tone = selected
+    ? 'bg-gray-100 border-gray-300'
+    : unread
+      ? 'bg-amber-50 border-amber-200 active:bg-amber-100'
+      : 'bg-white border-gray-200 active:bg-gray-50';
+  return `${tone} ${unread ? 'border-l-[3px] border-l-amber-400 pl-[calc(0.875rem-2px)]' : ''}`;
 }
 
-type ActionProps = Pick<Props, 'isClosedTab' | 'onSelect' | 'onArchive' | 'onDelete' | 'onMarkRead' | 'onLeadPatched'> & { lead: Lead };
+type ActionProps = Pick<Props, 'isClosedTab' | 'onSelect' | 'onArchive' | 'onDelete' | 'onMarkRead' | 'onLeadPatched' | 'onRemove' | 'onJoin'> & { lead: Lead };
 
 // "(…)": a little more about the lead, plus the less-used actions.
 function MoreMenu({ lead, onSelect, onDelete, onMarkRead }: ActionProps) {
@@ -130,10 +154,11 @@ function MoreMenu({ lead, onSelect, onDelete, onMarkRead }: ActionProps) {
         <div className="px-2 pt-1 pb-2 space-y-0.5">
           <p className="text-sm font-semibold text-gray-900 truncate">{heading}</p>
           <p className="text-xs text-gray-600 truncate">{leadViaLabel(lead)}</p>
+          <LeadBusinessTag lead={lead} />
           {lead.campaign_deleted && <CampaignDeletedTag />}
           <p className="text-xs text-gray-600">First seen {formatInboxDateShort(lead.first_seen_at)}</p>
           <p className="text-xs text-gray-600 truncate">
-            {lead.assignee ? `Assigned to ${lead.assignee.name ?? 'a teammate'}` : 'Unassigned'}
+            {lead.claimed ? claimedTitle(lead) : lead.waiting ? <span title={openTitle(lead)}>Open</span> : lead.assignee ? `Assigned to ${lead.assignee.name ?? 'a teammate'}` : 'Unassigned'}
           </p>
           {lead.is_rollup && <p className="text-xs text-gray-500">Accept this lead to reply or close it</p>}
         </div>
@@ -169,11 +194,42 @@ function MoreMenu({ lead, onSelect, onDelete, onMarkRead }: ActionProps) {
   );
 }
 
+function RemoveButton({ lead, onRemove }: Pick<ActionProps, 'lead' | 'onRemove'>) {
+  if (!lead.claimed || !lead.can_remove || !onRemove) return null;
+  return <RowActionButton label="Remove" icon={EyeOff} tone="neutral" onClick={() => onRemove(lead)} data-testid="lead-remove" />;
+}
+
+// Always visible next to the "Claimed" chip (not a hover action), gray like the chip (Chris: active states gray).
+function JoinPill({ lead, onJoin, className = '' }: Pick<ActionProps, 'lead' | 'onJoin'> & { className?: string }) {
+  if (!lead.can_join || !onJoin) return null;
+  return (
+    <button
+      type="button"
+      onClick={(e) => { e.stopPropagation(); onJoin(lead); }}
+      title="Join to read and reply"
+      data-testid="lead-join"
+      className={`shrink-0 inline-flex items-center gap-1 rounded-full border border-gray-300 bg-white font-medium text-gray-700 hover:bg-gray-200 hover:text-gray-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 transition-colors ${className}`}
+    >
+      <UserPlus className="w-3.5 h-3.5" />
+      Join
+    </button>
+  );
+}
+
 function RowActions(props: ActionProps & { className: string }) {
-  const { lead, isClosedTab, onSelect, onArchive, onLeadPatched, className } = props;
+  const { lead, isClosedTab, onSelect, onArchive, onLeadPatched, onRemove, className } = props;
   const readOnly = !!lead.is_rollup;
+  // Claimed by someone else and no longer theirs to open: only Remove (Join sits by the chip).
+  if (lead.can_open === false) {
+    return (
+      <div className={`items-center gap-0.5 shrink-0 ${className}`} onClick={(e) => e.stopPropagation()}>
+        <RemoveButton lead={lead} onRemove={onRemove} />
+      </div>
+    );
+  }
   return (
     <div className={`items-center gap-0.5 shrink-0 ${className}`} onClick={(e) => e.stopPropagation()}>
+      <RemoveButton lead={lead} onRemove={onRemove} />
       {!readOnly && (
         <RowActionButton
           label={isClosedTab ? 'Reopen lead' : 'Close lead'}
@@ -193,11 +249,11 @@ function RowActions(props: ActionProps & { className: string }) {
 }
 
 export default function LeadsInboxTable(props: Props) {
-  const { leads, isLoading, error, emptyState, selectedLeadId, onSelect } = props;
+  const { leads, isLoading, error, emptyState, selectedLeadId, onSelect, onJoin } = props;
 
   const status = isLoading ? (
     <div className="flex items-center justify-center gap-2 py-12">
-      <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-[#6C60FF]" />
+      <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-gray-600" />
       <span className="text-sm text-gray-600">Loading leads...</span>
     </div>
   ) : error ? (
@@ -247,15 +303,15 @@ export default function LeadsInboxTable(props: Props) {
                 <tr
                   key={lead.id}
                   tabIndex={0}
-                  onClick={() => onSelect(lead)}
+                  onClick={() => openOrSayClaimed(lead, onSelect, onJoin)}
                   onKeyDown={(e) => {
                     if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) {
                       e.preventDefault();
-                      onSelect(lead);
+                      openOrSayClaimed(lead, onSelect, onJoin);
                     }
                   }}
-                  className={`group cursor-pointer transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#6C60FF] ${rowBackground(selected, unread)} ${unread ? 'font-semibold' : ''}`}
-                  style={selected ? { boxShadow: 'inset 3px 0 0 #6C60FF' } : undefined}
+                  className={`group cursor-pointer transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-gray-400 ${rowBackground(selected, unread)} ${unread ? 'font-semibold' : ''}`}
+                  style={selected ? { boxShadow: 'inset 3px 0 0 #202224' } : undefined}
                 >
                   <td className={`${CELL} text-gray-800 whitespace-nowrap overflow-hidden`}>
                     <span className="[@container(min-width:70rem)]:hidden">{formatInboxDateMedium(when)}</span>
@@ -272,18 +328,24 @@ export default function LeadsInboxTable(props: Props) {
                     <span className="flex items-center gap-1.5 min-w-0">
                       <span className="truncate">{leadName(lead)}</span>
                       <StatusIndicator status={lead.status} />
+                      <WantsMoreTag lead={lead} />
                       {unread && <UnreadDot />}
                     </span>
                   </td>
                   <td className={`${CELL} truncate`}>
-                    {/* The Name column is too narrow for the tag; the excerpt truncates after it. */}
+                    {/* No business tag here (Chris 11 Nov 2026 (d): just the excerpt) — it stays in More, the header and details. */}
                     {lead.campaign_deleted && <CampaignDeletedTag className="mr-1.5 align-middle" />}
                     {excerptOf(lead, unread)}
                   </td>
                   <td className={`${CELL} font-normal`}>
                     <div className="flex items-center justify-between gap-3 min-w-0">
-                      <span className="min-w-0 flex items-center">
-                        {lead.assignee
+                      <span className="min-w-0 flex items-center gap-1.5">
+                        {lead.claimed
+                          ? <><ClaimedBadge lead={lead} className="group-hover:hidden group-focus-within:hidden group-has-[[data-state=open]]:hidden" /><JoinPill lead={lead} onJoin={onJoin} className="h-6 px-2 text-[12px]" /></>
+                          : lead.waiting
+                          // Steps aside for the row's actions on hover, like the assignee's name.
+                          ? <OpenBadge lead={lead} className="group-hover:hidden group-focus-within:hidden group-has-[[data-state=open]]:hidden" />
+                          : lead.assignee
                           ? <AssigneeBadge assignee={lead.assignee} size="sm" nameClassName={HIDE_WHEN_ROW_ACTIVE} />
                           : <span className="text-gray-400">—</span>}
                       </span>
@@ -307,16 +369,16 @@ export default function LeadsInboxTable(props: Props) {
           return (
             <div
               key={lead.id}
-              onClick={() => onSelect(lead)}
+              onClick={() => openOrSayClaimed(lead, onSelect, onJoin)}
               className={`rounded-xl border px-3.5 pt-3 pb-1.5 cursor-pointer transition-colors min-w-0 ${phoneCardClass(selected, unread)}`}
             >
               <div className="flex items-center justify-between gap-2 min-w-0">
                 <div className={`flex items-center gap-1.5 min-w-0 text-[15px] text-gray-900 ${unread ? 'font-bold' : 'font-medium'}`}>
-                  {unread && <UnreadDot className="bg-[#6C60FF]" />}
+                  {unread && <UnreadDot />}
                   <span className="truncate">{name || contact}</span>
                   <StatusIndicator status={lead.status} />
                 </div>
-                <span className={`shrink-0 text-xs whitespace-nowrap ${unread ? 'text-[#6C60FF] font-semibold' : 'text-gray-500'}`}>
+                <span className={`shrink-0 text-xs whitespace-nowrap ${unread ? 'text-gray-900 font-semibold' : 'text-gray-500'}`}>
                   {formatInboxDateShort(lead.last_activity_at || lead.last_engaged_at)}
                 </span>
               </div>
@@ -324,10 +386,15 @@ export default function LeadsInboxTable(props: Props) {
               <div className="mt-1 flex items-center justify-between gap-2 min-w-0">
                 <span className="min-w-0 flex items-center gap-1.5">
                   <span className="min-w-0 truncate text-[13px] text-gray-500">{name ? contact : leadViaLabel(lead)}</span>
+                  <WantsMoreTag lead={lead} />
                   {lead.campaign_deleted && <CampaignDeletedTag />}
                 </span>
                 <div className="flex items-center gap-1 shrink-0 -mr-2.5">
-                  {lead.assignee && <AssigneeBadge assignee={lead.assignee} size="sm" nameClassName="hidden" />}
+                  {lead.claimed
+                    ? <><ClaimedBadge lead={lead} /><JoinPill lead={lead} onJoin={onJoin} className="h-8 px-3 text-[13px] mr-1" /></>
+                    : lead.waiting
+                    ? <OpenBadge lead={lead} />
+                    : lead.assignee && <AssigneeBadge assignee={lead.assignee} size="sm" nameClassName="hidden" />}
                   {/* 40px tap targets on phones; the icons stay the same size. */}
                   <RowActions {...props} lead={lead} className="flex !gap-0 [&_button]:h-10 [&_button]:w-10" />
                 </div>

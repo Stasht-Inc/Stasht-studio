@@ -1,14 +1,17 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import { Car, Loader2, Mail, MessageSquare, Plus, X } from 'lucide-react';
+import { Car, Loader2, Mail, MessageSquare, Package, Plus, X } from 'lucide-react';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { leadsAPI } from '../../services/leadsAPI';
 import { dashboardAPI } from '../../utils/authUtils';
 import { useAuth } from '../../contexts/AuthContext';
-import ShareCarsDialog from '../ShareCarsDialog';
+import ShareCarsDialog, { type PickKind } from '../ShareCarsDialog';
 import CountrySelect from '../CountrySelect';
 import { isPlausibleSplitPhone, splitTypedPhone, toE164 } from '../../utils/phoneUtils';
+import { useProperty } from '../../contexts/PropertyContext';
+import { actingPerson, messageSignoff } from '../../utils/messageSignoff';
+import { fallbackDraft, removeDraft, replaceDraft } from '../../utils/composerCampaign';
 
 // "+ Send Message" (spec 2026-09-23 §5, Chris's "Start A New Message" reference):
 // text or email anyone. The backend reuses the contact's existing lead on this
@@ -17,22 +20,33 @@ import { isPlausibleSplitPhone, splitTypedPhone, toE164 } from '../../utils/phon
 
 const SMS_LIMIT = 320;
 
-interface PickedCampaign { carIds: number[]; name: string }
+// ids are vehicle ids (car_ids) or Website Catalogue product ids (catalog_item_ids).
+// draft: the wording put in the message (Chris 14 Nov 2026: the items go into the message box, "[campaign link]" where
+// the link goes); the campaign itself is created only on Send.
+interface PickedCampaign { ids: number[]; name: string; kind: PickKind; defaultName?: string; draft?: string }
 
 // Pre-written text (Chris: "so they don't have to do anything"). No greeting —
 // the server already opens emails and first texts with "Hi {name},". With cars,
 // the campaign link is appended on its own line after the colon.
-function suggestedBody(carCount: number, senderName: string, dealerName: string): string {
+function itemWords(count: number, kind: PickKind): string {
+  const noun = kind === 'product' ? 'product' : 'vehicle';
+  return count === 1 ? `a ${noun}` : `${count} ${noun}s`;
+}
+
+// `who` is the sign-off from utils/messageSignoff: "Brenna at TheRoyalWoodShop", or the business alone.
+function suggestedBody(carCount: number, who: string, kind: PickKind = 'vehicle'): string {
   if (carCount > 0) {
-    return `I picked out ${carCount === 1 ? 'a vehicle' : `${carCount} vehicles`} I think you'll like — take a look:`;
+    return `I picked out ${itemWords(carCount, kind)} I think you'll like — take a look:`;
   }
-  const who = [senderName, dealerName].filter(Boolean).join(' at ');
   return `Just checking in to see if you have any questions. I'm happy to help${who ? ` — ${who}` : ''}.`;
 }
 
-function suggestedSubject(carCount: number, dealerName: string): string {
-  if (carCount > 0) return `${carCount === 1 ? 'A vehicle' : `${carCount} vehicles`} picked for you`;
-  return dealerName ? `Checking in from ${dealerName}` : 'Checking in';
+function suggestedSubject(carCount: number, business: string, kind: PickKind = 'vehicle'): string {
+  if (carCount > 0) {
+    const words = itemWords(carCount, kind);
+    return `${words.charAt(0).toUpperCase()}${words.slice(1)} picked for you`;
+  }
+  return business ? `Checking in from ${business}` : 'Checking in';
 }
 
 interface Props {
@@ -41,10 +55,20 @@ interface Props {
   onSent: (leadId: number) => void;
 }
 
-interface Option { id: string; name: string }
+// account_type etc. come from GET /properties (my-properties sends id + name only): a property's name is used in the
+// sign-off only when that row says it is internal (utils/messageSignoff).
+interface Option { id: string; name: string; row?: Record<string, any> }
+
+function readSwitchData(): any {
+  try { return JSON.parse(localStorage.getItem('admin_switch_data') || 'null'); } catch { return null; }
+}
+function readToken(): string | null {
+  try { return localStorage.getItem('stasht_token'); } catch { return null; }
+}
 
 export default function SendMessageDialog({ open, onOpenChange, onSent }: Props) {
   const { user } = useAuth();
+  const { viewType, currentProperty } = useProperty();
   const [channel, setChannel] = useState<'sms' | 'email'>('sms');
   const [name, setName] = useState('');
   // Split like every other phone field (Profile, invites, add collaborator):
@@ -61,6 +85,7 @@ export default function SendMessageDialog({ open, onOpenChange, onSent }: Props)
   const [properties, setProperties] = useState<Option[]>([]);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const bodyRef = useRef<HTMLTextAreaElement>(null);
 
   // Fresh form each time it opens; the property list loads lazily.
   useEffect(() => {
@@ -68,20 +93,33 @@ export default function SendMessageDialog({ open, onOpenChange, onSent }: Props)
     setChannel('sms'); setName(''); setPhoneCountry('+1'); setPhone(''); setEmail(''); setSubjectOverride(null); setBodyOverride(null);
     setPicked(null); setShowPicker(false); setError(null);
 
-    dashboardAPI.getStoreelMyProperties().then((res: any) => {
+    let cancelled = false;
+    const fullRows = dashboardAPI.getProperties()
+      .then((res: any) => (Array.isArray(res?.data?.properties) ? res.data.properties : []) as any[])
+      .catch(() => [] as any[]);
+    dashboardAPI.getStoreelMyProperties().then(async (res: any) => {
       const list: any[] = res?.properties || res?.data?.properties || [];
-      const opts = list.map((p) => ({ id: String(p.id), name: p.name }));
+      const rows = await fullRows;
+      if (cancelled) return;
+      const opts = list.map((p) => ({ id: String(p.id), name: p.name, row: rows.find((r) => String(r?.id) === String(p.id)) }));
       setProperties(opts);
       setPropertyId(opts.length === 1 ? opts[0].id : '');
-    }).catch(() => setProperties([]));
+    }).catch(() => { if (!cancelled) setProperties([]); });
+    return () => { cancelled = true; };
   }, [open]);
 
-  const carCount = picked?.carIds.length ?? 0;
-  const senderName = user?.name?.trim().split(/\s+/)[0] ?? '';
-  const dealerName = properties.find((p) => p.id === propertyId)?.name ?? '';
-  const bodySuggestion = suggestedBody(carCount, senderName, dealerName);
+  const carCount = picked?.ids.length ?? 0;
+  const pickedKind: PickKind = picked?.kind ?? 'vehicle';
+  const pickedProperty = properties.find((p) => p.id === propertyId);
+  const signoff = messageSignoff({
+    account: user as any,
+    acting: actingPerson(readSwitchData(), user as any, readToken()),
+    property: pickedProperty ? { ...(pickedProperty.row || {}), name: pickedProperty.name } : null,
+    viewProperty: viewType === 'property' ? (currentProperty as any) : null,
+  });
+  const bodySuggestion = suggestedBody(carCount, signoff.who, pickedKind);
   const body = bodyOverride ?? bodySuggestion;
-  const subject = subjectOverride ?? suggestedSubject(carCount, dealerName);
+  const subject = subjectOverride ?? suggestedSubject(carCount, signoff.business, pickedKind);
   // Mirrors the server's opener (LeadDeliveryService buildSmsBody / buildEmailHtml).
   const contactFirst = name.trim().split(/\s+/)[0];
   const greeting = contactFirst ? `Hi ${contactFirst},` : channel === 'email' ? 'Hi there,' : 'Hi,';
@@ -95,7 +133,40 @@ export default function SendMessageDialog({ open, onOpenChange, onSent }: Props)
   const showPhoneHint = phone.replace(/\D/g, '').length > 0 && !phoneOk;
   const contactOk = channel === 'sms' ? phoneOk : /\S+@\S+\.\S+/.test(email.trim());
   const needsProperty = properties.length > 1 && !propertyId;
-  const tooLong = channel === 'sms' && body.length > SMS_LIMIT;
+  // The picked items' links don't count against the text limit (they went on top of it before, added by the server).
+  const countedLength = picked?.draft && body.includes(picked.draft) ? body.length - picked.draft.length : body.length;
+  const tooLong = channel === 'sms' && countedLength > SMS_LIMIT;
+
+  // Add in the picker: the items' wording replaces the suggested text (or the previous pick's), else goes in at the cursor.
+  const pickCampaign = async (ids: number[], campaignName: string, kind: PickKind, defaultName?: string) => {
+    let draft = fallbackDraft(ids.length, kind);
+    try {
+      const res = await leadsAPI.campaignDraft(kind, ids);
+      const text = (res.data as any)?.body ?? (res.data as any)?.data?.body;
+      if (res.success && typeof text === 'string' && text.trim()) draft = text;
+      else if (!res.success) {
+        setError((res as any)?.message || res.error || 'Could not add those items.');
+        return;
+      }
+    } catch {
+      // keep the fallback wording
+    }
+    const el = bodyRef.current;
+    const next = bodyOverride === null && !picked?.draft
+      ? { text: draft, cursor: draft.length }
+      : replaceDraft(body, picked?.draft, draft, el?.selectionStart ?? body.length, el?.selectionEnd ?? body.length);
+    setBodyOverride(next.text);
+    setPicked({ ids, name: campaignName, kind, defaultName, draft });
+    setError(null);
+  };
+
+  const removeCampaign = () => {
+    if (picked?.draft) {
+      const rest = removeDraft(body, picked.draft);
+      setBodyOverride(rest === '' ? null : rest);
+    }
+    setPicked(null);
+  };
   const canSend = contactOk && (body.trim().length > 0 || carCount > 0) && !needsProperty && !tooLong && !sending;
 
   const send = async () => {
@@ -109,7 +180,7 @@ export default function SendMessageDialog({ open, onOpenChange, onSent }: Props)
         ...(name.trim() ? { name: name.trim() } : {}),
         body: body.trim(),
         ...(propertyId ? { property_id: propertyId } : {}),
-        ...(picked ? { car_ids: picked.carIds, campaign_title: picked.name } : {}),
+        ...(picked ? { ...(picked.kind === 'product' ? { catalog_item_ids: picked.ids } : { car_ids: picked.ids }), campaign_title: picked.name } : {}),
       });
       if (res.success && res.data) {
         const what = picked ? `Message sent with a new campaign, "${picked.name}"` : 'Message sent';
@@ -139,9 +210,9 @@ export default function SendMessageDialog({ open, onOpenChange, onSent }: Props)
   );
 
   // Styled like ShareCarsDialog (the app's pattern): explicit gray borders and a
-  // purple focus ring. The shadcn defaults draw borders from colour tokens that
+  // grey focus ring. The shadcn defaults draw borders from colour tokens that
   // don't resolve in this app, which is what showed up as black outlines.
-  const field = 'w-full h-10 px-3 rounded-lg bg-white text-sm text-gray-900 placeholder:text-gray-500 border border-gray-200 outline-none focus-visible:ring-2 focus-visible:ring-[#6C60FF] focus-visible:border-transparent';
+  const field = 'w-full h-10 px-3 rounded-lg bg-white text-sm text-gray-900 placeholder:text-gray-500 border border-gray-200 outline-none focus-visible:ring-2 focus-visible:ring-gray-400 focus-visible:border-transparent';
   const label = 'block text-xs font-medium text-gray-700 mb-1';
   const hint = 'font-normal text-gray-500';
 
@@ -172,7 +243,7 @@ export default function SendMessageDialog({ open, onOpenChange, onSent }: Props)
                   value={phoneCountry}
                   onChange={setPhoneCountry}
                   ariaLabel="Country code"
-                  className="w-28 flex-shrink-0 h-10 rounded-lg bg-white text-sm text-gray-900 border border-gray-200 outline-none focus-visible:ring-2 focus-visible:ring-[#6C60FF] focus-visible:border-transparent"
+                  className="w-28 flex-shrink-0 h-10 rounded-lg bg-white text-sm text-gray-900 border border-gray-200 outline-none focus-visible:ring-2 focus-visible:ring-gray-400 focus-visible:border-transparent"
                 />
                 <input
                   id="sm-phone"
@@ -222,28 +293,28 @@ export default function SendMessageDialog({ open, onOpenChange, onSent }: Props)
           )}
 
           <div>
-            <span id="sm-campaign-label" className={label}>Campaign <span className={hint}>(optional — pick items for a new campaign; its link is added)</span></span>
+            <span id="sm-campaign-label" className={label}>Campaign <span className={hint}>(optional — the items go into your message; the campaign is created when you send)</span></span>
             {picked ? (
-              <div className="flex items-center gap-3 rounded-lg border border-[#6C60FF] bg-[#F5F2FF] px-3 py-2">
+              <div className="flex items-center gap-3 rounded-lg border border-gray-200 bg-[#F3F4F6] px-3 py-2">
                 <span aria-hidden="true" className="w-8 h-8 shrink-0 rounded-md bg-white flex items-center justify-center">
-                  <Car className="w-4 h-4 text-[#5A4FE5]" />
+                  {picked.kind === 'product' ? <Package className="w-4 h-4 text-[#4A5565]" /> : <Car className="w-4 h-4 text-[#4A5565]" />}
                 </span>
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate text-sm font-medium text-gray-900">{picked.name}</span>
+                  <span className="block truncate text-sm font-medium text-gray-900">{picked.name || picked.defaultName}</span>
                   <span className="block text-xs text-gray-600">{carCount} {carCount === 1 ? 'item' : 'items'} · new campaign</span>
                 </span>
                 <button
                   type="button"
                   onClick={() => setShowPicker(true)}
-                  className="h-8 px-2.5 rounded-md text-sm font-medium text-[#5A4FE5] hover:bg-white transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#6C60FF]"
+                  className="h-8 px-2.5 rounded-md text-sm font-medium text-[#202224] hover:bg-white transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400"
                 >
                   Edit
                 </button>
                 <button
                   type="button"
-                  onClick={() => setPicked(null)}
+                  onClick={removeCampaign}
                   aria-label="Remove campaign"
-                  className="h-8 w-8 shrink-0 inline-flex items-center justify-center rounded-md text-gray-500 hover:bg-white hover:text-gray-700 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#6C60FF]"
+                  className="h-8 w-8 shrink-0 inline-flex items-center justify-center rounded-md text-gray-500 hover:bg-white hover:text-gray-700 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400"
                 >
                   <X className="w-4 h-4" />
                 </button>
@@ -254,7 +325,7 @@ export default function SendMessageDialog({ open, onOpenChange, onSent }: Props)
                 type="button"
                 aria-labelledby="sm-campaign-label"
                 onClick={() => setShowPicker(true)}
-                className="flex items-center gap-1.5 h-10 px-4 rounded-lg bg-purple-50 hover:bg-purple-100 text-[#5A4FE5] text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#6C60FF]"
+                className="flex items-center gap-1.5 h-10 px-4 rounded-lg bg-white border border-gray-200 hover:bg-[#F3F4F6] text-[#202224] text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400"
               >
                 <Plus className="w-4 h-4" aria-hidden="true" />
                 Campaign
@@ -271,18 +342,19 @@ export default function SendMessageDialog({ open, onOpenChange, onSent }: Props)
                 <button
                   type="button"
                   onClick={() => setBodyOverride(null)}
-                  className="shrink-0 text-xs font-medium text-[#5A4FE5] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#6C60FF] rounded"
+                  className="shrink-0 text-xs font-medium text-[#4A5565] hover:text-[#202224] underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 rounded"
                 >
                   Use suggested text
                 </button>
               )}
             </div>
             <textarea
+              ref={bodyRef}
               id="sm-body"
               value={body}
               onChange={(e) => setBodyOverride(e.target.value)}
               rows={5}
-              className="w-full px-3 py-2.5 rounded-lg bg-white text-sm text-gray-900 placeholder:text-gray-500 border border-gray-200 outline-none resize-y focus-visible:ring-2 focus-visible:ring-[#6C60FF] focus-visible:border-transparent"
+              className="w-full px-3 py-2.5 rounded-lg bg-white text-sm text-gray-900 placeholder:text-gray-500 border border-gray-200 outline-none resize-y focus-visible:ring-2 focus-visible:ring-gray-400 focus-visible:border-transparent"
               placeholder={picked
                 ? `Leave blank to send "${carCount === 1 ? 'Here is 1 new car listing that matches' : `Here are ${carCount} new car listings that match`} your criteria: <link>"`
                 : channel === 'sms' ? 'Type your text…' : 'Type your email…'}
@@ -301,9 +373,10 @@ export default function SendMessageDialog({ open, onOpenChange, onSent }: Props)
           open={showPicker}
           onClose={() => setShowPicker(false)}
           leadName={name.trim() || 'this contact'}
-          initialSelection={picked?.carIds}
+          initialSelection={picked?.ids}
           initialCampaignName={picked?.name}
-          onPick={(carIds, campaignName) => setPicked({ carIds, name: campaignName })}
+          initialKind={picked?.kind}
+          onPick={pickCampaign}
         />
 
         <div className="border-t border-gray-100 px-6 py-4 flex gap-3">
@@ -311,7 +384,7 @@ export default function SendMessageDialog({ open, onOpenChange, onSent }: Props)
             type="button"
             onClick={() => onOpenChange(false)}
             disabled={sending}
-            className="flex-1 h-11 rounded-xl bg-white border border-gray-200 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#6C60FF] focus-visible:ring-offset-2"
+            className="flex-1 h-11 rounded-xl bg-white border border-gray-200 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 focus-visible:ring-offset-2"
           >
             Cancel
           </button>
