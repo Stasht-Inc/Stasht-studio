@@ -61,7 +61,7 @@ type Confirm = { kind: 'leave'; then(): void };
 export default function ProductEditor({ productId, categories, defaultCurrency, onClose, onChanged, onOpen, onSaved }: {
   productId: number | null; categories: ProductCategory[]; defaultCurrency: string; onClose(): void; onChanged(): Promise<void>;
   /** After the first save of a new product: show that product (its details view). */
-  onOpen(id: number): void;
+  onOpen(id: number, detail?: ProductDetail): void;
   /** After a save of an existing product: back to its details view, with the saved copy. */
   onSaved?(detail: ProductDetail): void;
 }) {
@@ -166,7 +166,7 @@ export default function ProductEditor({ productId, categories, defaultCurrency, 
       await onChanged();
       // Post-live P1: a new product opens on its details view (still "saving" until then: I3, no second POST); an
       // existing one goes back to its details view, showing what was saved.
-      if (isNew) onOpen(savedDetail.id);
+      if (isNew) onOpen(savedDetail.id, savedDetail);
       else onSaved?.(savedDetail);
     } finally {
       if (isNew) { savingRef.current = false; setSaving(false); }

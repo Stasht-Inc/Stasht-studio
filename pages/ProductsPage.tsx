@@ -29,7 +29,7 @@ export default function ProductsPage({ onNavigate }: { onNavigate: (page: string
   return (
     <div data-testid="products-page" className="flex min-h-[calc(100dvh-5rem)] flex-col">
       <div className="pt-5 md:px-6 md:pt-6">
-        <h1 className="text-2xl font-semibold text-gray-900">Products</h1>
+        <h1 tabIndex={-1} data-products-focus-fallback className="text-2xl font-semibold text-gray-900 outline-none">Products</h1>
       </div>
       {loading && !status ? (
         <p className="py-10 text-sm text-gray-500 md:px-6">Loading products…</p>
@@ -239,7 +239,7 @@ function ProductsReady({ onNavigate }: { onNavigate: (page: string) => void }) {
       {layer?.kind === 'edit' && (
         <ProductEditor key={layer.id ?? 'new'} productId={layer.id} categories={ownCategories} defaultCurrency={status?.default_currency || 'CAD'}
           onClose={() => setLayer(layer.id ? { kind: 'details', id: layer.id } : null)} onChanged={changed}
-          onOpen={(id) => setLayer({ kind: 'details', id, notice: 'Saved. Use Edit to add photos.' })}
+          onOpen={(id, d) => setLayer({ kind: 'details', id, initial: d, notice: 'Saved. Use Edit to add photos.' }) /* review minor 4: no reload */}
           onSaved={(d) => setLayer({ kind: 'details', id: d.id, initial: d, notice: 'Saved.' })} />
       )}
     </div>

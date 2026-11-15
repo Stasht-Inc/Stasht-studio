@@ -16,7 +16,9 @@ export function captureOpener(): void {
 export function releaseOpener(): void {
   window.setTimeout(() => {
     if (document.querySelector(LAYERS)) return; // swapped to the other layer (or remounted on another product)
-    if (opener?.isConnected) opener.focus({ preventScroll: true });
+    // Review minor 5: the opener is gone (its product was deleted): the Products heading instead of the page body.
+    const target = opener?.isConnected ? opener : document.querySelector<HTMLElement>('[data-products-focus-fallback]');
+    target?.focus({ preventScroll: true });
     opener = null;
   }, 0);
 }

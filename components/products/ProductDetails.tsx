@@ -177,7 +177,8 @@ export default function ProductDetails({ productId, initial, notice, onClose, on
         </div>
       ) : (
         <div className="mx-auto max-w-6xl space-y-4 p-4 pb-10 md:p-6">
-          {website && !readOnly && (
+          {/* Review minor 3: also in a salesperson's External view of a website product. */}
+          {website && (
             <p className="rounded-lg border border-teal-200 bg-teal-50 px-3 py-2 text-sm text-teal-900">{WEBSITE_SYNC_NOTE}</p>
           )}
           {readOnly && <p className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700">Shared by {detail.owner?.name || 'your main account'}. You can view it here.</p>}
@@ -288,7 +289,7 @@ export default function ProductDetails({ productId, initial, notice, onClose, on
                     {detail.variants.map((v) => (
                       <tr key={v.id} className="border-b border-gray-100 last:border-0">
                         <td className="py-2 pr-4 font-medium text-gray-900">{variantLabel(v.options) || v.title || '–'}</td>
-                        <td className="py-2 pr-4 text-gray-700">{v.price_label || v.price || '–'}</td>
+                        <td className="py-2 pr-4 text-gray-700">{detail.price_on_request || !detail.show_price ? price.main /* review minor 1: as the main price line */ : v.price_label || v.price || '–'}</td>
                         <td className="py-2 pr-4 text-gray-700">{v.sku || '–'}</td>
                         <td className="py-2 pr-4 text-gray-700">{v.stock_status === 'out_of_stock' ? 'Out of stock' : 'In stock'}</td>
                         <td className="py-2 text-gray-700">{v.quantity ?? '–'}</td>
