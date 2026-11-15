@@ -165,6 +165,7 @@ async function open(w, { width, height, path = '/products', view = 'personal', p
       w.products.unshift(copy);
       return route.fulfill({ status: 201, json: { success: true, data: detailOf(copy) } });
     }
+    if (p === '/products/bulk' && w.slowBulkMs) await new Promise((r) => setTimeout(r, w.slowBulkMs)); // final review M4
     if (p === '/products/bulk') {
       // Like ProductBulk: ids in w.skip (not the account's own) and, on delete, website products are skipped.
       const ids = body.ids || [];
@@ -174,6 +175,7 @@ async function open(w, { width, height, path = '/products', view = 'personal', p
       if (body.action === 'delete') w.products = w.products.filter((x) => !done.includes(x.id));
       return route.fulfill({ json: { success: true, data: { updated: body.action === 'delete' ? 0 : done.length, deleted: body.action === 'delete' ? done.length : 0, skipped_ids: skipped } } });
     }
+    if (p === '/product-categories' && m === 'GET' && w.categoriesFail) return route.fulfill({ status: 500, json: { success: false, message: 'Server Error' } }); // final review M3
     if (p === '/product-categories' && m === 'GET') return route.fulfill({ json: { success: true, data: { categories: w.categories, total: w.products.length } } });
     if (p === '/product-categories' && m === 'POST') {
       const c = { id: w.nextId++, name: body.name, from_website: false, product_count: 0, read_only: false };
@@ -510,6 +512,54 @@ try {
       expect(patch && Object.keys(patch.body).every((k) => ['status', 'tags', 'collections', 'internal_notes', 'show_price', 'show_enquire', 'category_ids'].includes(k)) && patch.body.status === 'archived', `${tag}: PATCH carries Studio-only fields only (${JSON.stringify(patch?.body)})`);
       await shootEditor(page, `${OUT}/${tag}-02-website.png`);
       await context.close();
+    }
+  }
+  if (run('page')) {
+    // Final review M3 / M4 / M6 on the Products page.
+    for (const [width, height] of [[1280, 900], [390, 844]]) {
+      const tag = `page-${width}`;
+      // M3: /product-categories failing never hides Add a product / Import while products exist.
+      const cf = world({ categoriesFail: true });
+      const a = await open(cf, { width, height });
+      await a.page.getByTestId('product-card').first().waitFor({ timeout: 15000 });
+      expect(await a.page.getByRole('button', { name: 'Add a product' }).filter({ visible: true }).count() > 0, `${tag}: categories failed → Add a product still shows`);
+      expect(await a.page.getByRole('button', { name: 'Import from your website' }).filter({ visible: true }).count() > 0, `${tag}: … and Import from your website`);
+      await a.page.screenshot({ path: `${OUT}/${tag}-01-categories-failed.png` });
+      await a.context.close();
+
+      // M4: a bulk action still running when the search changes doesn't put its result / selection on the new list.
+      const w = world();
+      const b = await open(w, { width, height });
+      const cards = b.page.getByTestId('product-card');
+      await cards.first().waitFor({ timeout: 15000 });
+      await cards.filter({ hasText: 'Walnut Chair' }).getByRole('checkbox').check();
+      w.slowBulkMs = 2000;
+      await b.page.getByTestId('product-bulk-bar').getByRole('combobox', { name: 'Change status' }).selectOption('draft');
+      await b.page.getByRole('alertdialog').getByRole('button', { name: 'Confirm' }).click();
+      await b.page.waitForTimeout(200);
+      await b.page.getByRole('searchbox', { name: 'Search products' }).fill('Sofa');
+      await b.page.waitForTimeout(3000);
+      expect(w.calls.some((c) => c.p === '/products/bulk'), `${tag}: (setup) the bulk action ran`);
+      expect(!(await b.page.getByText(/1 updated/).filter({ visible: true }).count()), `${tag}: … its result is not shown on the new search`);
+      expect(!(await b.page.getByTestId('product-bulk-bar').count()), `${tag}: … and nothing is selected there`);
+      expect(await cards.count() === 1 && await cards.first().getByText('Harbour Sofa').isVisible(), `${tag}: … and the grid shows the new search's list (${await cards.count()} cards)`);
+      await b.page.screenshot({ path: `${OUT}/${tag}-02-stale-bulk.png` });
+      w.slowBulkMs = 0;
+
+      // M6: one change asks for the list, the status and the categories once each.
+      await b.page.getByRole('searchbox', { name: 'Search products' }).fill('');
+      await b.page.waitForTimeout(1200);
+      await cards.filter({ hasText: 'Walnut Chair' }).getByRole('checkbox').check();
+      const from = w.calls.length;
+      await b.page.getByTestId('product-bulk-bar').getByRole('combobox', { name: 'Change status' }).selectOption('active');
+      await b.page.getByRole('alertdialog').getByRole('button', { name: 'Confirm' }).click();
+      await b.page.waitForTimeout(2000);
+      const after = w.calls.slice(from);
+      const n = (pth) => after.filter((c) => c.m === 'GET' && c.p === pth).length;
+      expect(n('/products') === 1 && n('/products/status') === 1 && n('/product-categories') === 1,
+        `${tag}: a bulk change → 1 list, 1 status, 1 categories request (${n('/products')}, ${n('/products/status')}, ${n('/product-categories')})`);
+      expect(await b.page.getByText('1 updated.', { exact: true }).filter({ visible: true }).count() > 0, `${tag}: … and its result shows (same list)`);
+      await b.context.close();
     }
   }
   if (run('save')) {

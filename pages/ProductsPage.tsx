@@ -56,7 +56,7 @@ const DEFAULT_FILTERS: Filters = { status: [], sort: 'updated', page: 1 };
 const SORTS: Array<[ProductSort, string]> = [['updated', 'Recently updated'], ['newest', 'Newest'], ['title', 'Title A–Z'], ['price_asc', 'Price: low to high'], ['price_desc', 'Price: high to low']];
 
 function ProductsReady({ onNavigate }: { onNavigate: (page: string) => void }) {
-  const { status, refresh } = useProductsStatus();
+  const { status } = useProductsStatus();
   const viewKey = useInventoryViewKey();
   const canCreate = Boolean(status?.can_create);
   const [filters, setFilters] = useState<Filters>(() => ({ ...DEFAULT_FILTERS }));
@@ -74,6 +74,9 @@ function ProductsReady({ onNavigate }: { onNavigate: (page: string) => void }) {
   const categoryTicket = useRef(0);
   const keepSelection = useRef(false); // a page clamp after a bulk action keeps what the API skipped selected
   const shownView = useRef(viewKey);
+  // Final review M4: which list a bulk action ran on. A new search, filter, sort, page or view moves it on, and a bulk
+  // action that finishes after that does not put its old result and selection on the new list.
+  const listGen = useRef(0);
 
   useEffect(() => {
     const t = window.setTimeout(() => setFilters((f) => ((f.q || '') === search ? f : { ...f, q: search, page: 1 })), 300);
@@ -122,11 +125,17 @@ function ProductsReady({ onNavigate }: { onNavigate: (page: string) => void }) {
 
   useEffect(() => {
     if (keepSelection.current) { keepSelection.current = false; return; }
+    listGen.current += 1;
     setSelected([]);
     setBulkNotice(null); // a bulk result is about the list it ran on: a new search, filter, sort or page clears it
   }, [viewKey, filters]);
 
-  const changed = useCallback(async () => { await load(); await refresh(); announceProductsChanged(); }, [load, refresh]);
+  // Final review M6: the change event alone refreshes the Products status (every useProductsStatus, this page's too)
+  // and the categories, so this only reloads the list and announces it: list + status + categories, no repeat.
+  // Always the CURRENT list: a bulk action or editor that finishes after a new search reloads that search, not the old.
+  const loadRef = useRef(load);
+  loadRef.current = load;
+  const changed = useCallback(async () => { await loadRef.current(); announceProductsChanged(); }, []);
   const items = result?.items ?? [];
   const pagination = result?.pagination;
   const filtered = Boolean(filters.q || filters.category_id || filters.status?.length || filters.source || filters.price_min || filters.price_max || filters.in_stock);
@@ -170,8 +179,11 @@ function ProductsReady({ onNavigate }: { onNavigate: (page: string) => void }) {
           </select>
         </div>
         {(selectedItems.length > 0 || bulkNotice) && (
-          <ProductBulkBar selected={selectedItems} categories={ownCategories} notice={bulkNotice} onClear={clearSelection}
-            onDone={async ({ message, keepIds }) => { setSelected(keepIds); setBulkNotice(message); await changed(); }} />
+          <ProductBulkBar selected={selectedItems} categories={ownCategories} notice={bulkNotice} onClear={clearSelection} ticket={listGen.current}
+            onDone={async ({ message, keepIds, ticket }) => {
+              if (ticket === listGen.current) { setSelected(keepIds); setBulkNotice(message); }
+              await changed(); // the products changed either way
+            }} />
         )}
         {loading && !result ? (
           <p className="py-10 text-center text-sm text-gray-500">Loading products…</p>

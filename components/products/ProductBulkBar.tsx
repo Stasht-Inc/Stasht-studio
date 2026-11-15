@@ -12,13 +12,15 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 export interface BulkOutcome {
   message: string; // e.g. "3 updated, 1 skipped (…)."
   keepIds: number[]; // what the API skipped: stays selected
+  ticket: number; // the page's list the action ran on (the `ticket` prop when it started)
 }
 
 type Pending = { action: 'delete' } | { action: 'status'; status: ProductStatus } | { action: 'category'; category_id: number; name: string };
 const STATUS_LABEL: Record<string, string> = { active: 'Active', draft: 'Draft', archived: 'Archived' };
 
-export default function ProductBulkBar({ selected, categories, notice, onDone, onClear }: {
+export default function ProductBulkBar({ selected, categories, notice, ticket, onDone, onClear }: {
   selected: ProductSummary[];
+  ticket: number;
   categories: ProductCategory[];
   notice: string | null;
   onDone(outcome: BulkOutcome): Promise<void>;
@@ -38,11 +40,12 @@ export default function ProductBulkBar({ selected, categories, notice, onDone, o
   const apply = async (body: { action: 'status' | 'category' | 'delete'; status?: ProductStatus; category_id?: number; mode?: 'add' }) => {
     setBusy(true);
     setError(null);
+    const ranOn = ticket;
     const websiteIds = selected.filter((p) => p.origin !== 'manual').map((p) => p.id);
     const r = await productsAPI.bulk({ ids, ...body });
     setBusy(false);
     if (!r.ok || !r.data) { setError(r.error || 'That did not work. Please try again.'); return; }
-    await onDone({ message: bulkResultMessage(body.action, r.data, websiteIds), keepIds: r.data.skipped_ids ?? [] });
+    await onDone({ message: bulkResultMessage(body.action, r.data, websiteIds), keepIds: r.data.skipped_ids ?? [], ticket: ranOn });
   };
 
   return (
