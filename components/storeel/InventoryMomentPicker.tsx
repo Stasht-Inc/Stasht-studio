@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Check, Loader2, Search } from 'lucide-react';
-import { catalogueAPI, loadCatalogueForBrowsing } from '../../services/catalogueAPI';
+import { catalogueAPI, loadCatalogueForBrowsing, type CatalogueItemSummary } from '../../services/catalogueAPI';
 import { dashboardAPI } from '../../utils/authUtils';
-import { loadProductsForPicker, productsAPI } from '../../services/productsAPI';
+import { loadProductsForPicker, productsAPI, type ProductSummary } from '../../services/productsAPI';
 import { productsGate } from '../../utils/products';
 import { useIsStarterPlan } from '../../hooks/usePlan';
 import { requestUpgrade } from '../../utils/planEvents';
@@ -103,7 +103,7 @@ export function useInventorySources(enabled: boolean): InventorySources {
       const value: InventorySources = {
         loading: false,
         productGate: gate === 'ready' && products.length === 0 ? 'hidden' : gate,
-        products: products.map((p: any) => ({ id: p.id, title: p.title || 'Untitled product', main_image: p.main_image, price_label: p.price_label, url: p.url, images_count: p.images_count, category: p.categories?.[0]?.name ?? p.category })),
+        products: (products as Array<ProductSummary | CatalogueItemSummary>).map((p) => ({ id: p.id, title: p.title || 'Untitled product', main_image: p.main_image, price_label: p.price_label, url: p.url, images_count: p.images_count, category: ('categories' in p ? p.categories[0]?.name : undefined) ?? p.category })),
         vehicles,
       };
       // Only a load that fully answered is reused (re-review N3).
