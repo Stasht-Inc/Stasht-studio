@@ -158,7 +158,9 @@ async function openAddMoment(page, width) {
   if (width >= 768) {
     await page.getByRole('button', { name: /Add a Moment/ }).filter({ visible: true }).first().click();
   } else {
-    const divider = page.locator('button:has(path[d="M12 5v14M5 12h14"])').filter({ visible: true }).nth(1);
+    // By its place, not its position: development added more phone "+" (one after every item, 12 Nov), so the 2nd
+    // visible "+" is no longer the one under Moment 2 (id 12).
+    const divider = page.locator('[data-testid="phone-add-plus"][data-after-post-id="12"][data-after-widget-id=""] button:has(path[d="M12 5v14M5 12h14"])').filter({ visible: true }).first();
     await divider.scrollIntoViewIfNeeded();
     await divider.click();
     await page.waitForTimeout(300);
