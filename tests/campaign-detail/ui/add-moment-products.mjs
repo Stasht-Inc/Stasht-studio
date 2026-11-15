@@ -296,6 +296,12 @@ try {
     before = ok.state.statusCalls;
     await reopen(ok);
     expect(ok.state.statusCalls === before, `${tag}: (control) a full answer is reused on reopen (${before} → ${ok.state.statusCalls})`);
+    // Final review I6: a product saved on Products (PRODUCTS_CHANGED_EVENT) drops the reused list, so it shows at once.
+    const lists = ok.state.productQueries.length;
+    await ok.page.evaluate(() => window.dispatchEvent(new Event('stasht-products-changed')));
+    await reopen(ok);
+    await ok.page.waitForTimeout(500);
+    expect(ok.state.productQueries.length > lists, `${tag}: a products change → the list is asked again on reopen (${lists} → ${ok.state.productQueries.length})`);
     await ok.context.close();
   }
 } finally {

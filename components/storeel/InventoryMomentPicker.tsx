@@ -8,6 +8,7 @@ import { useIsStarterPlan } from '../../hooks/usePlan';
 import { requestUpgrade } from '../../utils/planEvents';
 import { catalogGate, inventoryCacheable, type InventoryPick } from './lib/momentPicks';
 import { CATALOGUE_SYNC_FINISHED_EVENT, CATALOGUE_SYNC_STARTED_EVENT } from '../connectors/websiteCatalogue';
+import { PRODUCTS_CHANGED_EVENT } from '../../hooks/useProductsStatus';
 import { vehiclePrice, vehicleTags } from './lib/previewMoments';
 import type { CampaignPick } from './lib/momentCampaigns';
 
@@ -49,11 +50,12 @@ export interface InventorySources {
 /** The last answer, reused for a short while (review minor 10: a 400+ item catalogue on every Add a Moment). Per account. */
 const CACHE_MS = 2 * 60 * 1000;
 let cache: { key: string; at: number; value: InventorySources } | null = null;
-/** Forget the last answer (a catalogue import started or finished: the products changed). */
+/** Forget the last answer (a catalogue import started or finished, or a product was saved on Products: the products changed). */
 export function clearInventoryCache(): void { cache = null; }
 if (typeof window !== 'undefined') {
   window.addEventListener(CATALOGUE_SYNC_STARTED_EVENT, clearInventoryCache);
   window.addEventListener(CATALOGUE_SYNC_FINISHED_EVENT, clearInventoryCache);
+  window.addEventListener(PRODUCTS_CHANGED_EVENT, clearInventoryCache); // final review I6: a just-created product shows at once
 }
 function cacheKey(isStarter: boolean): string {
   try {
