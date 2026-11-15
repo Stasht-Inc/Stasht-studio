@@ -34,7 +34,8 @@ const browser = await chromium.launch({ headless: true, channel: 'chrome' });
 // Task 16: productsStatusFail = /products/status answers 500; productsPage2Fail = /products has 2 pages, page 2 answers 500.
 // Final review C1: productsStatusHtml = /products/status answers Laravel's HTML 404 page (the real older API: Studio sends
 // no Accept: application/json, so an unmatched route renders HTML, which apiRequest can't parse).
-async function open({ width, height, planRequired = false, productsOn = false, productsStatusFail = false, productsPage2Fail = false, productsStatusHtml = false }) {
+// Pre-merge D3: catalogueStatus = what GET /memories/901/catalogue-status answers (the Refresh banner).
+async function open({ width, height, planRequired = false, productsOn = false, productsStatusFail = false, productsPage2Fail = false, productsStatusHtml = false, catalogueStatus = null }) {
   const state = { puts: [], sends: [], counts: 0, title: CAMPAIGN.title, deleted: false, created: [], momentCalls: [], itemCalls: 0, statusCalls: 0, page2Calls: 0, productQueries: [], productListCalls: 0 };
   const context = await browser.newContext({ viewport: { width, height }, serviceWorkers: 'block', locale: 'en-US', hasTouch: width < 1024, isMobile: width < 1024 });
   await context.addInitScript(([user]) => {
@@ -79,6 +80,7 @@ async function open({ width, height, planRequired = false, productsOn = false, p
       return route.fulfill({ json: { success: true, message: 'Memory updated successfully.', data: campaign() } });
     }
     if (p === '/memories/901' && m === 'DELETE') { state.deleted = true; return route.fulfill({ json: { success: true } }); }
+    if (p === '/memories/901/catalogue-status' && catalogueStatus) return route.fulfill({ json: { success: true, data: catalogueStatus } });
     if (p === '/memories/categories-labels') return route.fulfill({ json: { success: true, data: { categories: [{ id: 5, name: 'Campaigns', is_owner: true, can_add_story: true }], labels: [] } } });
     if (p === '/memories/901/storeel-audience-count') {
       state.counts++;
@@ -305,6 +307,35 @@ try {
     await ok.page.waitForTimeout(500);
     expect(ok.state.productQueries.length > lists, `${tag}: a products change → the list is asked again on reopen (${lists} → ${ok.state.productQueries.length})`);
     await ok.context.close();
+
+    // Pre-merge D3: the Refresh banner words website items exactly as before, and manual products as products.
+    const cases = [
+      ['website', { linked: 2, changed: 2, retired: 0, can_refresh: true }, '2 items changed on your website since this campaign was made', 'Refresh from catalogue'],
+      ['website-older-api', { linked: 1, changed: 1, retired: 0, can_refresh: true, manual_pending: 0 }, '1 item changed on your website since this campaign was made', 'Refresh from catalogue'],
+      ['manual', { linked: 1, changed: 1, retired: 0, can_refresh: true, manual_pending: 1 }, '1 product changed since this campaign was made', 'Refresh'],
+      ['mixed', { linked: 3, changed: 2, retired: 1, can_refresh: true, manual_pending: 1 }, '3 items changed since this campaign was made', 'Refresh'],
+    ];
+    for (const [name, cs, line, button] of cases) {
+      const b = await open({ width, height, productsOn: true, catalogueStatus: cs });
+      await openCampaign(b.page);
+      const banner = b.page.getByRole('status').filter({ hasText: 'since this campaign was made' }).filter({ visible: true }).first();
+      await banner.waitFor({ timeout: 10000 }).catch(() => {});
+      const text = (await banner.textContent().catch(() => '')) || '';
+      expect(text.includes(line), `${tag}: banner (${name}) says "${line}" (got "${text}")`);
+      expect(await banner.getByRole('button', { name: button, exact: true }).isVisible().catch(() => false), `${tag}: banner (${name}) button is "${button}"`);
+      if (name === 'manual') expect(!/website/.test(text), `${tag}: banner (manual) never says "website"`);
+      await banner.scrollIntoViewIfNeeded().catch(() => {});
+      await b.page.screenshot({ path: `${OUT}/${tag}-banner-${name}.png` });
+      if (name === 'manual') {
+        await banner.getByRole('button', { name: button, exact: true }).click({ timeout: 5000 }).catch(() => {});
+        const dlg = b.page.getByRole('alertdialog');
+        await dlg.waitFor({ timeout: 5000 }).catch(() => {});
+        const dt = (await dlg.textContent().catch(() => '')) || '';
+        expect(dt.includes('Refresh products?') && !/website/.test(dt), `${tag}: the manual dialog asks "Refresh products?" with no website wording (got "${dt}")`);
+        await b.page.screenshot({ path: `${OUT}/${tag}-banner-manual-dialog.png` });
+      }
+      await b.context.close();
+    }
   }
 } finally {
   await browser.close();

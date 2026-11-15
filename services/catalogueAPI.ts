@@ -58,6 +58,8 @@ export interface CampaignCatalogueStatus {
   changed: number;
   retired: number;
   can_refresh: boolean;
+  // Products pilot: how many of changed + retired are manual products (the banner words those as products).
+  manual_pending?: number;
 }
 
 export interface CatalogueRefreshResult {

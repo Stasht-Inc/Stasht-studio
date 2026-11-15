@@ -396,3 +396,44 @@ export function slugFromTitle(title: string): string {
 export function filterStatusesFor(canCreate: boolean): ProductBadge[] {
   return canCreate ? ['active', 'draft', 'out_of_stock', 'archived'] : ['active', 'out_of_stock'];
 }
+
+/**
+ * The campaign page's Refresh banner and its dialog (pre-merge D3, 15 Nov). `manual_pending` = how many of the changed
+ * and retired items are manual products (Products pilot). Missing or 0 → website items only, worded exactly as before.
+ */
+export function refreshBannerCopy(s: { changed: number; retired: number; manual_pending?: number }): {
+  line: string; button: string; title: string; body: string; toast: (updated: number) => string;
+} {
+  const n = s.changed + s.retired;
+  const manual = Math.min(Math.max(Number(s.manual_pending) || 0, 0), n);
+  const moments = (k: number) => `${k} ${k === 1 ? 'moment' : 'moments'}`;
+  const whose = n === 1 ? "that moment's" : "those moments'";
+  const overwrite = `Any changes you made to ${whose} descriptions will be overwritten.`;
+  const websiteGone = 'Items no longer on your website are marked "No longer available" and their "View on website" button is hidden.';
+  if (manual === 0) {
+    return {
+      line: `${n} ${n === 1 ? 'item' : 'items'} changed on your website since this campaign was made`,
+      button: 'Refresh from catalogue',
+      title: 'Refresh from catalogue?',
+      body: `${moments(n)} will be updated with the latest photos, price and details from your website. ${overwrite} ${websiteGone}`,
+      toast: (u) => `Updated ${moments(u)} from your website`,
+    };
+  }
+  const productsGone = 'Products no longer available are marked "No longer available".';
+  if (manual === n) {
+    return {
+      line: `${n} ${n === 1 ? 'product' : 'products'} changed since this campaign was made`,
+      button: 'Refresh',
+      title: 'Refresh products?',
+      body: `${moments(n)} will be updated with the latest photos, price and details from your products. ${overwrite} ${productsGone}`,
+      toast: (u) => `Updated ${moments(u)} from your products`,
+    };
+  }
+  return {
+    line: `${n} items changed since this campaign was made`,
+    button: 'Refresh',
+    title: 'Refresh products?',
+    body: `${moments(n)} will be updated with the latest photos, price and details from your website and products. ${overwrite} ${websiteGone} ${productsGone}`,
+    toast: (u) => `Updated ${moments(u)} from your website and products`,
+  };
+}

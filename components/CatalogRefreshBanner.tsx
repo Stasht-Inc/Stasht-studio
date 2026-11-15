@@ -12,6 +12,7 @@ import {
   AlertDialogTitle,
 } from './ui/alert-dialog';
 import { catalogueAPI, type CampaignCatalogueStatus } from '../services/catalogueAPI';
+import { refreshBannerCopy } from '../utils/products';
 
 interface CatalogRefreshBannerProps {
   memoryId: string;
@@ -22,6 +23,7 @@ interface CatalogRefreshBannerProps {
 // "N items changed on your website since this campaign was made · Refresh from catalogue"
 // (spec 2026-09-30 §9.4). Shown to the owner of a Website Catalogue campaign whose items changed or
 // left the website; renders nothing for every other campaign. Refresh only runs when clicked.
+// Manual products (Products pilot, API manual_pending) are worded as products: utils/products refreshBannerCopy.
 export default function CatalogRefreshBanner({ memoryId, onRefreshed }: CatalogRefreshBannerProps) {
   const [status, setStatus] = useState<CampaignCatalogueStatus | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -38,6 +40,7 @@ export default function CatalogRefreshBanner({ memoryId, onRefreshed }: CatalogR
   }, [load]);
 
   const pending = status ? status.changed + status.retired : 0;
+  const copy = refreshBannerCopy(status ?? { changed: 0, retired: 0 });
 
   const handleRefresh = async () => {
     setRefreshing(true);
@@ -49,7 +52,7 @@ export default function CatalogRefreshBanner({ memoryId, onRefreshed }: CatalogR
       return;
     }
     const updated = res.data.refreshed + res.data.retired;
-    toast.success(`Updated ${updated} ${updated === 1 ? 'moment' : 'moments'} from your website`);
+    toast.success(copy.toast(updated));
     await onRefreshed();
     await load();
   };
@@ -64,7 +67,7 @@ export default function CatalogRefreshBanner({ memoryId, onRefreshed }: CatalogR
       >
         <span className="flex items-center gap-2 min-w-0">
           <RefreshCw className="w-4 h-4 shrink-0" aria-hidden="true" />
-          <span>{pending} {pending === 1 ? 'item' : 'items'} changed on your website since this campaign was made</span>
+          <span>{copy.line}</span>
         </span>
         <span className="hidden sm:inline text-yellow-400" aria-hidden="true">·</span>
         <button
@@ -72,18 +75,16 @@ export default function CatalogRefreshBanner({ memoryId, onRefreshed }: CatalogR
           onClick={() => setConfirmOpen(true)}
           className="self-start sm:self-auto font-semibold text-[#5A4FE5] hover:underline rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#6C60FF]"
         >
-          Refresh from catalogue
+          {copy.button}
         </button>
       </div>
 
       <AlertDialog open={confirmOpen} onOpenChange={(next) => { if (!refreshing) setConfirmOpen(next); }}>
         <AlertDialogContent className="sm:max-w-md bg-white border-0 shadow-xl">
           <AlertDialogHeader>
-            <AlertDialogTitle>Refresh from catalogue?</AlertDialogTitle>
+            <AlertDialogTitle>{copy.title}</AlertDialogTitle>
             <AlertDialogDescription className="text-gray-600 leading-relaxed">
-              {pending} {pending === 1 ? 'moment' : 'moments'} will be updated with the latest photos, price and details from your
-              website. Any changes you made to {pending === 1 ? "that moment's" : "those moments'"} descriptions will be overwritten.
-              Items no longer on your website are marked "No longer available" and their "View on website" button is hidden.
+              {copy.body}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter className="flex-col sm:flex-row gap-2">
