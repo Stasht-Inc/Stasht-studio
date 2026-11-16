@@ -81,12 +81,13 @@ async function open({ width, height }) {
 
 const shot = async (page, file) => { const path = `${OUT}/${file}.png`; await page.screenshot({ path }); console.log('shot', path); };
 const colours = (loc) => loc.evaluate((el) => { const s = getComputedStyle(el); return `${s.backgroundColor}|${s.color}|${s.borderColor}`; });
-const isGreen = (c) => /240, 253, 244/.test(c) && /21, 128, 61/.test(c); // green-50 bg, green-700 words
+// The Products page's Active badge (utils/products BADGE_CLASS.active): emerald-50 bg, emerald-700 words, emerald-200 border.
+const isGreen = (c) => /236, 253, 245/.test(c) && /4, 120, 87/.test(c) && /167, 243, 208/.test(c);
 const isLightPurple = (c) => /250, 245, 255/.test(c) && /90, 79, 229/.test(c); // purple-50 bg, #5A4FE5 words
 const leftOf = async (a, b) => { const [x, y] = [await a.boundingBox(), await b.boundingBox()]; return x && y && x.x + x.width <= y.x + 1 && Math.abs(x.y - y.y) < 4; };
 
 try {
-  for (const [width, height, tag] of [[1280, 900, 'd'], [390, 844, 'm']]) {
+  for (const [width, height, tag] of [[1280, 900, 'd'], [1024, 800, 't'], [390, 844, 'm']]) {
     const { page, context, state } = await open({ width, height });
     await page.getByText('Kim Lee').filter({ visible: true }).first().waitFor({ state: 'visible', timeout: 40000 });
 
@@ -156,6 +157,14 @@ try {
     expect(await leftOf(cProducts, cCampaign), `${tag}C2: composer "+ Products" left of "+ Campaign"`);
     expect(isGreen(await colours(cProducts)), `${tag}C2: composer "+ Products" green`);
     expect(isLightPurple(await colours(cCampaign)), `${tag}C2: composer "+ Campaign" light purple`);
+    // Review fix: attach, via and Send keep their one row (as before "+ Products"); the two pills sit on their own row above.
+    const sendBtn = page.getByRole('button', { name: /^Send$/ }).filter({ visible: true }).last();
+    const viaBtn = page.getByRole('button', { name: /^via / }).filter({ visible: true }).first();
+    const attach = page.getByRole('button', { name: 'Attach file' }).filter({ visible: true }).first();
+    const rowOf = async (l) => { const b = await l.boundingBox(); return b ? b.y + b.height / 2 : -1; };
+    const [rp, ra, rv, rs] = [await rowOf(cProducts), await rowOf(attach), await rowOf(viaBtn), await rowOf(sendBtn)];
+    expect(Math.abs(ra - rs) < 4 && Math.abs(rv - rs) < 4, `${tag}C2: attach, via and Send on one row (${ra} / ${rv} / ${rs})`);
+    expect(rp < ra, `${tag}C2: the pills' row sits above it (${rp} < ${ra})`);
     await shot(page, `sm16-${tag}3-composer`);
     await cProducts.click();
     await picker.getByText('Fine Line Router Carved MDF').waitFor({ state: 'visible', timeout: 15000 });

@@ -9,7 +9,7 @@ import { useDialogBehavior } from '../hooks/useDialogBehavior';
 import { toast } from 'sonner';
 import { smsSegmentInfo, SMS_MAX_BODY } from '../utils/smsSegments';
 import ShareCarsDialog, { type PickKind } from './ShareCarsDialog';
-import { CAMPAIGN_PILL, ProductsPickButton, useHasProducts } from './leads/CampaignPickButtons';
+import { campaignPill, ProductsPickButton, useHasProducts } from './leads/CampaignPickButtons';
 import { fallbackDraft, itemCount, removeDraft, replaceDraft, type PickedCampaign } from '../utils/composerCampaign';
 import AssigneeControl from './leads/AssigneeControl';
 import LinkifiedText from './leads/LinkifiedText';
@@ -1618,6 +1618,23 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
               onChange={handleFilesSelected}
             />
 
+            <div data-composer-picks className="flex flex-wrap items-center gap-2 mt-2">
+              {/* "＋ Products" (Chris, 16 Nov: left of Campaign, the Active badge's green) and the "＋ Campaign" pill
+                  (Chris's design, light purple) — each opens the picker directly, no intermediate menu. Same action the
+                  mobile app's "+" reaches on SMS threads. Their own row (review, 16 Nov): with both pills the controls
+                  row no longer fits, so attach / emoji / via / Send keep the row they always had, below. */}
+              {hasProducts && <ProductsPickButton onClick={() => { setPickerKind('product'); setShowShareCars(true); }} />}
+              <button
+                onClick={() => { setPickerKind(undefined); setShowShareCars(true); }}
+                title="Add a campaign to your message"
+                aria-label="Add a campaign to your message"
+                className={campaignPill()}
+              >
+                <Plus className="w-4 h-4" aria-hidden="true" />
+                Campaign
+              </button>
+            </div>
+
             <div className="flex flex-wrap items-center gap-2 mt-2">
               <button
                 onClick={() => fileInputRef.current?.click()}
@@ -1626,20 +1643,6 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
                 className="p-1.5 text-gray-400 hover:text-gray-600 transition-colors"
               >
                 <Paperclip className="w-5 h-5" />
-              </button>
-
-              {/* "＋ Products" (Chris, 16 Nov: left of Campaign, green) and the "＋ Campaign" pill (Chris's design,
-                  light purple) — each opens the picker directly, no intermediate menu. Same action the mobile app's
-                  "+" reaches on SMS threads. */}
-              {hasProducts && <ProductsPickButton onClick={() => { setPickerKind('product'); setShowShareCars(true); }} />}
-              <button
-                onClick={() => { setPickerKind(undefined); setShowShareCars(true); }}
-                title="Add a campaign to your message"
-                aria-label="Add a campaign to your message"
-                className={CAMPAIGN_PILL}
-              >
-                <Plus className="w-4 h-4" aria-hidden="true" />
-                Campaign
               </button>
 
               <div className="relative">
