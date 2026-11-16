@@ -16,7 +16,7 @@ import {
 import { BUTTON_PRIMARY, LABEL, LINK_BUTTON, inputClass, textareaClass } from '../newsletters/lib/ui';
 import { Switch } from '../ui/switch';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '../ui/alert-dialog';
-import ProductMediaField from './ProductMediaField';
+import ProductMediaField, { type PendingMedia } from './ProductMediaField';
 import ProductSelect from './ProductSelect';
 import ProductVariantsField from './ProductVariantsField';
 import ProductRichText from './ProductRichText';
@@ -85,6 +85,15 @@ export default function ProductEditor({ productId, categories, defaultCurrency, 
   const [saving, setSaving] = useState(false);
   const [confirm, setConfirm] = useState<Confirm | null>(null);
   const root = useRef<HTMLDivElement>(null);
+  // C4: a new product's photos / video, picked before the first save and uploaded right after the product is created.
+  const [pending, setPending] = useState<PendingMedia[]>([]);
+  const [uploadingPending, setUploadingPending] = useState(0);
+  const [mediaNotes, setMediaNotes] = useState<string[]>([]); // files that failed to upload after the first save
+  // The product this editor created when some of its picks failed: the editor stays open on it (no second POST).
+  const [createdHere, setCreatedHere] = useState<number | null>(null);
+  const pendingRef = useRef<PendingMedia[]>([]);
+  pendingRef.current = pending;
+  useEffect(() => () => { pendingRef.current.forEach((m) => URL.revokeObjectURL(m.url)); }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -118,7 +127,7 @@ export default function ProductEditor({ productId, categories, defaultCurrency, 
   const failed = productId !== null && !loading && !detail; // couldn't be opened: nothing to edit or save
   const readOnly = Boolean(detail?.read_only);
   const website = detail?.origin === 'website';
-  const dirty = JSON.stringify(form) !== saved;
+  const dirty = JSON.stringify(form) !== saved || pending.length > 0;
   // An edited field drops its error; once nothing is marked, the bottom "Check the highlighted fields." goes too.
   const clearErrors = (...keys: string[]) => setErrors((e) => {
     const left = Object.fromEntries(Object.entries(e).filter(([k]) => !keys.some((key) => k === key || k.startsWith(`${key}.`))));
@@ -150,6 +159,23 @@ export default function ProductEditor({ productId, categories, defaultCurrency, 
     const body = payloadFromForm(next, editable);
     const id = productId ?? createdId.current;
     const r = id ? await productsAPI.update(id, body) : await productsAPI.create(body);
+    // C4: the photos / video picked before this first save upload now, in their order, one at a time. The product is
+    // already saved: a file that fails is listed at the bottom of the Media card and the others still upload.
+    let uploaded = r.ok ? r.data : undefined;
+    const failedUploads: string[] = [];
+    if (!id && r.ok && r.data && pendingRef.current.length) {
+      createdId.current = r.data.id;
+      const picks = pendingRef.current;
+      setUploadingPending(picks.length);
+      for (const m of picks) {
+        const u = await productsAPI.uploadMedia(r.data.id, m.file);
+        if (u.ok && u.data) uploaded = u.data;
+        else failedUploads.push(`${m.file.name}: ${u.error || 'The file could not be uploaded. Please try again.'}`);
+        setUploadingPending((n) => n - 1);
+      }
+      picks.forEach((m) => URL.revokeObjectURL(m.url));
+      setPending([]);
+    }
     if (!r.ok || !r.data) {
       savingRef.current = false;
       setSaving(false);
@@ -163,16 +189,27 @@ export default function ProductEditor({ productId, categories, defaultCurrency, 
       else setMessage({ kind: 'error', text: r.error || 'The product could not be saved. Please try again.' });
       return;
     }
-    const f = formFromDetail(r.data);
-    setDetail(r.data);
+    const savedDetail = uploaded ?? r.data;
+    const f = formFromDetail(savedDetail);
+    setDetail(savedDetail);
     setForm(f);
     setSaved(JSON.stringify(f));
     setErrors({});
     setMessage({ kind: 'ok', text: 'Saved.' });
     const isNew = !productId;
     if (!isNew) { savingRef.current = false; setSaving(false); } // the form already holds the saved copy
-    else createdId.current = r.data.id;
-    const savedDetail = r.data;
+    else createdId.current = savedDetail.id;
+    if (failedUploads.length) {
+      // Stay here on the saved product: what uploaded shows, the failed files are listed under the photos, and
+      // adding again uploads straight away. The next Save is a PATCH (createdId), never a second product.
+      setCreatedHere(savedDetail.id);
+      setMediaNotes(failedUploads);
+      setMessage({ kind: 'error', text: failedUploads.length === 1 ? 'The product is saved, but one file could not be uploaded.' : `The product is saved, but ${failedUploads.length} files could not be uploaded.` });
+      savingRef.current = false;
+      setSaving(false);
+      void onChanged(); // the list shows the new product
+      return;
+    }
     try {
       await onChanged();
       // Post-live P1: a new product opens on its details view (still "saving" until then: I3, no second POST); an
@@ -212,6 +249,7 @@ export default function ProductEditor({ productId, categories, defaultCurrency, 
 
   // Media answers carry the product's new detail; the form keeps its unsaved edits, minus variant photos that are gone.
   const mediaChanged = (d: ProductDetail) => {
+    setMediaNotes([]);
     setDetail(d);
     const ids = new Set(d.media.filter((m) => m.type === 'photo').map((m) => m.id));
     const prune = (f: ProductForm): ProductForm => (f.variants.some((v) => v.image_id !== null && !ids.has(v.image_id))
@@ -244,7 +282,7 @@ export default function ProductEditor({ productId, categories, defaultCurrency, 
         {productId
           ? <button type="button" className={`${LINK_BUTTON} h-10`} onClick={close}><ArrowLeft className="h-4 w-4" aria-hidden="true" />Cancel</button>
           : <button type="button" aria-label="Close" className={`${LINK_BUTTON} h-10`} onClick={close}><ArrowLeft className="h-4 w-4" aria-hidden="true" />Products</button>}
-        <h1 className="min-w-0 flex-1 truncate text-lg font-semibold text-gray-900">{productId ? form.title || 'Product' : 'New product'}</h1>
+        <h1 className="min-w-0 flex-1 truncate text-lg font-semibold text-gray-900">{productId || createdHere ? form.title || 'Product' : 'New product'}</h1>
         {canSave && <button type="button" className={BUTTON_PRIMARY} disabled={saving || loading} onClick={() => void save()}>{saving ? 'Saving…' : 'Save'}</button>}
       </header>
 
@@ -281,7 +319,8 @@ export default function ProductEditor({ productId, categories, defaultCurrency, 
                 </div>
               </Section>
               <Section title="Media">
-                <ProductMediaField productId={productId} media={detail?.media || []} disabled={readOnly || website} onChange={mediaChanged} onSettled={() => void onChanged() /* the grid card's main photo and count */} />
+                <ProductMediaField productId={productId ?? createdHere} media={detail?.media || []} disabled={readOnly || website} onChange={mediaChanged} onSettled={() => void onChanged() /* the grid card's main photo and count */}
+                  pending={pending} onPendingChange={(next) => { setPending(next); setMediaNotes([]); }} notes={mediaNotes} uploadingPending={uploadingPending} />
               </Section>
               <Section title="Pricing">
                 <div className="grid gap-4 sm:grid-cols-3">

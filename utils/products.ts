@@ -230,6 +230,33 @@ export const variantRowKey = (options: Record<string, string>): string => Object
 
 export const variantLabel = (options: Record<string, string>): string => Object.values(options).join(' / ');
 
+/** C4 (Chris, 16 Nov): photos / a video picked on a NEW product, before its first save. They upload right after the
+ *  product is created. The limits mirror the web API's config/products.php (max_photos, max_videos, image_kb, video_kb). */
+export const MEDIA_LIMITS = { photos: 20, videos: 1, imageBytes: 10240 * 1024, videoBytes: 51200 * 1024 } as const;
+export const PHOTO_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+export const VIDEO_TYPES = ['video/mp4', 'video/quicktime', 'video/webm'];
+export interface PickedFile { name: string; size: number; type: string }
+/** Which picked files can wait for the first save (in order), and a line for each one that can't. */
+export function acceptPickedMedia<F extends PickedFile>(have: { photos: number; videos: number }, files: readonly F[]): { accepted: Array<{ file: F; type: 'photo' | 'video' }>; errors: string[] } {
+  let photos = have.photos;
+  let videos = have.videos;
+  const accepted: Array<{ file: F; type: 'photo' | 'video' }> = [];
+  const errors: string[] = [];
+  for (const file of files) {
+    const type = PHOTO_TYPES.includes(file.type) ? 'photo' : VIDEO_TYPES.includes(file.type) ? 'video' : null;
+    if (!type) errors.push(`${file.name}: Use a JPG, PNG, GIF or WebP photo, or an MP4, MOV or WebM video.`);
+    else if (type === 'photo' && file.size > MEDIA_LIMITS.imageBytes) errors.push(`${file.name}: A photo can be up to 10 MB.`);
+    else if (type === 'video' && file.size > MEDIA_LIMITS.videoBytes) errors.push(`${file.name}: A video can be up to 50 MB.`);
+    else if (type === 'photo' && photos >= MEDIA_LIMITS.photos) errors.push(`${file.name}: A product can have up to 20 photos.`);
+    else if (type === 'video' && videos >= MEDIA_LIMITS.videos) errors.push(`${file.name}: A product can have one video.`);
+    else {
+      accepted.push({ file, type });
+      if (type === 'photo') photos += 1; else videos += 1;
+    }
+  }
+  return { accepted, errors };
+}
+
 export function moveItem<T>(list: readonly T[], from: number, to: number): T[] {
   if (from === to || from < 0 || to < 0 || from >= list.length || to >= list.length) return [...list];
   const next = [...list];

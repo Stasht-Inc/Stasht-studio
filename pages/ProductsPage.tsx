@@ -246,7 +246,7 @@ function ProductsReady({ onNavigate }: { onNavigate: (page: string) => void }) {
       {layer?.kind === 'edit' && (
         <ProductEditor key={layer.id ?? 'new'} productId={layer.id} categories={ownCategories} defaultCurrency={status?.default_currency || DEFAULT_CURRENCY}
           onClose={() => setLayer(layer.id ? { kind: 'details', id: layer.id } : null)} onChanged={changed}
-          onOpen={(id, d) => setLayer({ kind: 'details', id, initial: d, notice: 'Saved. Use Edit to add photos.' }) /* review minor 4: no reload */}
+          onOpen={(id, d) => setLayer({ kind: 'details', id, initial: d, notice: 'Saved.' }) /* review minor 4: no reload; C4: photos upload with the first save */}
           onSaved={(d) => setLayer({ kind: 'details', id: d.id, initial: d, notice: 'Saved.' })} />
       )}
     </div>
