@@ -52,6 +52,10 @@ export default function ProductsPage({ onNavigate }: { onNavigate: (page: string
 // Same look as the Campaigns search box and filter selects (gray-50 fill, gray-200 border, white on focus).
 const FIELD = 'h-10 rounded-lg border border-gray-200 bg-gray-50 text-sm text-gray-900 outline-none transition-colors focus:border-[#6C60FF] focus:bg-white focus-visible:ring-2 focus-visible:ring-[#6C60FF]/20';
 
+// C8 (Chris, 16 Nov): the Website Catalogue connector's brand (components/connectors/catalog.ts brandColors →
+// WEBSITE_CATALOG_COLOR #0F766E, white Globe on it, ConnectorIcon), on the primary button's shape.
+const IMPORT_BUTTON = BUTTON_PRIMARY.replace('bg-[#6C60FF]', 'bg-[#0F766E]').replace('hover:bg-[#5B50E6]', 'hover:bg-[#0D635C]');
+
 const DEFAULT_FILTERS: Filters = { status: [], sort: 'updated', page: 1 };
 
 /** Post-live P1: a card opens the read-only details view; Edit (and Add a product) the editor. The two swap. */
@@ -156,7 +160,7 @@ function ProductsReady({ onNavigate }: { onNavigate: (page: string) => void }) {
   // On a phone the two buttons don't fit one row, so each wraps onto its own full-width row; from sm up they sit side by side.
   const createButtons = (align: string) => canCreate && (
     <div className={`flex w-full flex-wrap gap-2 sm:w-auto ${align}`}>
-      <button type="button" className={`${BUTTON_SECONDARY} flex-auto whitespace-nowrap sm:flex-none`} onClick={() => onNavigate('marketplace')}><Globe className="h-4 w-4" aria-hidden="true" />Import from your website</button>
+      <button type="button" className={`${IMPORT_BUTTON} flex-auto whitespace-nowrap sm:flex-none`} onClick={() => onNavigate('marketplace')}><Globe className="h-4 w-4" aria-hidden="true" />Import from your website</button>
       <button type="button" className={`${BUTTON_PRIMARY} flex-auto whitespace-nowrap sm:flex-none`} onClick={() => setLayer({ kind: 'edit', id: null })}><Plus className="h-4 w-4" aria-hidden="true" />Add a product</button>
     </div>
   );
