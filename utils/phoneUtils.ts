@@ -42,8 +42,8 @@ const TRUNK_ZERO_DIAL_CODES = SUPPORTED_DIAL_CODES.filter(code => code !== '+1')
 
 /**
  * Handle a full international number typed or pasted into the national-number
- * box of a split (country code + number) phone field. "+12892211807" with any
- * country selected becomes { countryCode: "+1", number: "2892211807" }, so the
+ * box of a split (country code + number) phone field. "+14165550123" with any
+ * country selected becomes { countryCode: "+1", number: "4165550123" }, so the
  * code moves to the selector instead of being sent twice.
  *
  * Anything else is returned unchanged: a number without "+", a bare "+44" that
@@ -63,7 +63,7 @@ export function splitTypedPhone(countryCode: string, typed: string): { countryCo
  * The E.164 form ("+" then digits only) of a split phone field, or '' when no
  * digits were entered. Spaces, dashes, dots and parentheses are dropped; a
  * national number that still starts with "+" is treated as already international.
- * A North American number typed with its leading 1 ("1 289 221 1807" with +1) and
+ * A North American number typed with its leading 1 ("1 416 555 0123" with +1) and
  * a trunk "0" after any other supported code are removed so they aren't doubled.
  */
 export function toE164(countryCode: string, national: string): string {

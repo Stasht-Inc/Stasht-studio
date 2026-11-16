@@ -210,9 +210,11 @@ export function leadViaTitle(lead: Pick<Lead, 'story' | 'source' | 'source_list'
   return lead.campaign_deleted ? `${leadViaLabel(lead)} (campaign deleted)` : leadViaLabel(lead);
 }
 
-/** Display label for a lead message's channel: Email, Website chat (Contact Us widget), else SMS. */
-export function messageChannelLabel(channel: LeadMessage['channel'] | string | null | undefined): string {
+/** Display label for a lead message's channel: Email, Website chat (Contact Us widget), Enquiry, else SMS. */
+export function messageChannelLabel(channel: LeadMessage['channel'] | string | null | undefined, body?: string | null): string {
   if (channel === 'email') return 'Email';
+  // A product's Enquire button (16 Nov) stores its message on the widget channel (no schema change): label it as what it is.
+  if (channel === 'widget' && typeof body === 'string' && body.startsWith('Enquiry about ')) return 'Enquiry';
   if (channel === 'widget') return 'Website chat';
   return 'SMS';
 }

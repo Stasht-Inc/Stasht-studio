@@ -852,7 +852,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
 
   const renderMessage = (msg: LeadMessage, isChild = false): React.ReactNode => {
     const isOutbound = msg.direction === 'outbound';
-    const channelLabel = messageChannelLabel(msg.channel);
+    const channelLabel = messageChannelLabel(msg.channel, msg.body);
     const isReplying = replyingToMsgId === msg.id;
     const children = messages
       .filter((m) => m.parent_message_id === msg.id)

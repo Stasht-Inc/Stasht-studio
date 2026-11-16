@@ -5,20 +5,20 @@ import assert from 'node:assert/strict';
 import { parsePhonePrefill, splitPrefillPhone, splitTypedPhone, toE164, isPlausibleSplitPhone, isValidCollaboratorPhone, collaboratorPhoneValue } from '../../utils/phoneUtils.ts';
 
 test('parsePhonePrefill splits stored numbers for a split field', () => {
-  assert.deepEqual(parsePhonePrefill('+12892211807'), { countryCode: '+1', number: '2892211807' });
-  assert.deepEqual(parsePhonePrefill('12892211807'), { countryCode: '+1', number: '2892211807' });
+  assert.deepEqual(parsePhonePrefill('+14165550123'), { countryCode: '+1', number: '4165550123' });
+  assert.deepEqual(parsePhonePrefill('14165550123'), { countryCode: '+1', number: '4165550123' });
   assert.deepEqual(parsePhonePrefill('+44 7911 123456'), { countryCode: '+44', number: '7911123456' });
   assert.deepEqual(parsePhonePrefill(''), { countryCode: null, number: '' });
 });
 
 test('splitTypedPhone moves a pasted country code into the selector', () => {
-  assert.deepEqual(splitTypedPhone('+1', '+12892211807'), { countryCode: '+1', number: '2892211807' });
+  assert.deepEqual(splitTypedPhone('+1', '+14165550123'), { countryCode: '+1', number: '4165550123' });
   assert.deepEqual(splitTypedPhone('+1', '+44 7911 123456'), { countryCode: '+44', number: '7911123456' });
-  assert.deepEqual(splitTypedPhone('+44', '+1 (289) 221-1807'), { countryCode: '+1', number: '2892211807' });
+  assert.deepEqual(splitTypedPhone('+44', '+1 (416) 555-0123'), { countryCode: '+1', number: '4165550123' });
 });
 
 test('splitTypedPhone leaves everything else alone', () => {
-  assert.deepEqual(splitTypedPhone('+1', '(289) 221-1807'), { countryCode: '+1', number: '(289) 221-1807' });
+  assert.deepEqual(splitTypedPhone('+1', '(416) 555-0123'), { countryCode: '+1', number: '(416) 555-0123' });
   assert.deepEqual(splitTypedPhone('+1', ''), { countryCode: '+1', number: '' });
   // Still typing the code: nothing after it yet, so the box is not cleared.
   assert.deepEqual(splitTypedPhone('+1', '+'), { countryCode: '+1', number: '+' });
@@ -28,26 +28,26 @@ test('splitTypedPhone leaves everything else alone', () => {
 });
 
 test('toE164 joins the code and digits only', () => {
-  assert.equal(toE164('+1', '2892211807'), '+12892211807');
-  assert.equal(toE164('+1', '(289) 221-1807'), '+12892211807');
-  assert.equal(toE164('+1', '289.221.1807'), '+12892211807');
+  assert.equal(toE164('+1', '4165550123'), '+14165550123');
+  assert.equal(toE164('+1', '(416) 555-0123'), '+14165550123');
+  assert.equal(toE164('+1', '416.555.0123'), '+14165550123');
   assert.equal(toE164('+91', '98765 43210'), '+919876543210');
   assert.equal(toE164('+1', ''), '');
   assert.equal(toE164('+1', ' - ( ) '), '');
 });
 
 test('toE164 does not double a prefix', () => {
-  assert.equal(toE164('+1', '1 289 221 1807'), '+12892211807');
-  assert.equal(toE164('+1', '+12892211807'), '+12892211807');
+  assert.equal(toE164('+1', '1 416 555 0123'), '+14165550123');
+  assert.equal(toE164('+1', '+14165550123'), '+14165550123');
   assert.equal(toE164('+44', '07911 123456'), '+447911123456');
   assert.equal(toE164('+1', '+7 912 345 6789'), '+79123456789');
 });
 
 test('isPlausibleSplitPhone: +1 needs 10 digits, others at least 7', () => {
-  assert.equal(isPlausibleSplitPhone('+1', '2892211807'), true);
-  assert.equal(isPlausibleSplitPhone('+1', '1 289 221 1807'), true);
+  assert.equal(isPlausibleSplitPhone('+1', '4165550123'), true);
+  assert.equal(isPlausibleSplitPhone('+1', '1 416 555 0123'), true);
   assert.equal(isPlausibleSplitPhone('+1', '289221180'), false);
-  assert.equal(isPlausibleSplitPhone('+1', '28922118071'), false);
+  assert.equal(isPlausibleSplitPhone('+1', '41655501231'), false);
   assert.equal(isPlausibleSplitPhone('+44', '7911123456'), true);
   assert.equal(isPlausibleSplitPhone('+61', '412345678'), true);
   assert.equal(isPlausibleSplitPhone('+44', '791112'), false);
@@ -72,10 +72,10 @@ test('splitPrefillPhone always yields a code the selector offers', () => {
 
 test('isValidCollaboratorPhone: +1 needs exactly 10 digits', () => {
   assert.equal(isValidCollaboratorPhone('+1', '289221180'), false);
-  assert.equal(isValidCollaboratorPhone('+1', '2892211807'), true);
-  assert.equal(isValidCollaboratorPhone('+1', '(289) 221-1807'), true);
-  assert.equal(isValidCollaboratorPhone('+1', '1 289 221 1807'), true); // leading 1 dropped
-  assert.equal(isValidCollaboratorPhone('+1', '28922118071'), false);
+  assert.equal(isValidCollaboratorPhone('+1', '4165550123'), true);
+  assert.equal(isValidCollaboratorPhone('+1', '(416) 555-0123'), true);
+  assert.equal(isValidCollaboratorPhone('+1', '1 416 555 0123'), true); // leading 1 dropped
+  assert.equal(isValidCollaboratorPhone('+1', '41655501231'), false);
   assert.equal(isValidCollaboratorPhone('+1', ''), false);
   assert.equal(isValidCollaboratorPhone('+1', '   '), false);
 });
@@ -89,7 +89,7 @@ test('isValidCollaboratorPhone: other codes accept 6–15 digits', () => {
 });
 
 test('isValidCollaboratorPhone: a typed international number uses its own code', () => {
-  assert.equal(isValidCollaboratorPhone('+44', '+12892211807'), true);
+  assert.equal(isValidCollaboratorPhone('+44', '+14165550123'), true);
   assert.equal(isValidCollaboratorPhone('+44', '+1289221180'), false);
   assert.equal(isValidCollaboratorPhone('+1', '+44 7911 123456'), true);
   assert.equal(isValidCollaboratorPhone('+1', '+'), false);
@@ -97,7 +97,7 @@ test('isValidCollaboratorPhone: a typed international number uses its own code',
 });
 
 test('collaboratorPhoneValue stores E.164', () => {
-  assert.equal(collaboratorPhoneValue('+1', '(289) 221-1807'), '+12892211807');
+  assert.equal(collaboratorPhoneValue('+1', '(416) 555-0123'), '+14165550123');
   assert.equal(collaboratorPhoneValue('+44', '07911 123456'), '+447911123456');
   assert.equal(collaboratorPhoneValue('+1', '+44 7911 123456'), '+447911123456');
 });

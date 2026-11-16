@@ -338,7 +338,7 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
 
       fetched.forEach(({ lead, messages }) => {
         messages.forEach((m) => {
-          const channel = messageChannelLabel(m.channel);
+          const channel = messageChannelLabel(m.channel, m.body);
           const dir = m.direction === 'outbound' ? 'Outbound' : 'Inbound';
           entries.push({
             lead,
