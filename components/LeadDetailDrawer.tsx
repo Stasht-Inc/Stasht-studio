@@ -8,7 +8,7 @@ import { useMemoryLimit, recheckMemoryLimit } from '../hooks/useMemoryLimit';
 import { useDialogBehavior } from '../hooks/useDialogBehavior';
 import { toast } from 'sonner';
 import { smsSegmentInfo, SMS_MAX_BODY } from '../utils/smsSegments';
-import ShareCarsDialog, { type PickKind } from './ShareCarsDialog';
+import ShareCarsDialog, { samePickTab, type PickKind } from './ShareCarsDialog';
 import { campaignPill, ProductsPickButton, useHasProducts } from './leads/CampaignPickButtons';
 import { fallbackDraft, itemCount, removeDraft, replaceDraft, type PickedCampaign } from '../utils/composerCampaign';
 import AssigneeControl from './leads/AssigneeControl';
@@ -586,7 +586,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
         ? await leadsAPI.sendChat(lead!.id, message.trim(), key, encoded, campaign)
         : via === 'sms'
           ? await leadsAPI.sendSMS(lead!.id, message.trim(), key, encoded, campaign)
-          : await leadsAPI.sendEmail(lead!.id, subject.trim() || (pickedCampaign ? (pickedCampaign.kind === 'product' ? 'Products picked for you' : 'New cars just added') : 'Following up'), message.trim(), encoded, key, campaign);
+          : await leadsAPI.sendEmail(lead!.id, subject.trim() || (pickedCampaign ? (pickedCampaign.kind !== 'vehicle' ? 'Products picked for you' : 'New cars just added') : 'Following up'), message.trim(), encoded, key, campaign);
       if (res.success) {
         // confirmed success → fresh key for the next compose on THIS channel only
         if (via === 'sms') smsIdemKeyRef.current = crypto.randomUUID();
@@ -1786,9 +1786,9 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
           onClose={() => setShowShareCars(false)}
           leadName={leadName}
           // "+ Products" over a vehicle pick starts a fresh product pick (the vehicles stay until Add replaces them).
-          initialSelection={pickerKind && pickedCampaign && pickedCampaign.kind !== pickerKind ? undefined : pickedCampaign?.ids}
-          initialCampaignName={pickerKind && pickedCampaign && pickedCampaign.kind !== pickerKind ? undefined : pickedCampaign?.name}
-          initialKind={pickerKind ?? pickedCampaign?.kind}
+          initialSelection={pickerKind && pickedCampaign && !samePickTab(pickedCampaign.kind, pickerKind) ? undefined : pickedCampaign?.ids}
+          initialCampaignName={pickerKind && pickedCampaign && !samePickTab(pickedCampaign.kind, pickerKind) ? undefined : pickedCampaign?.name}
+          initialKind={pickerKind && pickedCampaign && samePickTab(pickedCampaign.kind, pickerKind) ? pickedCampaign.kind : (pickerKind ?? pickedCampaign?.kind)}
           onPick={handleCampaignPick}
         />
     </div>

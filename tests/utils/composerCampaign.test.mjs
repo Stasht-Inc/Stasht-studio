@@ -27,4 +27,5 @@ test('removing the chip takes the wording out and never leaves the placeholder',
 test('fallback wording carries the placeholder', () => {
   assert.equal(fallbackDraft(1, 'vehicle'), `Here is a vehicle picked for you: ${CAMPAIGN_PLACEHOLDER}`);
   assert.equal(fallbackDraft(3, 'product'), `Here are 3 products picked for you: ${CAMPAIGN_PLACEHOLDER}`);
+  assert.equal(fallbackDraft(2, 'shopify'), `Here are 2 products picked for you: ${CAMPAIGN_PLACEHOLDER}`);
 });

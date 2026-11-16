@@ -6,7 +6,7 @@
 export const CAMPAIGN_PLACEHOLDER = '[campaign link]';
 
 export interface PickedCampaign {
-  kind: 'vehicle' | 'product';
+  kind: 'vehicle' | 'product' | 'shopify'; // shopify: Shopify products (ticket wdy2xh1320), worded as products
   ids: number[];
   // As typed in the picker; '' for products left unnamed (the server names them).
   name: string;
@@ -50,13 +50,13 @@ export function removeDraft(text: string, draft: string | null | undefined): str
 }
 
 /** "2 products", "1 vehicle" — the chip's count. */
-export function itemCount(count: number, kind: 'vehicle' | 'product'): string {
-  const noun = kind === 'product' ? 'product' : 'vehicle';
+export function itemCount(count: number, kind: PickedCampaign['kind']): string {
+  const noun = kind === 'vehicle' ? 'vehicle' : 'product';
 
   return `${count} ${noun}${count === 1 ? '' : 's'}`;
 }
 
 /** Fallback wording when the API can't say (older server): the link placeholder only. */
-export function fallbackDraft(count: number, kind: 'vehicle' | 'product'): string {
+export function fallbackDraft(count: number, kind: PickedCampaign['kind']): string {
   return `Here ${count === 1 ? 'is' : 'are'} ${itemCount(count, kind).replace(/^1 /, 'a ')} picked for you: ${CAMPAIGN_PLACEHOLDER}`;
 }
