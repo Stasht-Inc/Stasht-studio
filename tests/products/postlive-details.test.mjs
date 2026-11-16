@@ -1,7 +1,7 @@
 // tests/products/postlive-details.test.mjs — post-live P1 (15 Nov): the product details view's actions and facts.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { detailActions, detailFacts, WEBSITE_SYNC_NOTE } from '../../utils/products.ts';
+import { detailActions, detailFacts, enquireFact, WEBSITE_SYNC_NOTE } from '../../utils/products.ts';
 
 const MANUAL_FIELDS = ['title', 'price', 'status', 'tags', 'media'];
 const WEBSITE_FIELDS = ['status', 'tags', 'collections', 'internal_notes', 'show_price', 'show_enquire', 'category_ids'];
@@ -28,4 +28,11 @@ test('P1: facts list only what the product has', () => {
     { label: 'SKU', value: 'SKU-1' }, { label: 'Quantity', value: '0' }, { label: 'Weight', value: '2.5 kg' }, { label: 'Dimensions', value: '10 × 20 × – cm' },
   ]);
   assert.deepEqual(detailFacts({ sku: null, brand: null, product_type: null, barcode: null, quantity: null, weight: null, weight_unit: null, dimensions: null }), []);
+});
+
+test('the details say whether the Enquire button is on (Chris 16 Nov, point 4); unset = on', () => {
+  assert.deepEqual(enquireFact({ show_enquire: true }), { label: 'Enquire button', value: 'On' });
+  assert.deepEqual(enquireFact({ show_enquire: null }), { label: 'Enquire button', value: 'On' });
+  assert.deepEqual(enquireFact({}), { label: 'Enquire button', value: 'On' });
+  assert.deepEqual(enquireFact({ show_enquire: false }), { label: 'Enquire button', value: 'Off' });
 });

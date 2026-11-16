@@ -11,7 +11,7 @@ import { productsAPI, type ProductCategory, type ProductDetail } from '../../ser
 import { captureOpener, releaseOpener } from './layerFocus';
 import { useBackToClose } from '../newsletters/hooks/useBackToClose';
 import {
-  SHOPIFY_READ_ONLY_NOTE, WEBSITE_READ_ONLY_NOTE, categoryChooserChoices, currencyOptions, editableFor, emptyProductForm, formFromDetail, payloadFromForm, validateProductForm, slugFromTitle, type ProductForm,
+  ENQUIRE_HELP, SHOPIFY_READ_ONLY_NOTE, WEBSITE_READ_ONLY_NOTE, categoryChooserChoices, currencyOptions, editableFor, emptyProductForm, formFromDetail, payloadFromForm, validateProductForm, slugFromTitle, type ProductForm,
 } from '../../utils/products';
 import { BUTTON_PRIMARY, LABEL, LINK_BUTTON, inputClass, textareaClass } from '../newsletters/lib/ui';
 import { Switch } from '../ui/switch';
@@ -366,7 +366,10 @@ export default function ProductEditor({ productId, categories, defaultCurrency, 
             <div className={`min-w-0 space-y-4 ${website && !readOnly ? 'order-first lg:order-none' : ''}`}>
               <Section title="Visibility">
                 <Field id="p-status" label="Status" error={errors.status}><ProductSelect id="p-status" value={form.status} disabled={!can('status')} options={STATUS_OPTIONS} onChange={(v) => set('status', v as ProductForm['status'])} /></Field>
-                <label className="flex items-center gap-3 text-sm text-gray-800"><Switch checked={form.show_enquire} disabled={!can('show_enquire')} onCheckedChange={(v) => set('show_enquire', v)} aria-label="Show the Enquire button" />Show the Enquire button</label>
+                <div>
+                  <label className="flex items-center gap-3 text-sm text-gray-800"><Switch checked={form.show_enquire} disabled={!can('show_enquire')} onCheckedChange={(v) => set('show_enquire', v)} aria-label="Show the Enquire button" aria-describedby="p-enquire-help" />Show the Enquire button</label>
+                  <p id="p-enquire-help" className="mt-1 text-xs text-gray-500">{ENQUIRE_HELP}</p>
+                </div>
                 <label className="flex items-center gap-3 text-sm text-gray-800"><Switch checked={form.show_price} disabled={!can('show_price')} onCheckedChange={(v) => set('show_price', v)} aria-label="Show the price" />Show the price</label>
               </Section>
               <Section title="Organisation">

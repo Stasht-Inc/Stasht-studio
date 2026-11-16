@@ -10,7 +10,7 @@ import { FocusScope } from '@radix-ui/react-focus-scope';
 import { Archive, ArchiveRestore, ArrowLeft, Copy, ExternalLink, MoreHorizontal, Package, Pencil, SlidersHorizontal, Trash2 } from 'lucide-react';
 import { productsAPI, type ProductDetail, type ProductStatus } from '../../services/productsAPI';
 import { useBackToClose } from '../newsletters/hooks/useBackToClose';
-import { BADGE_CLASS, BADGE_LABEL, SHOPIFY_SYNC_NOTE, WEBSITE_SYNC_NOTE, detailActions, detailFacts, priceLine, productCategoryColor, sourceColor, sourceLabel, variantLabel } from '../../utils/products';
+import { BADGE_CLASS, BADGE_LABEL, SHOPIFY_SYNC_NOTE, WEBSITE_SYNC_NOTE, detailActions, detailFacts, enquireFact, priceLine, productCategoryColor, sourceColor, sourceLabel, variantLabel } from '../../utils/products';
 import { BUTTON_PRIMARY, BUTTON_SECONDARY, LINK_BUTTON } from '../newsletters/lib/ui';
 import { TEXT_CLASS, renderTextNodes } from '../newsletters/blocks/TextBlockEditor';
 import { parseTextHtml } from '../newsletters/lib/textHtml';
@@ -136,7 +136,7 @@ export default function ProductDetails({ productId, initial, notice, onClose, on
 
   const price = detail ? priceLine(detail) : { main: '', was: '' };
   const current = media[shown];
-  const facts = detail ? detailFacts(detail) : [];
+  const facts = detail ? [...detailFacts(detail), enquireFact(detail)] : [];
   const descriptionNodes = useMemo(() => (detail?.description_html ? renderTextNodes(parseTextHtml(detail.description_html)) : null), [detail?.description_html]);
   const stockBadge = detail && detail.stock_status === 'out_of_stock' && detail.badge !== 'out_of_stock';
   const links = detail ? [

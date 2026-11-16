@@ -27,6 +27,8 @@ import { useStoreelTracking } from "../hooks/useStoreelTracking";
 import { endOfTimelinePostId } from "../utils/addMomentPosition";
 import ProductCardButton, { productButtonData } from "../components/ProductCardButton";
 import { productButtonsByPost } from "../utils/productCardButton";
+import ProductEnquireModal from "../components/ProductEnquireModal";
+import { enquirePostMap } from "../utils/productEnquiry";
 import { qrFromSearch, withQr } from "../utils/qrAccess";
 import { DOCUSIGN_ENABLED } from "../constants/features.ts";
 
@@ -654,6 +656,7 @@ export default function PublishedMemoryPage() {
           linked_memories: newMemory?.linked_memories ?? rawData?.linked_memories ?? [],
           unified_order: newMemory?.unified_order ?? rawData?.unified_order ?? null,
           widgets: newMemory?.widgets ?? rawData?.widgets ?? [],
+          enquire_products: newMemory?.enquire_products ?? rawData?.enquire_products ?? [],
         });
         setCombinedPublishedTimeline(null);
         setActivePubLmId(null);
@@ -708,6 +711,8 @@ export default function PublishedMemoryPage() {
   // Opened by a CTA widget the owner authored with mode 'request_moment', so any
   // visitor — signed in or not — can offer a photo + caption for review.
   const [showRequestMomentModal, setShowRequestMomentModal] = useState(false);
+  // "Enquire" on a product moment (Chris 16 Nov 2026): which product the form is open for.
+  const [enquireTarget, setEnquireTarget] = useState<{ postId: string; title: string } | null>(null);
   // Which post the submission should land after; null = top of the timeline.
   const [requestMomentAfterPostId, setRequestMomentAfterPostId] = useState<string | null>(null);
   // The "Add a moment" bar's button, and whether it opened the form: it is hidden while the form shows, so focus
@@ -1106,6 +1111,8 @@ export default function PublishedMemoryPage() {
               linked_memories: memory?.linked_memories ?? actualData?.linked_memories ?? [],
               unified_order: memory?.unified_order ?? actualData?.unified_order ?? null,
               widgets: memory?.widgets ?? actualData?.widgets ?? [],
+              // Product moments with an "Enquire" button (Chris 16 Nov 2026).
+              enquire_products: memory?.enquire_products ?? actualData?.enquire_products ?? [],
             });
             setSortOrder(actualData.order_by || 'asc');
             setRequiresToken(false);
@@ -1583,9 +1590,27 @@ export default function PublishedMemoryPage() {
   // A product moment's own "View on website" button goes inside that moment's card (Chris, 8 Nov 2026), so it is
   // neither a card of its own nor an entry in the left timeline nav.
   const { byPost: publishedProductButtons, rest: publishedTimelineWidgets } = productButtonsByPost(publishedWidgets);
+  // A product moment whose product has "Show the Enquire button" on gets an Enquire button under it (Chris 16 Nov 2026).
+  const enquirePosts = enquirePostMap(memoryData?.enquire_products);
   const renderProductButton = (postId: any) => {
     const w = publishedProductButtons.get(String(postId));
-    return w ? <ProductCardButton button={productButtonData(w as any)} memoryId={w.memory_id ?? memoryData?.id} onClick={() => trackStoreelCtaClick(w.id)} className="mt-3" /> : null;
+    const button = w ? <ProductCardButton button={productButtonData(w as any)} memoryId={w.memory_id ?? memoryData?.id} onClick={() => trackStoreelCtaClick(w.id)} className="mt-3" /> : null;
+    const enquireTitle = enquirePosts.get(String(postId));
+    if (enquireTitle === undefined) return button;
+    return (
+      <>
+        {button}
+        <button
+          type="button"
+          data-enquire-post={String(postId)}
+          onClick={(e) => { e.stopPropagation(); setEnquireTarget({ postId: String(postId), title: enquireTitle }); }}
+          className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl border-2 border-[#6C60FF] bg-white px-6 py-2.5 text-base font-semibold text-[#6C60FF] transition-colors hover:bg-[#6C60FF]/5 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#6C60FF]/40"
+        >
+          <MessageSquare className="h-[18px] w-[18px] flex-shrink-0" aria-hidden="true" />
+          Enquire
+        </button>
+      </>
+    );
   };
   // Widgets pinned to bottom render at the very end of the timeline regardless of their
   // after_post_id — matching the owner/editor view. Keep them out of the per-post grouping.
@@ -1633,7 +1658,7 @@ export default function PublishedMemoryPage() {
   // The loading, error and access-token screens return earlier, so it never shows there.
   // Hidden (not unmounted) while something covers the page, so closing the form puts focus back on the button.
   const addMomentBarCovered = imageViewer.isOpen || showMobileComments || showAuthorModal || showDesktopAuthorModal
-    || !!selectedCarDetail || showRequestMomentModal;
+    || !!selectedCarDetail || showRequestMomentModal || !!enquireTarget;
   // The bar: 12px + 48px button + 12px, plus its 1px top border. Content keeps the same room at the bottom
   // (also while the bar is hidden under a viewer, so nothing behind it moves).
   const addMomentRoom = addMomentBarOn ? { paddingBottom: 'calc(73px + env(safe-area-inset-bottom))' } : undefined;
@@ -3940,6 +3965,17 @@ export default function PublishedMemoryPage() {
           e.preventDefault();
           addMomentButtonRef.current.focus();
         }}
+      />
+
+      {/* ── Enquire on a product moment (Chris 16 Nov 2026) ─────────────────── */}
+      <ProductEnquireModal
+        open={!!enquireTarget}
+        onOpenChange={(next) => { if (!next) setEnquireTarget(null); }}
+        memoryId={memoryData?.id}
+        postId={enquireTarget?.postId ?? null}
+        productTitle={enquireTarget?.title ?? ''}
+        accessToken={accessToken || enteredAccessToken || null}
+        qr={qr}
       />
 
       {/* ── Car photo viewer: opens directly from the campaign (filmstrip + spec sheet, no comments) ── */}
