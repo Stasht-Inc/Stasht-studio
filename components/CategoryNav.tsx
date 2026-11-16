@@ -631,7 +631,9 @@ export interface Label {
   admin_id?: string | null;
 }
 
-function AddCategoryPopover({ 
+// Exported for the Products page's categories (Chris, 16 Nov: the same create / rename UI as Campaigns). The optional
+// subtitle, error (the server's answer, under the field) and busy props default to Campaigns' behaviour.
+export function AddCategoryPopover({ 
   value, 
   onChange, 
   onSave, 
@@ -639,19 +641,25 @@ function AddCategoryPopover({
   onKeyPress,
   existingCategories,
   title = "New Category",
-  buttonText = "Create"
+  buttonText = "Create",
+  subtitle,
+  error,
+  busy = false
 }: { 
   value: string; 
   onChange: (value: string) => void; 
   onSave: () => void; 
   onCancel: () => void; 
   onKeyPress?: (e: React.KeyboardEvent) => void;
-  existingCategories: Category[];
+  existingCategories: Array<Pick<Category, 'name'>>;
   title?: string;
   buttonText?: string;
+  subtitle?: string;
+  error?: string | null;
+  busy?: boolean;
 }) {
   const isDuplicate = existingCategories.some(cat => cat.name.toLowerCase() === value.trim().toLowerCase());
-  const isValid = value.trim().length > 0 && !isDuplicate;
+  const isValid = value.trim().length > 0 && !isDuplicate && !busy;
 
   return (
     <div className="w-72 p-3 space-y-3 bg-white rounded-xl">
@@ -661,7 +669,7 @@ function AddCategoryPopover({
         </div>
         <div>
           <h3 className="text-sm font-medium text-gray-900">{title}</h3>
-          <p className="text-xs text-gray-500">{title === "Edit Category" ? "Rename your category" : "Create a category to organize campaigns"}</p>
+          <p className="text-xs text-gray-500">{subtitle ?? (title === "Edit Category" ? "Rename your category" : "Create a category to organize campaigns")}</p>
         </div>
       </div>
 
@@ -687,6 +695,12 @@ function AddCategoryPopover({
           <p className="text-xs text-red-600 flex items-center gap-1">
             <X className="w-3 h-3" />
             Category already exists
+          </p>
+        )}
+        {error && !isDuplicate && (
+          <p role="alert" className="text-xs text-red-600 flex items-center gap-1">
+            <X className="w-3 h-3" />
+            {error}
           </p>
         )}
       </div>
