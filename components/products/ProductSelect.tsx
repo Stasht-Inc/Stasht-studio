@@ -14,7 +14,7 @@ export const fieldTrigger = (invalid = false): string =>
 
 export interface SelectOption { value: string; label: string }
 
-export default function ProductSelect({ id, value, onChange, options, placeholder, disabled, className, label, ...aria }: {
+export default function ProductSelect({ id, value, onChange, options, placeholder, disabled, className, contentClassName, label, ...aria }: {
   id?: string;
   value: string;
   onChange(value: string): void;
@@ -22,6 +22,8 @@ export default function ProductSelect({ id, value, onChange, options, placeholde
   placeholder?: string;
   disabled?: boolean;
   className?: string;
+  /** Extra classes for the open list (e.g. a z-index above the newsletter composer). */
+  contentClassName?: string;
   /** aria-label, when no <label htmlFor> names it. */
   label?: string;
   'aria-invalid'?: boolean;
@@ -32,7 +34,7 @@ export default function ProductSelect({ id, value, onChange, options, placeholde
       <SelectTrigger id={id} aria-label={label} aria-invalid={aria['aria-invalid']} aria-describedby={aria['aria-describedby']} className={className ?? fieldTrigger(Boolean(aria['aria-invalid']))}>
         <SelectValue placeholder={placeholder} />
       </SelectTrigger>
-      <SelectContent className="bg-white border border-gray-200 shadow-lg">
+      <SelectContent className={`bg-white border border-gray-200 shadow-lg ${contentClassName ?? ''}`}>
         {options.map((o) => <SelectItem key={o.value} value={o.value} className={SELECT_ITEM}>{o.label}</SelectItem>)}
       </SelectContent>
     </Select>

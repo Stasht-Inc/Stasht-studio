@@ -1,6 +1,7 @@
 // [wdy2xh2p3f] Text rules: live parts counter with the emoji warning, the 3-part limit, quiet hours checked in
 // Studio and the API's own 422 scheduled_at shown on step 6, and the allowance counted in text message parts.
 import { createMockApi, newsletter } from '../mock-api.mjs';
+import { pickDate, pickTime } from '../steps.mjs';
 
 const TZ = 'America/Toronto';
 const ready = (over = {}) => newsletter(23, {
@@ -38,14 +39,14 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
   const schedule = page.locator('#nl-step-schedule');
   await schedule.getByText('Schedule for later').click();
   await expectVisible(schedule.getByText(/Texts go out only between 8am and 9pm\./), 'quiet hours note');
-  await schedule.getByLabel('Date').fill(tomorrow());
-  await schedule.getByLabel('Time').fill('22:00');
+  await pickDate(schedule, tomorrow());
+  await pickTime(schedule, '22:00');
   await page.getByRole('button', { name: 'Schedule' }).last().click();
   await expectVisible(schedule.getByText('Texts can only go out between 8am and 9pm. Pick a time in that window.'), 'quiet hours on step 6');
   expect(!api.state.calls.some((c) => c.path.endsWith('/schedule')), 'nothing scheduled in quiet hours');
   await shot(page, '1280-02-quiet-hours');
 
-  await schedule.getByLabel('Time').fill('10:00');
+  await pickTime(schedule, '10:00');
   await page.getByRole('button', { name: 'Schedule' }).last().click();
   const dialog = page.getByRole('dialog', { name: 'Schedule this newsletter?' });
   await expectVisible(dialog, 'confirm dialog');
@@ -59,13 +60,13 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
   const second = await open({ width: 1280, height: 1900, api: api2, query: '&newsletterId=23', timezoneId: TZ });
   const s2 = second.page.locator('#nl-step-schedule');
   await s2.getByText('Schedule for later').click();
-  await s2.getByLabel('Date').fill(tomorrow());
-  await s2.getByLabel('Time').fill('10:00');
+  await pickDate(s2, tomorrow());
+  await pickTime(s2, '10:00');
   await second.page.getByRole('button', { name: 'Schedule' }).last().click();
   await second.page.getByRole('dialog', { name: 'Schedule this newsletter?' }).getByRole('button', { name: 'Schedule' }).click();
   await expectVisible(s2.getByText(QUIET), 'server quiet-hours message on step 6');
   expect(!(await second.page.getByRole('dialog', { name: 'Schedule this newsletter?' }).count()), 'confirm dialog closed');
-  await s2.getByLabel('Time').fill('11:00');
+  await pickTime(s2, '11:00');
   expect(!(await s2.getByText(QUIET).count()), 'the refused time message goes once another time is picked');
   // The API's sms_text parts error shows under the text box.
   await second.context.close();

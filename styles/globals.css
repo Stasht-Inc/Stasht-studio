@@ -712,3 +712,25 @@ input[type="date"] ~ * [aria-selected="true"] {
 .leads-filter-menu [role="option"][data-state="checked"] {
   font-weight: 500;
 }
+
+/* Newsletter Schedule calendar (Chris, 16 Nov): Studio's Calendar, with the selected day / today / hover in Studio's
+   darker gray instead of the global purple calendar rules above (same idea as .leads-filter-menu). */
+.nl-schedule-calendar [role="gridcell"],
+.nl-schedule-calendar [role="gridcell"][tabindex="0"],
+.nl-schedule-calendar [role="gridcell"]:focus {
+  background-color: transparent !important;
+  color: #111827 !important;
+}
+.nl-schedule-calendar [role="gridcell"]:hover:not([disabled]) {
+  background-color: #f3f4f6 !important;
+}
+.nl-schedule-calendar [role="gridcell"][disabled] {
+  color: #d1d5db !important;
+}
+.nl-schedule-calendar .day-today {
+  border: 1px solid #9ca3af !important;
+}
+.nl-schedule-calendar [role="gridcell"][aria-selected="true"] {
+  background-color: #1f2937 !important;
+  color: #ffffff !important;
+}
