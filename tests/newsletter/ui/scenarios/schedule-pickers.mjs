@@ -40,6 +40,14 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
     const sel = page.locator('[data-slot="popover-content"]').last().locator('button[name="day"][aria-selected="true"]');
     const selBg = await sel.evaluate((el) => getComputedStyle(el).backgroundColor);
     expect(selBg === 'rgb(31, 41, 55)', `${width}: selected day is gray-800 (got ${selBg})`);
+    // Review: hovering the picked day keeps it dark gray with white text (readable).
+    if (width === 1280) {
+      await sel.hover();
+      const hov = await sel.evaluate((el) => `${getComputedStyle(el).backgroundColor} ${getComputedStyle(el).color}`);
+      expect(hov === 'rgb(31, 41, 55) rgb(255, 255, 255)', `${width}: hovered selected day stays dark with white text (got ${hov})`);
+      await page.waitForTimeout(200);
+      await shot(page, `${width}-02b-selected-hover`);
+    }
     await page.waitForTimeout(400); // open animation
     await shot(page, `${width}-02-calendar-selected`);
     await page.keyboard.press('Escape');
