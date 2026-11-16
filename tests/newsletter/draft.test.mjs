@@ -14,7 +14,7 @@ const SPEC_NEWSLETTER = {
 };
 
 test('LIMITS copy spec §8', () => {
-  assert.deepEqual(LIMITS, { name: 120, subject: 150, preview_text: 200, from_name: 80, sms_text: 2000, blocks: 40, title: 200, text_html: 20000, button_label: 40, url: 2000 });
+  assert.deepEqual(LIMITS, { name: 120, subject: 150, preview_text: 200, from_name: 80, sms_text: 2000, blocks: 40, title: 200, text_html: 20000, html: 50000, button_label: 40, url: 2000 });
 });
 
 test('isPlausibleEmail', () => {

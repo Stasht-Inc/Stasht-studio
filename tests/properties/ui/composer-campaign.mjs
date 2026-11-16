@@ -2,7 +2,7 @@
 // node tests/properties/ui/composer-campaign.mjs   (dev server: SL_BASE, default http://localhost:5182)
 // Pick 2 products → their wording lands in "Type a message to Kim…" after what was typed, a "2 products · More MDF" chip
 // shows, NOTHING is created or sent; the agent keeps typing; Send makes one call that carries the box text + the pick.
-// × on the chip takes the wording out. Secondary controls are grey; Send stays purple.
+// × on the chip takes the wording out. Secondary controls are grey, "+ Campaign" light purple (Chris 16 Nov); Send purple.
 // Every API call is answered here and every non-local request is aborted: nothing leaves this machine.
 import { mkdirSync } from 'fs';
 import pw from '/Users/deepaksharma/.nvm/versions/node/v24.5.0/lib/node_modules/@executeautomation/playwright-mcp-server/node_modules/playwright-core/index.js';
@@ -92,7 +92,7 @@ try {
     await box.fill('Hi Kim, as promised.');
 
     const plus = page.getByRole('button', { name: 'Add a campaign to your message' }).filter({ visible: true }).first();
-    expect(!isPurple(await plus.evaluate((el) => getComputedStyle(el).backgroundColor + getComputedStyle(el).color)), `${tag}1: + Campaign is grey`);
+    expect(isPurple(await plus.evaluate((el) => getComputedStyle(el).backgroundColor + getComputedStyle(el).color)), `${tag}1: + Campaign is light purple again (Chris 16 Nov)`);
     const send = page.getByRole('button', { name: /^Send$/ }).filter({ visible: true }).first();
     expect(isPurple(await send.evaluate((el) => getComputedStyle(el).backgroundColor)), `${tag}1: Send stays purple`);
     await plus.click();

@@ -12,6 +12,9 @@ import { isPlausibleSplitPhone, splitTypedPhone, toE164 } from '../../utils/phon
 import { useProperty } from '../../contexts/PropertyContext';
 import { actingPerson, messageSignoff } from '../../utils/messageSignoff';
 import { fallbackDraft, removeDraft, replaceDraft } from '../../utils/composerCampaign';
+import { defaultSendAs } from '../../utils/sendAsDefault';
+import { findPropertyRow } from '../../utils/propertyRows';
+import { CAMPAIGN_PILL, ProductsPickButton, useHasProducts } from './CampaignPickButtons';
 
 // "+ Send Message" (spec 2026-09-23 §5, Chris's "Start A New Message" reference):
 // text or email anyone. The backend reuses the contact's existing lead on this
@@ -76,11 +79,14 @@ export default function SendMessageDialog({ open, onOpenChange, onSent }: Props)
   const [phoneCountry, setPhoneCountry] = useState('+1');
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
-  // null = use the suggested text, which follows the cars/dealership picked.
+  // null = use the suggested text, which follows the items / business picked.
   const [subjectOverride, setSubjectOverride] = useState<string | null>(null);
   const [bodyOverride, setBodyOverride] = useState<string | null>(null);
   const [picked, setPicked] = useState<PickedCampaign | null>(null);
   const [showPicker, setShowPicker] = useState(false);
+  // "+ Products" opens the picker on its Products tab; "+ Campaign" and Edit as before (undefined).
+  const [pickerKind, setPickerKind] = useState<PickKind | undefined>(undefined);
+  const hasProducts = useHasProducts(open);
   const [propertyId, setPropertyId] = useState<string>('');
   const [properties, setProperties] = useState<Option[]>([]);
   const [sending, setSending] = useState(false);
@@ -94,16 +100,16 @@ export default function SendMessageDialog({ open, onOpenChange, onSent }: Props)
     setPicked(null); setShowPicker(false); setError(null);
 
     let cancelled = false;
-    const fullRows = dashboardAPI.getProperties()
-      .then((res: any) => (Array.isArray(res?.data?.properties) ? res.data.properties : []) as any[])
-      .catch(() => [] as any[]);
+    // The full GET /properties rows, found however the response is wrapped (utils/propertyRows, as AccountChoiceModal).
+    const fullRows = dashboardAPI.getProperties().catch(() => null);
     dashboardAPI.getStoreelMyProperties().then(async (res: any) => {
       const list: any[] = res?.properties || res?.data?.properties || [];
       const rows = await fullRows;
       if (cancelled) return;
-      const opts = list.map((p) => ({ id: String(p.id), name: p.name, row: rows.find((r) => String(r?.id) === String(p.id)) }));
+      const opts = list.map((p) => ({ id: String(p.id), name: p.name, row: findPropertyRow(rows, p.id) ?? undefined }));
       setProperties(opts);
-      setPropertyId(opts.length === 1 ? opts[0].id : '');
+      // "Send as" starts on the current view's business, or the account's own (utils/sendAsDefault); changeable.
+      setPropertyId(defaultSendAs(opts, viewType === 'property' ? (currentProperty as any)?.id ?? null : null));
     }).catch(() => { if (!cancelled) setProperties([]); });
     return () => { cancelled = true; };
   }, [open]);
@@ -280,15 +286,16 @@ export default function SendMessageDialog({ open, onOpenChange, onSent }: Props)
 
           {properties.length > 1 && (
             <div>
-              <span id="sm-property-label" className={label}>Send from</span>
+              <span id="sm-property-label" className={label}>Send as</span>
               <Select value={propertyId} onValueChange={setPropertyId}>
-                <SelectTrigger aria-labelledby="sm-property-label" className="h-10 w-full bg-white border-gray-200 text-sm">
-                  <SelectValue placeholder="Choose a dealership" />
+                <SelectTrigger aria-labelledby="sm-property-label" aria-describedby="sm-property-hint" className="h-10 w-full bg-white border-gray-200 text-sm">
+                  <SelectValue placeholder="Choose a business" />
                 </SelectTrigger>
                 <SelectContent>
                   {properties.map((p) => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
                 </SelectContent>
               </Select>
+              <p id="sm-property-hint" className="mt-1 text-xs text-gray-500">Which business this conversation is filed under. Its team sees it in Leads.</p>
             </div>
           )}
 
@@ -305,7 +312,7 @@ export default function SendMessageDialog({ open, onOpenChange, onSent }: Props)
                 </span>
                 <button
                   type="button"
-                  onClick={() => setShowPicker(true)}
+                  onClick={() => { setPickerKind(undefined); setShowPicker(true); }}
                   className="h-8 px-2.5 rounded-md text-sm font-medium text-[#202224] hover:bg-white transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400"
                 >
                   Edit
@@ -320,16 +327,19 @@ export default function SendMessageDialog({ open, onOpenChange, onSent }: Props)
                 </button>
               </div>
             ) : (
-              // Same "＋ Campaign" pill as the lead chat composer.
-              <button
-                type="button"
-                aria-labelledby="sm-campaign-label"
-                onClick={() => setShowPicker(true)}
-                className="flex items-center gap-1.5 h-10 px-4 rounded-lg bg-white border border-gray-200 hover:bg-[#F3F4F6] text-[#202224] text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400"
-              >
-                <Plus className="w-4 h-4" aria-hidden="true" />
-                Campaign
-              </button>
+              // Same "＋ Products" / "＋ Campaign" pills as the lead chat composer (CampaignPickButtons).
+              <div className="flex flex-wrap items-center gap-2">
+                {hasProducts && <ProductsPickButton onClick={() => { setPickerKind('product'); setShowPicker(true); }} />}
+                <button
+                  type="button"
+                  aria-labelledby="sm-campaign-label"
+                  onClick={() => { setPickerKind(undefined); setShowPicker(true); }}
+                  className={CAMPAIGN_PILL}
+                >
+                  <Plus className="w-4 h-4" aria-hidden="true" />
+                  Campaign
+                </button>
+              </div>
             )}
           </div>
 
@@ -375,7 +385,7 @@ export default function SendMessageDialog({ open, onOpenChange, onSent }: Props)
           leadName={name.trim() || 'this contact'}
           initialSelection={picked?.ids}
           initialCampaignName={picked?.name}
-          initialKind={picked?.kind}
+          initialKind={pickerKind ?? picked?.kind}
           onPick={pickCampaign}
         />
 
