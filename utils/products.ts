@@ -1,7 +1,7 @@
 // utils/products.ts — pure helpers for the Products page and editor (plan 2026-11-09-products-m1-m2, Tasks 11–15).
 // No React and no requests: tests/products/products.test.mjs runs this file directly.
 import { CATEGORY_COLOR_PALETTE, WEBSITE_CATALOG_COLOR } from './categoryColorManager.ts';
-import type { ProductBadge, ProductDetail, ProductFilters, ProductStatus, ProductsStatus, ProductSummary, StockStatus } from '../services/productsAPI.ts';
+import type { ProductBadge, ProductCategory, ProductDetail, ProductFilters, ProductStatus, ProductsStatus, ProductSummary, StockStatus } from '../services/productsAPI.ts';
 
 export const PAGE_SIZE = 48;
 export const UPGRADE_LINE = 'Products are available on the Teams and Business plans.';
@@ -605,12 +605,45 @@ export function leadShareSources(d: unknown): LeadShareSources | null {
  */
 export function leadShareManualItems(items: ReadonlyArray<ProductSummary>): Array<{
   id: number; title: string; price: string | null; currency: string | null; price_label: string; category: string | null;
-  url: string | null; main_image: string | null; images_count: number;
+  category_hidden?: true; url: string | null; main_image: string | null; images_count: number;
 }> {
   return items
     .filter((p) => p.origin === 'manual' && (p.status === 'active') && Number(p.images_count) > 0)
     .map((p) => ({
       id: p.id, title: p.title, price: p.price, currency: p.currency, price_label: p.price_label,
-      category: p.categories?.[0]?.name ?? p.category ?? null, url: null, main_image: p.main_image, images_count: p.images_count,
+      ...pickerCategoryOf(p), url: null, main_image: p.main_image, images_count: p.images_count,
     }));
+}
+
+// ---- Show / Hide per category (Chris, 16 Nov 2026) --------------------------------------------------------------------
+// A hidden category stays on the Products page's category column (dimmed, after the shown ones) and is left out of
+// every other category list. Its products stay listed everywhere and keep the category on their card.
+
+/** The Products page column: shown categories first, then the hidden ones, each group in the API's order. */
+export function orderCategoriesForNav<T extends Pick<ProductCategory, 'hidden'>>(categories: ReadonlyArray<T>): T[] {
+  return [...categories.filter((c) => !c.hidden), ...categories.filter((c) => c.hidden)];
+}
+
+/** "All Categories" dropdown: hidden ones are left out, except the one being shown right now (else the Select is blank). */
+export function categoryFilterChoices<T extends Pick<ProductCategory, 'id' | 'hidden'>>(categories: ReadonlyArray<T>, selectedId: number | null): T[] {
+  return categories.filter((c) => !c.hidden || c.id === selectedId);
+}
+
+/** The editor's / bulk bar's chooser: hidden ones are left out unless the product already has them (nothing is lost). */
+export function categoryChooserChoices<T extends Pick<ProductCategory, 'id' | 'hidden'>>(categories: ReadonlyArray<T>, keepIds: ReadonlyArray<number> = []): T[] {
+  return categories.filter((c) => !c.hidden || keepIds.includes(c.id));
+}
+
+/** A product's category as the pickers list it: its first shown category, else its first one marked hidden. */
+export function pickerCategoryOf(p: Pick<ProductSummary, 'category' | 'categories'>): { category: string | null; category_hidden?: true } {
+  const refs = p.categories ?? [];
+  const shown = refs.find((c) => !c.hidden);
+  if (shown) return { category: shown.name };
+  if (refs.length) return { category: refs[0].name, category_hidden: true };
+  return { category: p.category ?? null };
+}
+
+/** The picker's category dropdown: names of items whose category is shown (an item of a hidden one stays listed). */
+export function visibleCategoryNames(items: ReadonlyArray<{ category?: string | null; category_hidden?: boolean }>): string[] {
+  return [...new Set(items.filter((i) => !i.category_hidden).map((i) => (i.category || '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b));
 }

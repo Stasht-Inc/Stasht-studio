@@ -3,7 +3,7 @@ import { Check, Loader2, Search } from 'lucide-react';
 import { catalogueAPI, loadCatalogueForBrowsing, type CatalogueItemSummary } from '../../services/catalogueAPI';
 import { dashboardAPI } from '../../utils/authUtils';
 import { loadProductsForPicker, productsAPI, type ProductSummary } from '../../services/productsAPI';
-import { productsGate } from '../../utils/products';
+import { pickerCategoryOf, productsGate, visibleCategoryNames } from '../../utils/products';
 import { useIsStarterPlan } from '../../hooks/usePlan';
 import { requestUpgrade } from '../../utils/planEvents';
 import { catalogGate, inventoryCacheable, type InventoryPick } from './lib/momentPicks';
@@ -103,7 +103,7 @@ export function useInventorySources(enabled: boolean): InventorySources {
       const value: InventorySources = {
         loading: false,
         productGate: gate === 'ready' && products.length === 0 ? 'hidden' : gate,
-        products: (products as Array<ProductSummary | CatalogueItemSummary>).map((p) => ({ id: p.id, title: p.title || 'Untitled product', main_image: p.main_image, price_label: p.price_label, url: p.url, images_count: p.images_count, category: ('categories' in p ? p.categories[0]?.name : undefined) ?? p.category })),
+        products: (products as Array<ProductSummary | CatalogueItemSummary>).map((p) => ({ id: p.id, title: p.title || 'Untitled product', main_image: p.main_image, price_label: p.price_label, url: p.url, images_count: p.images_count, ...('categories' in p ? pickerCategoryOf(p) : { category: p.category, ...(p.category_hidden ? { category_hidden: true } : {}) }) })),
         vehicles,
       };
       // Only a load that fully answered is reused (re-review N3).
@@ -134,7 +134,7 @@ export default function InventoryMomentPicker({ kind, gate = 'ready', items, loa
   const [category, setCategory] = useState('');
   const words = kind === 'product' ? { plural: 'products', search: 'Search products' } : { plural: 'vehicles', search: 'Search vehicles' };
   const categories = useMemo(
-    () => (kind === 'product' ? [...new Set(items.map((i) => (i.category || '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b)) : []),
+    () => (kind === 'product' ? visibleCategoryNames(items) : []), // a hidden category is left out; its items stay listed
     [items, kind],
   );
   const shown = items.filter((item) => {
