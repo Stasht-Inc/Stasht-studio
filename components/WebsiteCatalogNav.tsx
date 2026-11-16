@@ -3,7 +3,8 @@ import { Folder, FolderOpen, ChevronRight, ChevronDown, Search, Store } from "lu
 import { ImageWithFallback } from "./figma/ImageWithFallback";
 import ImageHoverPopover from "./ImageHoverPopover";
 import { loadCatalogueForBrowsing, type CatalogueItemSummary } from "../services/catalogueAPI";
-import { WEBSITE_CATALOG_COLOR } from "../utils/categoryColorManager";
+import { loadShopifyForBrowsing, SHOPIFY_PRODUCT_MARKER } from "../services/shopifyItemsAPI";
+import { SHOPIFY_COLOR, WEBSITE_CATALOG_COLOR } from "../utils/categoryColorManager";
 import { runWhenIdle } from "../utils/deferIdle";
 import { useInventoryViewKey } from "../hooks/useInventoryViewKey";
 
@@ -35,7 +36,7 @@ function matchesSearch(item: CatalogueItemSummary, query: string): boolean {
 }
 
 // One item row (leaf): opens the item's product page.
-function ItemLeaf({ item, onOpen }: { item: CatalogueItemSummary; onOpen: (id: number) => void }) {
+function ItemLeaf({ item, color, onOpen }: { item: CatalogueItemSummary; color: string; onOpen: (id: number) => void }) {
   const thumbFallback = (
     <span className="w-full h-full bg-gray-200 flex items-center justify-center">
       <Store className="w-3 h-3 text-gray-400" aria-hidden="true" />
@@ -48,7 +49,7 @@ function ItemLeaf({ item, onOpen }: { item: CatalogueItemSummary; onOpen: (id: n
       onClick={() => onOpen(item.id)}
       className="ml-6 flex items-center gap-2 p-2 rounded-lg text-left transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#6C60FF]"
       style={{ width: "calc(100% - 1.5rem)" }}
-      onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = `${WEBSITE_CATALOG_COLOR}1A`; }}
+      onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = `${color}1A`; }}
       onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = ""; }}
     >
       <span className="w-4 h-4 flex items-center justify-center flex-shrink-0" aria-hidden="true">
@@ -68,7 +69,7 @@ function ItemLeaf({ item, onOpen }: { item: CatalogueItemSummary; onOpen: (id: n
       <span className="flex-1 min-w-0">
         <span className="block text-sm text-gray-700 truncate font-medium">{item.title}</span>
         {item.price_label && (
-          <span className="block text-xs font-semibold" style={{ color: WEBSITE_CATALOG_COLOR }}>{item.price_label}</span>
+          <span className="block text-xs font-semibold" style={{ color }}>{item.price_label}</span>
         )}
       </span>
     </button>
@@ -83,10 +84,12 @@ function GroupNode({
   group,
   expanded,
   forceOpen,
+  color,
   onToggle,
   onOpen,
 }: {
   group: ItemGroup;
+  color: string;
   expanded: boolean;
   forceOpen: boolean;
   onToggle: (name: string) => void;
@@ -111,7 +114,7 @@ function GroupNode({
           aria-expanded={open}
         >
           {open
-            ? <ChevronDown className="w-3 h-3" style={{ color: WEBSITE_CATALOG_COLOR }} />
+            ? <ChevronDown className="w-3 h-3" style={{ color }} />
             : <ChevronRight className="w-3 h-3" />}
         </button>
 
@@ -136,7 +139,7 @@ function GroupNode({
       {open && (
         <div className="mt-1 space-y-1">
           {group.items.map((item) => (
-            <ItemLeaf key={item.id} item={item} onOpen={onOpen} />
+            <ItemLeaf key={item.id} item={item} color={color} onOpen={onOpen} />
           ))}
         </div>
       )}
@@ -150,7 +153,20 @@ function GroupNode({
 // campaign card opens). Browse-only. Renders nothing unless the account can use
 // the catalogue and has items (loadCatalogueForBrowsing asks GET /website-catalogue first, so
 // other accounts never call the Business-only items route — and never see the upgrade modal).
-export default function WebsiteCatalogNav({ onMemorySelect }: { onMemorySelect?: (memoryId: string) => void }) {
+//
+// The same box serves Shopify (ticket wdy2xh1320: "Shopify should follow the Website Catalogue"),
+// since its products come back in the catalogue's item shape — only the title, loader, page marker,
+// accent colour and search label differ (InventoryItemsNav's props).
+interface InventoryItemsNavProps {
+  title: string;
+  loader: () => Promise<CatalogueItemSummary[]>; // never throws; [] when the account can't browse it
+  marker: string; // product page marker, e.g. `catalog_item:` (the item id is appended)
+  color: string;
+  searchLabel: string; // screen-reader label of the search box
+  onMemorySelect?: (memoryId: string) => void;
+}
+
+export function InventoryItemsNav({ title, loader, marker, color, searchLabel, onMemorySelect }: InventoryItemsNavProps) {
   const [loading, setLoading] = useState(true);
   const [items, setItems] = useState<CatalogueItemSummary[]>([]);
   const [boxExpanded, setBoxExpanded] = useState(false);
@@ -172,7 +188,7 @@ export default function WebsiteCatalogNav({ onMemorySelect }: { onMemorySelect?:
     setItems((prev) => (prev.length ? [] : prev));
     // Off the initial-load critical path, like the other sidebar extras (utils/deferIdle.ts).
     const cancelIdle = runWhenIdle(() => {
-      loadCatalogueForBrowsing().then((list) => {
+      loader().then((list) => {
         if (cancelled) return;
         setItems(list);
         if (list.length > 0) setBoxExpanded(true);
@@ -180,7 +196,7 @@ export default function WebsiteCatalogNav({ onMemorySelect }: { onMemorySelect?:
       });
     });
     return () => { cancelled = true; cancelIdle(); };
-  }, [inventoryViewKey]);
+  }, [inventoryViewKey, loader]); // loader is a stable module-level function per box
 
   const searching = query.trim() !== "";
   const groups = useMemo(() => groupByCategory(items.filter((item) => matchesSearch(item, query))), [items, query]);
@@ -188,28 +204,28 @@ export default function WebsiteCatalogNav({ onMemorySelect }: { onMemorySelect?:
   if (loading || items.length === 0) return null;
 
   return (
-    <div className="w-full rounded-lg transition-all duration-200" style={{ backgroundColor: `${WEBSITE_CATALOG_COLOR}1A` }}>
+    <div className="w-full rounded-lg transition-all duration-200" style={{ backgroundColor: `${color}1A` }}>
       <button
         type="button"
         onClick={() => setBoxExpanded((v) => !v)}
         aria-expanded={boxExpanded}
         className="w-full p-3 flex items-center justify-between rounded-lg text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#6C60FF]"
-        onMouseEnter={(e) => { if (!boxExpanded) e.currentTarget.style.backgroundColor = `${WEBSITE_CATALOG_COLOR}26`; }}
+        onMouseEnter={(e) => { if (!boxExpanded) e.currentTarget.style.backgroundColor = `${color}26`; }}
         onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = ""; }}
       >
         <span className="flex items-center gap-2 min-w-0">
           <ChevronRight
             className={`w-3 h-3 transition-all duration-200 ${boxExpanded ? "rotate-90" : ""}`}
-            style={{ color: boxExpanded ? WEBSITE_CATALOG_COLOR : "" }}
+            style={{ color: boxExpanded ? color : "" }}
           />
           {boxExpanded
-            ? <FolderOpen className="w-4 h-4" style={{ color: WEBSITE_CATALOG_COLOR }} />
+            ? <FolderOpen className="w-4 h-4" style={{ color }} />
             : <Folder className="w-4 h-4 text-muted-foreground" />}
-          <span className={`text-sm ${boxExpanded ? "font-bold" : "font-medium"} text-foreground truncate`}>Products</span>
+          <span className={`text-sm ${boxExpanded ? "font-bold" : "font-medium"} text-foreground truncate`}>{title}</span>
         </span>
         <span
           className="text-xs px-2 py-1 rounded-full transition-all duration-200 text-black flex-shrink-0"
-          style={{ backgroundColor: boxExpanded ? `${WEBSITE_CATALOG_COLOR}33` : "" }}
+          style={{ backgroundColor: boxExpanded ? `${color}33` : "" }}
         >
           {items.length}
         </span>
@@ -218,7 +234,7 @@ export default function WebsiteCatalogNav({ onMemorySelect }: { onMemorySelect?:
       {boxExpanded && (
         <div className="px-3 pb-3 pt-1">
           <label className="relative block mb-2">
-            <span className="sr-only">Search your products</span>
+            <span className="sr-only">{searchLabel}</span>
             <Search className="w-4 h-4 text-gray-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" aria-hidden="true" />
             <input
               type="search"
@@ -238,8 +254,9 @@ export default function WebsiteCatalogNav({ onMemorySelect }: { onMemorySelect?:
                   group={group}
                   expanded={expandedGroups.has(group.name)}
                   forceOpen={searching}
+                  color={color}
                   onToggle={toggleGroup}
-                  onOpen={(id) => onMemorySelect?.(`catalog_item:${id}`)}
+                  onOpen={(id) => onMemorySelect?.(`${marker}${id}`)}
                 />
               ))}
             </div>
@@ -247,5 +264,34 @@ export default function WebsiteCatalogNav({ onMemorySelect }: { onMemorySelect?:
         </div>
       )}
     </div>
+  );
+}
+
+export default function WebsiteCatalogNav({ onMemorySelect }: { onMemorySelect?: (memoryId: string) => void }) {
+  return (
+    <InventoryItemsNav
+      title="Products"
+      loader={loadCatalogueForBrowsing}
+      marker="catalog_item:"
+      color={WEBSITE_CATALOG_COLOR}
+      searchLabel="Search your products"
+      onMemorySelect={onMemorySelect}
+    />
+  );
+}
+
+// The connected Shopify store's products (`shopify_product:<id>` pages). Renders nothing unless the
+// store is connected on a paid plan and has products — loadShopifyForBrowsing asks
+// /integrations/shopify/status first, so free accounts never hit the paid-only items route.
+export function ShopifyProductsNav({ onMemorySelect }: { onMemorySelect?: (memoryId: string) => void }) {
+  return (
+    <InventoryItemsNav
+      title="Shopify"
+      loader={loadShopifyForBrowsing}
+      marker={SHOPIFY_PRODUCT_MARKER}
+      color={SHOPIFY_COLOR}
+      searchLabel="Search your Shopify products"
+      onMemorySelect={onMemorySelect}
+    />
   );
 }

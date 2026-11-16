@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { dashboardAPI, isPartialAdmin } from '../utils/authUtils';
 import { useAuth } from '../contexts/AuthContext';
 import { catalogueAPI } from '../services/catalogueAPI';
+import { shopifyItemsAPI } from '../services/shopifyItemsAPI';
 import { loadProductsStatus, peekProductsStatus, productsStatusKey, subscribeProductsStatus } from './useProductsStatus';
 import { useInventoryViewKey } from './useInventoryViewKey';
 import { inventoryViewRun } from '../utils/inventoryView';
@@ -47,6 +48,7 @@ let globalWebsiteCatalogueCount = 0;
 // reset on logout so the next user refetches.
 let carsCatalogLoaded = false;
 let websiteCatalogueLoaded = false;
+let shopifyCountLoaded = false;
 // What globalWebsiteCatalogueCount holds for the current view (Products plan): 'counted' = the website items, as
 // development counts them; 'pilot' = 0, because the account's Products switch is on (they are counted on Products).
 let websiteCountedAs: 'none' | 'counted' | 'pilot' = 'none';
@@ -165,6 +167,23 @@ const memoryCountsManager = {
     }
   },
 
+  // Shopify products are campaign cards too (MemoriesPage shopifyCards, one per product — ticket wdy2xh1320), so their
+  // count is fetched on login like the Website Catalogue's. The status route is ungated and already carries item_count
+  // (0 unless the store is connected on a paid plan).
+  fetchShopifyCount: async (): Promise<void> => {
+    if (shopifyCountLoaded) return;
+    shopifyCountLoaded = true; // set synchronously so parallel hook instances skip
+    const asked = inventoryViewRun(); // as fetchCarsCatalogCount: another view's answer is dropped
+    try {
+      const status = await shopifyItemsAPI.getStatus();
+      if (asked !== inventoryViewRun()) return;
+      if (!status.ok) { shopifyCountLoaded = false; return; } // allow a later attempt
+      memoryCountsManager.setShopifyCatalogCount(status.data?.available ? Number(status.data.item_count) || 0 : 0);
+    } catch {
+      if (asked === inventoryViewRun()) shopifyCountLoaded = false; // allow a later attempt if this one failed
+    }
+  },
+
   // The account's Products switch is on: its website products are not Campaigns (they are on Products).
   setWebsiteCountForPilot: () => {
     websiteCountedAs = 'pilot';
@@ -266,6 +285,8 @@ export const useMemoryCounts = (): UseMemoryCountsReturn => {
       websiteCatalogueLoaded = false; // …and the Website Catalogue count
       globalWebsiteCatalogueCount = 0; // the next account may have no catalogue at all
       websiteCountedAs = 'none';
+      shopifyCountLoaded = false; // …nor a Shopify store
+      globalShopifyCatalogCount = 0;
       return;
     }
     if (!globalMemoryCounts && !globalIsLoading) {
@@ -276,11 +297,14 @@ export const useMemoryCounts = (): UseMemoryCountsReturn => {
       websiteCatalogueLoaded = false;
       globalWebsiteCatalogueCount = 0; // the other view may have no catalogue items at all
       websiteCountedAs = 'none';
+      shopifyCountLoaded = false;
+      globalShopifyCatalogCount = 0;
       memoryCountsManager.notify();
     }
     countedInventoryView = inventoryViewKey;
     memoryCountsManager.fetchCarsCatalogCount();
     memoryCountsManager.fetchWebsiteCatalogueCount(statusKey);
+    memoryCountsManager.fetchShopifyCount();
   }, [isAuthenticated, inventoryViewKey, statusKey]);
 
   // The Products status answering later (another component asked, or a change event) corrects the count.

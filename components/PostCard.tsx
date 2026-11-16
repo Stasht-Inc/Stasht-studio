@@ -383,8 +383,8 @@ export default function PostCard({ post, variant = 'thumbnail', onContentUpdate,
   const currentImageDate = currentImageData?.dateTaken || currentImageData?.date || post.date;
   // Car detail views (memoryId marker `cars_detail:<id>`) synthesize post dates only to
   // keep photo sort order — they aren't real capture dates, so hide the date on car cards.
-  // Website Catalogue product pages (`catalog_item:<id>`) are built the same way.
-  const isCatalogPost = typeof memoryId === 'string' && memoryId.startsWith('catalog_item:');
+  // Website Catalogue product pages (`catalog_item:<id>`) and Shopify product pages (`shopify_product:<id>`) are built the same way.
+  const isCatalogPost = typeof memoryId === 'string' && (memoryId.startsWith('catalog_item:') || memoryId.startsWith('shopify_product:'));
   const isCarPost = (typeof memoryId === 'string' && memoryId.startsWith('cars_detail:')) || isCatalogPost;
 
   const newDescriptionTextareaRef = useRef<HTMLTextAreaElement>(null);

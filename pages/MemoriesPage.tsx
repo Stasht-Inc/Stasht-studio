@@ -34,7 +34,8 @@ import { canManageQrCodes } from "../utils/qrCodes";
 import { campaignCardCover } from "../utils/campaignCover";
 import { SHOPIFY_COLOR, CARS_COLOR, WEBSITE_CATALOG_COLOR } from "../utils/categoryColorManager";
 import { loadCatalogueForBrowsing, type CatalogueItemSummary } from "../services/catalogueAPI";
-import { memoryCountsManager, setShopifyCatalogCount } from '../hooks/useMemoryCounts';
+import { memoryCountsManager } from '../hooks/useMemoryCounts';
+import { loadShopifyForBrowsing, SHOPIFY_PRODUCT_MARKER } from "../services/shopifyItemsAPI";
 import PublishMemoriesModal from "../components/PublishMemoriesModal";
 import { Popover, PopoverContent, PopoverTrigger } from "../components/ui/popover";
 import AddTagsModal from "../components/AddTagsModal";
@@ -728,49 +729,7 @@ function MemoriesPageContent({
 
   const sidebarData = apiMemoriesData?.sidebar || apiMemoriesData?.data?.sidebar || null;
 
-  // The /memories response carries a `shopify` block ({ count, collections }) when a store is
-  // connected. The backend hasn't settled on its nesting level yet, so accept every path —
-  // same defensive shape as `sidebarData` above and `all_memories` further up.
-  const shopifyData =
-    apiMemoriesData?.shopify ||
-    apiMemoriesData?.data?.shopify ||
-    apiMemoriesData?.sidebar?.shopify ||
-    apiMemoriesData?.data?.sidebar?.shopify ||
-    null;
-
-  // One card per Shopify collection: the collection title is the campaign, its products are the
-  // moments. Shaped like a memory so it flows through the existing grid sort/filter/render
-  // untouched. `isShopify` marks it as read-only — these have no Stasht memory row behind them,
-  // so anything keyed on a real memory id (detail view, publish, edit-select) must skip them.
-  const shopifyCards = useMemo(() => {
-    const collections = shopifyData?.collections;
-    if (!Array.isArray(collections)) return [];
-
-    return collections.map((collection: any, idx: number) => {
-      const products = Array.isArray(collection?.products) ? collection.products : [];
-      const cover = products.find((p: any) => p?.image || p?.images?.[0]);
-
-      return {
-        // Prefixed so a Shopify id can never collide with a Stasht memory id, and so the
-        // source is recoverable from the id alone once the detail endpoint lands.
-        id: `shopify:${collection?.id ?? `uncategorized-${idx}`}`,
-        // Raw collection id (null for the Uncategorized bucket) — used to open the detail
-        // page via /shopify/catalog/{collection_id}.
-        collectionId: collection?.id != null ? String(collection.id) : null,
-        title: collection?.title || 'Untitled collection',
-        category: { name: 'Shopify', color: SHOPIFY_COLOR },
-        // Trust the API's count over products.length — the array may be a partial page.
-        photos: { count: collection?.products_count ?? products.length ?? 0 },
-        last_update_img: cover?.image || cover?.images?.[0] || null,
-        isShopify: true,
-        isShared: false,
-        products,
-      };
-    });
-  }, [shopifyData]);
-
-  // Cars aren't embedded in the /memories response like Shopify — they're a separate
-  // read-only inventory feed (GET /cars). The car cards already render asynchronously
+  // Cars are a separate read-only inventory feed (GET /cars). The car cards already render asynchronously
   // (grid paints first, cards pop in when this resolves), so the fetch is deferred to
   // browser-idle time to keep /cars off the initial-load critical path where the core
   // memories/media data is competing (PERFORMANCE_OPTIMIZATION_PLAN.md #4). Identical
@@ -797,10 +756,9 @@ function MemoriesPageContent({
     return () => { cancelled = true; cancelIdle(); };
   }, [inventoryViewKey]);
 
-  // One card per car — each car IS a campaign (unlike Shopify, where the collection is the
-  // campaign and products are nested moments inside it). Its `category` field (e.g.
+  // One card per car — each car IS a campaign. Its `category` field (e.g.
   // preowned/hybrid) becomes the campaign's category, same as any other memory's category.
-  // `isCars` marks it read-only, same role `isShopify` plays for Shopify cards.
+  // `isCars` marks it read-only.
   const carsCards = useMemo(() => {
     return carsList.map((car: any) => {
       const owner = carOwnerAuthor(car);
@@ -879,15 +837,51 @@ function MemoriesPageContent({
     });
   }, [catalogueList, hideCatalogueCards]);
 
-  // Shopify cards aren't real memory records, so the backend memory-counts total never
-  // includes them. Report how many are on screen so the sidebar total can add them in.
-  // Cars are intentionally NOT reported here: the cars inventory count is fetched once on
-  // login (see fetchCarsCatalogCount in hooks/useMemoryCounts) so this page's first render —
-  // before its idle /cars fetch resolves — can't briefly report 0 cars and flicker the
-  // sidebar total down to the campaigns-only count and back.
+  // Shopify products are catalogue cards too (ticket wdy2xh1320: "Shopify should follow the Website
+  // Catalogue"): one per product (it was one per collection before), opening `shopify_product:<id>` — the
+  // catalogue's product page fed by shopifyItemsAPI. loadShopifyForBrowsing asks the ungated status route
+  // first, so free or disconnected accounts never hit the paid-only items route. `isCatalogItem` gives them
+  // every catalogue read-only treatment below; `catalogMarker` only changes which page they open. Shown
+  // whatever the Products switch says (the old collection cards were always shown; Shopify products aren't
+  // on the Products page). Real campaigns stored with the "Shopify" category are ordinary memories and unaffected.
+  const [shopifyList, setShopifyList] = useState<CatalogueItemSummary[]>([]);
   useEffect(() => {
-    setShopifyCatalogCount(shopifyCards.length);
-  }, [shopifyCards]);
+    let cancelled = false;
+    setShopifyList((prev) => (prev.length ? [] : prev));
+    const cancelIdle = runWhenIdle(() => {
+      loadShopifyForBrowsing().then((list) => {
+        if (!cancelled) setShopifyList(list);
+      });
+    });
+    return () => { cancelled = true; cancelIdle(); };
+  }, [inventoryViewKey]);
+
+  const shopifyCards = useMemo(() => {
+    return shopifyList.map((item) => {
+      const owner = inventoryOwnerAuthor(item);
+      return {
+      // `shopify:` so a product id can't collide with a catalogue item's (`catalog:`) or a memory's.
+      id: `shopify:${item.id}`,
+      catalogItemId: item.id,
+      catalogMarker: SHOPIFY_PRODUCT_MARKER,
+      title: item.title,
+      category: { name: item.category || 'Products', color: SHOPIFY_COLOR },
+      label: item.price_label || '',
+      photos: { count: item.images_count || (item.main_image ? 1 : 0) },
+      location: { formatted: '' },
+      spec_summary: item.spec_summary || '',
+      last_update_img: item.main_image,
+      isCatalogItem: true,
+      isShared: false,
+      ...(owner ? { author: owner, authorIsSomeoneElse: true } : {}),
+      };
+    });
+  }, [shopifyList]);
+
+  // Cars, Website Catalogue and Shopify cards aren't real memory records, so their counts are
+  // fetched once on login (fetchCarsCatalogCount / fetchWebsiteCatalogueCount / fetchShopifyCount
+  // in hooks/useMemoryCounts) — never reported from here, where this page's first render (before
+  // its idle fetches resolve) would briefly report 0 and flicker the sidebar total.
 
   // Single source of truth for the category list used by the Create Campaign gate and the
   // dropdowns. The server fetch (sidebarData) and the local `categories` state can briefly
@@ -3043,9 +3037,9 @@ function MemoriesPageContent({
                           // Shopify lives in its own self-contained sidebar box, not in the
                           // category list, so `expandedCategories` never contains "Shopify" and the
                           // check below would drop every card. The dropdown filters above still apply.
-                          // This covers both the synthetic catalog cards (isShopify) and real
-                          // campaigns created with the Shopify category (category.name === 'Shopify').
-                          if (memory.isShopify || memory.category?.name === 'Shopify') return true;
+                          // Real campaigns created with the Shopify category; Shopify product cards are
+                          // `isCatalogItem` (below).
+                          if (memory.category?.name === 'Shopify') return true;
                           // Same reasoning for the synthetic Cars cards (Preowned/Hybrid), and for
                           // real memories created with the Cars category (category.name === 'Cars').
                           if (memory.isCars || memory.category?.name === 'Cars') return true;
@@ -3132,21 +3126,19 @@ function MemoriesPageContent({
                             authorIsSomeoneElse={!!memory.authorIsSomeoneElse}
                             contributors={contributors}
                             tags={Array.isArray(memory.tags) ? memory.tags.map((t: any) => typeof t === 'string' ? t : t?.name).filter(Boolean) : []}
-                            isEditMode={memory.isShopify || memory.isCars || memory.isCatalogItem ? false : isEditMode}
+                            isEditMode={memory.isCars || memory.isCatalogItem ? false : isEditMode}
                             isSelected={selectedCardIds.has(memory.id.toString())}
                             onSelectToggle={() => setSelectedCardIds(prev => { const next = new Set(prev); next.has(memory.id.toString()) ? next.delete(memory.id.toString()) : next.add(memory.id.toString()); return next; })}
                             onClick={
                               isInvitesCategory
                                 ? undefined
-                                : memory.isShopify
-                                  ? (memory.collectionId != null ? () => onMemorySelect(`shopify_collection:${memory.collectionId}`) : undefined)
-                                  : memory.isCars
+                                : memory.isCars
                                     ? (memory.carId != null ? () => onMemorySelect(`cars_detail:${memory.carId}`) : undefined)
                                     : memory.isCatalogItem
-                                      ? () => onMemorySelect(`catalog_item:${memory.catalogItemId}`)
+                                      ? () => onMemorySelect(`${memory.catalogMarker || 'catalog_item:'}${memory.catalogItemId}`)
                                       : () => onMemorySelect(memory.id.toString())
                             }
-                            onAddMedia={isInvitesCategory || memory.isShopify || memory.isCars || memory.isCatalogItem ? undefined : () => onMemorySelect(memory.id.toString(), true)}
+                            onAddMedia={isInvitesCategory || memory.isCars || memory.isCatalogItem ? undefined : () => onMemorySelect(memory.id.toString(), true)}
                             categories={sidebarData?.categories?.items || categories}
                             property={memory.property ? { id: memory.property.id, name: memory.property.name } : undefined}
                       properties={memory.properties?.map((p: any) => ({ id: p.id, name: p.name }))}
