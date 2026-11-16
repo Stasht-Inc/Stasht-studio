@@ -36,6 +36,12 @@ export function pageToClampTo(page: number, pagination: { last_page: number }, i
 
 export const sourceLabel = (p: Pick<ProductSummary, 'origin'>): string => (p.origin === 'website' ? 'Website' : 'Manual');
 
+/** C6 (Chris, 16 Nov): the card's category pill: the first category, plus "+N" for the rest. */
+export function cardCategories(p: Pick<ProductSummary, 'categories'>): { first: string | null; more: number } {
+  const names = (p.categories || []).map((c) => (c?.name || '').trim()).filter(Boolean);
+  return { first: names[0] ?? null, more: Math.max(0, names.length - 1) };
+}
+
 /** The card's price: main line + struck-through compare-at ('' = none). */
 export function priceLine(p: Pick<ProductSummary, 'price_label' | 'compare_at_label' | 'price_on_request' | 'show_price'>): { main: string; was: string } {
   if (p.price_on_request) return { main: 'Price on request', was: '' };

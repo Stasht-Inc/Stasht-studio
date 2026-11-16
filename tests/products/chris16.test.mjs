@@ -23,3 +23,11 @@ test('C7: a product whose currency is not listed keeps it selectable', () => {
   assert.equal(opts.length, CURRENCIES.length + 1);
   assert.equal(currencyOptions('').length, CURRENCIES.length);
 });
+
+test('C6: the card shows the first category and "+N" for the rest', async () => {
+  const { cardCategories } = await import('../../utils/products.ts');
+  assert.deepEqual(cardCategories({ categories: [] }), { first: null, more: 0 });
+  assert.deepEqual(cardCategories({ categories: [{ id: 1, name: 'Intimate' }] }), { first: 'Intimate', more: 0 });
+  assert.deepEqual(cardCategories({ categories: [{ id: 1, name: 'Intimate' }, { id: 2, name: 'Sale' }, { id: 3, name: ' ' }] }), { first: 'Intimate', more: 1 });
+  assert.deepEqual(cardCategories({}), { first: null, more: 0 });
+});
