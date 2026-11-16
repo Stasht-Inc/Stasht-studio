@@ -153,6 +153,7 @@ function ProductsReady({ onNavigate }: { onNavigate: (page: string) => void }) {
   const selectedItems = items.filter((p) => selected.includes(p.id));
   const ownCategories = categories.filter((c) => !c.read_only);
   const websiteCategoryIds = useMemo(() => new Set(categories.filter((c) => c.from_website).map((c) => c.id)), [categories]);
+  const shopifyCategoryIds = useMemo(() => new Set(categories.filter((c) => c.from_shopify).map((c) => c.id)), [categories]);
   const toggle = (p: ProductSummary) => setSelected((s) => (s.includes(p.id) ? s.filter((id) => id !== p.id) : [...s, p.id]));
   const clearSelection = () => setSelected([]);
   const nav = (
@@ -220,7 +221,7 @@ function ProductsReady({ onNavigate }: { onNavigate: (page: string) => void }) {
         ) : (
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:gap-4 xl:grid-cols-4">
             {items.map((p) => (
-              <ProductCard key={p.id} product={p} selectable={!p.read_only} selected={selected.includes(p.id)} onToggle={() => toggle(p)} onOpen={() => setLayer({ kind: 'details', id: p.id })} websiteCategoryIds={websiteCategoryIds} />
+              <ProductCard key={p.id} product={p} selectable={!p.read_only} selected={selected.includes(p.id)} onToggle={() => toggle(p)} onOpen={() => setLayer({ kind: 'details', id: p.id })} websiteCategoryIds={websiteCategoryIds} shopifyCategoryIds={shopifyCategoryIds} />
             ))}
           </div>
         )}
@@ -242,7 +243,7 @@ function ProductsReady({ onNavigate }: { onNavigate: (page: string) => void }) {
       </Sheet>
       {/* The search, filters, page and selection behind these layers stay as they were: closing comes back to them. */}
       {layer?.kind === 'details' && (
-        <ProductDetails key={`details-${layer.id}`} productId={layer.id} websiteCategoryIds={websiteCategoryIds} initial={layer.initial} notice={layer.notice}
+        <ProductDetails key={`details-${layer.id}`} productId={layer.id} websiteCategoryIds={websiteCategoryIds} shopifyCategoryIds={shopifyCategoryIds} initial={layer.initial} notice={layer.notice}
           onClose={() => setLayer(null)} onEdit={(id) => setLayer({ kind: 'edit', id })} onDuplicated={(id) => setLayer({ kind: 'edit', id })} onChanged={changed} />
       )}
       {layer?.kind === 'edit' && (

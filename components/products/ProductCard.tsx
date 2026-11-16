@@ -5,9 +5,10 @@ import { ImageWithFallback } from '../figma/ImageWithFallback';
 import type { ProductSummary } from '../../services/productsAPI';
 import { BADGE_CLASS, BADGE_LABEL, cardCategories, priceLine, productCategoryColor, sourceColor, sourceLabel } from '../../utils/products';
 
-export default function ProductCard({ product, selectable, selected, onToggle, onOpen, websiteCategoryIds }: {
+export default function ProductCard({ product, selectable, selected, onToggle, onOpen, websiteCategoryIds, shopifyCategoryIds }: {
   /** The account's website categories (teal pills). */
   websiteCategoryIds?: ReadonlySet<number>;
+  shopifyCategoryIds?: ReadonlySet<number>;
   product: ProductSummary;
   selectable: boolean;
   selected: boolean;
@@ -29,7 +30,7 @@ export default function ProductCard({ product, selectable, selected, onToggle, o
               semibold text, 8px corners, shadow); the first category plus "+N" for the rest. */}
           {cats.first && (
             <span data-testid="product-card-category" className="absolute bottom-2 left-2 right-2 flex min-w-0 items-center gap-1">
-              <span className="truncate rounded-lg px-2.5 py-1 text-sm font-semibold leading-5 text-white shadow-lg" style={{ backgroundColor: productCategoryColor(cats.firstId, Boolean(cats.firstId !== null && websiteCategoryIds?.has(cats.firstId))) }}>{cats.first}</span>
+              <span className="truncate rounded-lg px-2.5 py-1 text-sm font-semibold leading-5 text-white shadow-lg" style={{ backgroundColor: productCategoryColor(cats.firstId, Boolean(cats.firstId !== null && websiteCategoryIds?.has(cats.firstId)), Boolean(cats.firstId !== null && shopifyCategoryIds?.has(cats.firstId))) }}>{cats.first}</span>
               {cats.more > 0 && <span className="shrink-0 rounded-lg bg-white px-2 py-1 text-sm font-semibold leading-5 text-gray-700 shadow-md" aria-label={`and ${cats.more} more ${cats.more === 1 ? 'category' : 'categories'}`}>+{cats.more}</span>}
             </span>
           )}

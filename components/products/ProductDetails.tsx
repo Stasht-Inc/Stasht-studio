@@ -30,10 +30,12 @@ function Card({ title, children }: { title?: string; children: ReactNode }) {
   );
 }
 
-export default function ProductDetails({ productId, initial, notice, onClose, onEdit, onDuplicated, onChanged, websiteCategoryIds }: {
+export default function ProductDetails({ productId, initial, notice, onClose, onEdit, onDuplicated, onChanged, websiteCategoryIds, shopifyCategoryIds }: {
   productId: number;
   /** The account's website categories (teal pills). */
   websiteCategoryIds?: ReadonlySet<number>;
+  /** Categories that came from the Shopify store (Shopify green). */
+  shopifyCategoryIds?: ReadonlySet<number>;
   /** The copy the editor just saved: shown at once, no reload. */
   initial?: ProductDetail | null;
   /** A line for the bottom of the card when the view opens ("Saved."). */
@@ -231,7 +233,7 @@ export default function ProductDetails({ productId, initial, notice, onClose, on
                   <p className="text-sm font-medium text-gray-900">Categories</p>
                   {detail.categories.length ? (
                     <ul className="mt-1.5 flex flex-wrap gap-1.5">
-                      {detail.categories.map((c) => <li key={c.id} className="rounded-lg px-2.5 py-1 text-sm font-semibold text-white shadow-sm" style={{ backgroundColor: productCategoryColor(c.id, Boolean(websiteCategoryIds?.has(c.id))) }}>{c.name}</li>)}
+                      {detail.categories.map((c) => <li key={c.id} className="rounded-lg px-2.5 py-1 text-sm font-semibold text-white shadow-sm" style={{ backgroundColor: productCategoryColor(c.id, Boolean(websiteCategoryIds?.has(c.id)), Boolean(shopifyCategoryIds?.has(c.id))) }}>{c.name}</li>)}
                     </ul>
                   ) : <p className="mt-1 text-sm text-gray-500">None</p>}
                 </div>
