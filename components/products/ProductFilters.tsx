@@ -34,7 +34,7 @@ export default function ProductFilters({ value, onChange, statuses = BADGES }: {
           </fieldset>
           <fieldset>
             <legend className={LABEL}>Source</legend>
-            {([['', 'All'], ['website', 'Website'], ['manual', 'Manual']] as const).map(([v, label]) => (
+            {([['', 'All'], ['website', 'Website'], ['shopify', 'Shopify'], ['manual', 'Manual']] as const).map(([v, label]) => (
               <label key={label} className="flex items-center gap-2 py-1 text-sm text-gray-800">
                 <input type="radio" name="product-source" checked={(draft.source || '') === v} onChange={() => setDraft((d) => ({ ...d, source: v }))} className="h-4 w-4 accent-[#6C60FF]" />{label}
               </label>

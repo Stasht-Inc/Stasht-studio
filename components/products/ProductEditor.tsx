@@ -11,7 +11,7 @@ import { productsAPI, type ProductCategory, type ProductDetail } from '../../ser
 import { captureOpener, releaseOpener } from './layerFocus';
 import { useBackToClose } from '../newsletters/hooks/useBackToClose';
 import {
-  WEBSITE_READ_ONLY_NOTE, currencyOptions, editableFor, emptyProductForm, formFromDetail, payloadFromForm, validateProductForm, slugFromTitle, type ProductForm,
+  SHOPIFY_READ_ONLY_NOTE, WEBSITE_READ_ONLY_NOTE, currencyOptions, editableFor, emptyProductForm, formFromDetail, payloadFromForm, validateProductForm, slugFromTitle, type ProductForm,
 } from '../../utils/products';
 import { BUTTON_PRIMARY, LABEL, LINK_BUTTON, inputClass, textareaClass } from '../newsletters/lib/ui';
 import { Switch } from '../ui/switch';
@@ -126,7 +126,8 @@ export default function ProductEditor({ productId, categories, defaultCurrency, 
   const can = (field: string) => editable.includes(field);
   const failed = productId !== null && !loading && !detail; // couldn't be opened: nothing to edit or save
   const readOnly = Boolean(detail?.read_only);
-  const website = detail?.origin === 'website';
+  const shopify = detail?.origin === 'shopify';
+  const website = detail?.origin === 'website' || shopify; // imported: read-only except Studio's own fields
   const dirty = JSON.stringify(form) !== saved || pending.length > 0;
   // An edited field drops its error; once nothing is marked, the bottom "Check the highlighted fields." goes too.
   const clearErrors = (...keys: string[]) => setErrors((e) => {
@@ -294,8 +295,8 @@ export default function ProductEditor({ productId, categories, defaultCurrency, 
         <div className="mx-auto max-w-6xl space-y-4 p-4 pb-10 md:p-6">
           {website && !readOnly && (
             <p className="rounded-lg border border-teal-200 bg-teal-50 px-3 py-2 text-sm text-teal-900">
-              {WEBSITE_READ_ONLY_NOTE}{' '}
-              {detail?.url && /^https?:\/\//i.test(detail.url) && <a href={detail.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 font-medium underline">View on website<ExternalLink className="h-3.5 w-3.5" aria-hidden="true" /></a>}
+              {shopify ? SHOPIFY_READ_ONLY_NOTE : WEBSITE_READ_ONLY_NOTE}{' '}
+              {detail?.url && /^https?:\/\//i.test(detail.url) && <a href={detail.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 font-medium underline">{shopify ? 'View in your store' : 'View on website'}<ExternalLink className="h-3.5 w-3.5" aria-hidden="true" /></a>}
             </p>
           )}
           {readOnly && <p className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700">Shared by {detail?.owner?.name || 'your main account'}. You can view it here.</p>}
@@ -342,7 +343,7 @@ export default function ProductEditor({ productId, categories, defaultCurrency, 
                 {can('variants') || form.variants.length ? (
                   <ProductVariantsField options={form.options} variants={form.variants} photos={photos} disabled={!can('variants')} errors={errors}
                     onChange={({ options, variants }) => { setForm((f) => ({ ...f, options, variants })); clearErrors('options', 'variants'); }} />
-                ) : <p className="text-sm text-gray-500">{website ? 'Variants come from your website for this product.' : 'No variants.'}</p>}
+                ) : <p className="text-sm text-gray-500">{website ? `Variants come from your ${shopify ? 'Shopify store' : 'website'} for this product.` : 'No variants.'}</p>}
               </Section>
               <Section title="Details">
                 <div><span className={LABEL}>Specifications</span><ProductSpecsField rows={form.attributes} disabled={!can('attributes')} onChange={(rows) => set('attributes', rows)} /><ErrorText text={under(errors, 'attributes')} /></div>

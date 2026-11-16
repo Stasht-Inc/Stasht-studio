@@ -6,6 +6,9 @@ import type { ProductBadge, ProductDetail, ProductFilters, ProductStatus, Produc
 export const PAGE_SIZE = 48;
 export const UPGRADE_LINE = 'Products are available on the Teams and Business plans.';
 export const WEBSITE_READ_ONLY_NOTE = 'This product comes from your website. You can change its status, categories, tags and notes here; everything else updates from your website.';
+export const SHOPIFY_READ_ONLY_NOTE = 'This product comes from your Shopify store. You can change its status, categories, tags and notes here; everything else updates from Shopify.';
+/** Shopify's darker green: white text stays readable on it (the lighter #95BF47 doesn't). */
+export const SHOPIFY_PRODUCT_COLOR = '#5E8E3E';
 
 export const BADGE_LABEL: Record<ProductBadge, string> = { active: 'Active', draft: 'Draft', out_of_stock: 'Out of stock', archived: 'Archived' };
 export const BADGE_CLASS: Record<ProductBadge, string> = {
@@ -35,7 +38,9 @@ export function pageToClampTo(page: number, pagination: { last_page: number }, i
   return page > last ? last : null;
 }
 
-export const sourceLabel = (p: Pick<ProductSummary, 'origin'>): string => (p.origin === 'website' ? 'Website' : 'Manual');
+export const sourceLabel = (p: Pick<ProductSummary, 'origin'>): string => (p.origin === 'website' ? 'Website' : p.origin === 'shopify' ? 'Shopify' : 'Manual');
+/** The source pill's colour: website teal, Shopify green, manual purple. */
+export const sourceColor = (p: Pick<ProductSummary, 'origin'>): string => (p.origin === 'website' ? WEBSITE_CATALOG_COLOR : p.origin === 'shopify' ? SHOPIFY_PRODUCT_COLOR : '#6C60FF');
 
 /** C6 (Chris, 16 Nov): the card's category pill: the first category, plus "+N" for the rest. */
 export function cardCategories(p: Pick<ProductSummary, 'categories'>): { first: string | null; firstId: number | null; more: number } {
@@ -48,7 +53,8 @@ export function cardCategories(p: Pick<ProductSummary, 'categories'>): { first: 
  *  Campaigns category purple). Website categories are the website teal (as their nav row); the business's own get a
  *  stable pick from the same palette by category id, so a rename keeps its colour. Pure: reads and writes nothing. */
 const PRODUCT_PALETTE = Array.from(new Set(CATEGORY_COLOR_PALETTE)).filter((c) => c !== '#6C60FF' && c !== WEBSITE_CATALOG_COLOR);
-export function productCategoryColor(id: number | null | undefined, fromWebsite: boolean): string {
+export function productCategoryColor(id: number | null | undefined, fromWebsite: boolean, fromShopify = false): string {
+  if (fromShopify) return SHOPIFY_PRODUCT_COLOR;
   if (fromWebsite) return WEBSITE_CATALOG_COLOR;
   const n = Math.abs(Math.trunc(Number(id) || 0));
   return PRODUCT_PALETTE[n % PRODUCT_PALETTE.length];
@@ -506,6 +512,7 @@ export function refreshBannerCopy(s: { changed: number; retired: number; manual_
 
 /** The details view's line for a website product (it has no Edit). */
 export const WEBSITE_SYNC_NOTE = 'This product comes from your website and updates each time it syncs.';
+export const SHOPIFY_SYNC_NOTE = 'This product comes from your Shopify store and updates each time it syncs.';
 
 /**
  * What the details view's header offers (P1). Manual: Edit + ⋯ (Duplicate, Archive / Unarchive, Delete). Website: no

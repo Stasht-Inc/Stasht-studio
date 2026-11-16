@@ -10,8 +10,7 @@ import { FocusScope } from '@radix-ui/react-focus-scope';
 import { Archive, ArchiveRestore, ArrowLeft, Copy, ExternalLink, MoreHorizontal, Package, Pencil, SlidersHorizontal, Trash2 } from 'lucide-react';
 import { productsAPI, type ProductDetail, type ProductStatus } from '../../services/productsAPI';
 import { useBackToClose } from '../newsletters/hooks/useBackToClose';
-import { BADGE_CLASS, BADGE_LABEL, WEBSITE_SYNC_NOTE, detailActions, detailFacts, priceLine, productCategoryColor, sourceLabel, variantLabel } from '../../utils/products';
-import { WEBSITE_CATALOG_COLOR } from '../../utils/categoryColorManager';
+import { BADGE_CLASS, BADGE_LABEL, SHOPIFY_SYNC_NOTE, WEBSITE_SYNC_NOTE, detailActions, detailFacts, priceLine, productCategoryColor, sourceColor, sourceLabel, variantLabel } from '../../utils/products';
 import { BUTTON_PRIMARY, BUTTON_SECONDARY, LINK_BUTTON } from '../newsletters/lib/ui';
 import { TEXT_CLASS, renderTextNodes } from '../newsletters/blocks/TextBlockEditor';
 import { parseTextHtml } from '../newsletters/lib/textHtml';
@@ -79,6 +78,8 @@ export default function ProductDetails({ productId, initial, notice, onClose, on
   useEffect(() => { if (shown >= media.length) setShown(0); }, [media.length, shown]);
   const actions = detail ? detailActions(detail) : null;
   const website = detail?.origin === 'website';
+  const shopify = detail?.origin === 'shopify';
+  const imported = website || shopify; // read-only: it updates from the website / the Shopify store
   const readOnly = Boolean(detail?.read_only);
 
   // Back / Escape: a menu or dialog open closes first, as in the editor.
@@ -137,7 +138,7 @@ export default function ProductDetails({ productId, initial, notice, onClose, on
   const descriptionNodes = useMemo(() => (detail?.description_html ? renderTextNodes(parseTextHtml(detail.description_html)) : null), [detail?.description_html]);
   const stockBadge = detail && detail.stock_status === 'out_of_stock' && detail.badge !== 'out_of_stock';
   const links = detail ? [
-    ...(website && isWebUrl(detail.url) ? [{ label: 'View on website', href: detail.url }] : []),
+    ...(imported && isWebUrl(detail.url) ? [{ label: shopify ? 'View in your store' : 'View on website', href: detail.url }] : []),
     ...(isWebUrl(detail.buy_url) ? [{ label: 'Buy link', href: detail.buy_url }] : []),
   ] : [];
 
@@ -180,8 +181,8 @@ export default function ProductDetails({ productId, initial, notice, onClose, on
       ) : (
         <div className="mx-auto max-w-6xl space-y-4 p-4 pb-10 md:p-6">
           {/* Review minor 3: also in a salesperson's External view of a website product. */}
-          {website && (
-            <p className="rounded-lg border border-teal-200 bg-teal-50 px-3 py-2 text-sm text-teal-900">{WEBSITE_SYNC_NOTE}</p>
+          {imported && (
+            <p className="rounded-lg border border-teal-200 bg-teal-50 px-3 py-2 text-sm text-teal-900">{shopify ? SHOPIFY_SYNC_NOTE : WEBSITE_SYNC_NOTE}</p>
           )}
           {readOnly && <p className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700">Shared by {detail.owner?.name || 'your main account'}. You can view it here.</p>}
 
@@ -216,7 +217,7 @@ export default function ProductDetails({ productId, initial, notice, onClose, on
                 <div className="flex flex-wrap gap-1.5">
                   <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${BADGE_CLASS[detail.badge]}`}>{BADGE_LABEL[detail.badge]}</span>
                   {stockBadge && <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${BADGE_CLASS.out_of_stock}`}>{BADGE_LABEL.out_of_stock}</span>}
-                  <span className="rounded-full px-2 py-0.5 text-xs font-medium text-white" style={{ backgroundColor: website ? WEBSITE_CATALOG_COLOR : '#6C60FF' }}>{sourceLabel(detail)}</span>
+                  <span className="rounded-full px-2 py-0.5 text-xs font-medium text-white" style={{ backgroundColor: sourceColor(detail) }}>{sourceLabel(detail)}</span>
                 </div>
                 <p className="mt-3 text-xl font-semibold text-gray-900">{detail.title}</p>
                 {price.main && (

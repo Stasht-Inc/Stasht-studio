@@ -5,10 +5,10 @@
 // the trash show on hover), and Campaigns' Delete Category dialog. Active rows are gray (Chris: never purple).
 import { useState, type ReactElement } from 'react';
 import { toast } from 'sonner';
-import { Folder, FolderOpen, Globe, Pencil, Plus, Trash2 } from 'lucide-react';
+import { Folder, FolderOpen, Globe, Pencil, Plus, ShoppingBag, Trash2 } from 'lucide-react';
 import { productsAPI, type ProductCategory } from '../../services/productsAPI';
 import { WEBSITE_CATALOG_COLOR } from '../../utils/categoryColorManager';
-import { productCategoryColor } from '../../utils/products';
+import { SHOPIFY_PRODUCT_COLOR, productCategoryColor } from '../../utils/products';
 import { AddCategoryPopover } from '../CategoryNav';
 import { Button } from '../ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
@@ -70,13 +70,15 @@ export default function ProductCategoryNav({ categories, total, selectedId, canE
   };
 
   // CategoryNav's category card: #F5F5F5, gray when active or hovered; the folder opens in the category's colour.
-  const row = (key: string, label: string, count: number, active: boolean, onClick: () => void, opts: { color?: string; website?: boolean; edit?: () => void; remove?: () => void } = {}): ReactElement => (
+  const row = (key: string, label: string, count: number, active: boolean, onClick: () => void, opts: { color?: string; website?: boolean; shopify?: boolean; edit?: () => void; remove?: () => void } = {}): ReactElement => (
     <div key={key} className={`group flex w-full items-center rounded-lg transition-colors ${active ? 'bg-gray-200' : 'bg-[#F5F5F5] hover:bg-gray-200'}`}>
       <button type="button" onClick={onClick} aria-current={active || undefined}
         className="flex min-w-0 flex-1 items-center gap-2 rounded-lg p-3 text-left text-sm text-gray-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400">
         {active ? <FolderOpen className="h-4 w-4 shrink-0" style={{ color: opts.color || '#374151' }} aria-hidden="true" /> : <Folder className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />}
         <span className={`truncate ${active ? 'font-bold' : 'font-medium'}`}>{label}</span>
-        {opts.website && <Globe className="h-3.5 w-3.5 shrink-0" style={{ color: WEBSITE_CATALOG_COLOR }} aria-label="From your website" />}
+        {opts.shopify
+          ? <ShoppingBag className="h-3.5 w-3.5 shrink-0" style={{ color: SHOPIFY_PRODUCT_COLOR }} aria-label="From your Shopify store" />
+          : opts.website && <Globe className="h-3.5 w-3.5 shrink-0" style={{ color: WEBSITE_CATALOG_COLOR }} aria-label="From your website" />}
       </button>
       {opts.edit && (
         <button type="button" onClick={opts.edit} title={`Edit ${label}`} aria-label={`Rename ${label}`}
@@ -129,8 +131,9 @@ export default function ProductCategoryNav({ categories, total, selectedId, canE
         {categories.map((c) => {
           const own = canEdit && !c.read_only;
           return row(String(c.id), c.name, c.product_count, selectedId === c.id, () => onSelect(c.id), {
-            color: productCategoryColor(c.id, c.from_website),
+            color: productCategoryColor(c.id, c.from_website, Boolean(c.from_shopify)),
             website: c.from_website,
+            shopify: Boolean(c.from_shopify),
             edit: own ? () => openEdit(c) : undefined,
             remove: own && !c.from_website ? () => { setNavError(null); setDeleting(c); } : undefined,
           });

@@ -16,7 +16,7 @@ export interface ProductsStatus {
   available: boolean;
   reason: 'not_available' | 'plan_required' | null;
   can_create: boolean; // false in a salesperson's External view
-  counts: { total: number; manual: number; website: number };
+  counts: { total: number; manual: number; website: number; shopify?: number };
   default_currency: string;
 }
 
@@ -27,7 +27,7 @@ export interface ProductSummary {
   user_id: number;
   read_only: boolean;
   owner?: { id: number; name: string | null; profile_image: string | null; profile_color: string | null };
-  origin: 'website' | 'manual';
+  origin: 'website' | 'manual' | 'shopify'; // shopify: copied from the connected Shopify store, read-only like website
   status: ProductStatus;
   stock_status: StockStatus;
   badge: ProductBadge;
@@ -95,13 +95,13 @@ export interface ProductsPage {
   pagination: { current_page: number; per_page: number; total: number; last_page: number };
 }
 
-export interface ProductCategory { id: number; name: string; from_website: boolean; product_count: number; read_only: boolean }
+export interface ProductCategory { id: number; name: string; from_website: boolean; from_shopify?: boolean; product_count: number; read_only: boolean }
 
 export interface ProductFilters {
   q?: string;
   category_id?: number | null;
   status?: ProductBadge[];
-  source?: 'website' | 'manual' | '';
+  source?: 'website' | 'manual' | 'shopify' | '';
   price_min?: string;
   price_max?: string;
   in_stock?: boolean;

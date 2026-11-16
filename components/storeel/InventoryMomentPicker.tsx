@@ -91,7 +91,7 @@ export function useInventorySources(enabled: boolean): InventorySources {
         productsOn
           ? loadProductsForPicker().then(({ items, complete }) => {
             productsComplete = complete;
-            return items.filter((p) => p.origin === 'manual' || catalogueReady);
+            return items.filter((p) => p.origin !== 'website' || catalogueReady); // manual + Shopify are Products items
           })
           : gate === 'ready' ? loadCatalogueForBrowsing() : Promise.resolve([]),
         dashboardAPI.carsGetCatalog().catch(() => null),
