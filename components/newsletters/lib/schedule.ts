@@ -103,3 +103,40 @@ export function sameInstant(a: string | null | undefined, b: string | null | und
   const tb = b ? Date.parse(b) : NaN;
   return Number.isNaN(ta) && Number.isNaN(tb) ? true : ta === tb;
 }
+
+/** Minutes between the times offered in the Schedule step's Time list (Chris, 16 Nov: Studio's dropdown, not the browser's clock). */
+export const TIME_STEP_MINUTES = 15;
+
+/** 'HH:MM' (24-hour) as the person reads a time: "9:30 AM" in en-US. */
+export function timeLabel(time: string, locale: string = userLocale()): string {
+  const m = /^(\d{2}):(\d{2})$/.exec(time ?? '');
+  if (!m) return time ?? '';
+  const d = new Date(2000, 0, 1, Number(m[1]), Number(m[2]), 0, 0);
+  return new Intl.DateTimeFormat(locale, { hour: 'numeric', minute: '2-digit' }).format(d);
+}
+
+/** Every TIME_STEP_MINUTES of the day as 'HH:MM', plus the current time when it is between steps
+ *  (a draft scheduled at 11:07 still shows 11:07). */
+export function timeOptions(current = '', locale: string = userLocale()): { value: string; label: string }[] {
+  const values: string[] = [];
+  for (let m = 0; m < 24 * 60; m += TIME_STEP_MINUTES) values.push(`${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`);
+  if (/^\d{2}:\d{2}$/.test(current) && !values.includes(current)) {
+    values.push(current);
+    values.sort();
+  }
+  return values.map((value) => ({ value, label: timeLabel(value, locale) }));
+}
+
+/** 'YYYY-MM-DD' as a local Date (midnight), or undefined. */
+export function dateFromInput(date: string): Date | undefined {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date ?? '');
+  if (!m) return undefined;
+  const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  return Number.isNaN(d.getTime()) ? undefined : d;
+}
+
+/** "Nov 17, 2026" for the Date field (fits a phone's half-width box). */
+export function dateLabel(date: string, locale: string = userLocale()): string {
+  const d = dateFromInput(date);
+  return d ? new Intl.DateTimeFormat(locale, { month: 'short', day: 'numeric', year: 'numeric' }).format(d) : '';
+}

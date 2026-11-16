@@ -1,6 +1,7 @@
 // Task 11: schedule for later (button says Schedule, Date + Time side by side as in the prototype), the server's
 // exact email in a sandboxed iframe, and "Send a test to me" (including the API's 422 when there is no email).
 import { createMockApi } from '../mock-api.mjs';
+import { pickDate, pickTime } from '../steps.mjs';
 
 function tomorrow() {
   const t = new Date(Date.now() + 24 * 3600 * 1000);
@@ -13,8 +14,8 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
   await page.locator('#nl-subject').fill('Winter tires');
 
   await page.getByRole('radio', { name: 'Schedule for later' }).check();
-  await page.getByLabel('Date', { exact: true }).fill(tomorrow());
-  await page.getByLabel('Time', { exact: true }).fill('09:30');
+  await pickDate(page, tomorrow());
+  await pickTime(page, '09:30');
   await expectVisible(page.getByText(/Times are in your time zone/), 'time zone hint');
   await expectVisible(page.getByRole('button', { name: 'Schedule', exact: true }).last(), 'the send button says Schedule');
   const dateBox = await page.locator('#nl-send-date').boundingBox();
@@ -69,8 +70,8 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
     const sched = p.locator('#nl-step-schedule');
     await sched.scrollIntoViewIfNeeded();
     await p.getByRole('radio', { name: 'Schedule for later' }).check();
-    await p.getByLabel('Date', { exact: true }).fill(tomorrow());
-    await p.getByLabel('Time', { exact: true }).fill('09:30');
+    await pickDate(p, tomorrow());
+    await pickTime(p, '09:30');
     await p.getByRole('button', { name: 'Schedule', exact: true }).last().scrollIntoViewIfNeeded();
     expect(!(await hasOverflow(p)), `no sideways scroll on Schedule for later at ${width}`);
     if (width === 390) await shot(p, '390-01-schedule');

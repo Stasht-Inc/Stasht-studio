@@ -4,7 +4,7 @@
 // email on the account) shows on step 3; schedule for later confirms with the time; Starter sees the upgrade
 // card and makes no newsletter calls.
 import { createMockApi, nextReset, resetLabel } from '../mock-api.mjs';
-import { sendToAllLeads } from '../steps.mjs';
+import { sendToAllLeads, pickDate, pickTime } from '../steps.mjs';
 
 async function fillAll(page, { replyTo = 'sales@serpachrysler.ca' } = {}) {
   const preview = page.locator('aside');
@@ -133,8 +133,8 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
   ({ page, api, context } = await open({ width: 1280, height: 1900, api: createMockApi({ businessAddress: '4505 Steeles Ave W' }) }));
   await fillAll(page);
   await page.getByRole('radio', { name: 'Schedule for later' }).check();
-  await page.getByLabel('Date', { exact: true }).fill(tomorrow());
-  await page.getByLabel('Time', { exact: true }).fill('09:30');
+  await pickDate(page, tomorrow());
+  await pickTime(page, '09:30');
   await page.getByRole('button', { name: 'Schedule', exact: true }).last().click();
   const d3 = page.getByRole('dialog', { name: 'Schedule this newsletter?' });
   await expectVisible(d3.getByText(/It goes out .*9:30/), 'schedule confirmation names the time');

@@ -3,6 +3,7 @@
 // Send and the Schedule confirmations. Only texts and none can go: Send stays off, with the reason at the button.
 // An older API that still refuses: its words show at the button.
 import { createMockApi, newsletter, nextReset, seedNewsletters } from '../mock-api.mjs';
+import { pickDate, pickTime } from '../steps.mjs';
 
 const TZ = 'America/Toronto';
 const NOTE = "310 text messages won't be sent: no text parts left this month. Emails will still go out.";
@@ -49,8 +50,8 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
     const { page, context } = await open({ width: 1280, height: 1200, api, query: '&newsletterId=23', timezoneId: TZ });
     const schedule = page.locator('#nl-step-schedule');
     await schedule.getByText('Schedule for later').click();
-    await schedule.getByLabel('Date').fill(tomorrow());
-    await schedule.getByLabel('Time').fill('10:00');
+    await pickDate(schedule, tomorrow());
+    await pickTime(schedule, '10:00');
     await page.waitForTimeout(700);
     await page.getByRole('button', { name: 'Schedule' }).last().click();
     const dialog = page.getByRole('dialog', { name: 'Schedule this newsletter?' });

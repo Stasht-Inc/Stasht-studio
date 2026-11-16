@@ -6,6 +6,7 @@
 // calls; page-wide checks (16 px root font, every composer control labelled, no sideways scroll at 360/375/390).
 import { mkdirSync, writeFileSync } from 'fs';
 import { createMockApi, seedNewsletters } from '../mock-api.mjs';
+import { pickDate, pickTime } from '../steps.mjs';
 
 const FILE = new URL('../../../../public/pwa-icon-192.png', import.meta.url).pathname;
 const DIR = '/private/tmp/claude-501/newsletters-ui';
@@ -138,8 +139,8 @@ async function journey({ open, shot, expectVisible, expect, hasOverflow }, width
   const emails = 1180 + 36 + (list?.email_count ?? 0);
   const texts = 310 + 30 + (list?.sms_count ?? 0);
   await page.getByRole('radio', { name: 'Schedule for later' }).check();
-  await page.getByLabel('Date', { exact: true }).fill(tomorrow());
-  await page.getByLabel('Time', { exact: true }).fill('09:30');
+  await pickDate(page, tomorrow());
+  await pickTime(page, '09:30');
   await page.waitForTimeout(800); // counts are debounced
   await page.getByRole('button', { name: 'Schedule', exact: true }).last().click();
   const dialog = page.getByRole('dialog', { name: 'Schedule this newsletter?' });
