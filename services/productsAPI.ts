@@ -21,7 +21,7 @@ export interface ProductsStatus {
   default_currency: string;
 }
 
-export interface ProductCategoryRef { id: number; name: string }
+export interface ProductCategoryRef { id: number; name: string; hidden?: boolean } // hidden: sent only when true (Show / Hide)
 
 export interface ProductSummary {
   id: number;
@@ -96,7 +96,7 @@ export interface ProductsPage {
   pagination: { current_page: number; per_page: number; total: number; last_page: number };
 }
 
-export interface ProductCategory { id: number; name: string; from_website: boolean; from_shopify?: boolean; product_count: number; read_only: boolean }
+export interface ProductCategory { id: number; name: string; from_website: boolean; from_shopify?: boolean; product_count: number; read_only: boolean; hidden?: boolean }
 
 export interface ProductFilters {
   q?: string;
@@ -190,9 +190,11 @@ export const productsAPI = {
   uploadMedia,
   orderMedia: (id: number, ids: number[]) => run<ProductDetail>(apiRequest(`${path(id)}/media/order`, json('PUT', { ids }))),
   removeMedia: (id: number, mediaId: number) => run<ProductDetail>(apiRequest(`${path(id)}/media/${encodeURIComponent(String(mediaId))}`, json('DELETE'))),
-  categories: () => run<{ categories: ProductCategory[]; total: number }>(apiRequest('/product-categories', { method: 'GET', skipCache: true } as RequestInit)),
+  // can_hide: the API has product_categories.hidden (Show / Hide, 16 Nov); absent / false = no Show / Hide control.
+  categories: () => run<{ categories: ProductCategory[]; total: number; can_hide?: boolean }>(apiRequest('/product-categories', { method: 'GET', skipCache: true } as RequestInit)),
   createCategory: (name: string) => run<{ category: ProductCategory }>(apiRequest('/product-categories', json('POST', { name }))),
   renameCategory: (id: number, name: string) => run<{ category: ProductCategory }>(apiRequest(`/product-categories/${id}`, json('PATCH', { name }))),
+  setCategoryHidden: (id: number, hidden: boolean) => run<{ category: ProductCategory }>(apiRequest(`/product-categories/${id}`, json('PATCH', { hidden }))),
   deleteCategory: (id: number) => run<{ deleted: boolean }>(apiRequest(`/product-categories/${id}`, json('DELETE'))),
 };
 

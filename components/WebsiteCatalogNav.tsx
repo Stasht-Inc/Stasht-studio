@@ -17,11 +17,11 @@ interface ItemGroup {
 
 const OTHER_GROUP = "Other";
 
-// Groups items by the site's category (alphabetical); items without one go last, under "Other".
+// Groups items by the site's category (alphabetical); items without one, or whose category the owner hid, go last under "Other".
 function groupByCategory(items: CatalogueItemSummary[]): ItemGroup[] {
   const groups = new Map<string, CatalogueItemSummary[]>();
   items.forEach((item) => {
-    const key = item.category?.trim() || OTHER_GROUP;
+    const key = (!item.category_hidden && item.category?.trim()) || OTHER_GROUP;
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key)!.push(item);
   });

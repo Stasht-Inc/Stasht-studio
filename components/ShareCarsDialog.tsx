@@ -10,7 +10,7 @@ import { leadsAPI } from '../services/leadsAPI';
 import { loadCatalogueForBrowsing, type CatalogueItemSummary } from '../services/catalogueAPI';
 import { loadManualProductsForLeadShare } from '../services/productsAPI';
 import { loadShopifyForBrowsing } from '../services/shopifyItemsAPI';
-import { leadShareSources } from '../utils/products';
+import { leadShareSources, visibleCategoryNames } from '../utils/products';
 
 // One listing from GET /cars — only the fields this picker renders.
 interface CarListing {
@@ -237,7 +237,7 @@ export default function ShareCarsDialog({ open, onClose, leadId, leadName, onSha
   const searchNotes = useMemo(() => describeCarSearch(parsedSearch), [parsedSearch]);
 
   const productCategories = useMemo(
-    () => [...new Set(products.map((p) => (p.category || '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b)),
+    () => visibleCategoryNames(products), // Show / Hide (16 Nov): a hidden category is left out; its products stay listed
     [products],
   );
   const productCounts = useMemo(() => {

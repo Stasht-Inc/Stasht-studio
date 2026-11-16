@@ -11,7 +11,7 @@ import { productsAPI, type ProductCategory, type ProductDetail } from '../../ser
 import { captureOpener, releaseOpener } from './layerFocus';
 import { useBackToClose } from '../newsletters/hooks/useBackToClose';
 import {
-  SHOPIFY_READ_ONLY_NOTE, WEBSITE_READ_ONLY_NOTE, currencyOptions, editableFor, emptyProductForm, formFromDetail, payloadFromForm, validateProductForm, slugFromTitle, type ProductForm,
+  SHOPIFY_READ_ONLY_NOTE, WEBSITE_READ_ONLY_NOTE, categoryChooserChoices, currencyOptions, editableFor, emptyProductForm, formFromDetail, payloadFromForm, validateProductForm, slugFromTitle, type ProductForm,
 } from '../../utils/products';
 import { BUTTON_PRIMARY, LABEL, LINK_BUTTON, inputClass, textareaClass } from '../newsletters/lib/ui';
 import { Switch } from '../ui/switch';
@@ -126,6 +126,8 @@ export default function ProductEditor({ productId, categories, defaultCurrency, 
   const can = (field: string) => editable.includes(field);
   const failed = productId !== null && !loading && !detail; // couldn't be opened: nothing to edit or save
   const readOnly = Boolean(detail?.read_only);
+  // Show / Hide (16 Nov): a hidden category is not offered, unless the product already has it (so nothing is lost).
+  const chooser = useMemo(() => categoryChooserChoices(categories, detail?.categories.map((c) => c.id) ?? []), [categories, detail]);
   const shopify = detail?.origin === 'shopify';
   const website = detail?.origin === 'website' || shopify; // imported: read-only except Studio's own fields
   const dirty = JSON.stringify(form) !== saved || pending.length > 0;
@@ -372,7 +374,7 @@ export default function ProductEditor({ productId, categories, defaultCurrency, 
                   <legend className={LABEL}>Categories</legend>
                   {readOnly ? (
                     <p className="text-sm text-gray-700">{detail?.categories.map((c) => c.name).join(', ') || 'None'}</p>
-                  ) : categories.length === 0 ? <p className="text-sm text-gray-500">Add categories in the Categories column.</p> : categories.map((c) => (
+                  ) : chooser.length === 0 ? <p className="text-sm text-gray-500">Add categories in the Categories column.</p> : chooser.map((c) => (
                     <label key={c.id} className="flex items-center gap-2 py-1 text-sm text-gray-800">
                       <input type="checkbox" className="h-4 w-4 accent-[#6C60FF]" disabled={!can('category_ids')} checked={form.category_ids.includes(c.id)}
                         onChange={() => set('category_ids', form.category_ids.includes(c.id) ? form.category_ids.filter((x) => x !== c.id) : [...form.category_ids, c.id])} />{c.name}

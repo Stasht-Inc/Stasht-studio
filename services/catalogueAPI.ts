@@ -24,6 +24,7 @@ export interface CatalogueItemSummary {
   currency: string | null;
   price_label: string; // "$1,299 CAD", '' when there is no price
   category: string | null; // the website's own category name
+  category_hidden?: boolean; // its owner hid this category (Show / Hide, 16 Nov): grouped under "Other", left out of category lists
   url: string | null;
   main_image: string | null;
   images_count: number;

@@ -15,7 +15,7 @@ import AllMemoriesEmptyState from '../components/AllMemoriesEmptyState';
 import { toast } from 'sonner';
 import { useProperty } from '../contexts/PropertyContext';
 import { announceProductsChanged, PRODUCTS_CHANGED_EVENT, useProductsStatus } from '../hooks/useProductsStatus';
-import { DEFAULT_CURRENCY, filterStatusesFor, pageToClampTo, productsGate, UPGRADE_LINE } from '../utils/products';
+import { categoryChooserChoices, DEFAULT_CURRENCY, filterStatusesFor, pageToClampTo, productsGate, UPGRADE_LINE } from '../utils/products';
 import { requestUpgrade } from '../utils/planEvents';
 import { BUTTON_PRIMARY, BUTTON_SECONDARY } from '../components/newsletters/lib/ui';
 
@@ -78,6 +78,7 @@ function ProductsReady({ onNavigate }: { onNavigate: (page: string) => void }) {
   const [result, setResult] = useState<PageData | null>(null);
   const [categories, setCategories] = useState<ProductCategory[]>([]);
   const [total, setTotal] = useState(0);
+  const [canHide, setCanHide] = useState(false); // Show / Hide per category (16 Nov): the API has product_categories.hidden
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<number[]>([]);
@@ -126,7 +127,7 @@ function ProductsReady({ onNavigate }: { onNavigate: (page: string) => void }) {
     const mine = ++categoryTicket.current;
     const cats = await productsAPI.categories();
     if (mine !== categoryTicket.current) return;
-    if (cats.ok && cats.data) { setCategories(cats.data.categories); setTotal(cats.data.total); }
+    if (cats.ok && cats.data) { setCategories(cats.data.categories); setTotal(cats.data.total); setCanHide(cats.data.can_hide === true); }
   }, []);
   useEffect(() => { void loadCategories(); }, [loadCategories, viewKey]);
   useEffect(() => {
@@ -157,7 +158,7 @@ function ProductsReady({ onNavigate }: { onNavigate: (page: string) => void }) {
   const toggle = (p: ProductSummary) => setSelected((s) => (s.includes(p.id) ? s.filter((id) => id !== p.id) : [...s, p.id]));
   const clearSelection = () => setSelected([]);
   const nav = (
-    <ProductCategoryNav categories={categories} total={total} selectedId={filters.category_id ?? null} canEdit={canCreate}
+    <ProductCategoryNav categories={categories} total={total} selectedId={filters.category_id ?? null} canEdit={canCreate} canHide={canHide}
       onSelect={(id) => { setFilters((f) => ({ ...f, category_id: id, page: 1 })); setCategorySheet(false); }} onChanged={changed} />
   );
   // On a phone the two buttons don't fit one row, so each wraps onto its own full-width row; from sm up they sit side by side.
@@ -194,7 +195,7 @@ function ProductsReady({ onNavigate }: { onNavigate: (page: string) => void }) {
             options={SORTS.map(([value, label]) => ({ value, label }))} onChange={(v) => setFilters((f) => ({ ...f, sort: v as ProductSort, page: 1 }))} /></div>
         </div>
         {selectedItems.length > 0 && (
-          <ProductBulkBar selected={selectedItems} categories={ownCategories} onClear={clearSelection} ticket={listGen.current}
+          <ProductBulkBar selected={selectedItems} categories={categoryChooserChoices(ownCategories) /* a hidden category is not offered */} onClear={clearSelection} ticket={listGen.current}
             onDone={async ({ message, keepIds, ticket }) => {
               // Chris, 16 Nov: the result is a toast (Studio's pattern), not a box with Dismiss. What the API skipped stays selected.
               if (keepIds.length) toast.warning(message); else toast.success(message);

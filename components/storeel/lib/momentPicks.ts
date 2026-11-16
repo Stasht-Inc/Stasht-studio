@@ -13,6 +13,7 @@ export interface InventoryPick {
   url?: string | null;
   images_count?: number | null;
   category?: string | null;
+  category_hidden?: boolean; // Show / Hide (16 Nov): left out of the category dropdown, the item stays listed
   /** Vehicles. */
   price?: string | number | null;
   mileage?: string | number | null;
