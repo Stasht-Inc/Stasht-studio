@@ -1,6 +1,6 @@
 ﻿import React, { useState, useEffect, useRef } from 'react';
 import { groupMemberName, initialsOf } from '../utils/leadNames';
-import { Search, X, MoreHorizontal, MessageSquare, Clock, RefreshCw, Trash2, Archive, Check, Send, Users, ChevronLeft, Sparkles, Heart, Gift, Calendar, MessageCircle, ThumbsUp, TrendingUp, Lightbulb, UserRound, MapPin, CheckCircle2, SlidersHorizontal } from 'lucide-react';
+import { Search, X, MoreHorizontal, MessageSquare, Clock, RefreshCw, Trash2, Archive, Check, CheckCheck, Loader2, Send, Users, ChevronLeft, Sparkles, Heart, Gift, Calendar, MessageCircle, ThumbsUp, TrendingUp, Lightbulb, UserRound, MapPin, CheckCircle2, SlidersHorizontal } from 'lucide-react';
 import { useMemoryLimit, recheckMemoryLimit } from '../hooks/useMemoryLimit';
 import { useDialogBehavior } from '../hooks/useDialogBehavior';
 import { toast } from 'sonner';
@@ -15,7 +15,7 @@ import { createLivePoller, reconcileList, sameValue, type LivePoller } from '../
 import { clearApiCache } from '../utils/authUtils';
 import { leadLinkAction, leadLinkUrl, NOT_AVAILABLE } from '../utils/leadLink';
 import { switchAccount, switchIntoAccountForLead } from './AccountChoiceModal';
-import LeadsInboxTable from './leads/LeadsInboxTable';
+import LeadsInboxTable, { choosableLeadIds } from './leads/LeadsInboxTable';
 import CampaignDeletedTag from './leads/CampaignDeletedTag';
 import LeadConfirmDialog, { type LeadConfirmKind } from './leads/LeadConfirmDialog';
 import LeadsFilterSheet from './leads/LeadsFilterSheet';
@@ -281,6 +281,9 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
   // *current* filter/sort/page state instead of stale mount-time defaults.
   const fetchArgsRef = useRef({ search: '', status: 'all', sort: null as 'name' | 'last_engaged' | 'status' | null, direction: 'asc' as 'asc' | 'desc', page: 1, closed: false, assigned: 'all' });
   const perPage = 50;
+  // Bulk "Mark read" (Chris 16 Nov 2026): leads chosen with the row checkboxes, on the page in view.
+  const [chosen, setChosen] = useState<Set<number>>(() => new Set());
+  const [bulkReading, setBulkReading] = useState(false);
   const [total, setTotal] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
   // Summary-card data for the Leads sub-tab (Task M4) — backend-computed
@@ -899,6 +902,32 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
     }
   };
 
+  const handleBulkMarkRead = async () => {
+    const ids = [...chosen];
+    if (!ids.length || bulkReading) return;
+    setBulkReading(true);
+    try {
+      const res = await leadsAPI.markReadBulk(ids);
+      if (!res.success) {
+        toast.error(res.message || res.error || "Couldn't mark them read");
+        return;
+      }
+      const marked = new Set(res.data?.marked_lead_ids ?? ids);
+      const read = { unread_count: 0, comment_unread_count: 0, marked_unread: false };
+      setLeads((prev) => prev.map((l) => (marked.has(l.id) ? { ...l, ...read } : l)));
+      if (selectedLead && marked.has(selectedLead.id)) onLeadSelect({ ...selectedLead, ...read });
+      setChosen(new Set());
+      window.dispatchEvent(new CustomEvent('leads-unread-count-refresh'));
+      window.dispatchEvent(new CustomEvent('notifications-count-refresh'));
+      const n = marked.size;
+      toast.success(n === 1 ? 'Marked 1 lead read' : `Marked ${n} leads read`);
+    } catch {
+      toast.error("Couldn't mark them read");
+    } finally {
+      setBulkReading(false);
+    }
+  };
+
   // Open a specific lead (new "+ Send Message" thread or a lead notification).
   // If it's already listed, open it now; otherwise the parent bumps
   // refreshTrigger and fetchLeads resolves it once the fresh list arrives — so
@@ -1136,6 +1165,16 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
       return !isNaN(seen.getTime()) && seen >= cutoff;
     });
   })();
+
+  // Only leads still on the page stay chosen (a new page, tab, filter or search drops the rest).
+  const choosableKey = choosableLeadIds(displayLeads).join(',');
+  useEffect(() => {
+    const onPage = new Set(choosableKey ? choosableKey.split(',').map(Number) : []);
+    setChosen((prev) => {
+      const next = new Set([...prev].filter((id) => onPage.has(id)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [choosableKey]);
 
   return (
     <div className="space-y-3 md:space-y-6" {...pullToRefresh.handlers}>
@@ -1715,6 +1754,30 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
 
       {/* Inbox list — phones render each lead as its own card, so no outer card there */}
       <div className="md:bg-white md:rounded-lg md:shadow-sm md:border md:border-gray-200">
+        {chosen.size > 0 && (
+          // As on a List's page: the count, the action, and a clear button.
+          <div className="flex items-center gap-2 rounded-lg md:rounded-none md:rounded-t-lg border md:border-0 md:border-b border-gray-100 bg-[#6C60FF]/5 px-3 py-2 mb-2 md:mb-0 md:px-4" data-testid="leads-bulk-bar">
+            <span className="mr-auto text-sm font-medium text-gray-900" aria-live="polite">{chosen.size} chosen</span>
+            <button
+              type="button"
+              onClick={handleBulkMarkRead}
+              disabled={bulkReading}
+              data-testid="leads-bulk-mark-read"
+              className="inline-flex h-10 md:h-8 items-center justify-center gap-2 rounded-lg border border-gray-300 bg-white px-3 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#6C60FF]/40"
+            >
+              {bulkReading ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <CheckCheck className="h-4 w-4" aria-hidden="true" />}
+              Mark read
+            </button>
+            <button
+              type="button"
+              onClick={() => setChosen(new Set())}
+              aria-label="Clear the choice"
+              className="inline-flex h-10 w-10 md:h-8 md:w-8 items-center justify-center rounded-lg text-gray-500 hover:bg-gray-100 hover:text-gray-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#6C60FF]/40"
+            >
+              <X className="h-4 w-4" aria-hidden="true" />
+            </button>
+          </div>
+        )}
         <LeadsInboxTable
           leads={displayLeads}
           isLoading={showListLoading}
@@ -1736,6 +1799,13 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
           onLeadPatched={patchLead}
           onRemove={handleRemoveFromList}
           onJoin={handleJoin}
+          chosen={chosen}
+          onChoose={(id) => setChosen((prev) => {
+            const next = new Set(prev);
+            if (next.has(id)) next.delete(id); else next.add(id);
+            return next;
+          })}
+          onChoosePage={(ids) => setChosen((prev) => (ids.every((id) => prev.has(id)) ? new Set() : new Set(ids)))}
         />
 
         {/* Pagination footer */}

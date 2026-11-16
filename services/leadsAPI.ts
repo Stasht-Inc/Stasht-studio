@@ -717,6 +717,14 @@ export const leadsAPI = {
     });
   },
 
+  // Chris 16 Nov 2026: "bulk marked as read". Each lead is read as opening it would; ones this person can't see are skipped.
+  markReadBulk: async (leadIds: number[]) => {
+    return apiRequest<{ marked_lead_ids: number[]; marked: number }>(`/leads/bulk/mark-read`, {
+      method: 'POST',
+      body: JSON.stringify({ lead_ids: leadIds, ...partialAdminBody() }),
+    });
+  },
+
   markCommentsRead: async (leadId: number) => {
     return apiRequest<{ marked_read: number }>(`/leads/${leadId}/comments/mark-read`, {
       method: 'POST',

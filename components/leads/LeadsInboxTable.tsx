@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import { toast } from 'sonner';
 import {
   ArchiveRestore, Check, CheckCheck, Copy, ExternalLink, Eye, EyeOff, MessageSquare, MoreHorizontal, Trash2, UserPlus,
@@ -44,6 +45,15 @@ interface Props {
   onRemove?: (lead: Lead) => void;
   // "Join" a lead someone else claimed: read and reply as yourself (Chris 13 Nov 2026 evening).
   onJoin?: (lead: Lead) => void;
+  // Bulk choice (Chris 16 Nov 2026, "bulk marked as read"): a checkbox per row and one for the page, as on a List's page.
+  chosen?: ReadonlySet<number>;
+  onChoose?: (leadId: number) => void;
+  onChoosePage?: (leadIds: number[]) => void;
+}
+
+// A lead this person may open can be chosen; a claimed one they can't open has nothing to act on.
+export function choosableLeadIds(leads: Lead[]): number[] {
+  return leads.filter((l) => l.can_open !== false).map((l) => l.id);
 }
 
 // A claimed lead this person may no longer open (a Partial Admin's, a salesperson's): its row says who has it instead,
@@ -100,8 +110,9 @@ function StatusIndicator({ status }: { status: Lead['status'] }) {
 
 // Open lead: gray (Chris 14 Nov 2026: selected = darker gray, not purple). New (unread): soft yellow, Chris's
 // "this is new" cue. Else plain.
-function rowBackground(selected: boolean, unread: boolean): string {
+function rowBackground(selected: boolean, unread: boolean, chosen = false): string {
   if (selected) return 'bg-gray-100';
+  if (chosen) return 'bg-purple-50 hover:bg-purple-100 focus-visible:bg-purple-100';
   if (unread) return 'bg-amber-50 hover:bg-amber-100 focus-visible:bg-amber-100';
   return 'hover:bg-gray-50 focus-visible:bg-gray-50';
 }
@@ -249,7 +260,40 @@ function RowActions(props: ActionProps & { className: string }) {
 }
 
 export default function LeadsInboxTable(props: Props) {
-  const { leads, isLoading, error, emptyState, selectedLeadId, onSelect, onJoin } = props;
+  const { leads, isLoading, error, emptyState, selectedLeadId, onSelect, onJoin, chosen, onChoose, onChoosePage } = props;
+  const choosing = !!(chosen && onChoose && onChoosePage);
+  const pageIds = choosing ? choosableLeadIds(leads) : [];
+  const chosenOnPage = pageIds.filter((id) => chosen!.has(id)).length;
+  const pageState: 'none' | 'some' | 'all' = !pageIds.length || chosenOnPage === 0 ? 'none' : chosenOnPage === pageIds.length ? 'all' : 'some';
+  const headerBox = useRef<HTMLInputElement>(null);
+  const phoneBox = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    [headerBox.current, phoneBox.current].forEach((box) => { if (box) box.indeterminate = pageState === 'some'; });
+  }, [pageState, leads]);
+
+  const leadLabel = (lead: Lead) => lead.user?.name?.trim() || leadPhone(lead) || leadEmail(lead) || 'this lead';
+  // The row/card opens the lead on click, so the checkbox keeps its clicks to itself.
+  const box = (lead: Lead) => {
+    if (!choosing) return null;
+    const canChoose = lead.can_open !== false;
+    return (
+      <label
+        className={`-m-2 inline-flex h-10 w-10 shrink-0 items-center justify-center md:-my-2 md:-mx-1 md:h-9 md:w-8 ${canChoose ? 'cursor-pointer' : 'cursor-not-allowed'}`}
+        onClick={(e) => e.stopPropagation()}
+        onKeyDown={(e) => e.stopPropagation()}
+      >
+        <input
+          type="checkbox"
+          aria-label={`Choose ${leadLabel(lead)}`}
+          checked={canChoose && chosen!.has(lead.id)}
+          disabled={!canChoose}
+          onChange={() => onChoose!(lead.id)}
+          data-testid="lead-choose"
+          className="h-4 w-4 accent-[#6C60FF]"
+        />
+      </label>
+    );
+  };
 
   const status = isLoading ? (
     <div className="flex items-center justify-center gap-2 py-12">
@@ -279,6 +323,12 @@ export default function LeadsInboxTable(props: Props) {
         <table className="w-full min-w-[48rem] table-fixed">
           <thead>
             <tr className="border-b border-gray-200">
+              {choosing && (
+                <th className={`${HEAD} w-10 !pr-0`}>
+                  <input ref={headerBox} type="checkbox" aria-label="Choose every lead on this page" checked={pageState === 'all'}
+                    disabled={!pageIds.length} onChange={() => onChoosePage!(pageIds)} data-testid="lead-choose-page" className="h-4 w-4 accent-[#6C60FF] cursor-pointer" />
+                </th>
+              )}
               <th className={`${HEAD} w-[11rem] [@container(min-width:70rem)]:w-[13rem]`}>Date/Time</th>
               <th className={`${HEAD} w-[11rem] [@container(min-width:62rem)]:w-[9rem]`}>
                 <span className="[@container(min-width:62rem)]:hidden">Phone / Email</span>
@@ -292,10 +342,11 @@ export default function LeadsInboxTable(props: Props) {
           </thead>
           <tbody className="divide-y divide-gray-100">
             {status ? (
-              <tr><td colSpan={6}>{status}</td></tr>
+              <tr><td colSpan={choosing ? 7 : 6}>{status}</td></tr>
             ) : leads.map((lead) => {
               const unread = isUnread(lead);
               const selected = selectedLeadId === lead.id;
+              const isChosen = choosing && chosen!.has(lead.id);
               const when = lead.last_activity_at || lead.last_engaged_at;
               const phone = leadPhone(lead);
               const email = leadEmail(lead);
@@ -310,9 +361,10 @@ export default function LeadsInboxTable(props: Props) {
                       openOrSayClaimed(lead, onSelect, onJoin);
                     }
                   }}
-                  className={`group cursor-pointer transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-gray-400 ${rowBackground(selected, unread)} ${unread ? 'font-semibold' : ''}`}
+                  className={`group cursor-pointer transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-gray-400 ${rowBackground(selected, unread, isChosen)} ${unread ? 'font-semibold' : ''}`}
                   style={selected ? { boxShadow: 'inset 3px 0 0 #202224' } : undefined}
                 >
+                  {choosing && <td className={`${CELL} !pr-0`}>{box(lead)}</td>}
                   <td className={`${CELL} text-gray-800 whitespace-nowrap overflow-hidden`}>
                     <span className="[@container(min-width:70rem)]:hidden">{formatInboxDateMedium(when)}</span>
                     <span className="hidden [@container(min-width:70rem)]:inline">{formatInboxDate(when)}</span>
@@ -361,19 +413,29 @@ export default function LeadsInboxTable(props: Props) {
 
       {/* Mobile: one card per lead (Chris: "no distinction between the leads") */}
       <div className="md:hidden space-y-2">
+        {choosing && !status && pageIds.length > 0 && (
+          <label className="flex min-h-[44px] cursor-pointer items-center gap-3 px-3.5 text-sm text-gray-700">
+            <span className="-m-2 inline-flex h-10 w-10 shrink-0 items-center justify-center">
+              <input ref={phoneBox} type="checkbox" checked={pageState === 'all'} onChange={() => onChoosePage!(pageIds)} className="h-4 w-4 accent-[#6C60FF]" />
+            </span>
+            Choose every lead on this page
+          </label>
+        )}
         {status ? <div className="bg-white rounded-xl border border-gray-200">{status}</div> : leads.map((lead) => {
           const unread = isUnread(lead);
           const selected = selectedLeadId === lead.id;
           const contact = [leadPhone(lead), leadEmail(lead)].filter(Boolean).join(' · ') || '—';
           const name = lead.user?.name?.trim();
+          const isChosen = choosing && chosen!.has(lead.id);
           return (
             <div
               key={lead.id}
               onClick={() => openOrSayClaimed(lead, onSelect, onJoin)}
-              className={`rounded-xl border px-3.5 pt-3 pb-1.5 cursor-pointer transition-colors min-w-0 ${phoneCardClass(selected, unread)}`}
+              className={`rounded-xl border px-3.5 pt-3 pb-1.5 cursor-pointer transition-colors min-w-0 ${phoneCardClass(selected, unread)} ${isChosen && !selected ? '!bg-purple-50' : ''}`}
             >
               <div className="flex items-center justify-between gap-2 min-w-0">
                 <div className={`flex items-center gap-1.5 min-w-0 text-[15px] text-gray-900 ${unread ? 'font-bold' : 'font-medium'}`}>
+                  {box(lead)}
                   {unread && <UnreadDot />}
                   <span className="truncate">{name || contact}</span>
                   <StatusIndicator status={lead.status} />
