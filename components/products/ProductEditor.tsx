@@ -57,6 +57,8 @@ function Field({ id, label, error, hint, children }: { id: string; label: string
   );
 }
 
+const DIM_EXAMPLE = { length: 'e.g. 50', width: 'e.g. 45', height: 'e.g. 90' } as const;
+
 const ErrorText = ({ id, text }: { id?: string; text?: string }) => (text ? <p id={id} className="mt-1 text-xs text-red-600">{text}</p> : null);
 
 type Confirm = { kind: 'leave'; then(): void };
@@ -260,16 +262,16 @@ export default function ProductEditor({ productId, categories, defaultCurrency, 
           <div className="grid gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
             <div className="min-w-0 space-y-4">
               <Section title="Basics">
-                <Field id="p-title" label="Title" error={errors.title}><input id="p-title" maxLength={255} value={form.title} disabled={!can('title')} onChange={(e) => set('title', e.target.value)} className={inputClass(Boolean(errors.title))} /></Field>
-                <Field id="p-short" label="Short description" error={errors.short_description}><textarea id="p-short" rows={2} maxLength={500} value={form.short_description} disabled={!can('short_description')} onChange={(e) => set('short_description', e.target.value)} className={textareaClass(Boolean(errors.short_description))} /></Field>
+                <Field id="p-title" label="Title" error={errors.title}><input id="p-title" placeholder="e.g. Walnut dining chair" maxLength={255} value={form.title} disabled={!can('title')} onChange={(e) => set('title', e.target.value)} className={inputClass(Boolean(errors.title))} /></Field>
+                <Field id="p-short" label="Short description" error={errors.short_description}><textarea id="p-short" placeholder="e.g. Solid walnut, hand-finished." rows={2} maxLength={500} value={form.short_description} disabled={!can('short_description')} onChange={(e) => set('short_description', e.target.value)} className={textareaClass(Boolean(errors.short_description))} /></Field>
                 <div>
                   <span className={LABEL}>Full description</span>
                   <ProductRichText label="Full description" value={form.description_html} resetKey={`${productId ?? 'new'}-${detail?.updated_at ?? ''}`} disabled={!can('description_html')} busy={saving} onChange={(html) => set('description_html', html)} />
                   <ErrorText text={errors.description_html} />
                 </div>
                 <div className="grid gap-4 sm:grid-cols-2">
-                  <Field id="p-brand" label="Brand" error={errors.brand}><input id="p-brand" maxLength={191} value={form.brand} disabled={!can('brand')} onChange={(e) => set('brand', e.target.value)} className={inputClass(Boolean(errors.brand))} /></Field>
-                  <Field id="p-type" label="Product type" error={errors.product_type}><input id="p-type" maxLength={191} value={form.product_type} disabled={!can('product_type')} onChange={(e) => set('product_type', e.target.value)} className={inputClass(Boolean(errors.product_type))} /></Field>
+                  <Field id="p-brand" label="Brand" error={errors.brand}><input id="p-brand" placeholder="e.g. Mill & Co" maxLength={191} value={form.brand} disabled={!can('brand')} onChange={(e) => set('brand', e.target.value)} className={inputClass(Boolean(errors.brand))} /></Field>
+                  <Field id="p-type" label="Product type" error={errors.product_type}><input id="p-type" placeholder="e.g. Chair" maxLength={191} value={form.product_type} disabled={!can('product_type')} onChange={(e) => set('product_type', e.target.value)} className={inputClass(Boolean(errors.product_type))} /></Field>
                 </div>
               </Section>
               <Section title="Media">
@@ -277,18 +279,18 @@ export default function ProductEditor({ productId, categories, defaultCurrency, 
               </Section>
               <Section title="Pricing">
                 <div className="grid gap-4 sm:grid-cols-3">
-                  <Field id="p-price" label="Price" error={errors.price}><input id="p-price" inputMode="decimal" value={form.price} disabled={!can('price')} onChange={(e) => set('price', e.target.value)} className={inputClass(Boolean(errors.price))} /></Field>
-                  <Field id="p-compare" label="Compare-at price" error={errors.compare_at_price} hint="The price before the sale; shown struck through."><input id="p-compare" inputMode="decimal" value={form.compare_at_price} disabled={!can('compare_at_price')} onChange={(e) => set('compare_at_price', e.target.value)} className={inputClass(Boolean(errors.compare_at_price))} /></Field>
+                  <Field id="p-price" label="Price" error={errors.price}><input id="p-price" placeholder="e.g. 49.99" inputMode="decimal" value={form.price} disabled={!can('price')} onChange={(e) => set('price', e.target.value)} className={inputClass(Boolean(errors.price))} /></Field>
+                  <Field id="p-compare" label="Compare-at price" error={errors.compare_at_price} hint="The price before the sale; shown struck through."><input id="p-compare" placeholder="e.g. 59.99" inputMode="decimal" value={form.compare_at_price} disabled={!can('compare_at_price')} onChange={(e) => set('compare_at_price', e.target.value)} className={inputClass(Boolean(errors.compare_at_price))} /></Field>
                   <Field id="p-currency" label="Currency" error={errors.currency}><ProductSelect id="p-currency" value={form.currency} options={currencyOptions(form.currency)} disabled={!can('currency')} onChange={(v) => set('currency', v)} /></Field>
                 </div>
                 <label className="flex items-center gap-3 text-sm text-gray-800"><Switch checked={form.price_on_request} disabled={!can('price_on_request')} onCheckedChange={(v) => set('price_on_request', v)} aria-label="Price on request" />Price on request</label>
               </Section>
               <Section title="Inventory">
                 <div className="grid gap-4 sm:grid-cols-2">
-                  <Field id="p-sku" label="SKU" error={errors.sku}><input id="p-sku" maxLength={191} value={form.sku} disabled={!can('sku')} onChange={(e) => set('sku', e.target.value)} className={inputClass(Boolean(errors.sku))} /></Field>
-                  <Field id="p-barcode" label="Barcode / UPC" error={errors.barcode}><input id="p-barcode" maxLength={64} value={form.barcode} disabled={!can('barcode')} onChange={(e) => set('barcode', e.target.value)} className={inputClass(Boolean(errors.barcode))} /></Field>
+                  <Field id="p-sku" label="SKU" error={errors.sku}><input id="p-sku" placeholder="e.g. WAL-CHAIR-01" maxLength={191} value={form.sku} disabled={!can('sku')} onChange={(e) => set('sku', e.target.value)} className={inputClass(Boolean(errors.sku))} /></Field>
+                  <Field id="p-barcode" label="Barcode / UPC" error={errors.barcode}><input id="p-barcode" placeholder="e.g. 012345678905" maxLength={64} value={form.barcode} disabled={!can('barcode')} onChange={(e) => set('barcode', e.target.value)} className={inputClass(Boolean(errors.barcode))} /></Field>
                   <Field id="p-stock" label="Stock status"><select id="p-stock" value={form.stock_status} disabled={!can('stock_status')} onChange={(e) => set('stock_status', e.target.value as ProductForm['stock_status'])} className={inputClass()}><option value="in_stock">In stock</option><option value="out_of_stock">Out of stock</option></select></Field>
-                  <Field id="p-qty" label="Quantity (optional)" error={errors.quantity}><input id="p-qty" inputMode="numeric" value={form.quantity} disabled={!can('quantity')} onChange={(e) => set('quantity', e.target.value)} className={inputClass(Boolean(errors.quantity))} /></Field>
+                  <Field id="p-qty" label="Quantity (optional)" error={errors.quantity}><input id="p-qty" placeholder="e.g. 25" inputMode="numeric" value={form.quantity} disabled={!can('quantity')} onChange={(e) => set('quantity', e.target.value)} className={inputClass(Boolean(errors.quantity))} /></Field>
                 </div>
               </Section>
               <Section title="Variants">
@@ -300,12 +302,12 @@ export default function ProductEditor({ productId, categories, defaultCurrency, 
               <Section title="Details">
                 <div><span className={LABEL}>Specifications</span><ProductSpecsField rows={form.attributes} disabled={!can('attributes')} onChange={(rows) => set('attributes', rows)} /><ErrorText text={under(errors, 'attributes')} /></div>
                 <div className="grid gap-4 sm:grid-cols-[1fr_7rem]">
-                  <Field id="p-weight" label="Weight" error={errors.weight}><input id="p-weight" inputMode="decimal" value={form.weight} disabled={!can('weight')} onChange={(e) => set('weight', e.target.value)} className={inputClass(Boolean(errors.weight))} /></Field>
+                  <Field id="p-weight" label="Weight" error={errors.weight}><input id="p-weight" placeholder="e.g. 7.5" inputMode="decimal" value={form.weight} disabled={!can('weight')} onChange={(e) => set('weight', e.target.value)} className={inputClass(Boolean(errors.weight))} /></Field>
                   <Field id="p-weight-unit" label="Unit" error={errors.weight_unit}><select id="p-weight-unit" value={form.weight_unit} disabled={!can('weight_unit')} onChange={(e) => set('weight_unit', e.target.value)} className={inputClass()}>{['kg', 'g', 'lb', 'oz'].map((u) => <option key={u}>{u}</option>)}</select></Field>
                 </div>
                 <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
                   {(['length', 'width', 'height'] as const).map((d) => (
-                    <Field key={d} id={`p-${d}`} label={d[0].toUpperCase() + d.slice(1)} error={errors[`dimensions.${d}`]}><input id={`p-${d}`} inputMode="decimal" value={form.dimensions[d]} disabled={!can('dimensions')} onChange={(e) => set('dimensions', { ...form.dimensions, [d]: e.target.value })} className={inputClass(Boolean(errors[`dimensions.${d}`]))} /></Field>
+                    <Field key={d} id={`p-${d}`} label={d[0].toUpperCase() + d.slice(1)} error={errors[`dimensions.${d}`]}><input id={`p-${d}`} placeholder={DIM_EXAMPLE[d]} inputMode="decimal" value={form.dimensions[d]} disabled={!can('dimensions')} onChange={(e) => set('dimensions', { ...form.dimensions, [d]: e.target.value })} className={inputClass(Boolean(errors[`dimensions.${d}`]))} /></Field>
                   ))}
                   <Field id="p-dim-unit" label="Unit" error={errors['dimensions.unit'] || errors.dimensions}><select id="p-dim-unit" value={form.dimensions.unit} disabled={!can('dimensions')} onChange={(e) => set('dimensions', { ...form.dimensions, unit: e.target.value })} className={inputClass()}>{['cm', 'mm', 'm', 'in', 'ft'].map((u) => <option key={u}>{u}</option>)}</select></Field>
                 </div>
@@ -332,23 +334,23 @@ export default function ProductEditor({ productId, categories, defaultCurrency, 
                   ))}
                   <ErrorText text={under(errors, 'category_ids')} />
                 </fieldset>
-                <div><label htmlFor="p-tags" className={LABEL}>Tags</label><ChipsInput id="p-tags" label="Tags" describedBy={under(errors, 'tags') ? 'p-tags-error' : undefined} values={form.tags} placeholder="Type a tag and press Enter" disabled={!can('tags')} invalid={Boolean(under(errors, 'tags'))} onChange={(v) => set('tags', v)} /><ErrorText id="p-tags-error" text={under(errors, 'tags')} /></div>
-                <div><label htmlFor="p-collections" className={LABEL}>Collections</label><ChipsInput id="p-collections" label="Collections" describedBy={under(errors, 'collections') ? 'p-collections-error' : undefined} values={form.collections} placeholder="Type a collection and press Enter" disabled={!can('collections')} invalid={Boolean(under(errors, 'collections'))} onChange={(v) => set('collections', v)} /><ErrorText id="p-collections-error" text={under(errors, 'collections')} /></div>
+                <div><label htmlFor="p-tags" className={LABEL}>Tags</label><ChipsInput id="p-tags" label="Tags" describedBy={under(errors, 'tags') ? 'p-tags-error' : undefined} values={form.tags} placeholder="e.g. walnut (press Enter)" disabled={!can('tags')} invalid={Boolean(under(errors, 'tags'))} onChange={(v) => set('tags', v)} /><ErrorText id="p-tags-error" text={under(errors, 'tags')} /></div>
+                <div><label htmlFor="p-collections" className={LABEL}>Collections</label><ChipsInput id="p-collections" label="Collections" describedBy={under(errors, 'collections') ? 'p-collections-error' : undefined} values={form.collections} placeholder="e.g. Spring sale (press Enter)" disabled={!can('collections')} invalid={Boolean(under(errors, 'collections'))} onChange={(v) => set('collections', v)} /><ErrorText id="p-collections-error" text={under(errors, 'collections')} /></div>
               </Section>
               <Section title="SEO and sharing">
                 <Field id="p-slug" label="URL slug" error={errors.slug} hint={`studio.stasht.com/p/${form.slug || slugFromTitle(form.title) || 'your-product'}. Your public product page is coming soon.`}>
-                  <input id="p-slug" maxLength={120} value={form.slug} disabled={!can('slug')} placeholder={slugFromTitle(form.title)} onChange={(e) => set('slug', e.target.value.toLowerCase())} className={inputClass(Boolean(errors.slug))} />
+                  <input id="p-slug" maxLength={120} value={form.slug} disabled={!can('slug')} placeholder={slugFromTitle(form.title) || 'e.g. walnut-dining-chair'} onChange={(e) => set('slug', e.target.value.toLowerCase())} className={inputClass(Boolean(errors.slug))} />
                 </Field>
-                <Field id="p-seo-title" label="Page title" error={errors.seo_title}><input id="p-seo-title" maxLength={191} value={form.seo_title} disabled={!can('seo_title')} onChange={(e) => set('seo_title', e.target.value)} className={inputClass(Boolean(errors.seo_title))} /></Field>
-                <Field id="p-seo-desc" label="Description" error={errors.seo_description}><textarea id="p-seo-desc" rows={3} maxLength={500} value={form.seo_description} disabled={!can('seo_description')} onChange={(e) => set('seo_description', e.target.value)} className={textareaClass(Boolean(errors.seo_description))} /></Field>
-                <Field id="p-share" label="Share image" error={errors.share_image} hint="A web address of the picture link previews show."><input id="p-share" value={form.share_image} disabled={!can('share_image')} onChange={(e) => set('share_image', e.target.value)} className={inputClass(Boolean(errors.share_image))} /></Field>
+                <Field id="p-seo-title" label="Page title" error={errors.seo_title}><input id="p-seo-title" placeholder="e.g. Walnut Dining Chair | Mill & Co" maxLength={191} value={form.seo_title} disabled={!can('seo_title')} onChange={(e) => set('seo_title', e.target.value)} className={inputClass(Boolean(errors.seo_title))} /></Field>
+                <Field id="p-seo-desc" label="Description" error={errors.seo_description}><textarea id="p-seo-desc" placeholder="e.g. A hand-made walnut chair for your dining room." rows={3} maxLength={500} value={form.seo_description} disabled={!can('seo_description')} onChange={(e) => set('seo_description', e.target.value)} className={textareaClass(Boolean(errors.seo_description))} /></Field>
+                <Field id="p-share" label="Share image" error={errors.share_image} hint="A web address of the picture link previews show."><input id="p-share" placeholder="e.g. https://example.com/chair.jpg" value={form.share_image} disabled={!can('share_image')} onChange={(e) => set('share_image', e.target.value)} className={inputClass(Boolean(errors.share_image))} /></Field>
               </Section>
               <Section title="Links">
-                <Field id="p-buy" label='External "Buy" link (optional)' error={errors.buy_url} hint="For products you also sell somewhere else."><input id="p-buy" value={form.buy_url} disabled={!can('buy_url')} onChange={(e) => set('buy_url', e.target.value)} className={inputClass(Boolean(errors.buy_url))} /></Field>
+                <Field id="p-buy" label='External "Buy" link (optional)' error={errors.buy_url} hint="For products you also sell somewhere else."><input id="p-buy" placeholder="e.g. https://yourstore.com/walnut-chair" value={form.buy_url} disabled={!can('buy_url')} onChange={(e) => set('buy_url', e.target.value)} className={inputClass(Boolean(errors.buy_url))} /></Field>
               </Section>
               {!readOnly && (
                 <Section title="Internal notes">
-                  <Field id="p-notes" label="Notes" error={errors.internal_notes} hint="Only your team sees these."><textarea id="p-notes" rows={4} maxLength={5000} value={form.internal_notes} disabled={!can('internal_notes')} onChange={(e) => set('internal_notes', e.target.value)} className={textareaClass(Boolean(errors.internal_notes))} /></Field>
+                  <Field id="p-notes" label="Notes" error={errors.internal_notes} hint="Only your team sees these."><textarea id="p-notes" placeholder="e.g. Supplier: Mill & Co, reorder at 5" rows={4} maxLength={5000} value={form.internal_notes} disabled={!can('internal_notes')} onChange={(e) => set('internal_notes', e.target.value)} className={textareaClass(Boolean(errors.internal_notes))} /></Field>
                 </Section>
               )}
             </div>

@@ -44,8 +44,8 @@ export default function ProductSpecsField({ rows, onChange, disabled }: {
     <div className="space-y-2">
       {rows.map((r, i) => (
         <div key={i} className="flex gap-2">
-          <input aria-label={`Specification ${i + 1} label`} placeholder="Material" maxLength={100} value={r.label} disabled={disabled} onChange={(e) => set(i, { label: e.target.value })} className={inputClass()} />
-          <input aria-label={`Specification ${i + 1} value`} placeholder="Solid oak" maxLength={500} value={r.value} disabled={disabled} onChange={(e) => set(i, { value: e.target.value })} className={inputClass()} />
+          <input aria-label={`Specification ${i + 1} label`} placeholder="e.g. Material" maxLength={100} value={r.label} disabled={disabled} onChange={(e) => set(i, { label: e.target.value })} className={inputClass()} />
+          <input aria-label={`Specification ${i + 1} value`} placeholder="e.g. Solid oak" maxLength={500} value={r.value} disabled={disabled} onChange={(e) => set(i, { value: e.target.value })} className={inputClass()} />
           {!disabled && <button type="button" aria-label={`Remove specification ${i + 1}`} className={BUTTON_SMALL} onClick={() => onChange(rows.filter((_, j) => j !== i))}><X className="h-4 w-4" /></button>}
         </div>
       ))}
