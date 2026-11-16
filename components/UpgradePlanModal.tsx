@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { X, Check, Zap, Crown, Loader2, Award, Lock } from 'lucide-react';
 import { loadStripe } from '@stripe/stripe-js';
 import { Elements } from '@stripe/react-stripe-js';
@@ -10,7 +11,7 @@ import { toast } from 'sonner';
 import { planKey } from '../utils/effectivePlan';
 import { accountTrialOf, defaultPickerPlan, hasActiveSubscription, isCurrentPlan, pickerButton, pickerCurrentPlan } from '../utils/planPicker';
 import { dashboardAPI } from '../utils/authUtils';
-import { PLAN_PRICING, creditsFeature, priceLabel, yearlyMonthlyPrice, yearlyTotal } from '../utils/planPricing';
+import { PLAN_PRICING, creditsFeature, priceLabel, yearlyMonthlyPrice } from '../utils/planPricing';
 
 // Initialize Stripe
 const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY);
@@ -413,7 +414,10 @@ export function UpgradePlanModal({ isOpen, onClose, currentPlan, onUpgrade, onSu
     if (canClose) onClose();
   };
 
-  return (
+  // Portalled to <body> like Studio's Radix dialogs and the Products editor (ProductEditor.tsx): rendered inside a page
+  // (Billing) it sat under the phone bottom bar (nav.phone-bottom-bar-pin, z-50, later in the DOM), so Upgrade / Cancel
+  // couldn't be tapped at 390 (Chris 16 Nov E2E). From <body> it comes after the bar and outside any page stacking context.
+  return createPortal(
     <>
       {/* Downgrade Confirmation Dialog */}
       {showDowngradeConfirm && (
@@ -456,7 +460,7 @@ export function UpgradePlanModal({ isOpen, onClose, currentPlan, onUpgrade, onSu
       {/* Plan Selection Modal - Only show when other modals are NOT open */}
       {isOpen && !isPaymentModalOpen && !isStripeFormOpen && (
         <div
-          className="fixed inset-0 bg-gray-900/85 z-50 flex flex-col items-center justify-center p-4 gap-3"
+          className="fixed inset-0 bg-gray-900/85 z-50 flex flex-col items-center justify-center p-4 pb-[max(1rem,env(safe-area-inset-bottom))] gap-3"
           onClick={canClose ? handleClose : triggerMustSelectWarning}
         >
           {/* Lock indicator above modal — only when non-closeable */}
@@ -636,67 +640,10 @@ export function UpgradePlanModal({ isOpen, onClose, currentPlan, onUpgrade, onSu
                 ))}
               </div>
 
-              {/* Order Summary */}
-              <div className="w-full bg-gray-50 rounded-2xl p-4">
-                <h3 className="font-semibold text-gray-900 mb-4">Order Summary</h3>
-
-                <div className="space-y-3 mb-6">
-                  <div className="flex justify-between text-sm">
-                    <span className="text-gray-600">
-                      {selectedPlanData?.name} ({selectedPlan === 'starter' ? 'free' : isYearly ? 'yearly' : 'monthly'})
-                    </span>
-                    <span className="text-gray-900 font-medium">{selectedPlan === 'starter' ? 'FREE' : `$${currentPrice}`}</span>
-                  </div>
-
-                  <div className="border-t pt-3">
-                    <div className="flex justify-between">
-                      <span className="font-medium text-gray-900">Total</span>
-                      <span className="font-bold text-gray-900">{selectedPlan === 'starter' ? 'FREE' : `$${currentPrice}/month`}</span>
-                    </div>
-                    {isYearly && selectedPlan !== 'starter' && selectedPlanData && (
-                      <p className="text-xs text-gray-500 text-right mt-1">${yearlyTotal(selectedPlanData.price).toFixed(2)} billed yearly</p>
-                    )}
-                  </div>
-                </div>
-
-                {/* Upgrade Button */}
-                <button
-                  onClick={handleUpgradeClick}
-                  disabled={selectedButton.disabled}
-                  className={`w-full text-white py-3 px-4 rounded-xl font-medium transition-colors flex items-center justify-center gap-2 disabled:cursor-not-allowed disabled:!bg-gray-300 ${
-                    selectedPlan === 'starter'
-                      ? 'bg-[#4A9CF5] hover:bg-[#2878D6]'
-                      : selectedPlan === 'intermediate'
-                      ? 'bg-[#f6339A] hover:bg-[#d42982]'
-                      : 'bg-[#6C60FF] hover:bg-[#5A4FFF]'
-                  }`}
-                >
-                  {selectedButton.label}
-                  {!selectedButton.disabled && <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" />
-                  </svg>}
-                </button>
-
-                {/* Cancel Button */}
-                {canClose && (
-                  <button
-                    onClick={handleClose}
-                    className="w-full mt-3 bg-white border border-gray-200 text-gray-700 py-3 px-4 rounded-xl font-medium hover:bg-gray-50 transition-colors"
-                  >
-                    Cancel
-                  </button>
-                )}
-              </div>
             </div>
 
             {/* Footer */}
             <div className="mt-6 pt-4 border-t border-gray-200">
-              {error && (
-                <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg">
-                  <p className="text-sm text-red-600">{error}</p>
-                </div>
-              )}
-
               <p className="text-center text-sm text-gray-500 flex items-center justify-center gap-2">
                 No setup fees • Cancel anytime
               </p>
@@ -706,6 +653,45 @@ export function UpgradePlanModal({ isOpen, onClose, currentPlan, onUpgrade, onSu
                 <span className="font-medium">Enterprise Accounts Available</span> – Pricing ranging from $49.99 and up including set up fees.{' '}
                 <a href="https://stasht.com/#contact" target="_blank" rel="noopener noreferrer" className="text-[#6C60FF] hover:underline">Contact us</a> for more information.
               </p>
+            </div>
+          </div>
+
+          {/* Chris, 16 Nov: the actions stay in view at the bottom of the modal on desktop and phones (sticky footer, as
+              InviteToMemoryModal); the Order Summary is on the checkout page, not here. Errors sit above the buttons. */}
+          <div data-upgrade-actions className="sticky bottom-0 z-10 border-t border-gray-200 bg-white px-6 py-4 rounded-b-2xl">
+            {error && (
+              <div className="mb-3 p-3 bg-red-50 border border-red-200 rounded-lg">
+                <p className="text-sm text-red-600">{error}</p>
+              </div>
+            )}
+            <div className="flex flex-col gap-3 sm:flex-row-reverse sm:justify-start">
+              {/* Upgrade Button */}
+              <button
+                onClick={handleUpgradeClick}
+                disabled={selectedButton.disabled}
+                className={`w-full sm:w-auto text-white py-3 px-4 rounded-xl font-medium transition-colors flex items-center justify-center gap-2 disabled:cursor-not-allowed disabled:!bg-gray-300 ${
+                  selectedPlan === 'starter'
+                    ? 'bg-[#4A9CF5] hover:bg-[#2878D6]'
+                    : selectedPlan === 'intermediate'
+                    ? 'bg-[#f6339A] hover:bg-[#d42982]'
+                    : 'bg-[#6C60FF] hover:bg-[#5A4FFF]'
+                }`}
+              >
+                {selectedButton.label}
+                {!selectedButton.disabled && <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" />
+                </svg>}
+              </button>
+
+              {/* Cancel Button */}
+              {canClose && (
+                <button
+                  onClick={handleClose}
+                  className="w-full sm:w-auto bg-white border border-gray-200 text-gray-700 py-3 px-4 rounded-xl font-medium hover:bg-gray-50 transition-colors"
+                >
+                  Cancel
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -738,7 +724,8 @@ export function UpgradePlanModal({ isOpen, onClose, currentPlan, onUpgrade, onSu
           />
         </Elements>
       )}
-    </>
+    </>,
+    document.body,
   );
 }
 

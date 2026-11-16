@@ -7,14 +7,15 @@ import YoutubeBlockEditor from './YoutubeBlockEditor';
 import ButtonBlockEditor from './ButtonBlockEditor';
 import DividerBlockEditor from './DividerBlockEditor';
 import CampaignsBlockEditor from './CampaignsBlockEditor';
+import HtmlBlockEditor from './HtmlBlockEditor';
 import MessageBlockView from './MessageBlockView';
 import { isMessageBlock } from '../lib/messageBlock';
 
 export const BLOCK_LABEL: Record<BlockType, string> = {
-  image: 'Image', title: 'Title', text: 'Text', youtube: 'YouTube', button: 'Button', divider: 'Divider', campaigns: 'Campaigns',
+  image: 'Image', title: 'Title', text: 'Text', youtube: 'YouTube', button: 'Button', divider: 'Divider', campaigns: 'Campaigns', html: 'HTML',
 };
 
-function BlockEditor({ block, selected, readOnly, onChange, onUpdate, serverItems, accent, onPick, phone = false, padClass, imagePrompt }: {
+function BlockEditor({ block, selected, readOnly, onChange, onUpdate, serverItems, accent, onPick, phone = false, padClass, imagePrompt, serverHtml }: {
   block: NewsletterBlock;
   selected: boolean;
   readOnly: boolean;
@@ -31,6 +32,8 @@ function BlockEditor({ block, selected, readOnly, onChange, onUpdate, serverItem
   padClass?: string;
   /** Image: "Generate image"'s starting prompt (Chris, 13 Nov). */
   imagePrompt?: () => string;
+  /** HTML: the saved copy, cleaned by the API — what the email will show. */
+  serverHtml?: string;
 }) {
   const common = { blockId: block.id, selected, readOnly, onChange };
   switch (block.type) {
@@ -40,6 +43,7 @@ function BlockEditor({ block, selected, readOnly, onChange, onUpdate, serverItem
     case 'text': return isMessageBlock(block) ? <MessageBlockView data={block.data} selected={selected} readOnly={readOnly} />
       : <TextBlockEditor {...common} data={block.data} />;
     case 'youtube': return <YoutubeBlockEditor {...common} data={block.data} />;
+    case 'html': return <HtmlBlockEditor {...common} data={block.data} serverHtml={serverHtml} />;
     case 'button': return <ButtonBlockEditor {...common} data={block.data} />;
     case 'campaigns': return <CampaignsBlockEditor {...common} data={block.data} serverItems={serverItems} accent={accent} onPick={onPick} phone={phone}
       onUpdate={onUpdate ? (fn) => onUpdate((latest) => fn(latest as unknown as CampaignsBlockData) as unknown as Record<string, unknown> | null) : undefined} />;

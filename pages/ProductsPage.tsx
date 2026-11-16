@@ -1,5 +1,5 @@
 // pages/ProductsPage.tsx — Products (spec "Products page in Studio"; plan 2026-11-09-products-m1-m2 Tasks 12–14).
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Folder, Globe, Package, Plus, Search } from 'lucide-react';
 import { productsAPI, type ProductCategory, type ProductDetail, type ProductFilters as Filters, type ProductsPage as PageData, type ProductSort, type ProductSummary } from '../services/productsAPI';
 import { useInventoryViewKey } from '../hooks/useInventoryViewKey';
@@ -10,9 +10,12 @@ import ProductBulkBar from '../components/products/ProductBulkBar';
 import ProductEditor from '../components/products/ProductEditor';
 import ProductDetails from '../components/products/ProductDetails';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '../components/ui/sheet';
+import ProductSelect, { FILTER_TRIGGER } from '../components/products/ProductSelect';
+import AllMemoriesEmptyState from '../components/AllMemoriesEmptyState';
+import { toast } from 'sonner';
 import { useProperty } from '../contexts/PropertyContext';
 import { announceProductsChanged, PRODUCTS_CHANGED_EVENT, useProductsStatus } from '../hooks/useProductsStatus';
-import { filterStatusesFor, pageToClampTo, productsGate, UPGRADE_LINE } from '../utils/products';
+import { DEFAULT_CURRENCY, filterStatusesFor, pageToClampTo, productsGate, UPGRADE_LINE } from '../utils/products';
 import { requestUpgrade } from '../utils/planEvents';
 import { BUTTON_PRIMARY, BUTTON_SECONDARY } from '../components/newsletters/lib/ui';
 
@@ -52,6 +55,11 @@ export default function ProductsPage({ onNavigate }: { onNavigate: (page: string
 // Same look as the Campaigns search box and filter selects (gray-50 fill, gray-200 border, white on focus).
 const FIELD = 'h-10 rounded-lg border border-gray-200 bg-gray-50 text-sm text-gray-900 outline-none transition-colors focus:border-[#6C60FF] focus:bg-white focus-visible:ring-2 focus-visible:ring-[#6C60FF]/20';
 
+// C8 (Chris, 16 Nov): the Website Catalogue connector's brand (components/connectors/catalog.ts brandColors →
+// WEBSITE_CATALOG_COLOR #0F766E, white Globe on it, ConnectorIcon), on the primary button's shape.
+// Spelled out (review minor 7: no String.replace on BUTTON_PRIMARY); hover dims it slightly, as the connector has no hover shade.
+const IMPORT_BUTTON = 'inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-[#0F766E] px-5 text-sm font-medium text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0F766E] focus-visible:ring-offset-2';
+
 const DEFAULT_FILTERS: Filters = { status: [], sort: 'updated', page: 1 };
 
 /** Post-live P1: a card opens the read-only details view; Edit (and Add a product) the editor. The two swap. */
@@ -73,7 +81,6 @@ function ProductsReady({ onNavigate }: { onNavigate: (page: string) => void }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<number[]>([]);
-  const [bulkNotice, setBulkNotice] = useState<string | null>(null);
   const [layer, setLayer] = useState<Layer | null>(null);
   const [categorySheet, setCategorySheet] = useState(false);
   const ticket = useRef(0);
@@ -96,7 +103,6 @@ function ProductsReady({ onNavigate }: { onNavigate: (page: string) => void }) {
     shownView.current = viewKey;
     setSearch('');
     setFilters((f) => ({ ...DEFAULT_FILTERS, sort: f.sort }));
-    setBulkNotice(null);
   }, [viewKey]);
 
   const load = useCallback(async () => {
@@ -132,8 +138,7 @@ function ProductsReady({ onNavigate }: { onNavigate: (page: string) => void }) {
   useEffect(() => {
     if (keepSelection.current) { keepSelection.current = false; return; }
     listGen.current += 1;
-    setSelected([]);
-    setBulkNotice(null); // a bulk result is about the list it ran on: a new search, filter, sort or page clears it
+    setSelected([]); // a selection is about the list it was made on: a new search, filter, sort or page clears it
   }, [viewKey, filters]);
 
   // Final review M6: the change event alone refreshes the Products status (every useProductsStatus, this page's too)
@@ -147,8 +152,9 @@ function ProductsReady({ onNavigate }: { onNavigate: (page: string) => void }) {
   const filtered = Boolean(filters.q || filters.category_id || filters.status?.length || filters.source || filters.price_min || filters.price_max || filters.in_stock);
   const selectedItems = items.filter((p) => selected.includes(p.id));
   const ownCategories = categories.filter((c) => !c.read_only);
-  const toggle = (p: ProductSummary) => { setBulkNotice(null); setSelected((s) => (s.includes(p.id) ? s.filter((id) => id !== p.id) : [...s, p.id])); };
-  const clearSelection = () => { setSelected([]); setBulkNotice(null); };
+  const websiteCategoryIds = useMemo(() => new Set(categories.filter((c) => c.from_website).map((c) => c.id)), [categories]);
+  const toggle = (p: ProductSummary) => setSelected((s) => (s.includes(p.id) ? s.filter((id) => id !== p.id) : [...s, p.id]));
+  const clearSelection = () => setSelected([]);
   const nav = (
     <ProductCategoryNav categories={categories} total={total} selectedId={filters.category_id ?? null} canEdit={canCreate}
       onSelect={(id) => { setFilters((f) => ({ ...f, category_id: id, page: 1 })); setCategorySheet(false); }} onChanged={changed} />
@@ -156,7 +162,7 @@ function ProductsReady({ onNavigate }: { onNavigate: (page: string) => void }) {
   // On a phone the two buttons don't fit one row, so each wraps onto its own full-width row; from sm up they sit side by side.
   const createButtons = (align: string) => canCreate && (
     <div className={`flex w-full flex-wrap gap-2 sm:w-auto ${align}`}>
-      <button type="button" className={`${BUTTON_SECONDARY} flex-auto whitespace-nowrap sm:flex-none`} onClick={() => onNavigate('marketplace')}><Globe className="h-4 w-4" aria-hidden="true" />Import from your website</button>
+      <button type="button" className={`${IMPORT_BUTTON} flex-auto whitespace-nowrap sm:flex-none`} onClick={() => onNavigate('marketplace')}><Globe className="h-4 w-4" aria-hidden="true" />Import from your website</button>
       <button type="button" className={`${BUTTON_PRIMARY} flex-auto whitespace-nowrap sm:flex-none`} onClick={() => setLayer({ kind: 'edit', id: null })}><Plus className="h-4 w-4" aria-hidden="true" />Add a product</button>
     </div>
   );
@@ -182,36 +188,39 @@ function ProductsReady({ onNavigate }: { onNavigate: (page: string) => void }) {
           </label>
           <button type="button" className={`${BUTTON_SECONDARY} flex-1 sm:flex-none md:hidden`} onClick={() => setCategorySheet(true)}><Folder className="h-4 w-4" aria-hidden="true" />Categories</button>
           <div className="flex-1 sm:flex-none [&>button]:w-full"><ProductFilters value={filters} statuses={filterStatusesFor(canCreate)} onChange={(patch) => setFilters((f) => ({ ...f, ...patch }))} /></div>
-          <select aria-label="Sort" value={filters.sort || 'updated'} onChange={(e) => setFilters((f) => ({ ...f, sort: e.target.value as ProductSort, page: 1 }))} className={`${FIELD} w-full px-3 sm:w-48`}>
-            {SORTS.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
-          </select>
+          {/* Campaigns' filter dropdown (MemoriesPage "All Categories" / authors / labels). */}
+          <div className="w-full sm:w-48"><ProductSelect label="Sort" value={filters.sort || 'updated'} className={`h-10 w-full text-sm ${FILTER_TRIGGER}`}
+            options={SORTS.map(([value, label]) => ({ value, label }))} onChange={(v) => setFilters((f) => ({ ...f, sort: v as ProductSort, page: 1 }))} /></div>
         </div>
-        {(selectedItems.length > 0 || bulkNotice) && (
-          <ProductBulkBar selected={selectedItems} categories={ownCategories} notice={bulkNotice} onClear={clearSelection} ticket={listGen.current}
+        {selectedItems.length > 0 && (
+          <ProductBulkBar selected={selectedItems} categories={ownCategories} onClear={clearSelection} ticket={listGen.current}
             onDone={async ({ message, keepIds, ticket }) => {
-              if (ticket === listGen.current) { setSelected(keepIds); setBulkNotice(message); }
+              // Chris, 16 Nov: the result is a toast (Studio's pattern), not a box with Dismiss. What the API skipped stays selected.
+              if (keepIds.length) toast.warning(message); else toast.success(message);
+              if (ticket === listGen.current) setSelected(keepIds);
               await changed(); // the products changed either way
             }} />
         )}
         {loading && !result ? (
           <p className="py-10 text-center text-sm text-gray-500">Loading products…</p>
         ) : !result ? null /* the list could not be read: only the error below shows, not a misleading "No products yet" */ : items.length === 0 ? (
-          <div className="mx-auto max-w-md rounded-xl border border-dashed border-gray-300 bg-white px-6 py-10 text-center">
-            <Package className="mx-auto h-10 w-10 text-gray-300" aria-hidden="true" />
-            <p className="mt-3 text-base font-semibold text-gray-900">{filtered ? 'No products match these filters.' : 'No products yet'}</p>
-            {filtered ? (
-              <button type="button" className={`${BUTTON_SECONDARY} mt-4`} onClick={() => { setSearch(''); setFilters({ status: [], sort: filters.sort, page: 1 }); }}>Clear filters</button>
-            ) : (
-              <>
-                <p className="mt-1 text-sm text-gray-600">Add your own products, or import them from your website.</p>
-                <div className="mt-4">{createButtons('justify-center')}</div>
-              </>
-            )}
-          </div>
+          filtered ? (
+            // Campaigns' "No campaigns found" empty state (AllMemoriesEmptyState), with the products' words.
+            <AllMemoriesEmptyState title="No products found" subtitle="Try adjusting your search or filter criteria"
+              onClearFilters={() => { setSearch(''); setFilters({ status: [], sort: filters.sort, page: 1 }); }} />
+          ) : (
+            // The first-run state, laid out like AllMemoriesEmptyState (icon, heading, line, buttons) with the spec's two actions.
+            <div className="px-6 py-12 text-center">
+              <div className="mb-4 flex justify-center"><Package className="h-12 w-12 text-gray-400" strokeWidth={1.5} aria-hidden="true" /></div>
+              <h3 className="mb-2 text-lg font-medium text-gray-900">No products yet</h3>
+              <p className="mb-6 text-gray-600">Add your own products, or import them from your website.</p>
+              {createButtons('justify-center')}
+            </div>
+          )
         ) : (
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:gap-4 xl:grid-cols-4">
             {items.map((p) => (
-              <ProductCard key={p.id} product={p} selectable={!p.read_only} selected={selected.includes(p.id)} onToggle={() => toggle(p)} onOpen={() => setLayer({ kind: 'details', id: p.id })} />
+              <ProductCard key={p.id} product={p} selectable={!p.read_only} selected={selected.includes(p.id)} onToggle={() => toggle(p)} onOpen={() => setLayer({ kind: 'details', id: p.id })} websiteCategoryIds={websiteCategoryIds} />
             ))}
           </div>
         )}
@@ -233,13 +242,13 @@ function ProductsReady({ onNavigate }: { onNavigate: (page: string) => void }) {
       </Sheet>
       {/* The search, filters, page and selection behind these layers stay as they were: closing comes back to them. */}
       {layer?.kind === 'details' && (
-        <ProductDetails key={`details-${layer.id}`} productId={layer.id} initial={layer.initial} notice={layer.notice}
+        <ProductDetails key={`details-${layer.id}`} productId={layer.id} websiteCategoryIds={websiteCategoryIds} initial={layer.initial} notice={layer.notice}
           onClose={() => setLayer(null)} onEdit={(id) => setLayer({ kind: 'edit', id })} onDuplicated={(id) => setLayer({ kind: 'edit', id })} onChanged={changed} />
       )}
       {layer?.kind === 'edit' && (
-        <ProductEditor key={layer.id ?? 'new'} productId={layer.id} categories={ownCategories} defaultCurrency={status?.default_currency || 'CAD'}
+        <ProductEditor key={layer.id ?? 'new'} productId={layer.id} categories={ownCategories} defaultCurrency={status?.default_currency || DEFAULT_CURRENCY}
           onClose={() => setLayer(layer.id ? { kind: 'details', id: layer.id } : null)} onChanged={changed}
-          onOpen={(id, d) => setLayer({ kind: 'details', id, initial: d, notice: 'Saved. Use Edit to add photos.' }) /* review minor 4: no reload */}
+          onOpen={(id, d) => setLayer({ kind: 'details', id, initial: d, notice: 'Saved.' }) /* review minor 4: no reload; C4: photos upload with the first save */}
           onSaved={(d) => setLayer({ kind: 'details', id: d.id, initial: d, notice: 'Saved.' })} />
       )}
     </div>

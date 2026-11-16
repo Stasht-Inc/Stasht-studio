@@ -70,7 +70,7 @@ interface BlockHandlers {
 }
 
 /** One section with its frame. Memoised: typing in one section doesn't re-render the others. */
-const BlockRow = memo(function BlockRow({ block, index, count, canUp, canDown, selected, readOnly, problem, padClass, handlers, serverItems, accent, phone, full }: {
+const BlockRow = memo(function BlockRow({ block, index, count, canUp, canDown, selected, readOnly, problem, padClass, handlers, serverItems, serverHtml, accent, phone, full }: {
   block: NewsletterBlock;
   index: number;
   count: number;
@@ -82,6 +82,8 @@ const BlockRow = memo(function BlockRow({ block, index, count, canUp, canDown, s
   padClass: string;
   handlers: BlockHandlers;
   serverItems?: CampaignItem[];
+  /** HTML: the saved, cleaned copy (the preview shows what the email will). */
+  serverHtml?: string;
   accent?: string | null;
   phone: boolean;
   /** The email has the most sections allowed: Duplicate is off, like the "+" buttons. */
@@ -102,7 +104,7 @@ const BlockRow = memo(function BlockRow({ block, index, count, canUp, canDown, s
       onEdit={campaigns ? handlers.onPick : undefined} editLabel={campaigns ? EDIT_ITEMS_LABEL : undefined}>
       <BlockEditor block={block} selected={selected} readOnly={readOnly} onChange={handlers.onChange} onUpdate={campaigns ? handlers.onUpdate : undefined}
         serverItems={campaigns ? serverItems : undefined} accent={campaigns ? accent : undefined} onPick={campaigns ? handlers.onPick : undefined} phone={phone} padClass={padClass}
-        imagePrompt={block.type === 'image' ? handlers.imagePrompt : undefined} />
+        imagePrompt={block.type === 'image' ? handlers.imagePrompt : undefined} serverHtml={block.type === 'html' ? serverHtml : undefined} />
     </BlockFrame>
   );
 });
@@ -173,6 +175,12 @@ export default function NewsletterEditor({
   const savedItems = useMemo(() => {
     const out = new Map<string, CampaignItem[]>();
     for (const b of savedBlocks ?? []) if (b.type === 'campaigns') out.set(b.id, b.data.items ?? []);
+    return out;
+  }, [savedBlocks]);
+  // Each saved HTML section, as the API cleaned it for email (Chris, 16 Nov).
+  const savedHtml = useMemo(() => {
+    const out = new Map<string, string>();
+    for (const b of savedBlocks ?? []) if (b.type === 'html') out.set(b.id, b.data.html);
     return out;
   }, [savedBlocks]);
   const { blocks } = draft;
@@ -351,7 +359,7 @@ export default function NewsletterEditor({
                   <BlockRow block={block} index={index} count={blocks.length}
                     canUp={canMoveBlock(blocks, index, -1)} canDown={canMoveBlock(blocks, index, 1)} selected={selectedId === block.id} readOnly={readOnly}
                     problem={problems[block.id] ?? serverBlockError(fieldErrors, index)} padClass={padClass} handlers={handlersFor(block.id)}
-                    serverItems={serverItemsFor(block.id)} accent={draft.header.background_color} phone={phone} full={full} />
+                    serverItems={serverItemsFor(block.id)} serverHtml={savedHtml.get(block.id)} accent={draft.header.background_color} phone={phone} full={full} />
                   {plus(index + 1, `Add a section after section ${index + 1}`)}
                 </Fragment>
               ))}

@@ -10,6 +10,8 @@ export const LIMITS = {
   blocks: 40,
   title: 200,
   text_html: 20000,
+  // An HTML section (NewsletterCustomHtml::MAX in the API). The ~100 KB email check still applies on top.
+  html: 50000,
   button_label: 40,
   url: 2000,
 } as const;

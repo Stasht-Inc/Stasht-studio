@@ -2,6 +2,7 @@
 // the 409 once sending started, the picked time kept on a draft (planned_send_at), and over the allowance: "See
 // plans", and the API's next-month answer for a time after the reset.
 import { createMockApi, newsletter, nextReset, seedNewsletters } from '../mock-api.mjs';
+import { pickDate, pickTime, dateOptionLabel, timeOptionLabel } from '../steps.mjs';
 
 const TZ = 'America/Toronto';
 const day = 86400000;
@@ -38,14 +39,14 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
   expect(api.state.newsletters.find((n) => n.id === 22)?.status === 'draft', 'now a draft');
   const schedule = page.locator('#nl-step-schedule');
   await expectVisible(schedule.getByRole('radio', { name: 'Schedule for later', checked: true }), 'Schedule for later restored');
-  expect(await schedule.getByLabel('Date').inputValue() === torontoDate(Date.parse(winter.scheduled_at ?? '') || Date.parse(api.state.newsletters.find((n) => n.id === 22).planned_send_at)), 'date restored');
-  expect(await schedule.getByLabel('Time').inputValue() === torontoTime(Date.parse(api.state.newsletters.find((n) => n.id === 22).planned_send_at)), 'time restored');
+  expect(((await page.locator('#nl-send-date').textContent()) ?? '').includes(dateOptionLabel(torontoDate(Date.parse(winter.scheduled_at ?? '') || Date.parse(api.state.newsletters.find((n) => n.id === 22).planned_send_at)))), 'date restored');
+  expect(((await page.locator('#nl-send-time').textContent()) ?? '').trim() === timeOptionLabel(torontoTime(Date.parse(api.state.newsletters.find((n) => n.id === 22).planned_send_at))), 'time restored');
   await schedule.scrollIntoViewIfNeeded();
   await shot(page, '1280-02-restored');
 
   // 2. A new time is kept on the draft (planned_send_at). Closing offers to put it back on the schedule; leaving it
   // as a draft keeps the time, which comes back when it is opened again.
-  await schedule.getByLabel('Time').fill('11:15');
+  await pickTime(schedule, '11:15');
   await page.waitForTimeout(1500);
   const put = [...api.state.calls].reverse().find((c) => c.method === 'PUT' && c.body && 'planned_send_at' in c.body);
   expect(put && torontoTime(Date.parse(put.body.planned_send_at)) === '11:15', `PUT planned_send_at (got ${JSON.stringify(put?.body)})`);
@@ -59,7 +60,7 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
   await page.getByRole('button', { name: /^Winter tires/ }).first().click();
   await expectVisible(page.getByRole('heading', { name: 'Create Campaign' }), 'draft opened again');
   await expectVisible(page.locator('#nl-step-schedule').getByRole('radio', { name: 'Schedule for later', checked: true }), 'still Schedule for later');
-  expect(await page.locator('#nl-step-schedule').getByLabel('Time').inputValue() === '11:15', 'the new time came back');
+  expect(((await page.locator('#nl-send-time').textContent()) ?? '').trim() === '11:15 AM', 'the new time came back');
   expect(!(await page.getByText('This newsletter is off the schedule while you edit it.').count()), 'no banner once left as a draft');
   // Send now clears it.
   await page.locator('#nl-step-schedule').getByText('Send now').click();
@@ -153,8 +154,8 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
   ({ page, context } = await open({ width: 1280, height: 1400, api, query: '&newsletterId=23', timezoneId: TZ }));
   const s6 = page.locator('#nl-step-schedule');
   await s6.getByText('Schedule for later').click();
-  await s6.getByLabel('Date').fill(torontoDate(Date.now() + 3 * day));
-  await s6.getByLabel('Time').fill('10:00');
+  await pickDate(s6, torontoDate(Date.now() + 3 * day));
+  await pickTime(s6, '10:00');
   await page.getByRole('button', { name: 'Schedule' }).last().click();
   dialog = page.getByRole('dialog', { name: 'Schedule this newsletter?' });
   await expectVisible(dialog.getByText(/It goes out after your plan resets on .*, so it uses next month’s allowance\./), 'next-month line');

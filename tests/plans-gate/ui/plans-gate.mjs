@@ -448,6 +448,16 @@ try {
       const main = dialog.getByRole('button', { name: /Upgrade to Business/ });
       await main.waitFor({ state: 'visible', timeout: 5000 }).catch(() => {}); // the picker selects after it opens
       expect(await main.count() === 1, `R2 ${kind} ${tag}: opens on Business: "Upgrade to Business"`);
+      // Chris 16 Nov final E2E: from Billing at 390 the phone bottom bar covered the buttons. Near every edge of each
+      // button, the button itself is what's under the point (not the bar).
+      for (const [btn, label] of [[main, 'Upgrade to Business'], [dialog.getByRole('button', { name: 'Cancel', exact: true }), 'Cancel']]) {
+        const clear = await btn.evaluate((el) => {
+          const r = el.getBoundingClientRect();
+          const pts = [[r.left + r.width / 2, r.top + r.height / 2], [r.left + 16, r.top + 3], [r.right - 16, r.bottom - 3], [r.left + 16, r.bottom - 3]];
+          return r.bottom <= window.innerHeight && pts.every(([x, y]) => { const hit = document.elementFromPoint(x, y); return !!hit && (hit === el || el.contains(hit)); });
+        }).catch(() => false);
+        expect(clear, `R2 ${kind} ${tag}: "${label}" not covered (phone bottom bar)`);
+      }
       expect(await dialog.getByText('Individuals', { exact: true }).count() === 1, `R2 ${kind} ${tag}: Starter's tagline is "Individuals"`);
       if (tag === 'phone') {
         const title = await dialog.getByRole('heading', { name: 'Upgrade Your Plan' }).boundingBox();

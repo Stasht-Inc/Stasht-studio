@@ -63,3 +63,20 @@ test('quiet hours: texts only between 8am and 9pm in Toronto', () => {
   assert.equal(textHoursNote('America/Toronto'), 'Texts go out only between 8am and 9pm.');
   assert.equal(textHoursNote('Asia/Kolkata'), 'Texts go out only between 8am and 9pm Eastern time.');
 });
+
+test('Time list: every 15 minutes, labelled like 9:30 AM, keeping an in-between time', async () => {
+  const { timeOptions, timeLabel, dateFromInput, dateLabel } = await import('../../components/newsletters/lib/schedule.ts');
+  const opts = timeOptions('', 'en-US');
+  assert.equal(opts.length, 96);
+  assert.deepEqual(opts[0], { value: '00:00', label: '12:00 AM' });
+  assert.deepEqual(opts[38], { value: '09:30', label: '9:30 AM' });
+  assert.equal(opts.at(-1).value, '23:45');
+  const withOdd = timeOptions('11:07', 'en-US');
+  assert.equal(withOdd.length, 97);
+  assert.equal(withOdd.findIndex((o) => o.value === '11:07'), 45);
+  assert.equal(timeLabel('22:00', 'en-US'), '10:00 PM');
+  assert.equal(timeOptions('bad', 'en-US').length, 96);
+  assert.equal(dateFromInput('2026-11-17').getDate(), 17);
+  assert.equal(dateFromInput(''), undefined);
+  assert.equal(dateLabel('2026-11-17', 'en-US'), 'Nov 17, 2026');
+});

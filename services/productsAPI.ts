@@ -4,7 +4,7 @@
 import { apiRequest, postFormData } from '../utils/authUtils';
 import type { ApiResponse } from '../utils/authUtils';
 import { requestUpgrade } from '../utils/planEvents';
-import { collectPickerPages, fieldErrorsFrom, PICKER_FILTERS, productQueryString } from '../utils/products';
+import { collectPickerPages, fieldErrorsFrom, leadShareManualItems, PICKER_FILTERS, productQueryString } from '../utils/products';
 
 export type ProductBadge = 'active' | 'draft' | 'out_of_stock' | 'archived';
 export type ProductStatus = 'draft' | 'active' | 'archived';
@@ -202,4 +202,18 @@ export async function loadProductsForPicker(): Promise<{ items: ProductSummary[]
     const res = await productsAPI.list({ ...PICKER_FILTERS, page });
     return res.ok && res.data ? { items: res.data.items, last_page: res.data.pagination?.last_page || 1 } : null;
   });
+}
+
+/** Leads "+ Products" (16 Nov 2026 F1): the account's active manual products with a photo, as the picker lists them.
+ *  Website products still come from the Website Catalogue, exactly as before. [] when Products can't be listed. */
+export async function loadManualProductsForLeadShare(): Promise<ReturnType<typeof leadShareManualItems>> {
+  try {
+    const { items } = await collectPickerPages(async (page) => {
+      const res = await productsAPI.list({ ...PICKER_FILTERS, source: 'manual', page });
+      return res.ok && res.data ? { items: res.data.items, last_page: res.data.pagination?.last_page || 1 } : null;
+    });
+    return leadShareManualItems(items);
+  } catch {
+    return [];
+  }
 }

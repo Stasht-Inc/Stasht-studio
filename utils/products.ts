@@ -1,5 +1,6 @@
 // utils/products.ts — pure helpers for the Products page and editor (plan 2026-11-09-products-m1-m2, Tasks 11–15).
 // No React and no requests: tests/products/products.test.mjs runs this file directly.
+import { CATEGORY_COLOR_PALETTE, WEBSITE_CATALOG_COLOR } from './categoryColorManager.ts';
 import type { ProductBadge, ProductDetail, ProductFilters, ProductStatus, ProductsStatus, ProductSummary, StockStatus } from '../services/productsAPI.ts';
 
 export const PAGE_SIZE = 48;
@@ -35,6 +36,23 @@ export function pageToClampTo(page: number, pagination: { last_page: number }, i
 }
 
 export const sourceLabel = (p: Pick<ProductSummary, 'origin'>): string => (p.origin === 'website' ? 'Website' : 'Manual');
+
+/** C6 (Chris, 16 Nov): the card's category pill: the first category, plus "+N" for the rest. */
+export function cardCategories(p: Pick<ProductSummary, 'categories'>): { first: string | null; firstId: number | null; more: number } {
+  const refs = (p.categories || []).filter((c) => (c?.name || '').trim());
+  return { first: refs[0] ? refs[0].name.trim() : null, firstId: refs[0]?.id ?? null, more: Math.max(0, refs.length - 1) };
+}
+
+/** Review I1 (16 Nov): a product category's pill colour, WITHOUT touching Campaigns' colour store
+ *  (getCategoryColor saves a palette slot per new name in localStorage and, once the 15 are used, makes every new
+ *  Campaigns category purple). Website categories are the website teal (as their nav row); the business's own get a
+ *  stable pick from the same palette by category id, so a rename keeps its colour. Pure: reads and writes nothing. */
+const PRODUCT_PALETTE = Array.from(new Set(CATEGORY_COLOR_PALETTE)).filter((c) => c !== '#6C60FF' && c !== WEBSITE_CATALOG_COLOR);
+export function productCategoryColor(id: number | null | undefined, fromWebsite: boolean): string {
+  if (fromWebsite) return WEBSITE_CATALOG_COLOR;
+  const n = Math.abs(Math.trunc(Number(id) || 0));
+  return PRODUCT_PALETTE[n % PRODUCT_PALETTE.length];
+}
 
 /** The card's price: main line + struck-through compare-at ('' = none). */
 export function priceLine(p: Pick<ProductSummary, 'price_label' | 'compare_at_label' | 'price_on_request' | 'show_price'>): { main: string; was: string } {
@@ -224,6 +242,36 @@ export const variantRowKey = (options: Record<string, string>): string => Object
 
 export const variantLabel = (options: Record<string, string>): string => Object.values(options).join(' / ');
 
+/** C4 (Chris, 16 Nov): photos / a video picked on a NEW product, before its first save. They upload right after the
+ *  product is created. The limits mirror the web API's config/products.php (max_photos, max_videos, image_kb, video_kb). */
+export const MEDIA_LIMITS = { photos: 20, videos: 1, imageBytes: 10240 * 1024, videoBytes: 51200 * 1024 } as const;
+export const PHOTO_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+export const VIDEO_TYPES = ['video/mp4', 'video/quicktime', 'video/webm'];
+export interface PickedFile { name: string; size: number; type: string }
+const EXT_TYPES: Record<string, string> = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif', webp: 'image/webp', mp4: 'video/mp4', mov: 'video/quicktime', webm: 'video/webm' };
+/** Which picked files can wait for the first save (in order), and a line for each one that can't. */
+export function acceptPickedMedia<F extends PickedFile>(have: { photos: number; videos: number }, files: readonly F[]): { accepted: Array<{ file: F; type: 'photo' | 'video' }>; errors: string[] } {
+  let photos = have.photos;
+  let videos = have.videos;
+  const accepted: Array<{ file: F; type: 'photo' | 'video' }> = [];
+  const errors: string[] = [];
+  for (const file of files) {
+    // Review minor 9: some browsers give .mov / .webm files no type; go by the extension then (the API checks the content).
+    const mime = file.type || EXT_TYPES[(file.name.split('.').pop() || '').toLowerCase()] || '';
+    const type = PHOTO_TYPES.includes(mime) ? 'photo' : VIDEO_TYPES.includes(mime) ? 'video' : null;
+    if (!type) errors.push(`${file.name}: Use a JPG, PNG, GIF or WebP photo, or an MP4, MOV or WebM video.`);
+    else if (type === 'photo' && file.size > MEDIA_LIMITS.imageBytes) errors.push(`${file.name}: A photo can be up to 10 MB.`);
+    else if (type === 'video' && file.size > MEDIA_LIMITS.videoBytes) errors.push(`${file.name}: A video can be up to 50 MB.`);
+    else if (type === 'photo' && photos >= MEDIA_LIMITS.photos) errors.push(`${file.name}: A product can have up to 20 photos.`);
+    else if (type === 'video' && videos >= MEDIA_LIMITS.videos) errors.push(`${file.name}: A product can have one video.`);
+    else {
+      accepted.push({ file, type });
+      if (type === 'photo') photos += 1; else videos += 1;
+    }
+  }
+  return { accepted, errors };
+}
+
 export function moveItem<T>(list: readonly T[], from: number, to: number): T[] {
   if (from === to || from < 0 || to < 0 || from >= list.length || to >= list.length) return [...list];
   const next = [...list];
@@ -244,10 +292,26 @@ export interface ProductForm {
   slug: string; seo_title: string; seo_description: string; share_image: string; buy_url: string; internal_notes: string;
 }
 
+/** Chris, 16 Nov: a new manual product starts in USD (the web API's ProductAccess::defaultCurrency too). */
+export const DEFAULT_CURRENCY = 'USD';
+/** The editor's Currency dropdown (Chris, 16 Nov: a dropdown, not free text). */
+export const CURRENCIES: ReadonlyArray<readonly [string, string]> = [
+  ['USD', 'US dollar'], ['CAD', 'Canadian dollar'], ['EUR', 'Euro'], ['GBP', 'British pound'], ['AUD', 'Australian dollar'],
+  ['NZD', 'New Zealand dollar'], ['INR', 'Indian rupee'], ['JPY', 'Japanese yen'], ['CNY', 'Chinese yuan'], ['HKD', 'Hong Kong dollar'],
+  ['SGD', 'Singapore dollar'], ['CHF', 'Swiss franc'], ['SEK', 'Swedish krona'], ['NOK', 'Norwegian krone'], ['DKK', 'Danish krone'],
+  ['MXN', 'Mexican peso'], ['BRL', 'Brazilian real'], ['ZAR', 'South African rand'], ['AED', 'UAE dirham'], ['PHP', 'Philippine peso'],
+];
+/** The dropdown's choices: the list, plus the product's own code when it isn't listed, so nothing is lost. */
+export function currencyOptions(current: string): Array<{ value: string; label: string }> {
+  const list = CURRENCIES.map(([code, name]) => ({ value: code, label: `${code} – ${name}` }));
+  const own = (current || '').trim().toUpperCase();
+  return own && !CURRENCIES.some(([code]) => code === own) ? [{ value: own, label: own }, ...list] : list;
+}
+
 export function emptyProductForm(currency: string): ProductForm {
   return {
     title: '', short_description: '', description_html: '', brand: '', product_type: '',
-    price: '', compare_at_price: '', currency: currency || 'CAD', price_on_request: false,
+    price: '', compare_at_price: '', currency: currency || DEFAULT_CURRENCY, price_on_request: false,
     sku: '', barcode: '', stock_status: 'in_stock', quantity: '',
     options: [], variants: [], attributes: [],
     weight: '', weight_unit: 'kg', dimensions: { length: '', width: '', height: '', unit: 'cm' },
@@ -262,7 +326,7 @@ const str = (v: unknown): string => (v === null || v === undefined ? '' : String
 export function formFromDetail(d: ProductDetail): ProductForm {
   return {
     title: str(d.title), short_description: str(d.short_description), description_html: str(d.description_html), brand: str(d.brand), product_type: str(d.product_type),
-    price: str(d.price), compare_at_price: str(d.compare_at_price), currency: str(d.currency) || 'CAD', price_on_request: Boolean(d.price_on_request),
+    price: str(d.price), compare_at_price: str(d.compare_at_price), currency: str(d.currency).trim().toUpperCase() || DEFAULT_CURRENCY, /* review minors 2, 3 */ price_on_request: Boolean(d.price_on_request),
     sku: str(d.sku), barcode: str(d.barcode), stock_status: d.stock_status || 'in_stock', quantity: str(d.quantity),
     options: (d.options || []).map((o) => ({ name: o.name, values: [...o.values] })),
     variants: (d.variants || []).map((v) => ({ id: v.id, options: { ...v.options }, sku: str(v.sku), price: str(v.price), compare_at_price: str(v.compare_at_price), stock_status: v.stock_status || 'in_stock', quantity: str(v.quantity), image_id: v.image_id ?? null })),
@@ -508,4 +572,38 @@ export function campaignsWillAppear(name: unknown, form: 'in' | 'your'): string 
   if (form === 'your') return `Your ${categoryCampaignsPhrase(name, true)} will appear here.`;
   const label = String(categoryDisplayName(name) ?? '');
   return isCampaignsLabel(name) ? `${label} will appear here.` : `Campaigns in ${label} category will appear here.`;
+}
+
+/**
+ * Leads "+ Products" (Deepak, 16 Nov 2026 F1): what GET /leads/campaign-sources says the picker lists. An API from before
+ * F1 sends only {vehicles, products}: products then means the Website Catalogue, as before. With Products on it also
+ * says website_products / manual_products.
+ */
+export interface LeadShareSources { vehicles: boolean; products: boolean; website: boolean; manual: boolean }
+export function leadShareSources(d: unknown): LeadShareSources | null {
+  const o = (d && typeof d === 'object' ? d : null) as Record<string, unknown> | null;
+  if (!o || typeof o.vehicles !== 'boolean') return null;
+  const products = o.products === true;
+  return {
+    vehicles: o.vehicles,
+    products,
+    website: typeof o.website_products === 'boolean' ? o.website_products : products,
+    manual: o.manual_products === true,
+  };
+}
+
+/**
+ * The manual products a lead share can send, shaped like the catalogue's items for the picker: active ones (the API's
+ * PICKER_FILTERS), with a photo — the shared campaign is built from photos, so photo-less ones are left out.
+ */
+export function leadShareManualItems(items: ReadonlyArray<ProductSummary>): Array<{
+  id: number; title: string; price: string | null; currency: string | null; price_label: string; category: string | null;
+  url: string | null; main_image: string | null; images_count: number;
+}> {
+  return items
+    .filter((p) => p.origin === 'manual' && (p.status === 'active') && Number(p.images_count) > 0)
+    .map((p) => ({
+      id: p.id, title: p.title, price: p.price, currency: p.currency, price_label: p.price_label,
+      category: p.categories?.[0]?.name ?? p.category ?? null, url: null, main_image: p.main_image, images_count: p.images_count,
+    }));
 }

@@ -30,7 +30,7 @@ export interface NewsletterHeader {
   logo_ratio?: number;
 }
 
-export type BlockType = 'image' | 'title' | 'text' | 'youtube' | 'button' | 'divider' | 'campaigns';
+export type BlockType = 'image' | 'title' | 'text' | 'youtube' | 'button' | 'divider' | 'campaigns' | 'html';
 export type TitleSize = 'large' | 'medium' | 'small';
 /** Text size styles (Chris, 7 Nov): px per style, 10–72 (the API's NewsletterTypeScale). */
 export type TypeScale = Record<'small' | 'normal' | 'large' | 'xlarge', number>;
@@ -61,6 +61,8 @@ export interface TitleBlockData extends SectionStyle { text: string; size: Title
  *  font size and font family (the API keeps only those). */
 export interface TextBlockData extends Omit<SectionStyle, 'background_image_url'> { html: string }
 export interface YoutubeBlockData { url: string }
+/** The HTML section (Chris, 16 Nov 2026): the person's own HTML. The API saves it cleaned for email (NewsletterCustomHtml). */
+export interface HtmlBlockData { html: string }
 /** full_width / new_window (Chris, 6 Nov; API NewsletterContent::buttonOptions): only present when on. */
 export interface ButtonBlockData { label: string; url: string; color: string; full_width?: boolean; new_window?: boolean; padding?: SectionPadding }
 export interface DividerBlockData { style: DividerStyle; padding?: SectionPadding }
@@ -128,7 +130,8 @@ export type NewsletterBlock =
   | { id: string; type: 'youtube'; data: YoutubeBlockData }
   | { id: string; type: 'button'; data: ButtonBlockData }
   | { id: string; type: 'divider'; data: DividerBlockData }
-  | { id: string; type: 'campaigns'; data: CampaignsBlockData };
+  | { id: string; type: 'campaigns'; data: CampaignsBlockData }
+  | { id: string; type: 'html'; data: HtmlBlockData };
 
 /** lead: one person, one of the account's leads ("Single person", Chris, 3 Nov 2026; the default for a new newsletter).
  *  person: one person by the email and/or phone (E.164) typed in the composer (Chris, 3 Nov, later); the API finds
