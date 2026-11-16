@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { X, Check, Zap, Crown, Loader2, Award, Lock } from 'lucide-react';
 import { loadStripe } from '@stripe/stripe-js';
 import { Elements } from '@stripe/react-stripe-js';
@@ -413,7 +414,10 @@ export function UpgradePlanModal({ isOpen, onClose, currentPlan, onUpgrade, onSu
     if (canClose) onClose();
   };
 
-  return (
+  // Portalled to <body> like Studio's Radix dialogs and the Products editor (ProductEditor.tsx): rendered inside a page
+  // (Billing) it sat under the phone bottom bar (nav.phone-bottom-bar-pin, z-50, later in the DOM), so Upgrade / Cancel
+  // couldn't be tapped at 390 (Chris 16 Nov E2E). From <body> it comes after the bar and outside any page stacking context.
+  return createPortal(
     <>
       {/* Downgrade Confirmation Dialog */}
       {showDowngradeConfirm && (
@@ -456,7 +460,7 @@ export function UpgradePlanModal({ isOpen, onClose, currentPlan, onUpgrade, onSu
       {/* Plan Selection Modal - Only show when other modals are NOT open */}
       {isOpen && !isPaymentModalOpen && !isStripeFormOpen && (
         <div
-          className="fixed inset-0 bg-gray-900/85 z-50 flex flex-col items-center justify-center p-4 gap-3"
+          className="fixed inset-0 bg-gray-900/85 z-50 flex flex-col items-center justify-center p-4 pb-[max(1rem,env(safe-area-inset-bottom))] gap-3"
           onClick={canClose ? handleClose : triggerMustSelectWarning}
         >
           {/* Lock indicator above modal — only when non-closeable */}
@@ -720,7 +724,8 @@ export function UpgradePlanModal({ isOpen, onClose, currentPlan, onUpgrade, onSu
           />
         </Elements>
       )}
-    </>
+    </>,
+    document.body,
   );
 }
 

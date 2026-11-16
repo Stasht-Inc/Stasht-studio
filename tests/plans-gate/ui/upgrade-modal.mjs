@@ -77,6 +77,31 @@ for (const [width, height] of [[1280, 800], [1280, 720], [390, 844]]) {
   await context.close();
 }
 
+// Chris 16 Nov final E2E: opened from Billing at 390, the phone bottom bar covered Upgrade / Cancel. The buttons must be
+// the element actually under their centre (not the nav), and a real tap must work.
+// Near every edge of the button, not just its centre (the bar covered the lower part of the footer first); 16px in from
+// the sides so the rounded corners (hit-tested with their radius) do not count.
+const onTop = (loc) => loc.evaluate((el) => {
+  const r = el.getBoundingClientRect();
+  const points = [[r.left + r.width / 2, r.top + r.height / 2], [r.left + 16, r.top + 3], [r.right - 16, r.top + 3], [r.left + 16, r.bottom - 3], [r.right - 16, r.bottom - 3]];
+  return r.bottom <= window.innerHeight && points.every(([x, y]) => { const hit = document.elementFromPoint(x, y); return !!hit && (hit === el || el.contains(hit)); });
+});
+for (const [width, height] of [[390, 844], [1280, 800]]) {
+  const tag = `billing-${width}x${height}`;
+  const { context, page } = await open({ width, height, query: '?plan=Starter&shell=billing' });
+  const dialog = page.getByRole('dialog', { name: 'Upgrade Your Plan' });
+  const upgrade = dialog.getByRole('button', { name: /^Upgrade to Teams/ });
+  const cancel = dialog.getByRole('button', { name: 'Cancel', exact: true });
+  expect(await onTop(upgrade), `${tag}: Upgrade is on top (elementFromPoint), not the phone bar`);
+  expect(await onTop(cancel), `${tag}: Cancel is on top (elementFromPoint), not the phone bar`);
+  const footer = dialog.locator('[data-upgrade-actions]');
+  expect(await onTop(footer), `${tag}: the whole button footer is uncovered`);
+  await page.screenshot({ path: `${OUT}/${tag}-01-from-billing.png` });
+  await cancel.click({ timeout: 3000 }).catch(() => {});
+  expect(await page.locator('#closed').textContent() === 'closed', `${tag}: a real tap on Cancel closes it`);
+  await context.close();
+}
+
 async function expectVisibleSafe(locator, label) {
   try { await locator.waitFor({ state: 'visible', timeout: 3000 }); expect(true, label); } catch { expect(false, label); }
 }
