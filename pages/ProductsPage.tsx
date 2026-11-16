@@ -1,5 +1,5 @@
 // pages/ProductsPage.tsx — Products (spec "Products page in Studio"; plan 2026-11-09-products-m1-m2 Tasks 12–14).
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Folder, Globe, Package, Plus, Search } from 'lucide-react';
 import { productsAPI, type ProductCategory, type ProductDetail, type ProductFilters as Filters, type ProductsPage as PageData, type ProductSort, type ProductSummary } from '../services/productsAPI';
 import { useInventoryViewKey } from '../hooks/useInventoryViewKey';
@@ -57,7 +57,8 @@ const FIELD = 'h-10 rounded-lg border border-gray-200 bg-gray-50 text-sm text-gr
 
 // C8 (Chris, 16 Nov): the Website Catalogue connector's brand (components/connectors/catalog.ts brandColors →
 // WEBSITE_CATALOG_COLOR #0F766E, white Globe on it, ConnectorIcon), on the primary button's shape.
-const IMPORT_BUTTON = BUTTON_PRIMARY.replace('bg-[#6C60FF]', 'bg-[#0F766E]').replace('hover:bg-[#5B50E6]', 'hover:bg-[#0D635C]');
+// Spelled out (review minor 7: no String.replace on BUTTON_PRIMARY); hover dims it slightly, as the connector has no hover shade.
+const IMPORT_BUTTON = 'inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-[#0F766E] px-5 text-sm font-medium text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0F766E] focus-visible:ring-offset-2';
 
 const DEFAULT_FILTERS: Filters = { status: [], sort: 'updated', page: 1 };
 
@@ -151,6 +152,7 @@ function ProductsReady({ onNavigate }: { onNavigate: (page: string) => void }) {
   const filtered = Boolean(filters.q || filters.category_id || filters.status?.length || filters.source || filters.price_min || filters.price_max || filters.in_stock);
   const selectedItems = items.filter((p) => selected.includes(p.id));
   const ownCategories = categories.filter((c) => !c.read_only);
+  const websiteCategoryIds = useMemo(() => new Set(categories.filter((c) => c.from_website).map((c) => c.id)), [categories]);
   const toggle = (p: ProductSummary) => setSelected((s) => (s.includes(p.id) ? s.filter((id) => id !== p.id) : [...s, p.id]));
   const clearSelection = () => setSelected([]);
   const nav = (
@@ -218,7 +220,7 @@ function ProductsReady({ onNavigate }: { onNavigate: (page: string) => void }) {
         ) : (
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:gap-4 xl:grid-cols-4">
             {items.map((p) => (
-              <ProductCard key={p.id} product={p} selectable={!p.read_only} selected={selected.includes(p.id)} onToggle={() => toggle(p)} onOpen={() => setLayer({ kind: 'details', id: p.id })} />
+              <ProductCard key={p.id} product={p} selectable={!p.read_only} selected={selected.includes(p.id)} onToggle={() => toggle(p)} onOpen={() => setLayer({ kind: 'details', id: p.id })} websiteCategoryIds={websiteCategoryIds} />
             ))}
           </div>
         )}
@@ -240,7 +242,7 @@ function ProductsReady({ onNavigate }: { onNavigate: (page: string) => void }) {
       </Sheet>
       {/* The search, filters, page and selection behind these layers stay as they were: closing comes back to them. */}
       {layer?.kind === 'details' && (
-        <ProductDetails key={`details-${layer.id}`} productId={layer.id} initial={layer.initial} notice={layer.notice}
+        <ProductDetails key={`details-${layer.id}`} productId={layer.id} websiteCategoryIds={websiteCategoryIds} initial={layer.initial} notice={layer.notice}
           onClose={() => setLayer(null)} onEdit={(id) => setLayer({ kind: 'edit', id })} onDuplicated={(id) => setLayer({ kind: 'edit', id })} onChanged={changed} />
       )}
       {layer?.kind === 'edit' && (

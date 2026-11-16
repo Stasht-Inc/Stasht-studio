@@ -1,7 +1,7 @@
 // Category Color Management System with localStorage persistence
 
 // Predefined color palette for categories
-const CATEGORY_COLOR_PALETTE = [
+export const CATEGORY_COLOR_PALETTE = [
   '#6C60FF', // Purple (brand color) - for Personal
   '#10B981', // Green  
   '#3B82F6', // Blue - for Shared with

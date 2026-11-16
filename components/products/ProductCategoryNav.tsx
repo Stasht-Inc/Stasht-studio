@@ -8,7 +8,7 @@ import { toast } from 'sonner';
 import { Folder, FolderOpen, Globe, Pencil, Plus, Trash2 } from 'lucide-react';
 import { productsAPI, type ProductCategory } from '../../services/productsAPI';
 import { WEBSITE_CATALOG_COLOR } from '../../utils/categoryColorManager';
-import { getCategoryColor } from '../../constants/mediaConstants';
+import { productCategoryColor } from '../../utils/products';
 import { AddCategoryPopover } from '../CategoryNav';
 import { Button } from '../ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
@@ -129,7 +129,7 @@ export default function ProductCategoryNav({ categories, total, selectedId, canE
         {categories.map((c) => {
           const own = canEdit && !c.read_only;
           return row(String(c.id), c.name, c.product_count, selectedId === c.id, () => onSelect(c.id), {
-            color: c.from_website ? WEBSITE_CATALOG_COLOR : getCategoryColor(c.name),
+            color: productCategoryColor(c.id, c.from_website),
             website: c.from_website,
             edit: own ? () => openEdit(c) : undefined,
             remove: own && !c.from_website ? () => { setNavError(null); setDeleting(c); } : undefined,

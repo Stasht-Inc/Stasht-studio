@@ -10,9 +10,8 @@ import { FocusScope } from '@radix-ui/react-focus-scope';
 import { Archive, ArchiveRestore, ArrowLeft, Copy, ExternalLink, MoreHorizontal, Package, Pencil, SlidersHorizontal, Trash2 } from 'lucide-react';
 import { productsAPI, type ProductDetail, type ProductStatus } from '../../services/productsAPI';
 import { useBackToClose } from '../newsletters/hooks/useBackToClose';
-import { BADGE_CLASS, BADGE_LABEL, WEBSITE_SYNC_NOTE, detailActions, detailFacts, priceLine, sourceLabel, variantLabel } from '../../utils/products';
+import { BADGE_CLASS, BADGE_LABEL, WEBSITE_SYNC_NOTE, detailActions, detailFacts, priceLine, productCategoryColor, sourceLabel, variantLabel } from '../../utils/products';
 import { WEBSITE_CATALOG_COLOR } from '../../utils/categoryColorManager';
-import { getCategoryColor } from '../../constants/mediaConstants';
 import { BUTTON_PRIMARY, BUTTON_SECONDARY, LINK_BUTTON } from '../newsletters/lib/ui';
 import { TEXT_CLASS, renderTextNodes } from '../newsletters/blocks/TextBlockEditor';
 import { parseTextHtml } from '../newsletters/lib/textHtml';
@@ -32,8 +31,10 @@ function Card({ title, children }: { title?: string; children: ReactNode }) {
   );
 }
 
-export default function ProductDetails({ productId, initial, notice, onClose, onEdit, onDuplicated, onChanged }: {
+export default function ProductDetails({ productId, initial, notice, onClose, onEdit, onDuplicated, onChanged, websiteCategoryIds }: {
   productId: number;
+  /** The account's website categories (teal pills). */
+  websiteCategoryIds?: ReadonlySet<number>;
   /** The copy the editor just saved: shown at once, no reload. */
   initial?: ProductDetail | null;
   /** A line for the bottom of the card when the view opens ("Saved."). */
@@ -229,7 +230,7 @@ export default function ProductDetails({ productId, initial, notice, onClose, on
                   <p className="text-sm font-medium text-gray-900">Categories</p>
                   {detail.categories.length ? (
                     <ul className="mt-1.5 flex flex-wrap gap-1.5">
-                      {detail.categories.map((c) => <li key={c.id} className="rounded-lg px-2.5 py-1 text-sm font-semibold text-white shadow-sm" style={{ backgroundColor: getCategoryColor(c.name) }}>{c.name}</li>)}
+                      {detail.categories.map((c) => <li key={c.id} className="rounded-lg px-2.5 py-1 text-sm font-semibold text-white shadow-sm" style={{ backgroundColor: productCategoryColor(c.id, Boolean(websiteCategoryIds?.has(c.id))) }}>{c.name}</li>)}
                     </ul>
                   ) : <p className="mt-1 text-sm text-gray-500">None</p>}
                 </div>

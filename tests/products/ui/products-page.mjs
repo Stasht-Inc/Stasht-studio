@@ -1187,6 +1187,8 @@ try {
       expect(importBg === 'rgb(15, 118, 110)', `${tag}: C8 Import from your website is the connector's teal (${importBg})`);
       // C6: a card with a category shows it as a pill.
       expect((await pill('Walnut Chair').textContent())?.trim() === 'Chairs' && !(await pill('Draft Stool').count()), `${tag}: C6 Walnut Chair shows its Chairs pill; Draft Stool has none`);
+      const sofaBg = await pill('Harbour Sofa').locator('span').first().evaluate((el) => getComputedStyle(el).backgroundColor);
+      expect(sofaBg === 'rgb(15, 118, 110)', `${tag}: review I1 a website category's pill is the website teal, as its row (${sofaBg})`);
 
       // C5: Campaigns' Category Filter: the heading, the "All Categories" Select and the "+".
       await openNav();
@@ -1275,6 +1277,10 @@ try {
       await closeNav();
       expect(!(await pill('Draft Stool').count()) && (await pill('Walnut Chair').textContent())?.trim() === 'Chairs', `${tag}: … and the cards drop it (no stale list)`);
       expect(!(await nav.getByRole('button', { name: 'Delete Sofas' }).count()), `${tag}: a website category still can't be deleted`);
+
+      // Review I1: none of this wrote product categories into Campaigns' colour store.
+      const stored = Object.keys(JSON.parse(await page.evaluate(() => localStorage.getItem('stasht_category_colors')) || '{}'));
+      expect(!stored.some((k) => ['Chairs', 'Sofas', 'Intimate', 'Lingerie'].includes(k)), `${tag}: review I1 Campaigns' colour store holds no product category (${stored.join(',')})`);
 
       // Audit: filtered empty state = Campaigns' AllMemoriesEmptyState.
       await page.getByRole('searchbox', { name: 'Search products' }).fill('zzz');
