@@ -11,17 +11,20 @@ import { productsAPI, type ProductCategory, type ProductDetail } from '../../ser
 import { captureOpener, releaseOpener } from './layerFocus';
 import { useBackToClose } from '../newsletters/hooks/useBackToClose';
 import {
-  WEBSITE_READ_ONLY_NOTE, editableFor, emptyProductForm, formFromDetail, payloadFromForm, validateProductForm, slugFromTitle, type ProductForm,
+  WEBSITE_READ_ONLY_NOTE, currencyOptions, editableFor, emptyProductForm, formFromDetail, payloadFromForm, validateProductForm, slugFromTitle, type ProductForm,
 } from '../../utils/products';
 import { BUTTON_PRIMARY, LABEL, LINK_BUTTON, inputClass, textareaClass } from '../newsletters/lib/ui';
 import { Switch } from '../ui/switch';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '../ui/alert-dialog';
 import ProductMediaField from './ProductMediaField';
+import ProductSelect from './ProductSelect';
 import ProductVariantsField from './ProductVariantsField';
 import ProductRichText from './ProductRichText';
 import ProductSpecsField, { ChipsInput } from './ProductSpecsField';
 
 const CHECK_FIELDS = 'Check the highlighted fields.';
+/** A dialog or an open dropdown list: Escape / Back close that first, not the editor. */
+const OPEN_LAYER = '[role="alertdialog"], [role="listbox"], [role="menu"]';
 
 /** Error keys the editor shows under a field; anything else (an unexpected API key) is listed at the bottom of the card. */
 const PLACED = /^(title|short_description|description_html|brand|product_type|price|compare_at_price|currency|sku|barcode|quantity|weight|weight_unit|dimensions(\.(length|width|height|unit))?|slug|seo_title|seo_description|share_image|buy_url|internal_notes|status|category_ids(\.\d+)?|tags(\.\d+)?|collections(\.\d+)?|attributes(\.\d+\.(label|value))?|options(\.\d+\.(name|values(\.\d+)?))?|variants(\.\d+\.(price|compare_at_price|sku|quantity|image_id))?)$/;
@@ -189,7 +192,7 @@ export default function ProductEditor({ productId, categories, defaultCurrency, 
   const backRef = useRef<() => boolean>(() => true);
   backRef.current = () => {
     // A dialog is open (the editor's own or the photo-remove confirm): Back closes that dialog first, as Escape would.
-    if (confirm || document.querySelector('[role="alertdialog"]')) {
+    if (confirm || document.querySelector(OPEN_LAYER)) {
       document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
       return false;
     }
@@ -211,7 +214,7 @@ export default function ProductEditor({ productId, categories, defaultCurrency, 
 
   const onKeyDown = (e: KeyboardEvent) => {
     // Escape inside a dialog belongs to it (Radix marks it handled); only a bare Escape closes the editor.
-    if (e.key === 'Escape' && !confirm && !e.defaultPrevented && !document.querySelector('[role="alertdialog"]')) { e.stopPropagation(); close(); }
+    if (e.key === 'Escape' && !confirm && !e.defaultPrevented && !document.querySelector(OPEN_LAYER)) { e.stopPropagation(); close(); }
   };
 
   const bottomMessage = message && (message.kind === 'error' || !dirty) ? (
@@ -276,7 +279,7 @@ export default function ProductEditor({ productId, categories, defaultCurrency, 
                 <div className="grid gap-4 sm:grid-cols-3">
                   <Field id="p-price" label="Price" error={errors.price}><input id="p-price" inputMode="decimal" value={form.price} disabled={!can('price')} onChange={(e) => set('price', e.target.value)} className={inputClass(Boolean(errors.price))} /></Field>
                   <Field id="p-compare" label="Compare-at price" error={errors.compare_at_price} hint="The price before the sale; shown struck through."><input id="p-compare" inputMode="decimal" value={form.compare_at_price} disabled={!can('compare_at_price')} onChange={(e) => set('compare_at_price', e.target.value)} className={inputClass(Boolean(errors.compare_at_price))} /></Field>
-                  <Field id="p-currency" label="Currency" error={errors.currency}><input id="p-currency" maxLength={3} value={form.currency} disabled={!can('currency')} onChange={(e) => set('currency', e.target.value.toUpperCase())} className={inputClass(Boolean(errors.currency))} /></Field>
+                  <Field id="p-currency" label="Currency" error={errors.currency}><ProductSelect id="p-currency" value={form.currency} options={currencyOptions(form.currency)} disabled={!can('currency')} onChange={(v) => set('currency', v)} /></Field>
                 </div>
                 <label className="flex items-center gap-3 text-sm text-gray-800"><Switch checked={form.price_on_request} disabled={!can('price_on_request')} onCheckedChange={(v) => set('price_on_request', v)} aria-label="Price on request" />Price on request</label>
               </Section>

@@ -12,7 +12,7 @@ import ProductDetails from '../components/products/ProductDetails';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '../components/ui/sheet';
 import { useProperty } from '../contexts/PropertyContext';
 import { announceProductsChanged, PRODUCTS_CHANGED_EVENT, useProductsStatus } from '../hooks/useProductsStatus';
-import { filterStatusesFor, pageToClampTo, productsGate, UPGRADE_LINE } from '../utils/products';
+import { DEFAULT_CURRENCY, filterStatusesFor, pageToClampTo, productsGate, UPGRADE_LINE } from '../utils/products';
 import { requestUpgrade } from '../utils/planEvents';
 import { BUTTON_PRIMARY, BUTTON_SECONDARY } from '../components/newsletters/lib/ui';
 
@@ -237,7 +237,7 @@ function ProductsReady({ onNavigate }: { onNavigate: (page: string) => void }) {
           onClose={() => setLayer(null)} onEdit={(id) => setLayer({ kind: 'edit', id })} onDuplicated={(id) => setLayer({ kind: 'edit', id })} onChanged={changed} />
       )}
       {layer?.kind === 'edit' && (
-        <ProductEditor key={layer.id ?? 'new'} productId={layer.id} categories={ownCategories} defaultCurrency={status?.default_currency || 'CAD'}
+        <ProductEditor key={layer.id ?? 'new'} productId={layer.id} categories={ownCategories} defaultCurrency={status?.default_currency || DEFAULT_CURRENCY}
           onClose={() => setLayer(layer.id ? { kind: 'details', id: layer.id } : null)} onChanged={changed}
           onOpen={(id, d) => setLayer({ kind: 'details', id, initial: d, notice: 'Saved. Use Edit to add photos.' }) /* review minor 4: no reload */}
           onSaved={(d) => setLayer({ kind: 'details', id: d.id, initial: d, notice: 'Saved.' })} />

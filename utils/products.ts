@@ -244,10 +244,26 @@ export interface ProductForm {
   slug: string; seo_title: string; seo_description: string; share_image: string; buy_url: string; internal_notes: string;
 }
 
+/** Chris, 16 Nov: a new manual product starts in USD (the web API's ProductAccess::defaultCurrency too). */
+export const DEFAULT_CURRENCY = 'USD';
+/** The editor's Currency dropdown (Chris, 16 Nov: a dropdown, not free text). */
+export const CURRENCIES: ReadonlyArray<readonly [string, string]> = [
+  ['USD', 'US dollar'], ['CAD', 'Canadian dollar'], ['EUR', 'Euro'], ['GBP', 'British pound'], ['AUD', 'Australian dollar'],
+  ['NZD', 'New Zealand dollar'], ['INR', 'Indian rupee'], ['JPY', 'Japanese yen'], ['CNY', 'Chinese yuan'], ['HKD', 'Hong Kong dollar'],
+  ['SGD', 'Singapore dollar'], ['CHF', 'Swiss franc'], ['SEK', 'Swedish krona'], ['NOK', 'Norwegian krone'], ['DKK', 'Danish krone'],
+  ['MXN', 'Mexican peso'], ['BRL', 'Brazilian real'], ['ZAR', 'South African rand'], ['AED', 'UAE dirham'], ['PHP', 'Philippine peso'],
+];
+/** The dropdown's choices: the list, plus the product's own code when it isn't listed, so nothing is lost. */
+export function currencyOptions(current: string): Array<{ value: string; label: string }> {
+  const list = CURRENCIES.map(([code, name]) => ({ value: code, label: `${code} – ${name}` }));
+  const own = (current || '').trim().toUpperCase();
+  return own && !CURRENCIES.some(([code]) => code === own) ? [{ value: own, label: own }, ...list] : list;
+}
+
 export function emptyProductForm(currency: string): ProductForm {
   return {
     title: '', short_description: '', description_html: '', brand: '', product_type: '',
-    price: '', compare_at_price: '', currency: currency || 'CAD', price_on_request: false,
+    price: '', compare_at_price: '', currency: currency || DEFAULT_CURRENCY, price_on_request: false,
     sku: '', barcode: '', stock_status: 'in_stock', quantity: '',
     options: [], variants: [], attributes: [],
     weight: '', weight_unit: 'kg', dimensions: { length: '', width: '', height: '', unit: 'cm' },
