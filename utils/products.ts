@@ -547,6 +547,12 @@ export function detailFacts(d: Pick<ProductDetail, 'sku' | 'brand' | 'product_ty
   return out;
 }
 
+/** Chris 16 Nov (point 4): the product details say whether the Enquire button shows on its campaign moments (NULL = on). */
+export const ENQUIRE_HELP = 'Shows an Enquire button on this product in your campaigns.';
+export function enquireFact(d: { show_enquire?: boolean | null }): { label: string; value: string } {
+  return { label: 'Enquire button', value: d.show_enquire === false ? 'Off' : 'On' };
+}
+
 /** The account's real campaign category for catalogue campaigns is stored as this name (web API config catalog.category_name). */
 export const CATALOGUE_CATEGORY_NAME = 'Website Catalogue';
 /** Text that means the products themselves (the Campaigns panel's items box, a picker item's fallback line). */
