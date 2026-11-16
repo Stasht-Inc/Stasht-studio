@@ -2,7 +2,7 @@
 // default tab) → all five steps (a lead group, an imported CSV list, email and text, header, every section type) →
 // exact email → a test by text → schedule (address on the first send) → Newsletters view lists it as Scheduled →
 // results of a sent one → cancel the scheduled one → duplicate → delete. Plus: the Storeel tab still creates a
-// Storeel; the Storeel limit shows on the Storeel tab only; Starter gets the upgrade card and makes no newsletter
+// Storeel; the Storeel limit shows on the Storeel tab only; Starter (16 Nov 2026) lists its newsletters like any plan; it used to get the upgrade card and make no newsletter
 // calls; page-wide checks (16 px root font, every composer control labelled, no sideways scroll at 360/375/390).
 import { mkdirSync, writeFileSync } from 'fs';
 import { createMockApi, seedNewsletters } from '../mock-api.mjs';
@@ -263,25 +263,17 @@ export async function run(ctx) {
     await context.close();
   }
 
-  // Starter: Create a Campaign shows the upgrade card; Newsletters too; not one newsletter call.
+  // Starter (16 Nov 2026: email newsletters, 500 a month): the Newsletters view lists its newsletters, no upgrade card.
   for (const width of [1280, 390]) {
     const phone = width < 768;
     const api = createMockApi({ plan: 'Starter', newsletters: seedNewsletters() });
     const { page, context } = await open({ view: 'campaigns', campaignsView: 'storeels', width, height: phone ? 844 : 1000, api });
     await expectVisible(page.getByRole('heading', { name: 'All Campaigns' }), `Starter Campaigns page at ${width}`);
-    await createButton(page, phone).click();
-    await expectVisible(page.getByText('Newsletters are part of paid plans'), `Starter upgrade card in Create Campaign at ${width}`);
-    expect(!(await hasOverflow(page)), `no sideways scroll on the Starter card at ${width}`);
-    await shot(page, `${width}-09-starter-composer`);
-    await page.getByRole('button', { name: 'Make a Storeel instead' }).click();
-    await expectVisible(page.getByRole('heading', { name: 'Campaign', exact: true }), `Starter can still make a Storeel at ${width}`);
-    await page.keyboard.press('Escape');
-    await page.waitForTimeout(400);
-    if (await page.getByRole('heading', { name: 'Campaign', exact: true }).isVisible()) await page.getByRole('button', { name: 'Cancel' }).first().click();
     await page.getByRole('radio', { name: 'Newsletters' }).click();
-    await expectVisible(page.getByText('Newsletters are part of paid plans'), `Starter card on the Newsletters view at ${width}`);
-    await page.waitForTimeout(1000);
-    expect(anyNewsletterCalls(api).length === 0, `Starter makes no newsletter calls at ${width} (got ${newsletterCalls(api).map((c) => c.path).join(', ')})`);
+    await expectVisible(page.getByRole('listitem').getByText('September recap'), `Starter: its newsletters at ${width}`);
+    expect(await page.getByText('Newsletters are part of paid plans').count() === 0, `Starter: no upgrade card at ${width}`);
+    expect(!(await hasOverflow(page)), `no sideways scroll for Starter at ${width}`);
+    await shot(page, `${width}-09-starter-newsletters`);
     await context.close();
   }
 

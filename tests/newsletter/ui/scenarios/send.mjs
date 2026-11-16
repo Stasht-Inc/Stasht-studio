@@ -1,7 +1,7 @@
 // Task 12: unfinished steps block sending and say why (an empty from name / reply-to never does: decision 5);
 // the confirmation shows counts, allowance and asks for the address on the first send; a 422 allowance answer
 // stays in the dialog; the API's errors.blocks messages show on the Content step; its reply_to_email 422 (no
-// email on the account) shows on step 3; schedule for later confirms with the time; Starter sees the upgrade
+// email on the account) shows on step 3; schedule for later confirms with the time; Starter sends by email only (16 Nov 2026; was: Starter sees the upgrade
 // card and makes no newsletter calls.
 import { createMockApi, nextReset, resetLabel } from '../mock-api.mjs';
 import { sendToAllLeads, pickDate, pickTime } from '../steps.mjs';
@@ -146,18 +146,14 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
   expect(/Z$/.test(sched?.body?.scheduled_at ?? ''), `scheduled_at sent as UTC ISO (got ${sched?.body?.scheduled_at})`);
   await context.close();
 
-  // Starter: the upgrade card, no newsletter calls; "Make a Storeel instead" switches tabs.
+  // Starter (16 Nov 2026): the composer works by email; Text message can't be ticked.
   for (const width of [1280, 390]) {
     const starter = await open({ width, height: 900, api: createMockApi({ plan: 'Starter' }) });
-    await expectVisible(starter.page.getByText('Newsletters are part of paid plans'), `upgrade card at ${width}`);
-    await starter.page.waitForTimeout(600);
-    expect(!starter.api.state.calls.some((c) => c.path.startsWith('/newsletter') || c.path.startsWith('/contact-lists')), `no newsletter calls on Starter at ${width}`);
-    expect(!(await hasOverflow(starter.page)), `no sideways scroll on the upgrade card at ${width}`);
+    await expectVisible(starter.page.getByRole('heading', { name: 'Name and subject' }), `the composer opens on Starter at ${width}`);
+    expect(await starter.page.getByText('Newsletters are part of paid plans').count() === 0, `no upgrade card on Starter at ${width}`);
+    expect(await starter.page.getByRole('checkbox', { name: /Text message/ }).isDisabled(), `Starter: texts off at ${width}`);
+    expect(!(await hasOverflow(starter.page)), `no sideways scroll on Starter at ${width}`);
     await shot(starter.page, `${width}-07-starter`);
-    if (width === 1280) {
-      await starter.page.getByRole('button', { name: 'Make a Storeel instead' }).click();
-      await expectVisible(starter.page.getByRole('heading', { name: 'Campaign', exact: true }), 'Storeel form after the upgrade card');
-    }
     await starter.context.close();
   }
 

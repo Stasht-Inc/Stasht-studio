@@ -1,7 +1,7 @@
 // Task 14: the Campaigns page opens on Newsletters (first on the switch, with counts); Storeels makes only the count call; → Newsletters: the All Campaigns list look
 // with drafts, scheduled, sending and sent rows (chips, times, rates; out of sent for SendGrid-sent ones); a row
 // opens its results; duplicate, cancel, delete, filter; a draft opens in the composer; a new newsletter shows up
-// after it's saved; the empty state; Starter makes no newsletter calls; phones keep the sidebar toggle and never
+// after it's saved; the empty state; Starter lists its newsletters too (16 Nov 2026); phones keep the sidebar toggle and never
 // scroll sideways.
 import { createMockApi, seedNewsletters } from '../mock-api.mjs';
 
@@ -110,13 +110,13 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
   await shot(page, '1280-03-empty');
   await context.close();
 
-  // Starter: the upgrade card, and not one newsletter call (even after choosing Newsletters).
+  // Starter (16 Nov 2026: email newsletters, 500 a month): its newsletters list like any plan's, no upgrade card.
   api = createMockApi({ plan: 'Starter', newsletters: seedNewsletters() });
   ({ page, context } = await open({ view: 'campaigns', width: 1280, height: 900, api }));
   await page.getByRole('radio', { name: 'Newsletters' }).click();
-  await expectVisible(page.getByText('Newsletters are part of paid plans'), 'Starter card');
   await page.waitForTimeout(1200);
-  expect(anyNewsletterCalls(api).length === 0, `Starter makes no newsletter calls (got ${anyNewsletterCalls(api).map((c) => c.path).join(', ')})`);
+  expect(await page.getByText('Newsletters are part of paid plans').count() === 0, 'Starter: no upgrade card');
+  expect(anyNewsletterCalls(api).some((c) => c.path === '/newsletters'), 'Starter: its newsletters are listed');
   await shot(page, '1280-04-starter');
   await context.close();
 
@@ -159,7 +159,7 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
     api = createMockApi({ plan: 'Starter' });
     ({ page, context } = await open({ view: 'campaigns', width, height: 844, api }));
     await page.getByRole('radio', { name: 'Newsletters' }).click();
-    await expectVisible(page.getByText('Newsletters are part of paid plans'), 'Starter at 390');
+    await expectVisible(page.getByText('No newsletters yet'), 'Starter at 390: the empty state, not an upgrade card');
     expect(!(await hasOverflow(page)), 'no sideways scroll on Starter at 390');
     await shot(page, '390-04-starter');
     await context.close();

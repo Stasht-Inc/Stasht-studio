@@ -10,10 +10,9 @@ export const CAMPAIGNS_VIEW_OPTIONS: ReadonlyArray<{ value: CampaignsView; label
 ];
 
 /**
- * The Campaigns page opens on Newsletters the first time (Storeels on a Starter plan); after that it opens on the last choice made on this device
+ * The Campaigns page opens on Newsletters the first time; after that it opens on the last choice made on this device
  * (wdy2xh2t3y). Opening on Newsletters calls no newsletter endpoint by itself: the Newsletters view waits until the
- * plan is known to be paid (a Starter account would get a 403 that opens the upgrade plans, contract note 1), and
- * a Starter account goes back to Storeels (campaignsViewForPlan).
+ * plan is known. Every plan has newsletters since 16 Nov 2026 (Starter by email only).
  */
 export const DEFAULT_CAMPAIGNS_VIEW: CampaignsView = 'newsletters';
 
@@ -51,13 +50,12 @@ export function writeCampaignsView(a: ViewStorage | CampaignsView, b?: Campaigns
   }
 }
 
-/** A remembered Newsletters choice stands on a paid plan (or while the plan is still loading: the view waits). A
- *  Starter plan, or a plan check that failed, goes back to Storeels. */
+/** A remembered Newsletters choice stands on every plan since 16 Nov 2026 (Starter: email newsletters); only a plan
+ *  check that failed goes back to Storeels. (Until 16 Nov a Starter plan went back to Storeels too.) */
 export function campaignsViewForPlan(view: CampaignsView, plan: { known: boolean; isStarter: boolean; failed?: boolean }): CampaignsView {
   if (view !== 'newsletters') return view;
-  if (plan.known) return plan.isStarter ? 'storeels' : view;
-  // Still loading: the stored account already says Starter, so don't flash "Loading newsletters…" first.
-  return plan.failed || plan.isStarter ? 'storeels' : view;
+  if (plan.known) return view;
+  return plan.failed ? 'storeels' : view;
 }
 
 export type NewsletterFilter = 'all' | Extract<NewsletterStatus, 'draft' | 'scheduled' | 'sent'>;

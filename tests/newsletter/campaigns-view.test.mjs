@@ -22,7 +22,7 @@ test('openNewsletterResults leaves the id for the Campaigns page to take once', 
 });
 
 // [wdy2xh2t3y] Storeels | Newsletters is remembered on this device. Reading it never calls the API, and the
-// Newsletters view itself waits for a known paid plan; a Starter account goes back to Storeels.
+// Newsletters view itself waits for a known plan (every plan has newsletters since 16 Nov 2026).
 test('the Storeels | Newsletters choice is remembered per device, safely', async () => {
   const { CAMPAIGNS_VIEW_KEY, readCampaignsView, writeCampaignsView, campaignsViewForPlan } = await import('../../components/newsletters/lib/campaignsView.ts');
   const store = new Map();
@@ -37,14 +37,14 @@ test('the Storeels | Newsletters choice is remembered per device, safely', async
   assert.equal(readCampaignsView(broken), 'newsletters', 'blocked storage falls back');
   assert.doesNotThrow(() => writeCampaignsView(broken, 'newsletters'));
   assert.equal(readCampaignsView(null), 'newsletters');
-  // Fresh device on a Starter plan: Storeels.
-  assert.equal(campaignsViewForPlan(readCampaignsView(null), { known: true, isStarter: true }), 'storeels');
-  // A remembered Newsletters choice only stands on a paid plan.
-  assert.equal(campaignsViewForPlan('newsletters', { known: true, isStarter: true }), 'storeels');
+  // Since 16 Nov 2026 Starter has email newsletters (Chris: the website's "Email Campaigns"): Newsletters stands on
+  // every plan; only a failed plan check goes back to Storeels.
+  assert.equal(campaignsViewForPlan(readCampaignsView(null), { known: true, isStarter: true }), 'newsletters');
+  assert.equal(campaignsViewForPlan('newsletters', { known: true, isStarter: true }), 'newsletters');
   assert.equal(campaignsViewForPlan('newsletters', { known: true, isStarter: false }), 'newsletters');
   assert.equal(campaignsViewForPlan('newsletters', { known: false, isStarter: false }), 'newsletters', 'waits (the view makes no call until the plan is known)');
   assert.equal(campaignsViewForPlan('storeels', { known: true, isStarter: false }), 'storeels');
-  assert.equal(campaignsViewForPlan('newsletters', { known: false, isStarter: true }), 'storeels', 'stored role says Starter: no loading flash');
+  assert.equal(campaignsViewForPlan('newsletters', { known: false, isStarter: true }), 'newsletters', 'Starter waits too');
 });
 
 test('openNewsletterDraft leaves the draft to highlight for the Campaigns page to take once', async () => {

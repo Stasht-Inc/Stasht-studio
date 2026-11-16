@@ -49,12 +49,12 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
   await tabRow.screenshot({ path: `${SHOTS}/leads-tab-counts-1280-02-groups-active.png` });
   await context.close();
 
-  // 2. Zero is a count too; a Starter account (no lists) shows no Lists count at all.
+  // 2. Zero is a count too; a Starter account has lists too since 16 Nov 2026.
   const starter = await open({ view: 'leads', width: 1280, height: 900, api: createMockApi({ plan: 'Starter', groups: [] }) });
   await expectVisible(starter.page.getByRole('button', { name: /^Groups/ }), 'Starter: row');
   await starter.page.waitForTimeout(800);
   const sCounts = (await tabs(starter.page)).map((t) => t.count);
-  expect(JSON.stringify(sCounts) === JSON.stringify(['0', null, '0', '0']), `Starter: zeros shown, Lists without a count (got ${JSON.stringify(sCounts)})`);
+  expect(JSON.stringify(sCounts) === JSON.stringify(['0', '1', '0', '0']), `Starter: zeros shown, Lists counted too since 16 Nov 2026 (the mock's one list) (got ${JSON.stringify(sCounts)})`);
   await starter.context.close();
 
   // 2b. Review (batch 3): no number until its count has loaded (never a "0" that turns into the real count).

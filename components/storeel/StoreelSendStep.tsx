@@ -40,8 +40,10 @@ export interface StoreelSendStepProps {
   onStatus?(status: { problem: string | null; filled: boolean }): void;
   /** Who the text says it came from (senderLabelFor). */
   sender: string;
-  /** Lists and lead suggestions (paid plans only). */
+  /** Lists and lead suggestions (every plan once the plan is known, since 16 Nov 2026). */
   paid: boolean;
+  /** False on Starter: email only (AudiencePicker textsAllowed). Default true. */
+  textsAllowed?: boolean;
   /** False when this account may not send the campaign (not its owner): the step says so instead. */
   canSend: boolean;
   /** The flow is showing (counts are asked for only then). */
@@ -73,7 +75,7 @@ function PublishingSection({ children }: { children: ReactNode }) {
  * the message and their own tracked link.
  */
 export default function StoreelSendStep(
-  { campaign, optionalLine, sendRequest, onStatus, sender, paid, canSend, active, onSent, onSeePlans, onForbidden, publishing = null }: StoreelSendStepProps,
+  { campaign, optionalLine, sendRequest, onStatus, sender, paid, textsAllowed = true, canSend, active, onSent, onSeePlans, onForbidden, publishing = null }: StoreelSendStepProps,
 ) {
   // Single person first (as newsletters). Send by: Text message (SMS) ticked, Email not (Chris, 11 Nov 2026); tick Email to send both.
   const [audience, setAudience] = useState<AudienceItem[]>([]);
@@ -184,6 +186,7 @@ export default function StoreelSendStep(
         step={{ number: stepNumber('send'), title, id: SEND_STEP_ID }}
         idPrefix="st"
         paid={paid}
+        textsAllowed={textsAllowed}
         audience={audience}
         channels={channels}
         smsText={message}

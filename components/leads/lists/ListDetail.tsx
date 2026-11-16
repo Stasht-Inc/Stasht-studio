@@ -20,6 +20,9 @@ import { BUTTON_PRIMARY, BUTTON_SECONDARY, LINK_BUTTON } from '../../newsletters
 import { ConfirmDialog, CopyToListDialog, ErrorNote } from './ListDialogs';
 import MemberDialog from './MemberDialog';
 import SignupFormSection from './SignupFormSection';
+import { requestUpgrade } from '../../../utils/planEvents';
+
+const SIGNUP_FORMS_PLAN_MESSAGE = 'Website signup forms are available on the Teams and Business plans.';
 
 export type ListAction = 'open' | 'rename' | 'duplicate' | 'export' | 'delete';
 
@@ -65,12 +68,14 @@ export interface ListDetailProps {
   /** The list was deleted somewhere else. */
   onGone(message: string): void;
   exporting: boolean;
+  /** Website signup forms are on Teams and Business only (16 Nov 2026); false on Starter shows the plan line instead. */
+  signupForms?: boolean;
   /** Bumped by Refresh / pull to refresh. */
   refreshKey: number;
 }
 
 /** One list on the Leads page's Lists tab: who is on it, search and filter, add, edit, remove, import, copy. */
-export default function ListDetail({ list, otherLists, onBack, onAction, onListChanged, onListsStale, onGone, exporting, refreshKey }: ListDetailProps) {
+export default function ListDetail({ list, otherLists, onBack, onAction, onListChanged, onListsStale, onGone, exporting, refreshKey, signupForms = true }: ListDetailProps) {
   const [members, setMembers] = useState<ContactListMembers | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [page, setPage] = useState(1);
@@ -374,7 +379,15 @@ export default function ListDetail({ list, otherLists, onBack, onAction, onListC
         ) : null}
       </div>
 
-      <SignupFormSection listId={list.id} listName={list.name} />
+      {signupForms ? <SignupFormSection listId={list.id} listName={list.name} /> : (
+        <section className="rounded-xl border border-gray-200 bg-white p-4 md:p-5" data-testid="list-signup-form-plan">
+          <h3 className="text-base font-semibold text-gray-900">Website signup form</h3>
+          <p className="mt-1 text-sm text-gray-600">
+            Available on the Teams and Business plans.{' '}
+            <button type="button" onClick={() => requestUpgrade(SIGNUP_FORMS_PLAN_MESSAGE)} className="font-medium text-[#6C60FF] hover:underline">See plans</button>
+          </p>
+        </section>
+      )}
 
       <MemberDialog
         open={memberDialog !== null}

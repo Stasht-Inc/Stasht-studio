@@ -22,6 +22,10 @@ import { MESSAGE_TOO_LONG } from './lib/draft';
 import { syncMessageBlock } from './lib/messageBlock';
 import { canSetDefaultMessage, isDefaultMessage } from './lib/defaultMessage';
 import { LABEL, LAYER, LINK_BUTTON, inputClass, textareaClass } from './lib/ui';
+import { requestUpgrade } from '../../utils/planEvents';
+
+/** The upgrade plans' line when a Starter account asks about texts (the web API's NewsletterAllowance words). */
+const TEXTS_PLAN_MESSAGE = 'Text messages are available on the Teams and Business plans.';
 
 type AudiencePatch = { audience?: AudienceItem[]; channels?: NewsletterChannel[]; sms_text?: string; blocks?: NewsletterBlock[] };
 
@@ -65,6 +69,9 @@ export interface AudiencePickerProps {
   };
   /** At the end of the card (the Storeel flow's Send now row). */
   children?: ReactNode;
+  /** False on Starter (Chris, 16 Nov 2026: email campaigns only): Text message can't be ticked (an old draft's tick can
+   *  still be cleared) and a line says texts need Teams or Business. Default true. */
+  textsAllowed?: boolean;
   /** The card's first line (the Storeel flow: "Your campaign is saved. Send it now, or do it later."). */
   intro?: ReactNode;
 }
@@ -77,7 +84,7 @@ const GROUP_HEADING = 'px-3 pb-1 pt-3 text-xs font-semibold uppercase tracking-w
  */
 export default function AudiencePicker({
   audience, channels, smsText, fromName, count, readOnly, enabled, fieldErrors, stepError, showProblems, onChange, defaultMessage, onDefaultMessageChange,
-  step = { number: 2, title: 'Recipients', id: 'nl-step-recipients' }, idPrefix = 'nl', paid = true, message, children, intro,
+  step = { number: 2, title: 'Recipients', id: 'nl-step-recipients' }, idPrefix = 'nl', paid = true, message, children, intro, textsAllowed = true,
 }: AudiencePickerProps) {
   const id = (name: string) => `${idPrefix}-${name}`;
   const sources = useAudienceSources(enabled, paid);
@@ -174,9 +181,11 @@ export default function AudiencePicker({
 
   const channelBox = (channel: NewsletterChannel, title: string, Icon: typeof Mail) => {
     const checked = channels.includes(channel);
+    // Starter: texts can't be ticked (an old tick can still be cleared).
+    const locked = channel === 'sms' && !textsAllowed && !checked;
     return (
-      <label key={channel} className={`flex min-w-0 flex-1 items-center gap-3 rounded-lg border-2 px-4 py-2.5 ${checked ? 'border-[#6C60FF] bg-[#6C60FF]/5' : fieldErrors.channels ? 'border-red-300 bg-white' : 'border-gray-200 bg-white'} ${readOnly ? 'opacity-70' : 'cursor-pointer'}`}>
-        <input type="checkbox" checked={checked} disabled={readOnly} aria-invalid={Boolean(fieldErrors.channels)} aria-describedby={fieldErrors.channels ? id('channels-error') : undefined} onChange={() => onChange({ channels: toggleChannel(channels, channel) })} className="h-4 w-4 flex-shrink-0 accent-[#6C60FF]" />
+      <label key={channel} className={`flex min-w-0 flex-1 items-center gap-3 rounded-lg border-2 px-4 py-2.5 ${checked ? 'border-[#6C60FF] bg-[#6C60FF]/5' : fieldErrors.channels ? 'border-red-300 bg-white' : 'border-gray-200 bg-white'} ${readOnly || locked ? 'opacity-70' : 'cursor-pointer'}`}>
+        <input type="checkbox" checked={checked} disabled={readOnly || locked} aria-invalid={Boolean(fieldErrors.channels)} aria-describedby={fieldErrors.channels ? id('channels-error') : undefined} onChange={() => onChange({ channels: toggleChannel(channels, channel) })} className="h-4 w-4 flex-shrink-0 accent-[#6C60FF]" />
         <Icon className="h-4 w-4 flex-shrink-0 text-gray-600" aria-hidden="true" />
         <span className="truncate text-sm text-gray-900">{title}</span>
       </label>
@@ -262,6 +271,12 @@ export default function AudiencePicker({
             {channelBox('email', 'Email', Mail)}
             {channelBox('sms', 'Text message (SMS)', MessageSquare)}
           </div>
+          {textsAllowed ? null : (
+            <p data-texts-plan-note className="mt-1.5 text-xs text-gray-500">
+              Text messages are on the Teams and Business plans.{' '}
+              <button type="button" onClick={() => requestUpgrade(TEXTS_PLAN_MESSAGE)} className={LINK_BUTTON}>See plans</button>
+            </p>
+          )}
           {fieldErrors.channels ? <p id={id('channels-error')} role="alert" className="mt-1.5 text-xs text-red-600">{fieldErrors.channels}</p> : null}
         </fieldset>
 

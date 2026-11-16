@@ -72,12 +72,15 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
   expect(newsletterCalls.length === 0, `no newsletter calls with the Storeel tab showing (got ${newsletterCalls.map((c) => c.path).join(', ')})`);
   await storeel.context.close();
 
-  // Starter plan: no newsletter calls; the Newsletter tab shows the upgrade card.
+  // Starter plan (16 Nov 2026: email newsletters, 500 a month): the composer opens; Text message can't be ticked and
+  // a line says texts are on Teams and Business.
   const starter = await open({ api: createMockApi({ plan: 'Starter' }), width: 1280 });
-  await expectVisible(starter.page.getByText('Newsletters are part of paid plans'), 'upgrade card on Starter');
-  await starter.page.waitForTimeout(1000);
-  const starterCalls = starter.api.state.calls.filter((c) => /^\/(newsletter|contact-lists)/.test(c.path));
-  expect(starterCalls.length === 0, `no newsletter calls on Starter (got ${starterCalls.map((c) => c.path).join(', ')})`);
+  await expectVisible(starter.page.getByRole('heading', { name: 'Name and subject' }), 'the composer opens on Starter');
+  expect(await starter.page.getByText('Newsletters are part of paid plans').count() === 0, 'no upgrade card on Starter');
+  const sms = starter.page.getByRole('checkbox', { name: /Text message/ });
+  expect(await sms.isDisabled(), 'Starter: Text message can\'t be ticked');
+  await expectVisible(starter.page.getByText('Text messages are on the Teams and Business plans.'), 'Starter: the texts plan line');
+  await shot(starter.page, '1280-starter-email-only');
   await starter.context.close();
 
   // Storeel campaign limit reached: Newsletter still opens and works; the Storeel tab shows the limit inline.

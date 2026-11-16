@@ -12,7 +12,7 @@ import { useSenderProfile } from './hooks/useSenderProfile';
 import { useBackToClose } from './hooks/useBackToClose';
 import { DRAFT_SAVED_MESSAGE, openNewsletterDraft, openNewsletterResults } from './lib/campaignsView';
 import { fieldProblems, type NewsletterDraft } from './lib/draft';
-import { GENERIC_ERROR, PLAN_REQUIRED_ERROR, type NlResult } from './lib/apiResult';
+import { GENERIC_ERROR, type NlResult } from './lib/apiResult';
 import { BUTTON_OUTLINE, BUTTON_PRIMARY, BUTTON_SECONDARY, LAYER, LINK_BUTTON } from './lib/ui';
 import StepCard from './StepCard';
 import NewsletterEditor from './NewsletterEditor';
@@ -39,7 +39,6 @@ import { addMissingMessageBlock } from './lib/messageBlock';
 import SendConfirmDialog from './SendConfirmDialog';
 import SaveIndicator from './SaveIndicator';
 import DraftNotices from './DraftNotices';
-import UpgradeCard from './UpgradeCard';
 import ComposerDialog from './ComposerDialog';
 import NameStep from './steps/NameStep';
 import FromStep from './steps/FromStep';
@@ -97,11 +96,11 @@ const NewsletterComposer = forwardRef<NewsletterComposerHandle, NewsletterCompos
     },
   }), []);
 
-  // Paid plans only (spec decision 4). No newsletter call until the plan is known to be paid: a Starter
-  // account would get 403 plan_required, and the upgrade plans would open under this layer (contract note 1).
+  // Every plan since 16 Nov 2026 (Chris: the website's Starter has "Email Campaigns (500 emails/mo)"); Starter sends by
+  // email only, so its Text message box is off (textsAllowed). No newsletter call until the plan is known.
   const plan = useIsStarterPlan();
   const { isStarter, known } = plan;
-  const enabled = known && !isStarter;
+  const enabled = known;
   // The plan check failed, or is taking far too long: say so and offer "Try again" instead of waiting forever.
   const [planSlow, setPlanSlow] = useState(false);
   useEffect(() => {
@@ -467,15 +466,13 @@ const NewsletterComposer = forwardRef<NewsletterComposerHandle, NewsletterCompos
         {planStuck ? (
           <div role="alert" className="mx-auto max-w-md px-4 py-16 text-center">
             <p className="text-base font-semibold text-gray-900">We couldn’t check your plan.</p>
-            <p className="mt-1 text-sm text-gray-600">Newsletters need a paid plan, and we couldn’t confirm yours just now. Check your connection, then try again.</p>
+            <p className="mt-1 text-sm text-gray-600">We couldn’t confirm your plan just now. Check your connection, then try again.</p>
             <button type="button" onClick={retryPlan} className={`${BUTTON_PRIMARY} mt-4`}>Try again</button>
           </div>
         ) : !known ? (
           <div className="flex h-full items-center justify-center gap-2 text-sm text-gray-600">
             <Loader2 className="h-5 w-5 animate-spin text-[#6C60FF]" aria-hidden="true" />Getting things ready…
           </div>
-        ) : isStarter ? (
-          <UpgradeCard onSeePlans={() => { onClose(); requestUpgrade(PLAN_REQUIRED_ERROR); }} onMakeStoreel={onSwitchToStoreel} />
         ) : state.loading ? (
           <div className="flex h-full items-center justify-center gap-2 text-sm text-gray-600">
             <Loader2 className="h-5 w-5 animate-spin text-[#6C60FF]" aria-hidden="true" />Opening your newsletter…
@@ -510,6 +507,7 @@ const NewsletterComposer = forwardRef<NewsletterComposerHandle, NewsletterCompos
                 stepError={stepError('name')} readOnly={readOnly} inputRef={setNameInput} autoFocus={!newsletterId} />
 
               <AudiencePicker
+                textsAllowed={!isStarter}
                 audience={draft.audience}
                 channels={draft.channels}
                 smsText={draft.sms_text}

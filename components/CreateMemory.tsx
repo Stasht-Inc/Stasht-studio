@@ -3855,7 +3855,8 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
               sendRequest={sendRequest}
               onStatus={({ problem, filled }) => { setSendBlocker(problem); setSendFilled(filled); }}
               sender={flowSender}
-              paid={starterPlan.known && !starterPlan.isStarter}
+              paid={starterPlan.known} // lists and lead suggestions: every plan since 16 Nov 2026
+              textsAllowed={!(starterPlan.known && starterPlan.isStarter)} // Starter: Storeels go by email only
               canSend={canSend}
               active={open && campaignType === 'storeel'}
               onSent={onStoreelSent}
