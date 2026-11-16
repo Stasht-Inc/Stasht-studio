@@ -66,7 +66,7 @@ function world(over = {}) {
 const statusOf = (w) => ({
   pilot: w.pilot, available: w.pilot && !w.reason, reason: w.pilot ? w.reason : 'not_available', can_create: w.canCreate,
   counts: { total: w.products.length, manual: w.products.filter((p) => p.origin === 'manual').length, website: w.products.filter((p) => p.origin === 'website').length },
-  default_currency: 'CAD',
+  default_currency: w.defaultCurrency || 'USD',
 });
 
 const failures = [];
@@ -128,6 +128,8 @@ async function open(w, { width, height, path = '/products', view = 'personal', p
       if (w.reject) return reject422();
       const created = product(w.nextId++, body.title, { status: body.status || 'draft', badge: body.status || 'draft', price: body.price != null ? String(body.price) : null, price_label: body.price != null ? `$${body.price} CAD` : '', main_image: null, images_count: 0 });
       created.extra = extrasFrom(body, { media: [] }, w);
+      created.currency = body.currency || 'USD';
+      if (Array.isArray(body.category_ids)) created.categories = body.category_ids.map((id) => w.categories.find((c) => c.id === id)).filter(Boolean).map((c) => ({ id: c.id, name: c.name }));
       w.products.unshift(created);
       return route.fulfill({ status: 201, json: { success: true, data: detailOf(created) } });
     }
@@ -137,6 +139,7 @@ async function open(w, { width, height, path = '/products', view = 'personal', p
       if (!found) return route.fulfill({ status: 404, json: { success: false, message: 'Product not found.' } });
       if (m === 'PATCH' && w.reject) return reject422();
       if (m === 'PATCH') { const extra = extrasFrom(body, found.extra, w); Object.assign(found, body, body.status ? { badge: body.status } : {}); found.extra = extra; }
+      if (m === 'PATCH' && Array.isArray(body.category_ids)) found.categories = body.category_ids.map((id) => w.categories.find((c) => c.id === id)).filter(Boolean).map((c) => ({ id: c.id, name: c.name }));
       if (m === 'DELETE') { w.products = w.products.filter((x) => x !== found); return route.fulfill({ json: { success: true, data: { deleted: true } } }); }
       return route.fulfill({ json: { success: true, data: detailOf(found) } });
     }
@@ -149,6 +152,8 @@ async function open(w, { width, height, path = '/products', view = 'personal', p
         if (w.mediaNetFail) return route.abort('failed'); // a dropped connection (Task 16: never retried, an upload may have landed)
         if (w.mediaReject) { const msg = w.mediaReject; w.mediaReject = null; return route.fulfill({ status: 422, json: { success: false, message: msg, errors: { file: [msg] } } }); }
         const raw = req.postDataBuffer()?.toString('latin1') || '';
+        (w.uploads ||= []).push({ product: found.id, name: /filename="([^"]+)"/.exec(raw)?.[1] || '' }); // C4: which file, in which order
+        if (w.mediaRejectName && raw.includes(`filename="${w.mediaRejectName}"`)) return route.fulfill({ status: 422, json: { success: false, message: 'The photo is too large.', errors: { file: ['The photo is too large.'] } } });
         const id = w.nextId++;
         list = [...list, { id, url: img(id), type: /Content-Type: video\//i.test(raw) ? 'video' : 'photo', sort_order: list.length }];
       }
@@ -174,14 +179,38 @@ async function open(w, { width, height, path = '/products', view = 'personal', p
       const done = ids.filter((id) => !skipped.includes(id));
       if (body.action === 'status') w.products.filter((x) => done.includes(x.id)).forEach((x) => { x.status = body.status; x.badge = body.status; });
       if (body.action === 'delete') w.products = w.products.filter((x) => !done.includes(x.id));
+      // Chris 16 Nov (C6): Add to category links the products, like ProductBulk::categorise (the list then shows it).
+      if (body.action === 'category') {
+        const cat = w.categories.find((c) => c.id === body.category_id);
+        w.products.filter((x) => done.includes(x.id) && cat && !x.categories.some((c) => c.id === cat.id)).forEach((x) => { x.categories = [...x.categories, { id: cat.id, name: cat.name }]; });
+        if (cat) cat.product_count = w.products.filter((x) => x.categories.some((c) => c.id === cat.id)).length;
+      }
       return route.fulfill({ json: { success: true, data: { updated: body.action === 'delete' ? 0 : done.length, deleted: body.action === 'delete' ? done.length : 0, skipped_ids: skipped } } });
     }
     if (p === '/product-categories' && m === 'GET' && w.categoriesFail) return route.fulfill({ status: 500, json: { success: false, message: 'Server Error' } }); // final review M3
     if (p === '/product-categories' && m === 'GET') return route.fulfill({ json: { success: true, data: { categories: w.categories, total: w.products.length } } });
     if (p === '/product-categories' && m === 'POST') {
+      if (w.categoryReject) { const msg = w.categoryReject; w.categoryReject = null; return route.fulfill({ status: 422, json: { success: false, message: msg, errors: { name: [msg] } } }); }
       const c = { id: w.nextId++, name: body.name, from_website: false, product_count: 0, read_only: false };
       w.categories.push(c);
       return route.fulfill({ status: 201, json: { success: true, data: { category: c } } });
+    }
+    // Rename / delete a category (ProductCategoriesController): the products' links follow.
+    const catOne = /^\/product-categories\/(\d+)$/.exec(p);
+    if (catOne) {
+      const c = w.categories.find((x) => x.id === Number(catOne[1]));
+      if (!c) return route.fulfill({ status: 404, json: { success: false, message: 'Category not found.' } });
+      if (m === 'PATCH') {
+        if (w.categoryReject) { const msg = w.categoryReject; w.categoryReject = null; return route.fulfill({ status: 422, json: { success: false, message: msg, errors: { name: [msg] } } }); }
+        c.name = body.name;
+        w.products.forEach((x) => { x.categories = x.categories.map((k) => (k.id === c.id ? { ...k, name: body.name } : k)); });
+        return route.fulfill({ json: { success: true, data: { category: c } } });
+      }
+      if (m === 'DELETE') {
+        w.categories = w.categories.filter((x) => x !== c);
+        w.products.forEach((x) => { x.categories = x.categories.filter((k) => k.id !== c.id); });
+        return route.fulfill({ json: { success: true, data: { deleted: true } } });
+      }
     }
     // App drops a stored property view that isn't among the account's properties (utils/accountState), so a world that
     // opens in a property view lists that property here.
@@ -231,6 +260,13 @@ async function closeShowsDelete(page, click) {
   await click();
   await page.waitForTimeout(1000);
   return page.evaluate(() => window.__sawDelete);
+}
+
+// Chris 16 Nov: Products uses the Studio Select (Radix): open the trigger, then pick the option by its text.
+async function choose(page, trigger, name) {
+  await trigger.click();
+  await page.getByRole('option', { name, exact: true }).click();
+  await page.waitForTimeout(250);
 }
 
 // A product layer (details view or editor) is fixed and scrolls itself: grow the viewport to its full height for one shot.
@@ -385,7 +421,7 @@ try {
       expect(await bar.getByText('2 selected').isVisible(), `${tag}: the bulk bar says 2 selected`);
       expect(await bar.getByRole('button', { name: 'Delete' }).isDisabled(), `${tag}: Delete is off while a website product is selected`);
       // Final review I5: choosing in a bulk select only asks (a single keypress fires change); Cancel sends nothing.
-      await bar.getByRole('combobox', { name: 'Change status' }).selectOption('archived');
+      await choose(page, bar.getByRole('combobox', { name: 'Change status' }), 'Archived');
       await page.waitForTimeout(300);
       const ask = page.getByRole('alertdialog');
       expect(await ask.getByText('Set 2 products to Archived?').isVisible().catch(() => false), `${tag}: Change status asks "Set 2 products to Archived?"`);
@@ -393,19 +429,19 @@ try {
       await page.screenshot({ path: `${OUT}/${tag}-02a-bulk-confirm.png` });
       expect(!(await closeShowsDelete(page, () => ask.getByRole('button', { name: 'Cancel' }).click())), `${tag}: the closing status dialog never shows the Delete wording (Cancel)`);
       expect(!w.calls.some((c) => c.p === '/products/bulk') && await bar.getByText('2 selected').isVisible(), `${tag}: Cancel sends nothing and keeps the selection`);
-      expect(await bar.getByRole('combobox', { name: 'Change status' }).inputValue() === '', `${tag}: … and the select is back on "Change status"`);
-      await bar.getByRole('combobox', { name: 'Add to category' }).selectOption({ label: 'Chairs' });
+      expect((await bar.getByRole('combobox', { name: 'Change status' }).textContent()).trim() === 'Change status', `${tag}: … and the select is back on "Change status"`);
+      await choose(page, bar.getByRole('combobox', { name: 'Add to category' }), 'Chairs');
       await page.waitForTimeout(300);
       expect(await ask.getByText('Add 2 products to Chairs?').isVisible().catch(() => false), `${tag}: Add to category asks "Add 2 products to Chairs?"`);
       expect(!(await closeShowsDelete(page, () => ask.getByRole('button', { name: 'Cancel' }).click())), `${tag}: the closing category dialog never shows the Delete wording (Cancel)`);
       expect(!w.calls.some((c) => c.p === '/products/bulk'), `${tag}: … Cancel sends nothing`);
       // Category Confirm (the stub keeps the selection: it skips nothing, but the page keeps the bar with its result).
-      await bar.getByRole('combobox', { name: 'Add to category' }).selectOption({ label: 'Chairs' });
+      await choose(page, bar.getByRole('combobox', { name: 'Add to category' }), 'Chairs');
       expect(!(await closeShowsDelete(page, () => page.getByRole('alertdialog').getByRole('button', { name: 'Confirm' }).click())), `${tag}: the closing category dialog never shows the Delete wording (Confirm)`);
       expect(w.calls.some((c) => c.p === '/products/bulk' && c.body.action === 'category' && c.body.category_id === 1), `${tag}: … Add to category Confirm sends it`);
       await cards.filter({ hasText: 'Walnut Chair' }).getByRole('checkbox').check();
       await cards.filter({ hasText: 'Harbour Sofa' }).getByRole('checkbox').check();
-      await bar.getByRole('combobox', { name: 'Change status' }).selectOption('archived');
+      await choose(page, bar.getByRole('combobox', { name: 'Change status' }), 'Archived');
       expect(!(await closeShowsDelete(page, () => page.getByRole('alertdialog').getByRole('button', { name: 'Confirm' }).click())), `${tag}: the closing status dialog never shows the Delete wording (Confirm)`);
       const bulk = w.calls.find((c) => c.p === '/products/bulk' && c.body.action === 'status');
       expect(bulk && bulk.body.action === 'status' && bulk.body.status === 'archived' && bulk.body.ids.length === 2, `${tag}: bulk archive sent (${JSON.stringify(bulk?.body)})`);
@@ -431,7 +467,8 @@ try {
       await sbar.getByRole('button', { name: 'Delete' }).click();
       await s2.page.getByRole('alertdialog').getByRole('button', { name: 'Delete' }).click();
       await s2.page.waitForTimeout(800);
-      expect(await sbar.getByText("1 deleted, 1 skipped (they're no longer available to you).").isVisible().catch(() => false), `${tag}: the bulk result shows at the bottom of the bar`);
+      expect(await s2.page.locator('[data-sonner-toast]').getByText("1 deleted, 1 skipped (they're no longer available to you).").isVisible().catch(() => false), `${tag}: the bulk result shows as a toast (Chris 16 Nov: Studio's pattern, no Dismiss box)`);
+      expect(!(await sbar.getByText(/skipped/).count()) && !(await sbar.getByRole('button', { name: 'Dismiss' }).count()), `${tag}: … not as a box in the bar`);
       expect(await sbar.getByText('1 selected').isVisible().catch(() => false) && await sc.filter({ hasText: 'Draft Stool' }).getByRole('checkbox').isChecked(), `${tag}: the skipped product stays selected`);
       expect(await sc.count() === 2, `${tag}: the deleted product left the grid`);
       await s2.page.screenshot({ path: `${OUT}/${tag}-04-skipped.png` });
@@ -463,10 +500,10 @@ try {
         await s3.page.waitForTimeout(800);
       };
       await bulkDelete();
-      expect(await s3.page.getByText(notice3).isVisible().catch(() => false), `${tag}: (setup) the bulk result shows`);
+      expect(await s3.page.locator('[data-sonner-toast]').getByText(notice3).isVisible().catch(() => false), `${tag}: (setup) the bulk result shows as a toast`);
       await s3.page.getByRole('searchbox', { name: 'Search products' }).fill('Sofa');
       await s3.page.waitForTimeout(1000);
-      expect(!(await s3.page.getByText(notice3).filter({ visible: true }).count()), `${tag}: a new search clears the bulk result`);
+      expect(!(await s3.page.getByTestId('product-bulk-bar').count()), `${tag}: a new search clears what the bulk action left selected`);
       await s3.page.getByRole('searchbox', { name: 'Search products' }).fill('');
       await s3.page.waitForTimeout(1000);
       // Again with Draft Stool alone (the API skips it), then a new sort.
@@ -475,10 +512,10 @@ try {
       await s3.page.getByRole('alertdialog').getByRole('button', { name: 'Delete' }).click();
       await s3.page.waitForTimeout(800);
       const notice4 = "0 deleted, 1 skipped (they're no longer available to you).";
-      expect(await s3.page.getByText(notice4).isVisible().catch(() => false), `${tag}: (setup) a second bulk result shows`);
-      await s3.page.getByLabel('Sort').selectOption('title');
+      expect(await s3.page.locator('[data-sonner-toast]').getByText(notice4).isVisible().catch(() => false) && await bar3.getByText('1 selected').isVisible().catch(() => false), `${tag}: (setup) a second bulk result shows; the skipped one stays selected`);
+      await choose(s3.page, s3.page.getByRole('combobox', { name: 'Sort' }), 'Title A–Z');
       await s3.page.waitForTimeout(800);
-      expect(!(await s3.page.getByText(notice4).filter({ visible: true }).count()), `${tag}: … and so does a new sort`);
+      expect(!(await s3.page.getByTestId('product-bulk-bar').count()), `${tag}: … and so does a new sort`);
       await s3.context.close();
 
       // A salesperson's External view: the main account's products, read-only — no checkboxes, no bulk bar, no create.
@@ -593,7 +630,7 @@ try {
       const details = page.getByTestId('product-details');
       await details.waitFor({ timeout: 10000 });
       expect(!(await editor.count()) && await details.getByRole('heading', { name: 'Oak Bench' }).isVisible(), `${tag}: after the first save, the new product's details view shows`);
-      expect(await details.getByText('Saved. Use Edit to add photos.').isVisible(), `${tag}: … saying Saved (at the bottom of the card)`);
+      expect(await details.getByText('Saved.', { exact: true }).isVisible(), `${tag}: … saying Saved (at the bottom of the card)`);
       await details.getByRole('button', { name: 'Edit', exact: true }).click();
       await editor.waitFor({ timeout: 10000 });
       await editor.getByLabel('Title', { exact: true }).waitFor({ timeout: 10000 });
@@ -620,7 +657,7 @@ try {
       expect(await editor.getByLabel('Title', { exact: true }).isDisabled(), `${tag}: … its title can't be changed`);
       expect(!(await editor.getByLabel('Status', { exact: true }).isDisabled()), `${tag}: … its status can`);
       expect(!(await editor.getByRole('button', { name: 'Delete' }).count()), `${tag}: … and it has no Delete`);
-      await editor.getByLabel('Status', { exact: true }).selectOption('archived');
+      await choose(page, editor.getByLabel('Status', { exact: true }), 'Archived');
       await shootEditor(page, `${OUT}/${tag}-02-website.png`);
       await editor.getByRole('button', { name: 'Save' }).last().click();
       await page.waitForTimeout(800);
@@ -656,7 +693,7 @@ try {
 
       // Search + sort set before opening: Back keeps them (and the grid).
       await page.getByRole('searchbox', { name: 'Search products' }).fill('Walnut');
-      await page.getByRole('combobox', { name: 'Sort' }).selectOption('title');
+      await choose(page, page.getByRole('combobox', { name: 'Sort' }), 'Title A–Z');
       await page.waitForTimeout(1000);
       const listsBefore = w.calls.filter((c) => c.m === 'GET' && c.p === '/products').length;
       await cards.filter({ hasText: 'Walnut Chair' }).getByRole('button').first().click();
@@ -683,7 +720,7 @@ try {
       await shootLayer(page, 'product-details', `${OUT}/${tag}-01-manual.png`);
       await details.getByRole('button', { name: 'Products', exact: true }).click();
       await page.waitForTimeout(600);
-      expect(!(await details.count()) && await page.getByRole('searchbox', { name: 'Search products' }).inputValue() === 'Walnut' && await page.getByRole('combobox', { name: 'Sort' }).inputValue() === 'title' && await cards.count() === 1,
+      expect(!(await details.count()) && await page.getByRole('searchbox', { name: 'Search products' }).inputValue() === 'Walnut' && (await page.getByRole('combobox', { name: 'Sort' }).textContent()).trim() === 'Title A–Z' && await cards.count() === 1,
         `${tag}: Back keeps the search, the sort and the list`);
       expect(w.calls.filter((c) => c.m === 'GET' && c.p === '/products').length === listsBefore, `${tag}: … without reloading the list`);
       expect(await cards.filter({ hasText: 'Walnut Chair' }).getByRole('button').first().evaluate((el) => el === document.activeElement), `${tag}: … and focus is back on the card`);
@@ -785,13 +822,13 @@ try {
       await cards.first().waitFor({ timeout: 15000 });
       await cards.filter({ hasText: 'Walnut Chair' }).getByRole('checkbox').check();
       w.slowBulkMs = 2000;
-      await b.page.getByTestId('product-bulk-bar').getByRole('combobox', { name: 'Change status' }).selectOption('draft');
+      await choose(b.page, b.page.getByTestId('product-bulk-bar').getByRole('combobox', { name: 'Change status' }), 'Draft');
       await b.page.getByRole('alertdialog').getByRole('button', { name: 'Confirm' }).click();
       await b.page.waitForTimeout(200);
       await b.page.getByRole('searchbox', { name: 'Search products' }).fill('Sofa');
       await b.page.waitForTimeout(3000);
       expect(w.calls.some((c) => c.p === '/products/bulk'), `${tag}: (setup) the bulk action ran`);
-      expect(!(await b.page.getByText(/1 updated/).filter({ visible: true }).count()), `${tag}: … its result is not shown on the new search`);
+      expect(!(await b.page.getByRole('checkbox', { checked: true }).count()), `${tag}: … its result does not select anything on the new search`);
       expect(!(await b.page.getByTestId('product-bulk-bar').count()), `${tag}: … and nothing is selected there`);
       expect(await cards.count() === 1 && await cards.first().getByText('Harbour Sofa').isVisible(), `${tag}: … and the grid shows the new search's list (${await cards.count()} cards)`);
       await b.page.screenshot({ path: `${OUT}/${tag}-02-stale-bulk.png` });
@@ -802,14 +839,14 @@ try {
       await b.page.waitForTimeout(1200);
       await cards.filter({ hasText: 'Walnut Chair' }).getByRole('checkbox').check();
       const from = w.calls.length;
-      await b.page.getByTestId('product-bulk-bar').getByRole('combobox', { name: 'Change status' }).selectOption('active');
+      await choose(b.page, b.page.getByTestId('product-bulk-bar').getByRole('combobox', { name: 'Change status' }), 'Active');
       await b.page.getByRole('alertdialog').getByRole('button', { name: 'Confirm' }).click();
       await b.page.waitForTimeout(2000);
       const after = w.calls.slice(from);
       const n = (pth) => after.filter((c) => c.m === 'GET' && c.p === pth).length;
       expect(n('/products') === 1 && n('/products/status') === 1 && n('/product-categories') === 1,
         `${tag}: a bulk change → 1 list, 1 status, 1 categories request (${n('/products')}, ${n('/products/status')}, ${n('/product-categories')})`);
-      expect(await b.page.getByText('1 updated.', { exact: true }).filter({ visible: true }).count() > 0, `${tag}: … and its result shows (same list)`);
+      expect(await b.page.locator('[data-sonner-toast]').getByText('1 updated.', { exact: true }).count() > 0, `${tag}: … and its result shows as a toast`);
       await b.context.close();
     }
   }
@@ -932,7 +969,7 @@ try {
       await page.waitForTimeout(1200);
       const id = w.products[0].id;
       const details = page.getByTestId('product-details');
-      expect(w.products[0].title === 'Pine Table' && await details.getByText('Saved. Use Edit to add photos.').isVisible(), `${tag}: created, and its details view says Saved`);
+      expect(w.products[0].title === 'Pine Table' && await details.getByText('Saved.', { exact: true }).isVisible(), `${tag}: created, and its details view says Saved`);
       expect(await details.getByRole('table').getByRole('cell', { name: 'Red', exact: true }).isVisible() && await details.getByRole('cell', { name: 'Blue', exact: true }).isVisible(), `${tag}: … and lists its variants`);
       await details.getByRole('button', { name: 'Edit', exact: true }).click();
       await editor.getByLabel('Title', { exact: true }).waitFor({ timeout: 10000 });
@@ -953,7 +990,7 @@ try {
       await page.waitForTimeout(700);
       const order = w.calls.filter((c) => c.m === 'PUT' && c.p === `/products/${id}/media/order`).pop();
       expect(order && JSON.stringify(order.body.ids) === JSON.stringify([second, first]), `${tag}: reorder sends the new order (${JSON.stringify(order?.body)})`);
-      await editor.getByLabel('Blue photo', { exact: true }).selectOption({ label: 'Photo 2' });
+      await choose(page, editor.getByLabel('Blue photo', { exact: true }), 'Photo 2');
       await editor.getByRole('button', { name: 'Save' }).last().click();
       await page.waitForTimeout(800);
       const vp = w.calls.filter((c) => c.m === 'PATCH').pop();
@@ -1125,6 +1162,195 @@ try {
       await x.page.waitForTimeout(400);
       expect(!(await xe.count()) && !xw.calls.some((c) => ['PATCH', 'POST', 'PUT', 'DELETE'].includes(c.m) && c.p.startsWith('/products')), `${tag}: … closes without asking and nothing was written`);
       await x.context.close();
+    }
+  }
+  if (run('chris16')) {
+    // Chris, 16 Nov: the flows he used, click by click. C5 categories (Campaigns' Category Filter + "+" popover, rename,
+    // delete), C6 category pills after bulk Add to category / status / rename / delete, C8 Import colour, the audit's
+    // toast + empty state, C4 photos on a new product before its first save, C7 currency, C9 placeholders.
+    const PNG_1PX = 'iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAAEUlEQVR4nGPISfiPFTEMLQkAsZxywVYStwwAAAAASUVORK5CYII=';
+    const png = (n) => ({ name: `${n}.png`, mimeType: 'image/png', buffer: Buffer.from(PNG_1PX, 'base64') });
+    for (const [width, height] of [[1280, 900], [390, 844]]) {
+      const tag = `chris16-${width}`;
+      const w = world();
+      const { page, context } = await open(w, { width, height });
+      const cards = page.getByTestId('product-card');
+      await cards.first().waitFor({ timeout: 15000 });
+      const nav = page.getByRole('navigation', { name: 'Product categories' }).filter({ visible: true });
+      const openNav = async () => { if (width < 768 && !(await nav.count())) { await page.getByRole('button', { name: 'Categories', exact: true }).click(); await page.waitForTimeout(400); } };
+      const closeNav = async () => { if (width < 768 && await page.getByRole('dialog').filter({ has: page.getByRole('navigation', { name: 'Product categories' }) }).count()) { await page.keyboard.press('Escape'); await page.waitForTimeout(400); } };
+      const toast = (text) => page.locator('[data-sonner-toast]').getByText(text, { exact: true });
+      const pill = (title) => cards.filter({ hasText: title }).getByTestId('product-card-category');
+
+      // C8: Import from your website in the Website Catalogue connector's teal.
+      const importBg = await page.getByRole('button', { name: 'Import from your website' }).filter({ visible: true }).first().evaluate((el) => getComputedStyle(el).backgroundColor);
+      expect(importBg === 'rgb(15, 118, 110)', `${tag}: C8 Import from your website is the connector's teal (${importBg})`);
+      // C6: a card with a category shows it as a pill.
+      expect((await pill('Walnut Chair').textContent())?.trim() === 'Chairs' && !(await pill('Draft Stool').count()), `${tag}: C6 Walnut Chair shows its Chairs pill; Draft Stool has none`);
+
+      // C5: Campaigns' Category Filter: the heading, the "All Categories" Select and the "+".
+      await openNav();
+      expect(await nav.getByText('Category Filter', { exact: true }).isVisible(), `${tag}: C5 the column says Category Filter`);
+      const filter = nav.getByRole('combobox', { name: 'Category filter' });
+      expect((await filter.textContent()).trim() === 'All Categories', `${tag}: … with the All Categories dropdown`);
+      expect(!(await nav.getByText('New category', { exact: true }).count()), `${tag}: … and no inline "New category" link`);
+      const allRowBg = await nav.getByRole('button', { name: /^All products/ }).evaluate((el) => getComputedStyle(el.parentElement).backgroundColor);
+      expect(allRowBg === 'rgb(229, 231, 235)', `${tag}: the active row is gray, not purple (${allRowBg})`);
+      await nav.getByRole('button', { name: 'New category' }).click();
+      const pop = page.getByRole('dialog').filter({ hasText: 'New Category' });
+      await pop.waitFor({ timeout: 5000 });
+      expect(await pop.getByText('Create a category to organize products').isVisible(), `${tag}: "+" opens Campaigns' New Category popover`);
+      await page.waitForTimeout(400); // the popover's fade-in
+      await page.screenshot({ path: `${OUT}/${tag}-01-new-category.png` });
+      await pop.getByPlaceholder('Category name...').fill('chairs');
+      expect(await pop.getByText('Category already exists').isVisible() && await pop.getByRole('button', { name: 'Create' }).isDisabled(), `${tag}: … a name that exists says so under the field; Create is off`);
+      w.categoryReject = 'That name is not allowed.';
+      await pop.getByPlaceholder('Category name...').fill('Bad');
+      await pop.getByRole('button', { name: 'Create' }).click();
+      await page.waitForTimeout(500);
+      expect(await pop.getByText('That name is not allowed.').isVisible(), `${tag}: … a server error shows under the field, the popover stays`);
+      await pop.getByPlaceholder('Category name...').fill('Intimate');
+      await pop.getByRole('button', { name: 'Create' }).click();
+      await page.waitForTimeout(800);
+      expect(w.calls.some((c) => c.p === '/product-categories' && c.m === 'POST' && c.body.name === 'Intimate'), `${tag}: Create sends the name`);
+      expect(await toast('Category "Intimate" created').count() > 0, `${tag}: … a toast says it was created`);
+      await openNav();
+      expect(await nav.getByRole('button', { name: /^Intimate/ }).isVisible(), `${tag}: … and Intimate is in the column`);
+      await page.screenshot({ path: `${OUT}/${tag}-02-created.png` });
+      await closeNav();
+
+      // C6, as Chris did it: select 2 → Add to category → Intimate → the cards show it.
+      await cards.filter({ hasText: 'Walnut Chair' }).getByRole('checkbox').check();
+      await cards.filter({ hasText: 'Draft Stool' }).getByRole('checkbox').check();
+      const bar = page.getByTestId('product-bulk-bar');
+      await choose(page, bar.getByRole('combobox', { name: 'Add to category' }), 'Intimate');
+      await page.getByRole('alertdialog').getByRole('button', { name: 'Confirm' }).click();
+      await page.waitForTimeout(1200);
+      expect(await toast('2 updated.').count() > 0 && !(await bar.count()), `${tag}: bulk Add to category → toast "2 updated.", bar goes`);
+      expect((await pill('Draft Stool').textContent())?.trim() === 'Intimate', `${tag}: C6 Draft Stool's card now shows Intimate`);
+      expect(/Chairs\s*\+1/.test((await pill('Walnut Chair').textContent()) || ''), `${tag}: … Walnut Chair shows Chairs +1 (${await pill('Walnut Chair').textContent()})`);
+      await page.screenshot({ path: `${OUT}/${tag}-03-bulk-category.png`, fullPage: true });
+      // Bulk Change status updates the badge straight away.
+      await cards.filter({ hasText: 'Walnut Chair' }).getByRole('checkbox').check();
+      await choose(page, bar.getByRole('combobox', { name: 'Change status' }), 'Draft');
+      await page.getByRole('alertdialog').getByRole('button', { name: 'Confirm' }).click();
+      await page.waitForTimeout(1200);
+      expect(await cards.filter({ hasText: 'Walnut Chair' }).getByText('Draft', { exact: true }).isVisible(), `${tag}: bulk Change status → the badge says Draft straight away`);
+
+      // Rename through the pencil → Edit Category popover; the cards follow.
+      await openNav();
+      await nav.getByRole('button', { name: 'Rename Intimate' }).click();
+      const edit = page.getByRole('dialog').filter({ hasText: 'Edit Category' });
+      await edit.waitFor({ timeout: 5000 });
+      expect(await edit.getByPlaceholder('Category name...').inputValue() === 'Intimate', `${tag}: the pencil opens Edit Category with the name`);
+      await edit.getByPlaceholder('Category name...').fill('Lingerie');
+      await edit.getByRole('button', { name: 'Edit' }).click();
+      await page.waitForTimeout(1000);
+      expect(w.calls.some((c) => c.m === 'PATCH' && /^\/product-categories\/\d+$/.test(c.p) && c.body.name === 'Lingerie'), `${tag}: … Edit sends the new name`);
+      await closeNav();
+      expect((await pill('Draft Stool').textContent())?.trim() === 'Lingerie', `${tag}: … and the card shows the new name (no stale list)`);
+
+      // Filter through the Category Filter Select.
+      await openNav();
+      await choose(page, nav.getByRole('combobox', { name: 'Category filter' }), 'Chairs');
+      await page.waitForTimeout(800);
+      await closeNav();
+      expect(await cards.count() === 1 && w.calls.some((c) => c.p === '/products' && c.q.includes('category_id=1')), `${tag}: the Category Filter dropdown filters the grid`);
+      await openNav();
+      const chairsBg = await nav.getByRole('button', { name: /^Chairs/ }).evaluate((el) => getComputedStyle(el.parentElement).backgroundColor);
+      expect(chairsBg === 'rgb(229, 231, 235)', `${tag}: … its row is the active (gray) one (${chairsBg})`);
+      await choose(page, nav.getByRole('combobox', { name: 'Category filter' }), 'All Categories');
+      await page.waitForTimeout(800);
+
+      // Delete → Campaigns' Delete Category dialog → the pill goes.
+      await openNav();
+      await nav.getByRole('button', { name: 'Delete Lingerie' }).click();
+      const del = page.getByRole('alertdialog');
+      expect(await del.getByRole('heading', { name: 'Delete Category' }).isVisible() && await del.getByText(/Its products stay/).isVisible(), `${tag}: Delete asks in Campaigns' Delete Category dialog`);
+      await page.waitForTimeout(400); // the dialog's zoom-in
+      await page.screenshot({ path: `${OUT}/${tag}-04-delete.png` });
+      await del.getByRole('button', { name: 'Delete' }).click();
+      await page.waitForTimeout(1000);
+      expect(w.calls.some((c) => c.m === 'DELETE' && /^\/product-categories\/\d+$/.test(c.p)) && await toast('Category "Lingerie" deleted').count() > 0, `${tag}: … deleted, with a toast`);
+      await closeNav();
+      expect(!(await pill('Draft Stool').count()) && (await pill('Walnut Chair').textContent())?.trim() === 'Chairs', `${tag}: … and the cards drop it (no stale list)`);
+      expect(!(await nav.getByRole('button', { name: 'Delete Sofas' }).count()), `${tag}: a website category still can't be deleted`);
+
+      // Audit: filtered empty state = Campaigns' AllMemoriesEmptyState.
+      await page.getByRole('searchbox', { name: 'Search products' }).fill('zzz');
+      await page.waitForTimeout(1000);
+      expect(await page.getByRole('heading', { name: 'No products found' }).isVisible() && await page.getByRole('button', { name: 'Clear all filters' }).isVisible(), `${tag}: no match → Campaigns' "No … found" empty state`);
+      await page.screenshot({ path: `${OUT}/${tag}-05-empty-filtered.png` });
+      await page.getByRole('button', { name: 'Clear all filters' }).click();
+      await page.waitForTimeout(1000);
+      expect(await cards.count() === 3, `${tag}: … Clear all filters brings the list back`);
+
+      // C4 + C7 + C9: a new product, photos picked before the first save.
+      await page.getByRole('button', { name: 'Add a product' }).filter({ visible: true }).first().click();
+      const editor = page.getByTestId('product-editor');
+      await editor.waitFor({ timeout: 10000 });
+      expect(!(await editor.getByText('Save the product to add photos and a video.').count()) && await editor.getByRole('button', { name: 'Add photos or a video' }).isVisible(), `${tag}: C4 a new product's Media card has Add photos or a video`);
+      const currency = editor.getByLabel('Currency', { exact: true });
+      expect((await currency.textContent()).includes('USD – US dollar') && await currency.getAttribute('role') === 'combobox', `${tag}: C7 Currency is a dropdown, USD by default`);
+      for (const [label, ph] of [['Price', 'e.g. 49.99'], ['Compare-at price', 'e.g. 59.99'], ['SKU', 'e.g. WAL-CHAIR-01'], ['Barcode / UPC', 'e.g. 012345678905'], ['Quantity (optional)', 'e.g. 25'], ['Brand', 'e.g. Mill & Co'], ['Page title', 'e.g. Walnut Dining Chair | Mill & Co'], ['Share image', 'e.g. https://example.com/chair.jpg']]) {
+        expect(await editor.getByLabel(label, { exact: true }).getAttribute('placeholder') === ph, `${tag}: C9 ${label} placeholder "${ph}"`);
+      }
+      const fileInput = editor.getByLabel('Choose photos or a video');
+      await fileInput.setInputFiles([png('red'), png('green'), png('blue')]);
+      await page.waitForTimeout(300);
+      const tiles = editor.locator('li[data-pending]');
+      expect(await tiles.count() === 3 && await tiles.first().getByText('Main').isVisible(), `${tag}: three previews before saving, the first is Main`);
+      expect(!w.uploads?.length, `${tag}: … nothing uploaded yet`);
+      await editor.getByRole('button', { name: 'Move Photo 2 earlier' }).click({ force: true });
+      await editor.getByRole('button', { name: 'Remove Photo 3' }).click({ force: true });
+      expect(await tiles.count() === 2, `${tag}: reorder + remove work before saving (no confirm needed: nothing is uploaded)`);
+      await fileInput.setInputFiles([{ name: 'notes.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF') }]);
+      await page.waitForTimeout(300);
+      expect(await editor.getByText('notes.pdf: Use a JPG, PNG, GIF or WebP photo, or an MP4, MOV or WebM video.').isVisible(), `${tag}: a refused file is listed at the bottom of the Media card`);
+      await editor.getByLabel('Title', { exact: true }).fill('Linen Cushion');
+      await choose(page, currency, 'EUR – Euro');
+      await shootEditor(page, `${OUT}/${tag}-06-new-with-photos.png`);
+      // Leaving with picks asks first.
+      await editor.getByRole('button', { name: 'Close' }).click();
+      expect(await page.getByRole('alertdialog').getByText('Leave without saving?').isVisible(), `${tag}: leaving with picked photos asks first`);
+      await page.getByRole('alertdialog').getByRole('button', { name: 'Keep editing' }).click();
+      await page.waitForTimeout(300);
+      const before = w.calls.length;
+      await editor.getByRole('button', { name: 'Save' }).last().click();
+      const details = page.getByTestId('product-details');
+      await details.waitFor({ timeout: 15000 });
+      const made = w.calls.slice(before);
+      const posts = made.filter((c) => c.m === 'POST' && c.p === '/products');
+      const ups = made.filter((c) => c.m === 'POST' && /^\/products\/\d+\/media$/.test(c.p));
+      expect(posts.length === 1 && posts[0].body.currency === 'EUR', `${tag}: one POST /products, currency EUR (${posts.length})`);
+      expect(ups.length === 2 && w.uploads.map((u) => u.name).join(',') === 'green.png,red.png', `${tag}: then the 2 photos upload in their order (${w.uploads.map((u) => u.name)})`);
+      expect(await details.getByRole('heading', { name: 'Linen Cushion' }).isVisible() && await details.getByRole('button', { name: /^Show photo/ }).count() === 2 && await details.getByText('Saved.', { exact: true }).isVisible(), `${tag}: … the details view shows the product with its 2 photos`);
+      await shootLayer(page, 'product-details', `${OUT}/${tag}-07-created-details.png`);
+      await details.getByRole('button', { name: 'Products', exact: true }).click();
+      await page.waitForTimeout(600);
+      expect(await cards.filter({ hasText: 'Linen Cushion' }).count() === 1, `${tag}: … and its card is in the grid`);
+
+      // A failed upload keeps the product and the other photos; the editor stays on the saved product.
+      w.uploads = [];
+      w.mediaRejectName = 'big.png';
+      await page.getByRole('button', { name: 'Add a product' }).filter({ visible: true }).first().click();
+      await editor.waitFor({ timeout: 10000 });
+      await editor.getByLabel('Title', { exact: true }).fill('Wool Throw');
+      await editor.getByLabel('Choose photos or a video').setInputFiles([png('big'), png('small')]);
+      await page.waitForTimeout(300);
+      const before2 = w.calls.length;
+      await editor.getByRole('button', { name: 'Save' }).last().click();
+      await page.waitForTimeout(1500);
+      expect(await editor.isVisible() && await editor.getByText('big.png: The photo is too large.').isVisible(), `${tag}: a failed upload is listed at the bottom of the Media card`);
+      expect(await editor.getByText('The product is saved, but one file could not be uploaded.').isVisible(), `${tag}: … the card's bottom says the product is saved`);
+      expect(w.products.some((x) => x.title === 'Wool Throw') && w.uploads.map((u) => u.name).join(',') === 'big.png,small.png' && await editor.locator('ul img').count() === 1, `${tag}: … the product exists and small.png still uploaded`);
+      await shootEditor(page, `${OUT}/${tag}-08-upload-failed.png`);
+      await editor.getByRole('button', { name: 'Save' }).last().click();
+      await details.waitFor({ timeout: 15000 });
+      const after2 = w.calls.slice(before2);
+      expect(after2.filter((c) => c.m === 'POST' && c.p === '/products').length === 1 && after2.some((c) => c.m === 'PATCH'), `${tag}: … Save again PATCHes it (still one POST) and opens its details`);
+      w.mediaRejectName = null;
+      await context.close();
     }
   }
   if (run('campaigns')) {
