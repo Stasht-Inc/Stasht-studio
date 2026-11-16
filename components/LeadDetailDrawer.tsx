@@ -9,6 +9,7 @@ import { useDialogBehavior } from '../hooks/useDialogBehavior';
 import { toast } from 'sonner';
 import { smsSegmentInfo, SMS_MAX_BODY } from '../utils/smsSegments';
 import ShareCarsDialog, { type PickKind } from './ShareCarsDialog';
+import { CAMPAIGN_PILL, ProductsPickButton, useHasProducts } from './leads/CampaignPickButtons';
 import { fallbackDraft, itemCount, removeDraft, replaceDraft, type PickedCampaign } from '../utils/composerCampaign';
 import AssigneeControl from './leads/AssigneeControl';
 import LinkifiedText from './leads/LinkifiedText';
@@ -240,6 +241,9 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
   const [showViaDropdown, setShowViaDropdown] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [showShareCars, setShowShareCars] = useState(false);
+  // "+ Products" opens the picker on its Products tab (Chris, 16 Nov); "+ Campaign" as before (undefined).
+  const [pickerKind, setPickerKind] = useState<PickKind | undefined>(undefined);
+  const hasProducts = useHasProducts(open);
   // "+ Campaign" picked into the message box (Chris 14 Nov 2026): created and sent only with Send.
   const [pickedCampaign, setPickedCampaign] = useState<PickedCampaign | null>(null);
   const [attachments, setAttachments] = useState<File[]>([]);
@@ -1529,7 +1533,7 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
               <div className="flex items-center gap-1 mb-2 max-w-full">
                 <button
                   type="button"
-                  onClick={() => setShowShareCars(true)}
+                  onClick={() => { setPickerKind(undefined); setShowShareCars(true); }}
                   title="Change items"
                   className="inline-flex items-center gap-1.5 min-w-0 h-8 pl-2.5 pr-2 rounded-lg bg-[#F3F4F6] hover:bg-[#E5E7EB] text-sm text-[#202224] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400"
                 >
@@ -1624,13 +1628,15 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
                 <Paperclip className="w-5 h-5" />
               </button>
 
-              {/* "＋ Campaign" pill (Chris's design) — opens the car picker directly, no
-                  intermediate menu. Same action the mobile app's "+" reaches on SMS threads. */}
+              {/* "＋ Products" (Chris, 16 Nov: left of Campaign, green) and the "＋ Campaign" pill (Chris's design,
+                  light purple) — each opens the picker directly, no intermediate menu. Same action the mobile app's
+                  "+" reaches on SMS threads. */}
+              {hasProducts && <ProductsPickButton onClick={() => { setPickerKind('product'); setShowShareCars(true); }} />}
               <button
-                onClick={() => setShowShareCars(true)}
+                onClick={() => { setPickerKind(undefined); setShowShareCars(true); }}
                 title="Add a campaign to your message"
                 aria-label="Add a campaign to your message"
-                className="flex items-center gap-1.5 h-10 px-4 rounded-lg bg-white border border-gray-200 hover:bg-[#F3F4F6] text-[#202224] text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400"
+                className={CAMPAIGN_PILL}
               >
                 <Plus className="w-4 h-4" aria-hidden="true" />
                 Campaign
@@ -1776,9 +1782,10 @@ export default function LeadDetailDrawer({ lead, open, onClose, onRefreshLead, i
           open={showShareCars}
           onClose={() => setShowShareCars(false)}
           leadName={leadName}
-          initialSelection={pickedCampaign?.ids}
-          initialCampaignName={pickedCampaign?.name}
-          initialKind={pickedCampaign?.kind}
+          // "+ Products" over a vehicle pick starts a fresh product pick (the vehicles stay until Add replaces them).
+          initialSelection={pickerKind && pickedCampaign && pickedCampaign.kind !== pickerKind ? undefined : pickedCampaign?.ids}
+          initialCampaignName={pickerKind && pickedCampaign && pickedCampaign.kind !== pickerKind ? undefined : pickedCampaign?.name}
+          initialKind={pickerKind ?? pickedCampaign?.kind}
           onPick={handleCampaignPick}
         />
     </div>
