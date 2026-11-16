@@ -41,6 +41,8 @@ export function pickPayload({ pick, selectedIds, extraCatalog, extraCars, extraC
   const out: Record<string, Array<string | number>> = {};
   const catalog = pick === 'catalog' ? [...selectedIds, ...extraCatalog] : [...extraCatalog];
   if (pick === 'shopify' && selectedIds.length) out.shopify_collection_ids = [...selectedIds];
+  // The Shopify category's products (ticket wdy2xh1320): moments with "View on website", like catalogue products.
+  if (pick === 'shopify_products' && selectedIds.length) out.shopify_product_ids = ints(selectedIds);
   const linked = ints([...(pick === 'campaigns' ? selectedIds : []), ...extraCampaigns]);
   if (linked.length) out.linked_memory_ids = linked;
   const cars = unique([...(pick === 'cars' ? selectedIds : []), ...extraCars].map(String));

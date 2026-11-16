@@ -169,3 +169,10 @@ test('Task 16 (T15 minor): a failed products status or a partial products list i
   assert.equal(inventoryCacheable({ ...full, productsStatusOk: true, productsComplete: false }), false, 'a later products page failed');
   assert.equal(inventoryCacheable(full), true, 'callers without Products are unchanged');
 });
+
+test('Shopify category (wdy2xh1320): picked Shopify products go as shopify_product_ids, catalogue extras beside them', () => {
+  assert.deepEqual(pickPayload({ pick: 'shopify_products', selectedIds: ['7', '7', '8'], extraCatalog: ['7'], extraCars: [] }),
+    { shopify_product_ids: [7, 8], catalog_item_ids: [7] });
+  // The old collections pick is unchanged.
+  assert.deepEqual(pickPayload({ pick: 'shopify', selectedIds: ['c1'], extraCatalog: [], extraCars: [] }), { shopify_collection_ids: ['c1'] });
+});
