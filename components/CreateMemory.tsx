@@ -12,6 +12,7 @@ import * as Popover from '@radix-ui/react-popover';
 import { clearApiCache, dashboardAPI, getApiBaseUrl } from '../utils/authUtils';
 import { dayOf, isoToApiDay, localDateISO } from '../utils/localDate';
 import { loadCatalogueForBrowsing } from '../services/catalogueAPI';
+import { loadShopifyForBrowsing } from '../services/shopifyItemsAPI';
 import exifr from 'exifr';
 import { getCategoryColor } from '../constants/mediaConstants';
 import { SHOPIFY_COLOR } from '../utils/categoryColorManager';
@@ -41,7 +42,7 @@ import type { MomentInventory } from './storeel/InventoryMomentPicker';
 import { campaignMomentsAPI, type MomentPlace } from '../services/campaignMomentsAPI';
 import { actionLines } from './storeel/lib/actionLines';
 import { storeelBrandImage } from './storeel/storeelPreview';
-import { createPreviewMoments, type PickKind, type PickerItem, type PreviewMoment } from './storeel/lib/previewMoments';
+import { createPreviewMoments, SHOPIFY_PRODUCT_KEY, type PickKind, type PickerItem, type PreviewMoment } from './storeel/lib/previewMoments';
 import { coverChoiceReducer, coverChoicePayload, coverPhotoFileError, EMPTY_COVER_CHOICE, COVER_PHOTO_ACCEPT, type CoverChoice, type CoverChoiceAction } from '../utils/coverChoice';
 import { BUTTON_OUTLINE, BUTTON_PRIMARY, BUTTON_SECONDARY, LINK_BUTTON } from './newsletters/lib/ui';
 import StepCard from './newsletters/StepCard';
@@ -401,7 +402,14 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
   const { isStarter: isStarterPlan } = useIsStarterPlan();
   const [shopifyCollections, setShopifyCollections] = useState<any[]>([]);
   const [shopifyCollectionsLoading, setShopifyCollectionsLoading] = useState(false);
-  const wasShopifyCategoryRef = useRef(false);
+  // Which Shopify picker the category was showing last render: 'products' or 'collections' (see shopifyMode).
+  const wasShopifyCategoryRef = useRef<'products' | 'collections' | null>(null);
+  // Shopify products (ticket wdy2xh1320): the Shopify category works like the Website Catalogue below — offered while
+  // the account can browse its store's products (connected + paid plan) and has some; picking it turns the picker into
+  // those products (up to 50, nothing pre-selected), sent as shopify_product_ids. The collections above stay for the
+  // "All Categories" list of existing campaigns.
+  const [shopifyAvailable, setShopifyAvailable] = useState(false);
+  const [shopifyForPicker, setShopifyForPicker] = useState<any[]>([]);
   // Cars: when the read-only /cars catalog has listings, we offer a synthetic
   // "Cars" category (same idea as Shopify) so a new campaign can be tagged under it.
   const [carsAvailable, setCarsAvailable] = useState(false);
@@ -644,7 +652,11 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
   // (The backend resolves it; it is not a real category row.) Match on backend.
   const SHOPIFY_CATEGORY_NAME = 'Shopify';
   const SHOPIFY_CATEGORY_ID = 'shopify';
-  const isShopifyCategory = formData.category === SHOPIFY_CATEGORY_NAME;
+  // Products when the store's products can be browsed (ticket wdy2xh1320); otherwise the Shopify category keeps its
+  // collections picker exactly as before (connected but no products with a photo yet, or an API without the products).
+  const shopifyMode: 'products' | 'collections' | null = formData.category === SHOPIFY_CATEGORY_NAME ? (shopifyAvailable ? 'products' : 'collections') : null;
+  const isShopifyCategory = shopifyMode === 'products';
+  const isShopifyCollectionCategory = shopifyMode === 'collections';
   // Sentinel id sent to the backend as category_id when the user picks Cars.
   // (Mirrors the Shopify sentinel above — not a real category row.)
   const CARS_CATEGORY_NAME = 'Cars';
@@ -656,6 +668,8 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
   const CATALOG_CATEGORY_ID = 'website_catalogue';
   const CATALOG_MAX_ITEMS = 50;
   const isCatalogCategory = catalogAvailable && formData.category === CATALOG_CATEGORY_NAME;
+  // Both build the campaign from picked products, so they share the picker's wording, cap and notices.
+  const isProductPickerCategory = isCatalogCategory || isShopifyCategory;
   // The synthetic Shopify/Cars entries are appended only while available, so they
   // appear in the dropdown and are findable at submit for their category_id.
   const categoriesForDropdown = [
@@ -665,7 +679,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
     ...(catalogAvailable
       ? apiCategories.filter((c: any) => (c.name || '').trim().toLowerCase() !== CATALOG_CATEGORY_NAME.toLowerCase())
       : apiCategories),
-    ...(shopifyConnected ? [{ id: SHOPIFY_CATEGORY_ID, name: SHOPIFY_CATEGORY_NAME, __isShopify: true }] : []),
+    ...(shopifyAvailable || shopifyConnected ? [{ id: SHOPIFY_CATEGORY_ID, name: SHOPIFY_CATEGORY_NAME, __isShopify: true }] : []),
     ...(carsAvailable ? [{ id: CARS_CATEGORY_ID, name: CARS_CATEGORY_NAME }] : []),
     ...(catalogAvailable ? [{ id: CATALOG_CATEGORY_ID, name: CATALOG_CATEGORY_NAME }] : []),
   ];
@@ -685,6 +699,8 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
     : isCatalogCategory
     ? catalogForPicker
     : isShopifyCategory
+    ? shopifyForPicker
+    : isShopifyCollectionCategory
     ? shopifyCollections
     : (isCarsCategory || memoryCategoryFilter === CARS_CATEGORY_NAME)
     ? carsForPicker
@@ -708,7 +724,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
       setCatalogNotice('');
       return;
     }
-    if (isCatalogCategory && selectedMemoryIds.length >= CATALOG_MAX_ITEMS) {
+    if (isProductPickerCategory && selectedMemoryIds.length >= CATALOG_MAX_ITEMS) {
       setCatalogNotice(catalogCapMessage);
       return;
     }
@@ -716,7 +732,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
     setCatalogNotice('');
   };
   const selectAllIds = (ids: string[]) => {
-    if (isCatalogCategory && ids.length > CATALOG_MAX_ITEMS) {
+    if (isProductPickerCategory && ids.length > CATALOG_MAX_ITEMS) {
       setSelectedMemoryIds(ids.slice(0, CATALOG_MAX_ITEMS));
       setCatalogNotice(`${catalogCapMessage} The first ${CATALOG_MAX_ITEMS} are selected.`);
       return;
@@ -738,6 +754,30 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
     })();
     return () => { cancelled = true; };
   }, [open, isStarterPlan]);
+
+  // Detect whether the account can browse its Shopify products and has some, to gate the Shopify option (ticket
+  // wdy2xh1320). loadShopifyForBrowsing asks GET /integrations/shopify/status first (`available` = connected and on a
+  // paid plan), so a free plan never calls the paid-only items route.
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    loadShopifyForBrowsing().then((list) => {
+      if (cancelled) return;
+      setShopifyForPicker(list.map((item) => ({
+        id: item.id,
+        title: item.title || 'Untitled product',
+        location: [item.price_label, item.category].filter(Boolean).join(' · ') || SHOPIFY_CATEGORY_NAME,
+        category: { name: SHOPIFY_CATEGORY_NAME },
+        last_update_img: item.main_image || '',
+        posts_count: item.images_count || 0,
+        // The live preview's product moment: its price and its "View on website" button.
+        price_label: item.price_label || '',
+        url: item.url || null,
+      })));
+      setShopifyAvailable(list.length > 0);
+    });
+    return () => { cancelled = true; };
+  }, [open]);
 
   // Detect whether the Cars catalog has any listings, to gate the Cars option.
   useEffect(() => {
@@ -828,20 +868,32 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
     setShopifyCollectionsLoading(false);
   };
 
-  // React to the Shopify category being chosen / deselected.
+  // React to the Shopify category being chosen / left — same as the Website Catalogue below (ticket wdy2xh1320):
+  // entering starts a clean selection and opens the picker on the store's products.
+  // Without browsable products the category keeps its collections picker, as before (all pre-selected).
   useEffect(() => {
     if (!open) return;
-    if (isShopifyCategory) {
+    const was = wasShopifyCategoryRef.current;
+    if (shopifyMode === 'products') {
+      if (was !== 'products') {
+        setSelectedMemoryIds([]);
+        setMemoryCategoryFilter('All Categories');
+        setMemorySearch('');
+        setCatalogNotice('');
+      }
+      setSelectFromExisting(true);
+    } else if (shopifyMode === 'collections') {
       setSelectFromExisting(true);
       if (shopifyCollections.length === 0) loadShopifyCollections();
       else setSelectedMemoryIds(shopifyCollections.map((c: any) => String(c.id)));
-    } else if (wasShopifyCategoryRef.current) {
-      // Leaving Shopify: the selection held collection ids, not memory ids — drop it.
+    } else if (was) {
+      // Leaving Shopify: the selection held Shopify product / collection ids, not memory ids — drop it.
       setSelectedMemoryIds([]);
       setSelectFromExisting(false);
+      setCatalogNotice('');
     }
-    wasShopifyCategoryRef.current = isShopifyCategory;
-  }, [isShopifyCategory, open]);
+    wasShopifyCategoryRef.current = shopifyMode;
+  }, [shopifyMode, open]);
 
   // Pull the /cars catalog. Normalised into the same shape the existing-campaigns picker
   // already renders (id/title/count/thumb). Pre-ticks all listings only when explicitly
@@ -880,9 +932,10 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
       setSelectFromExisting(true);
       if (carsForPicker.length === 0) loadCarsForPicker(false);
     } else if (wasCarsCategoryRef.current) {
-      // Leaving Cars: the selection held car ids, not memory ids — drop it.
+      // Leaving Cars: the selection held car ids, not memory ids — drop it. Keep the picker open when switching
+      // straight into Shopify (whose effect runs before this one).
       setSelectedMemoryIds([]);
-      setSelectFromExisting(false);
+      if (!shopifyMode) setSelectFromExisting(false);
     }
     wasCarsCategoryRef.current = isCarsCategory;
   }, [isCarsCategory, open]);
@@ -901,7 +954,8 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
       setSelectFromExisting(true);
     } else if (wasCatalogCategoryRef.current) {
       setSelectedMemoryIds([]);
-      setSelectFromExisting(false);
+      // Keep the picker open when switching straight into Shopify / Cars (their effects run first).
+      if (!shopifyMode && !isCarsCategory) setSelectFromExisting(false);
       setCatalogNotice('');
     }
     wasCatalogCategoryRef.current = isCatalogCategory;
@@ -1085,7 +1139,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
   // the search / category, or not in the list, is never unlinked by them. Create: as always (all of them / none).
   const pickerSelectAll = (ids: string[]) => { if (flowEditing) setLinkEdits((d) => selectVisible(savedLinks, d, ids)); else selectAllIds(ids); };
   const pickerClear = (visible: string[]) => { if (flowEditing) setLinkEdits((d) => deselectVisible(savedLinks, d, visible)); else { setSelectedMemoryIds([]); setCatalogNotice(''); } };
-  const pickerCatalog = isCatalogCategory && !flowEditing;
+  const pickerCatalog = isProductPickerCategory && !flowEditing;
   // Every opening starts from the saved links; an Edit whose campaign links campaigns opens the list (ticked).
   const linksShownForRef = useRef<number | null>(null);
   useEffect(() => {
@@ -1482,7 +1536,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
     setMemoryCategoryFilter('All Categories');
     setSelectedMemoryIds([]);
     setShopifyCollections([]);
-    wasShopifyCategoryRef.current = false;
+    wasShopifyCategoryRef.current = null;
     setCarsForPicker([]);
     wasCarsCategoryRef.current = false;
     setCatalogNotice('');
@@ -2129,8 +2183,9 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
   // (mainPhotosArray). Once saved — Edit, or just created — the campaign's own moments (PUT can't add any, and a later
   // category change in step 1 must not take the made moments off the preview).
   const todayDate = localDateISO();
-  const previewPick: PickKind = isCatalogCategory ? 'catalog' : isShopifyCategory ? 'shopify' : isCarsCategory ? 'cars' : selectedMemoryIds.length ? 'campaigns' : null;
+  const previewPick: PickKind = isCatalogCategory ? 'catalog' : isShopifyCategory ? 'shopify_products' : isShopifyCollectionCategory ? 'shopify' : isCarsCategory ? 'cars' : selectedMemoryIds.length ? 'campaigns' : null;
   const previewPicked: PickerItem[] = previewPick === 'catalog' ? catalogForPicker
+    : previewPick === 'shopify_products' ? shopifyForPicker
     : previewPick === 'shopify' ? shopifyCollections
     : previewPick === 'cars' ? carsForPicker
     : previewPick === 'campaigns' ? [...existingMemories, ...carsForPicker.map((c: any) => ({ ...c, kind: 'cars' as const })), ...shopifyCollections.map((c: any) => ({ ...c, kind: 'shopify' as const }))]
@@ -2212,8 +2267,8 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
       return;
     }
 
-    // A Website Catalogue campaign is built from the picked items, so it needs at least one.
-    if (isCatalogCategory && selectedMemoryIds.length === 0) {
+    // A Website Catalogue / Shopify campaign is built from the picked products, so it needs at least one.
+    if (isProductPickerCategory && selectedMemoryIds.length === 0) {
       setSelectFromExisting(true);
       setCatalogNotice('Pick at least one product.');
       showActionError('Pick at least one product.', 'st-pick-items');
@@ -2307,11 +2362,11 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
         memoryData.published = publishType;
       }
 
-      // Selected items: Website Catalogue item ids / Shopify collection ids / Cars listing ids go
+      // Selected items: Website Catalogue item ids / Shopify product ids / Cars listing ids go
       // to their own field (they are not real memory rows); normal campaigns stay on linked_memory_ids. The products /
       // vehicles added with Add a Moment go beside them (Chris, 7 Nov 2026; lib/momentPicks pickPayload).
       Object.assign(memoryData, pickPayload({
-        pick: isCatalogCategory ? 'catalog' : isShopifyCategory ? 'shopify' : isCarsCategory ? 'cars' : selectedMemoryIds.length ? 'campaigns' : null,
+        pick: isCatalogCategory ? 'catalog' : isShopifyCategory ? 'shopify_products' : isShopifyCollectionCategory ? 'shopify' : isCarsCategory ? 'cars' : selectedMemoryIds.length ? 'campaigns' : null,
         selectedIds: selectedMemoryIds,
         extraCatalog: extraCatalog.map((p) => String(p.id)),
         extraCars: extraCars.map((c) => String(c.id)),
@@ -2356,7 +2411,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
           setFlowCampaign({
             ...created,
             title: memoryData.title, category: formData.category, categoryId: selectedCategoryData.id ?? null,
-            categoryKind: isShopifyCategory ? 'shopify' : isCarsCategory ? 'car' : 'regular', label: formData.label,
+            categoryKind: shopifyMode ? 'shopify' : isCarsCategory ? 'car' : 'regular', label: formData.label,
             date: formData.date, endDate: showEndDate ? formData.endDate : '', location: formData.location || '', tags: [...formData.tags], cover,
             published: Number(memoryData.published) || 0, isCar: isCarsCategory,
             // The moments the preview showed are the ones just made (the API answers only the campaign's id).
@@ -2602,7 +2657,8 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
   /** Add a Moment's products / vehicles. */
   const momentInventory: MomentInventory = {
     alreadyAdded: {
-      products: previewMoments.filter((m) => m.kind === 'product').map((m) => (m as { sourceId: string }).sourceId),
+      // Not the Shopify products' moments: their ids are another id space (they would mark catalogue products as added).
+      products: previewMoments.filter((m) => m.kind === 'product' && !m.key.startsWith(SHOPIFY_PRODUCT_KEY)).map((m) => (m as { sourceId: string }).sourceId),
       vehicles: previewMoments.filter((m) => m.kind === 'vehicle').map((m) => (m as { sourceId: string }).sourceId),
       campaigns: previewMoments.filter((m) => m.kind === 'campaign' && !m.key.startsWith('shopify-')).map((m) => (m as { sourceId: string }).sourceId),
     },
@@ -2724,7 +2780,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
     if (flowCampaignRef.current) { setDeleteAsk(m); return; }
     focusAfter(m.key);
     if (m.kind === 'photo' && m.index !== undefined) { handleRemoveMediaFile(m.index); return; }
-    if (m.kind === 'product' && extraCatalog.some((p) => String(p.id) === m.sourceId) && !isCatalogCategory) {
+    if (m.kind === 'product' && !m.key.startsWith(SHOPIFY_PRODUCT_KEY) && extraCatalog.some((p) => String(p.id) === m.sourceId) && !isCatalogCategory) {
       setExtraCatalog((prev) => prev.filter((p) => String(p.id) !== m.sourceId));
       return;
     }
@@ -3079,7 +3135,7 @@ const CreateMemory = forwardRef<CreateMemoryHandle, CreateMemoryProps>(function 
                   }}
                   className="w-5 h-5 md:w-4 md:h-4 bg-gray-100 border-gray-300 rounded focus:ring-2 focus:ring-[#6C60FF] accent-[#6C60FF]"
                 />
-                <span className="text-base md:text-sm font-medium text-gray-700">{pickerCatalog ? 'Pick from your products' : 'Select from Existing Campaigns'}</span>
+                <span className="text-base md:text-sm font-medium text-gray-700">{pickerCatalog ? (isShopifyCategory ? 'Pick from your Shopify products' : 'Pick from your products') : 'Select from Existing Campaigns'}</span>
               </label>
 
               {selectFromExisting && (

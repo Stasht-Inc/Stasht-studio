@@ -18,8 +18,14 @@ export type PreviewMoment =
   | { kind: 'vehicle'; key: string; sourceId: string; image: string | null; title: string; price: string; tags: string[] }
   | { kind: 'campaign'; key: string; sourceId: string; image: string | null; title: string; meta: string };
 
-/** What the Create form's "Select from Existing Campaigns" box is picking from. */
-export type PickKind = 'catalog' | 'cars' | 'shopify' | 'campaigns' | null;
+/** What the Create form's "Select from Existing Campaigns" box is picking from. 'shopify' = Shopify collections (linked
+ *  from "All Categories"); 'shopify_products' = the Shopify category's products (ticket wdy2xh1320), made into product
+ *  moments like the Website Catalogue's. */
+export type PickKind = 'catalog' | 'cars' | 'shopify' | 'shopify_products' | 'campaigns' | null;
+
+/** Key prefix of a Shopify product's moment. Not `shopify-` (a collection's), and never equal to a catalogue product's
+ *  key: Shopify product ids are a different id space from catalogue ids, so they can collide. */
+export const SHOPIFY_PRODUCT_KEY = 'shopifyproduct-';
 
 /** A picker row (CreateMemory normalises every source to this shape). */
 export interface PickerItem {
@@ -81,6 +87,9 @@ function pickedMoment(pick: Exclude<PickKind, null>, item: PickerItem, location:
     case 'catalog':
       if (!image && count === 0) return null;
       return { kind: 'product', key: `catalog-${sourceId}`, sourceId, image, title, price: text(item.price_label), cta: Boolean(link(item.url)), location, date: today };
+    case 'shopify_products':
+      if (!image && count === 0) return null;
+      return { kind: 'product', key: `${SHOPIFY_PRODUCT_KEY}${sourceId}`, sourceId, image, title, price: text(item.price_label), cta: Boolean(link(item.url)), location, date: today };
     case 'cars':
       return { kind: 'vehicle', key: `car-${sourceId}`, sourceId, image, title, price: vehiclePrice(item), tags: vehicleTags(item) };
     case 'shopify':

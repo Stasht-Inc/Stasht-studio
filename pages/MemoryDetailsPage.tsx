@@ -74,6 +74,7 @@ import { InsufficientCreditsModal } from "../components/InsufficientCreditsModal
 import RequestMomentModal from "../components/RequestMomentModal";
 import CatalogRefreshBanner from "../components/CatalogRefreshBanner";
 import { catalogueAPI, type CatalogueItemDetail } from "../services/catalogueAPI";
+import { shopifyItemsAPI, SHOPIFY_PRODUCT_MARKER } from "../services/shopifyItemsAPI";
 import Cropper from 'react-easy-crop';
 import { mapLimit } from "../utils/requestLimit";
 import CreateMemory from "../components/CreateMemory";
@@ -1197,9 +1198,14 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
   // Website Catalogue product: memoryId arrives as `catalog_item:<id>` (MemoriesPage product card,
   // or an item in the sidebar's Website Catalogue box). Rendered exactly like a car detail —
   // read-only, each photo its own post, no dates — from catalogueAPI.getItem instead of /cars/{id}.
+  // A Shopify product (`shopify_product:<id>`, ticket wdy2xh1320) is the same page from shopifyItemsAPI.getItem —
+  // same item shape — so it counts as a catalogue item detail and gets every behaviour keyed on it.
   const CATALOG_ITEM_MARKER = 'catalog_item:';
-  const isCatalogItemDetail = typeof memoryId === 'string' && memoryId.startsWith(CATALOG_ITEM_MARKER);
-  const catalogItemId = isCatalogItemDetail ? Number(memoryId.slice(CATALOG_ITEM_MARKER.length)) : null;
+  const isShopifyProductDetail = typeof memoryId === 'string' && memoryId.startsWith(SHOPIFY_PRODUCT_MARKER);
+  const isCatalogItemDetail = isShopifyProductDetail || (typeof memoryId === 'string' && memoryId.startsWith(CATALOG_ITEM_MARKER));
+  const catalogItemId = isCatalogItemDetail
+    ? Number(memoryId.slice((isShopifyProductDetail ? SHOPIFY_PRODUCT_MARKER : CATALOG_ITEM_MARKER).length))
+    : null;
   // The item detail — read by handleTimelineImageView for the viewer's description and details grid.
   const [catalogItemData, setCatalogItemData] = useState<CatalogueItemDetail | null>(null);
   // Cars and catalogue products share every read-only page treatment below.
@@ -3256,7 +3262,8 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
       if (!skipLoadingState) setIsLoadingMemory(true);
       setApiError(null);
       try {
-        const res = Number.isFinite(catalogItemId) ? await catalogueAPI.getItem(catalogItemId!) : null;
+        const itemsAPI = isShopifyProductDetail ? shopifyItemsAPI : catalogueAPI;
+        const res = Number.isFinite(catalogItemId) ? await itemsAPI.getItem(catalogItemId!) : null;
         const item = res?.ok ? res.data : undefined;
         if (item && item.id != null) {
           setCatalogItemData(item);
@@ -3279,7 +3286,10 @@ export default function MemoryDetailsPage({ memoryId, onBack, forceSharedView = 
             const captureDate = new Date(now - i * 1000).toISOString();
             return {
               // Prefixed so it can never equal a real memory_images id (see the car branch).
-              id: img.id != null ? `catalog_image_${img.id}` : `catalog_photo_${i}`,
+              // Shopify photos get their own prefix (separate table, overlapping ids).
+              id: isShopifyProductDetail
+                ? (img.id != null ? `shopify_image_${img.id}` : `shopify_photo_${i}`)
+                : (img.id != null ? `catalog_image_${img.id}` : `catalog_photo_${i}`),
               image_link: img.url,
               type: 'image',
               parent_id: null,

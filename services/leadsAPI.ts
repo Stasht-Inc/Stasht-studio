@@ -68,7 +68,16 @@ export interface LeadMessageAttachment {
 
 // "+ Campaign" picked into the message box (Chris 14 Nov 2026): sent with the message; the server creates the campaign
 // on Send and swaps "[campaign link]" in the text for its link.
-export interface ComposerCampaignPick { kind: 'vehicle' | 'product'; ids: number[]; title?: string }
+// 'shopify' = the connected Shopify store's products (shopify_products.id — a different id space from 'product', ticket
+// wdy2xh1320); one kind per campaign.
+export type CampaignKind = 'vehicle' | 'product' | 'shopify';
+export interface ComposerCampaignPick { kind: CampaignKind; ids: number[]; title?: string }
+
+/** The share / start-conversation body key for one kind's ids. */
+export function campaignIdsBody(kind: CampaignKind, ids: number[]): { car_ids?: number[]; catalog_item_ids?: number[]; shopify_product_ids?: number[] } {
+  if (kind === 'shopify') return { shopify_product_ids: ids };
+  return kind === 'product' ? { catalog_item_ids: ids } : { car_ids: ids };
+}
 export interface SentCampaign { campaign?: { id: number; title: string; url: string; items?: number } }
 
 export interface LeadMessage {
@@ -222,6 +231,8 @@ export interface StartConversationPayload {
   car_ids?: number[];
   // ...or Website Catalogue products (one kind per send).
   catalog_item_ids?: number[];
+  // ...or Shopify products (shopify_products.id).
+  shopify_product_ids?: number[];
   campaign_title?: string;
 }
 
@@ -668,7 +679,7 @@ export const leadsAPI = {
   // connected, Vehicles when it has a car inventory (Deepak, 13 Nov 2026).
   // "+ Campaign" into the message box (Chris 14 Nov 2026): the wording for the picked items, with `placeholder`
   // ("[campaign link]") where the link goes. Creates nothing — the campaign is made when the message is sent.
-  campaignDraft: async (kind: 'vehicle' | 'product', ids: number[]) => {
+  campaignDraft: async (kind: CampaignKind, ids: number[]) => {
     return apiRequest<{ body: string; count: number; placeholder: string }>('/leads/campaign-draft', {
       method: 'POST',
       body: JSON.stringify({ kind, ids }),
@@ -679,8 +690,9 @@ export const leadsAPI = {
     return apiRequest<any>('/leads/campaign-sources', { method: 'GET' });
   },
 
-  // ids are vehicle ids, or Website Catalogue product ids when kind is 'product' (one kind per share).
-  shareCars: async (leadId: number, carIds: number[], title?: string, kind: 'vehicle' | 'product' = 'vehicle') => {
+  // ids are vehicle ids, Website Catalogue / manual product ids when kind is 'product', or Shopify product ids when
+  // 'shopify' (one kind per share).
+  shareCars: async (leadId: number, carIds: number[], title?: string, kind: CampaignKind = 'vehicle') => {
     return apiRequest<{
       message: string;
       cars_added: number;
@@ -691,7 +703,7 @@ export const leadsAPI = {
       `/leads/${leadId}/share-cars`,
       {
         method: 'POST',
-        body: JSON.stringify({ ...(kind === 'product' ? { catalog_item_ids: carIds } : { car_ids: carIds }), ...(title ? { title } : {}), ...partialAdminBody() }),
+        body: JSON.stringify({ ...campaignIdsBody(kind, carIds), ...(title ? { title } : {}), ...partialAdminBody() }),
       },
     );
   },

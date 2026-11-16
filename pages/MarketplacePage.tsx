@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { X, ExternalLink, Info, CheckCircle2, Loader2, Unplug } from 'lucide-react';
+import { X, ExternalLink, Info, CheckCircle2, Loader2, RefreshCw, Unplug } from 'lucide-react';
 import { toast } from 'sonner';
 import { dashboardAPI } from '../utils/authUtils';
 import { widgetsAPI } from '../services/widgetsAPI';
@@ -12,7 +12,8 @@ import { useIsStarterPlan } from '../hooks/usePlan';
 import { requestUpgrade } from '../utils/planEvents';
 import { useProperty } from '../contexts/PropertyContext';
 import { catalogueAPI, type CatalogueOverview } from '../services/catalogueAPI';
-import { openBillingUpgrade, websiteCatalogueCard } from '../components/connectors/websiteCatalogue';
+import { formatRelative, openBillingUpgrade, websiteCatalogueCard } from '../components/connectors/websiteCatalogue';
+import { shopifyItemsAPI, type ShopifyStatus } from '../services/shopifyItemsAPI';
 import { contactWidgetCard } from '../components/connectors/contactWidget';
 import { DOCUSIGN_ENABLED } from '../constants/features.ts';
 import { WebsiteCatalogueConnectModal } from '../components/connectors/WebsiteCatalogueConnectModal';
@@ -49,15 +50,47 @@ function ShopifyConnectModal({
   shopDomain,
   connectedAt,
   onDisconnect,
+  onStatus,
 }: {
   onClose: () => void;
   isConnected: boolean;
   shopDomain: string | null;
   connectedAt: string | null;
   onDisconnect: () => void;
+  // A fresh status (after Sync now), so the card's line updates too.
+  onStatus?: (status: ShopifyStatus) => void;
 }) {
   const [store, setStore] = useState('');
   const [loading, setLoading] = useState(false);
+  // Product count + last sync (ticket wdy2xh1320), read fresh on open — like the Website Catalogue's manage modal.
+  const [status, setStatus] = useState<ShopifyStatus | null>(null);
+  const [syncing, setSyncing] = useState(false);
+  const [syncResult, setSyncResult] = useState<string | null>(null);
+  const [syncError, setSyncError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!isConnected) return undefined;
+    let cancelled = false;
+    shopifyItemsAPI.getStatus(true).then((res) => { if (!cancelled && res.ok && res.data) setStatus(res.data); });
+    return () => { cancelled = true; };
+  }, [isConnected]);
+
+  const handleSyncNow = async () => {
+    setSyncing(true);
+    setSyncResult(null);
+    setSyncError(null);
+    const res = await shopifyItemsAPI.syncNow();
+    if (res.ok && res.data) {
+      const { added, updated, total } = res.data;
+      setSyncResult(`Synced ${plural(Number(total) || 0, 'product')}: ${Number(added) || 0} added, ${Number(updated) || 0} updated.`);
+      const fresh = await shopifyItemsAPI.getStatus(true);
+      if (fresh.ok && fresh.data) { setStatus(fresh.data); onStatus?.(fresh.data); }
+    } else {
+      // The server's sentence, shown as is (at the bottom of the card).
+      setSyncError(res.error || 'Could not sync your store. Please try again.');
+    }
+    setSyncing(false);
+  };
 
   const handleConnect = async () => {
     const shop = normalizeShopDomain(store);
@@ -138,6 +171,27 @@ function ShopifyConnectModal({
                   Connected on {new Date(connectedAt).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}
                 </p>
               )}
+              {status?.available && (
+                <p className="text-green-600 text-sm" data-testid="shopify-sync-status">
+                  {plural(Number(status.item_count) || 0, 'product')} · {status.last_synced_at && formatRelative(status.last_synced_at) ? `Last synced ${formatRelative(status.last_synced_at)}` : 'Not synced yet'}
+                </p>
+              )}
+              {status?.available && (
+                <div className="mt-3 flex flex-wrap items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={handleSyncNow}
+                    disabled={syncing || loading}
+                    data-testid="shopify-sync-now"
+                    className="inline-flex items-center gap-2 h-9 px-4 rounded-lg bg-white border border-gray-200 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400"
+                  >
+                    {syncing ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+                    {syncing ? 'Syncing…' : 'Sync now'}
+                  </button>
+                  {syncResult && <p className="text-sm text-green-700" aria-live="polite">{syncResult}</p>}
+                </div>
+              )}
+              {syncError && <p className="mt-2 text-sm text-red-600" role="alert">{syncError}</p>}
             </div>
           ) : (
             <>
@@ -608,6 +662,8 @@ export default function MarketplacePage() {
   const [shopifyConnected, setShopifyConnected] = useState(false);
   const [shopifyShopDomain, setShopifyShopDomain] = useState<string | null>(null);
   const [shopifyConnectedAt, setShopifyConnectedAt] = useState<string | null>(null);
+  // Products held + last sync for the card's line (only when the store is usable: connected on a paid plan).
+  const [shopifySync, setShopifySync] = useState<{ count: number; lastSyncedAt: string | null } | null>(null);
   const [contactWidgets, setContactWidgets] = useState<ContactWidget[]>([]);
   // The Contact Us widget is Business only (5 Nov 2026): GET /widgets says whether this account may create / change one.
   const [widgetBusinessRequired, setWidgetBusinessRequired] = useState<boolean | null>(null);
@@ -674,6 +730,7 @@ export default function MarketplacePage() {
       setShopifyConnected(false);
       setShopifyShopDomain(null);
       setShopifyConnectedAt(null);
+      setShopifySync(null);
       setCatalogue(null); // a personal-account connector, like DocuSign and Shopify
 
       widgetsAPI.listWithTeams({ propertyId })
@@ -707,6 +764,9 @@ export default function MarketplacePage() {
           setShopifyConnected(res.data.connected);
           setShopifyShopDomain(res.data.shop_domain || null);
           setShopifyConnectedAt(res.data.connected_at || null);
+          // Same route: newer APIs add available / item_count / last_synced_at (ticket wdy2xh1320).
+          const extra = res.data as { available?: boolean; item_count?: number; last_synced_at?: string | null };
+          setShopifySync(extra.available ? { count: Number(extra.item_count) || 0, lastSyncedAt: extra.last_synced_at ?? null } : null);
         }
       })
       .catch(() => {});
@@ -737,7 +797,13 @@ export default function MarketplacePage() {
     if (shopifyConnected) {
       items.push({
         connector: connectorById('shopify'),
-        status: ['Connected', shopifyShopDomain, since(shopifyConnectedAt)].filter(Boolean).join(' · '),
+        status: [
+          'Connected',
+          shopifyShopDomain,
+          since(shopifyConnectedAt),
+          shopifySync ? plural(shopifySync.count, 'product') : null,
+          shopifySync ? (formatRelative(shopifySync.lastSyncedAt) ? `last synced ${formatRelative(shopifySync.lastSyncedAt)}` : 'not synced yet') : null,
+        ].filter(Boolean).join(' · '),
       });
     }
     if (DOCUSIGN_ENABLED && docusignConnected) {
@@ -761,7 +827,7 @@ export default function MarketplacePage() {
       });
     }
     return items;
-  }, [shopifyConnected, shopifyShopDomain, shopifyConnectedAt, docusignConnected, docusignConnectedAt, contactWidgets]);
+  }, [shopifyConnected, shopifyShopDomain, shopifyConnectedAt, shopifySync, docusignConnected, docusignConnectedAt, contactWidgets]);
 
   const offered = useMemo(
     () => (propertyId ? OFFERED_CONNECTORS.filter((c) => c.id === 'contact-widget') : OFFERED_CONNECTORS),
@@ -892,7 +958,9 @@ export default function MarketplacePage() {
             setShopifyConnected(false);
             setShopifyShopDomain(null);
             setShopifyConnectedAt(null);
+            setShopifySync(null);
           }}
+          onStatus={(st) => setShopifySync(st.available ? { count: Number(st.item_count) || 0, lastSyncedAt: st.last_synced_at ?? null } : null)}
         />
       )}
 

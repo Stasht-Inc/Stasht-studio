@@ -17,9 +17,8 @@ import {
 } from "./ui/alert-dialog";
 import { ImageWithFallback } from "./figma/ImageWithFallback";
 import ImageHoverPopover from "./ImageHoverPopover";
-import ShopifyCatalogNav from "./ShopifyCatalogNav";
 import CarsCatalogNav from "./CarsCatalogNav";
-import WebsiteCatalogNav from "./WebsiteCatalogNav";
+import WebsiteCatalogNav, { ShopifyProductsNav } from "./WebsiteCatalogNav";
 import { getCategoryColor } from "../constants/mediaConstants";
 import { dashboardAPI, userDisplayUtils } from "../utils/authUtils";
 import { useAuth } from "../contexts/AuthContext";
@@ -3014,6 +3013,10 @@ export default function CategoryNav({
               {/* The connected website's catalogue (spec 2026-09-30 §9.1). Renders nothing without items. */}
               {selectedFilter === "all" && <WebsiteCatalogNav onMemorySelect={onMemorySelect} />}
 
+              {/* The connected Shopify store's products, the same box as the catalogue's (ticket wdy2xh1320;
+                  replaced the collection-based ShopifyCatalogNav). Renders nothing unless connected on a paid plan. */}
+              {selectedFilter === "all" && <ShopifyProductsNav onMemorySelect={onMemorySelect} />}
+
               {/* Regular Categories */}
               {categories
                 .filter(category => selectedFilter === "all" || category.name === selectedFilter)
@@ -3061,16 +3064,6 @@ export default function CategoryNav({
                     </EditableCategoryCard>
                   );
                 })}
-
-              {/* Read-only Shopify catalog box — self-contained, only renders when a
-                  Shopify store is connected. Collection = campaign, product = moment. */}
-              {selectedFilter === "all" && (
-                <ShopifyCatalogNav
-                  onCollectionSelect={(collectionId) =>
-                    onMemorySelect?.(`shopify_collection:${collectionId}`)
-                  }
-                />
-              )}
             </div>
           </>
         )}

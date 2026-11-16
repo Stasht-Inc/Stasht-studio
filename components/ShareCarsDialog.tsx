@@ -9,6 +9,7 @@ import { describeCarSearch, matchesCarSearch, parseCarSearch } from '../utils/ca
 import { leadsAPI } from '../services/leadsAPI';
 import { loadCatalogueForBrowsing, type CatalogueItemSummary } from '../services/catalogueAPI';
 import { loadManualProductsForLeadShare } from '../services/productsAPI';
+import { loadShopifyForBrowsing } from '../services/shopifyItemsAPI';
 import { leadShareSources } from '../utils/products';
 
 // One listing from GET /cars — only the fields this picker renders.
@@ -23,9 +24,22 @@ interface CarListing {
   category?: string | null; // "preowned" | "hybrid" — what the category dropdown groups by
 }
 
-// What a pick holds: dealer vehicles (GET /cars) or products (Website Catalogue, and the account's manual products when
-// Products is on). One kind per campaign.
-export type PickKind = 'vehicle' | 'product';
+// What a pick holds: dealer vehicles (GET /cars), products (Website Catalogue, and the account's manual products when
+// Products is on) or Shopify products (ticket wdy2xh1320: listed under the same Products tab, after the others). One kind
+// per campaign. Shopify ids are shopify_products.id — a different id space from 'product' ids, so they can collide.
+export type PickKind = 'vehicle' | 'product' | 'shopify';
+// The picker's tabs: Shopify products live on the Products tab.
+type PickTab = 'vehicle' | 'product';
+const tabOf = (k: PickKind): PickTab => (k === 'shopify' ? 'product' : k);
+/** Whether two kinds open the same picker tab (a Shopify pick reopens on Products with its selection). */
+export const samePickTab = (a: PickKind, b: PickKind) => tabOf(a) === tabOf(b);
+
+// Selection keys carry the source, because ids collide across sources.
+type ProductSource = 'product' | 'shopify';
+const keyOf = (kind: PickKind, id: number) => `${kind === 'shopify' ? 'shopify' : kind === 'product' ? 'p' : 'v'}:${id}`;
+const keySource = (key: string): PickKind => (key.startsWith('shopify:') ? 'shopify' : key.startsWith('p:') ? 'product' : 'vehicle');
+const keyId = (key: string) => Number(key.slice(key.indexOf(':') + 1));
+type ListedProduct = CatalogueItemSummary & { source: ProductSource; key: string };
 
 // The web API's per-campaign product limit (config catalog.max_items_per_campaign).
 const MAX_PRODUCTS = 50;
@@ -86,7 +100,7 @@ export default function ShareCarsDialog({ open, onClose, leadId, leadName, onSha
   const [cars, setCars] = useState<CarListing[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [selected, setSelected] = useState<Set<string>>(new Set());
   const [search, setSearch] = useState('');
   const [campaignName, setCampaignName] = useState(DEFAULT_CAMPAIGN_NAME);
   const [isSharing, setIsSharing] = useState(false);
@@ -98,12 +112,12 @@ export default function ShareCarsDialog({ open, onClose, leadId, leadName, onSha
   const [isComplete, setIsComplete] = useState(true);
   const loadSeq = useRef(0);
   // Pick mode only: the catalogue's products, and which list is showing.
-  const [products, setProducts] = useState<CatalogueItemSummary[]>([]);
+  const [products, setProducts] = useState<ListedProduct[]>([]);
   const [productsLoading, setProductsLoading] = useState(false);
   // What this account offers (GET /leads/campaign-sources): Products = a Website Catalogue connected or active manual products,
   // Vehicles = a car inventory; the switch only when it has both. null while loading.
   const [sources, setSources] = useState<{ vehicles: boolean; products: boolean } | null>(null);
-  const [kind, setKind] = useState<PickKind>(initialKind ?? 'vehicle');
+  const [kind, setKind] = useState<PickTab>(tabOf(initialKind ?? 'vehicle'));
 
   // Loads the inventory. `cat` is only passed when re-querying the server for one
   // category (inventory > 100 cars); the first load also learns which categories exist.
@@ -139,13 +153,13 @@ export default function ShareCarsDialog({ open, onClose, leadId, leadName, onSha
   // between visits and a stale selection would silently carry over.
   useEffect(() => {
     if (!open) return;
-    setSelected(new Set(initialSelection ?? []));
+    setSelected(new Set((initialSelection ?? []).map((id) => keyOf(initialKind ?? 'vehicle', id))));
     setSearch('');
-    setCampaignName(initialCampaignName || ((initialKind ?? 'vehicle') === 'product' ? '' : DEFAULT_CAMPAIGN_NAME));
+    setCampaignName(initialCampaignName || (tabOf(initialKind ?? 'vehicle') === 'product' ? '' : DEFAULT_CAMPAIGN_NAME));
     setCategory(ALL_CATEGORIES);
     setCategories([]);
     setIsComplete(true);
-    setKind(initialKind ?? 'vehicle');
+    setKind(tabOf(initialKind ?? 'vehicle'));
     setProducts([]);
     setCars([]);
     setLoadError(null);
@@ -155,24 +169,33 @@ export default function ShareCarsDialog({ open, onClose, leadId, leadName, onSha
       .then((res: any) => {
         const d = res?.data?.data ?? res?.data;
         // An API without the endpoint: vehicles only, as before.
-        return (res?.success && leadShareSources(d)) || { vehicles: true, products: false, website: false, manual: false };
+        const known = res?.success ? leadShareSources(d) : null;
+        // Shopify products (wdy2xh1320): only when the API says the account has a connected store with products.
+        return known ? { ...known, shopify: Boolean(d && (d as any).shopify_products === true) } : { vehicles: true, products: false, website: false, manual: false, shopify: false };
       })
-      .catch(() => ({ vehicles: true, products: false, website: false, manual: false }))
+      .catch(() => ({ vehicles: true, products: false, website: false, manual: false, shopify: false }))
       .then((s) => {
         if (cancelled) return;
-        setSources({ vehicles: s.vehicles, products: s.products });
+        const hasProducts = s.products || s.shopify;
+        setSources({ vehicles: s.vehicles, products: hasProducts });
         // Royal Wood (catalogue, no cars) opens straight on Products.
-        setKind(initialKind ?? (!s.vehicles && s.products ? 'product' : 'vehicle'));
+        setKind(tabOf(initialKind ?? (!s.vehicles && hasProducts ? 'product' : 'vehicle')));
         if (s.vehicles) loadCars(undefined, true);
-        if (s.products) {
+        if (hasProducts) {
           // Website products: GET /website-catalogue first, so it never opens the upgrade popup (as before). Manual
-          // products (Products on, 16 Nov 2026 F1): the account's active ones with a photo, listed after them.
+          // products (Products on, 16 Nov 2026 F1): the account's active ones with a photo, listed after them. Shopify
+          // products last (loadShopifyForBrowsing asks the status route first, so it never opens the upgrade popup either).
           setProductsLoading(true);
+          const tag = (source: ProductSource) => (list: CatalogueItemSummary[]): ListedProduct[] =>
+            list.map((p) => ({ ...p, source, key: keyOf(source, p.id) }));
           Promise.all([
             s.website ? loadCatalogueForBrowsing() : Promise.resolve([] as CatalogueItemSummary[]),
             s.manual ? loadManualProductsForLeadShare() : Promise.resolve([] as CatalogueItemSummary[]),
+            s.shopify ? loadShopifyForBrowsing() : Promise.resolve([] as CatalogueItemSummary[]),
           ])
-            .then(([site, manual]) => { if (!cancelled) setProducts([...site, ...manual]); })
+            .then(([site, manual, shopify]) => {
+              if (!cancelled) setProducts([...tag('product')(site), ...tag('product')(manual), ...tag('shopify')(shopify)]);
+            })
             .finally(() => { if (!cancelled) setProductsLoading(false); });
         }
       });
@@ -187,7 +210,7 @@ export default function ShareCarsDialog({ open, onClose, leadId, leadName, onSha
     setCampaignName((prev) => (prev.trim() === '' || prev === DEFAULT_CAMPAIGN_NAME ? (kind === 'product' ? '' : DEFAULT_CAMPAIGN_NAME) : prev));
   }, [kind]);
 
-  const switchKind = (next: PickKind) => {
+  const switchKind = (next: PickTab) => {
     if (next === kind) return;
     setKind(next);
     setSelected(new Set());
@@ -224,7 +247,7 @@ export default function ShareCarsDialog({ open, onClose, leadId, leadName, onSha
   }, [products]);
   // What a product campaign left unnamed will be called (the field's placeholder).
   const productDefaultName = useMemo(
-    () => productCampaignDefault(products.filter((p) => selected.has(p.id)).map((p) => p.title || ''), leadName),
+    () => productCampaignDefault(products.filter((p) => selected.has(p.key)).map((p) => p.title || ''), leadName),
     [products, selected, leadName],
   );
   const nameDefault = isProducts ? productDefaultName : DEFAULT_CAMPAIGN_NAME;
@@ -251,12 +274,26 @@ export default function ShareCarsDialog({ open, onClose, leadId, leadName, onSha
         ? 'Nothing in this category.'
         : 'Nothing matches your search.';
 
-  const toggle = (id: number) => {
+  // One source per campaign: once a Shopify product is picked, the other products can't be (and vice versa).
+  const pickedSource: ProductSource | null = useMemo(() => {
+    for (const key of selected) {
+      const src = keySource(key);
+      if (src !== 'vehicle') return src;
+    }
+    return null;
+  }, [selected]);
+  const hasShopifyProducts = useMemo(() => products.some((p) => p.source === 'shopify'), [products]);
+  const hasOtherProducts = useMemo(() => products.some((p) => p.source === 'product'), [products]);
+  // What goes to the API: the plain ids and the kind they belong to.
+  const pickKind: PickKind = isProducts ? (pickedSource ?? 'product') : 'vehicle';
+  const pickIds = () => Array.from(selected).map(keyId);
+
+  const toggle = (key: string) => {
     setSelected((prev) => {
       const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
+      if (next.has(key)) next.delete(key);
       else if (isProducts && next.size >= MAX_PRODUCTS) return prev;
-      else next.add(id);
+      else next.add(key);
       return next;
     });
   };
@@ -264,7 +301,7 @@ export default function ShareCarsDialog({ open, onClose, leadId, leadName, onSha
   const handleShare = async () => {
     if (selected.size === 0 || isSharing) return;
     if (onPick) {
-      onPick(Array.from(selected), campaignName.trim() || (isProducts ? '' : DEFAULT_CAMPAIGN_NAME), kind, isProducts ? productDefaultName : undefined);
+      onPick(pickIds(), campaignName.trim() || (isProducts ? '' : DEFAULT_CAMPAIGN_NAME), pickKind, isProducts ? productDefaultName : undefined);
       onClose();
       return;
     }
@@ -273,7 +310,7 @@ export default function ShareCarsDialog({ open, onClose, leadId, leadName, onSha
     try {
       // Vehicles always send a name (the server's own fallback is car-worded); unnamed products are named by the server.
       const name = campaignName.trim() || (isProducts ? '' : DEFAULT_CAMPAIGN_NAME);
-      const res = await leadsAPI.shareCars(leadId, Array.from(selected), name, kind);
+      const res = await leadsAPI.shareCars(leadId, pickIds(), name, pickKind);
       if (res.success) {
         const shared = typeof res.data?.cars_total === 'number' ? res.data.cars_total : selected.size;
         const itemWord = shared === 1 ? 'item' : 'items';
@@ -416,20 +453,26 @@ export default function ShareCarsDialog({ open, onClose, leadId, leadName, onSha
           ) : (
             <ul className="space-y-1.5">
               {(isProducts
-                ? filteredProducts.map((p) => ({ id: p.id, title: p.title, main_image: p.main_image, subtitle: [p.price_label, p.category].filter(Boolean).join(' · ') }))
-                : filtered.map((c) => ({ id: c.id, title: c.title, main_image: c.main_image, subtitle: carSubtitle(c) }))
+                ? filteredProducts.map((p) => ({
+                    key: p.key, title: p.title, main_image: p.main_image,
+                    // Shopify products say so (only when the list mixes sources), since they go in their own campaign.
+                    subtitle: [p.price_label, p.category, p.source === 'shopify' && hasOtherProducts ? 'Shopify' : null].filter(Boolean).join(' · '),
+                    locked: pickedSource !== null && p.source !== pickedSource,
+                  }))
+                : filtered.map((c) => ({ key: keyOf('vehicle', c.id), title: c.title, main_image: c.main_image, subtitle: carSubtitle(c), locked: false }))
               ).map((c) => {
-                const isSel = selected.has(c.id);
+                const isSel = selected.has(c.key);
                 const subtitle = c.subtitle;
                 return (
-                  <li key={c.id}>
+                  <li key={c.key}>
                     <button
                       type="button"
                       role="checkbox"
                       aria-checked={isSel}
-                      onClick={() => toggle(c.id)}
-                      className={`w-full flex items-center gap-3 p-2 rounded-lg text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 ${
-                        isSel ? 'bg-[#F3F4F6] border-[1.5px] border-[#202224]' : 'bg-white border border-gray-200 hover:bg-gray-50'
+                      disabled={c.locked}
+                      onClick={() => toggle(c.key)}
+                      className={`w-full flex items-center gap-3 p-2 rounded-lg text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 disabled:opacity-50 disabled:cursor-not-allowed ${
+                        isSel ? 'bg-[#F3F4F6] border-[1.5px] border-[#202224]' : 'bg-white border border-gray-200 hover:bg-gray-50 disabled:hover:bg-white'
                       }`}
                     >
                       <span
@@ -462,6 +505,11 @@ export default function ShareCarsDialog({ open, onClose, leadId, leadName, onSha
         <div className="border-t border-gray-100 px-6 py-4">
           {isProducts && selected.size >= MAX_PRODUCTS && (
             <p className="mb-2 text-xs text-gray-600" aria-live="polite">Up to {MAX_PRODUCTS} products.</p>
+          )}
+          {isProducts && pickedSource !== null && hasShopifyProducts && hasOtherProducts && (
+            <p className="mb-2 text-xs text-gray-600" aria-live="polite">
+              {pickedSource === 'shopify' ? 'Shopify products go in their own campaign.' : 'Shopify products go in a separate campaign.'}
+            </p>
           )}
           <button
             type="button"

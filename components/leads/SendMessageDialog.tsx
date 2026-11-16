@@ -3,10 +3,10 @@ import { toast } from 'sonner';
 import { Car, Loader2, Mail, MessageSquare, Package, Plus, X } from 'lucide-react';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
-import { leadsAPI } from '../../services/leadsAPI';
+import { campaignIdsBody, leadsAPI } from '../../services/leadsAPI';
 import { dashboardAPI } from '../../utils/authUtils';
 import { useAuth } from '../../contexts/AuthContext';
-import ShareCarsDialog, { type PickKind } from '../ShareCarsDialog';
+import ShareCarsDialog, { samePickTab, type PickKind } from '../ShareCarsDialog';
 import CountrySelect from '../CountrySelect';
 import { isPlausibleSplitPhone, splitTypedPhone, toE164 } from '../../utils/phoneUtils';
 import { useProperty } from '../../contexts/PropertyContext';
@@ -23,7 +23,8 @@ import { CAMPAIGN_PILL, ProductsPickButton, useHasProducts } from './CampaignPic
 
 const SMS_LIMIT = 320;
 
-// ids are vehicle ids (car_ids) or Website Catalogue product ids (catalog_item_ids).
+// ids are vehicle ids (car_ids), Website Catalogue / manual product ids (catalog_item_ids) or Shopify product ids
+// (shopify_product_ids).
 // draft: the wording put in the message (Chris 14 Nov 2026: the items go into the message box, "[campaign link]" where
 // the link goes); the campaign itself is created only on Send.
 interface PickedCampaign { ids: number[]; name: string; kind: PickKind; defaultName?: string; draft?: string }
@@ -32,7 +33,7 @@ interface PickedCampaign { ids: number[]; name: string; kind: PickKind; defaultN
 // the server already opens emails and first texts with "Hi {name},". With cars,
 // the campaign link is appended on its own line after the colon.
 function itemWords(count: number, kind: PickKind): string {
-  const noun = kind === 'product' ? 'product' : 'vehicle';
+  const noun = kind === 'vehicle' ? 'vehicle' : 'product';
   return count === 1 ? `a ${noun}` : `${count} ${noun}s`;
 }
 
@@ -186,7 +187,7 @@ export default function SendMessageDialog({ open, onOpenChange, onSent }: Props)
         ...(name.trim() ? { name: name.trim() } : {}),
         body: body.trim(),
         ...(propertyId ? { property_id: propertyId } : {}),
-        ...(picked ? { ...(picked.kind === 'product' ? { catalog_item_ids: picked.ids } : { car_ids: picked.ids }), campaign_title: picked.name } : {}),
+        ...(picked ? { ...campaignIdsBody(picked.kind, picked.ids), campaign_title: picked.name } : {}),
       });
       if (res.success && res.data) {
         const what = picked ? `Message sent with a new campaign, "${picked.name}"` : 'Message sent';
@@ -304,7 +305,7 @@ export default function SendMessageDialog({ open, onOpenChange, onSent }: Props)
             {picked ? (
               <div className="flex items-center gap-3 rounded-lg border border-gray-200 bg-[#F3F4F6] px-3 py-2">
                 <span aria-hidden="true" className="w-8 h-8 shrink-0 rounded-md bg-white flex items-center justify-center">
-                  {picked.kind === 'product' ? <Package className="w-4 h-4 text-[#4A5565]" /> : <Car className="w-4 h-4 text-[#4A5565]" />}
+                  {picked.kind !== 'vehicle' ? <Package className="w-4 h-4 text-[#4A5565]" /> : <Car className="w-4 h-4 text-[#4A5565]" />}
                 </span>
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-sm font-medium text-gray-900">{picked.name || picked.defaultName}</span>
@@ -383,9 +384,9 @@ export default function SendMessageDialog({ open, onOpenChange, onSent }: Props)
           open={showPicker}
           onClose={() => setShowPicker(false)}
           leadName={name.trim() || 'this contact'}
-          initialSelection={picked?.ids}
-          initialCampaignName={picked?.name}
-          initialKind={pickerKind ?? picked?.kind}
+          initialSelection={pickerKind && picked && !samePickTab(picked.kind, pickerKind) ? undefined : picked?.ids}
+          initialCampaignName={pickerKind && picked && !samePickTab(picked.kind, pickerKind) ? undefined : picked?.name}
+          initialKind={pickerKind && picked && samePickTab(picked.kind, pickerKind) ? picked.kind : (pickerKind ?? picked?.kind)}
           onPick={pickCampaign}
         />
 

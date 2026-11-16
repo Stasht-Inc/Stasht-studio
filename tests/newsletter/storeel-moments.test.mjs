@@ -128,3 +128,12 @@ test('Edit follows the campaign\'s own order when it has one (unified_order)', (
   assert.deepEqual(savedPreviewMoments(null), []);
   assert.deepEqual(savedPreviewMoments({}), []);
 });
+
+test('Shopify products (wdy2xh1320) preview as product moments with their own key, never a catalogue key or a collection', () => {
+  const moments = createPreviewMoments({ pick: 'shopify_products', picked: [product(5)], selectedIds: ['5'], photos: [], location: '', today: TODAY });
+  assert.equal(moments.length, 1);
+  assert.equal(moments[0].kind, 'product');
+  assert.equal(moments[0].key, 'shopifyproduct-5');
+  assert.equal(moments[0].cta, true);
+  assert.ok(!moments[0].key.startsWith('shopify-'));
+});
