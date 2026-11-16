@@ -414,8 +414,8 @@ function MemoriesPageContent({
   const [showCreateMemory, setShowCreateMemory] = useState(false);
   const createMemoryRef = useRef<CreateMemoryHandle>(null);
   // Campaigns page: Storeels | Newsletters (spec 2026-10-13). Opens on the last choice made on this device
-  // (wdy2xh2t3y). NewslettersView fetches only once the plan is known to be paid; a remembered Newsletters choice
-  // shows Storeels on a Starter plan (campaignsViewForPlan), so this page never calls a newsletter endpoint for one.
+  // (wdy2xh2t3y). NewslettersView fetches only once the plan is known (every plan has newsletters since 16 Nov 2026;
+  // campaignsViewForPlan only falls back to Storeels when the plan check failed).
   const [campaignsChoice, setCampaignsChoice] = useState<CampaignsView>(() => readCampaignsView());
   // True once the person picks a view on this page (a Starter account that picks Newsletters sees the upgrade card).
   const [campaignsPicked, setCampaignsPicked] = useState(false);
@@ -456,8 +456,8 @@ function MemoriesPageContent({
   // The tab Create Campaign opens on (Chris, 4 Nov 2026): the view showing when it was opened — "+ Create a Campaign"
   // on Storeels opened the newsletter composer, because Create Campaign always opened on Newsletter.
   const [createOpensOn, setCreateOpensOn] = useState<CampaignType | undefined>(undefined);
-  // Paid plans only (a Starter account would get 403 plan_required, contract note 1).
-  const newslettersTotal = useNewsletterCount(isPropertyOwner && starterPlan.known && !starterPlan.isStarter);
+  // Every plan once it is known (Starter: email newsletters since 16 Nov 2026).
+  const newslettersTotal = useNewsletterCount(isPropertyOwner && starterPlan.known);
   // Photos passed in by Scan Photo, handed to the Storeel form.
   const [photosForCreate, setPhotosForCreate] = useState<File[] | null>(null);
   const proxyInputRef = useRef<HTMLInputElement>(null);

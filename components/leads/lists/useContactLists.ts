@@ -4,7 +4,7 @@ import { GENERIC_ERROR } from '../../newsletters/lib/apiResult';
 
 /**
  * The account's contact lists for the Leads page (the Lists tab and its badge). Nothing is fetched until
- * `enabled` (a paid plan, known): a Starter account would get 403 plan_required and the upgrade modal.
+ * `enabled` (the plan is known; every plan has lists since 16 Nov 2026).
  */
 export function useContactLists(enabled: boolean) {
   const [lists, setLists] = useState<ContactList[] | null>(null);

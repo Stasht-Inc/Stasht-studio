@@ -3,7 +3,6 @@ import { ChevronRight, Copy, Download, Eye, FileUp, ListChecks, Loader2, MoreHor
 import { toast } from 'sonner';
 import { newslettersAPI, type ContactList } from '../../../services/newslettersAPI';
 import type { StarterPlanState } from '../../../hooks/usePlan';
-import { requestUpgrade } from '../../../utils/planEvents';
 import { keyboardOnlyFocusReturn } from '../../../utils/menuFocus';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '../../ui/dropdown-menu';
 import ImportListModal from '../../newsletters/ImportListModal';
@@ -15,6 +14,7 @@ import { ConfirmDialog, ErrorNote, NameDialog } from './ListDialogs';
 import ListDetail, { type ListAction } from './ListDetail';
 import type { ContactListsState } from './useContactLists';
 
+// Unused since 16 Nov 2026 (Lists are on every plan); kept for older imports.
 export const LISTS_PLAN_MESSAGE = 'Lists are available on paid plans.';
 
 const MENU_ITEM = 'cursor-pointer gap-2 hover:bg-[#6C60FF]/5';
@@ -70,7 +70,7 @@ const ListsTab = forwardRef<ListsTabHandle, ListsTabProps>(function ListsTab({ s
   const [busyId, setBusyId] = useState<number | null>(null);
   const [exportingId, setExportingId] = useState<number | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
-  const enabled = plan.known && !plan.isStarter;
+  const enabled = plan.known; // every plan since 16 Nov 2026 (lists go with Starter's email newsletters)
   // Where focus goes once the view has changed: the opened list's heading, the lists heading, or a list's row.
   type FocusTarget = { kind: 'detail' } | { kind: 'overview' } | { kind: 'row'; id: number };
   const pendingFocus = useRef<FocusTarget | null>(null);
@@ -222,17 +222,6 @@ const ListsTab = forwardRef<ListsTabHandle, ListsTabProps>(function ListsTab({ s
     );
   }
 
-  if (plan.isStarter) {
-    return (
-      <div className="rounded-xl border border-gray-200 bg-white px-4 py-12 text-center md:py-16">
-        <span aria-hidden="true" className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-[#6C60FF]/10"><ListChecks className="h-6 w-6 text-[#6C60FF]" /></span>
-        <h3 className="text-lg font-semibold text-gray-900">Lists are part of paid plans</h3>
-        <p className="mx-auto mt-1 max-w-md text-sm text-gray-600">Upgrade to keep lists of the people you email and text, import them from a CSV file, and send them newsletters.</p>
-        <button type="button" onClick={() => requestUpgrade(LISTS_PLAN_MESSAGE)} className={`${BUTTON_PRIMARY} mt-5`}>See plans</button>
-      </div>
-    );
-  }
-
   const open = openId !== null ? lists?.find((l) => l.id === openId) ?? null : null;
   // The dialogs stay in one place in the tree whichever view shows, so an open dialog isn't remounted when the
   // view changes under it (Create list opens the new list; Delete in a list goes back to all lists).
@@ -241,6 +230,7 @@ const ListsTab = forwardRef<ListsTabHandle, ListsTabProps>(function ListsTab({ s
       <div ref={root}>
         <div>
           <ListDetail
+          signupForms={!plan.isStarter}
           list={open}
           otherLists={(lists ?? []).filter((l) => l.id !== open.id)}
           onBack={() => { pendingFocus.current = { kind: 'row', id: open.id }; setOpenId(null); }}

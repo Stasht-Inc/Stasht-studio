@@ -356,7 +356,8 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
 
     const starter = createMockApi({
       plan: 'Starter', memories: { 3021: SAVED },
-      allowance: { plan: 'Starter', email_limit: 0, sms_limit: 0, email_used: 0, sms_used: 0, email_pending: 0, sms_pending: 0, resets_at: '2026-12-01T05:00:00Z' },
+      // 16 Nov 2026: Starter has 500 emails a month (here all used) and no texts.
+      allowance: { plan: 'Starter', email_limit: 500, sms_limit: 0, email_used: 500, sms_used: 0, email_pending: 0, sms_pending: 0, resets_at: '2026-12-01T05:00:00Z' },
     });
     const st = await open({ width, height, api: starter, query: '&campaignId=3021' });
     await st.page.getByPlaceholder(STOREEL_TITLE).waitFor();
@@ -364,13 +365,13 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
     await ssend.getByLabel('Email address').fill('jordan@example.com');
     await ssend.getByLabel(/^Message/).fill('Hello from a Starter account');
     await st.page.waitForTimeout(1300);
-    expect(!(await ssend.getByRole('button', { name: 'Manage lists' }).count()), `${tag}: Starter: no Manage lists`);
+    expect(await ssend.getByRole('button', { name: 'Manage lists' }).count() === 1, `${tag}: Starter: Manage lists (lists are on every plan since 16 Nov)`);
+    expect(await ssend.getByRole('checkbox', { name: /Text message/ }).isDisabled(), `${tag}: Starter: texts off`);
     await button(st.page, 'Save & Send').click();
     const sc = st.page.getByRole('dialog', { name: 'Send this Storeel now?' });
     await expectVisible(sc.getByText(/This needs 1 email, but your plan has 0 left this month/), `${tag}: Starter: the allowance says why`);
     await expectVisible(sc.getByRole('button', { name: 'See plans' }), `${tag}: Starter: See plans`);
     expect(await sc.getByRole('button', { name: 'Send Now' }).isDisabled(), `${tag}: Starter: Send Now off`);
-    expect(!starter.state.calls.some((c) => /^\/(newsletter|contact-lists)/.test(c.path)), `${tag}: Starter: no paid-only calls`);
     await shot(st.page, `${tag}-12-starter-allowance`);
     await st.context.close();
 

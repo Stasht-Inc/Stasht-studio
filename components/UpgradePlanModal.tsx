@@ -11,7 +11,7 @@ import { toast } from 'sonner';
 import { planKey } from '../utils/effectivePlan';
 import { accountTrialOf, defaultPickerPlan, hasActiveSubscription, isCurrentPlan, pickerButton, pickerCurrentPlan } from '../utils/planPicker';
 import { dashboardAPI } from '../utils/authUtils';
-import { PLAN_PRICING, creditsFeature, priceLabel, yearlyMonthlyPrice } from '../utils/planPricing';
+import { PLAN_DESCRIPTIONS, PLAN_FEATURES, PLAN_PRICING, POPULAR_PLAN, priceLabel, yearlyMonthlyPrice } from '../utils/planPricing';
 
 // Initialize Stripe
 const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY);
@@ -42,63 +42,41 @@ interface UpgradePlanModalProps {
   notice?: string;
 }
 
+// Chris, 16 Nov 2026: "Studio is wrong. Website is right." Names stay Studio's (Teams / Business, as Billing, the
+// sidebar and the API's plan names show them); prices, descriptions, Popular and every line come from utils/planPricing,
+// which lists exactly the website's lines. storage stays for Billing's "Plan Includes" (the cards no longer show it).
 export const plans: Plan[] = [
   {
     id: 'starter',
     name: 'Starter',
-    subtitle: 'Individuals',
+    subtitle: PLAN_DESCRIPTIONS.starter,
     price: 0,
     yearlyPrice: 0,
     storage: '1 GB storage',
     icon: <Award className="w-5 h-5 text-white" />,
-    features: [
-      creditsFeature('starter'),
-      'All Accounts Sync',
-      '1 Admin Role',
-      'Unlimited Collaborators',
-      'All Publishing Features'
-    ]
+    features: PLAN_FEATURES.starter,
   },
   {
     id: 'intermediate',
     name: 'Teams',
-    subtitle: 'Power users',
-    // Prices and credits: utils/planPricing (Chris + Deepak, 5 Nov 2026: Teams $19 / 100 credits, Business $29 / 250).
+    subtitle: PLAN_DESCRIPTIONS.intermediate,
     price: PLAN_PRICING.intermediate.monthly,
     yearlyPrice: yearlyMonthlyPrice(PLAN_PRICING.intermediate.monthly), // ~17% savings
     storage: '500 GB storage',
+    isPopular: POPULAR_PLAN === 'intermediate',
     icon: <Zap className="w-5 h-5 text-white" />,
-    features: [
-      'Everything in Starter',
-      creditsFeature('intermediate'),
-      'All Accounts Sync',
-      '3 Admin Roles',
-      'Unlimited Collaborators',
-      'All Publishing Features',
-      'Property Accounts'
-    ]
+    features: PLAN_FEATURES.intermediate,
   },
   {
     id: 'professional',
     name: 'Business',
-    subtitle: 'Teams & orgs',
+    subtitle: PLAN_DESCRIPTIONS.professional,
     price: PLAN_PRICING.professional.monthly,
     yearlyPrice: yearlyMonthlyPrice(PLAN_PRICING.professional.monthly), // ~17% savings
     storage: '1 TB storage',
-    isPopular: true,
+    isPopular: POPULAR_PLAN === 'professional',
     icon: <Crown className="w-5 h-5 text-white" />,
-    features: [
-      'Everything in Teams',
-      creditsFeature('professional'),
-      'All Account Sync',
-      '5 Admin Roles',
-      'Unlimited Collaborators',
-      'All Publishing Features',
-      'Moments Moderation',
-      'Property Accounts',
-      'Contact Us Widget',
-      'Website Catalogue'
-    ]
+    features: PLAN_FEATURES.professional,
   }
 ];
 
@@ -545,6 +523,7 @@ export function UpgradePlanModal({ isOpen, onClose, currentPlan, onUpgrade, onSu
                 {plans.filter(p => !(hideStarter && p.id === 'starter')).map((plan) => (
                   <div
                     key={plan.id}
+                    data-plan-card={plan.id}
                     onClick={() => setSelectedPlan(plan.id)}
                     className={`flex-1 border-2 rounded-2xl p-5 cursor-pointer transition-all duration-200 relative ${
                       selectedPlan === plan.id
@@ -588,7 +567,6 @@ export function UpgradePlanModal({ isOpen, onClose, currentPlan, onUpgrade, onSu
                         </div>
                         <div>
                           <h3 className="font-semibold text-gray-900">{plan.name}</h3>
-                          <p className="text-xs text-gray-500">{plan.subtitle}</p>
                         </div>
                       </div>
 
@@ -604,7 +582,6 @@ export function UpgradePlanModal({ isOpen, onClose, currentPlan, onUpgrade, onSu
                             <span className="text-gray-500 text-xs">/mo</span>
                           </div>
                         )}
-                        <p className="text-xs text-gray-500">{plan.storage}</p>
                       </div>
                     </div>
 
@@ -622,8 +599,10 @@ export function UpgradePlanModal({ isOpen, onClose, currentPlan, onUpgrade, onSu
                           </>
                         )}
                       </div>
-                      <p className="text-sm text-gray-600 mt-1">{plan.storage}</p>
                     </div>
+
+                    {/* The website's description line (Chris, 16 Nov 2026), full width under the price */}
+                    <p className="text-xs sm:text-sm text-gray-600 mb-3 leading-snug" data-plan-description>{plan.subtitle}</p>
 
                     {/* Features — 2-col grid on mobile, 1-col on desktop */}
                     <ul className="grid grid-cols-2 gap-x-3 gap-y-2 sm:grid-cols-1 sm:gap-y-0 sm:space-y-2.5">

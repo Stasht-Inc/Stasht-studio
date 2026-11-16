@@ -980,8 +980,9 @@ export function createMockApi(options = {}) {
     if (path === '/leads/unread-count') return ok({ total_unread: 0, total_unread_messages: 0, total_unread_comments: 0 });
     // leadsAPI.getMyConversations reads {total, conversations} straight off the body (as LeadsTab uses it).
     if (path === '/my-conversations' && method === 'GET') return { status: 200, json: { total: state.conversations.length, conversations: state.conversations } };
-    if (state.plan === 'Starter' && (path.startsWith('/newsletter') || path.startsWith('/contact-lists'))) {
-      return fail(403, { success: false, code: 'plan_required', message: 'Newsletters are available on paid plans' });
+    // Since 16 Nov 2026 Starter has email newsletters and lists; only website signup forms stay paid-only.
+    if (state.plan === 'Starter' && /^\/contact-lists\/\d+\/signup-form/.test(path)) {
+      return fail(403, { success: false, code: 'plan_required', message: 'Website signup forms are available on the Teams and Business plans. Upgrade your plan to use them.' });
     }
     if (path === '/newsletters' && method === 'GET') {
       const s = params.get('status');

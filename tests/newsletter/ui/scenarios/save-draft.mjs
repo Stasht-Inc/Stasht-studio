@@ -1,6 +1,6 @@
 // [wdy2xh2t3y] "I have saved as draft... where does it go?" Save Draft closes the composer and lands on
 // Campaigns › Newsletters with that draft at the top, highlighted; the toast says where it is; drafts show Edit;
-// Storeels | Newsletters is remembered on this device, but a Starter account never calls a newsletter endpoint.
+// Storeels | Newsletters is remembered on this device, on every plan (Starter too since 16 Nov 2026).
 import { createMockApi, seedNewsletters } from '../mock-api.mjs';
 
 const KEY = 'stasht_campaigns_view';
@@ -94,13 +94,11 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
   expect(!(await failing.page.getByText('Loading newsletters…').count()), 'no endless Loading newsletters…');
   await failing.context.close();
 
-  // Starter: a remembered Newsletters choice shows Storeels, and no newsletter endpoint is called.
+  // Starter (16 Nov 2026): a remembered Newsletters choice stands, as on any plan.
   const starterApi = createMockApi({ plan: 'Starter', newsletters: seedNewsletters() });
   const starter = await open({ view: 'campaigns', width: 1280, height: 900, api: starterApi });
   await starter.page.evaluate((k) => localStorage.setItem(k, 'newsletters'), KEY);
   await starter.page.reload();
-  await expectVisible(starter.page.getByRole('radio', { name: 'Storeels', checked: true }), 'Starter goes back to Storeels');
-  await starter.page.waitForTimeout(1500);
-  expect(newsletterCalls(starterApi).length === 0, `no newsletter calls on Starter (got ${newsletterCalls(starterApi).map((c) => c.path).join(', ')})`);
+  await expectVisible(starter.page.getByRole('radio', { name: 'Newsletters', checked: true }), 'Starter stays on Newsletters');
   await starter.context.close();
 }

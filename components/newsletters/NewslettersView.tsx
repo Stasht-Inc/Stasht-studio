@@ -8,13 +8,12 @@ import {
 } from '../ui/alert-dialog';
 import { newslettersAPI, type NewsletterSummary } from '../../services/newslettersAPI';
 import { useIsStarterPlan } from '../../hooks/usePlan';
-import { requestUpgrade } from '../../utils/planEvents';
 import { clearNewsletterBackups } from '../../utils/newsletterBackups';
 import { EDIT_SCHEDULED_CONFIRM, markUnscheduled } from './lib/editScheduled';
 import SegmentedSwitch from './SegmentedSwitch';
 import StatusChip from './StatusChip';
 import NewsletterResults from './NewsletterResults';
-import { GENERIC_ERROR, PLAN_REQUIRED_ERROR } from './lib/apiResult';
+import { GENERIC_ERROR } from './lib/apiResult';
 import { formatCount } from './lib/audience';
 import { NEWSLETTER_FILTERS, NEWSLETTERS_CHANGED_EVENT, announceNewslettersChanged, withHighlightFirst, type NewsletterFilter } from './lib/campaignsView';
 import {
@@ -87,9 +86,9 @@ function EditButton({ item, onEdit, compact = false }: { item: NewsletterSummary
 }
 
 export default function NewslettersView({ onCreate, onEdit, onToggleMobileSidebar, showMobileSidebar = false, openResults = null, highlight = null }: NewslettersViewProps) {
-  const { isStarter, known } = useIsStarterPlan();
-  // Paid plans only, and only once the plan is known: a Starter account would get 403 plan_required (contract note 1).
-  const enabled = known && !isStarter;
+  const { known } = useIsStarterPlan();
+  // Every plan since 16 Nov 2026 (Starter: email newsletters, 500 a month), once the plan is known.
+  const enabled = known;
   const [filter, setFilter] = useState<NewsletterFilter>('all');
   const [items, setItems] = useState<NewsletterSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -238,7 +237,7 @@ export default function NewslettersView({ onCreate, onEdit, onToggleMobileSideba
     document.querySelector(`[data-newsletter-row="${glowId}"]`)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
   }, [glowing, glowId]);
   const glow = (id: number) => (id === glowId ? 'bg-[#6C60FF]/10 ring-2 ring-inset ring-[#6C60FF]/40' : '');
-  const count = items ? plural(items.length, 'newsletter', 'newsletters') : known && isStarter ? 'Paid plans' : 'Loading…';
+  const count = items ? plural(items.length, 'newsletter', 'newsletters') : 'Loading…';
 
   const sidebarToggle = onToggleMobileSidebar && !showMobileSidebar ? (
     <button type="button" onClick={onToggleMobileSidebar} className="rounded-lg p-2 transition-colors hover:bg-gray-100" aria-label="Open sidebar">
@@ -249,15 +248,6 @@ export default function NewslettersView({ onCreate, onEdit, onToggleMobileSideba
   let body;
   if (!known) {
     body = <div className="flex items-center justify-center gap-2 py-16 text-sm text-gray-600"><Loader2 className="h-5 w-5 animate-spin text-[#6C60FF]" aria-hidden="true" />Loading newsletters…</div>;
-  } else if (isStarter) {
-    body = (
-      <div className="px-4 py-16 text-center">
-        <span aria-hidden="true" className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-[#6C60FF]/10"><Mail className="h-6 w-6 text-[#6C60FF]" /></span>
-        <h3 className="text-lg font-medium text-gray-900">Newsletters are part of paid plans</h3>
-        <p className="mx-auto mt-1 max-w-md text-gray-600">Upgrade to send newsletters by email and text to your leads and lists.</p>
-        <button type="button" onClick={() => requestUpgrade(PLAN_REQUIRED_ERROR)} className={`${BUTTON_PRIMARY} mt-4`}>See plans</button>
-      </div>
-    );
   } else if (items === null) {
     body = <div className="flex items-center justify-center gap-2 py-16 text-sm text-gray-600"><Loader2 className="h-5 w-5 animate-spin text-[#6C60FF]" aria-hidden="true" />Loading newsletters…</div>;
   } else if (items.length === 0) {

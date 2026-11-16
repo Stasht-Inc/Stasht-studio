@@ -1,6 +1,6 @@
 // Lists management on the Leads page (Chris, 28 Oct 2026): the Leads | Lists | Groups | My Conversations row, the
 // lists table, and inside one list: search, filter, add / edit / remove people, bulk remove, copy to another list,
-// import into the list, export, duplicate, rename and delete. Starter makes no list calls at all.
+// import into the list, export, duplicate, rename and delete. Starter has lists too since 16 Nov 2026 (not website signup forms).
 import { mkdirSync, writeFileSync } from 'fs';
 import { createMockApi, newsletter } from '../mock-api.mjs';
 
@@ -43,17 +43,19 @@ export async function run({ open, shot, expectVisible, expect, hasOverflow }) {
   // is on it already (nothing to fill: "already on the list"), Dee is new and in the file twice, and one row has nothing usable.
   writeFileSync(MERGE_CSV, 'Name,Email,Mobile\nContact Four,contact4@new.example.com,+1 416 555 1004\nContact One,contact1@example.com,\nDee Park,dee@example.com,\nDee Park,dee@example.com,\nNobody,,\n');
 
-  // ── Starter: the upgrade card, and not one list or newsletter call (no badge either) ──
+  // ── Starter (16 Nov 2026): lists like any plan; only a list's website signup form says Teams and Business ──
   {
     const api = createMockApi({ plan: 'Starter', lists: LISTS() });
     const { page, context } = await open({ view: 'leads', width: 1280, height: 900, api });
-    await expectVisible(page.getByRole('button', { name: 'Groups' }), 'Starter: tab row');
+    await expectVisible(page.getByRole('button', { name: /^Groups/ }), 'Starter: tab row');
     await page.waitForTimeout(800);
-    expect(JSON.stringify(await tabRow(page)) === JSON.stringify(['Leads0', 'Lists', 'Groups1', 'My Conversations0']), `Starter: no lists count (got ${JSON.stringify(await tabRow(page))})`);
-    await page.getByRole('button', { name: 'Lists', exact: true }).click();
-    await expectVisible(page.getByText('Lists are part of paid plans'), 'Starter: upgrade card');
-    await page.waitForTimeout(800);
-    expect(listCalls(api).length === 0, `Starter makes no list calls (got ${JSON.stringify(listCalls(api).map((c) => c.path))})`);
+    expect(JSON.stringify(await tabRow(page)) === JSON.stringify(['Leads0', 'Lists2', 'Groups1', 'My Conversations0']), `Starter: lists counted (got ${JSON.stringify(await tabRow(page))})`);
+    await page.getByRole('button', { name: /^Lists/ }).click();
+    expect(await page.getByText('Lists are part of paid plans').count() === 0, 'Starter: no upgrade card');
+    await expectVisible(page.getByText('Open house sign-ups').first(), 'Starter: its lists');
+    await page.getByText('Open house sign-ups').first().click();
+    await expectVisible(page.getByTestId('list-signup-form-plan'), 'Starter: the signup form says Teams and Business');
+    expect(!listCalls(api).some((c) => /signup-form/.test(c.path)), 'Starter: no signup-form call');
     await shot(page, '1280-00-starter');
     await context.close();
   }

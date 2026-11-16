@@ -2,8 +2,8 @@
 export type CampaignType = 'newsletter' | 'storeel';
 
 /**
- * The tab Create Campaign opens on for Starter (free) accounts, which can't send newsletters: the Newsletter tab
- * shows them the upgrade card. NEEDS CHRIS'S DECISION (wdy2xh2p3n): keep Newsletter, or open Storeel. Flip here.
+ * The tab Create Campaign opens on for Starter (free) accounts. Since 16 Nov 2026 they send email newsletters (500 a
+ * month), so the Newsletter tab is theirs too.
  */
 export const STARTER_DEFAULT_CAMPAIGN_TYPE: CampaignType = 'newsletter';
 

@@ -3,6 +3,7 @@ import { CreditCard, Download, Plus, Info, Check, Crown, TrendingUp, Calendar, D
 import UpgradePlanModal, { plans as allPlans } from '../components/UpgradePlanModal';
 import { billedByStasht, coveredByNote, featurePlanKey, MANAGED_BY_STASHT, offersUpgrade, packageName, planCoveredBy, planKey, planLabel } from '../utils/effectivePlan';
 import { creditsLeftLabel } from '../utils/planPicker';
+import { unlockedFeatures } from '../utils/planPricing';
 import AddPaymentMethodModal from '../components/AddPaymentMethodModal';
 import { clearPaymentMethodsCache } from '../utils/paymentMethodsCache';
 import { PurchaseCreditsModal } from '../components/PurchaseCreditsModal';
@@ -725,13 +726,10 @@ export default function BillingPage({ onNavigateToMemory }: BillingPageProps = {
                     const currentPlanData = allPlans.find(p => p.id === activePlanName) || allPlans[0];
                     const currentPlanIndex = allPlans.findIndex(p => p.id === activePlanName);
                     const nextPlanData = currentPlanIndex < allPlans.length - 1 ? allPlans[currentPlanIndex + 1] : null;
-                    const storageLabel = storageData
-                      ? (storageData.is_unlimited ? 'Unlimited storage' : `${currentPlanData.storage}`)
-                      : currentPlanData.storage;
-                    const includesFeatures = [storageLabel, ...currentPlanData.features];
-                    const upgradeFeatures = nextPlanData
-                      ? [nextPlanData.storage, ...nextPlanData.features.filter(f => !f.startsWith('Everything in'))]
-                      : [];
+                    // The plan cards' lines (the website's, Chris 16 Nov 2026): no storage line any more; the storage bar
+                    // above shows the account's real storage. Upgrade to Unlock lists only what the next plan adds.
+                    const includesFeatures = currentPlanData.features;
+                    const upgradeFeatures = nextPlanData ? unlockedFeatures(currentPlanData.features, nextPlanData.features) : [];
                     return (
                       <>
                         <div className="border-t border-gray-200 pt-6">

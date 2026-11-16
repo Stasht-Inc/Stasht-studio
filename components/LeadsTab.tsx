@@ -716,7 +716,7 @@ export default function LeadsTab({ selectedLead, onLeadSelect, refreshTrigger, o
   // Lists (newsletter contact lists): paid plans only. Nothing is asked of the API until the plan is known
   // to be paid, so a Starter account never gets 403 plan_required (or a badge).
   const plan = useIsStarterPlan();
-  const listsEnabled = plan.known && !plan.isStarter;
+  const listsEnabled = plan.known; // every plan since 16 Nov 2026 (Starter: email newsletters + lists)
   const contactLists = useContactLists(listsEnabled);
   const listsRef = useRef<ListsTabHandle>(null);
   // null until the lists have loaded (and always on Starter, where they can't be).
