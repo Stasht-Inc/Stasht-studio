@@ -8,6 +8,8 @@ import { formatCarCategory } from '../utils/carCategories';
 import { describeCarSearch, matchesCarSearch, parseCarSearch } from '../utils/carSearch';
 import { leadsAPI } from '../services/leadsAPI';
 import { loadCatalogueForBrowsing, type CatalogueItemSummary } from '../services/catalogueAPI';
+import { loadManualProductsForLeadShare } from '../services/productsAPI';
+import { leadShareSources } from '../utils/products';
 
 // One listing from GET /cars — only the fields this picker renders.
 interface CarListing {
@@ -21,7 +23,8 @@ interface CarListing {
   category?: string | null; // "preowned" | "hybrid" — what the category dropdown groups by
 }
 
-// What a pick holds: dealer vehicles (GET /cars) or Website Catalogue products. One kind per campaign.
+// What a pick holds: dealer vehicles (GET /cars) or products (Website Catalogue, and the account's manual products when
+// Products is on). One kind per campaign.
 export type PickKind = 'vehicle' | 'product';
 
 // The web API's per-campaign product limit (config catalog.max_items_per_campaign).
@@ -97,7 +100,7 @@ export default function ShareCarsDialog({ open, onClose, leadId, leadName, onSha
   // Pick mode only: the catalogue's products, and which list is showing.
   const [products, setProducts] = useState<CatalogueItemSummary[]>([]);
   const [productsLoading, setProductsLoading] = useState(false);
-  // What this account offers (GET /leads/campaign-sources): Products = a Website Catalogue connected,
+  // What this account offers (GET /leads/campaign-sources): Products = a Website Catalogue connected or active manual products,
   // Vehicles = a car inventory; the switch only when it has both. null while loading.
   const [sources, setSources] = useState<{ vehicles: boolean; products: boolean } | null>(null);
   const [kind, setKind] = useState<PickKind>(initialKind ?? 'vehicle');
@@ -152,20 +155,24 @@ export default function ShareCarsDialog({ open, onClose, leadId, leadName, onSha
       .then((res: any) => {
         const d = res?.data?.data ?? res?.data;
         // An API without the endpoint: vehicles only, as before.
-        return res?.success && d && typeof d.vehicles === 'boolean' ? { vehicles: d.vehicles, products: Boolean(d.products) } : { vehicles: true, products: false };
+        return (res?.success && leadShareSources(d)) || { vehicles: true, products: false, website: false, manual: false };
       })
-      .catch(() => ({ vehicles: true, products: false }))
+      .catch(() => ({ vehicles: true, products: false, website: false, manual: false }))
       .then((s) => {
         if (cancelled) return;
-        setSources(s);
+        setSources({ vehicles: s.vehicles, products: s.products });
         // Royal Wood (catalogue, no cars) opens straight on Products.
         setKind(initialKind ?? (!s.vehicles && s.products ? 'product' : 'vehicle'));
         if (s.vehicles) loadCars(undefined, true);
         if (s.products) {
-          // Asks GET /website-catalogue first, so it never opens the upgrade popup.
+          // Website products: GET /website-catalogue first, so it never opens the upgrade popup (as before). Manual
+          // products (Products on, 16 Nov 2026 F1): the account's active ones with a photo, listed after them.
           setProductsLoading(true);
-          loadCatalogueForBrowsing()
-            .then((list) => { if (!cancelled) setProducts(list); })
+          Promise.all([
+            s.website ? loadCatalogueForBrowsing() : Promise.resolve([] as CatalogueItemSummary[]),
+            s.manual ? loadManualProductsForLeadShare() : Promise.resolve([] as CatalogueItemSummary[]),
+          ])
+            .then(([site, manual]) => { if (!cancelled) setProducts([...site, ...manual]); })
             .finally(() => { if (!cancelled) setProductsLoading(false); });
         }
       });

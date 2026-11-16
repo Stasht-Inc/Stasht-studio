@@ -573,3 +573,37 @@ export function campaignsWillAppear(name: unknown, form: 'in' | 'your'): string 
   const label = String(categoryDisplayName(name) ?? '');
   return isCampaignsLabel(name) ? `${label} will appear here.` : `Campaigns in ${label} category will appear here.`;
 }
+
+/**
+ * Leads "+ Products" (Deepak, 16 Nov 2026 F1): what GET /leads/campaign-sources says the picker lists. An API from before
+ * F1 sends only {vehicles, products}: products then means the Website Catalogue, as before. With Products on it also
+ * says website_products / manual_products.
+ */
+export interface LeadShareSources { vehicles: boolean; products: boolean; website: boolean; manual: boolean }
+export function leadShareSources(d: unknown): LeadShareSources | null {
+  const o = (d && typeof d === 'object' ? d : null) as Record<string, unknown> | null;
+  if (!o || typeof o.vehicles !== 'boolean') return null;
+  const products = o.products === true;
+  return {
+    vehicles: o.vehicles,
+    products,
+    website: typeof o.website_products === 'boolean' ? o.website_products : products,
+    manual: o.manual_products === true,
+  };
+}
+
+/**
+ * The manual products a lead share can send, shaped like the catalogue's items for the picker: active ones (the API's
+ * PICKER_FILTERS), with a photo — the shared campaign is built from photos, so photo-less ones are left out.
+ */
+export function leadShareManualItems(items: ReadonlyArray<ProductSummary>): Array<{
+  id: number; title: string; price: string | null; currency: string | null; price_label: string; category: string | null;
+  url: string | null; main_image: string | null; images_count: number;
+}> {
+  return items
+    .filter((p) => p.origin === 'manual' && (p.status === 'active') && Number(p.images_count) > 0)
+    .map((p) => ({
+      id: p.id, title: p.title, price: p.price, currency: p.currency, price_label: p.price_label,
+      category: p.categories?.[0]?.name ?? p.category ?? null, url: null, main_image: p.main_image, images_count: p.images_count,
+    }));
+}
