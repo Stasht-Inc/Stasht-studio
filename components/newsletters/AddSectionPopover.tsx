@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import * as Popover from '@radix-ui/react-popover';
-import { ChevronDown, Heading, Image as ImageIcon, LayoutGrid, Minus, MousePointerClick, Plus, Type, Youtube } from 'lucide-react';
+import { ChevronDown, Code, Heading, Image as ImageIcon, LayoutGrid, Minus, MousePointerClick, Plus, Type, Youtube } from 'lucide-react';
 import type { BlockType } from '../../services/newslettersAPI';
 import { LIMITS } from './lib/rules';
 import { LAYER } from './lib/ui';
@@ -14,6 +14,8 @@ const ITEMS: Array<{ type: BlockType; label: string; desc: string; icon: ReactNo
   { type: 'youtube', label: 'YouTube', desc: 'A video people tap to watch', icon: <Youtube className="h-5 w-5 text-[#FF4444]" /> },
   { type: 'button', label: 'Button', desc: 'A button with a link', icon: <MousePointerClick className="h-5 w-5 text-[#6C60FF]" /> },
   { type: 'divider', label: 'Divider', desc: 'A line or space between sections', icon: <Minus className="h-5 w-5 text-[#F59E0B]" /> },
+  // Chris, 16 Nov: Storeel's HTML block — its "Add Widget" label, wording and icon (widgets/addWidgetOptions, AddWidgetChooser).
+  { type: 'html', label: 'HTML', desc: 'Add custom HTML content', icon: <Code className="h-5 w-5 text-[#6C60FF]" /> },
 ];
 
 /** The dashed line with a "+" from the Storeel timeline (MemoryDetailsPage "Add Widget"), here "Add section".

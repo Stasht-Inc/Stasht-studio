@@ -7,7 +7,8 @@ import {
 const title = (id, text = 'Hi') => ({ id, type: 'title', data: { text, size: 'large' } });
 
 test('createBlock makes every type with the §8 fields', () => {
-  assert.deepEqual(BLOCK_TYPES, ['image', 'title', 'text', 'youtube', 'button', 'divider', 'campaigns']);
+  assert.deepEqual(BLOCK_TYPES, ['image', 'title', 'text', 'youtube', 'button', 'divider', 'campaigns', 'html']);
+  assert.deepEqual(createBlock('html', 'b7').data, { html: '' }); // Chris, 16 Nov: Storeel's HTML block
   assert.deepEqual(createBlock('image', 'b1'), { id: 'b1', type: 'image', data: { url: '', alt: '', link: null } });
   assert.deepEqual(createBlock('title', 'b2').data, { text: '', size: 'large' });
   assert.deepEqual(createBlock('text', 'b3').data, { html: '' });
@@ -85,4 +86,16 @@ test('liveBlockProblems flags only over-long text while typing', () => {
   assert.deepEqual(liveBlockProblems(blocks), { t1: 'This text is too long. Split it into two sections.' });
   assert.deepEqual([...overLimitTextIds(blocks)], ['t1']);
   assert.deepEqual(liveBlockProblems([title('a', '')]), {}, 'unfinished sections wait for a send attempt');
+});
+
+// Chris, 16 Nov 2026: the HTML section (Storeel's HTML block in newsletters).
+test('HTML section: kept from the API, checked before sending, held back over the limit', () => {
+  assert.deepEqual(normaliseBlocks([{ id: 'h', type: 'html', data: { html: '<p>Hi</p>' } }, { id: 'h2', type: 'html', data: {} }]),
+    [{ id: 'h', type: 'html', data: { html: '<p>Hi</p>' } }, { id: 'h2', type: 'html', data: { html: '' } }]);
+  assert.equal(blockProblem(createBlock('html', 'h')), 'Paste some HTML, or remove this section.');
+  assert.equal(blockProblem({ id: 'h', type: 'html', data: { html: '<table><tr><td>Sale</td></tr></table>' } }), null);
+  const long = { id: 'h', type: 'html', data: { html: 'a'.repeat(50001) } };
+  assert.equal(blockProblem(long), 'HTML sections can be up to 50,000 characters.');
+  assert.deepEqual(liveBlockProblems([long]), { h: 'HTML sections can be up to 50,000 characters.' });
+  assert.deepEqual([...overLimitTextIds([long, { id: 'ok', type: 'html', data: { html: 'a'.repeat(50000) } }])], ['h']);
 });

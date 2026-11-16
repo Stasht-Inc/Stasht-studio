@@ -12,7 +12,7 @@ import { spacingOf } from './sectionSpacing.ts';
 import { smallImageWidth } from './imageWidth.ts';
 import { NEW_SECTION_COLUMNS, campaignColumns, campaignIdsOf, normaliseCampaignItems, normaliseColumns, normaliseOverrides, normaliseSelections, overridesForInput } from './campaignsBlock.ts';
 
-export const BLOCK_TYPES: readonly BlockType[] = ['image', 'title', 'text', 'youtube', 'button', 'divider', 'campaigns'];
+export const BLOCK_TYPES: readonly BlockType[] = ['image', 'title', 'text', 'youtube', 'button', 'divider', 'campaigns', 'html'];
 const TITLE_SIZES: readonly TitleSize[] = ['small', 'medium', 'large'];
 
 /** A short id not used by any block yet ('b' + random base-36). The API accepts [A-Za-z0-9_-]{1,40}. */
@@ -33,6 +33,7 @@ export function createBlock(type: BlockType, id: string): NewsletterBlock {
     case 'title': return { id, type: 'title', data: { text: '', size: 'large' } };
     case 'text': return { id, type: 'text', data: { html: '' } };
     case 'youtube': return { id, type: 'youtube', data: { url: '' } };
+    case 'html': return { id, type: 'html', data: { html: '' } };
     // New buttons open in a new window (Chris, 6 Nov); older ones have no new_window key and keep opening as they did.
     case 'button': return { id, type: 'button', data: { label: 'Learn more', url: '', color: DEFAULT_BUTTON_COLOR, new_window: true } };
     case 'campaigns': return { id, type: 'campaigns', data: { selections: [], campaign_ids: [], columns: NEW_SECTION_COLUMNS } };
@@ -65,6 +66,7 @@ export function normaliseBlocks(raw: unknown): NewsletterBlock[] {
       case 'title': out.push({ id, type: 'title', data: { text: str(d.text), size: TITLE_SIZES.includes(d.size as TitleSize) ? (d.size as TitleSize) : 'medium', ...sectionStyleOf(d, true), ...titleTypeOf(d), ...spacingOf(d, true) } }); break;
       case 'text': out.push({ id, type: 'text', data: { html: str(d.html), ...sectionStyleOf(d, false), ...spacingOf(d, true) } }); break;
       case 'youtube': out.push({ id, type: 'youtube', data: { url: str(d.url) } }); break;
+      case 'html': out.push({ id, type: 'html', data: { html: str(d.html) } }); break;
       case 'button': out.push({ id, type: 'button', data: { label: str(d.label), url: str(d.url), color: safeHexColor(d.color, DEFAULT_BUTTON_COLOR), ...buttonOptionsOf(d), ...spacingOf(d, false) } }); break;
       // The API's snapshot (items) comes back on every save; Studio never sends it (blocksToInput). A block saved
       // before products and vehicles has campaign_ids only: those are campaign selections. columns is left out
@@ -158,6 +160,9 @@ export function blockProblem(block: NewsletterBlock): string | null {
       return block.data.html.length > LIMITS.text_html ? TEXT_TOO_LONG : null;
     case 'youtube':
       return youtubeVideoId(str(block.data.url)) ? null : 'Paste a YouTube link, like https://www.youtube.com/watch?v=…';
+    case 'html':
+      if (!str(block.data.html).trim()) return 'Paste some HTML, or remove this section.';
+      return block.data.html.length > LIMITS.html ? HTML_TOO_LONG : null;
     case 'button':
       if (!str(block.data.label).trim()) return 'Add the button text.';
       if (block.data.label.length > LIMITS.button_label) return `Keep button text to ${LIMITS.button_label} characters.`;
@@ -214,16 +219,20 @@ export function blocksToInput(blocks: readonly NewsletterBlock[]): NewsletterBlo
 }
 
 const TEXT_TOO_LONG = 'This text is too long. Split it into two sections.';
+const HTML_TOO_LONG = `HTML sections can be up to ${LIMITS.html.toLocaleString('en-US')} characters.`;
 
-/** Text sections over the API's html limit: the PUT would refuse the whole draft, so autosave holds them back. */
+const overLimit = (b: NewsletterBlock): boolean => (b.type === 'text' && b.data.html.length > LIMITS.text_html)
+  || (b.type === 'html' && b.data.html.length > LIMITS.html);
+
+/** Text and HTML sections over the API's limit: the PUT would refuse the whole draft, so autosave holds them back. */
 export function overLimitTextIds(blocks: readonly NewsletterBlock[]): Set<string> {
-  return new Set(blocks.filter((b) => b.type === 'text' && b.data.html.length > LIMITS.text_html).map((b) => b.id));
+  return new Set(blocks.filter(overLimit).map((b) => b.id));
 }
 
 /** Problems shown while typing, before any send attempt: only the ones that stop the draft saving. */
 export function liveBlockProblems(blocks: readonly NewsletterBlock[]): Record<string, string> {
   const out: Record<string, string> = {};
-  for (const id of overLimitTextIds(blocks)) out[id] = TEXT_TOO_LONG;
+  for (const b of blocks) if (overLimit(b)) out[b.id] = b.type === 'html' ? HTML_TOO_LONG : TEXT_TOO_LONG;
   return out;
 }
 

@@ -22,6 +22,17 @@ const KINDS = ['campaign', 'product', 'vehicle'];
 // PUT /newsletters/{id} rules, as NewsletterController::rules() and NewsletterContent::normalise*() answer them.
 const HTTPS = /^https:\/\/[^\s<>"'\\]+$/i;
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+// Stands in for the API's NewsletterCustomHtml (Chris, 16 Nov: the HTML section is saved cleaned for email): dangerous
+// tags go with their content, on* handlers and javascript: links go. The real allow-list is tested in the API.
+export function mockCleanHtml(html) {
+  return String(html ?? '')
+    .replace(/<(script|style|iframe|object|embed|form|noscript|template|svg)\b[\s\S]*?<\/\1\s*>/gi, '')
+    .replace(/<(iframe|embed|input|meta|link|base)\b[^>]*>/gi, '')
+    .replace(/\s+on[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '')
+    .replace(/\s+href\s*=\s*("\s*javascript:[^"]*"|'\s*javascript:[^']*')/gi, '')
+    .trim();
+}
+
 function updateErrors(body) {
   const errors = {};
   if (body && 'name' in body && (typeof body.name !== 'string' || body.name.trim() === '')) errors.name = ['The name field is required.'];
@@ -45,6 +56,7 @@ function updateErrors(body) {
       else if (picks.length > 6) errors[`${key}.selections`] = ['A Campaigns section can show up to 6 campaigns, products or vehicles.'];
     } else if (b.type === 'campaigns' && (!Array.isArray(b.data?.campaign_ids) || b.data.campaign_ids.some((id) => !Number.isInteger(id)))) errors[`${key}.campaign_ids`] = ['The campaigns could not be read.'];
     else if (b.type === 'campaigns' && b.data.campaign_ids.length > 6) errors[`${key}.campaign_ids`] = ['A Campaigns section can show up to 6 campaigns.'];
+    if (b.type === 'html' && typeof b.data?.html === 'string' && b.data.html.length > 50000) errors[`${key}.html`] = ['HTML sections can be up to 50,000 characters.'];
     if (b.type === 'youtube' && bad(b.data?.url)) errors[`${key}.url`] = ['Use a YouTube link, like https://www.youtube.com/watch?v=…'];
     // Chris, 5 Nov: a Title or Text section's style (NewsletterContent::sectionStyle).
     if (b.type === 'title' || b.type === 'text') {
@@ -247,6 +259,7 @@ function previewHtml(n) {
     if (b.type === 'title') return `<h2>${esc(b.data.text)}</h2>`;
     if (b.type === 'text') return `<div>${esc(String(b.data.html).replace(/<[^>]+>/g, ''))}</div>`;
     if (b.type === 'campaigns') return (b.data.items || []).map((c) => `<div class="mock-campaign"><strong>${esc(c.title)}</strong>${c.price_text ? `<p><b>${esc(c.price_text)}</b></p>` : ''}${c.meta ? `<p style="color:#6b7280;font-size:13px">${esc(c.meta)}</p>` : ''}<p>${esc(c.description)}</p><a href="${esc(c.url)}">${BUTTON_LABEL[c.kind] || 'View campaign'}</a></div>`).join('');
+    if (b.type === 'html') return `<div data-mock-html>${b.data.html}</div>`; // already cleaned on save
     if (b.type === 'button') return `<p><a style="background:#6C60FF;color:#fff;padding:12px 20px;border-radius:8px;text-decoration:none" href="#">${esc(b.data.label)}</a></p>`;
     return '';
   }).join('');
@@ -1142,6 +1155,7 @@ export function createMockApi(options = {}) {
         // refreshed by every PUT that sends blocks (and by duplicate).
         if (body && 'blocks' in body) {
           n.blocks = n.blocks.map((b) => {
+            if (b.type === 'html') return { ...b, data: { html: mockCleanHtml(b.data?.html) } };
             if (b.type !== 'campaigns') return b;
             state.campaignBodies.push(structuredClone(b.data));
             // selections when sent (campaign_ids are then ignored), else an older client's campaign_ids.
